@@ -71,7 +71,7 @@ export function OnboardingSetupBanner(props: OnboardingSetupBannerProps) {
 	return (
 		<section
 			aria-label="Get set up"
-			className="pointer-events-none relative shrink-0 pt-[var(--space-conversation-navigation-height)]"
+			className="pointer-events-none relative shrink-0"
 			data-slot="onboarding-setup-overlay"
 		>
 			<div

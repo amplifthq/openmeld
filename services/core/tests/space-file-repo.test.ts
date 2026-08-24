@@ -2,6 +2,8 @@ import { env, runInDurableObject } from "cloudflare:test";
 import type {
   OpenMeldRequestContext,
   SpaceFileActor,
+  SpaceFileAuditEvent,
+  SpaceFileAuditOperation,
 } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import { describe, expect, it } from "vitest";
@@ -28,6 +30,12 @@ describe("SpaceFileRepository", () => {
     await withRepository(fixture.spaceId, (repository) => {
       const folder = repository.createFolder({
         actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-folder`,
+          fixture,
+          operation: "folder_create",
+          operationId: `${fixture.prefix}-mkdir`,
+        }),
         clientMutationId: `${fixture.prefix}-mkdir`,
         folderId: `${fixture.prefix}-folder`,
         name: "Launch",
@@ -43,6 +51,13 @@ describe("SpaceFileRepository", () => {
 
       const firstRevision = repository.commitWrite({
         actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-file`,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-1`,
+          revisionId: `${fixture.prefix}-revision-1`,
+        }),
         nowMs: fixture.nowMs + 1,
         write: {
           spaceId: fixture.spaceId,
@@ -63,6 +78,13 @@ describe("SpaceFileRepository", () => {
 
       const secondRevision = repository.commitWrite({
         actor,
+        auditEvent: createAuditEvent({
+          entryId: firstRevision.id,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-2`,
+          revisionId: `${fixture.prefix}-revision-2`,
+        }),
         nowMs: fixture.nowMs + 2,
         write: {
           spaceId: fixture.spaceId,
@@ -105,6 +127,12 @@ describe("SpaceFileRepository", () => {
     await withRepository(fixture.spaceId, (repository) => {
       const input = {
         actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-folder`,
+          fixture,
+          operation: "folder_create" as const,
+          operationId: `${fixture.prefix}-mkdir`,
+        }),
         clientMutationId: `${fixture.prefix}-mkdir`,
         folderId: `${fixture.prefix}-folder`,
         name: "Research",
@@ -116,6 +144,13 @@ describe("SpaceFileRepository", () => {
 
       const file = repository.commitWrite({
         actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-file`,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-1`,
+          revisionId: `${fixture.prefix}-revision-1`,
+        }),
         nowMs: fixture.nowMs + 1,
         write: {
           spaceId: fixture.spaceId,
@@ -140,6 +175,13 @@ describe("SpaceFileRepository", () => {
       };
       const secondRevision = repository.commitWrite({
         actor,
+        auditEvent: createAuditEvent({
+          entryId: file.id,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-2`,
+          revisionId: `${fixture.prefix}-revision-2`,
+        }),
         nowMs: fixture.nowMs + 2,
         write: secondWrite,
       });
@@ -172,6 +214,12 @@ describe("SpaceFileRepository", () => {
     await withRepository(fixture.spaceId, (repository) => {
       const parent = repository.createFolder({
         actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-parent-folder`,
+          fixture,
+          operation: "folder_create",
+          operationId: `${fixture.prefix}-parent`,
+        }),
         clientMutationId: `${fixture.prefix}-parent`,
         folderId: `${fixture.prefix}-parent-folder`,
         name: "Product",
@@ -180,6 +228,12 @@ describe("SpaceFileRepository", () => {
       });
       const child = repository.createFolder({
         actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-child-folder`,
+          fixture,
+          operation: "folder_create",
+          operationId: `${fixture.prefix}-child`,
+        }),
         clientMutationId: `${fixture.prefix}-child`,
         folderId: `${fixture.prefix}-child-folder`,
         name: "Specs",
@@ -191,6 +245,12 @@ describe("SpaceFileRepository", () => {
       expect(() =>
         repository.createFolder({
           actor,
+          auditEvent: createAuditEvent({
+            entryId: `${fixture.prefix}-duplicate-folder`,
+            fixture,
+            operation: "folder_create",
+            operationId: `${fixture.prefix}-duplicate`,
+          }),
           clientMutationId: `${fixture.prefix}-duplicate`,
           folderId: `${fixture.prefix}-duplicate-folder`,
           name: "product",
@@ -203,6 +263,12 @@ describe("SpaceFileRepository", () => {
       expect(() =>
         repository.updateEntry({
           actor,
+          auditEvent: createAuditEvent({
+            entryId: parent.id,
+            fixture,
+            operation: "entry_update",
+            operationId: `${fixture.prefix}-cycle`,
+          }),
           body: {
             parentId: child.id,
             clientMutationId: `${fixture.prefix}-cycle`,
@@ -216,6 +282,12 @@ describe("SpaceFileRepository", () => {
       expect(() =>
         repository.trashEntry({
           actor,
+          auditEvent: createAuditEvent({
+            entryId: parent.id,
+            fixture,
+            operation: "entry_trash",
+            operationId: `${fixture.prefix}-trash-parent`,
+          }),
           clientMutationId: `${fixture.prefix}-trash-parent`,
           entryId: parent.id,
           nowMs: fixture.nowMs + 4,
@@ -232,6 +304,13 @@ describe("SpaceFileRepository", () => {
     await withRepository(fixture.spaceId, (repository) => {
       const file = repository.commitWrite({
         actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-file`,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-1`,
+          revisionId: `${fixture.prefix}-revision-1`,
+        }),
         nowMs: fixture.nowMs,
         write: {
           spaceId: fixture.spaceId,
@@ -247,6 +326,13 @@ describe("SpaceFileRepository", () => {
       });
       repository.commitWrite({
         actor,
+        auditEvent: createAuditEvent({
+          entryId: file.id,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-2`,
+          revisionId: `${fixture.prefix}-revision-2`,
+        }),
         nowMs: fixture.nowMs + 1,
         write: {
           spaceId: fixture.spaceId,
@@ -261,6 +347,12 @@ describe("SpaceFileRepository", () => {
 
       repository.trashEntry({
         actor,
+        auditEvent: createAuditEvent({
+          entryId: file.id,
+          fixture,
+          operation: "entry_trash",
+          operationId: `${fixture.prefix}-trash`,
+        }),
         clientMutationId: `${fixture.prefix}-trash`,
         entryId: file.id,
         nowMs: fixture.nowMs + 2,
@@ -299,6 +391,12 @@ describe("SpaceFileRepository", () => {
 
       const restored = repository.restoreEntry({
         actor,
+        auditEvent: createAuditEvent({
+          entryId: file.id,
+          fixture,
+          operation: "entry_restore",
+          operationId: `${fixture.prefix}-restore`,
+        }),
         clientMutationId: `${fixture.prefix}-restore`,
         entryId: file.id,
         nowMs: fixture.nowMs + 3,
@@ -478,5 +576,31 @@ function createRequestContext(profileId: string): OpenMeldRequestContext {
       requestId: `request-${profileId}`,
       openMeldProfileId: profileId,
     },
+  };
+}
+
+function createAuditEvent(input: {
+  entryId: string;
+  fixture: ReturnType<typeof createFixture>;
+  operation: SpaceFileAuditOperation;
+  operationId: string;
+  revisionId?: string | null;
+}): SpaceFileAuditEvent {
+  const requestId = `request-${input.operationId}`;
+  return {
+    actorKind: "authenticated",
+    actorProfileId: actor.profileId,
+    entryId: input.entryId,
+    errorCode: null,
+    eventId: `${input.operation}:${requestId}`,
+    occurredAtMs: input.fixture.nowMs,
+    operation: input.operation,
+    operationId: input.operationId,
+    organizationId: "org-files-test",
+    representedHumanProfileId: null,
+    requestId,
+    result: "succeeded",
+    revisionId: input.revisionId ?? null,
+    spaceId: input.fixture.spaceId,
   };
 }

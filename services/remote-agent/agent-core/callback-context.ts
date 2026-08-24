@@ -72,6 +72,8 @@ import type {
   CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceFileResponse,
   CenterAgentReadSpaceFileRpcInput,
+  CenterAgentReadTurnDiagnosticsResponse,
+  CenterAgentReadTurnDiagnosticsRpcInput,
   CenterAgentRecommendOpportunityToolResponse,
   CenterAgentRecommendOpportunityToolRpcInput,
   CenterAgentRecordConnectorActionAuditBody,
@@ -133,10 +135,6 @@ import type {
   StartCenterAgentMemberResearchResponse,
   UpdateCenterAgentRoutineResponse,
 } from "@openmeld/schemas/types";
-import {
-  CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE,
-  inspectAssistantPublicationProtocol,
-} from "./assistant-publication";
 import {
   isRemoteAgentContextWindowExceeded,
   isRemoteAgentToolResultTooLarge,
@@ -344,6 +342,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadChangelog?(
     input: CenterAgentReadChangelogToolRpcInput
   ): Promise<ChangelogQueryResponse>;
+  centerAgentReadTurnDiagnostics?(
+    input: CenterAgentReadTurnDiagnosticsRpcInput
+  ): Promise<CenterAgentReadTurnDiagnosticsResponse>;
   centerAgentListOpportunities?(
     input: CenterAgentListOpportunitiesToolRpcInput
   ): Promise<CenterAgentListOpportunitiesToolResponse>;
@@ -1501,25 +1502,7 @@ export async function handleRemoteAgentChatResponse(input: {
   }
 
   const nowMs = input.nowMs?.() ?? Date.now();
-  const extractedCompletedText = extractCompletedAssistantText(input.result);
-  const protocolInspection = extractedCompletedText
-    ? inspectAssistantPublicationProtocol(extractedCompletedText)
-    : { status: "publishable" as const };
-  if (protocolInspection.status !== "publishable") {
-    console.warn("[remote_agent.publication.protocol_contamination_blocked]", {
-      marker: protocolInspection.marker,
-      submissionId: context.submissionId,
-    });
-    return recordAndDeliverRemoteAgentTerminalFailure({
-      code: CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE,
-      context,
-      coreWorker: input.coreWorker,
-      nowMs,
-      result: input.result,
-      storage: input.storage,
-    });
-  }
-  const completedText = extractedCompletedText;
+  const completedText = extractCompletedAssistantText(input.result);
   if (!completedText) {
     return recordAndDeliverRemoteAgentTerminalFailure({
       code: resolveRemoteAgentResultFailureCode(input.result),
@@ -1597,8 +1580,6 @@ function resolveRemoteAgentResultFailureCode(
 
 function resolveRemoteAgentFailureMessage(code: string): string {
   switch (code) {
-    case CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE:
-      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
     case "remote_agent.turn.context_window_exceeded":
       return CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY;
     case "remote_agent.empty_assistant_response":

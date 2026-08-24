@@ -84,8 +84,11 @@ afterEach(() => {
 });
 
 function makeEnv(input?: {
+  committedFile?: typeof FILE;
   commitError?: Error;
+  getError?: Error;
   objectKey?: string;
+  putError?: Error;
   readBytes?: ArrayBuffer;
 }) {
   const objectKey = input?.objectKey ?? OBJECT_KEY;
@@ -94,6 +97,7 @@ function makeEnv(input?: {
       async (request: {
         write: { fileId: string; revisionId: string };
       }): Promise<PrepareSpaceFileWriteResponse> => ({
+        ...(input?.committedFile ? { committedFile: input.committedFile } : {}),
         fileId: request.write.fileId,
         organizationId: ORGANIZATION_ID,
         revisionId: request.write.revisionId,
@@ -120,13 +124,24 @@ function makeEnv(input?: {
       file: FILE,
       revision: REVISION,
     })),
+    rpcRecordSpaceFileAuditEvent: vi.fn(async () => undefined),
   };
   const bucket = {
-    put: vi.fn(async () => null),
-    get: vi.fn(async () => ({
-      arrayBuffer: async () =>
-        input?.readBytes ?? Uint8Array.from(BYTES).buffer,
-    })),
+    put: vi.fn(() => {
+      if (input?.putError) {
+        return Promise.reject(input.putError);
+      }
+      return Promise.resolve(null);
+    }),
+    get: vi.fn(() => {
+      if (input?.getError) {
+        return Promise.reject(input.getError);
+      }
+      return Promise.resolve({
+        arrayBuffer: async () =>
+          input?.readBytes ?? Uint8Array.from(BYTES).buffer,
+      });
+    }),
     delete: vi.fn(async () => undefined),
   };
   const namespace = {
@@ -169,6 +184,65 @@ describe("Core Space file content RPC", () => {
       })
     );
     expect(stub.rpcCommitSpaceFileWrite).toHaveBeenCalledOnce();
+    expect(stub.rpcRecordSpaceFileAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it("audits a replayed write without storing the same bytes again", async () => {
+    const { bucket, env, stub } = makeEnv({ committedFile: FILE });
+
+    await expect(
+      rpcWriteSpaceFileContent(env, {
+        bytes: Uint8Array.from(BYTES).buffer,
+        context: CONTEXT,
+        spaceId: SPACE_ID,
+        write: WRITE,
+      })
+    ).resolves.toEqual(FILE);
+
+    expect(bucket.put).not.toHaveBeenCalled();
+    expect(stub.rpcCommitSpaceFileWrite).not.toHaveBeenCalled();
+    expect(stub.rpcRecordSpaceFileAuditEvent).toHaveBeenCalledWith({
+      event: expect.objectContaining({
+        actorKind: "authenticated",
+        actorProfileId: CONTEXT.actorContext.openMeldProfileId,
+        entryId: FILE_ID,
+        errorCode: null,
+        eventId: `content_write:${CONTEXT.actorContext.requestId}`,
+        operation: "content_write",
+        operationId: WRITE.clientMutationId,
+        organizationId: ORGANIZATION_ID,
+        requestId: CONTEXT.actorContext.requestId,
+        result: "succeeded",
+        revisionId: REVISION_ID,
+        spaceId: SPACE_ID,
+      }),
+    });
+  });
+
+  it("audits a failed R2 write before returning the storage failure", async () => {
+    const { env, stub } = makeEnv({ putError: new Error("R2 unavailable") });
+
+    await expect(
+      rpcWriteSpaceFileContent(env, {
+        bytes: Uint8Array.from(BYTES).buffer,
+        context: CONTEXT,
+        spaceId: SPACE_ID,
+        write: WRITE,
+      })
+    ).rejects.toMatchObject({
+      code: "space_file.storage_failed",
+      status: 503,
+    });
+
+    expect(stub.rpcCommitSpaceFileWrite).not.toHaveBeenCalled();
+    expect(stub.rpcRecordSpaceFileAuditEvent).toHaveBeenCalledWith({
+      event: expect.objectContaining({
+        errorCode: "space_file.storage_failed",
+        operation: "content_write",
+        result: "failed",
+        revisionId: REVISION_ID,
+      }),
+    });
   });
 
   it("leaves an uncommitted R2 object unreachable when the metadata commit conflicts", async () => {
@@ -244,10 +318,49 @@ describe("Core Space file content RPC", () => {
     expect(stub.rpcResolveSpaceFileContent).toHaveBeenCalledOnce();
     expect(bucket.get).toHaveBeenCalledWith(OBJECT_KEY);
     expect(new Uint8Array(result.bytes)).toEqual(BYTES);
+    expect(stub.rpcRecordSpaceFileAuditEvent).toHaveBeenCalledWith({
+      event: expect.objectContaining({
+        actorKind: "authenticated",
+        actorProfileId: CONTEXT.actorContext.openMeldProfileId,
+        entryId: FILE_ID,
+        errorCode: null,
+        eventId: `content_read:${CONTEXT.actorContext.requestId}`,
+        operation: "content_read",
+        organizationId: ORGANIZATION_ID,
+        requestId: CONTEXT.actorContext.requestId,
+        result: "succeeded",
+        revisionId: REVISION_ID,
+        spaceId: SPACE_ID,
+      }),
+    });
+  });
+
+  it("audits a failed R2 read before returning the storage failure", async () => {
+    const { env, stub } = makeEnv({ getError: new Error("R2 unavailable") });
+
+    await expect(
+      rpcReadSpaceFileContent(env, {
+        content: { spaceId: SPACE_ID, fileId: FILE_ID },
+        context: CONTEXT,
+        spaceId: SPACE_ID,
+      })
+    ).rejects.toMatchObject({
+      code: "space_file.storage_failed",
+      status: 503,
+    });
+
+    expect(stub.rpcRecordSpaceFileAuditEvent).toHaveBeenCalledWith({
+      event: expect.objectContaining({
+        errorCode: "space_file.storage_failed",
+        operation: "content_read",
+        result: "failed",
+        revisionId: REVISION_ID,
+      }),
+    });
   });
 
   it("fails closed before R2 when metadata points outside the file scope", async () => {
-    const { bucket, env } = makeEnv({ objectKey: "org/wrong/file" });
+    const { bucket, env, stub } = makeEnv({ objectKey: "org/wrong/file" });
 
     await expect(
       rpcReadSpaceFileContent(env, {
@@ -260,6 +373,13 @@ describe("Core Space file content RPC", () => {
       status: 502,
     });
     expect(bucket.get).not.toHaveBeenCalled();
+    expect(stub.rpcRecordSpaceFileAuditEvent).toHaveBeenCalledWith({
+      event: expect.objectContaining({
+        errorCode: "upstream_unreachable",
+        operation: "content_read",
+        result: "failed",
+      }),
+    });
   });
 
   it("restores old bytes as a new conflict-safe current revision", async () => {

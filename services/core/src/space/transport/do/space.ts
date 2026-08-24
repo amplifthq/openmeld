@@ -82,6 +82,7 @@ import {
   spaceAgentStreamSnapshotSchema,
   spaceAgentStreamTerminalFrameSchema,
   spaceBoardRoomProjectionSchema,
+  spaceFileAuditEventSchema,
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
@@ -152,6 +153,7 @@ import type {
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceSnapshot,
   SpaceFileActor,
+  SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceFileMutationErrorCode,
   SpaceIdentityDirectory,
@@ -393,6 +395,7 @@ import {
 } from "../../application/space-contract-service";
 import { handlePatchCursorUseCase } from "../../application/space-cursor-service";
 import { resolveSpaceDispatchConversationContinuityScope } from "../../application/space-dispatch-conversation-continuity";
+import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
 import { buildSpaceInboxProjectionOutboxRecord } from "../../application/space-inbox-projection";
 import {
@@ -493,6 +496,7 @@ import {
   upsertSpaceCursorRecord,
 } from "../../infrastructure/sql/space-cursor-repo";
 import { readSpaceDispatchRule } from "../../infrastructure/sql/space-dispatch-rule-repo";
+import { SpaceFileAuditRepository } from "../../infrastructure/sql/space-file-audit-repo";
 import {
   SpaceFileRepository,
   SpaceFileRepositoryError,
@@ -2383,13 +2387,24 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
     const body = createSpaceFolderBodySchema.parse(input.body);
-    const folder = this.runSpaceFileRepositoryOperation(() =>
+    const folderId = crypto.randomUUID();
+    const nowMs = Date.now();
+    const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
+      entryId: folderId,
+      occurredAtMs: nowMs,
+      operation: "folder_create",
+      operationId: body.clientMutationId,
+      revisionId: null,
+      spaceAccess: input.spaceAccess,
+    });
+    const folder = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.createFolder({
         actor,
+        auditEvent,
         clientMutationId: body.clientMutationId,
-        folderId: crypto.randomUUID(),
+        folderId,
         name: body.name,
-        nowMs: Date.now(),
+        nowMs,
         parentId: body.parentId,
         spaceId: this.spaceId,
       })
@@ -2407,12 +2422,22 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
     const body = updateSpaceFileEntryBodySchema.parse(input.body);
-    const entry = this.runSpaceFileRepositoryOperation(() =>
+    const nowMs = Date.now();
+    const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
+      entryId: input.entryId,
+      occurredAtMs: nowMs,
+      operation: "entry_update",
+      operationId: body.clientMutationId,
+      revisionId: null,
+      spaceAccess: input.spaceAccess,
+    });
+    const entry = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.updateEntry({
         actor,
+        auditEvent,
         body,
         entryId: input.entryId,
-        nowMs: Date.now(),
+        nowMs,
       })
     );
     await this.broadcastSpaceFilesChanged("space_file.entry_updated");
@@ -2427,12 +2452,22 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<TrashSpaceFileEntryResponse> {
     this.applySpaceRef(input.spaceId);
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
-    const response = this.runSpaceFileRepositoryOperation(() =>
+    const nowMs = Date.now();
+    const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
+      entryId: input.entryId,
+      occurredAtMs: nowMs,
+      operation: "entry_trash",
+      operationId: input.clientMutationId,
+      revisionId: null,
+      spaceAccess: input.spaceAccess,
+    });
+    const response = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.trashEntry({
         actor,
+        auditEvent,
         clientMutationId: input.clientMutationId,
         entryId: input.entryId,
-        nowMs: Date.now(),
+        nowMs,
       })
     );
     await this.broadcastSpaceFilesChanged("space_file.entry_trashed");
@@ -2448,12 +2483,22 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
     const body = restoreSpaceFileEntryBodySchema.parse(input.body);
-    const entry = this.runSpaceFileRepositoryOperation(() =>
+    const nowMs = Date.now();
+    const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
+      entryId: input.entryId,
+      occurredAtMs: nowMs,
+      operation: "entry_restore",
+      operationId: body.clientMutationId,
+      revisionId: null,
+      spaceAccess: input.spaceAccess,
+    });
+    const entry = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.restoreEntry({
         actor,
+        auditEvent,
         clientMutationId: body.clientMutationId,
         entryId: input.entryId,
-        nowMs: Date.now(),
+        nowMs,
       })
     );
     await this.broadcastSpaceFilesChanged("space_file.entry_restored");
@@ -2493,10 +2538,20 @@ export class Space extends DurableObject<CoreBindings> {
     const write = commitSpaceFileWriteInputSchema.parse(input.write);
     this.applySpaceRef(write.spaceId);
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
-    const file = this.runSpaceFileRepositoryOperation(() =>
+    const nowMs = Date.now();
+    const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
+      entryId: write.fileId,
+      occurredAtMs: nowMs,
+      operation: "content_write",
+      operationId: write.clientMutationId,
+      revisionId: write.revisionId,
+      spaceAccess: input.spaceAccess,
+    });
+    const file = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.commitWrite({
         actor,
-        nowMs: Date.now(),
+        auditEvent,
+        nowMs,
         write,
       })
     );
@@ -2532,8 +2587,42 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
 
+  rpcRecordSpaceFileAuditEvent(input: { event: unknown }): void {
+    const event = spaceFileAuditEventSchema.parse(input.event);
+    this.applySpaceRef(event.spaceId);
+    const meta = this.requireSpaceFileMetaRecord();
+    if (event.organizationId !== meta.organizationId) {
+      throw new Error(
+        "Space File audit Organization does not match the canonical Space."
+      );
+    }
+    this.spaceFileAuditRepository.record(event);
+  }
+
   private get spaceFileRepository(): SpaceFileRepository {
     return new SpaceFileRepository(this.ctx.storage);
+  }
+
+  private get spaceFileAuditRepository(): SpaceFileAuditRepository {
+    return new SpaceFileAuditRepository(this.ctx.storage.sql);
+  }
+
+  private buildSuccessfulSpaceFileAuditEvent(input: {
+    entryId: string;
+    occurredAtMs: number;
+    operation: SpaceFileAuditEvent["operation"];
+    operationId: string;
+    revisionId: string | null;
+    spaceAccess: SpaceAccessContext;
+  }): SpaceFileAuditEvent {
+    const meta = this.requireSpaceFileMetaRecord();
+    return buildSpaceFileAuditEvent({
+      ...input,
+      errorCode: null,
+      organizationId: meta.organizationId,
+      result: "succeeded",
+      spaceId: this.spaceId,
+    });
   }
 
   private requireSpaceFileMetaRecord(): SpaceMetaRecord {
@@ -2609,6 +2698,22 @@ export class Space extends DurableObject<CoreBindings> {
         code: error.code,
         reason: error.message,
       });
+    }
+  }
+
+  private runAuditedSpaceFileMutation<T>(
+    successEvent: SpaceFileAuditEvent,
+    operation: () => T
+  ): T {
+    try {
+      return this.runSpaceFileRepositoryOperation(operation);
+    } catch (error) {
+      this.spaceFileAuditRepository.record({
+        ...successEvent,
+        errorCode: resolveSpaceFileAuditErrorCode(error),
+        result: "failed",
+      });
+      throw error;
     }
   }
 
@@ -16095,6 +16200,19 @@ function spaceFileErrorStatus(code: SpaceFileMutationErrorCode): number {
     default:
       return 500;
   }
+}
+
+function resolveSpaceFileAuditErrorCode(error: unknown): string {
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    error.code.trim()
+  ) {
+    return error.code.trim().slice(0, 128);
+  }
+  return "space_file.internal_error";
 }
 
 function isSpaceAgentStreamFrame(

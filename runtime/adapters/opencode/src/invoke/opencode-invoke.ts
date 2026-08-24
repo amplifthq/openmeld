@@ -62,6 +62,7 @@ export async function invokeOpenCodeWithSingleContextHeal(input: {
 }> {
   const result = await invokeWithSingleContextHeal({
     contextId: input.sessionId,
+    contextLossPolicy: input.executionMode === "repair" ? "fail" : "rebuild",
     createRebuildFailedError: (error) =>
       new OpenCodeRuntimeError({
         code: "context.rebuild_failed",
@@ -127,13 +128,17 @@ async function invokeOpenCodeOnce(input: {
   streamingMode?: AdapterStreamingMode;
 }): Promise<OpenCodeInvokeResult> {
   try {
-    if (input.onInteractionRequest) {
+    if (
+      input.onInteractionRequest ||
+      (input.executionMode === "repair" && input.sessionId)
+    ) {
       return await invokeOpenCodeServerTransport({
         launchContract: input.launchContract,
         openCodeTimeoutMs: input.openCodeTimeoutMs,
         openCodeWorkdir: input.openCodeWorkdir,
         conversationPolicy: input.conversationPolicy,
         env: input.env,
+        executionMode: input.executionMode,
         instructionPrompt: input.instructionPrompt,
         onInteractionRequest: input.onInteractionRequest,
         ...(input.onPreview ? { onPreview: input.onPreview } : {}),

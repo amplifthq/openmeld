@@ -99,13 +99,7 @@ Run the exact action shown for the current Wake and read its result. A successfu
 
 If an action fails, preserve the full error context. Correct a simple input problem only when the error gives you a safe, explicit correction. Do not switch lanes, bypass the dispatch-owned runtime, edit local OpenMeld state, or call internal endpoints to force publication.
 
-Only when every OpenMeld Space Action CLI command is unavailable or fails at the command surface should you use the structured fallback. Print the current fallback instructions with:
-
-~~~sh
-openmeld prompt space-action --raw
-~~~
-
-Follow that output exactly and emit one trailing \`openmeld-space-action\` block as your final output. Do not combine the fallback with a successful CLI action. Do not improvise fields, action types, target arrays, or JSON based on memory; the locally installed CLI output owns the fallback shape for that runtime version.
+If every OpenMeld Space Action CLI command is unavailable or fails, preserve the command error and stop. Do not print JSON or prose as a substitute: answer text never becomes a Space Action. OpenMeld will preserve the structured failure through the normal Wake path.
 
 ## After you finish
 

@@ -108,6 +108,16 @@ function isFailedResultMessage(resultMessage: SDKResultMessage): boolean {
   return resultMessage.subtype !== "success" || resultMessage.is_error === true;
 }
 
+function resolveCanonicalRepairSessionId(input: {
+  executionMode?: AdapterDispatchExecutionMode;
+  sessionId: string | null;
+}): string | null {
+  if (input.executionMode !== "repair") {
+    return null;
+  }
+  return normalizeOptionalText(input.sessionId);
+}
+
 export async function invokeClaudeAgentSdkTransport(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -136,6 +146,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
     });
   }
   const resumedContext = normalizeOptionalText(input.sessionId) !== null;
+  const canonicalRepairSessionId = resolveCanonicalRepairSessionId(input);
   const streamingMode = input.streamingMode ?? "final";
 
   const resources = await createClaudeAgentSdkInvocationResources({
@@ -234,13 +245,11 @@ export async function invokeClaudeAgentSdkTransport(input: {
       latestPlanDocument = nextState.latestPlanDocument;
       resultMessage = nextState.resultMessage;
       resolvedSessionId = nextState.resolvedSessionId;
-      if (nextState.observedConversationId) {
-        await input.onRuntimeEvent?.({
-          agentControllerConversationId: nextState.observedConversationId,
-          phase: "provider_conversation_observed",
-          tsMs: Date.now(),
-        });
-      }
+      await emitClaudeProviderConversationObservation({
+        canonicalRepairSessionId,
+        observedConversationId: nextState.observedConversationId,
+        onRuntimeEvent: input.onRuntimeEvent,
+      });
     }
   } catch (error) {
     throw toClaudeAgentSdkTransportError({
@@ -341,7 +350,8 @@ export async function invokeClaudeAgentSdkTransport(input: {
 
   return {
     output,
-    sessionId: normalizeOptionalText(resolvedSessionId),
+    sessionId:
+      canonicalRepairSessionId ?? normalizeOptionalText(resolvedSessionId),
     telemetry: buildClaudeAgentSdkTelemetry({
       firstOutputAtMs,
       firstStderrAtMs,
@@ -352,6 +362,21 @@ export async function invokeClaudeAgentSdkTransport(input: {
       timeoutTriggeredAtMs,
     }),
   };
+}
+
+async function emitClaudeProviderConversationObservation(input: {
+  canonicalRepairSessionId: string | null;
+  observedConversationId: string | null;
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
+}): Promise<void> {
+  if (!input.observedConversationId || input.canonicalRepairSessionId) {
+    return;
+  }
+  await input.onRuntimeEvent?.({
+    agentControllerConversationId: input.observedConversationId,
+    phase: "provider_conversation_observed",
+    tsMs: Date.now(),
+  });
 }
 
 async function emitClaudeCodeUsageLimits(input: {
@@ -578,6 +603,9 @@ function buildClaudeAgentSdkOptions(input: {
   const sessionId = normalizeOptionalText(input.sessionId);
   if (sessionId) {
     options.resume = sessionId;
+    if (input.executionMode === "repair") {
+      options.forkSession = true;
+    }
   }
 
   const conversationPolicyOptions = resolveClaudeConversationPolicyOptions(

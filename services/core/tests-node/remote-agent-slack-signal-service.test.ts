@@ -94,6 +94,97 @@ afterEach(() => {
 });
 
 describe("Remote Agent Slack signal service", () => {
+  it("explains a private channel selection from a structured introduction failure", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
+    const fetchMock = stubSlackFetch({
+      conversationsListResponse: {
+        channels: [
+          {
+            id: "C_PRIVATE",
+            is_member: true,
+            is_private: true,
+            name: "leadership",
+          },
+        ],
+        ok: true,
+        response_metadata: { next_cursor: "" },
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        submitRemoteAgentSlackChannelIntroduction({
+          env: buildEnv(harness.db),
+          interactionId: "V_PRIVATE_CHANNEL",
+          organizationInviteUrl: null,
+          slackTeamId: "T123",
+          slackUserId: "U123",
+          targetSlackChannelIds: ["C_PRIVATE"],
+        })
+      ).resolves.toBeUndefined();
+
+      expect(readSlackPostBodies(fetchMock)).toEqual([
+        expect.objectContaining({
+          text: "Choose public channels here. For a private channel, invite the OpenMeld app there first, then message me its name.",
+        }),
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("does not expose an internal introduction error because its prose sounds user-facing", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
+    const fetchMock = stubSlackFetch({
+      conversationsListError: new Error(
+        "I can’t expose this internal Slack failure"
+      ),
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        submitRemoteAgentSlackChannelIntroduction({
+          env: buildEnv(harness.db),
+          interactionId: "V_INTERNAL_FAILURE",
+          organizationInviteUrl: null,
+          slackTeamId: "T123",
+          slackUserId: "U123",
+          targetSlackChannelIds: ["C_PRODUCT"],
+        })
+      ).resolves.toBeUndefined();
+
+      expect(readSlackPostBodies(fetchMock)).toEqual([
+        expect.objectContaining({
+          text: "I couldn’t start learning those channels. Open the welcome message and try again. If it still doesn’t work, invite the OpenMeld app to the channel first.",
+        }),
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("keeps a multi-channel introduction working until every delivery finishes", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
@@ -7160,6 +7251,7 @@ function stubSlackFetch(input: {
     | Record<string, unknown>
     | Response
     | ((url: URL) => Record<string, unknown> | Response);
+  conversationsListError?: Error;
   conversationsListResponse?: Record<string, unknown>;
   conversationsInfoNeverResolves?: boolean;
   conversationsInfoResponse?: Record<string, unknown>;
@@ -7226,6 +7318,9 @@ function stubSlackFetch(input: {
         );
       }
       if (url.includes("/conversations.list")) {
+        if (input.conversationsListError) {
+          throw input.conversationsListError;
+        }
         return Response.json(
           input.conversationsListResponse ?? {
             channels: [],

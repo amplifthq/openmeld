@@ -7,6 +7,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 import { cliBinaryManifestSchema } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
+import { smokeSignedMacOsSecureStorage } from "../e2e/signed-cli-macos-secure-storage-smoke.mjs";
 import {
   buildCliBinary,
   collectCliBinaryMetadata,
@@ -124,6 +125,15 @@ export function prepareSignedCliBinary(input) {
   };
 }
 
+export async function prepareVerifiedCliBinary(input) {
+  const prepared = prepareSignedCliBinary(input);
+  await input.smokeSignedSecureStorage({
+    outFile: prepared.outFile,
+    platform: prepared.platform,
+  });
+  return prepared;
+}
+
 export async function uploadCliBinary(input = {}) {
   const platform = input.platform ?? DEFAULT_CLI_BINARY_PLATFORM;
   const bucketName =
@@ -137,11 +147,13 @@ export async function uploadCliBinary(input = {}) {
     outDir: input.outDir,
     platform,
   });
-  const built = prepareSignedCliBinary({
+  const built = await prepareVerifiedCliBinary({
     built: compiled,
     collectMetadata: input.collectMetadata ?? collectCliBinaryMetadata,
     env: input.env ?? process.env,
     signAndNotarize: input.signAndNotarize ?? signAndNotarizeCliBinary,
+    smokeSignedSecureStorage:
+      input.smokeSignedSecureStorage ?? smokeSignedMacOsSecureStorage,
   });
   const archive = (input.compressBinary ?? createCompressedCliBinary)({
     artifactName: built.artifactName,

@@ -169,6 +169,19 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     dependencies: ["openmeld_read_organization_directory"],
     namespace: "agents_and_computers",
   },
+  openmeld_read_center_agent_turn_diagnostics: {
+    aliases: [
+      "diagnose a recent Center Agent turn",
+      "why did Center Agent fail",
+      "Center Agent execution status",
+      "Center Agent delivery ID",
+      "调查 Center Agent 失败原因",
+      "Center Agent 为什么失败",
+      "Center Agent 执行状态",
+      "Center Agent 投递编号",
+    ],
+    namespace: "organization",
+  },
   openmeld_read_member_openmeld_service_status: {
     aliases: [
       "read a teammate's OpenMeld Service status",

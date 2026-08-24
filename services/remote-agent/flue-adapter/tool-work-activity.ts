@@ -82,6 +82,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
     "center_agent.attention.request",
   ],
   ["openmeld_read_center_agent_activity", "center_agent.activity.read"],
+  ["openmeld_read_center_agent_turn_diagnostics", "center_agent.activity.read"],
   ["openmeld_request_member_attention", "center_agent.attention.request"],
   ["openmeld_read_dispatch_history", "dispatch.history.read"],
   ["openmeld_read_member_computers", "organization.member_computers.read"],

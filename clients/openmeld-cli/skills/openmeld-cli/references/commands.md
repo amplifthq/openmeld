@@ -48,15 +48,14 @@ openmeld prompt commands --raw
 During a Wake dispatch, do not publish the final public answer with
 `openmeld space send`. Use the exact `<DISPATCH_ACTION_CLI> space action ...`
 command printed in the current Wake dispatch prompt. Only if every Space Action
-CLI command fails, run `openmeld prompt space-action --raw` to print fallback JSON
-instructions and use one trailing `openmeld-space-action` block.
+CLI command fails, preserve the command error and stop. Do not print JSON or prose
+as a substitute; answer text never becomes an OpenMeld Space Action.
+
+`--wake` is only for waking another available Agent Profile. `--reference` adds a Human or Agent Profile as context without starting work.
 
 Keep each final action aligned to the source message it answers. If the user
 asks you to deliver work to another Agent Profile, use `wake` or `reply --wake`;
 a bare `@Agent Name` in prose is not executable delivery.
-
-Fallback target semantics: `activationTargets` is only for waking another Agent Profile that is available for Wake. `referenceTargets` adds context without starting work.
-Do not put a blocked wake target in `activationTargets`.
 
 ### `openmeld view`
 

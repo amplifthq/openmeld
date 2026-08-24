@@ -341,22 +341,47 @@ describe("ledger-recovery+mention-dispatch runtime orchestration", () => {
     const invoke = vi
       .fn()
       .mockResolvedValueOnce({
+        contextDelta: {
+          agentControllerConversationId: "thread-runtime-repair-1",
+        },
         output: "first-output",
       })
       .mockResolvedValueOnce({
+        contextDelta: {
+          agentControllerConversationId: "thread-runtime-repair-1",
+        },
         output: "repair-output",
       });
     const adapter = createCodexAdapter({
       invoke,
     });
+    const route = {
+      contextIdMappingSpec: {
+        mappingVersion: 1,
+        sourceField: "OPENMELD_CLI_CONTEXT_ID",
+      },
+      agentControllerRef: "builtin:codex",
+      env: {},
+      runtimeWorkspaceFingerprint: buildRuntimeWorkspaceFingerprint(
+        DEFAULT_RUNTIME_CONTEXT.providerRuntimeWorkingDirectory
+      ),
+      targets: [
+        {
+          adapter,
+          agentControllerRef: "builtin:codex",
+          transportMode: "local-cli" as const,
+        },
+      ],
+      transportMode: "local-cli" as const,
+    };
 
     const io = createNodeLedgerFileIo();
 
     const firstResult = await runRuntimeTask({
-      adapter,
       io,
       nowMs: Date.UTC(2026, 1, 25, 15, 10, 0),
       paths,
+      route,
       task: createRuntimeTask({
         agentId: "agent-codex",
         bindingKey: "space-1|agent-codex",
@@ -371,10 +396,10 @@ describe("ledger-recovery+mention-dispatch runtime orchestration", () => {
     });
 
     const repairResult = await runRuntimeTask({
-      adapter,
       io,
       nowMs: Date.UTC(2026, 1, 25, 15, 11, 0),
       paths,
+      route,
       task: createRuntimeTask({
         agentId: "agent-codex",
         bindingKey: "space-1|agent-codex",
@@ -402,6 +427,7 @@ describe("ledger-recovery+mention-dispatch runtime orchestration", () => {
     expect(invoke).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
+        agentControllerConversationId: "thread-runtime-repair-1",
         executionMode: "repair",
         sourceEventId: "evt-runtime-repair",
       })
@@ -432,6 +458,48 @@ describe("ledger-recovery+mention-dispatch runtime orchestration", () => {
     });
     expect(finalState.inflightByTaskId).toEqual({});
     expect(finalState.replayedTaskIds).toEqual({});
+  });
+
+  it("fails repair before provider invocation when the canonical conversation is missing", async () => {
+    const paths = await createTempLedgerPaths(
+      "openMeldDaemon-g34-repair-missing-conversation-"
+    );
+    createdDirs.add(paths.rootDirPath);
+
+    const invoke = vi.fn().mockResolvedValue({
+      contextDelta: {
+        agentControllerConversationId: "thread-runtime-repair-new-1",
+      },
+      output: "unsafe repair output",
+    });
+    const result = await runRuntimeTask({
+      adapter: createCodexAdapter({ invoke }),
+      io: createNodeLedgerFileIo(),
+      nowMs: Date.UTC(2026, 1, 25, 15, 12, 0),
+      paths,
+      task: createRuntimeTask({
+        agentId: "agent-codex",
+        bindingKey: "space-1|agent-codex",
+        executionMode: "repair",
+        mentioned: true,
+        prompt: "repair without a canonical conversation",
+        sequence: 1,
+        sourceEventId: "evt-runtime-repair-missing-conversation",
+        spaceId: "space-1",
+        taskId: "task-runtime-repair-missing-conversation",
+        triggerMode: "mention_only",
+      }),
+    });
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(result.resultPayload).toMatchObject({
+      errorCode: "repair.conversation_missing",
+      errorMessage:
+        "repair.conversation_missing: repair requires an existing Agent Controller conversation",
+      errorType: "adapter",
+      status: "failed",
+      taskId: "task-runtime-repair-missing-conversation",
+    });
   });
 
   it("routes dispatch by transport mode and emits context resolution metadata", async () => {
