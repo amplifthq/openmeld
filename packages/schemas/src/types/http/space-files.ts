@@ -3,6 +3,13 @@ import type { z } from "zod/v4";
 type Schemas = typeof import("../../schemas/http/space-files");
 
 export type SpaceFileActor = z.infer<Schemas["spaceFileActorSchema"]>;
+export type SpaceFileAuditEvent = z.infer<Schemas["spaceFileAuditEventSchema"]>;
+export type SpaceFileAuditOperation = z.infer<
+  Schemas["spaceFileAuditOperationSchema"]
+>;
+export type SpaceFileAuditResult = z.infer<
+  Schemas["spaceFileAuditResultSchema"]
+>;
 export type SpaceFileRevision = z.infer<Schemas["spaceFileRevisionSchema"]>;
 export type SpaceMessageFileReference = z.infer<
   Schemas["spaceMessageFileReferenceSchema"]

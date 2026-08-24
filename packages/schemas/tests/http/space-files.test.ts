@@ -15,6 +15,7 @@ import {
   restoreSpaceFileEntryBodySchema,
   restoreSpaceFileRevisionBodySchema,
   SPACE_MESSAGE_FILE_MAX_COUNT,
+  spaceFileAuditEventSchema,
   spaceFileNameSchema,
   spaceMessageFileReferenceSchema,
   spaceMessageFileReferencesSchema,
@@ -95,6 +96,56 @@ describe("Space Files contracts", () => {
         revisionId: "revision-2",
       })
     ).toBe("org/org-1/space/space-1/files/file-1/revisions/revision-2");
+  });
+
+  it("keeps Space File audit events minimal and semantically consistent", () => {
+    const event = {
+      actorKind: "authenticated" as const,
+      actorProfileId: "profile-1",
+      entryId: "file-1",
+      errorCode: null,
+      eventId: "content_read:request-1",
+      occurredAtMs: 1_774_332_000_000,
+      operation: "content_read" as const,
+      operationId: "request-1",
+      organizationId: "org-1",
+      representedHumanProfileId: null,
+      requestId: "request-1",
+      result: "succeeded" as const,
+      revisionId: "revision-1",
+      spaceId: "space-1",
+    };
+
+    expect(spaceFileAuditEventSchema.parse(event)).toEqual(event);
+    expect(
+      spaceFileAuditEventSchema.safeParse({ ...event, fileName: "secret.md" })
+        .success
+    ).toBe(false);
+    expect(
+      spaceFileAuditEventSchema.safeParse({
+        ...event,
+        actorKind: "anonymous_viewer",
+      }).success
+    ).toBe(false);
+    expect(
+      spaceFileAuditEventSchema.safeParse({
+        ...event,
+        errorCode: "space_file.storage_failed",
+      }).success
+    ).toBe(false);
+    expect(
+      spaceFileAuditEventSchema.safeParse({
+        ...event,
+        result: "failed",
+      }).success
+    ).toBe(false);
+    expect(
+      spaceFileAuditEventSchema.safeParse({
+        ...event,
+        actorKind: "anonymous_viewer",
+        actorProfileId: null,
+      }).success
+    ).toBe(true);
   });
 
   it("rejects names that could escape a Space folder", () => {
