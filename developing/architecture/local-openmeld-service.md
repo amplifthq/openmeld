@@ -1488,14 +1488,36 @@ cannot expose **Continue conversation**. Because older Core uses strict
 Runtime Transport schemas, the cloud receiver must deploy before a Service
 that emits the new capability, heartbeat drain fields, or recovery frames.
 
+Every local adapter repair turn must preserve the validated canonical
+conversation identity and the Binding's controller-native permission intent.
+When repair needs temporary controller settings, the adapter must use a native
+isolated child conversation and apply those settings only to that child. The
+adapter must return the validated canonical identity, and the shared dispatch
+boundary rejects a repair result that reports a refreshed or different
+conversation instead of rewriting it. A later ordinary Wake must still use the
+saved Binding permission mode or OpenCode permission JSON.
+
 Codex exact-controller recovery copies the canonical conversation into an
-ephemeral fork and applies the conservative repair approval and sandbox policy
-only to that fork. The fork is the repair execution boundary, but the Service
-continues to report the validated canonical conversation identity. It must not
-project the ephemeral fork into Binding continuity or mutate the canonical
-conversation's permission policy. If the installed Codex App Server cannot
-create that isolated fork, recovery fails explicitly while ordinary Wake,
-setup, status, and diagnostics remain available.
+ephemeral App Server fork and applies the conservative repair approval and
+sandbox policy only to that fork. Claude Code repair resumes through an Agent
+SDK or CLI fork and applies its temporary Plan mode only there. OpenCode repair
+uses the official Server session fork and passes the Binding's unchanged
+`OPENCODE_PERMISSION` JSON to the child. Each adapter continues to report the
+validated canonical conversation identity. If the installed controller cannot
+create the required isolated child, repair fails explicitly while ordinary
+Wake, setup, status, and diagnostics remain available.
+
+Repair also fails explicitly when the canonical conversation no longer exists.
+The ordinary-Wake context-heal path must not create a new conversation during
+repair and then present it as the missing canonical conversation.
+
+Cursor ACP and Grok Build ACP do not currently expose the native fork required
+for a temporary repair policy. Their repair turns therefore keep the exact
+Binding-selected native permission mode on the canonical session and must not
+apply a repair-only permission override. A future repair that requires such an
+override must fail explicitly until the controller exposes a proven isolation
+surface. OpenClaw remains outside this repair-isolation contract pending a
+separate audit of its provider-managed session semantics.
 
 Human-facing copy should use simple product language. Internal repair terms and
 raw anomaly codes belong in Agent View or diagnostics.

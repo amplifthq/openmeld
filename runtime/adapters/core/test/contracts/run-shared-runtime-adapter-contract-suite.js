@@ -71,6 +71,89 @@ export function runSharedRuntimeAdapterContractSuite(input) {
     }
   );
 
+  if (entry.repairConversationPolicy === "require_canonical") {
+    test(
+      buildSharedSuiteTitle(
+        input.adapterId,
+        "repair requires a canonical conversation before provider invocation"
+      ),
+      async () => {
+        let invokeCount = 0;
+        const adapter = await input.createAdapter({
+          invoke: () => {
+            invokeCount += 1;
+            return {
+              contextDelta: {
+                agentControllerConversationId: "repair-new-1",
+              },
+              output: "repair complete",
+            };
+          },
+        });
+
+        const result = await adapter.dispatch(
+          buildDispatchRequest({ executionMode: "repair" })
+        );
+
+        assert.equal(invokeCount, 0);
+        assert.deepEqual(result, {
+          errorCode: "repair.conversation_missing",
+          errorMessage:
+            "repair.conversation_missing: repair requires an existing Agent Controller conversation",
+          errorType: "adapter",
+          status: "failed",
+        });
+      }
+    );
+
+    test(
+      buildSharedSuiteTitle(
+        input.adapterId,
+        "repair rejects a provider result from a different conversation"
+      ),
+      async () => {
+        const canonicalConversation = buildCanonicalAgentControllerConversation(
+          {
+            agentControllerConversationId: "canonical-conversation-1",
+            agentControllerRef: entry.agentControllerRef,
+            agentControllerConversationKind:
+              entry.agentControllerConversationKind,
+          }
+        );
+        const adapter = await input.createAdapter({
+          invoke: async () => ({
+            contextDelta: {
+              agentControllerConversationId: "repair-child-1",
+              agentControllerConversation:
+                buildCanonicalAgentControllerConversation({
+                  agentControllerConversationId: "repair-child-1",
+                  agentControllerRef: entry.agentControllerRef,
+                  agentControllerConversationKind:
+                    entry.agentControllerConversationKind,
+                }),
+            },
+            output: "repair complete",
+          }),
+        });
+
+        const result = await adapter.dispatch(
+          buildDispatchRequest({
+            agentControllerConversation: canonicalConversation,
+            executionMode: "repair",
+          })
+        );
+
+        assert.deepEqual(result, {
+          errorCode: "repair.conversation_changed",
+          errorMessage:
+            "repair.conversation_changed: repair could not preserve the existing Agent Controller conversation",
+          errorType: "adapter",
+          status: "failed",
+        });
+      }
+    );
+  }
+
   test(
     buildSharedSuiteTitle(
       input.adapterId,

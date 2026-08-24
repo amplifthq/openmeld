@@ -105,6 +105,10 @@ export async function invokeClaudeCliTransport(input: {
   });
 
   const invokedAtMs = Date.now();
+  const canonicalRepairSessionId =
+    input.executionMode === "repair"
+      ? normalizeOptionalText(input.sessionId)
+      : null;
   let latestOutput = "";
   let latestResultIsError = false;
   let resolvedSessionId = normalizeOptionalText(input.sessionId);
@@ -212,7 +216,8 @@ export async function invokeClaudeCliTransport(input: {
 
   return {
     output,
-    sessionId: normalizeOptionalText(resolvedSessionId),
+    sessionId:
+      canonicalRepairSessionId ?? normalizeOptionalText(resolvedSessionId),
     telemetry: buildClaudeCliTelemetry({
       driverResult,
       firstOutputAtMs,
@@ -289,6 +294,9 @@ export const buildClaudeArgs = (input: {
   const args: string[] = [];
   if (input.sessionId) {
     args.push("--resume", input.sessionId);
+    if (input.executionMode === "repair") {
+      args.push("--fork-session");
+    }
   }
   appendClaudeConversationPolicyArgs(args, input.conversationPolicy);
   args.push("-p", input.prompt);

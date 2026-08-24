@@ -7,6 +7,7 @@ import {
   type QuestionRequest,
 } from "@opencode-ai/sdk/v2";
 import type {
+  AdapterDispatchExecutionMode,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterInstructionPrompt,
@@ -62,6 +63,7 @@ export type OpenCodeServerTransportResult = {
 type OpenCodeServerTransportInput = {
   conversationPolicy?: ConversationPolicy;
   env?: Record<string, string | undefined>;
+  executionMode?: AdapterDispatchExecutionMode;
   launchContract: RuntimeAgentControllerLaunchContract;
   instructionPrompt?: AdapterInstructionPrompt;
   onInteractionRequest?: AdapterInteractionCallback;
@@ -122,6 +124,16 @@ export async function invokeOpenCodeServerTransport(
     ...input,
     deadlineMs,
   });
+  const client = createOpencodeClient({
+    baseUrl: serverUrl,
+    directory: input.openCodeWorkdir,
+    responseStyle: "data",
+    throwOnError: true,
+  });
+  const canonicalRepairSessionId =
+    input.executionMode === "repair"
+      ? normalizeOptionalText(input.sessionId)
+      : null;
   let result:
     | {
         output: string;
@@ -130,21 +142,24 @@ export async function invokeOpenCodeServerTransport(
       }
     | undefined;
   try {
+    const executionSessionId = canonicalRepairSessionId
+      ? await forkOpenCodeSessionWithClient({
+          client,
+          openCodeWorkdir: input.openCodeWorkdir,
+          sourceSessionId: canonicalRepairSessionId,
+        })
+      : normalizeOptionalText(input.sessionId);
     result = await runOpenCodeServerTurn({
-      client: createOpencodeClient({
-        baseUrl: serverUrl,
-        directory: input.openCodeWorkdir,
-        responseStyle: "data",
-        throwOnError: true,
-      }),
+      client,
       conversationPolicy: input.conversationPolicy,
       instructionPrompt: input.instructionPrompt,
+      observedSessionId: canonicalRepairSessionId,
       onInteractionRequest: input.onInteractionRequest,
       onPreview: input.onPreview,
       openCodeWorkdir: input.openCodeWorkdir,
       prompt,
       server,
-      sessionId: normalizeOptionalText(input.sessionId),
+      sessionId: executionSessionId,
       streamingMode: input.streamingMode ?? "final",
     });
   } catch (error) {
@@ -162,7 +177,7 @@ export async function invokeOpenCodeServerTransport(
   }
   return {
     output: result.output,
-    sessionId: result.sessionId,
+    sessionId: canonicalRepairSessionId ?? result.sessionId,
     telemetry: server.buildTelemetry({
       invokedAtMs,
       previewEmitted: result.previewEmitted,
@@ -203,17 +218,11 @@ export async function forkOpenCodeServerSession(input: {
       responseStyle: "data",
       throwOnError: true,
     });
-    const session = await client.session.fork(
-      {
-        directory: input.openCodeWorkdir,
-        sessionID: sourceSessionId,
-      },
-      {
-        responseStyle: "data",
-        throwOnError: true,
-      }
-    );
-    const sessionId = readOpenCodeSessionId(session);
+    const sessionId = await forkOpenCodeSessionWithClient({
+      client,
+      openCodeWorkdir: input.openCodeWorkdir,
+      sourceSessionId,
+    });
     const title = normalizeOptionalText(input.title);
     if (title) {
       try {
@@ -241,6 +250,24 @@ export async function forkOpenCodeServerSession(input: {
   } finally {
     await server.close();
   }
+}
+
+async function forkOpenCodeSessionWithClient(input: {
+  client: ReturnType<typeof createOpencodeClient>;
+  openCodeWorkdir: string;
+  sourceSessionId: string;
+}): Promise<string> {
+  const session = await input.client.session.fork(
+    {
+      directory: input.openCodeWorkdir,
+      sessionID: input.sourceSessionId,
+    },
+    {
+      responseStyle: "data",
+      throwOnError: true,
+    }
+  );
+  return readOpenCodeSessionId(session);
 }
 
 async function startHealthyOpenCodeServer(
@@ -432,6 +459,7 @@ async function runOpenCodeServerTurn(input: {
   conversationPolicy?: ConversationPolicy;
   instructionPrompt?: AdapterInstructionPrompt;
   onInteractionRequest?: AdapterInteractionCallback;
+  observedSessionId?: string | null;
   onPreview?: AdapterPreviewCallback;
   openCodeWorkdir: string;
   prompt: string;
@@ -444,7 +472,9 @@ async function runOpenCodeServerTurn(input: {
   sessionId: string;
 }> {
   const sessionId = await resolveOpenCodeSessionId(input);
-  input.server.emitProviderConversationObserved(sessionId);
+  input.server.emitProviderConversationObserved(
+    normalizeOptionalText(input.observedSessionId) ?? sessionId
+  );
   const interactionHandler = new OpenCodeInteractionHandler({
     client: input.client,
     directory: input.openCodeWorkdir,

@@ -110,6 +110,7 @@ export async function invokeClaudeWithSingleContextHeal(input: {
 }> {
   const result = await invokeWithSingleContextHeal({
     contextId: input.sessionId,
+    contextLossPolicy: input.executionMode === "repair" ? "fail" : "rebuild",
     createRebuildFailedError: (error) => {
       const providerAccessEvidence = getClaudeProviderAccessEvidence(error);
       const telemetry = getClaudeTelemetry(error);
