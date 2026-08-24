@@ -287,13 +287,14 @@ export async function resolveInstalledNodeScriptLaunchCandidates(input: {
   displayName: string;
   preferredLaunchContract?: RuntimeAgentControllerLaunchContract | null;
 }): Promise<InstalledLaunchCandidatesResolution> {
+  const preferredCommandPath = input.preferredLaunchContract
+    ? resolveLaunchContractEntrypointPath(input.preferredLaunchContract)
+    : null;
   const commandPaths = await resolveInstalledCommandPathsForLaunch({
     additionalCommandDirectories: input.additionalCommandDirectories ?? null,
     commandName: input.commandName,
     configuredCommand: input.configuredCommand ?? null,
-    preferredCommandPath: input.preferredLaunchContract
-      ? resolveLaunchContractEntrypointPath(input.preferredLaunchContract)
-      : null,
+    preferredCommandPath,
   });
   if (commandPaths.length === 0) {
     return {
@@ -306,6 +307,7 @@ export async function resolveInstalledNodeScriptLaunchCandidates(input: {
   const candidates: Array<{
     dedupeId: string;
     launchCandidate: RuntimeAgentControllerLaunchCandidate;
+    preferred: boolean;
     transientWrapper: boolean;
   }> = [];
   const candidateIds = new Set<string>();
@@ -324,7 +326,13 @@ export async function resolveInstalledNodeScriptLaunchCandidates(input: {
       continue;
     }
     candidateIds.add(candidate.dedupeId);
-    candidates.push(candidate);
+    candidates.push({
+      ...candidate,
+      preferred:
+        preferredCommandPath !== null &&
+        normalizePathForDetection(commandPath) ===
+          normalizePathForDetection(preferredCommandPath),
+    });
   }
 
   if (candidates.length === 0) {
@@ -340,8 +348,14 @@ export async function resolveInstalledNodeScriptLaunchCandidates(input: {
   const stableCandidates = candidates.filter(
     (candidate) => !candidate.transientWrapper
   );
+  // Ignore incidental temporary wrappers once a stable install exists, but
+  // never hide the wrapper this computer is already configured to use.
   const selectedCandidates =
-    stableCandidates.length > 0 ? stableCandidates : candidates;
+    stableCandidates.length > 0
+      ? candidates.filter(
+          (candidate) => !candidate.transientWrapper || candidate.preferred
+        )
+      : candidates;
 
   return {
     candidates: finalizeLaunchCandidateDisplayMetadata(
