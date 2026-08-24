@@ -4,8 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-const CURSOR_PLAN_UPGRADE_REQUIRED_RE = /Upgrade your plan to continue/u;
-
 const createNodeScriptLaunchContract = (scriptPath) => ({
   kind: "node_script",
   nodePath: process.execPath,
@@ -116,6 +114,7 @@ async function writeFakeCursorAcp(fixturePath) {
       "    pendingPromptId = message.id;",
       "    const interaction = process.env.OPENMELD_FAKE_CURSOR_ACP_INTERACTION;",
       "    if (process.env.OPENMELD_FAKE_CURSOR_ACP_WAIT_FOR_CANCEL === '1') return;",
+      "    if (process.env.OPENMELD_FAKE_CURSOR_ACP_PROMPT_ERROR) { write({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: process.env.OPENMELD_FAKE_CURSOR_ACP_PROMPT_ERROR } }); pendingPromptId = null; return; }",
       "    if (interaction === 'permission') {",
       "      const denyOption = process.env.OPENMELD_FAKE_CURSOR_ACP_PERSISTENT_DENY_ONLY === '1' ? { optionId: 'reject-always', name: 'Reject always', kind: 'reject_always' } : { optionId: 'reject-once', name: 'Reject once', kind: 'reject_once' };",
       "      write({ jsonrpc: '2.0', id: 'permission-1', method: 'session/request_permission', params: { sessionId: activeSessionId, toolCall: { toolCallId: 'tool-1', title: 'Run command', kind: 'execute' }, options: [{ optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' }, denyOption] } });",
@@ -276,7 +275,7 @@ test("Cursor ACP creates a session, applies mode and model, and returns structur
   });
 });
 
-test("Cursor ACP treats its exact plan-upgrade response as an account failure", async () => {
+test("Cursor ACP keeps an exact plan-upgrade sentence as Agent content", async () => {
   const { createCursorAdapter } = await import("../dist/index.js");
   await withFixture(async ({ fixtureDir, fixturePath }) => {
     const adapter = createCursorAdapter({
@@ -297,10 +296,36 @@ test("Cursor ACP treats its exact plan-upgrade response as an account failure", 
       transportMode: "acp",
     });
 
+    assert.equal(result.status, "success");
+    assert.equal(result.output, "Upgrade your plan to continue");
+  });
+});
+
+test("Cursor ACP classifies a structured plan-upgrade error", async () => {
+  const { createCursorAdapter } = await import("../dist/index.js");
+  await withFixture(async ({ fixtureDir, fixturePath }) => {
+    const adapter = createCursorAdapter({
+      cursorTimeoutMs: 2000,
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+    });
+
+    const result = await adapter.dispatch({
+      agentId: "cursor",
+      env: {
+        OPENMELD_FAKE_CURSOR_ACP_PROMPT_ERROR: "Upgrade your plan to continue",
+      },
+      prompt: "Reply with exactly: OK",
+      runtimeContext: createRuntimeContext(fixtureDir),
+      sourceEventId: "source-structured-plan-upgrade",
+      spaceId: "space-structured-plan-upgrade",
+      taskId: "task-structured-plan-upgrade",
+      transportMode: "acp",
+    });
+
     assert.equal(result.status, "failed");
     assert.equal(result.errorCode, "cursor.plan_upgrade_required");
     assert.equal(result.errorType, "adapter");
-    assert.match(result.errorMessage, CURSOR_PLAN_UPGRADE_REQUIRED_RE);
+    assert.equal(result.errorMessage, "Upgrade your plan to continue");
   });
 });
 
@@ -1005,7 +1030,7 @@ test("Cursor ACP rebuilds a persisted conversation when session/load returns Inv
   });
 });
 
-test("Cursor ACP preserves an account limit discovered after context healing", async () => {
+test("Cursor ACP keeps Agent content authoritative after context healing", async () => {
   const { createCursorAdapter } = await import("../dist/index.js");
   await withFixture(async ({ fixtureDir, fixturePath }) => {
     const adapter = createCursorAdapter({
@@ -1028,8 +1053,9 @@ test("Cursor ACP preserves an account limit discovered after context healing", a
       transportMode: "acp",
     });
 
-    assert.equal(result.status, "failed");
-    assert.equal(result.errorCode, "cursor.plan_upgrade_required");
+    assert.equal(result.status, "success");
+    assert.equal(result.output, "Upgrade your plan to continue");
+    assert.equal(result.contextDelta?.refreshed, true);
   });
 });
 
