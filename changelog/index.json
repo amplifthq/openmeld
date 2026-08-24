@@ -45,6 +45,29 @@
       "body": "Fresh setup commands on supported Macs now use the normal macOS Keychain\nwithout requiring a restricted app entitlement. If Keychain is temporarily\nunavailable or does not answer within five seconds, OpenMeld stops waiting,\nclearly warns the user, keeps the session in private local storage, and finishes\nreconnecting the computer. It does not keep retrying Keychain in the same\nprocess. A later successful setup or login automatically moves the session back\nto Keychain. OpenMeld Service also reuses its loaded session instead of\nrepeatedly querying secure storage while it is running."
     },
     {
+      "id": "stop-background-keychain-authorization-windows",
+      "title": "Stop background Keychain authorization windows",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "cli",
+        "service"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-24",
+      "release": "v0.3.96",
+      "evidence": [
+        "pr:222",
+        "pr:223",
+        "commit:9cea7139ade576121d8dd46bade2531b71859881",
+        "workflow:32747450190"
+      ],
+      "body": "OpenMeld no longer opens macOS Keychain password dialogs while local agents are\nworking in the background or while setup is recovering the computer. Normal\nKeychain access stays silent. If macOS requires approval, OpenMeld stops the\nKeychain operation immediately, uses its protected local fallback during setup,\nand leaves no waiting helper or orphaned password window behind. Developer and\nnpm CLI paths also stop immediately instead of launching macOS's interactive\n`security` tool, so parallel local work cannot queue repeated password dialogs."
+    },
+    {
       "id": "collapsible-sidebar-groups",
       "title": "Collapse sidebar groups when you need more room",
       "kind": "improved",

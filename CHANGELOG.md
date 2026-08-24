@@ -29,6 +29,20 @@ repeatedly querying secure storage while it is running.
 
 Evidence: pr:218, pr:219, commit:18f0b1c004955828f9d7cc64c122b0588a235d1b, workflow:32727645216
 
+### Stop background Keychain authorization windows
+
+Fixed · v0.3.96 · computers · cli · service
+
+OpenMeld no longer opens macOS Keychain password dialogs while local agents are
+working in the background or while setup is recovering the computer. Normal
+Keychain access stays silent. If macOS requires approval, OpenMeld stops the
+Keychain operation immediately, uses its protected local fallback during setup,
+and leaves no waiting helper or orphaned password window behind. Developer and
+npm CLI paths also stop immediately instead of launching macOS's interactive
+`security` tool, so parallel local work cannot queue repeated password dialogs.
+
+Evidence: pr:222, pr:223, commit:9cea7139ade576121d8dd46bade2531b71859881, workflow:32747450190
+
 ## August 19, 2026
 
 ### Collapse sidebar groups when you need more room
