@@ -362,6 +362,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  [data-vaul-drawer],
+  [data-vaul-overlay] {
+    animation: none !important;
+    transition: none !important;
+  }
+
   .shimmer-text {
     color: color-mix(in oklab, var(--foreground) 55%, var(--muted-foreground));
     background: none;

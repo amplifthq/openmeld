@@ -103,6 +103,7 @@ export function AgentActivityPage(input: {
 	return (
 		<AppSurfaceLayout
 			globalControls={<AppGlobalControls />}
+			mobileSidebarTitle="Agent Activity"
 			outerRail={
 				<AppOuterRail
 					account={account}
@@ -402,7 +403,7 @@ function AgentActivityHeader(input: {
 					</span>
 				</p>
 			</div>
-			<div className="flex shrink-0 items-end gap-2">
+			<div className="flex w-full shrink-0 flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-end">
 				<Link
 					className={buttonVariants({ variant: "outline" })}
 					to={buildOrganizationProjectsPath(input.organizationSlug)}
@@ -422,7 +423,7 @@ function AgentActivityProjectScope() {
 		? activeProjects.find((project) => project.id === data.projectScopeId)
 		: null;
 	return (
-		<div className="grid min-w-44 gap-1 text-muted-foreground text-xs">
+		<div className="grid w-full min-w-0 gap-1 text-muted-foreground text-xs sm:w-auto sm:min-w-44">
 			<span>Project scope</span>
 			<Select
 				disabled={data.projectsQuery.isPending}

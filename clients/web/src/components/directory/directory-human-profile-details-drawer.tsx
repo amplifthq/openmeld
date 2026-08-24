@@ -12,7 +12,7 @@ import {
 	XIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import type { CSSProperties } from "react";
+import type { CSSProperties, RefObject } from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
 import { DirectoryHumanProfileAvatar } from "#/components/directory/directory-human-profile-avatar";
@@ -54,6 +54,7 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 	onOpenDirectMessage: () => void;
 	open: boolean;
 	researchAction: DirectoryHumanProfileResearchAction | null;
+	returnFocusRef: RefObject<HTMLElement | null>;
 }) {
 	const canOpenDirectMessage =
 		input.member.profileStatus === "active" && !input.member.isCurrentUser;
@@ -61,6 +62,11 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 		<Drawer.Root
 			autoFocus
 			direction="right"
+			onAnimationEnd={(open) => {
+				if (!open) {
+					input.returnFocusRef.current?.focus();
+				}
+			}}
 			onOpenChange={input.onOpenChange}
 			open={input.open}
 		>

@@ -218,7 +218,7 @@ export function OneTimeTokenCard() {
 				<div className="space-y-1">
 					<p className="text-muted-foreground text-xs">One-time token</p>
 					<button
-						className={`block w-full cursor-pointer break-all border border-border p-2 text-left text-xs transition-colors hover:bg-muted/30 ${oneTimeToken ? "" : "text-muted-foreground/60"}`}
+						className={`block w-full cursor-pointer touch-manipulation break-all border border-border p-2 text-left text-xs transition-colors hover:bg-muted/30 max-lg:min-h-11 ${oneTimeToken ? "" : "text-muted-foreground/60"}`}
 						onClick={handleCopyTokenClick}
 						type="button"
 					>

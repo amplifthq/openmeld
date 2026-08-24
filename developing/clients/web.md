@@ -492,6 +492,21 @@ control at the upper-left edge of its content and does not restore a separate
 header divider. Setup Studio and the explicit Start cross-page flow remain
 full-screen exceptions.
 
+Responsive presentation preserves that topology while exposing one usable work
+plane at a time. At `lg` and wider, the outer rail remains inline and keeps its
+current desktop geometry. Below `lg`, the shared app header opens the same rail
+as a full-label modal drawer. At `md` and wider, an owned secondary sidebar
+remains inline; below `md`, the header opens that same route-family navigation
+as a modal drawer and the canonical content receives the full width. These
+drawers are transient presentation: they do not write desktop rail width or
+tier state, and they must close after an unmodified navigation activation.
+Shell controls remain outside the content scroll plane, respect safe-area
+insets, expose touch-sized targets, trap focus while open, restore focus when
+closed, and remove their transition under reduced motion. Center Agent's Space
+header keeps About, Slack, and information actions available as labeled icons
+when its own header container is narrow; wider containers retain the existing
+text-button presentation.
+
 ### Organization Home
 
 Home is one adaptive surface for both a new Organization and an established
@@ -2836,7 +2851,10 @@ not repeat `Joined as` or an aggregate live-human count; speaking identity stays
 with the composer when a choice is available, and per-member presence belongs
 in the Members surface. When dismissed contextual setup remains recallable,
 **Get set up** appears in the right-aligned action group immediately before
-**Members**; it never appears alongside the **Messages** and **Graph** views.
+**Members**. On compact screens only, the same recall control may move to the
+trailing edge of the second header row so the Space name remains identifiable;
+it stays visually separate from the **Messages** and **Graph** view control and
+returns to the primary action group at wider breakpoints.
 
 The Space header, main conversation rail, contextual setup overlay, and primary
 composer share one responsive inline frame. Its leading inset is the leading

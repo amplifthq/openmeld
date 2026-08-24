@@ -1,5 +1,6 @@
 import { cn } from "@openmeld/ui/lib/utils";
 import { StopCircleIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import {
 	resolveWakeFailureDisplay,
@@ -125,7 +126,10 @@ export function SpaceOutcomeRow(input: {
 						"w-fit min-w-0 max-w-full items-center gap-2",
 						resolveSpaceOutcomeRowToneClassName(input.tone),
 						isClickable &&
-							"cursor-pointer appearance-none border-0 bg-transparent p-0 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-2"
+							cn(
+								APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
+								"cursor-pointer appearance-none border-0 bg-transparent p-0 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-2"
+							)
 					)}
 					onClick={input.onOpenDetails ?? undefined}
 					render={isClickable ? <button type="button" /> : undefined}
@@ -137,7 +141,7 @@ export function SpaceOutcomeRow(input: {
 							isEndAligned ? "text-right" : "text-left"
 						)}
 					>
-						<span className="block max-w-full truncate">
+						<span className="block max-w-full max-sm:break-words sm:truncate">
 							<SpaceMessageReferenceText
 								referencesById={spaceReferencesById}
 								text={input.text}

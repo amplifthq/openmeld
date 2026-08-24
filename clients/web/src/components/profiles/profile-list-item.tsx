@@ -3,6 +3,41 @@
 import { cn } from "@openmeld/ui/lib/utils";
 import type { ReactNode, Ref } from "react";
 
+function ProfileCardSummary(input: {
+	ariaLabel: string;
+	children: ReactNode;
+	hasMenu: boolean;
+	onClick?: () => void;
+}) {
+	const className = cn(
+		"flex min-w-0 flex-1 items-start gap-3",
+		input.hasMenu ? "pr-8 sm:pr-0" : null
+	);
+
+	if (input.onClick) {
+		return (
+			<button
+				aria-label={input.ariaLabel}
+				className={cn(
+					className,
+					"cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+				)}
+				data-slot="profile-card-summary"
+				onClick={input.onClick}
+				type="button"
+			>
+				{input.children}
+			</button>
+		);
+	}
+
+	return (
+		<div className={className} data-slot="profile-card-summary">
+			{input.children}
+		</div>
+	);
+}
+
 export function ProfileCard(input: {
 	actions?: ReactNode;
 	className?: string;
@@ -46,14 +81,15 @@ export function ProfileCard(input: {
 		secondarySubtitle !== undefined &&
 		secondarySubtitle !== null &&
 		secondarySubtitle !== false;
+	const summaryClick = onCardClick ? undefined : onProfileSummaryClick;
 	const summaryContent = (
 		<>
 			{icon}
 			<div className="min-w-0 flex-1 space-y-1">
-				<div className="flex min-w-0 items-center gap-2">
+				<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
 					<p
 						className={cn(
-							"min-w-0 break-words font-medium text-[0.95rem] leading-5",
+							"w-full min-w-0 break-words font-medium text-[0.95rem] leading-5 sm:w-auto",
 							dimTitle ? "text-muted-foreground" : "text-foreground"
 						)}
 					>
@@ -99,23 +135,21 @@ export function ProfileCard(input: {
 				/>
 			) : null}
 			<div className="pointer-events-none relative z-10 flex h-full min-w-0 flex-col [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto">
-				<div className="flex min-w-0 items-start justify-between gap-3">
-					{onProfileSummaryClick && !onCardClick ? (
-						<button
-							aria-label={profileSummaryAriaLabel ?? `About ${title}`}
-							className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-							onClick={onProfileSummaryClick}
-							type="button"
-						>
-							{summaryContent}
-						</button>
-					) : (
-						<div className="flex min-w-0 flex-1 items-start gap-3">
-							{summaryContent}
-						</div>
-					)}
+				<div className="relative flex min-w-0 items-start justify-between gap-3">
+					<ProfileCardSummary
+						ariaLabel={profileSummaryAriaLabel ?? `About ${title}`}
+						hasMenu={Boolean(menu)}
+						onClick={summaryClick}
+					>
+						{summaryContent}
+					</ProfileCardSummary>
 					{menu ? (
-						<div className="flex shrink-0 items-start justify-end">{menu}</div>
+						<div
+							className="absolute top-0 right-0 flex shrink-0 items-start justify-end sm:static"
+							data-slot="profile-card-menu"
+						>
+							{menu}
+						</div>
 					) : null}
 				</div>
 				{actions ? <div className="mt-4">{actions}</div> : null}

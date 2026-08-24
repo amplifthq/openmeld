@@ -29,6 +29,7 @@ export function SpaceWindowHeader(input: {
 	leadingControl?: ReactNode;
 	navigation?: ReactNode;
 	renderFrame?: boolean;
+	secondaryContentClassName?: string;
 	subtitleItems?: readonly SpaceWindowHeaderSubtitleItem[];
 	title: string;
 	// Rendered immediately after the title, kept shrink-0 so the live-status
@@ -41,7 +42,7 @@ export function SpaceWindowHeader(input: {
 	const content = (
 		<div
 			className={cn(
-				"grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-4",
+				"relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-4",
 				hasSecondaryRow
 					? "grid-rows-[minmax(0,2.5rem)_minmax(0,var(--space-conversation-navigation-height))]"
 					: "grid-rows-1",
@@ -73,7 +74,8 @@ export function SpaceWindowHeader(input: {
 						"col-end-4 row-start-2 flex min-w-0 items-center gap-3",
 						input.navigation
 							? "col-start-1 overflow-visible"
-							: "col-start-2 overflow-hidden"
+							: "col-start-2 overflow-hidden",
+						input.secondaryContentClassName
 					)}
 					data-slot="space-window-header-secondary"
 				>
@@ -183,7 +185,14 @@ export function SpaceHeader(input: {
 						className="flex shrink-0 items-center gap-1"
 						data-slot="space-header-primary-actions"
 					>
-						{input.setupRecallAction ?? null}
+						{input.setupRecallAction ? (
+							<div
+								className="max-lg:absolute max-lg:right-[var(--space-conversation-inline-padding)] max-lg:bottom-0 max-lg:flex max-lg:h-[var(--space-conversation-navigation-height)] max-lg:items-center"
+								data-slot="space-header-setup-recall-action"
+							>
+								{input.setupRecallAction}
+							</div>
+						) : null}
 						{input.membersControl ?? null}
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog
@@ -240,6 +249,9 @@ export function SpaceHeader(input: {
 			}
 			navigation={input.viewControl}
 			renderFrame={input.renderFrame}
+			secondaryContentClassName={
+				input.setupRecallAction ? "max-lg:pr-12" : undefined
+			}
 			subtitleItems={subtitleItems}
 			title={spaceName}
 			titleAdornment={
@@ -274,14 +286,22 @@ function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 }
 
 function DirectMessageHeaderLabel() {
-	return <span className="shrink-0 whitespace-nowrap">Direct Message</span>;
+	return (
+		<span className="hidden shrink-0 whitespace-nowrap sm:inline">
+			Direct Message
+		</span>
+	);
 }
 
 function renderSpaceAccessModeHeaderLabel(
 	accessMode: GetSpaceStatusResponse["accessMode"]
 ): ReactNode {
 	if (accessMode !== "public") {
-		return resolveSpaceAccessModeLabel(accessMode);
+		return (
+			<span className="hidden sm:inline">
+				{resolveSpaceAccessModeLabel(accessMode)}
+			</span>
+		);
 	}
 
 	return <PublicSpaceAccessWarningLabel />;
@@ -293,11 +313,13 @@ function PublicSpaceAccessWarningLabel() {
 			<TooltipTrigger
 				render={
 					<span
+						aria-label="Public"
 						className="inline-flex shrink-0 items-center gap-1 font-medium text-amber-600 dark:text-amber-400"
 						data-testid="space-public-access-warning"
+						role="img"
 					>
 						<WarningIcon aria-hidden="true" className="size-3.5 shrink-0" />
-						<span>Public</span>
+						<span className="hidden sm:inline">Public</span>
 					</span>
 				}
 			/>

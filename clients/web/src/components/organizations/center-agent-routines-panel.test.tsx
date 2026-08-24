@@ -535,6 +535,33 @@ describe("CenterAgentRoutinesPanel", () => {
 		});
 	});
 
+	it("keeps long Routine controls inside the card with a concise visible Runs action", async () => {
+		const routine = buildRoutine({
+			id: "routine-responsive",
+			name: "Weekly responsive product review across every supported screen size",
+		});
+		stubRoutineResponse([routine]);
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentRoutinesPanel
+					organizationId={ORGANIZATION_ID}
+					orgSlug="acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const viewRuns = await screen.findByRole("button", {
+			name: `View runs for ${routine.name}`,
+		});
+		expect(within(viewRuns).getByText("View runs").className).toContain(
+			"lg:hidden"
+		);
+		expect(
+			within(viewRuns).getByText(`View runs for ${routine.name}`).className
+		).toContain("max-lg:hidden");
+		expect(viewRuns.parentElement?.className).toContain("min-w-0");
+	});
+
 	it("paginates run history and presents every run state without inventing terminal outcomes", async () => {
 		const routine = buildRoutine({ canManage: false, id: "routine-history" });
 		const runsPath = `${ROUTINES_PATH}/routine-history/runs`;

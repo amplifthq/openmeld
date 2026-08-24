@@ -30,7 +30,7 @@ export function MagicLinkButton({
 
 	return (
 		<Link
-			className={`${buttonVariants({ variant: "authButton" })} group relative w-full ${isSubmitting ? "pointer-events-none opacity-50" : ""}`}
+			className={`${buttonVariants({ variant: "authButton" })} group relative h-11 w-full lg:h-8 ${isSubmitting ? "pointer-events-none opacity-50" : ""}`}
 			to={to}
 		>
 			<div className="flex items-center gap-2">

@@ -180,7 +180,7 @@ describe("SpaceOutcomeRow", () => {
 		).toBeTruthy();
 	});
 
-	it("truncates the notice text to a single line instead of wrapping a full-width block", () => {
+	it("wraps the notice on phones and keeps the compact desktop row", () => {
 		render(
 			<SpaceOutcomeRow
 				onOpenDetails={null}
@@ -190,7 +190,8 @@ describe("SpaceOutcomeRow", () => {
 		);
 
 		const textSpan = screen.getByText("This agent could not reply.");
-		expect(textSpan.className).toContain("truncate");
+		expect(textSpan.className).toContain("max-sm:break-words");
+		expect(textSpan.className).toContain("sm:truncate");
 	});
 
 	it("colors the destructive tone without a full-width danger block", () => {
@@ -271,9 +272,15 @@ describe("SpaceOutcomeRow", () => {
 			/>
 		);
 
-		fireEvent.click(
-			screen.getByRole("button", { name: "Open message details" })
-		);
+		const detailsButton = screen.getByRole("button", {
+			name: "Open message details",
+		});
+		expect(detailsButton.className).toContain("touch-manipulation");
+		expect(detailsButton.className).toContain("max-lg:min-h-11");
+		const detailsText = screen.getByText("This agent could not reply.");
+		expect(detailsText.className).toContain("max-sm:break-words");
+		expect(detailsText.className).toContain("sm:truncate");
+		fireEvent.click(detailsButton);
 		expect(onOpenDetails).toHaveBeenCalledOnce();
 	});
 
