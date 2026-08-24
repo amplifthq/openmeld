@@ -513,11 +513,24 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   not make the projection or the Service an execution authority.
 - Controller target changes and Controller unbinding use an owner-sharded
   RuntimeCoordinator execution-state read that spans every Space. Web may use
-  that read to disable disruptive actions immediately, but the Core Binding
-  writer must recheck it before mutation. `active` blocks the mutation;
-  unavailable authority fails closed. Settings-only writes do not use this
-  guard because RuntimeCoordinator already freezes their accepted Binding
-  revision for the current execution.
+  that read to disable disruptive actions immediately, but it is advisory. The
+  Core Binding writer must acquire a short-lived Controller-mutation admission
+  from the same owner shard before its D1 mutation and release it afterward.
+  RuntimeCoordinator stores Wake-head acceptance, active execution references,
+  and Controller-mutation admission through one transactionally coordinated
+  owner-shard model: `active` blocks admission, and a new Wake that arrives
+  after admission receives a retryable response instead of being accepted
+  against the changing Controller. D1 remains Binding storage, never in-flight
+  execution authority. Unavailable or rebuilding owner-shard authority fails
+  closed; abandoned admission expires instead of permanently locking the
+  profile. Settings-only writes do not use this guard because
+  RuntimeCoordinator already freezes their accepted Binding revision for the
+  current execution.
+- The owner shard keeps bounded per-profile active references and co-writes
+  them with canonical head and execution-token authority. Before the bounded
+  model is ready, it repairs from paginated canonical storage keys without
+  trusting the legacy head or run-command indexes. Repair is fail-closed and
+  retryable, and the ready-state hot path never scans total account history.
 - Consumers use the response inside one operation and must not persist it.
 - Device-scoped derivations (daemon route catalog, projected controllers,
   local service demand) must consume this projection instead of rebuilding the

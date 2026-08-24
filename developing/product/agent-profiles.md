@@ -293,11 +293,25 @@ decide whether the Agent Profile is Available, Checking, Offline, or Unavailable
 Changing or unbinding the Agent Controller is different because it changes the
 execution target and can interrupt accepted work. Every maintenance surface
 must read the owner-sharded RuntimeCoordinator execution state, independent of
-the current Space, and the Binding writer must recheck the same authority before
-committing the target change. An active execution blocks only the disruptive
-Controller mutation; a missing or unreadable execution-state authority fails
-closed for that mutation without blocking model, reasoning, collaboration,
-permission, or OpenCode permission writes.
+the current Space. That read is advisory: before committing the Binding change,
+the writer must acquire a short-lived owner-shard Controller-mutation admission
+and hold it across the D1 mutation. RuntimeCoordinator serializes that admission
+with new Wake-head acceptance in the same Durable Object storage transaction,
+so a Wake that arrives after admission waits instead of racing the Controller
+change. An active execution blocks only the disruptive Controller mutation; a
+missing, rebuilding, or unreadable execution-state authority fails closed for
+that mutation without blocking model, reasoning, collaboration, permission, or
+OpenCode permission writes. Expired mutation admission is recoverable after a
+writer crash, so an abandoned change cannot lock the Agent Profile forever.
+
+RuntimeCoordinator maintains bounded per-profile active references for this
+decision. On upgrade it rebuilds them in bounded pages from canonical head and
+execution authority records rather than trusting the legacy activity indexes.
+The mutation stays unavailable until repair completes, repair failures retry
+with backoff, and completed repair makes later reads independent of total
+account history. Active-reference writes remain atomic with their canonical
+authority writes, so a missing or partial legacy index cannot produce a false
+inactive result.
 The Agents home may group multiple eligible reconnect actions behind one explicit
 confirmation, but each Agent Profile still receives its own authoritative
 Binding write and outcome. A Computer or service reconnect must never move

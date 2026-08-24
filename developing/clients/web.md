@@ -2298,7 +2298,9 @@ Space maintenance dialogs must read the account-wide Controller-change
 eligibility projection rather than deriving a lock from the current Space's
 Wake list. An unavailable projection disables only those disruptive controls.
 The Core writer remains the final guard against stale browser state; Web must
-not present a rejected write as saved. Model, reasoning, collaboration,
+not present a rejected write as saved. That writer acquires owner-shard
+Controller-mutation admission, so a Wake that starts after Web's eligibility
+read still blocks the disruptive change. Model, reasoning, collaboration,
 permission, and OpenCode permission controls remain editable while an Agent is
 working because they apply to future work after local synchronization.
 
