@@ -29,6 +29,11 @@ const REPLACEMENT_TOKEN_REF = {
   provider: "macos-keychain" as const,
   service: "sh.openmeld.auth.token",
 };
+const FINAL_TOKEN_REF = {
+  account: "openmeld-auth-final",
+  provider: "macos-keychain" as const,
+  service: "sh.openmeld.auth.token",
+};
 
 describe("auth session secure storage boundary", () => {
   beforeEach(() => {
@@ -107,6 +112,54 @@ describe("auth session secure storage boundary", () => {
       privateFallbackRef
     );
     expect(secureStorage.deleteAccessToken).not.toHaveBeenCalledWith(
+      REPLACEMENT_TOKEN_REF
+    );
+  });
+
+  it("retains failed old-credential cleanup and retries it on a later login", async () => {
+    secureStorage.storeAccessToken
+      .mockResolvedValueOnce(TOKEN_REF)
+      .mockResolvedValueOnce(REPLACEMENT_TOKEN_REF)
+      .mockResolvedValueOnce(FINAL_TOKEN_REF);
+    secureStorage.deleteAccessToken
+      .mockRejectedValueOnce(new Error("Keychain delete unavailable"))
+      .mockResolvedValue(undefined);
+
+    await withTempHome(async (home) => {
+      await setAuthSession({
+        accessToken: secureStorage.accessToken,
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+      await setAuthSession({
+        accessToken: secureStorage.accessToken,
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+
+      const cleanupPath = join(
+        home,
+        ".openmeld",
+        "auth",
+        "pending-token-cleanup.json"
+      );
+      await expect(readFile(cleanupPath, "utf8")).resolves.toContain(
+        "openmeld-auth-test"
+      );
+
+      await setAuthSession({
+        accessToken: secureStorage.accessToken,
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+
+      await expect(readFile(cleanupPath, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    });
+
+    expect(secureStorage.deleteAccessToken).toHaveBeenCalledWith(TOKEN_REF);
+    expect(secureStorage.deleteAccessToken).toHaveBeenCalledWith(
       REPLACEMENT_TOKEN_REF
     );
   });

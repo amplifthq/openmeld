@@ -1,3 +1,4 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -444,6 +445,52 @@ describe("auth login/logout commands", () => {
       expect(stdout).toContain("Local sign-out cleanup finished");
       expect(stdout).toContain("No local sign-in session found.");
       await expect(getSelectedOpenMeldProfileId()).resolves.toBeNull();
+    });
+  });
+
+  it("clears an unreadable Keychain-backed session so the user can sign in again", async () => {
+    await withTempHome(async (home) => {
+      bestEffortStopCurrentLaneDaemonServiceMock.mockResolvedValue({
+        status: "not_running",
+        runtimeStatus: {
+          status: "not_running",
+          mode: null,
+          pid: null,
+          startedAt: null,
+          updatedAt: null,
+          managedBySystemService: false,
+          serviceController: "unknown",
+          autoStart: false,
+        },
+      });
+      const sessionPath = join(home, ".openmeld", "auth", "session.json");
+      await mkdir(join(home, ".openmeld", "auth"), { recursive: true });
+      await writeFile(
+        sessionPath,
+        `${JSON.stringify({
+          v: 1,
+          tokenRef: {
+            provider: "macos-keychain",
+            service: "sh.openmeld.auth.token",
+            account: "openmeld-auth-unreadable",
+          },
+          tokenType: "Bearer",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          createdAt: new Date().toISOString(),
+        })}\n`,
+        "utf8"
+      );
+
+      await expect(getAuthSession()).resolves.toBeNull();
+      const { stdout } = await withCapturedStdio(() =>
+        runAuthLogout({ view: "human" })
+      );
+
+      expect(stdout).toContain("Signed out on this device.");
+      await expect(readFile(sessionPath, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
     });
   });
 

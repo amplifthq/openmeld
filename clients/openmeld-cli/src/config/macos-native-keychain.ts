@@ -15,6 +15,7 @@ const HELPER_OUTPUT_MAX_BYTES = 128 * 1024;
 export const MAC_OS_KEYCHAIN_HELPER_TIMEOUT_MS = 5000;
 
 type MacOsKeychainAddon = {
+  isParentSameExecutable(): boolean;
   read(service: string, account: string): string | null;
   remove(service: string, account: string): void;
   store(service: string, account: string, accessToken: string): void;
@@ -214,6 +215,13 @@ export async function runMacOsNativeKeychainHelperIfRequested(
   if (!(isBinaryDistribution() && process.platform === "darwin")) {
     throw new Error(
       "the internal macOS Keychain helper is only available in the macOS binary"
+    );
+  }
+
+  const addon = await loadAddon();
+  if (!addon.isParentSameExecutable()) {
+    throw new Error(
+      "the internal macOS Keychain helper is reserved for an OpenMeld child process"
     );
   }
 
