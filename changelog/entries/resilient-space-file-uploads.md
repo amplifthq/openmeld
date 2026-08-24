@@ -8,6 +8,7 @@ audiences: ["members"]
 
 Uploading a file with an existing name now keeps both files and assigns a clear
 numbered name automatically. Center Agent now keeps screenshots readable by
-creating high-resolution temporary model copies and splitting large image sets
-into safe batches; original image data never enters its ongoing conversation
-context.
+creating high-resolution temporary model copies, grouping up to five ordinary
+screenshots when the visual and infrastructure budgets allow it, and combining
+larger image sets across safe batches. Original image data never enters its
+ongoing conversation context.

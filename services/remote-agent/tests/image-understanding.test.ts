@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   appendRemoteAgentImageUnderstanding,
   REMOTE_AGENT_CONTEXT_IMAGE_BATCH_MAX_BYTES,
+  REMOTE_AGENT_CONTEXT_IMAGE_BATCH_MAX_COUNT,
+  REMOTE_AGENT_CONTEXT_IMAGE_BATCH_MAX_PIXELS,
   REMOTE_AGENT_CONTEXT_IMAGE_MAX_BYTES,
   REMOTE_AGENT_CONTEXT_IMAGE_MAX_DIMENSION,
   REMOTE_AGENT_CONTEXT_IMAGE_MIN_DIMENSION,
@@ -38,8 +40,14 @@ describe("Remote Agent image understanding", () => {
     }));
     const transform = vi.fn(() => ({ output: outputImage }));
     const imagesBinding = {
+      info: vi.fn(async () => ({
+        fileSize: 3,
+        format: "image/png",
+        height: 2160,
+        width: 3840,
+      })),
       input: vi.fn(() => ({ transform })),
-    } as unknown as Pick<ImagesBinding, "input">;
+    } as unknown as Pick<ImagesBinding, "info" | "input">;
     const images = Array.from({ length: 10 }, (_, index) => ({
       data: "AQID",
       filename: `screen-${index + 1}.png`,
@@ -54,9 +62,11 @@ describe("Remote Agent image understanding", () => {
     expect(transform).toHaveBeenCalledTimes(10);
   });
 
-  it("splits ten prepared images into bounded model batches", async () => {
+  it("keeps five ordinary screenshots together while splitting a ten-image turn", async () => {
+    const imageCounts: number[] = [];
     const fetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
+        max_tokens: number;
         messages: Array<{ content: unknown[] }>;
       };
       expect(JSON.stringify(body.messages[0]?.content)).toContain(
@@ -65,7 +75,9 @@ describe("Remote Agent image understanding", () => {
       const imageCount = JSON.stringify(body.messages[0]?.content).match(
         /data:image\/webp;base64/g
       )?.length;
-      expect(imageCount).toBeLessThanOrEqual(3);
+      imageCounts.push(imageCount ?? 0);
+      expect(imageCount).toBeLessThanOrEqual(5);
+      expect(body.max_tokens).toBe(8192);
       return Promise.resolve(
         Response.json({
           choices: [
@@ -91,9 +103,66 @@ describe("Remote Agent image understanding", () => {
         })),
         model: IMAGE_MODEL,
         organizationId: "org_123",
+        prepareImage: async (image) => ({
+          data: "AQID",
+          estimatedPixelCount: 2560 * 1440,
+          ...(image.filename ? { filename: image.filename } : {}),
+          mimeType: REMOTE_AGENT_CONTEXT_IMAGE_OUTPUT_MIME_TYPE,
+          sizeBytes: 600_000,
+          type: "image",
+        }),
       })
-    ).resolves.toContain("Observed 1 image(s).");
-    expect(fetch).toHaveBeenCalledTimes(4);
+    ).resolves.toContain("Observed 5 image(s).");
+    expect(REMOTE_AGENT_CONTEXT_IMAGE_BATCH_MAX_COUNT).toBe(5);
+    expect(imageCounts).toEqual([5, 5]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("splits visually dense images before they exceed the aggregate pixel budget", async () => {
+    const imageCounts: number[] = [];
+    const fetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { max_tokens: number };
+      const imageCount =
+        String(init?.body).match(/data:image\/webp;base64/g)?.length ?? 0;
+      imageCounts.push(imageCount);
+      expect(body.max_tokens).toBe(imageCount > 3 ? 8192 : 4096);
+      return Promise.resolve(
+        Response.json({
+          choices: [{ message: { content: `Observed ${imageCount}.` } }],
+        })
+      );
+    });
+    const squarePixelCount = 2560 * 2560;
+
+    await expect(
+      understandRemoteAgentImages({
+        env: TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+        fetch,
+        images: Array.from({ length: 5 }, (_, index) => ({
+          data: "AQID",
+          filename: `dense-square-${index + 1}.png`,
+          mimeType: "image/png",
+          type: "image" as const,
+        })),
+        model: IMAGE_MODEL,
+        organizationId: "org_123",
+        prepareImage: async (image) => ({
+          data: "AQID",
+          estimatedPixelCount: squarePixelCount,
+          ...(image.filename ? { filename: image.filename } : {}),
+          mimeType: REMOTE_AGENT_CONTEXT_IMAGE_OUTPUT_MIME_TYPE,
+          sizeBytes: 100_000,
+          type: "image",
+        }),
+      })
+    ).resolves.toContain("Image understanding batch 2");
+    expect(squarePixelCount * 3).toBeLessThanOrEqual(
+      REMOTE_AGENT_CONTEXT_IMAGE_BATCH_MAX_PIXELS
+    );
+    expect(squarePixelCount * 4).toBeGreaterThan(
+      REMOTE_AGENT_CONTEXT_IMAGE_BATCH_MAX_PIXELS
+    );
+    expect(imageCounts).toEqual([3, 2]);
   });
 
   it("splits a model batch when prepared bytes reach the infrastructure budget before the count limit", async () => {
@@ -151,8 +220,14 @@ describe("Remote Agent image understanding", () => {
     const outputImage = vi.fn(async () => output);
     const transform = vi.fn(() => ({ output: outputImage }));
     const imagesBinding = {
+      info: vi.fn(async () => ({
+        fileSize: 3,
+        format: "image/png",
+        height: 2160,
+        width: 3840,
+      })),
       input: vi.fn(() => ({ transform })),
-    } as unknown as Pick<ImagesBinding, "input">;
+    } as unknown as Pick<ImagesBinding, "info" | "input">;
     const source = {
       data: "AQID",
       filename: "source.png",
@@ -168,6 +243,7 @@ describe("Remote Agent image understanding", () => {
     ).resolves.toEqual([
       {
         data: "BAUG",
+        estimatedPixelCount: 2560 * 1440,
         filename: source.filename,
         mimeType: REMOTE_AGENT_CONTEXT_IMAGE_OUTPUT_MIME_TYPE,
         sizeBytes: 3,
@@ -213,8 +289,14 @@ describe("Remote Agent image understanding", () => {
     });
     const transform = vi.fn(() => ({ output: outputImage }));
     const imagesBinding = {
+      info: vi.fn(async () => ({
+        fileSize: 3,
+        format: "image/png",
+        height: 2160,
+        width: 3840,
+      })),
       input: vi.fn(() => ({ transform })),
-    } as unknown as Pick<ImagesBinding, "input">;
+    } as unknown as Pick<ImagesBinding, "info" | "input">;
 
     await expect(
       transformRemoteAgentImagesForContext({
@@ -230,6 +312,7 @@ describe("Remote Agent image understanding", () => {
     ).resolves.toEqual([
       {
         data: "BAUG",
+        estimatedPixelCount: 2560 * 1440,
         mimeType: REMOTE_AGENT_CONTEXT_IMAGE_OUTPUT_MIME_TYPE,
         sizeBytes: 3,
         type: "image",
@@ -263,8 +346,14 @@ describe("Remote Agent image understanding", () => {
     }));
     const transform = vi.fn(() => ({ output: outputImage }));
     const imagesBinding = {
+      info: vi.fn(async () => ({
+        fileSize: 3,
+        format: "image/png",
+        height: 2160,
+        width: 3840,
+      })),
       input: vi.fn(() => ({ transform })),
-    } as unknown as Pick<ImagesBinding, "input">;
+    } as unknown as Pick<ImagesBinding, "info" | "input">;
 
     await expect(
       transformRemoteAgentImagesForContext({
@@ -296,11 +385,13 @@ describe("Remote Agent image understanding", () => {
   it("uses the exact auxiliary model with same-model provider failover", async () => {
     const fetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
+        max_tokens: number;
         messages: Array<{ content: unknown[] }>;
         model: string;
         provider: { allow_fallbacks: boolean };
       };
       expect(body.model).toBe("x-ai/grok-4.6");
+      expect(body.max_tokens).toBe(4096);
       expect(body.provider).toEqual({ allow_fallbacks: true });
       expect(JSON.stringify(body.messages[0]?.content)).toContain(
         "data:image/webp;base64,Y29tcHJlc3NlZA=="
@@ -336,6 +427,7 @@ describe("Remote Agent image understanding", () => {
         organizationId: "org_123",
         prepareImage: async (image) => ({
           data: "Y29tcHJlc3NlZA==",
+          estimatedPixelCount: 2560 * 1440,
           ...(image.filename ? { filename: image.filename } : {}),
           mimeType: "image/webp",
           sizeBytes: 10,

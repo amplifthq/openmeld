@@ -1107,12 +1107,18 @@ Current-version image admission is the first enforced binary boundary. It reads
 the authorized original from R2 as a replayable stream and prepares one image
 at a time. Each transient WebP prefers a 2560-pixel longest edge and quality 88,
 steps down through explicit profiles only when needed, never goes below a
-1600-pixel longest edge, and must fit within 4 MiB. The auxiliary model receives
-at most three images and 8 MiB of derivative bytes per request; larger turns are
-split into ordered, filename-labeled batches. A message may still carry all ten
-canonical Space File references. This is deliberately not one 4 MiB turn budget
-divided by image count: adding screenshots must not make each screenshot
-unreadable. Only the bounded textual observations survive the auxiliary calls.
+1600-pixel longest edge, and must fit within 4 MiB. One auxiliary request may
+contain up to five images, 8 MiB of derivative bytes, and an estimated 20
+megapixels of rendered image input; the first reached budget closes the batch.
+Four- and five-image batches reserve up to 8,192 output tokens, while smaller
+batches reserve up to 4,096. Larger turns are split into ordered,
+filename-labeled batches. The primary model receives every labeled observation
+together in the one admitted turn and performs the final cross-batch synthesis;
+batches never become separate user-visible conversation turns. A message may
+still carry all ten canonical Space File references. This is deliberately not
+one 4 MiB turn budget divided by image count: adding screenshots must not make
+each screenshot unreadable. Only the bounded textual observations survive the
+auxiliary calls.
 
 A shared pre-provider token allocator and the equivalent bounded materializers
 for every file and App/tool family remain required before this

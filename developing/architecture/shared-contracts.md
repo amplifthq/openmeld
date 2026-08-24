@@ -1110,10 +1110,15 @@ in one message while preserving the legacy maximum of four attachment records.
 Remote Agent opens the immutable R2 source as a replayable stream and prepares
 one derivative at a time. Each transient WebP has a 4 MiB ceiling, prefers a
 2560-pixel longest edge at quality 88, and never falls below 1600 pixels. One
-auxiliary request contains at most three images and 8 MiB of derivative bytes;
-larger turns are split into ordered batches whose prompt labels every global
-image index and filename. These are model-materialization limits, not Space
-File storage limits, and they never replace or mutate the original revision.
+auxiliary request contains at most five images, 8 MiB of derivative bytes, and
+an estimated 20 megapixels of rendered image input; reaching any one budget
+closes that batch. Four- and five-image batches reserve up to 8,192 output
+tokens, while smaller batches reserve up to 4,096. Larger turns are split into
+ordered batches whose prompt labels every global image index and filename. The
+primary model receives all labeled batch observations in one admitted turn and
+owns their final cross-batch synthesis; auxiliary batches never become durable
+conversation turns. These are model-materialization limits, not Space File
+storage limits, and they never replace or mutate the original revision.
 
 A text signal may have empty text only when it carries at least one canonical
 Space File. Web and CLI may therefore publish a file-only
