@@ -6,7 +6,7 @@ import type {
 } from "#/lib/spaces/account-spaces";
 import { isWelcomingSpacePurpose } from "#/lib/spaces/welcoming-space";
 
-export type AccountSpaceSidebarSections = {
+export type AccountSpacePresentationSections = {
 	directMessageItems: readonly AccountSpaceItem[];
 	pinnedItems: readonly AccountSpaceItem[];
 	spaceItems: readonly AccountSpaceItem[];
@@ -17,11 +17,11 @@ export type SpaceUnreadById = ReadonlyMap<
 	Pick<SpaceInboxSummaryItem, "latestUnreadOccurredAtMs" | "unreadCount">
 >;
 
-export function selectAccountSpaceSidebarSections(input: {
+export function selectAccountSpaceSections(input: {
 	currentOrganizationId: string;
 	sections: AccountSpaceSections;
 	unreadBySpaceId?: SpaceUnreadById;
-}): AccountSpaceSidebarSections {
+}): AccountSpacePresentationSections {
 	const pinnedItems = input.sections.pinnedItems.filter(
 		(item) => item.organizationId === input.currentOrganizationId
 	);

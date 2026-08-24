@@ -30,6 +30,8 @@ const {
 	appOrganizationMock,
 	appSpaceShellMock,
 	clearOrganizationPersistenceMock,
+	getAccountSpaceActiveWakeSummaryMock,
+	getCurrentSpaceInboxSummaryMock,
 	joinOrganizationSpaceMock,
 	listAccountSpaceItemsMock,
 	listOrganizationsMock,
@@ -37,6 +39,7 @@ const {
 	listStartProfilesMock,
 	navigateMock,
 	navigateComponentMock,
+	setAccountSpaceItemPinnedMock,
 	spaceWindowShellMock,
 } = vi.hoisted(() => ({
 	appOrganizationMock: {
@@ -66,6 +69,8 @@ const {
 		)
 	),
 	clearOrganizationPersistenceMock: vi.fn(),
+	getAccountSpaceActiveWakeSummaryMock: vi.fn(),
+	getCurrentSpaceInboxSummaryMock: vi.fn(),
 	spaceWindowShellMock: vi.fn((input: { children: ReactNode }) => (
 		<section data-testid="space-window-shell">{input.children}</section>
 	)),
@@ -76,6 +81,7 @@ const {
 	listStartProfilesMock: vi.fn(),
 	navigateMock: vi.fn(),
 	navigateComponentMock: vi.fn(),
+	setAccountSpaceItemPinnedMock: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
@@ -147,8 +153,20 @@ vi.mock("#/lib/spaces/account-spaces", async (importOriginal) => {
 	return {
 		...actual,
 		listAccountSpaceItems: () => listAccountSpaceItemsMock(),
+		setAccountSpaceItemPinned: (...args: unknown[]) =>
+			setAccountSpaceItemPinnedMock(...args),
 	};
 });
+
+vi.mock("#/lib/organizations/inbox", () => ({
+	getCurrentSpaceInboxSummary: (...args: unknown[]) =>
+		getCurrentSpaceInboxSummaryMock(...args),
+}));
+
+vi.mock("#/lib/spaces/account-space-active-wake", () => ({
+	getAccountSpaceActiveWakeSummary: (...args: unknown[]) =>
+		getAccountSpaceActiveWakeSummaryMock(...args),
+}));
 
 vi.mock("#/query/persistence/app-query-persistence", () => ({
 	resolveAppQueryPersistenceController: () => ({
@@ -174,6 +192,14 @@ describe("app spaces index route", () => {
 		spaceWindowShellMock.mockClear();
 		joinOrganizationSpaceMock.mockReset().mockResolvedValue({});
 		clearOrganizationPersistenceMock.mockReset().mockResolvedValue(undefined);
+		getAccountSpaceActiveWakeSummaryMock.mockReset().mockResolvedValue({
+			generatedAtMs: 0,
+			items: [],
+		});
+		getCurrentSpaceInboxSummaryMock.mockReset().mockResolvedValue({
+			organizationId: "org-acme",
+			spaces: [],
+		});
 		listOrganizationsMock.mockReset().mockResolvedValue([]);
 		listOrganizationSpacesMock
 			.mockReset()
@@ -183,6 +209,7 @@ describe("app spaces index route", () => {
 			spaceItems: [],
 		});
 		listStartProfilesMock.mockReset();
+		setAccountSpaceItemPinnedMock.mockReset().mockResolvedValue([]);
 	});
 
 	afterEach(() => {
@@ -281,6 +308,237 @@ describe("app spaces index route", () => {
 		expect(screen.queryByTestId("space-landing")).toBeNull();
 	});
 
+	it("shows joined Space status facts in Account Space Index order without leaking them into Discover", async () => {
+		listStartProfilesMock.mockResolvedValue([
+			createProfile({
+				openMeldProfileId: "selected-human",
+				isDefault: true,
+				profileName: "Selected Human",
+			}),
+		]);
+		listOrganizationSpacesMock.mockResolvedValue(
+			createOrganizationSpacesResponse({
+				spaces: [
+					createOrganizationSpace({
+						joined: true,
+						name: "Idle",
+						spaceId: "space-idle",
+						visibility: "public",
+					}),
+					createOrganizationSpace({
+						joined: true,
+						name: "Working",
+						spaceId: "space-working",
+						visibility: "private",
+					}),
+					createOrganizationSpace({
+						joined: true,
+						name: "Unread",
+						spaceId: "space-unread",
+						visibility: "public",
+					}),
+					createOrganizationSpace({
+						joined: false,
+						name: "Support",
+						spaceId: "space-support",
+						visibility: "public",
+					}),
+				],
+			})
+		);
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [
+				createAccountSpaceItem({
+					pinnedAt: "2026-08-24T01:00:00.000Z",
+					pinnedProfileIds: ["selected-human", "other-human"],
+					spaceId: "space-working",
+					spaceName: "Working",
+					spacePurpose: null,
+				}),
+				createAccountSpaceItem({
+					pinnedAt: "2026-08-24T00:30:00.000Z",
+					pinnedProfileIds: ["selected-human"],
+					spaceId: "space-support",
+					spaceName: "Support",
+					spacePurpose: null,
+				}),
+			],
+			spaceItems: [
+				createAccountSpaceItem({
+					spaceId: "space-idle",
+					spaceName: "Idle",
+					spacePurpose: null,
+				}),
+				createAccountSpaceItem({
+					spaceId: "space-unread",
+					spaceName: "Unread",
+					spacePurpose: null,
+				}),
+			],
+		});
+		getCurrentSpaceInboxSummaryMock.mockResolvedValue({
+			organizationId: "org-acme",
+			spaces: [
+				{
+					latestUnreadOccurredAtMs: 3000,
+					spaceId: "space-working",
+					unreadCount: 2,
+				},
+				{
+					latestUnreadOccurredAtMs: 2000,
+					spaceId: "space-unread",
+					unreadCount: 1,
+				},
+				{
+					latestUnreadOccurredAtMs: 1000,
+					spaceId: "space-support",
+					unreadCount: 4,
+				},
+			],
+		});
+		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
+			generatedAtMs: Date.now(),
+			items: [
+				{ activeWakeCount: 1, spaceId: "space-working" },
+				{ activeWakeCount: 1, spaceId: "space-support" },
+			],
+		});
+		setAccountSpaceItemPinnedMock.mockReturnValue(new Promise(() => undefined));
+
+		renderSpacesIndex();
+
+		const workingCard = await screen.findByTestId(
+			"organization-space-card-space-working"
+		);
+		const unreadCard = screen.getByTestId(
+			"organization-space-card-space-unread"
+		);
+		const idleCard = screen.getByTestId("organization-space-card-space-idle");
+		const supportCard = screen.getByTestId(
+			"organization-space-card-space-support"
+		);
+
+		const workingUnreadIndicator = within(workingCard).getByTestId(
+			"space-directory-unread-indicator"
+		);
+		expect(workingUnreadIndicator).toBeTruthy();
+		const workingUnreadDot = workingUnreadIndicator.querySelector(
+			'[aria-hidden="true"]'
+		);
+		expect(workingUnreadDot).toBeTruthy();
+		expect(workingUnreadDot?.className).not.toContain("animate");
+		expect(within(workingCard).getByText("2 unread")).toBeTruthy();
+		const workingIndicator = within(workingCard).getByTestId(
+			"space-directory-working-indicator"
+		);
+		expect(workingIndicator).toBeTruthy();
+		expect(
+			workingIndicator.querySelector('[data-slot="space-agent-orb"]')
+		).toBeTruthy();
+		expect(within(workingCard).getByText("Pinned")).toBeTruthy();
+		const unpinButton = within(workingCard).getByRole("button", {
+			name: "Unpin Working",
+		});
+		expect(unpinButton.getAttribute("aria-pressed")).toBe("true");
+		expect(unpinButton.querySelector("svg")).toBeTruthy();
+
+		expect(workingCard.compareDocumentPosition(unreadCard)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect(unreadCard.compareDocumentPosition(idleCard)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect(within(unreadCard).getByText("1 unread")).toBeTruthy();
+
+		expect(
+			within(supportCard).getByRole("button", { name: "Join Support" })
+		).toBeTruthy();
+		expect(
+			within(supportCard).queryByTestId("space-directory-unread-indicator")
+		).toBeNull();
+		expect(
+			within(supportCard).queryByTestId("space-directory-working-indicator")
+		).toBeNull();
+		expect(
+			within(supportCard).queryByRole("button", { name: "Pin Support" })
+		).toBeNull();
+
+		fireEvent.click(unpinButton);
+
+		await waitFor(() => {
+			expect(setAccountSpaceItemPinnedMock).toHaveBeenCalledWith({
+				pinnedAt: null,
+				profileIds: ["selected-human", "other-human"],
+				spaceId: "space-working",
+			});
+		});
+		expect(
+			within(workingCard).getByRole("button", { name: "Pin Working" })
+		).toBeTruthy();
+		expect(within(workingCard).queryByText("Pinned")).toBeNull();
+	});
+
+	it("pins a joined Space directly from its directory card", async () => {
+		listStartProfilesMock.mockResolvedValue([
+			createProfile({
+				openMeldProfileId: "selected-human",
+				isDefault: true,
+				profileName: "Selected Human",
+			}),
+		]);
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					spaceId: "space-private",
+					spaceName: "Finance",
+					spacePurpose: null,
+				}),
+				createAccountSpaceItem({
+					spaceId: "space-planning",
+					spaceName: "Planning",
+					spacePurpose: null,
+				}),
+			],
+		});
+		setAccountSpaceItemPinnedMock.mockReturnValue(new Promise(() => undefined));
+
+		renderSpacesIndex();
+
+		const planningCard = await screen.findByTestId(
+			"organization-space-card-space-planning"
+		);
+		const financeCard = screen.getByTestId(
+			"organization-space-card-space-private"
+		);
+		expect(financeCard.compareDocumentPosition(planningCard)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		const pinButton = within(planningCard).getByRole("button", {
+			name: "Pin Planning",
+		});
+		expect(pinButton.getAttribute("aria-pressed")).toBe("false");
+
+		pinButton.focus();
+		fireEvent.click(pinButton);
+
+		await waitFor(() => {
+			expect(setAccountSpaceItemPinnedMock).toHaveBeenCalledWith({
+				pinnedAt: expect.any(String),
+				profileIds: ["selected-human"],
+				spaceId: "space-planning",
+			});
+		});
+		const unpinButton = within(planningCard).getByRole("button", {
+			name: "Unpin Planning",
+		});
+		expect(planningCard.compareDocumentPosition(financeCard)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect(document.activeElement).toBe(unpinButton);
+		expect(within(planningCard).getByText("Pinned")).toBeTruthy();
+	});
+
 	it("keeps current Direct Messages out of the Spaces directory", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({
@@ -323,11 +581,13 @@ describe("app spaces index route", () => {
 					activeMemberCount: 2,
 					spaceId: "space-direct-message",
 					spaceName: "Selected Human and Helper",
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 				}),
 				createAccountSpaceItem({
 					activeMemberCount: 3,
 					spaceId: "space-expanded-conversation",
 					spaceName: "Expanded conversation",
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 				}),
 			],
 		});
@@ -937,18 +1197,22 @@ function createOrganizationSpace(input: {
 }
 
 function createAccountSpaceItem(input: {
-	activeMemberCount: number;
+	activeMemberCount?: number;
+	pinnedAt?: string | null;
+	pinnedProfileIds?: readonly string[];
 	spaceId: string;
 	spaceName: string;
+	spacePurpose?: string | null;
 }) {
+	const pinnedAt = input.pinnedAt ?? null;
 	return {
 		activeAgentCount: null,
 		activeHumanCount: null,
-		activeMemberCount: input.activeMemberCount,
+		activeMemberCount: input.activeMemberCount ?? 8,
 		joinedProfiles: [
 			{
 				lastJoinedAt: "2026-07-05T00:00:00.000Z",
-				pinnedAt: null,
+				pinnedAt,
 				profileId: "selected-human",
 				profileName: "Selected Human",
 			},
@@ -957,11 +1221,11 @@ function createAccountSpaceItem(input: {
 		openProfileId: "selected-human",
 		openProfileName: "Selected Human",
 		organizationId: "org-acme",
-		pinnedAt: null,
-		pinnedProfileIds: [],
+		pinnedAt,
+		pinnedProfileIds: input.pinnedProfileIds ?? [],
 		spaceId: input.spaceId,
 		spaceName: input.spaceName,
-		spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+		spacePurpose: input.spacePurpose ?? null,
 		visibility: "private" as const,
 	};
 }

@@ -462,6 +462,15 @@ after the document is visible and the member remains at the latest message for
 the normal debounce. If the unread summary is unavailable, Space navigation
 remains usable in Account Space Index order without inventing read state.
 
+Browse Spaces composes the Organization Space Directory with those same
+Account Space Index, unread-summary, and active-Wake projections. Joined cards
+show unread, Working, and pinned indicators independently, expose the shared
+pin or unpin action, and follow pinned order before the unread-aware unpinned
+order. Discover cards keep the directory's public-Space order and expose only
+Join; Web does not attach account status or pin actions to an unjoined Space.
+If a joined directory item has no matching Account Space Index item, Open stays
+available while account status and pin controls fail closed.
+
 The **Artifacts** placeholder is not part of the target rail. Remove the
 placeholder and return Artifacts to navigation only when it has real product
 content and passes the Use vs. Configure test.
