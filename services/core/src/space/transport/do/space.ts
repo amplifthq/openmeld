@@ -3035,6 +3035,7 @@ export class Space extends DurableObject<CoreBindings> {
           db: coordinationDb,
           env: this.bindings,
           publishedSignalId,
+          publishState: finalized.publishState,
         });
       if (taskOutcomeWrite && !taskOutcomeWrite.matches) {
         console.warn(

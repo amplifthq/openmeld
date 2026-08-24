@@ -11,8 +11,6 @@ export type SpaceOutcomeToneInput = {
 /**
  * The shared semantic tone decision for every Space outcome surface:
  * - `wake_stopped` is muted because a stop is not a failure.
- * - `wake_completed` is muted because finishing without a public reply is a
- *   settled success, not an execution failure.
  * - Organization Wake-access failures are warning configuration outcomes.
  * - Publication failures are warnings because execution already completed.
  * - Every other terminal failure is a destructive execution failure.
@@ -20,10 +18,7 @@ export type SpaceOutcomeToneInput = {
 export function resolveSpaceOutcomeRowTone(
 	input: SpaceOutcomeToneInput
 ): SpaceOutcomeRowTone {
-	if (
-		input.noticeType === "wake_stopped" ||
-		input.noticeType === "wake_completed"
-	) {
+	if (input.noticeType === "wake_stopped") {
 		return "muted";
 	}
 	if (input.reasonCode?.startsWith("organization_binding_authorization.")) {

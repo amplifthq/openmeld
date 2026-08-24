@@ -38,15 +38,3 @@ export function BrowserNotificationControl(input: {
 		/>
 	);
 }
-
-export function resolveBrowserNotificationDescription(
-	permission: InboxBrowserNotificationSettings["permission"]
-): string {
-	if (permission === "unsupported") {
-		return "This browser does not support notifications. Your Inbox is still available in OpenMeld.";
-	}
-	if (permission === "denied") {
-		return "Notifications are blocked. Allow them in your browser’s site settings, then return here.";
-	}
-	return "Notify for directly addressed messages, actions, and urgent items in this browser. Applies to every Space and Direct Message.";
-}

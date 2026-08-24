@@ -53,6 +53,7 @@ describe("RuntimeCoordinator Agent Task terminal projection", () => {
       projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
         command,
         publishedSignalId: "signal-result",
+        publishState: "reply_published",
       })
     ).toEqual({
       nowMs: 2500,
@@ -99,6 +100,7 @@ describe("RuntimeCoordinator Agent Task terminal projection", () => {
       projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
         command: stayedSilent,
         publishedSignalId: "signal-silent",
+        publishState: "reply_published",
       })?.outcome
     ).toMatchObject({
       errorCode: null,
@@ -128,10 +130,83 @@ describe("RuntimeCoordinator Agent Task terminal projection", () => {
       projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
         command: failed,
         publishedSignalId: "signal-failure",
+        publishState: "reply_published",
       })?.outcome
     ).toMatchObject({
       errorCode: "git.auth_failed",
       publishedSignalId: "signal-failure",
+      status: "failed",
+    });
+  });
+
+  it("projects a successful result without a Space action as failed", () => {
+    const command = buildFinalizationCommand({
+      acceptedResult: {
+        taskResult: {
+          code: "service.task_result",
+          payload: {
+            agentId: "child-profile",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "Private output only",
+            sourceEventId: "signal-child",
+            status: "success",
+            taskId: "task-1",
+          },
+          v: 4,
+        },
+      },
+    });
+
+    expect(
+      projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
+        command,
+        publishedSignalId: "signal-failure",
+        publishState: "reply_published",
+      })?.outcome
+    ).toMatchObject({
+      errorCode: "agent_task.invalid_space_action",
+      publishedSignalId: "signal-failure",
+      status: "failed",
+    });
+  });
+
+  it("projects a Space-policy-blocked final action as failed", () => {
+    const command = buildFinalizationCommand({
+      acceptedResult: {
+        taskResult: {
+          code: "service.task_result",
+          payload: {
+            agentId: "child-profile",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "Done",
+            sourceEventId: "signal-child",
+            spaceAction: {
+              messageEnvelope: {
+                activationTargets: [],
+                referenceTargets: [],
+                text: "Done",
+              },
+              type: "post_message",
+            },
+            status: "success",
+            taskId: "task-1",
+          },
+          v: 4,
+        },
+      },
+    });
+
+    expect(
+      projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
+        command,
+        publishedSignalId: "signal-policy-blocked",
+        publishState: "invalid_space_action",
+      })?.outcome
+    ).toMatchObject({
+      errorCode: "agent_task.invalid_space_action",
+      publishedSignalId: "signal-policy-blocked",
       status: "failed",
     });
   });
@@ -145,6 +220,7 @@ describe("RuntimeCoordinator Agent Task terminal projection", () => {
       projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
         command,
         publishedSignalId: "signal-result",
+        publishState: "reply_published",
       })
     ).toBeNull();
   });

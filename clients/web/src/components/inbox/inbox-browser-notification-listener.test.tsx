@@ -1,5 +1,5 @@
 import type { InboxItem } from "@openmeld/schemas/types";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InboxBrowserNotificationListener } from "./inbox-browser-notification-listener";
 
@@ -7,6 +7,9 @@ const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
 const usePathnameMock = vi.hoisted(() => vi.fn());
 const showInboxBrowserNotificationMock = vi.hoisted(() => vi.fn());
 const invalidateInboxSummaryMock = vi.hoisted(() => vi.fn());
+const notificationSettingsSubscription = vi.hoisted(() => ({
+	onChange: null as (() => void) | null,
+}));
 
 vi.mock("@tanstack/react-router", () => ({
 	useLocation: () => ({ pathname: usePathnameMock() }),
@@ -31,7 +34,12 @@ vi.mock("#/lib/inbox/browser-notifications", () => ({
 		permission: "granted",
 	}),
 	showInboxBrowserNotification: showInboxBrowserNotificationMock,
-	subscribeInboxBrowserNotificationSettings: () => () => undefined,
+	subscribeInboxBrowserNotificationSettings: (onChange: () => void) => {
+		notificationSettingsSubscription.onChange = onChange;
+		return () => {
+			notificationSettingsSubscription.onChange = null;
+		};
+	},
 }));
 
 vi.mock("#/lib/inbox/source-target", () => ({
@@ -54,7 +62,10 @@ describe("InboxBrowserNotificationListener", () => {
 
 	beforeEach(() => {
 		currentItems = [];
-		showInboxBrowserNotificationMock.mockReset().mockResolvedValue(null);
+		notificationSettingsSubscription.onChange = null;
+		showInboxBrowserNotificationMock
+			.mockReset()
+			.mockResolvedValue({ notification: {}, status: "delivered" });
 		invalidateInboxSummaryMock.mockReset().mockResolvedValue(undefined);
 		usePathnameMock.mockReset().mockReturnValue("/o/amplift/home");
 		useInfiniteQueryMock.mockReset().mockImplementation(() => ({
@@ -107,6 +118,83 @@ describe("InboxBrowserNotificationListener", () => {
 				sourcePath: "/o/amplift/inbox?item=new-item",
 			})
 		);
+	});
+
+	it("retries a new item after current-conversation suppression no longer applies", async () => {
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const newItem = createInboxItem({
+			id: "retry-after-source-suppression",
+			importance: "urgent",
+		});
+		currentItems = [existingItem];
+		const view = renderListener();
+		showInboxBrowserNotificationMock
+			.mockResolvedValueOnce({
+				reason: "source_visible",
+				status: "deferred",
+			})
+			.mockResolvedValueOnce({ notification: {}, status: "delivered" });
+
+		currentItems = [newItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		await waitFor(() => {
+			expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		});
+
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "hidden",
+		});
+		act(() => notificationSettingsSubscription.onChange?.());
+
+		await waitFor(() => {
+			expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	it("retries a new item after notification delivery throws", async () => {
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const newItem = createInboxItem({
+			id: "retry-after-delivery-failure",
+			importance: "urgent",
+		});
+		currentItems = [existingItem];
+		const view = renderListener();
+		showInboxBrowserNotificationMock
+			.mockRejectedValueOnce(new Error("Notification constructor failed"))
+			.mockResolvedValueOnce({ notification: {}, status: "delivered" });
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		currentItems = [newItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		await waitFor(() => {
+			expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		});
+
+		currentItems = [...currentItems];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+
+		await waitFor(() => {
+			expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+		});
 	});
 
 	it("keeps ordinary updates and resolved actions in Inbox without browser delivery", () => {

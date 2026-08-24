@@ -148,10 +148,10 @@ The first release creates items for these explicit user-visible events:
 3. An Agent Interaction that explicitly requests approval, an answer, plan
    review, or other supported human response.
 4. A Wake requested by the member that reaches a system-owned ending:
-   a visible failure or stopped outcome, a `stay_silent` outcome, or a
-   completed Wake whose accepted result carried no public reply
-   (`wake_completed`). A successful final reply uses the Agent reply item
-   instead of a duplicate success item.
+   a visible failure or stopped outcome, a `stay_silent` outcome, or an
+   explicit final status. A successful final reply uses the Agent reply item
+   instead of a duplicate success item. An accepted result without a valid
+   public Space action is a visible failure, never a synthetic completion.
 5. A linked member's Center Agent work started through a Message Channel when
    the result or intervention request is available in OpenMeld.
 6. A Center Agent Task that requests the recipient's action, produces a final
@@ -350,8 +350,12 @@ two optional delivery channels:
   so these deliveries are always endings, not chatter. Ordinary Space message
   updates stay in Inbox without a system notification. A visible tab
   suppresses delivery only for the conversation it is currently showing; a
-  hidden tab can deliver any eligible item. They never form a second unread
-  store.
+  hidden tab can deliver any eligible item. Current-conversation suppression is
+  temporary: leaving that conversation or hiding the tab re-evaluates the same
+  unread item. The client records an item as delivered only after this tab
+  creates the notification or another tab proves it already did; a permission,
+  claim, or delivery failure remains retryable. Browser delivery never forms a
+  second unread store.
 - **Urgent email** is enabled by default at the account level and may be turned
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe

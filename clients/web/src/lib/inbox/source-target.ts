@@ -122,7 +122,13 @@ export function isInboxItemSourceLocation(input: {
 			item: input.item,
 			orgSlug: input.orgSlug,
 		}).href;
-	} catch {
+	} catch (error) {
+		console.warn("[openmeld.web.inbox.source_location_resolution_failed]", {
+			error: error instanceof Error ? error.name : typeof error,
+			itemId: input.item.id,
+			organizationId: input.item.organizationId,
+			targetKind: String(input.item.sourceTarget.kind),
+		});
 		return false;
 	}
 	const sourcePathname = sourceHref.split("?", 1)[0] ?? sourceHref;

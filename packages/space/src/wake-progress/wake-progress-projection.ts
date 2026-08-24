@@ -56,7 +56,6 @@ const WAKE_CLOSING_SYSTEM_NOTICE_TYPES = new Set([
   "policy_blocked",
   "stay_silent",
   "terminal_failure",
-  "wake_completed",
   "wake_stopped",
 ]);
 

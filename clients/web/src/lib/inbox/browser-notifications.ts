@@ -9,6 +9,27 @@ export type InboxBrowserNotificationSettings = {
 	permission: InboxBrowserNotificationPermission;
 };
 
+export function resolveBrowserNotificationDescription(
+	permission: InboxBrowserNotificationSettings["permission"]
+): string {
+	if (permission === "unsupported") {
+		return "This browser does not support notifications. Your Inbox is still available in OpenMeld.";
+	}
+	if (permission === "denied") {
+		return "Notifications are blocked. Allow them in your browser’s site settings, then return here.";
+	}
+	return "Notify for directly addressed messages, actions, and urgent items in this browser. Applies to every Space and Direct Message.";
+}
+
+export type InboxBrowserNotificationDeliveryResult =
+	| { notification: Notification; status: "delivered" }
+	| { status: "already_delivered" }
+	| { status: "ineligible" }
+	| {
+			reason: "claim_failed" | "permission_unavailable" | "source_visible";
+			status: "deferred";
+	  };
+
 const ENABLED_VALUE = "enabled";
 const DISABLED_VALUE = "disabled";
 const BADGE_PATH = "/favicon-32x32.png";
@@ -56,6 +77,9 @@ export function readInboxBrowserNotificationPermission(): InboxBrowserNotificati
 }
 
 export function isInboxBrowserNotificationEligible(item: InboxItem): boolean {
+	if (item.resolutionStatus === "resolved") {
+		return false;
+	}
 	if (item.importance === "urgent") {
 		return true;
 	}
@@ -89,15 +113,18 @@ export async function showInboxBrowserNotification(input: {
 	item: InboxItem;
 	sourcePath: string;
 	viewingSourceSession: boolean;
-}): Promise<Notification | null> {
-	if (
-		typeof window === "undefined" ||
-		typeof document === "undefined" ||
-		readInboxBrowserNotificationPermission() !== "granted" ||
-		!isInboxBrowserNotificationEligible(input.item) ||
-		(document.visibilityState === "visible" && input.viewingSourceSession)
-	) {
-		return null;
+}): Promise<InboxBrowserNotificationDeliveryResult> {
+	if (typeof window === "undefined" || typeof document === "undefined") {
+		return { reason: "permission_unavailable", status: "deferred" };
+	}
+	if (readInboxBrowserNotificationPermission() !== "granted") {
+		return { reason: "permission_unavailable", status: "deferred" };
+	}
+	if (!isInboxBrowserNotificationEligible(input.item)) {
+		return { status: "ineligible" };
+	}
+	if (document.visibilityState === "visible" && input.viewingSourceSession) {
+		return { reason: "source_visible", status: "deferred" };
 	}
 	return await withInboxBrowserNotificationClaim(input.item.id, () => {
 		const body = input.item.contextLabel
@@ -118,7 +145,7 @@ export async function showInboxBrowserNotification(input: {
 			window.location.assign(input.sourcePath);
 			notification.close();
 		};
-		return notification;
+		return { notification, status: "delivered" };
 	});
 }
 
@@ -135,11 +162,7 @@ export function subscribeInboxBrowserNotificationSettings(
 			onChange();
 		}
 	};
-	const handleVisibilityChange = () => {
-		if (document.visibilityState === "visible") {
-			onChange();
-		}
-	};
+	const handleVisibilityChange = () => onChange();
 	window.addEventListener("storage", handleStorage);
 	window.addEventListener(PREFERENCE_CHANGE_EVENT, onChange);
 	window.addEventListener("focus", onChange);
@@ -206,12 +229,14 @@ function writeInboxBrowserPreference(input: {
 	}
 }
 
-function claimInboxBrowserNotificationDelivery(itemId: string): boolean {
+function claimInboxBrowserNotificationDelivery(
+	itemId: string
+): "already_delivered" | "claimed" | "failed" {
 	try {
 		const storedValue = window.localStorage.getItem(DELIVERED_ITEM_IDS_KEY);
 		const deliveredItemIds = parseDeliveredItemIds(storedValue);
 		if (deliveredItemIds.includes(itemId)) {
-			return false;
+			return "already_delivered";
 		}
 		const nextDeliveredItemIds = [
 			...deliveredItemIds.slice(-(MAX_DELIVERED_ITEM_IDS - 1)),
@@ -221,23 +246,27 @@ function claimInboxBrowserNotificationDelivery(itemId: string): boolean {
 			DELIVERED_ITEM_IDS_KEY,
 			JSON.stringify(nextDeliveredItemIds)
 		);
-		return true;
+		return "claimed";
 	} catch (error) {
 		console.warn("[openmeld.web.inbox.browser_notification_claim_failed]", {
 			error: error instanceof Error ? error.message : String(error),
 			itemId,
 		});
-		return false;
+		return "failed";
 	}
 }
 
-async function withInboxBrowserNotificationClaim<T>(
+async function withInboxBrowserNotificationClaim(
 	itemId: string,
-	deliver: () => T
-): Promise<T | null> {
+	deliver: () => InboxBrowserNotificationDeliveryResult
+): Promise<InboxBrowserNotificationDeliveryResult> {
 	const claimAndDeliver = () => {
-		if (!claimInboxBrowserNotificationDelivery(itemId)) {
-			return null;
+		const claim = claimInboxBrowserNotificationDelivery(itemId);
+		if (claim === "already_delivered") {
+			return { status: "already_delivered" } as const;
+		}
+		if (claim === "failed") {
+			return { reason: "claim_failed", status: "deferred" } as const;
 		}
 		try {
 			return deliver();
@@ -290,8 +319,14 @@ function parseDeliveredItemIds(value: string | null): string[] {
 		) {
 			return parsed;
 		}
-	} catch {
-		// Invalid delivery claims are replaced by the next valid write.
+		console.warn("[openmeld.web.inbox.browser_notification_claim_invalid]", {
+			reason: "unexpected_shape",
+		});
+	} catch (error) {
+		console.warn("[openmeld.web.inbox.browser_notification_claim_invalid]", {
+			error: error instanceof Error ? error.name : typeof error,
+			reason: "invalid_json",
+		});
 	}
 	return [];
 }

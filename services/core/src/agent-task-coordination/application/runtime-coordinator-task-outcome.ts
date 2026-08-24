@@ -38,6 +38,7 @@ type RuntimeCoordinatorTaskOutcomeInspectionResult = {
 export function projectRuntimeCoordinatorFinalizationTaskTerminalRecord(input: {
   command: RuntimeCoordinatorFinalizationCommand;
   publishedSignalId: string | null;
+  publishState: "invalid_space_action" | "reply_published";
 }): RuntimeCoordinatorTaskTerminalRecord | null {
   const sourceClientMessageId =
     input.command.dispatchFact.sourceClientMessageId;
@@ -54,6 +55,19 @@ export function projectRuntimeCoordinatorFinalizationTaskTerminalRecord(input: {
     spaceId: input.command.spaceId,
     targetProfileId: input.command.targetProfileId,
   });
+  if (input.publishState === "invalid_space_action") {
+    return {
+      nowMs: input.command.createdAtMs,
+      outcome: {
+        errorCode: "agent_task.invalid_space_action",
+        eventId: input.command.finalizationCommandId,
+        occurredAtMs,
+        publishedSignalId: input.publishedSignalId,
+        status: "failed",
+      },
+      task,
+    };
+  }
   if (payload.status === "failed") {
     return {
       nowMs: input.command.createdAtMs,
@@ -83,14 +97,10 @@ export function projectRuntimeCoordinatorFinalizationTaskTerminalRecord(input: {
     };
   }
   if (!spaceAction) {
-    const publicFailureReason =
-      "spaceActionFailureDiagnostics" in payload
-        ? payload.spaceActionFailureDiagnostics?.publicFailureReason
-        : undefined;
     return {
       nowMs: input.command.createdAtMs,
       outcome: {
-        errorCode: publicFailureReason ?? "agent_task.invalid_space_action",
+        errorCode: "agent_task.invalid_space_action",
         eventId: input.command.finalizationCommandId,
         occurredAtMs,
         publishedSignalId: input.publishedSignalId,
@@ -180,6 +190,7 @@ export async function recordRuntimeCoordinatorFinalizationTaskOutcome(input: {
   db: D1Database;
   env: CoreBindings;
   publishedSignalId: string | null;
+  publishState: "invalid_space_action" | "reply_published";
 }): Promise<RuntimeCoordinatorTaskOutcomeWriteResult | null> {
   const record = projectRuntimeCoordinatorFinalizationTaskTerminalRecord(input);
   if (!record) {

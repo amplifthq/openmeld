@@ -836,6 +836,12 @@ OpenMeld-generated `signal.system_notice` outcomes such as `terminal_failure`,
 system notice that closes the Wake unless a future product contract explicitly
 defines a non-visible silent-close outcome.
 
+A RuntimeCoordinator result with no valid explicit Space action does not prove
+that the user received a final outcome. Collaboration mode classifies that
+result as `invalid_space_action`, publishes one claimed `terminal_failure`, and
+projects the same failed Agent Task outcome. Core must never synthesize a
+completion notice from private output or a successful process exit alone.
+
 When `post_message.observedThroughSignalId` is present, Agent Transport Space
 Action Delivery carries it to the Space Durable Object. Space checks for a
 newer public text or status in the same main-timeline or thread scope in the

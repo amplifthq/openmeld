@@ -5,20 +5,11 @@ import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { SettingsSection } from "@openmeld/ui/components/settings-section";
 import { Switch } from "@openmeld/ui/components/switch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
-import {
-	BrowserNotificationControl,
-	resolveBrowserNotificationDescription,
-} from "#/components/inbox/browser-notification-toggle";
-import {
-	disableInboxBrowserNotifications,
-	enableInboxBrowserNotifications,
-	type InboxBrowserNotificationSettings,
-	readInboxBrowserNotificationSettings,
-	subscribeInboxBrowserNotificationSettings,
-} from "#/lib/inbox/browser-notifications";
+import { BrowserNotificationControl } from "#/components/inbox/browser-notification-toggle";
+import { useInboxBrowserNotificationSettings } from "#/components/inbox/use-inbox-browser-notification-settings";
+import { resolveBrowserNotificationDescription } from "#/lib/inbox/browser-notifications";
 import { updateCurrentInboxNotificationPreferences } from "#/lib/organizations/inbox";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -30,12 +21,12 @@ export function NotificationsSection() {
 	const queryClient = useQueryClient();
 	const account = useAppShellAccount();
 	const { currentOrganization, currentUserId } = useAppOrganization();
-	const [browserSettings, setBrowserSettings] =
-		useState<InboxBrowserNotificationSettings>(() =>
-			readInboxBrowserNotificationSettings({ userId: currentUserId })
-		);
-	const [browserPending, setBrowserPending] = useState(false);
-	const [browserError, setBrowserError] = useState<string | null>(null);
+	const {
+		error: browserError,
+		isPending: browserPending,
+		setEnabled: updateBrowserNotifications,
+		settings: browserSettings,
+	} = useInboxBrowserNotificationSettings(currentUserId);
 	const preferencesQuery = useQuery(
 		inboxNotificationPreferencesQueryOptions({
 			organizationId: currentOrganization.id,
@@ -78,41 +69,9 @@ export function NotificationsSection() {
 		},
 	});
 
-	useEffect(() => {
-		const refreshBrowserSettings = () => {
-			setBrowserSettings(
-				readInboxBrowserNotificationSettings({ userId: currentUserId })
-			);
-			setBrowserError(null);
-		};
-		refreshBrowserSettings();
-		return subscribeInboxBrowserNotificationSettings(refreshBrowserSettings);
-	}, [currentUserId]);
-
-	const updateBrowserNotifications = async (enabled: boolean) => {
-		setBrowserPending(true);
-		setBrowserError(null);
-		try {
-			const next = enabled
-				? await enableInboxBrowserNotifications({ userId: currentUserId })
-				: disableInboxBrowserNotifications({ userId: currentUserId });
-			setBrowserSettings(next);
-			if (enabled && next.permission === "default") {
-				setBrowserError("OpenMeld did not receive notification permission.");
-			}
-		} catch (error) {
-			setBrowserSettings(
-				readInboxBrowserNotificationSettings({ userId: currentUserId })
-			);
-			setBrowserError(
-				error instanceof Error
-					? error.message
-					: "OpenMeld could not update browser notifications."
-			);
-		} finally {
-			setBrowserPending(false);
-		}
-	};
+	if (!browserSettings) {
+		return null;
+	}
 
 	const browserDescription = resolveBrowserNotificationDescription(
 		browserSettings.permission

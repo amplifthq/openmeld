@@ -3381,6 +3381,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           db: input.coordinationDb,
           env: this.env,
           publishedSignalId: input.publishedSignalId,
+          publishState: "reply_published",
         });
       if (!taskOutcomeWrite || taskOutcomeWrite.matches) {
         return true;

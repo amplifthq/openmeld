@@ -83,21 +83,26 @@ describe("Inbox browser notifications", () => {
 		expect(window.localStorage.getItem(PREFERENCE_KEY)).toBe("disabled");
 	});
 
-	it("refreshes settings after focus and visible-tab permission changes", () => {
+	it("refreshes settings after focus and every visibility change", () => {
 		const onChange = vi.fn();
 		const unsubscribe = subscribeInboxBrowserNotificationSettings(onChange);
 
 		window.dispatchEvent(new Event("focus"));
 		Object.defineProperty(document, "visibilityState", {
 			configurable: true,
+			value: "hidden",
+		});
+		document.dispatchEvent(new Event("visibilitychange"));
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
 			value: "visible",
 		});
 		document.dispatchEvent(new Event("visibilitychange"));
 
-		expect(onChange).toHaveBeenCalledTimes(2);
+		expect(onChange).toHaveBeenCalledTimes(3);
 		unsubscribe();
 		window.dispatchEvent(new Event("focus"));
-		expect(onChange).toHaveBeenCalledTimes(2);
+		expect(onChange).toHaveBeenCalledTimes(3);
 	});
 
 	it("shows one hidden-tab notification across concurrent tab delivery attempts", async () => {
@@ -122,8 +127,8 @@ describe("Inbox browser notifications", () => {
 			}),
 		]);
 
-		expect(first).not.toBeNull();
-		expect(second).toBeNull();
+		expect(first.status).toBe("delivered");
+		expect(second).toEqual({ status: "already_delivered" });
 		expect(requestLock).toHaveBeenCalledTimes(2);
 		expect(notificationConstructorMock).toHaveBeenCalledOnce();
 		expect(notificationConstructorMock).toHaveBeenCalledWith(
@@ -162,8 +167,42 @@ describe("Inbox browser notifications", () => {
 				sourcePath: "/o/amplift/inbox?item=retry-item",
 				viewingSourceSession: false,
 			})
-		).resolves.not.toBeNull();
+		).resolves.toMatchObject({ status: "delivered" });
 		expect(notificationConstructorMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("defers a failed cross-tab claim without marking the item delivered", async () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+		const storageRead = vi
+			.spyOn(Storage.prototype, "getItem")
+			.mockImplementationOnce(() => {
+				throw new Error("Storage is unavailable");
+			});
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const item = createInboxItem({ id: "claim-retry-item" });
+
+		await expect(
+			showInboxBrowserNotification({
+				item,
+				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
+				viewingSourceSession: false,
+			})
+		).resolves.toEqual({ reason: "claim_failed", status: "deferred" });
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+
+		storageRead.mockRestore();
+		await expect(
+			showInboxBrowserNotification({
+				item,
+				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
+				viewingSourceSession: false,
+			})
+		).resolves.toMatchObject({ status: "delivered" });
+		expect(notificationConstructorMock).toHaveBeenCalledOnce();
 	});
 
 	it("suppresses only the viewed conversation on a visible tab and keeps other deliveries", async () => {
@@ -184,7 +223,7 @@ describe("Inbox browser notifications", () => {
 				sourcePath: "/o/amplift/inbox",
 				viewingSourceSession: true,
 			})
-		).resolves.toBeNull();
+		).resolves.toEqual({ reason: "source_visible", status: "deferred" });
 		expect(notificationConstructorMock).not.toHaveBeenCalled();
 
 		await expect(
@@ -193,7 +232,7 @@ describe("Inbox browser notifications", () => {
 				sourcePath: "/o/amplift/inbox",
 				viewingSourceSession: false,
 			})
-		).resolves.not.toBeNull();
+		).resolves.toMatchObject({ status: "delivered" });
 		expect(notificationConstructorMock).toHaveBeenCalledOnce();
 
 		Object.defineProperty(document, "visibilityState", {
@@ -206,7 +245,7 @@ describe("Inbox browser notifications", () => {
 				sourcePath: "/o/amplift/inbox",
 				viewingSourceSession: true,
 			})
-		).resolves.not.toBeNull();
+		).resolves.toMatchObject({ status: "delivered" });
 	});
 
 	it("delivers directly addressed updates but not ordinary space messages", () => {
@@ -276,6 +315,16 @@ describe("Inbox browser notifications", () => {
 					importance: "normal",
 					attention: "update",
 					kind: "agent_interaction",
+				})
+			)
+		).toBe(false);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					attention: "action_required",
+					importance: "urgent",
+					kind: "center_agent_task",
+					resolutionStatus: "resolved",
 				})
 			)
 		).toBe(false);

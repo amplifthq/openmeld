@@ -29,7 +29,9 @@ export function InboxBrowserNotificationListener(input: {
 		readInboxBrowserNotificationSettings({ userId: input.userId })
 	);
 	const feedIdentity = `${input.organizationId}:${input.userId}:${settings.enabled}`;
-	const [seenItemIds] = useState(() => new Set<string>());
+	const [observedItemIds] = useState(() => new Set<string>());
+	const [settledItemIds] = useState(() => new Set<string>());
+	const [inFlightItemIds] = useState(() => new Set<string>());
 	const primedRef = useRef(false);
 	const primedFeedIdentityRef = useRef<string | null>(null);
 	const itemsQuery = useInfiniteQuery({
@@ -55,51 +57,37 @@ export function InboxBrowserNotificationListener(input: {
 	}, [input.userId]);
 
 	useEffect(() => {
-		if (!(settings.enabled && itemsQuery.data)) {
-			return;
-		}
 		if (primedFeedIdentityRef.current !== feedIdentity) {
-			seenItemIds.clear();
+			observedItemIds.clear();
+			settledItemIds.clear();
+			inFlightItemIds.clear();
 			primedRef.current = false;
 			primedFeedIdentityRef.current = feedIdentity;
 		}
+		if (!(settings.enabled && itemsQuery.data)) {
+			return;
+		}
 		const currentItems = itemsQuery.data.pages.flatMap((page) => page.items);
-		if (!primedRef.current) {
-			for (const item of currentItems) {
-				seenItemIds.add(item.id);
-			}
+		if (
+			primeInboxBrowserNotificationFeed({
+				items: currentItems,
+				observedItemIds,
+				primed: primedRef.current,
+				settledItemIds,
+			})
+		) {
 			primedRef.current = true;
 			return;
 		}
-		let sawNewItem = false;
-		for (const item of currentItems.toReversed()) {
-			if (seenItemIds.has(item.id)) {
-				continue;
-			}
-			seenItemIds.add(item.id);
-			sawNewItem = true;
-			if (!shouldDeliverInboxBrowserNotification(item)) {
-				continue;
-			}
-			showInboxBrowserNotification({
-				item,
-				sourcePath: buildOrganizationInboxItemPath({
-					itemId: item.id,
-					orgSlug: input.organizationSlug,
-				}),
-				viewingSourceSession: isInboxItemSourceLocation({
-					item,
-					orgSlug: input.organizationSlug,
-					pathname,
-				}),
-			}).catch((error: unknown) => {
-				console.warn("[openmeld.web.inbox.browser_notification_failed]", {
-					error: error instanceof Error ? error.message : String(error),
-					itemId: item.id,
-					organizationId: input.organizationId,
-				});
-			});
-		}
+		const sawNewItem = processInboxBrowserNotificationItems({
+			inFlightItemIds,
+			items: currentItems,
+			observedItemIds,
+			organizationId: input.organizationId,
+			organizationSlug: input.organizationSlug,
+			pathname,
+			settledItemIds,
+		});
 		if (sawNewItem) {
 			invalidateInboxSummary({
 				organizationId: input.organizationId,
@@ -113,20 +101,103 @@ export function InboxBrowserNotificationListener(input: {
 		}
 	}, [
 		feedIdentity,
+		inFlightItemIds,
 		input.organizationId,
 		input.organizationSlug,
 		itemsQuery.data,
+		observedItemIds,
 		pathname,
 		queryClient,
-		seenItemIds,
-		settings.enabled,
+		settledItemIds,
+		settings,
 	]);
 
 	return null;
 }
 
+type BrowserNotificationInboxItem = Parameters<
+	typeof isInboxBrowserNotificationEligible
+>[0];
+
+function primeInboxBrowserNotificationFeed(input: {
+	items: readonly BrowserNotificationInboxItem[];
+	observedItemIds: Set<string>;
+	primed: boolean;
+	settledItemIds: Set<string>;
+}): boolean {
+	if (input.primed) {
+		return false;
+	}
+	for (const item of input.items) {
+		input.observedItemIds.add(item.id);
+		input.settledItemIds.add(item.id);
+	}
+	return true;
+}
+
+function processInboxBrowserNotificationItems(input: {
+	inFlightItemIds: Set<string>;
+	items: readonly BrowserNotificationInboxItem[];
+	observedItemIds: Set<string>;
+	organizationId: string;
+	organizationSlug: string;
+	pathname: string | null;
+	settledItemIds: Set<string>;
+}): boolean {
+	let sawNewItem = false;
+	for (const item of input.items.toReversed()) {
+		if (!input.observedItemIds.has(item.id)) {
+			input.observedItemIds.add(item.id);
+			sawNewItem = true;
+		}
+		if (
+			input.settledItemIds.has(item.id) ||
+			input.inFlightItemIds.has(item.id)
+		) {
+			continue;
+		}
+		if (!shouldDeliverInboxBrowserNotification(item)) {
+			input.settledItemIds.add(item.id);
+			continue;
+		}
+		input.inFlightItemIds.add(item.id);
+		showInboxBrowserNotification({
+			item,
+			sourcePath: buildOrganizationInboxItemPath({
+				itemId: item.id,
+				orgSlug: input.organizationSlug,
+			}),
+			viewingSourceSession: isInboxItemSourceLocation({
+				item,
+				orgSlug: input.organizationSlug,
+				pathname: input.pathname,
+			}),
+		})
+			.then((result) => {
+				if (
+					result.status === "delivered" ||
+					result.status === "already_delivered" ||
+					result.status === "ineligible"
+				) {
+					input.settledItemIds.add(item.id);
+				}
+			})
+			.catch((error: unknown) => {
+				console.warn("[openmeld.web.inbox.browser_notification_failed]", {
+					error: error instanceof Error ? error.message : String(error),
+					itemId: item.id,
+					organizationId: input.organizationId,
+				});
+			})
+			.finally(() => {
+				input.inFlightItemIds.delete(item.id);
+			});
+	}
+	return sawNewItem;
+}
+
 function shouldDeliverInboxBrowserNotification(
-	item: Parameters<typeof isInboxBrowserNotificationEligible>[0]
+	item: BrowserNotificationInboxItem
 ): boolean {
 	return item.readAt === null && isInboxBrowserNotificationEligible(item);
 }

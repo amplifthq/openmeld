@@ -1,13 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { BrowserNotificationControl } from "#/components/inbox/browser-notification-toggle";
-import {
-	disableInboxBrowserNotifications,
-	enableInboxBrowserNotifications,
-	readInboxBrowserNotificationSettings,
-	subscribeInboxBrowserNotificationSettings,
-} from "#/lib/inbox/browser-notifications";
+import { useInboxBrowserNotificationSettings } from "#/components/inbox/use-inbox-browser-notification-settings";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 
 /**
@@ -21,58 +15,12 @@ import { useOptionalAppOrganization } from "#/lib/organizations/organization-con
 export function SpaceInfoNotificationsSection() {
 	const organization = useOptionalAppOrganization();
 	const currentUserId = organization?.currentUserId;
-	const [settings, setSettings] = useState(() =>
-		currentUserId
-			? readInboxBrowserNotificationSettings({ userId: currentUserId })
-			: null
-	);
-	const [isPending, setIsPending] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-
-	useEffect(() => {
-		if (!currentUserId) {
-			return;
-		}
-		const refresh = () => {
-			setSettings(
-				readInboxBrowserNotificationSettings({ userId: currentUserId })
-			);
-			setError(null);
-		};
-		refresh();
-		return subscribeInboxBrowserNotificationSettings(refresh);
-	}, [currentUserId]);
+	const { error, isPending, setEnabled, settings } =
+		useInboxBrowserNotificationSettings(currentUserId);
 
 	if (!(currentUserId && settings)) {
 		return null;
 	}
-
-	const updateNotifications = async (enabled: boolean) => {
-		setIsPending(true);
-		setError(null);
-		try {
-			const next = enabled
-				? await enableInboxBrowserNotifications({ userId: currentUserId })
-				: await disableInboxBrowserNotifications({
-						userId: currentUserId,
-					});
-			setSettings(next);
-			if (enabled && next.permission === "default") {
-				setError("OpenMeld did not receive notification permission.");
-			}
-		} catch (caughtError) {
-			setSettings(
-				readInboxBrowserNotificationSettings({ userId: currentUserId })
-			);
-			setError(
-				caughtError instanceof Error
-					? caughtError.message
-					: "OpenMeld could not update browser notifications."
-			);
-		} finally {
-			setIsPending(false);
-		}
-	};
 
 	return (
 		<section className="min-w-0 border-border/60 border-t pt-4">
@@ -97,7 +45,7 @@ export function SpaceInfoNotificationsSection() {
 				</div>
 				<BrowserNotificationControl
 					disabled={isPending}
-					onChange={updateNotifications}
+					onChange={setEnabled}
 					settings={settings}
 				/>
 			</div>

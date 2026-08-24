@@ -198,7 +198,6 @@ export const spaceDispatchTraceFinalVisibleMessageSchema = z.strictObject({
       "policy_blocked",
       "stay_silent",
       "terminal_failure",
-      "wake_completed",
       "wake_stopped",
     ]),
     z.null(),
@@ -1351,13 +1350,9 @@ function resolveFinalVisibleMessageOutcomeReasonCode(
     );
   }
   if (!visibleFailure) {
-    if (finalVisibleMessage.noticeType === "stay_silent") {
-      return "space.stay_silent_notice_published";
-    }
-    if (finalVisibleMessage.noticeType === "wake_completed") {
-      return "space.wake_completed_notice_published";
-    }
-    return "reply.delivered";
+    return finalVisibleMessage.noticeType === "stay_silent"
+      ? "space.stay_silent_notice_published"
+      : "reply.delivered";
   }
 
   if (finalVisibleMessage.reasonCode) {
