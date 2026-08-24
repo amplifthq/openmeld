@@ -833,15 +833,14 @@ export class SpaceFileRepository {
 
     while (Number.isSafeInteger(ordinal)) {
       const suffix = ` (${ordinal})`;
-      const availableNameLength = SPACE_FILE_MAX_NAME_LENGTH - suffix.length;
-      const preservedStemLength = Math.min(1, baseStem.length);
-      const candidateExtension = extension.slice(
-        0,
-        availableNameLength - preservedStemLength
-      );
       const availableStemLength =
-        availableNameLength - candidateExtension.length;
-      const candidate = `${baseStem.slice(0, availableStemLength)}${suffix}${candidateExtension}`;
+        SPACE_FILE_MAX_NAME_LENGTH - suffix.length - extension.length;
+      if (availableStemLength < 1) {
+        throw conflict(
+          "OpenMeld could not assign a unique file name without changing its extension."
+        );
+      }
+      const candidate = `${baseStem.slice(0, availableStemLength)}${suffix}${extension}`;
       if (!occupiedNames.has(nameKey(candidate))) {
         return candidate;
       }

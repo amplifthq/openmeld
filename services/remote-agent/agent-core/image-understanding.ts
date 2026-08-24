@@ -63,7 +63,7 @@ export async function understandRemoteAgentImages(input: {
   images: readonly RemoteAgentAdmissionImage[];
   model: CenterAgentModelRoute["imageUnderstandingModel"];
   organizationId: string;
-  prepareImage?: (
+  prepareImage: (
     image: RemoteAgentAdmissionImage
   ) => Promise<RemoteAgentPreparedContextImage>;
 }): Promise<string> {
@@ -114,9 +114,7 @@ export async function understandRemoteAgentImages(input: {
   };
 
   for (const [index, sourceImage] of input.images.entries()) {
-    const image = input.prepareImage
-      ? await input.prepareImage(sourceImage)
-      : prepareInlineRemoteAgentContextImage(sourceImage);
+    const image = await input.prepareImage(sourceImage);
     if (image.sizeBytes > REMOTE_AGENT_CONTEXT_IMAGE_MAX_BYTES) {
       throw new Error(
         `Prepared image ${index + 1} exceeds the ${REMOTE_AGENT_CONTEXT_IMAGE_MAX_BYTES}-byte context limit.`
@@ -283,22 +281,6 @@ function normalizeProviderErrorText(value: unknown): string | null {
     : null;
 }
 
-export async function transformRemoteAgentImagesForContext(input: {
-  images: readonly RemoteAgentAdmissionImage[];
-  imagesBinding: Pick<ImagesBinding, "info" | "input">;
-}): Promise<RemoteAgentPreparedContextImage[]> {
-  const transformedImages: RemoteAgentPreparedContextImage[] = [];
-  for (const image of input.images) {
-    transformedImages.push(
-      await transformRemoteAgentImageForContext({
-        image,
-        imagesBinding: input.imagesBinding,
-      })
-    );
-  }
-  return transformedImages;
-}
-
 export async function transformRemoteAgentImageForContext(input: {
   image: RemoteAgentAdmissionImage;
   imagesBinding: Pick<ImagesBinding, "info" | "input">;
@@ -458,24 +440,6 @@ function decodeBase64(data: string): ArrayBuffer {
     bytes[index] = decoded.charCodeAt(index);
   }
   return bytes.buffer;
-}
-
-function prepareInlineRemoteAgentContextImage(
-  image: RemoteAgentAdmissionImage
-): RemoteAgentPreparedContextImage {
-  if (!("data" in image)) {
-    throw new Error(
-      "Streaming image input must be prepared before image understanding."
-    );
-  }
-  const sizeBytes = decodeBase64(image.data).byteLength;
-  return {
-    data: image.data,
-    ...(image.filename ? { filename: image.filename } : {}),
-    mimeType: REMOTE_AGENT_CONTEXT_IMAGE_OUTPUT_MIME_TYPE,
-    sizeBytes,
-    type: "image",
-  };
 }
 
 async function openRemoteAgentImageStream(

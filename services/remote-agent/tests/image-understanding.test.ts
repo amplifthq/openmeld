@@ -10,7 +10,7 @@ import {
   REMOTE_AGENT_CONTEXT_IMAGE_MIN_DIMENSION,
   REMOTE_AGENT_CONTEXT_IMAGE_OUTPUT_MIME_TYPE,
   REMOTE_AGENT_CONTEXT_IMAGE_OUTPUT_QUALITY,
-  transformRemoteAgentImagesForContext,
+  transformRemoteAgentImageForContext,
   understandRemoteAgentImages,
 } from "../agent-core/image-understanding";
 import { TEST_REMOTE_AGENT_AI_GATEWAY_ENV } from "./fixtures";
@@ -24,6 +24,42 @@ const IMAGE_MODEL: CenterAgentModelRoute["imageUnderstandingModel"] = {
   provider: "openrouter",
   reasoningLevel: "high",
 };
+
+const prepareTestContextImage = async (image: {
+  filename?: string;
+}): Promise<{
+  data: string;
+  filename?: string;
+  mimeType: typeof REMOTE_AGENT_CONTEXT_IMAGE_OUTPUT_MIME_TYPE;
+  sizeBytes: number;
+  type: "image";
+}> => ({
+  data: "cG5n",
+  ...(image.filename ? { filename: image.filename } : {}),
+  mimeType: REMOTE_AGENT_CONTEXT_IMAGE_OUTPUT_MIME_TYPE,
+  sizeBytes: 3,
+  type: "image",
+});
+
+async function transformTestImagesForContext(input: {
+  images: readonly Parameters<
+    typeof transformRemoteAgentImageForContext
+  >[0]["image"][];
+  imagesBinding: Pick<ImagesBinding, "info" | "input">;
+}): Promise<Awaited<ReturnType<typeof transformRemoteAgentImageForContext>>[]> {
+  const derivatives: Awaited<
+    ReturnType<typeof transformRemoteAgentImageForContext>
+  >[] = [];
+  for (const image of input.images) {
+    derivatives.push(
+      await transformRemoteAgentImageForContext({
+        image,
+        imagesBinding: input.imagesBinding,
+      })
+    );
+  }
+  return derivatives;
+}
 
 describe("Remote Agent image understanding", () => {
   it("keeps a readable derivative budget when one turn contains ten images", async () => {
@@ -56,7 +92,7 @@ describe("Remote Agent image understanding", () => {
     }));
 
     await expect(
-      transformRemoteAgentImagesForContext({ images, imagesBinding })
+      transformTestImagesForContext({ images, imagesBinding })
     ).resolves.toHaveLength(10);
     expect(REMOTE_AGENT_CONTEXT_IMAGE_MAX_DIMENSION).toBe(2560);
     expect(transform).toHaveBeenCalledTimes(10);
@@ -236,7 +272,7 @@ describe("Remote Agent image understanding", () => {
     };
 
     await expect(
-      transformRemoteAgentImagesForContext({
+      transformTestImagesForContext({
         images: [source],
         imagesBinding,
       })
@@ -299,7 +335,7 @@ describe("Remote Agent image understanding", () => {
     } as unknown as Pick<ImagesBinding, "info" | "input">;
 
     await expect(
-      transformRemoteAgentImagesForContext({
+      transformTestImagesForContext({
         images: [
           {
             data: "AQID",
@@ -356,7 +392,7 @@ describe("Remote Agent image understanding", () => {
     } as unknown as Pick<ImagesBinding, "info" | "input">;
 
     await expect(
-      transformRemoteAgentImagesForContext({
+      transformTestImagesForContext({
         images: [
           {
             data: "AQID",
@@ -396,7 +432,7 @@ describe("Remote Agent image understanding", () => {
     } as unknown as Pick<ImagesBinding, "info" | "input">;
 
     await expect(
-      transformRemoteAgentImagesForContext({
+      transformTestImagesForContext({
         images: [
           {
             data: "AQID",
@@ -500,6 +536,7 @@ describe("Remote Agent image understanding", () => {
         ],
         model: IMAGE_MODEL,
         organizationId: "org_123",
+        prepareImage: prepareTestContextImage,
       })
     ).rejects.toThrow(
       "Image understanding failed for x-ai/grok-4.6 with HTTP 503."
@@ -529,6 +566,7 @@ describe("Remote Agent image understanding", () => {
         ],
         model: IMAGE_MODEL,
         organizationId: "org_123",
+        prepareImage: prepareTestContextImage,
       })
     ).rejects.toThrow(
       "Image understanding failed for x-ai/grok-4.6 with HTTP 400. Provider: invalid_request: At most four images are supported in one request."
@@ -562,6 +600,7 @@ describe("Remote Agent image understanding", () => {
         ],
         model: IMAGE_MODEL,
         organizationId: "org_123",
+        prepareImage: prepareTestContextImage,
       })
     ).rejects.toThrow(
       "Image understanding failed for x-ai/grok-4.6 with HTTP 400. Provider: 2001: Please configure AI Gateway in the Cloudflare dashboard"

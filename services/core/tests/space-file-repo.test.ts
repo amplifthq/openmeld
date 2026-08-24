@@ -394,34 +394,55 @@ describe("SpaceFileRepository", () => {
       const extensionHeavyName = `a.${"x".repeat(
         SPACE_FILE_MAX_NAME_LENGTH - 2
       )}`;
-      const extensionHeavyFiles = [1, 2].map((ordinal) =>
+      const extensionHeavyFile = repository.commitWrite({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-extension-heavy-file-1`,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-extension-heavy-write-1`,
+          revisionId: `${fixture.prefix}-extension-heavy-revision-1`,
+        }),
+        nowMs: fixture.nowMs + 3,
+        write: {
+          spaceId: fixture.spaceId,
+          fileId: `${fixture.prefix}-extension-heavy-file-1`,
+          revisionId: `${fixture.prefix}-extension-heavy-revision-1`,
+          name: extensionHeavyName,
+          parentId: null,
+          baseRevision: null,
+          clientMutationId: `${fixture.prefix}-extension-heavy-write-1`,
+          mimeType: "application/octet-stream",
+          sizeBytes: 1,
+        },
+      });
+      expect(extensionHeavyFile.name).toBe(extensionHeavyName);
+      expect(() =>
         repository.commitWrite({
           actor,
           auditEvent: createAuditEvent({
-            entryId: `${fixture.prefix}-extension-heavy-file-${ordinal}`,
+            entryId: `${fixture.prefix}-extension-heavy-file-2`,
             fixture,
             operation: "content_write",
-            operationId: `${fixture.prefix}-extension-heavy-write-${ordinal}`,
-            revisionId: `${fixture.prefix}-extension-heavy-revision-${ordinal}`,
+            operationId: `${fixture.prefix}-extension-heavy-write-2`,
+            revisionId: `${fixture.prefix}-extension-heavy-revision-2`,
           }),
-          nowMs: fixture.nowMs + 2 + ordinal,
+          nowMs: fixture.nowMs + 4,
           write: {
             spaceId: fixture.spaceId,
-            fileId: `${fixture.prefix}-extension-heavy-file-${ordinal}`,
-            revisionId: `${fixture.prefix}-extension-heavy-revision-${ordinal}`,
+            fileId: `${fixture.prefix}-extension-heavy-file-2`,
+            revisionId: `${fixture.prefix}-extension-heavy-revision-2`,
             name: extensionHeavyName,
             parentId: null,
             baseRevision: null,
-            clientMutationId: `${fixture.prefix}-extension-heavy-write-${ordinal}`,
+            clientMutationId: `${fixture.prefix}-extension-heavy-write-2`,
             mimeType: "application/octet-stream",
-            sizeBytes: ordinal,
+            sizeBytes: 2,
           },
         })
+      ).toThrow(
+        "OpenMeld could not assign a unique file name without changing its extension."
       );
-      expect(extensionHeavyFiles[1]?.name).toHaveLength(
-        SPACE_FILE_MAX_NAME_LENGTH
-      );
-      expect(extensionHeavyFiles[1]?.name.startsWith("a (2).")).toBe(true);
     });
   });
 

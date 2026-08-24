@@ -3819,6 +3819,74 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it("fails the turn visibly when a canonical Space File image cannot be resolved", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn();
+    const file = {
+      fileId: "space-file-missing-image",
+      mimeType: "image/png",
+      name: "missing-image.png",
+      revision: 1,
+      sizeBytes: 4096,
+    } as const;
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+      sourceSignal: {
+        ...createSignalEnvelope("signal_1"),
+        data: {
+          files: [file],
+          text: "Read this screenshot.",
+        },
+      } as SignalEnvelope,
+    });
+
+    try {
+      await expect(
+        submitRemoteAgentNativeDelivery({
+          binding: createBinding(),
+          db: harness.db,
+          env,
+          executionAttemptId: "attempt_1",
+          message: createDispatchMessage({
+            sourceSignalSnapshot: {
+              files: [file],
+              profileId: HUMAN_PROFILE_ID,
+              profileKind: "human",
+              text: "Read this screenshot.",
+            },
+          }),
+          nowMs: 1000,
+        })
+      ).resolves.toEqual({ shouldAck: true, status: "failed" });
+
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            noticeType: "terminal_failure",
+            reasonCode: "remote_agent.turn_envelope_unavailable",
+            text: expect.stringContaining(
+              "conversation context was unavailable"
+            ),
+          }),
+        })
+      );
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: "idem_1",
+        })
+      ).resolves.toMatchObject({
+        failureCode: "remote_agent.turn_envelope_unavailable",
+        failureDetail: expect.stringContaining("space_file.not_found"),
+        status: "failed",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("forwards ten canonical Space File images without applying the legacy four-image limit", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { detectInstalledSkillsAgentsMock } = vi.hoisted(() => ({
-  detectInstalledSkillsAgentsMock: vi.fn(),
+const { detectInstalledRuntimeAgentsMock } = vi.hoisted(() => ({
+  detectInstalledRuntimeAgentsMock: vi.fn(),
 }));
 
 const {
@@ -18,8 +18,7 @@ vi.mock("../src/skills/agents", async () => {
   );
   return {
     ...actual,
-    detectInstalledRuntimeAgents: detectInstalledSkillsAgentsMock,
-    detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
+    detectInstalledRuntimeAgents: detectInstalledRuntimeAgentsMock,
   };
 });
 
@@ -44,7 +43,7 @@ import { withCapturedStdio, withTempHome } from "./helpers/fs";
 
 describe("openmeld agents repair", () => {
   beforeEach(() => {
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["codex"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
     resolveBuiltinControllerInstallResolutionMock.mockImplementation(
       (input: { persistedLaunchContract?: unknown }) => {
         if (input.persistedLaunchContract) {
@@ -77,7 +76,7 @@ describe("openmeld agents repair", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    detectInstalledSkillsAgentsMock.mockReset();
+    detectInstalledRuntimeAgentsMock.mockReset();
     resolveBuiltinControllerInstallResolutionMock.mockReset();
     repairBuiltinControllerInstallMock.mockReset();
   });

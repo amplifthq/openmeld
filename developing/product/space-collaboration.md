@@ -139,6 +139,10 @@ folder has the same case-insensitive name. The owning Space atomically assigns
 the first available presentation name such as `Report (2).pdf`, preserves the
 requested extension, and returns that canonical name to every client. This is
 the same server-owned behavior for Composer, Files, CLI, and Agent uploads.
+If a pathological name leaves no room for one stem character plus the numbered
+suffix while preserving the complete extension inside the shared name limit,
+Core fails explicitly instead of silently truncating or changing that
+extension.
 Explicit folder creation, rename, move, and Trash restore remain organization
 actions: when their requested destination name is occupied, they return the
 explicit name conflict instead of silently changing the user's request.

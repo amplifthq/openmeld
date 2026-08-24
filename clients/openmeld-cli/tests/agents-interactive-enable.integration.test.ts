@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { detectInstalledSkillsAgentsMock } = vi.hoisted(() => ({
-  detectInstalledSkillsAgentsMock: vi.fn(),
+const { detectInstalledRuntimeAgentsMock } = vi.hoisted(() => ({
+  detectInstalledRuntimeAgentsMock: vi.fn(),
 }));
 
 const { promptSearchMultiselectMock, promptSearchSelectMock } = vi.hoisted(
@@ -41,8 +41,7 @@ vi.mock("../src/skills/agents", async () => {
   );
   return {
     ...actual,
-    detectInstalledRuntimeAgents: detectInstalledSkillsAgentsMock,
-    detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
+    detectInstalledRuntimeAgents: detectInstalledRuntimeAgentsMock,
   };
 });
 
@@ -64,7 +63,7 @@ import { withCapturedStdio, withTempHome } from "./helpers/fs";
 describe("openmeld agents interactive detected enable selection", () => {
   afterEach(() => {
     vi.clearAllMocks();
-    detectInstalledSkillsAgentsMock.mockReset();
+    detectInstalledRuntimeAgentsMock.mockReset();
     promptSearchMultiselectMock.mockReset();
     promptSearchSelectMock.mockReset();
     resolveBuiltinControllerInstallResolutionMock.mockReset();
@@ -73,7 +72,7 @@ describe("openmeld agents interactive detected enable selection", () => {
   it("prints clear message when detected set has no actionable builtin targets", async () => {
     const prompts = await import("@clack/prompts");
     const selectMock = vi.mocked(prompts.select);
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["codex", "cursor"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex", "cursor"]);
     resolveBuiltinControllerInstallResolutionMock.mockImplementation(
       (input: { agentId: string; runtimeSupported: boolean }) => {
         if (!input.runtimeSupported) {
@@ -129,7 +128,7 @@ describe("openmeld agents interactive detected enable selection", () => {
   it("prints a clear message when all detected agents are already enabled", async () => {
     const prompts = await import("@clack/prompts");
     const selectMock = vi.mocked(prompts.select);
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["codex"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
     resolveBuiltinControllerInstallResolutionMock.mockResolvedValue({
       detail: null,
       launchContract: {
@@ -168,7 +167,7 @@ describe("openmeld agents interactive detected enable selection", () => {
   it("hides custom targets from top-level interactive agents menu", async () => {
     const prompts = await import("@clack/prompts");
     const selectMock = vi.mocked(prompts.select);
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["codex"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
     resolveBuiltinControllerInstallResolutionMock.mockResolvedValue({
       detail: null,
       launchContract: {
@@ -202,7 +201,7 @@ describe("openmeld agents interactive detected enable selection", () => {
   it("renders quick-enable options only for actionable agents, without agent ids and with updated hints", async () => {
     const prompts = await import("@clack/prompts");
     const selectMock = vi.mocked(prompts.select);
-    detectInstalledSkillsAgentsMock.mockResolvedValue([
+    detectInstalledRuntimeAgentsMock.mockResolvedValue([
       "claude-code",
       "codex",
       "openclaw",

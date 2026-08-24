@@ -1017,14 +1017,18 @@ array to a workstation route only when the route reports
 unsupported routes. The local service then uses the existing authenticated
 attachment download route and provides validated local file paths to the Agent
 Controller. Hosted Center Agent native delivery has a separate explicit
-image-input contract: Core reads the triggering Space signal through the
-authorized Space RPC, copies the optional attachment reference subset into
-`remoteAgentWorkerTurnMessageSchema.attachments`, and never puts image bytes
-into the worker RPC. The Remote Agent worker combines the request's existing
-`organizationId` and `spaceId` with each attachment id through
-`buildSpaceAttachmentObjectKey`, reads the private R2 object, and sends validated
-base64 images to Flue. Clients must not derive image rendering from Markdown or
-relax the Markdown image policy.
+image-input contract. Legacy Message Channel attachment records remain bounded
+compatibility inputs: Core copies their metadata references into
+`remoteAgentWorkerTurnMessageSchema.attachments`, and Remote Agent derives their
+private object address from the request's existing Organization and Space
+identity. Current Space messages use canonical Space File references instead:
+Core reauthorizes the exact immutable revision through the owning Space Durable
+Object and sends its private object key to Remote Agent. Remote Agent reads the
+exact source, creates a bounded transient WebP derivative, and sends only that
+derivative to the auxiliary image-understanding route. Flue's persistent primary
+conversation receives escaped text observations and immutable file metadata,
+never source or derivative image bytes. Clients must not derive image rendering
+from Markdown or relax the Markdown image policy.
 
 Remote Agent browser screenshots reuse the same attachment contract in the
 opposite direction. The worker asks Core to create organization- and

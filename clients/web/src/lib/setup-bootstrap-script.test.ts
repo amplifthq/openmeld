@@ -217,8 +217,32 @@ describe("setup-bootstrap-script", () => {
 		);
 		expect(script).toContain("Select-Object -Last 15");
 		expect(script).toContain(
-			"if ($script:OpenMeldSetupGlobalCliReady) {\n      return 'openmeld'\n    }"
+			"if ($script:OpenMeldSetupGlobalCliReady) {\n      return \"& 'openmeld'\"\n    }"
 		);
+	});
+
+	it("keeps the exact local environment in Windows follow-up commands", () => {
+		const script = buildOpenMeldSetupBootstrapPowerShellScript({
+			authUrl: "http://localhost:8788",
+			distribution: "npm",
+			gatewayUrl: "http://localhost:8080",
+			lane: "dev-local",
+			openMeldHome: "C:\\OpenMeld Dev\\state",
+		});
+
+		expect(script).toContain(
+			"$parts += '$env:OPENMELD_HOME=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupOpenMeldHome)"
+		);
+		expect(script).toContain(
+			"$parts += '$env:OPENMELD_ENV_PRESET=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupEnvPreset)"
+		);
+		expect(script).toContain(
+			"$parts += '$env:OPENMELD_GATEWAY_URL=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupGatewayUrl)"
+		);
+		expect(script).toContain(
+			"$parts += '$env:OPENMELD_AUTH_URL=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupAuthUrl)"
+		);
+		expect(script).toContain("$parts += Resolve-FollowUpCliInvocation");
 	});
 
 	it(

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { detectInstalledSkillsAgentsMock } = vi.hoisted(() => ({
-  detectInstalledSkillsAgentsMock: vi.fn(),
+const { detectInstalledRuntimeAgentsMock } = vi.hoisted(() => ({
+  detectInstalledRuntimeAgentsMock: vi.fn(),
 }));
 
 const { resolveBuiltinControllerInstallResolutionMock } = vi.hoisted(() => ({
@@ -32,8 +32,7 @@ vi.mock("../src/skills/agents", async () => {
   );
   return {
     ...actual,
-    detectInstalledRuntimeAgents: detectInstalledSkillsAgentsMock,
-    detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
+    detectInstalledRuntimeAgents: detectInstalledRuntimeAgentsMock,
   };
 });
 
@@ -67,7 +66,10 @@ import { createTestNodeScriptLaunchContract } from "./helpers/launch-contract";
 
 describe("openmeld agents interactive manage flow", () => {
   beforeEach(() => {
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["claude-code", "codex"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue([
+      "claude-code",
+      "codex",
+    ]);
     resolveBuiltinControllerInstallResolutionMock.mockImplementation(
       (input: {
         detected: boolean;
@@ -103,7 +105,7 @@ describe("openmeld agents interactive manage flow", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    detectInstalledSkillsAgentsMock.mockReset();
+    detectInstalledRuntimeAgentsMock.mockReset();
     promptSearchMultiselectMock.mockReset();
     promptSearchSelectMock.mockReset();
     resolveBuiltinControllerInstallResolutionMock.mockReset();

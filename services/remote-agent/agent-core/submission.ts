@@ -950,13 +950,24 @@ async function resolveRemoteAgentAdmissionImages(input: {
       }
       continue;
     }
-    placeholders.push(buildAttachmentLoadFailurePlaceholder(attachment));
     logRemoteAgentAttachmentLoadDegradation({
       attachment,
       reason: result.reason,
       request: input.request,
       ...(result.error ? { error: result.error } : {}),
     });
+    if (attachment.objectKey !== undefined) {
+      const sourceLabel = attachment.fileName ?? attachment.id;
+      await deleteTransientRemoteAgentAttachments({
+        attachmentBucket: input.attachmentBucket,
+        objectKeys: transientObjectKeys,
+        request: input.request,
+      });
+      throw new Error(
+        `Remote Agent could not load canonical Space File image ${JSON.stringify(sourceLabel)} (${attachment.id}): ${result.reason}.${result.error ? ` Cause: ${result.error}` : ""}`
+      );
+    }
+    placeholders.push(buildAttachmentLoadFailurePlaceholder(attachment));
   }
 
   return { images, placeholders, transientObjectKeys };

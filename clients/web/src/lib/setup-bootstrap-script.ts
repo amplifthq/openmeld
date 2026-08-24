@@ -1102,15 +1102,38 @@ function Update-GlobalOpenMeldCliIfAvailable {
   }
 }
 
-function Resolve-FollowUpCliCommandPrefix {
+function ConvertTo-PowerShellSingleQuoted {
+  param([string]$Value)
+  return "'" + $Value.Replace("'", "''") + "'"
+}
+
+function Resolve-FollowUpCliInvocation {
   if ($OpenMeldSetupUserFacingCommand -eq 'openmeld') {
     if ($script:OpenMeldSetupGlobalCliReady) {
-      return 'openmeld'
+      return "& 'openmeld'"
     }
-    return "npx -y $OpenMeldSetupPackageSpec"
+    return "& 'npx' '-y' $(ConvertTo-PowerShellSingleQuoted $OpenMeldSetupPackageSpec)"
   }
 
-  return $OpenMeldSetupUserFacingCommand
+  return "& $(ConvertTo-PowerShellSingleQuoted $OpenMeldSetupUserFacingCommand)"
+}
+
+function Resolve-FollowUpCliCommandPrefix {
+  $parts = @()
+  if ($OpenMeldSetupEnvPreset -ne 'prod' -or $OpenMeldSetupOpenMeldHome.Length -gt 0) {
+    if ($OpenMeldSetupOpenMeldHome.Length -gt 0) {
+      $parts += '$env:OPENMELD_HOME=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupOpenMeldHome)
+    }
+    $parts += '$env:OPENMELD_ENV_PRESET=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupEnvPreset)
+    if ($OpenMeldSetupGatewayUrl.Length -gt 0) {
+      $parts += '$env:OPENMELD_GATEWAY_URL=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupGatewayUrl)
+    }
+    if ($OpenMeldSetupAuthUrl.Length -gt 0) {
+      $parts += '$env:OPENMELD_AUTH_URL=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupAuthUrl)
+    }
+  }
+  $parts += Resolve-FollowUpCliInvocation
+  return $parts -join '; '
 }
 
 if ($OpenMeldSetupDistribution -eq 'binary') {

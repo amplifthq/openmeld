@@ -11,4 +11,5 @@ numbered name automatically. Center Agent now keeps screenshots readable by
 creating high-resolution temporary model copies, grouping up to five ordinary
 screenshots when the visual and infrastructure budgets allow it, and combining
 larger image sets across safe batches. Original image data never enters its
-ongoing conversation context.
+ongoing conversation context, and a missing source or unreadable model copy now
+fails visibly instead of pretending the screenshot was understood.

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { detectInstalledSkillsAgentsMock } = vi.hoisted(() => ({
-  detectInstalledSkillsAgentsMock: vi.fn(),
+const { detectInstalledRuntimeAgentsMock } = vi.hoisted(() => ({
+  detectInstalledRuntimeAgentsMock: vi.fn(),
 }));
 
 const { resolveBuiltinControllerInstallResolutionMock } = vi.hoisted(() => ({
@@ -14,8 +14,7 @@ vi.mock("../src/skills/agents", async () => {
   );
   return {
     ...actual,
-    detectInstalledRuntimeAgents: detectInstalledSkillsAgentsMock,
-    detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
+    detectInstalledRuntimeAgents: detectInstalledRuntimeAgentsMock,
   };
 });
 
@@ -47,7 +46,7 @@ import { withTempHome } from "./helpers/fs";
 
 describe("openmeld agents interactive menu copy", () => {
   beforeEach(() => {
-    detectInstalledSkillsAgentsMock.mockResolvedValue([]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue([]);
     resolveBuiltinControllerInstallResolutionMock.mockResolvedValue({
       detail: null,
       installChoices: [],
@@ -61,7 +60,7 @@ describe("openmeld agents interactive menu copy", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    detectInstalledSkillsAgentsMock.mockReset();
+    detectInstalledRuntimeAgentsMock.mockReset();
     resolveBuiltinControllerInstallResolutionMock.mockReset();
   });
 
@@ -106,7 +105,7 @@ describe("openmeld agents interactive menu copy", () => {
   it("shows clear entry labels when actionable agents are available", async () => {
     const prompts = await import("@clack/prompts");
     const selectMock = vi.mocked(prompts.select);
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["codex"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
 
     await withTempHome(async () => {
       selectMock.mockResolvedValueOnce("exit");
@@ -145,7 +144,7 @@ describe("openmeld agents interactive menu copy", () => {
   it("hides the new-agent entry when the only available agent is already set up but turned off", async () => {
     const prompts = await import("@clack/prompts");
     const selectMock = vi.mocked(prompts.select);
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["claude-code"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue(["claude-code"]);
 
     await withTempHome(async () => {
       await setConfiguredDeviceRuntimeState({

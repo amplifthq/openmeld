@@ -1577,6 +1577,7 @@ export async function submitRemoteAgentNativeDelivery(input: {
     await rejectNativeDeliveryWithSpaceFailure({
       ...input,
       failureCode: "remote_agent.turn_envelope_unavailable",
+      failureDetail: toErrorMessage(turnContextPreparation.reason),
       ledgerStatus: "failed",
       text: "Center Agent could not start this request because its conversation context was unavailable.",
     });
@@ -7271,6 +7272,8 @@ async function readRemoteAgentSubmissionAttachments(input: {
       )
     );
     const canonicalImages: RemoteAgentWorkerInputAttachment[] = [];
+    let canonicalImageFailure: RemoteAgentCanonicalImageResolutionError | null =
+      null;
     for (const [index, result] of canonicalImageResults.entries()) {
       if (result.status === "fulfilled") {
         canonicalImages.push(result.value);
@@ -7281,12 +7284,22 @@ async function readRemoteAgentSubmissionAttachments(input: {
         message: input.message,
         reason: `space_file_image_resolution_failed:${canonicalImageFiles[index]?.fileId ?? "unknown"}`,
       });
+      canonicalImageFailure ??= new RemoteAgentCanonicalImageResolutionError({
+        cause: result.reason,
+        fileId: canonicalImageFiles[index]?.fileId ?? "unknown",
+      });
+    }
+    if (canonicalImageFailure) {
+      throw canonicalImageFailure;
     }
     return remoteAgentWorkerInputAttachmentsSchema.parse([
       ...legacyAttachments.data,
       ...canonicalImages,
     ]);
   } catch (error) {
+    if (error instanceof RemoteAgentCanonicalImageResolutionError) {
+      throw error;
+    }
     logRemoteAgentAttachmentReferenceDegradation({
       message: input.message,
       reason: isRpcReceiverMethodNotImplementedError(error)
@@ -7295,6 +7308,16 @@ async function readRemoteAgentSubmissionAttachments(input: {
       error: toErrorMessage(error),
     });
     return [];
+  }
+}
+
+class RemoteAgentCanonicalImageResolutionError extends Error {
+  constructor(input: { cause: unknown; fileId: string }) {
+    super(
+      `Canonical Space File image ${input.fileId} could not be resolved: ${toErrorMessage(input.cause)}`,
+      { cause: input.cause }
+    );
+    this.name = "RemoteAgentCanonicalImageResolutionError";
   }
 }
 

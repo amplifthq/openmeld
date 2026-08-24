@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { detectInstalledSkillsAgentsMock } = vi.hoisted(() => ({
-  detectInstalledSkillsAgentsMock: vi.fn(),
+const { detectInstalledRuntimeAgentsMock } = vi.hoisted(() => ({
+  detectInstalledRuntimeAgentsMock: vi.fn(),
 }));
 
 const { promptSearchMultiselectMock, promptSearchSelectMock } = vi.hoisted(
@@ -31,8 +31,7 @@ vi.mock("../src/skills/agents", async () => {
   );
   return {
     ...actual,
-    detectInstalledRuntimeAgents: detectInstalledSkillsAgentsMock,
-    detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
+    detectInstalledRuntimeAgents: detectInstalledRuntimeAgentsMock,
   };
 });
 
@@ -62,12 +61,12 @@ const CUSTOM_TARGET_ID_PREFIX_RE = /^custom-/;
 
 describe("openmeld agents interactive custom flow", () => {
   beforeEach(() => {
-    detectInstalledSkillsAgentsMock.mockResolvedValue([]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue([]);
   });
 
   afterEach(() => {
     vi.clearAllMocks();
-    detectInstalledSkillsAgentsMock.mockReset();
+    detectInstalledRuntimeAgentsMock.mockReset();
     promptSearchMultiselectMock.mockReset();
     promptSearchSelectMock.mockReset();
     promptTextEntryMock.mockReset();

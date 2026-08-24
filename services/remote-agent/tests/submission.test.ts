@@ -2023,6 +2023,59 @@ describe("remote agent submission", () => {
     ]);
   });
 
+  it("fails admission when an exact canonical Space File revision is unavailable", async () => {
+    const objectKey =
+      "org/org_123/space/space_123/files/space-file-missing/revisions/revision-1";
+    const request = createSubmitTurnRequest({
+      messages: [
+        {
+          attachments: [
+            {
+              fileName: "transient.png",
+              id: "message-channel-transient",
+              mimeType: "image/png",
+              removeAfterAdmission: true,
+              sizeBytes: 3,
+            },
+            {
+              fileName: "missing.png",
+              id: "space-file-missing",
+              mimeType: "image/png",
+              objectKey,
+              sizeBytes: 3,
+            },
+          ],
+          content: "Read this screenshot.",
+          role: "user",
+        },
+      ],
+    });
+    const admitted: Parameters<
+      RemoteAgentAdmissionHost["admitConversationTurn"]
+    >[] = [];
+    const transientObjectKey =
+      "org/org_123/space/space_123/message-channel-transient";
+    const bucket = createAttachmentBucket(async (key) =>
+      key === transientObjectKey
+        ? makeR2ObjectBody(key, new Uint8Array([1, 2, 3]))
+        : null
+    );
+
+    await expect(
+      submitRemoteAgentConversationTurn({
+        agentName: buildRemoteAgentName(request),
+        attachmentBucket: bucket,
+        host: createAdmissionHost(admitted),
+        input: request,
+        nowMs: () => TEST_NOW_MS,
+      })
+    ).rejects.toThrow(
+      'Remote Agent could not load canonical Space File image "missing.png" (space-file-missing): r2_object_missing.'
+    );
+    expect(admitted).toEqual([]);
+    expect(bucket.delete).toHaveBeenCalledWith(transientObjectKey);
+  });
+
   it("keeps ten modern Center Agent images as lazy R2 streams instead of base64 buffers", async () => {
     const imageCount = 10;
     const sourceSizeBytes = 10 * 1024 * 1024;
