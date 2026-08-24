@@ -25,6 +25,14 @@ import {
 } from "#lib/status-tone";
 
 describe("status tone theme pairs", () => {
+  it("gives muted badges a quiet semantic background in both themes", () => {
+    const className = resolveStatusToneBadgeClassName("muted");
+
+    expect(className).toContain("bg-muted/40");
+    expect(className).toContain("text-muted-foreground");
+    expect(className).not.toContain("bg-primary");
+  });
+
   it("keeps Found visually distinct from the blue Checking state", () => {
     expect(resolveStatusToneBadgeClassName("found")).toContain("violet");
     expect(resolveStatusToneBadgeClassName("found")).not.toContain("sky");

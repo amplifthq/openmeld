@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-23T10:44:21.952Z",
+  "updatedAt": "2026-08-24T07:36:46.894Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.85",
+      "packageVersion": "0.3.90",
       "updatePolicy": "available",
-      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
+      "reason": "Keep Agent outcomes structured and Service process ownership lane-safe."
     },
     "service": {
-      "bundleHash": "96dcfeb9387f664b3cfdd9012b297301333bb7cc266b8e7c68e6633a405b0e45",
-      "bundleVersion": "0.3.85",
+      "bundleHash": "a1e2eacb07d6af5d030a1fee506696295b2118e3eb1be5383b7f4149065153a4",
+      "bundleVersion": "0.3.90",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
-      "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
+      "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
+      "reason": "Keep Agent outcomes structured and Service process ownership lane-safe."
     },
     "skills": {
-      "bundleHash": "79a8ca933c1447c98097071a7434ae390c267be8f9b05f67d3102a39c614ef04",
-      "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
+      "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
+      "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
+      "reason": "Keep Agent outcomes structured and Service process ownership lane-safe."
     }
   }
 }

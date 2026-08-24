@@ -167,6 +167,22 @@ describe("AppearanceSection", () => {
 		expect(
 			alignmentGroup.querySelectorAll("[data-self-message-alignment-preview]")
 		).toHaveLength(2);
+		const leftPreview = alignmentGroup.querySelector(
+			'[data-self-message-alignment-preview="left"]'
+		);
+		const rightPreview = alignmentGroup.querySelector(
+			'[data-self-message-alignment-preview="right"]'
+		);
+		expect(
+			leftPreview
+				?.querySelector('[data-slot="self-message-preview-bubble"]')
+				?.classList.contains("w-full")
+		).toBe(true);
+		expect(
+			rightPreview
+				?.querySelector('[data-slot="self-message-preview-bubble"]')
+				?.classList.contains("w-2/3")
+		).toBe(true);
 
 		fireEvent.click(screen.getByRole("radio", { name: "Left" }));
 

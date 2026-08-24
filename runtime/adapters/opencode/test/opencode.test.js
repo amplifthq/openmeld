@@ -131,6 +131,46 @@ test("opencode output parser extracts nested error data messages", async () => {
   });
 });
 
+test("opencode output parser keeps failure words in agent text as content", async () => {
+  const { parseOpenCodeOutputLine } = await import("../dist/index.js");
+  const parsed = parseOpenCodeOutputLine(
+    JSON.stringify({
+      type: "text",
+      sessionID: "ses_opencode_answer",
+      message:
+        "The earlier session error and invalid rate-limit failure are now fixed.",
+    })
+  );
+
+  assert.deepEqual(parsed, {
+    errorMessage: null,
+    isErrorResult: null,
+    resultText:
+      "The earlier session error and invalid rate-limit failure are now fixed.",
+    sessionId: "ses_opencode_answer",
+    terminal: false,
+  });
+});
+
+test("opencode output parser keeps a structured error authoritative without prose", async () => {
+  const { parseOpenCodeOutputLine } = await import("../dist/index.js");
+
+  assert.deepEqual(
+    parseOpenCodeOutputLine(
+      JSON.stringify({
+        type: "error",
+      })
+    ),
+    {
+      errorMessage: null,
+      isErrorResult: true,
+      resultText: null,
+      sessionId: null,
+      terminal: true,
+    }
+  );
+});
+
 test("opencode output parser does not stringify object error payloads", async () => {
   const { parseOpenCodeOutputLine } = await import("../dist/index.js");
 
@@ -152,7 +192,7 @@ test("opencode output parser does not stringify object error payloads", async ()
       isErrorResult: true,
       resultText: null,
       sessionId: "ses_opencode_error_object",
-      terminal: false,
+      terminal: true,
     }
   );
 });

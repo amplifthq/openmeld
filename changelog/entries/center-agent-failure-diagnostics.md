@@ -1,12 +1,13 @@
 ---
 id: center-agent-failure-diagnostics
-title: Stop replacing completed Center Agent answers
+title: Keep Center Agent decisions independent of wording
 kind: fixed
 areas: ["center-agent", "diagnostics", "channels"]
 audiences: ["members", "admins"]
 ---
 
-Completed Center Agent answers are no longer replaced with a generic failure
-just because ordinary prose includes words such as `Failure` or `Session`.
-Genuine execution and publication failures now keep a protected diagnostic
-reason instead of being saved as successful replies.
+Center Agent no longer decides whether work succeeded, a Profile Report found
+useful evidence, a connected App action is destructive, or reply publication
+failed by searching ordinary prose, action names, or diagnostic wording. It now
+uses structured results, declared effects, and lifecycle events; actions that
+do not declare an effect remain safely constrained.

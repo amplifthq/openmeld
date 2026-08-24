@@ -280,6 +280,41 @@ describe("exact controller conversation recovery", () => {
     );
   });
 
+  it("never infers recovery state from a model-authored magic phrase", async () => {
+    const output = "RECOVERY_RESULT_UNAVAILABLE";
+    const dispatch = vi.fn<RuntimeAdapter["dispatch"]>().mockResolvedValue({
+      contextDelta: {
+        agentControllerConversationId: "conversation-1",
+      },
+      output,
+      status: "success",
+    });
+
+    const result = await resumeExactControllerConversation({
+      computerFileAccessStorePath:
+        "/tmp/openmeld-test-missing-computer-file-access-policy.json",
+      localAdapterContainer: createLocalAdapterContainer([
+        {
+          adapter: {
+            adapterId: "codex",
+            dispatch,
+            interrupt: vi.fn(),
+          },
+          adapterId: "codex",
+          transportModes: ["local-cli"],
+        },
+      ]),
+      request,
+    });
+
+    expect(result).toMatchObject({ output, status: "completed" });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.not.stringContaining("RECOVERY_RESULT_UNAVAILABLE"),
+      })
+    );
+  });
+
   it("rejects active Computer boundaries that the adapter cannot verify", async () => {
     const root = mkdtempSync(join(tmpdir(), "openmeld-recovery-boundary-"));
     const workingDirectory = join(root, "project");

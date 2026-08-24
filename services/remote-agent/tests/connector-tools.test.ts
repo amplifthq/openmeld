@@ -188,7 +188,7 @@ describe("Remote Agent generic App tools", () => {
       actions: [
         {
           description: "List projects.",
-          effect: "read",
+          effect: "unspecified",
           id: "posthog.list_projects",
           inputSchema: { properties: {}, type: "object" },
           name: "List projects",
@@ -217,6 +217,7 @@ describe("Remote Agent generic App tools", () => {
       ...capturedExecutableOpenConnectorAction,
       description:
         "List or count Gmail messages with Gmail search filters, including unread inbox messages.",
+      effect: "read" as const,
       id: "gmail.fetch_emails",
       name: "fetch_emails",
       outputSchema: {
@@ -320,6 +321,7 @@ describe("Remote Agent generic App tools", () => {
       ...capturedExecutableOpenConnectorAction,
       description:
         "List or count Gmail messages with Gmail search filters, including unread inbox messages.",
+      effect: "read" as const,
       id: "gmail.fetch_emails",
       name: "fetch_emails",
       outputSchema: {
@@ -453,7 +455,7 @@ describe("Remote Agent generic App tools", () => {
     ).rejects.toThrow("OpenConnector returned an invalid action catalog");
   });
 
-  it("shows a legacy destructive action as destructive when metadata conflicts", async () => {
+  it("uses the declared effect even when an action name sounds destructive", async () => {
     const action = {
       ...capturedExecutableOpenConnectorAction,
       effect: "write" as const,
@@ -489,7 +491,7 @@ describe("Remote Agent generic App tools", () => {
     await expect(
       executeTool(tools, "openmeld_list_app_actions", { service: "posthog" })
     ).resolves.toMatchObject({
-      actions: [expect.objectContaining({ effect: "destructive" })],
+      actions: [expect.objectContaining({ effect: "write" })],
     });
   });
 
@@ -543,7 +545,7 @@ describe("Remote Agent generic App tools", () => {
     });
   });
 
-  it("runs a legacy read action from its explicit action id even when the display name differs", async () => {
+  it("runs a declared read action even when the display name does not describe the effect", async () => {
     const request = createSubmitTurnRequest({
       turnEnvelope: createRoutineTurnEnvelope({
         externalActionPolicy: "read_only",
@@ -551,6 +553,7 @@ describe("Remote Agent generic App tools", () => {
     });
     const action = {
       ...capturedExecutableOpenConnectorAction,
+      effect: "read" as const,
       name: "Projects",
     };
     const operationId = "routine-posthog-list-projects";
@@ -680,8 +683,9 @@ describe("Remote Agent generic App tools", () => {
     };
     const unspecifiedAction = {
       ...capturedExecutableOpenConnectorAction,
-      id: "posthog.project_operation",
-      name: "Project operation",
+      effect: undefined,
+      id: "posthog.get_project_without_effect",
+      name: "Get project without declared effect",
     };
     const fetchMock = vi.fn<typeof fetch>((url) => {
       if (String(url).endsWith("/v1/actions?service=posthog")) {
@@ -965,41 +969,18 @@ describe("Remote Agent generic App tools", () => {
 
   it.each([
     {
-      id: "posthog.remove_project",
-      name: "Remove project",
-    },
-    {
-      effect: "write" as const,
+      effect: "destructive" as const,
       id: "posthog.delete_project",
       name: "Delete project",
     },
     {
-      id: "posthog.destroy_project",
-      name: "Destroy project",
-    },
-    {
-      id: "posthog.drop_project",
-      name: "Drop project",
-    },
-    {
-      id: "posthog.erase_project",
-      name: "Erase project",
-    },
-    {
-      id: "posthog.merge_project",
-      name: "Merge project",
-    },
-    {
-      id: "posthog.purge_project",
-      name: "Purge project",
-    },
-    {
-      id: "posthog.trash_project",
-      name: "Trash project",
-    },
-    {
       effect: "destructive" as const,
       id: "posthog.project_operation",
+      name: "Project operation",
+    },
+    {
+      effect: undefined,
+      id: "posthog.project_operation_without_effect",
       name: "Project operation",
     },
   ])("requires confirmation for destructive App action $id", async (metadata) => {
@@ -1281,7 +1262,10 @@ describe("Remote Agent generic App tools", () => {
 
   it("replays the same provider operation after Core finalization is interrupted", async () => {
     const request = createSubmitTurnRequest();
-    const action = capturedExecutableOpenConnectorAction;
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      effect: "read" as const,
+    };
     const operationId = "member-posthog-list-projects";
     const providerExecutionId = "provider-execution-1";
     const fetchMock = vi
@@ -1445,7 +1429,10 @@ describe("Remote Agent generic App tools", () => {
 
   it("keeps an idempotent provider request pending while OpenConnector is still running it", async () => {
     const request = createSubmitTurnRequest();
-    const action = capturedExecutableOpenConnectorAction;
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      effect: "read" as const,
+    };
     const operationId = "member-posthog-pending-operation";
     const fetchMock = vi
       .fn<typeof fetch>()

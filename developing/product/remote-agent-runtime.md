@@ -227,7 +227,10 @@ use the action only when its stored structured grant explicitly contains
    research and Organization-shared reads run before any
    setup suggestion. The registered `write` effect is the ordinary-member
    policy for non-GitHub shared Apps; unknown or destructive effects fail
-   closed. GitHub ordinary writes may run only with
+   closed. A connected App action's effect comes only from the action owner's
+   structured catalog field. Action ids, names, and descriptions never infer,
+   upgrade, or downgrade that effect; a missing field remains unknown and is
+   constrained conservatively. GitHub ordinary writes may run only with
    `githubActor = organization`; file deletion and pull-request merge remain
    identity-gated. Every write accepts provider-delivery attribution. When
    linked identity is required, the Center Agent completes every
@@ -1794,6 +1797,17 @@ requires a current RuntimeCoordinator projection and freshness; otherwise the
 tool must report the current execution state as unknown. Its description and
 prompt must preserve that boundary for `queued`, `dispatching`, and
 `waiting_result` history.
+
+The interactive Center Agent also has a self-diagnostic native-delivery read.
+When a requester asks why a recent Center Agent turn succeeded, failed,
+stopped, or produced no reply, the model reads exact Core-owned lifecycle and
+publication fields for that requester on the current conversation surface. It
+reports recorded status, failure code and detail, publication state, and the
+published result id separately; it never classifies the answer text. The model
+cannot choose arbitrary history selectors, read another requester or surface,
+or use this tool from a Routine. If the bounded history does not contain the
+turn, the Center Agent says that exact diagnostics are unavailable rather than
+guessing.
 
 **Tier-2 vetting bar** (the implementer applies this to each built-in and
 reports the enabled/disabled inventory for Felix's review — the standard

@@ -1503,18 +1503,28 @@ function resolveRuntimeCoordinatorExecutionPublicationOutcome(
   const runtimeCoordinatorExecution = trace.runtimeCoordinatorExecution;
   const runtimeCoordinatorReason =
     runtimeCoordinatorExecution?.terminalOutcome?.reasonCode ?? null;
+  const publicationFailureEvent = trace.runtimeCoordinatorEvents
+    .filter(
+      (event) =>
+        event.eventType === "reply_publication_failed" &&
+        event.runtimeCoordinatorExecutionId ===
+          runtimeCoordinatorExecution?.runtimeCoordinatorExecutionId
+    )
+    .at(-1);
   if (
     runtimeCoordinatorExecution?.status === "failed_retryable" &&
-    isPublicationFailureReasonCode(runtimeCoordinatorReason)
+    publicationFailureEvent
   ) {
+    const publicationReason =
+      publicationFailureEvent.reasonCode ?? runtimeCoordinatorReason;
     return {
       delivered: false,
-      publicationErrorCode: runtimeCoordinatorReason,
+      publicationErrorCode: publicationReason,
       publicationKind: "success_reply",
       reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_RETRYING_REASON_CODE,
       signalId: null,
       sourceFact: "runtime_coordinator_execution",
-      sourceReasonCode: runtimeCoordinatorReason,
+      sourceReasonCode: publicationReason,
       sourceStatus: runtimeCoordinatorExecution.status,
       status: "publication_retrying",
     };
@@ -2086,15 +2096,6 @@ function readPayloadObject(
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-function isPublicationFailureReasonCode(reasonCode: string | null): boolean {
-  return Boolean(
-    reasonCode &&
-      (reasonCode.includes("publication") ||
-        reasonCode.includes("finalization") ||
-        reasonCode.includes("space.signal"))
-  );
 }
 
 function assertNever(value: never): never {

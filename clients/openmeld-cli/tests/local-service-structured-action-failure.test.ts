@@ -12,7 +12,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LedgerPaths } from "../src/local-service/core/types";
 import {
   buildStructuredActionRepairPrompt,
-  buildSyntheticStructuredSpaceActionRepairResult,
   coerceRuntimeResultToStructuredActionFailure,
   resolveRuntimeResultFromRuntimeOrCliSpaceAction,
   resolveStructuredActionRepairContinuation,
@@ -678,157 +677,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     ).toBe(true);
   });
 
-  it("repairs a malformed trailing OpenMeld block locally without rerunning the provider", () => {
-    const runtimeResult = createRuntimeTaskResultFixture({
-      resultPayload: {
-        status: "success",
-        attemptId: "attempt-repair-1",
-        taskId: "task-repair-1",
-        sourceEventId: "signal-repair-1",
-        agentId: "agt_repair",
-        deduped: false,
-        agentControllerRef: "builtin:codex",
-        output: [
-          "Here is the status update.",
-          "```openmeld-space-action",
-          '{"type":"post_status","status":"done","text":"Ready for review"',
-          "```",
-        ].join("\n"),
-      },
-    });
-
-    const repaired = buildSyntheticStructuredSpaceActionRepairResult({
-      runtimeResult,
-    });
-
-    expect(repaired).not.toBeNull();
-    const repairedPayload = repaired?.resultPayload;
-    expect(repairedPayload?.status).toBe("success");
-    if (repairedPayload?.status !== "success") {
-      throw new Error("expected a successful repaired payload");
-    }
-    expect(repairedPayload.output).toBe("Here is the status update.");
-    expect(repairedPayload.spaceAction).toEqual({
-      type: "post_status",
-      status: "done",
-      text: "Ready for review",
-    });
-  });
-
-  it("does not echo a malformed OpenMeld block when the output contains no safe prose", () => {
-    const runtimeResult = createRuntimeTaskResultFixture({
-      resultPayload: {
-        status: "success",
-        attemptId: "attempt-repair-2",
-        taskId: "task-repair-2",
-        sourceEventId: "signal-repair-2",
-        agentId: "agt_repair_2",
-        deduped: false,
-        agentControllerRef: "builtin:codex",
-        output: [
-          "```openmeld-space-action",
-          '{"type":"post_status","status":"done","text":"Ready for review"',
-          "```",
-        ].join("\n"),
-      },
-    });
-
-    const repaired = buildSyntheticStructuredSpaceActionRepairResult({
-      runtimeResult,
-    });
-
-    expect(repaired).not.toBeNull();
-    const repairedPayload = repaired?.resultPayload;
-    expect(repairedPayload?.status).toBe("success");
-    if (repairedPayload?.status !== "success") {
-      throw new Error("expected a successful repaired payload");
-    }
-    expect(repairedPayload.output).toBe("Ready for review");
-    expect(repairedPayload.output).not.toContain("```openmeld-space-action");
-  });
-
-  it("repairs a post_message block that uses message instead of text", () => {
-    const runtimeResult = createRuntimeTaskResultFixture({
-      resultPayload: {
-        status: "success",
-        attemptId: "attempt-repair-3",
-        taskId: "task-repair-3",
-        sourceEventId: "signal-repair-3",
-        agentId: "agt_repair_3",
-        deduped: false,
-        agentControllerRef: "builtin:claude-code",
-        output: [
-          "Claude direct style output.",
-          "```openmeld-space-action",
-          '{"type":"post_message","message":"Hello from Claude"}',
-          "```",
-        ].join("\n"),
-      },
-    });
-
-    const repaired = buildSyntheticStructuredSpaceActionRepairResult({
-      runtimeResult,
-    });
-
-    expect(repaired).not.toBeNull();
-    const repairedPayload = repaired?.resultPayload;
-    expect(repairedPayload?.status).toBe("success");
-    if (repairedPayload?.status !== "success") {
-      throw new Error("expected a successful repaired payload");
-    }
-    expect(repairedPayload.output).toBe("Claude direct style output.");
-    expect(repairedPayload.spaceAction).toEqual({
-      type: "post_message",
-      messageEnvelope: {
-        activationTargets: [],
-        referenceTargets: [],
-        text: "Hello from Claude",
-      },
-    });
-  });
-
-  it("repairs a simple post_message OpenMeld block without requiring JSON", () => {
-    const runtimeResult = createRuntimeTaskResultFixture({
-      resultPayload: {
-        status: "success",
-        attemptId: "attempt-repair-4",
-        taskId: "task-repair-4",
-        sourceEventId: "signal-repair-4",
-        agentId: "agt_repair_4",
-        deduped: false,
-        agentControllerRef: "builtin:openclaw",
-        output: [
-          "OPENCLAW-PHASE2-FINAL-A1-0323",
-          "```openmeld-space-action",
-          "post_message",
-          "OPENCLAW-PHASE2-FINAL-A1-0323",
-          "```",
-        ].join("\n"),
-      },
-    });
-
-    const repaired = buildSyntheticStructuredSpaceActionRepairResult({
-      runtimeResult,
-    });
-
-    expect(repaired).not.toBeNull();
-    const repairedPayload = repaired?.resultPayload;
-    expect(repairedPayload?.status).toBe("success");
-    if (repairedPayload?.status !== "success") {
-      throw new Error("expected a successful repaired payload");
-    }
-    expect(repairedPayload.output).toBe("OPENCLAW-PHASE2-FINAL-A1-0323");
-    expect(repairedPayload.spaceAction).toEqual({
-      type: "post_message",
-      messageEnvelope: {
-        activationTargets: [],
-        referenceTargets: [],
-        text: "OPENCLAW-PHASE2-FINAL-A1-0323",
-      },
-    });
-  });
-
-  it("includes exact OpenMeld action schema guidance in the repair prompt", () => {
+  it("requires a real Space Action tool call in the repair prompt", () => {
     const prompt = buildStructuredActionRepairPrompt({
       parseError: "malformed JSON",
       spaceId: "space-123",
@@ -848,31 +697,23 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       "A plain reply or bare @name does not hand off work; use Wake or Reply + Wake."
     );
     expect(prompt).toContain(
-      "OpenMeld only consumes your final answer and at most one valid trailing ```openmeld-space-action``` JSON block."
+      "Your answer text never selects an OpenMeld Space action."
     );
     expect(prompt).toContain(
-      "Return the corrected final answer again, preserve the user's intent, and end with exactly one valid trailing ```openmeld-space-action``` JSON block."
+      "Call exactly one dispatch-scoped OpenMeld Space Action CLI command to repair the delivery action."
     );
     expect(prompt).toContain(
-      'Inside the block, JSON must use the key "type". Never use "action".'
+      "Preserve the user's intent and call exactly one dispatch-scoped OpenMeld Space Action CLI command. Do not print an action as JSON or prose."
     );
     expect(prompt).toContain(
-      "Use post_message for normal public replies, greetings, answers, and discussion."
-    );
-    expect(prompt).toContain("Canonical post_message block:");
-    expect(prompt).toContain("```openmeld-space-action");
-    expect(prompt).toContain(
-      '{"type":"post_message","messageEnvelope":{"text":"Hello.","activationTargets":[],"referenceTargets":[]}}'
-    );
-    expect(prompt).toContain(
-      "For fallback openmeld-space-action blocks, target semantics only count when they are written in post_message.messageEnvelope."
+      "Use the dispatch-scoped Space Action reply command for normal public replies, greetings, answers, and discussion."
     );
     expect(prompt).toContain("Repair completion rule:");
     expect(prompt).toContain(
       'For a normal reply, run `openmeld space action reply "corrected public message"` now and wait for it to finish.'
     );
     expect(prompt).toContain(
-      "If the command cannot run, finish with the corrected public answer followed by exactly one valid trailing ```openmeld-space-action``` block."
+      "If the command cannot run, stop. Do not print JSON or prose as a substitute for the tool call."
     );
     expect(prompt).toContain(
       "Do not finish with an explanation of what you will do."
@@ -890,20 +731,14 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       "For a normal reply to the current Wake, leave activationTargets and referenceTargets empty."
     );
     expect(prompt).toContain(
-      'Fallback openmeld-space-action target arrays must contain profileId strings, not objects. Example: {"activationTargets":["agt_11111111-1111-4111-8111-111111111111"],"referenceTargets":["11111111-1111-4111-8111-111111111111"]}.'
-    );
-    expect(prompt).toContain(
       'Use post_status only for final-safe outcomes: done, blocked, needs_input, or handoff. Do not use "working" or "ready" because post_status closes the Wake.'
-    );
-    expect(prompt).toContain(
-      "Canonical post_status block (prefer final-safe statuses: done | blocked | needs_input | handoff):"
     );
     expect(prompt).toContain(
       "`openmeld space history space-123 --kind text --limit 20`"
     );
     expect(prompt).toContain("`openmeld prompt`");
     expect(prompt).toContain("`openmeld space guide space-123`");
-    expect(prompt).toContain("Canonical stay_silent block:");
+    expect(prompt).not.toContain("```openmeld-space-action");
   });
 
   it("uses the dispatch CLI entry in the repair prompt", () => {
@@ -954,17 +789,18 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     });
 
     expect(prompt).toContain(
-      "If you keep a trailing ```openmeld-space-action``` block, it must be valid. Otherwise return the plain raw reply with no ```openmeld-space-action``` block."
+      "Return the plain raw reply, or call one dispatch-scoped OpenMeld Space Action CLI command for a controlled visible outcome. Answer text never becomes an action."
     );
     expect(prompt).not.toContain(
       "OpenMeld will not publish raw prose for you."
     );
     expect(prompt).toContain(
-      'Inside the block, JSON must use the key "type". Never use "action".'
+      "Your answer text never selects an OpenMeld Space action."
     );
     expect(prompt).toContain(
       'Use post_status only for final-safe outcomes: done, blocked, needs_input, or handoff. Do not use "working" or "ready" because post_status closes the Wake.'
     );
+    expect(prompt).not.toContain("```openmeld-space-action");
   });
 
   it("includes current reply target and send target reference lines in the repair prompt", () => {

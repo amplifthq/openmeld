@@ -439,7 +439,7 @@ describe("agent controller interface inventory", () => {
         [
           "#!/bin/sh",
           'if [ "$1" = "--version" ]; then echo "2026.07.16-899851b"; exit 0; fi',
-          'if [ "$1" = "status" ]; then echo "Logged in as cursor@example.com"; exit 0; fi',
+          'if [ "$1" = "status" ] && [ "$2" = "--format" ] && [ "$3" = "json" ]; then echo \'{"status":"authenticated","message":"Signed in"}\'; exit 0; fi',
           "exit 1",
           "",
         ].join("\n"),
@@ -454,8 +454,7 @@ describe("agent controller interface inventory", () => {
 
       expect(snapshot).toMatchObject({
         auth: {
-          email: "cursor@example.com",
-          label: "cursor@example.com",
+          label: "Signed in",
           status: "authenticated",
           type: "cursor_login",
         },
@@ -987,15 +986,15 @@ describe("agent controller interface inventory", () => {
     });
   });
 
-  it("falls back to Claude Code unauthenticated wording for non-JSON output", async () => {
+  it("does not infer Claude Code authentication from non-JSON wording", async () => {
     const snapshot = await resolveClaudeCodeSnapshotForAuthOutput({
       authExitCode: 1,
       authOutput: "Invalid API key. Run /login to authenticate.",
     });
 
     expect(snapshot).toMatchObject({
-      auth: { status: "unauthenticated" },
-      status: "error",
+      auth: { status: "unknown" },
+      status: "unknown",
     });
   });
 
@@ -1007,7 +1006,7 @@ describe("agent controller interface inventory", () => {
 
     expect(snapshot).toMatchObject({
       auth: { status: "unknown" },
-      status: "ready",
+      status: "unknown",
     });
   });
 
@@ -1015,14 +1014,14 @@ describe("agent controller interface inventory", () => {
     "Invalid token. Run /login to authenticate.",
     "Your OAuth session expired. Please sign in again.",
     "Authentication failed: 401 unauthorized.",
-  ])("reports Claude Code as unauthenticated for expired auth output: %s", async (authOutput) => {
+  ])("does not classify Claude Code auth from human wording: %s", async (authOutput) => {
     const snapshot = await resolveClaudeCodeSnapshotForAuthOutput({
       authOutput,
     });
 
     expect(snapshot).toMatchObject({
-      auth: { status: "unauthenticated" },
-      status: "error",
+      auth: { status: "unknown" },
+      status: "unknown",
     });
   });
 

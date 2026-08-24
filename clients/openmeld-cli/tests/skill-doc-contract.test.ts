@@ -148,7 +148,7 @@ describe("openmeld-cli skill docs contract", () => {
     }
   });
 
-  it("documents structured Space action target semantics", async () => {
+  it("documents tool-owned Space Action target semantics", async () => {
     const skillRaw = await readFile(SKILL_FILE_PATH, "utf8");
     const spaceOpsRaw = await readFile(SPACE_OPS_PATH, "utf8");
     const commandsReferenceRaw = await readFile(
@@ -158,9 +158,10 @@ describe("openmeld-cli skill docs contract", () => {
 
     for (const raw of [skillRaw, spaceOpsRaw, commandsReferenceRaw]) {
       expect(raw).toContain(
-        "`activationTargets` is only for waking another Agent Profile"
+        "`--wake` is only for waking another available Agent Profile"
       );
-      expect(raw).toContain("`referenceTargets`");
+      expect(raw).toContain("`--reference`");
+      expect(raw).not.toContain("`activationTargets`");
       expect(raw).not.toContain("`ccTargets`");
     }
   });

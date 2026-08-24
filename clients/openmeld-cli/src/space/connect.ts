@@ -188,8 +188,6 @@ const LEAVE_CARD_MIN_CONTENT_WIDTH = 8;
 const LEAVE_CARD_LEADING_BLANK_LINES = 2;
 const MEMBERS_PANEL_REFRESH_DEBOUNCE_MS = 250;
 const SPACE_META_REFRESH_DEBOUNCE_MS = 1000;
-const SPACE_MEMBER_ADDED_NOTICE_REGEX = / added .+ to this space\./i;
-const SPACE_MEMBER_REMOVED_NOTICE_REGEX = / removed .+ from this space\./i;
 
 type DispatchActivityRowState = ComposerDispatchRowState;
 type ConnectProfileIdentity = SpaceSessionProfileIdentity;
@@ -3856,15 +3854,7 @@ function shouldRefreshMembersSnapshotForEvent(
     return true;
   }
 
-  const text = resolveNonTransientSignalText(event);
-  if (!text) {
-    return false;
-  }
-
-  return (
-    SPACE_MEMBER_ADDED_NOTICE_REGEX.test(text) ||
-    SPACE_MEMBER_REMOVED_NOTICE_REGEX.test(text)
-  );
+  return false;
 }
 
 function shouldRefreshSpaceMetaForEvent(

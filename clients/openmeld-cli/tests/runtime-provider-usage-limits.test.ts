@@ -29,7 +29,7 @@ afterEach(async () => {
 });
 
 describe("runtime provider usage-limit observations", () => {
-  it("preserves a plaintext Claude email for passive usage binding", async () => {
+  it("preserves a machine-readable Claude email for passive usage binding", async () => {
     const directory = await mkdtemp(join(tmpdir(), "openmeld-claude-auth-"));
     temporaryDirectories.push(directory);
     const commandPath = join(directory, "claude");
@@ -37,7 +37,7 @@ describe("runtime provider usage-limit observations", () => {
       commandPath,
       [
         "#!/bin/sh",
-        "printf '%s\\n' 'Logged in as owner@example.com'",
+        'printf \'%s\\n\' \'{"loggedIn":true,"email":"owner@example.com"}\'',
         "exit 0",
         "",
       ].join("\n"),

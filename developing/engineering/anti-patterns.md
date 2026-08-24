@@ -323,3 +323,29 @@ Service.
 
 Rule owner: `developing/architecture/local-openmeld-service.md` (Agent
 Controller process supervision).
+
+## 16. Inferring product truth from prose or identifier words
+
+Looks right: search a model answer, rendered document, action id, display name,
+or diagnostic reason for words such as `insufficient`, `get`, `delete`, or
+`publication`, then use the match to decide success, safety, authorization, or
+execution phase.
+
+Breaks because: ordinary prose can mention the same word in a different
+meaning, identifiers are naming conventions rather than contracts, and copy can
+change without changing the underlying outcome. A harmless sentence can flip a
+successful result to failure, while an unfamiliar destructive action can evade
+a fixed word list. The code becomes a second, brittle semantic owner beside the
+model, action owner, or runtime that already knew the real answer.
+
+Instead: carry the owner's judgment across the boundary as a validated
+structured field or event. Persist bounded result enums when a later workflow
+needs them, require action owners to declare effects, and derive diagnostics
+from typed lifecycle events. If required structured evidence is absent, keep it
+unknown and fail closed; never guess from surrounding words. Parsing an
+schema-validated carrier is valid only when a real tool, vendor protocol, or
+typed owner boundary emitted it. Delimiters or JSON written inside a model's
+answer do not turn content into machine authority.
+
+Rule owner: `AGENTS.md` (Core Invariants, Source-Of-Truth Rules) and
+`developing/product/remote-agent-runtime.md` (semantic authorization).

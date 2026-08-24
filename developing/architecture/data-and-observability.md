@@ -817,11 +817,21 @@ Organization-only viewers cannot list Trash. Physical reclamation is a later
 explicitly-owned maintenance lifecycle, not part of an interactive delete
 request.
 
+The Space Durable Object appends one durable File audit event for each accepted
+content read or metadata mutation request. A successful metadata mutation and
+its event commit in the same SQLite transaction. Core reports the final R2
+content-read result and pre-commit R2 write failures back to that same writer;
+the metadata commit owns the successful content-write event. Exact request
+retries reuse the event id, while the operation id correlates separate attempts
+of the same client mutation.
+
 File audit events include Organization id, Space id, stable entry id, revision
-id when relevant, operation, actor Profile, represented human when applicable,
-and result. Logs and diagnostics never include file bytes, text bodies, or user
-file names. `space.files.changed` is a live invalidation only; clients re-read
-the Space-owned tree and never derive file state from the frame.
+id when relevant, operation, request and operation ids, actor kind, actor
+Profile for authenticated or dispatch actors, represented human when
+applicable, result, and a bounded error code for failures. Logs and diagnostics
+never include file bytes, text bodies, or user file names.
+`space.files.changed` is a live invalidation only; clients re-read the
+Space-owned tree and never derive file state from the frame.
 
 ## Agent Profile Deletion Lifecycle
 
@@ -1805,6 +1815,21 @@ from the conversation-id prefix. A ledger row describes one result surface
 only, and external provider results are not mirrored into a Space timeline or
 another connected provider.
 
+An interactive Center Agent turn may read a bounded self-diagnostic projection
+of its own current native-delivery row and recent rows from the same requester
+on the same conversation surface. Core derives the current row only from the
+trusted `agentControllerConversationId`; the model cannot supply a delivery,
+dispatch, submission, user, channel, or Space selector. Previous rows must
+match the same Organization, Center Agent profile, requester identity, and
+surface. Slack direct-message history is scoped to the same workspace and
+channel rather than one thread so separate top-level requests remain
+diagnosable. The projection returns identifiers, lifecycle timestamps, raw
+recorded status, bounded sanitized failure evidence, final-publication state,
+and the provider result pointer. It never returns prompt text, reply text,
+tokens, raw provider payloads, another member's history, or Routine history.
+Execution status, failure evidence, and publication are independent facts; a
+reader must not infer any one from the others or from user-facing copy.
+
 For Lark-platform final replies, the same native-delivery row also owns the
 frozen provider payload, attempt count, next-attempt time, provider-progress
 sequence, and ambiguity deadline. The first standalone reply attempt starts
@@ -2210,7 +2235,11 @@ welcome text, blocks, token, or provider response body.
 `slack_installation_welcome_preparations` is the separate durable work ledger
 that gates publication on completed member research. It owns the installer,
 workspace-connection generation, research-task link, and queued/researching/
-ready/completed/failed lifecycle. It stores no report body. A preparation can
+ready/completed/failed lifecycle. The member-research task stores the bounded
+accepted report result (`evidence_backed` or `insufficient_evidence`) beside its
+lifecycle; it does not copy findings or the report body. Slack onboarding reads
+that structured result and never reclassifies evidence by scanning rendered
+Profile Report Markdown. A preparation can
 become ready only when the task's Profile Report Organization Document and the
 exact Center Agent Computer file evidence join successfully. The publication
 ledger remains the only Slack-send authority; preparation readiness never
@@ -2663,6 +2692,11 @@ Web Wake waterfall is a projection only. It reads existing Space signal,
 dispatch outbox, dispatch lookup, dispatch ledger, attempt, claim, result, and
 reply facts, then reports which steps are found, pending, missing, failed, or
 degraded. It must not write facts or create a second trace truth.
+
+Derived trace phases and outcomes use structured fact kinds, event types, and
+statuses. Human-readable reason codes and details remain diagnostic context;
+their words must never be searched for fragments such as `publication` or
+`finalization` to decide which phase failed.
 
 CLI trace is a user-operable diagnostic surface. Operator shortcuts may wrap it,
 but they must stay thin wrappers and must not become direct D1 readers or a

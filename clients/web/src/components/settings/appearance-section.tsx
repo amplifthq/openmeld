@@ -335,6 +335,7 @@ function SelfMessageAlignmentPreview(input: {
 	const selfAlignmentClassName =
 		input.alignment === "left" ? "items-start" : "items-end";
 	const actionsClassName = input.alignment === "left" ? "right-1" : "left-1";
+	const bubbleWidthClassName = input.alignment === "left" ? "w-full" : "w-2/3";
 
 	return (
 		<span
@@ -352,7 +353,13 @@ function SelfMessageAlignmentPreview(input: {
 						<span className="size-1 bg-muted-foreground/35" />
 						<span className="size-1 bg-muted-foreground/35" />
 					</span>
-					<span className="mt-2 h-3 w-3/4 border border-border bg-muted/60" />
+					<span
+						className={`mt-2 flex h-5 flex-col justify-center gap-1 rounded-md bg-muted/60 px-1.5 ${bubbleWidthClassName}`}
+						data-slot="self-message-preview-bubble"
+					>
+						<span className="h-1 w-4/5 rounded-sm bg-muted-foreground/35" />
+						<span className="h-1 w-3/5 rounded-sm bg-muted-foreground/25" />
+					</span>
 					<span className="h-1.5 w-2/5 bg-destructive/30" />
 				</span>
 			</span>
