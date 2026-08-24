@@ -468,10 +468,12 @@ remains usable in Account Space Index order without inventing read state.
 
 Browse Spaces composes the Organization Space Directory with those same
 Account Space Index, unread-summary, and active-Wake projections. Joined cards
-show unread, Working, and pinned indicators independently, expose the shared
-pin or unpin action, and follow pinned order before the unread-aware unpinned
-order. Discover cards keep the directory's public-Space order and expose only
-Join; Web does not attach account status or pin actions to an unjoined Space.
+use one status slot with unread first, Working second, and pinned last. When
+unread or Working owns that slot, hover or keyboard focus reveals the shared
+pin or unpin action without showing competing status labels. Joined cards
+follow pinned order before the unread-aware unpinned order. Discover cards keep
+the directory's public-Space order and expose only Join; Web does not attach
+account status or pin actions to an unjoined Space.
 If a joined directory item has no matching Account Space Index item, Open stays
 available while account status and pin controls fail closed.
 

@@ -423,6 +423,7 @@ describe("app spaces index route", () => {
 			generatedAtMs: Date.now(),
 			items: [
 				{ activeWakeCount: 1, spaceId: "space-working" },
+				{ activeWakeCount: 1, spaceId: "space-idle" },
 				{ activeWakeCount: 1, spaceId: "space-support" },
 			],
 		});
@@ -451,19 +452,33 @@ describe("app spaces index route", () => {
 		expect(workingUnreadDot).toBeTruthy();
 		expect(workingUnreadDot?.className).not.toContain("animate");
 		expect(within(workingCard).getByText("2 unread")).toBeTruthy();
-		const workingIndicator = within(workingCard).getByTestId(
-			"space-directory-working-indicator"
-		);
-		expect(workingIndicator).toBeTruthy();
 		expect(
-			workingIndicator.querySelector('[data-slot="space-agent-orb"]')
-		).toBeTruthy();
-		expect(within(workingCard).getByText("Pinned")).toBeTruthy();
+			within(workingCard).queryByTestId("space-directory-working-indicator")
+		).toBeNull();
+		expect(within(workingCard).queryByText("Pinned")).toBeNull();
 		const unpinButton = within(workingCard).getByRole("button", {
 			name: "Unpin Working",
 		});
 		expect(unpinButton.getAttribute("aria-pressed")).toBe("true");
-		expect(unpinButton.querySelector("svg")).toBeTruthy();
+		expect(unpinButton.className).toContain("opacity-0");
+		expect(unpinButton.className).toContain(
+			"group-hover/space-card:opacity-100"
+		);
+		expect(unpinButton.className).toContain(
+			"group-focus-within/space-card:opacity-100"
+		);
+		expect(unpinButton.className).toContain("motion-reduce:transition-none");
+
+		const idleWorkingIndicator = within(idleCard).getByTestId(
+			"space-directory-working-indicator"
+		);
+		expect(idleWorkingIndicator).toBeTruthy();
+		expect(
+			idleWorkingIndicator.querySelector('[data-slot="space-agent-orb"]')
+		).toBeTruthy();
+		expect(
+			within(idleCard).queryByTestId("space-directory-unread-indicator")
+		).toBeNull();
 
 		expect(workingCard.compareDocumentPosition(unreadCard)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
@@ -498,7 +513,6 @@ describe("app spaces index route", () => {
 		expect(
 			within(workingCard).getByRole("button", { name: "Pin Working" })
 		).toBeTruthy();
-		expect(within(workingCard).queryByText("Pinned")).toBeNull();
 	});
 
 	it("pins a joined Space directly from its directory card", async () => {

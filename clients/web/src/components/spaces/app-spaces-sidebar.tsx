@@ -53,6 +53,7 @@ import {
 	spaceWakeProgressPresentationQueryOptions,
 } from "#/query/spaces/active-wake-progress";
 import {
+	resolveAccountSpaceTrailingStatus,
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
@@ -431,7 +432,7 @@ function SpaceSidebarMenuItem(input: {
 		? `Unpin ${input.item.spaceName}`
 		: `Pin ${input.item.spaceName}`;
 	const hasUnread = input.unreadCount > 0;
-	const trailingStatus = resolveSpaceSidebarTrailingStatus({
+	const trailingStatus = resolveAccountSpaceTrailingStatus({
 		hasActiveWake,
 		hasUnread,
 		isPinned,
@@ -606,23 +607,6 @@ function SpaceSidebarMenuItem(input: {
 			</div>
 		</FluidNavMenuItem>
 	);
-}
-
-function resolveSpaceSidebarTrailingStatus(input: {
-	hasActiveWake: boolean;
-	hasUnread: boolean;
-	isPinned: boolean;
-}): "pinned" | "unread" | "working" | null {
-	if (input.hasUnread) {
-		return "unread";
-	}
-	if (input.hasActiveWake) {
-		return "working";
-	}
-	if (input.isPinned) {
-		return "pinned";
-	}
-	return null;
 }
 
 function formatLastJoinedAt(value: string): string {

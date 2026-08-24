@@ -17,6 +17,25 @@ export type SpaceUnreadById = ReadonlyMap<
 	Pick<SpaceInboxSummaryItem, "latestUnreadOccurredAtMs" | "unreadCount">
 >;
 
+export type AccountSpaceTrailingStatus = "pinned" | "unread" | "working" | null;
+
+export function resolveAccountSpaceTrailingStatus(input: {
+	hasActiveWake: boolean;
+	hasUnread: boolean;
+	isPinned: boolean;
+}): AccountSpaceTrailingStatus {
+	if (input.hasUnread) {
+		return "unread";
+	}
+	if (input.hasActiveWake) {
+		return "working";
+	}
+	if (input.isPinned) {
+		return "pinned";
+	}
+	return null;
+}
+
 export function selectAccountSpaceSections(input: {
 	currentOrganizationId: string;
 	sections: AccountSpaceSections;

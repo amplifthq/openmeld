@@ -15,6 +15,7 @@ import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
+import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
 	PushPinIcon,
@@ -34,6 +35,7 @@ import { appShellStaticData } from "#/components/app/shell-layout";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { OrganizationScopedErrorState } from "#/components/organizations/organization-scoped-error-state";
 import {
+	resolveAccountSpaceTrailingStatus,
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
 } from "#/components/spaces/account-space-sections";
@@ -955,11 +957,9 @@ function OrganizationSpaceDirectoryCard(input: {
 	space: OrganizationSpaceDirectoryWithMemberCountsItem;
 	unreadCount: number;
 }) {
-	const isPinned = input.accountSpaceItem?.pinnedAt != null;
-
 	return (
 		<Card
-			className="h-full min-h-48 bg-transparent"
+			className="group/space-card h-full min-h-48 bg-transparent"
 			data-testid={`organization-space-card-${input.space.spaceId}`}
 			size="sm"
 		>
@@ -987,10 +987,11 @@ function OrganizationSpaceDirectoryCard(input: {
 					<UsersThreeIcon aria-hidden="true" className="size-4 shrink-0" />
 					{resolveOrganizationSpaceMemberLabel(input.space.activeMemberCount)}
 				</p>
-				<SpaceDirectoryStatusList
-					hasAccountSpaceItem={input.accountSpaceItem !== null}
+				<SpaceDirectoryStatusSlot
 					hasActiveWake={input.hasActiveWake}
-					isPinned={isPinned}
+					isPinPending={input.isPinPending}
+					item={input.accountSpaceItem}
+					onTogglePinned={input.onTogglePinned}
 					spaceName={input.space.name}
 					unreadCount={input.unreadCount}
 				/>
@@ -1001,12 +1002,6 @@ function OrganizationSpaceDirectoryCard(input: {
 				</p>
 			) : null}
 			<CardFooter className="mt-auto flex-wrap justify-end gap-3">
-				<SpaceDirectoryPinButton
-					isPending={input.isPinPending}
-					item={input.accountSpaceItem}
-					onTogglePinned={input.onTogglePinned}
-					spaceName={input.space.name}
-				/>
 				<SpaceDirectoryPrimaryAction
 					canJoin={input.canJoin}
 					onJoinSpace={input.onJoinSpace}
@@ -1029,28 +1024,38 @@ function resolveOrganizationSpaceMemberLabel(
 	return `${String(activeMemberCount)} ${activeMemberCount === 1 ? "member" : "members"}`;
 }
 
-function SpaceDirectoryStatusList(input: {
-	hasAccountSpaceItem: boolean;
+function SpaceDirectoryStatusSlot(input: {
 	hasActiveWake: boolean;
-	isPinned: boolean;
+	isPinPending: boolean;
+	item: AccountSpaceItem | null;
+	onTogglePinned: (item: AccountSpaceItem) => void;
 	spaceName: string;
 	unreadCount: number;
 }) {
-	if (
-		!input.hasAccountSpaceItem ||
-		(input.unreadCount <= 0 && !input.hasActiveWake && !input.isPinned)
-	) {
+	if (!input.item) {
 		return null;
+	}
+	const item = input.item;
+	const isPinned = item.pinnedAt !== null;
+	const status = resolveAccountSpaceTrailingStatus({
+		hasActiveWake: input.hasActiveWake,
+		hasUnread: input.unreadCount > 0,
+		isPinned,
+	});
+	const hasHigherPriorityStatus = status === "unread" || status === "working";
+	const pinLabel = isPinned
+		? `Unpin ${input.spaceName}`
+		: `Pin ${input.spaceName}`;
+	let pinButtonText = "Pin";
+	if (isPinned) {
+		pinButtonText = hasHigherPriorityStatus ? "Unpin" : "Pinned";
 	}
 
 	return (
-		<ul
-			aria-label={`${input.spaceName} status`}
-			className="flex flex-wrap items-center gap-x-4 gap-y-2 text-muted-foreground text-xs"
-		>
-			{input.unreadCount > 0 ? (
-				<li
-					className="flex items-center gap-2"
+		<div className="relative flex min-h-8 items-center text-muted-foreground text-xs">
+			{status === "unread" ? (
+				<span
+					className="flex items-center gap-2 transition-opacity group-focus-within/space-card:opacity-0 group-hover/space-card:opacity-0 motion-reduce:transition-none"
 					data-testid="space-directory-unread-indicator"
 				>
 					<span
@@ -1061,61 +1066,44 @@ function SpaceDirectoryStatusList(input: {
 						)}`}
 					/>
 					{input.unreadCount} unread
-				</li>
+				</span>
 			) : null}
-			{input.hasActiveWake ? (
-				<li
-					className="flex items-center gap-2"
+			{status === "working" ? (
+				<span
+					className="flex items-center gap-2 transition-opacity group-focus-within/space-card:opacity-0 group-hover/space-card:opacity-0 motion-reduce:transition-none"
 					data-testid="space-directory-working-indicator"
 				>
 					<SpaceAgentOrb />
 					Working
-				</li>
+				</span>
 			) : null}
-			{input.isPinned ? (
-				<li className="flex items-center gap-2">
-					<PushPinIcon aria-hidden="true" className="size-4" weight="fill" />
-					Pinned
-				</li>
-			) : null}
-		</ul>
-	);
-}
-
-function SpaceDirectoryPinButton(input: {
-	isPending: boolean;
-	item: AccountSpaceItem | null;
-	onTogglePinned: (item: AccountSpaceItem) => void;
-	spaceName: string;
-}) {
-	if (!input.item) {
-		return null;
-	}
-	const item = input.item;
-	const isPinned = item.pinnedAt !== null;
-
-	return (
-		<Button
-			aria-disabled={input.isPending}
-			aria-label={`${isPinned ? "Unpin" : "Pin"} ${input.spaceName}`}
-			aria-pressed={isPinned}
-			className="me-auto aria-disabled:pointer-events-none aria-disabled:opacity-50"
-			onClick={() => {
-				if (!input.isPending) {
-					input.onTogglePinned(item);
-				}
-			}}
-			size="sm"
-			type="button"
-			variant="outline"
-		>
-			<PushPinIcon
-				aria-hidden="true"
-				data-icon="inline-start"
-				weight={isPinned ? "fill" : "regular"}
-			/>
-			{isPinned ? "Unpin" : "Pin"}
-		</Button>
+			<Button
+				aria-disabled={input.isPinPending}
+				aria-label={pinLabel}
+				aria-pressed={isPinned}
+				className={cn(
+					"h-8 aria-disabled:pointer-events-none aria-disabled:opacity-50",
+					hasHigherPriorityStatus
+						? "pointer-events-none absolute inset-y-0 left-0 opacity-0 transition-opacity group-focus-within/space-card:pointer-events-auto group-focus-within/space-card:opacity-100 group-hover/space-card:pointer-events-auto group-hover/space-card:opacity-100 motion-reduce:transition-none"
+						: null
+				)}
+				onClick={() => {
+					if (!input.isPinPending) {
+						input.onTogglePinned(item);
+					}
+				}}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				<PushPinIcon
+					aria-hidden="true"
+					data-icon="inline-start"
+					weight={isPinned ? "fill" : "regular"}
+				/>
+				{pinButtonText}
+			</Button>
+		</div>
 	);
 }
 
