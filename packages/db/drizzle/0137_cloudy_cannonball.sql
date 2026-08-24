@@ -1,0 +1,1 @@
+ALTER TABLE `center_agent_member_research_tasks` ADD `report_result` text;

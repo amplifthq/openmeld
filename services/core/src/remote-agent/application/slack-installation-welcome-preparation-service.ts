@@ -1,3 +1,4 @@
+import type { CenterAgentMemberResearchReport } from "@openmeld/schemas";
 import type { CoreBindings } from "../../lib/bindings";
 import {
   attachSlackInstallationWelcomeResearchTask,
@@ -134,7 +135,7 @@ async function advancePreparation(input: {
   const research = await input.db
     .prepare(
       `
-        SELECT status, failure_code, observed_language_tag
+        SELECT status, failure_code, observed_language_tag, report_result
         FROM center_agent_member_research_tasks
         WHERE id = ?
         LIMIT 1
@@ -144,6 +145,7 @@ async function advancePreparation(input: {
     .first<{
       failure_code: string | null;
       observed_language_tag: string | null;
+      report_result: CenterAgentMemberResearchReport["result"] | null;
       status: string;
     }>();
   if (!research) {
@@ -168,6 +170,16 @@ async function advancePreparation(input: {
     return;
   }
   if (research.status !== "completed") {
+    return;
+  }
+  if (!research.report_result) {
+    await failPreparationSafely({
+      db: input.db,
+      env: input.env,
+      failureCode: "member_research_report_result_missing",
+      nowMs: input.nowMs,
+      preparation,
+    });
     return;
   }
   const report = await readPreparedProfileReport({
@@ -288,6 +300,7 @@ export async function readPreparedProfileReport(input: {
           documents.id AS document_id,
           COALESCE(documents.draft_content, documents.content) AS report_content,
           files.path AS path,
+          tasks.report_result AS report_result,
           users.name AS installer_display_name,
           organizations.name AS organization_name,
           organizations.slug AS organization_slug,
@@ -327,6 +340,7 @@ export async function readPreparedProfileReport(input: {
       organization_name: string;
       organization_slug: string;
       path: string;
+      report_result: CenterAgentMemberResearchReport["result"] | null;
     }>();
   if (!row) {
     return null;
@@ -340,9 +354,7 @@ export async function readPreparedProfileReport(input: {
     activeConnectedAppCount: Number(row.active_connected_app_count),
     documentId: row.document_id,
     firstObservation: readFirstProfileObservation(row.report_content),
-    hasUsefulEvidence: !row.report_content.includes(
-      "**Insufficient evidence**"
-    ),
+    hasUsefulEvidence: row.report_result === "evidence_backed",
     installerDisplayName: row.installer_display_name,
     organizationName: row.organization_name,
     organizationSlug: row.organization_slug,

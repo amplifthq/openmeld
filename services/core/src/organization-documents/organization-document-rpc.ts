@@ -472,6 +472,12 @@ export async function rpcCenterAgentDraftOrganizationDocument(
     });
     memberResearch = { submissionId, taskId: memberResearchTaskId };
   }
+  const memberResearchReport = draft.memberResearchReport;
+  if (memberResearch && !memberResearchReport) {
+    throw new Error(
+      "Member research draft lost its validated structured report result."
+    );
+  }
   const service = createOrganizationDocumentService({ db });
   const organizationId = authorization.activeOrganization.organizationId;
   const { currentContent, ...response } = await service.draft(
@@ -492,16 +498,20 @@ export async function rpcCenterAgentDraftOrganizationDocument(
       return reviewerUserIds;
     }
   );
-  const observedLanguageTag = draft.memberResearchReport?.observedLanguageTag;
-  if (memberResearch && observedLanguageTag) {
+  if (memberResearch && memberResearchReport) {
+    const observedLanguageTag = memberResearchReport.observedLanguageTag;
+    const reportResult = memberResearchReport.result;
     const nowMs = Date.now();
     const taskUpdateStatement = db
       .prepare(
         `
           UPDATE center_agent_member_research_tasks
-          SET observed_language_tag = ?
+          SET
+            observed_language_tag = COALESCE(?, observed_language_tag),
+            report_result = ?
           WHERE id = ?
             AND status = 'running'
+            AND (report_result IS NULL OR report_result = ?)
             AND EXISTS (
               SELECT 1
               FROM center_agent_member_research_batches AS batch
@@ -510,19 +520,26 @@ export async function rpcCenterAgentDraftOrganizationDocument(
             )
         `
       )
-      .bind(observedLanguageTag, memberResearch.taskId, organizationId);
+      .bind(
+        observedLanguageTag ?? null,
+        reportResult,
+        memberResearch.taskId,
+        reportResult,
+        organizationId
+      );
     const taskStatements = [
       taskUpdateStatement,
       prepareRequirePreviousStatementChangedOneRow(db),
     ];
-    const observesSharedOrganization =
-      await allowsSharedOrganizationWorkingLanguageObservation({
-        env,
-        memberResearchTaskId: memberResearch.taskId,
-        organizationId,
-        requestId: request.context.actorContext.requestId,
-      });
-    if (observesSharedOrganization) {
+    const observesSharedOrganization = observedLanguageTag
+      ? await allowsSharedOrganizationWorkingLanguageObservation({
+          env,
+          memberResearchTaskId: memberResearch.taskId,
+          organizationId,
+          requestId: request.context.actorContext.requestId,
+        })
+      : false;
+    if (observedLanguageTag && observesSharedOrganization) {
       const attribution = await resolveCenterAgentAuditAttribution({
         authorization,
         onBehalfOfProfileId: representedHuman.profileId,
