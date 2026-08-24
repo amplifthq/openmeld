@@ -239,7 +239,10 @@ import {
   REMOTE_AGENT_GITHUB_TOOL_NAMES,
   type RemoteAgentConnectorExecutionConfig,
 } from "./github-tools";
-import { understandRemoteAgentImages } from "./image-understanding";
+import {
+  type RemoteAgentImagePreparer,
+  understandRemoteAgentImages,
+} from "./image-understanding";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "./slack-member-research-state";
 import {
   extractSlackSearchThreadPublicationTargetKeys,
@@ -1442,6 +1445,7 @@ type RemoteAgentOpenMeldToolDefinitionsInput = {
   fetch?: typeof globalThis.fetch;
   memberProfileReportFiles?: RemoteAgentMemberProfileReportComputerFiles;
   modelRoute?: CenterAgentModelRoute;
+  prepareImage?: RemoteAgentImagePreparer;
   storage: RemoteAgentStorage;
   submissionId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
@@ -5799,7 +5803,13 @@ async function describeSlackImage(input: {
   if (!input.response.file.mimeType?.startsWith("image/")) {
     return null;
   }
-  if (!(input.definitionInput.env && input.definitionInput.modelRoute)) {
+  if (
+    !(
+      input.definitionInput.env &&
+      input.definitionInput.modelRoute &&
+      input.definitionInput.prepareImage
+    )
+  ) {
     throw new Error(
       "Image understanding is unavailable for this Center Agent runtime."
     );
@@ -5817,6 +5827,7 @@ async function describeSlackImage(input: {
     ],
     model: input.definitionInput.modelRoute.imageUnderstandingModel,
     organizationId: input.response.organizationId,
+    prepareImage: input.definitionInput.prepareImage,
   });
 }
 

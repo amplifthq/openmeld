@@ -9,6 +9,7 @@ import type {
 } from "../agent-core/callback-context";
 import type { RemoteAgentExternalToolEnv } from "../agent-core/external-tools";
 import type { RemoteAgentConnectorExecutionConfig } from "../agent-core/github-tools";
+import type { RemoteAgentImagePreparer } from "../agent-core/image-understanding";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   getRemoteAgentOpenMeldToolDefinitions,
@@ -37,6 +38,7 @@ export async function getRemoteAgentFlueTools(input: {
   fetch?: typeof globalThis.fetch;
   memberProfileReportFiles?: RemoteAgentMemberProfileReportComputerFiles;
   modelRoute?: CenterAgentModelRoute;
+  prepareImage?: RemoteAgentImagePreparer;
   sandboxDefinitions?: RemoteAgentToolDefinition[];
   storage: RemoteAgentStorage;
   submissionId: string;

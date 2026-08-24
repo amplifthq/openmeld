@@ -1127,6 +1127,13 @@ describe("remote agent OpenMeld tool catalog", () => {
         ],
       })
     );
+    const prepareImage = vi.fn(async (image) => ({
+      data: image.data,
+      ...(image.filename ? { filename: image.filename } : {}),
+      mimeType: "image/webp" as const,
+      sizeBytes: 3,
+      type: "image" as const,
+    }));
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       computerFileHandoff: {
         readBinaryFile: vi.fn(),
@@ -1140,6 +1147,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       env: TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
       fetch: imageFetch,
       modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+      prepareImage,
       storage: await createStorageWithPendingContext(request),
     });
 
@@ -1157,6 +1165,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
     expect(result).not.toHaveProperty("contentBase64");
     expect(imageFetch).toHaveBeenCalledTimes(1);
+    expect(prepareImage).toHaveBeenCalledOnce();
   });
 
   it("bounds member research to one history page in five channels that contain the exact subject", async () => {
