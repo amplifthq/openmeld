@@ -19331,12 +19331,15 @@ async function readExecutionRecoveryNativeDelivery(input: {
   });
 }
 
-function resolveExecutionRecoveryResultRef(input: {
+export function resolveExecutionRecoveryResultRef(input: {
   nativeDelivery: ExecutionRecoveryNativeDelivery;
   nativeResultRef: string | null;
   resultInbox: SpaceDispatchTraceSnapshot["resultInbox"];
 }): string | null {
-  if (input.nativeDelivery?.conversationKind !== "space") {
+  if (
+    input.nativeDelivery &&
+    input.nativeDelivery.conversationKind !== "space"
+  ) {
     return input.nativeResultRef;
   }
   return input.resultInbox?.resultKey ?? null;
