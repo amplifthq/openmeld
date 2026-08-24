@@ -2764,7 +2764,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_read_center_agent_activity",
       description:
-        "Read recent Center Agent organization-level actions, including created Spaces, Agent Profile changes, Space membership changes, and Space setting changes.",
+        "Read recent Center Agent organization-level actions, including created Spaces, Agent Profile changes, Space membership changes, and Space setting changes. Entries created on behalf of a member include sourceSpaceId when the originating Space is known; use it to match an artifact to the authorization that started it.",
       input: object({
         limit: optional(pipe(number(), integer(), minValue(1), maxValue(200))),
       }),
@@ -2780,7 +2780,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         );
         return listCenterAgentAuditJournalResponseSchema.parse(
           await rpc({
-            actionSet: "v12",
+            actionSet: "v20",
             ...(payload.limit === undefined ? {} : { limit: payload.limit }),
             context,
           })

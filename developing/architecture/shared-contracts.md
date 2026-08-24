@@ -3606,11 +3606,16 @@ Schema rules:
   `actionSet=v14` adds Local Agent-carried requests; `actionSet=v15` adds
   Context Manifest reads; and `actionSet=v16` adds Context Load Receipts and
   opt-in manifest/load counts; and `actionSet=v17` adds Routine create, update,
-  pause, resume, and delete rows. Interaction-source projections remain absent
-  before v14, and Routine actions remain absent before v17. Each version filters
-  later actions and fields in Core before response validation, so an
-  already-published CLI never receives an enum value or optional projection its
-  frozen schema cannot parse.
+  pause, resume, and delete rows; `actionSet=v18` adds Organization working
+  language actions; `actionSet=v19` adds member Computer reads; and
+  `actionSet=v20` opts in to the connector audit entry's nullable
+  `sourceSpaceId` projection. Interaction-source projections remain absent
+  before v14, Routine actions remain absent before v17, and `sourceSpaceId`
+  remains absent before v20. The projection is non-null only for a native
+  delivery whose `conversationKind` is `space`; Slack and generic Message
+  Channel locators never populate it. Each version filters later actions and
+  fields in Core before response validation, so an already-published CLI never
+  receives an enum value or optional projection its frozen schema cannot parse.
 - Deploy a new Center Agent RPC receiver and its audit action-set reader in Core
   before deploying the Remote Agent caller or clients that request the new
   action set. During rollback, remove callers first. Once Core has written a new

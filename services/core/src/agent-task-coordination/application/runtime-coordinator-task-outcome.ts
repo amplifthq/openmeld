@@ -8,8 +8,10 @@ import type {
   RuntimeCoordinatorFailurePublicationCommand,
   RuntimeCoordinatorFailurePublicationFinalMessageKind,
   RuntimeCoordinatorFinalizationCommand,
+  RuntimeCoordinatorFinalizationFinalMessageKind,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
+import { resolveRuntimeCoordinatorFinalizationSemantic } from "../../runtime-transport/application/runtime-coordinator-finalization-semantic";
 import { readAgentTaskTerminalOutcome } from "../infrastructure/d1/agent-task-coordination-repo";
 import {
   recordAndEnqueueAgentTaskTerminalOutcome,
@@ -37,7 +39,9 @@ type RuntimeCoordinatorTaskOutcomeInspectionResult = {
 
 export function projectRuntimeCoordinatorFinalizationTaskTerminalRecord(input: {
   command: RuntimeCoordinatorFinalizationCommand;
+  finalMessageKind?: RuntimeCoordinatorFinalizationFinalMessageKind;
   publishedSignalId: string | null;
+  publishState: "invalid_space_action" | "reply_published";
 }): RuntimeCoordinatorTaskTerminalRecord | null {
   const sourceClientMessageId =
     input.command.dispatchFact.sourceClientMessageId;
@@ -54,59 +58,19 @@ export function projectRuntimeCoordinatorFinalizationTaskTerminalRecord(input: {
     spaceId: input.command.spaceId,
     targetProfileId: input.command.targetProfileId,
   });
-  if (payload.status === "failed") {
-    return {
-      nowMs: input.command.createdAtMs,
-      outcome: {
-        errorCode: payload.errorCode ?? "agent_task.child_failed",
-        eventId: input.command.finalizationCommandId,
-        occurredAtMs,
-        publishedSignalId: input.publishedSignalId,
-        status: "failed",
-      },
-      task,
-    };
-  }
-  const spaceAction =
-    "spaceAction" in payload ? payload.spaceAction : undefined;
-  if (spaceAction?.type === "stay_silent") {
-    return {
-      nowMs: input.command.createdAtMs,
-      outcome: {
-        errorCode: null,
-        eventId: input.command.finalizationCommandId,
-        occurredAtMs,
-        publishedSignalId: input.publishedSignalId,
-        status: "stayed_silent",
-      },
-      task,
-    };
-  }
-  if (!spaceAction) {
-    const publicFailureReason =
-      "spaceActionFailureDiagnostics" in payload
-        ? payload.spaceActionFailureDiagnostics?.publicFailureReason
-        : undefined;
-    return {
-      nowMs: input.command.createdAtMs,
-      outcome: {
-        errorCode: publicFailureReason ?? "agent_task.invalid_space_action",
-        eventId: input.command.finalizationCommandId,
-        occurredAtMs,
-        publishedSignalId: input.publishedSignalId,
-        status: "failed",
-      },
-      task,
-    };
-  }
+  const semantic = resolveRuntimeCoordinatorFinalizationSemantic({
+    finalMessageKind: input.finalMessageKind,
+    publishState: input.publishState,
+    taskResult: input.command.acceptedResult.taskResult,
+  });
   return {
     nowMs: input.command.createdAtMs,
     outcome: {
-      errorCode: null,
+      errorCode: semantic.reasonCode,
       eventId: input.command.finalizationCommandId,
       occurredAtMs,
       publishedSignalId: input.publishedSignalId,
-      status: "succeeded",
+      status: semantic.status,
     },
     task,
   };
@@ -179,7 +143,9 @@ export async function recordRuntimeCoordinatorFinalizationTaskOutcome(input: {
   command: RuntimeCoordinatorFinalizationCommand;
   db: D1Database;
   env: CoreBindings;
+  finalMessageKind?: RuntimeCoordinatorFinalizationFinalMessageKind;
   publishedSignalId: string | null;
+  publishState: "invalid_space_action" | "reply_published";
 }): Promise<RuntimeCoordinatorTaskOutcomeWriteResult | null> {
   const record = projectRuntimeCoordinatorFinalizationTaskTerminalRecord(input);
   if (!record) {

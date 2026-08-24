@@ -92,6 +92,7 @@ describe("Slack OAuth installation", () => {
           resource_type TEXT,
           resource_id TEXT,
           source_native_delivery_id TEXT,
+          source_space_id TEXT,
           created_at INTEGER NOT NULL
         )
       `,

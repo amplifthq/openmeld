@@ -1,3 +1,4 @@
+import { REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   assertCoreOriginatedTurnContext,
@@ -1266,5 +1267,44 @@ describe("remote agent callback context", () => {
       code: "remote_agent.callback_failed_submission",
       retryable: false,
     });
+  });
+
+  it("publishes the precise runtime failure instead of replacing it with turn_not_completed", async () => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, context);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal-provider-rate-limited",
+      status: "accepted" as const,
+    }));
+
+    await handleRemoteAgentChatResponse({
+      coreWorker: { completeRemoteAgentSubmission },
+      nowMs: () => TEST_NOW_MS + 1000,
+      result: {
+        continuation: false,
+        error: new Error("provider request failed"),
+        failureReasonCode:
+          REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_RATE_LIMITED,
+        message: { parts: [] },
+        requestId: ACK.requestId,
+        status: "error",
+      },
+      storage,
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.provider.rate_limited",
+        failureMessage:
+          "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+        status: "failed",
+      })
+    );
   });
 });

@@ -88,6 +88,7 @@ export const centerAgentAuditJournal = sqliteTable(
     resourceType: text("resource_type"),
     resourceId: text("resource_id"),
     sourceNativeDeliveryId: text("source_native_delivery_id"),
+    sourceSpaceId: text("source_space_id"),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),

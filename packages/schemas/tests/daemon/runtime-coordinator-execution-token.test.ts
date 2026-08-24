@@ -183,6 +183,7 @@ describe("runtime coordinator execution token schemas", () => {
     ).toBe(false);
     expect(
       runtimeCoordinatorFinalizationOutcomeSchema.safeParse({
+        finalMessageKind: "success_reply",
         finalizationCommandId,
         ok: true,
         publicationErrorCode: null,
@@ -191,6 +192,17 @@ describe("runtime coordinator execution token schemas", () => {
         status: "finalized",
       }).success
     ).toBe(true);
+    expect(
+      runtimeCoordinatorFinalizationOutcomeSchema.safeParse({
+        finalMessageKind: "unknown",
+        finalizationCommandId,
+        ok: true,
+        publicationErrorCode: null,
+        publishedSignalId: "signal-final-1",
+        publishState: "reply_published",
+        status: "finalized",
+      }).success
+    ).toBe(false);
     expect(
       runtimeCoordinatorFinalizationOutcomeSchema.safeParse({
         finalizationCommandId,
@@ -204,6 +216,7 @@ describe("runtime coordinator execution token schemas", () => {
     expect(
       runtimeCoordinatorFinalizationClaimReadSchema.safeParse({
         outcome: {
+          finalMessageKind: "success_reply",
           finalizationCommandId,
           ok: true,
           publicationErrorCode: null,
