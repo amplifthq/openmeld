@@ -274,12 +274,15 @@ legacy thread.
 Codex App Server resume is a bounded admission step, not the execution itself.
 OpenMeld requests metadata-only resume without replaying historical turns,
 because the Service needs the controller conversation identity, model, and
-instruction source rather than a duplicate copy of provider history. If an
-existing controller conversation is missing or does not acknowledge resume
-within the short resume admission window, the adapter starts one fresh thread
-and delivers the complete current instruction plan exactly once. The resulting
-context delta replaces the inaccessible provider conversation transparently;
-a person must never be asked to create a new Task or Space to repair it.
+instruction source rather than a duplicate copy of provider history. Passive
+provider-conversation proof must use the same metadata-only boundary: it must
+not set approval, sandbox, model, collaboration-mode, or other turn policy on
+the canonical controller conversation. If an existing controller conversation
+is missing or does not acknowledge resume within the short resume admission
+window, the adapter starts one fresh thread and delivers the complete current
+instruction plan exactly once. The resulting context delta replaces the
+inaccessible provider conversation transparently; a person must never be asked
+to create a new Task or Space to repair it.
 
 Control-operation deadlines are risk-specific. Metadata-only resume and
 collaboration-mode lookup keep a short bound so inaccessible history rolls over
@@ -1471,6 +1474,15 @@ keeps ordinary Wake, result replay, setup, status, and diagnostics behavior but
 cannot expose **Continue conversation**. Because older Core uses strict
 Runtime Transport schemas, the cloud receiver must deploy before a Service
 that emits the new capability, heartbeat drain fields, or recovery frames.
+
+Codex exact-controller recovery copies the canonical conversation into an
+ephemeral fork and applies the conservative repair approval and sandbox policy
+only to that fork. The fork is the repair execution boundary, but the Service
+continues to report the validated canonical conversation identity. It must not
+project the ephemeral fork into Binding continuity or mutate the canonical
+conversation's permission policy. If the installed Codex App Server cannot
+create that isolated fork, recovery fails explicitly while ordinary Wake,
+setup, status, and diagnostics remain available.
 
 Human-facing copy should use simple product language. Internal repair terms and
 raw anomaly codes belong in Agent View or diagnostics.
