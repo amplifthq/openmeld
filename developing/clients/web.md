@@ -429,6 +429,10 @@ then current agent work, then the persistent pin for an otherwise idle pinned
 Space. For a row with unread or active work, hover or keyboard focus reveals the
 pin action while keeping the higher-priority status visible in the corner. This
 lets the member pin or unpin the Space without losing unread or working evidence.
+An idle unpinned row shows its date only when the row can fit it. The title and
+date share one vertically centered layout with a visible gap; the title truncates
+against the date's actual width instead of extending beneath an absolutely
+positioned timestamp.
 Ambient agent work for other Spaces comes from a successful account active Wake
 summary. Immediately before each browser request, Web starts the shared
 45-second presentation budget on the browser's monotonic clock. Network time
@@ -1727,6 +1731,12 @@ prompt preview, branch, model, transcript-derived summary, or arbitrary
 provider metadata. Missing native title is **No native title**; Web does not
 invent a provider-name title.
 
+Session and Computer state badges use the shared semantic status-tone surfaces
+in both light and dark appearances. Muted states such as **Offline**, **Ended**,
+and **Unknown** remain quiet neutral labels rather than inheriting a solid
+primary Badge background; Working, Idle, and Error keep their ready, warning,
+and danger meanings.
+
 Coverage facts own honest empty and degraded states: waiting for first sync,
 syncing, current empty, stale data, disconnected Project, offline Computer,
 unsupported provider, and reconciliation error are distinct. Web does not turn
@@ -2422,7 +2432,9 @@ Members header descriptions and Add-members guidance own full-width rows below
 their related title-and-action rows. Add-members controls respond to the panel's
 own width rather than the browser viewport: narrow panels stack heading actions
 and footer actions into full-width rows, while wider panels keep the compact
-side-by-side layout.
+side-by-side layout. Agent and Human names use the same compact type scale as
+the app sidebars so the Members panel does not introduce a heavier navigation
+hierarchy.
 
 The active Thread panel selection is a per-Space browser presentation
 preference. Web persists only the selected Thread id, resolves that id against
@@ -2789,8 +2801,10 @@ recorded message exists, remaining guidance sits in the conversation scroller's
 shared top-overlay stack with earlier-history loading, reuses `ProgressiveBlur`,
 and does not consume timeline layout height or add an opaque banner background
 or structural divider. Its interactive content remains above the blur while
-messages remain visible behind it. Both presentations consume the same planner
-decisions and handlers. When **Graph** is active and setup remains available,
+messages remain visible behind it. The overlay begins at the top of the
+conversation region; it must not add a transparent navigation-height inset that
+allows scrolled messages to appear above the blur. Both presentations consume
+the same planner decisions and handlers. When **Graph** is active and setup remains available,
 the Space header shows **Get set up**; activating it returns to **Messages** and
 recalls the guidance without changing planner or setup truth.
 
