@@ -2694,6 +2694,11 @@ reference, then inspects Core's current Execution Recovery projection. It
 suppresses generic Retry only when that projection exposes a higher-priority
 action. It shows **Recover result** only when Core exposes the authorized
 durable-result recovery command; a setup/reconnect link is not that command.
+That automatic inspection is a background capability check, not a user action.
+If it fails, Web keeps the failure scoped to the unavailable recovery control:
+it shows no toast, banner, or disabled `Recovery unavailable` action and does
+not tell the user to open diagnostics merely because the check failed. The
+original terminal outcome and its existing Message details remain unchanged.
 When Core instead exposes a verified exact-controller continuation, Web shows
 **Recover reply** and explains that the same Agent conversation will post
 its already-finished reply without running the task again. Web accepts the
