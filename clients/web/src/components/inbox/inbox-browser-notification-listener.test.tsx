@@ -85,7 +85,10 @@ vi.mock("#/lib/inbox/source-target", () => ({
 }));
 
 vi.mock("#/query/organizations/inbox", () => ({
-	inboxItemQueryOptions: (input: unknown) => input,
+	inboxBrowserNotificationRecoveryItemQueryOptions: (input: unknown) => ({
+		...(input as object),
+		staleTime: 0,
+	}),
 	inboxItemsInfiniteQueryOptions: (input: unknown) => input,
 	invalidateInboxSummary: invalidateInboxSummaryMock,
 }));
@@ -696,6 +699,88 @@ describe("InboxBrowserNotificationListener", () => {
 			expect.objectContaining({ enabled: false })
 		);
 		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+	});
+
+	it("does not let a late recovery failure from an old Organization block the current feed retry", async () => {
+		vi.useFakeTimers();
+		const oldPendingItem = createInboxItem({
+			id: "old-organization-pending-item",
+			importance: "urgent",
+		});
+		pendingItemIds.add(
+			buildPendingItemKey({
+				itemId: oldPendingItem.id,
+				organizationId: "organization-123",
+				userId: "user-123",
+			})
+		);
+		currentItems = [createInboxItem({ id: "old-first-page-item" })];
+		let rejectOldRecovery: ((error: Error) => void) | undefined;
+		queryClientMock.fetchQuery.mockImplementationOnce(
+			() =>
+				new Promise((_resolve, reject) => {
+					rejectOldRecovery = reject;
+				})
+		);
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const view = renderListener();
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(queryClientMock.fetchQuery).toHaveBeenCalledOnce();
+
+		const currentFeedExistingItem = createInboxItem({
+			id: "current-feed-existing-item",
+			organizationId: "organization-456",
+		});
+		currentItems = [currentFeedExistingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-456"
+				organizationSlug="next-organization"
+				userId="user-123"
+			/>
+		);
+		await act(async () => {
+			rejectOldRecovery?.(new Error("Old Organization Inbox unavailable"));
+			await Promise.resolve();
+		});
+
+		const currentFeedItem = createInboxItem({
+			id: "current-feed-delivery-failure",
+			importance: "urgent",
+			organizationId: "organization-456",
+		});
+		showInboxBrowserNotificationMock.mockRejectedValueOnce(
+			new Error("Notification constructor failed")
+		);
+		currentItems = [currentFeedItem, currentFeedExistingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-456"
+				organizationSlug="next-organization"
+				userId="user-123"
+			/>
+		);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10_000);
+		});
+
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+		expect(
+			pendingItemIds.has(
+				buildPendingItemKey({
+					itemId: currentFeedItem.id,
+					organizationId: "organization-456",
+					userId: "user-123",
+				})
+			)
+		).toBe(false);
 	});
 
 	it("rechecks current-conversation suppression after a delivery was queued", async () => {

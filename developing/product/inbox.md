@@ -361,8 +361,11 @@ two optional delivery channels:
   and item-scoped retry independently so concurrent tabs cannot overwrite one
   another. After reload, the client resolves pending ids through bounded,
   authenticated single-item reads even when an item has moved beyond the first
-  Inbox page; missing, read, resolved, or otherwise ineligible items clear
-  their pending record. A queued delivery rechecks the committed member,
+  Inbox page. Every recovery attempt requires a fresh Core read rather than a
+  client freshness-cache hit; missing, read, resolved, or otherwise ineligible
+  items clear their pending record. Retry timers are owned by the current feed,
+  so a late failure from a previous member or Organization cannot block its
+  retries. A queued delivery rechecks the committed member,
   Organization, item eligibility, and visible conversation immediately before
   creating the notification. Browser delivery never forms a second unread
   store.

@@ -1,6 +1,10 @@
 "use client";
 
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	type QueryClient,
+	useInfiniteQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
 import {
 	useCallback,
@@ -21,7 +25,7 @@ import {
 import { isInboxItemSourceLocation } from "#/lib/inbox/source-target";
 import { buildOrganizationInboxItemPath } from "#/lib/organizations/organization-routes";
 import {
-	inboxItemQueryOptions,
+	inboxBrowserNotificationRecoveryItemQueryOptions,
 	inboxItemsInfiniteQueryOptions,
 	invalidateInboxSummary,
 } from "#/query/organizations/inbox";
@@ -102,7 +106,10 @@ export function InboxBrowserNotificationListener(input: {
 	}, []);
 	const scheduleDeliveryRetry = useCallback(() => {
 		if (retryTimerRef.current !== null) {
-			return;
+			if (retryTimerFeedIdentityRef.current === feedIdentity) {
+				return;
+			}
+			cancelDeliveryRetry();
 		}
 		const scheduledFeedIdentity = feedIdentity;
 		retryTimerFeedIdentityRef.current = scheduledFeedIdentity;
@@ -115,7 +122,7 @@ export function InboxBrowserNotificationListener(input: {
 			}
 			setDeliveryRetryRevision((current) => current + 1);
 		}, INBOX_BROWSER_NOTIFICATION_RETRY_INTERVAL_MS);
-	}, [feedIdentity]);
+	}, [cancelDeliveryRetry, feedIdentity]);
 
 	useEffect(() => {
 		const ownedFeedIdentity = feedIdentity;
@@ -199,37 +206,17 @@ export function InboxBrowserNotificationListener(input: {
 					offset + INBOX_BROWSER_NOTIFICATION_PENDING_FETCH_CONCURRENCY
 				);
 				const batchItems = await Promise.all(
-					batch.map(async (itemId) => {
-						try {
-							const response = await queryClient.fetchQuery(
-								inboxItemQueryOptions({
-									itemId,
-									organizationId: input.organizationId,
-								})
-							);
-							return response.item;
-						} catch (error) {
-							if (isInboxItemNotFoundFailure(error)) {
-								clearInboxBrowserNotificationItemPending({
-									itemId,
-									organizationId: input.organizationId,
-									userId: input.userId,
-								});
-								return null;
-							}
-							console.warn(
-								"[openmeld.web.inbox.browser_notification_pending_item_read_failed]",
-								{
-									error: error instanceof Error ? error.message : String(error),
-									itemId,
-									organizationId: input.organizationId,
-									retryAttempt: deliveryRetryRevision,
-								}
-							);
-							scheduleDeliveryRetry();
-							return null;
-						}
-					})
+					batch.map((itemId) =>
+						readPendingInboxBrowserNotificationItem({
+							isCancelled: () => cancelled,
+							itemId,
+							organizationId: input.organizationId,
+							queryClient,
+							retryAttempt: deliveryRetryRevision,
+							scheduleDeliveryRetry,
+							userId: input.userId,
+						})
+					)
 				);
 				recoveredItems.push(
 					...batchItems.filter(
@@ -251,6 +238,9 @@ export function InboxBrowserNotificationListener(input: {
 			});
 		};
 		recoverPendingItems().catch((error: unknown) => {
+			if (cancelled) {
+				return;
+			}
 			console.warn(
 				"[openmeld.web.inbox.browser_notification_pending_recovery_failed]",
 				{
@@ -363,6 +353,49 @@ type BrowserNotificationDeliveryContext = {
 	pathname: string | null;
 	userId: string;
 };
+
+async function readPendingInboxBrowserNotificationItem(input: {
+	isCancelled: () => boolean;
+	itemId: string;
+	organizationId: string;
+	queryClient: QueryClient;
+	retryAttempt: number;
+	scheduleDeliveryRetry: () => void;
+	userId: string;
+}): Promise<BrowserNotificationInboxItem | null> {
+	try {
+		const response = await input.queryClient.fetchQuery(
+			inboxBrowserNotificationRecoveryItemQueryOptions({
+				itemId: input.itemId,
+				organizationId: input.organizationId,
+			})
+		);
+		return response.item;
+	} catch (error) {
+		if (input.isCancelled()) {
+			return null;
+		}
+		if (isInboxItemNotFoundFailure(error)) {
+			clearInboxBrowserNotificationItemPending({
+				itemId: input.itemId,
+				organizationId: input.organizationId,
+				userId: input.userId,
+			});
+			return null;
+		}
+		console.warn(
+			"[openmeld.web.inbox.browser_notification_pending_item_read_failed]",
+			{
+				error: error instanceof Error ? error.message : String(error),
+				itemId: input.itemId,
+				organizationId: input.organizationId,
+				retryAttempt: input.retryAttempt,
+			}
+		);
+		input.scheduleDeliveryRetry();
+		return null;
+	}
+}
 
 function primeInboxBrowserNotificationFeed(input: {
 	items: readonly BrowserNotificationInboxItem[];

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	INBOX_LIST_POLL_INTERVAL_MS,
 	INBOX_SUMMARY_POLL_INTERVAL_MS,
+	inboxBrowserNotificationRecoveryItemQueryOptions,
 	inboxItemsInfiniteQueryOptions,
 	inboxNotificationPreferencesQueryOptions,
 	inboxQueryKeys,
@@ -11,12 +12,14 @@ import {
 } from "./inbox";
 
 const getCurrentInboxNotificationPreferencesMock = vi.hoisted(() => vi.fn());
+const getCurrentInboxItemMock = vi.hoisted(() => vi.fn());
 const getCurrentInboxSummaryMock = vi.hoisted(() => vi.fn());
 const getCurrentSpaceInboxSummaryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("#/lib/organizations/inbox", () => ({
 	getCurrentInboxNotificationPreferences:
 		getCurrentInboxNotificationPreferencesMock,
+	getCurrentInboxItem: getCurrentInboxItemMock,
 	getCurrentInboxSummary: getCurrentInboxSummaryMock,
 	getCurrentSpaceInboxSummary: getCurrentSpaceInboxSummaryMock,
 	listCurrentInboxItems: vi.fn(),
@@ -25,6 +28,7 @@ vi.mock("#/lib/organizations/inbox", () => ({
 describe("Inbox summary query", () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
+		getCurrentInboxItemMock.mockReset();
 		getCurrentInboxSummaryMock.mockReset().mockResolvedValue({
 			organizationId: "organization-123",
 			totalUnreadCount: 27,
@@ -74,6 +78,27 @@ describe("Inbox summary query", () => {
 		expect(options.refetchInterval).toBe(INBOX_LIST_POLL_INTERVAL_MS);
 		expect(options.refetchIntervalInBackground).toBe(false);
 		expect(options.refetchOnWindowFocus).toBe(true);
+	});
+
+	it("revalidates browser notification recovery against Core even while the direct item cache is fresh", async () => {
+		const queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		getCurrentInboxItemMock
+			.mockResolvedValueOnce({ item: { revision: 1 } })
+			.mockResolvedValueOnce({ item: { revision: 2 } });
+		const options = inboxBrowserNotificationRecoveryItemQueryOptions({
+			itemId: "pending-item",
+			organizationId: "organization-123",
+		});
+
+		const first = await queryClient.fetchQuery(options);
+		const second = await queryClient.fetchQuery(options);
+
+		expect(getCurrentInboxItemMock).toHaveBeenCalledTimes(2);
+		expect(first.item).toEqual({ revision: 1 });
+		expect(second.item).toEqual({ revision: 2 });
+		queryClient.clear();
 	});
 
 	it("keeps Space unread facts on the existing 15-second Inbox polling cadence", async () => {
