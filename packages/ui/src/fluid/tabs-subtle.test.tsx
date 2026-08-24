@@ -33,7 +33,10 @@ describe("TabsSubtle", () => {
       </TabsSubtle>
     );
 
-    expect(screen.getByRole("tab", { name: "Alpha" })).toBeTruthy();
+    const alphaTab = screen.getByRole("tab", { name: "Alpha" });
+    expect(alphaTab.className).toContain("h-7");
+    expect(alphaTab.className).toContain("max-lg:min-h-11");
+    expect(alphaTab.className).toContain("max-lg:min-w-11");
     await waitFor(() => {
       expect(
         view.container.querySelector(

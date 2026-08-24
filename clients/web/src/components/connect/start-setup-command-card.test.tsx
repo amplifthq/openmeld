@@ -44,6 +44,7 @@ describe("StartSetupCommandCard", () => {
 		expect(commandBox.className).toContain("whitespace-nowrap");
 		expect(commandBox.className).toContain("overflow-x-auto");
 		expect(commandBox.className).toContain("rounded-md");
+		expect(commandBox.className).toContain("max-lg:min-h-11");
 		expect(commandBox.className).not.toContain("min-h-20");
 	});
 

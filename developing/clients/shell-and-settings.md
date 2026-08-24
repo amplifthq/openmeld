@@ -221,7 +221,7 @@ The Web shell is a stable two-layer composition built from the shared
   contains the optional inner contextual sidebar, required content region, and
   optional right drawer as one visual unit.
 
-- **Outer app rail** — always present on Home, Center Agent, Spaces, Direct
+- **Outer app rail** — always reachable on Home, Center Agent, Spaces, Direct
   Messages, People, Agents, Computers, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
   is the first destination; the remaining fixed destinations are grouped under
@@ -268,6 +268,32 @@ The Web shell is a stable two-layer composition built from the shared
   content region's upper-left edge instead of restoring a cross-page header.
 - **`aside`** — optional right drawer inside the inset app surface (Space
   members panel).
+
+### Responsive shell presentation
+
+Responsive presentation does not create a second navigation model or change
+the route topology:
+
+- At `lg` and wider, the outer app rail stays inline on the app canvas with its
+  existing persisted width, tier, collapsed groups, inset surface gutters, and
+  resize behavior.
+- Below `lg`, the outer rail opens as a modal left drawer from the shared app
+  header. The drawer always shows full destination labels and must not write a
+  transient width or tier back to the desktop rail preference.
+- At `md` and wider, a route family's inner contextual sidebar stays inline
+  inside the app surface with its existing persisted family width. Below `md`,
+  the same contextual navigation opens from the shared header as a modal left
+  drawer and the main work region receives the full viewport width.
+- Drawer presentation reuses the same rail and contextual-navigation
+  components. It does not duplicate routes, data ownership, or mutation
+  surfaces. Opening, Escape, overlay dismissal, focus trapping, and focus
+  restoration follow dialog semantics.
+- Narrow-screen controls use touch-sized shell targets, account for viewport
+  safe areas, and keep the global toolbar outside the work region. Motion must
+  reduce to no transition when the browser requests reduced motion.
+
+The responsive breakpoints are presentation boundaries only. Desktop geometry
+and its SSR-readable preferences remain unchanged.
 
 This collapses the old hard-branch layouts in `app-shell.tsx` for Space,
 Settings, and Connect. The legacy Start surface may still use the older

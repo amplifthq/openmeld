@@ -11,6 +11,7 @@ export function CenterAgentSlackChannelsShortcut(input: {
 	slackConnection?: CenterAgentSlackWorkspaceConnection;
 }) {
 	const connected = input.slackConnection?.connected === true;
+	const label = connected ? "Slack connected" : "Connect Slack";
 
 	return (
 		<CenterAgentSlackConnectionDialog
@@ -19,13 +20,21 @@ export function CenterAgentSlackChannelsShortcut(input: {
 			organizationSlug={input.organizationSlug}
 			slackConnection={input.slackConnection}
 			trigger={
-				<Button size="sm" type="button" variant="ghost">
+				<Button
+					aria-label={label}
+					size="sm"
+					title={label}
+					type="button"
+					variant="ghost"
+				>
 					{connected ? (
 						<CheckCircleIcon aria-hidden="true" data-icon="inline-start" />
 					) : (
 						<LinkIcon aria-hidden="true" data-icon="inline-start" />
 					)}
-					{connected ? "Slack connected" : "Connect Slack"}
+					<span className="@min-[28rem]/app-main-header:inline hidden">
+						{label}
+					</span>
 				</Button>
 			}
 		/>

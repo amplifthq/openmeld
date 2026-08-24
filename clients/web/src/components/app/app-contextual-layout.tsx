@@ -18,6 +18,7 @@ import {
 	APP_NAV_ITEM_TONE_CLASS_NAME,
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "./app-nav-item-style";
+import { useAppNavigationPresentation } from "./app-navigation-presentation";
 import { AppSidebarGroup } from "./app-sidebar-group";
 import { CenterTruncatedText } from "./center-truncated-text";
 
@@ -159,6 +160,7 @@ function AppContextualSidebarNavItem<ItemId extends string>(input: {
 	item: AppContextualNavItem<ItemId>;
 	onActivate?: (itemId: ItemId) => void;
 }) {
+	const { dismiss } = useAppNavigationPresentation();
 	const Icon = input.item.icon;
 	const content = (
 		<span
@@ -190,6 +192,7 @@ function AppContextualSidebarNavItem<ItemId extends string>(input: {
 						}
 
 						input.onActivate?.(input.item.id);
+						dismiss();
 					}}
 					onPointerDown={(event) => {
 						if (event.button !== 0 || isModifiedActivation(event)) {
@@ -210,6 +213,7 @@ function AppContextualSidebarNavItem<ItemId extends string>(input: {
 					className="block w-full min-w-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
 					onClick={() => {
 						input.onActivate?.(input.item.id);
+						dismiss();
 					}}
 					type="button"
 				>

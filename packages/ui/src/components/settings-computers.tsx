@@ -86,9 +86,9 @@ export function SettingsComputerSummaryCardContent({
               <DesktopTowerIcon aria-hidden="true" className="h-4 w-4" />
             )}
           </span>
-          <span className="min-w-0">
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate font-medium text-foreground text-sm">
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="min-w-0 max-w-full font-medium text-foreground text-sm max-sm:basis-full max-sm:break-words sm:truncate">
                 {name}
               </span>
               {recordBadgeLabel ? (
@@ -97,7 +97,7 @@ export function SettingsComputerSummaryCardContent({
                 </Badge>
               ) : null}
               {status ? (
-                <span className="inline-flex shrink-0 items-center">
+                <span className="inline-flex max-w-full shrink-0 items-center gap-2 max-sm:shrink">
                   <span
                     aria-hidden="true"
                     className={cn(
@@ -109,16 +109,16 @@ export function SettingsComputerSummaryCardContent({
                   {status.showLabel ? null : (
                     <span className="sr-only">{status.label}</span>
                   )}
-                </span>
-              ) : null}
-              {status?.showLabel ? (
-                <span
-                  className={cn(
-                    "shrink-0 font-medium text-xs",
-                    resolveStatusToneStrongTextClassName(status.tone)
-                  )}
-                >
-                  {status.label}
+                  {status.showLabel ? (
+                    <span
+                      className={cn(
+                        "min-w-0 font-medium text-xs",
+                        resolveStatusToneStrongTextClassName(status.tone)
+                      )}
+                    >
+                      {status.label}
+                    </span>
+                  ) : null}
                 </span>
               ) : null}
             </span>

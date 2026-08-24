@@ -135,6 +135,8 @@ describe("new Space route", () => {
 		);
 		expect(header?.className).toContain("border-b-0");
 		expect(header?.classList.contains("border-b")).toBe(false);
+		const body = document.querySelector('[data-slot="app-main-content-body"]');
+		expect(body?.className).toContain("overflow-y-auto");
 	});
 
 	it("shows the inner Spaces sidebar when the current organization has Spaces", async () => {

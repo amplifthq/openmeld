@@ -58,6 +58,9 @@ export function SpaceWindowFrame(input: {
 		<AppSurfaceLayout
 			frameSlotName="space-window-frame"
 			globalControls={<AppGlobalControls />}
+			mobileSidebarTitle={resolveSpaceWindowSidebarTitle(
+				input.sidebarPreferenceKey
+			)}
 			outerRail={input.outerRail}
 			sidebar={
 				input.sidebar ? (
@@ -76,6 +79,20 @@ export function SpaceWindowFrame(input: {
 				{input.children}
 			</section>
 		</AppSurfaceLayout>
+	);
+}
+
+function resolveSpaceWindowSidebarTitle(
+	preferenceKey: InnerSidebarPreferenceKey
+): string {
+	if (preferenceKey === "spaces") {
+		return "Spaces";
+	}
+	if (preferenceKey === "direct-messages") {
+		return "Direct Messages";
+	}
+	throw new Error(
+		`Unsupported Space window sidebar preference: ${preferenceKey}`
 	);
 }
 

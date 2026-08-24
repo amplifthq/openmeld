@@ -74,6 +74,7 @@ export function AppNewSpaceContent(input: {
 				<AppMainContent
 					header={<NewSpaceHeader orgSlug={currentOrganization.slug} />}
 					headerClassName="border-b-0"
+					scroll
 				>
 					<WelcomeFirstRun showBack={false} />
 				</AppMainContent>
@@ -95,6 +96,7 @@ export function AppNewSpaceContent(input: {
 				headerClassName={
 					hasCurrentOrganizationSpaces ? undefined : "border-b-0"
 				}
+				scroll
 			>
 				<WelcomeFirstRun showBack={false} />
 			</AppMainContent>
