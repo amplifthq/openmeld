@@ -780,11 +780,6 @@ function SpaceMembersBody(input: {
 			{editingAgentProfile && input.agentProfileEditContext ? (
 				<AgentProfileEditDialogController
 					context={input.agentProfileEditContext}
-					hasActiveWake={
-						input.activeWakeDisplayTargetProfileIds?.has(
-							editingAgentProfile.openMeldProfileId
-						) === true
-					}
 					modelCatalog={input.modelCatalog}
 					onOpenChange={(open) => {
 						if (!open) {

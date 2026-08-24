@@ -96,6 +96,22 @@ export const daemonExecutionCompatibilitySchema = z.strictObject({
   reasonCode: daemonRuntimeContractReasonCodeSchema,
 });
 
+export const runtimeTransportAgentProfileExecutionStateRequestSchema =
+  z.strictObject({
+    ownerUserId: z.string().trim().min(1).max(256),
+    targetProfileId: agentProfileIdSchema,
+  });
+
+export const runtimeTransportAgentProfileExecutionStateResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({ status: z.literal("active") }),
+    z.strictObject({ status: z.literal("inactive") }),
+    z.strictObject({
+      reasonCode: z.string().trim().min(1).max(256),
+      status: z.literal("unavailable"),
+    }),
+  ]);
+
 export const runtimeTransportErrorCodeSchema = z.enum([
   "daemon.session.reject_conflict",
   "daemon.session.not_found",

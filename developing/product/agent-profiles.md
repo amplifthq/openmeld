@@ -290,6 +290,14 @@ pending route-catalog or readiness convergence after an accepted Binding write
 must not turn that saved write into a visible failure. Web shows the saved
 outcome, refreshes canonical Core readiness, and lets that readiness projection
 decide whether the Agent Profile is Available, Checking, Offline, or Unavailable.
+Changing or unbinding the Agent Controller is different because it changes the
+execution target and can interrupt accepted work. Every maintenance surface
+must read the owner-sharded RuntimeCoordinator execution state, independent of
+the current Space, and the Binding writer must recheck the same authority before
+committing the target change. An active execution blocks only the disruptive
+Controller mutation; a missing or unreadable execution-state authority fails
+closed for that mutation without blocking model, reasoning, collaboration,
+permission, or OpenCode permission writes.
 The Agents home may group multiple eligible reconnect actions behind one explicit
 confirmation, but each Agent Profile still receives its own authoritative
 Binding write and outcome. A Computer or service reconnect must never move

@@ -7,6 +7,8 @@ import {
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  runtimeTransportAgentProfileExecutionStateRequestSchema,
+  runtimeTransportAgentProfileExecutionStateResponseSchema,
   runtimeTransportCapabilitiesSchema,
   runtimeTransportDeliverDispatchPayloadSchema,
   runtimeTransportDeliverDispatchRequestSchema,
@@ -195,6 +197,32 @@ const createLocalComponentsStatus = () => ({
 });
 
 describe("runtime transport schema", () => {
+  it("reads account-wide Agent execution state without a Space selector", () => {
+    expect(
+      runtimeTransportAgentProfileExecutionStateRequestSchema.parse({
+        ownerUserId: "owner-1",
+        targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      })
+    ).toEqual({
+      ownerUserId: "owner-1",
+      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+    });
+    expect(
+      runtimeTransportAgentProfileExecutionStateResponseSchema.parse({
+        status: "active",
+      })
+    ).toEqual({ status: "active" });
+    expect(
+      runtimeTransportAgentProfileExecutionStateResponseSchema.parse({
+        reasonCode: "runtime_coordinator.execution_state_unavailable",
+        status: "unavailable",
+      })
+    ).toEqual({
+      reasonCode: "runtime_coordinator.execution_state_unavailable",
+      status: "unavailable",
+    });
+  });
+
   it("accepts bounded per-session disconnect diagnostics and legacy responses without them", () => {
     const legacy = runtimeTransportDisconnectRatesResponseSchema.safeParse({
       ok: true,

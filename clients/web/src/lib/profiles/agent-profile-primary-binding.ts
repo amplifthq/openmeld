@@ -8,6 +8,7 @@ import type {
 	AgentProfileBindingOpenCodePermission,
 	DisableAgentProfilePrimaryBindingResponse,
 	EnsureAgentProfilePrimaryBindingResponse,
+	GetAgentProfileControllerChangeEligibilityResponse,
 	GetAgentProfilePrimaryBindingResponse,
 } from "@openmeld/schemas/types";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -19,6 +20,20 @@ export async function readAgentProfilePrimaryBinding(input: {
 		return await createAgentProfileBindingApi(
 			createUnscopedWebOpenMeldApiFoundation()
 		).getPrimaryBinding({
+			agentProfileId: input.agentProfileId,
+		});
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function readAgentProfileControllerChangeEligibility(input: {
+	agentProfileId: string;
+}): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
+	try {
+		return await createAgentProfileBindingApi(
+			createUnscopedWebOpenMeldApiFoundation()
+		).getControllerChangeEligibility({
 			agentProfileId: input.agentProfileId,
 		});
 	} catch (error) {

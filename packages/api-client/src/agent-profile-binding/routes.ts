@@ -4,6 +4,12 @@ export function buildAgentProfilePrimaryBindingRoute(
   return `/v1/agent-profiles/${encodeURIComponent(agentProfileId)}/primary-binding`;
 }
 
+export function buildAgentProfileControllerChangeEligibilityRoute(
+  agentProfileId: string
+): string {
+  return `/v1/agent-profiles/${encodeURIComponent(agentProfileId)}/controller-change-eligibility`;
+}
+
 export function buildAgentProfilePrimaryBindingModelSelectionRoute(
   agentProfileId: string
 ): string {

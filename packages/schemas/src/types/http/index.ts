@@ -114,6 +114,7 @@ export type {
   DisableAgentProfilePrimaryBindingResponse,
   EnsureAgentProfilePrimaryBindingBody,
   EnsureAgentProfilePrimaryBindingResponse,
+  GetAgentProfileControllerChangeEligibilityResponse,
   GetAgentProfileCreationDefaultsResponse,
   GetAgentProfilePrimaryBindingResponse,
   GetOrganizationBindingAuthorizationPreferenceResponse,

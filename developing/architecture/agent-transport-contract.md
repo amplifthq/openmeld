@@ -511,6 +511,13 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   Service reports the identity it has applied, and Runtime Transport must not
   deliver the dispatch until both values match. This consistency fence does
   not make the projection or the Service an execution authority.
+- Controller target changes and Controller unbinding use an owner-sharded
+  RuntimeCoordinator execution-state read that spans every Space. Web may use
+  that read to disable disruptive actions immediately, but the Core Binding
+  writer must recheck it before mutation. `active` blocks the mutation;
+  unavailable authority fails closed. Settings-only writes do not use this
+  guard because RuntimeCoordinator already freezes their accepted Binding
+  revision for the current execution.
 - Consumers use the response inside one operation and must not persist it.
 - Device-scoped derivations (daemon route catalog, projected controllers,
   local service demand) must consume this projection instead of rebuilding the

@@ -10,7 +10,10 @@ import type {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { agentProfilePrimaryBindingQueryOptions } from "#/query/profiles/primary-binding";
+import {
+	agentProfileControllerChangeEligibilityQueryOptions,
+	agentProfilePrimaryBindingQueryOptions,
+} from "#/query/profiles/primary-binding";
 import {
 	type AgentProfileControllerChangeUpdate,
 	type AgentProfileEditActionContext,
@@ -39,7 +42,6 @@ export type AgentProfileEditDialogContext = Omit<
 
 export function AgentProfileEditDialogController(input: {
 	context: AgentProfileEditDialogContext;
-	hasActiveWake?: boolean;
 	modelCatalog: ModelCatalog | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
@@ -49,6 +51,13 @@ export function AgentProfileEditDialogController(input: {
 	const [isPending, setIsPending] = useState(false);
 	const bindingQuery = useQuery(
 		agentProfilePrimaryBindingQueryOptions({
+			agentProfileId: input.profile.openMeldProfileId,
+			enabled: input.open,
+			storageScope: input.context.storageScope,
+		})
+	);
+	const controllerChangeEligibilityQuery = useQuery(
+		agentProfileControllerChangeEligibilityQueryOptions({
 			agentProfileId: input.profile.openMeldProfileId,
 			enabled: input.open,
 			storageScope: input.context.storageScope,
@@ -158,9 +167,11 @@ export function AgentProfileEditDialogController(input: {
 
 	return (
 		<AgentProfileEditDialog
+			controllerChangeEligibilityStatus={
+				controllerChangeEligibilityQuery.data?.status ?? "unavailable"
+			}
 			controllerChangeOptions={controllerChangeOptions}
 			editState={editState}
-			hasActiveWake={input.hasActiveWake}
 			isLoading={input.open && bindingQuery.isPending}
 			isPending={isPending}
 			loadErrorMessage={

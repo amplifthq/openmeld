@@ -7,6 +7,8 @@ import {
   localProjectControlRemoveMissingConnectionsResultSchema,
   localProjectControlSetDefaultConnectionResultSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  runtimeTransportAgentProfileExecutionStateRequestSchema,
+  runtimeTransportAgentProfileExecutionStateResponseSchema,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
   runtimeTransportDisconnectRatesResponseSchema,
@@ -56,6 +58,7 @@ import type {
   LocalProjectControlRemoveMissingConnectionsResponse,
   LocalProjectControlSetDefaultConnectionRequest,
   LocalProjectControlSetDefaultConnectionResponse,
+  RuntimeTransportAgentProfileExecutionStateResponse,
   RuntimeTransportDisconnectRatesResponse,
   RuntimeTransportForkAgentSessionResult,
   RuntimeTransportLookupOwnerServiceResponse,
@@ -70,6 +73,59 @@ import type {
 import { type CoreBindings, localStateDb } from "../../../lib/bindings";
 import { readForgottenDeviceRecord } from "../../../start/infrastructure/d1/forgotten-device-repo";
 import { callRuntimeTransportApi } from "./runtime-transport-api-client";
+import { resolveRuntimeTransportOwnerShard } from "./runtime-transport-shard";
+
+export const readRuntimeTransportAgentProfileExecutionState = async (input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  targetProfileId: string;
+}): Promise<RuntimeTransportAgentProfileExecutionStateResponse> => {
+  const parsedRequest =
+    runtimeTransportAgentProfileExecutionStateRequestSchema.safeParse({
+      ownerUserId: input.ownerUserId,
+      targetProfileId: input.targetProfileId,
+    });
+  if (!parsedRequest.success) {
+    return {
+      reasonCode: "runtime_coordinator.execution_state_request_invalid",
+      status: "unavailable",
+    };
+  }
+  try {
+    const shard = resolveRuntimeTransportOwnerShard(
+      input.env,
+      input.ownerUserId
+    );
+    const response = await shard.rpcReadAgentProfileExecutionState(
+      parsedRequest.data
+    );
+    const parsedResponse =
+      runtimeTransportAgentProfileExecutionStateResponseSchema.safeParse(
+        response
+      );
+    if (parsedResponse.success) {
+      return parsedResponse.data;
+    }
+    console.warn(
+      "[core.runtime_coordinator.execution_state_response_invalid]",
+      {
+        error: parsedResponse.error.message,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+      }
+    );
+  } catch (error) {
+    console.warn("[core.runtime_coordinator.execution_state_read_failed]", {
+      error: error instanceof Error ? error.message : String(error),
+      ownerUserId: input.ownerUserId,
+      targetProfileId: input.targetProfileId,
+    });
+  }
+  return {
+    reasonCode: "runtime_coordinator.execution_state_unavailable",
+    status: "unavailable",
+  };
+};
 
 export const lookupRuntimeTransportRoute = async (input: {
   blockForgottenDevices?: boolean;

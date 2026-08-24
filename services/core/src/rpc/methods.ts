@@ -150,6 +150,7 @@ import {
   getAgentExecutionReadinessBatchBodySchema,
   getAgentExecutionReadinessBatchResponseSchema,
   getAgentExecutionReadinessResponseSchema,
+  getAgentProfileControllerChangeEligibilityResponseSchema,
   getAgentProfileCreationDefaultsResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
   getCenterAgentDesignationResponseSchema,
@@ -444,6 +445,7 @@ import type {
   GetAgentExecutionReadinessBatchBody,
   GetAgentExecutionReadinessBatchResponse,
   GetAgentExecutionReadinessResponse,
+  GetAgentProfileControllerChangeEligibilityResponse,
   GetAgentProfileCreationDefaultsResponse,
   GetAgentProfilePrimaryBindingResponse,
   GetCenterAgentDesignationResponse,
@@ -830,6 +832,7 @@ import {
   lookupRuntimeTransportRoutesBatch,
   manageRuntimeTransportLocalAgentInstallation,
   notifyRuntimeTransportRouteCatalogChanged,
+  readRuntimeTransportAgentProfileExecutionState,
   readRuntimeTransportComputerFileAccessPolicy,
   refreshRuntimeTransportLocalAgentCatalog,
   selectRuntimeTransportLocalFolders,
@@ -2325,6 +2328,11 @@ export type SubmitRuntimeProviderConversationProofsInput = {
 };
 
 export type GetAgentProfilePrimaryBindingInput = {
+  agentProfileId: string;
+  context?: CoreRpcContextInput;
+};
+
+export type GetAgentProfileControllerChangeEligibilityInput = {
   agentProfileId: string;
   context?: CoreRpcContextInput;
 };
@@ -4221,6 +4229,23 @@ export async function rpcGetAgentProfilePrimaryBinding(
   );
 }
 
+export async function rpcGetAgentProfileControllerChangeEligibility(
+  env: CoreBindings,
+  input: GetAgentProfileControllerChangeEligibilityInput
+): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
+  const request = requireAgentProfileBindingRequest(input);
+  await assertAgentProfileOwnerMatchesRequest({
+    agentProfileId: request.agentProfileId,
+    env,
+    owner: request.owner,
+  });
+  return await resolveAgentProfileControllerChangeEligibility({
+    agentProfileId: request.agentProfileId,
+    env,
+    ownerUserId: request.owner.id,
+  });
+}
+
 // Contract: developing/architecture/agent-transport-contract.md ("Expected Routes Projection")
 // One Core-owned projection read replaces the CLI's per-profile
 // primary-binding fan-out: owner from auth, runtime resolved from
@@ -4297,6 +4322,28 @@ export async function rpcDisableAgentProfilePrimaryBinding(
       reasonCodes: ["agent_profile_binding.owner_mismatch"],
       status: "unavailable",
     });
+  }
+
+  const primaryBinding = await readPrimaryAgentProfileBindingRecord({
+    agentProfileId: request.agentProfileId,
+    db,
+    owner: request.owner,
+  });
+  if (primaryBinding) {
+    const controllerChangeEligibility =
+      await resolveAgentProfileControllerChangeEligibility({
+        agentProfileId: request.agentProfileId,
+        env,
+        ownerUserId: request.owner.id,
+      });
+    if (controllerChangeEligibility.status !== "allowed") {
+      return buildDisableAgentProfilePrimaryBindingResponse({
+        agentProfileId: request.agentProfileId,
+        disabled: false,
+        reasonCodes: [controllerChangeEligibility.reasonCode],
+        status: "unavailable",
+      });
+    }
   }
 
   const disabledBinding = await disablePrimaryAgentProfileBindingRecord({
@@ -14507,6 +14554,27 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
           owner: request.owner,
         })
       : null;
+  if (
+    previousPrimaryBinding &&
+    bindingReconnectChangesExecutionTarget({
+      agentControllerConversationId: body.data.agentControllerConversationId,
+      agentControllerRef: body.data.agentControllerRef,
+      openMeldServiceRuntimeId: openMeldServiceRuntimeId.value.value,
+      previousBinding: previousPrimaryBinding,
+    })
+  ) {
+    const controllerChangeEligibility =
+      await resolveAgentProfileControllerChangeEligibility({
+        agentProfileId: request.agentProfileId,
+        env,
+        ownerUserId: request.owner.id,
+      });
+    if (controllerChangeEligibility.status !== "allowed") {
+      return buildRejectedAgentProfileBindingResponse([
+        controllerChangeEligibility.reasonCode,
+      ]);
+    }
+  }
   let result: AgentProfileBindingCommandResult;
   try {
     result = await ensurePrimaryAgentProfileBinding({
@@ -19762,6 +19830,72 @@ function buildGetAgentProfilePrimaryBindingResponse(
     );
   }
   return validated.data;
+}
+
+async function resolveAgentProfileControllerChangeEligibility(input: {
+  agentProfileId: string;
+  env: CoreBindings;
+  ownerUserId: string;
+}): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
+  const executionState = await readRuntimeTransportAgentProfileExecutionState({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    targetProfileId: input.agentProfileId,
+  });
+  let response: GetAgentProfileControllerChangeEligibilityResponse;
+  if (executionState.status === "inactive") {
+    response = {
+      agentProfileId: input.agentProfileId,
+      reasonCode: "agent_profile_binding.controller_change_allowed",
+      status: "allowed",
+    };
+  } else if (executionState.status === "active") {
+    response = {
+      agentProfileId: input.agentProfileId,
+      reasonCode:
+        "agent_profile_binding.controller_change_blocked_active_execution",
+      status: "blocked",
+    };
+  } else {
+    response = {
+      agentProfileId: input.agentProfileId,
+      reasonCode:
+        "agent_profile_binding.controller_change_eligibility_unavailable",
+      status: "unavailable",
+    };
+  }
+  return getAgentProfileControllerChangeEligibilityResponseSchema.parse(
+    response
+  );
+}
+
+function bindingReconnectChangesExecutionTarget(input: {
+  agentControllerConversationId?: string;
+  agentControllerRef: string;
+  openMeldServiceRuntimeId: string;
+  previousBinding: {
+    agentControllerConversationId?: string | null;
+    agentControllerRef: string;
+    openMeldServiceRuntimeId: string;
+  };
+}): boolean {
+  if (
+    input.agentControllerRef !== input.previousBinding.agentControllerRef ||
+    input.openMeldServiceRuntimeId !==
+      input.previousBinding.openMeldServiceRuntimeId
+  ) {
+    return true;
+  }
+  const requestedConversationId = normalizeOptionalText(
+    input.agentControllerConversationId
+  );
+  return Boolean(
+    requestedConversationId &&
+      requestedConversationId !==
+        normalizeOptionalText(
+          input.previousBinding.agentControllerConversationId
+        )
+  );
 }
 
 function buildDisableAgentProfilePrimaryBindingResponse(input: {

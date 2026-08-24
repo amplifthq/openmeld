@@ -1356,7 +1356,6 @@ function SpaceLandingReady({
 }) {
 	const {
 		accountProfiles,
-		activeWakeDisplayTargetProfileIds,
 		centerAgentState,
 		currentSpaceIsCenterAgentDirectMessage,
 		currentOwnerUserId,
@@ -1597,9 +1596,6 @@ function SpaceLandingReady({
 			{editingInteractionAgentProfile && agentProfileEditContext ? (
 				<AgentProfileEditDialogController
 					context={agentProfileEditContext}
-					hasActiveWake={activeWakeDisplayTargetProfileIds.has(
-						editingInteractionAgentProfile.openMeldProfileId
-					)}
 					modelCatalog={modelCatalog}
 					onOpenChange={(open) => {
 						if (!open) {

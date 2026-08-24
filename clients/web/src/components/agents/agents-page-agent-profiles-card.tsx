@@ -143,7 +143,10 @@ import {
 	organizationBindingAuthorizationProfilesQueryOptions,
 	organizationBindingAuthorizationQueryKeys,
 } from "#/query/profiles/organization-binding-authorizations";
-import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-binding";
+import {
+	agentProfileControllerChangeEligibilityQueryOptions,
+	agentProfilePrimaryBindingQueryKeys,
+} from "#/query/profiles/primary-binding";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { AGENT_PROFILE_ROUTE_REFRESH_WINDOW_MS } from "#/strategy-constants";
 import { AgentProfileBulkReconnectNotice } from "./agent-profile-bulk-reconnect-notice";
@@ -1170,6 +1173,24 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				agentProfileId: profile.openMeldProfileId,
 			});
 			if (!(response.disabled || response.status === "missing")) {
+				if (
+					response.reasonCodes.includes(
+						"agent_profile_binding.controller_change_blocked_active_execution"
+					)
+				) {
+					throw new Error(
+						"This Agent is still working. Wait for the current Wake to finish before unbinding its Controller."
+					);
+				}
+				if (
+					response.reasonCodes.includes(
+						"agent_profile_binding.controller_change_eligibility_unavailable"
+					)
+				) {
+					throw new Error(
+						"OpenMeld couldn’t confirm whether this Agent is working. Try unbinding its Controller again."
+					);
+				}
 				throw new Error("OpenMeld could not unbind this controller.");
 			}
 			const missingResponse = createMissingAgentProfilePrimaryBindingResponse({
@@ -1706,6 +1727,7 @@ function AgentProfileDirectoryRow(input: {
 						})
 					: null
 			}
+			storageScope={input.cardInput.recovery.storageScope}
 			wakeAvailabilityDisplayOverride={
 				controller.wakeAvailabilityDisplayOverrideByProfileId.get(
 					profile.openMeldProfileId
@@ -1921,6 +1943,7 @@ type AgentProfileExecutionReadinessRowProps = {
 	repairActions: readonly AgentProfileRepairAction[];
 	rowRef?: Ref<HTMLElement>;
 	setupAction: AgentProfileSetupAction | null;
+	storageScope: string;
 };
 
 function AgentProfileExecutionReadinessRow(
@@ -2179,6 +2202,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 						}
 					: null
 			}
+			storageScope={input.row.storageScope}
 		/>
 	);
 }
@@ -2666,6 +2690,166 @@ function AgentProfileConflictActions(input: {
 	);
 }
 
+type AgentProfileControllerChangeEligibilityStatus =
+	| "allowed"
+	| "blocked"
+	| "unavailable";
+
+function shouldReadControllerChangeEligibility(input: {
+	isMenuOpen: boolean;
+	isProfileEditDialogOpen: boolean;
+	isUnbindControllerDialogOpen: boolean;
+}): boolean {
+	return Object.values(input).some(Boolean);
+}
+
+function resolveControllerChangeStatusLabel(input: {
+	isPending: boolean;
+	status: AgentProfileControllerChangeEligibilityStatus;
+}): string | null {
+	if (input.status === "allowed") {
+		return null;
+	}
+	if (input.status === "blocked") {
+		return "Agent is working";
+	}
+	return input.isPending ? "Checking status" : "Status unavailable";
+}
+
+function isAgentProfileUnbindDisabled(input: {
+	controllerChangeEligibilityStatus: AgentProfileControllerChangeEligibilityStatus;
+	isProfileEditPending: boolean;
+	isUnbindPending: boolean;
+}): boolean {
+	return (
+		input.isUnbindPending ||
+		input.isProfileEditPending ||
+		input.controllerChangeEligibilityStatus !== "allowed"
+	);
+}
+
+function AgentProfileOptionsPopover(input: {
+	capabilities: {
+		canManage: boolean;
+		hasEnabledPrimaryBinding: boolean;
+		showProjectSettings: boolean;
+	};
+	controllerChangeStatusLabel: string | null;
+	disabledActions: {
+		remove: boolean;
+		unbindController: boolean;
+	};
+	isOpen: boolean;
+	onOpenChange: (isOpen: boolean) => void;
+	onOpenDetails: () => void;
+	onOpenProjectSettings: () => void;
+	onOpenRemove: () => void;
+	onOpenUnbind: () => void;
+	profileName: string;
+}) {
+	return (
+		<Popover.Root
+			modal={false}
+			onOpenChange={input.onOpenChange}
+			open={input.isOpen}
+		>
+			<Popover.Trigger
+				render={
+					<Button
+						aria-label={`Agent options for ${input.profileName}`}
+						size="icon"
+						type="button"
+						variant="ghost"
+					/>
+				}
+			>
+				<DotsThreeIcon aria-hidden="true" />
+			</Popover.Trigger>
+			<Popover.Portal>
+				<Popover.Positioner
+					align="end"
+					collisionAvoidance={{
+						align: "shift",
+						fallbackAxisSide: "start",
+						side: "flip",
+					}}
+					collisionPadding={12}
+					side="bottom"
+					sideOffset={8}
+				>
+					<Popover.Popup
+						className="z-50 min-w-52 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
+						finalFocus={false}
+					>
+						<button
+							className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+							onClick={() => {
+								input.onOpenChange(false);
+								input.onOpenDetails();
+							}}
+							type="button"
+						>
+							<InfoIcon aria-hidden="true" className="h-4 w-4" />
+							About profile
+						</button>
+						{input.capabilities.canManage ? (
+							<>
+								{input.capabilities.showProjectSettings ? (
+									<button
+										className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+										onClick={() => {
+											input.onOpenChange(false);
+											input.onOpenProjectSettings();
+										}}
+										type="button"
+									>
+										<WrenchIcon aria-hidden="true" className="h-4 w-4" />
+										Default Project and folder
+									</button>
+								) : null}
+								{input.capabilities.hasEnabledPrimaryBinding ? (
+									<button
+										className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-destructive text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+										disabled={input.disabledActions.unbindController}
+										onClick={() => {
+											input.onOpenChange(false);
+											input.onOpenUnbind();
+										}}
+										type="button"
+									>
+										<WrenchIcon aria-hidden="true" className="h-4 w-4" />
+										<span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+											<span>Unbind controller</span>
+											<span
+												aria-hidden="true"
+												className="text-muted-foreground text-xs empty:hidden"
+											>
+												{input.controllerChangeStatusLabel}
+											</span>
+										</span>
+									</button>
+								) : null}
+								<button
+									className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-destructive text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+									disabled={input.disabledActions.remove}
+									onClick={() => {
+										input.onOpenChange(false);
+										input.onOpenRemove();
+									}}
+									type="button"
+								>
+									<TrashIcon aria-hidden="true" className="h-4 w-4" />
+									Remove profile
+								</button>
+							</>
+						) : null}
+					</Popover.Popup>
+				</Popover.Positioner>
+			</Popover.Portal>
+		</Popover.Root>
+	);
+}
+
 function AgentProfileRowMoreMenu(input: {
 	actorProfileId: string | null;
 	capabilities: {
@@ -2703,6 +2887,7 @@ function AgentProfileRowMoreMenu(input: {
 	primaryNativeSessionId: string | null;
 	pendingState: AgentProfileActionPendingState;
 	runtimeComputer: { deviceId: string; displayName: string } | null;
+	storageScope: string;
 }) {
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
 	const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
@@ -2712,6 +2897,19 @@ function AgentProfileRowMoreMenu(input: {
 	const [isUnbindControllerDialogOpen, setIsUnbindControllerDialogOpen] =
 		useState(false);
 	const [isRemoveDialogOpen, setIsRemoveDialogOpen] = useState(false);
+	const controllerChangeEligibilityQuery = useQuery(
+		agentProfileControllerChangeEligibilityQueryOptions({
+			agentProfileId: input.profile.openMeldProfileId,
+			enabled: shouldReadControllerChangeEligibility({
+				isMenuOpen,
+				isProfileEditDialogOpen,
+				isUnbindControllerDialogOpen,
+			}),
+			storageScope: input.storageScope,
+		})
+	);
+	const controllerChangeEligibilityStatus =
+		controllerChangeEligibilityQuery.data?.status ?? "unavailable";
 	const isProfileEditPending =
 		input.pendingState.controllerChange ||
 		input.pendingState.controllerCollaborationMode ||
@@ -2719,6 +2917,15 @@ function AgentProfileRowMoreMenu(input: {
 		input.pendingState.modelSelection ||
 		input.pendingState.openCodePermission ||
 		input.pendingState.rename;
+	const controllerChangeStatusLabel = resolveControllerChangeStatusLabel({
+		isPending: controllerChangeEligibilityQuery.isPending,
+		status: controllerChangeEligibilityStatus,
+	});
+	const unbindControllerDisabled = isAgentProfileUnbindDisabled({
+		controllerChangeEligibilityStatus,
+		isProfileEditPending,
+		isUnbindPending: input.pendingState.disablePrimaryBinding,
+	});
 	const showProjectSettings = shouldShowAgentProfileProjectSettings({
 		agentControllerRef: input.primaryAgentControllerRef,
 		managedRole: input.profile.managedRole,
@@ -2800,100 +3007,26 @@ function AgentProfileRowMoreMenu(input: {
 						<TooltipContent side="bottom">Edit Agent</TooltipContent>
 					</Tooltip>
 				) : null}
-				<Popover.Root
-					modal={false}
+				<AgentProfileOptionsPopover
+					capabilities={{
+						canManage: input.capabilities.canManage,
+						hasEnabledPrimaryBinding:
+							input.capabilities.hasEnabledPrimaryBinding,
+						showProjectSettings,
+					}}
+					controllerChangeStatusLabel={controllerChangeStatusLabel}
+					disabledActions={{
+						remove: input.pendingState.remove,
+						unbindController: unbindControllerDisabled,
+					}}
+					isOpen={isMenuOpen}
 					onOpenChange={setIsMenuOpen}
-					open={isMenuOpen}
-				>
-					<Popover.Trigger
-						render={
-							<Button
-								aria-label={`Agent options for ${input.profileName}`}
-								size="icon"
-								type="button"
-								variant="ghost"
-							/>
-						}
-					>
-						<DotsThreeIcon aria-hidden="true" />
-					</Popover.Trigger>
-					<Popover.Portal>
-						<Popover.Positioner
-							align="end"
-							collisionAvoidance={{
-								align: "shift",
-								fallbackAxisSide: "start",
-								side: "flip",
-							}}
-							collisionPadding={12}
-							side="bottom"
-							sideOffset={8}
-						>
-							<Popover.Popup
-								className="z-50 min-w-52 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
-								finalFocus={false}
-							>
-								<button
-									className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-									onClick={() => {
-										setIsMenuOpen(false);
-										setIsDetailsDialogOpen(true);
-									}}
-									type="button"
-								>
-									<InfoIcon aria-hidden="true" className="h-4 w-4" />
-									About profile
-								</button>
-								{input.capabilities.canManage ? (
-									<>
-										{showProjectSettings ? (
-											<button
-												className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-												onClick={() => {
-													setIsMenuOpen(false);
-													setIsProjectSettingsDialogOpen(true);
-												}}
-												type="button"
-											>
-												<WrenchIcon aria-hidden="true" className="h-4 w-4" />
-												Default Project and folder
-											</button>
-										) : null}
-										{input.capabilities.hasEnabledPrimaryBinding ? (
-											<button
-												className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-destructive text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-												disabled={
-													input.pendingState.disablePrimaryBinding ||
-													isProfileEditPending
-												}
-												onClick={() => {
-													setIsMenuOpen(false);
-													setIsUnbindControllerDialogOpen(true);
-												}}
-												type="button"
-											>
-												<WrenchIcon aria-hidden="true" className="h-4 w-4" />
-												Unbind controller
-											</button>
-										) : null}
-										<button
-											className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-destructive text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-											disabled={input.pendingState.remove}
-											onClick={() => {
-												setIsMenuOpen(false);
-												setIsRemoveDialogOpen(true);
-											}}
-											type="button"
-										>
-											<TrashIcon aria-hidden="true" className="h-4 w-4" />
-											Remove profile
-										</button>
-									</>
-								) : null}
-							</Popover.Popup>
-						</Popover.Positioner>
-					</Popover.Portal>
-				</Popover.Root>
+					onOpenDetails={() => setIsDetailsDialogOpen(true)}
+					onOpenProjectSettings={() => setIsProjectSettingsDialogOpen(true)}
+					onOpenRemove={() => setIsRemoveDialogOpen(true)}
+					onOpenUnbind={() => setIsUnbindControllerDialogOpen(true)}
+					profileName={input.profileName}
+				/>
 			</div>
 			<ProfileDetailsDialog
 				currentSession={currentSessionLink}
@@ -2917,6 +3050,7 @@ function AgentProfileRowMoreMenu(input: {
 				profile={input.profile}
 			/>
 			<AgentProfileEditDialog
+				controllerChangeEligibilityStatus={controllerChangeEligibilityStatus}
 				controllerChangeOptions={input.controllerChangeOptions}
 				editState={input.editState}
 				isPending={isProfileEditPending}
@@ -2948,6 +3082,7 @@ function AgentProfileRowMoreMenu(input: {
 				}
 			/>
 			<AgentProfileUnbindControllerDialog
+				controllerChangeEligibilityStatus={controllerChangeEligibilityStatus}
 				isOpen={isUnbindControllerDialogOpen}
 				isPending={input.pendingState.disablePrimaryBinding}
 				onOpenChange={setIsUnbindControllerDialogOpen}
@@ -3015,9 +3150,9 @@ function resolveAgentProfileEditDraftInput(input: {
 }
 
 export function AgentProfileEditDialog(input: {
+	controllerChangeEligibilityStatus?: "allowed" | "blocked" | "unavailable";
 	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
 	editState: AgentProfileEditState | null;
-	hasActiveWake?: boolean;
 	isLoading?: boolean;
 	isPending: boolean;
 	loadErrorMessage?: string | null;
@@ -3169,6 +3304,9 @@ function AgentProfileEditDialogContent(
 						activeDraft={activeDraft}
 						activeEditState={activeEditState}
 						confirmationId={confirmationId}
+						controllerChangeEligibilityStatus={
+							input.controllerChangeEligibilityStatus ?? "allowed"
+						}
 						controllerChangeOptions={input.controllerChangeOptions}
 						controllerCollaborationMode={controllerCollaborationMode}
 						controllerPermissionMode={controllerPermissionMode}
@@ -3176,7 +3314,6 @@ function AgentProfileEditDialogContent(
 						disabled={input.isPending}
 						draftKey={draftKey}
 						editState={input.editState}
-						hasActiveWake={input.hasActiveWake === true}
 						modelCatalog={input.modelCatalog}
 						modelSelection={modelSelection}
 						onDraftChange={setDraft}
@@ -3239,7 +3376,7 @@ function AgentProfileEditDialogFields(input: {
 	controllerPermissionMode: AgentProfileControllerPermissionModeEditState | null;
 	dialogState: AgentProfileEditDialogState;
 	disabled: boolean;
-	hasActiveWake: boolean;
+	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	draftKey: string;
 	editState: AgentProfileEditState | null;
 	modelCatalog: ModelCatalog | null;
@@ -3281,16 +3418,25 @@ function AgentProfileEditDialogFields(input: {
 							input.editState.controllerPermissionMode
 						}
 						currentModelSelection={input.editState.modelSelection}
-						disabled={input.disabled || input.hasActiveWake}
+						disabled={
+							input.disabled ||
+							input.controllerChangeEligibilityStatus !== "allowed"
+						}
 						draftKey={input.draftKey}
 						modelCatalog={input.modelCatalog}
 						onDraftChange={input.onDraftChange}
 						options={input.controllerChangeOptions}
 					/>
-					{input.hasActiveWake ? (
+					{input.controllerChangeEligibilityStatus === "blocked" ? (
 						<p className="text-muted-foreground text-xs leading-5">
 							Controller changes are unavailable while this Agent is working
 							because reconnecting would interrupt the current Wake.
+						</p>
+					) : null}
+					{input.controllerChangeEligibilityStatus === "unavailable" ? (
+						<p className="text-muted-foreground text-xs leading-5">
+							OpenMeld couldn’t confirm whether this Agent is working, so
+							Controller changes are temporarily unavailable. Try again.
 						</p>
 					) : null}
 					<AgentProfileModelSelectionEditSection
@@ -4115,6 +4261,7 @@ function AgentProfileRemoveDialog(input: {
 }
 
 function AgentProfileUnbindControllerDialog(input: {
+	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	isOpen: boolean;
 	isPending: boolean;
 	onOpenChange: (isOpen: boolean) => void;
@@ -4139,6 +4286,18 @@ function AgentProfileUnbindControllerDialog(input: {
 						place.
 					</DialogDescription>
 				</DialogHeader>
+				{input.controllerChangeEligibilityStatus === "blocked" ? (
+					<p className="text-muted-foreground text-sm">
+						This Agent is working. Wait for the current Wake to finish before
+						unbinding its Controller.
+					</p>
+				) : null}
+				{input.controllerChangeEligibilityStatus === "unavailable" ? (
+					<p className="text-muted-foreground text-sm">
+						OpenMeld could not confirm whether this Agent is working, so
+						unbinding is temporarily unavailable. Try again.
+					</p>
+				) : null}
 				<DialogFooter>
 					<DialogClose
 						render={
@@ -4152,7 +4311,10 @@ function AgentProfileUnbindControllerDialog(input: {
 						Cancel
 					</DialogClose>
 					<Button
-						disabled={input.isPending}
+						disabled={
+							input.isPending ||
+							input.controllerChangeEligibilityStatus !== "allowed"
+						}
 						onClick={() => {
 							input
 								.onUnbindController()

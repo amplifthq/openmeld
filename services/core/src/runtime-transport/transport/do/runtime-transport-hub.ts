@@ -41,6 +41,8 @@ import {
   runtimeCoordinatorFinalizationClaimReadSchema,
   runtimeCoordinatorFinalizationCommandSchema,
   runtimeCoordinatorFinalizationOutcomeSchema,
+  runtimeTransportAgentProfileExecutionStateRequestSchema,
+  runtimeTransportAgentProfileExecutionStateResponseSchema,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
   runtimeTransportDeliverDispatchRequestSchema,
@@ -146,6 +148,8 @@ import type {
   RuntimeCoordinatorTokenReasonCode,
   RuntimeCoordinatorTokenRunAuthority,
   RuntimeCoordinatorTokenStatus,
+  RuntimeTransportAgentProfileExecutionStateRequest,
+  RuntimeTransportAgentProfileExecutionStateResponse,
   RuntimeTransportDeliverDispatchRequest,
   RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDispatchInteractionDeliveredRequest,
@@ -247,6 +251,7 @@ import { readCurrentRuntimeAgentControllerReport } from "../../../runtime-regist
 import { emitCoreFinalVisibleOutcomeRuntimeEvidence } from "../../../shared/observability/final-visible-outcome-evidence";
 import { readAcceptedDispatchFinalizationFact } from "../../../space/infrastructure/d1/accepted-dispatch-finalization-repo";
 import { listActiveSpaceIdsForProfileFromSpaceIndex } from "../../../space-index/space-index-repository";
+import { readRuntimeCoordinatorAgentProfileExecutionState } from "../../application/agent-profile-execution-state";
 import {
   publishAgentReadinessInvalidationToSpaces,
   resolveRouteCatalogChangedInvalidationProfileIds,
@@ -1126,6 +1131,36 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       reasonCode: "daemon.result.finalization_unavailable",
       status: "retry_later",
     };
+  }
+
+  async rpcReadAgentProfileExecutionState(
+    input: RuntimeTransportAgentProfileExecutionStateRequest
+  ): Promise<RuntimeTransportAgentProfileExecutionStateResponse> {
+    const parsed =
+      runtimeTransportAgentProfileExecutionStateRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        reasonCode: "runtime_coordinator.execution_state_request_invalid",
+        status: "unavailable",
+      };
+    }
+    const response = await readRuntimeCoordinatorAgentProfileExecutionState({
+      ownerUserId: parsed.data.ownerUserId,
+      ports: {
+        readCommandStates: () =>
+          this.readRuntimeCoordinatorRunCommandStatesFromIndex(),
+        readHeadLifecycles: () =>
+          this.readRuntimeCoordinatorHeadLifecycleRecordsFromIndex(),
+        readTokenAuthority: (runtimeCoordinatorExecutionId) =>
+          this.readRuntimeCoordinatorTokenAuthority(
+            runtimeCoordinatorExecutionId
+          ),
+      },
+      targetProfileId: parsed.data.targetProfileId,
+    });
+    return runtimeTransportAgentProfileExecutionStateResponseSchema.parse(
+      response
+    );
   }
 
   async rpcInspectHostedExecutionRecovery(

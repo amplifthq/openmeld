@@ -8,6 +8,7 @@ import {
   getAgentExecutionReadinessBatchBodySchema,
   getAgentExecutionReadinessBatchResponseSchema,
   getAgentExecutionReadinessResponseSchema,
+  getAgentProfileControllerChangeEligibilityResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
   listCurrentUserAgentProfileOrganizationWakeAccessResponseSchema,
   listOrganizationBindingAuthorizationsResponseSchema,
@@ -26,6 +27,7 @@ import {
   buildAgentExecutionReadinessBatchRoute,
   buildAgentExecutionReadinessRoute,
   buildAgentProfileBindingOrganizationAuthorizationsRoute,
+  buildAgentProfileControllerChangeEligibilityRoute,
   buildAgentProfilePrimaryBindingAgentControllerCollaborationModeRoute,
   buildAgentProfilePrimaryBindingAgentControllerPermissionModeRoute,
   buildAgentProfilePrimaryBindingModelSelectionRoute,
@@ -296,6 +298,18 @@ export const createAgentProfileBindingApi: CreateAgentProfileBindingApi = (
   client: OpenMeldApiClientFoundation
 ) => {
   return {
+    getControllerChangeEligibility: async (input) =>
+      await client.requestJson({
+        invalidMessage:
+          "Invalid Agent Profile Controller change eligibility response.",
+        method: "GET",
+        operation: "agent_profile_binding.controller_change_eligibility.read",
+        requestContext: input.requestContext,
+        schema: getAgentProfileControllerChangeEligibilityResponseSchema,
+        url: buildAgentProfileControllerChangeEligibilityRoute(
+          input.agentProfileId
+        ),
+      }),
     getExecutionReadiness: async (input) => {
       const request = requireValidExecutionReadinessInput(input);
 

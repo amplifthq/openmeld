@@ -38,6 +38,38 @@ describe("api-client agent profile binding api", () => {
     );
   });
 
+  it("reads account-wide Controller change eligibility", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          agentProfileId: AGENT_PROFILE_ID,
+          reasonCode:
+            "agent_profile_binding.controller_change_blocked_active_execution",
+          status: "blocked",
+        })
+      )
+    );
+    const api = createAgentProfileBindingApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.getControllerChangeEligibility({
+        agentProfileId: AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({ status: "blocked" });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        init: expect.objectContaining({ method: "GET" }),
+        operation: "agent_profile_binding.controller_change_eligibility.read",
+        url: `https://gateway.openmeld.invalid/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/controller-change-eligibility`,
+      })
+    );
+  });
+
   it("reads Agent Execution Readiness through the canonical Agent Profile route", async () => {
     const transport = vi.fn((_: { init?: RequestInit }) =>
       Promise.resolve(
