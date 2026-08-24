@@ -11,6 +11,7 @@
               "CLANG_CXX_LANGUAGE_STANDARD": "c++17",
               "MACOSX_DEPLOYMENT_TARGET": "12.0",
               "OTHER_LDFLAGS": [
+                "-Wl,-S",
                 "-framework CoreFoundation",
                 "-framework Security"
               ]
