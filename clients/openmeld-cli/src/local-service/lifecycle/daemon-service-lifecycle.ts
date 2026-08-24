@@ -63,6 +63,7 @@ import {
   isDaemonBundleSourceAllowedForLane,
   prepareDaemonServiceBundle,
   restoreDaemonActiveBundleStateSnapshot,
+  verifyDaemonActiveBundleIntegrity,
 } from "./daemon-service-bundle";
 import { normalizeDaemonCommandPath } from "./daemon-service-command-path";
 import {
@@ -106,15 +107,20 @@ const MISSING_REQUIRED_CONTRACT_FIELDS_REASON =
   "missing_required_contract_fields";
 const VERIFIED_ROLLBACK_UNTRUSTED_ANOMALIES = new Set<DaemonServiceAnomalyCode>(
   [
-    "bundle_content_drift",
+    "background_foreground_conflict",
     "bundle_id_drift",
     "bundle_lane_drift",
+    "bundle_missing",
     "bundle_path_invalid",
     "bundle_provenance_drift",
     "bundle_strategy_legacy",
-    "bundle_version_drift",
+    "duplicate_owned_processes",
+    "foreground_background_conflict",
+    "legacy_detached_runtime",
+    "legacy_shared_service_present",
+    "lifecycle_locked",
+    "multiple_active_owners",
     "runtime_bundle_mismatch",
-    "service_manager_path_drift",
   ]
 );
 const STOPPED_LIFECYCLE_RUNTIME_SNAPSHOT_ANOMALIES =
@@ -417,7 +423,7 @@ export async function runDaemonServiceLifecycle(input: {
       deviceId: input.deviceId,
       heartbeatMs: input.heartbeatMs,
     });
-    const restorePoint = createLifecycleRestorePoint({
+    const restorePoint = await createLifecycleRestorePoint({
       desiredState,
       inventoryBefore,
       shouldStartAfterLifecycle,
@@ -806,11 +812,26 @@ async function recoverLifecycleFailure(input: {
     };
   }
 
-  if (input.restorePoint.trusted) {
+  let verifiedRollbackError: unknown = null;
+  if (
+    input.restorePoint.trusted &&
+    isVerifiedRollbackEligibleFailureStage(originalFailureStage)
+  ) {
     const restoredPrevious = await restoreVerifiedPreviousState({
       restorePoint: input.restorePoint,
       serviceManager: input.serviceManager,
-    }).catch(() => null);
+    }).catch((error) => {
+      verifiedRollbackError = error;
+      console.warn("[openmeld.daemon_service.verified_rollback_failed]", {
+        errorMessage: toErrorMessage(error),
+        failureStage: originalFailureStage,
+        operation: input.operation,
+        previousVersion:
+          input.restorePoint.previousInstallState?.daemonVersion ?? null,
+        targetVersion: input.expectedVersion,
+      });
+      return null;
+    });
     if (restoredPrevious) {
       return {
         status: "failed",
@@ -830,6 +851,9 @@ async function recoverLifecycleFailure(input: {
       };
     }
   }
+  const recoveryErrorMessage = verifiedRollbackError
+    ? `${originalErrorMessage}; verified previous Service recovery failed: ${toErrorMessage(verifiedRollbackError)}`
+    : originalErrorMessage;
 
   const stoppedSafe = await transitionLifecycleToStoppedSafeCurrentVersion({
     commandOptions: input.commandOptions,
@@ -868,7 +892,7 @@ async function recoverLifecycleFailure(input: {
       evidencePath: input.state.evidencePath,
       recoveryStatus: "failed_before_safe_state",
       errorCode: originalErrorCode,
-      errorMessage: originalErrorMessage,
+      errorMessage: recoveryErrorMessage,
     };
   }
 
@@ -889,14 +913,31 @@ async function recoverLifecycleFailure(input: {
     failureStage: originalFailureStage,
     evidencePath: input.state.evidencePath,
     recoveryStatus: "stopped_safe_current_version",
-    errorMessage: originalErrorMessage,
+    errorMessage: recoveryErrorMessage,
   };
+}
+
+function isVerifiedRollbackEligibleFailureStage(
+  failureStage: DaemonServiceFailureStage | null
+): boolean {
+  return (
+    failureStage === "install_bundle" ||
+    failureStage === "write_contract" ||
+    failureStage === "register_service" ||
+    failureStage === "restore_runtime_data" ||
+    failureStage === "start_if_desired" ||
+    failureStage === "wait_running" ||
+    failureStage === "verify_final_inventory"
+  );
 }
 
 async function restoreVerifiedPreviousState(input: {
   restorePoint: DaemonServiceLifecycleRestorePoint;
   serviceManager: DaemonServiceManager;
 }): Promise<DaemonServiceInventory> {
+  await input.serviceManager.uninstall();
+  await input.serviceManager.waitUntilAbsent();
+  await ensureNoOwnedProcessesRemain();
   await restoreDaemonInstallStateSnapshot(
     input.restorePoint.previousInstallState
   );
@@ -940,6 +981,10 @@ async function restoreVerifiedPreviousState(input: {
     shouldStartAfterLifecycle: input.restorePoint.shouldStartAfterLifecycle,
     target: buildDaemonServiceTargetSpec({
       daemonVersion: previousVersion,
+      distribution:
+        input.restorePoint.previousActiveBundle?.bundleFormat === "binary_v1"
+          ? "binary"
+          : "npm",
     }),
   });
   return inventoryAfter;
@@ -1088,26 +1133,37 @@ function isDaemonServiceInventory(
   return Array.isArray(candidate.anomalies) && !!candidate.runtimeStatus;
 }
 
-function createLifecycleRestorePoint(input: {
+async function createLifecycleRestorePoint(input: {
   desiredState: "background" | "stopped";
   inventoryBefore: DaemonServiceInventory;
   shouldStartAfterLifecycle: boolean;
-}): DaemonServiceLifecycleRestorePoint {
+}): Promise<DaemonServiceLifecycleRestorePoint> {
+  const previousActiveBundle = input.inventoryBefore.activeBundle ?? null;
+  const activeBundleIntegrityVerified = previousActiveBundle
+    ? await verifyDaemonActiveBundleIntegrity(previousActiveBundle).catch(
+        () => false
+      )
+    : false;
   return {
     desiredState: input.desiredState,
     shouldStartAfterLifecycle: input.shouldStartAfterLifecycle,
-    previousActiveBundle: input.inventoryBefore.activeBundle ?? null,
+    previousActiveBundle,
     previousContract: input.inventoryBefore.serviceContract ?? null,
     previousInstallState: input.inventoryBefore.installStatus.installed
       ? input.inventoryBefore.installStatus.state
       : null,
-    trusted: isVerifiedRollbackRestorePointTrusted(input.inventoryBefore),
+    trusted: isVerifiedRollbackRestorePointTrusted({
+      activeBundleIntegrityVerified,
+      inventory: input.inventoryBefore,
+    }),
   };
 }
 
-function isVerifiedRollbackRestorePointTrusted(
-  inventory: DaemonServiceInventory
-): boolean {
+function isVerifiedRollbackRestorePointTrusted(input: {
+  activeBundleIntegrityVerified: boolean;
+  inventory: DaemonServiceInventory;
+}): boolean {
+  const inventory = input.inventory;
   const previousInstallState = inventory.installStatus.installed
     ? inventory.installStatus.state
     : null;
@@ -1131,7 +1187,13 @@ function isVerifiedRollbackRestorePointTrusted(
   if (previousContract.bundleId !== previousActiveBundle.bundleId) {
     return false;
   }
-  if (previousActiveBundle.bundleFormat !== "self_contained_v1") {
+  if (
+    previousActiveBundle.bundleFormat !== "self_contained_v1" &&
+    previousActiveBundle.bundleFormat !== "binary_v1"
+  ) {
+    return false;
+  }
+  if (!input.activeBundleIntegrityVerified) {
     return false;
   }
   if (
@@ -1142,7 +1204,6 @@ function isVerifiedRollbackRestorePointTrusted(
     return false;
   }
   return (
-    inventory.activeBundleSourceAvailable === true &&
     typeof inventory.activeBundleEntryPath === "string" &&
     inventory.activeBundleEntryPath.length > 0
   );
