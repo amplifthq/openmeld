@@ -14,6 +14,7 @@ import {
   DEFAULT_CLI_DOWNLOAD_BASE_URL,
   DEFAULT_CLI_R2_BUCKET,
   prepareSignedCliBinary,
+  prepareVerifiedCliBinary,
 } from "./upload-cli-binary.mjs";
 
 const CAPTURED_MANIFEST = JSON.parse(
@@ -26,6 +27,7 @@ const CAPTURED_MANIFEST = JSON.parse(
   )
 );
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
+const SECURE_STORAGE_SMOKE_FAILURE_PATTERN = /secure storage smoke failed/u;
 
 test("builds the captured stable CLI binary manifest shape", () => {
   const manifest = buildCliManifest({
@@ -260,4 +262,59 @@ test("signs and notarizes before collecting release metadata", () => {
   assert.equal(prepared.sha256, "signed-sha");
   assert.equal(prepared.sizeBytes, 120);
   assert.deepEqual(prepared.notarization, { submissionId: "submission-id" });
+});
+
+test("smokes secure storage after signing and before accepting the binary for upload", async () => {
+  const calls = [];
+  const prepared = await prepareVerifiedCliBinary({
+    built: {
+      artifactName: "openmeld-cli-darwin-arm64-0.2.14",
+      outFile: "/tmp/openmeld-cli-darwin-arm64-0.2.14",
+      platform: "darwin-arm64",
+      sha256: "unsigned-sha",
+      sizeBytes: 100,
+      version: "0.2.14",
+    },
+    collectMetadata: (outFile) => {
+      calls.push(["metadata", outFile]);
+      return { sha256: "signed-sha", sizeBytes: 120 };
+    },
+    env: {},
+    signAndNotarize: (input) => {
+      calls.push(["sign", input.outFile, input.platform]);
+      return { submissionId: "submission-id" };
+    },
+    smokeSignedSecureStorage: (input) => {
+      calls.push(["smoke", input.outFile, input.platform]);
+    },
+  });
+
+  assert.deepEqual(calls, [
+    ["sign", "/tmp/openmeld-cli-darwin-arm64-0.2.14", "darwin-arm64"],
+    ["metadata", "/tmp/openmeld-cli-darwin-arm64-0.2.14"],
+    ["smoke", "/tmp/openmeld-cli-darwin-arm64-0.2.14", "darwin-arm64"],
+  ]);
+  assert.equal(prepared.sha256, "signed-sha");
+});
+
+test("rejects a signed binary when the secure storage smoke fails", async () => {
+  await assert.rejects(
+    prepareVerifiedCliBinary({
+      built: {
+        artifactName: "openmeld-cli-darwin-arm64-0.2.14",
+        outFile: "/tmp/openmeld-cli-darwin-arm64-0.2.14",
+        platform: "darwin-arm64",
+        sha256: "unsigned-sha",
+        sizeBytes: 100,
+        version: "0.2.14",
+      },
+      collectMetadata: () => ({ sha256: "signed-sha", sizeBytes: 120 }),
+      env: {},
+      signAndNotarize: () => ({ submissionId: "submission-id" }),
+      smokeSignedSecureStorage: () => {
+        throw new Error("secure storage smoke failed");
+      },
+    }),
+    SECURE_STORAGE_SMOKE_FAILURE_PATTERN
+  );
 });

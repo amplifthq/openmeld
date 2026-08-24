@@ -10,3 +10,8 @@ declare module "*.md" {
   const embeddedFilePath: string;
   export default embeddedFilePath;
 }
+
+declare module "*.node" {
+  const embeddedFilePath: string;
+  export default embeddedFilePath;
+}

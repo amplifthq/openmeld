@@ -8,6 +8,7 @@ import {
   buildNotarytoolSubmitArgs,
   DEFAULT_APPLE_TEAM_ID,
   DEFAULT_NOTARY_KEYCHAIN_PROFILE,
+  MACOS_KEYCHAIN_ACCESS_GROUP,
   parseNotarytoolSubmission,
   REQUIRED_BUN_ENTITLEMENTS,
   resolveAppleReleaseCredentials,
@@ -104,6 +105,7 @@ test("builds hardened-runtime codesign arguments for the Bun executable", () => 
     "com.apple.security.cs.allow-dyld-environment-variables",
     "com.apple.security.cs.disable-library-validation",
   ]);
+  assert.equal(MACOS_KEYCHAIN_ACCESS_GROUP, "38FFHDPA3B.sh.openmeld.shared");
 });
 
 test("adds the ephemeral signing Keychain to the user search list", () => {
