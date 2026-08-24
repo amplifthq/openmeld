@@ -185,7 +185,7 @@ describe("Slack trust-first welcome preparation", () => {
     for (const sql of [
       `CREATE TABLE center_agent_member_research_tasks (
         id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
-        observed_language_tag TEXT
+        observed_language_tag TEXT, report_result TEXT
       )`,
       `CREATE TABLE center_agent_member_research_computer_files (
         task_id TEXT PRIMARY KEY, document_id TEXT NOT NULL,
@@ -227,7 +227,9 @@ describe("Slack trust-first welcome preparation", () => {
       harness.run({ sql });
     }
     harness.run({
-      sql: "INSERT INTO center_agent_member_research_tasks VALUES ('research-task-1', 'completed', NULL, NULL)",
+      sql: `INSERT INTO center_agent_member_research_tasks (
+        id, status, failure_code, observed_language_tag, report_result
+      ) VALUES ('research-task-1', 'completed', NULL, NULL, 'evidence_backed')`,
     });
     harness.run({
       sql: `INSERT INTO organization_documents VALUES (
@@ -367,12 +369,13 @@ describe("Slack trust-first welcome preparation", () => {
     harness.run({
       sql: `CREATE TABLE center_agent_member_research_tasks (
         id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
-        observed_language_tag TEXT
+        observed_language_tag TEXT, report_result TEXT
       )`,
     });
     harness.run({
-      sql: `INSERT INTO center_agent_member_research_tasks
-        VALUES ('research-task-accepted', 'running', NULL, NULL)`,
+      sql: `INSERT INTO center_agent_member_research_tasks (
+        id, status, failure_code, observed_language_tag, report_result
+      ) VALUES ('research-task-accepted', 'running', NULL, NULL, NULL)`,
     });
     await enqueueSlackInstallationWelcomePreparation({
       allowCreate: true,
@@ -458,7 +461,7 @@ describe("Slack trust-first welcome preparation", () => {
       "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
       `CREATE TABLE center_agent_member_research_tasks (
         id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
-        observed_language_tag TEXT
+        observed_language_tag TEXT, report_result TEXT
       )`,
       `CREATE TABLE organization_working_language_preferences (
         organization_id TEXT PRIMARY KEY, language_tag TEXT NOT NULL
@@ -519,7 +522,7 @@ describe("Slack trust-first welcome preparation", () => {
     for (const sql of [
       `CREATE TABLE center_agent_member_research_tasks (
         id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
-        observed_language_tag TEXT
+        observed_language_tag TEXT, report_result TEXT
       )`,
       `CREATE TABLE center_agent_member_research_computer_files (
         task_id TEXT PRIMARY KEY, document_id TEXT NOT NULL,
@@ -544,12 +547,14 @@ describe("Slack trust-first welcome preparation", () => {
       harness.run({ sql });
     }
     harness.run({
-      sql: "INSERT INTO center_agent_member_research_tasks VALUES ('research-task-1', 'completed', NULL, NULL)",
+      sql: `INSERT INTO center_agent_member_research_tasks (
+        id, status, failure_code, observed_language_tag, report_result
+      ) VALUES ('research-task-1', 'completed', NULL, NULL, 'evidence_backed')`,
     });
     harness.run({
       sql: `INSERT INTO organization_documents VALUES (
         'document-1', 'org-1',
-        '### Current focus\n- 2026-08-15 — Shipping clearer onboarding. Source: Slack #product',
+        '### Current focus\n- 2026-08-15 — Replaced a prior **Insufficient evidence** draft with clearer onboarding findings. Source: Slack #product',
         NULL, 'research-task-1'
       )`,
     });
@@ -592,7 +597,8 @@ describe("Slack trust-first welcome preparation", () => {
 
     expect(report).toMatchObject({
       documentId: "document-1",
-      firstObservation: "Shipping clearer onboarding.",
+      firstObservation:
+        "Replaced a prior **Insufficient evidence** draft with clearer onboarding findings.",
       hasUsefulEvidence: true,
       languageTag: "zh-CN",
     });

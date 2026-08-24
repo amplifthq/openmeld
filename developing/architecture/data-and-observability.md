@@ -2210,7 +2210,11 @@ welcome text, blocks, token, or provider response body.
 `slack_installation_welcome_preparations` is the separate durable work ledger
 that gates publication on completed member research. It owns the installer,
 workspace-connection generation, research-task link, and queued/researching/
-ready/completed/failed lifecycle. It stores no report body. A preparation can
+ready/completed/failed lifecycle. The member-research task stores the bounded
+accepted report result (`evidence_backed` or `insufficient_evidence`) beside its
+lifecycle; it does not copy findings or the report body. Slack onboarding reads
+that structured result and never reclassifies evidence by scanning rendered
+Profile Report Markdown. A preparation can
 become ready only when the task's Profile Report Organization Document and the
 exact Center Agent Computer file evidence join successfully. The publication
 ledger remains the only Slack-send authority; preparation readiness never
@@ -2663,6 +2667,11 @@ Web Wake waterfall is a projection only. It reads existing Space signal,
 dispatch outbox, dispatch lookup, dispatch ledger, attempt, claim, result, and
 reply facts, then reports which steps are found, pending, missing, failed, or
 degraded. It must not write facts or create a second trace truth.
+
+Derived trace phases and outcomes use structured fact kinds, event types, and
+statuses. Human-readable reason codes and details remain diagnostic context;
+their words must never be searched for fragments such as `publication` or
+`finalization` to decide which phase failed.
 
 CLI trace is a user-operable diagnostic surface. Operator shortcuts may wrap it,
 but they must stay thin wrappers and must not become direct D1 readers or a

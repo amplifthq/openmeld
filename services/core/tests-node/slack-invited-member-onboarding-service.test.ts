@@ -656,7 +656,8 @@ function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
         id TEXT PRIMARY KEY,
         status TEXT NOT NULL,
         failure_code TEXT,
-        observed_language_tag TEXT
+        observed_language_tag TEXT,
+        report_result TEXT
       )
     `,
     `
@@ -824,9 +825,9 @@ function seedCompletedResearch(
     params: ["research-task-1"],
     sql: `
       INSERT INTO center_agent_member_research_tasks (
-        id, status, failure_code, observed_language_tag
+        id, status, failure_code, observed_language_tag, report_result
       )
-      VALUES (?, 'completed', NULL, NULL)
+      VALUES (?, 'completed', NULL, NULL, 'evidence_backed')
     `,
   });
   harness.run({
