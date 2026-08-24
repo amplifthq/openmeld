@@ -96,19 +96,6 @@ export function projectRuntimeCoordinatorFinalizationTaskTerminalRecord(input: {
       task,
     };
   }
-  if (!spaceAction) {
-    return {
-      nowMs: input.command.createdAtMs,
-      outcome: {
-        errorCode: "agent_task.invalid_space_action",
-        eventId: input.command.finalizationCommandId,
-        occurredAtMs,
-        publishedSignalId: input.publishedSignalId,
-        status: "failed",
-      },
-      task,
-    };
-  }
   return {
     nowMs: input.command.createdAtMs,
     outcome: {

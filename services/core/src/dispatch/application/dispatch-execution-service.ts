@@ -31,6 +31,7 @@ import type {
   RuntimeTransportDeliveryExecutionIdentity,
   RuntimeTransportDispatchLifecycleSnapshot,
 } from "@openmeld/schemas/types";
+import { buildDefaultSpaceContract } from "@openmeld/space-mesh";
 import {
   clearAgentExecutionReadinessImpactForExecutionSuccess,
   resolveAcceptedAgentExecutionReadinessImpactReasonCode,
@@ -1360,6 +1361,7 @@ const finalizeExistingAcceptedDispatchResult = async (input: {
   inboxRecord: DispatchResultInboxRecord;
   recordPublicationProjection: boolean;
 }): Promise<AcceptedDispatchFinalizationResult> => {
+  const publishState = resolveExistingAcceptedDispatchPublishState(input);
   if (
     input.existingResult.publishedSignalId &&
     input.recordPublicationProjection
@@ -1369,7 +1371,7 @@ const finalizeExistingAcceptedDispatchResult = async (input: {
       db: input.db,
       dispatchId: input.dispatchMessage.dispatchId,
       publishedSignalId: input.existingResult.publishedSignalId,
-      publishState: "reply_published",
+      publishState,
       spaceId: input.dispatchMessage.spaceId,
       targetProfileId: input.dispatchMessage.targetProfileId,
     });
@@ -1384,12 +1386,45 @@ const finalizeExistingAcceptedDispatchResult = async (input: {
   });
   return {
     publishedSignalId: input.existingResult.publishedSignalId ?? null,
-    publishState: input.existingResult.publishedSignalId
-      ? "reply_published"
-      : "invalid_space_action",
+    publishState,
     status: "already_final",
   };
 };
+
+function resolveExistingAcceptedDispatchPublishState(input: {
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  existingResult: NonNullable<
+    Awaited<ReturnType<typeof getDispatchResultByDispatchId>>
+  >;
+  inboxRecord: DispatchResultInboxRecord;
+}): AcceptedDispatchFinalizationResult["publishState"] {
+  if (
+    input.inboxRecord.publishState === "invalid_space_action" ||
+    input.inboxRecord.publishState === "reply_published"
+  ) {
+    return input.inboxRecord.publishState;
+  }
+  if (!input.existingResult.publishedSignalId) {
+    return "invalid_space_action";
+  }
+  const payload = input.inboxRecord.taskResult.payload;
+  if (input.existingResult.publicOutcome !== "system_notice") {
+    return input.existingResult.publicOutcome === "internal_only"
+      ? "invalid_space_action"
+      : "reply_published";
+  }
+  const spaceAction =
+    "spaceAction" in payload ? payload.spaceAction : undefined;
+  const allowedActions =
+    input.dispatchMessage.spaceContractSnapshot?.allowedActions ??
+    buildDefaultSpaceContract().allowedActions;
+  if (spaceAction && !allowedActions.includes(spaceAction.type)) {
+    return "invalid_space_action";
+  }
+  return payload.status === "failed"
+    ? "reply_published"
+    : "invalid_space_action";
+}
 
 export const finalizeAcceptedDispatchResult = async (input: {
   db: D1Database;
@@ -2554,9 +2589,10 @@ const finalizePublishedDispatchReply = async (input: {
     taskResult: input.taskResult,
   });
   if (input.recordPublicationProjection) {
-    const publishState = input.plan.blockedExplicitAction
-      ? "invalid_space_action"
-      : "reply_published";
+    const publishState = resolveDispatchPublicationPublishState({
+      payload: input.taskResult.payload,
+      plan: input.plan,
+    });
     const publicationProjectionEvidence =
       await recordDispatchResultInboxPublicationProjection({
         attemptId: input.executionContext.attemptId,
@@ -4618,10 +4654,12 @@ const emitDispatchReplySignals = async (input: {
   }
   return {
     publishedSignalId: emittedSignal?.id ?? null,
-    publishState:
-      emittedSignal && !publicationPlan.blockedExplicitAction
-        ? "reply_published"
-        : "invalid_space_action",
+    publishState: emittedSignal
+      ? resolveDispatchPublicationPublishState({
+          payload,
+          plan: publicationPlan,
+        })
+      : "invalid_space_action",
   };
 
   function resolvePublicationMessageEnvelopeMode(input: {
@@ -4643,6 +4681,23 @@ const emitDispatchReplySignals = async (input: {
     return "synthesized";
   }
 };
+
+function resolveDispatchPublicationPublishState(input: {
+  payload: OpenMeldDaemonTaskResultEnvelope["payload"];
+  plan: DispatchPublicationPlan;
+}): "invalid_space_action" | "reply_published" {
+  if (input.plan.blockedExplicitAction || input.plan.kind === "none") {
+    return "invalid_space_action";
+  }
+  if (
+    input.payload.status !== "failed" &&
+    input.plan.kind === "system_notice" &&
+    input.plan.noticeType === "terminal_failure"
+  ) {
+    return "invalid_space_action";
+  }
+  return "reply_published";
+}
 
 const emitSystemNoticeReplySignal = async (input: {
   attemptId: string;

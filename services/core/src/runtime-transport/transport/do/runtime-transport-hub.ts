@@ -3335,7 +3335,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const outcome = claimRead.outcome;
     if (
       outcome.finalizationCommandId !== command.finalizationCommandId ||
-      outcome.publishState !== "reply_published" ||
+      (outcome.publishState !== "reply_published" &&
+        outcome.publishState !== "invalid_space_action") ||
       !outcome.publishedSignalId
     ) {
       return null;
@@ -3349,6 +3350,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         command,
         coordinationDb,
         publishedSignalId: outcome.publishedSignalId,
+        publishState: outcome.publishState,
       }))
     ) {
       return null;
@@ -3373,6 +3375,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     command: RuntimeCoordinatorFinalizationCommand;
     coordinationDb: D1Database;
     publishedSignalId: string | null;
+    publishState: "invalid_space_action" | "reply_published";
   }): Promise<boolean> {
     try {
       const taskOutcomeWrite =
@@ -3381,7 +3384,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           db: input.coordinationDb,
           env: this.env,
           publishedSignalId: input.publishedSignalId,
-          publishState: "reply_published",
+          publishState: input.publishState,
         });
       if (!taskOutcomeWrite || taskOutcomeWrite.matches) {
         return true;
@@ -3693,6 +3696,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           command,
           coordinationDb,
           publishedSignalId: outcome.publishedSignalId,
+          publishState: outcome.publishState,
         }))
       )
     ) {
@@ -3743,6 +3747,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           command: input.command,
           coordinationDb,
           publishedSignalId: input.outcome.publishedSignalId,
+          publishState: input.outcome.publishState,
         }))
       )
     ) {

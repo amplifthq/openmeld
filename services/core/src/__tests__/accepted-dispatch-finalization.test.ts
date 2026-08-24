@@ -5,12 +5,16 @@ import {
 } from "@openmeld/schemas";
 import type {
   AgentTaskTerminalOutcome,
+  OpenMeldDaemonDispatchQueueMessage,
   RuntimeCoordinatorFinalizationCommand,
 } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import { buildDefaultSpaceContract } from "@openmeld/space-mesh";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentTransportSpaceActionDeliveryInput } from "../dispatch/application/dispatch-execution-service";
+import {
+  type AgentTransportSpaceActionDeliveryInput,
+  finalizeAcceptedDispatchResult,
+} from "../dispatch/application/dispatch-execution-service";
 import { buildLocalAgentStreamId } from "../runtime-transport/application/local-agent-stream";
 import type { DispatchResultInboxRecord } from "../runtime-transport/infrastructure/d1/dispatch-result-inbox-repo";
 import { buildAcceptedDispatchFinalizationQueueMessage } from "../space/application/accepted-dispatch-finalization";
@@ -321,7 +325,7 @@ describe("accepted dispatch finalization", () => {
         command: baseFinalizationCommand,
         outcome: {
           publishedSignalId: "signal-notice-final-1",
-          publishState: "reply_published",
+          publishState: "invalid_space_action",
         },
         readFinalReplyClaimSignalId: () => "signal-notice-final-1",
         readSignalById: (signalId) =>
@@ -344,7 +348,43 @@ describe("accepted dispatch finalization", () => {
           },
         }),
       })
+    ).toEqual({ ok: false });
+    expect(
+      resolveRuntimeCoordinatorFinalizationVisibleFinalMessage({
+        command: baseFinalizationCommand,
+        outcome: {
+          publishedSignalId: "signal-notice-final-1",
+          publishState: "invalid_space_action",
+        },
+        readFinalReplyClaimSignalId: () => "signal-notice-final-1",
+        readSignalById: () => ({
+          ...terminalNoticeSignal,
+          data: {
+            ...terminalNoticeSignal.data,
+            noticeType: "policy_blocked",
+          },
+        }),
+      })
     ).toEqual({ ok: true, publishedSignalId: "signal-notice-final-1" });
+    expect(
+      resolveRuntimeCoordinatorFinalizationClaimRead({
+        command: baseFinalizationCommand,
+        readFinalReplyClaimSignalId: () => "signal-notice-final-1",
+        readSignalById: () => ({
+          ...terminalNoticeSignal,
+          data: {
+            ...terminalNoticeSignal.data,
+            noticeType: "policy_blocked",
+          },
+        }),
+      })
+    ).toMatchObject({
+      outcome: {
+        publishState: "invalid_space_action",
+        publishedSignalId: "signal-notice-final-1",
+      },
+      status: "finalization_visible",
+    });
   });
 
   it("keeps a visible publication-exhaustion notice from being reclassified as a successful reply", () => {
@@ -2661,6 +2701,83 @@ describe("accepted dispatch finalization", () => {
     });
   });
 
+  it.each([
+    {
+      allowedActions: ["stay_silent"] as const,
+      name: "policy-blocked action",
+      publicOutcome: "system_notice" as const,
+      spaceAction: {
+        messageEnvelope: {
+          activationTargets: [],
+          referenceTargets: [],
+          text: "Done",
+        },
+        type: "post_message" as const,
+      },
+      expectedPublishState: "invalid_space_action" as const,
+    },
+    {
+      allowedActions: ["post_message", "post_status", "stay_silent"] as const,
+      name: "raw-context reply",
+      publicOutcome: "raw_context_sharing" as const,
+      spaceAction: undefined,
+      expectedPublishState: "reply_published" as const,
+    },
+  ])("preserves the $name classification when an archived result is replayed", async ({
+    allowedActions,
+    expectedPublishState,
+    publicOutcome,
+    spaceAction,
+  }) => {
+    const targetProfileId = "agt_99999999-9999-4999-8999-999999999999";
+    const dispatchId = `dispatch-replay-${expectedPublishState}`;
+    const db = createArchivedFinalizationReplayD1Db({
+      dispatchId,
+      publicOutcome,
+      publishedSignalId: `signal-${expectedPublishState}`,
+      targetProfileId,
+    });
+    const contract = buildDefaultSpaceContract();
+    const dispatchMessage = {
+      dispatchId,
+      idempotencyKey: `${dispatchId}:idempotency`,
+      spaceContractSnapshot: {
+        ...contract,
+        allowedActions: [...allowedActions],
+      },
+      spaceId: "space-replay-1",
+      targetProfileId,
+    } as OpenMeldDaemonDispatchQueueMessage;
+    const inboxRecord = {
+      ...baseInboxRecord,
+      dispatchId,
+      targetProfileId,
+      taskResult: {
+        ...baseInboxRecord.taskResult,
+        payload: {
+          ...baseInboxRecord.taskResult.payload,
+          agentId: targetProfileId,
+          ...(spaceAction ? { spaceAction } : {}),
+        },
+      },
+    } satisfies DispatchResultInboxRecord;
+
+    await expect(
+      finalizeAcceptedDispatchResult({
+        db,
+        dispatchMessage,
+        env: {} as never,
+        inboxRecord,
+        recordPublicationProjection: false,
+        targetOwnerUserId: "owner-1",
+      })
+    ).resolves.toMatchObject({
+      publishedSignalId: `signal-${expectedPublishState}`,
+      publishState: expectedPublishState,
+      status: "already_final",
+    });
+  });
+
   it("does not request RuntimeCoordinator replay when the accepted inbox row has no exact run pointer", async () => {
     const replayRequests: unknown[] = [];
     const space = Object.create(Space.prototype) as {
@@ -2842,6 +2959,52 @@ function createAcceptedInboxReadDb(record: DispatchResultInboxRecord) {
       throw new Error(`unexpected query: ${query}`);
     }),
   };
+}
+
+function createArchivedFinalizationReplayD1Db(input: {
+  dispatchId: string;
+  publicOutcome: "raw_context_sharing" | "system_notice";
+  publishedSignalId: string;
+  targetProfileId: string;
+}): D1Database {
+  return {
+    prepare: vi.fn((query: string) => {
+      if (query.includes("FROM openMeldDaemon_dispatch_results")) {
+        return {
+          bind: vi.fn(() => ({
+            first: vi.fn().mockResolvedValue({
+              actor_name: "Test Agent",
+              actor_profile_id: input.targetProfileId,
+              created_at_ms: 1_700_000_000_250,
+              dispatch_id: input.dispatchId,
+              final_text: "Done",
+              message_envelope_json: null,
+              preview_text: "Done",
+              public_outcome: input.publicOutcome,
+              published_signal_id: input.publishedSignalId,
+              reply_to_signal_id: "signal-source-1",
+              result_kind: "text",
+              result_ref: `result:${input.dispatchId}`,
+              space_id: "space-replay-1",
+              status_type: null,
+              thread_context_json: null,
+            }),
+          })),
+        };
+      }
+      if (
+        query.includes("UPDATE openMeldDaemon_dispatch_ledger") ||
+        query.includes("UPDATE openMeldDaemon_dispatch_attempts")
+      ) {
+        return {
+          bind: vi.fn(() => ({
+            run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
+          })),
+        };
+      }
+      throw new Error(`unexpected query: ${query}`);
+    }),
+  } as unknown as D1Database;
 }
 
 function createFinalizationApplyD1Db(input: { publishedSignalId: string }) {

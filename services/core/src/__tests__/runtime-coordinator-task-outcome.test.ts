@@ -139,7 +139,39 @@ describe("RuntimeCoordinator Agent Task terminal projection", () => {
     });
   });
 
-  it("projects a successful result without a Space action as failed", () => {
+  it("projects a visible raw-context reply without a Space action as succeeded", () => {
+    const command = buildFinalizationCommand({
+      acceptedResult: {
+        taskResult: {
+          code: "service.task_result",
+          payload: {
+            agentId: "child-profile",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "Private output only",
+            sourceEventId: "signal-child",
+            status: "success",
+            taskId: "task-1",
+          },
+          v: 4,
+        },
+      },
+    });
+
+    expect(
+      projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
+        command,
+        publishedSignalId: "signal-raw-reply",
+        publishState: "reply_published",
+      })?.outcome
+    ).toMatchObject({
+      errorCode: null,
+      publishedSignalId: "signal-raw-reply",
+      status: "succeeded",
+    });
+  });
+
+  it("projects a successful collaboration result without a Space action as failed", () => {
     const command = buildFinalizationCommand({
       acceptedResult: {
         taskResult: {
@@ -162,7 +194,7 @@ describe("RuntimeCoordinator Agent Task terminal projection", () => {
       projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
         command,
         publishedSignalId: "signal-failure",
-        publishState: "reply_published",
+        publishState: "invalid_space_action",
       })?.outcome
     ).toMatchObject({
       errorCode: "agent_task.invalid_space_action",

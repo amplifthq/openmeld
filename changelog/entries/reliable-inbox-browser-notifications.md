@@ -8,5 +8,5 @@ audiences: ["members"]
 
 Members can enable browser notifications for directly addressed messages,
 actions, urgent items, and requested work endings. OpenMeld avoids interrupting
-the conversation already on screen and retries after a temporary suppression or
-delivery failure.
+the conversation already on screen, rechecks queued alerts after account or
+conversation changes, and keeps failed deliveries retryable across refreshes.

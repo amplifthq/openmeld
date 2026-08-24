@@ -7,6 +7,7 @@ const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
 const usePathnameMock = vi.hoisted(() => vi.fn());
 const showInboxBrowserNotificationMock = vi.hoisted(() => vi.fn());
 const invalidateInboxSummaryMock = vi.hoisted(() => vi.fn());
+const pendingItemIds = vi.hoisted(() => new Set<string>());
 const notificationSettingsSubscription = vi.hoisted(() => ({
 	onChange: null as (() => void) | null,
 }));
@@ -21,6 +22,13 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("#/lib/inbox/browser-notifications", () => ({
+	clearInboxBrowserNotificationItemPending: (input: {
+		itemId: string;
+		organizationId: string;
+		userId: string;
+	}) => {
+		pendingItemIds.delete(buildPendingItemKey(input));
+	},
 	isInboxBrowserNotificationEligible: (item: InboxItem) =>
 		item.importance === "urgent" ||
 		(item.attention === "action_required" &&
@@ -29,6 +37,24 @@ vi.mock("#/lib/inbox/browser-notifications", () => ({
 		item.kind === "agent_reply" ||
 		item.kind === "wake_outcome" ||
 		item.kind === "center_agent_task",
+	markInboxBrowserNotificationItemPending: (input: {
+		itemId: string;
+		organizationId: string;
+		userId: string;
+	}) => {
+		pendingItemIds.add(buildPendingItemKey(input));
+	},
+	readPendingInboxBrowserNotificationItemIds: (input: {
+		organizationId: string;
+		userId: string;
+	}) => {
+		const prefix = `${input.organizationId}:${input.userId}:`;
+		return new Set(
+			[...pendingItemIds]
+				.filter((key) => key.startsWith(prefix))
+				.map((key) => key.slice(prefix.length))
+		);
+	},
 	readInboxBrowserNotificationSettings: () => ({
 		enabled: true,
 		permission: "granted",
@@ -62,6 +88,7 @@ describe("InboxBrowserNotificationListener", () => {
 
 	beforeEach(() => {
 		currentItems = [];
+		pendingItemIds.clear();
 		notificationSettingsSubscription.onChange = null;
 		showInboxBrowserNotificationMock
 			.mockReset()
@@ -84,6 +111,7 @@ describe("InboxBrowserNotificationListener", () => {
 
 	afterEach(() => {
 		cleanup();
+		vi.useRealTimers();
 		vi.restoreAllMocks();
 	});
 
@@ -159,6 +187,7 @@ describe("InboxBrowserNotificationListener", () => {
 	});
 
 	it("retries a new item after notification delivery throws", async () => {
+		vi.useFakeTimers();
 		const existingItem = createInboxItem({ id: "existing-item" });
 		const newItem = createInboxItem({
 			id: "retry-after-delivery-failure",
@@ -179,11 +208,176 @@ describe("InboxBrowserNotificationListener", () => {
 				userId="user-123"
 			/>
 		);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10_000);
+		});
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+	});
+
+	it.each([
+		"claim_failed",
+		"permission_unavailable",
+	] as const)("retries a deferred %s delivery without waiting for query data to change", async (reason) => {
+		vi.useFakeTimers();
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const newItem = createInboxItem({
+			id: `retry-after-${reason}`,
+			importance: "urgent",
+		});
+		currentItems = [existingItem];
+		const view = renderListener();
+		showInboxBrowserNotificationMock
+			.mockResolvedValueOnce({
+				reason,
+				status: "deferred",
+			})
+			.mockResolvedValueOnce({ notification: {}, status: "delivered" });
+
+		currentItems = [newItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10_000);
+		});
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("retries a pending delivery after the listener remounts", async () => {
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const pendingItem = createInboxItem({
+			id: "retry-after-remount",
+			importance: "urgent",
+		});
+		currentItems = [existingItem];
+		const view = renderListener();
+		showInboxBrowserNotificationMock.mockRejectedValueOnce(
+			new Error("Notification constructor failed")
+		);
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		currentItems = [pendingItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
 		await waitFor(() => {
-			expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+			expect(hasPendingItem(pendingItem.id)).toBe(true);
+		});
+		view.unmount();
+		showInboxBrowserNotificationMock.mockResolvedValueOnce({
+			notification: {},
+			status: "delivered",
 		});
 
-		currentItems = [...currentItems];
+		renderListener();
+		await waitFor(() => {
+			expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+			expect(hasPendingItem(pendingItem.id)).toBe(false);
+		});
+	});
+
+	it("invalidates a queued delivery when the signed-in user changes", async () => {
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const queuedItem = createInboxItem({
+			id: "queued-user-item",
+			importance: "urgent",
+		});
+		currentItems = [existingItem];
+		const view = renderListener();
+		let queuedInput:
+			| {
+					resolveCurrentReadiness?: () => string;
+			  }
+			| undefined;
+		let resolveQueued: ((value: unknown) => void) | undefined;
+		showInboxBrowserNotificationMock.mockImplementationOnce(
+			(input: { resolveCurrentReadiness?: () => string }) => {
+				queuedInput = input;
+				return new Promise((resolve) => {
+					resolveQueued = resolve;
+				});
+			}
+		);
+
+		currentItems = [queuedItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		await waitFor(() => expect(queuedInput).toBeDefined());
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-456"
+			/>
+		);
+
+		expect(queuedInput?.resolveCurrentReadiness?.()).toBe("context_changed");
+		act(() => {
+			resolveQueued?.({ reason: "context_changed", status: "deferred" });
+		});
+		expect(hasPendingItem(queuedItem.id)).toBe(true);
+	});
+
+	it("rechecks current-conversation suppression after a delivery was queued", async () => {
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const queuedItem = createInboxItem({
+			id: "queued-route-item",
+			importance: "urgent",
+		});
+		currentItems = [existingItem];
+		const view = renderListener();
+		let queuedInput:
+			| {
+					resolveCurrentReadiness?: () => string;
+			  }
+			| undefined;
+		let resolveQueued: ((value: unknown) => void) | undefined;
+		showInboxBrowserNotificationMock.mockImplementationOnce(
+			(input: { resolveCurrentReadiness?: () => string }) => {
+				queuedInput = input;
+				return new Promise((resolve) => {
+					resolveQueued = resolve;
+				});
+			}
+		);
+
+		currentItems = [queuedItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		await waitFor(() => expect(queuedInput).toBeDefined());
+		usePathnameMock.mockReturnValue("/o/amplift/spaces/space-123");
 		view.rerender(
 			<InboxBrowserNotificationListener
 				organizationId="organization-123"
@@ -192,9 +386,11 @@ describe("InboxBrowserNotificationListener", () => {
 			/>
 		);
 
-		await waitFor(() => {
-			expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+		expect(queuedInput?.resolveCurrentReadiness?.()).toBe("source_visible");
+		act(() => {
+			resolveQueued?.({ reason: "source_visible", status: "deferred" });
 		});
+		expect(hasPendingItem(queuedItem.id)).toBe(true);
 	});
 
 	it("keeps ordinary updates and resolved actions in Inbox without browser delivery", () => {
@@ -339,6 +535,24 @@ function renderListener() {
 			organizationSlug="amplift"
 			userId="user-123"
 		/>
+	);
+}
+
+function buildPendingItemKey(input: {
+	itemId: string;
+	organizationId: string;
+	userId: string;
+}): string {
+	return `${input.organizationId}:${input.userId}:${input.itemId}`;
+}
+
+function hasPendingItem(itemId: string): boolean {
+	return pendingItemIds.has(
+		buildPendingItemKey({
+			itemId,
+			organizationId: "organization-123",
+			userId: "user-123",
+		})
 	);
 }
 

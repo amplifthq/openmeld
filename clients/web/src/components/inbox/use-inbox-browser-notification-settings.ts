@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import {
 	disableInboxBrowserNotifications,
 	enableInboxBrowserNotifications,
@@ -9,85 +9,94 @@ import {
 	subscribeInboxBrowserNotificationSettings,
 } from "#/lib/inbox/browser-notifications";
 
-type SettingsSnapshot = {
-	settings: InboxBrowserNotificationSettings;
+type SettingsOperationState = {
+	error: string | null;
+	isPending: boolean;
 	userId: string;
 };
+
+type SettingsOperationStates = Record<string, SettingsOperationState>;
+
+const settingsSnapshotCache = new Map<
+	string,
+	InboxBrowserNotificationSettings
+>();
 
 export function useInboxBrowserNotificationSettings(
 	userId: string | null | undefined
 ) {
-	const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(() =>
-		userId ? readSnapshot(userId) : null
+	const [operationStates, setOperationStates] =
+		useState<SettingsOperationStates>({});
+	const subscribe = useCallback(
+		(onStoreChange: () => void) => {
+			if (!userId) {
+				return () => undefined;
+			}
+			return subscribeInboxBrowserNotificationSettings(() => {
+				settingsSnapshotCache.delete(userId);
+				onStoreChange();
+			});
+		},
+		[userId]
 	);
-	const [isPending, setIsPending] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const operationIdRef = useRef(0);
-	const userIdRef = useRef(userId);
-	userIdRef.current = userId;
-
-	useEffect(() => {
-		operationIdRef.current += 1;
-		setIsPending(false);
-		if (!userId) {
-			setSnapshot(null);
-			setError(null);
-			return;
-		}
-		const refresh = () => {
-			setSnapshot(readSnapshot(userId));
-			setError(null);
-		};
-		refresh();
-		return subscribeInboxBrowserNotificationSettings(refresh);
-	}, [userId]);
-
-	const settings =
-		snapshot && snapshot.userId === userId ? snapshot.settings : null;
+	const getSnapshot = useCallback(
+		() => (userId ? readStableSettingsSnapshot(userId) : null),
+		[userId]
+	);
+	const settings = useSyncExternalStore(subscribe, getSnapshot, () => null);
+	const currentOperationState = userId
+		? (operationStates[userId] ?? null)
+		: null;
 	const setEnabled = async (enabled: boolean) => {
 		if (!userId) {
 			return;
 		}
-		const operationId = operationIdRef.current + 1;
-		operationIdRef.current = operationId;
-		const isCurrentOperation = () =>
-			operationIdRef.current === operationId && userIdRef.current === userId;
-		setIsPending(true);
-		setError(null);
+		setOperationStates((current) => ({
+			...current,
+			[userId]: { error: null, isPending: true, userId },
+		}));
+		let nextError: string | null = null;
 		try {
 			const nextSettings = enabled
 				? await enableInboxBrowserNotifications({ userId })
 				: disableInboxBrowserNotifications({ userId });
-			if (!isCurrentOperation()) {
-				return;
-			}
-			setSnapshot({ settings: nextSettings, userId });
 			if (enabled && nextSettings.permission === "default") {
-				setError("OpenMeld did not receive notification permission.");
+				nextError = "OpenMeld did not receive notification permission.";
 			}
 		} catch (caughtError) {
-			if (!isCurrentOperation()) {
-				return;
-			}
-			setSnapshot(readSnapshot(userId));
-			setError(
+			nextError =
 				caughtError instanceof Error
 					? caughtError.message
-					: "OpenMeld could not update browser notifications."
-			);
+					: "OpenMeld could not update browser notifications.";
 		} finally {
-			if (isCurrentOperation()) {
-				setIsPending(false);
-			}
+			settingsSnapshotCache.delete(userId);
+			setOperationStates((current) => ({
+				...current,
+				[userId]: { error: nextError, isPending: false, userId },
+			}));
 		}
 	};
 
-	return { error, isPending, setEnabled, settings };
+	return {
+		error: currentOperationState?.error ?? null,
+		isPending: currentOperationState?.isPending ?? false,
+		setEnabled,
+		settings,
+	};
 }
 
-function readSnapshot(userId: string): SettingsSnapshot {
-	return {
-		settings: readInboxBrowserNotificationSettings({ userId }),
-		userId,
-	};
+function readStableSettingsSnapshot(
+	userId: string
+): InboxBrowserNotificationSettings {
+	const current = readInboxBrowserNotificationSettings({ userId });
+	const cached = settingsSnapshotCache.get(userId);
+	if (
+		cached &&
+		cached.enabled === current.enabled &&
+		cached.permission === current.permission
+	) {
+		return cached;
+	}
+	settingsSnapshotCache.set(userId, current);
+	return current;
 }

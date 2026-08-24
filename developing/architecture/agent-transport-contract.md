@@ -841,6 +841,12 @@ that the user received a final outcome. Collaboration mode classifies that
 result as `invalid_space_action`, publishes one claimed `terminal_failure`, and
 projects the same failed Agent Task outcome. Core must never synthesize a
 completion notice from private output or a successful process exit alone.
+The explicit `raw_context_sharing` exception remains a successful published
+reply when its claimed final signal is a real text reply. The claimed Space
+final signal and frozen finalization command together determine this terminal
+classification. Initial finalization, archived-result replay, stored-outcome
+repair, and Space-claim recovery must preserve that same classification rather
+than inferring success merely because some final Signal id exists.
 
 When `post_message.observedThroughSignalId` is present, Agent Transport Space
 Action Delivery carries it to the Space Durable Object. Space checks for a

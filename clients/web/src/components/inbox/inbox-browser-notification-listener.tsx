@@ -2,10 +2,13 @@
 
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+	clearInboxBrowserNotificationItemPending,
 	isInboxBrowserNotificationEligible,
+	markInboxBrowserNotificationItemPending,
 	readInboxBrowserNotificationSettings,
+	readPendingInboxBrowserNotificationItemIds,
 	showInboxBrowserNotification,
 	subscribeInboxBrowserNotificationSettings,
 } from "#/lib/inbox/browser-notifications";
@@ -17,6 +20,7 @@ import {
 } from "#/query/organizations/inbox";
 
 const INBOX_BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 10_000;
+const INBOX_BROWSER_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
 
 export function InboxBrowserNotificationListener(input: {
 	organizationId: string;
@@ -28,12 +32,22 @@ export function InboxBrowserNotificationListener(input: {
 	const [settings, setSettings] = useState(() =>
 		readInboxBrowserNotificationSettings({ userId: input.userId })
 	);
-	const feedIdentity = `${input.organizationId}:${input.userId}:${settings.enabled}`;
+	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${settings.enabled}`;
 	const [observedItemIds] = useState(() => new Set<string>());
 	const [settledItemIds] = useState(() => new Set<string>());
 	const [inFlightItemIds] = useState(() => new Set<string>());
+	const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const primedRef = useRef(false);
 	const primedFeedIdentityRef = useRef<string | null>(null);
+	const deliveryContextRef = useRef<BrowserNotificationDeliveryContext>({
+		enabled: settings.enabled,
+		feedIdentity,
+		itemsById: new Map(),
+		organizationId: input.organizationId,
+		organizationSlug: input.organizationSlug,
+		pathname,
+		userId: input.userId,
+	});
 	const itemsQuery = useInfiniteQuery({
 		...inboxItemsInfiniteQueryOptions({
 			enabled: settings.enabled,
@@ -45,6 +59,26 @@ export function InboxBrowserNotificationListener(input: {
 			: false,
 		refetchIntervalInBackground: true,
 	});
+	const scheduleDeliveryRetry = useCallback(() => {
+		if (retryTimerRef.current !== null) {
+			return;
+		}
+		retryTimerRef.current = setTimeout(() => {
+			retryTimerRef.current = null;
+			setSettings(
+				readInboxBrowserNotificationSettings({ userId: input.userId })
+			);
+		}, INBOX_BROWSER_NOTIFICATION_RETRY_INTERVAL_MS);
+	}, [input.userId]);
+
+	useEffect(
+		() => () => {
+			if (retryTimerRef.current !== null) {
+				clearTimeout(retryTimerRef.current);
+			}
+		},
+		[]
+	);
 
 	useEffect(() => {
 		const refresh = () => {
@@ -55,6 +89,27 @@ export function InboxBrowserNotificationListener(input: {
 		refresh();
 		return subscribeInboxBrowserNotificationSettings(refresh);
 	}, [input.userId]);
+
+	useEffect(() => {
+		const items = itemsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+		deliveryContextRef.current = {
+			enabled: settings.enabled,
+			feedIdentity,
+			itemsById: new Map(items.map((item) => [item.id, item])),
+			organizationId: input.organizationId,
+			organizationSlug: input.organizationSlug,
+			pathname,
+			userId: input.userId,
+		};
+	}, [
+		feedIdentity,
+		input.organizationId,
+		input.organizationSlug,
+		input.userId,
+		itemsQuery.data,
+		pathname,
+		settings.enabled,
+	]);
 
 	useEffect(() => {
 		if (primedFeedIdentityRef.current !== feedIdentity) {
@@ -68,25 +123,32 @@ export function InboxBrowserNotificationListener(input: {
 			return;
 		}
 		const currentItems = itemsQuery.data.pages.flatMap((page) => page.items);
-		if (
+		if (!primedRef.current) {
 			primeInboxBrowserNotificationFeed({
 				items: currentItems,
 				observedItemIds,
-				primed: primedRef.current,
+				organizationId: input.organizationId,
+				pendingItemIds: readPendingInboxBrowserNotificationItemIds({
+					organizationId: input.organizationId,
+					userId: input.userId,
+				}),
 				settledItemIds,
-			})
-		) {
+				userId: input.userId,
+			});
 			primedRef.current = true;
-			return;
 		}
 		const sawNewItem = processInboxBrowserNotificationItems({
+			deliveryContextRef,
+			feedIdentity,
 			inFlightItemIds,
 			items: currentItems,
 			observedItemIds,
 			organizationId: input.organizationId,
 			organizationSlug: input.organizationSlug,
 			pathname,
+			scheduleDeliveryRetry,
 			settledItemIds,
+			userId: input.userId,
 		});
 		if (sawNewItem) {
 			invalidateInboxSummary({
@@ -104,10 +166,12 @@ export function InboxBrowserNotificationListener(input: {
 		inFlightItemIds,
 		input.organizationId,
 		input.organizationSlug,
+		input.userId,
 		itemsQuery.data,
 		observedItemIds,
 		pathname,
 		queryClient,
+		scheduleDeliveryRetry,
 		settledItemIds,
 		settings,
 	]);
@@ -119,30 +183,57 @@ type BrowserNotificationInboxItem = Parameters<
 	typeof isInboxBrowserNotificationEligible
 >[0];
 
+type BrowserNotificationDeliveryContext = {
+	enabled: boolean;
+	feedIdentity: string;
+	itemsById: Map<string, BrowserNotificationInboxItem>;
+	organizationId: string;
+	organizationSlug: string;
+	pathname: string | null;
+	userId: string;
+};
+
 function primeInboxBrowserNotificationFeed(input: {
 	items: readonly BrowserNotificationInboxItem[];
 	observedItemIds: Set<string>;
-	primed: boolean;
+	organizationId: string;
+	pendingItemIds: ReadonlySet<string>;
 	settledItemIds: Set<string>;
-}): boolean {
-	if (input.primed) {
-		return false;
-	}
+	userId: string;
+}): void {
 	for (const item of input.items) {
 		input.observedItemIds.add(item.id);
+		if (
+			input.pendingItemIds.has(item.id) &&
+			shouldDeliverInboxBrowserNotification(item)
+		) {
+			continue;
+		}
 		input.settledItemIds.add(item.id);
+		if (input.pendingItemIds.has(item.id)) {
+			clearInboxBrowserNotificationItemPending({
+				itemId: item.id,
+				organizationId: input.organizationId,
+				userId: input.userId,
+			});
+		}
 	}
-	return true;
 }
 
 function processInboxBrowserNotificationItems(input: {
+	deliveryContextRef: {
+		current: BrowserNotificationDeliveryContext;
+	};
+	feedIdentity: string;
 	inFlightItemIds: Set<string>;
 	items: readonly BrowserNotificationInboxItem[];
 	observedItemIds: Set<string>;
 	organizationId: string;
 	organizationSlug: string;
 	pathname: string | null;
+	scheduleDeliveryRetry: () => void;
 	settledItemIds: Set<string>;
+	userId: string;
 }): boolean {
 	let sawNewItem = false;
 	for (const item of input.items.toReversed()) {
@@ -158,11 +249,54 @@ function processInboxBrowserNotificationItems(input: {
 		}
 		if (!shouldDeliverInboxBrowserNotification(item)) {
 			input.settledItemIds.add(item.id);
+			clearInboxBrowserNotificationItemPending({
+				itemId: item.id,
+				organizationId: input.organizationId,
+				userId: input.userId,
+			});
 			continue;
 		}
+		markInboxBrowserNotificationItemPending({
+			itemId: item.id,
+			organizationId: input.organizationId,
+			userId: input.userId,
+		});
 		input.inFlightItemIds.add(item.id);
+		const isCurrentFeed = () =>
+			input.deliveryContextRef.current.feedIdentity === input.feedIdentity;
 		showInboxBrowserNotification({
 			item,
+			resolveCurrentReadiness: () => {
+				const current = input.deliveryContextRef.current;
+				if (
+					current.feedIdentity !== input.feedIdentity ||
+					!current.enabled ||
+					current.organizationId !== input.organizationId ||
+					current.userId !== input.userId
+				) {
+					return "context_changed";
+				}
+				const currentItem = current.itemsById.get(item.id);
+				if (
+					!currentItem ||
+					currentItem.recipientUserId !== current.userId ||
+					currentItem.organizationId !== current.organizationId ||
+					!shouldDeliverInboxBrowserNotification(currentItem)
+				) {
+					return "context_changed";
+				}
+				if (
+					document.visibilityState === "visible" &&
+					isInboxItemSourceLocation({
+						item: currentItem,
+						orgSlug: current.organizationSlug,
+						pathname: current.pathname,
+					})
+				) {
+					return "source_visible";
+				}
+				return "eligible";
+			},
 			sourcePath: buildOrganizationInboxItemPath({
 				itemId: item.id,
 				orgSlug: input.organizationSlug,
@@ -175,11 +309,28 @@ function processInboxBrowserNotificationItems(input: {
 		})
 			.then((result) => {
 				if (
+					result.status === "deferred" &&
+					(result.reason === "claim_failed" ||
+						result.reason === "permission_unavailable")
+				) {
+					if (isCurrentFeed()) {
+						input.scheduleDeliveryRetry();
+					}
+					return;
+				}
+				if (
 					result.status === "delivered" ||
 					result.status === "already_delivered" ||
 					result.status === "ineligible"
 				) {
-					input.settledItemIds.add(item.id);
+					clearInboxBrowserNotificationItemPending({
+						itemId: item.id,
+						organizationId: input.organizationId,
+						userId: input.userId,
+					});
+					if (isCurrentFeed()) {
+						input.settledItemIds.add(item.id);
+					}
 				}
 			})
 			.catch((error: unknown) => {
@@ -188,6 +339,9 @@ function processInboxBrowserNotificationItems(input: {
 					itemId: item.id,
 					organizationId: input.organizationId,
 				});
+				if (isCurrentFeed()) {
+					input.scheduleDeliveryRetry();
+				}
 			})
 			.finally(() => {
 				input.inFlightItemIds.delete(item.id);

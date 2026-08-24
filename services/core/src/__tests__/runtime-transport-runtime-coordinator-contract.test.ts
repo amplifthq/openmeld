@@ -12856,7 +12856,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         "[core.runtime_transport.runtime_coordinator_finalization_task_outcome_conflict]",
         expect.objectContaining({
           actualStatus: "publication_failed",
-          expectedStatus: "failed",
+          expectedStatus: "succeeded",
           runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
         })
       );
@@ -14139,7 +14139,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             call.query.includes("INSERT INTO agent_task_terminal_outcomes")
           )
           .map((call) => call.params[2])
-      ).toEqual(["failed"]);
+      ).toEqual(["succeeded"]);
     } finally {
       nowSpy.mockRestore();
     }
@@ -14226,7 +14226,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           ok: true as const,
           publicationErrorCode: null,
           publishedSignalId: "signal-claim-recovered",
-          publishState: "reply_published" as const,
+          publishState: "invalid_space_action" as const,
           status: "already_final" as const,
         },
         status: "finalization_visible" as const,
@@ -14251,14 +14251,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ok: true,
       outcome: {
         publishedSignalId: "signal-claim-recovered",
-        publishState: "reply_published",
+        publishState: "invalid_space_action",
         status: "already_final",
       },
     });
     expect(
       wakeEvidenceD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
     ).toMatchObject({
-      status: "reply_published",
+      status: "failed_terminal",
     });
     expect(
       recordingD1.calls.some((call) =>
@@ -14293,7 +14293,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({
       ok: true,
       publishedSignalId: "signal-claim-recovered",
-      publishState: "reply_published",
+      publishState: "invalid_space_action",
     });
     expect(
       storageRecords.get(

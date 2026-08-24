@@ -344,18 +344,24 @@ two optional delivery channels:
   unread items that are urgent, open action-required, or directly addressed to
   the member: references of that member, replies intended for them (a
   successful Wake reaches its requester through its final reply item), their
-  Wake outcomes that end in a visible failure or stopped state, and Center
-  Agent Task endings (succeeded, failed, or stopped) addressed to the Task
-  requester. The Task producer never creates items for intermediate progress,
-  so these deliveries are always endings, not chatter. Ordinary Space message
-  updates stay in Inbox without a system notification. A visible tab
+  system-owned Wake endings addressed to that requester (visible failure,
+  stopped, `stay_silent`, policy-blocked action, or explicit final status), and
+  Center Agent Task endings (succeeded, failed, or stopped) addressed to the
+  Task requester. The Task producer never creates items for intermediate
+  progress, so these deliveries are always endings, not chatter. Ordinary
+  Space message updates stay in Inbox without a system notification. A visible tab
   suppresses delivery only for the conversation it is currently showing; a
   hidden tab can deliver any eligible item. Current-conversation suppression is
   temporary: leaving that conversation or hiding the tab re-evaluates the same
   unread item. The client records an item as delivered only after this tab
   creates the notification or another tab proves it already did; a permission,
-  claim, or delivery failure remains retryable. Browser delivery never forms a
-  second unread store.
+  claim, or delivery failure remains retryable. A low-frequency browser-local
+  timer re-evaluates pending failures even when the Inbox query data does not
+  change, and the browser-local pending ledger preserves those retries across
+  a reload without crossing member or Organization scope. A queued delivery
+  rechecks the current member, Organization, item eligibility, and visible
+  conversation immediately before creating the notification. Browser delivery
+  never forms a second unread store.
 - **Urgent email** is enabled by default at the account level and may be turned
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe

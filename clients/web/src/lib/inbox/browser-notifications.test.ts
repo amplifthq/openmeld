@@ -1,10 +1,13 @@
 import type { InboxItem } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	clearInboxBrowserNotificationItemPending,
 	disableInboxBrowserNotifications,
 	enableInboxBrowserNotifications,
 	isInboxBrowserNotificationEligible,
+	markInboxBrowserNotificationItemPending,
 	readInboxBrowserNotificationSettings,
+	readPendingInboxBrowserNotificationItemIds,
 	showInboxBrowserNotification,
 	subscribeInboxBrowserNotificationSettings,
 } from "./browser-notifications";
@@ -169,6 +172,105 @@ describe("Inbox browser notifications", () => {
 			})
 		).resolves.toMatchObject({ status: "delivered" });
 		expect(notificationConstructorMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not record delivery before the Notification constructor succeeds", async () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+		notificationConstructorMock.mockImplementationOnce(() => {
+			throw new Error("Notification constructor failed");
+		});
+		const deliveredKey =
+			"openmeld.inbox.browser-notifications.delivered-item-ids";
+
+		await expect(
+			showInboxBrowserNotification({
+				item: createInboxItem({ id: "constructor-crash-item" }),
+				sourcePath: "/o/amplift/inbox?item=constructor-crash-item",
+				viewingSourceSession: false,
+			})
+		).rejects.toThrow("Notification constructor failed");
+
+		expect(window.localStorage.getItem(deliveredKey)).toBeNull();
+	});
+
+	it("revalidates the active feed after acquiring the cross-tab lock", async () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+		let releaseLock: (() => void) | undefined;
+		const lockGate = new Promise<void>((resolve) => {
+			releaseLock = resolve;
+		});
+		Object.defineProperty(navigator, "locks", {
+			configurable: true,
+			value: {
+				request: vi.fn(
+					async <T>(
+						_name: string,
+						_options: LockOptions,
+						callback: () => PromiseLike<T> | T
+					) => {
+						await lockGate;
+						return await callback();
+					}
+				),
+			},
+		});
+		let readiness: "eligible" | "context_changed" = "eligible";
+		const delivery = showInboxBrowserNotification({
+			item: createInboxItem({ id: "queued-context-item" }),
+			resolveCurrentReadiness: () => readiness,
+			sourcePath: "/o/amplift/inbox?item=queued-context-item",
+			viewingSourceSession: false,
+		});
+
+		readiness = "context_changed";
+		releaseLock?.();
+
+		await expect(delivery).resolves.toEqual({
+			reason: "context_changed",
+			status: "deferred",
+		});
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps pending retries scoped to the user and Organization", () => {
+		markInboxBrowserNotificationItemPending({
+			itemId: "pending-item",
+			organizationId: "organization-a",
+			userId: USER_ID,
+		});
+
+		expect(
+			readPendingInboxBrowserNotificationItemIds({
+				organizationId: "organization-a",
+				userId: USER_ID,
+			})
+		).toEqual(new Set(["pending-item"]));
+		expect(
+			readPendingInboxBrowserNotificationItemIds({
+				organizationId: "organization-b",
+				userId: USER_ID,
+			})
+		).toEqual(new Set());
+
+		clearInboxBrowserNotificationItemPending({
+			itemId: "pending-item",
+			organizationId: "organization-a",
+			userId: USER_ID,
+		});
+		expect(
+			readPendingInboxBrowserNotificationItemIds({
+				organizationId: "organization-a",
+				userId: USER_ID,
+			})
+		).toEqual(new Set());
 	});
 
 	it("defers a failed cross-tab claim without marking the item delivered", async () => {

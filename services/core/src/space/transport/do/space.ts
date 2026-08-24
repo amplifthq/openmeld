@@ -2998,37 +2998,20 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileName: command.targetProfileName,
       });
       const visibleFinalMessage =
-        finalized.publishState === "reply_published"
-          ? resolveRuntimeCoordinatorFinalizationVisibleFinalMessage({
-              command,
-              outcome: finalized,
-              readFinalReplyClaimSignalId: (claim) =>
-                readFinalReplyClaimSignalId(this.ctx.storage.sql, claim),
-              readSignalById: (signalId) => this.readSignalById(signalId),
-            })
-          : null;
-      if (
-        finalized.publishState === "reply_published" &&
-        !visibleFinalMessage?.ok
-      ) {
+        resolveRuntimeCoordinatorFinalizationVisibleFinalMessage({
+          command,
+          outcome: finalized,
+          readFinalReplyClaimSignalId: (claim) =>
+            readFinalReplyClaimSignalId(this.ctx.storage.sql, claim),
+          readSignalById: (signalId) => this.readSignalById(signalId),
+        });
+      if (!visibleFinalMessage.ok) {
         return buildRuntimeCoordinatorFinalizationFailureOutcome({
           finalizationCommandId: command.finalizationCommandId,
           reasonCode: "daemon.result.finalization_no_public_reply",
         });
       }
-      const publishedSignalId =
-        visibleFinalMessage?.ok === true
-          ? visibleFinalMessage.publishedSignalId
-          : finalized.publishedSignalId;
-      if (
-        !publishedSignalId &&
-        finalized.publishState !== "invalid_space_action"
-      ) {
-        return buildRuntimeCoordinatorFinalizationFailureOutcome({
-          finalizationCommandId: command.finalizationCommandId,
-          reasonCode: "daemon.result.finalization_no_public_reply",
-        });
-      }
+      const publishedSignalId = visibleFinalMessage.publishedSignalId;
       const taskOutcomeWrite =
         await recordRuntimeCoordinatorFinalizationTaskOutcome({
           command,
@@ -18565,10 +18548,6 @@ export function resolveRuntimeCoordinatorFinalizationVisibleFinalMessage(input: 
   }) => string | null;
   readSignalById: (signalId: string) => SignalEnvelope | null;
 }): { ok: true; publishedSignalId: string } | { ok: false } {
-  if (input.outcome.publishState !== "reply_published") {
-    return { ok: false };
-  }
-
   const claimedSignalId = normalizeOptionalText(
     input.readFinalReplyClaimSignalId({
       dispatchId: input.command.dispatchId,
@@ -18603,7 +18582,11 @@ export function resolveRuntimeCoordinatorFinalizationVisibleFinalMessage(input: 
       isFinalMessageForRuntimeCoordinatorCommand({
         command: input.command,
         signal,
-      })
+      }) &&
+      resolveRuntimeCoordinatorFinalizationPublishState({
+        command: input.command,
+        signal,
+      }) === input.outcome.publishState
     ) {
       return { ok: true, publishedSignalId: candidateSignalId };
     }
@@ -18655,12 +18638,18 @@ export function resolveRuntimeCoordinatorFinalizationClaimRead(input: {
       status: "publication_failed_visible",
     };
   }
+  if (!(claimedSignalId && claimedSignal)) {
+    return { status: "unresolved" };
+  }
   const visibleFinalMessage =
     resolveRuntimeCoordinatorFinalizationVisibleFinalMessage({
       command: input.command,
       outcome: {
         publishedSignalId: claimedSignalId,
-        publishState: "reply_published",
+        publishState: resolveRuntimeCoordinatorFinalizationPublishState({
+          command: input.command,
+          signal: claimedSignal,
+        }),
       },
       readFinalReplyClaimSignalId: input.readFinalReplyClaimSignalId,
       readSignalById: input.readSignalById,
@@ -18674,11 +18663,33 @@ export function resolveRuntimeCoordinatorFinalizationClaimRead(input: {
       ok: true,
       publicationErrorCode: null,
       publishedSignalId: visibleFinalMessage.publishedSignalId,
-      publishState: "reply_published",
+      publishState: resolveRuntimeCoordinatorFinalizationPublishState({
+        command: input.command,
+        signal: claimedSignal,
+      }),
       status: "already_final",
     },
     status: "finalization_visible",
   };
+}
+
+function resolveRuntimeCoordinatorFinalizationPublishState(input: {
+  command: RuntimeCoordinatorFinalizationCommand;
+  signal: SignalEnvelope;
+}): "invalid_space_action" | "reply_published" {
+  if (input.signal.type !== "signal.system_notice") {
+    return "reply_published";
+  }
+  if (input.signal.data.noticeType === "policy_blocked") {
+    return "invalid_space_action";
+  }
+  if (
+    input.signal.data.noticeType === "terminal_failure" &&
+    input.command.acceptedResult.taskResult.payload.status !== "failed"
+  ) {
+    return "invalid_space_action";
+  }
+  return "reply_published";
 }
 
 function isRuntimeCoordinatorPublicationExhaustionFinalMessage(input: {

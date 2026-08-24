@@ -68,4 +68,48 @@ describe("useInboxBrowserNotificationSettings", () => {
 			permission: "granted",
 		});
 	});
+
+	it("keeps the current user's pending operation when an older user finishes later", async () => {
+		let resolveOld: ((settings: unknown) => void) | undefined;
+		let resolveCurrent: ((settings: unknown) => void) | undefined;
+		enableMock
+			.mockReturnValueOnce(
+				new Promise((resolve) => {
+					resolveOld = resolve;
+				})
+			)
+			.mockReturnValueOnce(
+				new Promise((resolve) => {
+					resolveCurrent = resolve;
+				})
+			);
+		const { rerender, result } = renderHook(
+			({ userId }: { userId: string }) =>
+				useInboxBrowserNotificationSettings(userId),
+			{ initialProps: { userId: "user-old" } }
+		);
+		let oldOperation: Promise<void> | undefined;
+		act(() => {
+			oldOperation = result.current.setEnabled(true);
+		});
+
+		rerender({ userId: "user-current" });
+		let currentOperation: Promise<void> | undefined;
+		act(() => {
+			currentOperation = result.current.setEnabled(true);
+		});
+		expect(result.current.isPending).toBe(true);
+
+		await act(async () => {
+			resolveOld?.({ enabled: true, permission: "granted" });
+			await oldOperation;
+		});
+		expect(result.current.isPending).toBe(true);
+
+		await act(async () => {
+			resolveCurrent?.({ enabled: true, permission: "granted" });
+			await currentOperation;
+		});
+		expect(result.current.isPending).toBe(false);
+	});
 });
