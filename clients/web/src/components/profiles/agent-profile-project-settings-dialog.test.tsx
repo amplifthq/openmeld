@@ -1,7 +1,7 @@
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import type { AuthProfileView } from "@openmeld/schemas/types";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { projectQueryKeys } from "#/query/organizations/projects";
 import {
 	createTestQueryClient,
@@ -17,6 +17,8 @@ const updateDefaultProjectMock = vi.hoisted(() => vi.fn());
 const updateWorkspaceMock = vi.hoisted(() => vi.fn());
 const ACTIVE_WAKE_FOLDER_CHANGE_MESSAGE =
 	/changing folders would interrupt the current Wake/i;
+
+afterEach(cleanup);
 
 vi.mock("#/lib/profiles/update-default-project", () => ({
 	updateAgentProfileDefaultProject: updateDefaultProjectMock,
