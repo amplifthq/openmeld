@@ -132,6 +132,8 @@ const agentWorkActivityKeySchema = z.enum([
   "slack.channel.history.read",
   "slack.channel.members.read",
   "slack.channels.read",
+  "slack.file.read",
+  "slack.file.send",
   "slack.members.read",
   "slack.message.post",
   "slack.messages.search",
