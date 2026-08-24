@@ -6,7 +6,10 @@ areas: ["computers", "cli", "service"]
 audiences: ["members", "admins"]
 ---
 
-Fresh setup commands on supported Macs now save the OpenMeld sign-in in modern
-macOS secure storage, so a damaged legacy login Keychain no longer blocks the
-computer from reconnecting. OpenMeld Service also reuses its loaded session
-instead of repeatedly querying secure storage while it is running.
+Fresh setup commands on supported Macs now use the normal macOS Keychain
+without requiring a restricted app entitlement. If Keychain is temporarily
+unavailable, OpenMeld clearly warns the user, keeps the session in private local
+storage, and finishes reconnecting the computer. A later successful setup or
+login automatically moves the session back to Keychain. OpenMeld Service also
+reuses its loaded session instead of repeatedly querying secure storage while
+it is running.

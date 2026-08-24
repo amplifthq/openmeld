@@ -25,10 +25,20 @@ export async function smokeSignedMacOsSecureStorage(input) {
   const env = buildSmokeEnv({
     openMeldHome,
     outFile: input.outFile,
-    tempRoot,
+    serverOrigin: server.origin,
   });
   let loggedOut = false;
   try {
+    const version = await runCli({
+      args: ["--version"],
+      command: input.outFile,
+      env,
+      label: "launch the signed CLI",
+    });
+    if (version.stdout.trim().length === 0) {
+      throw new Error("signed CLI returned an empty version");
+    }
+
     await runCli({
       args: [
         "login",
@@ -49,9 +59,7 @@ export async function smokeSignedMacOsSecureStorage(input) {
     const sessionPayload = JSON.parse(
       await readFile(path.join(openMeldHome, "auth", "session.json"), "utf8")
     );
-    if (
-      sessionPayload?.tokenRef?.provider !== "macos-data-protection-keychain"
-    ) {
+    if (sessionPayload?.tokenRef?.provider !== "macos-keychain") {
       throw new Error(
         `signed CLI used the wrong macOS token provider: ${String(sessionPayload?.tokenRef?.provider ?? "missing")}`
       );
@@ -108,8 +116,8 @@ function buildSmokeEnv(input) {
           key !== "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
       )
     ),
-    HOME: input.tempRoot,
     OPENMELD_ENV_PRESET: "prod",
+    OPENMELD_GATEWAY_URL: input.serverOrigin,
     OPENMELD_HOME: input.openMeldHome,
     OPENMELD_USER_FACING_CLI_COMMAND: input.outFile,
   };
@@ -140,12 +148,13 @@ function runCli(input) {
       clearTimeout(timeout);
       reject(error);
     });
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       clearTimeout(timeout);
       if (code !== 0) {
+        const outcome = signal ? `signal ${signal}` : `exit ${String(code)}`;
         reject(
           new Error(
-            `${input.label} failed with exit ${String(code)}:\n${stdout}\n${stderr}`
+            `${input.label} failed with ${outcome}:\n${stdout}\n${stderr}`
           )
         );
         return;

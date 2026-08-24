@@ -46,8 +46,7 @@ CFStringRef CreateCfString(const std::string& value) {
 }
 
 CFMutableDictionaryRef CreateQuery(const std::string& service,
-                                   const std::string& account,
-                                   const std::string& access_group) {
+                                   const std::string& account) {
   auto* query = CFDictionaryCreateMutable(
       kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks,
       &kCFTypeDictionaryValueCallBacks);
@@ -57,9 +56,7 @@ CFMutableDictionaryRef CreateQuery(const std::string& service,
 
   ScopedCfType service_value(CreateCfString(service));
   ScopedCfType account_value(CreateCfString(account));
-  ScopedCfType access_group_value(CreateCfString(access_group));
-  if (service_value.get() == nullptr || account_value.get() == nullptr ||
-      access_group_value.get() == nullptr) {
+  if (service_value.get() == nullptr || account_value.get() == nullptr) {
     CFRelease(query);
     return nullptr;
   }
@@ -67,8 +64,6 @@ CFMutableDictionaryRef CreateQuery(const std::string& service,
   CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
   CFDictionarySetValue(query, kSecAttrService, service_value.get());
   CFDictionarySetValue(query, kSecAttrAccount, account_value.get());
-  CFDictionarySetValue(query, kSecAttrAccessGroup, access_group_value.get());
-  CFDictionarySetValue(query, kSecUseDataProtectionKeychain, kCFBooleanTrue);
   return query;
 }
 
@@ -118,15 +113,15 @@ bool ReadArguments(napi_env env, napi_callback_info info, size_t expected,
 
 napi_value Store(napi_env env, napi_callback_info info) {
   std::vector<std::string> args;
-  if (!ReadArguments(env, info, 4, &args)) {
+  if (!ReadArguments(env, info, 3, &args)) {
     return nullptr;
   }
-  ScopedCfType query(CreateQuery(args[0], args[1], args[2]));
+  ScopedCfType query(CreateQuery(args[0], args[1]));
   if (query.get() == nullptr) {
     napi_throw_error(env, nullptr, "Could not create a secure storage query.");
     return nullptr;
   }
-  const auto& token = args[3];
+  const auto& token = args[2];
   ScopedCfType token_data(CFDataCreate(
       kCFAllocatorDefault, reinterpret_cast<const UInt8*>(token.data()),
       static_cast<CFIndex>(token.size())));
@@ -173,10 +168,10 @@ napi_value Store(napi_env env, napi_callback_info info) {
 
 napi_value Read(napi_env env, napi_callback_info info) {
   std::vector<std::string> args;
-  if (!ReadArguments(env, info, 3, &args)) {
+  if (!ReadArguments(env, info, 2, &args)) {
     return nullptr;
   }
-  ScopedCfType query(CreateQuery(args[0], args[1], args[2]));
+  ScopedCfType query(CreateQuery(args[0], args[1]));
   if (query.get() == nullptr) {
     napi_throw_error(env, nullptr, "Could not create a secure storage query.");
     return nullptr;
@@ -212,10 +207,10 @@ napi_value Read(napi_env env, napi_callback_info info) {
 
 napi_value Remove(napi_env env, napi_callback_info info) {
   std::vector<std::string> args;
-  if (!ReadArguments(env, info, 3, &args)) {
+  if (!ReadArguments(env, info, 2, &args)) {
     return nullptr;
   }
-  ScopedCfType query(CreateQuery(args[0], args[1], args[2]));
+  ScopedCfType query(CreateQuery(args[0], args[1]));
   if (query.get() == nullptr) {
     napi_throw_error(env, nullptr, "Could not create a secure storage query.");
     return nullptr;

@@ -4,14 +4,9 @@ import embeddedAddonPath from "../../native/macos-keychain/build/Release/openmel
 };
 
 type MacOsKeychainAddon = {
-  read(service: string, account: string, accessGroup: string): string | null;
-  remove(service: string, account: string, accessGroup: string): void;
-  store(
-    service: string,
-    account: string,
-    accessGroup: string,
-    accessToken: string
-  ): void;
+  read(service: string, account: string): string | null;
+  remove(service: string, account: string): void;
+  store(service: string, account: string, accessToken: string): void;
 };
 
 export function loadEmbeddedMacOsKeychainAddon(): MacOsKeychainAddon {
