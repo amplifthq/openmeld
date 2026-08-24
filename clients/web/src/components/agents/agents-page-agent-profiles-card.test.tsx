@@ -1016,6 +1016,60 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeTruthy();
 	});
 
+	it("does not submit a stale Controller draft after the Agent starts working", () => {
+		const primaryBinding = createPrimaryBindingResponse(
+			"codex:askForApproval",
+			"builtin:codex"
+		).binding as GetAgentProfilePrimaryBindingResponse["binding"];
+		const editState = resolveAgentProfileEditState({
+			binding: primaryBinding,
+			modelCatalog: null,
+		});
+		const onControllerChange = vi.fn(() => Promise.resolve());
+		const onRenameProfile = vi.fn(() => Promise.resolve());
+		const renderDialog = (
+			controllerChangeEligibilityStatus: "allowed" | "blocked"
+		) => (
+			<AgentProfileEditDialog
+				controllerChangeEligibilityStatus={controllerChangeEligibilityStatus}
+				controllerChangeOptions={[
+					{
+						agentControllerRef: "builtin:claude-code",
+						label: "Claude Code",
+					},
+				]}
+				editState={editState}
+				isPending={false}
+				modelCatalog={null}
+				onControllerChange={onControllerChange}
+				onControllerCollaborationModeUpdate={() => Promise.resolve()}
+				onControllerPermissionModeUpdate={() => Promise.resolve()}
+				onModelSelectionUpdate={() => Promise.resolve()}
+				onOpenChange={() => undefined}
+				onOpenCodePermissionUpdate={() => Promise.resolve()}
+				onRenameProfile={onRenameProfile}
+				open={true}
+				profileName="Research Agent"
+			/>
+		);
+		const { rerender } = render(renderDialog("allowed"));
+
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: "Renamed Agent" },
+		});
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Change controller" })
+		);
+		fireEvent.click(screen.getByRole("option", { name: "Claude Code" }));
+		rerender(renderDialog("blocked"));
+
+		const saveButton = screen.getByRole("button", { name: "Save changes" });
+		expect((saveButton as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.click(saveButton);
+		expect(onControllerChange).not.toHaveBeenCalled();
+		expect(onRenameProfile).not.toHaveBeenCalled();
+	});
+
 	it("uses account-wide RuntimeCoordinator truth to lock Controller changes from the Agents page", async () => {
 		readControllerChangeEligibilityMock.mockImplementation(
 			async ({ agentProfileId }) => ({

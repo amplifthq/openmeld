@@ -7,11 +7,11 @@ import {
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
-  runtimeTransportAgentProfileControllerMutationAcquireResponseSchema,
-  runtimeTransportAgentProfileControllerMutationReleaseResponseSchema,
-  runtimeTransportAgentProfileControllerMutationRequestSchema,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
   runtimeTransportAgentProfileExecutionStateResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
   runtimeTransportCapabilitiesSchema,
   runtimeTransportDeliverDispatchPayloadSchema,
   runtimeTransportDeliverDispatchRequestSchema,
@@ -233,10 +233,12 @@ describe("runtime transport schema", () => {
       targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
     };
     expect(
-      runtimeTransportAgentProfileControllerMutationRequestSchema.parse(request)
+      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.parse(
+        request
+      )
     ).toEqual(request);
     expect(
-      runtimeTransportAgentProfileControllerMutationAcquireResponseSchema.parse(
+      runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema.parse(
         {
           expiresAtMs: 1_700_000_300_000,
           operationId: request.operationId,
@@ -249,7 +251,7 @@ describe("runtime transport schema", () => {
       status: "acquired",
     });
     expect(
-      runtimeTransportAgentProfileControllerMutationAcquireResponseSchema.parse(
+      runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema.parse(
         {
           reasonCode: "runtime_coordinator.agent_profile_execution_active",
           status: "blocked",
@@ -260,7 +262,7 @@ describe("runtime transport schema", () => {
       status: "blocked",
     });
     expect(
-      runtimeTransportAgentProfileControllerMutationReleaseResponseSchema.parse(
+      runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema.parse(
         { status: "released" }
       )
     ).toEqual({ status: "released" });

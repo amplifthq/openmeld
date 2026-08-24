@@ -8,13 +8,15 @@ import {
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
 import {
-	AgentProfileProjectSettingsDialog,
 	FUTURE_WAKES_PROJECT_SETTINGS_NOTICE,
 	shouldShowAgentProfileProjectSettings,
-} from "./agent-profile-project-settings-dialog";
+} from "./agent-profile-project-settings";
+import { AgentProfileProjectSettingsDialog } from "./agent-profile-project-settings-dialog";
 
 const updateDefaultProjectMock = vi.hoisted(() => vi.fn());
 const updateWorkspaceMock = vi.hoisted(() => vi.fn());
+const ACTIVE_WAKE_FOLDER_CHANGE_MESSAGE =
+	/changing folders would interrupt the current Wake/i;
 
 vi.mock("#/lib/profiles/update-default-project", () => ({
 	updateAgentProfileDefaultProject: updateDefaultProjectMock,
@@ -143,6 +145,30 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		);
 	});
 
+	it("keeps working-folder changes disabled while the Agent is working", () => {
+		renderSettings("blocked");
+
+		expect(screen.getByText(ACTIVE_WAKE_FOLDER_CHANGE_MESSAGE)).toBeTruthy();
+		for (const name of [
+			"Change Default Project",
+			"Change local folder",
+			"Choose custom working folder",
+			"Let OpenMeld choose",
+		]) {
+			expect(
+				(screen.getByRole("button", { name }) as HTMLButtonElement).disabled
+			).toBe(true);
+		}
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Clear Default Project",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(false);
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
+	});
+
 	it("does not expose local Project settings for managed or hosted profiles", () => {
 		expect(
 			shouldShowAgentProfileProjectSettings({
@@ -161,6 +187,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 			<AgentProfileProjectSettingsDialog
 				actorProfileId="human-1"
 				agentControllerRef="builtin:codex"
+				executionTargetChangeEligibilityStatus="allowed"
 				onOpenChange={vi.fn()}
 				onProfileUpdated={vi.fn()}
 				open={true}
@@ -172,7 +199,12 @@ describe("AgentProfileProjectSettingsDialog", () => {
 	});
 });
 
-function renderSettings() {
+function renderSettings(
+	executionTargetChangeEligibilityStatus:
+		| "allowed"
+		| "blocked"
+		| "unavailable" = "allowed"
+) {
 	const queryClient = createTestQueryClient();
 	const onProfileUpdated = vi.fn();
 	queryClient.setQueryData(projectQueryKeys.organization("organization-1"), {
@@ -198,6 +230,9 @@ function renderSettings() {
 			<AgentProfileProjectSettingsDialog
 				actorProfileId="human-1"
 				agentControllerRef="builtin:codex"
+				executionTargetChangeEligibilityStatus={
+					executionTargetChangeEligibilityStatus
+				}
 				onOpenChange={vi.fn()}
 				onProfileUpdated={onProfileUpdated}
 				open={true}

@@ -41,11 +41,11 @@ import {
   runtimeCoordinatorFinalizationClaimReadSchema,
   runtimeCoordinatorFinalizationCommandSchema,
   runtimeCoordinatorFinalizationOutcomeSchema,
-  runtimeTransportAgentProfileControllerMutationAcquireResponseSchema,
-  runtimeTransportAgentProfileControllerMutationReleaseResponseSchema,
-  runtimeTransportAgentProfileControllerMutationRequestSchema,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
   runtimeTransportAgentProfileExecutionStateResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
   runtimeTransportDeliverDispatchRequestSchema,
@@ -151,11 +151,11 @@ import type {
   RuntimeCoordinatorTokenReasonCode,
   RuntimeCoordinatorTokenRunAuthority,
   RuntimeCoordinatorTokenStatus,
-  RuntimeTransportAgentProfileControllerMutationAcquireResponse,
-  RuntimeTransportAgentProfileControllerMutationReleaseResponse,
-  RuntimeTransportAgentProfileControllerMutationRequest,
   RuntimeTransportAgentProfileExecutionStateRequest,
   RuntimeTransportAgentProfileExecutionStateResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationRequest,
   RuntimeTransportDeliverDispatchRequest,
   RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDispatchInteractionDeliveredRequest,
@@ -258,11 +258,11 @@ import { emitCoreFinalVisibleOutcomeRuntimeEvidence } from "../../../shared/obse
 import { readAcceptedDispatchFinalizationFact } from "../../../space/infrastructure/d1/accepted-dispatch-finalization-repo";
 import { listActiveSpaceIdsForProfileFromSpaceIndex } from "../../../space-index/space-index-repository";
 import {
-  acquireRuntimeCoordinatorAgentProfileControllerMutation,
+  acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs,
   readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission,
-  releaseRuntimeCoordinatorAgentProfileControllerMutation,
+  releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   writeRuntimeCoordinatorHeadLifecycleWithAdmission,
 } from "../../application/agent-profile-execution-admission";
 import {
@@ -1241,21 +1241,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
 
+  // Keep the original ControllerMutation wire names during the broader
+  // execution-target rollout. Durable Object code propagates eventually, so a
+  // newly deployed Worker must remain callable against an older live shard and
+  // an older Worker must remain callable against this shard.
   async rpcAcquireAgentProfileControllerMutation(
-    input: RuntimeTransportAgentProfileControllerMutationRequest
-  ): Promise<RuntimeTransportAgentProfileControllerMutationAcquireResponse> {
+    input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
+  ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
     const parsed =
-      runtimeTransportAgentProfileControllerMutationRequestSchema.safeParse(
+      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse(
         input
       );
     if (!parsed.success) {
       return {
-        reasonCode: "runtime_coordinator.controller_mutation_request_invalid",
+        reasonCode:
+          "runtime_coordinator.execution_target_mutation_request_invalid",
         status: "unavailable",
       };
     }
     const response =
-      await acquireRuntimeCoordinatorAgentProfileControllerMutation({
+      await acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation({
         nowMs: Date.now(),
         operationId: parsed.data.operationId,
         ownerUserId: parsed.data.ownerUserId,
@@ -1271,30 +1276,30 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
     }
-    return runtimeTransportAgentProfileControllerMutationAcquireResponseSchema.parse(
+    return runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema.parse(
       response
     );
   }
 
   async rpcReleaseAgentProfileControllerMutation(
-    input: RuntimeTransportAgentProfileControllerMutationRequest
-  ): Promise<RuntimeTransportAgentProfileControllerMutationReleaseResponse> {
+    input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
+  ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse> {
     const parsed =
-      runtimeTransportAgentProfileControllerMutationRequestSchema.safeParse(
+      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse(
         input
       );
     if (!parsed.success) {
       return { status: "not_owner" };
     }
     const response =
-      await releaseRuntimeCoordinatorAgentProfileControllerMutation({
+      await releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation({
         nowMs: Date.now(),
         operationId: parsed.data.operationId,
         ownerUserId: parsed.data.ownerUserId,
         storage: this.ctx.storage,
         targetProfileId: parsed.data.targetProfileId,
       });
-    return runtimeTransportAgentProfileControllerMutationReleaseResponseSchema.parse(
+    return runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema.parse(
       response
     );
   }
@@ -10091,17 +10096,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
       const admission = await writeRuntimeCoordinatorHeadLifecycleWithAdmission(
         {
-          blockForControllerMutation: true,
+          blockForExecutionTargetMutation: true,
           nowMs,
           record: nextRecord,
           storage: this.ctx.storage,
         }
       );
-      if (admission === "controller_mutation_in_progress") {
+      if (admission === "execution_target_mutation_in_progress") {
         return {
           ok: false,
           primaryDispatchId: null,
-          reasonCode: "runtime_coordinator.controller_mutation_in_progress",
+          reasonCode:
+            "runtime_coordinator.execution_target_mutation_in_progress",
           status: "retry_later",
           targetWakeLifecycleId: identity.targetWakeLifecycleId,
         };

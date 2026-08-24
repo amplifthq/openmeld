@@ -266,7 +266,7 @@ export const writeRuntimeCoordinatorHeadLifecycleRecordToStorage = async (
   record: RuntimeCoordinatorHeadLifecycleRecord
 ): Promise<void> => {
   await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
-    blockForControllerMutation: false,
+    blockForExecutionTargetMutation: false,
     nowMs: record.updatedAtMs,
     record,
     storage,

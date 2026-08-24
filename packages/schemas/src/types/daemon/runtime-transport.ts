@@ -49,19 +49,19 @@ export type RuntimeTransportAgentProfileExecutionStateResponse =
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionStateResponseSchema"]
   >;
 
-export type RuntimeTransportAgentProfileControllerMutationRequest =
+export type RuntimeTransportAgentProfileExecutionTargetMutationRequest =
   import("zod/v4").infer<
-    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileControllerMutationRequestSchema"]
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionTargetMutationRequestSchema"]
   >;
 
-export type RuntimeTransportAgentProfileControllerMutationAcquireResponse =
+export type RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse =
   import("zod/v4").infer<
-    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileControllerMutationAcquireResponseSchema"]
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema"]
   >;
 
-export type RuntimeTransportAgentProfileControllerMutationReleaseResponse =
+export type RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse =
   import("zod/v4").infer<
-    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileControllerMutationReleaseResponseSchema"]
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema"]
   >;
 
 export type RuntimeTransportRegisterSessionRequest = import("zod/v4").infer<

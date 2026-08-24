@@ -98,10 +98,8 @@ import {
 	DirectoryCardItem,
 	DirectoryOwnerGroup,
 } from "#/components/directory/directory-card-grid";
-import {
-	AgentProfileProjectSettingsDialog,
-	shouldShowAgentProfileProjectSettings,
-} from "#/components/profiles/agent-profile-project-settings-dialog";
+import { shouldShowAgentProfileProjectSettings } from "#/components/profiles/agent-profile-project-settings";
+import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
 import { AgentProfileModelSelectionFields } from "#/components/profiles/create-profile-form";
 import {
 	formatOpenCodePermissionJson,
@@ -3043,6 +3041,9 @@ function AgentProfileRowMoreMenu(input: {
 			<AgentProfileProjectSettingsDialog
 				actorProfileId={input.actorProfileId}
 				agentControllerRef={input.primaryAgentControllerRef}
+				executionTargetChangeEligibilityStatus={
+					controllerChangeEligibilityStatus
+				}
 				onOpenChange={setIsProjectSettingsDialogOpen}
 				onProfileUpdated={input.onProfileUpdated}
 				open={isProjectSettingsDialogOpen}
@@ -3227,6 +3228,8 @@ function AgentProfileEditDialogContent(
 	const dialogState = resolveAgentProfileEditDialogState({
 		activeDraft,
 		controllerCollaborationMode,
+		controllerChangeEligibilityStatus:
+			input.controllerChangeEligibilityStatus ?? "allowed",
 		controllerPermissionMode,
 		currentAgentControllerRef: input.editState?.agentControllerRef ?? null,
 		isPending: input.isPending,
@@ -3351,6 +3354,8 @@ function AgentProfileEditDialogContent(
 								onOpenChange: input.onOpenChange,
 								onRenameProfile: input.onRenameProfile,
 								onControllerChange: input.onControllerChange,
+								controllerChangeEligibilityStatus:
+									input.controllerChangeEligibilityStatus ?? "allowed",
 								onSaveComplete: input.onSaveComplete,
 							}).catch((error) => {
 								console.error("Failed to update Agent Profile.", error);
@@ -3680,6 +3685,7 @@ function resolveDefaultAgentProfileEditCollaborationMode(input: {
 function resolveAgentProfileEditDialogState(input: {
 	activeDraft: AgentProfileEditDraft;
 	controllerCollaborationMode: AgentProfileControllerCollaborationModeEditState | null;
+	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	controllerPermissionMode: AgentProfileControllerPermissionModeEditState | null;
 	currentAgentControllerRef: string | null;
 	isPending: boolean;
@@ -3752,6 +3758,8 @@ function resolveAgentProfileEditDialogState(input: {
 		saveButtonDisabled:
 			input.isPending ||
 			!hasChanges ||
+			(controllerChanged &&
+				input.controllerChangeEligibilityStatus !== "allowed") ||
 			(profileNameChanged && !profileNameIsValid) ||
 			(modelSelectionChanged && !saveModelId) ||
 			(permissionModeState.requiresConfirmation &&
@@ -3766,6 +3774,7 @@ function resolveAgentProfileEditDialogState(input: {
 }
 
 type AgentProfileEditSubmissionInput = {
+	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	dialogState: AgentProfileEditDialogState;
 	onControllerChange: (
 		update: AgentProfileControllerChangeUpdate
@@ -3790,6 +3799,16 @@ type AgentProfileEditSubmissionInput = {
 async function submitAgentProfileEditDialogChanges(
 	input: AgentProfileEditSubmissionInput
 ) {
+	if (
+		input.dialogState.controllerChanged &&
+		input.controllerChangeEligibilityStatus !== "allowed"
+	) {
+		throw new Error(
+			input.controllerChangeEligibilityStatus === "blocked"
+				? "Controller changes are unavailable while this Agent is working."
+				: "OpenMeld couldn’t confirm whether this Agent is working. Try again."
+		);
+	}
 	let completedMutation = false;
 	const runMutation = async (mutation: () => Promise<void>) => {
 		await mutation();

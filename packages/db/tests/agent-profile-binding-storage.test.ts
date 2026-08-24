@@ -10,7 +10,13 @@ const repoRootDirectoryPath = path.resolve(
 );
 const OWNER_KIND_ERROR_PATTERN = /owner_kind/;
 const LIFECYCLE_ERROR_PATTERN = /lifecycle/;
-const UNIQUE_ERROR_PATTERN = /UNIQUE/;
+const CANONICAL_ENABLED_ERROR_PATTERN =
+  /agent_profile_binding_canonical_enabled_check/;
+const CANONICAL_ENABLED_TRIGGER_MARKER =
+  "openMeldDaemon_agent_profile_bindings_canonical_enabled_";
+const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
+const SECOND_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
+const THIRD_AGENT_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 
 const readSharedMigrationStatements = (): readonly string[] => {
   const migrationDirectoryPath = path.resolve(
@@ -30,8 +36,25 @@ const readSharedMigrationStatements = (): readonly string[] => {
     .filter((statement) => statement.length > 0);
 };
 
-const applySharedMigrations = (database: DatabaseSync) => {
+const applySharedMigrations = (
+  database: DatabaseSync,
+  input: { skipCanonicalEnabledBindingTriggers?: boolean } = {}
+) => {
   for (const statement of readSharedMigrationStatements()) {
+    if (
+      input.skipCanonicalEnabledBindingTriggers &&
+      statement.includes(CANONICAL_ENABLED_TRIGGER_MARKER)
+    ) {
+      continue;
+    }
+    database.exec(statement);
+  }
+};
+
+const applyCanonicalEnabledBindingTriggers = (database: DatabaseSync) => {
+  for (const statement of readSharedMigrationStatements().filter((candidate) =>
+    candidate.includes(CANONICAL_ENABLED_TRIGGER_MARKER)
+  )) {
     database.exec(statement);
   }
 };
@@ -86,6 +109,9 @@ describe("Agent Profile Binding storage schema", () => {
       expect(indexes).toContain(
         "idx_openMeldDaemon_agent_profile_bindings_owner_profile_state"
       );
+      expect(indexes).toContain(
+        "idx_openMeldDaemon_agent_profile_bindings_profile_enabled_owner"
+      );
     } finally {
       database.close();
     }
@@ -99,6 +125,8 @@ describe("Agent Profile Binding storage schema", () => {
       expect(() =>
         insertBinding(database, {
           bindingId: "binding_bad_owner",
+          bindingState: "disabled_historical",
+          disabledAtMs: 2000,
           ownerKind: "owner_principal",
         })
       ).toThrow(OWNER_KIND_ERROR_PATTERN);
@@ -118,7 +146,19 @@ describe("Agent Profile Binding storage schema", () => {
           bindingId: "binding_opaque_2",
           openMeldServiceRuntimeId: "runtime_opaque_2",
         })
-      ).toThrow(UNIQUE_ERROR_PATTERN);
+      ).toThrow();
+      expect(
+        database
+          .prepare(
+            `
+              SELECT binding_id
+              FROM openMeldDaemon_agent_profile_bindings
+              WHERE agent_profile_id = ?
+                AND binding_state = 'enabled_primary'
+            `
+          )
+          .all(AGENT_PROFILE_ID)
+      ).toEqual([{ binding_id: "binding_opaque_1" }]);
 
       insertBinding(database, {
         bindingId: "binding_disabled_1",
@@ -135,13 +175,13 @@ describe("Agent Profile Binding storage schema", () => {
 
       insertBinding(database, {
         agentControllerConversationId: "native-session-1",
-        agentProfileId: "agent-profile-2",
+        agentProfileId: SECOND_AGENT_PROFILE_ID,
         bindingId: "binding_conversation_1",
         openMeldServiceRuntimeId: "runtime_conversation_1",
       });
       insertBinding(database, {
         agentControllerConversationId: "native-session-1",
-        agentProfileId: "agent-profile-3",
+        agentProfileId: THIRD_AGENT_PROFILE_ID,
         bindingId: "binding_conversation_2",
         openMeldServiceRuntimeId: "runtime_conversation_2",
       });
@@ -157,6 +197,75 @@ describe("Agent Profile Binding storage schema", () => {
       database.close();
     }
   });
+
+  it("blocks an old writer from recreating a noncanonical enabled Binding after legacy reconciliation", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      applySharedMigrations(database, {
+        skipCanonicalEnabledBindingTriggers: true,
+      });
+
+      insertBinding(database, {
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding_legacy_admin",
+        ownerId: "admin-1",
+        profileOwnerId: "owner-1",
+      });
+
+      // Production can already contain legacy rows when this migration lands.
+      // Installing the triggers must preserve that data while rejecting new
+      // noncanonical writes from an older in-flight Core deployment.
+      applyCanonicalEnabledBindingTriggers(database);
+      database
+        .prepare(
+          `
+            UPDATE openMeldDaemon_agent_profile_bindings
+            SET binding_state = 'disabled_historical',
+                disabled_at_ms = 2000,
+                updated_at_ms = 2000
+            WHERE binding_id = 'binding_legacy_admin'
+          `
+        )
+        .run();
+
+      expect(() =>
+        insertBinding(database, {
+          agentProfileId: AGENT_PROFILE_ID,
+          bindingId: "binding_old_writer_admin",
+          openMeldServiceRuntimeId: "runtime_old_writer_admin",
+          ownerId: "admin-1",
+          profileOwnerId: "owner-1",
+        })
+      ).toThrow(CANONICAL_ENABLED_ERROR_PATTERN);
+
+      insertBinding(database, {
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding_canonical_owner",
+        openMeldServiceRuntimeId: "runtime_canonical_owner",
+        ownerId: "owner-1",
+      });
+
+      expect(
+        database
+          .prepare(
+            `
+              SELECT binding_id, owner_id
+              FROM openMeldDaemon_agent_profile_bindings
+              WHERE agent_profile_id = ?
+                AND binding_state = 'enabled_primary'
+            `
+          )
+          .all(AGENT_PROFILE_ID)
+      ).toEqual([
+        {
+          binding_id: "binding_canonical_owner",
+          owner_id: "owner-1",
+        },
+      ]);
+    } finally {
+      database.close();
+    }
+  });
 });
 
 function insertBinding(
@@ -168,10 +277,18 @@ function insertBinding(
     bindingId: string;
     bindingState?: "enabled_primary" | "disabled_historical";
     disabledAtMs?: number | null;
+    ownerId?: string;
     ownerKind?: string;
     openMeldServiceRuntimeId?: string;
+    profileOwnerId?: string;
   }
 ) {
+  const agentProfileId = input.agentProfileId ?? AGENT_PROFILE_ID;
+  const ownerId = input.ownerId ?? "owner-1";
+  ensureAgentProfile(database, {
+    ownerId: input.profileOwnerId ?? ownerId,
+    profileId: agentProfileId,
+  });
   database
     .prepare(
       `
@@ -190,17 +307,61 @@ function insertBinding(
           created_by_profile_id,
           reason_code
         )
-        VALUES (?, ?, 'owner-1', ?, ?, ?, ?, ?, 1000, 1000, ?, 'profile-1', 'agent_profile_binding.test')
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1000, 1000, ?, 'profile-1', 'agent_profile_binding.test')
       `
     )
     .run(
       input.bindingId,
       input.ownerKind ?? "owner_account",
-      input.agentProfileId ?? "agent-profile-1",
+      ownerId,
+      agentProfileId,
       input.openMeldServiceRuntimeId ?? "runtime_opaque_1",
       input.agentControllerRef ?? "builtin:codex",
       input.agentControllerConversationId ?? null,
       input.bindingState ?? "enabled_primary",
       input.disabledAtMs ?? null
     );
+}
+
+function ensureAgentProfile(
+  database: DatabaseSync,
+  input: { ownerId: string; profileId: string }
+) {
+  database
+    .prepare(
+      `
+        INSERT OR IGNORE INTO users (
+          id, name, email, email_verified, created_at, updated_at
+        ) VALUES (?, ?, ?, 1, 1000, 1000)
+      `
+    )
+    .run(input.ownerId, input.ownerId, `${input.ownerId}@example.com`);
+  database
+    .prepare(
+      `
+        INSERT OR IGNORE INTO organizations (
+          id, name, slug, created_at
+        ) VALUES ('org-1', 'Organization', 'organization', 1000)
+      `
+    )
+    .run();
+  database
+    .prepare(
+      `
+        INSERT OR IGNORE INTO openmeld_profiles (
+          profile_id,
+          profile_name,
+          profile_handle,
+          profile_kind,
+          is_default,
+          status,
+          organization_id,
+          owner_user_id,
+          source,
+          created_at,
+          updated_at
+        ) VALUES (?, 'Agent', ?, 'agent', 0, 'active', 'org-1', ?, 'migration', 1000, 1000)
+      `
+    )
+    .run(input.profileId, input.profileId, input.ownerId);
 }

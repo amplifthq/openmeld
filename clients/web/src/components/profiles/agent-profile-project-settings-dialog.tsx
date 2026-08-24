@@ -1,6 +1,5 @@
 "use client";
 
-import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	LocalProjectControlConnection,
@@ -24,25 +23,17 @@ import { updateAgentProfileDefaultProject } from "#/lib/profiles/update-default-
 import { updateAgentProfileWorkspace } from "#/lib/profiles/update-profile-workspace";
 import { projectsQueryOptions } from "#/query/organizations/projects";
 import { AgentProfileProjectSelector } from "./agent-profile-project-selector";
-
-export const FUTURE_WAKES_PROJECT_SETTINGS_NOTICE =
-	"This applies to future Wakes and new sessions. Your current session will not be moved.";
+import {
+	FUTURE_WAKES_PROJECT_SETTINGS_NOTICE,
+	shouldShowAgentProfileProjectSettings,
+} from "./agent-profile-project-settings";
 
 type ProjectSelectionMode = "folder" | "project" | "workspace" | null;
-
-export function shouldShowAgentProfileProjectSettings(input: {
-	agentControllerRef: string | null;
-	managedRole: AuthProfileView["managedRole"];
-}): boolean {
-	return (
-		input.managedRole === null &&
-		input.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF
-	);
-}
 
 export function AgentProfileProjectSettingsDialog(input: {
 	actorProfileId: string | null;
 	agentControllerRef: string | null;
+	executionTargetChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	onOpenChange: (open: boolean) => void;
 	onProfileUpdated: (profile: AuthProfileView) => void;
 	open: boolean;
@@ -63,6 +54,7 @@ export function AgentProfileProjectSettingsDialog(input: {
 function LocalAgentProfileProjectSettingsDialog(input: {
 	actorProfileId: string | null;
 	agentControllerRef: string | null;
+	executionTargetChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	onOpenChange: (open: boolean) => void;
 	onProfileUpdated: (profile: AuthProfileView) => void;
 	open: boolean;
@@ -192,6 +184,8 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 		}
 	};
 	const isPending = pendingAction !== null;
+	const workspaceChangeDisabled =
+		isPending || input.executionTargetChangeEligibilityStatus !== "allowed";
 	return (
 		<Dialog
 			onOpenChange={(open) => {
@@ -229,7 +223,7 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 					</div>
 					<div className="flex flex-wrap gap-2">
 						<Button
-							disabled={isPending || projectsQuery.isPending}
+							disabled={workspaceChangeDisabled || projectsQuery.isPending}
 							onClick={() => {
 								setSelectedProjectId("");
 								setSelectedBindingGeneration(null);
@@ -241,7 +235,7 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 							Change Default Project
 						</Button>
 						<Button
-							disabled={isPending || !defaultProjectId}
+							disabled={workspaceChangeDisabled || !defaultProjectId}
 							onClick={() => {
 								setSelectedProjectId(defaultProjectId ?? "");
 								setSelectedBindingGeneration(null);
@@ -253,7 +247,7 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 							Change local folder
 						</Button>
 						<Button
-							disabled={isPending}
+							disabled={workspaceChangeDisabled}
 							onClick={() => {
 								setWorkspacePath("");
 								setSelectionMode("workspace");
@@ -264,8 +258,20 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 							Choose custom working folder
 						</Button>
 					</div>
+					{input.executionTargetChangeEligibilityStatus === "blocked" ? (
+						<p className="text-muted-foreground text-xs leading-5">
+							Working folder changes are unavailable while this Agent is working
+							because changing folders would interrupt the current Wake.
+						</p>
+					) : null}
+					{input.executionTargetChangeEligibilityStatus === "unavailable" ? (
+						<p className="text-muted-foreground text-xs leading-5">
+							OpenMeld couldn’t confirm whether this Agent is working, so
+							working folder changes are temporarily unavailable. Try again.
+						</p>
+					) : null}
 					<ProjectSettingsSelectionControls
-						disabled={isPending}
+						disabled={workspaceChangeDisabled}
 						isProjectsPending={projectsQuery.isPending}
 						mode={selectionMode}
 						onConnectionReady={(connection) => {
@@ -307,7 +313,7 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 				</div>
 				<DialogFooter className="flex-wrap">
 					<Button
-						disabled={isPending}
+						disabled={workspaceChangeDisabled}
 						onClick={() => {
 							selectManagedWorkspace().catch((error) => {
 								console.error("Failed to use managed workspace.", error);

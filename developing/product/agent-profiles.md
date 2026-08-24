@@ -290,24 +290,31 @@ pending route-catalog or readiness convergence after an accepted Binding write
 must not turn that saved write into a visible failure. Web shows the saved
 outcome, refreshes canonical Core readiness, and lets that readiness projection
 decide whether the Agent Profile is Available, Checking, Offline, or Unavailable.
-Changing or unbinding the Agent Controller is different because it changes the
-execution target and can interrupt accepted work. Every maintenance surface
-must read the owner-sharded RuntimeCoordinator execution state, independent of
-the current Space. That read is advisory: before committing the Binding change,
-the writer must acquire a short-lived owner-shard Controller-mutation admission
-and hold it across the D1 mutation. RuntimeCoordinator serializes that admission
-with new Wake-head acceptance in the same Durable Object storage transaction,
-so a Wake that arrives after admission waits instead of racing the Controller
-change. An active execution blocks only the disruptive Controller mutation; a
-missing, rebuilding, or unreadable execution-state authority fails closed for
-that mutation without blocking model, reasoning, collaboration, permission, or
-OpenCode permission writes. Expired mutation admission is recoverable after a
-writer crash, so an abandoned change cannot lock the Agent Profile forever.
+Changing or unbinding the Agent Controller and changing the local working folder
+are different because they change the execution target underneath future work
+and can interrupt an accepted Wake. Every maintenance surface must read the
+owner-sharded RuntimeCoordinator execution state, independent of the current
+Space. That read is advisory: before committing one of these changes, the writer
+must acquire a short-lived owner-shard execution-target mutation admission and
+hold it across the D1 or local Service mutation. RuntimeCoordinator serializes
+that admission with new Wake-head acceptance in the same Durable Object storage
+transaction, so a Wake that arrives after admission waits instead of racing the
+execution-target change. An active execution blocks only the disruptive
+mutation; a missing, rebuilding, or unreadable execution-state authority fails
+closed for that mutation without blocking model, reasoning, collaboration,
+permission, or OpenCode permission writes. A local mutation timeout or invalid
+response has an unknown outcome, so Core keeps the admission until its lease
+expires instead of admitting a Wake while a late local write may still land.
+Expired mutation admission is recoverable after a writer crash or unknown
+outcome, so an abandoned change cannot lock the Agent Profile forever.
 
-RuntimeCoordinator maintains bounded per-profile active references for this
-decision. On upgrade it rebuilds them in bounded pages from canonical head and
-execution authority records rather than trusting the legacy activity indexes.
-The mutation stays unavailable until repair completes, repair failures retry
+RuntimeCoordinator maintains bounded per-profile active references and a
+generation-bound active-profile projection for this decision. On upgrade, or
+when a ready projection is inconsistent with its per-profile record, it rebuilds
+them in bounded pages from canonical head and execution authority records rather
+than trusting the legacy activity indexes. Reference overflow fails closed
+without allowing the stored arrays to grow without limit. The mutation stays
+unavailable until repair completes, collection and page-apply failures retry
 with backoff, and completed repair makes later reads independent of total
 account history. Active-reference writes remain atomic with their canonical
 authority writes, so a missing or partial legacy index cannot produce a false
@@ -320,9 +327,28 @@ or include a profile whose matching local controller is not runnable now. A
 runtime reconnect preserves the Binding settings that are current when Core
 accepts the write. Reconnect clients must omit controller settings instead of
 replaying a previously read Binding snapshot; only an explicit settings edit
-may carry those fields and its expected `configurationRevision`. Reconnecting
-must never overwrite a newer permission, model, reasoning, collaboration,
-conversation, or OpenCode permission choice.
+may carry those fields and its expected `configurationRevision`. The D1 writer
+uses that revision as a compare-and-set fence and re-reads before a bounded
+retry when a settings write wins the race. Reconnecting must never overwrite a
+newer permission, model, reasoning, collaboration, conversation, or OpenCode
+permission choice.
+
+The Agent Profile's authoritative `ownerUserId` is also the Binding owner and
+RuntimeCoordinator shard owner. An Organization admin may authorize or manage
+that Binding, but the admin remains the action and audit actor and must not
+become a second Binding owner. A write that discovers an older enabled Binding
+for the same Agent Profile under another owner must acquire mutation admission
+from every affected owner shard before changing the Binding. Disabling admitted
+legacy Bindings, installing or reusing the Profile owner's target, and carrying
+the Organization authorization are one atomic D1 write; any failed step leaves
+the previous enabled Bindings and their authorizations intact. Unavailable
+admission or an incomplete reconciliation fails closed. The D1 write boundary rejects a new or
+re-enabled primary Binding when its owner is not the Profile owner or another
+enabled primary Binding already exists for that Profile. The migration keeps
+pre-existing noncanonical rows available for explicit reconciliation instead
+of rewriting ownership silently. Profile-wide reconciliation inventory is
+bounded; an over-limit profile requires operator review before any admission or
+Binding write begins.
 
 Codex Collaboration Mode is a separate per-profile Binding setting. `Default`
 starts an ordinary implementation turn. `Plan` starts Codex App Server with

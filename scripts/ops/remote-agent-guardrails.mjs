@@ -18,6 +18,7 @@ const DEFAULT_CORE_WRANGLER_CONFIG = path.join(
   "wrangler.jsonc"
 );
 const RUNTIME_ENABLED_VAR = "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED";
+const DESIGNATION_ENABLED_VAR = "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED";
 const BLOCKED_ORGS_VAR = "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS";
 const REMOTE_AGENT_WORKER_BINDING = "OPENMELD_REMOTE_AGENT_WORKER";
 const ORG_ID_RE = /^[A-Za-z0-9_-]+$/u;
@@ -105,6 +106,14 @@ function readKnownRemoteAgentOpsFlag(rawArgs, index, parsed) {
       assertRuntimeEnabledUnset(parsed, true);
       parsed.runtimeEnabled = false;
       return index;
+    case "--enable-designation":
+      assertDesignationEnabledUnset(parsed, false);
+      parsed.designationEnabled = true;
+      return index;
+    case "--disable-designation":
+      assertDesignationEnabledUnset(parsed, true);
+      parsed.designationEnabled = false;
+      return index;
     case "--block-org": {
       const { nextIndex, value } = readOptionValue(rawArgs, index, "block-org");
       parsed.blockOrganizationId = value;
@@ -127,6 +136,12 @@ function readKnownRemoteAgentOpsFlag(rawArgs, index, parsed) {
 function assertRuntimeEnabledUnset(parsed, conflictingValue) {
   if (parsed.runtimeEnabled === conflictingValue) {
     throw new UsageError("Runtime cannot be both enabled and disabled.");
+  }
+}
+
+function assertDesignationEnabledUnset(parsed, conflictingValue) {
+  if (parsed.designationEnabled === conflictingValue) {
+    throw new UsageError("Designation cannot be both enabled and disabled.");
   }
 }
 
@@ -217,6 +232,7 @@ export async function readRemoteAgentPolicy(input = {}) {
   return {
     blockedOrganizationIds: parseOrganizationList(vars[BLOCKED_ORGS_VAR]),
     configPath,
+    designationEnabled: String(vars[DESIGNATION_ENABLED_VAR] ?? "") === "true",
     env,
     runtimeEnabled: String(vars[RUNTIME_ENABLED_VAR] ?? "") === "true",
   };
@@ -229,11 +245,17 @@ export async function applyRemoteAgentPolicyChanges(parsed) {
   const vars = resolveWranglerVars(config, parsed.env);
   const nextVars = {
     [RUNTIME_ENABLED_VAR]: String(vars[RUNTIME_ENABLED_VAR] ?? "false"),
+    [DESIGNATION_ENABLED_VAR]: String(vars[DESIGNATION_ENABLED_VAR] ?? "false"),
     [BLOCKED_ORGS_VAR]: String(vars[BLOCKED_ORGS_VAR] ?? ""),
   };
   const blocked = parseOrganizationList(nextVars[BLOCKED_ORGS_VAR]);
   if (parsed.runtimeEnabled !== undefined) {
     nextVars[RUNTIME_ENABLED_VAR] = parsed.runtimeEnabled ? "true" : "false";
+  }
+  if (parsed.designationEnabled !== undefined) {
+    nextVars[DESIGNATION_ENABLED_VAR] = parsed.designationEnabled
+      ? "true"
+      : "false";
   }
   if (parsed.blockOrganizationId) {
     blocked.add(parsed.blockOrganizationId);
@@ -245,10 +267,13 @@ export async function applyRemoteAgentPolicyChanges(parsed) {
 
   const changed =
     nextVars[RUNTIME_ENABLED_VAR] !== String(vars[RUNTIME_ENABLED_VAR] ?? "") ||
+    nextVars[DESIGNATION_ENABLED_VAR] !==
+      String(vars[DESIGNATION_ENABLED_VAR] ?? "") ||
     nextVars[BLOCKED_ORGS_VAR] !== String(vars[BLOCKED_ORGS_VAR] ?? "");
   const policy = {
     blockedOrganizationIds: parseOrganizationList(nextVars[BLOCKED_ORGS_VAR]),
     configPath,
+    designationEnabled: nextVars[DESIGNATION_ENABLED_VAR] === "true",
     env: parsed.env,
     runtimeEnabled: nextVars[RUNTIME_ENABLED_VAR] === "true",
   };
@@ -429,6 +454,7 @@ export function formatPolicy(policy) {
   return [
     `Remote Agent policy (${policy.env})`,
     `  runtime: ${policy.runtimeEnabled ? "enabled" : "disabled"}`,
+    `  designation: ${policy.designationEnabled ? "enabled" : "disabled"}`,
     `  blocked organizations: ${blocked}`,
   ].join("\n");
 }
@@ -477,6 +503,7 @@ async function runCli(rawArgs) {
 
   const hasPolicyWrite =
     parsed.runtimeEnabled !== undefined ||
+    parsed.designationEnabled !== undefined ||
     parsed.blockOrganizationId !== undefined ||
     parsed.unblockOrganizationId !== undefined;
   if (!hasPolicyWrite) {
@@ -506,6 +533,7 @@ function stringifyPolicy(policy) {
     {
       blockedOrganizationIds: [...policy.blockedOrganizationIds],
       configPath: policy.configPath,
+      designationEnabled: policy.designationEnabled,
       env: policy.env,
       runtimeEnabled: policy.runtimeEnabled,
     },
@@ -521,6 +549,7 @@ function serializePolicyWriteResult(result) {
     policy: {
       blockedOrganizationIds: [...result.policy.blockedOrganizationIds],
       configPath: result.policy.configPath,
+      designationEnabled: result.policy.designationEnabled,
       env: result.policy.env,
       runtimeEnabled: result.policy.runtimeEnabled,
     },
@@ -742,12 +771,15 @@ function printHelp() {
   console.log(`Usage:
   pnpm ops:remote-agent policy [--env prod|local] [--config <path>] [--json]
   pnpm ops:remote-agent policy --enable-runtime|--disable-runtime [--dry-run]
+  pnpm ops:remote-agent policy --enable-designation|--disable-designation [--dry-run]
   pnpm ops:remote-agent policy --block-org <id>|--unblock-org <id> [--dry-run]
   pnpm ops:remote-agent usage --space <id> --runtime-conversation <id> [--org <id>] [--env prod|local] [--service <worker>] [--local] [--dry-run]
 
 Policy options:
   --enable-runtime       Set OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED=true.
   --disable-runtime      Set OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED=false.
+  --enable-designation   Allow Remote Agent Center Agent designation.
+  --disable-designation  Pause Remote Agent Center Agent designation only.
   --block-org <id>       Add an organization id to the blocklist.
   --unblock-org <id>     Remove an organization id from the blocklist.
   --env <env>            Wrangler environment. Default prod. Use local for root vars.

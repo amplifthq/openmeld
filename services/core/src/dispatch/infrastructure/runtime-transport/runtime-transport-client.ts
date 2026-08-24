@@ -7,11 +7,11 @@ import {
   localProjectControlRemoveMissingConnectionsResultSchema,
   localProjectControlSetDefaultConnectionResultSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
-  runtimeTransportAgentProfileControllerMutationAcquireResponseSchema,
-  runtimeTransportAgentProfileControllerMutationReleaseResponseSchema,
-  runtimeTransportAgentProfileControllerMutationRequestSchema,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
   runtimeTransportAgentProfileExecutionStateResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
   runtimeTransportDisconnectRatesResponseSchema,
@@ -61,9 +61,9 @@ import type {
   LocalProjectControlRemoveMissingConnectionsResponse,
   LocalProjectControlSetDefaultConnectionRequest,
   LocalProjectControlSetDefaultConnectionResponse,
-  RuntimeTransportAgentProfileControllerMutationAcquireResponse,
-  RuntimeTransportAgentProfileControllerMutationReleaseResponse,
   RuntimeTransportAgentProfileExecutionStateResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
   RuntimeTransportDisconnectRatesResponse,
   RuntimeTransportForkAgentSessionResult,
   RuntimeTransportLookupOwnerServiceResponse,
@@ -80,22 +80,25 @@ import { readForgottenDeviceRecord } from "../../../start/infrastructure/d1/forg
 import { callRuntimeTransportApi } from "./runtime-transport-api-client";
 import { resolveRuntimeTransportOwnerShard } from "./runtime-transport-shard";
 
-export const acquireRuntimeTransportAgentProfileControllerMutation =
+export const acquireRuntimeTransportAgentProfileExecutionTargetMutation =
   async (input: {
     env: CoreBindings;
     operationId: string;
     ownerUserId: string;
     targetProfileId: string;
-  }): Promise<RuntimeTransportAgentProfileControllerMutationAcquireResponse> => {
+  }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> => {
     const parsedRequest =
-      runtimeTransportAgentProfileControllerMutationRequestSchema.safeParse({
-        operationId: input.operationId,
-        ownerUserId: input.ownerUserId,
-        targetProfileId: input.targetProfileId,
-      });
+      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse(
+        {
+          operationId: input.operationId,
+          ownerUserId: input.ownerUserId,
+          targetProfileId: input.targetProfileId,
+        }
+      );
     if (!parsedRequest.success) {
       return {
-        reasonCode: "runtime_coordinator.controller_mutation_request_invalid",
+        reasonCode:
+          "runtime_coordinator.execution_target_mutation_request_invalid",
         status: "unavailable",
       };
     }
@@ -105,7 +108,7 @@ export const acquireRuntimeTransportAgentProfileControllerMutation =
         input.ownerUserId
       );
       const parsedResponse =
-        runtimeTransportAgentProfileControllerMutationAcquireResponseSchema.safeParse(
+        runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema.safeParse(
           await shard.rpcAcquireAgentProfileControllerMutation(
             parsedRequest.data
           )
@@ -114,7 +117,7 @@ export const acquireRuntimeTransportAgentProfileControllerMutation =
         return parsedResponse.data;
       }
       console.warn(
-        "[core.runtime_coordinator.controller_mutation_acquire_response_invalid]",
+        "[core.runtime_coordinator.execution_target_mutation_acquire_response_invalid]",
         {
           error: parsedResponse.error.message,
           operationId: input.operationId,
@@ -124,7 +127,7 @@ export const acquireRuntimeTransportAgentProfileControllerMutation =
       );
     } catch (error) {
       console.warn(
-        "[core.runtime_coordinator.controller_mutation_acquire_failed]",
+        "[core.runtime_coordinator.execution_target_mutation_acquire_failed]",
         {
           error: error instanceof Error ? error.message : String(error),
           operationId: input.operationId,
@@ -139,15 +142,15 @@ export const acquireRuntimeTransportAgentProfileControllerMutation =
     };
   };
 
-export const releaseRuntimeTransportAgentProfileControllerMutation =
+export const releaseRuntimeTransportAgentProfileExecutionTargetMutation =
   async (input: {
     env: CoreBindings;
     operationId: string;
     ownerUserId: string;
     targetProfileId: string;
-  }): Promise<RuntimeTransportAgentProfileControllerMutationReleaseResponse> => {
+  }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse> => {
     const request =
-      runtimeTransportAgentProfileControllerMutationRequestSchema.parse({
+      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.parse({
         operationId: input.operationId,
         ownerUserId: input.ownerUserId,
         targetProfileId: input.targetProfileId,
@@ -156,7 +159,7 @@ export const releaseRuntimeTransportAgentProfileControllerMutation =
       input.env,
       input.ownerUserId
     );
-    return runtimeTransportAgentProfileControllerMutationReleaseResponseSchema.parse(
+    return runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema.parse(
       await shard.rpcReleaseAgentProfileControllerMutation(request)
     );
   };
@@ -568,6 +571,13 @@ export const setRuntimeTransportProfileWorkspace = async (input: {
   }
   return parsed.data;
 };
+
+export const isRuntimeTransportProfileWorkspaceOutcomeDefinitive = (
+  response: RuntimeTransportSetProfileWorkspaceResponse
+): boolean =>
+  response.status === "accepted" ||
+  (response.reasonCode !== "local_agent_control.timeout" &&
+    response.reasonCode !== "local_agent_control.invalid_response");
 
 export const refreshRuntimeTransportLocalAgentCatalog = async (input: {
   deviceId: string;

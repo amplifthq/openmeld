@@ -112,14 +112,14 @@ export const runtimeTransportAgentProfileExecutionStateResponseSchema =
     }),
   ]);
 
-export const runtimeTransportAgentProfileControllerMutationRequestSchema =
+export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =
   z.strictObject({
     operationId: z.string().trim().min(1).max(256),
     ownerUserId: z.string().trim().min(1).max(256),
     targetProfileId: agentProfileIdSchema,
   });
 
-export const runtimeTransportAgentProfileControllerMutationAcquireResponseSchema =
+export const runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({
       expiresAtMs: z.number().int().nonnegative(),
@@ -136,7 +136,7 @@ export const runtimeTransportAgentProfileControllerMutationAcquireResponseSchema
     }),
   ]);
 
-export const runtimeTransportAgentProfileControllerMutationReleaseResponseSchema =
+export const runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({ status: z.literal("released") }),
     z.strictObject({ status: z.literal("not_owner") }),

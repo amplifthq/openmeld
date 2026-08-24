@@ -7,6 +7,10 @@ import {
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { acceptAgentActivitySessionReconciliation } from "../src/agent-activity/activity-session-inventory-repository";
+import {
+  readPrimaryAgentProfileBindingRecord,
+  reconnectPrimaryAgentProfileBindingRecord,
+} from "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   rpcDisableAgentProfilePrimaryBinding,
@@ -20,6 +24,7 @@ import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registr
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
 import { readAvailableModelIds } from "../tests/test-support/model-catalog.test-support";
 import {
+  applyDrizzleMigrationsForTables,
   applyDrizzleMigrationForTable as applyMigrationForTable,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
@@ -631,6 +636,262 @@ describe("agent profile binding Core RPC", () => {
     }
   });
 
+  it("preserves settings saved while an execution-target reconnect is being prepared", async () => {
+    const harness = createSqliteD1Harness();
+    applyAgentProfileBindingRpcMigrations(harness);
+    try {
+      const registeredRuntimeId =
+        await seedRuntimeAgentControllerReport(harness);
+      const env = coreEnv(harness.db);
+      await rpcEnsureAgentProfilePrimaryBinding(env, {
+        agentControllerConversationId: "conversation-before-reconnect",
+        agentControllerPermissionMode: "codex:fullAccess",
+        agentControllerRef: "builtin:codex",
+        agentProfileId: AGENT_PROFILE_ID,
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        modelId: "gpt-5.5",
+        openMeldServiceRuntimeId: {
+          source: "runtime_registry_authority",
+          value: registeredRuntimeId.value,
+        },
+        reasoningLevel: "high",
+      });
+      const staleBinding = await readPrimaryAgentProfileBindingRecord({
+        agentProfileId: AGENT_PROFILE_ID,
+        db: harness.db,
+        owner: { id: "owner-1", kind: "owner_account" },
+      });
+      expect(staleBinding).not.toBeNull();
+
+      await rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode(
+        env,
+        {
+          agentControllerPermissionMode: "codex:approveForMe",
+          agentProfileId: AGENT_PROFILE_ID,
+          context: DEFAULT_CONTEXT,
+        }
+      );
+      await rpcUpdateAgentProfilePrimaryBindingModelSelection(env, {
+        agentProfileId: AGENT_PROFILE_ID,
+        context: DEFAULT_CONTEXT,
+        modelId: "gpt-5.5",
+        reasoningLevel: "xhigh",
+      });
+
+      const result = await reconnectPrimaryAgentProfileBindingRecord({
+        acquireExecutionTargetMutationAdmission: async () => undefined,
+        db: harness.db,
+        record: {
+          ...(staleBinding as NonNullable<typeof staleBinding>),
+          agentControllerConversationId: "conversation-after-reconnect",
+          bindingId: "binding-after-reconnect",
+          updatedAtMs: Date.now(),
+        },
+      });
+
+      expect(result).toMatchObject({
+        binding: {
+          agentControllerPermissionMode: "codex:approveForMe",
+          modelId: "gpt-5.5",
+          reasoningLevel: "xhigh",
+        },
+        outcome: "reconnected",
+        status: "accepted",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("retries an execution-target reconnect when settings win the D1 write race", async () => {
+    const harness = createSqliteD1Harness();
+    applyAgentProfileBindingRpcMigrations(harness);
+    try {
+      const registeredRuntimeId =
+        await seedRuntimeAgentControllerReport(harness);
+      const env = coreEnv(harness.db);
+      await rpcEnsureAgentProfilePrimaryBinding(env, {
+        agentControllerConversationId: "conversation-before-race",
+        agentControllerPermissionMode: "codex:fullAccess",
+        agentControllerRef: "builtin:codex",
+        agentProfileId: AGENT_PROFILE_ID,
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        openMeldServiceRuntimeId: {
+          source: "runtime_registry_authority",
+          value: registeredRuntimeId.value,
+        },
+      });
+      const staleBinding = await readPrimaryAgentProfileBindingRecord({
+        agentProfileId: AGENT_PROFILE_ID,
+        db: harness.db,
+        owner: { id: "owner-1", kind: "owner_account" },
+      });
+      expect(staleBinding).not.toBeNull();
+
+      let batchCalls = 0;
+      let settingsRaceApplied = false;
+      const racingDb = new Proxy(harness.db, {
+        get(target, property, receiver) {
+          if (property === "batch") {
+            return async (statements: D1PreparedStatement[]) => {
+              batchCalls += 1;
+              if (!settingsRaceApplied) {
+                settingsRaceApplied = true;
+                harness.run({
+                  params: ["codex:approveForMe", AGENT_PROFILE_ID],
+                  sql: `UPDATE openMeldDaemon_agent_profile_bindings
+                    SET agent_controller_permission_mode = ?,
+                        configuration_revision = configuration_revision + 1
+                    WHERE agent_profile_id = ?
+                      AND binding_state = 'enabled_primary'`,
+                });
+              }
+              return await target.batch(statements);
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
+      const result = await reconnectPrimaryAgentProfileBindingRecord({
+        acquireExecutionTargetMutationAdmission: async () => undefined,
+        db: racingDb,
+        record: {
+          ...(staleBinding as NonNullable<typeof staleBinding>),
+          agentControllerConversationId: "conversation-after-race",
+          bindingId: "binding-after-race",
+          updatedAtMs: Date.now(),
+        },
+      });
+
+      expect(batchCalls).toBe(2);
+      expect(result).toMatchObject({
+        binding: {
+          agentControllerPermissionMode: "codex:approveForMe",
+        },
+        outcome: "reconnected",
+        status: "accepted",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("takes mutation admission before unbinding even when the first Binding read is empty", async () => {
+    const harness = createSqliteD1Harness();
+    applyAgentProfileBindingRpcMigrations(harness);
+    try {
+      const racingEnv = coreEnv(harness.db, {
+        controllerMutationAcquireStatus: "blocked",
+      });
+      await expect(
+        rpcDisableAgentProfilePrimaryBinding(racingEnv, {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: DEFAULT_CONTEXT,
+        })
+      ).resolves.toEqual({
+        agentProfileId: AGENT_PROFILE_ID,
+        disabled: false,
+        reasonCodes: [
+          "agent_profile_binding.controller_change_blocked_active_execution",
+        ],
+        status: "unavailable",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("rechecks the current Binding before deciding whether a reconnect needs admission", async () => {
+    const harness = createSqliteD1Harness();
+    applyAgentProfileBindingRpcMigrations(harness);
+    try {
+      const registeredRuntimeId =
+        await seedRuntimeAgentControllerReport(harness);
+      await seedRuntimeAgentControllerReport(harness, {
+        agentControllerRef: "builtin:claude-code",
+        openMeldServiceRuntimeIdValue: registeredRuntimeId.value,
+      });
+      await rpcEnsureAgentProfilePrimaryBinding(coreEnv(harness.db), {
+        agentControllerRef: "builtin:codex",
+        agentProfileId: AGENT_PROFILE_ID,
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        openMeldServiceRuntimeId: {
+          source: "runtime_registry_authority",
+          value: registeredRuntimeId.value,
+        },
+      });
+
+      let primaryBindingReadCount = 0;
+      let bindingChangedBetweenApplicationAndRepoReads = false;
+      const racingDb = new Proxy(harness.db, {
+        get(target, property, receiver) {
+          if (property === "prepare") {
+            return (sql: string) => {
+              if (
+                sql.includes("FROM openMeldDaemon_agent_profile_bindings") &&
+                sql.includes("binding_state = 'enabled_primary'")
+              ) {
+                primaryBindingReadCount += 1;
+                if (primaryBindingReadCount === 2) {
+                  bindingChangedBetweenApplicationAndRepoReads = true;
+                  harness.run({
+                    params: ["builtin:claude-code", AGENT_PROFILE_ID],
+                    sql: `UPDATE openMeldDaemon_agent_profile_bindings
+                      SET agent_controller_ref = ?
+                      WHERE agent_profile_id = ?
+                        AND binding_state = 'enabled_primary'`,
+                  });
+                }
+              }
+              return target.prepare(sql);
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const activeEnv = coreEnv(racingDb, {
+        agentProfileExecutionState: "active",
+      });
+
+      await expect(
+        rpcEnsureAgentProfilePrimaryBinding(activeEnv, {
+          agentControllerRef: "builtin:codex",
+          agentProfileId: AGENT_PROFILE_ID,
+          context: DEFAULT_CONTEXT,
+          deviceId: "device-1",
+          lane: "openmeld-dev",
+          openMeldServiceRuntimeId: {
+            source: "runtime_registry_authority",
+            value: registeredRuntimeId.value,
+          },
+          writeMode: "reconnect",
+        })
+      ).resolves.toMatchObject({
+        reasonCodes: [
+          "agent_profile_binding.controller_change_blocked_active_execution",
+        ],
+        status: "rejected",
+      });
+      expect(bindingChangedBetweenApplicationAndRepoReads).toBe(true);
+      expect(
+        harness.queryFirst<{ agent_controller_ref: string }>({
+          sql: "SELECT agent_controller_ref FROM openMeldDaemon_agent_profile_bindings WHERE binding_state = 'enabled_primary'",
+        })
+      ).toEqual({ agent_controller_ref: "builtin:claude-code" });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("returns saved OpenCode permissions after a fresh primary Binding read", async () => {
     const harness = createSqliteD1Harness();
     applyAgentProfileBindingRpcMigrations(harness);
@@ -834,10 +1095,7 @@ describe("agent profile binding Core RPC", () => {
     try {
       const registeredRuntimeId =
         await seedRuntimeAgentControllerReport(harness);
-      const env = coreEnv(harness.db, {
-        agentProfileExecutionState: "active",
-      });
-      await rpcEnsureAgentProfilePrimaryBinding(env, {
+      await rpcEnsureAgentProfilePrimaryBinding(coreEnv(harness.db), {
         agentProfileId: AGENT_PROFILE_ID,
         agentControllerRef: "builtin:codex",
         context: DEFAULT_CONTEXT,
@@ -847,6 +1105,9 @@ describe("agent profile binding Core RPC", () => {
           source: "runtime_registry_authority",
           value: registeredRuntimeId.value,
         },
+      });
+      const env = coreEnv(harness.db, {
+        agentProfileExecutionState: "active",
       });
 
       await expect(
@@ -1336,20 +1597,19 @@ function coreEnv(
 function applyAgentProfileBindingRpcMigrations(
   harness: ReturnType<typeof createSqliteD1Harness>
 ): void {
-  for (const tableName of [
+  applyOrganizationIdentityFixtureTables(harness);
+  applyDrizzleMigrationsForTables(harness, [
     "openMeldDaemon_runtime_registry_records",
     "openMeldDaemon_runtime_agent_controller_reports",
+    "openmeld_profiles",
     "openMeldDaemon_agent_profile_bindings",
-  ]) {
-    applyMigrationForTable(harness, tableName);
-  }
+  ]);
   applyOrganizationAuthorizationFixtureTables(harness);
-  applyMigrationForTable(harness, "openmeld_profiles");
   seedPersonalOrganizationForOwner(harness);
   seedAgentProfileForOwner(harness);
 }
 
-function applyOrganizationAuthorizationFixtureTables(
+function applyOrganizationIdentityFixtureTables(
   harness: ReturnType<typeof createSqliteD1Harness>
 ): void {
   harness.run({
@@ -1377,6 +1637,19 @@ function applyOrganizationAuthorizationFixtureTables(
       )
     `,
   });
+  harness.run({
+    sql: `
+      CREATE TABLE IF NOT EXISTS projects (
+        id text PRIMARY KEY NOT NULL
+      )
+    `,
+  });
+}
+
+function applyOrganizationAuthorizationFixtureTables(
+  harness: ReturnType<typeof createSqliteD1Harness>
+): void {
+  applyOrganizationIdentityFixtureTables(harness);
   harness.run({
     sql: `
       CREATE UNIQUE INDEX IF NOT EXISTS organizations_slug_unique

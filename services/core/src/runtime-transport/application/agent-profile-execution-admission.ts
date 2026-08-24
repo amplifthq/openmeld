@@ -1,8 +1,8 @@
 import { runtimeCoordinatorExecutionTokenAuthorityRecordSchema } from "@openmeld/schemas";
 import type {
-  RuntimeTransportAgentProfileControllerMutationAcquireResponse,
-  RuntimeTransportAgentProfileControllerMutationReleaseResponse,
   RuntimeTransportAgentProfileExecutionStateResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
 } from "@openmeld/schemas/types";
 import {
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
@@ -20,30 +20,35 @@ const EXECUTION_ADMISSION_MODEL_VERSION =
   "openmeld.runtime_coordinator.agent_profile_execution_admission.v1" as const;
 const EXECUTION_INDEX_MODEL_VERSION =
   "openmeld.runtime_coordinator.agent_profile_execution_index.v1" as const;
+const EXECUTION_ACTIVE_PROFILE_INDEX_MODEL_VERSION =
+  "openmeld.runtime_coordinator.agent_profile_active_index.v1" as const;
 const EXECUTION_ADMISSION_STORAGE_KEY_PREFIX =
   "runtime-coordinator:agent-profile-execution-admission:v1:";
+const EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY =
+  "runtime-coordinator:agent-profile-active-index:v1";
 const EXECUTION_INDEX_STORAGE_KEY =
   "runtime-coordinator:agent-profile-execution-index:v1";
 const EXECUTION_INDEX_REPAIR_PAGE_SIZE = 128;
 const EXECUTION_INDEX_INLINE_REPAIR_STEPS = 2;
 const EXECUTION_INDEX_REPAIR_RETRY_BASE_MS = 5000;
 const EXECUTION_INDEX_REPAIR_RETRY_MAX_MS = 5 * 60_000;
-const CONTROLLER_MUTATION_LEASE_MS = 5 * 60_000;
+const EXECUTION_TARGET_MUTATION_LEASE_MS = 5 * 60_000;
+const MAX_EXECUTION_ADMISSION_REFERENCES_PER_KIND = 128;
 const EXECUTION_STATE_UNAVAILABLE_REASON =
   "runtime_coordinator.execution_state_unavailable";
 const EXECUTION_INDEX_REBUILDING_REASON =
   "runtime_coordinator.execution_state_rebuilding";
 const EXECUTION_INDEX_REPAIR_FAILED_REASON =
   "runtime_coordinator.execution_state_repair_failed";
-const CONTROLLER_MUTATION_IN_PROGRESS_REASON =
-  "runtime_coordinator.controller_mutation_in_progress";
+const EXECUTION_TARGET_MUTATION_IN_PROGRESS_REASON =
+  "runtime_coordinator.execution_target_mutation_in_progress";
 
 type ExecutionAdmissionStorage = Pick<
   DurableObjectStorage,
   "delete" | "get" | "list" | "put" | "transaction"
 >;
 
-type ControllerMutationLease = {
+type ExecutionTargetMutationLease = {
   expiresAtMs: number;
   operationId: string;
   startedAtMs: number;
@@ -52,12 +57,19 @@ type ControllerMutationLease = {
 type AgentProfileExecutionAdmissionRecord = {
   activeExecutionIds: string[];
   activeHeadLifecycleIds: string[];
-  controllerMutation: ControllerMutationLease | null;
+  executionTargetMutation: ExecutionTargetMutationLease | null;
   generation: number;
   modelVersion: typeof EXECUTION_ADMISSION_MODEL_VERSION;
+  referencesOverflowed: boolean;
   revision: number;
   targetProfileId: string;
   updatedAtMs: number;
+};
+
+type AgentProfileActiveIndexRecord = {
+  generation: number;
+  modelVersion: typeof EXECUTION_ACTIVE_PROFILE_INDEX_MODEL_VERSION;
+  targetProfileIds: string[];
 };
 
 type AgentProfileExecutionIndexState =
@@ -120,35 +132,89 @@ export async function readRuntimeCoordinatorAgentProfileExecutionStateFromAdmiss
   const rawAdmission = await input.storage.get<unknown>(
     buildExecutionAdmissionStorageKey(input.targetProfileId)
   );
+  const activeProfileIndex = parseActiveProfileIndexRecord(
+    await input.storage.get<unknown>(
+      EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
+    ),
+    index.generation
+  );
+  if (!activeProfileIndex) {
+    await requestFreshExecutionIndexRepair({
+      expectedGeneration: index.generation,
+      nowMs: input.nowMs,
+      ownerUserId: input.ownerUserId,
+      storage: input.storage,
+    });
+    return unavailableExecutionState(EXECUTION_INDEX_REBUILDING_REASON);
+  }
   if (rawAdmission === undefined || rawAdmission === null) {
-    return { status: "inactive" };
+    if (!activeProfileIndex.targetProfileIds.includes(input.targetProfileId)) {
+      return { status: "inactive" };
+    }
+    await requestFreshExecutionIndexRepair({
+      expectedGeneration: index.generation,
+      nowMs: input.nowMs,
+      ownerUserId: input.ownerUserId,
+      storage: input.storage,
+    });
+    return unavailableExecutionState(EXECUTION_INDEX_REBUILDING_REASON);
   }
   const admission = parseExecutionAdmissionRecord(rawAdmission);
-  if (
-    !admission ||
-    admission.generation !== index.generation ||
-    admission.targetProfileId !== input.targetProfileId
-  ) {
-    return admission && admission.generation !== index.generation
-      ? { status: "inactive" }
-      : unavailableExecutionState();
+  if (!admission || admission.targetProfileId !== input.targetProfileId) {
+    await requestFreshExecutionIndexRepair({
+      expectedGeneration: index.generation,
+      nowMs: input.nowMs,
+      ownerUserId: input.ownerUserId,
+      storage: input.storage,
+    });
+    return unavailableExecutionState(EXECUTION_INDEX_REBUILDING_REASON);
+  }
+  if (admission.generation !== index.generation) {
+    if (!activeProfileIndex.targetProfileIds.includes(input.targetProfileId)) {
+      return admission.executionTargetMutation &&
+        admission.executionTargetMutation.expiresAtMs > input.nowMs
+        ? unavailableExecutionState(
+            EXECUTION_TARGET_MUTATION_IN_PROGRESS_REASON
+          )
+        : { status: "inactive" };
+    }
+    await requestFreshExecutionIndexRepair({
+      expectedGeneration: index.generation,
+      nowMs: input.nowMs,
+      ownerUserId: input.ownerUserId,
+      storage: input.storage,
+    });
+    return unavailableExecutionState(EXECUTION_INDEX_REBUILDING_REASON);
   }
 
-  return await resolveAdmissionExecutionState({
+  const executionState = await resolveAdmissionExecutionState({
     admission,
     nowMs: input.nowMs,
     ownerUserId: input.ownerUserId,
     storage: input.storage,
   });
+  if (
+    executionState.status !== "unavailable" ||
+    executionState.reasonCode === EXECUTION_TARGET_MUTATION_IN_PROGRESS_REASON
+  ) {
+    return executionState;
+  }
+  await requestFreshExecutionIndexRepair({
+    expectedGeneration: index.generation,
+    nowMs: input.nowMs,
+    ownerUserId: input.ownerUserId,
+    storage: input.storage,
+  });
+  return unavailableExecutionState(EXECUTION_INDEX_REBUILDING_REASON);
 }
 
-export async function acquireRuntimeCoordinatorAgentProfileControllerMutation(input: {
+export async function acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation(input: {
   nowMs: number;
   operationId: string;
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
   targetProfileId: string;
-}): Promise<RuntimeTransportAgentProfileControllerMutationAcquireResponse> {
+}): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
   const index = await ensureExecutionIndexReady({
     nowMs: input.nowMs,
     ownerUserId: input.ownerUserId,
@@ -170,11 +236,11 @@ export async function acquireRuntimeCoordinatorAgentProfileControllerMutation(in
   if (
     existing?.generation === index.generation &&
     existing.targetProfileId === input.targetProfileId &&
-    existing.controllerMutation?.operationId === input.operationId &&
-    existing.controllerMutation.expiresAtMs > input.nowMs
+    existing.executionTargetMutation?.operationId === input.operationId &&
+    existing.executionTargetMutation.expiresAtMs > input.nowMs
   ) {
     return {
-      expiresAtMs: existing.controllerMutation.expiresAtMs,
+      expiresAtMs: existing.executionTargetMutation.expiresAtMs,
       operationId: input.operationId,
       status: "acquired",
     };
@@ -209,48 +275,39 @@ export async function acquireRuntimeCoordinatorAgentProfileControllerMutation(in
         status: "unavailable" as const,
       };
     }
-
-    const currentRaw = await transaction.get<unknown>(storageKey);
-    const current = parseExecutionAdmissionRecord(currentRaw);
-    if (currentRaw !== undefined && !current) {
-      return {
-        reasonCode: EXECUTION_STATE_UNAVAILABLE_REASON,
-        status: "unavailable" as const,
-      };
+    const prepared = await prepareMutationAdmissionTransaction({
+      currentIndex,
+      nowMs: input.nowMs,
+      storageKey,
+      targetProfileId: input.targetProfileId,
+      transaction,
+    });
+    if (prepared.status === "unavailable") {
+      return prepared.response;
     }
-    const admission =
-      current?.generation === index.generation
-        ? current
-        : emptyExecutionAdmissionRecord({
-            generation: index.generation,
-            nowMs: input.nowMs,
-            targetProfileId: input.targetProfileId,
-          });
-    if (
-      admission.activeExecutionIds.length > 0 ||
-      admission.activeHeadLifecycleIds.length > 0
-    ) {
+    const admission = prepared.admission;
+    if (admissionHasActiveReferences(admission)) {
       return {
         reasonCode: "runtime_coordinator.agent_profile_execution_active",
         status: "blocked" as const,
       };
     }
-    const currentMutation = admission.controllerMutation;
+    const currentMutation = admission.executionTargetMutation;
     if (
       currentMutation &&
       currentMutation.expiresAtMs > input.nowMs &&
       currentMutation.operationId !== input.operationId
     ) {
       return {
-        reasonCode: CONTROLLER_MUTATION_IN_PROGRESS_REASON,
+        reasonCode: EXECUTION_TARGET_MUTATION_IN_PROGRESS_REASON,
         status: "unavailable" as const,
       };
     }
 
-    const expiresAtMs = input.nowMs + CONTROLLER_MUTATION_LEASE_MS;
+    const expiresAtMs = input.nowMs + EXECUTION_TARGET_MUTATION_LEASE_MS;
     await transaction.put(storageKey, {
       ...admission,
-      controllerMutation: {
+      executionTargetMutation: {
         expiresAtMs,
         operationId: input.operationId,
         startedAtMs: input.nowMs,
@@ -266,13 +323,81 @@ export async function acquireRuntimeCoordinatorAgentProfileControllerMutation(in
   });
 }
 
-export async function releaseRuntimeCoordinatorAgentProfileControllerMutation(input: {
+async function prepareMutationAdmissionTransaction(input: {
+  currentIndex: Extract<AgentProfileExecutionIndexState, { status: "ready" }>;
+  nowMs: number;
+  storageKey: string;
+  targetProfileId: string;
+  transaction: Pick<DurableObjectTransaction, "get" | "put">;
+}): Promise<
+  | { admission: AgentProfileExecutionAdmissionRecord; status: "ready" }
+  | {
+      response: {
+        reasonCode: typeof EXECUTION_INDEX_REBUILDING_REASON;
+        status: "unavailable";
+      };
+      status: "unavailable";
+    }
+> {
+  const activeProfileIndex = parseActiveProfileIndexRecord(
+    await input.transaction.get<unknown>(
+      EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
+    ),
+    input.currentIndex.generation
+  );
+  if (!activeProfileIndex) {
+    await writeFreshExecutionIndexRepairState(input);
+    return rebuildingMutationAdmissionResult();
+  }
+
+  const currentRaw = await input.transaction.get<unknown>(input.storageKey);
+  const current = parseExecutionAdmissionRecord(currentRaw);
+  if (currentRaw !== undefined && !current) {
+    await writeFreshExecutionIndexRepairState(input);
+    return rebuildingMutationAdmissionResult();
+  }
+  if (
+    (!current || current.generation !== input.currentIndex.generation) &&
+    activeProfileIndex.targetProfileIds.includes(input.targetProfileId)
+  ) {
+    await writeFreshExecutionIndexRepairState(input);
+    return rebuildingMutationAdmissionResult();
+  }
+  const admission =
+    current?.generation === input.currentIndex.generation
+      ? current
+      : emptyExecutionAdmissionRecord({
+          executionTargetMutation: current?.executionTargetMutation ?? null,
+          generation: input.currentIndex.generation,
+          nowMs: input.nowMs,
+          targetProfileId: input.targetProfileId,
+        });
+  return { admission, status: "ready" };
+}
+
+function rebuildingMutationAdmissionResult(): {
+  response: {
+    reasonCode: typeof EXECUTION_INDEX_REBUILDING_REASON;
+    status: "unavailable";
+  };
+  status: "unavailable";
+} {
+  return {
+    response: {
+      reasonCode: EXECUTION_INDEX_REBUILDING_REASON,
+      status: "unavailable",
+    },
+    status: "unavailable",
+  };
+}
+
+export async function releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation(input: {
   nowMs: number;
   operationId: string;
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
   targetProfileId: string;
-}): Promise<RuntimeTransportAgentProfileControllerMutationReleaseResponse> {
+}): Promise<RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse> {
   const storageKey = buildExecutionAdmissionStorageKey(input.targetProfileId);
   return await input.storage.transaction(async (transaction) => {
     const index = parseExecutionIndexState(
@@ -286,13 +411,13 @@ export async function releaseRuntimeCoordinatorAgentProfileControllerMutation(in
     );
     if (
       !admission ||
-      admission.controllerMutation?.operationId !== input.operationId
+      admission.executionTargetMutation?.operationId !== input.operationId
     ) {
       return { status: "not_owner" as const };
     }
     await transaction.put(storageKey, {
       ...admission,
-      controllerMutation: null,
+      executionTargetMutation: null,
       revision: admission.revision + 1,
       updatedAtMs: input.nowMs,
     } satisfies AgentProfileExecutionAdmissionRecord);
@@ -301,64 +426,53 @@ export async function releaseRuntimeCoordinatorAgentProfileControllerMutation(in
 }
 
 export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
-  blockForControllerMutation: boolean;
+  blockForExecutionTargetMutation: boolean;
   nowMs: number;
   record: RuntimeCoordinatorHeadLifecycleRecord;
   storage: ExecutionAdmissionStorage;
-}): Promise<"controller_mutation_in_progress" | "written"> {
+}): Promise<"execution_target_mutation_in_progress" | "written"> {
   return await input.storage.transaction(async (transaction) => {
-    const rawIndex = await transaction.get<unknown>(
-      EXECUTION_INDEX_STORAGE_KEY
-    );
-    const parsedIndex = parseExecutionIndexState(rawIndex);
-    const index =
-      parsedIndex ??
-      rebuildingExecutionIndexState({
-        generation: nextExecutionIndexGeneration(rawIndex),
-        nowMs: input.nowMs,
-        ownerUserId: input.record.ownerUserId,
-        repairRequested: false,
-      });
-    if (index.ownerUserId !== input.record.ownerUserId) {
-      throw new Error("runtime_coordinator.execution_index_owner_mismatch");
-    }
-
-    const admissionKey = buildExecutionAdmissionStorageKey(
-      input.record.targetWakeLifecycleIdentity.targetProfileId
-    );
-    const rawAdmission = await transaction.get<unknown>(admissionKey);
-    const parsedAdmission = parseExecutionAdmissionRecord(rawAdmission);
-    if (rawAdmission !== undefined && !parsedAdmission) {
-      throw new Error("runtime_coordinator.execution_admission_invalid");
-    }
-    const admission =
-      parsedAdmission?.generation === index.generation
-        ? parsedAdmission
-        : emptyExecutionAdmissionRecord({
-            generation: index.generation,
-            nowMs: input.nowMs,
-            targetProfileId:
-              input.record.targetWakeLifecycleIdentity.targetProfileId,
-          });
+    const prepared = await prepareHeadLifecycleAdmissionWrite({
+      nowMs: input.nowMs,
+      record: input.record,
+      transaction,
+    });
+    const { admission, admissionKey, index, parsedIndex } = prepared;
     if (
-      input.blockForControllerMutation &&
-      admission.controllerMutation &&
-      admission.controllerMutation.expiresAtMs > input.nowMs
+      input.blockForExecutionTargetMutation &&
+      admission.executionTargetMutation &&
+      admission.executionTargetMutation.expiresAtMs > input.nowMs
     ) {
-      return "controller_mutation_in_progress";
+      return "execution_target_mutation_in_progress";
     }
 
-    const currentMutation = admission.controllerMutation;
+    const currentMutation = admission.executionTargetMutation;
     const nextAdmission = applyHeadLifecycleToAdmission({
       admission: {
         ...admission,
-        controllerMutation:
+        executionTargetMutation:
           currentMutation && currentMutation.expiresAtMs > input.nowMs
             ? currentMutation
             : null,
       },
       nowMs: input.nowMs,
       record: input.record,
+    });
+    const rawActiveProfileIds = await transaction.get<unknown>(
+      EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
+    );
+    const activeProfileIndex = resolveActiveProfileIndexForWrite({
+      generation: index.generation,
+      indexReady: index.status === "ready",
+      raw: rawActiveProfileIds,
+    });
+    if (!activeProfileIndex) {
+      throw new Error("runtime_coordinator.active_profile_index_invalid");
+    }
+    const nextActiveProfileIds = updateActiveProfileIds({
+      active: admissionHasActiveReferences(nextAdmission),
+      activeProfileIds: activeProfileIndex.targetProfileIds,
+      targetProfileId: input.record.targetWakeLifecycleIdentity.targetProfileId,
     });
     const rawLegacyIndex = await transaction.get<unknown>(
       RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY
@@ -379,6 +493,10 @@ export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
         nextLegacyIds
       ),
       transaction.put(admissionKey, nextAdmission),
+      transaction.put(
+        EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
+        createActiveProfileIndexRecord(index.generation, nextActiveProfileIds)
+      ),
     ];
     if (!parsedIndex) {
       writes.push(transaction.put(EXECUTION_INDEX_STORAGE_KEY, index));
@@ -386,6 +504,53 @@ export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
     await Promise.all(writes);
     return "written";
   });
+}
+
+async function prepareHeadLifecycleAdmissionWrite(input: {
+  nowMs: number;
+  record: RuntimeCoordinatorHeadLifecycleRecord;
+  transaction: Pick<DurableObjectTransaction, "get">;
+}): Promise<{
+  admission: AgentProfileExecutionAdmissionRecord;
+  admissionKey: string;
+  index: AgentProfileExecutionIndexState;
+  parsedIndex: AgentProfileExecutionIndexState | null;
+}> {
+  const rawIndex = await input.transaction.get<unknown>(
+    EXECUTION_INDEX_STORAGE_KEY
+  );
+  const parsedIndex = parseExecutionIndexState(rawIndex);
+  const index =
+    parsedIndex ??
+    rebuildingExecutionIndexState({
+      generation: nextExecutionIndexGeneration(rawIndex),
+      nowMs: input.nowMs,
+      ownerUserId: input.record.ownerUserId,
+      repairRequested: false,
+    });
+  if (index.ownerUserId !== input.record.ownerUserId) {
+    throw new Error("runtime_coordinator.execution_index_owner_mismatch");
+  }
+
+  const targetProfileId =
+    input.record.targetWakeLifecycleIdentity.targetProfileId;
+  const admissionKey = buildExecutionAdmissionStorageKey(targetProfileId);
+  const rawAdmission = await input.transaction.get<unknown>(admissionKey);
+  const parsedAdmission = parseExecutionAdmissionRecord(rawAdmission);
+  if (rawAdmission !== undefined && !parsedAdmission) {
+    throw new Error("runtime_coordinator.execution_admission_invalid");
+  }
+  const admission =
+    parsedAdmission?.generation === index.generation
+      ? parsedAdmission
+      : emptyExecutionAdmissionRecord({
+          executionTargetMutation:
+            parsedAdmission?.executionTargetMutation ?? null,
+          generation: index.generation,
+          nowMs: input.nowMs,
+          targetProfileId,
+        });
+  return { admission, admissionKey, index, parsedIndex };
 }
 
 export async function writeRuntimeCoordinatorTokenAuthorityWithAdmission(input: {
@@ -409,25 +574,55 @@ export async function writeRuntimeCoordinatorTokenAuthorityWithAdmission(input: 
       parsedAdmission?.generation === generation
         ? parsedAdmission
         : emptyExecutionAdmissionRecord({
+            executionTargetMutation:
+              parsedAdmission?.executionTargetMutation ?? null,
             generation,
             nowMs: input.nowMs,
             targetProfileId,
           });
     const executionId = input.authority.runtimeCoordinatorExecutionId;
-    const activeExecutionIds = input.authority.terminalOutcome
-      ? admission.activeExecutionIds.filter((id) => id !== executionId)
-      : uniqueSorted([...admission.activeExecutionIds, executionId]);
+    const boundedExecutionReferences = input.authority.terminalOutcome
+      ? {
+          ids: admission.activeExecutionIds.filter((id) => id !== executionId),
+          overflowed: admission.referencesOverflowed,
+        }
+      : appendBoundedReferences(admission.activeExecutionIds, [executionId]);
+    const nextAdmission = {
+      ...admission,
+      activeExecutionIds: boundedExecutionReferences.ids,
+      referencesOverflowed:
+        admission.referencesOverflowed || boundedExecutionReferences.overflowed,
+      revision: admission.revision + 1,
+      updatedAtMs: input.nowMs,
+    } satisfies AgentProfileExecutionAdmissionRecord;
+    const rawActiveProfileIds = await transaction.get<unknown>(
+      EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
+    );
+    const activeProfileIndex = resolveActiveProfileIndexForWrite({
+      generation,
+      indexReady: index?.status === "ready",
+      raw: rawActiveProfileIds,
+    });
+    if (!activeProfileIndex) {
+      throw new Error("runtime_coordinator.active_profile_index_invalid");
+    }
     await Promise.all([
       transaction.put(
         buildRuntimeCoordinatorTokenAuthorityStorageKey(executionId),
         input.authority
       ),
-      transaction.put(admissionKey, {
-        ...admission,
-        activeExecutionIds,
-        revision: admission.revision + 1,
-        updatedAtMs: input.nowMs,
-      } satisfies AgentProfileExecutionAdmissionRecord),
+      transaction.put(admissionKey, nextAdmission),
+      transaction.put(
+        EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
+        createActiveProfileIndexRecord(
+          generation,
+          updateActiveProfileIds({
+            active: admissionHasActiveReferences(nextAdmission),
+            activeProfileIds: activeProfileIndex.targetProfileIds,
+            targetProfileId,
+          })
+        )
+      ),
     ]);
   });
 }
@@ -466,91 +661,103 @@ export async function advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair(
     await input.storage.put(EXECUTION_INDEX_STORAGE_KEY, state);
   }
 
-  const prefix =
-    state.phase === "head_lifecycles"
-      ? RUNTIME_COORDINATOR_HEAD_LIFECYCLE_STORAGE_KEY_PREFIX
-      : RUNTIME_COORDINATOR_RUN_COMMAND_STATE_STORAGE_KEY_PREFIX;
-  const page = await input.storage.list<unknown>({
-    limit: EXECUTION_INDEX_REPAIR_PAGE_SIZE,
-    prefix,
-    ...(state.cursor ? { startAfter: state.cursor } : {}),
-  });
-  let observations: ActiveObservationsByProfile;
+  const repairingState = state as Extract<
+    AgentProfileExecutionIndexState,
+    { status: "rebuilding" }
+  >;
   try {
-    observations = await collectExecutionIndexRepairObservations({
-      ownerUserId: state.ownerUserId,
+    const prefix =
+      repairingState.phase === "head_lifecycles"
+        ? RUNTIME_COORDINATOR_HEAD_LIFECYCLE_STORAGE_KEY_PREFIX
+        : RUNTIME_COORDINATOR_RUN_COMMAND_STATE_STORAGE_KEY_PREFIX;
+    const page = await input.storage.list<unknown>({
+      limit: EXECUTION_INDEX_REPAIR_PAGE_SIZE,
+      prefix,
+      ...(repairingState.cursor ? { startAfter: repairingState.cursor } : {}),
+    });
+    const observations = await collectExecutionIndexRepairObservations({
+      ownerUserId: repairingState.ownerUserId,
       page,
-      phase: state.phase,
+      phase: repairingState.phase,
       storage: input.storage,
     });
+    const nextState = resolveNextExecutionIndexRepairState({
+      lastKey: [...page.keys()].at(-1) ?? null,
+      nowMs: input.nowMs,
+      pageComplete: page.size < EXECUTION_INDEX_REPAIR_PAGE_SIZE,
+      state: repairingState,
+    });
+
+    await input.storage.transaction(async (transaction) => {
+      const activeProfileIndex = parseActiveProfileIndexRecord(
+        await transaction.get<unknown>(
+          EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
+        ),
+        repairingState.generation
+      );
+      if (!activeProfileIndex) {
+        throw new Error("runtime_coordinator.active_profile_index_invalid");
+      }
+      let activeProfileIds = activeProfileIndex.targetProfileIds;
+      for (const [targetProfileId, observed] of observations) {
+        const admissionKey = buildExecutionAdmissionStorageKey(targetProfileId);
+        const current = parseExecutionAdmissionRecord(
+          await transaction.get<unknown>(admissionKey)
+        );
+        const admission =
+          current?.generation === repairingState.generation
+            ? current
+            : emptyExecutionAdmissionRecord({
+                executionTargetMutation:
+                  current?.executionTargetMutation ?? null,
+                generation: repairingState.generation,
+                nowMs: input.nowMs,
+                targetProfileId,
+              });
+        const executionReferences = appendBoundedReferences(
+          admission.activeExecutionIds,
+          [...observed.executionIds]
+        );
+        const headReferences = appendBoundedReferences(
+          admission.activeHeadLifecycleIds,
+          [...observed.headLifecycleIds]
+        );
+        await transaction.put(admissionKey, {
+          ...admission,
+          activeExecutionIds: executionReferences.ids,
+          activeHeadLifecycleIds: headReferences.ids,
+          referencesOverflowed:
+            admission.referencesOverflowed ||
+            executionReferences.overflowed ||
+            headReferences.overflowed,
+          revision: admission.revision + 1,
+          updatedAtMs: input.nowMs,
+        } satisfies AgentProfileExecutionAdmissionRecord);
+        activeProfileIds = updateActiveProfileIds({
+          active: true,
+          activeProfileIds,
+          targetProfileId,
+        });
+      }
+      await transaction.put(
+        EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
+        createActiveProfileIndexRecord(
+          repairingState.generation,
+          activeProfileIds
+        )
+      );
+      await transaction.put(EXECUTION_INDEX_STORAGE_KEY, nextState);
+    });
+    return nextState.status;
   } catch (error) {
-    const failureCount = state.failureCount + 1;
-    const failed: AgentProfileExecutionIndexState = {
-      cursor: state.cursor,
-      failureCount,
-      generation: state.generation,
-      modelVersion: EXECUTION_INDEX_MODEL_VERSION,
-      ownerUserId: state.ownerUserId,
-      phase: state.phase,
-      reasonCode:
-        error instanceof Error
-          ? error.message
-          : EXECUTION_STATE_UNAVAILABLE_REASON,
-      retryAtMs:
-        input.nowMs + resolveExecutionIndexRepairRetryDelayMs(failureCount),
-      repairRequested: state.repairRequested,
-      status: "failed",
-      updatedAtMs: input.nowMs,
-    };
-    await input.storage.put(EXECUTION_INDEX_STORAGE_KEY, failed);
-    console.warn("[runtime_coordinator.execution_index_repair_failed]", {
-      error: failed.reasonCode,
-      generation: failed.generation,
-      ownerUserId: failed.ownerUserId,
-      phase: state.phase,
-      retryAtMs: failed.retryAtMs,
+    await persistExecutionIndexRepairFailure({
+      error,
+      nowMs: input.nowMs,
+      state: repairingState,
+      storage: input.storage,
     });
     return "failed";
   }
-
-  const nextState = resolveNextExecutionIndexRepairState({
-    lastKey: [...page.keys()].at(-1) ?? null,
-    nowMs: input.nowMs,
-    pageComplete: page.size < EXECUTION_INDEX_REPAIR_PAGE_SIZE,
-    state,
-  });
-
-  await input.storage.transaction(async (transaction) => {
-    for (const [targetProfileId, observed] of observations) {
-      const admissionKey = buildExecutionAdmissionStorageKey(targetProfileId);
-      const current = parseExecutionAdmissionRecord(
-        await transaction.get<unknown>(admissionKey)
-      );
-      const admission =
-        current?.generation === state.generation
-          ? current
-          : emptyExecutionAdmissionRecord({
-              generation: state.generation,
-              nowMs: input.nowMs,
-              targetProfileId,
-            });
-      await transaction.put(admissionKey, {
-        ...admission,
-        activeExecutionIds: uniqueSorted([
-          ...admission.activeExecutionIds,
-          ...observed.executionIds,
-        ]),
-        activeHeadLifecycleIds: uniqueSorted([
-          ...admission.activeHeadLifecycleIds,
-          ...observed.headLifecycleIds,
-        ]),
-        revision: admission.revision + 1,
-        updatedAtMs: input.nowMs,
-      } satisfies AgentProfileExecutionAdmissionRecord);
-    }
-    await transaction.put(EXECUTION_INDEX_STORAGE_KEY, nextState);
-  });
-  return nextState.status;
 }
 
 async function collectExecutionIndexRepairObservations(input: {
@@ -742,14 +949,27 @@ async function ensureExecutionIndexReady(input: {
     await input.storage.get<unknown>(EXECUTION_INDEX_STORAGE_KEY)
   );
   if (!state) {
-    const raw = await input.storage.get<unknown>(EXECUTION_INDEX_STORAGE_KEY);
-    state = rebuildingExecutionIndexState({
-      generation: nextExecutionIndexGeneration(raw),
-      nowMs: input.nowMs,
-      ownerUserId: input.ownerUserId,
-      repairRequested: true,
+    state = await input.storage.transaction(async (transaction) => {
+      const raw = await transaction.get<unknown>(EXECUTION_INDEX_STORAGE_KEY);
+      const current = parseExecutionIndexState(raw);
+      if (current) {
+        return current;
+      }
+      const rebuilding = rebuildingExecutionIndexState({
+        generation: nextExecutionIndexGeneration(raw),
+        nowMs: input.nowMs,
+        ownerUserId: input.ownerUserId,
+        repairRequested: true,
+      });
+      await Promise.all([
+        transaction.put(EXECUTION_INDEX_STORAGE_KEY, rebuilding),
+        transaction.put(
+          EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
+          createActiveProfileIndexRecord(rebuilding.generation, [])
+        ),
+      ]);
+      return rebuilding;
     });
-    await input.storage.put(EXECUTION_INDEX_STORAGE_KEY, state);
   }
   if (state.ownerUserId !== input.ownerUserId) {
     return {
@@ -801,16 +1021,92 @@ async function ensureExecutionIndexReady(input: {
   return state;
 }
 
+async function requestFreshExecutionIndexRepair(input: {
+  expectedGeneration: number;
+  nowMs: number;
+  ownerUserId: string;
+  storage: ExecutionAdmissionStorage;
+}): Promise<void> {
+  await input.storage.transaction(async (transaction) => {
+    const currentIndex = parseExecutionIndexState(
+      await transaction.get<unknown>(EXECUTION_INDEX_STORAGE_KEY)
+    );
+    if (
+      currentIndex?.status !== "ready" ||
+      currentIndex.generation !== input.expectedGeneration ||
+      currentIndex.ownerUserId !== input.ownerUserId
+    ) {
+      return;
+    }
+    await writeFreshExecutionIndexRepairState({
+      currentIndex,
+      nowMs: input.nowMs,
+      transaction,
+    });
+  });
+}
+
+async function writeFreshExecutionIndexRepairState(input: {
+  currentIndex: Extract<AgentProfileExecutionIndexState, { status: "ready" }>;
+  nowMs: number;
+  transaction: Pick<DurableObjectTransaction, "put">;
+}): Promise<void> {
+  const rebuilding = rebuildingExecutionIndexState({
+    generation: input.currentIndex.generation + 1,
+    nowMs: input.nowMs,
+    ownerUserId: input.currentIndex.ownerUserId,
+    repairRequested: true,
+  });
+  await Promise.all([
+    input.transaction.put(EXECUTION_INDEX_STORAGE_KEY, rebuilding),
+    input.transaction.put(
+      EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
+      createActiveProfileIndexRecord(rebuilding.generation, [])
+    ),
+  ]);
+}
+
+async function persistExecutionIndexRepairFailure(input: {
+  error: unknown;
+  nowMs: number;
+  state: Extract<AgentProfileExecutionIndexState, { status: "rebuilding" }>;
+  storage: ExecutionAdmissionStorage;
+}): Promise<void> {
+  const failureCount = input.state.failureCount + 1;
+  const failed: AgentProfileExecutionIndexState = {
+    cursor: input.state.cursor,
+    failureCount,
+    generation: input.state.generation,
+    modelVersion: EXECUTION_INDEX_MODEL_VERSION,
+    ownerUserId: input.state.ownerUserId,
+    phase: input.state.phase,
+    reasonCode:
+      input.error instanceof Error
+        ? input.error.message
+        : EXECUTION_STATE_UNAVAILABLE_REASON,
+    repairRequested: input.state.repairRequested,
+    retryAtMs:
+      input.nowMs + resolveExecutionIndexRepairRetryDelayMs(failureCount),
+    status: "failed",
+    updatedAtMs: input.nowMs,
+  };
+  await input.storage.put(EXECUTION_INDEX_STORAGE_KEY, failed);
+  console.warn("[runtime_coordinator.execution_index_repair_failed]", {
+    error: failed.reasonCode,
+    generation: failed.generation,
+    ownerUserId: failed.ownerUserId,
+    phase: failed.phase,
+    retryAtMs: failed.retryAtMs,
+  });
+}
+
 async function resolveAdmissionExecutionState(input: {
   admission: AgentProfileExecutionAdmissionRecord;
   nowMs: number;
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
 }): Promise<RuntimeTransportAgentProfileExecutionStateResponse> {
-  if (
-    input.admission.activeExecutionIds.length > 128 ||
-    input.admission.activeHeadLifecycleIds.length > 128
-  ) {
+  if (input.admission.referencesOverflowed) {
     return unavailableExecutionState();
   }
   const headState = await readActiveHeadLifecycleReferences(input);
@@ -935,9 +1231,18 @@ async function pruneInactiveAdmissionReferences(input: {
       await transaction.get<unknown>(storageKey)
     );
     if (!current || current.generation !== input.admission.generation) {
-      return { status: "inactive" as const };
+      return unavailableExecutionState();
     }
-    const currentMutation = current.controllerMutation;
+    const activeProfileIndex = parseActiveProfileIndexRecord(
+      await transaction.get<unknown>(
+        EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
+      ),
+      current.generation
+    );
+    if (!activeProfileIndex) {
+      return unavailableExecutionState();
+    }
+    const currentMutation = current.executionTargetMutation;
     const next = {
       ...current,
       activeExecutionIds: current.activeExecutionIds.filter(
@@ -946,22 +1251,33 @@ async function pruneInactiveAdmissionReferences(input: {
       activeHeadLifecycleIds: current.activeHeadLifecycleIds.filter(
         (id) => !input.staleHeadIds.has(id)
       ),
-      controllerMutation:
+      executionTargetMutation:
         currentMutation && currentMutation.expiresAtMs > input.nowMs
           ? currentMutation
           : null,
       revision: current.revision + 1,
       updatedAtMs: input.nowMs,
     } satisfies AgentProfileExecutionAdmissionRecord;
-    if (
-      next.activeExecutionIds.length > 0 ||
-      next.activeHeadLifecycleIds.length > 0
-    ) {
+    const active = admissionHasActiveReferences(next);
+    await Promise.all([
+      transaction.put(storageKey, next),
+      transaction.put(
+        EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
+        createActiveProfileIndexRecord(
+          current.generation,
+          updateActiveProfileIds({
+            active,
+            activeProfileIds: activeProfileIndex.targetProfileIds,
+            targetProfileId: next.targetProfileId,
+          })
+        )
+      ),
+    ]);
+    if (active) {
       return { status: "active" as const };
     }
-    await transaction.put(storageKey, next);
-    return next.controllerMutation
-      ? unavailableExecutionState(CONTROLLER_MUTATION_IN_PROGRESS_REASON)
+    return next.executionTargetMutation
+      ? unavailableExecutionState(EXECUTION_TARGET_MUTATION_IN_PROGRESS_REASON)
       : { status: "inactive" as const };
   });
 }
@@ -999,31 +1315,42 @@ function applyHeadLifecycleToAdmission(input: {
   nowMs: number;
   record: RuntimeCoordinatorHeadLifecycleRecord;
 }): AgentProfileExecutionAdmissionRecord {
-  const activeHeadLifecycleIds = new Set(
-    input.admission.activeHeadLifecycleIds
-  );
-  const activeExecutionIds = new Set(input.admission.activeExecutionIds);
+  let activeHeadLifecycleIds = input.admission.activeHeadLifecycleIds;
+  let activeExecutionIds = input.admission.activeExecutionIds;
+  let referencesOverflowed = input.admission.referencesOverflowed;
   if (input.record.status === "accepted" || input.record.status === "waiting") {
-    activeHeadLifecycleIds.add(input.record.targetWakeLifecycleId);
+    const appended = appendBoundedReferences(activeHeadLifecycleIds, [
+      input.record.targetWakeLifecycleId,
+    ]);
+    activeHeadLifecycleIds = appended.ids;
+    referencesOverflowed ||= appended.overflowed;
   } else {
-    activeHeadLifecycleIds.delete(input.record.targetWakeLifecycleId);
+    activeHeadLifecycleIds = activeHeadLifecycleIds.filter(
+      (id) => id !== input.record.targetWakeLifecycleId
+    );
   }
   if (input.record.status === "execution_linked") {
     if (!input.record.runtimeCoordinatorExecutionId) {
       throw new Error("runtime_coordinator.head_execution_authority_missing");
     }
-    activeExecutionIds.add(input.record.runtimeCoordinatorExecutionId);
+    const appended = appendBoundedReferences(activeExecutionIds, [
+      input.record.runtimeCoordinatorExecutionId,
+    ]);
+    activeExecutionIds = appended.ids;
+    referencesOverflowed ||= appended.overflowed;
   }
   return {
     ...input.admission,
-    activeExecutionIds: [...activeExecutionIds].sort(),
-    activeHeadLifecycleIds: [...activeHeadLifecycleIds].sort(),
+    activeExecutionIds,
+    activeHeadLifecycleIds,
+    referencesOverflowed,
     revision: input.admission.revision + 1,
     updatedAtMs: input.nowMs,
   };
 }
 
 function emptyExecutionAdmissionRecord(input: {
+  executionTargetMutation?: ExecutionTargetMutationLease | null;
   generation: number;
   nowMs: number;
   targetProfileId: string;
@@ -1031,9 +1358,10 @@ function emptyExecutionAdmissionRecord(input: {
   return {
     activeExecutionIds: [],
     activeHeadLifecycleIds: [],
-    controllerMutation: null,
+    executionTargetMutation: input.executionTargetMutation ?? null,
     generation: input.generation,
     modelVersion: EXECUTION_ADMISSION_MODEL_VERSION,
+    referencesOverflowed: false,
     revision: 0,
     targetProfileId: input.targetProfileId,
     updatedAtMs: input.nowMs,
@@ -1073,8 +1401,13 @@ function parseExecutionAdmissionRecord(
     typeof record.targetProfileId !== "string" ||
     !isNonnegativeInteger(record.updatedAtMs) ||
     !isStringArray(record.activeExecutionIds) ||
+    record.activeExecutionIds.length >
+      MAX_EXECUTION_ADMISSION_REFERENCES_PER_KIND ||
     !isStringArray(record.activeHeadLifecycleIds) ||
-    !isControllerMutationLeaseOrNull(record.controllerMutation)
+    record.activeHeadLifecycleIds.length >
+      MAX_EXECUTION_ADMISSION_REFERENCES_PER_KIND ||
+    typeof record.referencesOverflowed !== "boolean" ||
+    !isExecutionTargetMutationLeaseOrNull(record.executionTargetMutation)
   ) {
     return null;
   }
@@ -1190,8 +1523,87 @@ function normalizeLegacyIndex(value: unknown): string[] {
     : [];
 }
 
+function createActiveProfileIndexRecord(
+  generation: number,
+  targetProfileIds: readonly string[]
+): AgentProfileActiveIndexRecord {
+  return {
+    generation,
+    modelVersion: EXECUTION_ACTIVE_PROFILE_INDEX_MODEL_VERSION,
+    targetProfileIds: uniqueSorted(targetProfileIds),
+  };
+}
+
+function resolveActiveProfileIndexForWrite(input: {
+  generation: number;
+  indexReady: boolean;
+  raw: unknown;
+}): AgentProfileActiveIndexRecord | null {
+  if (input.raw !== undefined) {
+    return parseActiveProfileIndexRecord(input.raw, input.generation);
+  }
+  if (input.indexReady) {
+    return null;
+  }
+  return createActiveProfileIndexRecord(input.generation, []);
+}
+
+function parseActiveProfileIndexRecord(
+  value: unknown,
+  expectedGeneration: number
+): AgentProfileActiveIndexRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Partial<AgentProfileActiveIndexRecord>;
+  if (
+    record.modelVersion !== EXECUTION_ACTIVE_PROFILE_INDEX_MODEL_VERSION ||
+    record.generation !== expectedGeneration ||
+    !isStringArray(record.targetProfileIds)
+  ) {
+    return null;
+  }
+  return createActiveProfileIndexRecord(
+    expectedGeneration,
+    record.targetProfileIds
+  );
+}
+
+function updateActiveProfileIds(input: {
+  active: boolean;
+  activeProfileIds: readonly string[];
+  targetProfileId: string;
+}): string[] {
+  return input.active
+    ? uniqueSorted([...input.activeProfileIds, input.targetProfileId])
+    : input.activeProfileIds.filter(
+        (profileId) => profileId !== input.targetProfileId
+      );
+}
+
+function admissionHasActiveReferences(
+  admission: AgentProfileExecutionAdmissionRecord
+): boolean {
+  return (
+    admission.referencesOverflowed ||
+    admission.activeExecutionIds.length > 0 ||
+    admission.activeHeadLifecycleIds.length > 0
+  );
+}
+
 function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].sort();
+}
+
+function appendBoundedReferences(
+  currentIds: readonly string[],
+  addedIds: readonly string[]
+): { ids: string[]; overflowed: boolean } {
+  const ids = uniqueSorted([...currentIds, ...addedIds]);
+  return {
+    ids: ids.slice(0, MAX_EXECUTION_ADMISSION_REFERENCES_PER_KIND),
+    overflowed: ids.length > MAX_EXECUTION_ADMISSION_REFERENCES_PER_KIND,
+  };
 }
 
 function resolveExecutionIndexRepairRetryDelayMs(failureCount: number): number {
@@ -1209,16 +1621,16 @@ function isStringArray(value: unknown): value is string[] {
   );
 }
 
-function isControllerMutationLeaseOrNull(
+function isExecutionTargetMutationLeaseOrNull(
   value: unknown
-): value is ControllerMutationLease | null {
+): value is ExecutionTargetMutationLease | null {
   if (value === null) {
     return true;
   }
   if (!value || typeof value !== "object") {
     return false;
   }
-  const lease = value as Partial<ControllerMutationLease>;
+  const lease = value as Partial<ExecutionTargetMutationLease>;
   return (
     isNonnegativeInteger(lease.expiresAtMs) &&
     typeof lease.operationId === "string" &&
