@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { basename, dirname, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readDaemonRuntimeLease } from "../../config/daemon-runtime-lease";
@@ -465,6 +465,47 @@ async function hashDaemonBinaryFile(filePath: string): Promise<string> {
   const hash = createHash("sha256");
   hash.update(await readFile(filePath));
   return hash.digest("hex");
+}
+
+export async function verifyDaemonActiveBundleIntegrity(
+  activeBundle: DaemonActiveBundleState
+): Promise<boolean> {
+  const expectedFingerprint = activeBundle.sourceDistFingerprint?.trim();
+  if (
+    !expectedFingerprint ||
+    activeBundle.bundleFormat === "legacy_linked_v1"
+  ) {
+    return false;
+  }
+  if (activeBundle.bundleFormat === "binary_v1") {
+    const entryPath = await resolveDaemonBundleEntryPathFromState(activeBundle);
+    if (!entryPath) {
+      return false;
+    }
+    return (await hashDaemonBinaryFile(entryPath)) === expectedFingerprint;
+  }
+
+  const bundleRootPath = resolveDaemonBundleRootPath(activeBundle.bundleId);
+  const activeDistRootPath = join(
+    bundleRootPath,
+    dirname(activeBundle.entryScriptRelativePath)
+  );
+  const relativeDistRootPath = relative(bundleRootPath, activeDistRootPath);
+  if (
+    relativeDistRootPath === ".." ||
+    relativeDistRootPath.startsWith(`..${sep}`) ||
+    isAbsolute(relativeDistRootPath)
+  ) {
+    return false;
+  }
+  const entryPath = await resolveDaemonBundleEntryPathFromState(activeBundle);
+  if (!entryPath) {
+    return false;
+  }
+  return (
+    (await computeDaemonSourceDistFingerprint(activeDistRootPath)) ===
+    expectedFingerprint
+  );
 }
 
 async function writeDaemonBundlePackageManifest(input: {

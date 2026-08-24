@@ -151,6 +151,7 @@ import {
   resolveManagedCliDelegation,
   runManagedCliDelegation,
 } from "./local-components/managed-command-authority";
+import { runPendingDaemonServiceUpdate } from "./local-service/lifecycle/daemon-service-update-coordinator";
 import { emitStartupAgentOverviewForCommand } from "./openmeld-agent-overview";
 import {
   runStartFromCliOptions,
@@ -2253,6 +2254,16 @@ serviceCmd
   .action(runServiceStartCliAction);
 
 serviceCmd
+  .command("update-worker", { hidden: true })
+  .description("Resume one durable OpenMeld Service update in the background.")
+  .action(async () => {
+    const result = await runPendingDaemonServiceUpdate();
+    if (result?.status === "failed") {
+      process.exitCode = 1;
+    }
+  });
+
+serviceCmd
   .command("status")
   .description("Show OpenMeld Service status on this device.")
   .option("--json", "Print machine-readable JSON.", false)
@@ -2537,7 +2548,7 @@ serviceCmd
   .description("Update OpenMeld Service on this device.")
   .option(
     "--force",
-    "Allow force-continue when graceful stop/drain times out (may drop in-flight tasks)"
+    "This option is no longer needed. Updates always let running Agent work finish."
   )
   .option("--json", "Print machine-readable JSON.", false)
   .action(async (opts: ServiceReinstallCliOptions & { json?: boolean }) => {

@@ -559,6 +559,11 @@ describe("local service runner dual-write", () => {
     const serverInput =
       startLocalDaemonControlPlaneServerMock.mock.calls[0]?.[0];
     const context = await serverInput.getContext();
+    expect(context.serviceUpdateReadinessHandler?.()).toEqual({
+      acceptedWakeCount: 0,
+      safeToSwitch: true,
+      unacknowledgedResultCount: 0,
+    });
     const shutdownResult = await context.shutdownHandler({
       gracePeriodMs: 5000,
       mode: "graceful",

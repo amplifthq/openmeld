@@ -1933,7 +1933,7 @@ describe("openmeld service commands", () => {
     });
   });
 
-  it("keeps update result copy aligned with the update command", async () => {
+  it("returns after handing the update to the background worker", async () => {
     await withTempHome(async () => {
       await upsertDaemonServiceContract({
         daemonVersion: packageJson.version,
@@ -1967,6 +1967,14 @@ describe("openmeld service commands", () => {
           },
           {
             skipConfirm: true,
+            resolveUpdateUrgency: vi.fn().mockResolvedValue("available"),
+            scheduleServiceUpdate: vi.fn().mockResolvedValue({
+              status: "scheduled",
+              job: {
+                jobId: "update-1",
+                targetVersion: packageJson.version,
+              },
+            }),
             teardown: teardownMock,
             runInstall: runInstallMock,
             runRun: runRunMock,
@@ -1980,11 +1988,13 @@ describe("openmeld service commands", () => {
         );
       });
 
-      expect(stdout).toContain("OpenMeld Service Updated");
-      expect(stdout).toContain("Service files were updated");
+      expect(stdout).toContain("OpenMeld Service Update Is Ready");
+      expect(stdout).toContain("finish this update in the background");
+      expect(stdout).toContain("You can close this window");
       expect(stdout).not.toContain("OpenMeld Service Repaired");
       expect(stdout).not.toContain("was reinstalled");
       expect(stdout).not.toContain("refreshed");
+      expect(runInstallMock).not.toHaveBeenCalled();
       expect(runRunMock).not.toHaveBeenCalled();
     });
   });
@@ -2552,6 +2562,7 @@ describe("openmeld service commands", () => {
         uninstallDaemon: vi.fn().mockResolvedValue({
           removed: true,
         }),
+        uninstallServiceUpdateWorker: vi.fn().mockResolvedValue(undefined),
       }
     );
 
@@ -2743,6 +2754,7 @@ describe("openmeld service commands", () => {
         uninstallDaemon: vi.fn().mockResolvedValue({
           removed: true,
         }),
+        uninstallServiceUpdateWorker: vi.fn().mockResolvedValue(undefined),
       }
     );
 

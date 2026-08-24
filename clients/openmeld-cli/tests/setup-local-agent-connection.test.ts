@@ -1497,6 +1497,65 @@ describe("local setup executor", () => {
     expect(runDaemonRunMock).not.toHaveBeenCalled();
   });
 
+  it("hands healthy version drift to the background service update worker", async () => {
+    resolveRuntimeContextMock.mockResolvedValue({
+      resolvedView: "human",
+      viewMode: "human",
+      interactive: true,
+    });
+    canUseInteractivePromptsMock.mockReturnValue(true);
+    inspectDaemonServiceInventoryMock.mockResolvedValue(
+      createServiceInventory({
+        anomalyCodes: ["version_outdated", "bundle_version_drift"],
+        runtimeStatus: "running",
+      })
+    );
+    resolveCurrentReplyReadinessSnapshotMock.mockResolvedValue({
+      deviceReplyReadiness: {
+        replyReadiness: "blocked",
+        reasonText: "OpenMeld Service needs an update.",
+        reasonCodes: ["service.drifted"],
+      },
+      agentReplyReadiness: {
+        replyReadiness: "blocked",
+        reasonText: "OpenMeld Service needs an update.",
+        reasonCodes: ["service.drifted"],
+        deviceReplyReadiness: {
+          replyReadiness: "blocked",
+          reasonText: "OpenMeld Service needs an update.",
+          reasonCodes: ["service.drifted"],
+        },
+      },
+      daemonRouteObservation: {
+        status: "registered",
+        detailText: "OpenMeld has registered this computer.",
+      },
+      openClawLocalDiagnostics: null,
+      profileWorkspaceRuntimeResolution: {
+        status: "ready",
+        workspacePath: "/tmp/openmeld-workspace",
+        source: "stored_profile",
+      },
+    });
+    const { runSetupLocalAgentConnection } = await import(
+      "../src/commands/setup-local-agent-connection"
+    );
+
+    await runSetupLocalAgentConnection({
+      profile: "agt-codex",
+      view: "human",
+    });
+
+    expect(runDaemonReinstallMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayAction: "update",
+      }),
+      expect.objectContaining({
+        skipConfirm: true,
+      })
+    );
+  });
+
   it("continues the current prepare result after refreshing OpenMeld Service drift", async () => {
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "human",
@@ -1868,10 +1927,12 @@ function createServiceInventory(
   const installedVersion =
     input.installedVersion === undefined ? "1.0.0" : input.installedVersion;
   return {
+    activeBundleEntryPath: "/tmp/openmeld/active/openmeld.mjs",
     anomalies: (input.anomalyCodes ?? []).map((code) => ({
       code,
       message: String(code),
     })),
+    expectedVersion: "1.0.0",
     installStatus:
       installedVersion === null
         ? {
@@ -1886,6 +1947,27 @@ function createServiceInventory(
           },
     runtimeStatus: {
       status: input.runtimeStatus ?? "running",
+    },
+    runtimeCommandEntryPath: "/tmp/openmeld/active/openmeld.mjs",
+    runtimeCommandPathExists: true,
+    runtimeContractCompatibility: {
+      status: "compatible",
+    },
+    serviceContract: {
+      autoStart: true,
+      bundleId: "bundle-1",
+      daemonVersion: installedVersion ?? "0.0.0",
+      desiredState: "background",
+      deviceId: "device-1",
+      gatewayUrl: "https://gateway.openmeld.test",
+      generation: 1,
+      heartbeatMs: 25_000,
+      lane: "dev-local",
+      profileId: "agt-codex",
+      schema: "openmeld-daemon-service-contract-v1",
+      serviceController: "launchd",
+      updatedAt: "2026-03-01T00:00:00.000Z",
+      v: 1,
     },
   };
 }

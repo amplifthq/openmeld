@@ -29,6 +29,7 @@ import {
   resolveAlignedDaemonActiveBundleEntryPath,
   resolveCurrentDaemonSourceDistFingerprint,
   resolveDaemonBundleRootPath,
+  verifyDaemonActiveBundleIntegrity,
 } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { withTempHome } from "./helpers/fs";
 
@@ -460,6 +461,16 @@ describe("local service bundle", () => {
         ).resolves.toBe(false);
         await expect(stat(bundleNodeModulesPath)).resolves.toBeDefined();
         await expect(stat(bundleCommanderPath)).resolves.toBeDefined();
+        if (!(activeState && entryPath)) {
+          throw new Error("Expected the prepared Service bundle to be active.");
+        }
+        await expect(
+          verifyDaemonActiveBundleIntegrity(activeState)
+        ).resolves.toBe(true);
+        await writeFile(entryPath, "corrupted Service bundle", "utf8");
+        await expect(
+          verifyDaemonActiveBundleIntegrity(activeState)
+        ).resolves.toBe(false);
       } finally {
         await fixture?.cleanup();
         if (previousPreset === undefined) {
@@ -617,6 +628,18 @@ describe("local service bundle", () => {
       await expect(resolveAlignedDaemonActiveBundleEntryPath()).resolves.toBe(
         managedBinaryPath
       );
+      const activeBundle = await readDaemonActiveBundleState();
+      if (!activeBundle) {
+        throw new Error("Expected the binary active bundle fixture to exist.");
+      }
+      await expect(
+        verifyDaemonActiveBundleIntegrity(activeBundle)
+      ).resolves.toBe(true);
+
+      await writeFile(managedBinaryPath, "corrupted binary fixture", "utf8");
+      await expect(
+        verifyDaemonActiveBundleIntegrity(activeBundle)
+      ).resolves.toBe(false);
     });
   });
 
