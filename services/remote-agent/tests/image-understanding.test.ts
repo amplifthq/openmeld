@@ -382,6 +382,36 @@ describe("Remote Agent image understanding", () => {
     });
   });
 
+  it("preserves the filename and bounded Images failure reason", async () => {
+    const imagesBinding = {
+      info: vi.fn(() =>
+        Promise.reject(
+          Object.assign(
+            new Error("Cloudflare Images could not decode the source image."),
+            { code: 9412 }
+          )
+        )
+      ),
+      input: vi.fn(),
+    } as unknown as Pick<ImagesBinding, "info" | "input">;
+
+    await expect(
+      transformRemoteAgentImagesForContext({
+        images: [
+          {
+            data: "AQID",
+            filename: "incident-screen.png",
+            mimeType: "image/png",
+            type: "image",
+          },
+        ],
+        imagesBinding,
+      })
+    ).rejects.toThrow(
+      'Remote Agent could not prepare "incident-screen.png" for model context. Cause: 9412: Cloudflare Images could not decode the source image.'
+    );
+  });
+
   it("uses the exact auxiliary model with same-model provider failover", async () => {
     const fetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
@@ -473,6 +503,68 @@ describe("Remote Agent image understanding", () => {
       })
     ).rejects.toThrow(
       "Image understanding failed for x-ai/grok-4.6 with HTTP 503."
+    );
+  });
+
+  it("preserves a bounded provider error message when image understanding is rejected", async () => {
+    await expect(
+      understandRemoteAgentImages({
+        env: TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+        fetch: async () =>
+          Response.json(
+            {
+              error: {
+                code: "invalid_request",
+                message: "At most four images are supported in one request.",
+              },
+            },
+            { status: 400 }
+          ),
+        images: [
+          {
+            data: "cG5n",
+            mimeType: "image/png",
+            type: "image",
+          },
+        ],
+        model: IMAGE_MODEL,
+        organizationId: "org_123",
+      })
+    ).rejects.toThrow(
+      "Image understanding failed for x-ai/grok-4.6 with HTTP 400. Provider: invalid_request: At most four images are supported in one request."
+    );
+  });
+
+  it("preserves Cloudflare AI Gateway error-array details", async () => {
+    await expect(
+      understandRemoteAgentImages({
+        env: TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+        fetch: async () =>
+          Response.json(
+            {
+              error: [
+                {
+                  code: 2001,
+                  message:
+                    "Please configure AI Gateway in the Cloudflare dashboard",
+                },
+              ],
+              success: false,
+            },
+            { status: 400 }
+          ),
+        images: [
+          {
+            data: "cG5n",
+            mimeType: "image/png",
+            type: "image",
+          },
+        ],
+        model: IMAGE_MODEL,
+        organizationId: "org_123",
+      })
+    ).rejects.toThrow(
+      "Image understanding failed for x-ai/grok-4.6 with HTTP 400. Provider: 2001: Please configure AI Gateway in the Cloudflare dashboard"
     );
   });
 });

@@ -944,11 +944,14 @@ uses it.
 
 Center Agent model traffic remains **Cloudflare AI Gateway → OpenRouter**. The
 OpenRouter provider key stays in Cloudflare AI Gateway Provider Keys under
-the environment-owned alias; production uses `openrouter`, while local and
-development environments retain `openrouter`. The Remote Agent worker sends
-the authenticated gateway token plus that exact `cf-aig-byok-alias` value and
-does not carry provider API keys in code or tracked config. This is
-OpenMeld-operated provider configuration, not user BYOK.
+the environment-owned alias. Local, development, and production Remote Agent
+traffic uses the configured `openmeld-remote-agent-prod` gateway and its
+`openrouter` alias because Provider Keys are gateway-scoped; request metadata
+retains the Worker environment and Organization boundary. The Remote Agent
+worker sends the authenticated gateway token plus that exact
+`cf-aig-byok-alias` value and does not carry provider API keys in code or
+tracked config. This is OpenMeld-operated provider configuration, not user
+BYOK.
 
 The repo-owned `center-agent` catalog exposes Grok 4.6, Grok 4.5, and DeepSeek
 V4 Flash, with Grok 4.6 as the OpenMeld default. Core resolves a complete

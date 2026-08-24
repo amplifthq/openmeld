@@ -12,6 +12,7 @@ import type { RemoteAgentAdmissionImage } from "./submission";
 const IMAGE_UNDERSTANDING_COMPACT_OUTPUT_TOKENS = 4096;
 const IMAGE_UNDERSTANDING_DENSE_OUTPUT_TOKENS = 8192;
 const IMAGE_UNDERSTANDING_TIMEOUT_MS = 120_000;
+const IMAGE_UNDERSTANDING_PROVIDER_ERROR_MAX_CHARS = 500;
 export const REMOTE_AGENT_CONTEXT_IMAGE_MAX_DIMENSION = 2560;
 export const REMOTE_AGENT_CONTEXT_IMAGE_MIN_DIMENSION = 1600;
 export const REMOTE_AGENT_CONTEXT_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
@@ -210,8 +211,9 @@ async function requestRemoteAgentImageUnderstandingBatch(input: {
   );
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    const providerError = resolveImageUnderstandingProviderError(payload);
     throw new Error(
-      `Image understanding failed for ${input.model.modelId} with HTTP ${response.status}.`
+      `Image understanding failed for ${input.model.modelId} with HTTP ${response.status}.${providerError ? ` Provider: ${providerError}` : ""}`
     );
   }
   const parsed = imageUnderstandingResponseSchema.safeParse(payload);
@@ -227,6 +229,58 @@ async function requestRemoteAgentImageUnderstandingBatch(input: {
     );
   }
   return choice.message.content;
+}
+
+function resolveImageUnderstandingProviderError(
+  payload: unknown
+): string | null {
+  if (!(payload && typeof payload === "object")) {
+    return null;
+  }
+  const payloadRecord = payload as Record<string, unknown>;
+  const providerError = payloadRecord.error;
+  if (typeof providerError === "string") {
+    return normalizeProviderErrorText(providerError);
+  }
+  if (Array.isArray(providerError)) {
+    for (const error of providerError) {
+      const normalizedError = normalizeProviderErrorEntry(error);
+      if (normalizedError) {
+        return normalizedError;
+      }
+    }
+    return null;
+  }
+  if (providerError && typeof providerError === "object") {
+    return normalizeProviderErrorEntry(providerError);
+  }
+  return normalizeProviderErrorText(payloadRecord.message);
+}
+
+function normalizeProviderErrorEntry(value: unknown): string | null {
+  if (!(value && typeof value === "object")) {
+    return normalizeProviderErrorText(value);
+  }
+  const errorRecord = value as Record<string, unknown>;
+  const code = normalizeProviderErrorText(errorRecord.code);
+  const message = normalizeProviderErrorText(errorRecord.message);
+  if (code && message) {
+    return `${code}: ${message}`.slice(
+      0,
+      IMAGE_UNDERSTANDING_PROVIDER_ERROR_MAX_CHARS
+    );
+  }
+  return code ?? message;
+}
+
+function normalizeProviderErrorText(value: unknown): string | null {
+  if (!(typeof value === "string" || typeof value === "number")) {
+    return null;
+  }
+  const normalized = String(value).replace(/\s+/g, " ").trim();
+  return normalized.length > 0
+    ? normalized.slice(0, IMAGE_UNDERSTANDING_PROVIDER_ERROR_MAX_CHARS)
+    : null;
 }
 
 export async function transformRemoteAgentImagesForContext(input: {
@@ -295,13 +349,33 @@ export async function transformRemoteAgentImageForContext(input: {
       `Cloudflare Images could not produce a readable model derivative within ${REMOTE_AGENT_CONTEXT_IMAGE_MAX_BYTES} bytes.`
     );
   } catch (error) {
+    const sourceLabel = input.image.filename
+      ? JSON.stringify(input.image.filename)
+      : "an image";
+    const failureReason = resolveImagePreparationFailureReason(error);
     throw new Error(
-      "Remote Agent could not prepare an image for model context.",
+      `Remote Agent could not prepare ${sourceLabel} for model context.${failureReason ? ` Cause: ${failureReason}` : ""}`,
       {
         cause: error,
       }
     );
   }
+}
+
+function resolveImagePreparationFailureReason(error: unknown): string | null {
+  if (!(error && typeof error === "object")) {
+    return normalizeProviderErrorText(error);
+  }
+  const errorRecord = error as Record<string, unknown>;
+  const code = normalizeProviderErrorText(errorRecord.code);
+  const message = normalizeProviderErrorText(errorRecord.message);
+  if (code && message) {
+    return `${code}: ${message}`.slice(
+      0,
+      IMAGE_UNDERSTANDING_PROVIDER_ERROR_MAX_CHARS
+    );
+  }
+  return code ?? message ?? normalizeProviderErrorText(errorRecord.reason);
 }
 
 export function appendRemoteAgentImageUnderstanding(input: {
