@@ -314,6 +314,38 @@ describe("Remote Agent Message Channel orchestration", () => {
     }
   });
 
+  it.each([
+    ["logical runtime", "openmeld_service_runtime_id", "wrong-runtime"],
+    ["conversation", "agent_controller_conversation_id", "wrong-thread"],
+    ["hosted identity", "hosted_runtime_identity_json", "{}"],
+  ])("rejects a hosted Binding with a damaged %s", async (_name, column, value) => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelOrchestrationMigrations(harness);
+    seedOrganizationAndCenterAgent(harness);
+    await seedLarkConnection(harness);
+    harness.run({
+      params: [value, "binding_1"],
+      sql: `UPDATE openMeldDaemon_agent_profile_bindings SET ${column} = ? WHERE binding_id = ?`,
+    });
+
+    try {
+      await expect(
+        resolveMessageChannelTurnTarget({
+          connectionId: "connection_lark_1",
+          identityDb: harness.db,
+          provider: "lark",
+          providerUserId: "ou_guest_1",
+          stateDb: harness.db,
+        })
+      ).resolves.toMatchObject({
+        reasonCode: "message_channel.center_agent_unavailable",
+        status: "rejected",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("admits unlinked and removed Lark participants without granting member identity", async () => {
     const harness = createSqliteD1Harness();
     applyMessageChannelOrchestrationMigrations(harness);
@@ -964,7 +996,7 @@ function seedOrganizationAndCenterAgent(
       "hosted_center_agent",
       JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
       HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      "center-agent",
+      null,
       "enabled_primary",
       100,
       100,

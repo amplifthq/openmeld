@@ -2049,6 +2049,49 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it("does not route Slack work through a damaged hosted Binding", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    harness.run({
+      params: ["wrong-thread", "binding_1"],
+      sql: `
+        UPDATE openMeldDaemon_agent_profile_bindings
+        SET agent_controller_conversation_id = ?
+        WHERE binding_id = ?
+      `,
+    });
+    const workerSubmit = vi.fn();
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload()
+        )
+      ).resolves.toEqual({ status: "replied" });
+
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(readSlackPostBodies(fetchMock)).toEqual([
+        {
+          channel: "C123",
+          text: "Center Agent is not connected for this OpenMeld organization yet.",
+          thread_ts: "1710000000.000100",
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("keeps a top-level Slack DM failure in the request thread", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
@@ -6765,7 +6808,6 @@ function applySlackMigrations(
   applyMigrationForTable(input, "slack_user_identity_links");
   applyMigrationForTable(input, "slack_user_identity_link_tokens");
   applyMigrationForTable(input, "organization_join_links");
-  applyMigrationForTable(input, "openMeldDaemon_agent_profile_bindings");
   applyMigrationForTable(input, "agent_delegation_children");
   applyMigrationForTable(input, "agent_delegations");
   applyMigrationForTable(input, "agent_task_completion_subscriptions");
@@ -6840,6 +6882,7 @@ function applySlackMigrations(
       )
     `,
   });
+  applyMigrationForTable(input, "openMeldDaemon_agent_profile_bindings");
   applyDrizzleMigrationsForTables(input, [
     "organization_skill_releases",
     "organization_skills",
@@ -7057,7 +7100,7 @@ function seedSlackOrganization(
       "hosted_center_agent",
       JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
       HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      "center-agent",
+      null,
       "enabled_primary",
       100,
       100,

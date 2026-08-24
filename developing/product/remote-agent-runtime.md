@@ -2313,7 +2313,9 @@ organization.
 Remote Agent operator tooling is exposed through `pnpm ops:remote-agent`,
 consistent with the repo's other `ops:` tools. It reads and writes the Core
 runtime policy variables (`OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED` and
-`OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS`) in Wrangler config, and it
+`OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS`) plus the designation-only
+rollout gate (`OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED`) in Wrangler config,
+and it
 reads worker-owned usage diagnostics through `readUsageDiagnostics` via a
 temporary service-binding Worker. The operator must provide the exact runtime
 conversation id from a frozen dispatch request; `--space` remains only the

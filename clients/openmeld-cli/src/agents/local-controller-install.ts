@@ -56,9 +56,15 @@ export async function listBuiltinControllerInstalledCandidates(input: {
   agentId: string;
   detected: boolean;
   displayName: string;
+  persistedLaunchContract?: RuntimeAgentControllerLaunchContract | null;
   runtimeSupported: boolean;
 }): Promise<LocalControllerInstalledCandidatesResult> {
-  if (!(input.detected && input.runtimeSupported)) {
+  if (
+    !(
+      input.runtimeSupported &&
+      (input.detected || input.persistedLaunchContract)
+    )
+  ) {
     return {
       errorCode: "controller.launch.needs_repair",
       errorMessage: `${input.displayName} is not available on this computer.`,
@@ -75,7 +81,9 @@ export async function listBuiltinControllerInstalledCandidates(input: {
     };
   }
 
-  const installedCandidates = await resolver.resolveInstalledLaunchCandidates();
+  const installedCandidates = await resolver.resolveInstalledLaunchCandidates({
+    preferredLaunchContract: input.persistedLaunchContract ?? null,
+  });
   if (!installedCandidates.ok) {
     return {
       errorCode: "controller.launch.needs_repair",
@@ -96,7 +104,12 @@ export async function resolveBuiltinControllerInstallResolution(input: {
   persistedLaunchContract?: RuntimeAgentControllerLaunchContract | null;
   runtimeSupported: boolean;
 }): Promise<LocalControllerInstallResolution> {
-  if (!(input.detected && input.runtimeSupported)) {
+  if (
+    !(
+      input.runtimeSupported &&
+      (input.detected || input.persistedLaunchContract)
+    )
+  ) {
     return {
       detail: null,
       installChoices: [],
@@ -160,6 +173,7 @@ export async function resolveBuiltinControllerInstallResolution(input: {
   if (installedCandidates.candidates.length > 1) {
     const selectedInstall = resolveAutomaticInstallChoice({
       candidates: installedCandidates.candidates,
+      preferredInstallId: installedCandidates.preferredInstallId,
     });
     if (selectedInstall) {
       return {
@@ -193,20 +207,24 @@ async function resolvePersistedControllerInstall(input: {
   const persistedVerification = await input.resolver.verifyLaunchContract({
     launchContract: input.persistedLaunchContract,
   });
+  const installedCandidates =
+    await input.resolver.resolveInstalledLaunchCandidates({
+      preferredLaunchContract: input.persistedLaunchContract,
+    });
   if (
     persistedVerification.ok ||
     persistedVerification.failureKind === "incomplete_check"
   ) {
     return {
       detail: null,
-      installChoices: [],
+      installChoices: installedCandidates.ok
+        ? installedCandidates.candidates
+        : [],
       launchContract: input.persistedLaunchContract,
       status: "ready",
     };
   }
 
-  const installedCandidates =
-    await input.resolver.resolveInstalledLaunchCandidates();
   if (installedCandidates.ok && installedCandidates.candidates.length > 1) {
     return {
       detail: buildNeedsInstallChoiceDetail(input.displayName),
@@ -229,9 +247,18 @@ async function resolvePersistedControllerInstall(input: {
 
 function resolveAutomaticInstallChoice(input: {
   candidates: readonly LocalControllerInstallChoice[];
+  preferredInstallId?: string;
 }): LocalControllerInstallChoice | null {
-  // Discovery is ordered: PATH comes first, then other verified locations.
-  // Persisted choices are handled above and always remain authoritative.
+  const preferredInstall = input.preferredInstallId
+    ? (input.candidates.find(
+        (candidate) => candidate.installId === input.preferredInstallId
+      ) ?? null)
+    : null;
+  if (preferredInstall) {
+    return preferredInstall;
+  }
+  // Adapters without an explicit first-use preference keep their verified
+  // discovery order. Persisted choices are handled above and remain authoritative.
   return input.candidates[0] ?? null;
 }
 

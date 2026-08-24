@@ -54,6 +54,17 @@ vi.mock(
 			>();
 		return {
 			...actual,
+			readAgentProfileControllerChangeEligibility: ({
+				agentProfileId,
+			}: {
+				agentProfileId: string;
+			}) =>
+				Promise.resolve({
+					agentProfileId,
+					reasonCode:
+						"agent_profile_binding.controller_change_allowed" as const,
+					status: "allowed" as const,
+				}),
 			readAgentProfilePrimaryBinding: (
 				...args: Parameters<typeof readPrimaryBindingMock>
 			) => readPrimaryBindingMock(...args),

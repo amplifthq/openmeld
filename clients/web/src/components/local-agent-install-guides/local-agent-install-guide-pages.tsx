@@ -13,7 +13,7 @@ import {
 } from "#/lib/local-agent-install-guides";
 
 const CONFIG_DIRECTORY_NOTE =
-	"OpenMeld detects runnable local agent CLIs on this computer. Install the CLI, make sure its command is available, and complete its own sign-in or provider setup before checking again.";
+	"OpenMeld checks supported local agents on this computer and only lists installations it can control. Sign in to an agent before checking again.";
 
 export function LocalAgentInstallGuideIndexPage() {
 	const guides = listLocalAgentInstallGuides();
@@ -31,13 +31,12 @@ export function LocalAgentInstallGuideIndexPage() {
 							Local agent setup
 						</p>
 						<h1 className="mt-3 max-w-2xl font-geist-pixel-square text-4xl text-foreground sm:text-5xl">
-							Install a local agent CLI
+							Connect a local agent
 						</h1>
 						<p className="mt-5 max-w-2xl text-base text-muted-foreground leading-7">
-							OpenMeld connects agents that run on your computer. OpenMeld does
-							not install Codex, Claude Code, Grok Build, Cursor CLI, or
-							OpenCode for you. Install one agent CLI, complete its setup, then
-							OpenMeld can detect it and connect it to your Spaces.
+							OpenMeld connects agents that run on your computer. It can use
+							Codex included with ChatGPT, or a supported command-line agent.
+							Open an agent once, sign in, then ask OpenMeld to check again.
 						</p>
 
 						<div className="mt-8 flex flex-wrap gap-3">
@@ -93,7 +92,7 @@ export function LocalAgentInstallGuideIndexPage() {
 									</span>
 								</span>
 								<span className="mt-auto block pt-4 font-medium text-foreground/80 text-xs uppercase tracking-[0.16em] group-hover:text-foreground">
-									View install steps
+									View setup steps
 								</span>
 							</Link>
 						))}
@@ -132,7 +131,7 @@ export function LocalAgentInstallGuideDetailPage({
 							/>
 							<div>
 								<p className="font-medium font-mono text-muted-foreground text-sm uppercase tracking-[0.18em]">
-									Local agent CLI
+									Local agent
 								</p>
 								<h1 className="mt-2 font-geist-pixel-square text-4xl text-foreground sm:text-5xl">
 									{guide.displayName}
@@ -140,7 +139,7 @@ export function LocalAgentInstallGuideDetailPage({
 							</div>
 						</div>
 						<p className="mt-6 max-w-2xl text-base text-muted-foreground leading-7">
-							{guide.summary} Install it on the computer where you want OpenMeld
+							{guide.summary} Set it up on the computer where you want OpenMeld
 							to run local work.
 						</p>
 
@@ -153,7 +152,7 @@ export function LocalAgentInstallGuideDetailPage({
 								rel="noopener"
 								target="_blank"
 							>
-								Open official install guide
+								Open official setup guide
 							</a>
 							<Link
 								className={buttonVariants({
@@ -186,15 +185,17 @@ export function LocalAgentInstallGuideDetailPage({
 							</ol>
 						</section>
 
-						<section className="rounded-md border border-border bg-card p-5">
-							<h2 className="font-semibold text-foreground">Verify</h2>
-							<p className="mt-4 text-muted-foreground leading-6">
-								Run this command in Terminal:
-							</p>
-							<code className="mt-3 block overflow-x-auto whitespace-nowrap rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-foreground text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-								{guide.verifyCommand}
-							</code>
-						</section>
+						{guide.verifyCommand ? (
+							<section className="rounded-md border border-border bg-card p-5">
+								<h2 className="font-semibold text-foreground">Verify</h2>
+								<p className="mt-4 text-muted-foreground leading-6">
+									Run this command in Terminal:
+								</p>
+								<code className="mt-3 block overflow-x-auto whitespace-nowrap rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-foreground text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+									{guide.verifyCommand}
+								</code>
+							</section>
+						) : null}
 
 						<section className="rounded-md border border-border bg-card p-5 md:col-span-2">
 							<h2 className="font-semibold text-foreground">Next step</h2>

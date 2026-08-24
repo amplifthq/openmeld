@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8706cdda-7797-40e3-9a89-72f60f7d1560",
+  "id": "5d0703d3-765a-422d-ad3d-b86a55231640",
   "prevId": "f9432bec-c76d-43e0-b225-f095083735dd",
   "tables": {
     "accounts": {
@@ -5777,7 +5777,7 @@
         },
         "center_agent_publication_operations_org_updated_idx": {
           "name": "center_agent_publication_operations_org_updated_idx",
-          "columns": ["organization_id", "updated_at_ms"],
+          "columns": ["organization_id", "\"updated_at_ms\" desc"],
           "isUnique": false
         }
       },
@@ -5831,7 +5831,7 @@
         },
         "center_agent_publication_operations_destination_kind_check": {
           "name": "center_agent_publication_operations_destination_kind_check",
-          "value": "\"destination_kind\" in ('slack_channel', 'slack_file')"
+          "value": "\"destination_kind\" in ('slack_channel')"
         },
         "center_agent_publication_operations_destination_id_non_empty_check": {
           "name": "center_agent_publication_operations_destination_id_non_empty_check",
@@ -8555,6 +8555,12 @@
             "binding_state"
           ],
           "isUnique": false
+        },
+        "idx_openMeldDaemon_agent_profile_bindings_profile_enabled_owner": {
+          "name": "idx_openMeldDaemon_agent_profile_bindings_profile_enabled_owner",
+          "columns": ["agent_profile_id", "owner_kind", "owner_id"],
+          "isUnique": false,
+          "where": "\"binding_state\" = 'enabled_primary'"
         }
       },
       "foreignKeys": {},
@@ -19472,6 +19478,13 @@
         }
       },
       "center_agent_project_operations_org_updated_idx": {
+        "columns": {
+          "\"updated_at_ms\" desc": {
+            "isExpression": true
+          }
+        }
+      },
+      "center_agent_publication_operations_org_updated_idx": {
         "columns": {
           "\"updated_at_ms\" desc": {
             "isExpression": true

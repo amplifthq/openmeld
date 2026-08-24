@@ -31,6 +31,8 @@ import {
 import { buildCodexAppServerLaunch } from "./codex-app-server-launch.js";
 import { buildCodexFileAccessBoundaryGlobalArgs } from "./codex-file-access-boundary.js";
 
+const CODEX_APP_SERVER_VERSION_PATTERN = /\/([^\s]+)/u;
+
 export type CodexAppServerTransportResult = {
   output: string;
   telemetry: AdapterDispatchTelemetry;
@@ -50,6 +52,11 @@ export type CodexAppServerActiveTurnRegistrar = (
 
 export type CodexAppServerThreadProofResult = {
   threadId: string;
+};
+
+export type CodexAppServerAccountProbeResult = {
+  authStatus: "authenticated" | "unauthenticated" | "unknown";
+  version: string | null;
 };
 
 type JsonRpcId = number | string;
@@ -197,6 +204,29 @@ export class CodexAppServerTransportError extends Error {
     this.code = input.code;
     this.errorType = input.errorType;
   }
+}
+
+export async function probeCodexAppServerAccount(input: {
+  launchContract: RuntimeAgentControllerLaunchContract;
+  timeoutMs?: number;
+}): Promise<CodexAppServerAccountProbeResult> {
+  const timeoutMs = input.timeoutMs ?? DEFAULT_APP_SERVER_STARTUP_TIMEOUT_MS;
+  return await withCodexAppServerSession(
+    {
+      codexTimeoutMs: timeoutMs,
+      codexWorkdir: tmpdir(),
+      launchContract: input.launchContract,
+      startupTimeoutMs: timeoutMs,
+    },
+    async (session, initialized) => {
+      const response = toRecord(await session.request("account/read", {}));
+      const account = toRecord(response?.account);
+      return {
+        authStatus: resolveCodexAppServerAuthStatus({ account, response }),
+        version: parseCodexAppServerVersion(initialized),
+      };
+    }
+  );
 }
 
 export async function invokeCodexAppServerTransport(input: {
@@ -795,12 +825,12 @@ async function withCodexAppServerSession<T>(
     onRuntimeEvent?: AdapterRuntimeEventCallback;
     startupTimeoutMs?: number;
   },
-  callback: (session: CodexAppServerSession) => Promise<T>
+  callback: (session: CodexAppServerSession, initialized: unknown) => Promise<T>
 ): Promise<T> {
   const session = new CodexAppServerSession(input);
   try {
-    await session.start();
-    return await callback(session);
+    const initialized = await session.start();
+    return await callback(session, initialized);
   } catch (error) {
     throw toCodexAppServerTransportError(error, input.codexTimeoutMs);
   } finally {
@@ -882,7 +912,7 @@ class CodexAppServerSession {
       input.startupTimeoutMs ?? DEFAULT_APP_SERVER_STARTUP_TIMEOUT_MS;
   }
 
-  async start(): Promise<void> {
+  async start(): Promise<unknown> {
     const computerFileAccessArgs = this.#computerFileAccessBoundary
       ? buildCodexFileAccessBoundaryGlobalArgs({
           boundary: this.#computerFileAccessBoundary,
@@ -1044,7 +1074,7 @@ class CodexAppServerSession {
     }, this.#startupTimeoutMs);
 
     try {
-      await this.request("initialize", {
+      const initialized = await this.request("initialize", {
         capabilities: {
           experimentalApi: true,
         },
@@ -1053,13 +1083,14 @@ class CodexAppServerSession {
           version: "0.0.0",
         },
       });
+      this.notify("initialized", {});
+      return initialized;
     } finally {
       if (this.#startupTimeout !== null) {
         clearTimeout(this.#startupTimeout);
         this.#startupTimeout = null;
       }
     }
-    this.notify("initialized", {});
   }
 
   async close(): Promise<void> {
@@ -2528,6 +2559,23 @@ function normalizeText(value: unknown): string {
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = normalizeText(value);
   return normalized.length > 0 ? normalized : null;
+}
+
+function parseCodexAppServerVersion(response: unknown): string | null {
+  const userAgent = normalizeOptionalText(toRecord(response)?.userAgent);
+  return userAgent?.match(CODEX_APP_SERVER_VERSION_PATTERN)?.[1] ?? null;
+}
+
+function resolveCodexAppServerAuthStatus(input: {
+  account: Record<string, unknown> | null;
+  response: Record<string, unknown> | null;
+}): CodexAppServerAccountProbeResult["authStatus"] {
+  if (input.account) {
+    return "authenticated";
+  }
+  return input.response?.requiresOpenaiAuth === true
+    ? "unauthenticated"
+    : "unknown";
 }
 
 function toErrorMessage(error: unknown): string {

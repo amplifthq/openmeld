@@ -1,7 +1,13 @@
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
-import type { GetAgentProfilePrimaryBindingResponse } from "@openmeld/schemas/types";
+import type {
+	GetAgentProfileControllerChangeEligibilityResponse,
+	GetAgentProfilePrimaryBindingResponse,
+} from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
-import { readAgentProfilePrimaryBinding } from "#/lib/profiles/agent-profile-primary-binding";
+import {
+	readAgentProfileControllerChangeEligibility,
+	readAgentProfilePrimaryBinding,
+} from "#/lib/profiles/agent-profile-primary-binding";
 import { baseQueryOptions } from "#/query/query-config";
 
 function normalizeQueryScope(storageScope: string | null | undefined): string {
@@ -10,6 +16,13 @@ function normalizeQueryScope(storageScope: string | null | undefined): string {
 }
 
 export const agentProfilePrimaryBindingQueryKeys = {
+	controllerChangeEligibility: (storageScope: string, agentProfileId: string) =>
+		[
+			"profiles",
+			"controller-change-eligibility",
+			normalizeQueryScope(storageScope),
+			agentProfileId,
+		] as const,
 	profile: (storageScope: string, agentProfileId: string) =>
 		[
 			"profiles",
@@ -18,6 +31,32 @@ export const agentProfilePrimaryBindingQueryKeys = {
 			agentProfileId,
 		] as const,
 } as const;
+
+export function agentProfileControllerChangeEligibilityQueryOptions(input: {
+	agentProfileId: string;
+	enabled: boolean;
+	storageScope: string;
+}) {
+	return queryOptions<
+		GetAgentProfileControllerChangeEligibilityResponse,
+		StructuredApiClientFailure
+	>({
+		queryKey: agentProfilePrimaryBindingQueryKeys.controllerChangeEligibility(
+			input.storageScope,
+			input.agentProfileId
+		),
+		queryFn: async () =>
+			await readAgentProfileControllerChangeEligibility({
+				agentProfileId: input.agentProfileId,
+			}),
+		enabled: input.enabled,
+		gcTime: baseQueryOptions.gcTime,
+		refetchOnMount: "always",
+		refetchOnWindowFocus: true,
+		retry: false,
+		staleTime: 0,
+	});
+}
 
 export function agentProfilePrimaryBindingQueryOptions(input: {
 	agentProfileId: string;

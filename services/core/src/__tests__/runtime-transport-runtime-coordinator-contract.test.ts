@@ -34,14 +34,18 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import { handleDispatchQueueBatch } from "../dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../lib/bindings";
+import { runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys } from "../runtime-transport/application/agent-profile-execution-admission";
 import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
 import {
   buildRuntimeCoordinatorFinalizationOutcomeStorageKey,
+  buildRuntimeCoordinatorHeadLifecycleStorageKey,
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_STORAGE_KEY_PREFIX,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_DELAY_MS,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_MAX_AGE_MS,
+  RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
   RUNTIME_COORDINATOR_WAKE_STOPPED_NOTICE_PUBLICATION_MODEL_VERSION,
+  type RuntimeCoordinatorHeadLifecycleRecord,
   type RuntimeCoordinatorRunCommandState,
 } from "../runtime-transport/application/runtime-coordinator-authority";
 import { retireRuntimeCoordinatorTokenRun } from "../runtime-transport/application/runtime-coordinator-execution-token";
@@ -1044,16 +1048,31 @@ const createHarness = (input?: {
     }
     return Promise.resolve();
   });
-  const storageGet = vi.fn(async (key: string) => storageRecords.get(key));
+  const storageGet = vi.fn(async (key: string | string[]) =>
+    Array.isArray(key)
+      ? new Map(
+          key.flatMap((entry) =>
+            storageRecords.has(entry)
+              ? ([[entry, storageRecords.get(entry)]] as const)
+              : []
+          )
+        )
+      : storageRecords.get(key)
+  );
   const storageDelete = vi.fn(async (key: string) =>
     storageRecords.delete(key)
   );
   const storageList = vi.fn(
-    async (options: { limit?: number; prefix?: string } = {}) =>
+    async (
+      options: { limit?: number; prefix?: string; startAfter?: string } = {}
+    ) =>
       new Map(
         [...storageRecords.entries()]
           .filter(([key]) =>
             options.prefix ? key.startsWith(options.prefix) : true
+          )
+          .filter(([key]) =>
+            options.startAfter ? key > options.startAfter : true
           )
           .sort(([left], [right]) => left.localeCompare(right))
           .slice(0, options.limit)
@@ -1225,7 +1244,10 @@ const createHarness = (input?: {
     socket,
     spaceStub,
     state,
+    storageGet,
+    storageList,
     storageSetAlarm,
+    storageTransaction,
     storagePut,
     storageRecords,
     waitUntilTasks,
@@ -3262,6 +3284,638 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
+  it("does not report inactive when the legacy head index is missing an active Wake", async () => {
+    const { hub, storageRecords } = createHarness();
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    storageRecords.delete(RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY);
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcReadAgentProfileExecutionState: (input: {
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "active" });
+  });
+
+  it("rebuilds a stale active-profile projection from canonical execution truth", async () => {
+    const { hub, storageRecords } = createHarness();
+    storageRecords.set("runtime-coordinator:agent-profile-active-index:v1", [
+      TARGET_AGENT_PROFILE_ID,
+    ]);
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcReadAgentProfileExecutionState: (input: {
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "inactive" });
+  });
+
+  it("repairs a ready execution index that loses its per-profile admission", async () => {
+    const { hub, storageRecords } = createHarness();
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const executionStateHub = hub as unknown as {
+      rpcReadAgentProfileExecutionState: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    const request = {
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+    await expect(
+      executionStateHub.rpcReadAgentProfileExecutionState(request)
+    ).resolves.toEqual({ status: "active" });
+
+    const admissionKey = [...storageRecords.keys()].find((key) =>
+      key.startsWith(
+        "runtime-coordinator:agent-profile-execution-admission:v1:"
+      )
+    );
+    expect(admissionKey).toBeDefined();
+    storageRecords.delete(admissionKey as string);
+
+    await expect(
+      executionStateHub.rpcReadAgentProfileExecutionState(request)
+    ).resolves.toEqual({
+      reasonCode: "runtime_coordinator.execution_state_rebuilding",
+      status: "unavailable",
+    });
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    await expect(
+      executionStateHub.rpcReadAgentProfileExecutionState(request)
+    ).resolves.toEqual({ status: "active" });
+  });
+
+  it("bounds execution-state repair work instead of reading the full owner history", async () => {
+    const { hub, storageGet, storageList, storageRecords } = createHarness();
+    const historyIds: string[] = [];
+    for (let index = 0; index < 512; index += 1) {
+      const dispatchId = `history-dispatch-${String(index).padStart(4, "0")}`;
+      const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `history-client-message-${index}`,
+        dispatchId,
+        sourceSignalId: `history-signal-${index}`,
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: "agt_22222222-2222-4222-8222-222222222222",
+      });
+      const record: RuntimeCoordinatorHeadLifecycleRecord = {
+        createdAtMs: index,
+        duplicateDispatches: [],
+        executionLinkedAtMs: null,
+        modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+        ownerUserId: "owner-1",
+        primaryDispatchId: dispatchId,
+        primaryIdempotencyKey: `history-idempotency-${index}`,
+        runtimeCoordinatorExecutionId: null,
+        status: "publication_intent_ready",
+        targetWakeLifecycleId:
+          targetWakeLifecycleIdentity.targetWakeLifecycleId,
+        targetWakeLifecycleIdentity,
+        updatedAtMs: index,
+      };
+      historyIds.push(record.targetWakeLifecycleId);
+      storageRecords.set(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          record.targetWakeLifecycleId
+        ),
+        record
+      );
+    }
+    storageRecords.set(
+      RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
+      historyIds
+    );
+    storageGet.mockClear();
+
+    const executionStateHub = hub as unknown as {
+      rpcReadAgentProfileExecutionState: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    const readExecutionState = () =>
+      executionStateHub.rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+
+    await expect(readExecutionState()).resolves.toMatchObject({
+      status: "unavailable",
+    });
+    expect(storageGet.mock.calls.length).toBeLessThan(32);
+
+    for (let step = 0; step < 4; step += 1) {
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    }
+    await expect(readExecutionState()).resolves.toEqual({
+      status: "inactive",
+    });
+
+    storageList.mockClear();
+    await expect(readExecutionState()).resolves.toEqual({
+      status: "inactive",
+    });
+    expect(storageList).not.toHaveBeenCalled();
+  });
+
+  it("keeps a Wake that starts during index repair active after the repair completes", async () => {
+    const { hub, storageRecords } = createHarness();
+    for (let index = 0; index < 256; index += 1) {
+      const dispatchId = `repair-race-history-${String(index).padStart(4, "0")}`;
+      const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `repair-race-client-message-${index}`,
+        dispatchId,
+        sourceSignalId: `repair-race-signal-${index}`,
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: "agt_22222222-2222-4222-8222-222222222222",
+      });
+      const record: RuntimeCoordinatorHeadLifecycleRecord = {
+        createdAtMs: index,
+        duplicateDispatches: [],
+        executionLinkedAtMs: null,
+        modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+        ownerUserId: "owner-1",
+        primaryDispatchId: dispatchId,
+        primaryIdempotencyKey: `repair-race-idempotency-${index}`,
+        runtimeCoordinatorExecutionId: null,
+        status: "publication_intent_ready",
+        targetWakeLifecycleId:
+          targetWakeLifecycleIdentity.targetWakeLifecycleId,
+        targetWakeLifecycleIdentity,
+        updatedAtMs: index,
+      };
+      storageRecords.set(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          record.targetWakeLifecycleId
+        ),
+        record
+      );
+    }
+
+    const executionStateHub = hub as unknown as {
+      rpcReadAgentProfileExecutionState: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    await expect(
+      executionStateHub.rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({ status: "unavailable" });
+
+    const acceptedDuringRepair = await acceptDefaultRuntimeCoordinatorHead(hub);
+    expect(acceptedDuringRepair.status).toBe(200);
+
+    await expect(
+      executionStateHub.rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "active" });
+  });
+
+  it("retries a transient index repair failure instead of locking normal changes forever", async () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    try {
+      const { hub, storageList } = createHarness();
+      storageList.mockRejectedValueOnce(new Error("transient storage failure"));
+      const executionStateHub = hub as unknown as {
+        rpcReadAgentProfileExecutionState: (input: {
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<unknown>;
+      };
+      const readExecutionState = () =>
+        executionStateHub.rpcReadAgentProfileExecutionState({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        });
+
+      await expect(readExecutionState()).resolves.toEqual({
+        reasonCode: "runtime_coordinator.execution_state_repair_failed",
+        status: "unavailable",
+      });
+
+      vi.setSystemTime(1_700_000_005_001);
+      await expect(readExecutionState()).resolves.toEqual({
+        status: "inactive",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("backs off and recovers when applying an index repair page fails", async () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    try {
+      const { hub, storagePut, storageRecords } = createHarness();
+      await acceptDefaultRuntimeCoordinatorHead(hub);
+      await expect(
+        (
+          hub as unknown as {
+            rpcReadAgentProfileExecutionState: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileExecutionState({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({ status: "active" });
+
+      const readyIndex = storageRecords.get(
+        "runtime-coordinator:agent-profile-execution-index:v1"
+      ) as { generation: number; modelVersion: string; ownerUserId: string };
+      storageRecords.set(
+        "runtime-coordinator:agent-profile-execution-index:v1",
+        {
+          cursor: null,
+          failureCount: 0,
+          generation: readyIndex.generation + 1,
+          modelVersion: readyIndex.modelVersion,
+          ownerUserId: readyIndex.ownerUserId,
+          phase: "head_lifecycles",
+          repairRequested: true,
+          status: "rebuilding",
+          updatedAtMs: Date.now(),
+        }
+      );
+      storageRecords.set("runtime-coordinator:agent-profile-active-index:v1", {
+        generation: readyIndex.generation + 1,
+        modelVersion:
+          "openmeld.runtime_coordinator.agent_profile_active_index.v1",
+        targetProfileIds: [],
+      });
+      const originalStoragePut = storagePut.getMockImplementation();
+      expect(originalStoragePut).toBeDefined();
+      let shouldFailRepairApply = true;
+      storagePut.mockImplementation((key: string, value: unknown) => {
+        if (
+          shouldFailRepairApply &&
+          key.startsWith(
+            "runtime-coordinator:agent-profile-execution-admission:v1:"
+          )
+        ) {
+          shouldFailRepairApply = false;
+          return Promise.reject(new Error("repair page apply unavailable"));
+        }
+        return originalStoragePut?.(key, value) ?? Promise.resolve();
+      });
+
+      const readExecutionState = () =>
+        (
+          hub as unknown as {
+            rpcReadAgentProfileExecutionState: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileExecutionState({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        });
+      await expect(readExecutionState()).resolves.toEqual({
+        reasonCode: "runtime_coordinator.execution_state_repair_failed",
+        status: "unavailable",
+      });
+
+      vi.setSystemTime(1_700_000_005_001);
+      await expect(readExecutionState()).resolves.toEqual({ status: "active" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps per-profile execution references bounded", async () => {
+    const { hub, storageRecords } = createHarness();
+    for (let index = 0; index < 130; index += 1) {
+      const dispatchId = `bounded-dispatch-${index}`;
+      const response = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        buildRuntimeCoordinatorHeadAcceptRequest({
+          dispatchId,
+          idempotencyKey: `bounded-idempotency-${index}`,
+          targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+            clientMessageId: `bounded-client-message-${index}`,
+            dispatchId,
+            sourceSignalId: `bounded-signal-${index}`,
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+          }),
+        })
+      );
+      expect(response.status).toBe(200);
+    }
+
+    const admission = [...storageRecords.entries()].find(([key]) =>
+      key.startsWith(
+        "runtime-coordinator:agent-profile-execution-admission:v1:"
+      )
+    )?.[1] as
+      | { activeHeadLifecycleIds?: unknown[]; referencesOverflowed?: boolean }
+      | undefined;
+    expect(admission?.activeHeadLifecycleIds).toHaveLength(128);
+    expect(admission?.referencesOverflowed).toBe(true);
+  });
+
+  it("fails closed without batch-reading corrupted over-limit execution references", async () => {
+    const seeded = createHarness();
+    await acceptDefaultRuntimeCoordinatorHead(seeded.hub);
+    await expect(
+      (
+        seeded.hub as unknown as {
+          rpcReadAgentProfileExecutionState: (input: {
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "active" });
+    const storageRecords = new Map(seeded.storageRecords);
+    const { hub, storageGet } = createHarness({ storageRecords });
+    const admissionKey =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const admission = storageRecords.get(admissionKey);
+    expect(admission).toBeDefined();
+    storageRecords.set(admissionKey, {
+      ...(admission as Record<string, unknown>),
+      activeExecutionIds: Array.from(
+        { length: 129 },
+        (_, index) => `corrupt-execution-${index}`
+      ),
+      activeHeadLifecycleIds: [],
+      referencesOverflowed: false,
+    });
+    expect(
+      (
+        storageRecords.get(admissionKey) as {
+          activeExecutionIds: string[];
+        }
+      ).activeExecutionIds
+    ).toHaveLength(129);
+    storageGet.mockClear();
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcReadAgentProfileExecutionState: (input: {
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({ status: "unavailable" });
+    expect(
+      storageGet.mock.calls.some(
+        ([key]) => Array.isArray(key) && key.length > 128
+      )
+    ).toBe(false);
+  });
+
+  it("serializes Controller mutation admission with new Wake acceptance", async () => {
+    const { hub } = createHarness();
+    const mutationHub = hub as unknown as {
+      rpcAcquireAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<{
+        expiresAtMs?: number;
+        operationId?: string;
+        status: string;
+      }>;
+      rpcReleaseAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<{ status: string }>;
+    };
+
+    await expect(
+      mutationHub.rpcAcquireAgentProfileControllerMutation({
+        operationId: "controller-mutation-1",
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({
+      operationId: "controller-mutation-1",
+      status: "acquired",
+    });
+
+    const blockedAccept = await acceptDefaultRuntimeCoordinatorHead(hub);
+    expect(blockedAccept.status).toBe(503);
+    await expect(blockedAccept.json()).resolves.toMatchObject({
+      ok: false,
+      reasonCode: "runtime_coordinator.execution_target_mutation_in_progress",
+      status: "retry_later",
+    });
+
+    await expect(
+      mutationHub.rpcReleaseAgentProfileControllerMutation({
+        operationId: "controller-mutation-1",
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "released" });
+
+    const acceptedAfterRelease = await acceptDefaultRuntimeCoordinatorHead(hub);
+    expect(acceptedAfterRelease.status).toBe(200);
+    await expect(acceptedAfterRelease.json()).resolves.toMatchObject({
+      action: "create_execution",
+      ok: true,
+      status: "accepted",
+    });
+  });
+
+  it("rechecks both sides when Wake acceptance and execution-target mutation overlap", async () => {
+    const createMutationHub = (hub: RuntimeTransportHub) =>
+      hub as unknown as {
+        rpcAcquireAgentProfileControllerMutation: (input: {
+          operationId: string;
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<{ status: string }>;
+        rpcReadAgentProfileExecutionState: (input: {
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<unknown>;
+      };
+    const pauseNextTransaction = (
+      storageTransaction: ReturnType<typeof vi.fn>
+    ) => {
+      const original = storageTransaction.getMockImplementation();
+      expect(original).toBeDefined();
+      let signalEntered: (() => void) | null = null;
+      let signalRelease: (() => void) | null = null;
+      const entered = new Promise<void>((resolve) => {
+        signalEntered = resolve;
+      });
+      const release = new Promise<void>((resolve) => {
+        signalRelease = resolve;
+      });
+      storageTransaction.mockImplementationOnce(
+        async (
+          operation: (transaction: DurableObjectTransaction) => unknown
+        ) => {
+          signalEntered?.();
+          await release;
+          return await original?.(operation);
+        }
+      );
+      return {
+        entered,
+        release: () => signalRelease?.(),
+      };
+    };
+    const executionStateRequest = {
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+
+    const mutationFirst = createHarness();
+    const mutationFirstHub = createMutationHub(mutationFirst.hub);
+    await expect(
+      mutationFirstHub.rpcReadAgentProfileExecutionState(executionStateRequest)
+    ).resolves.toEqual({ status: "inactive" });
+    const pausedMutation = pauseNextTransaction(
+      mutationFirst.storageTransaction
+    );
+    const mutationPromise =
+      mutationFirstHub.rpcAcquireAgentProfileControllerMutation({
+        operationId: "overlapping-mutation",
+        ...executionStateRequest,
+      });
+    await pausedMutation.entered;
+    const acceptedWake = await acceptDefaultRuntimeCoordinatorHead(
+      mutationFirst.hub
+    );
+    expect(acceptedWake.status).toBe(200);
+    pausedMutation.release();
+    await expect(mutationPromise).resolves.toMatchObject({ status: "blocked" });
+
+    const wakeFirst = createHarness();
+    const wakeFirstHub = createMutationHub(wakeFirst.hub);
+    await expect(
+      wakeFirstHub.rpcReadAgentProfileExecutionState(executionStateRequest)
+    ).resolves.toEqual({ status: "inactive" });
+    const pausedWake = pauseNextTransaction(wakeFirst.storageTransaction);
+    const wakePromise = acceptDefaultRuntimeCoordinatorHead(wakeFirst.hub);
+    await pausedWake.entered;
+    await expect(
+      wakeFirstHub.rpcAcquireAgentProfileControllerMutation({
+        operationId: "overlapping-mutation",
+        ...executionStateRequest,
+      })
+    ).resolves.toMatchObject({ status: "acquired" });
+    pausedWake.release();
+    const blockedWake = await wakePromise;
+    expect(blockedWake.status).toBe(503);
+    await expect(blockedWake.json()).resolves.toMatchObject({
+      reasonCode: "runtime_coordinator.execution_target_mutation_in_progress",
+      status: "retry_later",
+    });
+  });
+
+  it("lets a new Wake proceed after an abandoned Controller mutation lease expires", async () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    try {
+      const { hub } = createHarness();
+      const mutationHub = hub as unknown as {
+        rpcAcquireAgentProfileControllerMutation: (input: {
+          operationId: string;
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<{ expiresAtMs?: number; status: string }>;
+      };
+      await expect(
+        mutationHub.rpcAcquireAgentProfileControllerMutation({
+          operationId: "abandoned-controller-mutation",
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({ status: "acquired" });
+
+      vi.setSystemTime(1_700_000_300_001);
+      const acceptedAfterExpiry =
+        await acceptDefaultRuntimeCoordinatorHead(hub);
+      expect(acceptedAfterExpiry.status).toBe(200);
+      await expect(acceptedAfterExpiry.json()).resolves.toMatchObject({
+        action: "create_execution",
+        ok: true,
+        status: "accepted",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a new Wake blocked while an unknown working-folder outcome may arrive late", async () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    try {
+      const { hub } = createHarness();
+      const mutationHub = hub as unknown as {
+        rpcAcquireAgentProfileControllerMutation: (input: {
+          operationId: string;
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<{ status: string }>;
+      };
+      await expect(
+        mutationHub.rpcAcquireAgentProfileControllerMutation({
+          operationId: "working-folder-outcome-unknown",
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({ status: "acquired" });
+
+      const blockedWhileLateResultIsPossible =
+        await acceptDefaultRuntimeCoordinatorHead(hub);
+      expect(blockedWhileLateResultIsPossible.status).toBe(503);
+      await expect(
+        blockedWhileLateResultIsPossible.json()
+      ).resolves.toMatchObject({
+        reasonCode: "runtime_coordinator.execution_target_mutation_in_progress",
+        status: "retry_later",
+      });
+
+      vi.setSystemTime(1_700_000_300_001);
+      const acceptedAfterUnknownOutcomeLease =
+        await acceptDefaultRuntimeCoordinatorHead(hub);
+      expect(acceptedAfterUnknownOutcomeLease.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("records pre-agent Stop before execution without creating execution authority", async () => {
     const { hub, spaceFetchRequests, storageRecords } = createHarness();
     const stopRequest = buildRuntimeCoordinatorHeadPreAgentStopRequest();
@@ -4494,6 +5148,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "cancelled",
       },
     });
+    await expect(
+      (
+        hub as unknown as {
+          rpcReadAgentProfileExecutionState: (input: {
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "inactive" });
     const events = getRuntimeCoordinatorEventCalls(recordingD1.calls);
     expect(events.some((call) => call.params[2] === "reply_published")).toBe(
       false

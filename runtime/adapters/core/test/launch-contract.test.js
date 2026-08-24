@@ -552,6 +552,71 @@ test("resolveInstalledNodeScriptLaunchCandidates keeps only temporary PATH wrapp
   }
 });
 
+test("resolveInstalledNodeScriptLaunchCandidates keeps a saved temporary wrapper beside stable installs", async () => {
+  const fixtureDir = await mkdtemp(
+    join(tmpdir(), "adapter-core-saved-choice-")
+  );
+  const wrapperDir = join(fixtureDir, "cmux-cli-shims", "session-a");
+  const stableBinDir = join(fixtureDir, ".local", "bin");
+  const wrapperPath = join(wrapperDir, "claude");
+  const stablePath = join(stableBinDir, "claude");
+  const originalHome = process.env.HOME;
+  const originalPath = process.env.PATH;
+  const originalSearchEnv = snapshotEnvVars(EXECUTABLE_SEARCH_ENV_KEYS);
+
+  await Promise.all([
+    mkdir(wrapperDir, { recursive: true }),
+    mkdir(stableBinDir, { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(
+      wrapperPath,
+      [
+        "#!/usr/bin/env bash",
+        `export CMUX_CLAUDE_WRAPPER_SHIM="${wrapperPath}"`,
+        `export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="${wrapperDir}"`,
+        'exec "/Applications/cmux.app/Contents/Resources/bin/cmux-claude-wrapper" "$@"',
+        "",
+      ].join("\n"),
+      "utf8"
+    ),
+    writeFile(stablePath, "#!/usr/bin/env bash\nexit 0\n", "utf8"),
+  ]);
+  await Promise.all([chmod(wrapperPath, 0o755), chmod(stablePath, 0o755)]);
+
+  try {
+    process.env.HOME = fixtureDir;
+    process.env.PATH = stableBinDir;
+    isolateExecutableSearchEnv(fixtureDir);
+    const resolution = await resolveInstalledNodeScriptLaunchCandidates({
+      commandName: "claude",
+      displayName: "Claude Code",
+      preferredLaunchContract: {
+        kind: "node_script",
+        nodePath: "/usr/bin/env",
+        scriptPath: wrapperPath,
+      },
+    });
+
+    assert.equal(resolution.ok, true);
+    if (!resolution.ok) {
+      throw new Error("Expected saved wrapper and stable install to resolve");
+    }
+
+    assert.deepEqual(
+      resolution.candidates.map((candidate) => candidate.commandPath),
+      [wrapperPath, stablePath]
+    );
+    assert.equal(resolution.candidates[0]?.label, "Temporary wrapper");
+    assert.equal(resolution.candidates[1]?.label, "User install");
+  } finally {
+    restoreOptionalEnvVar("HOME", originalHome);
+    restoreOptionalEnvVar("PATH", originalPath);
+    restoreEnvVars(originalSearchEnv);
+    await rm(fixtureDir, { force: true, recursive: true });
+  }
+});
+
 test("resolveInstalledNodeScriptLaunchCandidates bounds executable content inspection", async () => {
   const fixtureDir = await mkdtemp(
     join(tmpdir(), "adapter-core-bounded-executable-inspection-")
@@ -674,6 +739,46 @@ test("resolveInstalledNodeScriptLaunchCandidates finds user bin installs outside
     assert.equal(resolution.ok, true);
     if (!resolution.ok) {
       throw new Error("Expected user bin install to resolve");
+    }
+    assert.equal(resolution.candidates[0]?.commandPath, commandPath);
+  } finally {
+    restoreOptionalEnvVar("HOME", originalHome);
+    restoreOptionalEnvVar("PATH", originalPath);
+    restoreEnvVars(originalSearchEnv);
+    await rm(fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("resolveInstalledNodeScriptLaunchCandidates includes a saved install outside discovery paths", async () => {
+  const fixtureDir = await mkdtemp(
+    join(tmpdir(), "adapter-core-saved-install-")
+  );
+  const savedBinDir = join(fixtureDir, "saved", "bin");
+  const commandPath = join(savedBinDir, "fixture-agent");
+  const originalHome = process.env.HOME;
+  const originalPath = process.env.PATH;
+  const originalSearchEnv = snapshotEnvVars(EXECUTABLE_SEARCH_ENV_KEYS);
+
+  await mkdir(savedBinDir, { recursive: true });
+  await writeFile(commandPath, "#!/bin/sh\nexit 0\n", "utf8");
+  await chmod(commandPath, 0o755);
+
+  try {
+    process.env.HOME = fixtureDir;
+    process.env.PATH = "/usr/bin:/bin";
+    isolateExecutableSearchEnv(fixtureDir);
+    const resolution = await resolveInstalledNodeScriptLaunchCandidates({
+      commandName: "fixture-agent",
+      displayName: "Fixture Agent",
+      preferredLaunchContract: {
+        commandPath,
+        kind: "executable",
+      },
+    });
+
+    assert.equal(resolution.ok, true);
+    if (!resolution.ok) {
+      throw new Error("Expected the saved install to remain discoverable");
     }
     assert.equal(resolution.candidates[0]?.commandPath, commandPath);
   } finally {

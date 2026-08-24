@@ -64,7 +64,7 @@ type AgentProfileBindingUpdateResult = {
 export function formatAgentProfileRuntimeSettingsSavedMessage(
 	profileName: string
 ): string {
-	return `Agent settings saved for ${profileName}. New work will wait for this computer to sync the changes before it starts.`;
+	return `Settings saved for ${profileName}. This computer must sync the changes before new work starts. Work already running keeps its current settings.`;
 }
 
 export async function changeAgentProfileController(input: {

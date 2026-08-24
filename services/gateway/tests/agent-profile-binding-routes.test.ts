@@ -10,6 +10,7 @@ type CoreRpcMock = {
   getAgentExecutionReadinessBatch: ReturnType<typeof vi.fn>;
   getAgentExecutionReadiness: ReturnType<typeof vi.fn>;
   getAgentProfileCreationDefaults: ReturnType<typeof vi.fn>;
+  getAgentProfileControllerChangeEligibility: ReturnType<typeof vi.fn>;
   getAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   listOrganizationBindingAuthorizationProfiles: ReturnType<typeof vi.fn>;
   listOrganizationBindingAuthorizations: ReturnType<typeof vi.fn>;
@@ -107,6 +108,12 @@ function makeEnv(input?: {
       binding: enabledBindingProjection(),
       grantsClaimSuccess: false,
       status: "found",
+    })),
+    getAgentProfileControllerChangeEligibility: vi.fn(async () => ({
+      agentProfileId: AGENT_PROFILE_ID,
+      reasonCode:
+        "agent_profile_binding.controller_change_blocked_active_execution",
+      status: "blocked",
     })),
     getAgentProfileCreationDefaults: vi.fn(async () => ({
       agentControllerPermissionMode: "codex:approveForMe",
@@ -400,6 +407,31 @@ describe("agent profile binding routes", () => {
       expect.objectContaining({
         agentProfileId: AGENT_PROFILE_ID,
       })
+    );
+  });
+
+  it("reads account-wide Controller change eligibility", async () => {
+    const { coreRpc, env } = makeEnv();
+
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/controller-change-eligibility`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      agentProfileId: AGENT_PROFILE_ID,
+      reasonCode:
+        "agent_profile_binding.controller_change_blocked_active_execution",
+      status: "blocked",
+    });
+    expect(
+      coreRpc.getAgentProfileControllerChangeEligibility
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ agentProfileId: AGENT_PROFILE_ID })
     );
   });
 

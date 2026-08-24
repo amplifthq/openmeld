@@ -346,6 +346,22 @@ export function formatWebAgentProfileRuntimeBindingFailure(
 	if (
 		result.reason === "binding_rejected" &&
 		result.reasonCodes.includes(
+			"agent_profile_binding.controller_change_blocked_active_execution"
+		)
+	) {
+		return "This Agent is still working. Wait for the current Wake to finish before changing its Controller.";
+	}
+	if (
+		result.reason === "binding_rejected" &&
+		result.reasonCodes.includes(
+			"agent_profile_binding.controller_change_eligibility_unavailable"
+		)
+	) {
+		return "OpenMeld couldn’t confirm whether this Agent is working. Try changing its Controller again.";
+	}
+	if (
+		result.reason === "binding_rejected" &&
+		result.reasonCodes.includes(
 			"agent_profile_binding.session_resume_unavailable"
 		)
 	) {

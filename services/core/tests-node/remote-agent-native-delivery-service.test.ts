@@ -10910,7 +10910,7 @@ function seedCenterAgentTaskAdmissionAuthority(
       "hosted_center_agent",
       JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
       HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      "center-agent",
+      null,
       "enabled_primary",
       100,
       100,

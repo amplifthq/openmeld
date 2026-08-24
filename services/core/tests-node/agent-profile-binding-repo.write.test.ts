@@ -15,11 +15,13 @@ import {
   createD1AgentProfileBindingCommandStore,
   disablePrimaryAgentProfileBindingRecord,
   ensurePrimaryAgentProfileBindingRecord,
+  listEnabledPrimaryAgentProfileBindingRecordsForProfile,
   readPrimaryAgentProfileBindingRecord,
   reconnectPrimaryAgentProfileBindingRecord,
   updatePrimaryAgentProfileBindingAgentControllerCollaborationModeRecord,
   updatePrimaryAgentProfileBindingAgentControllerPermissionModeRecord,
 } from "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { reconcileRemoteCenterAgentBindingRecord } from "../src/center-agent/infrastructure/d1/remote-center-agent-binding-repo";
 import {
   acceptRuntimeAgentControllerReportRecord,
   readCurrentRuntimeAgentControllerReport,
@@ -29,16 +31,370 @@ import {
   registerRuntimeRegistryRecord,
 } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
 import {
-  applyDrizzleMigrationForTable as applyMigrationForTable,
+  applyDrizzleMigrationsForTables,
+  applyDrizzleMigrationForTable as applySingleTableMigration,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
+const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
+const OTHER_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
+const FOREIGN_KEY_CONSTRAINT_ERROR_PATTERN = /FOREIGN KEY constraint failed/;
 const OWNER = {
   id: "owner-1",
   kind: "owner_account",
 } as const;
 
 describe("Agent Profile Binding repo write-side", () => {
+  it("leaves every Binding and authorization unchanged when a same-millisecond writer makes admitted inventory stale", async () => {
+    const harness = createSqliteD1Harness();
+    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    try {
+      harness.run({
+        sql: `
+          CREATE UNIQUE INDEX IF NOT EXISTS organization_binding_authorizations_org_binding_uq_idx
+          ON organization_binding_authorizations (organization_id, binding_id)
+        `,
+      });
+      harness.run({
+        sql: "DROP TRIGGER openMeldDaemon_agent_profile_bindings_canonical_enabled_insert_check",
+      });
+      harness.run({
+        sql: "DROP TRIGGER openMeldDaemon_agent_profile_bindings_canonical_enabled_update_check",
+      });
+      const canonical = createBindingRecord({
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        bindingId: "binding_hosted_current",
+        hostedRuntimeIdentityJson: JSON.stringify(
+          HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+        ),
+        openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+        runtimeKind: "hosted_center_agent",
+      });
+      await ensurePrimaryAgentProfileBindingRecord({
+        db: harness.db,
+        record: canonical,
+      });
+      harness.run({
+        params: [
+          "binding_legacy_admin",
+          "owner_account",
+          "admin-1",
+          AGENT_PROFILE_ID,
+          HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+          "hosted_center_agent",
+          JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
+          HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          1000,
+          1000,
+        ],
+        sql: `
+          INSERT INTO openMeldDaemon_agent_profile_bindings (
+            binding_id, owner_kind, owner_id, agent_profile_id,
+            openmeld_service_runtime_id, runtime_kind,
+            hosted_runtime_identity_json, agent_controller_ref,
+            binding_state, created_at_ms, updated_at_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'enabled_primary', ?, ?)
+        `,
+      });
+      const currentBindings =
+        await listEnabledPrimaryAgentProfileBindingRecordsForProfile({
+          agentProfileId: AGENT_PROFILE_ID,
+          db: harness.db,
+        });
+      harness.run({
+        params: [1000, 1000, "binding_legacy_admin"],
+        sql: `
+          UPDATE openMeldDaemon_agent_profile_bindings
+          SET
+            binding_state = 'disabled_historical',
+            disabled_at_ms = ?,
+            updated_at_ms = ?
+          WHERE binding_id = ?
+        `,
+      });
+
+      await expect(
+        reconcileRemoteCenterAgentBindingRecord({
+          authorization: {
+            authorizedBy: OWNER.id,
+            id: "authorization-hosted",
+            organizationId: "org-1",
+          },
+          currentBindings,
+          db: harness.db,
+          noncanonicalDisabledReasonCode:
+            "center_agent.binding_owner_reconciled",
+          record: {
+            ...canonical,
+            bindingId: "binding_hosted_replacement",
+          },
+        })
+      ).rejects.toThrow("stale admission evidence");
+
+      expect(
+        harness.queryAll<{
+          binding_id: string;
+          binding_state: string;
+        }>({
+          params: [AGENT_PROFILE_ID],
+          sql: `
+            SELECT binding_id, binding_state
+            FROM openMeldDaemon_agent_profile_bindings
+            WHERE agent_profile_id = ?
+            ORDER BY binding_id
+          `,
+        })
+      ).toEqual([
+        {
+          binding_id: "binding_hosted_current",
+          binding_state: "enabled_primary",
+        },
+        {
+          binding_id: "binding_legacy_admin",
+          binding_state: "disabled_historical",
+        },
+      ]);
+      expect(
+        harness.queryAll({
+          sql: "SELECT * FROM organization_binding_authorizations",
+        })
+      ).toEqual([]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("preserves settings from the newest compatible legacy hosted Binding", async () => {
+    const harness = createSqliteD1Harness();
+    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    try {
+      harness.run({
+        sql: `
+          CREATE UNIQUE INDEX IF NOT EXISTS organization_binding_authorizations_org_binding_uq_idx
+          ON organization_binding_authorizations (organization_id, binding_id)
+        `,
+      });
+      harness.run({
+        sql: "DROP TRIGGER openMeldDaemon_agent_profile_bindings_canonical_enabled_insert_check",
+      });
+      harness.run({
+        sql: "DROP TRIGGER openMeldDaemon_agent_profile_bindings_canonical_enabled_update_check",
+      });
+      await ensurePrimaryAgentProfileBindingRecord({
+        db: harness.db,
+        record: createBindingRecord({
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          bindingId: "binding_hosted_old_canonical",
+          hostedRuntimeIdentityJson: JSON.stringify(
+            HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+          ),
+          openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+          runtimeKind: "hosted_center_agent",
+        }),
+      });
+      const openCodePermission = { bash: "deny", edit: "ask" } as const;
+      harness.run({
+        params: [
+          "binding_legacy_hosted",
+          "owner_account",
+          "admin-1",
+          AGENT_PROFILE_ID,
+          HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+          "hosted_center_agent",
+          JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
+          HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          "codex:plan",
+          "codex:fullAccess",
+          "gpt-5.6-sol",
+          JSON.stringify(openCodePermission),
+          "high",
+          1000,
+          2000,
+        ],
+        sql: `
+          INSERT INTO openMeldDaemon_agent_profile_bindings (
+            binding_id, owner_kind, owner_id, agent_profile_id,
+            openmeld_service_runtime_id, runtime_kind,
+            hosted_runtime_identity_json, agent_controller_ref,
+            binding_state, agent_controller_collaboration_mode,
+            agent_controller_permission_mode, model_id, opencode_permission,
+            reasoning_level, created_at_ms, updated_at_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'enabled_primary', ?, ?, ?, ?, ?, ?, ?)
+        `,
+      });
+      const currentBindings =
+        await listEnabledPrimaryAgentProfileBindingRecordsForProfile({
+          agentProfileId: AGENT_PROFILE_ID,
+          db: harness.db,
+        });
+
+      await reconcileRemoteCenterAgentBindingRecord({
+        authorization: {
+          authorizedBy: OWNER.id,
+          id: "authorization-hosted",
+          organizationId: "org-1",
+        },
+        currentBindings,
+        db: harness.db,
+        noncanonicalDisabledReasonCode: "center_agent.binding_owner_reconciled",
+        record: createBindingRecord({
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          bindingId: "binding_hosted",
+          hostedRuntimeIdentityJson: JSON.stringify(
+            HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+          ),
+          openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+          runtimeKind: "hosted_center_agent",
+        }),
+      });
+
+      await expect(
+        readPrimaryAgentProfileBindingRecord({
+          agentProfileId: AGENT_PROFILE_ID,
+          db: harness.db,
+          owner: OWNER,
+        })
+      ).resolves.toMatchObject({
+        agentControllerCollaborationMode: "codex:plan",
+        agentControllerPermissionMode: "codex:fullAccess",
+        modelId: "gpt-5.6-sol",
+        openCodePermission,
+        reasoningLevel: "high",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("rolls back legacy disables and the hosted target when authorization carry-over fails", async () => {
+    const harness = createSqliteD1Harness();
+    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    try {
+      harness.run({
+        sql: `
+          CREATE UNIQUE INDEX IF NOT EXISTS organization_binding_authorizations_org_binding_uq_idx
+          ON organization_binding_authorizations (organization_id, binding_id)
+        `,
+      });
+      harness.run({
+        sql: "DROP TRIGGER openMeldDaemon_agent_profile_bindings_canonical_enabled_insert_check",
+      });
+      harness.run({
+        sql: "DROP TRIGGER openMeldDaemon_agent_profile_bindings_canonical_enabled_update_check",
+      });
+      harness.run({
+        params: [
+          "binding_legacy_admin",
+          "owner_account",
+          "admin-1",
+          AGENT_PROFILE_ID,
+          "legacy-runtime",
+          "builtin:codex",
+          1000,
+          1000,
+        ],
+        sql: `
+          INSERT INTO openMeldDaemon_agent_profile_bindings (
+            binding_id,
+            owner_kind,
+            owner_id,
+            agent_profile_id,
+            openmeld_service_runtime_id,
+            agent_controller_ref,
+            binding_state,
+            created_at_ms,
+            updated_at_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, 'enabled_primary', ?, ?)
+        `,
+      });
+      harness.run({
+        params: [
+          "authorization-legacy",
+          "org-1",
+          "binding_legacy_admin",
+          OWNER.id,
+          1000,
+        ],
+        sql: `
+          INSERT INTO organization_binding_authorizations (
+            id, organization_id, binding_id, authorized_by, created_at
+          ) VALUES (?, ?, ?, ?, ?)
+        `,
+      });
+      const currentBindings =
+        await listEnabledPrimaryAgentProfileBindingRecordsForProfile({
+          agentProfileId: AGENT_PROFILE_ID,
+          db: harness.db,
+        });
+
+      await expect(
+        reconcileRemoteCenterAgentBindingRecord({
+          authorization: {
+            authorizedBy: "missing-authorizer",
+            id: "authorization-hosted",
+            organizationId: "org-1",
+          },
+          currentBindings,
+          db: harness.db,
+          noncanonicalDisabledReasonCode:
+            "center_agent.binding_owner_reconciled",
+          record: createBindingRecord({
+            agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+            bindingId: "binding_hosted",
+            hostedRuntimeIdentityJson: JSON.stringify(
+              HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+            ),
+            openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+            runtimeKind: "hosted_center_agent",
+          }),
+        })
+      ).rejects.toThrow(FOREIGN_KEY_CONSTRAINT_ERROR_PATTERN);
+
+      expect(
+        harness.queryAll<{
+          binding_id: string;
+          binding_state: string;
+          owner_id: string;
+        }>({
+          params: [AGENT_PROFILE_ID],
+          sql: `
+            SELECT binding_id, binding_state, owner_id
+            FROM openMeldDaemon_agent_profile_bindings
+            WHERE agent_profile_id = ?
+            ORDER BY binding_id
+          `,
+        })
+      ).toEqual([
+        {
+          binding_id: "binding_legacy_admin",
+          binding_state: "enabled_primary",
+          owner_id: "admin-1",
+        },
+      ]);
+      expect(
+        harness.queryAll<{
+          authorized_by: string;
+          binding_id: string;
+          id: string;
+        }>({
+          sql: `
+            SELECT id, binding_id, authorized_by
+            FROM organization_binding_authorizations
+            ORDER BY id
+          `,
+        })
+      ).toEqual([
+        {
+          authorized_by: OWNER.id,
+          binding_id: "binding_legacy_admin",
+          id: "authorization-legacy",
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("updates hosted model selection only at the expected configuration revision", async () => {
     const harness = createSqliteD1Harness();
     applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
@@ -106,7 +462,7 @@ describe("Agent Profile Binding repo write-side", () => {
     applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
     try {
       const record = {
-        agentProfileId: "agent-profile-1",
+        agentProfileId: AGENT_PROFILE_ID,
         bindingId: "binding_opaque_1",
         agentControllerRef: "builtin:codex",
         agentControllerConversationId: null,
@@ -146,7 +502,7 @@ describe("Agent Profile Binding repo write-side", () => {
 
       await expect(
         readPrimaryAgentProfileBindingRecord({
-          agentProfileId: "agent-profile-1",
+          agentProfileId: AGENT_PROFILE_ID,
           db: harness.db,
           owner: {
             id: "owner-1",
@@ -336,6 +692,7 @@ describe("Agent Profile Binding repo write-side", () => {
 
       await expect(
         reconnectPrimaryAgentProfileBindingRecord({
+          acquireExecutionTargetMutationAdmission: async () => undefined,
           db: harness.db,
           record: {
             ...record,
@@ -477,6 +834,7 @@ describe("Agent Profile Binding repo write-side", () => {
           agentProfileId: initial.agentProfileId,
           agentControllerRef: "builtin:codex",
           bindingStore: createD1AgentProfileBindingCommandStore({
+            acquireExecutionTargetMutationAdmission: async () => undefined,
             db: harness.db,
           }),
           createBindingId: () => "binding_after_reconnect",
@@ -703,6 +1061,7 @@ describe("Agent Profile Binding repo write-side", () => {
       };
       await expect(
         reconnectPrimaryAgentProfileBindingRecord({
+          acquireExecutionTargetMutationAdmission: async () => undefined,
           db: harness.db,
           record: replacement,
         })
@@ -895,7 +1254,7 @@ describe("Agent Profile Binding repo write-side", () => {
     try {
       const existing = createBindingRecord({
         agentControllerConversationId: "ctx-shared",
-        agentProfileId: "agent-profile-1",
+        agentProfileId: AGENT_PROFILE_ID,
         bindingId: "binding_opaque_1",
         agentControllerRef: "builtin:codex",
         openMeldServiceRuntimeId: "runtime_opaque_1",
@@ -910,7 +1269,7 @@ describe("Agent Profile Binding repo write-side", () => {
           db: harness.db,
           record: createBindingRecord({
             agentControllerConversationId: "ctx-shared",
-            agentProfileId: "agent-profile-2",
+            agentProfileId: OTHER_AGENT_PROFILE_ID,
             bindingId: "binding_opaque_2",
             agentControllerRef: "builtin:codex",
             openMeldServiceRuntimeId: "runtime_opaque_1",
@@ -939,7 +1298,7 @@ describe("Agent Profile Binding repo write-side", () => {
           db: harness.db,
           record: createBindingRecord({
             agentControllerConversationId: "ctx-shared",
-            agentProfileId: "agent-profile-1",
+            agentProfileId: AGENT_PROFILE_ID,
             bindingId: "binding_opaque_1",
             agentControllerRef: "builtin:codex",
             openMeldServiceRuntimeId: "runtime_opaque_1",
@@ -949,7 +1308,7 @@ describe("Agent Profile Binding repo write-side", () => {
           db: harness.db,
           record: createBindingRecord({
             agentControllerConversationId: "ctx-shared",
-            agentProfileId: "agent-profile-2",
+            agentProfileId: OTHER_AGENT_PROFILE_ID,
             bindingId: "binding_opaque_2",
             agentControllerRef: "builtin:codex",
             openMeldServiceRuntimeId: "runtime_opaque_1",
@@ -982,7 +1341,7 @@ describe("Agent Profile Binding repo write-side", () => {
     try {
       const existing = createBindingRecord({
         agentControllerConversationId: "ctx-shared",
-        agentProfileId: "agent-profile-1",
+        agentProfileId: AGENT_PROFILE_ID,
         bindingId: "binding_opaque_1",
         agentControllerRef: "builtin:codex",
         openMeldServiceRuntimeId: "runtime_opaque_1",
@@ -996,7 +1355,7 @@ describe("Agent Profile Binding repo write-side", () => {
           "binding_opaque_2",
           OWNER.kind,
           OWNER.id,
-          "agent-profile-2",
+          OTHER_AGENT_PROFILE_ID,
           "runtime_opaque_1",
           "builtin:codex",
           "ctx-shared",
@@ -1082,7 +1441,7 @@ describe("Agent Profile Binding repo write-side", () => {
 
       await expect(
         ensurePrimaryAgentProfileBinding({
-          agentProfileId: "agent-profile-1",
+          agentProfileId: AGENT_PROFILE_ID,
           bindingStore: createD1AgentProfileBindingCommandStore({
             db: harness.db,
           }),
@@ -1142,7 +1501,7 @@ function createBindingRecord(input: {
   openMeldServiceRuntimeId: string;
 }) {
   return {
-    agentProfileId: input.agentProfileId ?? "agent-profile-1",
+    agentProfileId: input.agentProfileId ?? AGENT_PROFILE_ID,
     bindingId: input.bindingId,
     agentControllerRef: input.agentControllerRef,
     agentControllerConversationId: input.agentControllerConversationId ?? null,
@@ -1174,5 +1533,114 @@ function ownerAccountRuntimeLookupInput(): RuntimeLookupInput {
       id: "owner-1",
       kind: "owner_account",
     },
+  });
+}
+
+function applyMigrationForTable(
+  harness: ReturnType<typeof createSqliteD1Harness>,
+  tableName: string
+): void {
+  if (tableName !== "openMeldDaemon_agent_profile_bindings") {
+    applySingleTableMigration(harness, tableName);
+    return;
+  }
+  applyAgentProfileBindingRepoMigrations(harness);
+}
+
+function applyAgentProfileBindingRepoMigrations(
+  harness: ReturnType<typeof createSqliteD1Harness>
+): void {
+  applyAgentProfileBindingIdentityTables(harness);
+  applyDrizzleMigrationsForTables(harness, [
+    "openmeld_profiles",
+    "openMeldDaemon_agent_profile_bindings",
+  ]);
+  const nowMs = 1000;
+  harness.run({
+    params: [OWNER.id, "Owner", "owner@example.com", 1, nowMs, nowMs],
+    sql: `
+      INSERT INTO users (
+        id, name, email, email_verified, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `,
+  });
+  harness.run({
+    params: ["org-1", "Organization", "organization", nowMs],
+    sql: `
+      INSERT INTO organizations (id, name, slug, created_at)
+      VALUES (?, ?, ?, ?)
+    `,
+  });
+  for (const [profileId, profileHandle] of [
+    [AGENT_PROFILE_ID, "agent-one"],
+    [OTHER_AGENT_PROFILE_ID, "agent-two"],
+  ] as const) {
+    harness.run({
+      params: [
+        profileId,
+        profileHandle,
+        profileHandle,
+        "agent",
+        0,
+        "active",
+        "org-1",
+        OWNER.id,
+        "migration",
+        nowMs,
+        nowMs,
+      ],
+      sql: `
+        INSERT INTO openmeld_profiles (
+          profile_id,
+          profile_name,
+          profile_handle,
+          profile_kind,
+          is_default,
+          status,
+          organization_id,
+          owner_user_id,
+          source,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    });
+  }
+}
+
+function applyAgentProfileBindingIdentityTables(
+  harness: ReturnType<typeof createSqliteD1Harness>
+): void {
+  harness.run({
+    sql: `
+      CREATE TABLE users (
+        id text PRIMARY KEY NOT NULL,
+        name text NOT NULL,
+        email text NOT NULL,
+        email_verified integer DEFAULT false NOT NULL,
+        image text,
+        created_at integer NOT NULL,
+        updated_at integer NOT NULL
+      )
+    `,
+  });
+  harness.run({
+    sql: `
+      CREATE TABLE organizations (
+        id text PRIMARY KEY NOT NULL,
+        name text NOT NULL,
+        slug text NOT NULL,
+        logo text,
+        created_at integer NOT NULL,
+        metadata text
+      )
+    `,
+  });
+  harness.run({
+    sql: `
+      CREATE TABLE projects (
+        id text PRIMARY KEY NOT NULL
+      )
+    `,
   });
 }

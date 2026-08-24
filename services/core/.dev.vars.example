@@ -17,7 +17,8 @@ LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY=
 ZEP_OPENMELD_API_KEY=
 
 # Non-secret Remote Agent config is managed in wrangler.jsonc vars:
-# - OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED (global kill switch)
+# - OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED (global execution kill switch)
+# - OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED (designation-only rollout gate)
 # - OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS (ops blocklist)
 # - OPENMELD_LARK_CHANNEL_ENABLED (independent provider gate; disabled by default)
 # - OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS (comma-separated pilot org IDs, or * for public)

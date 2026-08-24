@@ -50,6 +50,9 @@ export const openMeldDaemonAgentProfileBindings = sqliteTable(
       table.agentProfileId,
       table.bindingState
     ),
+    index("idx_openMeldDaemon_agent_profile_bindings_profile_enabled_owner")
+      .on(table.agentProfileId, table.ownerKind, table.ownerId)
+      .where(sql`"binding_state" = 'enabled_primary'`),
     check(
       "openMeldDaemon_agent_profile_bindings_binding_id_non_empty_check",
       sql`length(trim("binding_id")) > 0`
