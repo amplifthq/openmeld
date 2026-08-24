@@ -2225,6 +2225,14 @@ export {
   localSkillsComponentUpdateProjectionSchema,
 } from "./local-components";
 export {
+  MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION,
+  type MacOsKeychainHelperRequest,
+  type MacOsKeychainHelperResponse,
+  macOsKeychainHelperOperationSchema,
+  macOsKeychainHelperRequestSchema,
+  macOsKeychainHelperResponseSchema,
+} from "./local-machine/macos-keychain-helper";
+export {
   formatLocalMachineIssueMessage,
   LOCAL_MACHINE_RECOVERY_POLICY_BY_CODE,
   LOCAL_MACHINE_RECOVERY_SCHEMA_VERSION,
