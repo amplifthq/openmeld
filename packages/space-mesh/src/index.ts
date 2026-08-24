@@ -29,14 +29,8 @@ export {
 export { resolveGuideEntry } from "./guide-entry";
 export { OPENMELD_GUIDE_URL } from "./guide-urls";
 export {
-  extractTrailingStructuredSpaceActionBlock,
-  hydrateOpenMeldSpaceEgressActionInputFromCleanedOutput,
   normalizeOpenMeldSpaceAction,
   normalizeOpenMeldSpaceEgressAction,
-  normalizeOpenMeldSpaceEgressActionInput,
-  type OpenMeldSpaceActionCarrierKind,
-  tryExtractTrailingStructuredSpaceActionBlock,
-  tryParseStructuredSpaceActionBlockInput,
 } from "./openmeld-space-action";
 export { resolveSpacePublicationRequirement } from "./publication-requirement";
 export { resolveResultArchiveBehavior } from "./result-archive";

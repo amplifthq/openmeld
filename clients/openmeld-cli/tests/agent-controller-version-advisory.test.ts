@@ -678,7 +678,7 @@ async function writeClaudeCodeExecutable(
     [
       "#!/bin/sh",
       `if [ "$1" = "--version" ]; then echo "${version}"; exit 0; fi`,
-      'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then echo "Signed in as dev@example.com"; exit 0; fi',
+      'if [ "$1" = "auth" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then echo \'{"loggedIn":true}\'; exit 0; fi',
       "exit 1",
       "",
     ].join("\n"),
@@ -694,7 +694,7 @@ async function writeCursorExecutable(binPath: string): Promise<void> {
     [
       "#!/bin/sh",
       'if [ "$1" = "--version" ]; then echo "2026.07.16-899851b"; exit 0; fi',
-      'if [ "$1" = "status" ]; then echo "Logged in"; exit 0; fi',
+      'if [ "$1" = "status" ] && [ "$2" = "--format" ] && [ "$3" = "json" ]; then echo \'{"status":"authenticated","message":"Logged in"}\'; exit 0; fi',
       "exit 1",
       "",
     ].join("\n"),

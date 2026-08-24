@@ -343,8 +343,9 @@ structured field or event. Persist bounded result enums when a later workflow
 needs them, require action owners to declare effects, and derive diagnostics
 from typed lifecycle events. If required structured evidence is absent, keep it
 unknown and fail closed; never guess from surrounding words. Parsing an
-explicitly delimited, schema-validated protocol carrier is still valid because
-the carrier is the contract rather than free-form prose.
+schema-validated carrier is valid only when a real tool, vendor protocol, or
+typed owner boundary emitted it. Delimiters or JSON written inside a model's
+answer do not turn content into machine authority.
 
 Rule owner: `AGENTS.md` (Core Invariants, Source-Of-Truth Rules) and
 `developing/product/remote-agent-runtime.md` (semantic authorization).

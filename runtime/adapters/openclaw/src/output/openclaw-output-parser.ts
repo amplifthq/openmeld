@@ -1,5 +1,3 @@
-import { looksLikeRuntimePermissionDenialMessage } from "@openmeld/adapter-core";
-
 export type OpenClawOutputLineParseResult = {
   errorMessage: string | null;
   isErrorResult: boolean | null;
@@ -181,25 +179,13 @@ function resolveErrorMessage(
   record: Record<string, unknown>,
   isErrorResult: boolean | null
 ): string | null {
-  const fromKnownPaths = resolveStringByPaths(
-    record,
-    OPENCLAW_ERROR_MESSAGE_PATHS
+  if (isErrorResult !== true) {
+    return null;
+  }
+  return (
+    resolveStringByPaths(record, OPENCLAW_ERROR_MESSAGE_PATHS) ??
+    resolveStringByPaths(record, OPENCLAW_RESULT_TEXT_PATHS)
   );
-  if (
-    fromKnownPaths &&
-    (isErrorResult === true || looksLikeErrorSignal(fromKnownPaths))
-  ) {
-    return fromKnownPaths;
-  }
-
-  if (isErrorResult === true) {
-    const fallback = resolveStringByPaths(record, OPENCLAW_RESULT_TEXT_PATHS);
-    if (fallback) {
-      return fallback;
-    }
-  }
-
-  return null;
 }
 
 function resolveIsErrorResult(record: Record<string, unknown>): boolean | null {
@@ -313,18 +299,6 @@ function normalizeCandidateValue(value: unknown): string | null {
     return normalized.length > 0 ? normalized : null;
   }
   return null;
-}
-
-function looksLikeErrorSignal(value: string): boolean {
-  const lowered = value.toLowerCase();
-  return (
-    lowered.includes("error") ||
-    lowered.includes("failed") ||
-    looksLikeRuntimePermissionDenialMessage(value) ||
-    lowered.includes("unauthorized") ||
-    lowered.includes("not logged in") ||
-    lowered.includes("invalid")
-  );
 }
 
 function normalizeOptionalText(value: unknown): string | null {

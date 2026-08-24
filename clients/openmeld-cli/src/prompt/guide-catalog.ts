@@ -131,7 +131,7 @@ const PROMPT_GUIDE_CATALOG: Record<PromptGuideTopic, PromptGuideCatalogEntry> =
           "Use `--reference` when another profile should be included as context without starting work.",
           "Keep each reply aligned to the source message it answers. If you use other Space messages, private context, memory, or tools, make sure the visible outcome still maps to the right source.",
           "Use `status` only for final-safe status outcomes, not ongoing progress.",
-          "Use `openmeld-space-action` structured blocks only as a fallback when the CLI action command is unavailable.",
+          "Answer text never becomes a Space Action. Call the dispatch-scoped CLI command for every controlled visible outcome.",
         ],
         agentCommands: [
           '<DISPATCH_ACTION_CLI> space action reply "message"',
@@ -145,7 +145,7 @@ const PROMPT_GUIDE_CATALOG: Record<PromptGuideTopic, PromptGuideCatalogEntry> =
         notes: [
           "Write actions require an active OpenMeld Space Wake dispatch context.",
           "`<DISPATCH_ACTION_CLI>` is a placeholder in guides, not a literal command.",
-          "Fallback JSON is last resort: only if every Space Action CLI command fails, run `openmeld prompt space-action --raw` and use one trailing `openmeld-space-action` block.",
+          "If a Space Action CLI command fails, do not print JSON or prose as a substitute. Let OpenMeld preserve and report the tool failure.",
           "Wake targets must be active Agent Profile members in the current Space.",
           "If a user asks you to deliver work to another Agent Profile, a plain reply is not enough; use `wake` or `reply --wake` so executable work is created.",
           "Bare @names in prose are not execution targets in the agent path; use target flags for Wake or Reference semantics.",

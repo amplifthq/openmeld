@@ -379,15 +379,18 @@ Claude Code dispatch uses the Claude Agent SDK while preserving OpenMeld
 launch-contract selection, Agent Profile Binding semantics, and Wake outcome
 ownership. OpenCode may use its local server and SDK surfaces to prove
 provider sign-in and model inventory. CLI probes may still provide install,
-auth, and version evidence where they are the only stable local proof. ACI
-should expose only facts it can prove rather than inventing parity fields.
+auth, and version evidence where they are the only stable local proof, but
+machine state must come from vendor-documented structured output, exit status,
+or typed protocol events. Human-readable CLI prose is diagnostic text only and
+must not decide authentication or readiness. ACI should expose only facts it
+can prove rather than inventing parity fields.
 
 Cursor dispatch uses only the official Agent Client Protocol exposed by
 `cursor-agent acp`; OpenMeld does not maintain a second Cursor print-mode
 adapter. ACI detects the `cursor-agent` executable itself, never the generic
 `agent` command or the presence of Cursor IDE state. It reports the CLI build,
-`cursor-agent status` authentication evidence, ACP as the native interface,
-model selection, permission-mode selection, native event streaming,
+`cursor-agent status --format json` authentication evidence, ACP as the native
+interface, model selection, permission-mode selection, native event streaming,
 cancellation, interruption, permission requests, structured questions, and
 plan review. OpenMeld maps blocking ACP requests into the shared Agent
 Interaction contract and returns the user's response on the same ACP session.

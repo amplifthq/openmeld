@@ -244,7 +244,7 @@ describe("local service dispatch bootstrap prompt", () => {
     );
   });
 
-  it("keeps the four mandatory Collaboration completion rules unchanged", () => {
+  it("keeps Collaboration completion bound to a real Space Action tool call", () => {
     const prompt = buildDispatchPromptWithBootstrap({
       shouldInjectBootstrap: false,
       dispatchTriggerSource: "activation_targets",
@@ -260,7 +260,7 @@ describe("local service dispatch bootstrap prompt", () => {
         - Do not finish this Wake with a plain-text final answer. Plain prose stays local and is not a public Space reply in Collaboration mode.
         - Normal completion: run \`openmeld space action reply "your public message"\` and wait for it to finish.
         - After the Space Action command succeeds, stop. OpenMeld reads that command as the public outcome.
-        - Use fallback JSON only if the Space Action command cannot run: \`openmeld prompt space-action --raw\`."
+        - If the command cannot run, stop and let OpenMeld report the structured failure. Do not print JSON or prose as a substitute for the tool call."
       `);
   });
 
@@ -399,7 +399,10 @@ describe("local service dispatch bootstrap prompt", () => {
     expect(prompt).toContain(
       "- Need more: run `openmeld-dev space board space_dev` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at https://openmeld.ai/guide.md / run `openmeld-dev prompt space`."
     );
-    expect(prompt).toContain("`openmeld-dev prompt space-action --raw`");
+    expect(prompt).toContain(
+      '`openmeld-dev space action reply "your public message"`'
+    );
+    expect(prompt).not.toContain("prompt space-action --raw");
     expect(prompt).not.toContain("npx -y openmeld@latest space action");
   });
 

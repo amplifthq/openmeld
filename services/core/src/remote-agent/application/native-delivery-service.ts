@@ -579,8 +579,8 @@ const HOSTED_EXECUTION_RECOVERY_RESUME_PROMPT = [
   "OpenMeld execution recovery.",
   "Continue this exact hosted controller conversation.",
   "Do not redo the task, call tools, edit files, or perform external actions.",
-  "Return only the final answer that was already completed in this conversation.",
-  "If the conversation has no completed final answer, return exactly RECOVERY_RESULT_UNAVAILABLE.",
+  "Return the best faithful final answer you can recover from this conversation.",
+  "Your answer is content only. OpenMeld decides recovery status from the typed provider outcome, never from words in your answer.",
 ].join(" ");
 
 export type RemoteAgentExecutionRecoverySubmission = {
