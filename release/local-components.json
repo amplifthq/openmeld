@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-24T08:07:02.025Z",
+  "updatedAt": "2026-08-24T09:24:13.415Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.91",
+      "packageVersion": "0.3.92",
       "updatePolicy": "available",
-      "reason": "Keep failed-turn review from changing local-agent permissions or replacing the original conversation."
+      "reason": "Let signed macOS setup use the Data Protection Keychain when the login Keychain is unavailable."
     },
     "service": {
-      "bundleHash": "cfc537f5c32b2666b88447d9cdd2d40c6c86b31d38b19f92418d789d79e9f975",
-      "bundleVersion": "0.3.91",
+      "bundleHash": "8dcc9ff2a1eeecc3ff8a2e68e65c8738f0c673029550be33662a1adde709bbcb",
+      "bundleVersion": "0.3.92",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Keep failed-turn review from changing local-agent permissions or replacing the original conversation."
+      "reason": "Let signed macOS setup use the Data Protection Keychain when the login Keychain is unavailable."
     },
     "skills": {
       "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Keep Agent outcomes structured and Service process ownership lane-safe."
+      "reason": "Let signed macOS setup use the Data Protection Keychain when the login Keychain is unavailable."
     }
   }
 }
