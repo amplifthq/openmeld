@@ -649,10 +649,14 @@ trailing-aligned, content-sized bubble with a responsive maximum width; a
 message placed on the left uses the full available transcript width. Both
 placements keep their content leading-aligned and give the current member's
 messages the same muted, semantic-radius surface used to highlight any message
-on hover or keyboard focus. Agent and other-member messages remain transparent
-at rest. Product surfaces declare current-member authorship once and must not
-reimplement placement, width, text alignment, resting background, or highlight
-geometry locally.
+on hover or keyboard focus. With right placement, the full transcript row stays
+available as the hover and focus target, while the visible current-member
+surface and its actions stay anchored to the bounded bubble. With left
+placement, that surface remains full width. Agent and other-member messages
+remain transparent at rest and use the full-width row highlight. Product
+surfaces declare current-member authorship once and must not reimplement
+placement, width, text alignment, resting background, action placement, or
+highlight geometry locally.
 
 **Settings → Personal → Account** and the signed-in member's **Edit Human
 Profile** dialog in People are the two Account Display Name editing surfaces.

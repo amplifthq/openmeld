@@ -105,6 +105,7 @@ import {
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageActionButtonClassName,
+	resolveSpaceMessageActionPlacementClassName,
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
 	resolveSpaceMessageContentPaddingClassName,
@@ -1111,8 +1112,9 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	});
 	const isSelfMessage = input.item.actorProfileId === input.selfProfileId;
 	const messageAlign = resolveThreadMessageDirectionalAlign(isSelfMessage);
-	const actionPlacementClassName =
-		resolveThreadMessageActionPlacementClassName(isSelfMessage);
+	const actionPlacementClassName = resolveSpaceMessageActionPlacementClassName({
+		isSelf: isSelfMessage,
+	});
 	const selfMessageContentLayoutClassName =
 		resolveSpaceMessageContentLayoutClassName({ isSelf: isSelfMessage });
 	const messageContentPaddingClassName =
@@ -1137,24 +1139,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				data-message-row-id={input.item.id}
 				data-space-self-message={String(isSelfMessage)}
 			>
-				{messageDetailsItem ? (
-					<div
-						className={cn(
-							"pointer-events-none absolute top-2 z-20",
-							actionPlacementClassName
-						)}
-						data-slot="message-hover-actions"
-						data-space-message-actions-offset="inside"
-					>
-						<MessageHoverActionSlot>
-							<MessageDetailsActionButton
-								buttonClassName={resolveSpaceMessageActionButtonClassName({})}
-								hasWakeProblem={hasWakeProblem}
-								onClick={() => input.onOpenMessageDetails(messageDetailsItem)}
-							/>
-						</MessageHoverActionSlot>
-					</div>
-				) : null}
 				<MessageContent
 					className={cn(
 						"w-full min-w-0 gap-0",
@@ -1194,6 +1178,28 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						) : null}
 					</MessageHeader>
 					<Bubble align={messageAlign}>
+						{messageDetailsItem ? (
+							<div
+								className={cn(
+									"pointer-events-none absolute -top-6 z-20",
+									actionPlacementClassName
+								)}
+								data-slot="message-hover-actions"
+								data-space-message-actions-offset="outside"
+							>
+								<MessageHoverActionSlot>
+									<MessageDetailsActionButton
+										buttonClassName={resolveSpaceMessageActionButtonClassName(
+											{}
+										)}
+										hasWakeProblem={hasWakeProblem}
+										onClick={() =>
+											input.onOpenMessageDetails(messageDetailsItem)
+										}
+									/>
+								</MessageHoverActionSlot>
+							</div>
+						) : null}
 						<BubbleContent
 							className={cn(
 								"group/thread-message relative flex w-full flex-col gap-2 transition-colors motion-reduce:transition-none",
@@ -1329,10 +1335,6 @@ function resolveThreadMessageDirectionalAlign(
 	isSelf: boolean
 ): "start" | "end" {
 	return isSelf ? "end" : "start";
-}
-
-function resolveThreadMessageActionPlacementClassName(isSelf: boolean): string {
-	return isSelf ? "left-3" : "right-3";
 }
 
 function resolveThreadMessageAvatarImageUrl(input: {

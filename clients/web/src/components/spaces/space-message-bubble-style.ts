@@ -67,6 +67,12 @@ export function resolveSpaceMessageContentLayoutClassName(input: {
 	return input.isSelf ? "items-start text-start" : undefined;
 }
 
+export function resolveSpaceMessageActionPlacementClassName(input: {
+	isSelf: boolean;
+}): string {
+	return input.isSelf ? "-left-1" : "-right-1";
+}
+
 export function resolveSpaceMessageActionButtonClassName(input: {
 	isHighlighted?: boolean;
 }): string {

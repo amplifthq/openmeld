@@ -160,6 +160,8 @@ html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"]
   [data-slot="bubble"] {
   align-self: flex-start;
+  inline-size: 100%;
+  max-inline-size: 100%;
 }
 
 html[data-space-self-message-alignment="left"]
@@ -171,9 +173,26 @@ html[data-space-self-message-alignment="left"]
 
 html[data-space-self-message-alignment="right"]
   [data-space-self-message="true"]
-  [data-slot="bubble-content"] {
+  [data-slot="bubble"] {
   inline-size: fit-content;
   max-inline-size: min(68%, 52rem);
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"]
+  [data-slot="bubble-content"] {
+  inline-size: 100%;
+  max-inline-size: 100%;
+}
+
+/* Keep the full row as the hover/focus hit area, but let a right-aligned self
+   message keep the bubble as its only visible surface. */
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"]
+  [data-message-row-id],
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"][data-message-row-id] {
+  background-color: transparent;
 }
 
 html[data-space-self-message-alignment="left"]
@@ -239,7 +258,7 @@ html[data-space-self-message-alignment="left"]
 @media (max-width: 40rem) {
   html[data-space-self-message-alignment="right"]
     [data-space-self-message="true"]
-    [data-slot="bubble-content"] {
+    [data-slot="bubble"] {
     max-inline-size: min(88%, 52rem);
   }
 }

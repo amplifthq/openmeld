@@ -141,6 +141,7 @@ import {
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageActionButtonClassName,
+	resolveSpaceMessageActionPlacementClassName,
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
 	resolveSpaceMessageContentPaddingClassName,
@@ -2074,7 +2075,9 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 		runtimeDeviceDisplayName: input.run.speaker.runtimeDeviceDisplayName,
 	});
 	const messageAlign = resolveSpaceMessageDirectionalAlign(input.run.isSelf);
-	const actionPlacement = resolveSpaceMessageActionPlacement(input.run.isSelf);
+	const actionPlacementClassName = resolveSpaceMessageActionPlacementClassName({
+		isSelf: input.run.isSelf,
+	});
 	const selfMessageContentLayoutClassName =
 		resolveSpaceMessageContentLayoutClassName({ isSelf: input.run.isSelf });
 	const messageContentPaddingClassName =
@@ -2291,27 +2294,27 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 										)}
 										data-message-row-id={item.id}
 									>
-										{canUseMessageActions ? (
-											<MessageHoverActions
-												actionButtonClassName={actionButtonClassName}
-												hasWakeProblem={hasWakeProblem}
-												isCreatingThread={input.isCreatingThread}
-												item={item}
-												onCreateThread={input.onCreateThread}
-												onOpenMessageDetails={input.onOpenMessageDetails}
-												onOpenThread={input.onOpenThread}
-												onReplyToMessage={input.onReplyToMessage}
-												placement={actionPlacement}
-												showTimestamp={index !== 0}
-												thread={
-													input.threadsByRootSignalId.get(item.id) ?? null
-												}
-											/>
-										) : null}
 										<Bubble
 											align={messageAlign}
 											className={messageBubbleVisibilityClassName}
 										>
+											{canUseMessageActions ? (
+												<MessageHoverActions
+													actionButtonClassName={actionButtonClassName}
+													hasWakeProblem={hasWakeProblem}
+													isCreatingThread={input.isCreatingThread}
+													item={item}
+													onCreateThread={input.onCreateThread}
+													onOpenMessageDetails={input.onOpenMessageDetails}
+													onOpenThread={input.onOpenThread}
+													onReplyToMessage={input.onReplyToMessage}
+													placementClassName={actionPlacementClassName}
+													showTimestamp={index !== 0}
+													thread={
+														input.threadsByRootSignalId.get(item.id) ?? null
+													}
+												/>
+											) : null}
 											<BubbleContent
 												className={cn(
 													"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
@@ -2652,10 +2655,6 @@ function resolveCenterAgentComputerSetupContext(input: {
 	};
 }
 
-function resolveSpaceMessageActionPlacement(isSelf: boolean): "left" | "right" {
-	return isSelf ? "left" : "right";
-}
-
 function getOpenMessageDetailsHandler(input: {
 	enabled: boolean;
 	item: SpaceTimelineItem;
@@ -2692,7 +2691,7 @@ function MessageHoverActions(input: {
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenThread: (threadId: string) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
-	placement: "left" | "right";
+	placementClassName: string;
 	showTimestamp: boolean;
 	thread: SpaceThread | null;
 }) {
@@ -2711,13 +2710,11 @@ function MessageHoverActions(input: {
 			console.error("Failed to open a thread from the message.", error);
 		});
 	};
-	const placementClassName =
-		input.placement === "left" ? "-left-1" : "-right-1";
 	return (
 		<div
 			className={cn(
 				"pointer-events-none absolute -top-6 z-20 flex items-center gap-1",
-				placementClassName
+				input.placementClassName
 			)}
 			data-slot="message-hover-actions"
 			data-space-message-actions-offset="outside"

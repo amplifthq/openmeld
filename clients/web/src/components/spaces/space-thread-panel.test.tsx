@@ -285,6 +285,7 @@ describe("SpaceThreadPanel", () => {
 			{ name: "Message details" }
 		);
 		expect(threadMessage?.contains(detailsButton)).toBe(false);
+		expect(bubbleRoot?.contains(detailsButton)).toBe(true);
 		const actionSlot = detailsButton.closest("[data-message-action-slot]");
 
 		expect(actionSlot?.getAttribute("data-message-action-slot")).toBe("hover");
@@ -306,14 +307,14 @@ describe("SpaceThreadPanel", () => {
 		expect(actionSlot?.className).toContain(
 			"group-focus-within/message-row:opacity-100"
 		);
-		expect(actionSlot?.parentElement?.className).toContain("top-2");
-		expect(actionSlot?.parentElement?.className).toContain("left-3");
-		expect(actionSlot?.parentElement?.className).not.toContain("right-3");
+		expect(actionSlot?.parentElement?.className).toContain("-top-6");
+		expect(actionSlot?.parentElement?.className).toContain("-left-1");
+		expect(actionSlot?.parentElement?.className).not.toContain("-right-1");
 		expect(
 			actionSlot?.parentElement?.getAttribute(
 				"data-space-message-actions-offset"
 			)
-		).toBe("inside");
+		).toBe("outside");
 		expect(detailsButton.className).not.toContain("blur-[3px]");
 		expect(detailsButton.classList.contains("bg-background/95")).toBe(true);
 		expect(detailsButton.classList.contains("border-0")).toBe(true);

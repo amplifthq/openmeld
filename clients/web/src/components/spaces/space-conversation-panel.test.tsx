@@ -1458,7 +1458,6 @@ describe("SpaceConversationPanel", () => {
 		const selfBubble = screen
 			.getByText("Self message")
 			.closest("[data-signal-id]");
-
 		expect(agentBubble?.classList.contains("border")).toBe(true);
 		expect(agentBubble?.classList.contains("border-transparent")).toBe(true);
 		expect(agentBubble?.classList.contains("bg-transparent")).toBe(true);
@@ -1575,6 +1574,8 @@ describe("SpaceConversationPanel", () => {
 		const selfBubble = screen
 			.getByText("Self message")
 			.closest("[data-signal-id]");
+		const agentBubbleRoot = agentBubble?.closest("[data-slot='bubble']");
+		const selfBubbleRoot = selfBubble?.closest("[data-slot='bubble']");
 		const agentRow = agentBubble?.closest(
 			"[data-message-row-id='signal-agent']"
 		);
@@ -1610,9 +1611,9 @@ describe("SpaceConversationPanel", () => {
 			}
 		);
 
-		expect(agentBubble?.contains(agentReplyButton)).toBe(false);
-		expect(agentBubble?.contains(agentThreadButton)).toBe(false);
-		expect(agentBubble?.contains(agentDetailsButton)).toBe(false);
+		expect(agentBubbleRoot?.contains(agentReplyButton)).toBe(true);
+		expect(agentBubbleRoot?.contains(agentThreadButton)).toBe(true);
+		expect(agentBubbleRoot?.contains(agentDetailsButton)).toBe(true);
 		expect(agentRow?.className).toContain("w-full");
 		expect(
 			agentDetailsButton
@@ -1684,9 +1685,9 @@ describe("SpaceConversationPanel", () => {
 			}
 		);
 
-		expect(selfBubble?.contains(selfReplyButton)).toBe(false);
-		expect(selfBubble?.contains(selfThreadButton)).toBe(false);
-		expect(selfBubble?.contains(selfDetailsButton)).toBe(false);
+		expect(selfBubbleRoot?.contains(selfReplyButton)).toBe(true);
+		expect(selfBubbleRoot?.contains(selfThreadButton)).toBe(true);
+		expect(selfBubbleRoot?.contains(selfDetailsButton)).toBe(true);
 		expect(selfRow?.className).toContain("w-full");
 		expect(
 			readMessageActionButtonPresentation({
