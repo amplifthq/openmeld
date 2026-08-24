@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-24T20:16:50.404Z",
+  "updatedAt": "2026-08-24T21:27:35.702Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.99",
+      "packageVersion": "0.3.100",
       "updatePolicy": "available",
-      "reason": "Let OpenMeld Service updates finish safely in the background."
+      "reason": "Keep background Service update status accurate."
     },
     "service": {
-      "bundleHash": "d9d62c0007f9e24ca258837924d3aee9f2f7c96f7452f3c0870b94107f7fee05",
-      "bundleVersion": "0.3.99",
+      "bundleHash": "46eb9628680af11d94f3b4d4bc989dda91c2b75f91e397cae9b9f16e525ed02f",
+      "bundleVersion": "0.3.100",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Let OpenMeld Service updates finish safely in the background."
+      "reason": "Keep background Service update status accurate."
     },
     "skills": {
       "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "ok",
-      "reason": "Let OpenMeld Service updates finish safely in the background."
+      "reason": "Keep background Service update status accurate."
     }
   }
 }
