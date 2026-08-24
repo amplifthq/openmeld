@@ -4,6 +4,9 @@ title: Stop background Keychain authorization windows
 kind: fixed
 areas: ["computers", "cli", "service"]
 audiences: ["members", "admins"]
+publishedAt: 2026-08-24
+release: v0.3.96
+evidence: ["pr:222", "pr:223", "commit:9cea7139ade576121d8dd46bade2531b71859881", "workflow:32747450190"]
 ---
 
 OpenMeld no longer opens macOS Keychain password dialogs while local agents are
