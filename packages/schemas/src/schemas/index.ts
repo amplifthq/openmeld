@@ -475,6 +475,7 @@ export {
   runtimeCoordinatorFinalizationCommandSchema,
   runtimeCoordinatorFinalizationDispatchFactSchema,
   runtimeCoordinatorFinalizationDispatchOwnerSchema,
+  runtimeCoordinatorFinalizationFinalMessageKindSchema,
   runtimeCoordinatorFinalizationOutcomeSchema,
   runtimeCoordinatorFinalizationSuccessOutcomeSchema,
 } from "./daemon/runtime-coordinator-finalization-command";

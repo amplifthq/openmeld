@@ -1980,6 +1980,11 @@ but not trigger.
    ambiguity that remains unresolved when its official 60-minute UUID
    deduplication window ends. Core preserves it for diagnostics and does not
    risk creating a second provider reply automatically.
+   When the hosted runtime supplies a recognized specific failure reason, the
+   callback preserves that reason through Core's failure projection and Core
+   selects the matching approved public copy. Generic runtime fallbacks never
+   overwrite a more precise recognized reason, and diagnostic detail remains
+   private.
    Completed and failed callbacks both use the applicable pre-publication fence
    before recording a terminal delivery. For an identity-required Message
    Channel result, Core also replaces the worker's completed text with one fixed

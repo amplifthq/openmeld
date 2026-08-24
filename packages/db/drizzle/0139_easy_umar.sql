@@ -1,0 +1,1 @@
+ALTER TABLE `center_agent_audit_journal` ADD `source_space_id` text;

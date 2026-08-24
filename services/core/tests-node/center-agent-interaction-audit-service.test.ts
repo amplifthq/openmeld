@@ -36,6 +36,7 @@ describe("recordCenterAgentLocalAgentRequest", () => {
       "local_agent_client",
       "codex",
       "delivery-1",
+      null,
       123
     );
     expect(JSON.stringify(bind.mock.calls)).not.toContain("private-thread-id");

@@ -255,6 +255,19 @@ const buildEnv = () =>
     OPENMELD_LOCAL_STATE_DB: {} as D1Database,
   }) as unknown as Parameters<typeof finalizeAcceptedDispatchResult>[0]["env"];
 
+const finalizeExistingAcceptedDispatchResultForTest = async () => {
+  await finalizeAcceptedDispatchResult({
+    db: {} as D1Database,
+    dispatchMessage,
+    env: buildEnv(),
+    inboxRecord: buildInboxRecord(successTaskResult),
+    recordPublicationProjection: false,
+    targetOwnerUserId: "owner-1",
+    targetProfileMentionLabel: "Claude Code",
+    targetProfileName: "Claude Code",
+  });
+};
+
 describe("dispatch provider access evidence finalization", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -590,7 +603,7 @@ describe("dispatch provider access evidence finalization", () => {
     expect(writeAcceptedAgentExecutionReadinessImpact).not.toHaveBeenCalled();
   });
 
-  it("publishes an accepted successful result without an agent controller conversation id", async () => {
+  it("leaves accepted success settlement to the Space after publishing without a conversation id", async () => {
     await expect(
       finalizeAcceptedDispatchResult({
         db: {} as D1Database,
@@ -608,12 +621,7 @@ describe("dispatch provider access evidence finalization", () => {
       status: "finalized",
     });
 
-    expect(markDispatchStatus).toHaveBeenCalledWith(
-      expect.objectContaining({
-        attemptStatus: "succeeded",
-        status: "succeeded",
-      })
-    );
+    expect(markDispatchStatus).not.toHaveBeenCalled();
   });
 
   it("does not write readiness impact for publication or policy-missed failures", async () => {
@@ -672,5 +680,55 @@ describe("dispatch provider access evidence finalization", () => {
     });
 
     expect(writeAcceptedAgentExecutionReadinessImpact).not.toHaveBeenCalled();
+  });
+
+  it("does not trust an existing D1 published pointer as dispatch success", async () => {
+    vi.mocked(
+      dispatchResultService.getDispatchResultByDispatchId
+    ).mockResolvedValueOnce({
+      dispatchId: dispatchMessage.dispatchId,
+      publicOutcome: "post_message",
+      publishedSignalId: "signal-existing-1",
+      resultKind: "text",
+      resultRef: "result-ref-1",
+      spaceId: dispatchMessage.spaceId,
+    } as never);
+
+    await finalizeExistingAcceptedDispatchResultForTest();
+
+    expect(markDispatchStatus).not.toHaveBeenCalled();
+  });
+  it("does not settle an unpublished non-silent result from the D1 projection alone", async () => {
+    vi.mocked(
+      dispatchResultService.getDispatchResultByDispatchId
+    ).mockResolvedValueOnce({
+      dispatchId: dispatchMessage.dispatchId,
+      publicOutcome: "system_notice",
+      publishedSignalId: null,
+      resultKind: "text",
+      resultRef: "result-ref-2",
+      spaceId: dispatchMessage.spaceId,
+    } as never);
+
+    await finalizeExistingAcceptedDispatchResultForTest();
+
+    expect(markDispatchStatus).not.toHaveBeenCalled();
+  });
+
+  it("leaves intentionally internal-only settlement to the Space", async () => {
+    vi.mocked(
+      dispatchResultService.getDispatchResultByDispatchId
+    ).mockResolvedValueOnce({
+      dispatchId: dispatchMessage.dispatchId,
+      publicOutcome: "internal_only",
+      publishedSignalId: null,
+      resultKind: "text",
+      resultRef: "result-ref-3",
+      spaceId: dispatchMessage.spaceId,
+    } as never);
+
+    await finalizeExistingAcceptedDispatchResultForTest();
+
+    expect(markDispatchStatus).not.toHaveBeenCalled();
   });
 });

@@ -139,6 +139,7 @@ import type {
   RuntimeCoordinatorFailurePublicationOutcome,
   RuntimeCoordinatorFinalizationClaimRead,
   RuntimeCoordinatorFinalizationCommand,
+  RuntimeCoordinatorFinalizationFinalMessageKind,
   RuntimeCoordinatorFinalizationOutcome,
   SpaceAccessMode,
   SpaceAgentStreamDeltaFrame,
@@ -193,6 +194,8 @@ import {
   type AgentTransportSpaceActionDeliveryInput,
   type AgentTransportSpaceActionDeliveryReceipt,
   finalizeAcceptedDispatchResult,
+  recordConfirmedAcceptedDispatchFailure,
+  recordConfirmedAcceptedDispatchSuccess,
 } from "../../../dispatch/application/dispatch-execution-service";
 import {
   buildDispatchHumanLogContext,
@@ -3102,33 +3105,33 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileMentionLabel: command.targetProfileMentionLabel,
         targetProfileName: command.targetProfileName,
       });
-      const visibleFinalMessage =
-        finalized.publishState === "reply_published"
-          ? resolveRuntimeCoordinatorFinalizationVisibleFinalMessage({
-              command,
-              outcome: finalized,
-              readFinalReplyClaimSignalId: (claim) =>
-                readFinalReplyClaimSignalId(this.ctx.storage.sql, claim),
-              readSignalById: (signalId) => this.readSignalById(signalId),
-            })
-          : null;
-      if (
-        finalized.publishState === "reply_published" &&
-        !visibleFinalMessage?.ok
-      ) {
+      const visibleFinalMessage = finalized.publishedSignalId
+        ? resolveRuntimeCoordinatorFinalizationVisibleFinalMessage({
+            command,
+            outcome: {
+              publishedSignalId: finalized.publishedSignalId,
+              publishState: "reply_published",
+            },
+            readFinalReplyClaimSignalId: (claim) =>
+              readFinalReplyClaimSignalId(this.ctx.storage.sql, claim),
+            readSignalById: (signalId) => this.readSignalById(signalId),
+          })
+        : null;
+      if (!visibleFinalMessage?.ok) {
         return buildRuntimeCoordinatorFinalizationFailureOutcome({
           finalizationCommandId: command.finalizationCommandId,
           reasonCode: "daemon.result.finalization_no_public_reply",
         });
       }
-      const publishedSignalId =
-        visibleFinalMessage?.ok === true
-          ? visibleFinalMessage.publishedSignalId
-          : finalized.publishedSignalId;
-      if (
-        !publishedSignalId &&
-        finalized.publishState !== "invalid_space_action"
-      ) {
+      const publishedSignalId = visibleFinalMessage.publishedSignalId;
+      const confirmedFinalState =
+        await recordConfirmedAcceptedDispatchFinalState({
+          command,
+          db,
+          publishedSignalId,
+          readSignalById: (signalId) => this.readSignalById(signalId),
+        });
+      if (!confirmedFinalState) {
         return buildRuntimeCoordinatorFinalizationFailureOutcome({
           finalizationCommandId: command.finalizationCommandId,
           reasonCode: "daemon.result.finalization_no_public_reply",
@@ -3139,7 +3142,9 @@ export class Space extends DurableObject<CoreBindings> {
           command,
           db: coordinationDb,
           env: this.bindings,
+          finalMessageKind: confirmedFinalState.finalMessageKind,
           publishedSignalId,
+          publishState: finalized.publishState,
         });
       if (taskOutcomeWrite && !taskOutcomeWrite.matches) {
         console.warn(
@@ -3161,6 +3166,7 @@ export class Space extends DurableObject<CoreBindings> {
         );
       }
       return {
+        finalMessageKind: confirmedFinalState.finalMessageKind,
         finalizationCommandId: command.finalizationCommandId,
         ok: true,
         publicationErrorCode: null,
@@ -18729,6 +18735,128 @@ export function resolveRuntimeCoordinatorFinalizationVisibleFinalMessage(input: 
   return { ok: false };
 }
 
+async function recordConfirmedAcceptedDispatchFinalState(input: {
+  command: RuntimeCoordinatorFinalizationCommand;
+  db: D1Database;
+  publishedSignalId: string;
+  readSignalById: (signalId: string) => SignalEnvelope | null;
+}): Promise<{
+  finalMessageKind: RuntimeCoordinatorFinalizationFinalMessageKind;
+} | null> {
+  const publishedSignal = input.readSignalById(input.publishedSignalId);
+  if (!publishedSignal) {
+    return null;
+  }
+  const finalMessageKind =
+    resolveRuntimeCoordinatorFinalizationMessageKind(publishedSignal);
+  if (!finalMessageKind) {
+    return null;
+  }
+  const confirmedOutcome = resolveConfirmedAcceptedDispatchOutcome({
+    command: input.command,
+    signal: publishedSignal,
+  });
+  if (confirmedOutcome.kind === "success") {
+    await recordConfirmedAcceptedDispatchSuccess({
+      attemptId: input.command.acceptedResult.attemptId,
+      db: input.db,
+      idempotencyKey: input.command.dispatchFact.idempotencyKey,
+      outcome: {
+        kind: "published_signal",
+        publishedSignalId: input.publishedSignalId,
+      },
+    });
+    return { finalMessageKind };
+  }
+  if (confirmedOutcome.kind !== "failure") {
+    return null;
+  }
+  await recordConfirmedAcceptedDispatchFailure({
+    attemptId: input.command.acceptedResult.attemptId,
+    db: input.db,
+    errorCode: confirmedOutcome.errorCode,
+    errorMessage: confirmedOutcome.errorMessage,
+    idempotencyKey: input.command.dispatchFact.idempotencyKey,
+  });
+  return { finalMessageKind };
+}
+
+function resolveRuntimeCoordinatorFinalizationMessageKind(
+  signal: SignalEnvelope
+): RuntimeCoordinatorFinalizationFinalMessageKind | null {
+  if (signal.type === "signal.text" || signal.type === "signal.status") {
+    return "success_reply";
+  }
+  if (signal.type !== "signal.system_notice") {
+    return null;
+  }
+  if (signal.data.noticeType === "stay_silent") {
+    return "stay_silent";
+  }
+  if (
+    signal.data.noticeType === "policy_blocked" ||
+    signal.data.noticeType === "terminal_failure"
+  ) {
+    return "failure_notice";
+  }
+  return null;
+}
+
+export function resolveConfirmedAcceptedDispatchOutcome(input: {
+  command: RuntimeCoordinatorFinalizationCommand;
+  signal: SignalEnvelope;
+}):
+  | { kind: "failure"; errorCode: string; errorMessage: string | null }
+  | { kind: "success" }
+  | { kind: "unknown" } {
+  const payload = input.command.acceptedResult.taskResult.payload;
+  if (payload.status === "failed") {
+    return {
+      errorCode:
+        normalizeOptionalText(payload.errorCode) ?? "agent_task.child_failed",
+      errorMessage:
+        normalizeOptionalText(payload.errorMessage) ??
+        ("text" in input.signal.data
+          ? normalizeOptionalText(input.signal.data.text)
+          : null),
+      kind: "failure",
+    };
+  }
+  if (
+    input.signal.type === "signal.text" ||
+    input.signal.type === "signal.status"
+  ) {
+    return { kind: "success" };
+  }
+  if (input.signal.type !== "signal.system_notice") {
+    return { kind: "unknown" };
+  }
+  if (input.signal.data.noticeType === "stay_silent") {
+    return { kind: "success" };
+  }
+  if (
+    input.signal.data.noticeType !== "policy_blocked" &&
+    input.signal.data.noticeType !== "terminal_failure"
+  ) {
+    return { kind: "unknown" };
+  }
+
+  const publicFailureReason =
+    "spaceActionFailureDiagnostics" in payload
+      ? normalizeOptionalText(
+          payload.spaceActionFailureDiagnostics?.publicFailureReason
+        )
+      : null;
+  return {
+    errorCode:
+      normalizeOptionalText(input.signal.data.reasonCode) ??
+      publicFailureReason ??
+      "reply.invalid_space_action",
+    errorMessage: normalizeOptionalText(input.signal.data.text),
+    kind: "failure",
+  };
+}
+
 export function resolveRuntimeCoordinatorFinalizationClaimRead(input: {
   command: RuntimeCoordinatorFinalizationCommand;
   readFinalReplyClaimSignalId: (input: {
@@ -18785,8 +18913,18 @@ export function resolveRuntimeCoordinatorFinalizationClaimRead(input: {
   if (!visibleFinalMessage.ok) {
     return { status: "unresolved" };
   }
+  const visibleSignal = input.readSignalById(
+    visibleFinalMessage.publishedSignalId
+  );
+  const finalMessageKind = visibleSignal
+    ? resolveRuntimeCoordinatorFinalizationMessageKind(visibleSignal)
+    : null;
+  if (!finalMessageKind) {
+    return { status: "unresolved" };
+  }
   return {
     outcome: {
+      finalMessageKind,
       finalizationCommandId: input.command.finalizationCommandId,
       ok: true,
       publicationErrorCode: null,
