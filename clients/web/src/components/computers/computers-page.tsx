@@ -14,6 +14,7 @@ import {
 	useRefreshComputersAfterSetupComplete,
 } from "#/components/agents/selected-computer-panel";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -172,7 +173,10 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 				{selectedDeviceId ? (
 					<div className="mb-3">
 						<Link
-							className="inline-flex min-h-5 items-center gap-2 font-medium text-foreground text-sm leading-5 outline-none transition-colors hover:text-foreground/80 focus-visible:ring-1 focus-visible:ring-ring"
+							className={cn(
+								APP_INLINE_BACK_LINK_CLASS_NAME,
+								"text-foreground hover:text-foreground/80"
+							)}
 							data-testid="all-computers-link"
 							to={buildOrganizationComputersPath(orgSlug)}
 						>

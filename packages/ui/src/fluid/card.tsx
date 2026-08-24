@@ -10,7 +10,7 @@ type FluidCardItemProps = ComponentProps<typeof SharedLayoutItem>;
 const FluidCardGroup = forwardRef<HTMLDivElement, FluidCardGroupProps>(
   ({ className, ...props }, ref) => (
     <SharedLayoutGroup
-      className={cn("relative", className)}
+      className={cn("relative min-w-0", className)}
       data-fluid-card-group=""
       ref={ref}
       {...props}

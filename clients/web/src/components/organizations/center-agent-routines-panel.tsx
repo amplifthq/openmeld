@@ -471,7 +471,7 @@ function RoutineRowControls(input: {
 		input.routine.canManage && input.routine.status !== "completed";
 	const canEdit = canChangeStatus && input.routine.destinationKind === "space";
 	return (
-		<div className="flex flex-wrap items-center gap-2 lg:justify-end">
+		<div className="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
 			{canChangeStatus ? (
 				<Switch
 					aria-label={`${input.routine.status === "enabled" ? "Pause" : "Resume"} ${input.routine.name}`}
@@ -481,12 +481,18 @@ function RoutineRowControls(input: {
 				/>
 			) : null}
 			<Button
+				aria-label={`View runs for ${input.routine.name}`}
 				onClick={input.onViewRuns}
 				size="sm"
 				type="button"
 				variant="outline"
 			>
-				View runs for {input.routine.name}
+				<span aria-hidden="true" className="lg:hidden">
+					View runs
+				</span>
+				<span aria-hidden="true" className="max-lg:hidden">
+					View runs for {input.routine.name}
+				</span>
 			</Button>
 			{canEdit ? (
 				<Button

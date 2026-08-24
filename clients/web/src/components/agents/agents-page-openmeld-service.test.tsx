@@ -115,15 +115,17 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.getAllByText("Installed v0.7.92")).toHaveLength(2);
 		expect(screen.getByText("OpenMeld skill")).toBeTruthy();
 		expect(screen.getByText("Installed")).toBeTruthy();
-		expect(
-			screen.getByText(
-				"The OpenMeld skill is installed and up to date for local agents."
-			)
-		).toBeTruthy();
+		const skillDescription = screen.getByText(
+			"The OpenMeld skill is installed and up to date for local agents."
+		);
+		expect(skillDescription.className).toContain("break-words");
+		expect(skillDescription.className).not.toContain("truncate");
 		expect(screen.queryByText("Installed · 1 skill")).toBeNull();
-		expect(
-			screen.getByRole("button", { name: "OpenMeld skill help" })
-		).toBeTruthy();
+		const skillHelp = screen.getByRole("button", {
+			name: "OpenMeld skill help",
+		});
+		expect(skillHelp.className).toContain("touch-manipulation");
+		expect(skillHelp.className).toContain("max-lg:size-11");
 	});
 
 	it("uses one OpenMeld Tools action for a required service update", () => {

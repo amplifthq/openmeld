@@ -2821,7 +2821,10 @@ not repeat `Joined as` or an aggregate live-human count; speaking identity stays
 with the composer when a choice is available, and per-member presence belongs
 in the Members surface. When dismissed contextual setup remains recallable,
 **Get set up** appears in the right-aligned action group immediately before
-**Members**; it never appears alongside the **Messages** and **Graph** views.
+**Members**. On compact screens only, the same recall control may move to the
+trailing edge of the second header row so the Space name remains identifiable;
+it stays visually separate from the **Messages** and **Graph** view control and
+returns to the primary action group at wider breakpoints.
 
 The Space header, main conversation rail, contextual setup overlay, and primary
 composer share one responsive inline frame. Its leading inset is the leading

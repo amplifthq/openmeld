@@ -248,13 +248,23 @@ describe("SpaceHeader", () => {
 		const primaryActions = recallButton.closest(
 			'[data-slot="space-header-primary-actions"]'
 		);
-		const secondaryRow = recallButton.closest(
-			'[data-slot="space-window-header-secondary"]'
+		const recallAction = recallButton.closest(
+			'[data-slot="space-header-setup-recall-action"]'
 		);
+		const secondaryRow = screen
+			.getByTestId("space-view-control")
+			.closest('[data-slot="space-window-header-secondary"]');
 
 		expect(primaryActions).not.toBeNull();
-		expect(secondaryRow).toBeNull();
+		expect(recallAction?.className).toContain("max-lg:absolute");
+		expect(recallAction?.className).toContain(
+			"max-lg:h-[var(--space-conversation-navigation-height)]"
+		);
+		expect(secondaryRow?.className).toContain("max-lg:pr-12");
 		expect(recallButton.className).toContain("h-7");
+		expect(recallButton.className).toContain("max-lg:min-h-11");
+		expect(recallButton.className).toContain("max-lg:min-w-11");
+		expect(recallButton.getAttribute("aria-label")).toBe("Get set up");
 		expect(within(recallButton).getByText("Get set up").className).toContain(
 			"hidden"
 		);

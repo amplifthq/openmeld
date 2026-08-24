@@ -29,6 +29,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { UnsavedChangesGuard } from "#/components/forms/unsaved-changes-guard";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -219,7 +220,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 	return (
 		<div className="grid gap-6">
 			<Link
-				className="inline-flex touch-manipulation items-center gap-2 justify-self-start font-medium text-muted-foreground text-sm hover:text-foreground max-lg:min-h-11"
+				className={APP_INLINE_BACK_LINK_CLASS_NAME}
 				search={documentFolderSearch}
 				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
 			>

@@ -70,7 +70,8 @@ type SpaceOnboardingBannerProps = {
 export function SetupRecallButton(input: { onClick: () => void }) {
 	return (
 		<Button
-			className="me-1"
+			aria-label="Get set up"
+			className="me-1 max-lg:min-h-11 max-lg:min-w-11"
 			onClick={input.onClick}
 			size="sm"
 			type="button"

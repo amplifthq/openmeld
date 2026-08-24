@@ -1020,6 +1020,8 @@ describe("ComputersPage", () => {
 			"/o/acme/computers"
 		);
 		const backLink = screen.getByTestId("all-computers-link");
+		expect(backLink.className).toContain("touch-manipulation");
+		expect(backLink.className).toContain("max-lg:min-h-11");
 		expect(backLink.className).not.toContain("px-");
 		expect(backLink.className).not.toContain("bg-");
 		expect(backLink.querySelector("svg")?.className.baseVal).toContain(

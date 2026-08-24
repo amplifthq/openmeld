@@ -116,6 +116,9 @@ describe("ProjectDetailPage", () => {
 				.getByRole("link", { name: VIEW_ACTIVITY_LINK_PATTERN })
 				.getAttribute("href")
 		).toBe("/o/acme/agent-activity/sessions?project=project-1");
+		const backLink = screen.getByRole("link", { name: "All Projects" });
+		expect(backLink.className).toContain("touch-manipulation");
+		expect(backLink.className).toContain("max-lg:min-h-11");
 		expect(
 			screen.getByText("Only the organization owner can remove this Project.")
 		).toBeTruthy();

@@ -32,6 +32,7 @@ import {
 } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
 import { UnsavedChangesGuard } from "#/components/forms/unsaved-changes-guard";
 import { OrganizationSkillFiles } from "#/components/organization-skills/organization-skill-files";
@@ -249,7 +250,7 @@ function OrganizationSkillEditor(input: {
 				saving={saveMutation.isPending}
 			/>
 			<Link
-				className="inline-flex items-center gap-2 justify-self-start font-medium text-muted-foreground text-sm hover:text-foreground"
+				className={APP_INLINE_BACK_LINK_CLASS_NAME}
 				to={buildOrganizationSkillsPath(input.orgSlug)}
 			>
 				<ArrowLeftIcon aria-hidden="true" /> All Skills
@@ -264,7 +265,7 @@ function OrganizationSkillEditor(input: {
 							{sourceSummary(input.skill)}
 						</span>
 					</div>
-					<h1 className="mt-2 truncate font-medium text-2xl">
+					<h1 className="mt-2 min-w-0 font-medium text-2xl max-lg:break-words lg:truncate">
 						{bundle.portable.name}
 					</h1>
 					<p className="mt-1 max-w-3xl text-muted-foreground text-sm">
@@ -362,7 +363,7 @@ function OrganizationSkillEditor(input: {
 				</p>
 			) : null}
 			{input.skill.permissions.canEdit ? (
-				<div className="sticky bottom-4 flex justify-end">
+				<div className="flex justify-end lg:sticky lg:bottom-4">
 					<Button
 						disabled={
 							!(hasUnsavedChanges && bundleValid) || saveMutation.isPending

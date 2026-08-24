@@ -1926,9 +1926,11 @@ describe("SpaceConversationPanel", () => {
 			readOnly: false,
 		});
 
-		expect(
-			screen.getByText(SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT)
-		).toBeTruthy();
+		const composerHint = screen.getByText(
+			SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT
+		);
+		expect(composerHint.className).toContain("max-sm:line-clamp-2");
+		expect(composerHint.className).toContain("sm:truncate");
 		expect(screen.queryByText(SPACE_WAKE_COMPOSER_HINT)).toBeNull();
 	});
 
@@ -4038,6 +4040,8 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const profileHeader = screen.getByRole("button", { name: "About Felix" });
+		expect(profileHeader.className).toContain("touch-manipulation");
+		expect(profileHeader.className).toContain("max-lg:min-h-11");
 		expect(profileHeader.textContent).toContain("Felix");
 		expect(profileHeader.textContent).toContain(expectedTime);
 		expect(

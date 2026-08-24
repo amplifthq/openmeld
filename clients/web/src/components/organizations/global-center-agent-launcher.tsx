@@ -283,7 +283,7 @@ function CenterAgentTaskLauncher(input: {
 						render={
 							<Button
 								aria-label={openLabel}
-								className="min-w-0 border-0 bg-transparent ps-2 pe-0.5 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground aria-expanded:bg-transparent dark:bg-transparent dark:aria-expanded:bg-transparent dark:hover:bg-transparent"
+								className="min-w-0 max-w-[12.5rem] border-0 bg-transparent ps-2 pe-0.5 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground aria-expanded:bg-transparent dark:bg-transparent dark:aria-expanded:bg-transparent dark:hover:bg-transparent"
 								size="sm"
 								type="button"
 								variant="ghost"
