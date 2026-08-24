@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-24T09:24:13.415Z",
+  "updatedAt": "2026-08-24T10:32:10.886Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.92",
+      "packageVersion": "0.3.93",
       "updatePolicy": "available",
-      "reason": "Let signed macOS setup use the Data Protection Keychain when the login Keychain is unavailable."
+      "reason": "Restore reliable signed macOS setup and Service session recovery."
     },
     "service": {
-      "bundleHash": "8dcc9ff2a1eeecc3ff8a2e68e65c8738f0c673029550be33662a1adde709bbcb",
-      "bundleVersion": "0.3.92",
+      "bundleHash": "e6008a0a75da29d9bfb25fbf1c8dfbcf64c55b5ef612bf44541ed307320ae9a0",
+      "bundleVersion": "0.3.93",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Let signed macOS setup use the Data Protection Keychain when the login Keychain is unavailable."
+      "reason": "Restore reliable signed macOS setup and Service session recovery."
     },
     "skills": {
       "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Let signed macOS setup use the Data Protection Keychain when the login Keychain is unavailable."
+      "reason": "Restore reliable signed macOS setup and Service session recovery."
     }
   }
 }
