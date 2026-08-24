@@ -34,7 +34,8 @@ import {
 import { SpaceMessageBody } from "#/components/spaces/space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
-	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
+	resolveSpaceMessageContentLayoutClassName,
+	resolveSpaceMessageContentPaddingClassName,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 } from "#/components/spaces/space-message-bubble-style";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
@@ -245,11 +246,13 @@ function CenterAgentTaskConversationEvent(input: {
 			input.event.kind === "requester_message");
 	const needsAttention = input.event.kind === "needs_attention";
 	const align = requesterMessage ? "end" : "start";
+	const selfMessageContentLayoutClassName =
+		resolveSpaceMessageContentLayoutClassName({ isSelf: requesterMessage });
 	return (
 		<li className="px-3 py-2">
-			<Message align={align}>
+			<Message align={align} data-space-self-message={String(requesterMessage)}>
 				<MessageContent
-					className={requesterMessage ? "max-w-[85%] items-end" : "max-w-full"}
+					className={cn("min-w-0 gap-0", SPACE_MESSAGE_SURFACE_WIDTH_CLASS)}
 				>
 					<MessageHeader
 						className={requesterMessage ? "justify-end px-0" : "gap-1.5 px-0"}
@@ -269,14 +272,18 @@ function CenterAgentTaskConversationEvent(input: {
 						<BubbleContent
 							className={cn(
 								"flex min-w-0 flex-col gap-2",
-								SPACE_MESSAGE_CONTENT_PADDING_CLASS,
+								resolveSpaceMessageContentPaddingClassName({
+									isSelf: requesterMessage,
+								}),
 								SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
-								resolveSpaceMessageBubblePresentationClass({}),
-								requesterMessage ? "min-w-64 text-right" : ""
+								selfMessageContentLayoutClassName,
+								resolveSpaceMessageBubblePresentationClass({
+									isSelf: requesterMessage,
+								})
 							)}
 						>
 							<SpaceMessageBody
-								className={requesterMessage ? "text-right" : undefined}
+								containerClassName={selfMessageContentLayoutClassName}
 								item={{
 									actorProfileKind: requesterMessage ? undefined : "agent",
 									agentStreamState: undefined,
