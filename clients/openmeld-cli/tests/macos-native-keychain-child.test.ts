@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const spawnMock = vi.hoisted(() => vi.fn());
@@ -79,7 +80,7 @@ describe("macOS native Keychain child boundary", () => {
       child.stdout.emit(
         "data",
         JSON.stringify({
-          schemaVersion: 1,
+          schemaVersion: MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION,
           ok: true,
           operation: "store",
         })
@@ -94,6 +95,11 @@ describe("macOS native Keychain child boundary", () => {
       expect.stringContaining("secret-access-token"),
       "utf8"
     );
+    const serializedRequest = child.stdin.end.mock.calls[0]?.[0];
+    expect(JSON.parse(String(serializedRequest))).toMatchObject({
+      operation: "store",
+      authenticationInteraction: "disallow",
+    });
   });
 
   it("returns a read value only from a valid helper response", async () => {
@@ -109,7 +115,7 @@ describe("macOS native Keychain child boundary", () => {
       child.stdout.emit(
         "data",
         JSON.stringify({
-          schemaVersion: 1,
+          schemaVersion: MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION,
           ok: true,
           operation: "read",
           accessToken: "stored-access-token",
@@ -119,6 +125,36 @@ describe("macOS native Keychain child boundary", () => {
     });
 
     await expect(request).resolves.toBe("stored-access-token");
+  });
+
+  it("disallows macOS authentication UI for access-token reads", async () => {
+    const child = createMockChild();
+    spawnMock.mockReturnValue(child);
+
+    const request = runMacOsNativeKeychainRequestInChild({
+      operation: "read",
+      service: "sh.openmeld.auth.token",
+      account: "openmeld-auth-test",
+    });
+    queueMicrotask(() => {
+      child.stdout.emit(
+        "data",
+        JSON.stringify({
+          schemaVersion: MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION,
+          ok: true,
+          operation: "read",
+          accessToken: "stored-access-token",
+        })
+      );
+      child.emit("close", 0, null);
+    });
+
+    await expect(request).resolves.toBe("stored-access-token");
+    const serializedRequest = child.stdin.end.mock.calls[0]?.[0];
+    expect(JSON.parse(String(serializedRequest))).toMatchObject({
+      operation: "read",
+      authenticationInteraction: "disallow",
+    });
   });
 
   it("rejects malformed helper output instead of treating it as success", async () => {

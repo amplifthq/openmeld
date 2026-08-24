@@ -1,4 +1,5 @@
 #include <CoreFoundation/CoreFoundation.h>
+#import <LocalAuthentication/LocalAuthentication.h>
 #include <Security/Security.h>
 #include <node_api.h>
 
@@ -21,6 +22,39 @@ class ScopedCfType {
 
  private:
   CFTypeRef value_;
+};
+
+class ScopedKeychainUserInteraction {
+ public:
+  ScopedKeychainUserInteraction() = default;
+  ~ScopedKeychainUserInteraction() {
+    if (disabled_) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+      SecKeychainSetUserInteractionAllowed(previous_state_);
+#pragma clang diagnostic pop
+    }
+  }
+  ScopedKeychainUserInteraction(const ScopedKeychainUserInteraction&) = delete;
+  ScopedKeychainUserInteraction& operator=(
+      const ScopedKeychainUserInteraction&) = delete;
+
+  OSStatus Disable() {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    OSStatus status =
+        SecKeychainGetUserInteractionAllowed(&previous_state_);
+    if (status == errSecSuccess) {
+      status = SecKeychainSetUserInteractionAllowed(false);
+      disabled_ = status == errSecSuccess;
+    }
+#pragma clang diagnostic pop
+    return status;
+  }
+
+ private:
+  bool disabled_ = false;
+  Boolean previous_state_ = true;
 };
 
 std::string ReadUtf8(napi_env env, napi_value value) {
@@ -64,6 +98,18 @@ CFMutableDictionaryRef CreateQuery(const std::string& service,
   CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
   CFDictionarySetValue(query, kSecAttrService, service_value.get());
   CFDictionarySetValue(query, kSecAttrAccount, account_value.get());
+  LAContext* context = [[LAContext alloc] init];
+  context.interactionNotAllowed = YES;
+  CFDictionarySetValue(query, kSecUseAuthenticationContext,
+                       (__bridge CFTypeRef)context);
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  // LAContext controls modern authentication policies. The explicit UI policy
+  // also covers legacy macOS Keychain ACL prompts, which otherwise can outlive
+  // the short-lived helper process.
+  CFDictionarySetValue(query, kSecUseAuthenticationUI,
+                       kSecUseAuthenticationUIFail);
+#pragma clang diagnostic pop
   return query;
 }
 
@@ -81,6 +127,19 @@ void ThrowStatus(napi_env env, const char* operation, OSStatus status) {
   }
   const std::string text = std::string(operation) + " failed: " + detail;
   napi_throw_error(env, nullptr, text.c_str());
+}
+
+void ThrowReadStatus(napi_env env, OSStatus status) {
+  if (status == errSecAuthFailed || status == errSecInteractionNotAllowed ||
+      status == errSecInteractionRequired) {
+    napi_throw_error(
+        env, nullptr,
+        "Read access token failed: macOS Keychain approval is required. "
+        "OpenMeld did not open a background authorization window. Reconnect "
+        "this computer from an interactive setup or login.");
+    return;
+  }
+  ThrowStatus(env, "Read access token", status);
 }
 
 bool ReadArguments(napi_env env, napi_callback_info info, size_t expected,
@@ -139,6 +198,14 @@ napi_value Store(napi_env env, napi_callback_info info) {
   }
   ScopedCfType scoped_update(update);
   CFDictionarySetValue(update, kSecValueData, token_data.get());
+
+  ScopedKeychainUserInteraction user_interaction;
+  const OSStatus interaction_status = user_interaction.Disable();
+  if (interaction_status != errSecSuccess) {
+    ThrowStatus(env, "Disable Keychain user interaction", interaction_status);
+    return nullptr;
+  }
+
   OSStatus status =
       SecItemUpdate(static_cast<CFDictionaryRef>(query.get()), update);
   if (status == errSecItemNotFound) {
@@ -181,6 +248,13 @@ napi_value Read(napi_env env, napi_callback_info info) {
   CFDictionarySetValue(mutable_query, kSecReturnData, kCFBooleanTrue);
   CFDictionarySetValue(mutable_query, kSecMatchLimit, kSecMatchLimitOne);
 
+  ScopedKeychainUserInteraction user_interaction;
+  const OSStatus interaction_status = user_interaction.Disable();
+  if (interaction_status != errSecSuccess) {
+    ThrowStatus(env, "Disable Keychain user interaction", interaction_status);
+    return nullptr;
+  }
+
   CFTypeRef result = nullptr;
   const OSStatus status = SecItemCopyMatching(
       static_cast<CFDictionaryRef>(query.get()), &result);
@@ -192,8 +266,7 @@ napi_value Read(napi_env env, napi_callback_info info) {
   }
   if (status != errSecSuccess || result == nullptr ||
       CFGetTypeID(result) != CFDataGetTypeID()) {
-    ThrowStatus(env, "Read access token",
-                status == errSecSuccess ? errSecDecode : status);
+    ThrowReadStatus(env, status == errSecSuccess ? errSecDecode : status);
     return nullptr;
   }
 
@@ -215,6 +288,13 @@ napi_value Remove(napi_env env, napi_callback_info info) {
     napi_throw_error(env, nullptr, "Could not create a secure storage query.");
     return nullptr;
   }
+  ScopedKeychainUserInteraction user_interaction;
+  const OSStatus interaction_status = user_interaction.Disable();
+  if (interaction_status != errSecSuccess) {
+    ThrowStatus(env, "Disable Keychain user interaction", interaction_status);
+    return nullptr;
+  }
+
   const OSStatus status =
       SecItemDelete(static_cast<CFDictionaryRef>(query.get()));
   if (status != errSecSuccess && status != errSecItemNotFound) {

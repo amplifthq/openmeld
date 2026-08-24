@@ -2226,6 +2226,7 @@ export {
   localSkillsComponentUpdateProjectionSchema,
 } from "./local-components";
 export {
+  MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION,
   MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION,
   type MacOsKeychainHelperRequest,
   type MacOsKeychainHelperResponse,

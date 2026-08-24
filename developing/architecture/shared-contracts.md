@@ -601,18 +601,25 @@ and the CLI can roll out in either order.
 
 `packages/schemas/src/schemas/local-machine/macos-keychain-helper.ts` owns the
 strict private request and response contract between the packaged macOS CLI
-and its short-lived Keychain helper process. It supports only `store`, `read`,
-and `delete`, bounds every field, and rejects unknown fields. The access token
-is carried through stdin rather than argv. This contract never crosses the
-computer boundary and carries no Space, Agent Profile, Wake, Service
-readiness, or RuntimeCoordinator authority.
+and its short-lived Keychain helper process. Version 2 supports only `store`,
+`read`, and `delete`, bounds every field, and rejects unknown fields. A `read`
+request and the `store` and `delete` mutations must all declare
+`authenticationInteraction: "disallow"`. The access token is carried through
+stdin rather than argv. This contract never crosses the computer boundary and
+carries no Space, Agent Profile, Wake, Service readiness, or
+RuntimeCoordinator authority.
 
 The parent CLI owns the five-second deadline and kills a helper that does not
-return. The helper owns the one synchronous Security.framework call. A timeout
-is an explicit local storage failure that lets the existing CLI-owned private
-session fallback run; it is not a second auth source or a cloud compatibility
-contract. Parent and helper are always the same packaged binary version, so no
-mixed-version rollout exists at this private boundary.
+return. The helper owns the one synchronous Security.framework call. Before a
+Security.framework call, the helper disables Keychain user interaction for its
+process and also applies modern and legacy noninteractive query policies. An
+operation that needs approval therefore returns an explicit local storage
+failure instead of opening a system authorization window that can outlive the
+helper. The helper restores the previous process interaction setting after the
+call. The timeout remains a final crash or platform-hang backstop; it is not the
+way OpenMeld cancels authentication UI. Parent and helper are always the same
+packaged binary version, so no mixed-version rollout exists at this private
+boundary.
 
 ### Center Agent Project Tool Contracts
 
