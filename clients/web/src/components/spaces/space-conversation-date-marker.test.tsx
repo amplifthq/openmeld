@@ -39,6 +39,24 @@ describe("SpaceConversationDatePill", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it("keeps the compact date navigation target touch friendly", () => {
+		render(
+			<SpaceConversationDatePill
+				date={new Date()}
+				loadedSignalCount={1}
+				onJumpToDate={vi.fn(async () => null)}
+			/>
+		);
+
+		const dateNavigation = screen.getByRole("button", {
+			name: "Open date navigation for Today",
+		});
+		expect(dateNavigation.className).toContain("h-8");
+		expect(dateNavigation.className).toContain("max-lg:h-11");
+		expect(dateNavigation.className).toContain("max-lg:min-h-11");
+		expect(dateNavigation.className).toContain("max-lg:min-w-11");
+	});
+
 	it("scrolls only after the requested date window is mounted", async () => {
 		const successfulScroll = vi.fn();
 		scrollToMessageMock.mockImplementation((signalId: string) => {

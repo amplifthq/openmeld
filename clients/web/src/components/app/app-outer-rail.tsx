@@ -54,6 +54,7 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
+	useEffectEvent,
 	useMemo,
 	useState,
 } from "react";
@@ -65,6 +66,7 @@ import {
 	APP_NAV_ITEM_TONE_CLASS_NAME,
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
+import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { AppOuterRailFrame } from "#/components/app/app-outer-rail-frame";
 import {
 	AppSidebarGroup,
@@ -274,12 +276,17 @@ export function AppOuterRail({
 	initialState,
 	computerAttentionTone = null,
 }: AppOuterRailProps) {
+	const { presentation } = useAppNavigationPresentation();
+	const drawerPresentation = presentation === "drawer";
 	const [state, setState] = useState<SidebarPersistedState>(() =>
 		resolveClientSidebarInitialState(
 			"outer",
 			initialState ?? OUTER_SIDEBAR_DEFAULT_STATE
 		)
 	);
+	const displayState: SidebarPersistedState = drawerPresentation
+		? { ...state, tier: "full", width: "100%" }
+		: state;
 	const activeDestination = useMatches({
 		select: resolveAppOuterRailDestinationFromMatches,
 	});
@@ -362,17 +369,24 @@ export function AppOuterRail({
 	);
 	// Cmd/Ctrl+B and the drag handle's plain click both cycle forward through
 	// all three tiers in the same fixed order.
-	const cycleTier = useCallback(() => {
+	const cycleTier = useEffectEvent(() => {
 		setState((current) =>
 			persistState({
 				...current,
 				tier: resolveNextRailTier(current.tier),
 			})
 		);
-	}, [persistState]);
+	});
 
 	useEffect(() => {
+		if (drawerPresentation) {
+			return;
+		}
 		const handleKeyDown = (event: KeyboardEvent) => {
+			const desktopNavigationQuery = window.matchMedia?.("(min-width: 64rem)");
+			if (desktopNavigationQuery && !desktopNavigationQuery.matches) {
+				return;
+			}
 			if (event.key.toLowerCase() === "b" && (event.metaKey || event.ctrlKey)) {
 				event.preventDefault();
 				cycleTier();
@@ -380,7 +394,7 @@ export function AppOuterRail({
 		};
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [cycleTier]);
+	}, [drawerPresentation]);
 
 	return (
 		<AppSidebarGroupStateProvider
@@ -388,22 +402,22 @@ export function AppOuterRail({
 			onCollapsedGroupIdsChange={handleCollapsedGroupIdsChange}
 		>
 			<AppOuterRailFrame
-				onCompactChange={handleCompactChange}
-				onOpenChange={handleOpenChange}
-				onWidthChange={handleWidthChange}
-				state={state}
+				onCompactChange={drawerPresentation ? undefined : handleCompactChange}
+				onOpenChange={drawerPresentation ? undefined : handleOpenChange}
+				onWidthChange={drawerPresentation ? undefined : handleWidthChange}
+				state={displayState}
 			>
 				<SidebarHeader className="shrink-0 overflow-hidden border-b-0 p-2 pt-3">
 					<OrganizationSwitcher
 						account={{ ...account, image: accountAvatarImage }}
 						humanProfileAvatar={humanProfileAvatar}
-						tier={state.tier}
+						tier={displayState.tier}
 					/>
 				</SidebarHeader>
 				<SidebarContent
 					className={cn(
 						"overflow-hidden py-2",
-						state.tier === "full" ? "px-3" : "px-2"
+						displayState.tier === "full" ? "px-3" : "px-2"
 					)}
 				>
 					{buildAppRailGroups({
@@ -418,12 +432,14 @@ export function AppOuterRail({
 							group={group}
 							key={group.id}
 							position={index}
-							tier={state.tier}
+							tier={displayState.tier}
 						/>
 					))}
 				</SidebarContent>
 				<SidebarFooter className="gap-1 border-t-0 p-2 pb-3">
-					<AppRailTrigger tier={state.tier} />
+					{drawerPresentation ? null : (
+						<AppRailTrigger tier={displayState.tier} />
+					)}
 					<FluidNavMenu
 						activeIndicatorClassName="bg-sidebar-accent"
 						activeValue={activeDestination}
@@ -438,15 +454,17 @@ export function AppOuterRail({
 								orgSlug,
 							})}
 							index={0}
-							tier={state.tier}
+							tier={displayState.tier}
 						/>
 					</FluidNavMenu>
 				</SidebarFooter>
-				<SidebarRail
-					autoCollapse
-					className="after:top-2 after:bottom-9"
-					separatorLabel="Resize app rail"
-				/>
+				{drawerPresentation ? null : (
+					<SidebarRail
+						autoCollapse
+						className="after:top-2 after:bottom-9"
+						separatorLabel="Resize app rail"
+					/>
+				)}
 			</AppOuterRailFrame>
 		</AppSidebarGroupStateProvider>
 	);
@@ -563,6 +581,7 @@ function OrganizationSwitcher(input: {
 	humanProfileAvatar: HumanProfileAvatarIdentity | null;
 	tier: SidebarTier;
 }) {
+	const { dismiss } = useAppNavigationPresentation();
 	const isCollapsed = input.tier === "collapsed";
 	const isFull = input.tier === "full";
 	const isAvatarOnly = !isFull;
@@ -617,6 +636,7 @@ function OrganizationSwitcher(input: {
 				await router.invalidate({ sync: true });
 			}
 			setOpen(false);
+			dismiss();
 		} catch (error) {
 			setErrorMessage(
 				error instanceof Error
@@ -636,7 +656,10 @@ function OrganizationSwitcher(input: {
 		setIsSwitching(true);
 		setErrorMessage(null);
 		navigate({ to })
-			.then(() => setOpen(false))
+			.then(() => {
+				setOpen(false);
+				dismiss();
+			})
 			.catch((error: unknown) => {
 				setErrorMessage(
 					error instanceof Error ? error.message : fallbackMessage
@@ -989,6 +1012,7 @@ function AppRailLink(input: {
 	computerAttentionTone: ComputerAttentionTone | null;
 	tier: SidebarTier;
 }) {
+	const { dismiss } = useAppNavigationPresentation();
 	const isIcon = input.tier === "collapsed";
 	const isCompact = input.tier === "compact";
 	const attentionCount = Math.max(0, input.destination.attentionCount ?? 0);
@@ -1051,6 +1075,13 @@ function AppRailLink(input: {
 			aria-current={input.active ? "page" : undefined}
 			aria-label={accessibleLabel}
 			className={className}
+			onClick={(event) => {
+				if (
+					!(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+				) {
+					dismiss();
+				}
+			}}
 			onFocus={input.active ? undefined : input.destination.onIntentPrefetch}
 			onPointerEnter={
 				input.active ? undefined : input.destination.onIntentPrefetch

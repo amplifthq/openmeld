@@ -449,7 +449,7 @@ const TabsSubtleItem = forwardRef<HTMLButtonElement, TabsSubtleItemProps>(
         aria-controls={`${idPrefix}-panel-${index}`}
         aria-selected={selectedIndex === index}
         className={cn(
-          "group relative z-10 flex h-7 cursor-pointer items-center gap-2 border-none bg-transparent px-2.5 py-1 outline-none",
+          "group relative z-10 flex h-7 cursor-pointer touch-manipulation items-center gap-2 border-none bg-transparent px-2.5 py-1 outline-none max-lg:min-h-11 max-lg:min-w-11",
           variant === "underline"
             ? "h-full px-0 after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-foreground after:opacity-0 after:content-[''] focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-[-2px] data-[state=active]:after:opacity-100"
             : tabsSubtleShapeClassName,

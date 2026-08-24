@@ -66,8 +66,13 @@ describe("Fluid Select", () => {
       </form>
     );
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Profile" }));
+    const trigger = screen.getByRole("combobox", { name: "Profile" });
+    expect(trigger.className).toContain("h-8");
+    expect(trigger.className).toContain("max-lg:h-11");
+    expect(trigger.className).toContain("max-lg:min-w-11");
+    fireEvent.click(trigger);
     const betaOption = await screen.findByRole("option", { name: "Beta" });
+    expect(betaOption.className).toContain("max-lg:min-h-11");
 
     fireEvent.click(betaOption);
 

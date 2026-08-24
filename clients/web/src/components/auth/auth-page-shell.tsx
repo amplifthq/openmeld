@@ -15,13 +15,13 @@ export function AuthPageShell({ children }: AuthPageShellProps) {
 				className="mt-4 flex items-center gap-3 text-muted-foreground/45 text-xs"
 			>
 				<Link
-					className="transition-colors hover:text-muted-foreground"
+					className="inline-flex min-h-11 items-center transition-colors hover:text-muted-foreground lg:min-h-0"
 					to="/privacy"
 				>
 					Privacy Policy
 				</Link>
 				<Link
-					className="transition-colors hover:text-muted-foreground"
+					className="inline-flex min-h-11 items-center transition-colors hover:text-muted-foreground lg:min-h-0"
 					to="/terms"
 				>
 					Terms of Service

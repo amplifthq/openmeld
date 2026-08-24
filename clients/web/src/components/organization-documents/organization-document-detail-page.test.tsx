@@ -312,6 +312,7 @@ describe("OrganizationDocumentDetailPage", () => {
 			name: "Back to Documents",
 		});
 		expect(backLink.getAttribute("href")).toContain("folder=folder-1");
+		expect(backLink.className).toContain("max-lg:min-h-11");
 	});
 });
 

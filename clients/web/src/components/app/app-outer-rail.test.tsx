@@ -1560,6 +1560,16 @@ describe("AppOuterRail", () => {
 		expect(rail.getAttribute("data-state")).toBe("expanded");
 	});
 
+	it("does not let the hidden desktop rail handle its shortcut below the desktop breakpoint", () => {
+		vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
+		renderRail();
+
+		const rail = screen.getByTestId("app-outer-rail");
+		fireEvent.keyDown(window, { key: "b", metaKey: true });
+
+		expect(rail.getAttribute("data-state")).toBe("expanded");
+	});
+
 	it("keeps the app section active state on route matches during navigation intent", () => {
 		const rendered = renderRail();
 

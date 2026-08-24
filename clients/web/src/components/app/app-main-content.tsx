@@ -27,7 +27,7 @@ export function AppMainContent(input: {
 				<header
 					aria-hidden={hasHeaderContent ? undefined : true}
 					className={cn(
-						"h-[var(--space-conversation-header-height)] shrink-0 border-border border-b bg-background",
+						"@container/app-main-header h-[var(--space-conversation-header-height)] shrink-0 border-border border-b bg-background",
 						input.headerClassName
 					)}
 					data-slot={input.headerSlotName ?? "app-main-content-header"}

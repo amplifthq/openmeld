@@ -189,6 +189,26 @@ readStats.mockImplementation(async (input) =>
 );
 
 describe("Agent Activity pages", () => {
+	it("stacks the Project controls before they can clip a phone viewport", () => {
+		renderPage("overview");
+
+		const manageProjects = screen.getByRole("link", {
+			name: "Manage Projects",
+		});
+		const controls = manageProjects.parentElement;
+		const projectScope = screen.getByRole("combobox", { name: "Project scope" })
+			.parentElement?.parentElement;
+
+		expect(controls?.className).toContain("w-full");
+		expect(controls?.className).toContain("flex-col");
+		expect(controls?.className).toContain("sm:w-auto");
+		expect(controls?.className).toContain("sm:flex-row");
+		expect(projectScope?.className).toContain("w-full");
+		expect(projectScope?.className).toContain("min-w-0");
+		expect(projectScope?.className).toContain("sm:w-auto");
+		expect(projectScope?.className).toContain("sm:min-w-44");
+	});
+
 	it("uses the shared grouped inner-sidebar scale and preserves Project scope across sections", () => {
 		render(
 			<AgentActivitySidebar

@@ -16,7 +16,12 @@ describe("MarkdownEditor", () => {
 
 		const editor = screen.getByLabelText("Document content");
 		expect(editor.getAttribute("contenteditable")).toBe("true");
-		expect(screen.getByRole("toolbar")).toBeTruthy();
+		const toolbar = screen.getByRole("toolbar");
+		expect(toolbar).toBeTruthy();
+		for (const control of toolbar.querySelectorAll("button, [role=radio]")) {
+			expect(control.className).toContain("max-lg:min-h-11");
+			expect(control.className).toContain("max-lg:min-w-11");
+		}
 		expect(container.querySelector(".bg-card")).toBeNull();
 	});
 

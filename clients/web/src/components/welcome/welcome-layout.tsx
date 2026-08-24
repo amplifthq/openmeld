@@ -17,7 +17,7 @@ export type WelcomeLayoutProps = {
  */
 export function WelcomeLayout(props: WelcomeLayoutProps) {
 	return (
-		<section className="flex min-h-[calc(100svh-10rem)] flex-col items-center">
+		<section className="flex min-h-[calc(100svh-10rem)] flex-col items-center max-lg:px-4 max-lg:pb-4">
 			<div className="flex w-full max-w-md flex-1 flex-col justify-center gap-10">
 				<header className="flex min-w-0 flex-col gap-3">
 					{props.onBack ? (

@@ -5,7 +5,7 @@ import { SpaceConversationDatePill } from "./space-conversation-date-marker";
 const DATE_MARKER_SELECTOR = "[data-conversation-date-marker]";
 const STICKY_TOP_PROPERTY = "--space-conversation-sticky-top";
 const TOP_OVERLAY_HEIGHT_PROPERTY = "--space-conversation-top-overlay-height";
-const DATE_PILL_HEIGHT_PX = 32;
+const DEFAULT_DATE_PILL_HEIGHT_PX = 32;
 
 type StickyDateState = {
 	activeDateMs: number | null;
@@ -25,9 +25,13 @@ export function SpaceConversationStickyDate(input: {
 	topOverlayElement: HTMLDivElement | null;
 }) {
 	const shouldReduceMotion = useReducedMotion() === true;
+	const [datePillElement, setDatePillElement] = useState<HTMLDivElement | null>(
+		null
+	);
 	const stickyDate = useStickyConversationDate(
 		input.scrollElement,
 		input.topOverlayElement,
+		datePillElement,
 		input.onActiveDateMsChange
 	);
 
@@ -39,11 +43,11 @@ export function SpaceConversationStickyDate(input: {
 
 	return (
 		<div
-			className="pointer-events-none sticky top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)] z-10 -mb-8 flex h-8 w-full justify-center"
+			className="pointer-events-none sticky top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)] z-10 -mb-8 flex h-8 w-full justify-center max-lg:-mb-11 max-lg:h-11"
 			data-slot="conversation-date-pill"
 		>
 			<div
-				className="h-8 w-full overflow-hidden"
+				className="h-[calc(100%+0.125rem)] w-full overflow-hidden pb-0.5"
 				data-slot="conversation-date-pill-viewport"
 			>
 				<div
@@ -53,7 +57,11 @@ export function SpaceConversationStickyDate(input: {
 						transform: `translate3d(0, ${String(pushOffsetPx)}px, 0)`,
 					}}
 				>
-					<div className="pointer-events-auto h-8">
+					<div
+						className="pointer-events-auto h-8 max-lg:h-11"
+						data-slot="conversation-date-pill-surface"
+						ref={setDatePillElement}
+					>
 						<SpaceConversationDatePill
 							date={new Date(stickyDate.activeDateMs)}
 							loadedSignalCount={input.loadedSignalCount}
@@ -69,6 +77,7 @@ export function SpaceConversationStickyDate(input: {
 function useStickyConversationDate(
 	scrollElement: HTMLDivElement | null,
 	topOverlayElement: HTMLDivElement | null,
+	datePillElement: HTMLDivElement | null,
 	onActiveDateMsChange: (dateMs: number | null) => void
 ) {
 	const [stickyDate, setStickyDate] = useState<StickyDateState>(
@@ -163,14 +172,15 @@ function useStickyConversationDate(
 		publishActiveDateMs(activeDateMs);
 		const nextMarker = markers[activeMarkerIndex + 1] ?? null;
 		const nextMarkerTop = nextMarker?.getBoundingClientRect().top ?? null;
+		const datePillHeightPx = resolveDatePillHeightPx(datePillElement);
 		const pushOffsetPx =
 			nextMarkerTop === null
 				? 0
 				: Math.min(
 						0,
 						Math.max(
-							-DATE_PILL_HEIGHT_PX,
-							nextMarkerTop - markerActivationTop - DATE_PILL_HEIGHT_PX
+							-datePillHeightPx,
+							nextMarkerTop - markerActivationTop - datePillHeightPx
 						)
 					);
 		const nextState = {
@@ -182,7 +192,7 @@ function useStickyConversationDate(
 				? currentState
 				: nextState
 		);
-	}, [publishActiveDateMs, scrollElement]);
+	}, [datePillElement, publishActiveDateMs, scrollElement]);
 
 	const scheduleStickyDateSync = useCallback(() => {
 		if (syncFrameRef.current !== null) {
@@ -226,6 +236,9 @@ function useStickyConversationDate(
 		if (topOverlayElement) {
 			resizeObserver?.observe(topOverlayElement);
 		}
+		if (datePillElement) {
+			resizeObserver?.observe(datePillElement);
+		}
 		let mutationObserver: MutationObserver | null = null;
 		if (contentElement && typeof MutationObserver !== "undefined") {
 			mutationObserver = new MutationObserver(scheduleStickyDateSync);
@@ -248,10 +261,18 @@ function useStickyConversationDate(
 		scrollElement,
 		syncStickyDate,
 		syncStickyTop,
+		datePillElement,
 		topOverlayElement,
 	]);
 
 	return stickyDate;
+}
+
+function resolveDatePillHeightPx(datePillElement: HTMLDivElement | null) {
+	const measuredHeight = datePillElement?.getBoundingClientRect().height ?? 0;
+	return Number.isFinite(measuredHeight) && measuredHeight > 0
+		? Math.ceil(measuredHeight)
+		: DEFAULT_DATE_PILL_HEIGHT_PX;
 }
 
 function resolveActiveMarkerIndex(

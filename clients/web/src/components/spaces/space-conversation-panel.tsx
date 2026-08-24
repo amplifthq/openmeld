@@ -40,6 +40,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import {
 	PromptInput,
 	PromptInputAction,
@@ -1526,7 +1527,7 @@ function SpaceComposerSection(input: {
 								<p
 									aria-live="polite"
 									className={cn(
-										"min-w-0 flex-1 truncate text-xs leading-5",
+										"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
 										composerHintClassName
 									)}
 								>
@@ -2271,7 +2272,10 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 											{detailsDialog.canOpenProfileDetails ? (
 												<button
 													aria-label={`About ${input.run.speaker.displayName}`}
-													className="inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+													className={cn(
+														APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
+														"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+													)}
 													onClick={detailsDialog.openProfileDetails}
 													type="button"
 												>

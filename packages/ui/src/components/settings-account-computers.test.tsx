@@ -162,7 +162,9 @@ describe("Settings Computers shared components", () => {
       </div>
     );
 
-    expect(screen.getByText("Felix's MacBook Pro")).toBeTruthy();
+    const computerName = screen.getByText("Felix's MacBook Pro");
+    expect(computerName.className).toContain("max-sm:basis-full");
+    expect(computerName.className).toContain("max-sm:break-words");
     expect(screen.getByText("Laptop · macOS 15.5.0 · Dev")).toBeTruthy();
     expect(screen.getByText("Older record")).toBeTruthy();
     expect(screen.getByText("Update available").className).toContain(

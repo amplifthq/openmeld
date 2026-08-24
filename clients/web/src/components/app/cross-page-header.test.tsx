@@ -28,6 +28,9 @@ describe("CrossPageHeader", () => {
 
 		expect(screen.getByText("Experimental")).toBeTruthy();
 		expect(screen.getByRole("img", { name: "OpenMeld" })).toBeTruthy();
+		expect(
+			screen.getByRole("link", { name: "Go to OpenMeld homepage" }).className
+		).toContain("max-lg:min-h-11");
 	});
 
 	it("allows Space chrome to hide the app status label", () => {
