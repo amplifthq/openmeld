@@ -678,6 +678,8 @@ describe("SpaceConversationPanel", () => {
 			expect(pillItem?.className).toContain("sticky");
 			expect(pillItem?.className).toContain("h-8");
 			expect(pillItem?.className).toContain("-mb-8");
+			expect(pillItem?.className).toContain("max-lg:h-11");
+			expect(pillItem?.className).toContain("max-lg:-mb-11");
 			expect(pillItem?.className).toContain(
 				"top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)]"
 			);
@@ -687,7 +689,8 @@ describe("SpaceConversationPanel", () => {
 		const stickyPillViewport = document.querySelector(
 			"[data-slot='conversation-date-pill-viewport']"
 		);
-		expect(stickyPillViewport?.className).toContain("h-8");
+		expect(stickyPillViewport?.className).toContain("h-[calc(100%+0.125rem)]");
+		expect(stickyPillViewport?.className).toContain("pb-0.5");
 		expect(stickyPillViewport?.className).toContain("overflow-hidden");
 		expect(stickyDatePills[0]?.className).not.toContain("overflow-clip");
 		expect(
@@ -739,6 +742,26 @@ describe("SpaceConversationPanel", () => {
 				toJSON: () => ({}),
 			}),
 		});
+		const stickyPillSurface = document.querySelector<HTMLElement>(
+			"[data-slot='conversation-date-pill-surface']"
+		);
+		if (!stickyPillSurface) {
+			throw new Error("Expected the sticky conversation date pill surface.");
+		}
+		Object.defineProperty(stickyPillSurface, "getBoundingClientRect", {
+			configurable: true,
+			value: () => ({
+				bottom: 44,
+				height: 44,
+				left: 0,
+				right: 160,
+				top: 0,
+				width: 160,
+				x: 0,
+				y: 0,
+				toJSON: () => ({}),
+			}),
+		});
 		let secondDateMarkerTop = 20;
 		Object.defineProperty(secondDateMarker, "getBoundingClientRect", {
 			configurable: true,
@@ -761,7 +784,7 @@ describe("SpaceConversationPanel", () => {
 				document.querySelector<HTMLElement>(
 					"[data-slot='conversation-date-pill-track']"
 				)?.style.transform
-			).toBe("translate3d(0, -28px, 0)");
+			).toBe("translate3d(0, -40px, 0)");
 		});
 		expect(
 			screen.getAllByRole("button", {
@@ -1935,9 +1958,11 @@ describe("SpaceConversationPanel", () => {
 			readOnly: false,
 		});
 
-		expect(
-			screen.getByText(SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT)
-		).toBeTruthy();
+		const composerHint = screen.getByText(
+			SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT
+		);
+		expect(composerHint.className).toContain("max-sm:line-clamp-2");
+		expect(composerHint.className).toContain("sm:truncate");
 		expect(screen.queryByText(SPACE_WAKE_COMPOSER_HINT)).toBeNull();
 	});
 
@@ -4047,6 +4072,8 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const profileHeader = screen.getByRole("button", { name: "About Felix" });
+		expect(profileHeader.className).toContain("touch-manipulation");
+		expect(profileHeader.className).toContain("max-lg:min-h-11");
 		expect(profileHeader.textContent).toContain("Felix");
 		expect(profileHeader.textContent).toContain(expectedTime);
 		expect(

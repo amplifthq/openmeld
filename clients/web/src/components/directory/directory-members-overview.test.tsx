@@ -775,6 +775,23 @@ describe("DirectoryMembersOverview", () => {
 		).toBeTruthy();
 	});
 
+	it("returns focus to the Human Profile trigger after the drawer closes", async () => {
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		const trigger = await screen.findByRole("button", {
+			name: "Open Felix's profile",
+		});
+		trigger.focus();
+		fireEvent.click(trigger);
+		expect(screen.getByRole("dialog", { name: "Profile" })).toBeTruthy();
+
+		fireEvent.click(screen.getByRole("button", { name: "Close profile" }));
+
+		await waitFor(() => {
+			expect(document.activeElement).toBe(trigger);
+		});
+	});
+
 	it("keeps a disabled personal Human Profile inspectable without edit actions", async () => {
 		renderOverview({
 			isPersonal: true,
@@ -1124,13 +1141,13 @@ describe("DirectoryMembersOverview", () => {
 		if (!currentCard) {
 			throw new Error("Expected the current member's Human Profile card.");
 		}
-		expect(
-			(
-				await within(currentCard).findByRole("link", {
-					name: "Felix: Connect a computer",
-				})
-			).getAttribute("href")
-		).toBe("/o/acme/connect?session=fresh");
+		const connectComputerLink = await within(currentCard).findByRole("link", {
+			name: "Felix: Connect a computer",
+		});
+		expect(connectComputerLink.getAttribute("href")).toBe(
+			"/o/acme/connect?session=fresh"
+		);
+		expect(connectComputerLink.className).toContain("max-lg:min-h-11");
 		expect(
 			within(currentCard).getAllByRole("link", {
 				name: "Felix: Connect a computer",

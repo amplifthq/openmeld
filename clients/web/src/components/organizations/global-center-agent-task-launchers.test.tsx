@@ -117,6 +117,29 @@ describe("GlobalCenterAgentTaskLaunchers", () => {
 		expect(strip.scrollLeft).toBe(80);
 	});
 
+	it("keeps a long Task title inside its shortcut instead of overlapping adjacent Tasks", async () => {
+		listCurrentCenterAgentTasksMock.mockResolvedValue({
+			nextCursor: null,
+			organizationId: "organization-1",
+			tasks: [
+				createTask(
+					"running",
+					"Audit the complete onboarding experience across every supported screen size",
+					"task-long"
+				),
+				ATTENTION_TASK,
+			],
+		});
+		renderLaunchers();
+
+		const launcher = await screen.findByRole("button", {
+			name: "Open Task Audit the complete onboarding experience across every supported screen size",
+		});
+		expect(launcher.className).toContain("max-lg:max-w-[12.5rem]");
+		expect(launcher.classList.contains("max-w-[12.5rem]")).toBe(false);
+		expect(launcher.querySelector(".truncate")).toBeTruthy();
+	});
+
 	it("opens one canonical Task preview and can close its shortcut", async () => {
 		renderLaunchers();
 

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   assertNotarizationAccepted,
+  buildCiKeychainSearchListPlan,
   buildCodeSignArgs,
   buildNotarytoolSubmitArgs,
   DEFAULT_APPLE_TEAM_ID,
@@ -116,6 +117,34 @@ test("keeps the bare Developer ID CLI free of provisioning-profile entitlements"
   const entitlements = readFileSync(ENTITLEMENTS_PATH, "utf8");
 
   assert.doesNotMatch(entitlements, RESTRICTED_KEYCHAIN_ENTITLEMENT_RE);
+});
+
+test("adds the signing Keychain without hiding the normal user Keychains", () => {
+  const plan = buildCiKeychainSearchListPlan({
+    currentSearchList: [
+      '    "/Users/runner/Library/Keychains/login.keychain-db"',
+      '    "/Library/Keychains/System.keychain"',
+    ].join("\n"),
+    ephemeralKeychainPath: "/private/tmp/release.keychain-db",
+  });
+
+  assert.deepEqual(plan.activateArgs, [
+    "list-keychains",
+    "-d",
+    "user",
+    "-s",
+    "/private/tmp/release.keychain-db",
+    "/Users/runner/Library/Keychains/login.keychain-db",
+    "/Library/Keychains/System.keychain",
+  ]);
+  assert.deepEqual(plan.restoreArgs, [
+    "list-keychains",
+    "-d",
+    "user",
+    "-s",
+    "/Users/runner/Library/Keychains/login.keychain-db",
+    "/Library/Keychains/System.keychain",
+  ]);
 });
 
 test("builds local and CI notarytool authentication arguments", () => {

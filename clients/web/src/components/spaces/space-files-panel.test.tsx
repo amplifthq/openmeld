@@ -177,6 +177,9 @@ describe("SpaceFilesPanel", () => {
 
 		const editor = await screen.findByLabelText("File contents");
 		expect(editor.getAttribute("contenteditable")).toBe("true");
+		const compactContentViewport = editor.closest(".p-5");
+		expect(compactContentViewport?.className).toContain("overflow-y-auto");
+		expect(compactContentViewport?.className).toContain("lg:overflow-hidden");
 		expect(screen.getByRole("toolbar")).toBeTruthy();
 		expect(
 			(

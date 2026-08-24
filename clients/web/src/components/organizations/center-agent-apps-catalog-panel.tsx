@@ -208,7 +208,10 @@ function AppCatalogCard(input: {
 							{input.app.category}
 						</p>
 					</div>
-					<span className="flex w-20 shrink-0 justify-end">
+					<span
+						className="flex w-auto shrink-0 justify-end sm:w-20"
+						data-slot="app-catalog-card-status"
+					>
 						<AppStatusBadge
 							app={input.app}
 							connected={input.connected}
@@ -217,7 +220,8 @@ function AppCatalogCard(input: {
 					</span>
 					<CaretRightIcon
 						aria-hidden="true"
-						className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
+						className="hidden size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground sm:block"
+						data-slot="app-catalog-card-arrow"
 					/>
 				</Link>
 			</CardContent>

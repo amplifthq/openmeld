@@ -2,6 +2,7 @@
 
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
+import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import {
 	DEFAULT_ROUNDED_SHAPE_RADIUS_PX,
 	type ShapeVariant,
@@ -33,6 +34,8 @@ type ThemeChoice = {
 	label: string;
 	value: "dark" | "light" | "system";
 };
+
+const PHONE_APPEARANCE_CHOICES_QUERY = "(max-width: 639px)";
 
 const THEME_CHOICES: readonly ThemeChoice[] = [
 	{
@@ -119,6 +122,9 @@ const getServerHydrationSnapshot = () => false;
 export function AppearanceSection() {
 	const { setTheme, theme } = useTheme();
 	const { setShape, shape } = useShapeContext();
+	const choiceOrientation = useMediaQuery(PHONE_APPEARANCE_CHOICES_QUERY)
+		? "vertical"
+		: "horizontal";
 	const mounted = useSyncExternalStore(
 		subscribeToHydration,
 		getClientHydrationSnapshot,
@@ -168,7 +174,7 @@ export function AppearanceSection() {
 						<RadioGroup
 							aria-label="Theme"
 							className="w-full"
-							orientation="horizontal"
+							orientation={choiceOrientation}
 							selectedIndex={selectedIndex}
 						>
 							{THEME_CHOICES.map((choice, index) => (
@@ -197,7 +203,7 @@ export function AppearanceSection() {
 						<RadioGroup
 							aria-label="Corner style"
 							className="w-full"
-							orientation="horizontal"
+							orientation={choiceOrientation}
 							selectedIndex={selectedShapeIndex}
 						>
 							{SHAPE_CHOICES.map((choice, index) => (
@@ -228,7 +234,7 @@ export function AppearanceSection() {
 						<RadioGroup
 							aria-label="Conversation layout"
 							className="w-full"
-							orientation="horizontal"
+							orientation={choiceOrientation}
 							selectedIndex={selectedConversationLayoutIndex}
 						>
 							{CONVERSATION_LAYOUT_CHOICES.map((choice, index) => (
@@ -262,7 +268,7 @@ export function AppearanceSection() {
 						<RadioGroup
 							aria-label="Your messages"
 							className="w-full"
-							orientation="horizontal"
+							orientation={choiceOrientation}
 							selectedIndex={selectedSelfMessageAlignmentIndex}
 						>
 							{SELF_MESSAGE_ALIGNMENT_CHOICES.map((choice, index) => (

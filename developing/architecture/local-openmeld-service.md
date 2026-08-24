@@ -1015,11 +1015,16 @@ Catalog consumption rules:
   do not read the bearer token through a shared Keychain access group or create
   a parallel local sign-in state.
 - On macOS, the packaged CLI uses Security.framework with the user's normal
-  Keychain. When Keychain is unavailable, setup may keep the current session in
-  a mode-`0600` file inside a mode-`0700` OpenMeld directory and must expose the
-  downgrade as a warning. The Service may consume that same CLI-owned session;
-  it must not create a second authentication owner. The next successful login
-  replaces the fallback with a Keychain item and removes the old file.
+  Keychain. Each operation runs in a short-lived child process with a
+  five-second deadline. If Security.framework returns an error or never
+  returns, the parent terminates that child and does not query Keychain again
+  during the same CLI or Service process. Setup may then keep the current
+  session in a mode-`0600` file inside a mode-`0700` OpenMeld directory and must
+  expose the downgrade as a warning. Access tokens are sent to the helper over
+  stdin, never argv. The Service may consume that same CLI-owned session; it
+  must not create a second authentication owner. A new process may try
+  Keychain again, and the next successful login replaces the fallback with a
+  Keychain item and removes the old file.
 - A background Service must not preflight a custom workspace with the POSIX
   `access` syscall. On macOS, a LaunchAgent can block indefinitely while that
   syscall crosses a protected-folder privacy boundary. Catalog inspection uses

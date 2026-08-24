@@ -71,7 +71,9 @@ describe("OrganizationHomeInbox", () => {
 
 		expect(await screen.findByText("Cached Inbox preview")).toBeTruthy();
 		expect(screen.queryByText("All caught up")).toBeNull();
-		expect(screen.getByRole("link", { name: "Open Inbox" })).toBeTruthy();
+		const openInboxLink = screen.getByRole("link", { name: "Open Inbox" });
+		expect(openInboxLink.className).toContain("size-7");
+		expect(openInboxLink.className).toContain("max-lg:size-11");
 	});
 
 	it("keeps meaningful Inbox status in the panel header", async () => {

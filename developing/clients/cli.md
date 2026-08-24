@@ -939,14 +939,19 @@ a restricted Keychain access-group entitlement, because it has no embedded
 provisioning profile and macOS would reject the executable before it starts.
 The session file stores only the opaque secure-storage reference. Existing
 macOS Keychain references remain readable for compatibility. If the user's
-Keychain is temporarily unavailable, setup writes the bearer session to a
-private OpenMeld directory with mode `0700` and a file with mode `0600`, warns
-clearly about that fallback, and continues. The next successful setup or login
-stores the replacement session in Keychain and removes the previous private
-file. A future signed local client must reuse the CLI-owned session through the
-local OpenMeld Service contract instead of reading the token directly or
-creating a parallel sign-in state. Setup verifies that the newly stored token
-can be reloaded before it writes the session file or reports success.
+Keychain returns an error or does not answer within five seconds, setup writes
+the bearer session to a private OpenMeld directory with mode `0700` and a file
+with mode `0600`, warns clearly about that fallback, and continues. Packaged
+CLI Keychain operations run in a short-lived child process so a blocked
+Security.framework call can be terminated without blocking setup or the
+Service. After one timeout, that CLI process does not retry Keychain; a new
+process may try again. Access tokens cross that private child boundary through
+stdin, never argv. The next successful setup or login stores the replacement
+session in Keychain and removes the previous private file. A future signed
+local client must reuse the CLI-owned session through the local OpenMeld
+Service contract instead of reading the token directly or creating a parallel
+sign-in state. Setup verifies that the newly stored token can be reloaded
+before it writes the session file or reports success.
 
 The CLI must prove account alignment. Missing, unknown, expired, or mismatched
 terminal authentication must fail closed and tell the user the next safe action.

@@ -57,6 +57,7 @@ export function CenterAgentLayout(input: {
 			globalControls={
 				<AppGlobalControls currentPathname={input.currentPathname} />
 			}
+			mobileSidebarTitle="Center Agent"
 			outerRail={
 				<AppOuterRail
 					account={account}
@@ -98,6 +99,7 @@ export function CenterAgentPendingLayout(input: {
 		<AppSurfaceLayout
 			frameSlotName="center-agent-pending-layout"
 			globalControls={<AppGlobalControls />}
+			mobileSidebarTitle="Center Agent"
 			outerRail={
 				<CenterAgentPendingOuterRail
 					initialState={input.initialOuterSidebarState}
