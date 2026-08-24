@@ -284,15 +284,19 @@ describe("local controller install resolution", () => {
     });
   });
 
-  it("uses the first verified PATH install when multiple installs are available", async () => {
+  it("prefers the Codex bundled with ChatGPT on first use", async () => {
     const installChoices = [
       createInstallChoice("install_homebrew", "/opt/homebrew/bin/codex"),
-      createInstallChoice("install_nvm", "/Users/test/.nvm/bin/codex"),
+      createInstallChoice(
+        "install_chatgpt",
+        "/Applications/ChatGPT.app/Contents/Resources/codex"
+      ),
     ];
     setTestInstallResolver({
       resolveInstalledLaunchCandidates: vi.fn().mockResolvedValue({
         candidates: installChoices,
         ok: true,
+        preferredInstallId: "install_chatgpt",
       }),
     });
 
@@ -306,7 +310,7 @@ describe("local controller install resolution", () => {
     expect(resolution).toEqual({
       detail: null,
       installChoices: [],
-      launchContract: installChoices[0]?.launchContract ?? null,
+      launchContract: installChoices[1]?.launchContract ?? null,
       status: "ready",
     });
   });

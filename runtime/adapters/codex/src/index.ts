@@ -24,7 +24,7 @@ import {
 } from "@openmeld/adapter-core";
 import {
   resolveCodexTimeoutMs as resolveCodexTimeoutMsLocal,
-  verifyCodexLaunchContract as verifyCodexLaunchContractLocal,
+  verifyCodexCommandLaunchContract as verifyCodexLaunchContractLocal,
 } from "./config/codex-runtime-config.js";
 import {
   invokeCodexAppServer as invokeCodexAppServerLocal,
@@ -85,9 +85,11 @@ export type CodexAdapterOptions = {
 };
 
 export {
+  type CodexInstalledLaunchCandidatesOptions,
   resolveCodexTimeoutMs,
   resolveInstalledCodexLaunchCandidates,
   resolveInstalledCodexLaunchContract,
+  verifyCodexCommandLaunchContract,
   verifyCodexLaunchContract,
 } from "./config/codex-runtime-config.js";
 export { isLikelyContextLostError } from "./context/codex-context-heal.js";
@@ -100,9 +102,11 @@ export {
 export { processCodexStdoutLine } from "./output/codex-output-parser.js";
 export { extractCodexToolActivityEvent } from "./output/codex-tool-activity.js";
 export {
+  type CodexAppServerAccountProbeResult,
   CodexAppServerTransportError,
   forkCodexAppServerThread,
   invokeCodexAppServerTransport,
+  probeCodexAppServerAccount,
   verifyCodexAppServerThread,
 } from "./transport/codex-app-server-transport.js";
 export {

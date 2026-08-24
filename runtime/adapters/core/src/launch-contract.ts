@@ -64,6 +64,7 @@ export type InstalledLaunchCandidatesResolution =
   | {
       candidates: RuntimeAgentControllerLaunchCandidate[];
       ok: true;
+      preferredInstallId?: string;
     }
   | {
       errorMessage: string;

@@ -173,6 +173,7 @@ export async function resolveBuiltinControllerInstallResolution(input: {
   if (installedCandidates.candidates.length > 1) {
     const selectedInstall = resolveAutomaticInstallChoice({
       candidates: installedCandidates.candidates,
+      preferredInstallId: installedCandidates.preferredInstallId,
     });
     if (selectedInstall) {
       return {
@@ -246,9 +247,18 @@ async function resolvePersistedControllerInstall(input: {
 
 function resolveAutomaticInstallChoice(input: {
   candidates: readonly LocalControllerInstallChoice[];
+  preferredInstallId?: string;
 }): LocalControllerInstallChoice | null {
-  // Discovery is ordered: PATH comes first, then other verified locations.
-  // Persisted choices are handled above and always remain authoritative.
+  const preferredInstall = input.preferredInstallId
+    ? (input.candidates.find(
+        (candidate) => candidate.installId === input.preferredInstallId
+      ) ?? null)
+    : null;
+  if (preferredInstall) {
+    return preferredInstall;
+  }
+  // Adapters without an explicit first-use preference keep their verified
+  // discovery order. Persisted choices are handled above and remain authoritative.
   return input.candidates[0] ?? null;
 }
 
