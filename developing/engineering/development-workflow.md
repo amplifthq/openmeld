@@ -749,7 +749,7 @@ local Agent Controller adapter.
   `center_agent.remote_designation_paused`. Existing Remote Agent execution
   stays enabled; do not use the broader runtime kill switch for this rollout.
 - With designation visibly paused, apply canonical-Binding D1 migration
-  `0139_woozy_lake`.
+  `0140_aspiring_masked_marvel`.
   Its profile-first partial index bounds legacy-owner discovery, and its write
   triggers preserve existing legacy rows while rejecting any new or re-enabled
   noncanonical or parallel enabled primary Binding. Then set the gate back with
