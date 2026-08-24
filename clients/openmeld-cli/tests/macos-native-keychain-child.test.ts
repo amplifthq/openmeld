@@ -29,6 +29,15 @@ import {
   runMacOsNativeKeychainRequestInChild,
 } from "../src/config/macos-native-keychain";
 
+const ORIGINAL_PLATFORM = process.platform;
+
+function setProcessPlatform(value: NodeJS.Platform): void {
+  Object.defineProperty(process, "platform", {
+    configurable: true,
+    value,
+  });
+}
+
 type MockChild = EventEmitter & {
   kill: ReturnType<typeof vi.fn>;
   stderr: EventEmitter & { setEncoding: ReturnType<typeof vi.fn> };
@@ -51,6 +60,7 @@ function createMockChild(): MockChild {
 
 describe("macOS native Keychain child boundary", () => {
   beforeEach(() => {
+    setProcessPlatform("darwin");
     spawnMock.mockReset();
     embeddedAddonMock.isParentSameExecutable.mockReset().mockReturnValue(true);
     embeddedAddonMock.read.mockReset().mockReturnValue("stored-access-token");
@@ -59,6 +69,7 @@ describe("macOS native Keychain child boundary", () => {
   });
 
   afterEach(() => {
+    setProcessPlatform(ORIGINAL_PLATFORM);
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
