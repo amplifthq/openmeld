@@ -1,4 +1,5 @@
 import {
+  CENTER_AGENT_TURN_DIAGNOSTIC_FAILURE_DETAIL_MAX_CHARS,
   centerAgentAnonymousMemberToolSpeakerSchema,
   messageChannelConversationLocatorSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
@@ -8,6 +9,7 @@ import {
 } from "@openmeld/schemas";
 import type {
   CenterAgentAnonymousMemberToolSpeaker,
+  CenterAgentTurnDiagnostic,
   MessageChannelConversationLocator,
   RemoteAgentWorkerSubmitTurnRequest,
   SpaceMessageAttachment,
@@ -2705,6 +2707,138 @@ export async function readRemoteAgentNativeDeliveryBySubmissionId(input: {
     .first<RemoteAgentNativeDeliveryRow>();
 
   return row ? mapNativeDeliveryRow(row) : null;
+}
+
+export function projectRemoteAgentNativeDeliveryTurnDiagnostic(
+  delivery: RemoteAgentNativeDeliveryRecord
+): CenterAgentTurnDiagnostic {
+  const failureDetail = delivery.failureDetail?.trim() || null;
+  const failureDetailTruncated =
+    failureDetail !== null &&
+    failureDetail.length >
+      CENTER_AGENT_TURN_DIAGNOSTIC_FAILURE_DETAIL_MAX_CHARS;
+  return {
+    acceptedAtMs: delivery.acceptedAtMs,
+    callbackReceivedAtMs: delivery.callbackReceivedAtMs,
+    completedAtMs: delivery.completedAtMs,
+    createdAtMs: delivery.createdAtMs,
+    deliveryId: delivery.deliveryId,
+    dispatchId: delivery.dispatchId,
+    failureCode: delivery.failureCode,
+    failureDetail:
+      failureDetail === null
+        ? null
+        : failureDetail.slice(
+            0,
+            CENTER_AGENT_TURN_DIAGNOSTIC_FAILURE_DETAIL_MAX_CHARS
+          ),
+    failureDetailTruncated,
+    publicationState: delivery.finalPublicationState,
+    publishedResultId:
+      delivery.conversationKind === "message_channel"
+        ? delivery.providerPublicationResultId
+        : delivery.publishedSignalId,
+    status: delivery.status,
+    submissionId: delivery.submissionId,
+    submittedAtMs: delivery.submittedAtMs,
+    triggerMessageId: delivery.triggerMessageId,
+    updatedAtMs: delivery.updatedAtMs,
+  };
+}
+
+export async function listRemoteAgentNativeDeliveryTurnDiagnostics(input: {
+  currentDelivery: RemoteAgentNativeDeliveryRecord;
+  db: D1Database;
+  limit: number;
+}): Promise<CenterAgentTurnDiagnostic[]> {
+  const limit = Math.max(1, Math.min(20, Math.trunc(input.limit)));
+  const current = input.currentDelivery;
+  const where: string[] = [
+    "organization_id = ?",
+    "profile_id = ?",
+    "delivery_id <> ?",
+    "routine_run_id IS NULL",
+  ];
+  const bindings: unknown[] = [
+    current.organizationId,
+    current.profileId,
+    current.deliveryId,
+  ];
+
+  if (current.onBehalfOfUserId) {
+    where.push("on_behalf_of_user_id = ?");
+    bindings.push(current.onBehalfOfUserId);
+  } else if (current.anonymousMemberSpeaker) {
+    const identity = current.anonymousMemberSpeaker.messageChannelIdentity;
+    where.push(
+      "on_behalf_of_user_id IS NULL",
+      "json_extract(anonymous_member_speaker_json, '$.messageChannelIdentity.provider') = ?",
+      "json_extract(anonymous_member_speaker_json, '$.messageChannelIdentity.connectionId') = ?",
+      "json_extract(anonymous_member_speaker_json, '$.messageChannelIdentity.providerUserId') = ?"
+    );
+    bindings.push(
+      identity.provider,
+      identity.connectionId,
+      identity.providerUserId
+    );
+  } else {
+    return [];
+  }
+
+  if (current.conversationKind === "slack") {
+    if (!(current.slackTeamId && current.slackChannelId)) {
+      return [];
+    }
+    where.push(
+      "conversation_kind = 'slack'",
+      "slack_team_id = ?",
+      "slack_channel_id = ?"
+    );
+    bindings.push(current.slackTeamId, current.slackChannelId);
+  } else if (current.conversationKind === "space") {
+    where.push("conversation_kind = 'space'", "space_id = ?");
+    bindings.push(current.spaceId);
+  } else {
+    const locator = current.messageChannelLocator;
+    if (!locator) {
+      return [];
+    }
+    where.push(
+      "conversation_kind = 'message_channel'",
+      "message_channel_provider = ?",
+      "message_channel_connection_id = ?"
+    );
+    bindings.push(locator.provider, locator.connectionId);
+    if (locator.provider === "slack") {
+      where.push(
+        "json_extract(message_channel_locator_json, '$.teamId') = ?",
+        "json_extract(message_channel_locator_json, '$.channelId') = ?"
+      );
+      bindings.push(locator.teamId, locator.channelId);
+    } else {
+      where.push(
+        "json_extract(message_channel_locator_json, '$.appId') = ?",
+        "json_extract(message_channel_locator_json, '$.chatId') = ?",
+        "json_extract(message_channel_locator_json, '$.tenantKey') IS ?"
+      );
+      bindings.push(locator.appId, locator.chatId, locator.tenantKey);
+    }
+  }
+
+  const rows = await input.db
+    .prepare(
+      `${REMOTE_AGENT_NATIVE_DELIVERY_SELECT}
+        WHERE ${where.join("\n          AND ")}
+        ORDER BY created_at_ms DESC, delivery_id DESC
+        LIMIT ?
+      `
+    )
+    .bind(...bindings, limit)
+    .all<RemoteAgentNativeDeliveryRow>();
+
+  return rows.results.map((row) =>
+    projectRemoteAgentNativeDeliveryTurnDiagnostic(mapNativeDeliveryRow(row))
+  );
 }
 
 export async function readRemoteAgentNativeDeliveryByDeliveryId(input: {

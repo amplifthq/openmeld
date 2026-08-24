@@ -90,6 +90,12 @@ describe("Remote Agent Routine management tools", () => {
     expect(routineNames).not.toContain("openmeld_remember_for_organization");
     expect(interactiveNames).toContain("openmeld_request_member_attention");
     expect(routineNames).not.toContain("openmeld_request_member_attention");
+    expect(interactiveNames).toContain(
+      "openmeld_read_center_agent_turn_diagnostics"
+    );
+    expect(routineNames).not.toContain(
+      "openmeld_read_center_agent_turn_diagnostics"
+    );
   });
 
   it("keeps Routine descriptions effect-focused under the Kernel policy", () => {

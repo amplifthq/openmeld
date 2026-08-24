@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-24T02:19:14.616Z",
+  "updatedAt": "2026-08-24T03:34:53.437Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.86",
+      "packageVersion": "0.3.87",
       "updatePolicy": "available",
       "reason": "Improves Center Agent failure diagnostics and uses structured evidence for action safety, member research, and reply publication."
     },
     "service": {
-      "bundleHash": "1417d96986c656c4d21c14546528ca9db8b7b6d335406323d1c4211bdbc191ed",
-      "bundleVersion": "0.3.86",
+      "bundleHash": "c8dbb452ab9b54ee370c1c095b87d4becca551c8d09ae07a534800c3560c881f",
+      "bundleVersion": "0.3.87",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
