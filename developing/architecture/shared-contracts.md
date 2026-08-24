@@ -2475,10 +2475,12 @@ digest. A completed retry returns the stored strict response. A
 provider-confirmed non-publication may retry, while an interrupted or
 undecodable completion becomes `outcome_unknown` and never uploads again
 automatically. Audit records the represented publication action without file
-bytes or Bot credentials. This is an additive receiver-first RPC: deploy Core
-before Remote Agent and remove the caller before the receiver on rollback.
-Existing Slack installations require reauthorization before `files:write` is
-granted.
+bytes or Bot credentials. Apply D1 migration `0140_wooden_logan` before Core;
+the previous table constraint rejects `slack_file` claims and therefore cannot
+fence file uploads safely. This is otherwise an additive receiver-first RPC:
+deploy Core before Remote Agent and remove the caller before the receiver on
+rollback. Existing Slack installations require reauthorization before
+`files:write` is granted.
 
 ### Slack Search Authorization And Result Contracts
 

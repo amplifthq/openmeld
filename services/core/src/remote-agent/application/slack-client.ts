@@ -148,6 +148,7 @@ const SLACK_API_BASE_URL = "https://slack.com/api";
 const SLACK_CHANNEL_LIST_PAGE_LIMIT = 200;
 const SLACK_CHANNEL_LIST_MAX_PAGES = 100;
 const SLACK_CHANNEL_NAME_PREFIX_PATTERN = /^#+/u;
+const SLACK_CONVERSATION_ID_PATTERN = /^[CDG][A-Z0-9]+$/u;
 const SLACK_MESSAGE_TIMESTAMP_PATTERN = /^\d+\.\d+$/u;
 const SLACK_SEARCH_TRUNCATED_HIGH_SURROGATE_PATTERN = /[\uD800-\uDBFF]$/;
 const SLACK_THREAD_CONTEXT_PAGE_LIMIT = 15;
@@ -1065,7 +1066,12 @@ export async function postSlackChannelMessageByName(input: {
   joinedChannel: boolean;
   messageTs: string;
 }> {
-  const target = await resolveSlackChannelMessageTarget(input);
+  const target = await resolveSlackChannelMessageTarget({
+    botToken: input.botToken,
+    channelName: input.channelName,
+    fetchImpl: input.fetchImpl,
+    signal: input.signal,
+  });
   const publication = await postSlackChannelMessage({
     ...input,
     target,
@@ -1105,6 +1111,45 @@ export async function resolveSlackChannelMessageTarget(input: {
     channelName: channel.name,
     isMember: channel.isMember,
     isPrivate: channel.isPrivate,
+  };
+}
+
+export async function resolveSlackConversationMessageTargetById(input: {
+  botToken: string;
+  conversationId: string;
+  fetchImpl?: FetchLike;
+  signal?: AbortSignal;
+}): Promise<SlackChannelMessageTarget> {
+  const conversationId = normalizeSlackConversationId(input.conversationId);
+  if (!conversationId) {
+    throw new Error("Slack conversation ID is invalid.");
+  }
+  const params = new URLSearchParams({ channel: conversationId });
+  const response = await (input.fetchImpl ?? fetch)(
+    `${SLACK_API_BASE_URL}/conversations.info?${params.toString()}`,
+    {
+      headers: buildSlackHeaders(input.botToken),
+      method: "GET",
+      signal: input.signal,
+    }
+  );
+  const data = await readSlackApiResponse(response);
+  assertSlackOk(response, data, "conversations.info");
+  const resolvedChannelId = normalizeOptionalText(data.channel?.id);
+  if (resolvedChannelId !== conversationId) {
+    throw new Error(
+      "Slack conversations.info returned a different conversation identity."
+    );
+  }
+  const isDirectConversation =
+    data.channel?.is_im === true || data.channel?.is_mpim === true;
+  return {
+    channelId: resolvedChannelId,
+    channelName:
+      normalizeOptionalText(data.channel?.name)?.toLowerCase() ??
+      resolvedChannelId,
+    isMember: data.channel?.is_member === true || isDirectConversation,
+    isPrivate: data.channel?.is_private === true || isDirectConversation,
   };
 }
 
@@ -1787,6 +1832,13 @@ function normalizeSlackChannelName(value: string): string {
     throw new Error("Slack channel name is required");
   }
   return normalized;
+}
+
+function normalizeSlackConversationId(value: string): string | null {
+  const normalized = value
+    .trim()
+    .replace(SLACK_CHANNEL_NAME_PREFIX_PATTERN, "");
+  return SLACK_CONVERSATION_ID_PATTERN.test(normalized) ? normalized : null;
 }
 
 async function ensureSlackChannelJoinedForPublication(input: {

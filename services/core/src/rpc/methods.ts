@@ -957,6 +957,7 @@ import {
   readSlackFile,
   readSlackUserIdentity,
   resolveSlackChannelMessageTarget,
+  resolveSlackConversationMessageTargetById,
   SlackApiError,
   type SlackChannelMessageTarget,
   type SlackWorkspaceMember,
@@ -12602,12 +12603,16 @@ async function executeRpcCenterAgentSlackPublication(input: {
     }
     trustedThreadTarget = canonicalTarget;
   }
-  const target = await resolveSlackChannelMessageTarget({
-    botToken,
-    channelName:
-      trustedThreadTarget?.channelId ??
-      ("channelName" in input.input ? input.input.channelName : ""),
-  });
+  const target = trustedThreadTarget
+    ? await resolveSlackConversationMessageTargetById({
+        botToken,
+        conversationId: trustedThreadTarget.channelId,
+      })
+    : await resolveSlackChannelMessageTarget({
+        botToken,
+        channelName:
+          "channelName" in input.input ? input.input.channelName : "",
+      });
   const threadTs =
     trustedThreadTarget?.threadTs ??
     ("threadTs" in input.input ? input.input.threadTs : undefined);
@@ -12636,7 +12641,8 @@ async function resolveCenterAgentSlackFilePublicationTarget(input: {
   target: SlackChannelMessageTarget;
   threadTs?: string;
 }> {
-  let channelIdOrName: string;
+  let channelName: string | null = null;
+  let trustedConversationId: string | null = null;
   let threadTs: string | undefined;
   if ("currentThread" in input.request) {
     if (
@@ -12651,7 +12657,7 @@ async function resolveCenterAgentSlackFilePublicationTarget(input: {
         status: 409,
       });
     }
-    channelIdOrName = input.sourceDelivery.slackChannelId;
+    trustedConversationId = input.sourceDelivery.slackChannelId;
     threadTs = input.sourceDelivery.slackThreadTs;
   } else if ("threadPermalink" in input.request) {
     const requestedTarget = parseSlackThreadPublicationPermalink(
@@ -12682,15 +12688,20 @@ async function resolveCenterAgentSlackFilePublicationTarget(input: {
         status: 409,
       });
     }
-    channelIdOrName = canonicalTarget.channelId;
+    trustedConversationId = canonicalTarget.channelId;
     threadTs = canonicalTarget.threadTs;
   } else {
-    channelIdOrName = input.request.channelName;
+    channelName = input.request.channelName;
   }
-  const target = await resolveSlackChannelMessageTarget({
-    botToken: input.botToken,
-    channelName: channelIdOrName,
-  });
+  const target = trustedConversationId
+    ? await resolveSlackConversationMessageTargetById({
+        botToken: input.botToken,
+        conversationId: trustedConversationId,
+      })
+    : await resolveSlackChannelMessageTarget({
+        botToken: input.botToken,
+        channelName: channelName ?? "",
+      });
   return { target, ...(threadTs ? { threadTs } : {}) };
 }
 

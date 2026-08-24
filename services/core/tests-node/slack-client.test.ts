@@ -15,6 +15,7 @@ import {
   readSlackConversationInfo,
   readSlackFile,
   readSlackThreadMessages,
+  resolveSlackConversationMessageTargetById,
   setSlackThreadStatus,
   updateSlackModal,
 } from "../src/remote-agent/application/slack-client";
@@ -687,6 +688,39 @@ describe("Slack file reads", () => {
 });
 
 describe("Slack file publication", () => {
+  it("resolves an exact direct-message conversation for a thread upload", async () => {
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = new URL(String(request));
+      expect(url.pathname).toBe("/api/conversations.info");
+      expect(url.searchParams.get("channel")).toBe("D0CURRENTTHREAD");
+      return Promise.resolve(
+        Response.json({
+          channel: {
+            id: "D0CURRENTTHREAD",
+            is_im: true,
+            is_member: true,
+            is_private: true,
+          },
+          ok: true,
+        })
+      );
+    });
+
+    await expect(
+      resolveSlackConversationMessageTargetById({
+        botToken: "xoxb-test",
+        conversationId: "D0CURRENTTHREAD",
+        fetchImpl: fetchMock,
+      })
+    ).resolves.toEqual({
+      channelId: "D0CURRENTTHREAD",
+      channelName: "D0CURRENTTHREAD",
+      isMember: true,
+      isPrivate: true,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("uploads bytes and completes the file in the exact Slack thread", async () => {
     const fileBytes = new TextEncoder().encode("release notes");
     const fetchMock = vi.fn<typeof fetch>((request, init) => {
