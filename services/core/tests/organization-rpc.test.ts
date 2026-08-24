@@ -19,6 +19,7 @@ import {
   type ApplyAcceptedBindingAuthorizationPoliciesInput,
   applyAcceptedBindingAuthorizationPolicies,
 } from "../src/agent-profile-binding/application/organization-binding-authorization-policy-service";
+import { MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE } from "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 // biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM exports used by the RPC orchestration module.
 import * as centerAgentWakePublicationService from "../src/center-agent/application/center-agent-wake-publication-service";
 import type { CenterAgentWakePublicationRecord } from "../src/center-agent/infrastructure/d1/center-agent-wake-publication-repo";
@@ -2373,6 +2374,747 @@ describe("organization Core RPC", () => {
       "authorize_remote_center_agent_binding",
       "designate_remote_center_agent",
     ]);
+  });
+
+  it("pauses only Remote Agent designation behind the rollout gate", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        managedCenterAgentProfileRow({
+          organizationId: "org-a",
+          ownerUserId: "owner-user",
+        }),
+      ],
+      members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
+    });
+
+    await expect(
+      rpcDesignateCenterAgent(
+        buildEnv({
+          db,
+          remoteAgentDesignationEnabled: "false",
+          remoteAgentRuntimeEnabled: "true",
+        }),
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "owner-user",
+          }),
+          runtime: "remote_agent",
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "center_agent.remote_designation_paused",
+      status: 503,
+    });
+    expect(db.bindingWriteEvents).toEqual([]);
+    expect(db.authorizationWrites).toEqual([]);
+    expect(db.centerAgentAuditRows).toEqual([]);
+  });
+
+  it("does not let lazy Center Agent setup bypass the rollout gate", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        managedCenterAgentProfileRow({
+          organizationId: "org-a",
+          ownerUserId: "owner-user",
+        }),
+      ],
+      members: [
+        memberRow("member-owner", "org-a", "owner-user", "owner"),
+        memberRow("member-invitee", "org-a", "user-a", "member"),
+      ],
+      organizations: [
+        {
+          name: "Acme Labs",
+          organizationId: "org-a",
+          slug: "acme-labs",
+        },
+      ],
+    });
+
+    await expect(
+      rpcOpenCenterAgentDirectMessageSpace(
+        buildEnv({
+          db,
+          remoteAgentDesignationEnabled: "false",
+          remoteAgentRuntimeEnabled: "true",
+        }),
+        {
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "user-a",
+          }),
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "center_agent.remote_designation_paused",
+      status: 503,
+    });
+    expect(db.bindingWriteEvents).toEqual([]);
+    expect(db.authorizationWrites).toEqual([]);
+    expect(db.centerAgentDesignations.size).toBe(0);
+    expect(db.spaces).toEqual([]);
+  });
+
+  it("rejects Remote Agent Center Agent designation while the current execution target has active work", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        managedCenterAgentProfileRow({
+          organizationId: "org-a",
+          ownerUserId: "owner-user",
+        }),
+      ],
+      members: [
+        memberRow("member-owner", "org-a", "owner-user", "owner"),
+        memberRow("member-admin", "org-a", "admin-user", "admin"),
+      ],
+    });
+    const ownerBindingKey = bindingKey(
+      "owner_account",
+      "owner-user",
+      AGENT_PROFILE_ID
+    );
+    const ownerBinding: AgentProfileBindingTestRow = {
+      agentControllerConversationId: "codex-session-1",
+      agentControllerPermissionMode: "codex:fullAccess",
+      agentControllerRef: "builtin:codex",
+      agentProfileId: AGENT_PROFILE_ID,
+      bindingId: "binding-owner-local",
+      bindingState: "enabled_primary",
+      configurationRevision: 2,
+      createdAtMs: 1_700_000_000_000,
+      createdByProfileId: HUMAN_PROFILE_ID,
+      disabledAtMs: null,
+      hostedRuntimeIdentityJson: null,
+      modelId: "gpt-5.6-sol",
+      openCodePermission: null,
+      ownerId: "owner-user",
+      ownerKind: "owner_account",
+      reasonCode: null,
+      reasoningLevel: "high",
+      runtimeKind: "openmeld_service",
+      updatedAtMs: 1_700_000_000_000,
+      openMeldServiceRuntimeId: "runtime-owner",
+    };
+    db.bindingRows.set(ownerBindingKey, ownerBinding);
+    const acquireMutation = vi
+      .spyOn(
+        runtimeTransportClient,
+        "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockResolvedValue({
+        reasonCode: "runtime_coordinator.active_execution",
+        status: "blocked",
+      });
+    const env = buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
+
+    await expect(
+      rpcDesignateCenterAgent(env, {
+        agentProfileId: AGENT_PROFILE_ID,
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          userId: "admin-user",
+        }),
+        runtime: "remote_agent",
+      })
+    ).rejects.toMatchObject({
+      code: "agent_profile_binding.controller_change_blocked_active_execution",
+      status: 409,
+    });
+    expect(acquireMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerUserId: "owner-user",
+        targetProfileId: AGENT_PROFILE_ID,
+      })
+    );
+    expect(db.bindingRows).toEqual(new Map([[ownerBindingKey, ownerBinding]]));
+    expect(db.authorizationWrites).toEqual([]);
+    expect(db.centerAgentAuditRows).toEqual([]);
+  });
+
+  it("keeps an already-hosted Remote Agent designation idempotent during active work", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          ...managedCenterAgentProfileRow({
+            organizationId: "org-a",
+            ownerUserId: "owner-user",
+          }),
+          hasBinding: false,
+        },
+      ],
+      members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
+    });
+    db.bindingRows.set(
+      bindingKey("owner_account", "owner-user", AGENT_PROFILE_ID),
+      agentProfileBindingTestRow({
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        bindingId: "binding-hosted-current",
+        hostedRuntimeIdentityJson: JSON.stringify(
+          HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+        ),
+        openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+        ownerId: "owner-user",
+        runtimeKind: "hosted_center_agent",
+      })
+    );
+    const acquireMutation = vi
+      .spyOn(
+        runtimeTransportClient,
+        "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockResolvedValue({
+        reasonCode: "runtime_coordinator.active_execution",
+        status: "blocked",
+      });
+
+    await expect(
+      rpcDesignateCenterAgent(
+        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "owner-user",
+          }),
+          runtime: "remote_agent",
+        }
+      )
+    ).resolves.toMatchObject({ status: "designated" });
+    expect(acquireMutation).not.toHaveBeenCalled();
+    expect(db.bindingWriteEvents).toEqual([]);
+  });
+
+  it("does not treat a corrupted hosted identity as an active-work no-op", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          ...managedCenterAgentProfileRow({
+            organizationId: "org-a",
+            ownerUserId: "owner-user",
+          }),
+          hasBinding: false,
+        },
+      ],
+      members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
+    });
+    db.bindingRows.set(
+      bindingKey("owner_account", "owner-user", AGENT_PROFILE_ID),
+      agentProfileBindingTestRow({
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        bindingId: "binding-hosted-corrupted",
+        hostedRuntimeIdentityJson: JSON.stringify({
+          ...HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+          logicalRuntimeId: "hosted:wrong",
+        }),
+        openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+        ownerId: "owner-user",
+        runtimeKind: "hosted_center_agent",
+      })
+    );
+    const acquireMutation = vi
+      .spyOn(
+        runtimeTransportClient,
+        "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockResolvedValue({
+        reasonCode: "runtime_coordinator.active_execution",
+        status: "blocked",
+      });
+
+    await expect(
+      rpcDesignateCenterAgent(
+        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "owner-user",
+          }),
+          runtime: "remote_agent",
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "agent_profile_binding.controller_change_blocked_active_execution",
+      status: 409,
+    });
+    expect(acquireMutation).toHaveBeenCalledOnce();
+    expect(db.bindingWriteEvents).toEqual([]);
+  });
+
+  it("reconciles a legacy admin-owned Binding into the Profile owner's Binding", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          ...managedCenterAgentProfileRow({
+            organizationId: "org-a",
+            ownerUserId: "owner-user",
+          }),
+          hasBinding: false,
+        },
+      ],
+      members: [
+        memberRow("member-owner", "org-a", "owner-user", "owner"),
+        memberRow("member-admin", "org-a", "admin-user", "admin"),
+      ],
+    });
+    db.bindingRows.set(
+      bindingKey("owner_account", "admin-user", AGENT_PROFILE_ID),
+      {
+        agentControllerConversationId: "legacy-admin-session",
+        agentControllerPermissionMode: "codex:fullAccess",
+        agentControllerRef: "builtin:codex",
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding-legacy-admin",
+        bindingState: "enabled_primary",
+        configurationRevision: 1,
+        createdAtMs: 1_700_000_000_000,
+        createdByProfileId: HUMAN_PROFILE_ID,
+        disabledAtMs: null,
+        hostedRuntimeIdentityJson: null,
+        modelId: "gpt-5.6-sol",
+        openCodePermission: null,
+        ownerId: "admin-user",
+        ownerKind: "owner_account",
+        reasonCode: "center_agent.remote_agent_designation",
+        reasoningLevel: "high",
+        runtimeKind: "openmeld_service",
+        updatedAtMs: 1_700_000_000_000,
+        openMeldServiceRuntimeId: "runtime-admin",
+      }
+    );
+    const acquireMutation = vi
+      .spyOn(
+        runtimeTransportClient,
+        "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockImplementation((request) => {
+        db.bindingWriteEvents.push(`acquire:${request.ownerUserId}`);
+        return Promise.resolve({
+          expiresAtMs: TEST_NOW_MS + 30_000,
+          operationId: `operation-${request.ownerUserId}`,
+          status: "acquired",
+        });
+      });
+    const releaseMutation = vi
+      .spyOn(
+        runtimeTransportClient,
+        "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockResolvedValue({ status: "released" });
+    const env = buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
+
+    await expect(
+      rpcDesignateCenterAgent(env, {
+        agentProfileId: AGENT_PROFILE_ID,
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          userId: "admin-user",
+        }),
+        runtime: "remote_agent",
+      })
+    ).resolves.toMatchObject({ status: "designated" });
+
+    expect([...db.bindingRows.values()]).toEqual([
+      expect.objectContaining({
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingState: "enabled_primary",
+        ownerId: "owner-user",
+        runtimeKind: "hosted_center_agent",
+      }),
+    ]);
+    expect([...db.authorizationRows.values()]).toEqual([
+      expect.objectContaining({
+        authorizedBy: "admin-user",
+        organizationId: "org-a",
+      }),
+    ]);
+    expect(
+      acquireMutation.mock.calls.map(([request]) => request.ownerUserId)
+    ).toEqual(["admin-user", "owner-user"]);
+    expect(
+      releaseMutation.mock.calls.map(([request]) => request.ownerUserId).sort()
+    ).toEqual(["admin-user", "owner-user"]);
+    expect(db.bindingWriteEvents).toEqual([
+      "acquire:admin-user",
+      "acquire:owner-user",
+      "insert:owner-user",
+      "disable:admin-user",
+    ]);
+  });
+
+  it("preserves the original authorizer while moving a legacy hosted Binding to the Profile owner", async () => {
+    const legacyBindingId = "binding-legacy-hosted-admin";
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          ...managedCenterAgentProfileRow({
+            organizationId: "org-a",
+            ownerUserId: "owner-user",
+          }),
+          hasBinding: false,
+        },
+      ],
+      authorizations: [
+        authorizationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          authorizedBy: "legacy-authorizer",
+          bindingId: legacyBindingId,
+          createdAtMs: 1_700_000_000_000,
+          organizationId: "org-a",
+        }),
+      ],
+      members: [
+        memberRow("member-owner", "org-a", "owner-user", "owner"),
+        memberRow("member-admin", "org-a", "admin-user", "admin"),
+      ],
+    });
+    db.bindingRows.set(
+      bindingKey("owner_account", "admin-user", AGENT_PROFILE_ID),
+      agentProfileBindingTestRow({
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        bindingId: legacyBindingId,
+        hostedRuntimeIdentityJson: JSON.stringify(
+          HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+        ),
+        openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+        ownerId: "admin-user",
+        runtimeKind: "hosted_center_agent",
+      })
+    );
+    vi.spyOn(
+      runtimeTransportClient,
+      "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
+    ).mockImplementation((request) =>
+      Promise.resolve({
+        expiresAtMs: TEST_NOW_MS + 30_000,
+        operationId: `operation-${request.ownerUserId}`,
+        status: "acquired",
+      })
+    );
+    vi.spyOn(
+      runtimeTransportClient,
+      "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
+    ).mockResolvedValue({ status: "released" });
+
+    await expect(
+      rpcDesignateCenterAgent(
+        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "admin-user",
+          }),
+          runtime: "remote_agent",
+        }
+      )
+    ).resolves.toMatchObject({ status: "designated" });
+
+    const canonicalBinding = [...db.bindingRows.values()].find(
+      (binding) => binding.ownerId === "owner-user"
+    );
+    expect(canonicalBinding).toMatchObject({
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentControllerPermissionMode: "codex:fullAccess",
+      bindingState: "enabled_primary",
+      modelId: "gpt-5.6-sol",
+      reasoningLevel: "high",
+      runtimeKind: "hosted_center_agent",
+    });
+    expect(
+      db.authorizationRows.get(
+        authorizationKey("org-a", canonicalBinding?.bindingId ?? "")
+      )
+    ).toMatchObject({
+      authorizedBy: "legacy-authorizer",
+      organizationId: "org-a",
+    });
+  });
+
+  it("releases every owner admission when atomic authorization carry-over fails", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          ...managedCenterAgentProfileRow({
+            organizationId: "org-a",
+            ownerUserId: "owner-user",
+          }),
+          hasBinding: false,
+        },
+      ],
+      authorizationWriteFailures: 1,
+      members: [
+        memberRow("member-owner", "org-a", "owner-user", "owner"),
+        memberRow("member-admin", "org-a", "admin-user", "admin"),
+      ],
+    });
+    db.bindingRows.set(
+      bindingKey("owner_account", "admin-user", AGENT_PROFILE_ID),
+      agentProfileBindingTestRow({
+        bindingId: "binding-legacy-admin-auth-failure",
+        ownerId: "admin-user",
+      })
+    );
+    vi.spyOn(
+      runtimeTransportClient,
+      "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
+    ).mockImplementation((request) =>
+      Promise.resolve({
+        expiresAtMs: TEST_NOW_MS + 30_000,
+        operationId: `operation-${request.ownerUserId}`,
+        status: "acquired",
+      })
+    );
+    const releaseMutation = vi
+      .spyOn(
+        runtimeTransportClient,
+        "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockResolvedValue({ status: "released" });
+
+    await expect(
+      rpcDesignateCenterAgent(
+        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "admin-user",
+          }),
+          runtime: "remote_agent",
+        }
+      )
+    ).rejects.toThrow("Test Binding authorization write failure.");
+    expect(
+      releaseMutation.mock.calls.map(([request]) => request.ownerUserId).sort()
+    ).toEqual(["admin-user", "owner-user"]);
+  });
+
+  it("does not change D1 state when a legacy owner shard blocks reconciliation", async () => {
+    const centerAgentAuditJournal: CenterAgentAuditJournalTestRow[] = [];
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          ...managedCenterAgentProfileRow({
+            organizationId: "org-a",
+            ownerUserId: "owner-user",
+          }),
+          hasBinding: false,
+        },
+      ],
+      centerAgentAuditJournal,
+      members: [
+        memberRow("member-owner", "org-a", "owner-user", "owner"),
+        memberRow("member-admin", "org-a", "admin-user", "admin"),
+      ],
+    });
+    const legacyBinding = agentProfileBindingTestRow({
+      bindingId: "binding-legacy-admin-blocked",
+      ownerId: "admin-user",
+    });
+    db.bindingRows.set(
+      bindingKey("owner_account", "admin-user", AGENT_PROFILE_ID),
+      legacyBinding
+    );
+    const originalBindings = new Map(
+      [...db.bindingRows].map(([key, binding]) => [key, { ...binding }])
+    );
+    const acquireMutation = vi
+      .spyOn(
+        runtimeTransportClient,
+        "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockImplementation((request) =>
+        Promise.resolve(
+          request.ownerUserId === "admin-user"
+            ? {
+                reasonCode: "runtime_coordinator.active_execution" as const,
+                status: "blocked" as const,
+              }
+            : {
+                expiresAtMs: TEST_NOW_MS + 30_000,
+                operationId: `operation-${request.ownerUserId}`,
+                status: "acquired" as const,
+              }
+        )
+      );
+    const releaseMutation = vi
+      .spyOn(
+        runtimeTransportClient,
+        "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockResolvedValue({ status: "released" });
+
+    await expect(
+      rpcDesignateCenterAgent(
+        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "admin-user",
+          }),
+          runtime: "remote_agent",
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "agent_profile_binding.controller_change_blocked_active_execution",
+      status: 409,
+    });
+    expect(
+      acquireMutation.mock.calls.map(([request]) => request.ownerUserId)
+    ).toEqual(["admin-user"]);
+    expect(releaseMutation).not.toHaveBeenCalled();
+    expect(db.bindingRows).toEqual(originalBindings);
+    expect(db.bindingWriteEvents).toEqual([]);
+    expect(db.authorizationRows.size).toBe(0);
+    expect(centerAgentAuditJournal).toEqual([]);
+  });
+
+  it("fails closed before admission or writes when Binding owner inventory exceeds the safety limit", async () => {
+    const centerAgentAuditJournal: CenterAgentAuditJournalTestRow[] = [];
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          ...managedCenterAgentProfileRow({
+            organizationId: "org-a",
+            ownerUserId: "owner-user",
+          }),
+          hasBinding: false,
+        },
+      ],
+      centerAgentAuditJournal,
+      members: [
+        memberRow("member-owner", "org-a", "owner-user", "owner"),
+        memberRow("member-admin", "org-a", "admin-user", "admin"),
+      ],
+    });
+    for (
+      let index = 0;
+      index < MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE + 1;
+      index += 1
+    ) {
+      const ownerId = `legacy-owner-${index.toString().padStart(2, "0")}`;
+      db.bindingRows.set(
+        bindingKey("owner_account", ownerId, AGENT_PROFILE_ID),
+        agentProfileBindingTestRow({
+          bindingId: `binding-${ownerId}`,
+          ownerId,
+        })
+      );
+    }
+    const originalBindings = new Map(
+      [...db.bindingRows].map(([key, binding]) => [key, { ...binding }])
+    );
+    const acquireMutation = vi
+      .spyOn(
+        runtimeTransportClient,
+        "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockResolvedValue({
+        expiresAtMs: TEST_NOW_MS + 30_000,
+        operationId: "operation-unexpected",
+        status: "acquired",
+      });
+
+    await expect(
+      rpcDesignateCenterAgent(
+        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "admin-user",
+          }),
+          runtime: "remote_agent",
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "center_agent.binding_owner_inventory_exceeded",
+      status: 503,
+    });
+    expect(acquireMutation).not.toHaveBeenCalled();
+    expect(db.bindingRows).toEqual(originalBindings);
+    expect(db.bindingWriteEvents).toEqual([]);
+    expect(db.authorizationRows.size).toBe(0);
+    expect(centerAgentAuditJournal).toEqual([]);
+  });
+
+  it("bounds the cumulative owner inventory across repeated admission rescans", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          ...managedCenterAgentProfileRow({
+            organizationId: "org-a",
+            ownerUserId: "owner-user",
+          }),
+          hasBinding: false,
+        },
+      ],
+      members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
+    });
+    const installLegacyOwner = (index: number): void => {
+      for (const [key, binding] of db.bindingRows) {
+        if (binding.ownerId.startsWith("rotating-owner-")) {
+          db.bindingRows.delete(key);
+        }
+      }
+      const ownerId = `rotating-owner-${index.toString().padStart(2, "0")}`;
+      db.bindingRows.set(
+        bindingKey("owner_account", ownerId, AGENT_PROFILE_ID),
+        agentProfileBindingTestRow({
+          bindingId: `binding-${ownerId}`,
+          ownerId,
+        })
+      );
+    };
+    installLegacyOwner(0);
+    let nextOwnerIndex = 1;
+    vi.spyOn(
+      runtimeTransportClient,
+      "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
+    ).mockImplementation((request) => {
+      if (request.ownerUserId.startsWith("rotating-owner-")) {
+        installLegacyOwner(nextOwnerIndex);
+        nextOwnerIndex += 1;
+      }
+      return Promise.resolve({
+        expiresAtMs: TEST_NOW_MS + 30_000,
+        operationId: `operation-${request.ownerUserId}`,
+        status: "acquired",
+      });
+    });
+    const releaseMutation = vi
+      .spyOn(
+        runtimeTransportClient,
+        "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockResolvedValue({ status: "released" });
+
+    await expect(
+      rpcDesignateCenterAgent(
+        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "owner-user",
+          }),
+          runtime: "remote_agent",
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "center_agent.binding_owner_inventory_exceeded",
+      status: 503,
+    });
+    expect(releaseMutation).toHaveBeenCalledTimes(
+      MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE
+    );
+    expect(db.bindingWriteEvents).toEqual([]);
+    expect(db.authorizationWrites).toEqual([]);
   });
 
   it("lets every member read the Center Agent model while only owners and admins can change it", async () => {
@@ -9390,6 +10132,7 @@ function buildEnv(
     db?: ReturnType<typeof createOrganizationRpcDb>;
     localStateDb?: ReturnType<typeof createOrganizationRpcDb>;
     remoteAgentBlockedOrganizationIds?: string;
+    remoteAgentDesignationEnabled?: string;
     remoteAgentWorker?: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"];
     remoteAgentRuntimeEnabled?: string;
     observability?: CoreBindings["OPENMELD_OBSERVABILITY"];
@@ -9432,8 +10175,25 @@ function buildEnv(
       | undefined,
     OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS:
       input.remoteAgentBlockedOrganizationIds,
+    OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED:
+      input.remoteAgentDesignationEnabled ?? "true",
     OPENMELD_REMOTE_AGENT_WORKER: input.remoteAgentWorker,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: input.remoteAgentRuntimeEnabled,
+    OPENMELD_RUNTIME_TRANSPORT: {
+      get: vi.fn(() => ({
+        rpcAcquireAgentProfileControllerMutation: vi.fn(
+          async (request: { operationId: string }) => ({
+            expiresAtMs: Date.now() + 300_000,
+            operationId: request.operationId,
+            status: "acquired" as const,
+          })
+        ),
+        rpcReleaseAgentProfileControllerMutation: vi.fn(async () => ({
+          status: "released" as const,
+        })),
+      })),
+      idFromName: vi.fn((ownerUserId: string) => ownerUserId),
+    },
     SLACK_OPENMELD_BOT_TOKEN: input.slackBotToken,
     SLACK_OPENMELD_TOKEN_CRYPTO_KEY: input.slackTokenCryptoKey,
     OPENMELD_OBSERVABILITY: input.observability,
@@ -9821,6 +10581,35 @@ type AgentProfileBindingTestRow = {
   openMeldServiceRuntimeId: string;
 };
 
+function agentProfileBindingTestRow(
+  input: Pick<AgentProfileBindingTestRow, "bindingId" | "ownerId"> &
+    Partial<
+      Omit<AgentProfileBindingTestRow, "bindingId" | "ownerId" | "ownerKind">
+    >
+): AgentProfileBindingTestRow {
+  return {
+    agentControllerConversationId: null,
+    agentControllerPermissionMode: "codex:fullAccess",
+    agentControllerRef: "builtin:codex",
+    agentProfileId: AGENT_PROFILE_ID,
+    bindingState: "enabled_primary",
+    configurationRevision: 1,
+    createdAtMs: 1_700_000_000_000,
+    createdByProfileId: HUMAN_PROFILE_ID,
+    disabledAtMs: null,
+    hostedRuntimeIdentityJson: null,
+    modelId: "gpt-5.6-sol",
+    openCodePermission: null,
+    ownerKind: "owner_account",
+    reasonCode: "center_agent.remote_agent_designation",
+    reasoningLevel: "high",
+    runtimeKind: "openmeld_service",
+    updatedAtMs: 1_700_000_000_000,
+    openMeldServiceRuntimeId: `runtime-${input.ownerId}`,
+    ...input,
+  };
+}
+
 function nativeDeliveryLedgerRow(input: {
   deliveryId: string;
   routineRunId?: string | null;
@@ -9925,6 +10714,7 @@ function createOrganizationRpcDb(input: {
     updatedAt?: number;
   }>;
   authorizations?: ReturnType<typeof authorizationRow>[];
+  authorizationWriteFailures?: number;
   bindingAuthorizationPreferences?: ReturnType<typeof preferenceRow>[];
   centerAgentAuditWriteFailures?: number;
   centerAgentDesignations?: ReturnType<typeof centerAgentDesignationRow>[];
@@ -10011,9 +10801,16 @@ function createOrganizationRpcDb(input: {
     centerAgentDesignationRows.set(designation.organizationId, designation);
   }
   const bindingRows = new Map<string, AgentProfileBindingTestRow>();
+  const pendingBindingTransitions = new Map<
+    string,
+    AgentProfileBindingTestRow
+  >();
+  const bindingWriteEvents: string[] = [];
   const centerAgentAuditRows = [...(input.centerAgentAuditJournal ?? [])];
   let remainingCenterAgentAuditWriteFailures =
     input.centerAgentAuditWriteFailures ?? 0;
+  let remainingAuthorizationWriteFailures =
+    input.authorizationWriteFailures ?? 0;
   const centerAgentPublicationRows: CenterAgentPublicationOperationTestRow[] =
     [];
   const centerAgentMemoryPolicyRows = new Map<
@@ -10078,6 +10875,7 @@ function createOrganizationRpcDb(input: {
               agentProfiles: input.agentProfiles,
               args,
               authorizationRows,
+              bindingRows,
               centerAgentAuditRows,
               centerAgentDesignationRows,
               dispatchLedgerEntries: input.dispatchLedgerEntries,
@@ -10368,6 +11166,10 @@ function createOrganizationRpcDb(input: {
                 "insert into organization_binding_authorizations"
               )
             ) {
+              if (remainingAuthorizationWriteFailures > 0) {
+                remainingAuthorizationWriteFailures -= 1;
+                throw new Error("Test Binding authorization write failure.");
+              }
               const organizationId = String(args[1] ?? "");
               const bindingId = String(args[2] ?? "");
               const key = authorizationKey(organizationId, bindingId);
@@ -10421,23 +11223,132 @@ function createOrganizationRpcDb(input: {
               normalizedSql.includes(
                 "update openmelddaemon_agent_profile_bindings"
               ) &&
-              normalizedSql.includes(
-                "set\n            binding_state = 'disabled_historical'"
-              )
+              normalizedSql.includes("binding_state = 'enabled_primary'") &&
+              normalizedSql.includes("disabled_at_ms = null")
             ) {
-              const ownerKind = String(args[2] ?? "") as "owner_account";
-              const ownerId = String(args[3] ?? "");
-              const agentProfileId = String(args[4] ?? "");
-              const bindingId = String(args[5] ?? "");
+              const updatedAtMs = Number(args[0] ?? 0);
+              const bindingId = String(args[1] ?? "");
+              const binding = pendingBindingTransitions.get(bindingId);
+              if (!binding) {
+                return createD1RunResult(0);
+              }
+              binding.bindingState = "enabled_primary";
+              binding.disabledAtMs = null;
+              binding.updatedAtMs = updatedAtMs;
+              bindingRows.set(
+                bindingKey(
+                  binding.ownerKind,
+                  binding.ownerId,
+                  binding.agentProfileId
+                ),
+                binding
+              );
+              pendingBindingTransitions.delete(bindingId);
+              return createD1RunResult(1);
+            }
+            if (
+              normalizedSql.includes(
+                "update openmelddaemon_agent_profile_bindings"
+              ) &&
+              normalizedSql.includes("binding_state = 'disabled_historical'")
+            ) {
+              if (normalizedSql.includes("with admitted")) {
+                const agentProfileId = String(args.at(-1) ?? "");
+                const admittedCount = Number(args.at(-2) ?? 0);
+                const admittedArgumentCount = admittedCount * 4;
+                const transitionGuardArgumentCount = normalizedSql.includes(
+                  "transition_target"
+                )
+                  ? 5
+                  : 3;
+                const disabledCount =
+                  normalizedSql.match(/when \? then \?/g)?.length ?? 0;
+                const disabledIds = args
+                  .slice(
+                    args.length - transitionGuardArgumentCount - disabledCount,
+                    args.length - transitionGuardArgumentCount
+                  )
+                  .map((value) => String(value));
+                let changes = 0;
+                for (const bindingId of disabledIds) {
+                  const entry = [...bindingRows.entries()].find(
+                    ([, binding]) => binding.bindingId === bindingId
+                  );
+                  if (!entry) {
+                    const implicitBinding = input.agentProfiles.find(
+                      (profile) =>
+                        profile.profileId === agentProfileId &&
+                        profile.hasBinding !== false &&
+                        bindingId === `binding-${profile.profileId}`
+                    );
+                    if (implicitBinding) {
+                      bindingWriteEvents.push(
+                        `disable:${implicitBinding.ownerUserId}`
+                      );
+                      changes += 1;
+                    }
+                    continue;
+                  }
+                  const [key, binding] = entry;
+                  binding.bindingState = "disabled_historical";
+                  binding.disabledAtMs = Number(
+                    args[admittedArgumentCount] ?? 0
+                  );
+                  binding.updatedAtMs = Number(
+                    args[admittedArgumentCount + 1] ?? 0
+                  );
+                  bindingRows.delete(key);
+                  bindingWriteEvents.push(`disable:${binding.ownerId}`);
+                  changes += 1;
+                }
+                return createD1RunResult(changes);
+              }
+              const isAtomicReconciliation =
+                normalizedSql.includes("where binding_id = ?") &&
+                normalizedSql.includes("configuration_revision = ?");
+              const ownerKind = String(
+                args[isAtomicReconciliation ? 4 : 3] ?? ""
+              ) as "owner_account";
+              const ownerId = String(
+                args[isAtomicReconciliation ? 5 : 4] ?? ""
+              );
+              const agentProfileId = String(
+                args[isAtomicReconciliation ? 6 : 5] ?? ""
+              );
+              const bindingId = String(
+                args[isAtomicReconciliation ? 3 : 6] ?? ""
+              );
               const key = bindingKey(ownerKind, ownerId, agentProfileId);
               const binding = bindingRows.get(key);
-              if (!binding || binding.bindingId !== bindingId) {
+              if (!binding) {
+                const implicitBinding = input.agentProfiles.find(
+                  (profile) =>
+                    profile.profileId === agentProfileId &&
+                    profile.ownerUserId === ownerId &&
+                    profile.hasBinding !== false &&
+                    bindingId === `binding-${profile.profileId}`
+                );
+                if (implicitBinding) {
+                  bindingWriteEvents.push(`disable:${ownerId}`);
+                  return createD1RunResult(1);
+                }
+              }
+              if (
+                !binding ||
+                binding.bindingId !== bindingId ||
+                (isAtomicReconciliation &&
+                  binding.configurationRevision !== Number(args[7] ?? -1))
+              ) {
                 return createD1RunResult(0);
               }
               binding.bindingState = "disabled_historical";
               binding.disabledAtMs = Number(args[0] ?? 0);
+              if (normalizedSql.includes("reason_code = ?")) {
+                binding.reasonCode = String(args[2] ?? "");
+              }
               binding.updatedAtMs = Number(args[1] ?? 0);
               bindingRows.delete(key);
+              bindingWriteEvents.push(`disable:${ownerId}`);
               return createD1RunResult(1);
             }
             if (
@@ -10445,40 +11356,90 @@ function createOrganizationRpcDb(input: {
                 "insert into openmelddaemon_agent_profile_bindings"
               )
             ) {
-              const ownerKind = String(args[1] ?? "") as "owner_account";
-              const ownerId = String(args[2] ?? "");
-              const agentProfileId = String(args[3] ?? "");
-              bindingRows.set(bindingKey(ownerKind, ownerId, agentProfileId), {
-                bindingId: String(args[0] ?? ""),
+              const admittedTupleCount = normalizedSql.includes("with admitted")
+                ? (normalizedSql.match(/\(\?, \?, \?, \?\)/g)?.length ?? 0)
+                : 0;
+              const offset = admittedTupleCount * 4;
+              const ownerKind = String(
+                args[offset + 1] ?? ""
+              ) as "owner_account";
+              const ownerId = String(args[offset + 2] ?? "");
+              const agentProfileId = String(args[offset + 3] ?? "");
+              const isDisabledTransition = normalizedSql.includes(
+                "'disabled_historical'"
+              );
+              const settingsOffset = isDisabledTransition ? 1 : 0;
+              const binding: AgentProfileBindingTestRow = {
+                bindingId: String(args[offset] ?? ""),
                 ownerKind,
                 ownerId,
                 agentProfileId,
-                openMeldServiceRuntimeId: String(args[4] ?? ""),
-                runtimeKind: String(args[5] ?? "openmeld_service") as
+                openMeldServiceRuntimeId: String(args[offset + 4] ?? ""),
+                runtimeKind: String(args[offset + 5] ?? "openmeld_service") as
                   | "openmeld_service"
                   | "hosted_center_agent",
                 hostedRuntimeIdentityJson:
-                  args[6] === null ? null : String(args[6] ?? ""),
-                agentControllerRef: String(args[7] ?? ""),
+                  args[offset + 6] === null
+                    ? null
+                    : String(args[offset + 6] ?? ""),
+                agentControllerRef: String(args[offset + 7] ?? ""),
                 agentControllerConversationId:
-                  args[8] === null ? null : String(args[8] ?? ""),
-                bindingState: "enabled_primary",
-                configurationRevision: 0,
-                createdAtMs: Number(args[9] ?? 0),
-                updatedAtMs: Number(args[10] ?? 0),
-                disabledAtMs: null,
+                  args[offset + 8] === null
+                    ? null
+                    : String(args[offset + 8] ?? ""),
+                bindingState: isDisabledTransition
+                  ? "disabled_historical"
+                  : "enabled_primary",
+                configurationRevision: 1,
+                createdAtMs: Number(args[offset + 9] ?? 0),
+                updatedAtMs: Number(args[offset + 10] ?? 0),
+                disabledAtMs: isDisabledTransition
+                  ? Number(args[offset + 11] ?? 0)
+                  : null,
                 createdByProfileId:
-                  args[11] === null ? null : String(args[11] ?? ""),
-                reasonCode: args[12] === null ? null : String(args[12] ?? ""),
+                  args[offset + 11 + settingsOffset] === null
+                    ? null
+                    : String(args[offset + 11 + settingsOffset] ?? ""),
+                reasonCode:
+                  args[offset + 12 + settingsOffset] === null
+                    ? null
+                    : String(args[offset + 12 + settingsOffset] ?? ""),
                 agentControllerPermissionMode:
-                  args[13] === null ? null : String(args[13] ?? ""),
-                modelId: args[14] === null ? null : String(args[14] ?? ""),
+                  args[offset + 14 + settingsOffset] === null
+                    ? null
+                    : String(args[offset + 14 + settingsOffset] ?? ""),
+                modelId:
+                  args[offset + 15 + settingsOffset] === null
+                    ? null
+                    : String(args[offset + 15 + settingsOffset] ?? ""),
                 openCodePermission:
-                  args[15] === null ? null : String(args[15] ?? ""),
+                  args[offset + 16 + settingsOffset] === null
+                    ? null
+                    : String(args[offset + 16 + settingsOffset] ?? ""),
                 reasoningLevel:
-                  args[16] === null ? null : String(args[16] ?? ""),
-              });
+                  args[offset + 17 + settingsOffset] === null
+                    ? null
+                    : String(args[offset + 17 + settingsOffset] ?? ""),
+              };
+              if (binding.bindingState === "disabled_historical") {
+                pendingBindingTransitions.set(binding.bindingId, binding);
+              } else {
+                bindingRows.set(
+                  bindingKey(ownerKind, ownerId, agentProfileId),
+                  binding
+                );
+              }
+              bindingWriteEvents.push(`insert:${ownerId}`);
               return createD1RunResult(1);
+            }
+            if (
+              normalizedSql.includes(
+                "delete from openmelddaemon_agent_profile_bindings"
+              )
+            ) {
+              const bindingId = String(args[0] ?? "");
+              const deleted = pendingBindingTransitions.delete(bindingId);
+              return createD1RunResult(deleted ? 1 : 0);
             }
             if (
               normalizedSql.includes(
@@ -10525,6 +11486,8 @@ function createOrganizationRpcDb(input: {
     ...db,
     agentProfiles: input.agentProfiles,
     authorizationDeletes,
+    authorizationRows,
+    bindingWriteEvents,
     members: input.members,
   };
 }
@@ -11146,6 +12109,7 @@ function resolveAllRows(input: {
   agentProfiles: Parameters<typeof createOrganizationRpcDb>[0]["agentProfiles"];
   args: unknown[];
   authorizationRows?: Map<string, ReturnType<typeof authorizationRow>>;
+  bindingRows?: Map<string, AgentProfileBindingTestRow>;
   centerAgentAuditRows?: CenterAgentAuditJournalTestRow[];
   centerAgentDesignationRows?: Map<
     string,
@@ -11655,6 +12619,62 @@ function resolveAllRows(input: {
         space_purpose: space.spacePurpose,
         space_updated_at_ms: space.spaceUpdatedAtMs,
       }));
+  }
+
+  if (
+    input.normalizedSql.includes(
+      "from openmelddaemon_agent_profile_bindings"
+    ) &&
+    input.normalizedSql.includes("where agent_profile_id = ?") &&
+    input.normalizedSql.includes("binding_state = 'enabled_primary'")
+  ) {
+    const agentProfileId = String(input.args[0] ?? "");
+    const explicitBindings = [...(input.bindingRows?.values() ?? [])].filter(
+      (binding) =>
+        binding.agentProfileId === agentProfileId &&
+        binding.bindingState === "enabled_primary"
+    );
+    const explicitOwners = new Set(
+      explicitBindings.map((binding) => binding.ownerId)
+    );
+    const implicitBindings = input.agentProfiles
+      .filter(
+        (profile) =>
+          profile.profileId === agentProfileId &&
+          profile.status === "active" &&
+          profile.hasBinding !== false &&
+          !explicitOwners.has(profile.ownerUserId)
+      )
+      .map<AgentProfileBindingTestRow>((profile) => ({
+        agentControllerConversationId: null,
+        agentControllerPermissionMode: "ask",
+        agentControllerRef: "builtin:codex",
+        agentProfileId: profile.profileId,
+        bindingId: `binding-${profile.profileId}`,
+        bindingState: "enabled_primary",
+        configurationRevision: 0,
+        createdAtMs: profile.createdAt ?? 1_700_000_000_000,
+        createdByProfileId: HUMAN_PROFILE_ID,
+        disabledAtMs: null,
+        hostedRuntimeIdentityJson: null,
+        modelId: null,
+        openCodePermission: null,
+        ownerId: profile.ownerUserId,
+        ownerKind: "owner_account",
+        reasonCode: null,
+        reasoningLevel: null,
+        runtimeKind: "openmeld_service",
+        updatedAtMs: profile.updatedAt ?? 1_700_000_000_000,
+        openMeldServiceRuntimeId: `runtime-${profile.profileId}`,
+      }));
+    return [...explicitBindings, ...implicitBindings]
+      .sort(
+        (left, right) =>
+          left.ownerId.localeCompare(right.ownerId) ||
+          left.bindingId.localeCompare(right.bindingId)
+      )
+      .slice(0, Number(input.args[1] ?? Number.POSITIVE_INFINITY))
+      .map(mapAgentProfileBindingTestRow);
   }
 
   if (

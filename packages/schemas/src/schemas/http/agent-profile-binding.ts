@@ -14,6 +14,27 @@ export const agentProfileBindingRouteParamsSchema = z.strictObject({
   agentProfileId: boundedIdentifierSchema,
 });
 
+export const getAgentProfileControllerChangeEligibilityResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      agentProfileId: boundedIdentifierSchema,
+      reasonCode: z.literal("agent_profile_binding.controller_change_allowed"),
+      status: z.literal("allowed"),
+    }),
+    z.strictObject({
+      agentProfileId: boundedIdentifierSchema,
+      reasonCode: z.literal(
+        "agent_profile_binding.controller_change_blocked_active_execution"
+      ),
+      status: z.literal("blocked"),
+    }),
+    z.strictObject({
+      agentProfileId: boundedIdentifierSchema,
+      reasonCode: reasonCodeSchema,
+      status: z.literal("unavailable"),
+    }),
+  ]);
+
 export const agentProfileBindingRuntimeIdSchema = z.strictObject({
   source: z.literal("runtime_registry_authority"),
   value: z.string().trim().min(1).max(512),

@@ -81,6 +81,48 @@ describe("SpaceAgentInteractionCard", () => {
 		).toBeTruthy();
 	});
 
+	it("lets the owner edit future Agent permissions without resolving the current request", () => {
+		const onEditAgentProfile = vi.fn();
+		const onRespond = vi.fn().mockResolvedValue(undefined);
+		render(
+			<SpaceAgentInteractionCard
+				item={createWakeProgressItem({
+					canRespond: true,
+					request: {
+						expiresAtMs: Date.UTC(2026, 6, 29),
+						interactionId: "interaction-permission-settings",
+						kind: "permission",
+						options: [
+							{
+								intent: "allow_once",
+								label: "Allow once",
+								optionId: "allow-once",
+							},
+						],
+						requestedAtMs: Date.UTC(2026, 6, 28),
+						subject: { type: "tool" },
+						title: "Use this tool?",
+						v: 1,
+					},
+				})}
+				onEditAgentProfile={onEditAgentProfile}
+				onRespond={onRespond}
+			/>
+		);
+
+		expect(
+			screen.getByText(
+				"This changes future work only. Respond to this request separately to continue the current Wake."
+			)
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Edit Agent permissions" })
+		);
+
+		expect(onEditAgentProfile).toHaveBeenCalledWith("agent-runner");
+		expect(onRespond).not.toHaveBeenCalled();
+	});
+
 	it("supports multi-select answers with an Other value", async () => {
 		const onRespond = vi.fn().mockResolvedValue(undefined);
 		render(

@@ -14,7 +14,6 @@ import {
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   deriveCenterAgentDirectMessageSpaceProjection,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
-  hostedCenterAgentRuntimeIdentitySchema,
   type NavigationAction,
   projectTargetWakeLifecycleIdentity,
   REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
@@ -78,6 +77,7 @@ import {
   CenterAgentModelResolutionError,
   resolveCenterAgentModelRouteForBinding,
 } from "../../center-agent/application/center-agent-model-service";
+import { isHostedCenterAgentExecutionTarget } from "../../center-agent/application/hosted-center-agent-binding";
 import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
@@ -1053,11 +1053,7 @@ export async function requireCurrentCenterAgentTaskAdmissionAuthority(input: {
     db: currentIdentityDb,
     owner: { id: profile.owner_user_id, kind: "owner_account" },
   });
-  if (
-    binding?.runtimeKind !== "hosted_center_agent" ||
-    binding.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF ||
-    !parseHostedCenterAgentRuntimeIdentity(binding.hostedRuntimeIdentityJson)
-  ) {
+  if (!(binding && isHostedCenterAgentExecutionTarget(binding))) {
     throw new RemoteAgentTaskContinuationTerminalError(
       "remote_agent.hosted_binding_invalid"
     );
@@ -6395,11 +6391,7 @@ async function resolveDelegatedRemoteAgentNativeDeliveryTarget(input: {
         profileName: profile.profile_name,
       }
     : null;
-  if (
-    binding?.runtimeKind !== "hosted_center_agent" ||
-    binding.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF ||
-    !parseHostedCenterAgentRuntimeIdentity(binding.hostedRuntimeIdentityJson)
-  ) {
+  if (!(binding && isHostedCenterAgentExecutionTarget(binding))) {
     return {
       failureCode: "remote_agent.hosted_binding_invalid",
       failureReason:
@@ -6517,20 +6509,6 @@ async function readDelegatedNativeDeliveryMember(input: {
     role: account.membership.role,
     userId: account.userId,
   };
-}
-
-function parseHostedCenterAgentRuntimeIdentity(
-  value: string | null | undefined
-): boolean {
-  if (!value) {
-    return false;
-  }
-  try {
-    return hostedCenterAgentRuntimeIdentitySchema.safeParse(JSON.parse(value))
-      .success;
-  } catch {
-    return false;
-  }
 }
 
 async function failRemoteAgentRoutineDelivery(input: {

@@ -96,6 +96,52 @@ export const daemonExecutionCompatibilitySchema = z.strictObject({
   reasonCode: daemonRuntimeContractReasonCodeSchema,
 });
 
+export const runtimeTransportAgentProfileExecutionStateRequestSchema =
+  z.strictObject({
+    ownerUserId: z.string().trim().min(1).max(256),
+    targetProfileId: agentProfileIdSchema,
+  });
+
+export const runtimeTransportAgentProfileExecutionStateResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({ status: z.literal("active") }),
+    z.strictObject({ status: z.literal("inactive") }),
+    z.strictObject({
+      reasonCode: z.string().trim().min(1).max(256),
+      status: z.literal("unavailable"),
+    }),
+  ]);
+
+export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =
+  z.strictObject({
+    operationId: z.string().trim().min(1).max(256),
+    ownerUserId: z.string().trim().min(1).max(256),
+    targetProfileId: agentProfileIdSchema,
+  });
+
+export const runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      expiresAtMs: z.number().int().nonnegative(),
+      operationId: z.string().trim().min(1).max(256),
+      status: z.literal("acquired"),
+    }),
+    z.strictObject({
+      reasonCode: z.string().trim().min(1).max(256),
+      status: z.literal("blocked"),
+    }),
+    z.strictObject({
+      reasonCode: z.string().trim().min(1).max(256),
+      status: z.literal("unavailable"),
+    }),
+  ]);
+
+export const runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({ status: z.literal("released") }),
+    z.strictObject({ status: z.literal("not_owner") }),
+  ]);
+
 export const runtimeTransportErrorCodeSchema = z.enum([
   "daemon.session.reject_conflict",
   "daemon.session.not_found",

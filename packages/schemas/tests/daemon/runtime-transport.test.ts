@@ -7,6 +7,11 @@ import {
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  runtimeTransportAgentProfileExecutionStateRequestSchema,
+  runtimeTransportAgentProfileExecutionStateResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
   runtimeTransportCapabilitiesSchema,
   runtimeTransportDeliverDispatchPayloadSchema,
   runtimeTransportDeliverDispatchRequestSchema,
@@ -195,6 +200,74 @@ const createLocalComponentsStatus = () => ({
 });
 
 describe("runtime transport schema", () => {
+  it("reads account-wide Agent execution state without a Space selector", () => {
+    expect(
+      runtimeTransportAgentProfileExecutionStateRequestSchema.parse({
+        ownerUserId: "owner-1",
+        targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      })
+    ).toEqual({
+      ownerUserId: "owner-1",
+      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+    });
+    expect(
+      runtimeTransportAgentProfileExecutionStateResponseSchema.parse({
+        status: "active",
+      })
+    ).toEqual({ status: "active" });
+    expect(
+      runtimeTransportAgentProfileExecutionStateResponseSchema.parse({
+        reasonCode: "runtime_coordinator.execution_state_unavailable",
+        status: "unavailable",
+      })
+    ).toEqual({
+      reasonCode: "runtime_coordinator.execution_state_unavailable",
+      status: "unavailable",
+    });
+  });
+
+  it("validates account-wide Controller mutation admission without a Space selector", () => {
+    const request = {
+      operationId: "controller-mutation-1",
+      ownerUserId: "owner-1",
+      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+    };
+    expect(
+      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.parse(
+        request
+      )
+    ).toEqual(request);
+    expect(
+      runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema.parse(
+        {
+          expiresAtMs: 1_700_000_300_000,
+          operationId: request.operationId,
+          status: "acquired",
+        }
+      )
+    ).toEqual({
+      expiresAtMs: 1_700_000_300_000,
+      operationId: request.operationId,
+      status: "acquired",
+    });
+    expect(
+      runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema.parse(
+        {
+          reasonCode: "runtime_coordinator.agent_profile_execution_active",
+          status: "blocked",
+        }
+      )
+    ).toEqual({
+      reasonCode: "runtime_coordinator.agent_profile_execution_active",
+      status: "blocked",
+    });
+    expect(
+      runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema.parse(
+        { status: "released" }
+      )
+    ).toEqual({ status: "released" });
+  });
+
   it("accepts bounded per-session disconnect diagnostics and legacy responses without them", () => {
     const legacy = runtimeTransportDisconnectRatesResponseSchema.safeParse({
       ok: true,
