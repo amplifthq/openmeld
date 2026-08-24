@@ -29,6 +29,7 @@ import {
 const INBOX_BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 10_000;
 const INBOX_BROWSER_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
 const INBOX_BROWSER_NOTIFICATION_PENDING_FETCH_CONCURRENCY = 6;
+const EMPTY_RECOVERED_PENDING_ITEMS: BrowserNotificationInboxItem[] = [];
 
 export function InboxBrowserNotificationListener(input: {
 	organizationId: string;
@@ -60,7 +61,7 @@ export function InboxBrowserNotificationListener(input: {
 		recoveredPendingItemsState.pathname === pathname &&
 		recoveredPendingItemsState.retryRevision === deliveryRetryRevision
 			? recoveredPendingItemsState.items
-			: [];
+			: EMPTY_RECOVERED_PENDING_ITEMS;
 	const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const retryTimerFeedIdentityRef = useRef<string | null>(null);
 	const primedRef = useRef(false);
