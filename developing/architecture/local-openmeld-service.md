@@ -385,6 +385,16 @@ or typed protocol events. Human-readable CLI prose is diagnostic text only and
 must not decide authentication or readiness. ACI should expose only facts it
 can prove rather than inventing parity fields.
 
+The local-component release contract
+`openmeld-service-contract-2026-08-agent-answers-content-v1` requires a Service
+that keeps Agent answer text separate from execution state. The corresponding
+managed Skill contract is
+`openmeld-skills-contract-2026-08-tool-owned-actions-v2`. Older Services can
+misinterpret model-authored text as a Space action, so the final release must
+mark Service and Skills updates as required. The Runtime Transport epoch and
+wire schemas do not change: new and old cloud code can still exchange the same
+typed action records while the required local update closes the unsafe writer.
+
 Cursor dispatch uses only the official Agent Client Protocol exposed by
 `cursor-agent acp`; OpenMeld does not maintain a second Cursor print-mode
 adapter. ACI detects the `cursor-agent` executable itself, never the generic
