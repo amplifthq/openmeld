@@ -157,8 +157,6 @@ describe("agents registry resolve target state", () => {
   });
 
   it("keeps a saved working installation available when ordinary detection misses it", async () => {
-    detectInstalledSkillsAgentsMock.mockResolvedValue([]);
-
     await withTempHome(async (home) => {
       const commandDirectory = join(home, "saved", "bin");
       const commandPath = join(commandDirectory, "claude");
