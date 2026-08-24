@@ -14,7 +14,13 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
-import { ChatCircleTextIcon, UsersThreeIcon } from "@phosphor-icons/react";
+import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
+import { cn } from "@openmeld/ui/lib/utils";
+import {
+	ChatCircleTextIcon,
+	PushPinIcon,
+	UsersThreeIcon,
+} from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
@@ -28,12 +34,19 @@ import { AppMainContent } from "#/components/app/app-main-content";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { OrganizationScopedErrorState } from "#/components/organizations/organization-scoped-error-state";
-import { selectAccountSpaceSidebarSections } from "#/components/spaces/account-space-sidebar-sections";
+import {
+	resolveAccountSpaceTrailingStatus,
+	type SpaceUnreadById,
+	selectAccountSpaceSections,
+} from "#/components/spaces/account-space-sections";
 import {
 	AppSpaceShell,
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
+import { SpaceAgentOrb } from "#/components/spaces/space-agent-orb";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
+import { useAccountSpaceIndicators } from "#/components/spaces/use-account-space-indicators";
+import { useAccountSpacePinMutation } from "#/components/spaces/use-account-space-pin-mutation";
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
@@ -54,6 +67,10 @@ import {
 	type AppSidebarPersistedStates,
 	getAppSidebarStatesForRoute,
 } from "#/lib/sidebar-width-cookie";
+import type {
+	AccountSpaceItem,
+	AccountSpaceSections,
+} from "#/lib/spaces/account-spaces";
 import { resolveAppSpacesProfileId } from "#/lib/spaces/app-spaces-profile";
 import {
 	organizationQueryKeys,
@@ -136,6 +153,14 @@ export function AppSpacesIndexContent(input: {
 			profileId: profileId ?? "",
 		})
 	);
+	const { activeWakeSpaceIds, unreadBySpaceId } = useAccountSpaceIndicators({
+		enabled: Boolean(profileId),
+		organizationId: currentOrganization.id,
+		profileId: profileId ?? "",
+	});
+	const pinMutation = useAccountSpacePinMutation({
+		currentProfileId: profileId ?? "",
+	});
 	const organizationSpacesQuery = useQuery(
 		organizationSpacesQueryOptions({
 			enabled: true,
@@ -204,24 +229,21 @@ export function AppSpacesIndexContent(input: {
 			});
 		},
 	});
-	const directMessageSpaceIds = useMemo(() => {
-		if (!accountSpacesQuery.data) {
-			return new Set<string>();
-		}
-
-		return new Set(
-			selectAccountSpaceSidebarSections({
+	const accountState = useMemo(
+		() =>
+			selectSpaceIndexAccountState({
 				currentOrganizationId: currentOrganization.id,
 				sections: accountSpacesQuery.data,
-			}).directMessageItems.map((item) => item.spaceId)
-		);
-	}, [accountSpacesQuery.data, currentOrganization.id]);
+				unreadBySpaceId,
+			}),
+		[accountSpacesQuery.data, currentOrganization.id, unreadBySpaceId]
+	);
 	const regularOrganizationSpaces = useMemo(
 		() =>
 			(organizationSpacesQuery.data?.spaces ?? []).filter(
-				(space) => !directMessageSpaceIds.has(space.spaceId)
+				(space) => !accountState.directMessageSpaceIds.has(space.spaceId)
 			),
-		[directMessageSpaceIds, organizationSpacesQuery.data?.spaces]
+		[accountState.directMessageSpaceIds, organizationSpacesQuery.data?.spaces]
 	);
 
 	if (profilesQuery.isPending) {
@@ -299,7 +321,9 @@ export function AppSpacesIndexContent(input: {
 			showSpacesSidebar={showSpacesSidebar}
 		>
 			<SpaceIndexContentState
+				accountSpaceItemsById={accountState.accountSpaceItemsById}
 				activeOrganization={activeOrganization}
+				activeWakeSpaceIds={activeWakeSpaceIds}
 				canJoinSpaces={savedViewState.canJoinSpaces}
 				errorMessage={errorMessage}
 				isMembershipError={savedViewState.isMembershipError}
@@ -316,6 +340,7 @@ export function AppSpacesIndexContent(input: {
 					accountSpacesQuery.isRefetching
 				}
 				joinError={joinError}
+				joinedSpaceOrderById={accountState.joinedSpaceOrderById}
 				onJoinSpace={(spaceId) => {
 					joinSpaceMutation.mutate({ spaceId });
 				}}
@@ -328,12 +353,14 @@ export function AppSpacesIndexContent(input: {
 						console.error("Failed to refresh Spaces.", error);
 					});
 				}}
+				onTogglePinned={pinMutation.toggle}
 				orgSlug={input.orgSlug}
 				pendingJoinSpaceId={
 					joinSpaceMutation.isPending
 						? (joinSpaceMutation.variables?.spaceId ?? null)
 						: null
 				}
+				pinActionsPending={pinMutation.arePinActionsPending}
 				profileId={profileId}
 				selfHealStatus={spacesSelfHeal.status}
 				showSavedViewWarning={
@@ -341,6 +368,7 @@ export function AppSpacesIndexContent(input: {
 					(accountSpacesQuery.isError && accountSpacesHaveData)
 				}
 				spaces={regularOrganizationSpaces}
+				unreadBySpaceId={unreadBySpaceId}
 			/>
 		</AppSpaceShell>
 	);
@@ -422,6 +450,39 @@ function resolveSpaceIndexErrorMessage(input: {
 	return null;
 }
 
+function selectSpaceIndexAccountState(input: {
+	currentOrganizationId: string;
+	sections: AccountSpaceSections | undefined;
+	unreadBySpaceId: SpaceUnreadById;
+}) {
+	if (!input.sections) {
+		return {
+			accountSpaceItemsById: new Map<string, AccountSpaceItem>(),
+			directMessageSpaceIds: new Set<string>(),
+			joinedSpaceOrderById: new Map<string, number>(),
+		};
+	}
+
+	const sections = selectAccountSpaceSections({
+		currentOrganizationId: input.currentOrganizationId,
+		sections: input.sections,
+		unreadBySpaceId: input.unreadBySpaceId,
+	});
+	const accountSpaceItems = [...sections.pinnedItems, ...sections.spaceItems];
+
+	return {
+		accountSpaceItemsById: new Map(
+			accountSpaceItems.map((item) => [item.spaceId, item])
+		),
+		directMessageSpaceIds: new Set(
+			sections.directMessageItems.map((item) => item.spaceId)
+		),
+		joinedSpaceOrderById: new Map(
+			accountSpaceItems.map((item, index) => [item.spaceId, index])
+		),
+	};
+}
+
 function AppSpacesIndexEntryShell(input: {
 	children: ReactNode;
 	initialSidebarStates?: AppSidebarPersistedStates;
@@ -442,6 +503,8 @@ function AppSpacesIndexEntryShell(input: {
 }
 
 type SpaceIndexContentStateInput = {
+	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
+	activeWakeSpaceIds: ReadonlySet<string>;
 	activeOrganization: OrganizationSummary | null;
 	canJoinSpaces: boolean;
 	errorMessage: string | null;
@@ -450,14 +513,18 @@ type SpaceIndexContentStateInput = {
 	isPersonalContext: boolean;
 	isRetrying: boolean;
 	joinError: SpaceJoinError | null;
+	joinedSpaceOrderById: ReadonlyMap<string, number>;
 	onJoinSpace: (spaceId: string) => void;
+	onTogglePinned: (item: AccountSpaceItem) => void;
 	onRetry: () => void;
 	pendingJoinSpaceId: string | null;
+	pinActionsPending: boolean;
 	orgSlug: string;
 	profileId: string;
 	selfHealStatus: OrganizationMembershipSelfHealStatus;
 	showSavedViewWarning: boolean;
 	spaces: readonly OrganizationSpaceDirectoryWithMemberCountsItem[];
+	unreadBySpaceId: SpaceUnreadById;
 };
 
 function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
@@ -528,12 +595,17 @@ function resolveSpaceIndexBody(input: SpaceIndexContentStateInput) {
 
 	return (
 		<SpaceIndexDirectoryState
+			accountSpaceItemsById={input.accountSpaceItemsById}
+			activeWakeSpaceIds={input.activeWakeSpaceIds}
 			canJoinSpaces={input.canJoinSpaces}
 			isPersonalContext={input.isPersonalContext}
 			joinError={input.joinError}
+			joinedSpaceOrderById={input.joinedSpaceOrderById}
 			onJoinSpace={input.onJoinSpace}
+			onTogglePinned={input.onTogglePinned}
 			orgSlug={input.orgSlug}
 			pendingJoinSpaceId={input.pendingJoinSpaceId}
+			pinActionsPending={input.pinActionsPending}
 			profileId={input.profileId}
 			savedViewWarning={
 				input.showSavedViewWarning
@@ -544,6 +616,7 @@ function resolveSpaceIndexBody(input: SpaceIndexContentStateInput) {
 					: null
 			}
 			spaces={input.spaces}
+			unreadBySpaceId={input.unreadBySpaceId}
 		/>
 	);
 }
@@ -562,18 +635,24 @@ type SpaceJoinError = {
 };
 
 function SpaceIndexDirectoryState(input: {
+	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
+	activeWakeSpaceIds: ReadonlySet<string>;
 	canJoinSpaces: boolean;
 	isPersonalContext: boolean;
 	joinError: SpaceJoinError | null;
+	joinedSpaceOrderById: ReadonlyMap<string, number>;
 	onJoinSpace: (spaceId: string) => void;
+	onTogglePinned: (item: AccountSpaceItem) => void;
 	orgSlug: string;
 	pendingJoinSpaceId: string | null;
+	pinActionsPending: boolean;
 	profileId: string;
 	savedViewWarning: {
 		isRetrying: boolean;
 		onRetry: () => void;
 	} | null;
 	spaces: readonly OrganizationSpaceDirectoryWithMemberCountsItem[];
+	unreadBySpaceId: SpaceUnreadById;
 }) {
 	const [searchQuery, setSearchQuery] = useState("");
 	const deferredSearchQuery = useDeferredValue(
@@ -592,7 +671,10 @@ function SpaceIndexDirectoryState(input: {
 			}),
 		[deferredSearchQuery, input.spaces]
 	);
-	const joinedSpaces = visibleSpaces.filter((space) => space.joined);
+	const joinedSpaces = sortJoinedOrganizationSpaces({
+		joinedSpaceOrderById: input.joinedSpaceOrderById,
+		spaces: visibleSpaces.filter((space) => space.joined),
+	});
 	const discoverableSpaces = visibleSpaces.filter(
 		(space) => !space.joined && space.visibility === "public"
 	);
@@ -669,6 +751,8 @@ function SpaceIndexDirectoryState(input: {
 							/>
 						</div>
 						<SpaceDirectorySection
+							accountSpaceItemsById={input.accountSpaceItemsById}
+							activeWakeSpaceIds={input.activeWakeSpaceIds}
 							canJoinSpaces={input.canJoinSpaces}
 							description="Spaces you have already joined."
 							emptyMessage={
@@ -678,14 +762,19 @@ function SpaceIndexDirectoryState(input: {
 							}
 							joinError={input.joinError}
 							onJoinSpace={input.onJoinSpace}
+							onTogglePinned={input.onTogglePinned}
 							orgSlug={input.orgSlug}
 							pendingJoinSpaceId={input.pendingJoinSpaceId}
+							pinActionsPending={input.pinActionsPending}
 							profileId={input.profileId}
 							spaces={joinedSpaces}
 							title="Your Spaces"
+							unreadBySpaceId={input.unreadBySpaceId}
 						/>
 						{input.isPersonalContext ? null : (
 							<SpaceDirectorySection
+								accountSpaceItemsById={input.accountSpaceItemsById}
+								activeWakeSpaceIds={input.activeWakeSpaceIds}
 								canJoinSpaces={input.canJoinSpaces}
 								description="Public Spaces anyone in this organization can join."
 								emptyMessage={
@@ -695,11 +784,14 @@ function SpaceIndexDirectoryState(input: {
 								}
 								joinError={input.joinError}
 								onJoinSpace={input.onJoinSpace}
+								onTogglePinned={input.onTogglePinned}
 								orgSlug={input.orgSlug}
 								pendingJoinSpaceId={input.pendingJoinSpaceId}
+								pinActionsPending={input.pinActionsPending}
 								profileId={input.profileId}
 								spaces={discoverableSpaces}
 								title="Discover"
+								unreadBySpaceId={input.unreadBySpaceId}
 							/>
 						)}
 					</>
@@ -714,17 +806,45 @@ function SpaceIndexDirectoryState(input: {
 	);
 }
 
+function sortJoinedOrganizationSpaces(input: {
+	joinedSpaceOrderById: ReadonlyMap<string, number>;
+	spaces: readonly OrganizationSpaceDirectoryWithMemberCountsItem[];
+}): OrganizationSpaceDirectoryWithMemberCountsItem[] {
+	return input.spaces
+		.map((space, directoryIndex) => ({ directoryIndex, space }))
+		.sort((left, right) => {
+			const leftIndex = input.joinedSpaceOrderById.get(left.space.spaceId);
+			const rightIndex = input.joinedSpaceOrderById.get(right.space.spaceId);
+			if (leftIndex !== undefined && rightIndex !== undefined) {
+				return leftIndex - rightIndex;
+			}
+			if (leftIndex !== undefined) {
+				return -1;
+			}
+			if (rightIndex !== undefined) {
+				return 1;
+			}
+			return left.directoryIndex - right.directoryIndex;
+		})
+		.map(({ space }) => space);
+}
+
 function SpaceDirectorySection(input: {
+	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
+	activeWakeSpaceIds: ReadonlySet<string>;
 	canJoinSpaces: boolean;
 	description: string;
 	emptyMessage: string;
 	joinError: SpaceJoinError | null;
 	onJoinSpace: (spaceId: string) => void;
+	onTogglePinned: (item: AccountSpaceItem) => void;
 	orgSlug: string;
 	pendingJoinSpaceId: string | null;
+	pinActionsPending: boolean;
 	profileId: string;
 	spaces: readonly OrganizationSpaceDirectoryWithMemberCountsItem[];
 	title: string;
+	unreadBySpaceId: SpaceUnreadById;
 }) {
 	return (
 		<section
@@ -746,17 +866,35 @@ function SpaceDirectorySection(input: {
 							<li key={space.spaceId}>
 								<FluidCardItem itemId={space.spaceId}>
 									<OrganizationSpaceDirectoryCard
+										accountSpaceItem={
+											space.joined
+												? (input.accountSpaceItemsById.get(space.spaceId) ??
+													null)
+												: null
+										}
 										canJoin={input.canJoinSpaces}
+										hasActiveWake={
+											space.joined &&
+											input.activeWakeSpaceIds.has(space.spaceId)
+										}
+										isPinPending={input.pinActionsPending}
 										joinError={
 											input.joinError?.spaceId === space.spaceId
 												? input.joinError.message
 												: null
 										}
 										onJoinSpace={input.onJoinSpace}
+										onTogglePinned={input.onTogglePinned}
 										orgSlug={input.orgSlug}
 										pendingJoin={input.pendingJoinSpaceId === space.spaceId}
 										profileId={input.profileId}
 										space={space}
+										unreadCount={
+											space.joined
+												? (input.unreadBySpaceId.get(space.spaceId)
+														?.unreadCount ?? 0)
+												: 0
+										}
 									/>
 								</FluidCardItem>
 							</li>
@@ -806,47 +944,22 @@ function SpaceIndexNoSpacesState(input: {
 }
 
 function OrganizationSpaceDirectoryCard(input: {
+	accountSpaceItem: AccountSpaceItem | null;
 	canJoin: boolean;
+	hasActiveWake: boolean;
+	isPinPending: boolean;
 	joinError: string | null;
 	onJoinSpace: (spaceId: string) => void;
+	onTogglePinned: (item: AccountSpaceItem) => void;
 	orgSlug: string;
 	pendingJoin: boolean;
 	profileId: string;
 	space: OrganizationSpaceDirectoryWithMemberCountsItem;
+	unreadCount: number;
 }) {
-	const memberLabel =
-		typeof input.space.activeMemberCount === "number"
-			? `${String(input.space.activeMemberCount)} ${input.space.activeMemberCount === 1 ? "member" : "members"}`
-			: "Member count unavailable";
-	const action = input.space.joined ? (
-		<Link
-			aria-label={`Open ${input.space.name}`}
-			className={buttonVariants({ size: "sm" })}
-			to={buildOrganizationSpacePath({
-				orgSlug: input.orgSlug,
-				search: { profileId: input.profileId },
-				spaceId: input.space.spaceId,
-			})}
-		>
-			Open
-		</Link>
-	) : (
-		<Button
-			aria-label={`Join ${input.space.name}`}
-			disabled={input.pendingJoin || !input.canJoin}
-			onClick={() => {
-				input.onJoinSpace(input.space.spaceId);
-			}}
-			size="sm"
-			type="button"
-		>
-			{input.pendingJoin ? "Joining..." : "Join"}
-		</Button>
-	);
-
 	return (
 		<Card
-			className="h-full min-h-48 bg-transparent"
+			className="group/space-card h-full min-h-48 bg-transparent"
 			data-testid={`organization-space-card-${input.space.spaceId}`}
 			size="sm"
 		>
@@ -872,16 +985,162 @@ function OrganizationSpaceDirectoryCard(input: {
 				</p>
 				<p className="flex items-center gap-2 text-muted-foreground text-xs">
 					<UsersThreeIcon aria-hidden="true" className="size-4 shrink-0" />
-					{memberLabel}
+					{resolveOrganizationSpaceMemberLabel(input.space.activeMemberCount)}
 				</p>
+				<SpaceDirectoryStatusSlot
+					hasActiveWake={input.hasActiveWake}
+					isPinPending={input.isPinPending}
+					item={input.accountSpaceItem}
+					onTogglePinned={input.onTogglePinned}
+					spaceName={input.space.name}
+					unreadCount={input.unreadCount}
+				/>
 			</CardContent>
 			{input.joinError ? (
 				<p className="px-3 text-destructive text-xs" role="alert">
 					{input.joinError}
 				</p>
 			) : null}
-			<CardFooter className="mt-auto justify-end">{action}</CardFooter>
+			<CardFooter className="mt-auto flex-wrap justify-end gap-3">
+				<SpaceDirectoryPrimaryAction
+					canJoin={input.canJoin}
+					onJoinSpace={input.onJoinSpace}
+					orgSlug={input.orgSlug}
+					pendingJoin={input.pendingJoin}
+					profileId={input.profileId}
+					space={input.space}
+				/>
+			</CardFooter>
 		</Card>
+	);
+}
+
+function resolveOrganizationSpaceMemberLabel(
+	activeMemberCount: number | null
+): string {
+	if (typeof activeMemberCount !== "number") {
+		return "Member count unavailable";
+	}
+	return `${String(activeMemberCount)} ${activeMemberCount === 1 ? "member" : "members"}`;
+}
+
+function SpaceDirectoryStatusSlot(input: {
+	hasActiveWake: boolean;
+	isPinPending: boolean;
+	item: AccountSpaceItem | null;
+	onTogglePinned: (item: AccountSpaceItem) => void;
+	spaceName: string;
+	unreadCount: number;
+}) {
+	if (!input.item) {
+		return null;
+	}
+	const item = input.item;
+	const isPinned = item.pinnedAt !== null;
+	const status = resolveAccountSpaceTrailingStatus({
+		hasActiveWake: input.hasActiveWake,
+		hasUnread: input.unreadCount > 0,
+		isPinned,
+	});
+	const hasHigherPriorityStatus = status === "unread" || status === "working";
+	const pinLabel = isPinned
+		? `Unpin ${input.spaceName}`
+		: `Pin ${input.spaceName}`;
+	let pinButtonText = "Pin";
+	if (isPinned) {
+		pinButtonText = hasHigherPriorityStatus ? "Unpin" : "Pinned";
+	}
+
+	return (
+		<div className="relative flex min-h-8 items-center text-muted-foreground text-xs">
+			{status === "unread" ? (
+				<span
+					className="flex items-center gap-2 transition-opacity group-focus-within/space-card:opacity-0 group-hover/space-card:opacity-0 motion-reduce:transition-none"
+					data-testid="space-directory-unread-indicator"
+				>
+					<span
+						aria-hidden="true"
+						className={`size-2 shrink-0 rounded-full ${resolveStatusToneIndicatorClassName(
+							"warning",
+							"quiet"
+						)}`}
+					/>
+					{input.unreadCount} unread
+				</span>
+			) : null}
+			{status === "working" ? (
+				<span
+					className="flex items-center gap-2 transition-opacity group-focus-within/space-card:opacity-0 group-hover/space-card:opacity-0 motion-reduce:transition-none"
+					data-testid="space-directory-working-indicator"
+				>
+					<SpaceAgentOrb />
+					Working
+				</span>
+			) : null}
+			<Button
+				aria-disabled={input.isPinPending}
+				aria-label={pinLabel}
+				aria-pressed={isPinned}
+				className={cn(
+					"h-8 aria-disabled:pointer-events-none aria-disabled:opacity-50",
+					hasHigherPriorityStatus
+						? "pointer-events-none absolute inset-y-0 left-0 opacity-0 transition-opacity group-focus-within/space-card:pointer-events-auto group-focus-within/space-card:opacity-100 group-hover/space-card:pointer-events-auto group-hover/space-card:opacity-100 motion-reduce:transition-none"
+						: null
+				)}
+				onClick={() => {
+					if (!input.isPinPending) {
+						input.onTogglePinned(item);
+					}
+				}}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				<PushPinIcon
+					aria-hidden="true"
+					data-icon="inline-start"
+					weight={isPinned ? "fill" : "regular"}
+				/>
+				{pinButtonText}
+			</Button>
+		</div>
+	);
+}
+
+function SpaceDirectoryPrimaryAction(input: {
+	canJoin: boolean;
+	onJoinSpace: (spaceId: string) => void;
+	orgSlug: string;
+	pendingJoin: boolean;
+	profileId: string;
+	space: OrganizationSpaceDirectoryWithMemberCountsItem;
+}) {
+	if (input.space.joined) {
+		return (
+			<Link
+				aria-label={`Open ${input.space.name}`}
+				className={buttonVariants({ size: "sm" })}
+				to={buildOrganizationSpacePath({
+					orgSlug: input.orgSlug,
+					search: { profileId: input.profileId },
+					spaceId: input.space.spaceId,
+				})}
+			>
+				Open
+			</Link>
+		);
+	}
+
+	return (
+		<Button
+			aria-label={`Join ${input.space.name}`}
+			disabled={input.pendingJoin || !input.canJoin}
+			onClick={() => input.onJoinSpace(input.space.spaceId)}
+			size="sm"
+			type="button"
+		>
+			{input.pendingJoin ? "Joining..." : "Join"}
+		</Button>
 	);
 }
 
