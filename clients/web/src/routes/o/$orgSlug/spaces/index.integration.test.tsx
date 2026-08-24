@@ -232,6 +232,20 @@ describe("app spaces index route", () => {
 				profileName: "Selected Human",
 			}),
 		]);
+		getCurrentSpaceInboxSummaryMock.mockResolvedValue({
+			organizationId: "org-acme",
+			spaces: [
+				{
+					latestUnreadOccurredAtMs: 3000,
+					spaceId: "space-planning",
+					unreadCount: 2,
+				},
+			],
+		});
+		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
+			generatedAtMs: Date.now(),
+			items: [{ activeWakeCount: 1, spaceId: "space-planning" }],
+		});
 		window.sessionStorage.setItem(
 			resolveStartFlowStorageKey("user-123"),
 			serializeStartFlowState({
@@ -287,6 +301,15 @@ describe("app spaces index route", () => {
 		expect(
 			screen.getByRole("link", { name: "Open Planning" }).getAttribute("href")
 		).toBe("/o/acme/spaces/space-planning?profileId=selected-human");
+		expect(
+			within(planningCard).queryByTestId("space-directory-unread-indicator")
+		).toBeNull();
+		expect(
+			within(planningCard).queryByTestId("space-directory-working-indicator")
+		).toBeNull();
+		expect(
+			within(planningCard).queryByRole("button", { name: "Pin Planning" })
+		).toBeNull();
 		expect(screen.getByRole("button", { name: "Join Support" })).toBeTruthy();
 		const privateCard = screen.getByTestId(
 			"organization-space-card-space-private"
@@ -532,6 +555,8 @@ describe("app spaces index route", () => {
 		const unpinButton = within(planningCard).getByRole("button", {
 			name: "Unpin Planning",
 		});
+		expect(unpinButton.getAttribute("aria-disabled")).toBe("true");
+		expect(unpinButton.hasAttribute("disabled")).toBe(false);
 		expect(planningCard.compareDocumentPosition(financeCard)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);

@@ -1096,11 +1096,15 @@ function SpaceDirectoryPinButton(input: {
 
 	return (
 		<Button
+			aria-disabled={input.isPending}
 			aria-label={`${isPinned ? "Unpin" : "Pin"} ${input.spaceName}`}
 			aria-pressed={isPinned}
-			className="me-auto"
-			disabled={input.isPending}
-			onClick={() => input.onTogglePinned(item)}
+			className="me-auto aria-disabled:pointer-events-none aria-disabled:opacity-50"
+			onClick={() => {
+				if (!input.isPending) {
+					input.onTogglePinned(item);
+				}
+			}}
 			size="sm"
 			type="button"
 			variant="outline"
