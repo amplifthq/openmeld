@@ -1798,6 +1798,17 @@ tool must report the current execution state as unknown. Its description and
 prompt must preserve that boundary for `queued`, `dispatching`, and
 `waiting_result` history.
 
+The interactive Center Agent also has a self-diagnostic native-delivery read.
+When a requester asks why a recent Center Agent turn succeeded, failed,
+stopped, or produced no reply, the model reads exact Core-owned lifecycle and
+publication fields for that requester on the current conversation surface. It
+reports recorded status, failure code and detail, publication state, and the
+published result id separately; it never classifies the answer text. The model
+cannot choose arbitrary history selectors, read another requester or surface,
+or use this tool from a Routine. If the bounded history does not contain the
+turn, the Center Agent says that exact diagnostics are unavailable rather than
+guessing.
+
 **Tier-2 vetting bar** (the implementer applies this to each built-in and
 reports the enabled/disabled inventory for Felix's review — the standard
 is the deliverable, not a pre-baked list):

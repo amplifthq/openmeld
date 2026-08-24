@@ -75,6 +75,7 @@ import {
   centerAgentReadSlackWorkspaceDirectoryResponseSchema,
   centerAgentReadSpaceContextResponseSchema,
   centerAgentReadSpaceFileResponseSchema,
+  centerAgentReadTurnDiagnosticsResponseSchema,
   centerAgentRecommendOpportunityToolResponseSchema,
   centerAgentRememberForOrganizationResponseSchema,
   centerAgentRemoveAgentProfilesFromSpaceResponseSchema,
@@ -272,6 +273,9 @@ const readChangelogToolInputSchema = object({
   ),
   release: optional(trimmedNonEmptyStringSchema),
   since: optional(trimmedNonEmptyStringSchema),
+});
+const readCenterAgentTurnDiagnosticsToolInputSchema = strictObject({
+  limit: optional(pipe(number(), integer(), minValue(1), maxValue(20))),
 });
 const recommendOpportunityToolInputSchema = strictObject({
   evidence: pipe(
@@ -1166,6 +1170,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_recommend_opportunity",
   "openmeld_respond_to_opportunity",
   "openmeld_read_center_agent_activity",
+  "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_read_space_context",
   "openmeld_list_space_files",
   "openmeld_read_space_file",
@@ -1249,6 +1254,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_read_changelog",
   "openmeld_list_opportunities",
   "openmeld_read_center_agent_activity",
+  "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_read_space_context",
   "openmeld_list_space_files",
   "openmeld_read_space_file",
@@ -1271,6 +1277,7 @@ const REMOTE_AGENT_OBSERVATION_TOOL_NAME_SET =
 export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_install_organization_skill",
   "openmeld_list_opportunities",
+  "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_remember_for_organization",
   "openmeld_recommend_opportunity",
   "openmeld_request_member_attention",
@@ -2777,6 +2784,35 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
             ...(payload.limit === undefined ? {} : { limit: payload.limit }),
             context,
           })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_read_center_agent_turn_diagnostics",
+      description:
+        "Read structured execution and publication facts for this Center Agent turn and recent turns from the same requester on the same conversation surface. Use this when the requester asks why a recent Center Agent request succeeded, failed, or produced no reply, or asks for exact delivery, dispatch, submission, trigger-message, or published-result IDs. Report the recorded status, failure code/detail, and publication state separately; never infer one from another or from reply wording. This does not return prompt or reply content and cannot inspect other members or other conversation surfaces.",
+      input: readCenterAgentTurnDiagnosticsToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          readCenterAgentTurnDiagnosticsToolInputSchema,
+          payload
+        );
+        const context = await buildOpenMeldToolRequestContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_center_agent_turn_diagnostics",
+        });
+        return centerAgentReadTurnDiagnosticsResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentReadTurnDiagnostics",
+            {
+              ...(request.limit === undefined ? {} : { limit: request.limit }),
+              context,
+            },
+            (binding, rpcInput) =>
+              binding.centerAgentReadTurnDiagnostics?.(rpcInput)
+          )
         );
       },
     }),

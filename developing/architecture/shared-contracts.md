@@ -3047,6 +3047,18 @@ tool-name contract rejects the authorization request. Rollback therefore stops
 Remote Agent first, then Core. This expansion changes no CLI, OpenMeld Service,
 local Agent Controller, or workstation Wake contract.
 
+`centerAgentReadTurnDiagnosticsRpcInputSchema` and
+`centerAgentReadTurnDiagnosticsResponseSchema` own the private Center
+Agent/Core self-diagnostics contract. The request carries only the trusted
+OpenMeld request context and a bounded limit; Core derives all conversation and
+requester scope from the current native delivery. The response keeps raw
+lifecycle status, failure evidence, and final publication evidence separate,
+and bounds sanitized failure detail. Deploy Core before Remote Agent: old
+Remote Agent never calls the additive receiver, while new Remote Agent fails
+closed if the receiver is absent. Rollback removes the Remote Agent caller
+before Core. Gateway, Auth, Web, CLI, OpenMeld Service, daemon, Prepare,
+RuntimeCoordinator, and workstation Wake contracts do not change.
+
 The provider-neutral Message Channel identity handoff is additive to
 `openMeldNavigationTargetSchema`. The existing `slack_identity_link` wire target
 remains a rollout-compatible Slack input, but it must not become the product or

@@ -72,6 +72,8 @@ import type {
   CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceFileResponse,
   CenterAgentReadSpaceFileRpcInput,
+  CenterAgentReadTurnDiagnosticsResponse,
+  CenterAgentReadTurnDiagnosticsRpcInput,
   CenterAgentRecommendOpportunityToolResponse,
   CenterAgentRecommendOpportunityToolRpcInput,
   CenterAgentRecordConnectorActionAuditBody,
@@ -344,6 +346,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadChangelog?(
     input: CenterAgentReadChangelogToolRpcInput
   ): Promise<ChangelogQueryResponse>;
+  centerAgentReadTurnDiagnostics?(
+    input: CenterAgentReadTurnDiagnosticsRpcInput
+  ): Promise<CenterAgentReadTurnDiagnosticsResponse>;
   centerAgentListOpportunities?(
     input: CenterAgentListOpportunitiesToolRpcInput
   ): Promise<CenterAgentListOpportunitiesToolResponse>;

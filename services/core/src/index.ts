@@ -77,6 +77,7 @@ import type {
   CenterAgentReadSpaceContextResponse,
   CenterAgentReadSpaceFileResponse,
   CenterAgentReadSpaceFileRpcInput,
+  CenterAgentReadTurnDiagnosticsResponse,
   CenterAgentRecordConnectorActionAuditResponse,
   CenterAgentRecordConnectorActionOperationResponse,
   CenterAgentRememberForOrganizationResponse,
@@ -538,6 +539,7 @@ import {
   type CenterAgentReadSlackWorkspaceDirectoryInput,
   type CenterAgentReadSpaceAuthoringContractInput,
   type CenterAgentReadSpaceContextInput,
+  type CenterAgentReadTurnDiagnosticsInput,
   type CenterAgentRecommendOpportunityInput,
   type CenterAgentRecordConnectorActionAuditInput,
   type CenterAgentRecordConnectorActionOperationInput,
@@ -733,6 +735,7 @@ import {
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
   rpcCenterAgentReadSpaceFile,
+  rpcCenterAgentReadTurnDiagnostics,
   rpcCenterAgentRecommendOpportunity,
   rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRecordConnectorActionOperation,
@@ -4802,6 +4805,12 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
 
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
     return rpcCenterAgentReadChangelog(this.env, input);
+  }
+
+  centerAgentReadTurnDiagnostics(
+    input: CenterAgentReadTurnDiagnosticsInput
+  ): Promise<CenterAgentReadTurnDiagnosticsResponse> {
+    return rpcCenterAgentReadTurnDiagnostics(this.env, input);
   }
 
   centerAgentListOpportunities(input: CenterAgentListOpportunitiesInput) {

@@ -1805,6 +1805,21 @@ from the conversation-id prefix. A ledger row describes one result surface
 only, and external provider results are not mirrored into a Space timeline or
 another connected provider.
 
+An interactive Center Agent turn may read a bounded self-diagnostic projection
+of its own current native-delivery row and recent rows from the same requester
+on the same conversation surface. Core derives the current row only from the
+trusted `agentControllerConversationId`; the model cannot supply a delivery,
+dispatch, submission, user, channel, or Space selector. Previous rows must
+match the same Organization, Center Agent profile, requester identity, and
+surface. Slack direct-message history is scoped to the same workspace and
+channel rather than one thread so separate top-level requests remain
+diagnosable. The projection returns identifiers, lifecycle timestamps, raw
+recorded status, bounded sanitized failure evidence, final-publication state,
+and the provider result pointer. It never returns prompt text, reply text,
+tokens, raw provider payloads, another member's history, or Routine history.
+Execution status, failure evidence, and publication are independent facts; a
+reader must not infer any one from the others or from user-facing copy.
+
 For Lark-platform final replies, the same native-delivery row also owns the
 frozen provider payload, attempt count, next-attempt time, provider-progress
 sequence, and ambiguity deadline. The first standalone reply attempt starts
