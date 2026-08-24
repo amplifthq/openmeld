@@ -151,6 +151,7 @@ import {
   resolveManagedCliDelegation,
   runManagedCliDelegation,
 } from "./local-components/managed-command-authority";
+import { runPendingDaemonServiceUpdate } from "./local-service/lifecycle/daemon-service-update-coordinator";
 import { emitStartupAgentOverviewForCommand } from "./openmeld-agent-overview";
 import {
   runStartFromCliOptions,
@@ -2251,6 +2252,16 @@ serviceCmd
     "Heartbeat interval in milliseconds (default: 25000)"
   )
   .action(runServiceStartCliAction);
+
+serviceCmd
+  .command("update-worker", { hidden: true })
+  .description("Resume one durable OpenMeld Service update in the background.")
+  .action(async () => {
+    const result = await runPendingDaemonServiceUpdate();
+    if (result?.status === "failed") {
+      process.exitCode = 1;
+    }
+  });
 
 serviceCmd
   .command("status")

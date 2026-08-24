@@ -22,6 +22,7 @@ export const openMeldDaemonControlPlaneCommandSchema = z.enum([
   "sync_route_catalog",
   "set_local_agent_enabled",
   "set_profile_workspace",
+  "service_update_readiness",
   "shutdown",
 ]);
 
@@ -69,6 +70,14 @@ export const openMeldDaemonShutdownRequestPayloadSchema = z.strictObject({
   mode: z.enum(["graceful", "force"]).default("graceful"),
   gracePeriodMs: z.number().int().nonnegative().default(5000),
 });
+
+export const openMeldDaemonServiceUpdateReadinessPayloadSchema = z.strictObject(
+  {
+    acceptedWakeCount: z.number().int().nonnegative(),
+    safeToSwitch: z.boolean(),
+    unacknowledgedResultCount: z.number().int().nonnegative(),
+  }
+);
 
 export const openMeldDaemonConversationExecutionControllerLaunchStatusSchema =
   z.enum(["missing", "disabled", "repair_required", "ready"]);
@@ -400,6 +409,9 @@ export const openMeldDaemonControlPlaneRequestSchema = z.discriminatedUnion(
       payload: openMeldDaemonSetProfileWorkspaceRequestPayloadSchema,
     }),
     openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("service_update_readiness"),
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
       command: z.literal("shutdown"),
       payload: openMeldDaemonShutdownRequestPayloadSchema.optional(),
     }),
@@ -538,6 +550,12 @@ export const openMeldDaemonShutdownResponseSchema =
     payload: openMeldDaemonShutdownPayloadSchema,
   });
 
+export const openMeldDaemonServiceUpdateReadinessResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.update_readiness"),
+    payload: openMeldDaemonServiceUpdateReadinessPayloadSchema,
+  });
+
 export const openMeldDaemonControlPlaneErrorResponseSchema =
   openMeldDaemonControlPlaneResponseBaseSchema.extend({
     code: z.literal("service.error"),
@@ -557,6 +575,7 @@ export const openMeldDaemonControlPlaneResponseSchema = z.discriminatedUnion(
     openMeldDaemonRequestAgentActivitySyncResponseSchema,
     openMeldDaemonSetLocalAgentEnabledResponseSchema,
     openMeldDaemonSetProfileWorkspaceResponseSchema,
+    openMeldDaemonServiceUpdateReadinessResponseSchema,
     openMeldDaemonShutdownResponseSchema,
     openMeldDaemonControlPlaneErrorResponseSchema,
   ]

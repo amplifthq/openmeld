@@ -93,6 +93,7 @@ describe("openmeld service strict teardown legacy shared cleanup", () => {
         uninstallDaemon: vi.fn().mockResolvedValue({
           removed: false,
         }),
+        uninstallServiceUpdateWorker: vi.fn().mockResolvedValue(undefined),
       }
     );
 

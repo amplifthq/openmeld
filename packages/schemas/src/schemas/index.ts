@@ -626,6 +626,11 @@ export {
   daemonBootstrapRecommendationResultSchema,
 } from "./daemon/service-recommendation";
 export {
+  daemonServiceUpdateJobSchema,
+  daemonServiceUpdatePreparedBundleSchema,
+  OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA,
+} from "./daemon/service-update-job";
+export {
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
   openMeldDaemonProviderAccessEvidenceProviderSchema,
   openMeldDaemonProviderAccessEvidenceReasonCodeSchema,

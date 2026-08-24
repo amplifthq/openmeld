@@ -332,9 +332,12 @@ export async function runDaemonServiceLifecycle(input: {
   forceReinstall?: boolean;
   drainWaitMs?: number;
   forceKillAfterDrainTimeout?: boolean;
+  preparedBundle?: DaemonActiveBundleState;
   onPhase?: (phase: DaemonServiceLifecyclePhase) => Promise<void> | void;
 }): Promise<DaemonServiceLifecycleOutcome> {
-  let preparedBundle: DaemonActiveBundleState | null = null;
+  let preparedBundle: DaemonActiveBundleState | null =
+    input.preparedBundle ?? null;
+  const ownsPreparedBundle = input.preparedBundle === undefined;
   const state: DaemonServiceLifecycleMutableState = {
     completedPhases: [],
     inventoryBefore: null,
@@ -366,11 +369,7 @@ export async function runDaemonServiceLifecycle(input: {
     await emitPhase("inspect");
     state.inventoryBefore = await inspectDaemonServiceInventory({
       expectedVersion: input.expectedVersion,
-      intendedMode:
-        input.shouldStartAfterLifecycle === true ||
-        input.desiredState === "background"
-          ? "background"
-          : undefined,
+      intendedMode: resolveLifecycleIntendedMode(input),
       intent: toLifecycleIntent(input.operation),
       ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),
     });
@@ -444,9 +443,10 @@ export async function runDaemonServiceLifecycle(input: {
 
     state.failureStage = "prepare_bundle";
     await emitPhase("prepare_bundle");
-    preparedBundle = await prepareLifecycleReplacementBundle({
+    preparedBundle = await resolveLifecycleReplacementBundle({
       cliScriptPath: input.cliScriptPath,
       daemonVersion: input.expectedVersion,
+      preparedBundle,
     });
 
     return await executeDaemonServiceLifecycle({
@@ -480,11 +480,7 @@ export async function runDaemonServiceLifecycle(input: {
       failureStage: state.failureStage,
     });
     await cleanupStaleDaemonRuntimeDataBackups(
-      state.backupRootPath
-        ? {
-            retainBackupRootPaths: [state.backupRootPath],
-          }
-        : {}
+      buildFailedLifecycleBackupCleanupInput(state.backupRootPath)
     ).catch(() => undefined);
     return {
       status: "failed",
@@ -505,9 +501,39 @@ export async function runDaemonServiceLifecycle(input: {
   } finally {
     await cleanupPreparedBundleAfterLifecycle({
       operation: input.operation,
-      preparedBundle,
+      preparedBundle: ownsPreparedBundle ? preparedBundle : null,
     });
   }
+}
+
+function resolveLifecycleIntendedMode(input: {
+  desiredState?: "background" | "stopped";
+  shouldStartAfterLifecycle?: boolean;
+}): "background" | undefined {
+  return input.shouldStartAfterLifecycle === true ||
+    input.desiredState === "background"
+    ? "background"
+    : undefined;
+}
+
+function buildFailedLifecycleBackupCleanupInput(
+  backupRootPath: string | null
+): { retainBackupRootPaths: string[] } | Record<string, never> {
+  return backupRootPath ? { retainBackupRootPaths: [backupRootPath] } : {};
+}
+
+async function resolveLifecycleReplacementBundle(input: {
+  cliScriptPath?: string;
+  daemonVersion: string;
+  preparedBundle: DaemonActiveBundleState | null;
+}): Promise<DaemonActiveBundleState> {
+  if (input.preparedBundle) {
+    return input.preparedBundle;
+  }
+  return await prepareLifecycleReplacementBundle({
+    cliScriptPath: input.cliScriptPath,
+    daemonVersion: input.daemonVersion,
+  });
 }
 
 async function prepareLifecycleReplacementBundle(input: {

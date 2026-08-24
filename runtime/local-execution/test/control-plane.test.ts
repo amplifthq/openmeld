@@ -124,6 +124,33 @@ describe("local execution control-plane helper", () => {
     }
   });
 
+  it("reports whether every accepted Wake and result receipt is safe before an update switch", async () => {
+    const response = await buildControlPlaneResponse({
+      request: {
+        v: 1,
+        command: "service_update_readiness",
+      },
+      context: {
+        ...BASE_CONTEXT,
+        serviceUpdateReadinessHandler: () => ({
+          acceptedWakeCount: 1,
+          safeToSwitch: false,
+          unacknowledgedResultCount: 0,
+        }),
+      },
+    });
+
+    expect(response).toEqual({
+      v: 1,
+      code: "service.update_readiness",
+      payload: {
+        acceptedWakeCount: 1,
+        safeToSwitch: false,
+        unacknowledgedResultCount: 0,
+      },
+    });
+  });
+
   it("uses conversation execution status handler when provided", async () => {
     const response = await buildControlPlaneResponse({
       request: {
