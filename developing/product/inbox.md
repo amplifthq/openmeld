@@ -349,19 +349,23 @@ two optional delivery channels:
   Center Agent Task endings (succeeded, failed, or stopped) addressed to the
   Task requester. The Task producer never creates items for intermediate
   progress, so these deliveries are always endings, not chatter. Ordinary
-  Space message updates stay in Inbox without a system notification. A visible tab
-  suppresses delivery only for the conversation it is currently showing; a
-  hidden tab can deliver any eligible item. Current-conversation suppression is
-  temporary: leaving that conversation or hiding the tab re-evaluates the same
-  unread item. The client records an item as delivered only after this tab
+  Space message updates stay in Inbox without a system notification. A visible
+  tab suppresses delivery only for the conversation it is currently showing;
+  a hidden tab can deliver any eligible item. Current-conversation suppression
+  is temporary: leaving that conversation or hiding the tab re-evaluates the
+  same unread item. The client records an item as delivered only after this tab
   creates the notification or another tab proves it already did; a permission,
   claim, or delivery failure remains retryable. A low-frequency browser-local
   timer re-evaluates pending failures even when the Inbox query data does not
-  change, and the browser-local pending ledger preserves those retries across
-  a reload without crossing member or Organization scope. A queued delivery
-  rechecks the current member, Organization, item eligibility, and visible
-  conversation immediately before creating the notification. Browser delivery
-  never forms a second unread store.
+  change. The browser-local pending ledger stores each member-, Organization-,
+  and item-scoped retry independently so concurrent tabs cannot overwrite one
+  another. After reload, the client resolves pending ids through bounded,
+  authenticated single-item reads even when an item has moved beyond the first
+  Inbox page; missing, read, resolved, or otherwise ineligible items clear
+  their pending record. A queued delivery rechecks the committed member,
+  Organization, item eligibility, and visible conversation immediately before
+  creating the notification. Browser delivery never forms a second unread
+  store.
 - **Urgent email** is enabled by default at the account level and may be turned
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe

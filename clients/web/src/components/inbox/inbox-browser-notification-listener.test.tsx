@@ -1,5 +1,6 @@
 import type { InboxItem } from "@openmeld/schemas/types";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InboxBrowserNotificationListener } from "./inbox-browser-notification-listener";
 
@@ -7,7 +8,11 @@ const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
 const usePathnameMock = vi.hoisted(() => vi.fn());
 const showInboxBrowserNotificationMock = vi.hoisted(() => vi.fn());
 const invalidateInboxSummaryMock = vi.hoisted(() => vi.fn());
+const queryClientMock = vi.hoisted(() => ({ fetchQuery: vi.fn() }));
 const pendingItemIds = vi.hoisted(() => new Set<string>());
+const notificationSettingsByUserId = vi.hoisted(
+	() => new Map<string, boolean>()
+);
 const notificationSettingsSubscription = vi.hoisted(() => ({
 	onChange: null as (() => void) | null,
 }));
@@ -18,7 +23,7 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
 	useInfiniteQuery: useInfiniteQueryMock,
-	useQueryClient: () => ({}),
+	useQueryClient: () => queryClientMock,
 }));
 
 vi.mock("#/lib/inbox/browser-notifications", () => ({
@@ -30,13 +35,14 @@ vi.mock("#/lib/inbox/browser-notifications", () => ({
 		pendingItemIds.delete(buildPendingItemKey(input));
 	},
 	isInboxBrowserNotificationEligible: (item: InboxItem) =>
-		item.importance === "urgent" ||
-		(item.attention === "action_required" &&
-			item.resolutionStatus === "open") ||
-		item.kind === "space_reference" ||
-		item.kind === "agent_reply" ||
-		item.kind === "wake_outcome" ||
-		item.kind === "center_agent_task",
+		item.resolutionStatus !== "resolved" &&
+		(item.importance === "urgent" ||
+			(item.attention === "action_required" &&
+				item.resolutionStatus === "open") ||
+			item.kind === "space_reference" ||
+			item.kind === "agent_reply" ||
+			item.kind === "wake_outcome" ||
+			item.kind === "center_agent_task"),
 	markInboxBrowserNotificationItemPending: (input: {
 		itemId: string;
 		organizationId: string;
@@ -55,8 +61,8 @@ vi.mock("#/lib/inbox/browser-notifications", () => ({
 				.map((key) => key.slice(prefix.length))
 		);
 	},
-	readInboxBrowserNotificationSettings: () => ({
-		enabled: true,
+	readInboxBrowserNotificationSettings: (input: { userId: string }) => ({
+		enabled: notificationSettingsByUserId.get(input.userId) ?? true,
 		permission: "granted",
 	}),
 	showInboxBrowserNotification: showInboxBrowserNotificationMock,
@@ -79,34 +85,54 @@ vi.mock("#/lib/inbox/source-target", () => ({
 }));
 
 vi.mock("#/query/organizations/inbox", () => ({
+	inboxItemQueryOptions: (input: unknown) => input,
 	inboxItemsInfiniteQueryOptions: (input: unknown) => input,
 	invalidateInboxSummary: invalidateInboxSummaryMock,
 }));
 
 describe("InboxBrowserNotificationListener", () => {
 	let currentItems: InboxItem[];
+	let queryDataItems: InboxItem[] | null;
+	let queryData:
+		| {
+				pageParams: undefined[];
+				pages: Array<{
+					items: InboxItem[];
+					nextCursor: null;
+					organizationId: string;
+				}>;
+		  }
+		| undefined;
 
 	beforeEach(() => {
 		currentItems = [];
+		queryDataItems = null;
+		queryData = undefined;
 		pendingItemIds.clear();
+		notificationSettingsByUserId.clear();
 		notificationSettingsSubscription.onChange = null;
 		showInboxBrowserNotificationMock
 			.mockReset()
 			.mockResolvedValue({ notification: {}, status: "delivered" });
 		invalidateInboxSummaryMock.mockReset().mockResolvedValue(undefined);
+		queryClientMock.fetchQuery.mockReset();
 		usePathnameMock.mockReset().mockReturnValue("/o/amplift/home");
-		useInfiniteQueryMock.mockReset().mockImplementation(() => ({
-			data: {
-				pageParams: [undefined],
-				pages: [
-					{
-						items: currentItems,
-						nextCursor: null,
-						organizationId: "organization-123",
-					},
-				],
-			},
-		}));
+		useInfiniteQueryMock.mockReset().mockImplementation(() => {
+			if (queryDataItems !== currentItems) {
+				queryDataItems = currentItems;
+				queryData = {
+					pageParams: [undefined],
+					pages: [
+						{
+							items: currentItems,
+							nextCursor: null,
+							organizationId: "organization-123",
+						},
+					],
+				};
+			}
+			return { data: queryData };
+		});
 	});
 
 	afterEach(() => {
@@ -138,7 +164,7 @@ describe("InboxBrowserNotificationListener", () => {
 		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
 		expect(invalidateInboxSummaryMock).toHaveBeenCalledWith({
 			organizationId: "organization-123",
-			queryClient: {},
+			queryClient: queryClientMock,
 		});
 		expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -294,6 +320,274 @@ describe("InboxBrowserNotificationListener", () => {
 		});
 	});
 
+	it("recovers a pending item that is no longer in the first Inbox page", async () => {
+		const firstPageItem = createInboxItem({ id: "first-page-item" });
+		const pendingItem = createInboxItem({
+			id: "pending-outside-first-page",
+			importance: "urgent",
+		});
+		pendingItemIds.add(
+			buildPendingItemKey({
+				itemId: pendingItem.id,
+				organizationId: "organization-123",
+				userId: "user-123",
+			})
+		);
+		currentItems = [firstPageItem];
+		queryClientMock.fetchQuery.mockResolvedValue({ item: pendingItem });
+
+		renderListener();
+
+		await waitFor(() => {
+			expect(queryClientMock.fetchQuery).toHaveBeenCalledWith(
+				expect.objectContaining({ itemId: pendingItem.id })
+			);
+			expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
+				expect.objectContaining({ item: pendingItem })
+			);
+			expect(hasPendingItem(pendingItem.id)).toBe(false);
+		});
+	});
+
+	it("prefers a newer listed item over its recovered pending copy", async () => {
+		const recoveredItem = createInboxItem({
+			id: "recovered-then-resolved",
+			importance: "urgent",
+		});
+		pendingItemIds.add(
+			buildPendingItemKey({
+				itemId: recoveredItem.id,
+				organizationId: "organization-123",
+				userId: "user-123",
+			})
+		);
+		currentItems = [createInboxItem({ id: "first-page-item" })];
+		queryClientMock.fetchQuery.mockResolvedValue({ item: recoveredItem });
+		let queuedInput:
+			| {
+					resolveCurrentReadiness?: () => string;
+			  }
+			| undefined;
+		let resolveQueued: ((value: unknown) => void) | undefined;
+		showInboxBrowserNotificationMock.mockImplementationOnce(
+			(input: { resolveCurrentReadiness?: () => string }) => {
+				queuedInput = input;
+				return new Promise((resolve) => {
+					resolveQueued = resolve;
+				});
+			}
+		);
+		const view = renderListener();
+		await waitFor(() => expect(queuedInput).toBeDefined());
+
+		currentItems = [
+			createInboxItem({
+				...recoveredItem,
+				readAt: "2026-08-04T01:01:00.000Z",
+				resolutionStatus: "resolved",
+			}),
+		];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+
+		expect(queuedInput?.resolveCurrentReadiness?.()).toBe("context_changed");
+		await act(async () => {
+			resolveQueued?.({ reason: "context_changed", status: "deferred" });
+			await Promise.resolve();
+		});
+		await waitFor(() => {
+			expect(hasPendingItem(recoveredItem.id)).toBe(false);
+		});
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+	});
+
+	it("clears an off-page pending item that no longer exists", async () => {
+		const missingItemId = "missing-off-page-item";
+		pendingItemIds.add(
+			buildPendingItemKey({
+				itemId: missingItemId,
+				organizationId: "organization-123",
+				userId: "user-123",
+			})
+		);
+		currentItems = [createInboxItem({ id: "first-page-item" })];
+		queryClientMock.fetchQuery.mockRejectedValue({ status: 404 });
+
+		renderListener();
+
+		await waitFor(() => {
+			expect(hasPendingItem(missingItemId)).toBe(false);
+		});
+		expect(showInboxBrowserNotificationMock).not.toHaveBeenCalled();
+	});
+
+	it("clears an off-page pending item that is no longer eligible", async () => {
+		const resolvedItem = createInboxItem({
+			id: "resolved-off-page-item",
+			importance: "urgent",
+			resolutionStatus: "resolved",
+		});
+		pendingItemIds.add(
+			buildPendingItemKey({
+				itemId: resolvedItem.id,
+				organizationId: "organization-123",
+				userId: "user-123",
+			})
+		);
+		currentItems = [createInboxItem({ id: "first-page-item" })];
+		queryClientMock.fetchQuery.mockResolvedValue({ item: resolvedItem });
+
+		renderListener();
+
+		await waitFor(() => {
+			expect(hasPendingItem(resolvedItem.id)).toBe(false);
+		});
+		expect(showInboxBrowserNotificationMock).not.toHaveBeenCalled();
+	});
+
+	it("revalidates a recovered off-page item before retrying it", async () => {
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+		usePathnameMock.mockReturnValue("/o/amplift/spaces/space-123");
+		const pendingItem = createInboxItem({
+			id: "revalidated-off-page-item",
+			importance: "urgent",
+		});
+		const resolvedItem = createInboxItem({
+			...pendingItem,
+			readAt: "2026-08-04T01:01:00.000Z",
+			resolutionStatus: "resolved",
+		});
+		pendingItemIds.add(
+			buildPendingItemKey({
+				itemId: pendingItem.id,
+				organizationId: "organization-123",
+				userId: "user-123",
+			})
+		);
+		currentItems = [createInboxItem({ id: "first-page-item" })];
+		queryClientMock.fetchQuery
+			.mockResolvedValueOnce({ item: pendingItem })
+			.mockResolvedValue({ item: resolvedItem });
+		showInboxBrowserNotificationMock.mockResolvedValueOnce({
+			reason: "source_visible",
+			status: "deferred",
+		});
+
+		renderListener();
+		await waitFor(() => {
+			expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+			expect(hasPendingItem(pendingItem.id)).toBe(true);
+		});
+
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "hidden",
+		});
+		act(() => notificationSettingsSubscription.onChange?.());
+
+		await waitFor(() => {
+			expect(queryClientMock.fetchQuery).toHaveBeenCalledTimes(2);
+			expect(hasPendingItem(pendingItem.id)).toBe(false);
+		});
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+	});
+
+	it("retries a temporary off-page pending item read failure", async () => {
+		vi.useFakeTimers();
+		const pendingItem = createInboxItem({
+			id: "temporary-read-failure-item",
+			importance: "urgent",
+		});
+		pendingItemIds.add(
+			buildPendingItemKey({
+				itemId: pendingItem.id,
+				organizationId: "organization-123",
+				userId: "user-123",
+			})
+		);
+		currentItems = [createInboxItem({ id: "first-page-item" })];
+		queryClientMock.fetchQuery
+			.mockRejectedValueOnce(new Error("Inbox unavailable"))
+			.mockResolvedValue({ item: pendingItem });
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		renderListener();
+		await act(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		expect(queryClientMock.fetchQuery).toHaveBeenCalledOnce();
+		expect(hasPendingItem(pendingItem.id)).toBe(true);
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10_000);
+		});
+		expect(queryClientMock.fetchQuery).toHaveBeenCalledTimes(2);
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
+			expect.objectContaining({ item: pendingItem })
+		);
+		expect(hasPendingItem(pendingItem.id)).toBe(false);
+	});
+
+	it("bounds concurrent reads while recovering off-page pending items", async () => {
+		const pendingItems = Array.from({ length: 7 }, (_, index) =>
+			createInboxItem({
+				id: `bounded-pending-${index}`,
+				importance: "urgent",
+			})
+		);
+		for (const item of pendingItems) {
+			pendingItemIds.add(
+				buildPendingItemKey({
+					itemId: item.id,
+					organizationId: "organization-123",
+					userId: "user-123",
+				})
+			);
+		}
+		currentItems = [createInboxItem({ id: "first-page-item" })];
+		const pendingReads: Array<{
+			item: InboxItem;
+			resolve: (value: { item: InboxItem }) => void;
+		}> = [];
+		queryClientMock.fetchQuery.mockImplementation(
+			(input: { itemId: string }) => {
+				const pendingItem = pendingItems.find(
+					(item) => item.id === input.itemId
+				);
+				if (!pendingItem) {
+					throw new Error(`Unexpected pending item ${input.itemId}.`);
+				}
+				return new Promise((resolve) => {
+					pendingReads.push({ item: pendingItem, resolve });
+				});
+			}
+		);
+
+		renderListener();
+		await waitFor(() => {
+			expect(queryClientMock.fetchQuery).toHaveBeenCalledTimes(6);
+		});
+		expect(pendingReads).toHaveLength(6);
+
+		act(() => {
+			for (const read of pendingReads) {
+				read.resolve({ item: read.item });
+			}
+		});
+		await waitFor(() => {
+			expect(queryClientMock.fetchQuery).toHaveBeenCalledTimes(7);
+		});
+	});
+
 	it("invalidates a queued delivery when the signed-in user changes", async () => {
 		const existingItem = createInboxItem({ id: "existing-item" });
 		const queuedItem = createInboxItem({
@@ -339,6 +633,69 @@ describe("InboxBrowserNotificationListener", () => {
 			resolveQueued?.({ reason: "context_changed", status: "deferred" });
 		});
 		expect(hasPendingItem(queuedItem.id)).toBe(true);
+	});
+
+	it("cancels a delivery retry when the signed-in user changes", async () => {
+		vi.useFakeTimers();
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const failedItem = createInboxItem({
+			id: "failed-user-item",
+			importance: "urgent",
+		});
+		const nextUserPendingItem = createInboxItem({
+			id: "next-user-pending-item",
+			importance: "urgent",
+			recipientUserId: "user-456",
+		});
+		currentItems = [existingItem];
+		const view = renderListener();
+		showInboxBrowserNotificationMock.mockRejectedValueOnce(
+			new Error("Notification constructor failed")
+		);
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		currentItems = [failedItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+
+		notificationSettingsByUserId.set("user-456", false);
+		pendingItemIds.add(
+			buildPendingItemKey({
+				itemId: nextUserPendingItem.id,
+				organizationId: "organization-123",
+				userId: "user-456",
+			})
+		);
+		currentItems = [nextUserPendingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-456"
+			/>
+		);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10_000);
+		});
+
+		expect(useInfiniteQueryMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({ enabled: false })
+		);
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
 	});
 
 	it("rechecks current-conversation suppression after a delivery was queued", async () => {
@@ -391,6 +748,71 @@ describe("InboxBrowserNotificationListener", () => {
 			resolveQueued?.({ reason: "source_visible", status: "deferred" });
 		});
 		expect(hasPendingItem(queuedItem.id)).toBe(true);
+	});
+
+	it("updates queued delivery context before sibling layout effects run", async () => {
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const queuedItem = createInboxItem({
+			id: "layout-queued-route-item",
+			importance: "urgent",
+		});
+		currentItems = [existingItem];
+		let queuedInput:
+			| {
+					resolveCurrentReadiness?: () => string;
+			  }
+			| undefined;
+		showInboxBrowserNotificationMock.mockImplementationOnce(
+			(input: { resolveCurrentReadiness?: () => string }) => {
+				queuedInput = input;
+				return new Promise(() => undefined);
+			}
+		);
+		const view = render(
+			<>
+				<InboxBrowserNotificationListener
+					organizationId="organization-123"
+					organizationSlug="amplift"
+					userId="user-123"
+				/>
+				<LayoutProbe onLayout={() => undefined} />
+			</>
+		);
+		currentItems = [queuedItem, existingItem];
+		view.rerender(
+			<>
+				<InboxBrowserNotificationListener
+					organizationId="organization-123"
+					organizationSlug="amplift"
+					userId="user-123"
+				/>
+				<LayoutProbe onLayout={() => undefined} />
+			</>
+		);
+		await waitFor(() => expect(queuedInput).toBeDefined());
+
+		usePathnameMock.mockReturnValue("/o/amplift/spaces/space-123");
+		let readinessDuringLayout: string | undefined;
+		view.rerender(
+			<>
+				<InboxBrowserNotificationListener
+					organizationId="organization-123"
+					organizationSlug="amplift"
+					userId="user-123"
+				/>
+				<LayoutProbe
+					onLayout={() => {
+						readinessDuringLayout = queuedInput?.resolveCurrentReadiness?.();
+					}}
+				/>
+			</>
+		);
+
+		expect(readinessDuringLayout).toBe("source_visible");
 	});
 
 	it("keeps ordinary updates and resolved actions in Inbox without browser delivery", () => {
@@ -536,6 +958,13 @@ function renderListener() {
 			userId="user-123"
 		/>
 	);
+}
+
+function LayoutProbe({ onLayout }: { onLayout: () => void }) {
+	useLayoutEffect(() => {
+		onLayout();
+	}, [onLayout]);
+	return null;
 }
 
 function buildPendingItemKey(input: {

@@ -273,6 +273,33 @@ describe("Inbox browser notifications", () => {
 		).toEqual(new Set());
 	});
 
+	it("stores pending items in independent cross-tab-safe records", () => {
+		markInboxBrowserNotificationItemPending({
+			itemId: "pending-item-a",
+			organizationId: "organization-a",
+			userId: USER_ID,
+		});
+		markInboxBrowserNotificationItemPending({
+			itemId: "pending-item-b",
+			organizationId: "organization-a",
+			userId: USER_ID,
+		});
+
+		const pendingKeys = Array.from(
+			{ length: window.localStorage.length },
+			(_, index) => window.localStorage.key(index)
+		).filter((key) =>
+			key?.startsWith("openmeld.inbox.browser-notifications.pending-item:")
+		);
+		expect(pendingKeys).toHaveLength(2);
+		expect(
+			readPendingInboxBrowserNotificationItemIds({
+				organizationId: "organization-a",
+				userId: USER_ID,
+			})
+		).toEqual(new Set(["pending-item-a", "pending-item-b"]));
+	});
+
 	it("defers a failed cross-tab claim without marking the item delivered", async () => {
 		installNotificationMock({
 			constructorMock: notificationConstructorMock,

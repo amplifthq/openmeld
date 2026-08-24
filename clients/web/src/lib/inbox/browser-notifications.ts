@@ -46,10 +46,9 @@ const ICON_PATH = "/apple-touch-icon.png";
 const PREFERENCE_CHANGE_EVENT = "openmeld:inbox-browser-notifications-changed";
 const DELIVERED_ITEM_IDS_KEY =
 	"openmeld.inbox.browser-notifications.delivered-item-ids";
-const PENDING_ITEM_IDS_KEY_PREFIX =
-	"openmeld.inbox.browser-notifications.pending-item-ids";
+const PENDING_ITEM_KEY_PREFIX =
+	"openmeld.inbox.browser-notifications.pending-item";
 const MAX_DELIVERED_ITEM_IDS = 200;
-const MAX_PENDING_ITEM_IDS = 200;
 
 export function readInboxBrowserNotificationSettings(input: {
 	userId: string;
@@ -175,12 +174,20 @@ export function readPendingInboxBrowserNotificationItemIds(input: {
 		return new Set();
 	}
 	try {
-		return new Set(
-			parseItemIds(
-				window.localStorage.getItem(buildPendingItemIdsKey(input)),
-				"pending"
-			)
-		);
+		const keyPrefix = buildPendingItemKeyPrefix(input);
+		const itemIds = new Set<string>();
+		for (let index = 0; index < window.localStorage.length; index += 1) {
+			const key = window.localStorage.key(index);
+			if (!key?.startsWith(keyPrefix)) {
+				continue;
+			}
+			const encodedItemId = key.slice(keyPrefix.length);
+			if (!encodedItemId) {
+				continue;
+			}
+			itemIds.add(decodeURIComponent(encodedItemId));
+		}
+		return itemIds;
 	} catch (error) {
 		console.warn(
 			"[openmeld.web.inbox.browser_notification_pending_read_failed]",
@@ -197,12 +204,14 @@ export function markInboxBrowserNotificationItemPending(input: {
 	organizationId: string;
 	userId: string;
 }): void {
-	updatePendingInboxBrowserNotificationItemIds(input, (itemIds) => [
-		...itemIds
-			.filter((itemId) => itemId !== input.itemId)
-			.slice(-(MAX_PENDING_ITEM_IDS - 1)),
-		input.itemId,
-	]);
+	if (typeof window === "undefined") {
+		return;
+	}
+	try {
+		window.localStorage.setItem(buildPendingItemKey(input), "pending");
+	} catch (error) {
+		logPendingInboxBrowserNotificationWriteFailure(input, error);
+	}
 }
 
 export function clearInboxBrowserNotificationItemPending(input: {
@@ -210,9 +219,14 @@ export function clearInboxBrowserNotificationItemPending(input: {
 	organizationId: string;
 	userId: string;
 }): void {
-	updatePendingInboxBrowserNotificationItemIds(input, (itemIds) =>
-		itemIds.filter((itemId) => itemId !== input.itemId)
-	);
+	if (typeof window === "undefined") {
+		return;
+	}
+	try {
+		window.localStorage.removeItem(buildPendingItemKey(input));
+	} catch (error) {
+		logPendingInboxBrowserNotificationWriteFailure(input, error);
+	}
 }
 
 export function subscribeInboxBrowserNotificationSettings(
@@ -366,10 +380,7 @@ function recordInboxBrowserNotificationDelivered(itemId: string): void {
 	}
 }
 
-function parseItemIds(
-	value: string | null,
-	ledger: "delivered" | "pending"
-): string[] {
+function parseItemIds(value: string | null, ledger: "delivered"): string[] {
 	if (value === null) {
 		return [];
 	}
@@ -395,39 +406,33 @@ function parseItemIds(
 	return [];
 }
 
-function updatePendingInboxBrowserNotificationItemIds(
-	input: { itemId: string; organizationId: string; userId: string },
-	update: (itemIds: string[]) => string[]
+function logPendingInboxBrowserNotificationWriteFailure(
+	input: { itemId: string; organizationId: string },
+	error: unknown
 ): void {
-	if (typeof window === "undefined") {
-		return;
-	}
-	try {
-		const key = buildPendingItemIdsKey(input);
-		const current = parseItemIds(window.localStorage.getItem(key), "pending");
-		const next = update(current);
-		if (next.length === 0) {
-			window.localStorage.removeItem(key);
-			return;
+	console.warn(
+		"[openmeld.web.inbox.browser_notification_pending_write_failed]",
+		{
+			error: error instanceof Error ? error.message : String(error),
+			itemId: input.itemId,
+			organizationId: input.organizationId,
 		}
-		window.localStorage.setItem(key, JSON.stringify(next));
-	} catch (error) {
-		console.warn(
-			"[openmeld.web.inbox.browser_notification_pending_write_failed]",
-			{
-				error: error instanceof Error ? error.message : String(error),
-				itemId: input.itemId,
-				organizationId: input.organizationId,
-			}
-		);
-	}
+	);
 }
 
-function buildPendingItemIdsKey(input: {
+function buildPendingItemKeyPrefix(input: {
 	organizationId: string;
 	userId: string;
 }): string {
-	return `${PENDING_ITEM_IDS_KEY_PREFIX}:${requireLedgerScope(input.userId, "user")}:${requireLedgerScope(input.organizationId, "organization")}`;
+	return `${PENDING_ITEM_KEY_PREFIX}:${requireLedgerScope(input.userId, "user")}:${requireLedgerScope(input.organizationId, "organization")}:`;
+}
+
+function buildPendingItemKey(input: {
+	itemId: string;
+	organizationId: string;
+	userId: string;
+}): string {
+	return `${buildPendingItemKeyPrefix(input)}${requireLedgerScope(input.itemId, "item")}`;
 }
 
 function requireLedgerScope(value: string, label: string): string {
