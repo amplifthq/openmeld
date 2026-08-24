@@ -105,6 +105,31 @@ const SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_TEXT =
   "I couldn’t confirm that channel introduction, so I didn’t send anything twice. Open Introduce me in channels and choose the channels again.";
 export const REMOTE_AGENT_SLACK_EVENT_MAX_QUEUE_ATTEMPTS = 4;
 const SLACK_CHANNEL_INTRODUCTION_MAX_PAGES = 100;
+const SLACK_CHANNEL_INTRODUCTION_ACTIONABLE_FAILURE_COPY = {
+  "slack_channel_introduction.center_agent_not_ready":
+    "Your Organization’s Center Agent is not ready yet. Finish its setup in OpenMeld, then try again.",
+  "slack_channel_introduction.channel_not_found":
+    "I can’t find one of those channels anymore. Open the channel picker and choose again.",
+  "slack_channel_introduction.member_not_connected":
+    "This Slack account is not connected to an OpenMeld member yet. In a direct message with the Center Agent, ask to connect your account, then try again.",
+  "slack_channel_introduction.organization_unavailable":
+    "I can’t open this OpenMeld Organization right now. Try again in a moment.",
+  "slack_channel_introduction.private_channel_selected":
+    "Choose public channels here. For a private channel, invite the OpenMeld app there first, then message me its name.",
+} as const;
+
+type SlackChannelIntroductionActionableFailureCode =
+  keyof typeof SLACK_CHANNEL_INTRODUCTION_ACTIONABLE_FAILURE_COPY;
+
+class SlackChannelIntroductionActionableFailure extends Error {
+  readonly code: SlackChannelIntroductionActionableFailureCode;
+
+  constructor(code: SlackChannelIntroductionActionableFailureCode) {
+    super(SLACK_CHANNEL_INTRODUCTION_ACTIONABLE_FAILURE_COPY[code]);
+    this.name = "SlackChannelIntroductionActionableFailure";
+    this.code = code;
+  }
+}
 
 type SlackMemberIdentity = {
   humanProfileId: string | null;
@@ -343,8 +368,8 @@ export async function submitRemoteAgentSlackChannelIntroduction(input: {
       organizationId: workspaceBinding.organizationId,
     });
     if (!centerAgent) {
-      throw new Error(
-        "Your Organization’s Center Agent is not ready yet. Finish its setup in OpenMeld, then try again."
+      throw new SlackChannelIntroductionActionableFailure(
+        "slack_channel_introduction.center_agent_not_ready"
       );
     }
     const memberResolution = await resolveSlackMemberIdentity({
@@ -356,8 +381,8 @@ export async function submitRemoteAgentSlackChannelIntroduction(input: {
       slackUserId: input.slackUserId,
     });
     if (!memberResolution.member) {
-      throw new Error(
-        "This Slack account is not connected to an OpenMeld member yet. In a direct message with the Center Agent, ask to connect your account, then try again."
+      throw new SlackChannelIntroductionActionableFailure(
+        "slack_channel_introduction.member_not_connected"
       );
     }
     const organization = await readSlackOrganizationIdentity({
@@ -365,8 +390,8 @@ export async function submitRemoteAgentSlackChannelIntroduction(input: {
       organizationId: workspaceBinding.organizationId,
     });
     if (!organization) {
-      throw new Error(
-        "I can’t open this OpenMeld Organization right now. Try again in a moment."
+      throw new SlackChannelIntroductionActionableFailure(
+        "slack_channel_introduction.organization_unavailable"
       );
     }
     const channels = await resolveSelectedSlackChannels({
@@ -2033,8 +2058,8 @@ async function resolveSelectedSlackChannels(input: {
     }
   }
   if (remaining.size > 0) {
-    throw new Error(
-      "I can’t find one of those channels anymore. Open the channel picker and choose again."
+    throw new SlackChannelIntroductionActionableFailure(
+      "slack_channel_introduction.channel_not_found"
     );
   }
   const channels = input.targetSlackChannelIds.flatMap((channelId) => {
@@ -2042,8 +2067,8 @@ async function resolveSelectedSlackChannels(input: {
     return channel ? [channel] : [];
   });
   if (channels.some((channel) => channel.isPrivate)) {
-    throw new Error(
-      "Choose public channels here. For a private channel, invite the OpenMeld app there first, then message me its name."
+    throw new SlackChannelIntroductionActionableFailure(
+      "slack_channel_introduction.private_channel_selected"
     );
   }
   return channels;
@@ -2076,18 +2101,18 @@ function formatSlackChannelList(channelNames: readonly string[]): string {
 }
 
 function toSlackChannelIntroductionFailureMessage(error: unknown): string {
+  const actionableFailure =
+    error instanceof SlackChannelIntroductionActionableFailure ? error : null;
   console.warn("[core.slack_channel_introduction.start_failed]", {
     error: toErrorMessage(error),
     event: CORE_LOG_EVENTS.coreInternalError,
+    failureCode:
+      actionableFailure?.code ?? "slack_channel_introduction.unexpected",
   });
-  const message = error instanceof Error ? error.message : "";
-  if (
-    message.startsWith("I can’t") ||
-    message.startsWith("This Slack") ||
-    message.startsWith("Your Organization") ||
-    message.startsWith("OpenMeld is")
-  ) {
-    return message;
+  if (actionableFailure) {
+    return SLACK_CHANNEL_INTRODUCTION_ACTIONABLE_FAILURE_COPY[
+      actionableFailure.code
+    ];
   }
   return "I couldn’t start learning those channels. Open the welcome message and try again. If it still doesn’t work, invite the OpenMeld app to the channel first.";
 }
