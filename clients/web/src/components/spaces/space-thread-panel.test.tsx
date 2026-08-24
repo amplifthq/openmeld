@@ -239,13 +239,15 @@ describe("SpaceThreadPanel", () => {
 		expect(threadMessage?.textContent).not.toContain(expectedTime);
 		expect(threadMessage?.classList.contains("border")).toBe(true);
 		expect(threadMessage?.classList.contains("border-transparent")).toBe(true);
-		expect(threadMessage?.classList.contains("bg-transparent")).toBe(true);
+		expect(threadMessage?.classList.contains("bg-muted/35")).toBe(true);
+		expect(threadMessage?.classList.contains("rounded-md")).toBe(true);
 		expect(threadMessage?.classList.contains("max-w-full")).toBe(true);
-		expect(threadMessage?.classList.contains("items-end")).toBe(true);
-		expect(threadMessage?.classList.contains("text-right")).toBe(true);
-		expect(threadMessage?.classList.contains("px-0")).toBe(true);
-		expect(threadMessage?.classList.contains("py-0")).toBe(true);
-		expect(threadMessage?.classList.contains("sm:px-0")).toBe(true);
+		expect(threadMessage?.classList.contains("items-start")).toBe(true);
+		expect(threadMessage?.classList.contains("text-start")).toBe(true);
+		expect(threadMessage?.classList.contains("text-right")).toBe(false);
+		expect(threadMessage?.classList.contains("px-3")).toBe(true);
+		expect(threadMessage?.classList.contains("py-2")).toBe(true);
+		expect(threadMessage?.classList.contains("sm:px-4")).toBe(true);
 		expect(threadMessage?.classList.contains("max-w-[62ch]")).toBe(false);
 		expect(screen.getByText("Thread message").className).not.toContain(
 			"text-right"
@@ -273,7 +275,7 @@ describe("SpaceThreadPanel", () => {
 		expect(profileName.className).toContain("text-sm");
 		expect(messageRow?.className).toContain("hover:bg-muted/35");
 		expect(messageRow?.className).toContain("focus-within:bg-muted/35");
-		expect(messageRow?.className).not.toContain("rounded-sm");
+		expect(messageRow?.className).toContain("rounded-md");
 		expect(messageRow?.contains(avatar)).toBe(true);
 		expect(scrollerItem?.getAttribute("data-message-id")).toBe("sig-thread-1");
 		expect(scrollerItem?.getAttribute("data-scroll-anchor")).toBe("false");

@@ -642,6 +642,18 @@ Rounded-default rollout uses a versioned browser preference key so existing
 users receive the new default once; a Square selection made afterward remains
 explicit and persistent.
 
+Appearance also owns the browser-local **Your messages** placement used by
+every Space, Direct Message, Center Agent, thread, and Task conversation that
+renders the shared message primitives. A message placed on the right uses a
+trailing-aligned, content-sized bubble with a responsive maximum width; a
+message placed on the left uses the full available transcript width. Both
+placements keep their content leading-aligned and give the current member's
+messages the same muted, semantic-radius surface used to highlight any message
+on hover or keyboard focus. Agent and other-member messages remain transparent
+at rest. Product surfaces declare current-member authorship once and must not
+reimplement placement, width, text alignment, resting background, or highlight
+geometry locally.
+
 **Settings → Personal → Account** and the signed-in member's **Edit Human
 Profile** dialog in People are the two Account Display Name editing surfaces.
 Both call the shared `PATCH /v1/account/display-name` contract; neither calls

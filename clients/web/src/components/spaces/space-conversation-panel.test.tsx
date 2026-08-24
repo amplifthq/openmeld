@@ -1428,12 +1428,13 @@ describe("SpaceConversationPanel", () => {
 		const messageText = screen.getByText(longMessage);
 		const messageBubble = messageText.closest("[data-signal-id]");
 
-		expect(messageBubble?.className).toContain("min-w-[16rem]");
+		expect(messageBubble?.className).not.toContain("min-w-[16rem]");
 		expect(messageBubble?.className).toContain("max-w-full");
+		expect(messageBubble?.className).toContain("text-start");
 		expect(messageText.className).toContain("[overflow-wrap:anywhere]");
 	});
 
-	it("uses transparent message content with full-width hover surfaces", () => {
+	it("keeps agent messages transparent and gives self messages a readable surface", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -1465,11 +1466,16 @@ describe("SpaceConversationPanel", () => {
 		expect(agentBubble?.classList.contains("max-w-[62ch]")).toBe(false);
 		expect(selfBubble?.classList.contains("border")).toBe(true);
 		expect(selfBubble?.classList.contains("border-transparent")).toBe(true);
-		expect(selfBubble?.classList.contains("bg-transparent")).toBe(true);
+		expect(selfBubble?.classList.contains("bg-muted/35")).toBe(true);
+		expect(selfBubble?.classList.contains("rounded-md")).toBe(true);
 		expect(selfBubble?.classList.contains("max-w-full")).toBe(true);
-		expect(selfBubble?.classList.contains("min-w-[16rem]")).toBe(true);
-		expect(selfBubble?.classList.contains("items-end")).toBe(true);
-		expect(selfBubble?.classList.contains("text-right")).toBe(true);
+		expect(selfBubble?.classList.contains("min-w-[16rem]")).toBe(false);
+		expect(selfBubble?.classList.contains("items-start")).toBe(true);
+		expect(selfBubble?.classList.contains("text-start")).toBe(true);
+		expect(selfBubble?.classList.contains("text-right")).toBe(false);
+		expect(selfBubble?.classList.contains("px-3")).toBe(true);
+		expect(selfBubble?.classList.contains("py-2")).toBe(true);
+		expect(selfBubble?.classList.contains("sm:px-4")).toBe(true);
 		expect(selfBubble?.classList.contains("max-w-[62ch]")).toBe(false);
 		expect(screen.getByText("Self message").className).not.toContain(
 			"text-right"
@@ -1514,6 +1520,7 @@ describe("SpaceConversationPanel", () => {
 		expect(agentHeader?.className ?? "").not.toContain("hover:bg-muted/35");
 		expect(agentRow?.className).toContain("hover:bg-muted/35");
 		expect(agentRow?.className).toContain("focus-within:bg-muted/35");
+		expect(agentRow?.className).toContain("rounded-md");
 		expect(selfMessage?.className).not.toContain("hover:bg-muted/35");
 		expect(selfMessage?.className).not.toContain("focus-within:bg-muted/35");
 		expect(selfMessage?.className).not.toContain("rounded-sm");
@@ -1523,6 +1530,7 @@ describe("SpaceConversationPanel", () => {
 		expect(selfMessage?.textContent).toContain("Self message");
 		expect(selfRow?.className).toContain("hover:bg-muted/35");
 		expect(selfRow?.className).toContain("focus-within:bg-muted/35");
+		expect(selfRow?.className).toContain("rounded-md");
 		expect(
 			screen.getByRole("log", { name: "Conversation history" }).className
 		).toContain("py-4");

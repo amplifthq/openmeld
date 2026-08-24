@@ -106,12 +106,12 @@ import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageActionButtonClassName,
 	resolveSpaceMessageBubblePresentationClass,
+	resolveSpaceMessageContentLayoutClassName,
+	resolveSpaceMessageContentPaddingClassName,
 	resolveSpaceMessageRowLayoutClassName,
-	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
-	SPACE_SELF_MESSAGE_MIN_WIDTH_CLASS,
 } from "./space-message-bubble-style";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
@@ -1113,10 +1113,10 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	const messageAlign = resolveThreadMessageDirectionalAlign(isSelfMessage);
 	const actionPlacementClassName =
 		resolveThreadMessageActionPlacementClassName(isSelfMessage);
-	const selfBubbleClassName =
-		resolveThreadSelfMessageBubbleClassName(isSelfMessage);
-	const selfBodyContainerClassName =
-		resolveThreadSelfMessageBodyContainerClassName(isSelfMessage);
+	const selfMessageContentLayoutClassName =
+		resolveSpaceMessageContentLayoutClassName({ isSelf: isSelfMessage });
+	const messageContentPaddingClassName =
+		resolveSpaceMessageContentPaddingClassName({ isSelf: isSelfMessage });
 	const computerSetupPresentation = resolveThreadComputerSetupPresentation({
 		actionSignalId: input.computerSetupActionSignalId,
 		context: input.computerSetupContext,
@@ -1197,10 +1197,12 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						<BubbleContent
 							className={cn(
 								"group/thread-message relative flex w-full flex-col gap-2 transition-colors motion-reduce:transition-none",
-								SPACE_MESSAGE_CONTENT_PADDING_CLASS,
+								messageContentPaddingClassName,
 								SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
-								selfBubbleClassName,
-								resolveSpaceMessageBubblePresentationClass({}),
+								selfMessageContentLayoutClassName,
+								resolveSpaceMessageBubblePresentationClass({
+									isSelf: isSelfMessage,
+								}),
 								"data-[highlighted=true]:border-ring/40 data-[highlighted=true]:bg-ring/10 data-[highlighted=true]:ring-1 data-[highlighted=true]:ring-ring/50",
 								input.item.deliveryState === "pending" ? "opacity-70" : null
 							)}
@@ -1213,7 +1215,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							<SpaceMessageBody
 								computerSetupContext={computerSetupPresentation.context}
 								computerSetupSourceSignalId={input.item.id}
-								containerClassName={selfBodyContainerClassName}
+								containerClassName={selfMessageContentLayoutClassName}
 								item={input.item}
 								onOpenSpaceFile={input.onOpenSpaceFile}
 								openMeldProfileId={input.selfProfileId}
@@ -1331,20 +1333,6 @@ function resolveThreadMessageDirectionalAlign(
 
 function resolveThreadMessageActionPlacementClassName(isSelf: boolean): string {
 	return isSelf ? "left-3" : "right-3";
-}
-
-function resolveThreadSelfMessageBubbleClassName(
-	isSelf: boolean
-): string | null {
-	return isSelf
-		? `${SPACE_SELF_MESSAGE_MIN_WIDTH_CLASS} items-end text-right`
-		: null;
-}
-
-function resolveThreadSelfMessageBodyContainerClassName(
-	isSelf: boolean
-): string | undefined {
-	return isSelf ? "items-end text-right" : undefined;
 }
 
 function resolveThreadMessageAvatarImageUrl(input: {
