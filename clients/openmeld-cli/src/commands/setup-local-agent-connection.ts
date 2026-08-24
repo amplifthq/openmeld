@@ -572,12 +572,19 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
     expectedVersion: resolveCurrentDaemonExpectedVersion(),
     intent: "status_cleanup",
   });
-  const hasBlockingServiceDrift = classifyDaemonServiceWakeability({
+  const wakeability = classifyDaemonServiceWakeability({
     inventory,
-  }).blocksWake;
-  const serviceRunWouldBeBlocked = classifyDaemonServiceRunStartability({
+  });
+  const startability = classifyDaemonServiceRunStartability({
     inventory,
-  }).blocksStart;
+  });
+  const hasBlockingServiceDrift = wakeability.blocksWake;
+  const serviceRunWouldBeBlocked = startability.blocksStart;
+  const scheduleBackgroundUpdate = shouldScheduleSetupServiceUpdate({
+    inventory,
+    serviceRunWouldBeBlocked,
+    wakeability,
+  });
 
   if (
     hasBlockingServiceDrift ||
@@ -587,6 +594,9 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
     const refreshOutcome = await runDaemonReinstall(
       {
         agentOverviewHandled: true,
+        ...(scheduleBackgroundUpdate
+          ? { displayAction: "update" as const }
+          : {}),
         gatewayUrl: await resolveBaseUrl(),
         profile: input.profile.openMeldProfileId,
         view: input.view,
@@ -639,6 +649,24 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
     }
   }
   return "completed";
+}
+
+function shouldScheduleSetupServiceUpdate(input: {
+  inventory: Awaited<ReturnType<typeof inspectDaemonServiceInventory>>;
+  serviceRunWouldBeBlocked: boolean;
+  wakeability: ReturnType<typeof classifyDaemonServiceWakeability>;
+}): boolean {
+  const hasVersionDrift = input.inventory.anomalies.some(
+    (anomaly) =>
+      anomaly.code === "version_outdated" ||
+      anomaly.code === "bundle_version_drift"
+  );
+  return (
+    hasVersionDrift &&
+    input.wakeability.executionEvidenceSafe &&
+    !input.wakeability.blocksWake &&
+    !input.serviceRunWouldBeBlocked
+  );
 }
 
 function collectReadinessReasonCodes(input: {

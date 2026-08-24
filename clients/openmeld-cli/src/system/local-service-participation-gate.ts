@@ -192,6 +192,7 @@ export async function runDaemonServiceParticipationGate(input: {
         input,
         codePrefix,
         expectedVersion: initialStatus.expectedVersion,
+        scheduleBackgroundUpdate: hasServiceVersionAdvisory(initialStatus),
       });
     }
   }
@@ -300,6 +301,16 @@ function isReadyAdvisoryServiceDrift(
     status.kind === "ready" &&
     Array.isArray(status.advisoryAnomalyCodes) &&
     status.advisoryAnomalyCodes.length > 0
+  );
+}
+
+function hasServiceVersionAdvisory(
+  status: Extract<DaemonServiceParticipationStatus, { kind: "ready" }>
+): boolean {
+  return Boolean(
+    status.advisoryAnomalyCodes?.some(
+      (code) => code === "version_outdated" || code === "bundle_version_drift"
+    )
   );
 }
 
@@ -512,10 +523,14 @@ async function runDaemonServiceSafeRefresh(input: {
   suppressHumanResultCard?: boolean;
   view?: string;
   forceReinstall?: boolean;
+  scheduleBackgroundUpdate?: boolean;
 }): Promise<Awaited<ReturnType<typeof runDaemonReinstall>>> {
   return await runDaemonReinstall(
     {
       agentOverviewHandled: true,
+      ...(input.scheduleBackgroundUpdate
+        ? { displayAction: "update" as const }
+        : {}),
       ...(input.gatewayUrl ? { gatewayUrl: input.gatewayUrl } : {}),
       ...(input.openMeldProfileId ? { profile: input.openMeldProfileId } : {}),
       view: input.view,
@@ -628,14 +643,9 @@ async function runDaemonServiceParticipationRefresh(input: {
   accountIssue?: DaemonServiceAccountAlignmentIssue;
   codePrefix: string;
   expectedVersion: string;
+  scheduleBackgroundUpdate?: boolean;
 }): Promise<DaemonServiceParticipationGateResult> {
-  if (input.accountIssue) {
-    input.input.presenter.line({
-      code: `${input.codePrefix}.account_alignment_refresh`,
-      text: input.accountIssue.summary,
-      data: { reasonCode: input.accountIssue.reasonCode },
-    });
-  }
+  emitServiceAccountRefreshNotice(input);
   try {
     input.input.serviceProgress?.detail({
       code: "daemon.participation.refresh.updating",
@@ -650,6 +660,9 @@ async function runDaemonServiceParticipationRefresh(input: {
         accountIssue: input.accountIssue,
         forceRefresh: input.input.forceRefresh,
       }),
+      ...(input.scheduleBackgroundUpdate === undefined
+        ? {}
+        : { scheduleBackgroundUpdate: input.scheduleBackgroundUpdate }),
     });
     if (isCancelledDaemonServiceRefresh(refreshOutcome)) {
       return { status: "cancelled" };
@@ -686,6 +699,11 @@ async function runDaemonServiceParticipationRefresh(input: {
         return { status: "needs_attention" };
       }
       return startMapped;
+    }
+    const scheduledResult =
+      resolveScheduledServiceRefreshResult(refreshOutcome);
+    if (scheduledResult) {
+      return scheduledResult;
     }
     // The reinstall started the service in silent output mode, so its detailed
     // startup-failure card was discarded. If the failure carried a launchd
@@ -758,6 +776,29 @@ async function runDaemonServiceParticipationRefresh(input: {
     });
   }
   return { status: "needs_attention" };
+}
+
+function emitServiceAccountRefreshNotice(input: {
+  accountIssue?: DaemonServiceAccountAlignmentIssue;
+  codePrefix: string;
+  input: { presenter: Presenter };
+}): void {
+  if (!input.accountIssue) {
+    return;
+  }
+  input.input.presenter.line({
+    code: `${input.codePrefix}.account_alignment_refresh`,
+    text: input.accountIssue.summary,
+    data: { reasonCode: input.accountIssue.reasonCode },
+  });
+}
+
+function resolveScheduledServiceRefreshResult(
+  outcome: Awaited<ReturnType<typeof runDaemonReinstall>>
+): DaemonServiceParticipationGateResult | null {
+  return outcome.ok && outcome.result === "scheduled"
+    ? { status: "aligned" }
+    : null;
 }
 
 function renderRefreshFailureIfVisible(input: {
