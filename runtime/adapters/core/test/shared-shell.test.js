@@ -192,6 +192,39 @@ test("adapter-core shared dispatch shell rejects a repair result from a differen
   });
 });
 
+test("adapter-core shared dispatch shell rejects repair before invoking without a canonical conversation", async () => {
+  const core = await import("../dist/index.js");
+  let invokeCount = 0;
+  const dispatch = core.createSharedDispatchShell({
+    adapterId: "codex",
+    bridgeSpec: CODEX_BRIDGE_SPEC,
+    invoke: () => {
+      invokeCount += 1;
+      return {
+        contextDelta: {
+          agentControllerConversationId: "thread-repair-new-1",
+        },
+        output: "repair complete",
+      };
+    },
+    repairConversationPolicy: "require_canonical",
+    resolveDefaultInvoke: () => null,
+  });
+
+  const result = await dispatch(
+    buildDispatchRequest({ executionMode: "repair" })
+  );
+
+  assert.equal(invokeCount, 0);
+  assert.deepEqual(result, {
+    errorCode: "repair.conversation_missing",
+    errorMessage:
+      "repair.conversation_missing: repair requires an existing Agent Controller conversation",
+    errorType: "adapter",
+    status: "failed",
+  });
+});
+
 test("adapter-core shared dispatch shell forwards dispatch-time runtime context", async () => {
   const core = await import("../dist/index.js");
   let observedRuntimeContext = null;

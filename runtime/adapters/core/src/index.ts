@@ -505,6 +505,11 @@ export const createSharedDispatchShell = (input: {
           bridgeSpec,
           request: dispatchInput,
         });
+      const requiredRepairConversationId = resolveRequiredRepairConversationId({
+        invokeRequest,
+        policy: input.repairConversationPolicy,
+        request: dispatchInput,
+      });
       const result = await resolvedInvoke(invokeRequest);
       const contextDelta =
         input.resolveSuccessContextDelta?.({
@@ -518,10 +523,8 @@ export const createSharedDispatchShell = (input: {
           contextDelta: result.contextDelta,
         });
       const protectedContextDelta = requireCanonicalRepairConversation({
+        canonicalConversationId: requiredRepairConversationId,
         contextDelta,
-        invokeRequest,
-        policy: input.repairConversationPolicy,
-        request: dispatchInput,
       });
 
       return {
@@ -539,6 +542,18 @@ export const createSharedDispatchShell = (input: {
   };
 };
 
+class AdapterRepairConversationMissingError extends Error {
+  readonly code = "repair.conversation_missing";
+  readonly errorType: AdapterErrorType = "adapter";
+
+  constructor() {
+    super(
+      "repair.conversation_missing: repair requires an existing Agent Controller conversation"
+    );
+    this.name = "AdapterRepairConversationMissingError";
+  }
+}
+
 class AdapterRepairConversationError extends Error {
   readonly code = "repair.conversation_changed";
   readonly errorType: AdapterErrorType = "adapter";
@@ -551,23 +566,33 @@ class AdapterRepairConversationError extends Error {
   }
 }
 
-const requireCanonicalRepairConversation = (input: {
-  contextDelta?: AdapterDispatchContextDelta;
+const resolveRequiredRepairConversationId = (input: {
   invokeRequest: AdapterDispatchRequest;
   policy?: "require_canonical";
   request: AdapterDispatchRequest;
-}): AdapterDispatchContextDelta | undefined => {
+}): string | null => {
   if (
     input.policy !== "require_canonical" ||
     input.request.executionMode !== "repair"
   ) {
-    return input.contextDelta;
+    return null;
   }
 
   const canonicalConversationId = normalizeOptionalText(
     input.invokeRequest.agentControllerConversationId
   );
   if (!canonicalConversationId) {
+    throw new AdapterRepairConversationMissingError();
+  }
+
+  return canonicalConversationId;
+};
+
+const requireCanonicalRepairConversation = (input: {
+  canonicalConversationId: string | null;
+  contextDelta?: AdapterDispatchContextDelta;
+}): AdapterDispatchContextDelta | undefined => {
+  if (!input.canonicalConversationId) {
     return input.contextDelta;
   }
 
@@ -576,7 +601,7 @@ const requireCanonicalRepairConversation = (input: {
   );
   if (
     input.contextDelta?.refreshed === true ||
-    observedConversationId !== canonicalConversationId
+    observedConversationId !== input.canonicalConversationId
   ) {
     throw new AdapterRepairConversationError();
   }
