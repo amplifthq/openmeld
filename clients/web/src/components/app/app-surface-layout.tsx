@@ -1,7 +1,7 @@
 "use client";
 
 import { ListIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { AppMobileNavigationDrawer } from "./app-mobile-navigation";
 import { AppNavigationPresentationProvider } from "./app-navigation-presentation";
 
@@ -18,6 +18,8 @@ export function AppSurfaceLayout(input: {
 	const [appNavigationOpen, setAppNavigationOpen] = useState(false);
 	const [contextualNavigationOpen, setContextualNavigationOpen] =
 		useState(false);
+	const appNavigationTriggerRef = useRef<HTMLButtonElement>(null);
+	const contextualNavigationTriggerRef = useRef<HTMLButtonElement>(null);
 	const openAppNavigation = () => {
 		setContextualNavigationOpen(false);
 		setAppNavigationOpen(true);
@@ -53,6 +55,7 @@ export function AppSurfaceLayout(input: {
 							aria-label="Open app navigation"
 							className="flex min-h-11 min-w-11 touch-manipulation items-center justify-center gap-2 rounded-md px-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
 							onClick={openAppNavigation}
+							ref={appNavigationTriggerRef}
 							type="button"
 						>
 							<ListIcon aria-hidden="true" className="size-5" />
@@ -64,6 +67,7 @@ export function AppSurfaceLayout(input: {
 								aria-label={`Open ${input.mobileSidebarTitle} navigation`}
 								className="ml-auto flex min-h-11 min-w-0 touch-manipulation items-center justify-center gap-2 rounded-md px-3 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring md:hidden"
 								onClick={openContextualNavigation}
+								ref={contextualNavigationTriggerRef}
 								type="button"
 							>
 								<SidebarSimpleIcon
@@ -97,6 +101,7 @@ export function AppSurfaceLayout(input: {
 				description="Choose a destination in OpenMeld."
 				onOpenChange={setAppNavigationOpen}
 				open={appNavigationOpen}
+				returnFocusRef={appNavigationTriggerRef}
 				title="App navigation"
 			>
 				{input.outerRail}
@@ -108,6 +113,7 @@ export function AppSurfaceLayout(input: {
 					hideEmbeddedHeader
 					onOpenChange={setContextualNavigationOpen}
 					open={contextualNavigationOpen}
+					returnFocusRef={contextualNavigationTriggerRef}
 					title={`${input.mobileSidebarTitle} navigation`}
 				>
 					{input.sidebar}

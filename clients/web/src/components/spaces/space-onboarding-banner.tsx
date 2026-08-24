@@ -81,7 +81,7 @@ export function SetupRecallButton(input: { onClick: () => void }) {
 				className="size-3.5"
 				data-icon="inline-start"
 			/>
-			Get set up
+			<span className="hidden sm:inline">Get set up</span>
 		</Button>
 	);
 }

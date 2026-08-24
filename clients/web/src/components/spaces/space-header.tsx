@@ -274,14 +274,22 @@ function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 }
 
 function DirectMessageHeaderLabel() {
-	return <span className="shrink-0 whitespace-nowrap">Direct Message</span>;
+	return (
+		<span className="hidden shrink-0 whitespace-nowrap sm:inline">
+			Direct Message
+		</span>
+	);
 }
 
 function renderSpaceAccessModeHeaderLabel(
 	accessMode: GetSpaceStatusResponse["accessMode"]
 ): ReactNode {
 	if (accessMode !== "public") {
-		return resolveSpaceAccessModeLabel(accessMode);
+		return (
+			<span className="hidden sm:inline">
+				{resolveSpaceAccessModeLabel(accessMode)}
+			</span>
+		);
 	}
 
 	return <PublicSpaceAccessWarningLabel />;
@@ -293,11 +301,13 @@ function PublicSpaceAccessWarningLabel() {
 			<TooltipTrigger
 				render={
 					<span
+						aria-label="Public"
 						className="inline-flex shrink-0 items-center gap-1 font-medium text-amber-600 dark:text-amber-400"
 						data-testid="space-public-access-warning"
+						role="img"
 					>
 						<WarningIcon aria-hidden="true" className="size-3.5 shrink-0" />
-						<span>Public</span>
+						<span className="hidden sm:inline">Public</span>
 					</span>
 				}
 			/>

@@ -3,6 +3,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -135,5 +136,29 @@ describe("AppSurfaceLayout", () => {
 				name: "Spaces test navigation",
 			})
 		).toBeTruthy();
+	});
+
+	it("returns focus to the app navigation trigger after Escape closes its drawer", async () => {
+		render(
+			<AppSurfaceLayout
+				globalControls={<div data-slot="test-global-controls" />}
+				outerRail={<nav aria-label="Primary test navigation" />}
+			>
+				<main data-slot="test-main-content" />
+			</AppSurfaceLayout>
+		);
+
+		const trigger = screen.getByRole("button", {
+			name: "Open app navigation",
+		});
+		trigger.focus();
+		fireEvent.click(trigger);
+		expect(screen.getByRole("dialog", { name: "App navigation" })).toBeTruthy();
+
+		fireEvent.keyDown(document, { key: "Escape" });
+
+		await waitFor(() => {
+			expect(document.activeElement).toBe(trigger);
+		});
 	});
 });

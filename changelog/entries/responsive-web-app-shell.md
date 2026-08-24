@@ -6,7 +6,10 @@ areas: ["navigation", "web"]
 audiences: ["members"]
 ---
 
-OpenMeld Web now gives the active page the full screen on phones, keeps
-contextual navigation one tap away, and uses accessible drawers for workspace
-and section navigation. Tablet layouts retain useful contextual sidebars while
-desktop navigation and saved sidebar sizes stay unchanged.
+OpenMeld Web now adapts its workspace, detail, settings, and sign-in surfaces
+for phones and tablets. Pages fit without hidden sideways scrolling, forms stay
+usable without iPhone auto-zoom, touch controls have comfortable targets, and
+dense choices stack when needed. Navigation and Profile drawers return people
+to the control that opened them, and reduced-motion preferences now remove
+drawer movement. Tablet layouts retain useful contextual sidebars while
+desktop navigation, density, and saved sidebar sizes stay unchanged.

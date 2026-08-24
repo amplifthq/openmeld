@@ -2,7 +2,7 @@
 
 import { cn } from "@openmeld/ui/lib/utils";
 import { XIcon } from "@phosphor-icons/react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 import { Drawer } from "vaul";
 import { AppNavigationPresentationProvider } from "./app-navigation-presentation";
 
@@ -13,6 +13,7 @@ export function AppMobileNavigationDrawer(input: {
 	hideEmbeddedHeader?: boolean;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
+	returnFocusRef: RefObject<HTMLButtonElement | null>;
 	title: string;
 }) {
 	return (
@@ -20,6 +21,11 @@ export function AppMobileNavigationDrawer(input: {
 			autoFocus
 			direction="left"
 			modal
+			onAnimationEnd={(open) => {
+				if (!open) {
+					input.returnFocusRef.current?.focus();
+				}
+			}}
 			onOpenChange={input.onOpenChange}
 			open={input.open}
 		>

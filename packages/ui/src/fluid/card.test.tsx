@@ -24,6 +24,7 @@ describe("FluidCard", () => {
     if (!firstCard) {
       throw new Error("Expected the first Fluid Card item.");
     }
+    expect(firstCard.className).toContain("min-w-0");
 
     fireEvent.pointerEnter(firstCard);
     expect(

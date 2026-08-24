@@ -107,7 +107,7 @@ export function OrganizationDocumentNewPage(input: {
 	return (
 		<div className="grid gap-6">
 			<Link
-				className="inline-flex items-center gap-2 justify-self-start font-medium text-muted-foreground text-sm hover:text-foreground"
+				className="inline-flex touch-manipulation items-center gap-2 justify-self-start font-medium text-muted-foreground text-sm hover:text-foreground max-lg:min-h-11"
 				search={folderSearch}
 				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
 			>

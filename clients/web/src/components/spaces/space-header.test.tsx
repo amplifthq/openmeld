@@ -255,6 +255,12 @@ describe("SpaceHeader", () => {
 		expect(primaryActions).not.toBeNull();
 		expect(secondaryRow).toBeNull();
 		expect(recallButton.className).toContain("h-7");
+		expect(within(recallButton).getByText("Get set up").className).toContain(
+			"hidden"
+		);
+		expect(within(recallButton).getByText("Get set up").className).toContain(
+			"sm:inline"
+		);
 		expect(recallButton.compareDocumentPosition(membersButton)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
@@ -273,6 +279,13 @@ describe("SpaceHeader", () => {
 		expect(publicAccessWarning.className).toContain("text-amber-600");
 		expect(publicAccessWarning.className).toContain("dark:text-amber-400");
 		expect(publicAccessWarning.querySelector("svg")).toBeTruthy();
+		expect(publicAccessWarning.className).toContain("inline-flex");
+		expect(within(publicAccessWarning).getByText("Public").className).toContain(
+			"hidden"
+		);
+		expect(within(publicAccessWarning).getByText("Public").className).toContain(
+			"sm:inline"
+		);
 
 		fireEvent.mouseEnter(publicAccessWarning);
 
