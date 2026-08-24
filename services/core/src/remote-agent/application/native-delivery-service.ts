@@ -33,7 +33,7 @@ import {
   resolveCenterAgentCompletedCallbackMessage,
   resolveSpaceFileContentResponseSchema,
   routineWorkflowContinuationEventPayloadSchema,
-  SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
+  SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceMessageAttachmentsSchema,
 } from "@openmeld/schemas";
 import type {
@@ -7252,7 +7252,7 @@ async function readRemoteAgentSubmissionAttachments(input: {
     }
     const availableImageSlots = Math.max(
       0,
-      SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE - legacyAttachments.data.length
+      SPACE_MESSAGE_FILE_MAX_COUNT - legacyAttachments.data.length
     );
     const canonicalImageFiles = (signal.data.files ?? [])
       .filter(

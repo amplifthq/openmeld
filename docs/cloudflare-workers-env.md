@@ -204,8 +204,8 @@ release then replaces those placeholders with the real Workers.
   - `SLACK_OPENMELD_SIGNING_SECRET`
   - `OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN`
 - Resource bindings
-  - `OPENMELD_IMAGES` for bounded image inspection and canonical 512 x 512
-    WebP transformation
+  - `OPENMELD_IMAGES` for bounded image inspection, canonical 512 x 512
+    identity-image transformation, and transient Center Agent model derivatives
   - `OPENMELD_ACCOUNT_AVATARS` for versioned public Account avatar objects
   - `OPENMELD_ORGANIZATION_LOGOS` for versioned public Organization logo
     objects
@@ -251,7 +251,7 @@ This matrix records Cloudflare resource ownership. Keep it in sync with
 | Worker var and secret | `OPENMELD_CONNECTORS_BASE_URL`, `OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN` | Remote Agent approved action execution | `services/remote-agent/wrangler.jsonc`, generated Worker types, and Remote Agent `.dev.vars*.example` | OpenConnector runtime routes reject the admin token. The runtime token is scoped to action execution and is never returned to Core, tool results, or diagnostics. |
 | Worker var | `OPENMELD_GATEWAY_URL` | Environment-specific Gateway public origin | `clients/web/wrangler.jsonc`, `services/gateway/wrangler.jsonc`, generated Worker types | Web sends Gateway requests to this origin, and Gateway uses the same configured origin for durable public Organization logo URLs instead of trusting the incoming request Host. |
 | Analytics Engine | `OPENMELD_OBSERVABILITY` | Shared runtime evidence projection | `clients/web/wrangler.jsonc`, `services/auth/wrangler.jsonc`, `services/core/wrangler.jsonc`, `services/gateway/wrangler.jsonc`, `services/remote-agent/wrangler.jsonc` | Production dataset `openmeld_runtime_evidence_prod`, created on first write. Compact historical Cloudflare runtime evidence for the shared observability contract. |
-| Images | `OPENMELD_IMAGES` | Gateway Organization logo image processing | `services/gateway/wrangler.jsonc`, `services/gateway/worker-configuration.d.ts` | Gateway calls `info()` before transformation, rejects invalid or oversized dimensions, and emits one non-animated 512 x 512 WebP object. Local and `dev` Wrangler environments use the documented remote binding because the image transformation service does not run locally. |
+| Images | `OPENMELD_IMAGES` | Gateway identity-image processing and Remote Agent model-input derivatives | Gateway and Remote Agent Wrangler configs and generated Worker types | Gateway calls `info()` before identity-image transformation, rejects invalid or oversized dimensions, and emits one non-animated 512 x 512 WebP object. Remote Agent streams one authorized R2 source at a time into Images, prefers a 2560-pixel WebP, keeps a 1600-pixel readability floor and 4 MiB per-image ceiling, and sends at most three images / 8 MiB per auxiliary model request. The derivative never replaces the Space File revision or enters persistent conversation history. Local and `dev` Wrangler environments use the documented remote binding because the image transformation service does not run locally. |
 | Rate Limit | `OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER` | Auth join-link acceptance | `services/auth/wrangler.jsonc`, `services/auth/worker-configuration.d.ts` | Limits each source IP to 10 authenticated join-link acceptance requests per 60 seconds. The binding is an admission guard and does not own membership truth. |
 | Rate Limit | `OPENMELD_SPACE_PASSWORD_RATE_LIMITER` | Gateway protected Space reads | `services/gateway/wrangler.jsonc`, `services/gateway/worker-configuration.d.ts` | Limits each source IP and Space pair to 10 password-bearing anonymous read requests per 60 seconds before Core password verification. Core remains the password authorization owner. |
 | R2 | `OPENMELD_ORGANIZATION_LOGOS` | Gateway Organization logo bytes | `services/gateway/wrangler.jsonc`, `services/gateway/wrangler.test.jsonc`, `services/gateway/worker-configuration.d.ts` | Production bucket `openmeld-organization-logos-prod`; preview/dev bucket `openmeld-organization-logos-preview`. Objects use immutable versioned keys and contain no source upload or private metadata. |
@@ -374,12 +374,14 @@ pnpm -C services/gateway exec wrangler r2 bucket create openmeld-organization-lo
 ```
 
 Cloudflare Images does not need a separately named bucket. The
-`OPENMELD_IMAGES` binding is declared in every Gateway environment because
-Wrangler does not inherit Images bindings into named environments. After a
-binding change, refresh and verify the generated contract:
+`OPENMELD_IMAGES` binding is declared in every Gateway and Remote Agent
+environment because Wrangler does not inherit Images bindings into named
+environments. After a binding change, refresh and verify the generated
+contract:
 
 ```bash
 pnpm -C services/gateway run cf-typegen
+pnpm -C services/remote-agent run cf-typegen
 pnpm run verify:cloudflare:env-contract
 ```
 

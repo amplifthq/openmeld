@@ -3819,6 +3819,126 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it("forwards ten canonical Space File images without applying the legacy four-image limit", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: 1001,
+      requestId: "req_ten_space_file_images",
+      status: "pending" as const,
+      submissionId: "sub_ten_space_file_images",
+    }));
+    const files = Array.from({ length: 10 }, (_, index) => ({
+      fileId: `space-file-screen-${index + 1}`,
+      mimeType: "image/png" as const,
+      name: `screen-${index + 1}.png`,
+      revision: 1,
+      sizeBytes: 10 * 1024 * 1024,
+    }));
+    const actor = {
+      displayName: "Ari",
+      ownerUserId: "user_1",
+      profileId: HUMAN_PROFILE_ID,
+      profileKind: "human" as const,
+    };
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+      sourceSignal: {
+        ...createSignalEnvelope("signal_1"),
+        data: {
+          files,
+          text: "Compare every screenshot and report the exact differences.",
+        },
+      } as SignalEnvelope,
+      spaceFileContent: {},
+    });
+    env.__spaceStub.rpcResolveSpaceFileContent.mockImplementation(
+      (input: { content: { fileId: string; revision: number } }) => {
+        const file = files.find(
+          (candidate) => candidate.fileId === input.content.fileId
+        );
+        if (!file) {
+          throw new Error("space_file.not_found");
+        }
+        return Promise.resolve({
+          file: {
+            createdAt: "2026-08-23T00:00:00.000Z",
+            createdBy: actor,
+            id: file.fileId,
+            kind: "file" as const,
+            latestRevision: {
+              createdAt: "2026-08-23T00:00:00.000Z",
+              createdBy: actor,
+              fileId: file.fileId,
+              id: `revision-${file.fileId}-1`,
+              mimeType: file.mimeType,
+              revision: file.revision,
+              sizeBytes: file.sizeBytes,
+            },
+            name: file.name,
+            parentId: null,
+            path: `/${file.name}`,
+            spaceId: SPACE_ID,
+            updatedAt: "2026-08-23T00:00:00.000Z",
+            updatedBy: actor,
+          },
+          objectKey: `org/org_1/space/${SPACE_ID}/files/${file.fileId}/revisions/revision-1`,
+          organizationId: "org_1",
+          revision: {
+            createdAt: "2026-08-23T00:00:00.000Z",
+            createdBy: actor,
+            fileId: file.fileId,
+            id: `revision-${file.fileId}-1`,
+            mimeType: file.mimeType,
+            revision: file.revision,
+            sizeBytes: file.sizeBytes,
+          },
+        });
+      }
+    );
+
+    try {
+      await submitRemoteAgentNativeDelivery({
+        binding: createBinding(),
+        db: harness.db,
+        env,
+        executionAttemptId: "attempt_1",
+        message: createDispatchMessage({
+          sourceSignalSnapshot: {
+            files,
+            profileId: HUMAN_PROFILE_ID,
+            profileKind: "human",
+            text: "Compare every screenshot and report the exact differences.",
+          },
+        }),
+        nowMs: 1000,
+      });
+
+      expect(env.__spaceStub.rpcResolveSpaceFileContent).toHaveBeenCalledTimes(
+        10
+      );
+      expect(workerSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [
+            expect.objectContaining({
+              attachments: files.map((file) => ({
+                fileName: file.name,
+                id: file.fileId,
+                mimeType: file.mimeType,
+                objectKey: `org/org_1/space/${SPACE_ID}/files/${file.fileId}/revisions/revision-1`,
+                sizeBytes: file.sizeBytes,
+              })),
+              role: "user",
+            }),
+          ],
+        })
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
   it("reports an older Space RPC receiver while preserving the text-only turn", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);

@@ -1,4 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import { SPACE_FILE_MAX_NAME_LENGTH } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
   SpaceFileActor,
@@ -208,7 +209,7 @@ describe("SpaceFileRepository", () => {
     });
   });
 
-  it("prevents duplicate names, folder cycles, and trashing non-empty folders", async () => {
+  it("prevents duplicate folder names, folder cycles, and trashing non-empty folders", async () => {
     const fixture = createFixture();
 
     await withRepository(fixture.spaceId, (repository) => {
@@ -295,6 +296,132 @@ describe("SpaceFileRepository", () => {
       ).toThrowError(
         expect.objectContaining({ code: "space_file.folder_not_empty" })
       );
+    });
+  });
+
+  it("keeps every uploaded file by assigning a collision-safe name", async () => {
+    const fixture = createFixture();
+
+    await withRepository(fixture.spaceId, (repository) => {
+      const firstFile = repository.commitWrite({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-file-1`,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-1`,
+          revisionId: `${fixture.prefix}-revision-1`,
+        }),
+        nowMs: fixture.nowMs,
+        write: {
+          spaceId: fixture.spaceId,
+          fileId: `${fixture.prefix}-file-1`,
+          revisionId: `${fixture.prefix}-revision-1`,
+          name: "Terminal Screenshot.png",
+          parentId: null,
+          baseRevision: null,
+          clientMutationId: `${fixture.prefix}-write-1`,
+          mimeType: "image/png",
+          sizeBytes: 1024,
+        },
+      });
+      const secondWrite = {
+        spaceId: fixture.spaceId,
+        fileId: `${fixture.prefix}-file-2`,
+        revisionId: `${fixture.prefix}-revision-2`,
+        name: "terminal screenshot.png",
+        parentId: null,
+        baseRevision: null,
+        clientMutationId: `${fixture.prefix}-write-2`,
+        mimeType: "image/png",
+        sizeBytes: 2048,
+      } as const;
+      const secondFile = repository.commitWrite({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-file-2`,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-2`,
+          revisionId: `${fixture.prefix}-revision-2`,
+        }),
+        nowMs: fixture.nowMs + 1,
+        write: secondWrite,
+      });
+      const thirdFile = repository.commitWrite({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-file-3`,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-3`,
+          revisionId: `${fixture.prefix}-revision-3`,
+        }),
+        nowMs: fixture.nowMs + 2,
+        write: {
+          spaceId: fixture.spaceId,
+          fileId: `${fixture.prefix}-file-3`,
+          revisionId: `${fixture.prefix}-revision-3`,
+          name: "TERMINAL SCREENSHOT.PNG",
+          parentId: null,
+          baseRevision: null,
+          clientMutationId: `${fixture.prefix}-write-3`,
+          mimeType: "image/png",
+          sizeBytes: 4096,
+        },
+      });
+
+      expect(firstFile.name).toBe("Terminal Screenshot.png");
+      expect(secondFile.name).toBe("terminal screenshot (2).png");
+      expect(thirdFile.name).toBe("TERMINAL SCREENSHOT (3).PNG");
+      expect(
+        repository
+          .list({
+            canWrite: true,
+            parentId: null,
+            spaceId: fixture.spaceId,
+          })
+          .entries.map((entry) => entry.name)
+      ).toEqual(
+        expect.arrayContaining([
+          "Terminal Screenshot.png",
+          "terminal screenshot (2).png",
+          "TERMINAL SCREENSHOT (3).PNG",
+        ])
+      );
+      expect(repository.prepareWrite(secondWrite)).toEqual(secondFile);
+
+      const extensionHeavyName = `a.${"x".repeat(
+        SPACE_FILE_MAX_NAME_LENGTH - 2
+      )}`;
+      const extensionHeavyFiles = [1, 2].map((ordinal) =>
+        repository.commitWrite({
+          actor,
+          auditEvent: createAuditEvent({
+            entryId: `${fixture.prefix}-extension-heavy-file-${ordinal}`,
+            fixture,
+            operation: "content_write",
+            operationId: `${fixture.prefix}-extension-heavy-write-${ordinal}`,
+            revisionId: `${fixture.prefix}-extension-heavy-revision-${ordinal}`,
+          }),
+          nowMs: fixture.nowMs + 2 + ordinal,
+          write: {
+            spaceId: fixture.spaceId,
+            fileId: `${fixture.prefix}-extension-heavy-file-${ordinal}`,
+            revisionId: `${fixture.prefix}-extension-heavy-revision-${ordinal}`,
+            name: extensionHeavyName,
+            parentId: null,
+            baseRevision: null,
+            clientMutationId: `${fixture.prefix}-extension-heavy-write-${ordinal}`,
+            mimeType: "application/octet-stream",
+            sizeBytes: ordinal,
+          },
+        })
+      );
+      expect(extensionHeavyFiles[1]?.name).toHaveLength(
+        SPACE_FILE_MAX_NAME_LENGTH
+      );
+      expect(extensionHeavyFiles[1]?.name.startsWith("a (2).")).toBe(true);
     });
   });
 

@@ -28,6 +28,10 @@
       "dataset": "openmeld_runtime_evidence"
     }
   ],
+  "images": {
+    "binding": "OPENMELD_IMAGES",
+    "remote": true
+  },
   "browser": {
     "binding": "BROWSER",
     "remote": true
@@ -116,6 +120,10 @@
           "dataset": "openmeld_runtime_evidence"
         }
       ],
+      "images": {
+        "binding": "OPENMELD_IMAGES",
+        "remote": true
+      },
       "browser": {
         "binding": "BROWSER",
         "remote": true
@@ -194,6 +202,9 @@
           "dataset": "openmeld_runtime_evidence_prod"
         }
       ],
+      "images": {
+        "binding": "OPENMELD_IMAGES"
+      },
       "browser": {
         "binding": "BROWSER",
         "remote": true

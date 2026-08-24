@@ -31,6 +31,7 @@ const AUTHORITATIVE_TURN_TIME_SUFFIX_PATTERN =
   /\[OpenMeld turn context\]\nAuthoritative UTC time for this turn: 2026-07-28T03:04:05\.000Z$/u;
 const PROGRESSIVE_CONTEXT_POLICY = "Context policy: progressive_context.v1.";
 const SHA_256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
+const ATTACHMENT_SEQUENCE_SUFFIX_PATTERN = /attachment-(\d+)$/u;
 
 describe("remote agent submission", () => {
   it("keeps event-bound Slack search authorization out of model prompts", () => {
@@ -2020,6 +2021,66 @@ describe("remote agent submission", () => {
         type: "image",
       },
     ]);
+  });
+
+  it("keeps ten modern Center Agent images as lazy R2 streams instead of base64 buffers", async () => {
+    const imageCount = 10;
+    const sourceSizeBytes = 10 * 1024 * 1024;
+    const request = createSubmitTurnRequestV2({
+      messages: [
+        {
+          attachments: Array.from({ length: imageCount }, (_, index) => ({
+            fileName: `screen-${index + 1}.png`,
+            id: `attachment-${index + 1}`,
+            mimeType: "image/png" as const,
+            sizeBytes: sourceSizeBytes,
+          })),
+          content: "Compare these screenshots.",
+          role: "user",
+        },
+      ],
+    });
+    const admitted: Parameters<
+      RemoteAgentAdmissionHost["admitConversationTurn"]
+    >[] = [];
+    const arrayBufferSpies: ReturnType<typeof vi.spyOn>[] = [];
+    const objects = Array.from({ length: imageCount }, (_, index) => {
+      const object = makeR2ObjectBody(
+        `attachment-${index + 1}`,
+        new Uint8Array([index + 1]),
+        sourceSizeBytes
+      );
+      arrayBufferSpies.push(vi.spyOn(object, "arrayBuffer"));
+      return object;
+    });
+    const bucket = createAttachmentBucket((key) => {
+      const index =
+        Number(key.match(ATTACHMENT_SEQUENCE_SUFFIX_PATTERN)?.[1] ?? 0) - 1;
+      return Promise.resolve(objects[index] ?? null);
+    });
+
+    await submitRemoteAgentConversationTurn({
+      agentName: buildRemoteAgentName(request),
+      attachmentBucket: bucket,
+      host: createAdmissionHost(admitted),
+      input: request,
+      nowMs: () => TEST_NOW_MS,
+    });
+
+    const admittedImages = admitted[0]?.[0].images ?? [];
+    expect(admittedImages).toHaveLength(imageCount);
+    expect(admittedImages.every((image) => !("data" in image))).toBe(true);
+    expect(arrayBufferSpies.every((spy) => spy.mock.calls.length === 0)).toBe(
+      true
+    );
+    const firstImage = admittedImages[0];
+    expect(firstImage && "openStream" in firstImage).toBe(true);
+    if (!(firstImage && "openStream" in firstImage)) {
+      throw new Error("Expected a lazy image stream.");
+    }
+    await expect(
+      new Response(await firstImage.openStream()).arrayBuffer()
+    ).resolves.toEqual(new Uint8Array([1]).buffer);
   });
 
   it("removes a transient Message Channel image only after admission succeeds", async () => {
