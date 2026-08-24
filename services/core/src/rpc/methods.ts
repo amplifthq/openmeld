@@ -581,6 +581,7 @@ import type {
   SpaceContract,
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceResponseContractVersion,
+  SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceIdentityDirectory,
   SpaceMemberDirectory,
@@ -624,6 +625,7 @@ import {
   createAuthenticatedSpaceAccessContext,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
+  getSpaceAccessRequestId,
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   type SpaceAccessContext,
 } from "@openmeld/space";
@@ -1051,6 +1053,7 @@ import type {
   SpaceClaimTimeLivenessInput,
   SpaceClaimTimeLivenessResult,
 } from "../space/application/space-claim-liveness-service";
+import { buildSpaceFileAuditEvent } from "../space/application/space-file-audit";
 import type { FinalOutcomeWriteAuthority } from "../space/application/types";
 import { readSpaceBoardExecutionProjection } from "../space/infrastructure/d1/space-board-execution-read-repo";
 import { readSpaceDispatchLookupByClientMessageId } from "../space/infrastructure/d1/space-dispatch-read-repo";
@@ -16218,28 +16221,59 @@ export async function rpcReadSpaceFileContent(
   env: CoreBindings,
   input: ReadSpaceFileContentRpcInput
 ): Promise<ReadSpaceFileContentRpcResponse> {
-  const resolved = await rpcResolveSpaceFileContent(env, input);
-  assertSpaceFileObjectScope({
-    organizationId: resolved.organizationId,
-    spaceId: input.spaceId,
-    fileId: input.content.fileId,
-    revisionId: resolved.revision.id,
-    objectKey: resolved.objectKey,
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const resolved = await stub.rpcResolveSpaceFileContent({
+    content: input.content,
+    spaceAccess,
   });
-  const bucket = requireSpaceFileBucket(env);
-  let object: R2ObjectBody | null;
+  const auditEvent = buildSpaceFileContentAuditEvent({
+    entryId: resolved.file.id,
+    operation: "content_read",
+    operationId: getSpaceAccessRequestId(spaceAccess),
+    organizationId: resolved.organizationId,
+    revisionId: resolved.revision.id,
+    spaceAccess,
+    spaceId: input.spaceId,
+  });
+  let bytes: ArrayBuffer;
   try {
-    object = await bucket.get(resolved.objectKey);
-  } catch {
-    throwSpaceFileStorageFailed("This file could not be read right now.");
+    assertSpaceFileObjectScope({
+      organizationId: resolved.organizationId,
+      spaceId: input.spaceId,
+      fileId: input.content.fileId,
+      revisionId: resolved.revision.id,
+      objectKey: resolved.objectKey,
+    });
+    const bucket = requireSpaceFileBucket(env);
+    let object: R2ObjectBody | null;
+    try {
+      object = await bucket.get(resolved.objectKey);
+    } catch {
+      throwSpaceFileStorageFailed("This file could not be read right now.");
+    }
+    if (!object) {
+      throwSpaceFileStorageFailed("This file revision is unavailable.");
+    }
+    try {
+      bytes = await object.arrayBuffer();
+    } catch {
+      throwSpaceFileStorageFailed("This file could not be read right now.");
+    }
+    if (bytes.byteLength !== resolved.revision.sizeBytes) {
+      throwSpaceFileStorageFailed("This file revision is incomplete.");
+    }
+  } catch (error) {
+    await stub.rpcRecordSpaceFileAuditEvent({
+      event: {
+        ...auditEvent,
+        errorCode: readCoreRpcErrorCode(error) ?? "space_file.storage_failed",
+        result: "failed",
+      },
+    });
+    throw error;
   }
-  if (!object) {
-    throwSpaceFileStorageFailed("This file revision is unavailable.");
-  }
-  const bytes = await object.arrayBuffer();
-  if (bytes.byteLength !== resolved.revision.sizeBytes) {
-    throwSpaceFileStorageFailed("This file revision is incomplete.");
-  }
+  await stub.rpcRecordSpaceFileAuditEvent({ event: auditEvent });
   return { ...resolved, bytes };
 }
 
@@ -16257,19 +16291,34 @@ export async function rpcWriteSpaceFileContent(
       status: 413,
     });
   }
-  const prepared = await rpcPrepareSpaceFileWrite(env, input);
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const prepared = await stub.rpcPrepareSpaceFileWrite({
+    spaceAccess,
+    write: input.write,
+  });
+  const auditEvent = buildSpaceFileContentAuditEvent({
+    entryId: input.write.fileId,
+    operation: "content_write",
+    operationId: input.write.clientMutationId,
+    organizationId: prepared.organizationId,
+    revisionId: input.write.revisionId,
+    spaceAccess,
+    spaceId: input.spaceId,
+  });
   if (prepared.committedFile) {
+    await stub.rpcRecordSpaceFileAuditEvent({ event: auditEvent });
     return prepared.committedFile;
   }
-  assertSpaceFileObjectScope({
-    organizationId: prepared.organizationId,
-    spaceId: input.spaceId,
-    fileId: input.write.fileId,
-    revisionId: input.write.revisionId,
-    objectKey: prepared.objectKey,
-  });
-  const bucket = requireSpaceFileBucket(env);
   try {
+    assertSpaceFileObjectScope({
+      organizationId: prepared.organizationId,
+      spaceId: input.spaceId,
+      fileId: input.write.fileId,
+      revisionId: input.write.revisionId,
+      objectKey: prepared.objectKey,
+    });
+    const bucket = requireSpaceFileBucket(env);
     await bucket.put(prepared.objectKey, input.bytes, {
       httpMetadata: { contentType: input.write.mimeType },
       customMetadata: {
@@ -16278,11 +16327,26 @@ export async function rpcWriteSpaceFileContent(
         spaceId: input.spaceId,
       },
     });
-  } catch {
-    throwSpaceFileStorageFailed("This file could not be stored right now.");
+  } catch (error) {
+    const normalizedError = normalizeSpaceFileStorageError(
+      error,
+      "This file could not be stored right now."
+    );
+    await stub.rpcRecordSpaceFileAuditEvent({
+      event: {
+        ...auditEvent,
+        errorCode:
+          readCoreRpcErrorCode(normalizedError) ?? "space_file.storage_failed",
+        result: "failed",
+      },
+    });
+    throw normalizedError;
   }
   try {
-    return await rpcCommitSpaceFileWrite(env, input);
+    return await stub.rpcCommitSpaceFileWrite({
+      spaceAccess,
+      write: input.write,
+    });
   } catch (error) {
     console.warn("[core.space_file.orphan_reconciliation_deferred]", {
       event: "core.space_file.orphan_reconciliation_deferred",
@@ -16362,6 +16426,39 @@ function throwSpaceFileStorageFailed(reason: string): never {
     code: "space_file.storage_failed",
     reason,
     status: 503,
+  });
+}
+
+function normalizeSpaceFileStorageError(
+  error: unknown,
+  reason: string
+): unknown {
+  return readCoreRpcErrorCode(error)
+    ? error
+    : createCoreRpcHttpError({
+        code: "space_file.storage_failed",
+        reason,
+        status: 503,
+      });
+}
+
+function buildSpaceFileContentAuditEvent(input: {
+  entryId: string;
+  operation: Extract<
+    SpaceFileAuditEvent["operation"],
+    "content_read" | "content_write"
+  >;
+  operationId: string;
+  organizationId: string;
+  revisionId: string;
+  spaceAccess: SpaceAccessContext;
+  spaceId: string;
+}): SpaceFileAuditEvent {
+  return buildSpaceFileAuditEvent({
+    ...input,
+    errorCode: null,
+    occurredAtMs: Date.now(),
+    result: "succeeded",
   });
 }
 

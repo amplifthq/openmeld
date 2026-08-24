@@ -8,8 +8,12 @@ import {
   type OpenMeldEnvPreset,
   type OpenMeldPathResolutionInput,
   resolveOpenMeldEnvPreset,
+  resolveOpenMeldRootDir,
 } from "../../config/paths";
-import { containsOpenMeldManagedBinaryPath } from "./daemon-managed-binary-path";
+import {
+  containsOpenMeldManagedBinaryPath,
+  resolveOpenMeldManagedVersionBinaryRootPath,
+} from "./daemon-managed-binary-path";
 import {
   daemonServiceExecutableWrapperPaths,
   daemonServiceLauncherPath,
@@ -19,6 +23,7 @@ import {
   daemonCommandContainsExactPath,
   isDaemonRuntimeProcessCommand,
   parseDaemonServiceProcessCommand,
+  tokenizeDaemonCommand,
 } from "./daemon-service-command-path";
 import { resolveDaemonServiceIdentity } from "./daemon-service-identity";
 
@@ -37,6 +42,7 @@ type ListedProcess = {
 };
 
 const POSIX_PROCESS_LINE_PATTERN = /^(\d+)\s+(\d+)\s+(.+)$/;
+const TRAILING_PATH_SEPARATOR_PATTERN = /\/+$/u;
 const OPENMELD_PACKAGE_INSTALL_ENTRY_SEGMENT =
   "/node_modules/openmeld/dist/openmeld.js";
 const OPENMELD_DEV_LOCAL_ENTRY_SEGMENT = "/openmeld-dev.js";
@@ -213,6 +219,16 @@ function resolveDaemonCommandLaneScope(input: {
   launcherPath: string;
   pathInput: OpenMeldPathResolutionInput;
 }): "current_lane" | "other_lane" | "not_openmeld" {
+  const managedVersionRoot = resolveDaemonCommandManagedVersionRoot(
+    input.normalizedCommand
+  );
+  if (managedVersionRoot) {
+    const currentRoot = normalizeRootPath(
+      resolveOpenMeldRootDir(input.pathInput)
+    );
+    return managedVersionRoot === currentRoot ? "current_lane" : "other_lane";
+  }
+
   const currentLane = resolveOpenMeldEnvPreset(input.pathInput);
   const managedLane = resolveManagedDaemonPathLane({
     normalizedCommand: input.normalizedCommand,
@@ -230,6 +246,18 @@ function resolveDaemonCommandLaneScope(input: {
     return "not_openmeld";
   }
   return detectedLane === currentLane ? "current_lane" : "other_lane";
+}
+
+function resolveDaemonCommandManagedVersionRoot(
+  normalizedCommand: string
+): string | null {
+  for (const token of tokenizeDaemonCommand(normalizedCommand)) {
+    const rootPath = resolveOpenMeldManagedVersionBinaryRootPath(token);
+    if (rootPath) {
+      return normalizeRootPath(rootPath);
+    }
+  }
+  return null;
 }
 
 function resolveManagedDaemonPathLane(input: {
@@ -484,4 +512,11 @@ function resolveLanePathInput(
 
 function normalizeProcessCommand(command: string): string {
   return command.trim().toLowerCase().replaceAll("\\", "/");
+}
+
+function normalizeRootPath(path: string): string {
+  const normalized = normalizeProcessCommand(path);
+  return normalized === "/"
+    ? normalized
+    : normalized.replace(TRAILING_PATH_SEPARATOR_PATTERN, "");
 }

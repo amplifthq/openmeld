@@ -1043,6 +1043,13 @@ missing entries remain separate explicit outcomes. Upload and download bodies
 are raw bytes, not base64 JSON. Agent-facing text reads and writes adapt through
 Core but preserve the same ids and revision fence.
 
+`packages/schemas` also owns the private Core-to-Space File audit event. The
+strict envelope carries only canonical scope and identity ids, operation,
+request and operation correlation, result, and a bounded failure code. It never
+carries a file name, content, byte count, object key, or raw error. Core and the
+Space Durable Object use this one envelope for R2 outcomes and Space-owned
+metadata mutations instead of constructing separate log shapes.
+
 The list contract names either the active tree or Trash. Trash reads and all
 restore mutations require active Space membership. Entry restore clears Trash
 on the same id and preserves every immutable revision. Revision restore copies

@@ -147,6 +147,65 @@ export const spaceFileActorSchema = z.strictObject({
   ownerUserId: scopeIdSchema.optional(),
 });
 
+export const spaceFileAuditOperationSchema = z.enum([
+  "content_read",
+  "content_write",
+  "folder_create",
+  "entry_update",
+  "entry_trash",
+  "entry_restore",
+]);
+
+export const spaceFileAuditResultSchema = z.enum(["succeeded", "failed"]);
+
+export const spaceFileAuditEventSchema = z
+  .strictObject({
+    eventId: z.string().trim().min(1).max(1024),
+    operationId: scopeIdSchema,
+    requestId: scopeIdSchema,
+    organizationId: scopeIdSchema,
+    spaceId: scopeIdSchema,
+    entryId: spaceFileEntryIdSchema,
+    revisionId: spaceFileRevisionIdSchema.nullable(),
+    operation: spaceFileAuditOperationSchema,
+    actorKind: z.enum([
+      "authenticated",
+      "anonymous_viewer",
+      "dispatch_continuation",
+    ]),
+    actorProfileId: scopeIdSchema.nullable(),
+    representedHumanProfileId: scopeIdSchema.nullable(),
+    result: spaceFileAuditResultSchema,
+    errorCode: z.string().trim().min(1).max(128).nullable(),
+    occurredAtMs: z.number().int().nonnegative(),
+  })
+  .superRefine((value, context) => {
+    const actorProfileRequired = value.actorKind !== "anonymous_viewer";
+    if (actorProfileRequired !== (value.actorProfileId !== null)) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Authenticated and dispatch actors require an actor Profile; anonymous viewers must not claim one.",
+        path: ["actorProfileId"],
+      });
+    }
+    if (value.result === "succeeded" && value.errorCode !== null) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Successful Space File audit events cannot carry an error code.",
+        path: ["errorCode"],
+      });
+    }
+    if (value.result === "failed" && value.errorCode === null) {
+      context.addIssue({
+        code: "custom",
+        message: "Failed Space File audit events require an error code.",
+        path: ["errorCode"],
+      });
+    }
+  });
+
 export const spaceFileRevisionSchema = z.strictObject({
   id: spaceFileRevisionIdSchema,
   fileId: spaceFileEntryIdSchema,

@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-24T05:24:48.075Z",
+  "updatedAt": "2026-08-24T06:23:45.202Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.88",
+      "packageVersion": "0.3.89",
       "updatePolicy": "available",
-      "reason": "Keeps Codex permission settings stable during background checks and isolated repair."
+      "reason": "Keep Agent answer text separate from execution state."
     },
     "service": {
-      "bundleHash": "808a83582837f5c34006386ee189776b76a7b9c3c265d33db1a085090e8c54e1",
-      "bundleVersion": "0.3.88",
+      "bundleHash": "8fa735e3d9858d965bfabadd648c91e8e6444a4d248e952291f0b82eb8617d7d",
+      "bundleVersion": "0.3.89",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
-      "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
-      "updatePolicy": "available",
-      "reason": "Keeps Codex permission settings stable during background checks and isolated repair."
+      "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
+      "updatePolicy": "required",
+      "reason": "Keep Agent answer text separate from execution state."
     },
     "skills": {
-      "bundleHash": "79a8ca933c1447c98097071a7434ae390c267be8f9b05f67d3102a39c614ef04",
-      "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
+      "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
+      "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
-      "updatePolicy": "available",
-      "reason": "Keeps Codex permission settings stable during background checks and isolated repair."
+      "updatePolicy": "required",
+      "reason": "Keep Agent answer text separate from execution state."
     }
   }
 }

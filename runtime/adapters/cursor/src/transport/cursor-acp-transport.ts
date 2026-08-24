@@ -212,7 +212,6 @@ async function runCursorAcpTurn(input: {
   }
   assertSuccessfulStopReason(promptResult);
   const output = input.session.readCollectedAgentText();
-  assertCursorOutputIsNotAccountBlock(output);
   await emitFinalPreviewIfRequested({
     onPreview: input.input.onPreview,
     output,
@@ -1030,17 +1029,6 @@ function assertSuccessfulStopReason(value: unknown): void {
     code: `runtime.turn.${stopReason}`,
     errorType: "adapter",
     message: `runtime.turn.${stopReason}: Cursor ACP ended the turn with stopReason '${stopReason}'`,
-  });
-}
-
-function assertCursorOutputIsNotAccountBlock(output: string): void {
-  if (!isCursorPlanUpgradeRequired(output)) {
-    return;
-  }
-  throw new CursorAcpTransportError({
-    code: "cursor.plan_upgrade_required",
-    errorType: "adapter",
-    message: output.trim(),
   });
 }
 
