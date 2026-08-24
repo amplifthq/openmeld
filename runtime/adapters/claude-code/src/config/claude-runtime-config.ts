@@ -1,4 +1,5 @@
 import {
+  type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
   type LaunchContractVerificationResult,
   type RuntimeAgentControllerLaunchContract,
@@ -10,15 +11,16 @@ import {
 
 const DEFAULT_CLAUDE_CODE_COMMAND = "claude";
 
-export async function resolveInstalledClaudeCodeLaunchCandidates(input?: {
-  timeoutMs?: number | null;
-}): Promise<InstalledLaunchCandidatesResolution> {
+export async function resolveInstalledClaudeCodeLaunchCandidates(
+  input?: InstalledLaunchCandidatesOptions
+): Promise<InstalledLaunchCandidatesResolution> {
   const installedCandidates = await resolveInstalledNodeScriptLaunchCandidates({
     commandName: DEFAULT_CLAUDE_CODE_COMMAND,
     configuredCommand: normalizeOptionalText(
       process.env.OPENMELD_DAEMON_RUNTIME_CLAUDE_CODE_BIN
     ),
     displayName: "Claude Code",
+    preferredLaunchContract: input?.preferredLaunchContract,
   });
   if (!installedCandidates.ok) {
     return installedCandidates;

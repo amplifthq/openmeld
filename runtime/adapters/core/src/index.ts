@@ -62,6 +62,7 @@ export type {
   AgentControllerPermissionMode,
   ConversationPolicy,
   OpenCodePermissionConfig,
+  RuntimeAgentControllerLaunchCandidate,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
 export {
@@ -95,6 +96,7 @@ export {
   buildExecutableLaunchContract,
   type CliLaunchCommand,
   type InstalledLaunchCandidatesFailureReason,
+  type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
   type InstalledLaunchContractResolution,
   type LaunchContractVerificationFailureKind,

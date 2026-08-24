@@ -1,4 +1,5 @@
 import {
+  type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
   type LaunchContractVerificationResult,
   type RuntimeAgentControllerLaunchContract,
@@ -13,15 +14,16 @@ import {
 const DEFAULT_OPENCLAW_COMMAND = "openclaw";
 const DEFAULT_OPENCLAW_AGENT_ID = "main";
 
-export async function resolveInstalledOpenClawLaunchCandidates(input?: {
-  timeoutMs?: number | null;
-}): Promise<InstalledLaunchCandidatesResolution> {
+export async function resolveInstalledOpenClawLaunchCandidates(
+  input?: InstalledLaunchCandidatesOptions
+): Promise<InstalledLaunchCandidatesResolution> {
   const installedCandidates = await resolveInstalledNodeScriptLaunchCandidates({
     commandName: DEFAULT_OPENCLAW_COMMAND,
     configuredCommand: normalizeOptionalText(
       process.env.OPENMELD_DAEMON_RUNTIME_OPENCLAW_BIN
     ),
     displayName: "OpenClaw",
+    preferredLaunchContract: input?.preferredLaunchContract,
   });
   if (!installedCandidates.ok) {
     return installedCandidates;

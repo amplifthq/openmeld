@@ -197,17 +197,17 @@ export async function readAccessToken(
 export async function deleteAccessToken(ref: StoredTokenRef): Promise<void> {
   if (ref.provider === "macos-keychain") {
     if (!shouldUseNativeMacOsKeychain()) {
-      return;
+      throw new Error(MAC_OS_KEYCHAIN_NONINTERACTIVE_UNAVAILABLE_MESSAGE);
     }
-    await deleteMacOsNativeKeychainToken(ref).catch(() => undefined);
+    await deleteMacOsNativeKeychainToken(ref);
     return;
   }
   if (ref.provider === "windows-dpapi") {
-    await deleteWindowsDpapiToken(ref).catch(() => undefined);
+    await deleteWindowsDpapiToken(ref);
     return;
   }
   if (ref.provider === "insecure-file") {
-    await deleteInsecureFileToken(ref).catch(() => undefined);
+    await deleteInsecureFileToken(ref);
   }
 }
 
@@ -362,12 +362,14 @@ function warnMacOsPrivateStorageFallback(error: unknown): void {
     return;
   }
   macOsPrivateStorageWarningShown = true;
+  const storageExpectation = isBinaryDistribution()
+    ? "This session stays in private local storage unless a later sign-in replaces it."
+    : "This npm installation cannot use macOS Keychain. This session stays in private local storage.";
   console.warn(
     "[openmeld auth] macOS Keychain is unavailable. OpenMeld saved this " +
       "session in a private file protected for your macOS user account, so " +
       "setup can continue. " +
-      "A future successful setup or login will move the session back to " +
-      `Keychain. Details: ${toErrorMessage(error)}`
+      `${storageExpectation} Details: ${toErrorMessage(error)}`
   );
 }
 

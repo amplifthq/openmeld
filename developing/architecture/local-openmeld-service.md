@@ -1022,7 +1022,10 @@ Catalog consumption rules:
   a parallel local sign-in state.
 - On macOS, the packaged CLI uses Security.framework with the user's normal
   Keychain. Each operation runs in a short-lived child process with a
-  five-second deadline. Every operation disables Keychain user interaction
+  five-second deadline. Before reading a request, the child verifies through
+  macOS Code Signing Services that its parent is the same OpenMeld executable;
+  direct invocation from another local process fails before Keychain access.
+  Every operation disables Keychain user interaction
   inside that child and must return an explicit authentication failure instead
   of opening a macOS authorization window. Normal setup and login writes remain
   silent; if macOS requires interaction, setup uses the documented private-file
@@ -1033,15 +1036,21 @@ Catalog consumption rules:
   expose the downgrade as a warning. Access tokens are sent to the helper over
   stdin, never argv. The Service may consume that same CLI-owned session; it
   must not create a second authentication owner. A new process may try
-  Keychain again, and the next successful login replaces the fallback with a
-  Keychain item and removes the old file.
+  Keychain again. A later login may replace the fallback with a Keychain item;
+  there is no automatic private-file-to-Keychain migration. If deleting a
+  replaced credential fails, the CLI retains its storage reference as pending
+  cleanup outside the active session and retries it during a later explicit
+  login or logout instead of silently forgetting it.
 - An npm-distributed CLI or unattended developer tool that cannot embed the
   native helper must not invoke `/usr/bin/security` as an alternate token path.
   A new npm CLI login uses the documented warned mode-`0600` private-file
   fallback. An existing Keychain reference returns an explicit setup-or-login
   recovery error. Developer HTTP tools use an isolated lane with private local
   token storage or route through the packaged CLI. These paths must fail closed
-  instead of queuing interactive authorization windows.
+  instead of queuing interactive authorization windows. Logout removes an
+  unreadable active session so it cannot block a new login. An npm login may
+  replace that session with the private-file fallback while retaining the old
+  Keychain reference for later cleanup by a capable packaged CLI.
 - A background Service must not preflight a custom workspace with the POSIX
   `access` syscall. On macOS, a LaunchAgent can block indefinitely while that
   syscall crosses a protected-folder privacy boundary. Catalog inspection uses
