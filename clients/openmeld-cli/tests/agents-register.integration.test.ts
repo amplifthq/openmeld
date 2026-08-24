@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { detectInstalledSkillsAgentsMock } = vi.hoisted(() => ({
-  detectInstalledSkillsAgentsMock: vi.fn(),
+const { detectInstalledRuntimeAgentsMock } = vi.hoisted(() => ({
+  detectInstalledRuntimeAgentsMock: vi.fn(),
 }));
 
 const {
@@ -18,7 +18,7 @@ vi.mock("../src/skills/agents", async () => {
   );
   return {
     ...actual,
-    detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
+    detectInstalledRuntimeAgents: detectInstalledRuntimeAgentsMock,
   };
 });
 
@@ -44,7 +44,7 @@ import { withCapturedStdio, withTempHome } from "./helpers/fs";
 
 describe("openmeld agents enable", () => {
   beforeEach(() => {
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["codex"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
     resolveBuiltinControllerInstallResolutionMock.mockImplementation(
       (input: { detected: boolean; runtimeSupported: boolean }) => {
         if (!(input.detected && input.runtimeSupported)) {
@@ -99,7 +99,7 @@ describe("openmeld agents enable", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    detectInstalledSkillsAgentsMock.mockReset();
+    detectInstalledRuntimeAgentsMock.mockReset();
     resolveBuiltinControllerInstallResolutionMock.mockReset();
     repairBuiltinControllerInstallMock.mockReset();
   });
@@ -144,7 +144,7 @@ describe("openmeld agents enable", () => {
 
   it("does not register suspended built-ins for --all", async () => {
     await withTempHome(async () => {
-      detectInstalledSkillsAgentsMock.mockResolvedValue(["codex", "openclaw"]);
+      detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex", "openclaw"]);
 
       const { stdout } = await withCapturedStdio(async () => {
         await runAgentsEnable({
@@ -241,7 +241,7 @@ describe("openmeld agents enable", () => {
 
   it("rejects explicitly enabling suspended built-ins", async () => {
     await withTempHome(async () => {
-      detectInstalledSkillsAgentsMock.mockResolvedValue(["openclaw"]);
+      detectInstalledRuntimeAgentsMock.mockResolvedValue(["openclaw"]);
 
       const { stdout } = await withCapturedStdio(async () => {
         await runAgentsEnable({
@@ -389,7 +389,7 @@ describe("openmeld agents enable", () => {
 
   it("renders human enable results inside cards with plain-language copy", async () => {
     await withTempHome(async () => {
-      detectInstalledSkillsAgentsMock.mockResolvedValue([
+      detectInstalledRuntimeAgentsMock.mockResolvedValue([
         "claude-code",
         "codex",
       ]);

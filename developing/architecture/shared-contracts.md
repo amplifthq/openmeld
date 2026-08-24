@@ -1017,14 +1017,18 @@ array to a workstation route only when the route reports
 unsupported routes. The local service then uses the existing authenticated
 attachment download route and provides validated local file paths to the Agent
 Controller. Hosted Center Agent native delivery has a separate explicit
-image-input contract: Core reads the triggering Space signal through the
-authorized Space RPC, copies the optional attachment reference subset into
-`remoteAgentWorkerTurnMessageSchema.attachments`, and never puts image bytes
-into the worker RPC. The Remote Agent worker combines the request's existing
-`organizationId` and `spaceId` with each attachment id through
-`buildSpaceAttachmentObjectKey`, reads the private R2 object, and sends validated
-base64 images to Flue. Clients must not derive image rendering from Markdown or
-relax the Markdown image policy.
+image-input contract. Legacy Message Channel attachment records remain bounded
+compatibility inputs: Core copies their metadata references into
+`remoteAgentWorkerTurnMessageSchema.attachments`, and Remote Agent derives their
+private object address from the request's existing Organization and Space
+identity. Current Space messages use canonical Space File references instead:
+Core reauthorizes the exact immutable revision through the owning Space Durable
+Object and sends its private object key to Remote Agent. Remote Agent reads the
+exact source, creates a bounded transient WebP derivative, and sends only that
+derivative to the auxiliary image-understanding route. Flue's persistent primary
+conversation receives escaped text observations and immutable file metadata,
+never source or derivative image bytes. Clients must not derive image rendering
+from Markdown or relax the Markdown image policy.
 
 Remote Agent browser screenshots reuse the same attachment contract in the
 opposite direction. The worker asks Core to create organization- and
@@ -1062,10 +1066,14 @@ alternate file shapes, paths, or MIME maps.
 The shared file contract uses stable entry ids and immutable revision ids.
 Content writes carry `baseRevision` (`null` only when creating a file) plus a
 client mutation id. The canonical response returns the committed revision. A
-stale base is `space_file.conflict`; name collisions, invalid parents, and
-missing entries remain separate explicit outcomes. Upload and download bodies
-are raw bytes, not base64 JSON. Agent-facing text reads and writes adapt through
-Core but preserve the same ids and revision fence.
+stale base is `space_file.conflict`. A create write with `baseRevision: null`
+atomically resolves an occupied case-insensitive sibling name to the first
+available `name (n).ext` and returns that canonical name. Explicit folder
+creation, rename, move, and restore keep `space_file.name_conflict` as a
+separate outcome because those mutations express an exact organization request.
+Invalid parents and missing entries remain separate explicit outcomes. Upload
+and download bodies are raw bytes, not base64 JSON. Agent-facing text reads and
+writes adapt through Core but preserve the same ids and revision fence.
 
 `packages/schemas` also owns the private Core-to-Space File audit event. The
 strict envelope carries only canonical scope and identity ids, operation,
@@ -1096,12 +1104,32 @@ the historical signal.
 For hosted Center Agent admission, Core reauthorizes each referenced JPEG or
 PNG revision through the owning Space Durable Object and passes its immutable
 object key through the private Remote Agent worker contract. Remote Agent reads
-those exact bytes from the existing private Space object store and feeds them
-through its existing image-understanding path. It does not copy the image into
-the legacy attachment namespace, mint a second attachment record, or delete the
-canonical revision after admission. Text files remain available through the
-Space File read tool; unsupported binary formats remain visible by metadata and
-available to Human and Local Agent download.
+those exact bytes from the existing private Space object store, creates a
+bounded transient WebP derivative, and feeds only that derivative through the
+frozen auxiliary image-understanding route. The persistent primary conversation
+receives one bounded escaped observation plus the immutable file reference; it
+never receives or stores the original bytes, their base64 encoding, or the
+transient derivative. This applies even when the primary model advertises image
+input. Remote Agent does not copy the image into the legacy attachment
+namespace, mint a second attachment record, create a Space File revision for a
+derivative, or delete the canonical revision after admission. Text files remain
+available through the Space File read tool; unsupported binary formats remain
+visible by metadata and available to Human and Local Agent download.
+
+The current image-input contract accepts up to ten canonical Space File images
+in one message while preserving the legacy maximum of four attachment records.
+Remote Agent opens the immutable R2 source as a replayable stream and prepares
+one derivative at a time. Each transient WebP has a 4 MiB ceiling, prefers a
+2560-pixel longest edge at quality 88, and never falls below 1600 pixels. One
+auxiliary request contains at most five images, 8 MiB of derivative bytes, and
+an estimated 20 megapixels of rendered image input; reaching any one budget
+closes that batch. Four- and five-image batches reserve up to 8,192 output
+tokens, while smaller batches reserve up to 4,096. Larger turns are split into
+ordered batches whose prompt labels every global image index and filename. The
+primary model receives all labeled batch observations in one admitted turn and
+owns their final cross-batch synthesis; auxiliary batches never become durable
+conversation turns. These are model-materialization limits, not Space File
+storage limits, and they never replace or mutate the original revision.
 
 A text signal may have empty text only when it carries at least one canonical
 Space File. Web and CLI may therefore publish a file-only
@@ -1116,11 +1144,58 @@ metadata and grants no access. Clients refresh the shared file-list contract.
 Older clients safely ignore the topic and continue to observe current state on
 their next read.
 
-The MVP accepts individual files up to 10 MiB. Browser text editing is limited
-to UTF-8 text files no larger than 1 MiB. Binary files remain upload, download,
-rename, move, and Trash capable. There is no multipart upload, public object URL,
-per-file ACL, Resources projection, automatic Computer materialization, CRDT,
-or live character stream in this contract.
+The current single-request compatibility path accepts individual files up to
+10 MiB. That transport ceiling is not the intended user-facing file policy and
+must not be raised by buffering a larger request in Gateway. Removing it
+requires one shared resumable multipart contract: Core-authorized upload
+sessions, streamed R2 parts, exact size and part-integrity verification, atomic
+Space File commit, abandoned-session cleanup, and the same idempotent canonical
+response for Web, CLI, and Agents. Browser text editing remains limited to UTF-8
+text files no larger than 1 MiB; that editor working-set boundary does not limit
+upload or download. Until the multipart contract ships, large-file support
+remains incomplete. There is no public object URL, per-file ACL, Resources
+projection, automatic Computer materialization, CRDT, or live character stream
+in this contract.
+
+The resumable contract uses one server-owned lifecycle for creates and new
+revisions:
+
+1. `start` carries the exact target, requested name and folder when creating,
+   MIME type, expected byte size, base revision, and client mutation id. The
+   owning Space reauthorizes the actor, freezes that metadata, and returns an
+   opaque upload-session id plus the R2-compatible part policy.
+2. Gateway creates or resumes the R2 multipart upload under the exact private
+   revision object key. The R2 upload id and object key remain server-only and
+   never become client authorization.
+3. Each numbered part is reauthorized through the upload session and streamed
+   from the request body to R2 without whole-file buffering. Gateway returns the
+   canonical part number and ETag. Web persists the opaque session and completed
+   part list with its draft; CLI streams from disk. Both retry only missing or
+   failed parts and can report byte-accurate progress.
+4. `complete` carries the ordered canonical part list. Gateway completes the R2
+   object and verifies the resulting object size against the frozen session.
+   The owning Space then atomically commits the immutable revision through the
+   existing base-revision and mutation fence. A create collision receives the
+   server-assigned numbered name in this final canonical response.
+5. A stale base revision, changed frozen metadata, invalid part list, size
+   mismatch, or reused mutation with different upload evidence fails explicitly.
+   It never creates a visible partial revision.
+6. Explicit cancel aborts the multipart upload. Expired sessions are aborted by
+   the owning cleanup lifecycle, and a completed R2 object whose metadata commit
+   fails is deleted best-effort with observable cleanup evidence.
+7. Small files may retain one raw streaming PUT as an optimization, but they use
+   the same prepare, authorization, immutable-object, commit, idempotency, and
+   canonical-response semantics. The threshold is an implementation choice,
+   not a user-facing file-size rule.
+
+The product may enforce Organization storage policy and the backing store's
+hard object limit, but it must not invent a lower context-driven per-file limit
+or ask the user to compress an original. Media preview and model-input
+compression operate on separate derivatives after the original revision is
+stored. Shipping this protocol requires shared schemas, Core Space upload
+session state and cleanup, Gateway multipart routes, API-client streaming
+operations, Web draft resume, CLI stream upload, and captured R2 multipart
+contract fixtures in one receiver-first rollout.
 
 The canonical Space File rollout is receiver-first across strict boundaries:
 

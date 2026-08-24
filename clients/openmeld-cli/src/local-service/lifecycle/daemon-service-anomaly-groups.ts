@@ -22,6 +22,7 @@ export const DAEMON_SERVICE_FULL_ALIGNMENT_ANOMALIES =
     "bundle_provenance_drift",
     "bundle_path_invalid",
     "duplicate_owned_processes",
+    "service_manager_environment_drift",
   ]);
 
 export const DAEMON_SERVICE_AUTO_HEAL_ANOMALIES =
@@ -50,6 +51,7 @@ export const DAEMON_SERVICE_REPAIR_ANOMALIES =
     "bundle_provenance_drift",
     "bundle_path_invalid",
     "service_manager_path_drift",
+    "service_manager_environment_drift",
     "duplicate_owned_processes",
   ]);
 
@@ -71,6 +73,7 @@ export const DAEMON_SERVICE_ARTIFACT_DRIFT_ANOMALIES =
     "runtime_contract_unavailable",
     "runtime_stale",
     "service_manager_path_drift",
+    "service_manager_environment_drift",
     "version_outdated",
   ]);
 

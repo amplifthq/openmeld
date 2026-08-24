@@ -348,6 +348,7 @@ export async function runDaemonServiceLifecycle(input: {
   };
   const target = buildDaemonServiceTargetSpec({
     daemonVersion: input.expectedVersion,
+    gatewayUrl: input.gatewayUrl,
   });
   const emitPhase = async (
     phase: DaemonServiceLifecyclePhase

@@ -130,6 +130,12 @@ Prepare may:
 - reconnect a service-reported device identity to an authenticated,
   owner-verified existing Computer selected by the Prepare Session
 
+Lane isolation for OpenMeld-managed Agent Skills must not suppress this
+read-only Agent Controller discovery. A dev, canary, or custom
+`OPENMELD_HOME` may detect and register a runnable controller such as Codex
+without gaining permission to inspect, link, or mutate that controller's
+registry-default shared skills directory.
+
 Prepare must not:
 
 - create or join a Space
@@ -1274,6 +1280,16 @@ the published production lane must state an explicit `OPENMELD_ENV_PRESET`
 before mutating the production registration. Isolated validation targets the
 `dev-local` or `canary` service identity or stubs the service manager.
 
+Service alignment must compare the complete environment target persisted in
+that registration: env preset, Gateway URL, Auth URL, and user-facing CLI
+command. Matching executable and bundle versions are insufficient. When the
+registration is readable but its environment target is incomplete or differs
+from the current setup target, alignment fails closed and performs a full
+controlled update. Read-only status exposes the observed target as diagnostic
+evidence but never repairs it. This prevents a healthy process registered
+against one local or production backend from making setup for another backend
+report a false success.
+
 The supervisor registration is also the only thing that restarts OpenMeld Service
 after a crash or an external kill, so a supervised daemon treats a missing
 registration as recoverable drift: it periodically re-observes its own
@@ -1426,11 +1442,12 @@ and background-start operations run only after that entry decision and must not
 open another authentication prompt. A cancelled start remains `cancelled`; it
 must never be normalized into a completed-but-stopped repair or trigger an
 automatic retry loop.
-Repair first compares the intended bundle, service-manager registration,
-runtime contract, saved desired state, and effective running state. When those
-facts are already aligned, repair succeeds without stopping or rewriting the
-Service. Only a decision that requires mutation enters the controlled lifecycle
-below; an explicit forced repair may enter it for diagnostic recovery.
+Repair first compares the intended bundle, service-manager registration and
+its complete environment target, runtime contract, saved desired state, and
+effective running state. When those facts are already aligned, repair succeeds
+without stopping or rewriting the Service. Only a decision that requires
+mutation enters the controlled lifecycle below; an explicit forced repair may
+enter it for diagnostic recovery.
 
 Before a controlled lifecycle stops or drains the current Service, it must
 fully prepare and validate the replacement bundle without changing the active

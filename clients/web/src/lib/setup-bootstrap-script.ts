@@ -608,7 +608,7 @@ run_openmeld() {
   run_interactive_openmeld_cli "$OPENMELD_SETUP_USER_FACING_COMMAND" "$@"
 }
 
-resolve_follow_up_cli_command_prefix() {
+resolve_follow_up_cli_command() {
   if [ "$OPENMELD_SETUP_DISTRIBUTION" = "binary" ]; then
     resolve_managed_binary_command_path
     return
@@ -624,6 +624,39 @@ resolve_follow_up_cli_command_prefix() {
   fi
 
   printf '%s' "$OPENMELD_SETUP_USER_FACING_COMMAND"
+}
+
+print_shell_single_quoted() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
+print_follow_up_shell_assignment() {
+  printf ' %s=' "$1"
+  print_shell_single_quoted "$2"
+}
+
+resolve_follow_up_cli_command_prefix() {
+  if [ "$OPENMELD_SETUP_ENV_PRESET" = "prod" ] && [ -z "$OPENMELD_SETUP_OPENMELD_HOME" ]; then
+    resolve_follow_up_cli_command
+    return
+  fi
+
+  printf 'env'
+  if [ -n "$OPENMELD_SETUP_OPENMELD_HOME" ]; then
+    print_follow_up_shell_assignment OPENMELD_HOME "$OPENMELD_SETUP_OPENMELD_HOME"
+  fi
+  print_follow_up_shell_assignment OPENMELD_ENV_PRESET "$OPENMELD_SETUP_ENV_PRESET"
+  if [ -n "$OPENMELD_SETUP_GATEWAY_URL" ]; then
+    print_follow_up_shell_assignment OPENMELD_GATEWAY_URL "$OPENMELD_SETUP_GATEWAY_URL"
+  fi
+  if [ -n "$OPENMELD_SETUP_AUTH_URL" ]; then
+    print_follow_up_shell_assignment OPENMELD_AUTH_URL "$OPENMELD_SETUP_AUTH_URL"
+  fi
+  printf ' '
+  OPENMELD_SETUP_FOLLOW_UP_COMMAND="$(resolve_follow_up_cli_command)"
+  print_shell_single_quoted "$OPENMELD_SETUP_FOLLOW_UP_COMMAND"
 }
 
 compare_semver_direction() {
@@ -1069,15 +1102,38 @@ function Update-GlobalOpenMeldCliIfAvailable {
   }
 }
 
-function Resolve-FollowUpCliCommandPrefix {
+function ConvertTo-PowerShellSingleQuoted {
+  param([string]$Value)
+  return "'" + $Value.Replace("'", "''") + "'"
+}
+
+function Resolve-FollowUpCliInvocation {
   if ($OpenMeldSetupUserFacingCommand -eq 'openmeld') {
     if ($script:OpenMeldSetupGlobalCliReady) {
-      return 'openmeld'
+      return "& 'openmeld'"
     }
-    return "npx -y $OpenMeldSetupPackageSpec"
+    return "& 'npx' '-y' $(ConvertTo-PowerShellSingleQuoted $OpenMeldSetupPackageSpec)"
   }
 
-  return $OpenMeldSetupUserFacingCommand
+  return "& $(ConvertTo-PowerShellSingleQuoted $OpenMeldSetupUserFacingCommand)"
+}
+
+function Resolve-FollowUpCliCommandPrefix {
+  $parts = @()
+  if ($OpenMeldSetupEnvPreset -ne 'prod' -or $OpenMeldSetupOpenMeldHome.Length -gt 0) {
+    if ($OpenMeldSetupOpenMeldHome.Length -gt 0) {
+      $parts += '$env:OPENMELD_HOME=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupOpenMeldHome)
+    }
+    $parts += '$env:OPENMELD_ENV_PRESET=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupEnvPreset)
+    if ($OpenMeldSetupGatewayUrl.Length -gt 0) {
+      $parts += '$env:OPENMELD_GATEWAY_URL=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupGatewayUrl)
+    }
+    if ($OpenMeldSetupAuthUrl.Length -gt 0) {
+      $parts += '$env:OPENMELD_AUTH_URL=' + (ConvertTo-PowerShellSingleQuoted $OpenMeldSetupAuthUrl)
+    }
+  }
+  $parts += Resolve-FollowUpCliInvocation
+  return $parts -join '; '
 }
 
 if ($OpenMeldSetupDistribution -eq 'binary') {
