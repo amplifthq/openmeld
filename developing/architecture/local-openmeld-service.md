@@ -1457,6 +1457,32 @@ may enter the destructive lifecycle. Activation happens after the old Service
 is confirmed absent; an abandoned prepared bundle is removed unless it became
 the active bundle.
 
+An OpenMeld Service update request is complete only after a lane-scoped,
+strictly validated update job and prepared replacement have been handed to an
+operating-system-owned update worker. Web Setup, Center Agent actions, the
+ordinary Service command, and top-level CLI upgrade must all converge on this
+one coordinator. The initiating browser or Terminal is not a lifecycle owner:
+it may close immediately after the durable handoff, and the OS worker must
+resume the same job after its own crash, sign-in, or computer restart.
+
+For an `available` update, the current Service keeps admitting new Wake work
+while the prepared replacement waits for a safe switch. For a `required`
+update, Core blocks affected new Wake work and the worker enters the controlled
+drain immediately. Neither policy may terminate already accepted work. The
+safe-switch fact is false while either an accepted Wake remains in flight or a
+durable result still awaits Core's acceptance receipt; process exit alone is
+not sufficient evidence. Each accepted Wake stays on the Service version that
+accepted it, and an update must never retry or silently replay it.
+
+After the safe switch begins, RuntimeCoordinator remains the in-flight Wake
+authority. New Wake work may wait for the replacement route and resume after
+the Service reconnects, but it must not be duplicated or converted into an
+early local timeout failure. The update job is complete only after the target
+Service reaches its verified desired state. Replacement startup or health
+verification failure must restore and verify the previous Service before the
+job records failure. Uninstall and reset remove the background update worker
+and its lane-owned disposable state.
+
 Controlled update, reinstall, and repair use a quiesce-and-drain stop. The
 Service first rejects new dispatch admission with `service.draining` while
 preserving dedupe for already-owned work. It keeps the current Runtime

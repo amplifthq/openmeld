@@ -557,6 +557,18 @@ current Service remains available. A preparation failure must leave the current
 Service running. The CLI drains and stops the current Service only after that
 preflight succeeds, then activates the prepared replacement and verifies its
 health before reporting success.
+For an update, the public command reports success after the prepared replacement
+and durable job have been handed to the operating system's background update
+worker; it does not hold the Terminal open for the later drain and switch. The
+user may close the Terminal or Web Setup immediately. The worker waits for all
+accepted Wake work and durable result receipts, resumes after interruption or
+computer restart, verifies the replacement, and restores the previous verified
+Service if replacement startup fails. Setup uses this background path only when
+the current Service has trustworthy running evidence and the drift includes a
+version change. Broken or ambiguous Service state remains an explicit repair.
+Core's update projection selects the job policy: `available` keeps admitting new
+Wake work while waiting for an idle switch; `required` stops new admission but
+still lets already accepted work finish safely.
 `openmeld uninstall` removes local OpenMeld data
 for this device as a whole, while `openmeld service uninstall` removes only the
 daemon registration and disposable Runtime state. The lane's stable local device

@@ -681,6 +681,13 @@ say that OpenMeld Service is running in the background, that it starts automatic
 when the user signs in, how to disable that autostart, and how to stop the
 service. Keep this copy concise and do not mention unreleased clients.
 
+When a healthy running Service only needs a newer version, Setup must hand the
+prepared update to the computer's background update worker and finish without
+waiting for current Agent work to end. The user may close Web Setup or the
+Terminal after that handoff. Setup must not use this path to hide a broken or
+ambiguous Service; those states remain explicit repair work. A background update
+does not make Setup the owner of Wake completion or final Agent readiness.
+
 After successful setup, OpenMeld does not create a separate welcoming Agent
 Profile or a setup-owned welcoming Space. The user's personal Center Agent owns
 the first-touch onboarding conversation in the Center Agent DM. Setup completion
