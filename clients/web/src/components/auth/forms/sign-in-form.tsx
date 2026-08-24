@@ -124,7 +124,7 @@ export function SignInForm({
 				<div className="flex items-center justify-between">
 					<Label htmlFor="sign-in-password">Password</Label>
 					<Link
-						className="mr-0.5 px-0.5 text-muted-foreground text-sm outline-none hover:text-foreground hover:underline"
+						className="mr-0.5 inline-flex min-h-11 items-center px-0.5 text-muted-foreground text-sm outline-none hover:text-foreground hover:underline lg:min-h-0"
 						to={forgotPasswordPath}
 					>
 						Forgot password?

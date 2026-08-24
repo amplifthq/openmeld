@@ -12,6 +12,7 @@ import {
 } from "./start-surface-http.mjs";
 
 const INVALID_TOKEN_KEY_ERROR_RE = /stored token key is invalid/u;
+const UNATTENDED_KEYCHAIN_ERROR_RE = /must not open authorization windows/u;
 
 test("normalizes only canonical file token keys", () => {
   assert.equal(
@@ -60,6 +61,21 @@ test("reads a valid insecure token file by its validated key", async () => {
   } finally {
     await rm(openMeldHome, { force: true, recursive: true });
   }
+});
+
+test("refuses to open macOS Keychain authorization UI from an unattended dev command", async () => {
+  await assert.rejects(
+    () =>
+      readStoredAccessToken({
+        openMeldHome: "/tmp/openmeld-dev",
+        tokenRef: {
+          provider: "macos-keychain",
+          service: "sh.openmeld.test.start-surface-http",
+          account: "missing-test-account",
+        },
+      }),
+    UNATTENDED_KEYCHAIN_ERROR_RE
+  );
 });
 
 test("create-space keeps the body minimal and literal", () => {

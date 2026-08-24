@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { buildMacOsKeychainAddon } from "../../clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -110,6 +111,11 @@ export function buildCliBinary(input = {}) {
   mkdirSync(outDir, { recursive: true });
   const artifactName = resolveCliBinaryArtifactName({ platform, version });
   const outFile = path.join(outDir, artifactName);
+
+  buildMacOsKeychainAddon({
+    env: process.env,
+    platform: platform.startsWith("darwin-") ? "darwin" : process.platform,
+  });
 
   const result = spawnSync(
     "bun",

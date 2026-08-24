@@ -56,6 +56,7 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import { copyCliEntryCommand } from "#/lib/cli-entry-command";
 import {
 	type ComputerSummaryStatus,
@@ -1366,7 +1367,7 @@ function OpenMeldToolsComponentDetails(input: {
 						{item.value}
 					</p>
 					{item.description ? (
-						<div className="mt-2 min-w-0 truncate text-muted-foreground text-xs leading-5">
+						<div className="mt-2 min-w-0 text-muted-foreground text-xs leading-5 max-lg:break-words lg:truncate">
 							{item.description}
 						</div>
 					) : null}
@@ -1494,7 +1495,10 @@ function OpenMeldToolsComponentLabel(input: {
 						render={
 							<button
 								aria-label={input.item.help.ariaLabel}
-								className="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+								className={cn(
+									APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
+									"inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 max-lg:size-11"
+								)}
 								type="button"
 							>
 								<InfoIcon aria-hidden="true" className="size-3.5" />

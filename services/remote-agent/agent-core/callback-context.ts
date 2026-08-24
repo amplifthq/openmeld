@@ -9,11 +9,13 @@ import {
   MAX_TEXT_LENGTH,
   type OpenMeldNavigationTarget,
   openMeldNavigationTargetSchema,
+  REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackResponseSchema,
   remoteAgentWorkerConversationIdentitySchema,
+  resolveMappedPublicAgentFailureReason,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   sanitizeDispatchErrorSummary,
@@ -72,6 +74,8 @@ import type {
   CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceFileResponse,
   CenterAgentReadSpaceFileRpcInput,
+  CenterAgentReadTurnDiagnosticsResponse,
+  CenterAgentReadTurnDiagnosticsRpcInput,
   CenterAgentRecommendOpportunityToolResponse,
   CenterAgentRecommendOpportunityToolRpcInput,
   CenterAgentRecordConnectorActionAuditBody,
@@ -119,6 +123,7 @@ import type {
   RecordOrganizationSkillActivationRpcInput,
   RemoteAgentCoreCallbackBody,
   RemoteAgentCoreCallbackResponse,
+  RemoteAgentRuntimeEvidenceOutcomeReasonCode,
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamPartCallbackBody,
   RemoteAgentTurnEnvelope,
@@ -133,10 +138,6 @@ import type {
   StartCenterAgentMemberResearchResponse,
   UpdateCenterAgentRoutineResponse,
 } from "@openmeld/schemas/types";
-import {
-  CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE,
-  inspectAssistantPublicationProtocol,
-} from "./assistant-publication";
 import {
   isRemoteAgentContextWindowExceeded,
   isRemoteAgentToolResultTooLarge,
@@ -344,6 +345,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadChangelog?(
     input: CenterAgentReadChangelogToolRpcInput
   ): Promise<ChangelogQueryResponse>;
+  centerAgentReadTurnDiagnostics?(
+    input: CenterAgentReadTurnDiagnosticsRpcInput
+  ): Promise<CenterAgentReadTurnDiagnosticsResponse>;
   centerAgentListOpportunities?(
     input: CenterAgentListOpportunitiesToolRpcInput
   ): Promise<CenterAgentListOpportunitiesToolResponse>;
@@ -519,6 +523,7 @@ export type RemoteAgentCoreWorkerBinding = {
 export type RemoteAgentAssistantCompletionResult = {
   continuation: boolean;
   error?: unknown;
+  failureReasonCode?: RemoteAgentRuntimeEvidenceOutcomeReasonCode;
   message: {
     parts: Record<string, unknown>[];
   };
@@ -1501,25 +1506,7 @@ export async function handleRemoteAgentChatResponse(input: {
   }
 
   const nowMs = input.nowMs?.() ?? Date.now();
-  const extractedCompletedText = extractCompletedAssistantText(input.result);
-  const protocolInspection = extractedCompletedText
-    ? inspectAssistantPublicationProtocol(extractedCompletedText)
-    : { status: "publishable" as const };
-  if (protocolInspection.status !== "publishable") {
-    console.warn("[remote_agent.publication.protocol_contamination_blocked]", {
-      marker: protocolInspection.marker,
-      submissionId: context.submissionId,
-    });
-    return recordAndDeliverRemoteAgentTerminalFailure({
-      code: CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE,
-      context,
-      coreWorker: input.coreWorker,
-      nowMs,
-      result: input.result,
-      storage: input.storage,
-    });
-  }
-  const completedText = extractedCompletedText;
+  const completedText = extractCompletedAssistantText(input.result);
   if (!completedText) {
     return recordAndDeliverRemoteAgentTerminalFailure({
       code: resolveRemoteAgentResultFailureCode(input.result),
@@ -1578,7 +1565,10 @@ export async function handleRemoteAgentChatResponse(input: {
 }
 
 function resolveRemoteAgentResultFailureCode(
-  result: Pick<RemoteAgentAssistantCompletionResult, "error" | "status">
+  result: Pick<
+    RemoteAgentAssistantCompletionResult,
+    "error" | "failureReasonCode" | "status"
+  >
 ): string {
   if (result.status === "completed") {
     return "remote_agent.empty_assistant_response";
@@ -1592,13 +1582,20 @@ function resolveRemoteAgentResultFailureCode(
   if (isRemoteAgentToolResultTooLarge(result.error)) {
     return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE;
   }
+  if (
+    result.failureReasonCode &&
+    result.failureReasonCode !==
+      REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_FAILED &&
+    result.failureReasonCode !==
+      REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_NOT_COMPLETED
+  ) {
+    return result.failureReasonCode;
+  }
   return "remote_agent.turn_not_completed";
 }
 
 function resolveRemoteAgentFailureMessage(code: string): string {
   switch (code) {
-    case CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE:
-      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
     case "remote_agent.turn.context_window_exceeded":
       return CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY;
     case "remote_agent.empty_assistant_response":
@@ -1610,7 +1607,10 @@ function resolveRemoteAgentFailureMessage(code: string): string {
     case "remote_agent.execution_cancelled":
       return "This request was stopped.";
     default:
-      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+      return (
+        resolveMappedPublicAgentFailureReason(code, "Center Agent") ??
+        CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY
+      );
   }
 }
 

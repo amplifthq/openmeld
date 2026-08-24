@@ -81,7 +81,7 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 				) : null}
 				<div className="grid gap-2">
 					<button
-						className="w-full select-all overflow-x-auto whitespace-nowrap rounded-md border border-border bg-muted/10 px-3 py-2 text-left font-mono text-xs transition-colors [scrollbar-width:none] hover:bg-muted/30 lg:max-w-[50vw] [&::-webkit-scrollbar]:hidden"
+						className="w-full touch-manipulation select-all overflow-x-auto whitespace-nowrap rounded-md border border-border bg-muted/10 px-3 py-2 text-left font-mono text-xs transition-colors [scrollbar-width:none] hover:bg-muted/30 max-lg:min-h-11 lg:max-w-[50vw] [&::-webkit-scrollbar]:hidden"
 						onClick={input.onCopyCommand}
 						type="button"
 					>

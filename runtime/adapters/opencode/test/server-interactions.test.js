@@ -49,9 +49,11 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "const interaction = process.env.OPENMELD_FAKE_OPENCODE_INTERACTION;",
       "const staleIdleOnResume = process.env.OPENMELD_FAKE_OPENCODE_STALE_IDLE_ON_RESUME === '1';",
       "const sessionID = process.env.OPENMELD_FAKE_OPENCODE_SESSION_ID ?? 'opencode-session-server';",
+      "const forkSessionID = 'opencode-session-fork-1';",
       "const sseClients = new Set();",
       "const queuedEvents = [];",
       "let promptMessageID = null;",
+      "let promptSessionID = sessionID;",
       "let promptFinished = false;",
       "const log = (entry) => {",
       "  if (!logPath) return;",
@@ -75,9 +77,9 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "const finishPrompt = () => {",
       "  if (!promptMessageID || promptFinished) return;",
       "  promptFinished = true;",
-      "  emit({ id: 'event-assistant', type: 'message.updated', properties: { sessionID, info: { id: 'assistant-1', sessionID, role: 'assistant', parentID: promptMessageID } } });",
-      "  emit({ id: 'event-part', type: 'message.part.updated', properties: { sessionID, time: Date.now(), part: { id: 'part-1', sessionID, messageID: 'assistant-1', type: 'text', text: 'OpenCode server reply' } } });",
-      "  emit({ id: 'event-idle', type: 'session.idle', properties: { sessionID } });",
+      "  emit({ id: 'event-assistant', type: 'message.updated', properties: { sessionID: promptSessionID, info: { id: 'assistant-1', sessionID: promptSessionID, role: 'assistant', parentID: promptMessageID } } });",
+      "  emit({ id: 'event-part', type: 'message.part.updated', properties: { sessionID: promptSessionID, time: Date.now(), part: { id: 'part-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'text', text: 'OpenCode server reply' } } });",
+      "  emit({ id: 'event-idle', type: 'session.idle', properties: { sessionID: promptSessionID } });",
       "};",
       "const server = createServer(async (request, response) => {",
       "  const url = new URL(request.url, 'http://' + host + ':' + port);",
@@ -107,7 +109,7 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "  if (request.method === 'POST' && url.pathname === '/session/' + sessionID + '/fork') {",
       "    const body = await readBody(request);",
       "    log({ body, method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, { id: 'opencode-session-fork-1' });",
+      "    sendJson(response, 200, { id: forkSessionID });",
       "    return;",
       "  }",
       "  if (request.method === 'PATCH' && url.pathname === '/session/opencode-session-fork-1') {",
@@ -116,33 +118,34 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "    sendJson(response, 200, { id: 'opencode-session-fork-1', title: body.title });",
       "    return;",
       "  }",
-      "  if (request.method === 'GET' && url.pathname === '/session/' + sessionID) {",
+      "  if (request.method === 'GET' && (url.pathname === '/session/' + sessionID || url.pathname === '/session/' + forkSessionID)) {",
       "    log({ method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, { id: sessionID });",
+      "    sendJson(response, 200, { id: url.pathname.endsWith(forkSessionID) ? forkSessionID : sessionID });",
       "    return;",
       "  }",
-      "  if (request.method === 'GET' && url.pathname === '/session/' + sessionID + '/message') {",
+      "  if (request.method === 'GET' && (url.pathname === '/session/' + sessionID + '/message' || url.pathname === '/session/' + forkSessionID + '/message')) {",
       "    sendJson(response, 200, promptFinished ? [{",
-      "      info: { id: 'assistant-1', sessionID, role: 'assistant', parentID: promptMessageID },",
-      "      parts: [{ id: 'part-1', sessionID, messageID: 'assistant-1', type: 'text', text: 'OpenCode server reply' }],",
+      "      info: { id: 'assistant-1', sessionID: promptSessionID, role: 'assistant', parentID: promptMessageID },",
+      "      parts: [{ id: 'part-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'text', text: 'OpenCode server reply' }],",
       "    }] : []);",
       "    return;",
       "  }",
-      "  if (request.method === 'POST' && url.pathname === '/session/' + sessionID + '/prompt_async') {",
+      "  if (request.method === 'POST' && (url.pathname === '/session/' + sessionID + '/prompt_async' || url.pathname === '/session/' + forkSessionID + '/prompt_async')) {",
       "    const body = await readBody(request);",
       "    log({ body, method: request.method, path: url.pathname });",
+      "    promptSessionID = url.pathname.includes('/session/' + forkSessionID + '/') ? forkSessionID : sessionID;",
       "    promptMessageID = body.messageID ?? 'msg_server_generated_current';",
       "    sendJson(response, 204);",
-      "    emit({ id: 'event-user', type: 'message.updated', properties: { sessionID, info: { id: promptMessageID, sessionID, role: 'user' } } });",
+      "    emit({ id: 'event-user', type: 'message.updated', properties: { sessionID: promptSessionID, info: { id: promptMessageID, sessionID: promptSessionID, role: 'user' } } });",
       "    if (staleIdleOnResume) {",
-      "      setTimeout(() => emit({ id: 'event-stale-idle', type: 'session.idle', properties: { sessionID } }), 10);",
+      "      setTimeout(() => emit({ id: 'event-stale-idle', type: 'session.idle', properties: { sessionID: promptSessionID } }), 10);",
       "      setTimeout(finishPrompt, 40);",
       "      return;",
       "    }",
       "    if (interaction === 'permission' || interaction === 'permission_then_exit') {",
       "      emit({ id: 'event-permission', type: 'permission.asked', properties: {",
       "        id: 'permission-1',",
-      "        sessionID,",
+      "        sessionID: promptSessionID,",
       "        permission: 'edit',",
       "        patterns: ['src/**'],",
       "        always: ['src/**'],",
@@ -152,7 +155,7 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "      return;",
       "    }",
       "    if (interaction === 'child_permission') {",
-      "      emit({ id: 'event-child-session', type: 'session.created', properties: { sessionID: 'child-session-1', info: { id: 'child-session-1', parentID: sessionID } } });",
+      "      emit({ id: 'event-child-session', type: 'session.created', properties: { sessionID: 'child-session-1', info: { id: 'child-session-1', parentID: promptSessionID } } });",
       "      emit({ id: 'event-child-permission', type: 'permission.asked', properties: {",
       "        id: 'permission-1',",
       "        sessionID: 'child-session-1',",
@@ -166,7 +169,7 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "    if (interaction === 'question') {",
       "      emit({ id: 'event-question', type: 'question.asked', properties: {",
       "        id: 'question-1',",
-      "        sessionID,",
+      "        sessionID: promptSessionID,",
       "        questions: [",
       "          { header: 'Release', question: 'Which release?', options: [{ label: 'Stable', description: 'Ship the stable channel' }], multiple: false, custom: false },",
       "          { header: 'Checks', question: 'Which checks?', options: [{ label: 'Unit', description: 'Run unit tests' }, { label: 'Smoke', description: 'Run smoke tests' }], multiple: true, custom: true },",
@@ -197,7 +200,7 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "    finishPrompt();",
       "    return;",
       "  }",
-      "  if (request.method === 'POST' && url.pathname === '/session/' + sessionID + '/abort') {",
+      "  if (request.method === 'POST' && (url.pathname === '/session/' + sessionID + '/abort' || url.pathname === '/session/' + forkSessionID + '/abort')) {",
       "    sendJson(response, 200, true);",
       "    finishPrompt();",
       "    return;",
@@ -269,6 +272,52 @@ test("OpenCode forks the native Session and applies the OpenMeld title", async (
         method: "PATCH",
         path: "/session/opencode-session-fork-1",
       }
+    );
+  });
+});
+
+test("OpenCode repair runs on a native fork without replacing canonical continuity", async () => {
+  const { createOpenCodeAdapter } = await import("../dist/index.js");
+  await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const adapter = createOpenCodeAdapter({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      openCodeTimeoutMs: 5000,
+    });
+    const result = await adapter.dispatch({
+      agentControllerConversationId: "opencode-session-server",
+      agentId: "opencode-repair",
+      env: { OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath },
+      executionMode: "repair",
+      openCodePermission: { edit: "ask" },
+      prompt: "recover the completed reply",
+      runtimeContext: createRuntimeContext(fixtureDir),
+      sourceEventId: "source-opencode-repair",
+      spaceId: "space-opencode-repair",
+      taskId: "task-opencode-repair",
+    });
+    assert.equal(result.status, "success", JSON.stringify(result));
+    assert.equal(result.output, "OpenCode server reply");
+    assert.equal(
+      result.contextDelta?.agentControllerConversationId,
+      "opencode-session-server"
+    );
+    const requests = await readLog(logPath);
+    assert.equal(requests[0]?.permission, '{"edit":"ask"}');
+    assert.equal(
+      requests.some(
+        (request) =>
+          request.method === "POST" &&
+          request.path === "/session/opencode-session-server/fork"
+      ),
+      true
+    );
+    assert.equal(
+      requests.some(
+        (request) =>
+          request.method === "POST" &&
+          request.path === "/session/opencode-session-fork-1/prompt_async"
+      ),
+      true
     );
   });
 });

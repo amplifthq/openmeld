@@ -61,7 +61,7 @@ export function CrossPageHeader({
 				<Link
 					aria-label="Go to OpenMeld homepage"
 					className={cn(
-						"inline-flex min-w-0 items-center gap-2",
+						"inline-flex min-w-0 touch-manipulation items-center gap-2 max-lg:min-h-11",
 						brandLinkClassName
 					)}
 					to="/"

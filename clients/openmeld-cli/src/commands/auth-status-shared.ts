@@ -7,6 +7,7 @@ import {
 } from "../auth/auth-guidance";
 import type {
   AuthSessionState,
+  AuthSessionStateReasonCode,
   AuthSessionStateResult,
   StoredActiveOrganization,
 } from "../config/auth-session";
@@ -16,6 +17,8 @@ import { renderInfoCard } from "../ui/info-card";
 type AuthStatusSnapshot = {
   signedIn: boolean;
   state: AuthSessionState;
+  reasonCode?: AuthSessionStateReasonCode;
+  errorMessage?: string;
   userId: string | null;
   userEmail: string | null;
   userName: string | null;
@@ -40,6 +43,8 @@ export function buildAuthStatusSnapshot(
     return {
       signedIn: false,
       state: input.state,
+      ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+      ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
       userId: null,
       userEmail: null,
       userName: null,
@@ -64,6 +69,8 @@ export function buildAuthStatusSnapshot(
   return {
     signedIn: input.state === "valid",
     state: input.state,
+    ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+    ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
     userId: normalizeOptionalString(session.user?.id),
     userEmail: normalizeOptionalString(session.user?.email),
     userName: normalizeOptionalString(session.user?.name),

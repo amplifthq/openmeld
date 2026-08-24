@@ -64,8 +64,18 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-	Link: ({ children, to }: { children: ReactNode; to: string }) => (
-		<a href={to}>{children}</a>
+	Link: ({
+		children,
+		className,
+		to,
+	}: {
+		children: ReactNode;
+		className?: string;
+		to: string;
+	}) => (
+		<a className={className} href={to}>
+			{children}
+		</a>
 	),
 }));
 
@@ -798,11 +808,14 @@ describe("LocalAgentsCard", () => {
 			setEnabledSupported: true,
 		});
 
-		expect(
-			screen
-				.getByRole("link", { name: "See the install guide" })
-				.getAttribute("href")
-		).toBe("/guides/local-agents");
+		const guideLink = screen.getByRole("link", {
+			name: "See the install guide",
+		});
+		expect(guideLink.getAttribute("href")).toBe("/guides/local-agents");
+		expect(guideLink.className).toContain("touch-manipulation");
+		expect(guideLink.className).toContain("max-lg:min-h-11");
+		expect(guideLink.className).toContain("max-lg:inline-flex");
+		expect(guideLink.classList.contains("inline-flex")).toBe(false);
 	});
 
 	it("links to the install guide when every reported local agent is undetected", () => {

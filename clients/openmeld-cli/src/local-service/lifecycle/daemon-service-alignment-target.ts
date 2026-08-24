@@ -1,4 +1,8 @@
 import {
+  type OpenMeldEnvironmentTarget,
+  resolveOpenMeldEnvironmentTargetFromEnv,
+} from "../../config/openmeld-environment-target";
+import {
   type OpenMeldDistribution,
   resolveOpenMeldDistribution,
 } from "../../runtime/distribution";
@@ -23,6 +27,7 @@ const BLOCKED_ALIGNMENT_ANOMALIES = new Set<DaemonServiceAnomalyCode>([
 export type DaemonServiceTargetSpec = {
   daemonVersion: string;
   bundleFormat: DaemonBundleFormat;
+  environmentTarget: OpenMeldEnvironmentTarget;
 };
 
 export type DaemonServiceAlignmentDecision = {
@@ -39,11 +44,16 @@ export type DaemonServiceAlignmentDecision = {
 export function buildDaemonServiceTargetSpec(input: {
   daemonVersion: string;
   distribution?: OpenMeldDistribution;
+  environmentTarget?: OpenMeldEnvironmentTarget;
+  gatewayUrl?: string;
 }): DaemonServiceTargetSpec {
   const distribution = input.distribution ?? resolveOpenMeldDistribution();
   return {
     daemonVersion: input.daemonVersion,
     bundleFormat: distribution === "binary" ? "binary_v1" : "self_contained_v1",
+    environmentTarget:
+      input.environmentTarget ??
+      resolveOpenMeldEnvironmentTargetFromEnv({ gatewayUrl: input.gatewayUrl }),
   };
 }
 
@@ -153,7 +163,33 @@ function collectFullAlignmentReasonCodes(input: {
     reasonCodes.push("bundle_strategy_legacy");
   }
 
+  if (
+    hasServiceManagerEnvironmentDrift(input) &&
+    !reasonCodes.includes("service_manager_environment_drift")
+  ) {
+    reasonCodes.push("service_manager_environment_drift");
+  }
+
   return reasonCodes;
+}
+
+function hasServiceManagerEnvironmentDrift(input: {
+  inventory: DaemonServiceInventory;
+  target: DaemonServiceTargetSpec;
+}): boolean {
+  const status = input.inventory.serviceManagerStatus;
+  if (!(status?.installed && status.environmentTarget !== undefined)) {
+    return false;
+  }
+  const observed = status.environmentTarget;
+  const expected = input.target.environmentTarget;
+  return (
+    observed === null ||
+    observed.preset !== expected.preset ||
+    observed.gatewayUrl !== expected.gatewayUrl ||
+    observed.authBaseUrl !== expected.authBaseUrl ||
+    observed.userFacingCommand !== expected.userFacingCommand
+  );
 }
 
 function resolveVersionDecision(input: {

@@ -139,15 +139,23 @@ async function createFixture() {
             send({ id: message.id, error: { code: -32603, message: "Authentication token expired" } });
             return;
           }
+          if (scenario === "authenticate_internal_error_usage_exhausted") {
+            send({ id: message.id, error: { code: -32603, message: "Internal error" } });
+            return;
+          }
           send({ id: message.id, result: {} });
           return;
         }
         if (message.method === "_x.ai/billing") {
+          if (scenario === "prompt_internal_error_billing_unavailable") {
+            send({ id: message.id, error: { code: -32603, message: "Billing unavailable" } });
+            return;
+          }
           send({
             id: message.id,
             result: {
               config: {
-                creditUsagePercent: 27,
+                creditUsagePercent: scenario.includes("usage_exhausted") ? 100 : 27,
                 currentPeriod: { end: "2026-08-27T00:00:00Z", type: "weekly" }
               }
             }
@@ -181,6 +189,11 @@ async function createFixture() {
           pendingPromptId = message.id;
           if (scenario === "quota_exhausted") {
             send({ id: message.id, error: { code: -32603, message: "Usage limit reached" } });
+            pendingPromptId = null;
+            return;
+          }
+          if (scenario.startsWith("prompt_internal_error")) {
+            send({ id: message.id, error: { code: -32603, message: "Internal error" } });
             pendingPromptId = null;
             return;
           }
@@ -383,6 +396,76 @@ test("Grok Build ACP authenticates headlessly, selects exact model and effort, a
   }
 });
 
+test("Grok Build repair and the next normal turn keep the selected bypass permission", async () => {
+  const fixture = await createFixture();
+  try {
+    const adapter = createGrokBuildAdapter({
+      grokBuildTimeoutMs: 2000,
+      launchContract: {
+        kind: "node_script",
+        nodePath: process.execPath,
+        scriptPath: fixture.scriptPath,
+      },
+    });
+    const dispatch = (executionMode, taskSuffix) =>
+      adapter.dispatch({
+        agentControllerConversationId: SESSION_ID,
+        agentControllerPermissionMode: "grok-build:bypassPermissions",
+        agentId: "grok-build",
+        env: {
+          GROK_TEST_SCENARIO: "text",
+          GROK_TEST_TRANSCRIPT: fixture.transcriptPath,
+        },
+        executionMode,
+        prompt: `${executionMode} turn`,
+        runtimeContext: {
+          providerRuntimeWorkingDirectory: fixture.fixtureDir,
+        },
+        sourceEventId: `source-grok-${taskSuffix}`,
+        spaceId: "space-grok-permission-continuity",
+        taskId: `task-grok-${taskSuffix}`,
+        transportMode: "acp",
+      });
+
+    const repairResult = await dispatch("repair", "repair");
+    const normalResult = await dispatch("normal", "normal");
+
+    assert.equal(repairResult.status, "success");
+    assert.equal(normalResult.status, "success");
+    assert.equal(
+      repairResult.contextDelta?.agentControllerConversationId,
+      SESSION_ID
+    );
+    assert.equal(
+      normalResult.contextDelta?.agentControllerConversationId,
+      SESSION_ID
+    );
+    const launches = (await readTranscript(fixture.transcriptPath))
+      .filter((entry) => Array.isArray(entry.args))
+      .map((entry) => entry.args);
+    assert.deepEqual(launches, [
+      [
+        "--no-auto-update",
+        "--permission-mode",
+        "bypassPermissions",
+        "agent",
+        "--no-leader",
+        "stdio",
+      ],
+      [
+        "--no-auto-update",
+        "--permission-mode",
+        "bypassPermissions",
+        "agent",
+        "--no-leader",
+        "stdio",
+      ],
+    ]);
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
 test("Grok Build ACP resumes without replay and maps missing sessions to context_not_found", async () => {
   const fixture = await createFixture();
   try {
@@ -433,10 +516,42 @@ test("Grok Build ACP preserves unrelated invalid resume parameters instead of he
   }
 });
 
-test("Grok Build ACP classifies wrapped authentication and quota failures", async () => {
+test("Grok Build ACP classifies a wrapped authentication failure", async () => {
+  const fixture = await createFixture();
+  try {
+    await assert.rejects(
+      invokeFixture(fixture, { scenario: "auth_expired" }),
+      (error) =>
+        error instanceof GrokBuildAcpTransportError &&
+        error.code === "auth.failed"
+    );
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("Grok Build ACP does not infer exhausted quota from prompt error text", async () => {
+  const fixture = await createFixture();
+  try {
+    await assert.rejects(
+      invokeFixture(fixture, { scenario: "quota_exhausted" }),
+      (error) =>
+        error instanceof GrokBuildAcpTransportError &&
+        error.code === "protocol.request_failed"
+    );
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("Grok Build ACP upgrades only ambiguous prompt failures with confirmed exhausted usage", async () => {
   for (const [scenario, expectedCode] of [
-    ["auth_expired", "auth.failed"],
-    ["quota_exhausted", "grok-build.quota_or_entitlement"],
+    [
+      "prompt_internal_error_usage_exhausted",
+      "grok-build.quota_or_entitlement",
+    ],
+    ["authenticate_internal_error_usage_exhausted", "protocol.request_failed"],
+    ["prompt_internal_error_billing_unavailable", "protocol.request_failed"],
   ]) {
     const fixture = await createFixture();
     try {
@@ -743,6 +858,49 @@ test("Grok Build RuntimeAdapter heals a missing session and returns the typed co
       "session/prompt",
       "session/close",
     ]);
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("Grok Build repair fails instead of replacing a missing canonical conversation", async () => {
+  const fixture = await createFixture();
+  try {
+    const adapter = createGrokBuildAdapter({
+      grokBuildTimeoutMs: 2000,
+      launchContract: {
+        kind: "node_script",
+        nodePath: process.execPath,
+        scriptPath: fixture.scriptPath,
+      },
+    });
+    const result = await adapter.dispatch({
+      agentControllerConversationId: SESSION_ID,
+      agentControllerPermissionMode: "grok-build:bypassPermissions",
+      agentId: "grok-build",
+      env: {
+        GROK_TEST_SCENARIO: "missing_context",
+        GROK_TEST_TRANSCRIPT: fixture.transcriptPath,
+      },
+      executionMode: "repair",
+      prompt: "Recover the exact persisted conversation",
+      runtimeContext: {
+        providerRuntimeWorkingDirectory: fixture.fixtureDir,
+      },
+      sourceEventId: "source-grok-repair-missing-context",
+      spaceId: "space-grok-repair-missing-context",
+      taskId: "task-grok-repair-missing-context",
+      transportMode: "acp",
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.errorCode, "context_not_found");
+    assert.deepEqual(
+      (await readTranscript(fixture.transcriptPath))
+        .filter((message) => message.method)
+        .map((message) => message.method),
+      ["initialize", "authenticate", "session/resume"]
+    );
   } finally {
     await rm(fixture.fixtureDir, { force: true, recursive: true });
   }

@@ -19,6 +19,7 @@ import {
   remoteAgentTurnEnvelopeSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
+  remoteAgentWorkerInputAttachmentsSchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
@@ -54,6 +55,40 @@ const TEST_CENTER_AGENT_MODEL_ROUTE = {
 } as const;
 
 describe("Remote Agent worker contracts", () => {
+  it("admits ten canonical Space File images without widening legacy attachment limits", () => {
+    const canonicalImages = Array.from({ length: 10 }, (_, index) => ({
+      fileName: `screen-${index + 1}.png`,
+      id: `space-file-${index + 1}`,
+      mimeType: "image/png" as const,
+      objectKey: `org/org_1/space/space_1/files/space-file-${index + 1}/revisions/revision-1`,
+      sizeBytes: 10 * 1024 * 1024,
+    }));
+
+    expect(
+      remoteAgentWorkerInputAttachmentsSchema.parse(canonicalImages)
+    ).toEqual(canonicalImages);
+    expect(
+      remoteAgentWorkerInputAttachmentsSchema.safeParse([
+        ...canonicalImages,
+        {
+          ...canonicalImages[0],
+          id: "space-file-11",
+          objectKey:
+            "org/org_1/space/space_1/files/space-file-11/revisions/revision-1",
+        },
+      ]).success
+    ).toBe(false);
+    expect(
+      remoteAgentWorkerInputAttachmentsSchema.safeParse(
+        Array.from({ length: 5 }, (_, index) => ({
+          id: `legacy-${index + 1}`,
+          mimeType: "image/png" as const,
+          sizeBytes: 1024,
+        }))
+      ).success
+    ).toBe(false);
+  });
+
   it("derives one deterministic internal runtime route per logical conversation generation", () => {
     expect(
       buildRemoteAgentRuntimeConversationId({

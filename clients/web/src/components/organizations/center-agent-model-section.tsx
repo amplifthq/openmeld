@@ -115,7 +115,7 @@ export function CenterAgentModelSection(input: {
 						<Tooltip>
 							<TooltipTrigger
 								aria-label="About Center Agent model behavior"
-								className="text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:text-foreground"
+								className="grid touch-manipulation place-items-center text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:text-foreground max-lg:size-11"
 							>
 								<InfoIcon aria-hidden="true" className="size-3.5" />
 							</TooltipTrigger>

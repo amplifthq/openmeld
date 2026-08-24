@@ -121,13 +121,39 @@ export async function detectInstalledSkillsAgents(
   registry: Record<string, SkillsAgentRegistryEntry>
 ): Promise<string[]> {
   const allowRegistryDefaults = canManageRegistryAgentSkillTargets();
-  const manageableEntries = Object.entries(registry).filter(
-    ([, config]) =>
-      allowRegistryDefaults ||
-      config.globalSkillsDirSource === "config-override"
-  );
+  return await detectInstalledRegistryAgents({
+    entries: Object.entries(registry).filter(
+      ([, config]) =>
+        allowRegistryDefaults ||
+        config.globalSkillsDirSource === "config-override"
+    ),
+  });
+}
+
+/**
+ * Detects local Agent Controllers without granting a lane permission to manage
+ * their shared skills directories. Runtime discovery is read-only machine
+ * evidence and must remain available in isolated dev and canary lanes.
+ */
+export async function detectInstalledRuntimeAgents(
+  registry: Record<string, SkillsAgentRegistryEntry>
+): Promise<string[]> {
+  const allowRegistryDefaults = canManageRegistryAgentSkillTargets();
+  return await detectInstalledRegistryAgents({
+    entries: Object.entries(registry).filter(
+      ([, config]) =>
+        config.runtimeSupported ||
+        allowRegistryDefaults ||
+        config.globalSkillsDirSource === "config-override"
+    ),
+  });
+}
+
+async function detectInstalledRegistryAgents(input: {
+  entries: [string, SkillsAgentRegistryEntry][];
+}): Promise<string[]> {
   const checks = await mapWithConcurrency(
-    manageableEntries,
+    input.entries,
     MAX_CONCURRENT_AGENT_DETECTIONS,
     async ([agentName, config]) => ({
       agentName,

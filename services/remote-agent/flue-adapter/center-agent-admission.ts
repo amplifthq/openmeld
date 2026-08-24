@@ -111,14 +111,10 @@ export function createFlueCenterAgentAdmissionHost(input: {
     }) => {
       let routedImages = images;
       let routedMessage = message;
-      if (
-        request.v !== 1 &&
-        images.length > 0 &&
-        !request.modelRoute.inputModalities.includes("image")
-      ) {
+      if (request.v !== 1 && images.length > 0) {
         if (!input.understandImages) {
           throw new Error(
-            `Center Agent model ${request.modelRoute.modelId} requires auxiliary image understanding, but that capability is unavailable.`
+            "Center Agent image understanding is required before persistent conversation admission, but that capability is unavailable."
           );
         }
         const description = await input.understandImages({
@@ -140,6 +136,14 @@ export function createFlueCenterAgentAdmissionHost(input: {
       });
       input.reportStage?.("provider_registered");
       input.reportStage?.("flue_request_started");
+      const serializedImages = routedImages.map((image) => {
+        if (!("data" in image)) {
+          throw new Error(
+            "Legacy Flue image admission requires an inline image payload."
+          );
+        }
+        return image;
+      });
       const response = await input.routeRequest(
         new Request(
           `https://flue.internal${CLOUDFLARE_AGENT_INTERNAL_DISPATCH_PATH}`,
@@ -151,7 +155,9 @@ export function createFlueCenterAgentAdmissionHost(input: {
               id: buildRemoteAgentName(request),
               input: {
                 message: routedMessage,
-                ...(routedImages.length > 0 ? { images: routedImages } : {}),
+                ...(serializedImages.length > 0
+                  ? { images: serializedImages }
+                  : {}),
               },
             }),
             headers: { "content-type": "application/json" },

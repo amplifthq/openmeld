@@ -19,6 +19,7 @@ import {
 	isDirectMessageSpace,
 	resolveSpaceMemberAgentOwnerWakeDiagnosticsView,
 } from "@openmeld/space";
+import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
@@ -3283,41 +3284,4 @@ function resolveInitialMembersPanelOpen(input: {
 	}
 
 	return input.isDesktopMembersPanel;
-}
-
-function useMediaQuery(query: string): boolean {
-	const subscribe = useCallback(
-		(onStoreChange: () => void) => subscribeMediaQuery(query, onStoreChange),
-		[query]
-	);
-	const getSnapshot = useCallback(() => getMediaQuerySnapshot(query), [query]);
-	return useSyncExternalStore(
-		subscribe,
-		getSnapshot,
-		getServerMediaQuerySnapshot
-	);
-}
-
-function subscribeMediaQuery(
-	query: string,
-	onStoreChange: () => void
-): () => void {
-	const mediaQuery = window.matchMedia?.(query);
-	if (!mediaQuery) {
-		return () => undefined;
-	}
-	if (typeof mediaQuery.addEventListener === "function") {
-		mediaQuery.addEventListener("change", onStoreChange);
-		return () => mediaQuery.removeEventListener("change", onStoreChange);
-	}
-	mediaQuery.addListener(onStoreChange);
-	return () => mediaQuery.removeListener(onStoreChange);
-}
-
-function getMediaQuerySnapshot(query: string): boolean {
-	return window.matchMedia?.(query).matches ?? false;
-}
-
-function getServerMediaQuerySnapshot(): boolean {
-	return false;
 }

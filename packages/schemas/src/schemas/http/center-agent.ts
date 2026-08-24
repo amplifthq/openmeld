@@ -553,6 +553,7 @@ export const centerAgentAuditJournalEntrySchema = z.strictObject({
     })
     .optional(),
   resource: centerAgentResourceSchema.nullable(),
+  sourceSpaceId: trimmedNonEmptyStringSchema.nullable().optional(),
   createdAt: ISO_DATE_TIME_SCHEMA,
 });
 
@@ -577,6 +578,7 @@ export const listCenterAgentAuditJournalQuerySchema = z.strictObject({
       "v17",
       "v18",
       "v19",
+      "v20",
     ])
     .optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),

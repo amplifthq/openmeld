@@ -1198,7 +1198,74 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("rejects fallback post_status working instead of finalizing the Wake as progress", async () => {
+  it("never treats a model-authored action block as a real Space action", async () => {
+    await withTempHome(async () => {
+      const ledgerPaths = createLedgerPaths();
+      const socket = { send: vi.fn() } as never;
+      const currentSocketRef: CurrentDaemonSocketRef = {
+        connectionGeneration: 1,
+        socket,
+      };
+      const presenter = createPresenter();
+      const runtimeContext = {
+        providerRuntimeWorkingDirectory: process.cwd(),
+      };
+
+      resolveProfileWorkspaceRuntimeMock.mockResolvedValue({
+        runtimeContext,
+        status: "ready",
+      });
+      prepareProviderRuntimeMock.mockResolvedValue({
+        envOverrides: undefined,
+        preparationDetails: { kind: "none" },
+        runtimeContext,
+      });
+      runRuntimeTaskMock.mockResolvedValue(
+        createRuntimeResult({
+          output: [
+            "This is ordinary model-authored text.",
+            "```openmeld-space-action",
+            JSON.stringify({
+              reason: "This model-authored text must not control publication.",
+              type: "stay_silent",
+            }),
+            "```",
+          ].join("\n"),
+        })
+      );
+
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath:
+          "/tmp/openmeld-test-missing-computer-file-access-policy.json",
+        contextStore: new Map(),
+        currentSocketRef,
+        daemonSessionId: "daemon-session-1",
+        deliverRequest: createDeliverRequest(),
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({ adapter: {} }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: new Map(),
+        socket,
+      });
+
+      expect(runRuntimeTaskMock).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({
+        errorCode: "openmeld.space_action.repair_failed",
+        result: "failed",
+      });
+    });
+  });
+
+  it("never evaluates a model-authored post_status as runtime state", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
       const socket = { send: vi.fn() } as never;
@@ -1261,7 +1328,7 @@ describe("dispatch result outbox around preview teardown", () => {
       expect(result).toEqual({
         errorCode: "openmeld.space_action.repair_failed",
         errorMessage:
-          "post_status working is not allowed for a final OpenMeld Space Action. Use done, blocked, needs_input, handoff, post_message, or stay_silent.",
+          "A valid OpenMeld Space action is required in collaboration mode.",
         result: "failed",
       });
     });

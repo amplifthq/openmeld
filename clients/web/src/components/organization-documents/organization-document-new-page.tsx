@@ -17,6 +17,7 @@ import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	createCurrentOrganizationDocument,
@@ -107,7 +108,7 @@ export function OrganizationDocumentNewPage(input: {
 	return (
 		<div className="grid gap-6">
 			<Link
-				className="inline-flex items-center gap-2 justify-self-start font-medium text-muted-foreground text-sm hover:text-foreground"
+				className={APP_INLINE_BACK_LINK_CLASS_NAME}
 				search={folderSearch}
 				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
 			>

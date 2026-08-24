@@ -22,6 +22,32 @@ afterEach(() => {
 });
 
 describe("SpaceExecutionRecoveryButton", () => {
+	it("keeps an automatic inspection failure out of the user's way", async () => {
+		const error = new Error("recovery inspection failed");
+		const inspect = vi
+			.fn<SpaceExecutionRecoveryHandler>()
+			.mockRejectedValue(error);
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+
+		render(
+			<SpaceExecutionRecoveryButton
+				onRecoverExecution={inspect}
+				request={recoveryRequest}
+			/>
+		);
+
+		await waitFor(() => expect(inspect).toHaveBeenCalledOnce());
+		await waitFor(() => {
+			expect(screen.queryByRole("button")).toBeNull();
+		});
+		expect(consoleError).toHaveBeenCalledWith(
+			"Failed to inspect execution recovery.",
+			error
+		);
+	});
+
 	it("names exact-conversation recovery by its user outcome and explains that the task will not rerun", async () => {
 		const warning =
 			"OpenMeld will ask the same Agent conversation to post the reply it already finished. It will not run the task again.";

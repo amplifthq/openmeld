@@ -145,6 +145,7 @@ function SettingsPageShell(input: {
 		<>
 			<AppSurfaceLayout
 				globalControls={<AppGlobalControls />}
+				mobileSidebarTitle="Settings"
 				outerRail={
 					<AppOuterRail
 						account={account}

@@ -462,6 +462,13 @@ export type {
   StopCenterAgentTaskRpcInput,
 } from "./center-agent-tasks";
 export type {
+  CenterAgentReadTurnDiagnosticsResponse,
+  CenterAgentReadTurnDiagnosticsRpcInput,
+  CenterAgentTurnDiagnostic,
+  CenterAgentTurnDiagnosticPublicationState,
+  CenterAgentTurnDiagnosticStatus,
+} from "./center-agent-turn-diagnostics";
+export type {
   CenterAgentReadChangelogToolRpcInput,
   ChangelogEntry,
   ChangelogEntryKind,
@@ -1027,6 +1034,9 @@ export type {
   RestoreSpaceFileRevisionBody,
   RestoreSpaceFileRevisionResponse,
   SpaceFileActor,
+  SpaceFileAuditEvent,
+  SpaceFileAuditOperation,
+  SpaceFileAuditResult,
   SpaceFileBreadcrumb,
   SpaceFileCapabilities,
   SpaceFileContentQuery,

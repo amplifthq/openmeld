@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { detectInstalledSkillsAgentsMock } = vi.hoisted(() => ({
-  detectInstalledSkillsAgentsMock: vi.fn(),
+const { detectInstalledRuntimeAgentsMock } = vi.hoisted(() => ({
+  detectInstalledRuntimeAgentsMock: vi.fn(),
 }));
 
 const { resolveBuiltinControllerInstallResolutionMock } = vi.hoisted(() => ({
@@ -18,7 +18,7 @@ vi.mock("../src/skills/agents", async () => {
   );
   return {
     ...actual,
-    detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
+    detectInstalledRuntimeAgents: detectInstalledRuntimeAgentsMock,
   };
 });
 
@@ -48,7 +48,7 @@ import { createTestNodeScriptLaunchContract } from "./helpers/launch-contract";
 
 describe("openmeld agents list/show", () => {
   beforeEach(() => {
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["codex"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
     resolveAgentControllerInterfaceSnapshotMock.mockResolvedValue({
       agentControllerRef: "builtin:codex",
       auth: { status: "authenticated", label: "Signed in" },
@@ -121,7 +121,7 @@ describe("openmeld agents list/show", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    detectInstalledSkillsAgentsMock.mockReset();
+    detectInstalledRuntimeAgentsMock.mockReset();
     resolveAgentControllerInterfaceSnapshotMock.mockReset();
     resolveBuiltinControllerInstallResolutionMock.mockReset();
   });

@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-24T02:19:14.616Z",
+  "updatedAt": "2026-08-24T18:04:40.685Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.86",
+      "packageVersion": "0.3.97",
       "updatePolicy": "available",
-      "reason": "Improves Center Agent failure diagnostics and uses structured evidence for action safety, member research, and reply publication."
+      "reason": "Improve Space file context handling and keep isolated setup aligned."
     },
     "service": {
-      "bundleHash": "1417d96986c656c4d21c14546528ca9db8b7b6d335406323d1c4211bdbc191ed",
-      "bundleVersion": "0.3.86",
+      "bundleHash": "cdb0367acad6dc0dbbea85472765e3ffbe0e064e886824cd86a88bb0fc9f6ba9",
+      "bundleVersion": "0.3.97",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
-      "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
+      "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Improves Center Agent failure diagnostics and uses structured evidence for action safety, member research, and reply publication."
+      "reason": "Improve Space file context handling and keep isolated setup aligned."
     },
     "skills": {
-      "bundleHash": "79a8ca933c1447c98097071a7434ae390c267be8f9b05f67d3102a39c614ef04",
-      "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
+      "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
+      "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
-      "updatePolicy": "available",
-      "reason": "Improves Center Agent failure diagnostics and uses structured evidence for action safety, member research, and reply publication."
+      "updatePolicy": "ok",
+      "reason": "Improve Space file context handling and keep isolated setup aligned."
     }
   }
 }

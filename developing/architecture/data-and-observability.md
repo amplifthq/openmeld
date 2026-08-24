@@ -817,11 +817,21 @@ Organization-only viewers cannot list Trash. Physical reclamation is a later
 explicitly-owned maintenance lifecycle, not part of an interactive delete
 request.
 
+The Space Durable Object appends one durable File audit event for each accepted
+content read or metadata mutation request. A successful metadata mutation and
+its event commit in the same SQLite transaction. Core reports the final R2
+content-read result and pre-commit R2 write failures back to that same writer;
+the metadata commit owns the successful content-write event. Exact request
+retries reuse the event id, while the operation id correlates separate attempts
+of the same client mutation.
+
 File audit events include Organization id, Space id, stable entry id, revision
-id when relevant, operation, actor Profile, represented human when applicable,
-and result. Logs and diagnostics never include file bytes, text bodies, or user
-file names. `space.files.changed` is a live invalidation only; clients re-read
-the Space-owned tree and never derive file state from the frame.
+id when relevant, operation, request and operation ids, actor kind, actor
+Profile for authenticated or dispatch actors, represented human when
+applicable, result, and a bounded error code for failures. Logs and diagnostics
+never include file bytes, text bodies, or user file names.
+`space.files.changed` is a live invalidation only; clients re-read the
+Space-owned tree and never derive file state from the frame.
 
 ## Agent Profile Deletion Lifecycle
 
@@ -1747,6 +1757,19 @@ display from that frozen delivery and label the action as initiated from the
 connected Message Channel. They never present the shared connection's installer
 as the requester or imply that the provider member has an OpenMeld account.
 
+For a verified member acting through a Space-native delivery, Core also derives
+the source Space from that exact delivery after the same identity checks. The
+first connector-operation audit row freezes the nullable `sourceSpaceId`; later
+completion, failure, and replay rows reuse it instead of accepting a caller's
+current Space. The field is provenance for bounded follow-up lookup, not
+authorization or permission to merge conversation histories. Audit readers opt
+in through action set `v20`; older action sets omit the field entirely.
+Only a native delivery whose `conversationKind` is `space` may populate
+`sourceSpaceId`. Legacy Slack and generic Message Channel deliveries keep their
+external conversation identity in their owning locator and leave
+`sourceSpaceId` null; an external conversation ID must never be reinterpreted as
+an OpenMeld Space ID.
+
 For a native delivery created from a Space Wake, the native-delivery ledger
 remains the authoritative hosted execution record while the Dispatch Ledger is
 the public Wake trace projection. Core closes that projection only from a
@@ -1804,6 +1827,21 @@ A malformed or incomplete locator fails closed; readers never infer a provider
 from the conversation-id prefix. A ledger row describes one result surface
 only, and external provider results are not mirrored into a Space timeline or
 another connected provider.
+
+An interactive Center Agent turn may read a bounded self-diagnostic projection
+of its own current native-delivery row and recent rows from the same requester
+on the same conversation surface. Core derives the current row only from the
+trusted `agentControllerConversationId`; the model cannot supply a delivery,
+dispatch, submission, user, channel, or Space selector. Previous rows must
+match the same Organization, Center Agent profile, requester identity, and
+surface. Slack direct-message history is scoped to the same workspace and
+channel rather than one thread so separate top-level requests remain
+diagnosable. The projection returns identifiers, lifecycle timestamps, raw
+recorded status, bounded sanitized failure evidence, final-publication state,
+and the provider result pointer. It never returns prompt text, reply text,
+tokens, raw provider payloads, another member's history, or Routine history.
+Execution status, failure evidence, and publication are independent facts; a
+reader must not infer any one from the others or from user-facing copy.
 
 For Lark-platform final replies, the same native-delivery row also owns the
 frozen provider payload, attempt count, next-attempt time, provider-progress

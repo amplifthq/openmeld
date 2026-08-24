@@ -7029,6 +7029,207 @@ describe("OpenMeld Core", () => {
     });
   });
 
+  it("durably audits Space file writes without storing file data", async () => {
+    const spaceId = await createSpace({ name: `file-audit-${Date.now()}` });
+    const context = createRpcContext({
+      requestId: "rpc-space-file-audit-write",
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Test User",
+      ownerUserId: "owner-test-default",
+    });
+    const bytes = new TextEncoder().encode("Confidential audit fixture");
+    const fileId = randomUUID();
+    const revisionId = randomUUID();
+    const clientMutationId = randomUUID();
+
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const spaceAccess = createAuthenticatedSpaceAccessContext({
+      requestContext: context,
+      spaceId,
+    });
+    const write = {
+      baseRevision: null,
+      clientMutationId,
+      fileId,
+      mimeType: "text/plain",
+      name: "audit-secret.txt",
+      parentId: null,
+      revisionId,
+      sizeBytes: bytes.byteLength,
+      spaceId,
+    };
+    await stub.rpcPrepareSpaceFileWrite({ spaceAccess, write });
+    await stub.rpcCommitSpaceFileWrite({ spaceAccess, write });
+    await stub.rpcCommitSpaceFileWrite({ spaceAccess, write });
+    const folderRequestId = "rpc-space-file-audit-folder";
+    const folder = await stub.rpcCreateSpaceFolder({
+      body: { clientMutationId: randomUUID(), name: "Private Audit Folder" },
+      spaceAccess: createAuthenticatedSpaceAccessContext({
+        requestContext: {
+          ...context,
+          actorContext: { ...context.actorContext, requestId: folderRequestId },
+        },
+        spaceId,
+      }),
+      spaceId,
+    });
+    const failedFolderRequestId = "rpc-space-file-audit-folder-failed";
+    await runInDurableObject(stub, async (instance) => {
+      await expect(
+        instance.rpcCreateSpaceFolder({
+          body: {
+            clientMutationId: randomUUID(),
+            name: "Private Audit Folder",
+          },
+          spaceAccess: createAuthenticatedSpaceAccessContext({
+            requestContext: {
+              ...context,
+              actorContext: {
+                ...context.actorContext,
+                requestId: failedFolderRequestId,
+              },
+            },
+            spaceId,
+          }),
+          spaceId,
+        })
+      ).rejects.toMatchObject({ code: "space_file.name_conflict" });
+    });
+    const updateRequestId = "rpc-space-file-audit-update";
+    await stub.rpcUpdateSpaceFileEntry({
+      body: { clientMutationId: randomUUID(), parentId: folder.folder.id },
+      entryId: fileId,
+      spaceAccess: createAuthenticatedSpaceAccessContext({
+        requestContext: {
+          ...context,
+          actorContext: { ...context.actorContext, requestId: updateRequestId },
+        },
+        spaceId,
+      }),
+      spaceId,
+    });
+    const trashRequestId = "rpc-space-file-audit-trash";
+    await stub.rpcTrashSpaceFileEntry({
+      clientMutationId: randomUUID(),
+      entryId: fileId,
+      spaceAccess: createAuthenticatedSpaceAccessContext({
+        requestContext: {
+          ...context,
+          actorContext: { ...context.actorContext, requestId: trashRequestId },
+        },
+        spaceId,
+      }),
+      spaceId,
+    });
+    const restoreRequestId = "rpc-space-file-audit-restore";
+    await stub.rpcRestoreSpaceFileEntry({
+      body: { clientMutationId: randomUUID() },
+      entryId: fileId,
+      spaceAccess: createAuthenticatedSpaceAccessContext({
+        requestContext: {
+          ...context,
+          actorContext: {
+            ...context.actorContext,
+            requestId: restoreRequestId,
+          },
+        },
+        spaceId,
+      }),
+      spaceId,
+    });
+
+    const events = await runInDurableObject(stub, async (_instance, state) =>
+      state.storage.sql
+        .exec<{
+          actor_kind: string;
+          actor_profile_id: string | null;
+          entry_id: string;
+          error_code: string | null;
+          operation: string;
+          operation_id: string;
+          organization_id: string;
+          represented_human_profile_id: string | null;
+          request_id: string;
+          result: string;
+          revision_id: string | null;
+          space_id: string;
+        }>(
+          `
+            SELECT
+              actor_kind,
+              actor_profile_id,
+              entry_id,
+              error_code,
+              operation,
+              operation_id,
+              organization_id,
+              represented_human_profile_id,
+              request_id,
+              result,
+              revision_id,
+              space_id
+            FROM space_file_audit_events
+            ORDER BY created_at_ms ASC, event_id ASC
+          `
+        )
+        .toArray()
+    );
+
+    expect(events).toHaveLength(6);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        {
+          actor_kind: "authenticated",
+          actor_profile_id: DEFAULT_HUMAN_PROFILE_ID,
+          entry_id: fileId,
+          error_code: null,
+          operation: "content_write",
+          operation_id: clientMutationId,
+          organization_id: DEFAULT_TEST_ORGANIZATION_ID,
+          represented_human_profile_id: null,
+          request_id: "rpc-space-file-audit-write",
+          result: "succeeded",
+          revision_id: revisionId,
+          space_id: spaceId,
+        },
+        expect.objectContaining({
+          entry_id: folder.folder.id,
+          operation: "folder_create",
+          request_id: folderRequestId,
+          result: "succeeded",
+        }),
+        expect.objectContaining({
+          error_code: "space_file.name_conflict",
+          operation: "folder_create",
+          request_id: failedFolderRequestId,
+          result: "failed",
+        }),
+        expect.objectContaining({
+          entry_id: fileId,
+          operation: "entry_update",
+          request_id: updateRequestId,
+          result: "succeeded",
+        }),
+        expect.objectContaining({
+          entry_id: fileId,
+          operation: "entry_trash",
+          request_id: trashRequestId,
+          result: "succeeded",
+        }),
+        expect.objectContaining({
+          entry_id: fileId,
+          operation: "entry_restore",
+          request_id: restoreRequestId,
+          result: "succeeded",
+        }),
+      ])
+    );
+    expect(JSON.stringify(events)).not.toContain("audit-secret.txt");
+    expect(JSON.stringify(events)).not.toContain("Confidential audit fixture");
+  });
+
   it("persists the authenticated agent's Space member name instead of a requested profile display", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,

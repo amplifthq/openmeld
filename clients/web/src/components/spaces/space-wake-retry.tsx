@@ -358,7 +358,7 @@ export function SpaceExecutionRecoveryButton(input: {
 			cancelled = true;
 		};
 	}, [recoveryDispatchId, recoveryResultRef, recoveryTargetProfileId]);
-	if (resolution && resolution.action === null) {
+	if (inspectionFailed || (resolution && resolution.action === null)) {
 		return null;
 	}
 	const recover = async () => {
@@ -389,7 +389,6 @@ export function SpaceExecutionRecoveryButton(input: {
 	};
 	const recoveryLabel = resolveSpaceExecutionRecoveryButtonLabel({
 		didFail,
-		inspectionFailed,
 		isPending,
 		resolution,
 	});
@@ -451,7 +450,6 @@ export function buildSpaceExecutionRecoveryOperationId(input: {
 
 function resolveSpaceExecutionRecoveryButtonLabel(input: {
 	didFail: boolean;
-	inspectionFailed: boolean;
 	isPending: boolean;
 	resolution: SpaceExecutionRecoveryResolution | null;
 }): string {
@@ -465,9 +463,6 @@ function resolveSpaceExecutionRecoveryButtonLabel(input: {
 	}
 	if (input.didFail) {
 		return "Recovery failed. Try again";
-	}
-	if (input.inspectionFailed) {
-		return "Recovery unavailable";
 	}
 	if (input.resolution?.action === "resume_controller_conversation") {
 		return "Recover reply";

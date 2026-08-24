@@ -935,6 +935,7 @@ async function performDaemonReinstall(input: {
           await resolveAlreadyHealthyDaemonRepair({
             expectedVersion: input.resolved.daemonVersion,
             cliScriptPath: input.resolved.cliScriptPath,
+            gatewayUrl: input.gatewayUrl,
           })
       );
       if (alreadyHealthy) {
@@ -1380,6 +1381,7 @@ function resolveDaemonReinstallOptions(
 async function resolveAlreadyHealthyDaemonRepair(input: {
   expectedVersion: string;
   cliScriptPath?: string;
+  gatewayUrl?: string;
 }): Promise<Extract<
   DaemonReinstallOutcome,
   { result: "already_healthy" }
@@ -1393,6 +1395,7 @@ async function resolveAlreadyHealthyDaemonRepair(input: {
     inventory,
     target: buildDaemonServiceTargetSpec({
       daemonVersion: input.expectedVersion,
+      gatewayUrl: input.gatewayUrl,
     }),
   });
   if (decision.status !== "already_aligned") {

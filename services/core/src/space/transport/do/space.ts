@@ -82,6 +82,7 @@ import {
   spaceAgentStreamSnapshotSchema,
   spaceAgentStreamTerminalFrameSchema,
   spaceBoardRoomProjectionSchema,
+  spaceFileAuditEventSchema,
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
@@ -138,6 +139,7 @@ import type {
   RuntimeCoordinatorFailurePublicationOutcome,
   RuntimeCoordinatorFinalizationClaimRead,
   RuntimeCoordinatorFinalizationCommand,
+  RuntimeCoordinatorFinalizationFinalMessageKind,
   RuntimeCoordinatorFinalizationOutcome,
   SpaceAccessMode,
   SpaceAgentStreamDeltaFrame,
@@ -152,6 +154,7 @@ import type {
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceSnapshot,
   SpaceFileActor,
+  SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceFileMutationErrorCode,
   SpaceIdentityDirectory,
@@ -191,6 +194,8 @@ import {
   type AgentTransportSpaceActionDeliveryInput,
   type AgentTransportSpaceActionDeliveryReceipt,
   finalizeAcceptedDispatchResult,
+  recordConfirmedAcceptedDispatchFailure,
+  recordConfirmedAcceptedDispatchSuccess,
 } from "../../../dispatch/application/dispatch-execution-service";
 import {
   buildDispatchHumanLogContext,
@@ -393,6 +398,7 @@ import {
 } from "../../application/space-contract-service";
 import { handlePatchCursorUseCase } from "../../application/space-cursor-service";
 import { resolveSpaceDispatchConversationContinuityScope } from "../../application/space-dispatch-conversation-continuity";
+import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
 import { buildSpaceInboxProjectionOutboxRecord } from "../../application/space-inbox-projection";
 import {
@@ -493,6 +499,7 @@ import {
   upsertSpaceCursorRecord,
 } from "../../infrastructure/sql/space-cursor-repo";
 import { readSpaceDispatchRule } from "../../infrastructure/sql/space-dispatch-rule-repo";
+import { SpaceFileAuditRepository } from "../../infrastructure/sql/space-file-audit-repo";
 import {
   SpaceFileRepository,
   SpaceFileRepositoryError,
@@ -2383,13 +2390,24 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
     const body = createSpaceFolderBodySchema.parse(input.body);
-    const folder = this.runSpaceFileRepositoryOperation(() =>
+    const folderId = crypto.randomUUID();
+    const nowMs = Date.now();
+    const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
+      entryId: folderId,
+      occurredAtMs: nowMs,
+      operation: "folder_create",
+      operationId: body.clientMutationId,
+      revisionId: null,
+      spaceAccess: input.spaceAccess,
+    });
+    const folder = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.createFolder({
         actor,
+        auditEvent,
         clientMutationId: body.clientMutationId,
-        folderId: crypto.randomUUID(),
+        folderId,
         name: body.name,
-        nowMs: Date.now(),
+        nowMs,
         parentId: body.parentId,
         spaceId: this.spaceId,
       })
@@ -2407,12 +2425,22 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
     const body = updateSpaceFileEntryBodySchema.parse(input.body);
-    const entry = this.runSpaceFileRepositoryOperation(() =>
+    const nowMs = Date.now();
+    const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
+      entryId: input.entryId,
+      occurredAtMs: nowMs,
+      operation: "entry_update",
+      operationId: body.clientMutationId,
+      revisionId: null,
+      spaceAccess: input.spaceAccess,
+    });
+    const entry = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.updateEntry({
         actor,
+        auditEvent,
         body,
         entryId: input.entryId,
-        nowMs: Date.now(),
+        nowMs,
       })
     );
     await this.broadcastSpaceFilesChanged("space_file.entry_updated");
@@ -2427,12 +2455,22 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<TrashSpaceFileEntryResponse> {
     this.applySpaceRef(input.spaceId);
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
-    const response = this.runSpaceFileRepositoryOperation(() =>
+    const nowMs = Date.now();
+    const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
+      entryId: input.entryId,
+      occurredAtMs: nowMs,
+      operation: "entry_trash",
+      operationId: input.clientMutationId,
+      revisionId: null,
+      spaceAccess: input.spaceAccess,
+    });
+    const response = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.trashEntry({
         actor,
+        auditEvent,
         clientMutationId: input.clientMutationId,
         entryId: input.entryId,
-        nowMs: Date.now(),
+        nowMs,
       })
     );
     await this.broadcastSpaceFilesChanged("space_file.entry_trashed");
@@ -2448,12 +2486,22 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
     const body = restoreSpaceFileEntryBodySchema.parse(input.body);
-    const entry = this.runSpaceFileRepositoryOperation(() =>
+    const nowMs = Date.now();
+    const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
+      entryId: input.entryId,
+      occurredAtMs: nowMs,
+      operation: "entry_restore",
+      operationId: body.clientMutationId,
+      revisionId: null,
+      spaceAccess: input.spaceAccess,
+    });
+    const entry = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.restoreEntry({
         actor,
+        auditEvent,
         clientMutationId: body.clientMutationId,
         entryId: input.entryId,
-        nowMs: Date.now(),
+        nowMs,
       })
     );
     await this.broadcastSpaceFilesChanged("space_file.entry_restored");
@@ -2493,10 +2541,20 @@ export class Space extends DurableObject<CoreBindings> {
     const write = commitSpaceFileWriteInputSchema.parse(input.write);
     this.applySpaceRef(write.spaceId);
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
-    const file = this.runSpaceFileRepositoryOperation(() =>
+    const nowMs = Date.now();
+    const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
+      entryId: write.fileId,
+      occurredAtMs: nowMs,
+      operation: "content_write",
+      operationId: write.clientMutationId,
+      revisionId: write.revisionId,
+      spaceAccess: input.spaceAccess,
+    });
+    const file = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.commitWrite({
         actor,
-        nowMs: Date.now(),
+        auditEvent,
+        nowMs,
         write,
       })
     );
@@ -2532,8 +2590,42 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
 
+  rpcRecordSpaceFileAuditEvent(input: { event: unknown }): void {
+    const event = spaceFileAuditEventSchema.parse(input.event);
+    this.applySpaceRef(event.spaceId);
+    const meta = this.requireSpaceFileMetaRecord();
+    if (event.organizationId !== meta.organizationId) {
+      throw new Error(
+        "Space File audit Organization does not match the canonical Space."
+      );
+    }
+    this.spaceFileAuditRepository.record(event);
+  }
+
   private get spaceFileRepository(): SpaceFileRepository {
     return new SpaceFileRepository(this.ctx.storage);
+  }
+
+  private get spaceFileAuditRepository(): SpaceFileAuditRepository {
+    return new SpaceFileAuditRepository(this.ctx.storage.sql);
+  }
+
+  private buildSuccessfulSpaceFileAuditEvent(input: {
+    entryId: string;
+    occurredAtMs: number;
+    operation: SpaceFileAuditEvent["operation"];
+    operationId: string;
+    revisionId: string | null;
+    spaceAccess: SpaceAccessContext;
+  }): SpaceFileAuditEvent {
+    const meta = this.requireSpaceFileMetaRecord();
+    return buildSpaceFileAuditEvent({
+      ...input,
+      errorCode: null,
+      organizationId: meta.organizationId,
+      result: "succeeded",
+      spaceId: this.spaceId,
+    });
   }
 
   private requireSpaceFileMetaRecord(): SpaceMetaRecord {
@@ -2609,6 +2701,22 @@ export class Space extends DurableObject<CoreBindings> {
         code: error.code,
         reason: error.message,
       });
+    }
+  }
+
+  private runAuditedSpaceFileMutation<T>(
+    successEvent: SpaceFileAuditEvent,
+    operation: () => T
+  ): T {
+    try {
+      return this.runSpaceFileRepositoryOperation(operation);
+    } catch (error) {
+      this.spaceFileAuditRepository.record({
+        ...successEvent,
+        errorCode: resolveSpaceFileAuditErrorCode(error),
+        result: "failed",
+      });
+      throw error;
     }
   }
 
@@ -2997,33 +3105,33 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileMentionLabel: command.targetProfileMentionLabel,
         targetProfileName: command.targetProfileName,
       });
-      const visibleFinalMessage =
-        finalized.publishState === "reply_published"
-          ? resolveRuntimeCoordinatorFinalizationVisibleFinalMessage({
-              command,
-              outcome: finalized,
-              readFinalReplyClaimSignalId: (claim) =>
-                readFinalReplyClaimSignalId(this.ctx.storage.sql, claim),
-              readSignalById: (signalId) => this.readSignalById(signalId),
-            })
-          : null;
-      if (
-        finalized.publishState === "reply_published" &&
-        !visibleFinalMessage?.ok
-      ) {
+      const visibleFinalMessage = finalized.publishedSignalId
+        ? resolveRuntimeCoordinatorFinalizationVisibleFinalMessage({
+            command,
+            outcome: {
+              publishedSignalId: finalized.publishedSignalId,
+              publishState: "reply_published",
+            },
+            readFinalReplyClaimSignalId: (claim) =>
+              readFinalReplyClaimSignalId(this.ctx.storage.sql, claim),
+            readSignalById: (signalId) => this.readSignalById(signalId),
+          })
+        : null;
+      if (!visibleFinalMessage?.ok) {
         return buildRuntimeCoordinatorFinalizationFailureOutcome({
           finalizationCommandId: command.finalizationCommandId,
           reasonCode: "daemon.result.finalization_no_public_reply",
         });
       }
-      const publishedSignalId =
-        visibleFinalMessage?.ok === true
-          ? visibleFinalMessage.publishedSignalId
-          : finalized.publishedSignalId;
-      if (
-        !publishedSignalId &&
-        finalized.publishState !== "invalid_space_action"
-      ) {
+      const publishedSignalId = visibleFinalMessage.publishedSignalId;
+      const confirmedFinalState =
+        await recordConfirmedAcceptedDispatchFinalState({
+          command,
+          db,
+          publishedSignalId,
+          readSignalById: (signalId) => this.readSignalById(signalId),
+        });
+      if (!confirmedFinalState) {
         return buildRuntimeCoordinatorFinalizationFailureOutcome({
           finalizationCommandId: command.finalizationCommandId,
           reasonCode: "daemon.result.finalization_no_public_reply",
@@ -3034,7 +3142,9 @@ export class Space extends DurableObject<CoreBindings> {
           command,
           db: coordinationDb,
           env: this.bindings,
+          finalMessageKind: confirmedFinalState.finalMessageKind,
           publishedSignalId,
+          publishState: finalized.publishState,
         });
       if (taskOutcomeWrite && !taskOutcomeWrite.matches) {
         console.warn(
@@ -3056,6 +3166,7 @@ export class Space extends DurableObject<CoreBindings> {
         );
       }
       return {
+        finalMessageKind: confirmedFinalState.finalMessageKind,
         finalizationCommandId: command.finalizationCommandId,
         ok: true,
         publicationErrorCode: null,
@@ -16113,6 +16224,19 @@ function spaceFileErrorStatus(code: SpaceFileMutationErrorCode): number {
   }
 }
 
+function resolveSpaceFileAuditErrorCode(error: unknown): string {
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    error.code.trim()
+  ) {
+    return error.code.trim().slice(0, 128);
+  }
+  return "space_file.internal_error";
+}
+
 function isSpaceAgentStreamFrame(
   message:
     | SignalEnvelope
@@ -18611,6 +18735,128 @@ export function resolveRuntimeCoordinatorFinalizationVisibleFinalMessage(input: 
   return { ok: false };
 }
 
+async function recordConfirmedAcceptedDispatchFinalState(input: {
+  command: RuntimeCoordinatorFinalizationCommand;
+  db: D1Database;
+  publishedSignalId: string;
+  readSignalById: (signalId: string) => SignalEnvelope | null;
+}): Promise<{
+  finalMessageKind: RuntimeCoordinatorFinalizationFinalMessageKind;
+} | null> {
+  const publishedSignal = input.readSignalById(input.publishedSignalId);
+  if (!publishedSignal) {
+    return null;
+  }
+  const finalMessageKind =
+    resolveRuntimeCoordinatorFinalizationMessageKind(publishedSignal);
+  if (!finalMessageKind) {
+    return null;
+  }
+  const confirmedOutcome = resolveConfirmedAcceptedDispatchOutcome({
+    command: input.command,
+    signal: publishedSignal,
+  });
+  if (confirmedOutcome.kind === "success") {
+    await recordConfirmedAcceptedDispatchSuccess({
+      attemptId: input.command.acceptedResult.attemptId,
+      db: input.db,
+      idempotencyKey: input.command.dispatchFact.idempotencyKey,
+      outcome: {
+        kind: "published_signal",
+        publishedSignalId: input.publishedSignalId,
+      },
+    });
+    return { finalMessageKind };
+  }
+  if (confirmedOutcome.kind !== "failure") {
+    return null;
+  }
+  await recordConfirmedAcceptedDispatchFailure({
+    attemptId: input.command.acceptedResult.attemptId,
+    db: input.db,
+    errorCode: confirmedOutcome.errorCode,
+    errorMessage: confirmedOutcome.errorMessage,
+    idempotencyKey: input.command.dispatchFact.idempotencyKey,
+  });
+  return { finalMessageKind };
+}
+
+function resolveRuntimeCoordinatorFinalizationMessageKind(
+  signal: SignalEnvelope
+): RuntimeCoordinatorFinalizationFinalMessageKind | null {
+  if (signal.type === "signal.text" || signal.type === "signal.status") {
+    return "success_reply";
+  }
+  if (signal.type !== "signal.system_notice") {
+    return null;
+  }
+  if (signal.data.noticeType === "stay_silent") {
+    return "stay_silent";
+  }
+  if (
+    signal.data.noticeType === "policy_blocked" ||
+    signal.data.noticeType === "terminal_failure"
+  ) {
+    return "failure_notice";
+  }
+  return null;
+}
+
+export function resolveConfirmedAcceptedDispatchOutcome(input: {
+  command: RuntimeCoordinatorFinalizationCommand;
+  signal: SignalEnvelope;
+}):
+  | { kind: "failure"; errorCode: string; errorMessage: string | null }
+  | { kind: "success" }
+  | { kind: "unknown" } {
+  const payload = input.command.acceptedResult.taskResult.payload;
+  if (payload.status === "failed") {
+    return {
+      errorCode:
+        normalizeOptionalText(payload.errorCode) ?? "agent_task.child_failed",
+      errorMessage:
+        normalizeOptionalText(payload.errorMessage) ??
+        ("text" in input.signal.data
+          ? normalizeOptionalText(input.signal.data.text)
+          : null),
+      kind: "failure",
+    };
+  }
+  if (
+    input.signal.type === "signal.text" ||
+    input.signal.type === "signal.status"
+  ) {
+    return { kind: "success" };
+  }
+  if (input.signal.type !== "signal.system_notice") {
+    return { kind: "unknown" };
+  }
+  if (input.signal.data.noticeType === "stay_silent") {
+    return { kind: "success" };
+  }
+  if (
+    input.signal.data.noticeType !== "policy_blocked" &&
+    input.signal.data.noticeType !== "terminal_failure"
+  ) {
+    return { kind: "unknown" };
+  }
+
+  const publicFailureReason =
+    "spaceActionFailureDiagnostics" in payload
+      ? normalizeOptionalText(
+          payload.spaceActionFailureDiagnostics?.publicFailureReason
+        )
+      : null;
+  return {
+    errorCode:
+      normalizeOptionalText(input.signal.data.reasonCode) ??
+      publicFailureReason ??
+      "reply.invalid_space_action",
+    errorMessage: normalizeOptionalText(input.signal.data.text),
+    kind: "failure",
+  };
+}
+
 export function resolveRuntimeCoordinatorFinalizationClaimRead(input: {
   command: RuntimeCoordinatorFinalizationCommand;
   readFinalReplyClaimSignalId: (input: {
@@ -18667,8 +18913,18 @@ export function resolveRuntimeCoordinatorFinalizationClaimRead(input: {
   if (!visibleFinalMessage.ok) {
     return { status: "unresolved" };
   }
+  const visibleSignal = input.readSignalById(
+    visibleFinalMessage.publishedSignalId
+  );
+  const finalMessageKind = visibleSignal
+    ? resolveRuntimeCoordinatorFinalizationMessageKind(visibleSignal)
+    : null;
+  if (!finalMessageKind) {
+    return { status: "unresolved" };
+  }
   return {
     outcome: {
+      finalMessageKind,
       finalizationCommandId: input.command.finalizationCommandId,
       ok: true,
       publicationErrorCode: null,
@@ -19075,12 +19331,15 @@ async function readExecutionRecoveryNativeDelivery(input: {
   });
 }
 
-function resolveExecutionRecoveryResultRef(input: {
+export function resolveExecutionRecoveryResultRef(input: {
   nativeDelivery: ExecutionRecoveryNativeDelivery;
   nativeResultRef: string | null;
   resultInbox: SpaceDispatchTraceSnapshot["resultInbox"];
 }): string | null {
-  if (input.nativeDelivery?.conversationKind !== "space") {
+  if (
+    input.nativeDelivery &&
+    input.nativeDelivery.conversationKind !== "space"
+  ) {
     return input.nativeResultRef;
   }
   return input.resultInbox?.resultKey ?? null;

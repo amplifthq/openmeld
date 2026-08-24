@@ -1,5 +1,5 @@
-export const SPACE_SQL_SCHEMA_VERSION = 26;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v26";
+export const SPACE_SQL_SCHEMA_VERSION = 27;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v27";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -316,6 +316,49 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     )
   `);
 
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS space_file_audit_events (
+      event_id TEXT PRIMARY KEY,
+      operation_id TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      organization_id TEXT NOT NULL,
+      space_id TEXT NOT NULL,
+      entry_id TEXT NOT NULL,
+      revision_id TEXT NULL,
+      operation TEXT NOT NULL
+        CHECK (operation IN (
+          'content_read',
+          'content_write',
+          'folder_create',
+          'entry_update',
+          'entry_trash',
+          'entry_restore'
+        )),
+      actor_kind TEXT NOT NULL
+        CHECK (actor_kind IN (
+          'authenticated',
+          'anonymous_viewer',
+          'dispatch_continuation'
+        )),
+      actor_profile_id TEXT NULL,
+      represented_human_profile_id TEXT NULL,
+      result TEXT NOT NULL
+        CHECK (result IN ('succeeded', 'failed')),
+      error_code TEXT NULL,
+      created_at_ms INTEGER NOT NULL,
+      CHECK (
+        (actor_kind = 'anonymous_viewer' AND actor_profile_id IS NULL)
+        OR
+        (actor_kind <> 'anonymous_viewer' AND actor_profile_id IS NOT NULL)
+      ),
+      CHECK (
+        (result = 'succeeded' AND error_code IS NULL)
+        OR
+        (result = 'failed' AND error_code IS NOT NULL)
+      )
+    )
+  `);
+
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_signals_ts_id ON space_signals (ts, id)"
   );
@@ -391,6 +434,12 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   );
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_file_mutations_created_at ON space_file_mutations (created_at_ms)"
+  );
+  sql.exec(
+    "CREATE INDEX IF NOT EXISTS idx_space_file_audit_entry_created ON space_file_audit_events (entry_id, created_at_ms, event_id)"
+  );
+  sql.exec(
+    "CREATE INDEX IF NOT EXISTS idx_space_file_audit_operation_id ON space_file_audit_events (operation, operation_id)"
   );
 
   sql.exec(

@@ -10,9 +10,11 @@ import {
   clearRemoteAgentNativeDeliveryTriggerTextForOrganization,
   insertRemoteAgentRejectedCallbackRecord,
   isLatestRemoteAgentNativeDeliveryActiveForSlackThread,
+  listRemoteAgentNativeDeliveryTurnDiagnostics,
   markRemoteAgentCallbackRejected,
   markRemoteAgentNativeDeliveryAck,
   markRemoteAgentNativeDeliveryCompleted,
+  projectRemoteAgentNativeDeliveryTurnDiagnostic,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
   upsertRemoteAgentNativeDeliveryRecord,
@@ -23,6 +25,92 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Remote Agent native delivery ledger repo", () => {
+  it("lists only the same requester's recent turns on the current Slack conversation surface", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentLedgerMigration(harness);
+    try {
+      const current = await createSlackTurnDiagnosticFixture({
+        channelId: "D_CURRENT",
+        db: harness.db,
+        deliveryId: "delivery_current",
+        nowMs: 5000,
+        submissionId: "submission_current",
+        threadTs: "5000.1",
+        triggerMessageId: "5000.1",
+        userId: "user_1",
+      });
+      await createSlackTurnDiagnosticFixture({
+        channelId: "D_CURRENT",
+        db: harness.db,
+        deliveryId: "delivery_previous_1",
+        nowMs: 3000,
+        publicationState: "published",
+        publishedResultId: "3100.1",
+        status: "completed",
+        submissionId: "submission_previous_1",
+        threadTs: "3000.1",
+        triggerMessageId: "3000.1",
+        userId: "user_1",
+      });
+      await createSlackTurnDiagnosticFixture({
+        channelId: "D_CURRENT",
+        db: harness.db,
+        deliveryId: "delivery_other_member",
+        nowMs: 4000,
+        submissionId: "submission_other_member",
+        threadTs: "4000.1",
+        triggerMessageId: "4000.1",
+        userId: "user_2",
+      });
+      await createSlackTurnDiagnosticFixture({
+        channelId: "D_OTHER",
+        db: harness.db,
+        deliveryId: "delivery_other_channel",
+        nowMs: 4500,
+        submissionId: "submission_other_channel",
+        threadTs: "4500.1",
+        triggerMessageId: "4500.1",
+        userId: "user_1",
+      });
+
+      await expect(
+        listRemoteAgentNativeDeliveryTurnDiagnostics({
+          currentDelivery: current,
+          db: harness.db,
+          limit: 10,
+        })
+      ).resolves.toMatchObject([
+        {
+          deliveryId: "delivery_previous_1",
+          publicationState: "published",
+          publishedResultId: "3100.1",
+          status: "completed",
+          submissionId: "submission_previous_1",
+          triggerMessageId: "3000.1",
+        },
+      ]);
+      expect(
+        projectRemoteAgentNativeDeliveryTurnDiagnostic({
+          ...current,
+          conversationKind: "message_channel",
+          providerPublicationResultId: "om_provider_result_1",
+          publishedSignalId: null,
+        })
+      ).toMatchObject({ publishedResultId: "om_provider_result_1" });
+      expect(
+        projectRemoteAgentNativeDeliveryTurnDiagnostic({
+          ...current,
+          failureDetail: "x".repeat(2001),
+        })
+      ).toMatchObject({
+        failureDetail: "x".repeat(2000),
+        failureDetailTruncated: true,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it.each([
     "space",
     "slack",
@@ -1302,4 +1390,97 @@ async function createAcceptedDelivery(input: {
     workerRequestId: "req_1",
     accepted: true,
   });
+}
+
+async function createSlackTurnDiagnosticFixture(input: {
+  channelId: string;
+  db: D1Database;
+  deliveryId: string;
+  nowMs: number;
+  publicationState?: "claimed" | "outcome_unknown" | "published";
+  publishedResultId?: string;
+  status?: "accepted" | "completed";
+  submissionId: string;
+  threadTs: string;
+  triggerMessageId: string;
+  userId: string;
+}) {
+  await upsertRemoteAgentNativeDeliveryRecord({
+    attemptId: `attempt_${input.deliveryId}`,
+    bindingId: "binding_1",
+    conversationKind: "slack",
+    db: input.db,
+    deliveryId: input.deliveryId,
+    dispatchId: `dispatch_${input.deliveryId}`,
+    idempotencyKey: `idempotency_${input.deliveryId}`,
+    nowMs: input.nowMs,
+    onBehalfOfDisplayName: input.userId,
+    onBehalfOfProfileId: `profile_${input.userId}`,
+    onBehalfOfUserId: input.userId,
+    organizationId: "org_1",
+    profileId: "profile_agent_1",
+    slackChannelId: input.channelId,
+    slackTeamId: "T1",
+    slackThreadTs: input.threadTs,
+    spaceId: `slack:T1:${input.channelId}:${input.threadTs}`,
+    status: "submitted",
+    triggerMessageId: input.triggerMessageId,
+  });
+  await markRemoteAgentNativeDeliveryAck({
+    accepted: true,
+    db: input.db,
+    idempotencyKey: `idempotency_${input.deliveryId}`,
+    nowMs: input.nowMs + 10,
+    submissionId: input.submissionId,
+    workerRequestId: `worker_${input.deliveryId}`,
+  });
+  await harnessUpdateTurnDiagnostic({
+    db: input.db,
+    deliveryId: input.deliveryId,
+    nowMs: input.nowMs + 20,
+    publicationState: input.publicationState ?? null,
+    publishedResultId: input.publishedResultId ?? null,
+    status: input.status ?? "accepted",
+  });
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: input.db,
+    submissionId: input.submissionId,
+  });
+  if (!delivery) {
+    throw new Error("expected Slack turn diagnostic fixture");
+  }
+  return delivery;
+}
+
+function harnessUpdateTurnDiagnostic(input: {
+  db: D1Database;
+  deliveryId: string;
+  nowMs: number;
+  publicationState: "claimed" | "outcome_unknown" | "published" | null;
+  publishedResultId: string | null;
+  status: "accepted" | "completed";
+}) {
+  return input.db
+    .prepare(
+      `
+        UPDATE openMeldRemoteAgent_native_delivery_ledger
+        SET
+          status = ?,
+          final_publication_state = ?,
+          published_signal_id = ?,
+          completed_at_ms = CASE WHEN ? = 'completed' THEN ? ELSE NULL END,
+          updated_at_ms = ?
+        WHERE delivery_id = ?
+      `
+    )
+    .bind(
+      input.status,
+      input.publicationState,
+      input.publishedResultId,
+      input.status,
+      input.nowMs,
+      input.nowMs,
+      input.deliveryId
+    )
+    .run();
 }

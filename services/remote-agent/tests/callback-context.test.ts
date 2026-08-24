@@ -1,4 +1,4 @@
-import { CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY } from "@openmeld/schemas";
+import { REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   assertCoreOriginatedTurnContext,
@@ -425,7 +425,7 @@ describe("remote agent callback context", () => {
     });
   });
 
-  it("rejects provider protocol text instead of publishing it as an ordinary reply", async () => {
+  it("publishes protocol-looking assistant prose as an ordinary reply", async () => {
     const request = createSubmitTurnRequest();
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
@@ -439,6 +439,8 @@ describe("remote agent callback context", () => {
       status: "accepted" as const,
     }));
 
+    const completedText =
+      "The provider calls its typed event <tool_call>, but this sentence is only an explanation.";
     const updated = await handleRemoteAgentChatResponse({
       coreWorker: { completeRemoteAgentSubmission },
       nowMs: () => TEST_NOW_MS + 1000,
@@ -447,7 +449,7 @@ describe("remote agent callback context", () => {
         message: {
           parts: [
             {
-              text: "The streaming example is still open: `<tool_call>",
+              text: completedText,
               type: "text",
             },
           ],
@@ -460,19 +462,13 @@ describe("remote agent callback context", () => {
 
     expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
       expect.objectContaining({
-        failureCode: "remote_agent.assistant_protocol_contamination",
-        failureMessage: CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
-        status: "failed",
+        status: "completed",
+        text: completedText,
       })
     );
-    expect(
-      JSON.stringify(completeRemoteAgentSubmission.mock.calls)
-    ).not.toContain("<tool_call>");
     expect(updated).toMatchObject({
-      callbackStatus: "failed",
-      terminalFailureFact: {
-        code: "remote_agent.assistant_protocol_contamination",
-      },
+      callbackStatus: "completed",
+      completedText,
     });
   });
 
@@ -1271,5 +1267,44 @@ describe("remote agent callback context", () => {
       code: "remote_agent.callback_failed_submission",
       retryable: false,
     });
+  });
+
+  it("publishes the precise runtime failure instead of replacing it with turn_not_completed", async () => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, context);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal-provider-rate-limited",
+      status: "accepted" as const,
+    }));
+
+    await handleRemoteAgentChatResponse({
+      coreWorker: { completeRemoteAgentSubmission },
+      nowMs: () => TEST_NOW_MS + 1000,
+      result: {
+        continuation: false,
+        error: new Error("provider request failed"),
+        failureReasonCode:
+          REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_RATE_LIMITED,
+        message: { parts: [] },
+        requestId: ACK.requestId,
+        status: "error",
+      },
+      storage,
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.provider.rate_limited",
+        failureMessage:
+          "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+        status: "failed",
+      })
+    );
   });
 });

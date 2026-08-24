@@ -2160,7 +2160,7 @@ test("invokeCodexAppServerTransport applies interactive Ask for approval policy 
   }
 });
 
-test("invokeCodexAppServerTransport keeps structured-action repair read-only on resumed threads", async () => {
+test("invokeCodexAppServerTransport isolates structured-action repair from the source thread", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-repair-policy-"));
   const dispatchDir = await mkdtemp(join(tmpdir(), "codex-app-repair-dir-"));
@@ -2171,7 +2171,7 @@ test("invokeCodexAppServerTransport keeps structured-action repair read-only on 
   await chmod(fixturePath, 0o755);
 
   try {
-    await invokeCodexAppServerTransport({
+    const result = await invokeCodexAppServerTransport({
       agentControllerPermissionMode: "codex:fullAccess",
       launchContract: createNodeScriptLaunchContract(fixturePath),
       codexTimeoutMs: 5000,
@@ -2185,22 +2185,24 @@ test("invokeCodexAppServerTransport keeps structured-action repair read-only on 
       threadId: "thread-existing-repair-policy",
     });
     const messages = await readFakeAppServerMessages(logPath);
+    const forkParams = messages.find(
+      (message) => message.method === "thread/fork"
+    ).params;
+    const resumeParams = messages.find(
+      (message) => message.method === "thread/resume"
+    ).params;
+    const turnParams = messages.find(
+      (message) => message.method === "turn/start"
+    ).params;
 
-    assert.equal(
-      messages.find((message) => message.method === "thread/resume").params
-        .approvalPolicy,
-      "untrusted"
-    );
-    assert.equal(
-      messages.find((message) => message.method === "thread/resume").params
-        .sandbox,
-      "read-only"
-    );
-    assert.equal(
-      messages.find((message) => message.method === "turn/start").params
-        .approvalPolicy,
-      "untrusted"
-    );
+    assert.equal(result.threadId, "thread-existing-repair-policy");
+    assert.equal(forkParams.threadId, "thread-existing-repair-policy");
+    assert.equal(forkParams.ephemeral, true);
+    assert.equal(resumeParams.threadId, "thread-fork-1");
+    assert.equal(resumeParams.approvalPolicy, "untrusted");
+    assert.equal(resumeParams.sandbox, "read-only");
+    assert.equal(turnParams.threadId, "thread-fork-1");
+    assert.equal(turnParams.approvalPolicy, "untrusted");
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
@@ -2527,6 +2529,16 @@ test("verifyCodexAppServerThread proves thread control without starting a turn",
       messages.find((message) => message.method === "thread/resume").params
         .excludeTurns,
       true
+    );
+    assert.equal(
+      "approvalPolicy" in
+        messages.find((message) => message.method === "thread/resume").params,
+      false
+    );
+    assert.equal(
+      "sandbox" in
+        messages.find((message) => message.method === "thread/resume").params,
+      false
     );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });

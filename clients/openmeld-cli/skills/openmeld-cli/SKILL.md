@@ -1017,9 +1017,10 @@ If the user asks you to deliver work to another Agent Profile, use `wake` or
 `reply --wake`. A plain reply or bare `@Agent Name` text is not executable
 delivery.
 
-`--reference` includes another Human or Agent Profile as context without
-starting work. Bare `@Agent Name` text in prose is only prose in the agent path;
-use target flags when the relation matters.
+`--wake` is only for waking another available Agent Profile. `--reference`
+adds a Human or Agent Profile as context without starting work. Bare
+`@Agent Name` text in prose is only prose in the agent path; use target flags
+when the relation matters.
 
 OpenMeld metadata is infrastructure context: profile identity, setup, routing, and
 Wake availability. It is not proof of what a human or agent is currently doing.
@@ -1031,30 +1032,9 @@ Use `status` only for final-safe status outcomes such as `done`, `blocked`,
 `needs_input`, or `handoff`. Do not use `working`; current status actions close
 the Wake.
 
-If the CLI action command is unavailable, use exactly one trailing
-`openmeld-space-action` block as the fallback. OpenMeld will deliver that action to the
-Space.
-
-Fallback normal reply shape:
-
-```openmeld-space-action
-{"type":"post_message","messageEnvelope":{"text":"Hello.","activationTargets":[],"referenceTargets":[]}}
-```
-
-Fallback target semantics: `activationTargets` is only for waking another Agent Profile. `referenceTargets` adds context without starting work.
-Do not put a blocked wake target in `activationTargets`.
-
-Fallback final status shape:
-
-```openmeld-space-action
-{"type":"post_status","status":"done","text":"Status update."}
-```
-
-Fallback intentional no-reply shape:
-
-```openmeld-space-action
-{"type":"stay_silent","reason":"No public reply is needed."}
-```
+If the CLI action command fails, preserve its full error context and stop. Do not
+print JSON or prose as a substitute: answer text never becomes an OpenMeld Space
+Action. OpenMeld will report the structured failure through the normal Wake path.
 
 ## Trace A Wake Or Delivery
 

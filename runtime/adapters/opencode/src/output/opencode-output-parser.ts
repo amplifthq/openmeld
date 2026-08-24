@@ -1,5 +1,3 @@
-import { looksLikeRuntimePermissionDenialMessage } from "@openmeld/adapter-core";
-
 export type OpenCodeOutputLineParseResult = {
   errorMessage: string | null;
   isErrorResult: boolean | null;
@@ -84,7 +82,12 @@ export function parseOpenCodeOutputLine(
   const resultText = resolveResultText(record, isErrorResult);
   const sessionId = resolveSessionId(record);
 
-  if (!errorMessage && resultText === null && sessionId === null) {
+  if (
+    !errorMessage &&
+    resultText === null &&
+    sessionId === null &&
+    isErrorResult === null
+  ) {
     return null;
   }
 
@@ -93,7 +96,7 @@ export function parseOpenCodeOutputLine(
     isErrorResult,
     resultText,
     sessionId,
-    terminal: errorMessage !== null,
+    terminal: isErrorResult === true,
   };
 }
 
@@ -172,17 +175,10 @@ function resolveErrorMessage(
   record: Record<string, unknown>,
   isErrorResult: boolean | null
 ): string | null {
-  const fromKnownPaths = resolveStringByPaths(
-    record,
-    OPENCODE_ERROR_MESSAGE_PATHS
-  );
-  if (
-    fromKnownPaths &&
-    (isErrorResult === true || looksLikeErrorSignal(fromKnownPaths))
-  ) {
-    return fromKnownPaths;
+  if (isErrorResult !== true) {
+    return null;
   }
-  return null;
+  return resolveStringByPaths(record, OPENCODE_ERROR_MESSAGE_PATHS);
 }
 
 function resolveIsErrorResult(record: Record<string, unknown>): boolean | null {
@@ -253,22 +249,6 @@ function resolveTextByPaths(
     }
   }
   return null;
-}
-
-function looksLikeErrorSignal(value: string): boolean {
-  const lowered = value.toLowerCase();
-  return (
-    lowered.includes("error") ||
-    lowered.includes("failed") ||
-    looksLikeRuntimePermissionDenialMessage(value) ||
-    lowered.includes("unauthorized") ||
-    lowered.includes("not logged in") ||
-    lowered.includes("invalid") ||
-    lowered.includes("quota") ||
-    lowered.includes("rate") ||
-    lowered.includes("unsupported model") ||
-    lowered.includes("model is not supported")
-  );
 }
 
 function normalizeOptionalText(value: unknown): string | null {

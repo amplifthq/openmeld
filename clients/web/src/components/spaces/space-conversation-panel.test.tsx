@@ -686,6 +686,8 @@ describe("SpaceConversationPanel", () => {
 			expect(pillItem?.className).toContain("sticky");
 			expect(pillItem?.className).toContain("h-8");
 			expect(pillItem?.className).toContain("-mb-8");
+			expect(pillItem?.className).toContain("max-lg:h-11");
+			expect(pillItem?.className).toContain("max-lg:-mb-11");
 			expect(pillItem?.className).toContain(
 				"top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)]"
 			);
@@ -695,7 +697,8 @@ describe("SpaceConversationPanel", () => {
 		const stickyPillViewport = document.querySelector(
 			"[data-slot='conversation-date-pill-viewport']"
 		);
-		expect(stickyPillViewport?.className).toContain("h-8");
+		expect(stickyPillViewport?.className).toContain("h-[calc(100%+0.125rem)]");
+		expect(stickyPillViewport?.className).toContain("pb-0.5");
 		expect(stickyPillViewport?.className).toContain("overflow-hidden");
 		expect(stickyDatePills[0]?.className).not.toContain("overflow-clip");
 		expect(
@@ -747,6 +750,26 @@ describe("SpaceConversationPanel", () => {
 				toJSON: () => ({}),
 			}),
 		});
+		const stickyPillSurface = document.querySelector<HTMLElement>(
+			"[data-slot='conversation-date-pill-surface']"
+		);
+		if (!stickyPillSurface) {
+			throw new Error("Expected the sticky conversation date pill surface.");
+		}
+		Object.defineProperty(stickyPillSurface, "getBoundingClientRect", {
+			configurable: true,
+			value: () => ({
+				bottom: 44,
+				height: 44,
+				left: 0,
+				right: 160,
+				top: 0,
+				width: 160,
+				x: 0,
+				y: 0,
+				toJSON: () => ({}),
+			}),
+		});
 		let secondDateMarkerTop = 20;
 		Object.defineProperty(secondDateMarker, "getBoundingClientRect", {
 			configurable: true,
@@ -769,7 +792,7 @@ describe("SpaceConversationPanel", () => {
 				document.querySelector<HTMLElement>(
 					"[data-slot='conversation-date-pill-track']"
 				)?.style.transform
-			).toBe("translate3d(0, -28px, 0)");
+			).toBe("translate3d(0, -40px, 0)");
 		});
 		expect(
 			screen.getAllByRole("button", {
@@ -1436,12 +1459,13 @@ describe("SpaceConversationPanel", () => {
 		const messageText = screen.getByText(longMessage);
 		const messageBubble = messageText.closest("[data-signal-id]");
 
-		expect(messageBubble?.className).toContain("min-w-[16rem]");
+		expect(messageBubble?.className).not.toContain("min-w-[16rem]");
 		expect(messageBubble?.className).toContain("max-w-full");
+		expect(messageBubble?.className).toContain("text-start");
 		expect(messageText.className).toContain("[overflow-wrap:anywhere]");
 	});
 
-	it("uses transparent message content with full-width hover surfaces", () => {
+	it("keeps agent messages transparent and gives self messages a readable surface", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -1465,7 +1489,6 @@ describe("SpaceConversationPanel", () => {
 		const selfBubble = screen
 			.getByText("Self message")
 			.closest("[data-signal-id]");
-
 		expect(agentBubble?.classList.contains("border")).toBe(true);
 		expect(agentBubble?.classList.contains("border-transparent")).toBe(true);
 		expect(agentBubble?.classList.contains("bg-transparent")).toBe(true);
@@ -1473,11 +1496,16 @@ describe("SpaceConversationPanel", () => {
 		expect(agentBubble?.classList.contains("max-w-[62ch]")).toBe(false);
 		expect(selfBubble?.classList.contains("border")).toBe(true);
 		expect(selfBubble?.classList.contains("border-transparent")).toBe(true);
-		expect(selfBubble?.classList.contains("bg-transparent")).toBe(true);
+		expect(selfBubble?.classList.contains("bg-muted/35")).toBe(true);
+		expect(selfBubble?.classList.contains("rounded-md")).toBe(true);
 		expect(selfBubble?.classList.contains("max-w-full")).toBe(true);
-		expect(selfBubble?.classList.contains("min-w-[16rem]")).toBe(true);
-		expect(selfBubble?.classList.contains("items-end")).toBe(true);
-		expect(selfBubble?.classList.contains("text-right")).toBe(true);
+		expect(selfBubble?.classList.contains("min-w-[16rem]")).toBe(false);
+		expect(selfBubble?.classList.contains("items-start")).toBe(true);
+		expect(selfBubble?.classList.contains("text-start")).toBe(true);
+		expect(selfBubble?.classList.contains("text-right")).toBe(false);
+		expect(selfBubble?.classList.contains("px-3")).toBe(true);
+		expect(selfBubble?.classList.contains("py-2")).toBe(true);
+		expect(selfBubble?.classList.contains("sm:px-4")).toBe(true);
 		expect(selfBubble?.classList.contains("max-w-[62ch]")).toBe(false);
 		expect(screen.getByText("Self message").className).not.toContain(
 			"text-right"
@@ -1522,6 +1550,7 @@ describe("SpaceConversationPanel", () => {
 		expect(agentHeader?.className ?? "").not.toContain("hover:bg-muted/35");
 		expect(agentRow?.className).toContain("hover:bg-muted/35");
 		expect(agentRow?.className).toContain("focus-within:bg-muted/35");
+		expect(agentRow?.className).toContain("rounded-md");
 		expect(selfMessage?.className).not.toContain("hover:bg-muted/35");
 		expect(selfMessage?.className).not.toContain("focus-within:bg-muted/35");
 		expect(selfMessage?.className).not.toContain("rounded-sm");
@@ -1531,6 +1560,7 @@ describe("SpaceConversationPanel", () => {
 		expect(selfMessage?.textContent).toContain("Self message");
 		expect(selfRow?.className).toContain("hover:bg-muted/35");
 		expect(selfRow?.className).toContain("focus-within:bg-muted/35");
+		expect(selfRow?.className).toContain("rounded-md");
 		expect(
 			screen.getByRole("log", { name: "Conversation history" }).className
 		).toContain("py-4");
@@ -1575,6 +1605,8 @@ describe("SpaceConversationPanel", () => {
 		const selfBubble = screen
 			.getByText("Self message")
 			.closest("[data-signal-id]");
+		const agentBubbleRoot = agentBubble?.closest("[data-slot='bubble']");
+		const selfBubbleRoot = selfBubble?.closest("[data-slot='bubble']");
 		const agentRow = agentBubble?.closest(
 			"[data-message-row-id='signal-agent']"
 		);
@@ -1610,9 +1642,9 @@ describe("SpaceConversationPanel", () => {
 			}
 		);
 
-		expect(agentBubble?.contains(agentReplyButton)).toBe(false);
-		expect(agentBubble?.contains(agentThreadButton)).toBe(false);
-		expect(agentBubble?.contains(agentDetailsButton)).toBe(false);
+		expect(agentBubbleRoot?.contains(agentReplyButton)).toBe(true);
+		expect(agentBubbleRoot?.contains(agentThreadButton)).toBe(true);
+		expect(agentBubbleRoot?.contains(agentDetailsButton)).toBe(true);
 		expect(agentRow?.className).toContain("w-full");
 		expect(
 			agentDetailsButton
@@ -1684,9 +1716,9 @@ describe("SpaceConversationPanel", () => {
 			}
 		);
 
-		expect(selfBubble?.contains(selfReplyButton)).toBe(false);
-		expect(selfBubble?.contains(selfThreadButton)).toBe(false);
-		expect(selfBubble?.contains(selfDetailsButton)).toBe(false);
+		expect(selfBubbleRoot?.contains(selfReplyButton)).toBe(true);
+		expect(selfBubbleRoot?.contains(selfThreadButton)).toBe(true);
+		expect(selfBubbleRoot?.contains(selfDetailsButton)).toBe(true);
 		expect(selfRow?.className).toContain("w-full");
 		expect(
 			readMessageActionButtonPresentation({
@@ -1934,9 +1966,11 @@ describe("SpaceConversationPanel", () => {
 			readOnly: false,
 		});
 
-		expect(
-			screen.getByText(SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT)
-		).toBeTruthy();
+		const composerHint = screen.getByText(
+			SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT
+		);
+		expect(composerHint.className).toContain("max-sm:line-clamp-2");
+		expect(composerHint.className).toContain("sm:truncate");
 		expect(screen.queryByText(SPACE_WAKE_COMPOSER_HINT)).toBeNull();
 	});
 
@@ -4046,6 +4080,8 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const profileHeader = screen.getByRole("button", { name: "About Felix" });
+		expect(profileHeader.className).toContain("touch-manipulation");
+		expect(profileHeader.className).toContain("max-lg:min-h-11");
 		expect(profileHeader.textContent).toContain("Felix");
 		expect(profileHeader.textContent).toContain(expectedTime);
 		expect(

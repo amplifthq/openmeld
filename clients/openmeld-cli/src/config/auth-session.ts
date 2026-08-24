@@ -31,6 +31,15 @@ type AuthSessionV1 = {
   activeOrganization?: StoredActiveOrganization;
 };
 
+type PendingTokenCleanupV1 = {
+  v: 1;
+  tokenRefs: StoredTokenRef[];
+};
+
+export type ClearAuthSessionResult = {
+  hadLocalSession: boolean;
+};
+
 export type StoredActiveOrganization = {
   id: string;
   slug: string;
@@ -124,6 +133,13 @@ type RemoteAuthSessionValidation = {
 };
 const TRAILING_SLASHES_RE = /\/+$/u;
 
+type CachedAuthSession = {
+  payloadKey: string;
+  session: StoredAuthSession;
+};
+
+let cachedAuthSession: CachedAuthSession | null = null;
+
 export async function getAuthSessionState(
   options: GetAuthSessionStateOptions = {}
 ): Promise<AuthSessionStateResult> {
@@ -197,6 +213,10 @@ export async function setAuthSession(input: {
     throw new Error("client_id is required");
   }
 
+  await retryPendingTokenCleanup();
+
+  const previousPayload = await readSessionPayload();
+  const previousTokenRef = normalizeTokenRef(previousPayload?.tokenRef);
   const tokenRef = await storeAccessToken({
     accessToken,
     authBaseUrl,
@@ -220,10 +240,22 @@ export async function setAuthSession(input: {
   await mkdir(join(openMeldRootDir(), "auth"), { recursive: true });
 
   try {
+    await assertStoredAccessTokenReloads({ accessToken, tokenRef });
     await writeSessionPayloadAtomically(path, payload);
   } catch (error) {
-    await deleteAccessToken(tokenRef).catch(() => undefined);
+    await deleteAccessTokenOrRetainForCleanup(tokenRef);
     throw error;
+  }
+
+  cacheAuthSession({
+    payload,
+    session: buildStoredAuthSession({ accessToken, payload }),
+  });
+  if (
+    previousTokenRef &&
+    !areStoredTokenRefsEqual(previousTokenRef, tokenRef)
+  ) {
+    await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
   }
 }
 
@@ -300,14 +332,120 @@ export async function updateAuthSessionActiveOrganization(
   };
 
   await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
+  const currentCachedSession = readCachedAuthSession(payload);
+  if (currentCachedSession) {
+    cacheAuthSession({
+      payload: nextPayload,
+      session: buildStoredAuthSession({
+        accessToken: currentCachedSession.accessToken,
+        payload: nextPayload,
+      }),
+    });
+  }
 }
 
-export async function clearAuthSession(): Promise<void> {
+export async function clearAuthSession(): Promise<ClearAuthSessionResult> {
+  cachedAuthSession = null;
+  await retryPendingTokenCleanup();
+  const hadLocalSession = await authSessionFileExists();
   const payload = await readSessionPayload();
   if (payload?.v === 1 && isStoredTokenRef(payload.tokenRef)) {
-    await deleteAccessToken(payload.tokenRef).catch(() => undefined);
+    await deleteAccessTokenOrRetainForCleanup(payload.tokenRef);
   }
-  await removeSessionFileBestEffort();
+  await removeSessionFile();
+  return { hadLocalSession };
+}
+
+async function retryPendingTokenCleanup(): Promise<void> {
+  const pending = await readPendingTokenCleanup();
+  if (pending.tokenRefs.length === 0) {
+    return;
+  }
+
+  const remaining: StoredTokenRef[] = [];
+  for (const tokenRef of pending.tokenRefs) {
+    try {
+      await deleteAccessToken(tokenRef);
+    } catch {
+      remaining.push(tokenRef);
+    }
+  }
+  await persistPendingTokenCleanup(remaining);
+}
+
+async function deleteAccessTokenOrRetainForCleanup(
+  tokenRef: StoredTokenRef
+): Promise<void> {
+  try {
+    await deleteAccessToken(tokenRef);
+  } catch {
+    const pending = await readPendingTokenCleanup();
+    if (
+      pending.tokenRefs.some((ref) => areStoredTokenRefsEqual(ref, tokenRef))
+    ) {
+      return;
+    }
+    await persistPendingTokenCleanup([...pending.tokenRefs, tokenRef]);
+  }
+}
+
+async function readPendingTokenCleanup(): Promise<PendingTokenCleanupV1> {
+  const raw = await readFile(pendingTokenCleanupPath(), "utf8").catch(
+    (error) => {
+      if (isFileNotFoundError(error)) {
+        return null;
+      }
+      throw error;
+    }
+  );
+  if (raw === null) {
+    return { v: 1, tokenRefs: [] };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("pending access-token cleanup state is invalid");
+  }
+  if (
+    !(isRecord(parsed) && parsed.v === 1 && Array.isArray(parsed.tokenRefs))
+  ) {
+    throw new Error("pending access-token cleanup state is invalid");
+  }
+  const tokenRefs = parsed.tokenRefs.filter(isStoredTokenRef);
+  if (tokenRefs.length !== parsed.tokenRefs.length) {
+    throw new Error("pending access-token cleanup state is invalid");
+  }
+  return { v: 1, tokenRefs };
+}
+
+async function persistPendingTokenCleanup(
+  tokenRefs: StoredTokenRef[]
+): Promise<void> {
+  const path = pendingTokenCleanupPath();
+  if (tokenRefs.length === 0) {
+    await rm(path, { force: true });
+    return;
+  }
+  await mkdir(join(openMeldRootDir(), "auth"), { recursive: true });
+  await writeJsonAtomically(path, { v: 1, tokenRefs });
+}
+
+function pendingTokenCleanupPath(): string {
+  return join(openMeldRootDir(), "auth", "pending-token-cleanup.json");
+}
+
+async function authSessionFileExists(): Promise<boolean> {
+  try {
+    await readFile(authSessionPath(), "utf8");
+    return true;
+  } catch (error) {
+    if (isFileNotFoundError(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function getLocalAuthSessionState(): Promise<LocalAuthSessionState> {
@@ -341,39 +479,38 @@ async function getLocalAuthSessionState(): Promise<LocalAuthSessionState> {
     };
   }
 
-  const accessToken = await readAccessToken(tokenRef);
-  if (accessToken.status === "missing") {
-    return {
-      reasonCode: "session_token_missing",
-      state: "invalid",
-      session: null,
-    };
+  let session = readCachedAuthSession(payload);
+  if (!session) {
+    const accessToken = await readAccessToken(tokenRef);
+    if (accessToken.status === "missing") {
+      return {
+        reasonCode: "session_token_missing",
+        state: "invalid",
+        session: null,
+      };
+    }
+    if (accessToken.status === "unavailable") {
+      return {
+        errorMessage: accessToken.errorMessage,
+        reasonCode: "session_token_unavailable",
+        state: "invalid",
+        session: null,
+      };
+    }
+    session = buildStoredAuthSession({
+      accessToken: accessToken.accessToken,
+      payload: {
+        ...payload,
+        v: 1,
+        tokenRef,
+        tokenType,
+        authBaseUrl,
+        clientId,
+        createdAt,
+      },
+    });
+    cacheAuthSession({ payload, session });
   }
-  if (accessToken.status === "unavailable") {
-    return {
-      errorMessage: accessToken.errorMessage,
-      reasonCode: "session_token_unavailable",
-      state: "invalid",
-      session: null,
-    };
-  }
-
-  const session: StoredAuthSession = {
-    v: 1,
-    accessToken: accessToken.accessToken,
-    tokenType,
-    authBaseUrl,
-    clientId,
-    createdAt,
-    ...(typeof payload.expiresAt === "string" && payload.expiresAt.trim()
-      ? { expiresAt: payload.expiresAt.trim() }
-      : {}),
-    ...(typeof payload.scope === "string" && payload.scope.trim()
-      ? { scope: payload.scope.trim() }
-      : {}),
-    ...buildAuthUserPayload(payload.user),
-    ...buildActiveOrganizationPayload(payload.activeOrganization),
-  };
 
   if (isExpired(session.expiresAt)) {
     return {
@@ -387,6 +524,78 @@ async function getLocalAuthSessionState(): Promise<LocalAuthSessionState> {
     state: "valid",
     session,
   };
+}
+
+async function assertStoredAccessTokenReloads(input: {
+  accessToken: string;
+  tokenRef: StoredTokenRef;
+}): Promise<void> {
+  const reloaded = await readAccessToken(input.tokenRef);
+  if (
+    reloaded.status === "found" &&
+    reloaded.accessToken === input.accessToken
+  ) {
+    return;
+  }
+  if (reloaded.status === "unavailable") {
+    throw new Error(
+      `stored access token could not be reloaded: ${reloaded.errorMessage}`
+    );
+  }
+  throw new Error("stored access token could not be reloaded");
+}
+
+function buildStoredAuthSession(input: {
+  accessToken: string;
+  payload: AuthSessionV1;
+}): StoredAuthSession {
+  return {
+    v: 1,
+    accessToken: input.accessToken,
+    tokenType: input.payload.tokenType,
+    authBaseUrl: input.payload.authBaseUrl,
+    clientId: input.payload.clientId,
+    createdAt: input.payload.createdAt,
+    ...(typeof input.payload.expiresAt === "string" &&
+    input.payload.expiresAt.trim()
+      ? { expiresAt: input.payload.expiresAt.trim() }
+      : {}),
+    ...(typeof input.payload.scope === "string" && input.payload.scope.trim()
+      ? { scope: input.payload.scope.trim() }
+      : {}),
+    ...buildAuthUserPayload(input.payload.user),
+    ...buildActiveOrganizationPayload(input.payload.activeOrganization),
+  };
+}
+
+function cacheAuthSession(input: {
+  payload: Partial<AuthSessionV1>;
+  session: StoredAuthSession;
+}): void {
+  cachedAuthSession = {
+    payloadKey: buildAuthSessionPayloadKey(input.payload),
+    session: input.session,
+  };
+}
+
+function readCachedAuthSession(
+  payload: Partial<AuthSessionV1>
+): StoredAuthSession | null {
+  const payloadKey = buildAuthSessionPayloadKey(payload);
+  return cachedAuthSession?.payloadKey === payloadKey
+    ? cachedAuthSession.session
+    : null;
+}
+
+function buildAuthSessionPayloadKey(payload: Partial<AuthSessionV1>): string {
+  return `${authSessionPath()}\n${JSON.stringify(payload)}`;
+}
+
+function areStoredTokenRefsEqual(
+  left: StoredTokenRef,
+  right: StoredTokenRef
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function normalizeTokenRef(input: unknown): StoredTokenRef | null {
@@ -515,9 +724,16 @@ async function writeSessionPayloadAtomically(
   path: string,
   payload: AuthSessionV1
 ): Promise<void> {
+  await writeJsonAtomically(path, payload);
+}
+
+async function writeJsonAtomically(
+  path: string,
+  payload: unknown
+): Promise<void> {
   const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`;
   try {
-    const file = await open(tempPath, "wx");
+    const file = await open(tempPath, "wx", 0o600);
     try {
       await file.writeFile(`${JSON.stringify(payload, null, 2)}\n`, "utf8");
       await file.sync();
@@ -530,6 +746,15 @@ async function writeSessionPayloadAtomically(
     await rm(tempPath, { force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+function isFileNotFoundError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+  );
 }
 
 function buildAuthUserPayload(value: unknown): {
@@ -667,6 +892,6 @@ async function parseResponseJson(response: Response): Promise<unknown> {
   }
 }
 
-async function removeSessionFileBestEffort(): Promise<void> {
-  await rm(authSessionPath(), { force: true }).catch(() => undefined);
+async function removeSessionFile(): Promise<void> {
+  await rm(authSessionPath(), { force: true });
 }

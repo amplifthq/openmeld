@@ -163,6 +163,32 @@ describe("remote agent Flue capability inventory", () => {
     });
   });
 
+  it("finds structured Center Agent turn diagnostics from a Chinese failure question", async () => {
+    const tools = await getRemoteAgentFlueTools({
+      coreWorker: {},
+      storage: await createCapabilityInventoryStorage(),
+    });
+    const searchTool = tools.find(
+      (tool) => tool.name === REMOTE_AGENT_CAPABILITY_SEARCH_TOOL_NAME
+    );
+    if (!searchTool?.run) {
+      throw new Error("Center Agent capability search is unavailable.");
+    }
+
+    await expect(
+      searchTool.run({
+        input: { query: "调查 Center Agent 为什么失败，给我准确执行状态" },
+      } as never)
+    ).resolves.toMatchObject({
+      capabilities: expect.arrayContaining([
+        expect.objectContaining({
+          name: "openmeld_read_center_agent_turn_diagnostics",
+          namespace: "organization",
+        }),
+      ]),
+    });
+  });
+
   it("loads the exact member lookup prerequisite for member Computer diagnostics", () => {
     expect(
       expandRemoteAgentCapabilityDependencies(

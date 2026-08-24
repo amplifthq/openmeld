@@ -13736,6 +13736,85 @@ describe("SpaceLanding", () => {
 		).toBeTruthy();
 	});
 
+	it("does not turn an automatic recovery inspection failure into a user error", async () => {
+		const inspectExecutionRecovery = vi
+			.fn()
+			.mockRejectedValue(new Error("recovery capability mismatch"));
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		createWebSpaceApiMock.mockReturnValue({
+			getActiveWakeProgress: vi.fn().mockResolvedValue({ items: [] }),
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+			getWakeProgress: vi.fn().mockResolvedValue({
+				items: [],
+				query: {
+					clientMessageId: "client-message-recovery",
+					spaceId: "space-123",
+					targetProfileId: null,
+				},
+			}),
+			inspectExecutionRecovery,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [
+						createTextSignal({
+							id: "sig-recovery-source",
+							messageEnvelope: {
+								activationTargets: [DEFAULT_AGENT_PROFILE_ID],
+								referenceTargets: [],
+								text: "@Runner finish the report",
+							},
+							text: "@Runner finish the report",
+						}),
+						createTerminalFailureNoticeSignal({
+							actorProfileId: DEFAULT_AGENT_PROFILE_ID,
+							dispatchId: "dispatch-recovery",
+							id: "sig-recovery-failure",
+							replyToSignalId: "sig-recovery-source",
+							text: "Runner stopped before posting the result.",
+						}),
+						createExecutionRecoveryAvailableSignal({
+							actorProfileId: DEFAULT_AGENT_PROFILE_ID,
+							dispatchId: "dispatch-recovery",
+							id: "sig-recovery-available",
+							replyToSignalId: "sig-recovery-source",
+							resultRef: "dispatch-recovery::attempt-1",
+						}),
+					],
+					nextCursor: null,
+				},
+			}),
+		});
+
+		renderSpaceLanding();
+
+		await waitFor(() =>
+			expect(inspectExecutionRecovery).toHaveBeenCalledOnce()
+		);
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("button", { name: "Recovery unavailable" })
+			).toBeNull();
+		});
+		expect(toastMock.error).not.toHaveBeenCalled();
+		expect(consoleError).toHaveBeenCalledWith(
+			"Failed to inspect execution recovery.",
+			expect.any(Error)
+		);
+	});
+
 	it("retries a single-target anchored execution failure as a new Wake", async () => {
 		const sourceText = "@Scout check the release build";
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
@@ -17154,6 +17233,42 @@ function createTerminalFailureNoticeSignal(input: {
 			generatedBy: "openmeld",
 		},
 	};
+}
+
+function createExecutionRecoveryAvailableSignal(input: {
+	actorProfileId: string;
+	dispatchId: string;
+	id: string;
+	replyToSignalId: string;
+	resultRef: string;
+}): SignalEnvelope {
+	return {
+		v: 1,
+		id: input.id,
+		spaceId: "space-123",
+		ts: 11,
+		profile: {
+			kind: "system",
+			profileId: "openmeld-system",
+			profileName: "OpenMeld",
+		},
+		type: "signal.system_notice",
+		data: {
+			noticeType: "execution_recovery_available",
+			actorProfileId: input.actorProfileId,
+			dispatchId: input.dispatchId,
+			generatedBy: "openmeld",
+			replyTo: {
+				previewText: "@Runner finish the report",
+				profileId: DEFAULT_SPACE_PROFILE_ID,
+				profileKind: "human",
+				profileName: "Mira",
+				signalId: input.replyToSignalId,
+			},
+			resultRef: input.resultRef,
+			text: "OpenMeld retained the completed result.",
+		},
+	} as SignalEnvelope;
 }
 
 function createPresenceSignal(input: {

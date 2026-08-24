@@ -119,7 +119,7 @@ const STATUS_TONE_CLASS_NAMES = {
     tint: "bg-violet-700/5 dark:bg-violet-500/5",
   },
   muted: {
-    badge: "border-border text-muted-foreground",
+    badge: "border-border bg-muted/40 text-muted-foreground",
     icon: {
       bright: "text-muted-foreground",
       quiet: "text-muted-foreground",

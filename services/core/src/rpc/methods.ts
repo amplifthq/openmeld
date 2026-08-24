@@ -37,6 +37,7 @@ import {
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
+  CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
   canonicalizeAgentControllerRef,
   centerAgentAddAgentProfilesToSpaceBodySchema,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
@@ -85,6 +86,8 @@ import {
   centerAgentReadSpaceContextResponseSchema,
   centerAgentReadSpaceFileResponseSchema,
   centerAgentReadSpaceFileRpcInputSchema,
+  centerAgentReadTurnDiagnosticsResponseSchema,
+  centerAgentReadTurnDiagnosticsRpcInputSchema,
   centerAgentRecordConnectorActionAuditBodySchema,
   centerAgentRecordConnectorActionAuditResponseSchema,
   centerAgentRecordConnectorActionOperationBodySchema,
@@ -366,6 +369,8 @@ import type {
   CenterAgentReadSpaceContextResponse,
   CenterAgentReadSpaceFileResponse,
   CenterAgentReadSpaceFileRpcInput,
+  CenterAgentReadTurnDiagnosticsResponse,
+  CenterAgentReadTurnDiagnosticsRpcInput,
   CenterAgentRecommendOpportunityToolRpcInput,
   CenterAgentRecordConnectorActionAuditBody,
   CenterAgentRecordConnectorActionAuditResponse,
@@ -578,6 +583,7 @@ import type {
   SpaceContract,
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceResponseContractVersion,
+  SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceIdentityDirectory,
   SpaceMemberDirectory,
@@ -621,6 +627,7 @@ import {
   createAuthenticatedSpaceAccessContext,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
+  getSpaceAccessRequestId,
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   type SpaceAccessContext,
 } from "@openmeld/space";
@@ -741,6 +748,7 @@ import {
 } from "../center-agent/application/product-operations";
 import {
   prepareCenterAgentRepresentedMemberRequest,
+  prepareHostedCenterAgentRequest,
   type VerifiedCenterAgentRepresentedMember,
 } from "../center-agent/application/represented-member-request";
 import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/application/task-continuation-rollout";
@@ -970,6 +978,8 @@ import {
 } from "../remote-agent/infrastructure/d1/message-channel-identity-link-token-repo";
 import {
   countActiveRemoteAgentNativeDeliveriesBySpaceIds,
+  listRemoteAgentNativeDeliveryTurnDiagnostics,
+  projectRemoteAgentNativeDeliveryTurnDiagnostic,
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByDispatchAndConversation,
   readRemoteAgentNativeDeliveryBySubmissionId,
@@ -1046,6 +1056,7 @@ import type {
   SpaceClaimTimeLivenessInput,
   SpaceClaimTimeLivenessResult,
 } from "../space/application/space-claim-liveness-service";
+import { buildSpaceFileAuditEvent } from "../space/application/space-file-audit";
 import type { FinalOutcomeWriteAuthority } from "../space/application/types";
 import { readSpaceBoardExecutionProjection } from "../space/infrastructure/d1/space-board-execution-read-repo";
 import { readSpaceDispatchLookupByClientMessageId } from "../space/infrastructure/d1/space-dispatch-read-repo";
@@ -1163,6 +1174,8 @@ export type CenterAgentListAgentActivitySessionsInput =
   CenterAgentListAgentActivitySessionsToolRpcInput;
 export type CenterAgentReadChangelogInput =
   CenterAgentReadChangelogToolRpcInput;
+export type CenterAgentReadTurnDiagnosticsInput =
+  CenterAgentReadTurnDiagnosticsRpcInput;
 export type CenterAgentListOpportunitiesInput =
   CenterAgentListOpportunitiesToolRpcInput;
 export type CenterAgentRecommendOpportunityInput =
@@ -1403,6 +1416,67 @@ export function rpcCenterAgentReadChangelog(
   input: CenterAgentReadChangelogInput
 ) {
   return centerAgentReadChangelog(env, input);
+}
+
+export async function rpcCenterAgentReadTurnDiagnostics(
+  env: CoreBindings,
+  input: CenterAgentReadTurnDiagnosticsInput
+): Promise<CenterAgentReadTurnDiagnosticsResponse> {
+  const parsed = centerAgentReadTurnDiagnosticsRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ??
+        "invalid Center Agent turn diagnostics request",
+      status: 400,
+    });
+  }
+  const authorization = await prepareHostedCenterAgentRequest(
+    env,
+    requireRpcContext(parsed.data.context)
+  );
+  const submissionId =
+    authorization.context.agentControllerConversationId?.trim();
+  const db = wakeEvidenceDb(env);
+  if (!(submissionId && db)) {
+    throw centerAgentTurnDiagnosticsUnavailableError();
+  }
+  const currentDelivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db,
+    submissionId,
+  });
+  if (
+    !currentDelivery ||
+    (currentDelivery.status !== "accepted" &&
+      currentDelivery.status !== "retry_observed") ||
+    currentDelivery.routineRunId !== null ||
+    currentDelivery.organizationId !==
+      authorization.activeOrganization.organizationId ||
+    currentDelivery.profileId !== authorization.actorProfileId
+  ) {
+    throw centerAgentTurnDiagnosticsUnavailableError();
+  }
+
+  return centerAgentReadTurnDiagnosticsResponseSchema.parse({
+    currentTurn:
+      projectRemoteAgentNativeDeliveryTurnDiagnostic(currentDelivery),
+    organizationId: authorization.activeOrganization.organizationId,
+    previousTurns: await listRemoteAgentNativeDeliveryTurnDiagnostics({
+      currentDelivery,
+      db,
+      limit: parsed.data.limit ?? CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
+    }),
+  });
+}
+
+function centerAgentTurnDiagnosticsUnavailableError(): Error {
+  return createCoreRpcHttpError({
+    code: "center_agent.turn_diagnostics.current_turn_unavailable",
+    reason:
+      "OpenMeld could not verify this Center Agent turn in the native delivery ledger.",
+    status: 409,
+  });
 }
 
 export function rpcCenterAgentListOpportunities(
@@ -9453,14 +9527,17 @@ export async function rpcListCenterAgentAuditJournal(
           parsed.data.actionSet === "v16" ||
           parsed.data.actionSet === "v17" ||
           parsed.data.actionSet === "v18" ||
-          parsed.data.actionSet === "v19",
+          parsed.data.actionSet === "v19" ||
+          parsed.data.actionSet === "v20",
         includeInteractionSource:
           parsed.data.actionSet === "v14" ||
           parsed.data.actionSet === "v15" ||
           parsed.data.actionSet === "v16" ||
           parsed.data.actionSet === "v17" ||
           parsed.data.actionSet === "v18" ||
-          parsed.data.actionSet === "v19",
+          parsed.data.actionSet === "v19" ||
+          parsed.data.actionSet === "v20",
+        includeSourceSpaceId: parsed.data.actionSet === "v20",
       })
     ),
   };
@@ -9485,7 +9562,8 @@ function isCurrentCenterAgentAuditActionSet(
     actionSet === "v16" ||
     actionSet === "v17" ||
     actionSet === "v18" ||
-    actionSet === "v19"
+    actionSet === "v19" ||
+    actionSet === "v20"
   );
 }
 
@@ -9500,7 +9578,8 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
-    input.actionSet === "v19"
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
       ? []
       : ["receive_local_agent_request"];
   const contextCompatibilityActions: readonly CenterAgentAction[] =
@@ -9508,24 +9587,29 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
-    input.actionSet === "v19"
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
       ? []
       : ["read_center_agent_context"];
   const contextLoadCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
-    input.actionSet === "v19"
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
       ? []
       : ["load_center_agent_context"];
   const routineCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
-    input.actionSet === "v19"
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
       ? []
       : input.routineActions;
   const workingLanguageCompatibilityActions: readonly CenterAgentAction[] =
-    input.actionSet === "v18" || input.actionSet === "v19"
+    input.actionSet === "v18" ||
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
       ? []
       : ["set_working_language", "observe_working_language"];
   if (
@@ -9535,7 +9619,8 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
-    input.actionSet === "v19"
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
   ) {
     return [
       ...(input.excludedActions ?? []),
@@ -12629,6 +12714,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     requester,
     requestSignature: parsed.data.requestSignature,
     service: parsed.data.service,
+    sourceSpaceId: member.sourceSpaceId,
   });
   return centerAgentRecordConnectorActionOperationResponseSchema.parse({
     attribution: result.attribution,
@@ -16215,28 +16301,59 @@ export async function rpcReadSpaceFileContent(
   env: CoreBindings,
   input: ReadSpaceFileContentRpcInput
 ): Promise<ReadSpaceFileContentRpcResponse> {
-  const resolved = await rpcResolveSpaceFileContent(env, input);
-  assertSpaceFileObjectScope({
-    organizationId: resolved.organizationId,
-    spaceId: input.spaceId,
-    fileId: input.content.fileId,
-    revisionId: resolved.revision.id,
-    objectKey: resolved.objectKey,
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const resolved = await stub.rpcResolveSpaceFileContent({
+    content: input.content,
+    spaceAccess,
   });
-  const bucket = requireSpaceFileBucket(env);
-  let object: R2ObjectBody | null;
+  const auditEvent = buildSpaceFileContentAuditEvent({
+    entryId: resolved.file.id,
+    operation: "content_read",
+    operationId: getSpaceAccessRequestId(spaceAccess),
+    organizationId: resolved.organizationId,
+    revisionId: resolved.revision.id,
+    spaceAccess,
+    spaceId: input.spaceId,
+  });
+  let bytes: ArrayBuffer;
   try {
-    object = await bucket.get(resolved.objectKey);
-  } catch {
-    throwSpaceFileStorageFailed("This file could not be read right now.");
+    assertSpaceFileObjectScope({
+      organizationId: resolved.organizationId,
+      spaceId: input.spaceId,
+      fileId: input.content.fileId,
+      revisionId: resolved.revision.id,
+      objectKey: resolved.objectKey,
+    });
+    const bucket = requireSpaceFileBucket(env);
+    let object: R2ObjectBody | null;
+    try {
+      object = await bucket.get(resolved.objectKey);
+    } catch {
+      throwSpaceFileStorageFailed("This file could not be read right now.");
+    }
+    if (!object) {
+      throwSpaceFileStorageFailed("This file revision is unavailable.");
+    }
+    try {
+      bytes = await object.arrayBuffer();
+    } catch {
+      throwSpaceFileStorageFailed("This file could not be read right now.");
+    }
+    if (bytes.byteLength !== resolved.revision.sizeBytes) {
+      throwSpaceFileStorageFailed("This file revision is incomplete.");
+    }
+  } catch (error) {
+    await stub.rpcRecordSpaceFileAuditEvent({
+      event: {
+        ...auditEvent,
+        errorCode: readCoreRpcErrorCode(error) ?? "space_file.storage_failed",
+        result: "failed",
+      },
+    });
+    throw error;
   }
-  if (!object) {
-    throwSpaceFileStorageFailed("This file revision is unavailable.");
-  }
-  const bytes = await object.arrayBuffer();
-  if (bytes.byteLength !== resolved.revision.sizeBytes) {
-    throwSpaceFileStorageFailed("This file revision is incomplete.");
-  }
+  await stub.rpcRecordSpaceFileAuditEvent({ event: auditEvent });
   return { ...resolved, bytes };
 }
 
@@ -16254,19 +16371,34 @@ export async function rpcWriteSpaceFileContent(
       status: 413,
     });
   }
-  const prepared = await rpcPrepareSpaceFileWrite(env, input);
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const prepared = await stub.rpcPrepareSpaceFileWrite({
+    spaceAccess,
+    write: input.write,
+  });
+  const auditEvent = buildSpaceFileContentAuditEvent({
+    entryId: input.write.fileId,
+    operation: "content_write",
+    operationId: input.write.clientMutationId,
+    organizationId: prepared.organizationId,
+    revisionId: input.write.revisionId,
+    spaceAccess,
+    spaceId: input.spaceId,
+  });
   if (prepared.committedFile) {
+    await stub.rpcRecordSpaceFileAuditEvent({ event: auditEvent });
     return prepared.committedFile;
   }
-  assertSpaceFileObjectScope({
-    organizationId: prepared.organizationId,
-    spaceId: input.spaceId,
-    fileId: input.write.fileId,
-    revisionId: input.write.revisionId,
-    objectKey: prepared.objectKey,
-  });
-  const bucket = requireSpaceFileBucket(env);
   try {
+    assertSpaceFileObjectScope({
+      organizationId: prepared.organizationId,
+      spaceId: input.spaceId,
+      fileId: input.write.fileId,
+      revisionId: input.write.revisionId,
+      objectKey: prepared.objectKey,
+    });
+    const bucket = requireSpaceFileBucket(env);
     await bucket.put(prepared.objectKey, input.bytes, {
       httpMetadata: { contentType: input.write.mimeType },
       customMetadata: {
@@ -16275,11 +16407,26 @@ export async function rpcWriteSpaceFileContent(
         spaceId: input.spaceId,
       },
     });
-  } catch {
-    throwSpaceFileStorageFailed("This file could not be stored right now.");
+  } catch (error) {
+    const normalizedError = normalizeSpaceFileStorageError(
+      error,
+      "This file could not be stored right now."
+    );
+    await stub.rpcRecordSpaceFileAuditEvent({
+      event: {
+        ...auditEvent,
+        errorCode:
+          readCoreRpcErrorCode(normalizedError) ?? "space_file.storage_failed",
+        result: "failed",
+      },
+    });
+    throw normalizedError;
   }
   try {
-    return await rpcCommitSpaceFileWrite(env, input);
+    return await stub.rpcCommitSpaceFileWrite({
+      spaceAccess,
+      write: input.write,
+    });
   } catch (error) {
     console.warn("[core.space_file.orphan_reconciliation_deferred]", {
       event: "core.space_file.orphan_reconciliation_deferred",
@@ -16359,6 +16506,39 @@ function throwSpaceFileStorageFailed(reason: string): never {
     code: "space_file.storage_failed",
     reason,
     status: 503,
+  });
+}
+
+function normalizeSpaceFileStorageError(
+  error: unknown,
+  reason: string
+): unknown {
+  return readCoreRpcErrorCode(error)
+    ? error
+    : createCoreRpcHttpError({
+        code: "space_file.storage_failed",
+        reason,
+        status: 503,
+      });
+}
+
+function buildSpaceFileContentAuditEvent(input: {
+  entryId: string;
+  operation: Extract<
+    SpaceFileAuditEvent["operation"],
+    "content_read" | "content_write"
+  >;
+  operationId: string;
+  organizationId: string;
+  revisionId: string;
+  spaceAccess: SpaceAccessContext;
+  spaceId: string;
+}): SpaceFileAuditEvent {
+  return buildSpaceFileAuditEvent({
+    ...input,
+    errorCode: null,
+    occurredAtMs: Date.now(),
+    result: "succeeded",
   });
 }
 

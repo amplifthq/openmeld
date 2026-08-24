@@ -75,6 +75,107 @@ describe("auth session storage", () => {
     });
   });
 
+  it("reuses a loaded token while the persisted session is unchanged", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "token-cached",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+
+      const sessionPath = join(home, ".openmeld", "auth", "session.json");
+      const payload = JSON.parse(await readFile(sessionPath, "utf8")) as {
+        tokenRef: { key: string };
+      };
+      await rm(
+        join(
+          home,
+          ".openmeld",
+          "auth",
+          "tokens",
+          `${payload.tokenRef.key}.token`
+        )
+      );
+
+      await expect(getAuthSession()).resolves.toMatchObject({
+        accessToken: "token-cached",
+      });
+
+      Reflect.deleteProperty(
+        process.env,
+        "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+      );
+    });
+  });
+
+  it("reloads a valid session after the OpenMeld process restarts", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "token-after-restart",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "user-after-restart" },
+      });
+
+      vi.resetModules();
+      const { getAuthSession: getRestartedAuthSession } = await import(
+        "../src/config/auth-session"
+      );
+
+      await expect(getRestartedAuthSession()).resolves.toMatchObject({
+        accessToken: "token-after-restart",
+        user: { id: "user-after-restart" },
+      });
+      Reflect.deleteProperty(
+        process.env,
+        "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+      );
+    });
+  });
+
+  it("keeps an old Keychain location pending when npm replaces an unreadable session", async () => {
+    await withTempHome(async (home) => {
+      const authDirectory = join(home, ".openmeld", "auth");
+      await mkdir(authDirectory, { recursive: true });
+      await writeFile(
+        join(authDirectory, "session.json"),
+        `${JSON.stringify({
+          v: 1,
+          tokenRef: {
+            provider: "macos-keychain",
+            service: "sh.openmeld.auth.token",
+            account: "openmeld-auth-old-npm-session",
+          },
+          tokenType: "Bearer",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          createdAt: new Date().toISOString(),
+        })}\n`,
+        "utf8"
+      );
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      await setAuthSession({
+        accessToken: "replacement-npm-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+
+      const session = JSON.parse(
+        await readFile(join(authDirectory, "session.json"), "utf8")
+      ) as { tokenRef: { provider: string } };
+      expect(session.tokenRef.provider).toBe("insecure-file");
+      await expect(
+        readFile(join(authDirectory, "pending-token-cleanup.json"), "utf8")
+      ).resolves.toContain("openmeld-auth-old-npm-session");
+      await expect(getAuthSession()).resolves.toMatchObject({
+        accessToken: "replacement-npm-token",
+      });
+    });
+  });
+
   it("updates active organization without rewriting the stored access token", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
@@ -228,7 +329,7 @@ describe("auth session storage", () => {
     });
   });
 
-  it("reports invalid auth state without deleting a session whose token is missing", async () => {
+  it("reports invalid auth state after restart without deleting a session whose token is missing", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
       await setAuthSession({
@@ -251,7 +352,11 @@ describe("auth session storage", () => {
         )
       );
 
-      const state = await getAuthSessionState();
+      vi.resetModules();
+      const { getAuthSessionState: getReloadedAuthSessionState } = await import(
+        "../src/config/auth-session"
+      );
+      const state = await getReloadedAuthSessionState();
       expect(state.state).toBe("invalid");
       expect(state.reasonCode).toBe("session_token_missing");
       expect(state.session).toBeNull();

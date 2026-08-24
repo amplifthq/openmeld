@@ -1,6 +1,6 @@
 import { ShapeProvider } from "@openmeld/ui/lib/shape-context";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppearanceSection } from "./appearance-section";
 
 const themeState = vi.hoisted(() => ({
@@ -15,6 +15,7 @@ const selfMessageAlignmentState = vi.hoisted(() => ({
 	read: vi.fn(() => "right" as const),
 	write: vi.fn(),
 }));
+const mediaQueryState = vi.hoisted(() => ({ matches: false }));
 
 vi.mock("next-themes", () => ({
 	useTheme: () => themeState,
@@ -33,6 +34,21 @@ vi.mock("#/lib/spaces/self-message-alignment-preference", () => ({
 }));
 
 describe("AppearanceSection", () => {
+	beforeEach(() => {
+		mediaQueryState.matches = false;
+		Object.defineProperty(window, "matchMedia", {
+			configurable: true,
+			value: vi.fn((query: string) => ({
+				addEventListener: vi.fn(),
+				dispatchEvent: vi.fn(),
+				matches: mediaQueryState.matches,
+				media: query,
+				onchange: null,
+				removeEventListener: vi.fn(),
+			})),
+		});
+	});
+
 	afterEach(() => {
 		cleanup();
 		themeState.setTheme.mockReset();
@@ -77,6 +93,16 @@ describe("AppearanceSection", () => {
 			["dark"],
 			["system"],
 		]);
+	});
+
+	it("stacks every appearance choice group on a phone", () => {
+		mediaQueryState.matches = true;
+		renderAppearance();
+
+		for (const group of screen.getAllByRole("radiogroup")) {
+			expect(group.getAttribute("aria-orientation")).toBe("vertical");
+			expect(group.className).toContain("flex-col");
+		}
 	});
 
 	it("defaults to rounded corners and changes the shared shape context", () => {
@@ -141,6 +167,22 @@ describe("AppearanceSection", () => {
 		expect(
 			alignmentGroup.querySelectorAll("[data-self-message-alignment-preview]")
 		).toHaveLength(2);
+		const leftPreview = alignmentGroup.querySelector(
+			'[data-self-message-alignment-preview="left"]'
+		);
+		const rightPreview = alignmentGroup.querySelector(
+			'[data-self-message-alignment-preview="right"]'
+		);
+		expect(
+			leftPreview
+				?.querySelector('[data-slot="self-message-preview-bubble"]')
+				?.classList.contains("w-full")
+		).toBe(true);
+		expect(
+			rightPreview
+				?.querySelector('[data-slot="self-message-preview-bubble"]')
+				?.classList.contains("w-2/3")
+		).toBe(true);
 
 		fireEvent.click(screen.getByRole("radio", { name: "Left" }));
 

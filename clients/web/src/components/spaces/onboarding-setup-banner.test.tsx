@@ -84,7 +84,7 @@ describe("OnboardingSetupBanner", () => {
 		expect((blur as HTMLElement).style.backdropFilter).toBe("blur(6px)");
 		expect(banner.className.split(" ")).not.toContain("border-b");
 		expect(banner.className.split(" ")).not.toContain("bg-muted/10");
-		expect(banner.className).toContain(
+		expect(banner.className).not.toContain(
 			"pt-[var(--space-conversation-navigation-height)]"
 		);
 		expect(connectRow).not.toBeNull();

@@ -1,5 +1,6 @@
 import {
   SPACE_FILE_MAX_FOLDER_DEPTH,
+  SPACE_FILE_MAX_NAME_LENGTH,
   spaceFileActorSchema,
   spaceFileEntrySchema,
 } from "@openmeld/schemas";
@@ -7,6 +8,7 @@ import type {
   CommitSpaceFileWriteInput,
   ListSpaceFilesResponse,
   SpaceFileActor,
+  SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceFileEntry,
   SpaceFileMutationErrorCode,
@@ -15,6 +17,7 @@ import type {
   TrashSpaceFileEntryResponse,
   UpdateSpaceFileEntryBody,
 } from "@openmeld/schemas/types";
+import { SpaceFileAuditRepository } from "./space-file-audit-repo";
 import { timestampMsToIso } from "./space-schema-repo";
 
 type SpaceFileEntryRow = {
@@ -51,6 +54,8 @@ type SpaceFileStorage = {
   sql: SqlStorage;
   transactionSync: <T>(closure: () => T) => T;
 };
+
+const NUMBERED_FILE_STEM_PATTERN = /^(.*) \((\d+)\)$/u;
 
 export class SpaceFileRepositoryError extends Error {
   readonly code: SpaceFileMutationErrorCode;
@@ -212,10 +217,6 @@ export class SpaceFileRepository {
         throw invalidParent("A new file requires a name and destination.");
       }
       this.requireValidParent(input.parentId);
-      this.requireNameAvailable({
-        parentId: input.parentId,
-        name: input.name,
-      });
       if (this.readEntry(input.fileId)) {
         throw conflict("This file already exists.");
       }
@@ -233,6 +234,7 @@ export class SpaceFileRepository {
 
   createFolder(input: {
     actor: SpaceFileActor;
+    auditEvent: SpaceFileAuditEvent;
     clientMutationId: string;
     folderId: string;
     name: string;
@@ -252,6 +254,7 @@ export class SpaceFileRepository {
         fingerprint,
       });
       if (replay) {
+        this.recordAuditEvent(input.auditEvent);
         return replay;
       }
       const parentId = input.parentId ?? null;
@@ -298,12 +301,14 @@ export class SpaceFileRepository {
         nowMs: input.nowMs,
         response: folder,
       });
+      this.recordAuditEvent(input.auditEvent);
       return folder;
     });
   }
 
   updateEntry(input: {
     actor: SpaceFileActor;
+    auditEvent: SpaceFileAuditEvent;
     body: UpdateSpaceFileEntryBody;
     entryId: string;
     nowMs: number;
@@ -321,6 +326,7 @@ export class SpaceFileRepository {
         fingerprint,
       });
       if (replay) {
+        this.recordAuditEvent(input.auditEvent);
         return replay;
       }
       const current = this.requireActiveEntry(input.entryId);
@@ -363,12 +369,14 @@ export class SpaceFileRepository {
         nowMs: input.nowMs,
         response: entry,
       });
+      this.recordAuditEvent(input.auditEvent);
       return entry;
     });
   }
 
   trashEntry(input: {
     actor: SpaceFileActor;
+    auditEvent: SpaceFileAuditEvent;
     clientMutationId: string;
     entryId: string;
     nowMs: number;
@@ -381,6 +389,7 @@ export class SpaceFileRepository {
         fingerprint,
       });
       if (replay) {
+        this.recordAuditEvent(input.auditEvent);
         return replay;
       }
       const current = this.requireActiveEntry(input.entryId);
@@ -430,12 +439,14 @@ export class SpaceFileRepository {
         nowMs: input.nowMs,
         response,
       });
+      this.recordAuditEvent(input.auditEvent);
       return response;
     });
   }
 
   restoreEntry(input: {
     actor: SpaceFileActor;
+    auditEvent: SpaceFileAuditEvent;
     clientMutationId: string;
     entryId: string;
     nowMs: number;
@@ -448,6 +459,7 @@ export class SpaceFileRepository {
         fingerprint,
       });
       if (replay) {
+        this.recordAuditEvent(input.auditEvent);
         return replay;
       }
       const current = this.requireTrashedEntry(input.entryId);
@@ -478,12 +490,14 @@ export class SpaceFileRepository {
         nowMs: input.nowMs,
         response: entry,
       });
+      this.recordAuditEvent(input.auditEvent);
       return entry;
     });
   }
 
   commitWrite(input: {
     actor: SpaceFileActor;
+    auditEvent: SpaceFileAuditEvent;
     nowMs: number;
     write: CommitSpaceFileWriteInput;
   }): SpaceFileDescriptor {
@@ -495,6 +509,7 @@ export class SpaceFileRepository {
         fingerprint,
       });
       if (replay) {
+        this.recordAuditEvent(input.auditEvent);
         return replay;
       }
       this.prepareWrite(input.write);
@@ -503,6 +518,10 @@ export class SpaceFileRepository {
       if (input.write.baseRevision === null) {
         revision = 1;
         const parentId = input.write.parentId ?? null;
+        const name = this.resolveAvailableFileName({
+          name: input.write.name ?? "",
+          parentId,
+        });
         this.sql.exec(
           `
             INSERT INTO space_file_entries (
@@ -525,8 +544,8 @@ export class SpaceFileRepository {
           input.write.spaceId,
           parentId,
           parentKey(parentId),
-          input.write.name,
-          nameKey(input.write.name ?? ""),
+          name,
+          nameKey(name),
           input.nowMs,
           input.nowMs,
           actorJson,
@@ -575,6 +594,7 @@ export class SpaceFileRepository {
         nowMs: input.nowMs,
         response: file,
       });
+      this.recordAuditEvent(input.auditEvent);
       return file;
     });
   }
@@ -782,6 +802,53 @@ export class SpaceFileRepository {
     }
   }
 
+  private resolveAvailableFileName(input: {
+    name: string;
+    parentId: string | null;
+  }): string {
+    const occupiedNames = new Set(
+      this.sql
+        .exec<{ name_key: string }>(
+          `
+            SELECT name_key
+            FROM space_file_entries
+            WHERE parent_key = ? AND trashed_at_ms IS NULL
+          `,
+          parentKey(input.parentId)
+        )
+        .toArray()
+        .map((row) => row.name_key)
+    );
+    if (!occupiedNames.has(nameKey(input.name))) {
+      return input.name;
+    }
+
+    const { extension, stem } = splitFileName(input.name);
+    const numberedStem = NUMBERED_FILE_STEM_PATTERN.exec(stem);
+    const baseStem = numberedStem?.[1] ?? stem;
+    const parsedOrdinal = Number(numberedStem?.[2] ?? 1);
+    let ordinal = Number.isSafeInteger(parsedOrdinal)
+      ? Math.max(2, parsedOrdinal + 1)
+      : 2;
+
+    while (Number.isSafeInteger(ordinal)) {
+      const suffix = ` (${ordinal})`;
+      const availableStemLength =
+        SPACE_FILE_MAX_NAME_LENGTH - suffix.length - extension.length;
+      if (availableStemLength < 1) {
+        throw conflict(
+          "OpenMeld could not assign a unique file name without changing its extension."
+        );
+      }
+      const candidate = `${baseStem.slice(0, availableStemLength)}${suffix}${extension}`;
+      if (!occupiedNames.has(nameKey(candidate))) {
+        return candidate;
+      }
+      ordinal += 1;
+    }
+    throw conflict("OpenMeld could not assign a unique file name.");
+  }
+
   private readMutation<T>(input: {
     action: string;
     clientMutationId: string;
@@ -834,6 +901,10 @@ export class SpaceFileRepository {
       input.nowMs
     );
   }
+
+  private recordAuditEvent(event: SpaceFileAuditEvent): void {
+    new SpaceFileAuditRepository(this.sql).record(event);
+  }
 }
 
 function readRevisionRow(row: SpaceFileRevisionRow): SpaceFileRevision {
@@ -858,6 +929,17 @@ function parentKey(parentId: string | null): string {
 
 function nameKey(name: string): string {
   return name.normalize("NFKC").toLocaleLowerCase("en-US");
+}
+
+function splitFileName(name: string): { extension: string; stem: string } {
+  const extensionStart = name.lastIndexOf(".");
+  if (extensionStart <= 0 || extensionStart === name.length - 1) {
+    return { extension: "", stem: name };
+  }
+  return {
+    extension: name.slice(extensionStart),
+    stem: name.slice(0, extensionStart),
+  };
 }
 
 function mutationFingerprint(value: unknown): string {

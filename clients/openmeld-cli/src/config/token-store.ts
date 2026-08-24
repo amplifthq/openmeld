@@ -1,11 +1,21 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { isBinaryDistribution } from "../runtime/distribution";
+import {
+  deleteMacOsNativeKeychainToken,
+  readMacOsNativeKeychainToken,
+  storeMacOsNativeKeychainToken,
+} from "./macos-native-keychain";
 import { openMeldRootDir } from "./paths";
 
 const TOKEN_STORE_KEYCHAIN_SERVICE = "sh.openmeld.auth.token";
 const INSECURE_FALLBACK_ENV_KEY = "OPENMELD_AUTH_ALLOW_INSECURE_FILE_TOKEN";
 const FORCE_INSECURE_STORE_ENV_KEY = "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN";
+const MAC_OS_KEYCHAIN_NONINTERACTIVE_UNAVAILABLE_MESSAGE =
+  "macOS Keychain access is unavailable in this OpenMeld distribution. " +
+  "OpenMeld will not open an authorization window from an unattended process. " +
+  "Run setup or login with the current packaged OpenMeld CLI.";
 const COMMAND_MAX_BUFFER_BYTES = 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 30_000;
 const TOKEN_FILE_KEY_PATTERN = /^[a-f0-9]{64}$/u;
@@ -15,6 +25,7 @@ const EXEC_FILE_BASE_OPTIONS = {
   timeout: COMMAND_TIMEOUT_MS,
 } as const;
 let insecureFallbackWarningShown = false;
+let macOsPrivateStorageWarningShown = false;
 
 type MacOsTokenRef = {
   provider: "macos-keychain";
@@ -77,12 +88,16 @@ export async function storeAccessToken(
 
   if (process.platform === "darwin") {
     try {
-      const account = buildMacOsAccount(key);
-      await setMacOsKeychainToken({
-        service: TOKEN_STORE_KEYCHAIN_SERVICE,
-        account,
-        accessToken: input.accessToken,
-      });
+      const account = buildUniqueMacOsAccount(key);
+      if (shouldUseNativeMacOsKeychain()) {
+        await storeMacOsNativeKeychainToken({
+          account,
+          service: TOKEN_STORE_KEYCHAIN_SERVICE,
+          accessToken: input.accessToken,
+        });
+      } else {
+        throw new Error(MAC_OS_KEYCHAIN_NONINTERACTIVE_UNAVAILABLE_MESSAGE);
+      }
       return {
         provider: "macos-keychain",
         service: TOKEN_STORE_KEYCHAIN_SERVICE,
@@ -99,9 +114,13 @@ export async function storeAccessToken(
           key,
         };
       }
-      throw new Error(
-        `failed to store access token in macOS Keychain: ${toErrorMessage(error)}`
-      );
+      const privateKey = buildUniqueTokenFileKey(key);
+      await setInsecureFileToken({
+        key: privateKey,
+        accessToken: input.accessToken,
+      });
+      warnMacOsPrivateStorageFallback(error);
+      return { provider: "insecure-file", key: privateKey };
     }
   }
 
@@ -154,7 +173,11 @@ export async function readAccessToken(
 ): Promise<AccessTokenReadResult> {
   try {
     if (ref.provider === "macos-keychain") {
-      return toAccessTokenReadResult(await getMacOsKeychainToken(ref));
+      if (!shouldUseNativeMacOsKeychain()) {
+        throw new Error(MAC_OS_KEYCHAIN_NONINTERACTIVE_UNAVAILABLE_MESSAGE);
+      }
+      const token = await readMacOsNativeKeychainToken(ref);
+      return toAccessTokenReadResult(token);
     }
     if (ref.provider === "windows-dpapi") {
       return toAccessTokenReadResult(await getWindowsDpapiToken(ref));
@@ -173,15 +196,18 @@ export async function readAccessToken(
 
 export async function deleteAccessToken(ref: StoredTokenRef): Promise<void> {
   if (ref.provider === "macos-keychain") {
-    await deleteMacOsKeychainToken(ref).catch(() => undefined);
+    if (!shouldUseNativeMacOsKeychain()) {
+      throw new Error(MAC_OS_KEYCHAIN_NONINTERACTIVE_UNAVAILABLE_MESSAGE);
+    }
+    await deleteMacOsNativeKeychainToken(ref);
     return;
   }
   if (ref.provider === "windows-dpapi") {
-    await deleteWindowsDpapiToken(ref).catch(() => undefined);
+    await deleteWindowsDpapiToken(ref);
     return;
   }
   if (ref.provider === "insecure-file") {
-    await deleteInsecureFileToken(ref).catch(() => undefined);
+    await deleteInsecureFileToken(ref);
   }
 }
 
@@ -193,7 +219,9 @@ export function isStoredTokenRef(value: unknown): value is StoredTokenRef {
   const provider = normalizeString(record.provider);
   if (provider === "macos-keychain") {
     return Boolean(
-      normalizeString(record.service) && normalizeString(record.account)
+      normalizeString(record.service) &&
+        normalizeString(record.account) &&
+        record.accessGroup === undefined
     );
   }
   if (provider === "windows-dpapi" || provider === "insecure-file") {
@@ -212,69 +240,16 @@ function buildTokenKey(input: {
     .digest("hex");
 }
 
-function buildMacOsAccount(key: string): string {
-  return `openmeld-auth-${key}`;
+function buildUniqueMacOsAccount(key: string): string {
+  return `openmeld-auth-${key}-${randomUUID()}`;
 }
 
-async function setMacOsKeychainToken(input: {
-  service: string;
-  account: string;
-  accessToken: string;
-}): Promise<void> {
-  // Keep login non-interactive via the native `security` CLI integration.
-  // This passes token via argv, which is a known exposure tradeoff.
-  await runCommand("security", [
-    "add-generic-password",
-    "-U",
-    "-a",
-    input.account,
-    "-s",
-    input.service,
-    "-w",
-    input.accessToken,
-  ]);
+function buildUniqueTokenFileKey(key: string): string {
+  return createHash("sha256").update(`${key}\n${randomUUID()}`).digest("hex");
 }
 
-async function getMacOsKeychainToken(input: {
-  service: string;
-  account: string;
-}): Promise<string | null> {
-  try {
-    const result = await runCommand("security", [
-      "find-generic-password",
-      "-a",
-      input.account,
-      "-s",
-      input.service,
-      "-w",
-    ]);
-    return result.stdout.trim();
-  } catch (error) {
-    if (isMacOsNotFoundError(error)) {
-      return null;
-    }
-    throw error;
-  }
-}
-
-async function deleteMacOsKeychainToken(input: {
-  service: string;
-  account: string;
-}): Promise<void> {
-  try {
-    await runCommand("security", [
-      "delete-generic-password",
-      "-a",
-      input.account,
-      "-s",
-      input.service,
-    ]);
-  } catch (error) {
-    if (isMacOsNotFoundError(error)) {
-      return;
-    }
-    throw error;
-  }
+function shouldUseNativeMacOsKeychain(): boolean {
+  return isBinaryDistribution();
 }
 
 async function setWindowsDpapiToken(input: {
@@ -326,11 +301,15 @@ async function setInsecureFileToken(input: {
   key: string;
   accessToken: string;
 }): Promise<void> {
-  await mkdir(tokenDirectoryPath(), { recursive: true });
-  await writeFile(insecureTokenPath(input.key), `${input.accessToken}\n`, {
+  await ensurePrivateTokenDirectory();
+  const path = insecureTokenPath(input.key);
+  await writeFile(path, `${input.accessToken}\n`, {
     encoding: "utf8",
     mode: 0o600,
   });
+  if (process.platform !== "win32") {
+    await chmod(path, 0o600);
+  }
 }
 
 async function getInsecureFileToken(input: {
@@ -378,6 +357,22 @@ function allowInsecureFallback(): boolean {
   return fallbackEnabled;
 }
 
+function warnMacOsPrivateStorageFallback(error: unknown): void {
+  if (macOsPrivateStorageWarningShown) {
+    return;
+  }
+  macOsPrivateStorageWarningShown = true;
+  const storageExpectation = isBinaryDistribution()
+    ? "This session stays in private local storage unless a later sign-in replaces it."
+    : "This npm installation cannot use macOS Keychain. This session stays in private local storage.";
+  console.warn(
+    "[openmeld auth] macOS Keychain is unavailable. OpenMeld saved this " +
+      "session in a private file protected for your macOS user account, so " +
+      "setup can continue. " +
+      `${storageExpectation} Details: ${toErrorMessage(error)}`
+  );
+}
+
 function warnInsecureFallback(reason: "env" | "platform"): void {
   if (insecureFallbackWarningShown) {
     return;
@@ -401,6 +396,14 @@ function shouldForceInsecureStore(): boolean {
 
 function isNativeSecureStorePlatform(): boolean {
   return process.platform === "darwin" || process.platform === "win32";
+}
+
+async function ensurePrivateTokenDirectory(): Promise<void> {
+  const directory = tokenDirectoryPath();
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") {
+    await chmod(directory, 0o700);
+  }
 }
 
 async function runPowerShellScript(
@@ -427,14 +430,9 @@ async function runPowerShellScript(
 async function runCommand(
   command: string,
   args: string[],
-  stdinPayload?: string
+  stdinPayload: string
 ): Promise<{ stdout: string; stderr: string }> {
   try {
-    if (stdinPayload === undefined) {
-      const output = await runExecFile(command, args);
-      return output;
-    }
-
     const { execFile } = await import("node:child_process");
     const output = await new Promise<{ stdout: string; stderr: string }>(
       (resolve, reject) => {
@@ -481,36 +479,6 @@ async function runCommand(
   }
 }
 
-async function runExecFile(
-  command: string,
-  args: string[]
-): Promise<{ stdout: string; stderr: string }> {
-  const { execFile } = await import("node:child_process");
-  const output = await new Promise<{ stdout: string; stderr: string }>(
-    (resolve, reject) => {
-      execFile(
-        command,
-        args,
-        {
-          ...EXEC_FILE_BASE_OPTIONS,
-          encoding: "utf8",
-        },
-        (error, stdout, stderr) => {
-          if (error) {
-            reject(toCommandError(error, command));
-            return;
-          }
-          resolve({
-            stdout: String(stdout ?? ""),
-            stderr: String(stderr ?? ""),
-          });
-        }
-      );
-    }
-  );
-  return output;
-}
-
 function toCommandError(
   error: unknown,
   command: string
@@ -539,19 +507,6 @@ function toCommandError(
   wrapped.stdout = e.stdout;
   wrapped.stderr = e.stderr;
   return wrapped;
-}
-
-function isMacOsNotFoundError(error: unknown): boolean {
-  if (!(error && typeof error === "object")) {
-    return false;
-  }
-  const record = error as { stderr?: string; message?: string; code?: number };
-  const text = `${record.stderr ?? ""} ${record.message ?? ""}`.toLowerCase();
-  return (
-    record.code === 44 ||
-    text.includes("could not be found in the keychain") ||
-    text.includes("the specified item could not be found")
-  );
 }
 
 function normalizeString(value: unknown): string {

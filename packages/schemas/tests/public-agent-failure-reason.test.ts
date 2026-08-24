@@ -76,6 +76,34 @@ describe("public agent failure reason mapping", () => {
     );
     expect(
       resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.provider.authentication_failed",
+        failureMessage: "Provider authentication failed with a secret detail.",
+      })
+    ).toBe(
+      "The model provider rejected this request because the provider credentials are invalid or expired. Reconnect the provider account, then wake the agent again."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.provider.rate_limited",
+        failureMessage: "Raw provider throttling detail.",
+      })
+    ).toBe(PROVIDER_RATE_LIMIT_COPY);
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.provider.unavailable",
+        failureMessage: "Raw provider outage detail.",
+      })
+    ).toBe(PROVIDER_UNAVAILABLE_COPY);
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.turn.timeout",
+        failureMessage: "Raw worker timeout detail.",
+      })
+    ).toBe(
+      "Center Agent took too long to finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
         failureCode: "provider.some_new_failure",
         failureMessage:
           "This turn's active tool catalog does not include Space management tools.",

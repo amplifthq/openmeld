@@ -114,6 +114,7 @@ export function createCursorAdapter(
           }),
           ...(options.invokeByMode ?? {}),
         },
+    repairConversationPolicy: "require_canonical",
     resolveDefaultInvoke: () => null,
     runtimeOptions: options,
   });
@@ -151,6 +152,8 @@ function createDefaultCursorInvoke(input: {
     );
     const result = await invokeWithSingleContextHeal({
       contextId,
+      contextLossPolicy:
+        dispatchInput.executionMode === "repair" ? "fail" : "rebuild",
       createRebuildFailedError: (error) =>
         error instanceof CursorAcpTransportError &&
         error.code === "cursor.plan_upgrade_required"

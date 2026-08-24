@@ -69,10 +69,7 @@ import type {
   RuntimeTransportResultIdentityEcho,
   RuntimeTransportRuntimeEvidenceIdentityEcho,
 } from "@openmeld/schemas/types";
-import {
-  resolveSpacePublicationRequirement,
-  tryExtractTrailingStructuredSpaceActionBlock,
-} from "@openmeld/space-mesh";
+import { resolveSpacePublicationRequirement } from "@openmeld/space-mesh";
 import { recordOpenMeldCreatedLocalAgentSession } from "../../agent-activity/session-inventory-origin-store";
 import { resolveBaseUrl } from "../../config/base-url";
 import { buildOpenMeldRequestContextFromProfileIdentity } from "../../config/openmeld-request-context";
@@ -172,7 +169,6 @@ import {
 import {
   buildInvalidStructuredActionOutputPreview,
   buildStructuredActionRepairPrompt as buildStructuredActionRepairPromptInternal,
-  buildSyntheticStructuredSpaceActionRepairResult as buildSyntheticStructuredSpaceActionRepairResultInternal,
   coerceRuntimeResultToStructuredActionFailure as coerceRuntimeResultToStructuredActionFailureInternal,
   resolveStructuredActionOutputFallback,
   resolveStructuredActionRepairContinuation as resolveStructuredActionRepairContinuationInternal,
@@ -225,8 +221,6 @@ export const rollbackBootstrapExecutionStateAfterDispatchFailure =
   rollbackBootstrapExecutionStateAfterDispatchFailureInternal;
 export const buildStructuredActionRepairPrompt =
   buildStructuredActionRepairPromptInternal;
-export const buildSyntheticStructuredSpaceActionRepairResult =
-  buildSyntheticStructuredSpaceActionRepairResultInternal;
 export const coerceRuntimeResultToStructuredActionFailure =
   coerceRuntimeResultToStructuredActionFailureInternal;
 export const resolveStructuredActionRepairContinuation =
@@ -3727,10 +3721,7 @@ function normalizeResolvedPostMessageAction(input: {
       action,
       currentReplyToSignalId:
         input.parsedTask.replyToSnapshot?.signalId ?? null,
-      inputKind: resolvePostMessageInputKind({
-        runtimeResult: input.runtimeResult,
-        structuredSpaceActionResolution: input.structuredSpaceActionResolution,
-      }),
+      inputKind: "direct_payload",
       sendTargetReference: input.sendTargetReference,
     });
     emitRunLine({
@@ -3758,11 +3749,7 @@ function normalizeResolvedPostMessageAction(input: {
         activationTargetsCount: action.messageEnvelope.activationTargets.length,
         dispatchId: input.parsedTask.dispatchId,
         failureReason,
-        inputKind: resolvePostMessageInputKind({
-          runtimeResult: input.runtimeResult,
-          structuredSpaceActionResolution:
-            input.structuredSpaceActionResolution,
-        }),
+        inputKind: "direct_payload",
         memberDirectoryLoaded: input.sendTargetReference.status === "loaded",
         referenceTargetsCount: action.messageEnvelope.referenceTargets.length,
         replyToSignalIdResolved: Boolean(
@@ -3877,59 +3864,15 @@ async function maybeRepairStructuredSpaceAction(input: {
     },
   });
 
-  const localRepairEvaluation = resolveStructuredActionRepairEvaluation({
-    runtimeResult: input.runtimeResult,
-    useLocalSyntheticRepair: true,
-  });
-  if (localRepairEvaluation.accepted && localRepairEvaluation.runtimeResult) {
-    emitRunLine({
-      presenter: input.presenter,
-      code: "daemon.run.structured_action_repair_completed",
-      text: `structured OpenMeld Space action repair completed for task ${input.parsedTask.taskId}`,
-      payload: {
-        dispatchId: input.parsedTask.dispatchId,
-        repaired: true,
-        repairMode: "local_synthetic",
-        targetProfileId: input.parsedTask.targetProfileId,
-        taskId: input.parsedTask.taskId,
-      },
-    });
-    return {
-      finalFailureDiagnostics: null,
-      runtimeResult: applyStructuredSpaceActionProvenanceToRuntimeResult({
-        runtimeResult: localRepairEvaluation.runtimeResult,
-        provenance: "local_repair",
-      }),
-    };
-  }
-
-  const localFailureDiagnostics = resolveStructuredActionFailureDiagnostics({
-    carrierKind: localRepairEvaluation.carrierKind,
-    parseError: localRepairEvaluation.parseError ?? input.failureReason,
-    publicFailureReason: input.failureReason,
-    repairMode: "local_synthetic",
-    runtimeResult: localRepairEvaluation.runtimeResult ?? input.runtimeResult,
-  });
-  emitRunLine({
-    presenter: input.presenter,
-    code: "daemon.run.structured_action_repair_failed",
-    text: `structured OpenMeld Space action repair failed for task ${input.parsedTask.taskId}`,
-    payload: {
-      dispatchId: input.parsedTask.dispatchId,
-      ...localFailureDiagnostics,
-      failureReason: input.failureReason,
-      repairedRuntimeStatus: localRepairEvaluation.repairedRuntimeStatus,
-      repairedStructuredActionPresent:
-        localRepairEvaluation.repairedStructuredActionPresent,
-      repairMode: "local_synthetic",
-      targetProfileId: input.parsedTask.targetProfileId,
-      taskId: input.parsedTask.taskId,
-    },
-  });
-
   if (!input.runControllerRepair) {
     return {
-      finalFailureDiagnostics: localFailureDiagnostics,
+      finalFailureDiagnostics: resolveStructuredActionFailureDiagnostics({
+        carrierKind: "none",
+        parseError: input.failureReason,
+        publicFailureReason: input.failureReason,
+        repairMode: "controller_roundtrip",
+        runtimeResult: input.runtimeResult,
+      }),
       runtimeResult: null,
     };
   }
@@ -3993,7 +3936,6 @@ async function maybeRepairStructuredSpaceAction(input: {
 
   const providerRepairEvaluation = resolveStructuredActionRepairEvaluation({
     runtimeResult: providerRepairRuntimeResult,
-    useLocalSyntheticRepair: true,
   });
   if (
     !(
@@ -4055,7 +3997,6 @@ async function maybeRepairStructuredSpaceAction(input: {
 
 function resolveStructuredActionRepairEvaluation(input: {
   runtimeResult: RuntimeTaskResult;
-  useLocalSyntheticRepair: boolean;
 }): {
   accepted: boolean;
   carrierKind: StructuredActionFailureDiagnostics["carrierKind"];
@@ -4064,11 +4005,7 @@ function resolveStructuredActionRepairEvaluation(input: {
   repairedStructuredActionPresent: boolean;
   runtimeResult: RuntimeTaskResult | null;
 } {
-  const runtimeResult = input.useLocalSyntheticRepair
-    ? (buildSyntheticStructuredSpaceActionRepairResult({
-        runtimeResult: input.runtimeResult,
-      }) ?? input.runtimeResult)
-    : input.runtimeResult;
+  const runtimeResult = input.runtimeResult;
   const repairedResolution =
     resolveStructuredSpaceActionFromRuntimePayload(runtimeResult);
   const repairedAction =
@@ -4165,21 +4102,11 @@ function resolveStructuredSpaceActionFromRuntimePayload(
     };
   }
 
-  const extraction = tryExtractTrailingStructuredSpaceActionBlock({
-    output: payload.output,
-  });
-
   return {
-    action: extraction.action ?? undefined,
-    carrierKind: extraction.carrierKind,
-    cleanedOutput:
-      extraction.action === null
-        ? extraction.cleanedOutput
-        : resolveStructuredActionOutputFallback({
-            action: extraction.action,
-            cleanedOutput: extraction.cleanedOutput,
-          }),
-    parseError: extraction.parseError,
+    action: payload.spaceAction,
+    carrierKind: "none",
+    cleanedOutput: undefined,
+    parseError: null,
   };
 }
 
@@ -4243,22 +4170,6 @@ function resolveStructuredSpaceActionProvenance(input: {
     return undefined;
   }
   return input.runtimeResult.resultPayload.spaceActionProvenance ?? "direct";
-}
-
-function resolvePostMessageInputKind(input: {
-  runtimeResult: RuntimeTaskResult;
-  structuredSpaceActionResolution: {
-    carrierKind: StructuredActionFailureDiagnostics["carrierKind"];
-  };
-}): "direct_payload" | "fenced_block" | "trailing_json" {
-  const payload = input.runtimeResult.resultPayload;
-  if (payload.spaceAction?.type === "post_message") {
-    return "direct_payload";
-  }
-
-  return input.structuredSpaceActionResolution.carrierKind === "trailing_json"
-    ? "trailing_json"
-    : "fenced_block";
 }
 
 type DispatchRuntimeRoute = NonNullable<

@@ -22,6 +22,7 @@ export const CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES = [
   "openmeld_read_agent_activity",
   "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
+  "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
   "openmeld_execute_app_action",

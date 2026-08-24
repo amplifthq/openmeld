@@ -134,6 +134,19 @@ preserves both collaborators' work, and requires the writer to read the current
 revision before trying again. This is the MVP multi-player safety boundary. It
 does not claim character-by-character live co-editing or CRDT semantics.
 
+A new file upload never fails merely because another active file in the target
+folder has the same case-insensitive name. The owning Space atomically assigns
+the first available presentation name such as `Report (2).pdf`, preserves the
+requested extension, and returns that canonical name to every client. This is
+the same server-owned behavior for Composer, Files, CLI, and Agent uploads.
+If a pathological name leaves no room for one stem character plus the numbered
+suffix while preserving the complete extension inside the shared name limit,
+Core fails explicitly instead of silently truncating or changing that
+extension.
+Explicit folder creation, rename, move, and Trash restore remain organization
+actions: when their requested destination name is occupied, they return the
+explicit name conflict instead of silently changing the user's request.
+
 Space access owns file access. A viewer who may read the Space may list active
 folders, read active metadata, and download active files. Trash is visible only
 to active human or Agent Profile members because deleted names and attribution
@@ -152,6 +165,13 @@ store. An object key is storage addressing only; it is not file identity or
 authorization. A failed byte write never creates a visible revision, and a
 failed metadata commit cleans up the unreferenced object best-effort while
 reporting cleanup failure for operations.
+
+The immutable revision is the exact uploaded original. Display previews and
+model-input derivatives are separate bounded representations derived from that
+revision; they never replace the original, become a new revision, or change the
+file's identity. A derivative can be discarded and rebuilt from the authorized
+revision. Raw file bytes and base64 encodings never become durable conversation
+history merely because a message references that file.
 
 Organization Documents, Space Files, legacy message Attachments, and the Center
 Agent Computer remain separate owners:

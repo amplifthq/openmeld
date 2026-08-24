@@ -27,6 +27,9 @@ describe("CenterAgentAboutPopover", () => {
 		expect(
 			aboutButton.querySelector('[data-icon="inline-start"]')
 		).toBeTruthy();
+		expect(screen.getByText("About").className).toContain(
+			"@min-[28rem]/app-main-header:inline"
+		);
 		fireEvent.click(aboutButton);
 
 		expect(screen.getByText("Operations Center Agent")).toBeTruthy();

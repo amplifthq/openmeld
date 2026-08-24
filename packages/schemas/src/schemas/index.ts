@@ -475,6 +475,7 @@ export {
   runtimeCoordinatorFinalizationCommandSchema,
   runtimeCoordinatorFinalizationDispatchFactSchema,
   runtimeCoordinatorFinalizationDispatchOwnerSchema,
+  runtimeCoordinatorFinalizationFinalMessageKindSchema,
   runtimeCoordinatorFinalizationOutcomeSchema,
   runtimeCoordinatorFinalizationSuccessOutcomeSchema,
 } from "./daemon/runtime-coordinator-finalization-command";
@@ -1252,6 +1253,16 @@ export {
   stopCenterAgentTaskRpcInputSchema,
 } from "./http/center-agent-tasks";
 export {
+  CENTER_AGENT_TURN_DIAGNOSTIC_FAILURE_DETAIL_MAX_CHARS,
+  CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
+  CENTER_AGENT_TURN_DIAGNOSTICS_MAX_LIMIT,
+  centerAgentReadTurnDiagnosticsResponseSchema,
+  centerAgentReadTurnDiagnosticsRpcInputSchema,
+  centerAgentTurnDiagnosticPublicationStateSchema,
+  centerAgentTurnDiagnosticSchema,
+  centerAgentTurnDiagnosticStatusSchema,
+} from "./http/center-agent-turn-diagnostics";
+export {
   CHANGELOG_ENTRY_KINDS,
   CHANGELOG_QUERY_DEFAULT_LIMIT,
   CHANGELOG_QUERY_MAX_LIMIT,
@@ -2007,6 +2018,9 @@ export {
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceFileActorSchema,
+  spaceFileAuditEventSchema,
+  spaceFileAuditOperationSchema,
+  spaceFileAuditResultSchema,
   spaceFileBaseRevisionSchema,
   spaceFileBreadcrumbSchema,
   spaceFileCapabilitiesSchema,
@@ -2214,6 +2228,15 @@ export {
   localSkillsComponentProjectionSchema,
   localSkillsComponentUpdateProjectionSchema,
 } from "./local-components";
+export {
+  MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION,
+  MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION,
+  type MacOsKeychainHelperRequest,
+  type MacOsKeychainHelperResponse,
+  macOsKeychainHelperOperationSchema,
+  macOsKeychainHelperRequestSchema,
+  macOsKeychainHelperResponseSchema,
+} from "./local-machine/macos-keychain-helper";
 export {
   formatLocalMachineIssueMessage,
   LOCAL_MACHINE_RECOVERY_POLICY_BY_CODE,

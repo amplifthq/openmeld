@@ -22,7 +22,10 @@ import {
   markRemoteAgentExecutionProgress,
   readRemoteAgentExecutionState,
 } from "../../agent-core/execution-state";
-import { understandRemoteAgentImages } from "../../agent-core/image-understanding";
+import {
+  transformRemoteAgentImageForContext,
+  understandRemoteAgentImages,
+} from "../../agent-core/image-understanding";
 import { resolveRemoteAgentModelDisplayName } from "../../agent-core/model";
 import { buildRemoteAgentSystemPrompt } from "../../agent-core/prompt";
 import {
@@ -381,6 +384,12 @@ export const cloudflare = extend({
               await understandRemoteAgentImages({
                 ...imageInput,
                 env: this.env as CloudflareBindings,
+                prepareImage: async (image) =>
+                  await transformRemoteAgentImageForContext({
+                    image,
+                    imagesBinding: (this.env as CloudflareBindings)
+                      .OPENMELD_IMAGES,
+                  }),
               }),
           });
           let ack: RemoteAgentWorkerSubmitMessagesResult;

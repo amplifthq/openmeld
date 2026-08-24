@@ -174,6 +174,73 @@ describe("Flue Center Agent submission cancellation", () => {
     });
   });
 
+  it("keeps raw images out of a persistent image-capable primary conversation", async () => {
+    const baseRequest = createSubmitTurnRequestV2();
+    const request = createSubmitTurnRequestV2({
+      modelRoute: {
+        ...baseRequest.modelRoute,
+        displayName: "Grok 4.6",
+        inputModalities: ["text", "image"],
+        modelId: "x-ai/grok-4.6",
+      },
+    });
+    const understandImages = vi.fn(
+      async () => "A terminal showing version 0.142.5."
+    );
+    const routeRequest = vi.fn(async (routeRequest: Request) => {
+      const payload = (await routeRequest.json()) as {
+        acceptedAt: string;
+        dispatchId: string;
+        input: { images?: unknown[]; message: string };
+      };
+      expect(payload.input.images).toBeUndefined();
+      expect(payload.input.message).toContain(
+        "A terminal showing version 0.142.5."
+      );
+      expect(JSON.stringify(payload)).not.toContain("raw-image-base64");
+      return Response.json({
+        acceptedAt: payload.acceptedAt,
+        dispatchId: payload.dispatchId,
+      });
+    });
+    const host = createFlueCenterAgentAdmissionHost({
+      registerProvider: async () => undefined,
+      routeRequest,
+      understandImages,
+    });
+
+    await host.admitConversationTurn({
+      images: [
+        {
+          data: "raw-image-base64",
+          filename: "terminal.png",
+          mimeType: "image/png",
+          type: "image",
+        },
+      ],
+      message: "Why is the version unchanged?",
+      metadata: buildRemoteAgentSubmissionMetadata({
+        request,
+        submittedAtMs: Date.now(),
+      }),
+      request,
+      submissionId: request.dispatchId,
+    });
+
+    expect(understandImages).toHaveBeenCalledWith({
+      images: [
+        {
+          data: "raw-image-base64",
+          filename: "terminal.png",
+          mimeType: "image/png",
+          type: "image",
+        },
+      ],
+      model: request.modelRoute.imageUnderstandingModel,
+      organizationId: request.organizationId,
+    });
+  });
+
   it("does not switch models when auxiliary image understanding fails", async () => {
     const request = createSubmitTurnRequestV2();
     const registerProvider = vi.fn(async () => undefined);

@@ -2,6 +2,7 @@
 
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
+import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import {
 	DEFAULT_ROUNDED_SHAPE_RADIUS_PX,
 	type ShapeVariant,
@@ -33,6 +34,8 @@ type ThemeChoice = {
 	label: string;
 	value: "dark" | "light" | "system";
 };
+
+const PHONE_APPEARANCE_CHOICES_QUERY = "(max-width: 639px)";
 
 const THEME_CHOICES: readonly ThemeChoice[] = [
 	{
@@ -119,6 +122,9 @@ const getServerHydrationSnapshot = () => false;
 export function AppearanceSection() {
 	const { setTheme, theme } = useTheme();
 	const { setShape, shape } = useShapeContext();
+	const choiceOrientation = useMediaQuery(PHONE_APPEARANCE_CHOICES_QUERY)
+		? "vertical"
+		: "horizontal";
 	const mounted = useSyncExternalStore(
 		subscribeToHydration,
 		getClientHydrationSnapshot,
@@ -168,7 +174,7 @@ export function AppearanceSection() {
 						<RadioGroup
 							aria-label="Theme"
 							className="w-full"
-							orientation="horizontal"
+							orientation={choiceOrientation}
 							selectedIndex={selectedIndex}
 						>
 							{THEME_CHOICES.map((choice, index) => (
@@ -197,7 +203,7 @@ export function AppearanceSection() {
 						<RadioGroup
 							aria-label="Corner style"
 							className="w-full"
-							orientation="horizontal"
+							orientation={choiceOrientation}
 							selectedIndex={selectedShapeIndex}
 						>
 							{SHAPE_CHOICES.map((choice, index) => (
@@ -228,7 +234,7 @@ export function AppearanceSection() {
 						<RadioGroup
 							aria-label="Conversation layout"
 							className="w-full"
-							orientation="horizontal"
+							orientation={choiceOrientation}
 							selectedIndex={selectedConversationLayoutIndex}
 						>
 							{CONVERSATION_LAYOUT_CHOICES.map((choice, index) => (
@@ -262,7 +268,7 @@ export function AppearanceSection() {
 						<RadioGroup
 							aria-label="Your messages"
 							className="w-full"
-							orientation="horizontal"
+							orientation={choiceOrientation}
 							selectedIndex={selectedSelfMessageAlignmentIndex}
 						>
 							{SELF_MESSAGE_ALIGNMENT_CHOICES.map((choice, index) => (
@@ -329,6 +335,7 @@ function SelfMessageAlignmentPreview(input: {
 	const selfAlignmentClassName =
 		input.alignment === "left" ? "items-start" : "items-end";
 	const actionsClassName = input.alignment === "left" ? "right-1" : "left-1";
+	const bubbleWidthClassName = input.alignment === "left" ? "w-full" : "w-2/3";
 
 	return (
 		<span
@@ -346,7 +353,13 @@ function SelfMessageAlignmentPreview(input: {
 						<span className="size-1 bg-muted-foreground/35" />
 						<span className="size-1 bg-muted-foreground/35" />
 					</span>
-					<span className="mt-2 h-3 w-3/4 border border-border bg-muted/60" />
+					<span
+						className={`mt-2 flex h-5 flex-col justify-center gap-1 rounded-md bg-muted/60 px-1.5 ${bubbleWidthClassName}`}
+						data-slot="self-message-preview-bubble"
+					>
+						<span className="h-1 w-4/5 rounded-sm bg-muted-foreground/35" />
+						<span className="h-1 w-3/5 rounded-sm bg-muted-foreground/25" />
+					</span>
 					<span className="h-1.5 w-2/5 bg-destructive/30" />
 				</span>
 			</span>

@@ -239,13 +239,15 @@ describe("SpaceThreadPanel", () => {
 		expect(threadMessage?.textContent).not.toContain(expectedTime);
 		expect(threadMessage?.classList.contains("border")).toBe(true);
 		expect(threadMessage?.classList.contains("border-transparent")).toBe(true);
-		expect(threadMessage?.classList.contains("bg-transparent")).toBe(true);
+		expect(threadMessage?.classList.contains("bg-muted/35")).toBe(true);
+		expect(threadMessage?.classList.contains("rounded-md")).toBe(true);
 		expect(threadMessage?.classList.contains("max-w-full")).toBe(true);
-		expect(threadMessage?.classList.contains("items-end")).toBe(true);
-		expect(threadMessage?.classList.contains("text-right")).toBe(true);
-		expect(threadMessage?.classList.contains("px-0")).toBe(true);
-		expect(threadMessage?.classList.contains("py-0")).toBe(true);
-		expect(threadMessage?.classList.contains("sm:px-0")).toBe(true);
+		expect(threadMessage?.classList.contains("items-start")).toBe(true);
+		expect(threadMessage?.classList.contains("text-start")).toBe(true);
+		expect(threadMessage?.classList.contains("text-right")).toBe(false);
+		expect(threadMessage?.classList.contains("px-3")).toBe(true);
+		expect(threadMessage?.classList.contains("py-2")).toBe(true);
+		expect(threadMessage?.classList.contains("sm:px-4")).toBe(true);
 		expect(threadMessage?.classList.contains("max-w-[62ch]")).toBe(false);
 		expect(screen.getByText("Thread message").className).not.toContain(
 			"text-right"
@@ -273,7 +275,7 @@ describe("SpaceThreadPanel", () => {
 		expect(profileName.className).toContain("text-sm");
 		expect(messageRow?.className).toContain("hover:bg-muted/35");
 		expect(messageRow?.className).toContain("focus-within:bg-muted/35");
-		expect(messageRow?.className).not.toContain("rounded-sm");
+		expect(messageRow?.className).toContain("rounded-md");
 		expect(messageRow?.contains(avatar)).toBe(true);
 		expect(scrollerItem?.getAttribute("data-message-id")).toBe("sig-thread-1");
 		expect(scrollerItem?.getAttribute("data-scroll-anchor")).toBe("false");
@@ -283,6 +285,7 @@ describe("SpaceThreadPanel", () => {
 			{ name: "Message details" }
 		);
 		expect(threadMessage?.contains(detailsButton)).toBe(false);
+		expect(bubbleRoot?.contains(detailsButton)).toBe(true);
 		const actionSlot = detailsButton.closest("[data-message-action-slot]");
 
 		expect(actionSlot?.getAttribute("data-message-action-slot")).toBe("hover");
@@ -304,14 +307,14 @@ describe("SpaceThreadPanel", () => {
 		expect(actionSlot?.className).toContain(
 			"group-focus-within/message-row:opacity-100"
 		);
-		expect(actionSlot?.parentElement?.className).toContain("top-2");
-		expect(actionSlot?.parentElement?.className).toContain("left-3");
-		expect(actionSlot?.parentElement?.className).not.toContain("right-3");
+		expect(actionSlot?.parentElement?.className).toContain("-top-6");
+		expect(actionSlot?.parentElement?.className).toContain("-left-1");
+		expect(actionSlot?.parentElement?.className).not.toContain("-right-1");
 		expect(
 			actionSlot?.parentElement?.getAttribute(
 				"data-space-message-actions-offset"
 			)
-		).toBe("inside");
+		).toBe("outside");
 		expect(detailsButton.className).not.toContain("blur-[3px]");
 		expect(detailsButton.classList.contains("bg-background/95")).toBe(true);
 		expect(detailsButton.classList.contains("border-0")).toBe(true);

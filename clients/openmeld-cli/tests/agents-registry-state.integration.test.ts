@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  detectInstalledSkillsAgentsMock,
+  detectInstalledRuntimeAgentsMock,
   listBuiltinControllerInstalledCandidatesMock,
   refreshBuiltinControllerPersistedLaunchContractMock,
 } = vi.hoisted(() => ({
-  detectInstalledSkillsAgentsMock: vi.fn(),
+  detectInstalledRuntimeAgentsMock: vi.fn(),
   listBuiltinControllerInstalledCandidatesMock: vi.fn(),
   refreshBuiltinControllerPersistedLaunchContractMock: vi.fn(),
 }));
@@ -16,7 +16,7 @@ vi.mock("../src/skills/agents", async () => {
   );
   return {
     ...actual,
-    detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
+    detectInstalledRuntimeAgents: detectInstalledRuntimeAgentsMock,
   };
 });
 
@@ -51,7 +51,7 @@ import { withTempHome } from "./helpers/fs";
 
 describe("agents registry resolve target state", () => {
   beforeEach(() => {
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["codex"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
     refreshBuiltinControllerPersistedLaunchContractMock.mockImplementation(
       async (input: { launchContract: unknown }) => input.launchContract
     );
@@ -60,7 +60,7 @@ describe("agents registry resolve target state", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    detectInstalledSkillsAgentsMock.mockReset();
+    detectInstalledRuntimeAgentsMock.mockReset();
     listBuiltinControllerInstalledCandidatesMock.mockReset();
   });
 
@@ -90,7 +90,7 @@ describe("agents registry resolve target state", () => {
         candidates: [localInstall, homebrewInstall],
         ok: true,
       });
-      detectInstalledSkillsAgentsMock.mockResolvedValue(["claude-code"]);
+      detectInstalledRuntimeAgentsMock.mockResolvedValue(["claude-code"]);
       await setConfiguredDeviceRuntimeState({
         controllers: [
           {
@@ -447,7 +447,7 @@ describe("agents registry resolve target state", () => {
   });
 
   it("keeps suspended built-in targets technically selectable for existing users", async () => {
-    detectInstalledSkillsAgentsMock.mockResolvedValueOnce(["openclaw"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValueOnce(["openclaw"]);
 
     await withTempHome(async () => {
       const state = await resolveAgentTargetState("openclaw");
