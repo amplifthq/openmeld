@@ -227,6 +227,59 @@ describe("local service process inventory", () => {
     expect(processes).toEqual([]);
   });
 
+  it("does not treat a different OPENMELD_HOME managed binary as prod owned", async () => {
+    const pathInput = {
+      env: {
+        ...process.env,
+        OPENMELD_ENV_PRESET: "prod",
+      },
+      homeDir: "/Users/dev",
+    };
+    const processes = await listDaemonOwnedProcesses({
+      pathInput,
+      listProcesses: async () => [
+        {
+          pid: 277,
+          parentPid: 1,
+          command:
+            "/Users/dev/work/openmeld/isolated/openmeld-home/versions/0.3.85/openmeld service run --mode foreground",
+        },
+      ],
+    });
+
+    expect(processes).toEqual([]);
+  });
+
+  it("keeps its own custom OPENMELD_HOME managed binary as prod owned", async () => {
+    const pathInput = {
+      env: {
+        ...process.env,
+        OPENMELD_ENV_PRESET: "prod",
+        OPENMELD_HOME: "/Users/dev/work/openmeld/current/openmeld-home",
+      },
+      homeDir: "/Users/dev",
+    };
+    const processes = await listDaemonOwnedProcesses({
+      pathInput,
+      listProcesses: async () => [
+        {
+          pid: 278,
+          parentPid: 1,
+          command:
+            "/Users/dev/work/openmeld/current/openmeld-home/versions/0.3.89/openmeld service run --mode foreground",
+        },
+      ],
+    });
+
+    expect(processes).toEqual([
+      expect.objectContaining({
+        pid: 278,
+        ownership: "stable_launcher",
+        mode: "foreground",
+      }),
+    ]);
+  });
+
   it("still recognizes runtime-root legacy service processes", async () => {
     const processes = await listDaemonOwnedProcesses({
       listProcesses: async () => [
