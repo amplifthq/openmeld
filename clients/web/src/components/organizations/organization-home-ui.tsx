@@ -62,7 +62,7 @@ export function OrganizationHomePanel(input: {
 				) : null}
 				<Link
 					aria-label={`Open ${input.title}`}
-					className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+					className="grid size-7 shrink-0 touch-manipulation place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none max-lg:size-11"
 					to={input.href}
 				>
 					<ArrowRightIcon aria-hidden="true" className="size-3.5" />
@@ -154,7 +154,7 @@ export function OrganizationHomeEmpty(input: {
 				<p className="mt-3 text-muted-foreground text-sm">{input.label}</p>
 				{input.actionHref && input.actionLabel ? (
 					<Link
-						className="mt-2 inline-flex items-center gap-1 rounded-sm font-medium text-foreground text-xs outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+						className="mt-2 inline-flex touch-manipulation items-center gap-1 rounded-sm font-medium text-foreground text-xs outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring max-lg:min-h-11"
 						to={input.actionHref}
 					>
 						{input.actionLabel}

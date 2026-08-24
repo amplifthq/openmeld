@@ -176,6 +176,7 @@ describe("CenterAgentSettingsContent", () => {
 		const modelBehaviorTrigger = screen.getByRole("button", {
 			name: "About Center Agent model behavior",
 		});
+		expect(modelBehaviorTrigger.className).toContain("max-lg:size-11");
 		expect(
 			screen.queryByText(
 				"Handles images directly. New turns only. Doesn't switch on failure."

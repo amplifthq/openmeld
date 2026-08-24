@@ -36,6 +36,29 @@ export function containsOpenMeldManagedBinaryPath(
   );
 }
 
+export function resolveOpenMeldManagedVersionBinaryRootPath(
+  value: string
+): string | null {
+  const normalizedPath = normalizeManagedBinaryPathText(value);
+  const segments = normalizedPath.split("/");
+  const binaryName = segments.pop();
+  const versionSegment = segments.pop();
+  const versionsDirectory = segments.pop();
+  if (
+    binaryName !== MANAGED_BINARY_NAME ||
+    versionsDirectory !== "versions" ||
+    !versionSegment ||
+    !isValidManagedVersionSegment(versionSegment)
+  ) {
+    return null;
+  }
+  const rootPath = segments.join("/");
+  if (rootPath.length > 0) {
+    return rootPath;
+  }
+  return normalizedPath.startsWith("/") ? "/" : null;
+}
+
 function isManagedVersionBinaryPath(
   normalizedPath: string,
   pathInput: OpenMeldPathResolutionInput

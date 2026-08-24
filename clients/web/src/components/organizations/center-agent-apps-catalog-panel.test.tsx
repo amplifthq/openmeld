@@ -89,6 +89,23 @@ describe("CenterAgentAppsCatalogPanel", () => {
 		expect(catalog.matches('[data-slot="card"]')).toBe(false);
 	});
 
+	it("preserves App identity while progressively disclosing phone card chrome", () => {
+		renderCatalog();
+
+		const githubLink = screen.getByRole("link", { name: GITHUB_LINK_NAME });
+		const status = githubLink.querySelector(
+			'[data-slot="app-catalog-card-status"]'
+		);
+		const arrow = githubLink.querySelector(
+			'[data-slot="app-catalog-card-arrow"]'
+		);
+
+		expect(status?.className).toContain("w-auto");
+		expect(status?.className).toContain("sm:w-20");
+		expect(arrow?.getAttribute("class")).toContain("hidden");
+		expect(arrow?.getAttribute("class")).toContain("sm:block");
+	});
+
 	it("keeps App navigation inert and uses silent shimmer while connection status is unknown", () => {
 		listAppConnectionsMock.mockReturnValueOnce(new Promise(() => undefined));
 

@@ -429,6 +429,10 @@ then current agent work, then the persistent pin for an otherwise idle pinned
 Space. For a row with unread or active work, hover or keyboard focus reveals the
 pin action while keeping the higher-priority status visible in the corner. This
 lets the member pin or unpin the Space without losing unread or working evidence.
+An idle unpinned row shows its date only when the row can fit it. The title and
+date share one vertically centered layout with a visible gap; the title truncates
+against the date's actual width instead of extending beneath an absolutely
+positioned timestamp.
 Ambient agent work for other Spaces comes from a successful account active Wake
 summary. Immediately before each browser request, Web starts the shared
 45-second presentation budget on the browser's monotonic clock. Network time
@@ -496,6 +500,21 @@ surface without rendering an empty secondary sidebar. Connect keeps one Back
 control at the upper-left edge of its content and does not restore a separate
 header divider. Setup Studio and the explicit Start cross-page flow remain
 full-screen exceptions.
+
+Responsive presentation preserves that topology while exposing one usable work
+plane at a time. At `lg` and wider, the outer rail remains inline and keeps its
+current desktop geometry. Below `lg`, the shared app header opens the same rail
+as a full-label modal drawer. At `md` and wider, an owned secondary sidebar
+remains inline; below `md`, the header opens that same route-family navigation
+as a modal drawer and the canonical content receives the full width. These
+drawers are transient presentation: they do not write desktop rail width or
+tier state, and they must close after an unmodified navigation activation.
+Shell controls remain outside the content scroll plane, respect safe-area
+insets, expose touch-sized targets, trap focus while open, restore focus when
+closed, and remove their transition under reduced motion. Center Agent's Space
+header keeps About, Slack, and information actions available as labeled icons
+when its own header container is narrow; wider containers retain the existing
+text-button presentation.
 
 ### Organization Home
 
@@ -650,6 +669,22 @@ token and provider radius rather than adding component-specific values. The
 Rounded-default rollout uses a versioned browser preference key so existing
 users receive the new default once; a Square selection made afterward remains
 explicit and persistent.
+
+Appearance also owns the browser-local **Your messages** placement used by
+every Space, Direct Message, Center Agent, thread, and Task conversation that
+renders the shared message primitives. A message placed on the right uses a
+trailing-aligned, content-sized bubble with a responsive maximum width; a
+message placed on the left uses the full available transcript width. Both
+placements keep their content leading-aligned and give the current member's
+messages the same muted, semantic-radius surface used to highlight any message
+on hover or keyboard focus. With right placement, the full transcript row stays
+available as the hover and focus target, while the visible current-member
+surface and its actions stay anchored to the bounded bubble. With left
+placement, that surface remains full width. Agent and other-member messages
+remain transparent at rest and use the full-width row highlight. Product
+surfaces declare current-member authorship once and must not reimplement
+placement, width, text alignment, resting background, action placement, or
+highlight geometry locally.
 
 **Settings → Personal → Account** and the signed-in member's **Edit Human
 Profile** dialog in People are the two Account Display Name editing surfaces.
@@ -1720,6 +1755,12 @@ prompt preview, branch, model, transcript-derived summary, or arbitrary
 provider metadata. Missing native title is **No native title**; Web does not
 invent a provider-name title.
 
+Session and Computer state badges use the shared semantic status-tone surfaces
+in both light and dark appearances. Muted states such as **Offline**, **Ended**,
+and **Unknown** remain quiet neutral labels rather than inheriting a solid
+primary Badge background; Working, Idle, and Error keep their ready, warning,
+and danger meanings.
+
 Coverage facts own honest empty and degraded states: waiting for first sync,
 syncing, current empty, stale data, disconnected Project, offline Computer,
 unsupported provider, and reconciliation error are distinct. Web does not turn
@@ -2415,7 +2456,9 @@ Members header descriptions and Add-members guidance own full-width rows below
 their related title-and-action rows. Add-members controls respond to the panel's
 own width rather than the browser viewport: narrow panels stack heading actions
 and footer actions into full-width rows, while wider panels keep the compact
-side-by-side layout.
+side-by-side layout. Agent and Human names use the same compact type scale as
+the app sidebars so the Members panel does not introduce a heavier navigation
+hierarchy.
 
 The active Thread panel selection is a per-Space browser presentation
 preference. Web persists only the selected Thread id, resolves that id against
@@ -2782,8 +2825,10 @@ recorded message exists, remaining guidance sits in the conversation scroller's
 shared top-overlay stack with earlier-history loading, reuses `ProgressiveBlur`,
 and does not consume timeline layout height or add an opaque banner background
 or structural divider. Its interactive content remains above the blur while
-messages remain visible behind it. Both presentations consume the same planner
-decisions and handlers. When **Graph** is active and setup remains available,
+messages remain visible behind it. The overlay begins at the top of the
+conversation region; it must not add a transparent navigation-height inset that
+allows scrolled messages to appear above the blur. Both presentations consume
+the same planner decisions and handlers. When **Graph** is active and setup remains available,
 the Space header shows **Get set up**; activating it returns to **Messages** and
 recalls the guidance without changing planner or setup truth.
 
@@ -2815,7 +2860,10 @@ not repeat `Joined as` or an aggregate live-human count; speaking identity stays
 with the composer when a choice is available, and per-member presence belongs
 in the Members surface. When dismissed contextual setup remains recallable,
 **Get set up** appears in the right-aligned action group immediately before
-**Members**; it never appears alongside the **Messages** and **Graph** views.
+**Members**. On compact screens only, the same recall control may move to the
+trailing edge of the second header row so the Space name remains identifiable;
+it stays visually separate from the **Messages** and **Graph** view control and
+returns to the primary action group at wider breakpoints.
 
 The Space header, main conversation rail, contextual setup overlay, and primary
 composer share one responsive inline frame. Its leading inset is the leading

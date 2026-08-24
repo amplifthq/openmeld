@@ -52,4 +52,29 @@ describe("ProfileCard", () => {
 			expect(alignmentSlot?.classList.contains("items-center")).toBe(true);
 		}
 	});
+
+	it("gives the profile name its own phone row without moving desktop actions", () => {
+		render(
+			<ProfileCard
+				icon={<span aria-hidden="true">FL</span>}
+				menu={<button type="button">More</button>}
+				title="A deliberately long profile name"
+				titleAction={<span>Owner</span>}
+				titleAdornment={<span>(you)</span>}
+			/>
+		);
+
+		const title = screen.getByText("A deliberately long profile name");
+		const summary = title.closest('[data-slot="profile-card-summary"]');
+		const menu = screen
+			.getByRole("button", { name: "More" })
+			.closest('[data-slot="profile-card-menu"]');
+
+		expect(title.className).toContain("w-full");
+		expect(title.className).toContain("sm:w-auto");
+		expect(summary?.className).toContain("pr-8");
+		expect(summary?.className).toContain("sm:pr-0");
+		expect(menu?.className).toContain("absolute");
+		expect(menu?.className).toContain("sm:static");
+	});
 });

@@ -24,6 +24,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationProjectActivityPath,
@@ -168,7 +169,7 @@ export function ProjectDetailPage(input: { projectId: string }) {
 		<div className="grid gap-6">
 			<div>
 				<Link
-					className="inline-flex items-center gap-2 font-medium text-muted-foreground text-sm hover:text-foreground"
+					className={APP_INLINE_BACK_LINK_CLASS_NAME}
 					to={buildOrganizationProjectsPath(currentOrganization.slug)}
 				>
 					<ArrowLeftIcon aria-hidden="true" /> All Projects

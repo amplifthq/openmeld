@@ -274,12 +274,15 @@ legacy thread.
 Codex App Server resume is a bounded admission step, not the execution itself.
 OpenMeld requests metadata-only resume without replaying historical turns,
 because the Service needs the controller conversation identity, model, and
-instruction source rather than a duplicate copy of provider history. If an
-existing controller conversation is missing or does not acknowledge resume
-within the short resume admission window, the adapter starts one fresh thread
-and delivers the complete current instruction plan exactly once. The resulting
-context delta replaces the inaccessible provider conversation transparently;
-a person must never be asked to create a new Task or Space to repair it.
+instruction source rather than a duplicate copy of provider history. Passive
+provider-conversation proof must use the same metadata-only boundary: it must
+not set approval, sandbox, model, collaboration-mode, or other turn policy on
+the canonical controller conversation. If an existing controller conversation
+is missing or does not acknowledge resume within the short resume admission
+window, the adapter starts one fresh thread and delivers the complete current
+instruction plan exactly once. The resulting context delta replaces the
+inaccessible provider conversation transparently; a person must never be asked
+to create a new Task or Space to repair it.
 
 Control-operation deadlines are risk-specific. Metadata-only resume and
 collaboration-mode lookup keep a short bound so inaccessible history rolls over
@@ -376,15 +379,28 @@ Claude Code dispatch uses the Claude Agent SDK while preserving OpenMeld
 launch-contract selection, Agent Profile Binding semantics, and Wake outcome
 ownership. OpenCode may use its local server and SDK surfaces to prove
 provider sign-in and model inventory. CLI probes may still provide install,
-auth, and version evidence where they are the only stable local proof. ACI
-should expose only facts it can prove rather than inventing parity fields.
+auth, and version evidence where they are the only stable local proof, but
+machine state must come from vendor-documented structured output, exit status,
+or typed protocol events. Human-readable CLI prose is diagnostic text only and
+must not decide authentication or readiness. ACI should expose only facts it
+can prove rather than inventing parity fields.
+
+The local-component release contract
+`openmeld-service-contract-2026-08-agent-answers-content-v1` requires a Service
+that keeps Agent answer text separate from execution state. The corresponding
+managed Skill contract is
+`openmeld-skills-contract-2026-08-tool-owned-actions-v2`. Older Services can
+misinterpret model-authored text as a Space action, so the final release must
+mark Service and Skills updates as required. The Runtime Transport epoch and
+wire schemas do not change: new and old cloud code can still exchange the same
+typed action records while the required local update closes the unsafe writer.
 
 Cursor dispatch uses only the official Agent Client Protocol exposed by
 `cursor-agent acp`; OpenMeld does not maintain a second Cursor print-mode
 adapter. ACI detects the `cursor-agent` executable itself, never the generic
 `agent` command or the presence of Cursor IDE state. It reports the CLI build,
-`cursor-agent status` authentication evidence, ACP as the native interface,
-model selection, permission-mode selection, native event streaming,
+`cursor-agent status --format json` authentication evidence, ACP as the native
+interface, model selection, permission-mode selection, native event streaming,
 cancellation, interruption, permission requests, structured questions, and
 plan review. OpenMeld maps blocking ACP requests into the shared Agent
 Interaction contract and returns the user's response on the same ACP session.
@@ -989,6 +1005,26 @@ Catalog consumption rules:
 - One catalog load resolves its account context once and reuses it for every
   Profile workspace inspection. It must not fan out identical Keychain reads
   per Profile.
+- One OpenMeld Service process reloads the unchanged local auth session from
+  secure storage once and reuses it while the persisted session payload is
+  unchanged. Clearing, replacing, or editing that payload invalidates the
+  in-process copy; a new Service process reloads it from secure storage. Remote
+  authorization checks still decide whether the bearer session is valid.
+- The managed CLI and its Service carrier own that local auth session. Future
+  local clients reuse its status and actions through the Service contract; they
+  do not read the bearer token through a shared Keychain access group or create
+  a parallel local sign-in state.
+- On macOS, the packaged CLI uses Security.framework with the user's normal
+  Keychain. Each operation runs in a short-lived child process with a
+  five-second deadline. If Security.framework returns an error or never
+  returns, the parent terminates that child and does not query Keychain again
+  during the same CLI or Service process. Setup may then keep the current
+  session in a mode-`0600` file inside a mode-`0700` OpenMeld directory and must
+  expose the downgrade as a warning. Access tokens are sent to the helper over
+  stdin, never argv. The Service may consume that same CLI-owned session; it
+  must not create a second authentication owner. A new process may try
+  Keychain again, and the next successful login replaces the fallback with a
+  Keychain item and removes the old file.
 - A background Service must not preflight a custom workspace with the POSIX
   `access` syscall. On macOS, a LaunchAgent can block indefinitely while that
   syscall crosses a protected-folder privacy boundary. Catalog inspection uses
@@ -1211,6 +1247,12 @@ The npm distribution invokes its generated OpenMeld-owned wrapper through
 directly. The user-facing stop path must disable the LaunchAgent before booting
 it out, so explicitly stopping OpenMeld Service is respected instead of being
 immediately undone by launchd.
+
+The npm Service bundle copies and fingerprints only its platform-neutral
+JavaScript runtime. CLI-only compiled artifacts, including the macOS secure
+storage addon, stay outside that bundle and remain covered by the CLI artifact's
+own signed release integrity. Their presence must not make the Service bundle
+hash differ between macOS and Linux.
 
 The OS service manager registration is a per-user global resource keyed only by
 the env preset. `OPENMELD_HOME` isolates lane files but does not isolate this
@@ -1471,6 +1513,37 @@ keeps ordinary Wake, result replay, setup, status, and diagnostics behavior but
 cannot expose **Continue conversation**. Because older Core uses strict
 Runtime Transport schemas, the cloud receiver must deploy before a Service
 that emits the new capability, heartbeat drain fields, or recovery frames.
+
+Every local adapter repair turn must preserve the validated canonical
+conversation identity and the Binding's controller-native permission intent.
+When repair needs temporary controller settings, the adapter must use a native
+isolated child conversation and apply those settings only to that child. The
+adapter must return the validated canonical identity, and the shared dispatch
+boundary rejects a repair result that reports a refreshed or different
+conversation instead of rewriting it. A later ordinary Wake must still use the
+saved Binding permission mode or OpenCode permission JSON.
+
+Codex exact-controller recovery copies the canonical conversation into an
+ephemeral App Server fork and applies the conservative repair approval and
+sandbox policy only to that fork. Claude Code repair resumes through an Agent
+SDK or CLI fork and applies its temporary Plan mode only there. OpenCode repair
+uses the official Server session fork and passes the Binding's unchanged
+`OPENCODE_PERMISSION` JSON to the child. Each adapter continues to report the
+validated canonical conversation identity. If the installed controller cannot
+create the required isolated child, repair fails explicitly while ordinary
+Wake, setup, status, and diagnostics remain available.
+
+Repair also fails explicitly when the canonical conversation no longer exists.
+The ordinary-Wake context-heal path must not create a new conversation during
+repair and then present it as the missing canonical conversation.
+
+Cursor ACP and Grok Build ACP do not currently expose the native fork required
+for a temporary repair policy. Their repair turns therefore keep the exact
+Binding-selected native permission mode on the canonical session and must not
+apply a repair-only permission override. A future repair that requires such an
+override must fail explicitly until the controller exposes a proven isolation
+surface. OpenClaw remains outside this repair-isolation contract pending a
+separate audit of its provider-managed session semantics.
 
 Human-facing copy should use simple product language. Internal repair terms and
 raw anomaly codes belong in Agent View or diagnostics.

@@ -109,10 +109,20 @@ export function CenterAgentAboutPopover(input: {
 	return (
 		<Popover.Root modal={false}>
 			<Popover.Trigger
-				render={<Button size="sm" type="button" variant="ghost" />}
+				render={
+					<Button
+						aria-label="About"
+						size="sm"
+						title="About"
+						type="button"
+						variant="ghost"
+					/>
+				}
 			>
 				<InfoIcon aria-hidden="true" data-icon="inline-start" />
-				About
+				<span className="@min-[28rem]/app-main-header:inline hidden">
+					About
+				</span>
 			</Popover.Trigger>
 			<Popover.Portal>
 				<Popover.Positioner

@@ -78,6 +78,11 @@ describe("WelcomeSpaceScreen", () => {
 		renderScreen({
 			joinableSpaces: [{ spaceId: "space-1", name: "Existing room" }],
 		});
+		const welcomeLayout = screen
+			.getByRole("heading", { name: "Where do you want to work?" })
+			.closest("section");
+		expect(welcomeLayout?.className).toContain("max-lg:px-4");
+		expect(welcomeLayout?.className).toContain("max-lg:pb-4");
 
 		expect(
 			screen.getByText("A Space is where people and agents work together.")

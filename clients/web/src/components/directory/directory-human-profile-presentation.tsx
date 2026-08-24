@@ -57,7 +57,7 @@ export function DirectoryComputerSummary(input: {
 			aria-label={`${input.member.name}: ${input.member.computer.label}`}
 			className={cn(
 				className,
-				"transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+				"touch-manipulation transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 max-lg:min-h-11"
 			)}
 			to={input.member.computer.path}
 		>

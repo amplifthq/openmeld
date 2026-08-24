@@ -87,6 +87,9 @@ describe("space-sql-schema", () => {
     expect(allSql).toContain("CREATE TABLE IF NOT EXISTS space_file_entries");
     expect(allSql).toContain("CREATE TABLE IF NOT EXISTS space_file_revisions");
     expect(allSql).toContain("CREATE TABLE IF NOT EXISTS space_file_mutations");
+    expect(allSql).toContain(
+      "CREATE TABLE IF NOT EXISTS space_file_audit_events"
+    );
     expect(allSql).toContain("CREATE TABLE IF NOT EXISTS schema_migrations");
     expect(allSql).toContain("idx_space_signals_ts_id");
     expect(allSql).toContain("idx_space_signals_profile_ts");
@@ -105,6 +108,8 @@ describe("space-sql-schema", () => {
     expect(allSql).toContain("idx_space_file_entries_active_parent_name");
     expect(allSql).toContain("idx_space_file_revisions_file_revision");
     expect(allSql).toContain("idx_space_file_mutations_created_at");
+    expect(allSql).toContain("idx_space_file_audit_entry_created");
+    expect(allSql).toContain("idx_space_file_audit_operation_id");
 
     const migrationCall = sql.calls.find((call) =>
       call.sql.includes("INSERT OR IGNORE INTO schema_migrations")

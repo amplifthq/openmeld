@@ -25,6 +25,7 @@ describe("AppMainContent", () => {
 
 		const header = container.querySelector("header");
 		expect(header?.getAttribute("aria-hidden")).toBeNull();
+		expect(header?.className).toContain("@container/app-main-header");
 		expect(
 			screen.getByRole("heading", { level: 1, name: "Space title" })
 		).toBeTruthy();

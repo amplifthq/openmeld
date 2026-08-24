@@ -194,17 +194,21 @@ describe("SpaceMemberRow", () => {
 		expect(screen.getByText("agent_execution.ready")).toBeTruthy();
 	});
 
-	it("renders profile names in bold without changing their size", () => {
+	it("matches the sidebar type scale for both Agent and Human names", () => {
 		const view = renderSpaceMemberRow({ entry: buildAgentEntry() });
 		const agentName = getProfileNameElement("Codex");
-		expect(agentName.className).toContain("font-bold");
-		expect(agentName.className).toContain("text-sm");
+		expect(agentName.className).toContain("font-medium");
+		expect(agentName.className).toContain("text-[13px]");
+		expect(agentName.className).toContain("sm:text-[13px]");
+		expect(agentName.className).not.toContain("font-bold");
 
 		view.unmount();
 		renderSpaceMemberRow({ entry: buildHumanEntry() });
 		const humanName = getProfileNameElement("Felix");
-		expect(humanName.className).toContain("font-bold");
-		expect(humanName.className).toContain("text-sm");
+		expect(humanName.className).toContain("font-medium");
+		expect(humanName.className).toContain("text-[13px]");
+		expect(humanName.className).toContain("sm:text-[13px]");
+		expect(humanName.className).not.toContain("font-bold");
 	});
 
 	it("confirms removing a member from the row actions menu", async () => {

@@ -510,13 +510,29 @@ function SpaceSidebarMenuItem(input: {
 								type="button"
 							>
 								<HashIcon data-icon="inline-start" data-space-icon="channel" />
-								<CenterTruncatedText
-									className={cn(
-										"min-w-0 flex-1 @[13rem]/space-item:pr-10",
-										trailingStatus !== null ? "pr-10" : null
-									)}
-									text={input.item.spaceName}
-								/>
+								<div
+									className="flex min-w-0 flex-1 items-center gap-px"
+									data-slot="space-sidebar-name-and-date"
+								>
+									<CenterTruncatedText
+										className={cn(
+											"min-w-0 flex-1",
+											trailingStatus !== null ? "pr-10" : null
+										)}
+										text={input.item.spaceName}
+									/>
+									<span
+										className={cn(
+											"@[13rem]/space-item:inline-flex hidden shrink-0 text-muted-foreground text-xs transition-opacity",
+											trailingStatus !== null
+												? "opacity-0"
+												: "opacity-100 group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
+										)}
+										data-slot="space-sidebar-date"
+									>
+										{formatLastJoinedAt(input.item.lastJoinedAt)}
+									</span>
+								</div>
 								{trailingStatus === "unread" ? (
 									<span
 										aria-hidden="true"
@@ -531,16 +547,6 @@ function SpaceSidebarMenuItem(input: {
 										/>
 									</span>
 								) : null}
-								<span
-									className={cn(
-										"absolute top-2 right-2 @[13rem]/space-item:block hidden text-muted-foreground text-xs transition-opacity",
-										trailingStatus !== null
-											? "opacity-0"
-											: "opacity-100 group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
-									)}
-								>
-									{formatLastJoinedAt(input.item.lastJoinedAt)}
-								</span>
 							</button>
 						}
 					/>

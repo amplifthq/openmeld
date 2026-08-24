@@ -143,6 +143,7 @@ import {
 } from "./commands/upgrade";
 import { runViewCommand } from "./commands/view";
 import { runWhoami } from "./commands/whoami";
+import { runMacOsNativeKeychainHelperIfRequested } from "./config/macos-native-keychain";
 import { resolveOpenMeldEnvironmentTarget } from "./config/openmeld-environment-target";
 import { ensureSystemLayout } from "./config/system-layout";
 import { parseNonNegativeIntegerOption } from "./lib/number-options";
@@ -5156,6 +5157,9 @@ async function handlePreParseStandaloneCommand(
 }
 
 async function main() {
+  if (await runMacOsNativeKeychainHelperIfRequested()) {
+    return;
+  }
   const argv = process.argv.map((arg) => (arg === "--h" ? "--help" : arg));
   if (await delegateToManagedCliIfAuthoritative(argv)) {
     return;

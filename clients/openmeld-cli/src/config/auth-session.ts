@@ -124,6 +124,13 @@ type RemoteAuthSessionValidation = {
 };
 const TRAILING_SLASHES_RE = /\/+$/u;
 
+type CachedAuthSession = {
+  payloadKey: string;
+  session: StoredAuthSession;
+};
+
+let cachedAuthSession: CachedAuthSession | null = null;
+
 export async function getAuthSessionState(
   options: GetAuthSessionStateOptions = {}
 ): Promise<AuthSessionStateResult> {
@@ -197,6 +204,8 @@ export async function setAuthSession(input: {
     throw new Error("client_id is required");
   }
 
+  const previousPayload = await readSessionPayload();
+  const previousTokenRef = normalizeTokenRef(previousPayload?.tokenRef);
   const tokenRef = await storeAccessToken({
     accessToken,
     authBaseUrl,
@@ -220,10 +229,22 @@ export async function setAuthSession(input: {
   await mkdir(join(openMeldRootDir(), "auth"), { recursive: true });
 
   try {
+    await assertStoredAccessTokenReloads({ accessToken, tokenRef });
     await writeSessionPayloadAtomically(path, payload);
   } catch (error) {
     await deleteAccessToken(tokenRef).catch(() => undefined);
     throw error;
+  }
+
+  cacheAuthSession({
+    payload,
+    session: buildStoredAuthSession({ accessToken, payload }),
+  });
+  if (
+    previousTokenRef &&
+    !areStoredTokenRefsEqual(previousTokenRef, tokenRef)
+  ) {
+    await deleteAccessToken(previousTokenRef).catch(() => undefined);
   }
 }
 
@@ -300,9 +321,20 @@ export async function updateAuthSessionActiveOrganization(
   };
 
   await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
+  const currentCachedSession = readCachedAuthSession(payload);
+  if (currentCachedSession) {
+    cacheAuthSession({
+      payload: nextPayload,
+      session: buildStoredAuthSession({
+        accessToken: currentCachedSession.accessToken,
+        payload: nextPayload,
+      }),
+    });
+  }
 }
 
 export async function clearAuthSession(): Promise<void> {
+  cachedAuthSession = null;
   const payload = await readSessionPayload();
   if (payload?.v === 1 && isStoredTokenRef(payload.tokenRef)) {
     await deleteAccessToken(payload.tokenRef).catch(() => undefined);
@@ -341,39 +373,38 @@ async function getLocalAuthSessionState(): Promise<LocalAuthSessionState> {
     };
   }
 
-  const accessToken = await readAccessToken(tokenRef);
-  if (accessToken.status === "missing") {
-    return {
-      reasonCode: "session_token_missing",
-      state: "invalid",
-      session: null,
-    };
+  let session = readCachedAuthSession(payload);
+  if (!session) {
+    const accessToken = await readAccessToken(tokenRef);
+    if (accessToken.status === "missing") {
+      return {
+        reasonCode: "session_token_missing",
+        state: "invalid",
+        session: null,
+      };
+    }
+    if (accessToken.status === "unavailable") {
+      return {
+        errorMessage: accessToken.errorMessage,
+        reasonCode: "session_token_unavailable",
+        state: "invalid",
+        session: null,
+      };
+    }
+    session = buildStoredAuthSession({
+      accessToken: accessToken.accessToken,
+      payload: {
+        ...payload,
+        v: 1,
+        tokenRef,
+        tokenType,
+        authBaseUrl,
+        clientId,
+        createdAt,
+      },
+    });
+    cacheAuthSession({ payload, session });
   }
-  if (accessToken.status === "unavailable") {
-    return {
-      errorMessage: accessToken.errorMessage,
-      reasonCode: "session_token_unavailable",
-      state: "invalid",
-      session: null,
-    };
-  }
-
-  const session: StoredAuthSession = {
-    v: 1,
-    accessToken: accessToken.accessToken,
-    tokenType,
-    authBaseUrl,
-    clientId,
-    createdAt,
-    ...(typeof payload.expiresAt === "string" && payload.expiresAt.trim()
-      ? { expiresAt: payload.expiresAt.trim() }
-      : {}),
-    ...(typeof payload.scope === "string" && payload.scope.trim()
-      ? { scope: payload.scope.trim() }
-      : {}),
-    ...buildAuthUserPayload(payload.user),
-    ...buildActiveOrganizationPayload(payload.activeOrganization),
-  };
 
   if (isExpired(session.expiresAt)) {
     return {
@@ -387,6 +418,78 @@ async function getLocalAuthSessionState(): Promise<LocalAuthSessionState> {
     state: "valid",
     session,
   };
+}
+
+async function assertStoredAccessTokenReloads(input: {
+  accessToken: string;
+  tokenRef: StoredTokenRef;
+}): Promise<void> {
+  const reloaded = await readAccessToken(input.tokenRef);
+  if (
+    reloaded.status === "found" &&
+    reloaded.accessToken === input.accessToken
+  ) {
+    return;
+  }
+  if (reloaded.status === "unavailable") {
+    throw new Error(
+      `stored access token could not be reloaded: ${reloaded.errorMessage}`
+    );
+  }
+  throw new Error("stored access token could not be reloaded");
+}
+
+function buildStoredAuthSession(input: {
+  accessToken: string;
+  payload: AuthSessionV1;
+}): StoredAuthSession {
+  return {
+    v: 1,
+    accessToken: input.accessToken,
+    tokenType: input.payload.tokenType,
+    authBaseUrl: input.payload.authBaseUrl,
+    clientId: input.payload.clientId,
+    createdAt: input.payload.createdAt,
+    ...(typeof input.payload.expiresAt === "string" &&
+    input.payload.expiresAt.trim()
+      ? { expiresAt: input.payload.expiresAt.trim() }
+      : {}),
+    ...(typeof input.payload.scope === "string" && input.payload.scope.trim()
+      ? { scope: input.payload.scope.trim() }
+      : {}),
+    ...buildAuthUserPayload(input.payload.user),
+    ...buildActiveOrganizationPayload(input.payload.activeOrganization),
+  };
+}
+
+function cacheAuthSession(input: {
+  payload: Partial<AuthSessionV1>;
+  session: StoredAuthSession;
+}): void {
+  cachedAuthSession = {
+    payloadKey: buildAuthSessionPayloadKey(input.payload),
+    session: input.session,
+  };
+}
+
+function readCachedAuthSession(
+  payload: Partial<AuthSessionV1>
+): StoredAuthSession | null {
+  const payloadKey = buildAuthSessionPayloadKey(payload);
+  return cachedAuthSession?.payloadKey === payloadKey
+    ? cachedAuthSession.session
+    : null;
+}
+
+function buildAuthSessionPayloadKey(payload: Partial<AuthSessionV1>): string {
+  return `${authSessionPath()}\n${JSON.stringify(payload)}`;
+}
+
+function areStoredTokenRefsEqual(
+  left: StoredTokenRef,
+  right: StoredTokenRef
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function normalizeTokenRef(input: unknown): StoredTokenRef | null {

@@ -4068,7 +4068,7 @@ describe("http schemas", () => {
           fingerprint: "sha256:prompt-demo",
           length: 512,
           preview:
-            "Space Dispatch Brief:\n- Any public reply must end with exactly one valid trailing openmeld-space-action block.",
+            "Space Dispatch Brief:\n- Complete this Wake through one dispatch-scoped OpenMeld Space Action CLI command.",
         },
         dispatchExecution: {
           agentControllerConversationResume: {

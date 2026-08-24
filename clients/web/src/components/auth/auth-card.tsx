@@ -75,7 +75,7 @@ function AuthFooter({ hasToken, view }: AuthFooterProps) {
 			<>
 				Don&apos;t have an account?
 				<Link
-					className="px-1 text-foreground underline hover:underline"
+					className="inline-flex min-h-11 items-center px-1 text-foreground underline hover:underline lg:min-h-0"
 					to={signUpPath}
 				>
 					Sign up
@@ -89,7 +89,7 @@ function AuthFooter({ hasToken, view }: AuthFooterProps) {
 			<>
 				Already have an account?
 				<Link
-					className="px-1 text-foreground underline hover:underline"
+					className="inline-flex min-h-11 items-center px-1 text-foreground underline hover:underline lg:min-h-0"
 					to={loginPath}
 				>
 					Sign in
@@ -237,7 +237,7 @@ export function AuthCard({
 		);
 
 	return (
-		<div className="w-full max-w-md md:w-md">
+		<div className="w-full max-w-md md:w-md max-lg:[&_[data-slot=button]]:h-11">
 			<div className="flex flex-col items-center gap-y-2">
 				<div className="w-fit">
 					<OpenMeldLogo

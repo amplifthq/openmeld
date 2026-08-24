@@ -59,6 +59,20 @@ async function withMockedPlatform(platform, callback) {
   }
 }
 
+test("openclaw output never infers failure from assistant text", async () => {
+  const { parseOpenClawOutputLine } = await import("../dist/index.js");
+  const text =
+    "The submitted value is invalid, so the user should choose another one.";
+
+  assert.deepEqual(parseOpenClawOutputLine(JSON.stringify({ result: text })), {
+    errorMessage: null,
+    isErrorResult: null,
+    resultText: text,
+    sessionId: null,
+    terminal: true,
+  });
+});
+
 test("openclaw failure classification matches standalone 429 tokens only", async () => {
   const { classifyOpenClawFailureMessage } = await import(
     "../dist/transport/openclaw-failure.js"

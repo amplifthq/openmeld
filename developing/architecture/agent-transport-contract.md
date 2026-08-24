@@ -748,9 +748,11 @@ Runtime results use the Space action contract:
   always return to one fixed thread.
 - Protected Spaces use the same password-aware publication path for previews,
   hints, and final replies.
-- Dispatch-owned local runtimes should record their final outcome through
-  `openmeld space action ...` when available. A trailing `openmeld-space-action` block is
-  the fallback authoring path, not a second delivery path.
+- Dispatch-owned local runtimes record their final outcome through the
+  dispatch-scoped `openmeld space action ...` tool record. Model-authored answer
+  text never creates or substitutes for a Space action, even when it looks like
+  JSON, a tool call, or a former protocol marker. If the tool cannot record a
+  valid action, the Wake fails with structured diagnostic evidence.
 - A current local runtime attaches the newest relevant Space signal it observed
   to `post_message.observedThroughSignalId`. This is provider-neutral: Codex,
   Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space
@@ -940,6 +942,9 @@ execution identity, destination, action, and operation id before publication
 or controller I/O; a duplicate exact operation returns its recorded outcome,
 while a conflicting command fails closed. A setup/reconnect link, a new Wake,
 or a model-written prompt must not impersonate either recovery command.
+The resumed model's answer is recovered content only. Recovery completion or
+failure comes from the typed controller result and exact-conversation checks,
+never from a magic phrase written in that answer.
 
 The recovery operation fence is keyed by execution identity, frozen
 destination, and action rather than by a caller-generated operation id. One

@@ -2,6 +2,49 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "keep-codex-permissions-stable",
+      "title": "Keep Codex permissions stable during background checks",
+      "kind": "fixed",
+      "areas": [
+        "agent-profiles",
+        "service"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-24",
+      "release": "v0.3.88",
+      "evidence": [
+        "pr:195",
+        "commit:11f10b4061748c25e5a60149dfb09ced9eba4886",
+        "workflow:32694470317"
+      ],
+      "body": "OpenMeld no longer changes a Codex conversation's approval or sandbox settings\nwhile checking it in the background or recovering an interrupted task. Your\nselected Agent Controller Permission Mode now remains in effect for later work."
+    },
+    {
+      "id": "recover-macos-computers-with-a-fresh-setup",
+      "title": "Recover a Mac with a fresh setup command",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "cli",
+        "service"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-24",
+      "release": "v0.3.95",
+      "evidence": [
+        "pr:218",
+        "pr:219",
+        "commit:18f0b1c004955828f9d7cc64c122b0588a235d1b",
+        "workflow:32727645216"
+      ],
+      "body": "Fresh setup commands on supported Macs now use the normal macOS Keychain\nwithout requiring a restricted app entitlement. If Keychain is temporarily\nunavailable or does not answer within five seconds, OpenMeld stops waiting,\nclearly warns the user, keeps the session in private local storage, and finishes\nreconnecting the computer. It does not keep retrying Keychain in the same\nprocess. A later successful setup or login automatically moves the session back\nto Keychain. OpenMeld Service also reuses its loaded session instead of\nrepeatedly querying secure storage while it is running."
+    },
+    {
       "id": "collapsible-sidebar-groups",
       "title": "Collapse sidebar groups when you need more room",
       "kind": "improved",

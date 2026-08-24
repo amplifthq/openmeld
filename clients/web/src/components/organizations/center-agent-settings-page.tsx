@@ -300,7 +300,7 @@ export function CenterAgentSettingsContent(input: {
 			{documentsQuery.isSuccess ? (
 				<section className="rounded-md border border-border/70 bg-card/20 px-5 py-4">
 					<Link
-						className="font-medium text-sm underline-offset-4 hover:underline"
+						className="inline-flex touch-manipulation items-center font-medium text-sm underline-offset-4 hover:underline max-lg:min-h-11"
 						to={
 							brief
 								? buildOrganizationDocumentPath({

@@ -265,6 +265,7 @@ function DirectoryHumanProfileCard(input: {
 	rowRef: (node: HTMLElement | null) => void;
 	state: DirectoryHumanProfileCardState;
 }) {
+	const profileReturnFocusRef = useRef<HTMLElement>(null);
 	const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 	const [isEditingDetails, setIsEditingDetails] = useState(false);
 	const [connectableAccounts, setConnectableAccounts] = useState<
@@ -304,6 +305,10 @@ function DirectoryHumanProfileCard(input: {
 					onSelect: () => input.onResearch(input.member.userId),
 				};
 	const openProfile = (editing: boolean) => {
+		profileReturnFocusRef.current =
+			document.activeElement instanceof HTMLElement
+				? document.activeElement
+				: null;
 		setIsEditingDetails(editing);
 		setIsDetailsOpen(true);
 	};
@@ -380,12 +385,14 @@ function DirectoryHumanProfileCard(input: {
 				editing={isEditingDetails}
 				member={input.member}
 				onConnectAccount={(account) => {
+					profileReturnFocusRef.current = null;
 					setIsDetailsOpen(false);
 					setIsEditingDetails(false);
 					setConnectableAccounts([account]);
 				}}
 				onEditingChange={setIsEditingDetails}
 				onManageAccount={(account) => {
+					profileReturnFocusRef.current = null;
 					setIsDetailsOpen(false);
 					setIsEditingDetails(false);
 					setConnectedAccount(account);
@@ -397,12 +404,14 @@ function DirectoryHumanProfileCard(input: {
 					}
 				}}
 				onOpenDirectMessage={() => {
+					profileReturnFocusRef.current = null;
 					input.onOpenDirectMessage(input.member.id).catch((error) => {
 						console.error("Human Profile Direct Message action failed.", error);
 					});
 				}}
 				open={isDetailsOpen}
 				researchAction={researchAction}
+				returnFocusRef={profileReturnFocusRef}
 			/>
 			<ConnectChannelAccountDialog
 				accounts={connectableAccounts}

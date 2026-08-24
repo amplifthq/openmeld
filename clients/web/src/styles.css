@@ -148,18 +148,51 @@ html[data-space-self-message-alignment="left"]
   align-self: flex-start;
 }
 
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
-  [data-slot="bubble"],
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
+[data-space-self-message="true"]
   [data-slot="bubble-content"],
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
+[data-space-self-message="true"]
   [data-slot="space-message-body"] {
   align-items: flex-start;
+  text-align: start;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="bubble"] {
   align-self: flex-start;
-  text-align: left;
+  inline-size: 100%;
+  max-inline-size: 100%;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="bubble-content"] {
+  inline-size: 100%;
+  max-inline-size: 100%;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"]
+  [data-slot="bubble"] {
+  inline-size: fit-content;
+  max-inline-size: min(68%, 52rem);
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"]
+  [data-slot="bubble-content"] {
+  inline-size: 100%;
+  max-inline-size: 100%;
+}
+
+/* Keep the full row as the hover/focus hit area, but let a right-aligned self
+   message keep the bubble as its only visible surface. */
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"]
+  [data-message-row-id],
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"][data-message-row-id] {
+  background-color: transparent;
 }
 
 html[data-space-self-message-alignment="left"]
@@ -182,49 +215,52 @@ html[data-space-self-message-alignment="left"]
   left: auto;
 }
 
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
+[data-space-self-message="true"]
   [data-slot="reply-preview"][data-align="end"] {
   align-items: flex-start;
-  border-right-width: 0;
-  border-left-width: 1px;
-  padding-right: 0;
-  padding-left: 0.75rem;
-  text-align: left;
+  border-inline-end-width: 0;
+  border-inline-start-width: 1px;
+  padding-inline-end: 0;
+  padding-inline-start: 0.75rem;
+  text-align: start;
 }
 
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
+[data-space-self-message="true"]
   [data-slot="space-outcome-row"][data-align="end"] {
   justify-content: flex-start;
 }
 
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
+[data-space-self-message="true"]
   [data-slot="space-outcome-row"][data-align="end"]
   [data-slot="marker-content"] {
-  text-align: left;
+  text-align: start;
 }
 
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
+[data-space-self-message="true"]
   [data-space-message-delivery-status][data-align="end"] {
-  margin-left: 0;
-  text-align: left;
+  margin-inline-start: 0;
+  margin-inline-end: auto;
+  text-align: start;
 }
 
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
+[data-space-self-message="true"]
   [data-slot="space-message-progress-content"][data-align="end"] {
   justify-content: flex-start;
-  text-align: left;
+  text-align: start;
 }
 
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
+[data-space-self-message="true"]
   [data-slot="space-message-progress-content"][data-align="end"]
   button {
-  text-align: left;
+  text-align: start;
+}
+
+@media (max-width: 40rem) {
+  html[data-space-self-message-alignment="right"]
+    [data-space-self-message="true"]
+    [data-slot="bubble"] {
+    max-inline-size: min(88%, 52rem);
+  }
 }
 
 @media (min-width: 1280px) {

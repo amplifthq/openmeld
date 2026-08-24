@@ -240,7 +240,7 @@ const SelectTrigger = forwardRef<HTMLButtonElement, SelectTriggerProps>(
           aria-haspopup="listbox"
           aria-invalid={error ? true : undefined}
           className={cn(
-            "group inline-flex h-8 min-w-40 max-w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1 text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
+            "group inline-flex h-8 min-w-40 max-w-full cursor-pointer touch-manipulation items-center justify-between gap-2 rounded-md px-2.5 py-1 text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 max-lg:h-11 max-lg:min-w-11",
             variant === "bordered"
               ? "border border-input bg-transparent text-foreground hover:bg-muted/40 dark:bg-input/30 dark:hover:bg-input/50"
               : "border border-transparent bg-transparent text-foreground hover:bg-muted/40",
@@ -791,7 +791,7 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
         }
         aria-selected={isChecked}
         className={cn(
-          "relative z-10 flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-2 text-xs outline-none transition-colors",
+          "relative z-10 flex cursor-pointer touch-manipulation select-none items-center gap-2 rounded-md px-2 py-2 text-xs outline-none transition-colors max-lg:min-h-11",
           isActive || isChecked ? "text-foreground" : "text-muted-foreground",
           isDisabled ? "pointer-events-none opacity-50" : null,
           className

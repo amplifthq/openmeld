@@ -2014,6 +2014,9 @@ export {
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceFileActorSchema,
+  spaceFileAuditEventSchema,
+  spaceFileAuditOperationSchema,
+  spaceFileAuditResultSchema,
   spaceFileBaseRevisionSchema,
   spaceFileBreadcrumbSchema,
   spaceFileCapabilitiesSchema,
@@ -2221,6 +2224,14 @@ export {
   localSkillsComponentProjectionSchema,
   localSkillsComponentUpdateProjectionSchema,
 } from "./local-components";
+export {
+  MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION,
+  type MacOsKeychainHelperRequest,
+  type MacOsKeychainHelperResponse,
+  macOsKeychainHelperOperationSchema,
+  macOsKeychainHelperRequestSchema,
+  macOsKeychainHelperResponseSchema,
+} from "./local-machine/macos-keychain-helper";
 export {
   formatLocalMachineIssueMessage,
   LOCAL_MACHINE_RECOVERY_POLICY_BY_CODE,

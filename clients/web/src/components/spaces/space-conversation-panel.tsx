@@ -40,6 +40,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import {
 	PromptInput,
 	PromptInputAction,
@@ -141,14 +142,15 @@ import {
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageActionButtonClassName,
+	resolveSpaceMessageActionPlacementClassName,
 	resolveSpaceMessageBubblePresentationClass,
+	resolveSpaceMessageContentLayoutClassName,
+	resolveSpaceMessageContentPaddingClassName,
 	resolveSpaceMessageRowLayoutClassName,
-	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_SAFE_ZONE_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
-	SPACE_SELF_MESSAGE_MIN_WIDTH_CLASS,
 } from "./space-message-bubble-style";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
@@ -1525,7 +1527,7 @@ function SpaceComposerSection(input: {
 								<p
 									aria-live="polite"
 									className={cn(
-										"min-w-0 flex-1 truncate text-xs leading-5",
+										"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
 										composerHintClassName
 									)}
 								>
@@ -2074,12 +2076,13 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 		runtimeDeviceDisplayName: input.run.speaker.runtimeDeviceDisplayName,
 	});
 	const messageAlign = resolveSpaceMessageDirectionalAlign(input.run.isSelf);
-	const actionPlacement = resolveSpaceMessageActionPlacement(input.run.isSelf);
-	const selfBubbleClassName = resolveSelfSpaceMessageBubbleClassName(
-		input.run.isSelf
-	);
-	const selfBodyContainerClassName =
-		resolveSelfSpaceMessageBodyContainerClassName(input.run.isSelf);
+	const actionPlacementClassName = resolveSpaceMessageActionPlacementClassName({
+		isSelf: input.run.isSelf,
+	});
+	const selfMessageContentLayoutClassName =
+		resolveSpaceMessageContentLayoutClassName({ isSelf: input.run.isSelf });
+	const messageContentPaddingClassName =
+		resolveSpaceMessageContentPaddingClassName({ isSelf: input.run.isSelf });
 	const runCreatedAtMs = input.run.items.at(0)?.createdAtMs ?? null;
 	const isCenterAgentRun = resolveIsCenterAgentConversationRun({
 		centerAgentProfileId: input.centerAgentProfileId,
@@ -2200,6 +2203,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 				const bubblePresentationClass =
 					resolveSpaceMessageBubblePresentationClass({
 						isHighlighted,
+						isSelf: input.run.isSelf,
 					});
 				const actionButtonClassName = resolveSpaceMessageActionButtonClassName({
 					isHighlighted,
@@ -2268,7 +2272,10 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 											{detailsDialog.canOpenProfileDetails ? (
 												<button
 													aria-label={`About ${input.run.speaker.displayName}`}
-													className="inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+													className={cn(
+														APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
+														"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+													)}
 													onClick={detailsDialog.openProfileDetails}
 													type="button"
 												>
@@ -2291,33 +2298,33 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 										)}
 										data-message-row-id={item.id}
 									>
-										{canUseMessageActions ? (
-											<MessageHoverActions
-												actionButtonClassName={actionButtonClassName}
-												hasWakeProblem={hasWakeProblem}
-												isCreatingThread={input.isCreatingThread}
-												item={item}
-												onCreateThread={input.onCreateThread}
-												onOpenMessageDetails={input.onOpenMessageDetails}
-												onOpenThread={input.onOpenThread}
-												onReplyToMessage={input.onReplyToMessage}
-												placement={actionPlacement}
-												showTimestamp={index !== 0}
-												thread={
-													input.threadsByRootSignalId.get(item.id) ?? null
-												}
-											/>
-										) : null}
 										<Bubble
 											align={messageAlign}
 											className={messageBubbleVisibilityClassName}
 										>
+											{canUseMessageActions ? (
+												<MessageHoverActions
+													actionButtonClassName={actionButtonClassName}
+													hasWakeProblem={hasWakeProblem}
+													isCreatingThread={input.isCreatingThread}
+													item={item}
+													onCreateThread={input.onCreateThread}
+													onOpenMessageDetails={input.onOpenMessageDetails}
+													onOpenThread={input.onOpenThread}
+													onReplyToMessage={input.onReplyToMessage}
+													placementClassName={actionPlacementClassName}
+													showTimestamp={index !== 0}
+													thread={
+														input.threadsByRootSignalId.get(item.id) ?? null
+													}
+												/>
+											) : null}
 											<BubbleContent
 												className={cn(
 													"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
-													SPACE_MESSAGE_CONTENT_PADDING_CLASS,
+													messageContentPaddingClassName,
 													SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
-													selfBubbleClassName,
+													selfMessageContentLayoutClassName,
 													bubblePresentationClass,
 													getTimelineItemDeliveryClass(item)
 												)}
@@ -2343,7 +2350,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 														computerSetupPresentation.context
 													}
 													computerSetupSourceSignalId={item.id}
-													containerClassName={selfBodyContainerClassName}
+													containerClassName={selfMessageContentLayoutClassName}
 													item={item}
 													onOpenSpaceFile={input.onOpenSpaceFile}
 													openMeldProfileId={input.selfProfileId}
@@ -2652,24 +2659,6 @@ function resolveCenterAgentComputerSetupContext(input: {
 	};
 }
 
-function resolveSpaceMessageActionPlacement(isSelf: boolean): "left" | "right" {
-	return isSelf ? "left" : "right";
-}
-
-function resolveSelfSpaceMessageBubbleClassName(
-	isSelf: boolean
-): string | null {
-	return isSelf
-		? `${SPACE_SELF_MESSAGE_MIN_WIDTH_CLASS} items-end text-right`
-		: null;
-}
-
-function resolveSelfSpaceMessageBodyContainerClassName(
-	isSelf: boolean
-): string | undefined {
-	return isSelf ? "items-end text-right" : undefined;
-}
-
 function getOpenMessageDetailsHandler(input: {
 	enabled: boolean;
 	item: SpaceTimelineItem;
@@ -2706,7 +2695,7 @@ function MessageHoverActions(input: {
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenThread: (threadId: string) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
-	placement: "left" | "right";
+	placementClassName: string;
 	showTimestamp: boolean;
 	thread: SpaceThread | null;
 }) {
@@ -2725,13 +2714,11 @@ function MessageHoverActions(input: {
 			console.error("Failed to open a thread from the message.", error);
 		});
 	};
-	const placementClassName =
-		input.placement === "left" ? "-left-1" : "-right-1";
 	return (
 		<div
 			className={cn(
 				"pointer-events-none absolute -top-6 z-20 flex items-center gap-1",
-				placementClassName
+				input.placementClassName
 			)}
 			data-slot="message-hover-actions"
 			data-space-message-actions-offset="outside"

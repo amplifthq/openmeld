@@ -76,6 +76,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
 	readCurrentLocalAgentInstallations,
@@ -1107,7 +1108,10 @@ function LocalAgentInstallGuideLink() {
 		<p className="text-muted-foreground text-xs leading-5">
 			No agent CLIs installed yet?{" "}
 			<Link
-				className="font-medium text-foreground"
+				className={cn(
+					APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
+					"font-medium text-foreground max-lg:inline-flex max-lg:items-center"
+				)}
 				to={LOCAL_AGENTS_GUIDE_PATH}
 			>
 				See the install guide

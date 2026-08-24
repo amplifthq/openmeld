@@ -597,6 +597,23 @@ CLI retains its legacy fallback because no `local_machine.*` code is present.
 No cloud service or Wake transport payload became stricter, so these clients
 and the CLI can roll out in either order.
 
+### macOS Keychain Helper Contract
+
+`packages/schemas/src/schemas/local-machine/macos-keychain-helper.ts` owns the
+strict private request and response contract between the packaged macOS CLI
+and its short-lived Keychain helper process. It supports only `store`, `read`,
+and `delete`, bounds every field, and rejects unknown fields. The access token
+is carried through stdin rather than argv. This contract never crosses the
+computer boundary and carries no Space, Agent Profile, Wake, Service
+readiness, or RuntimeCoordinator authority.
+
+The parent CLI owns the five-second deadline and kills a helper that does not
+return. The helper owns the one synchronous Security.framework call. A timeout
+is an explicit local storage failure that lets the existing CLI-owned private
+session fallback run; it is not a second auth source or a cloud compatibility
+contract. Parent and helper are always the same packaged binary version, so no
+mixed-version rollout exists at this private boundary.
+
 ### Center Agent Project Tool Contracts
 
 `packages/schemas/src/schemas/http/center-agent-projects.ts` owns the
@@ -1042,6 +1059,13 @@ stale base is `space_file.conflict`; name collisions, invalid parents, and
 missing entries remain separate explicit outcomes. Upload and download bodies
 are raw bytes, not base64 JSON. Agent-facing text reads and writes adapt through
 Core but preserve the same ids and revision fence.
+
+`packages/schemas` also owns the private Core-to-Space File audit event. The
+strict envelope carries only canonical scope and identity ids, operation,
+request and operation correlation, result, and a bounded failure code. It never
+carries a file name, content, byte count, object key, or raw error. Core and the
+Space Durable Object use this one envelope for R2 outcomes and Space-owned
+metadata mutations instead of constructing separate log shapes.
 
 The list contract names either the active tree or Trash. Trash reads and all
 restore mutations require active Space membership. Entry restore clears Trash
@@ -4588,10 +4612,19 @@ than an immediate `UnlessTrusted` rejection. `codex:approveForMe` also uses
 App Server `on-request`, with `approvalsReviewer=auto_review` routing eligible
 requests to Codex Auto-review instead of the user.
 Structured Space Action repair is an execution constraint, not a Profile
-permission choice. Both Codex transports therefore override the Profile mode
-for repair turns with read-only sandboxing and the native `untrusted` approval
-policy. This keeps the bounded formatting repair from inheriting Full access
-or interactive escalation authority.
+permission choice. Repair must not replace the canonical Agent Controller
+conversation or persist a temporary permission choice. Codex transports use an
+isolated fork with read-only sandboxing and the native `untrusted` approval
+policy. Claude Code uses an isolated Agent SDK or CLI fork for temporary Plan
+mode. OpenCode uses an official Server session fork while preserving the exact
+Binding-owned `OPENCODE_PERMISSION` JSON. Cursor and Grok Build have no proven
+native fork, so their repair turns keep the exact Binding-selected permission
+mode and must not apply a temporary repair-only mode. The shared adapter
+dispatch shell requires canonical conversation continuity for Codex, Claude
+Code, Cursor, Grok Build, and OpenCode. A refreshed or different conversation
+fails repair explicitly; the shell must not relabel it as the canonical
+conversation. OpenClaw remains provider-managed and outside this contract until
+its repair semantics receive a separate audit.
 
 `agentControllerCollaborationMode` is independent shared Binding metadata.
 The initial values are `codex:default` and `codex:plan`; non-Codex Bindings
