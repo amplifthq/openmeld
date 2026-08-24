@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-24T10:56:19.238Z",
+  "updatedAt": "2026-08-24T12:08:21.024Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.94",
+      "packageVersion": "0.3.95",
       "updatePolicy": "available",
       "reason": "Restore reliable signed macOS setup and Service session recovery."
     },
     "service": {
-      "bundleHash": "ab172d0f18a8e23183f1563c158297a4d73b78c1bb64bb04ef6d8e9ec174e4a1",
-      "bundleVersion": "0.3.94",
+      "bundleHash": "228adc3117845c3046a6ce1ed9acd4d201964a8bf9c3b49a91874e557d8d50cb",
+      "bundleVersion": "0.3.95",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
