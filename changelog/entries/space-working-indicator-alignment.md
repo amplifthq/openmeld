@@ -13,4 +13,6 @@ reveals its pin action without hiding the status that needs your attention.
 Clock differences between OpenMeld's servers and your browser no longer hide
 that Working state. A static amber dot on the main Spaces navigation also
 lets you know when any Space has unread messages, then the Spaces sidebar shows
-which conversations need your attention.
+which conversations need your attention. Browse Spaces carries the same unread,
+Working, and pinned state into each joined Space card, keeps pinned Spaces first
+and unread Spaces next, and lets you pin or unpin a Space without opening it.
