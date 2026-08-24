@@ -348,6 +348,14 @@ readiness, or RuntimeCoordinator execution truth. Changing it does not make a
 profile wakeable by itself. It only changes what the local controller process is
 allowed to do once a valid Wake reaches this Binding.
 
+A repair turn must not silently change that saved choice or leave the current
+controller conversation in a different permission mode. When a controller
+supports a native conversation fork, temporary repair constraints run only on
+that child and the next ordinary Wake continues the canonical conversation with
+the Binding-selected mode. When no proven fork exists, repair keeps the exact
+selected mode and must fail explicitly if temporary settings would otherwise be
+required. The same rule applies to OpenCode's Binding-owned permission JSON.
+
 The optional Computer file access boundary is separate account-owned local
 policy. For an OpenMeld-started run, effective filesystem access is the
 intersection of this Computer-wide boundary and the Agent Profile's

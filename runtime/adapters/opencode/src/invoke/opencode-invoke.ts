@@ -127,13 +127,17 @@ async function invokeOpenCodeOnce(input: {
   streamingMode?: AdapterStreamingMode;
 }): Promise<OpenCodeInvokeResult> {
   try {
-    if (input.onInteractionRequest) {
+    if (
+      input.onInteractionRequest ||
+      (input.executionMode === "repair" && input.sessionId)
+    ) {
       return await invokeOpenCodeServerTransport({
         launchContract: input.launchContract,
         openCodeTimeoutMs: input.openCodeTimeoutMs,
         openCodeWorkdir: input.openCodeWorkdir,
         conversationPolicy: input.conversationPolicy,
         env: input.env,
+        executionMode: input.executionMode,
         instructionPrompt: input.instructionPrompt,
         onInteractionRequest: input.onInteractionRequest,
         ...(input.onPreview ? { onPreview: input.onPreview } : {}),

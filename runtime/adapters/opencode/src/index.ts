@@ -105,6 +105,7 @@ export const createOpenCodeAdapter = (
     bridgeSpec: OPENCODE_CONVERSATION_BRIDGE_SPEC,
     invoke: options.invoke,
     invokeByMode: options.invokeByMode,
+    repairConversationPolicy: "preserve_canonical",
     resolveDefaultInvoke: () => resolveDefaultOpenCodeInvoke(options),
     runtimeOptions: options,
   });

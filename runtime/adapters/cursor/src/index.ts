@@ -114,6 +114,7 @@ export function createCursorAdapter(
           }),
           ...(options.invokeByMode ?? {}),
         },
+    repairConversationPolicy: "preserve_canonical",
     resolveDefaultInvoke: () => null,
     runtimeOptions: options,
   });

@@ -180,6 +180,7 @@ export const createCodexAdapter = (
       options,
       registerAppServerTurn,
     }),
+    repairConversationPolicy: "preserve_canonical",
     resolveDefaultInvoke: () => resolveDefaultCodexInvoke(options),
     runtimeOptions: options,
   });

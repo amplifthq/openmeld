@@ -151,6 +151,48 @@ test("adapter-core shared dispatch shell prefers invokeByMode and canonicalizes 
   });
 });
 
+test("adapter-core shared dispatch shell keeps repair forks out of canonical conversation continuity", async () => {
+  const core = await import("../dist/index.js");
+  const canonicalConversation = {
+    agentControllerConversationId: "thread-canonical-1",
+    agentControllerRef: "builtin:codex",
+    agentControllerConversationKind: "thread",
+  };
+  const dispatch = core.createSharedDispatchShell({
+    adapterId: "codex",
+    bridgeSpec: CODEX_BRIDGE_SPEC,
+    invoke: async () => ({
+      contextDelta: {
+        agentControllerConversationId: "thread-repair-fork-1",
+        agentControllerConversation: {
+          agentControllerConversationId: "thread-repair-fork-1",
+          agentControllerRef: "builtin:codex",
+          agentControllerConversationKind: "thread",
+        },
+      },
+      output: "repair complete",
+    }),
+    repairConversationPolicy: "preserve_canonical",
+    resolveDefaultInvoke: () => null,
+  });
+
+  const result = await dispatch(
+    buildDispatchRequest({
+      agentControllerConversation: canonicalConversation,
+      executionMode: "repair",
+    })
+  );
+
+  assert.deepEqual(result, {
+    contextDelta: {
+      agentControllerConversationId: "thread-canonical-1",
+      agentControllerConversation: canonicalConversation,
+    },
+    output: "repair complete",
+    status: "success",
+  });
+});
+
 test("adapter-core shared dispatch shell forwards dispatch-time runtime context", async () => {
   const core = await import("../dist/index.js");
   let observedRuntimeContext = null;

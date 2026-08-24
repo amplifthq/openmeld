@@ -275,6 +275,52 @@ test("Cursor ACP creates a session, applies mode and model, and returns structur
   });
 });
 
+test("Cursor repair and the next normal turn keep the selected Run Everything permission", async () => {
+  const { createCursorAdapter } = await import("../dist/index.js");
+  await withFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const adapter = createCursorAdapter({
+      cursorTimeoutMs: 2000,
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+    });
+    const canonicalSessionId = "cursor-canonical-session";
+    const dispatch = (executionMode, taskSuffix) =>
+      adapter.dispatch({
+        agentControllerConversationId: canonicalSessionId,
+        agentControllerPermissionMode: "cursor:force",
+        agentId: "cursor",
+        env: { OPENMELD_FAKE_CURSOR_ACP_LOG: logPath },
+        executionMode,
+        prompt: `${executionMode} turn`,
+        runtimeContext: createRuntimeContext(fixtureDir),
+        sourceEventId: `source-cursor-${taskSuffix}`,
+        spaceId: "space-cursor-permission-continuity",
+        taskId: `task-cursor-${taskSuffix}`,
+        transportMode: "acp",
+      });
+
+    const repairResult = await dispatch("repair", "repair");
+    const normalResult = await dispatch("normal", "normal");
+
+    assert.equal(repairResult.status, "success");
+    assert.equal(normalResult.status, "success");
+    assert.equal(
+      repairResult.contextDelta?.agentControllerConversationId,
+      canonicalSessionId
+    );
+    assert.equal(
+      normalResult.contextDelta?.agentControllerConversationId,
+      canonicalSessionId
+    );
+    const launches = (await readLog(logPath))
+      .filter((entry) => entry.method === "initialize")
+      .map((entry) => entry.argv);
+    assert.deepEqual(launches, [
+      ["--force", "acp"],
+      ["--force", "acp"],
+    ]);
+  });
+});
+
 test("Cursor ACP keeps an exact plan-upgrade sentence as Agent content", async () => {
   const { createCursorAdapter } = await import("../dist/index.js");
   await withFixture(async ({ fixtureDir, fixturePath }) => {

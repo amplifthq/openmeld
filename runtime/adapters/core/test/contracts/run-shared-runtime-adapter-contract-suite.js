@@ -71,6 +71,56 @@ export function runSharedRuntimeAdapterContractSuite(input) {
     }
   );
 
+  if (entry.repairConversationPolicy === "preserve_canonical") {
+    test(
+      buildSharedSuiteTitle(
+        input.adapterId,
+        "repair keeps isolated child context out of canonical continuity"
+      ),
+      async () => {
+        const canonicalConversation = buildCanonicalAgentControllerConversation(
+          {
+            agentControllerConversationId: "canonical-conversation-1",
+            agentControllerRef: entry.agentControllerRef,
+            agentControllerConversationKind:
+              entry.agentControllerConversationKind,
+          }
+        );
+        const adapter = await input.createAdapter({
+          invoke: async () => ({
+            contextDelta: {
+              agentControllerConversationId: "repair-child-1",
+              agentControllerConversation:
+                buildCanonicalAgentControllerConversation({
+                  agentControllerConversationId: "repair-child-1",
+                  agentControllerRef: entry.agentControllerRef,
+                  agentControllerConversationKind:
+                    entry.agentControllerConversationKind,
+                }),
+            },
+            output: "repair complete",
+          }),
+        });
+
+        const result = await adapter.dispatch(
+          buildDispatchRequest({
+            agentControllerConversation: canonicalConversation,
+            executionMode: "repair",
+          })
+        );
+
+        assert.deepEqual(result, {
+          contextDelta: {
+            agentControllerConversationId: "canonical-conversation-1",
+            agentControllerConversation: canonicalConversation,
+          },
+          output: "repair complete",
+          status: "success",
+        });
+      }
+    );
+  }
+
   test(
     buildSharedSuiteTitle(
       input.adapterId,

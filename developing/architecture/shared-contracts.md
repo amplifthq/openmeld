@@ -4595,10 +4595,18 @@ than an immediate `UnlessTrusted` rejection. `codex:approveForMe` also uses
 App Server `on-request`, with `approvalsReviewer=auto_review` routing eligible
 requests to Codex Auto-review instead of the user.
 Structured Space Action repair is an execution constraint, not a Profile
-permission choice. Both Codex transports therefore override the Profile mode
-for repair turns with read-only sandboxing and the native `untrusted` approval
-policy. This keeps the bounded formatting repair from inheriting Full access
-or interactive escalation authority.
+permission choice. Repair must not replace the canonical Agent Controller
+conversation or persist a temporary permission choice. Codex transports use an
+isolated fork with read-only sandboxing and the native `untrusted` approval
+policy. Claude Code uses an isolated Agent SDK or CLI fork for temporary Plan
+mode. OpenCode uses an official Server session fork while preserving the exact
+Binding-owned `OPENCODE_PERMISSION` JSON. Cursor and Grok Build have no proven
+native fork, so their repair turns keep the exact Binding-selected permission
+mode and must not apply a temporary repair-only mode. The shared adapter
+dispatch shell preserves canonical conversation continuity for Codex, Claude
+Code, Cursor, Grok Build, and OpenCode even if a provider transport reports a
+child identity. OpenClaw remains provider-managed and outside this contract
+until its repair semantics receive a separate audit.
 
 `agentControllerCollaborationMode` is independent shared Binding metadata.
 The initial values are `codex:default` and `codex:plan`; non-Codex Bindings

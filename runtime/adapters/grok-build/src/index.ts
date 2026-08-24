@@ -111,6 +111,7 @@ export function createGrokBuildAdapter(
           acp: createDefaultGrokBuildInvoke({ options, registerActiveTurn }),
           ...(options.invokeByMode ?? {}),
         },
+    repairConversationPolicy: "preserve_canonical",
     resolveDefaultInvoke: () => null,
     runtimeOptions: options,
   });

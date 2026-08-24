@@ -458,6 +458,7 @@ export const createSharedDispatchShell = (input: {
   bridgeSpec?: AdapterConversationBridgeSpec | null;
   invoke?: SharedDispatchInvokeFn;
   invokeByMode?: Partial<Record<string, SharedDispatchInvokeFn>>;
+  repairConversationPolicy?: "preserve_canonical";
   resolveInvokeRequest?: SharedDispatchInvokeRequestResolver;
   resolveSuccessContextDelta?: SharedDispatchSuccessContextDeltaResolver;
   resolveDefaultInvoke: () => SharedDispatchInvokeFn | null | undefined;
@@ -516,9 +517,18 @@ export const createSharedDispatchShell = (input: {
           bridgeSpec,
           contextDelta: result.contextDelta,
         });
+      const protectedContextDelta = preserveCanonicalRepairConversation({
+        bridgeSpec,
+        contextDelta,
+        invokeRequest,
+        policy: input.repairConversationPolicy,
+        request: dispatchInput,
+      });
 
       return {
-        ...(contextDelta ? { contextDelta } : {}),
+        ...(protectedContextDelta
+          ? { contextDelta: protectedContextDelta }
+          : {}),
         ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
         output: result.output,
         status: "success",
@@ -527,6 +537,46 @@ export const createSharedDispatchShell = (input: {
     } catch (error) {
       return toAdapterDispatchFailure(error, "adapter");
     }
+  };
+};
+
+const preserveCanonicalRepairConversation = (input: {
+  bridgeSpec: AdapterConversationBridgeSpec | null;
+  contextDelta?: AdapterDispatchContextDelta;
+  invokeRequest: AdapterDispatchRequest;
+  policy?: "preserve_canonical";
+  request: AdapterDispatchRequest;
+}): AdapterDispatchContextDelta | undefined => {
+  if (
+    input.policy !== "preserve_canonical" ||
+    input.request.executionMode !== "repair" ||
+    !input.contextDelta
+  ) {
+    return input.contextDelta;
+  }
+
+  const canonicalConversationId = normalizeOptionalText(
+    input.invokeRequest.agentControllerConversationId
+  );
+  if (!canonicalConversationId) {
+    return input.contextDelta;
+  }
+
+  const canonicalConversation = input.bridgeSpec
+    ? bridgeAgentControllerConversationRef({
+        agentControllerConversationId: canonicalConversationId,
+        bridgeSpec: input.bridgeSpec,
+        agentControllerConversation:
+          input.invokeRequest.agentControllerConversation,
+      })
+    : input.invokeRequest.agentControllerConversation;
+
+  return {
+    ...input.contextDelta,
+    agentControllerConversationId: canonicalConversationId,
+    ...(canonicalConversation
+      ? { agentControllerConversation: canonicalConversation }
+      : {}),
   };
 };
 
