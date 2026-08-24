@@ -2,9 +2,43 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const execFileMock = vi.hoisted(() => vi.fn());
+const macOsDataProtectionTokens = vi.hoisted(() => new Map<string, string>());
 
 vi.mock("node:child_process", () => ({
   execFile: (...args: unknown[]) => execFileMock(...args),
+}));
+
+vi.mock("../src/runtime/distribution", () => ({
+  isBinaryDistribution: () => true,
+}));
+
+vi.mock("../src/config/macos-data-protection-keychain", () => ({
+  deleteMacOsDataProtectionKeychainToken: vi.fn(
+    (input: { accessGroup: string; account: string; service: string }) => {
+      macOsDataProtectionTokens.delete(
+        `${input.accessGroup}\n${input.service}\n${input.account}`
+      );
+    }
+  ),
+  readMacOsDataProtectionKeychainToken: vi.fn(
+    (input: { accessGroup: string; account: string; service: string }) =>
+      macOsDataProtectionTokens.get(
+        `${input.accessGroup}\n${input.service}\n${input.account}`
+      ) ?? null
+  ),
+  storeMacOsDataProtectionKeychainToken: vi.fn(
+    (input: {
+      accessGroup: string;
+      accessToken: string;
+      account: string;
+      service: string;
+    }) => {
+      macOsDataProtectionTokens.set(
+        `${input.accessGroup}\n${input.service}\n${input.account}`,
+        input.accessToken
+      );
+    }
+  ),
 }));
 
 import {
@@ -63,6 +97,7 @@ function createMockExecFileChild(stdoutText = ""): EventEmitter & {
 describe("token-store command execution options", () => {
   beforeEach(() => {
     execFileMock.mockReset();
+    macOsDataProtectionTokens.clear();
     execFileMock.mockImplementation(
       (
         _command: string,
@@ -209,9 +244,15 @@ describe("token-store command execution options", () => {
       })
     );
 
-    expect(firstRef.provider).toBe("macos-keychain");
-    expect(secondRef.provider).toBe("macos-keychain");
+    expect(firstRef.provider).toBe("macos-data-protection-keychain");
+    expect(secondRef.provider).toBe("macos-data-protection-keychain");
     expect(firstRef).not.toEqual(secondRef);
+    expect(execFileMock).not.toHaveBeenCalledWith(
+      "security",
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
   });
 
   it("warns once when plaintext file-token fallback is used", async () => {
@@ -254,6 +295,14 @@ describe("token-store command execution options", () => {
       isStoredTokenRef({
         provider: "windows-dpapi",
         key: "not-a-sha256-key",
+      })
+    ).toBe(false);
+    expect(
+      isStoredTokenRef({
+        accessGroup: "attacker.example",
+        account: "openmeld-auth-test",
+        provider: "macos-data-protection-keychain",
+        service: "sh.openmeld.auth.token",
       })
     ).toBe(false);
   });

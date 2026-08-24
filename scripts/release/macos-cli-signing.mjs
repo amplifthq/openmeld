@@ -26,6 +26,7 @@ const SIGNING_TIMESTAMP_RE = /(?:Timestamp|Signed Time)=/u;
 
 export const DEFAULT_APPLE_TEAM_ID = "38FFHDPA3B";
 export const DEFAULT_NOTARY_KEYCHAIN_PROFILE = "openmeld-notary";
+export const MACOS_KEYCHAIN_ACCESS_GROUP = "38FFHDPA3B.sh.openmeld.shared";
 export const REQUIRED_BUN_ENTITLEMENTS = [
   "com.apple.security.cs.allow-jit",
   "com.apple.security.cs.allow-unsigned-executable-memory",
@@ -408,6 +409,13 @@ function verifySignedCliBinary(input) {
         `Signed CLI is missing required entitlement: ${entitlement}`
       );
     }
+  }
+  if (
+    !entitlements.includes(`<string>${MACOS_KEYCHAIN_ACCESS_GROUP}</string>`)
+  ) {
+    throw new Error(
+      `Signed CLI is missing the OpenMeld Keychain access group: ${MACOS_KEYCHAIN_ACCESS_GROUP}`
+    );
   }
 }
 

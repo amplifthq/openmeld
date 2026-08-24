@@ -1,9 +1,17 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { isBinaryDistribution } from "../runtime/distribution";
+import {
+  deleteMacOsDataProtectionKeychainToken,
+  readMacOsDataProtectionKeychainToken,
+  storeMacOsDataProtectionKeychainToken,
+} from "./macos-data-protection-keychain";
 import { openMeldRootDir } from "./paths";
 
 const TOKEN_STORE_KEYCHAIN_SERVICE = "sh.openmeld.auth.token";
+const MACOS_DATA_PROTECTION_KEYCHAIN_ACCESS_GROUP =
+  "38FFHDPA3B.sh.openmeld.shared";
 const INSECURE_FALLBACK_ENV_KEY = "OPENMELD_AUTH_ALLOW_INSECURE_FILE_TOKEN";
 const FORCE_INSECURE_STORE_ENV_KEY = "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN";
 const COMMAND_MAX_BUFFER_BYTES = 1024 * 1024;
@@ -22,6 +30,13 @@ type MacOsTokenRef = {
   account: string;
 };
 
+type MacOsDataProtectionTokenRef = {
+  provider: "macos-data-protection-keychain";
+  service: string;
+  account: string;
+  accessGroup: string;
+};
+
 type WindowsDpapiTokenRef = {
   provider: "windows-dpapi";
   key: string;
@@ -34,6 +49,7 @@ type InsecureFileTokenRef = {
 
 export type StoredTokenRef =
   | MacOsTokenRef
+  | MacOsDataProtectionTokenRef
   | WindowsDpapiTokenRef
   | InsecureFileTokenRef;
 
@@ -77,6 +93,21 @@ export async function storeAccessToken(
 
   if (process.platform === "darwin") {
     try {
+      if (shouldUseMacOsDataProtectionKeychain()) {
+        const account = buildMacOsDataProtectionAccount(key);
+        await storeMacOsDataProtectionKeychainToken({
+          accessGroup: MACOS_DATA_PROTECTION_KEYCHAIN_ACCESS_GROUP,
+          account,
+          service: TOKEN_STORE_KEYCHAIN_SERVICE,
+          accessToken: input.accessToken,
+        });
+        return {
+          provider: "macos-data-protection-keychain",
+          service: TOKEN_STORE_KEYCHAIN_SERVICE,
+          account,
+          accessGroup: MACOS_DATA_PROTECTION_KEYCHAIN_ACCESS_GROUP,
+        };
+      }
       const account = buildMacOsAccount(key);
       await setMacOsKeychainToken({
         service: TOKEN_STORE_KEYCHAIN_SERVICE,
@@ -100,7 +131,7 @@ export async function storeAccessToken(
         };
       }
       throw new Error(
-        `failed to store access token in macOS Keychain: ${toErrorMessage(error)}`
+        `failed to store access token in macOS secure storage: ${toErrorMessage(error)}`
       );
     }
   }
@@ -153,6 +184,11 @@ export async function readAccessToken(
   ref: StoredTokenRef
 ): Promise<AccessTokenReadResult> {
   try {
+    if (ref.provider === "macos-data-protection-keychain") {
+      return toAccessTokenReadResult(
+        await readMacOsDataProtectionKeychainToken(ref)
+      );
+    }
     if (ref.provider === "macos-keychain") {
       return toAccessTokenReadResult(await getMacOsKeychainToken(ref));
     }
@@ -172,6 +208,10 @@ export async function readAccessToken(
 }
 
 export async function deleteAccessToken(ref: StoredTokenRef): Promise<void> {
+  if (ref.provider === "macos-data-protection-keychain") {
+    await deleteMacOsDataProtectionKeychainToken(ref).catch(() => undefined);
+    return;
+  }
   if (ref.provider === "macos-keychain") {
     await deleteMacOsKeychainToken(ref).catch(() => undefined);
     return;
@@ -191,6 +231,14 @@ export function isStoredTokenRef(value: unknown): value is StoredTokenRef {
   }
   const record = value as Record<string, unknown>;
   const provider = normalizeString(record.provider);
+  if (provider === "macos-data-protection-keychain") {
+    return Boolean(
+      normalizeString(record.service) &&
+        normalizeString(record.account) &&
+        normalizeString(record.accessGroup) ===
+          MACOS_DATA_PROTECTION_KEYCHAIN_ACCESS_GROUP
+    );
+  }
   if (provider === "macos-keychain") {
     return Boolean(
       normalizeString(record.service) && normalizeString(record.account)
@@ -214,6 +262,14 @@ function buildTokenKey(input: {
 
 function buildMacOsAccount(key: string): string {
   return `openmeld-auth-${key}`;
+}
+
+function buildMacOsDataProtectionAccount(key: string): string {
+  return `openmeld-auth-${key}-${randomUUID()}`;
+}
+
+function shouldUseMacOsDataProtectionKeychain(): boolean {
+  return isBinaryDistribution() && process.arch === "arm64";
 }
 
 async function setMacOsKeychainToken(input: {
