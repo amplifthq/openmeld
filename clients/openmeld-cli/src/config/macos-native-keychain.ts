@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
+  MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION,
   MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION,
   type MacOsKeychainHelperRequest,
   macOsKeychainHelperRequestSchema,
@@ -27,15 +28,15 @@ type KeychainAddress = {
 type MacOsKeychainHelperRequestInput =
   | Omit<
       Extract<MacOsKeychainHelperRequest, { operation: "read" }>,
-      "schemaVersion"
+      "authenticationInteraction" | "schemaVersion"
     >
   | Omit<
       Extract<MacOsKeychainHelperRequest, { operation: "store" }>,
-      "schemaVersion"
+      "authenticationInteraction" | "schemaVersion"
     >
   | Omit<
       Extract<MacOsKeychainHelperRequest, { operation: "delete" }>,
-      "schemaVersion"
+      "authenticationInteraction" | "schemaVersion"
     >;
 type MacOsKeychainHelperReadRequestInput = Extract<
   MacOsKeychainHelperRequestInput,
@@ -108,6 +109,7 @@ export async function runMacOsNativeKeychainRequestInChild(
 ): Promise<string | null | undefined> {
   const request = macOsKeychainHelperRequestSchema.parse({
     schemaVersion: MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION,
+    authenticationInteraction: MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION,
     ...input,
   });
   const timeoutMs = options.timeoutMs ?? MAC_OS_KEYCHAIN_HELPER_TIMEOUT_MS;

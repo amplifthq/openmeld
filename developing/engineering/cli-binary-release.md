@@ -167,9 +167,10 @@ upload
 - The bare Developer ID CLI must remain launchable without an embedded
   provisioning profile. Its entitlements therefore include only the Bun
   runtime requirements and must not include `keychain-access-groups`. A signed
-  launch and native macOS Keychain login/read/logout smoke must pass before any
-  binary upload. That smoke also proves the signed binary can launch itself as
-  the bounded private Keychain helper for store, read, and delete. Unit and
+  launch, native macOS Keychain login/read/logout, and protected-item
+  noninteractive-read smoke must pass before any binary upload. That smoke also
+  proves the signed binary can launch itself as the bounded private Keychain
+  helper for store, read, and delete. Unit and
   integration tests separately prove that the parent kills an unresponsive
   helper after five seconds and continues through the private-file fallback.
   CI signing temporarily places its ephemeral signing Keychain before the

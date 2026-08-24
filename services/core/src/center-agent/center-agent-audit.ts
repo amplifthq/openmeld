@@ -15,6 +15,7 @@ export async function writeCenterAgentAuditEntry(input: {
   onBehalfOfProfileId: string | null;
   resource: { id: string; type: string } | null;
   sourceNativeDeliveryId?: string | null;
+  sourceSpaceId?: string | null;
 }): Promise<CenterAgentAttribution> {
   const attribution = await resolveCenterAgentAuditAttribution({
     authorization: input.authorization,
@@ -30,6 +31,7 @@ export async function writeCenterAgentAuditEntry(input: {
     organizationId: input.authorization.activeOrganization.organizationId,
     resource: input.resource,
     sourceNativeDeliveryId: input.sourceNativeDeliveryId,
+    sourceSpaceId: input.sourceSpaceId ?? null,
   });
   return attribution;
 }

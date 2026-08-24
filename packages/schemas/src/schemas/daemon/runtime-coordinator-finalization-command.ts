@@ -70,8 +70,16 @@ export const runtimeCoordinatorFinalizationCommandSchema = z.strictObject({
   targetProfileName: nullableBoundedLabelSchema,
 });
 
+export const runtimeCoordinatorFinalizationFinalMessageKindSchema = z.enum([
+  "failure_notice",
+  "stay_silent",
+  "success_reply",
+]);
+
 export const runtimeCoordinatorFinalizationSuccessOutcomeSchema =
   z.strictObject({
+    finalMessageKind:
+      runtimeCoordinatorFinalizationFinalMessageKindSchema.optional(),
     ok: z.literal(true),
     finalizationCommandId: boundedIdentifierSchema,
     publicationErrorCode: z.null(),

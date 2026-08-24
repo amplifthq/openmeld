@@ -9480,14 +9480,17 @@ export async function rpcListCenterAgentAuditJournal(
           parsed.data.actionSet === "v16" ||
           parsed.data.actionSet === "v17" ||
           parsed.data.actionSet === "v18" ||
-          parsed.data.actionSet === "v19",
+          parsed.data.actionSet === "v19" ||
+          parsed.data.actionSet === "v20",
         includeInteractionSource:
           parsed.data.actionSet === "v14" ||
           parsed.data.actionSet === "v15" ||
           parsed.data.actionSet === "v16" ||
           parsed.data.actionSet === "v17" ||
           parsed.data.actionSet === "v18" ||
-          parsed.data.actionSet === "v19",
+          parsed.data.actionSet === "v19" ||
+          parsed.data.actionSet === "v20",
+        includeSourceSpaceId: parsed.data.actionSet === "v20",
       })
     ),
   };
@@ -9512,7 +9515,8 @@ function isCurrentCenterAgentAuditActionSet(
     actionSet === "v16" ||
     actionSet === "v17" ||
     actionSet === "v18" ||
-    actionSet === "v19"
+    actionSet === "v19" ||
+    actionSet === "v20"
   );
 }
 
@@ -9527,7 +9531,8 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
-    input.actionSet === "v19"
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
       ? []
       : ["receive_local_agent_request"];
   const contextCompatibilityActions: readonly CenterAgentAction[] =
@@ -9535,24 +9540,29 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
-    input.actionSet === "v19"
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
       ? []
       : ["read_center_agent_context"];
   const contextLoadCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
-    input.actionSet === "v19"
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
       ? []
       : ["load_center_agent_context"];
   const routineCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
-    input.actionSet === "v19"
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
       ? []
       : input.routineActions;
   const workingLanguageCompatibilityActions: readonly CenterAgentAction[] =
-    input.actionSet === "v18" || input.actionSet === "v19"
+    input.actionSet === "v18" ||
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
       ? []
       : ["set_working_language", "observe_working_language"];
   if (
@@ -9562,7 +9572,8 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
-    input.actionSet === "v19"
+    input.actionSet === "v19" ||
+    input.actionSet === "v20"
   ) {
     return [
       ...(input.excludedActions ?? []),
@@ -12656,6 +12667,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     requester,
     requestSignature: parsed.data.requestSignature,
     service: parsed.data.service,
+    sourceSpaceId: member.sourceSpaceId,
   });
   return centerAgentRecordConnectorActionOperationResponseSchema.parse({
     attribution: result.attribution,

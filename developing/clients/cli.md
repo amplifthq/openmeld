@@ -938,20 +938,36 @@ Keychain through Security.framework. The bare Developer ID CLI must not request
 a restricted Keychain access-group entitlement, because it has no embedded
 provisioning profile and macOS would reject the executable before it starts.
 The session file stores only the opaque secure-storage reference. Existing
-macOS Keychain references remain readable for compatibility. If the user's
-Keychain returns an error or does not answer within five seconds, setup writes
+macOS Keychain references remain readable by the packaged CLI for
+compatibility. If the user's Keychain returns an error or does not answer
+within five seconds, setup writes
 the bearer session to a private OpenMeld directory with mode `0700` and a file
 with mode `0600`, warns clearly about that fallback, and continues. Packaged
 CLI Keychain operations run in a short-lived child process so a blocked
 Security.framework call can be terminated without blocking setup or the
-Service. After one timeout, that CLI process does not retry Keychain; a new
-process may try again. Access tokens cross that private child boundary through
-stdin, never argv. The next successful setup or login stores the replacement
-session in Keychain and removes the previous private file. A future signed
-local client must reuse the CLI-owned session through the local OpenMeld
-Service contract instead of reading the token directly or creating a parallel
-sign-in state. Setup verifies that the newly stored token can be reloaded
-before it writes the session file or reports success.
+Service. Every Keychain operation is noninteractive: if an existing entry needs
+approval, the operation fails immediately and Agent View preserves the reason
+and the interactive setup-or-login recovery path. The CLI must not create a
+macOS authorization window that can outlive its helper. Normal setup and login
+writes remain silent. If macOS requires interaction to save a replacement,
+setup uses the documented private-file fallback instead. After one timeout,
+that CLI process does not retry Keychain; a new process may try again. Access
+tokens cross that private child boundary through stdin, never argv. The next
+successful setup or login stores the replacement session in Keychain and
+removes the previous private file. A future signed local client must reuse the
+CLI-owned session through the local OpenMeld Service contract instead of
+reading the token directly or creating a parallel sign-in state. Setup verifies
+that the newly stored token can be reloaded before it writes the session file
+or reports success.
+
+An npm-distributed CLI or unattended developer script that cannot embed the
+native helper must never fall back to `/usr/bin/security`. New npm CLI logins
+use the same warned mode-`0600` private-file fallback. An existing Keychain
+reference fails immediately with a setup-or-login recovery action. Developer
+HTTP tools require an isolated lane with private local token storage or must
+route the request through the packaged CLI. This prevents concurrent dev
+processes from queuing authorization windows that outlive the requesting
+command.
 
 The CLI must prove account alignment. Missing, unknown, expired, or mismatched
 terminal authentication must fail closed and tell the user the next safe action.

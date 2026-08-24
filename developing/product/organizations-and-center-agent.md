@@ -2101,6 +2101,13 @@ than by the model provider:
   exact provider and Space transcripts remain in their owning conversations.
   Runtime generation rollover is invisible and does not create another member,
   Agent, Task, Space, or memory scope.
+- When an artifact attributed to that verified member is absent from the
+  current conversation, the Center Agent checks its bounded audit provenance
+  and source conversation before characterizing the authorization. A missing
+  match is reported only as a missing matching authorization, never as proof
+  that the member did not request the work. This lookup may establish
+  continuity, but it does not combine source transcripts into the current
+  conversation.
 - An explicit save records `explicit_save` as the capture method while keeping
   the verified conversation surface as its source. The save mechanism must not
   replace a DM, Space, Slack, Lark, or Feishu origin with `explicit_tool`.

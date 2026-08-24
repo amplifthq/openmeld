@@ -1757,6 +1757,19 @@ display from that frozen delivery and label the action as initiated from the
 connected Message Channel. They never present the shared connection's installer
 as the requester or imply that the provider member has an OpenMeld account.
 
+For a verified member acting through a Space-native delivery, Core also derives
+the source Space from that exact delivery after the same identity checks. The
+first connector-operation audit row freezes the nullable `sourceSpaceId`; later
+completion, failure, and replay rows reuse it instead of accepting a caller's
+current Space. The field is provenance for bounded follow-up lookup, not
+authorization or permission to merge conversation histories. Audit readers opt
+in through action set `v20`; older action sets omit the field entirely.
+Only a native delivery whose `conversationKind` is `space` may populate
+`sourceSpaceId`. Legacy Slack and generic Message Channel deliveries keep their
+external conversation identity in their owning locator and leave
+`sourceSpaceId` null; an external conversation ID must never be reinterpreted as
+an OpenMeld Space ID.
+
 For a native delivery created from a Space Wake, the native-delivery ledger
 remains the authoritative hosted execution record while the Dispatch Ledger is
 the public Wake trace projection. Core closes that projection only from a

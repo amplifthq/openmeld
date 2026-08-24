@@ -601,18 +601,25 @@ and the CLI can roll out in either order.
 
 `packages/schemas/src/schemas/local-machine/macos-keychain-helper.ts` owns the
 strict private request and response contract between the packaged macOS CLI
-and its short-lived Keychain helper process. It supports only `store`, `read`,
-and `delete`, bounds every field, and rejects unknown fields. The access token
-is carried through stdin rather than argv. This contract never crosses the
-computer boundary and carries no Space, Agent Profile, Wake, Service
-readiness, or RuntimeCoordinator authority.
+and its short-lived Keychain helper process. Version 2 supports only `store`,
+`read`, and `delete`, bounds every field, and rejects unknown fields. A `read`
+request and the `store` and `delete` mutations must all declare
+`authenticationInteraction: "disallow"`. The access token is carried through
+stdin rather than argv. This contract never crosses the computer boundary and
+carries no Space, Agent Profile, Wake, Service readiness, or
+RuntimeCoordinator authority.
 
 The parent CLI owns the five-second deadline and kills a helper that does not
-return. The helper owns the one synchronous Security.framework call. A timeout
-is an explicit local storage failure that lets the existing CLI-owned private
-session fallback run; it is not a second auth source or a cloud compatibility
-contract. Parent and helper are always the same packaged binary version, so no
-mixed-version rollout exists at this private boundary.
+return. The helper owns the one synchronous Security.framework call. Before a
+Security.framework call, the helper disables Keychain user interaction for its
+process and also applies modern and legacy noninteractive query policies. An
+operation that needs approval therefore returns an explicit local storage
+failure instead of opening a system authorization window that can outlive the
+helper. The helper restores the previous process interaction setting after the
+call. The timeout remains a final crash or platform-hang backstop; it is not the
+way OpenMeld cancels authentication UI. Parent and helper are always the same
+packaged binary version, so no mixed-version rollout exists at this private
+boundary.
 
 ### Center Agent Project Tool Contracts
 
@@ -3670,11 +3677,16 @@ Schema rules:
   `actionSet=v14` adds Local Agent-carried requests; `actionSet=v15` adds
   Context Manifest reads; and `actionSet=v16` adds Context Load Receipts and
   opt-in manifest/load counts; and `actionSet=v17` adds Routine create, update,
-  pause, resume, and delete rows. Interaction-source projections remain absent
-  before v14, and Routine actions remain absent before v17. Each version filters
-  later actions and fields in Core before response validation, so an
-  already-published CLI never receives an enum value or optional projection its
-  frozen schema cannot parse.
+  pause, resume, and delete rows; `actionSet=v18` adds Organization working
+  language actions; `actionSet=v19` adds member Computer reads; and
+  `actionSet=v20` opts in to the connector audit entry's nullable
+  `sourceSpaceId` projection. Interaction-source projections remain absent
+  before v14, Routine actions remain absent before v17, and `sourceSpaceId`
+  remains absent before v20. The projection is non-null only for a native
+  delivery whose `conversationKind` is `space`; Slack and generic Message
+  Channel locators never populate it. Each version filters later actions and
+  fields in Core before response validation, so an already-published CLI never
+  receives an enum value or optional projection its frozen schema cannot parse.
 - Deploy a new Center Agent RPC receiver and its audit action-set reader in Core
   before deploying the Remote Agent caller or clients that request the new
   action set. During rollback, remove callers first. Once Core has written a new

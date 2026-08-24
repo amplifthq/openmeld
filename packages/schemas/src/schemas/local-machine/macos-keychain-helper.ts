@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 
-export const MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION = 1 as const;
+export const MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION = 2 as const;
+export const MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION = "disallow" as const;
 
 const macOsKeychainServiceSchema = z.string().trim().min(1).max(512);
 const macOsKeychainAccountSchema = z.string().trim().min(1).max(512);
@@ -21,18 +22,27 @@ export const macOsKeychainHelperRequestSchema = z.discriminatedUnion(
       service: macOsKeychainServiceSchema,
       account: macOsKeychainAccountSchema,
       accessToken: macOsKeychainAccessTokenSchema,
+      authenticationInteraction: z.literal(
+        MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION
+      ),
     }),
     z.strictObject({
       schemaVersion: z.literal(MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION),
       operation: z.literal("read"),
       service: macOsKeychainServiceSchema,
       account: macOsKeychainAccountSchema,
+      authenticationInteraction: z.literal(
+        MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION
+      ),
     }),
     z.strictObject({
       schemaVersion: z.literal(MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION),
       operation: z.literal("delete"),
       service: macOsKeychainServiceSchema,
       account: macOsKeychainAccountSchema,
+      authenticationInteraction: z.literal(
+        MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION
+      ),
     }),
   ]
 );

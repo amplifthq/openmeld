@@ -466,6 +466,17 @@ after the document is visible and the member remains at the latest message for
 the normal debounce. If the unread summary is unavailable, Space navigation
 remains usable in Account Space Index order without inventing read state.
 
+Browse Spaces composes the Organization Space Directory with those same
+Account Space Index, unread-summary, and active-Wake projections. Joined cards
+use one status slot with unread first, Working second, and pinned last. When
+unread or Working owns that slot, hover or keyboard focus reveals the shared
+pin or unpin action without showing competing status labels. Joined cards
+follow pinned order before the unread-aware unpinned order. Discover cards keep
+the directory's public-Space order and expose only Join; Web does not attach
+account status or pin actions to an unjoined Space.
+If a joined directory item has no matching Account Space Index item, Open stays
+available while account status and pin controls fail closed.
+
 The **Artifacts** placeholder is not part of the target rail. Remove the
 placeholder and return Artifacts to navigation only when it has real product
 content and passes the Use vs. Configure test.
@@ -2683,6 +2694,11 @@ reference, then inspects Core's current Execution Recovery projection. It
 suppresses generic Retry only when that projection exposes a higher-priority
 action. It shows **Recover result** only when Core exposes the authorized
 durable-result recovery command; a setup/reconnect link is not that command.
+That automatic inspection is a background capability check, not a user action.
+If it fails, Web keeps the failure scoped to the unavailable recovery control:
+it shows no toast, banner, or disabled `Recovery unavailable` action and does
+not tell the user to open diagnostics merely because the check failed. The
+original terminal outcome and its existing Message details remain unchanged.
 When Core instead exposes a verified exact-controller continuation, Web shows
 **Recover reply** and explains that the same Agent conversation will post
 its already-finished reply without running the task again. Web accepts the
