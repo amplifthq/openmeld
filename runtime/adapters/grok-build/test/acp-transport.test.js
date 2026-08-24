@@ -516,22 +516,31 @@ test("Grok Build ACP preserves unrelated invalid resume parameters instead of he
   }
 });
 
-test("Grok Build ACP classifies wrapped authentication and quota failures", async () => {
-  for (const [scenario, expectedCode] of [
-    ["auth_expired", "auth.failed"],
-    ["quota_exhausted", "grok-build.quota_or_entitlement"],
-  ]) {
-    const fixture = await createFixture();
-    try {
-      await assert.rejects(
-        invokeFixture(fixture, { scenario }),
-        (error) =>
-          error instanceof GrokBuildAcpTransportError &&
-          error.code === expectedCode
-      );
-    } finally {
-      await rm(fixture.fixtureDir, { force: true, recursive: true });
-    }
+test("Grok Build ACP classifies a wrapped authentication failure", async () => {
+  const fixture = await createFixture();
+  try {
+    await assert.rejects(
+      invokeFixture(fixture, { scenario: "auth_expired" }),
+      (error) =>
+        error instanceof GrokBuildAcpTransportError &&
+        error.code === "auth.failed"
+    );
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("Grok Build ACP does not infer exhausted quota from prompt error text", async () => {
+  const fixture = await createFixture();
+  try {
+    await assert.rejects(
+      invokeFixture(fixture, { scenario: "quota_exhausted" }),
+      (error) =>
+        error instanceof GrokBuildAcpTransportError &&
+        error.code === "protocol.request_failed"
+    );
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
   }
 });
 

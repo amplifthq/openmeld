@@ -1363,6 +1363,25 @@ const buildSuccessfulInternalOnlyTaskResult =
     v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
   });
 
+const buildSuccessfulStaySilentTaskResult =
+  (): RuntimeTransportSubmitTaskResultRequest["taskResult"] => ({
+    code: "service.task_result",
+    payload: {
+      agentId: TARGET_AGENT_PROFILE_ID,
+      attemptId: "attempt-1",
+      deduped: false,
+      output: "No public reply is needed.",
+      sourceEventId: "signal-1",
+      spaceAction: {
+        reason: "The Wake does not need a reply.",
+        type: "stay_silent",
+      },
+      status: "success",
+      taskId: "task-1",
+    },
+    v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  });
+
 const buildFailedVisibleTaskResult =
   (): RuntimeTransportSubmitTaskResultRequest["taskResult"] => ({
     code: "service.task_result",
@@ -12194,6 +12213,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             };
           }
           return {
+            finalMessageKind: "success_reply" as const,
             finalizationCommandId: command.finalizationCommandId,
             ok: true as const,
             publicationErrorCode: null,
@@ -15096,6 +15116,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         await publishGate;
         appliedFinalizationCommands.push(command);
         return {
+          finalMessageKind: "success_reply" as const,
           finalizationCommandId: command.finalizationCommandId,
           ok: true as const,
           publicationErrorCode: null,
@@ -15169,6 +15190,158 @@ describe("runtime transport runtime coordinator transport contract", () => {
         RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
       ) as unknown[] | undefined) ?? []
     ).toHaveLength(0);
+  });
+
+  it.each([
+    ["raw_context_sharing reply", buildResultRequest().taskResult],
+    ["stay_silent notice", buildSuccessfulStaySilentTaskResult()],
+  ])("keeps a first legacy %s result retryable until Space confirms its final claim", async (_label, taskResult) => {
+    const {
+      appliedFinalizationCommands,
+      hub,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
+      (command: RuntimeCoordinatorFinalizationCommand) => {
+        appliedFinalizationCommands.push(command);
+        return {
+          finalizationCommandId: command.finalizationCommandId,
+          ok: true as const,
+          publicationErrorCode: null,
+          publishedSignalId: "signal-legacy-final",
+          publishState: "reply_published" as const,
+          status: "finalized" as const,
+        };
+      }
+    );
+    spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome.mockResolvedValue(
+      { status: "unresolved" as const }
+    );
+
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        taskResult,
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+
+    expect(
+      spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome
+    ).toHaveBeenCalledOnce();
+    expect(
+      storageRecords.get(
+        RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
+      )
+    ).toEqual([
+      expect.objectContaining({
+        dispatchId: "dispatch-1",
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      }),
+    ]);
+  });
+
+  it("uses the visible Space claim instead of legacy task prose to classify the first final result", async () => {
+    const {
+      hub,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
+      (command: RuntimeCoordinatorFinalizationCommand) => ({
+        finalizationCommandId: command.finalizationCommandId,
+        ok: true as const,
+        publicationErrorCode: null,
+        publishedSignalId: "signal-legacy-final",
+        publishState: "reply_published" as const,
+        status: "finalized" as const,
+      })
+    );
+    (
+      spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome as ReturnType<
+        typeof vi.fn
+      >
+    ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) => ({
+      outcome: {
+        finalMessageKind: "stay_silent" as const,
+        finalizationCommandId: command.finalizationCommandId,
+        ok: true as const,
+        publicationErrorCode: null,
+        publishedSignalId: "signal-legacy-final",
+        publishState: "reply_published" as const,
+        status: "already_final" as const,
+      },
+      status: "finalization_visible" as const,
+    }));
+
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+
+    expect(
+      spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome
+    ).toHaveBeenCalledOnce();
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorFinalizationOutcomeStorageKey(
+          buildRuntimeCoordinatorFinalizationCommandId({
+            executionTokenRunId: executionToken.runId,
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          })
+        )
+      )
+    ).toMatchObject({
+      finalMessageKind: "stay_silent",
+      publishedSignalId: "signal-legacy-final",
+      publishState: "reply_published",
+    });
+    expect(
+      storageRecords.get(
+        RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
+      )
+    ).toEqual([]);
   });
 
   it("returns review_required without accepting the result when a capable Service proposed a stale reply", async () => {

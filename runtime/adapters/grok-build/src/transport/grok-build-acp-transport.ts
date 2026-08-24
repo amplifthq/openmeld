@@ -82,8 +82,6 @@ const CONTEXT_NOT_FOUND_RE =
   /(?:path not found|unknown session|session.+not found|no such session)/iu;
 const AUTH_FAILURE_RE =
   /(?:unauthenticated|authentication|sign[ -]?in|required.+login|token.+expired|invalid.+token)/iu;
-const QUOTA_FAILURE_RE =
-  /(?:quota|rate.?limit|usage limit|credits?|entitlement|upgrade.+plan)/iu;
 
 export class GrokBuildAcpTransportError extends Error {
   readonly code: string;
@@ -1081,13 +1079,6 @@ function classifyGrokBuildProviderFailure(
       code: "auth.failed",
       errorType: "auth",
       message: `auth.failed: ${normalized}`,
-    });
-  }
-  if (QUOTA_FAILURE_RE.test(normalized)) {
-    return new GrokBuildAcpTransportError({
-      code: "grok-build.quota_or_entitlement",
-      errorType: "auth",
-      message: `grok-build.quota_or_entitlement: ${normalized}`,
     });
   }
   return null;

@@ -997,21 +997,6 @@ const upgradeLegacyRuntimeCoordinatorFinalizationOutcomeFromVisibleClaim = (
   };
 };
 
-const rawRuntimeCoordinatorFinalizationOutcomeMatchesVisibleClaim = (
-  rawOutcome: unknown,
-  expected: Extract<RuntimeCoordinatorFinalizationOutcome, { ok: true }>
-): boolean => {
-  const parsed =
-    runtimeCoordinatorFinalizationOutcomeSchema.safeParse(rawOutcome);
-  return (
-    parsed.success &&
-    runtimeCoordinatorFinalizationOutcomeMatchesVisibleClaim(
-      parsed.data,
-      expected
-    )
-  );
-};
-
 const resolveRuntimeCoordinatorFinalVisibleReasonCode = (input: {
   executionSemantic: RuntimeCoordinatorFinalizationSemantic | null;
   outcome: RuntimeCoordinatorFinalizationOutcome;
@@ -3708,12 +3693,73 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         });
       return { ok: true, outcome: outcomeWrite.outcome };
     }
-    const parsedOutcome =
-      runtimeCoordinatorFinalizationOutcomeSchema.safeParse(rawOutcome);
+    const resolvedOutcome =
+      await this.resolveAppliedRuntimeCoordinatorFinalizationOutcome({
+        command,
+        expectedVisibleOutcome: input.expectedVisibleOutcome,
+        rawOutcome,
+      });
+    if (!resolvedOutcome.ok) {
+      return resolvedOutcome;
+    }
+    return await this.completeRuntimeCoordinatorFinalizationReplay({
+      command,
+      db,
+      outcome: resolvedOutcome.outcome,
+    });
+  }
+
+  private async resolveAppliedRuntimeCoordinatorFinalizationOutcome(input: {
+    command: RuntimeCoordinatorFinalizationCommand;
+    expectedVisibleOutcome?: Extract<
+      RuntimeCoordinatorFinalizationOutcome,
+      { ok: true }
+    >;
+    rawOutcome: unknown;
+  }): Promise<RuntimeCoordinatorFinalizationOutcomeReplayResult> {
+    const parsedOutcome = runtimeCoordinatorFinalizationOutcomeSchema.safeParse(
+      input.rawOutcome
+    );
+    if (!parsedOutcome.success && input.expectedVisibleOutcome) {
+      return rejectRuntimeCoordinatorFinalizationReplay({
+        publicationUncertain: true,
+      });
+    }
+    let outcome = parsedOutcome.success
+      ? parsedOutcome.data
+      : this.buildRuntimeCoordinatorFinalizationFailureOutcome({
+          command: input.command,
+          reasonCode: "runtime_coordinator.finalization_outcome_invalid",
+        });
+    if (outcome.ok && outcome.finalMessageKind === undefined) {
+      let visibleOutcome = input.expectedVisibleOutcome;
+      if (!visibleOutcome) {
+        const claimRead = await this.readRuntimeCoordinatorFinalizationClaim(
+          input.command
+        );
+        if (claimRead?.status !== "finalization_visible") {
+          return rejectRuntimeCoordinatorFinalizationReplay({
+            publicationUncertain: true,
+          });
+        }
+        visibleOutcome = claimRead.outcome;
+      }
+      const upgradedOutcome =
+        upgradeLegacyRuntimeCoordinatorFinalizationOutcomeFromVisibleClaim(
+          outcome,
+          visibleOutcome
+        );
+      if (!upgradedOutcome) {
+        return rejectRuntimeCoordinatorFinalizationReplay({
+          publicationUncertain: true,
+        });
+      }
+      outcome = upgradedOutcome;
+    }
     if (
       input.expectedVisibleOutcome &&
-      !rawRuntimeCoordinatorFinalizationOutcomeMatchesVisibleClaim(
-        rawOutcome,
+      !runtimeCoordinatorFinalizationOutcomeMatchesVisibleClaim(
+        outcome,
         input.expectedVisibleOutcome
       )
     ) {
@@ -3721,17 +3767,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         publicationUncertain: true,
       });
     }
-    const outcome = parsedOutcome.success
-      ? parsedOutcome.data
-      : this.buildRuntimeCoordinatorFinalizationFailureOutcome({
-          command,
-          reasonCode: "runtime_coordinator.finalization_outcome_invalid",
-        });
-    return await this.completeRuntimeCoordinatorFinalizationReplay({
-      command,
-      db,
-      outcome,
-    });
+    return { ok: true, outcome };
   }
 
   private async resolveMissingRuntimeCoordinatorFinalizationSpace(input: {
