@@ -23,7 +23,7 @@ import {
 } from "../config/runtime-config";
 import { notifyDaemonRouteCatalogChanged } from "../local-service/state/route-catalog-sync-notifier";
 import {
-  detectInstalledSkillsAgents,
+  detectInstalledRuntimeAgents,
   resolveSkillsAgentRegistry,
   type SkillsAgentRegistryEntry,
   type SkillsAgentTransportMode,
@@ -120,7 +120,7 @@ export async function loadAgentCatalog(): Promise<AgentCatalog> {
     throw wrapConfigError(error, "agents.config_read_failed");
   });
   const builtins = resolveSkillsAgentRegistry(skillsConfig);
-  const detectedIds = new Set(await detectInstalledSkillsAgents(builtins));
+  const detectedIds = new Set(await detectInstalledRuntimeAgents(builtins));
   const builtinsById = new Map<string, AgentTargetDescriptor>();
   for (const [agentId, entry] of Object.entries(builtins)) {
     builtinsById.set(agentId, {

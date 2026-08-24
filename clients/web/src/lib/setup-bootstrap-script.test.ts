@@ -36,6 +36,20 @@ const BOOTSTRAP_FAKE_COMMAND_BIN_WITHOUT_ATS = join(
 	"setup-bootstrap-bin-no-openmeld"
 );
 
+function buildExpectedDevLocalFollowUpPrefix(input: {
+	command: string;
+	openMeldHome?: string;
+}): string {
+	return [
+		"env",
+		...(input.openMeldHome ? [`OPENMELD_HOME='${input.openMeldHome}'`] : []),
+		"OPENMELD_ENV_PRESET='dev-local'",
+		"OPENMELD_GATEWAY_URL='http://localhost:8080'",
+		"OPENMELD_AUTH_URL='http://localhost:8788'",
+		`'${input.command}'`,
+	].join(" ");
+}
+
 type BootstrapScriptRunOptions = {
 	env: Record<string, string>;
 	stdinMode?: "script-file" | "script-stdin-file";
@@ -587,6 +601,10 @@ describe("setup-bootstrap-script", () => {
 			const callsPath = join(tempDir, "calls.txt");
 			const openMeldHome = join(tempDir, ".openmeld-dev");
 			const managedBinaryPath = join(openMeldHome, "bin", "openmeld");
+			const followUpCommandPrefix = buildExpectedDevLocalFollowUpPrefix({
+				command: managedBinaryPath,
+				openMeldHome,
+			});
 			try {
 				mkdirSync(binDir);
 				linkRealNodeRuntime(binDir);
@@ -630,7 +648,7 @@ describe("setup-bootstrap-script", () => {
 				const setupComplete = parseSetupCompleteEvent(output);
 				expect(setupComplete.payload).toMatchObject({
 					authBaseUrl: "http://localhost:8788",
-					cliCommandPrefix: managedBinaryPath,
+					cliCommandPrefix: followUpCommandPrefix,
 					forceServiceRefresh: "1",
 					gatewayUrl: "http://localhost:8080",
 					lane: "dev-local",
@@ -1218,11 +1236,18 @@ describe("setup-bootstrap-script", () => {
 						stdinMode: "script-stdin-file",
 					}
 				);
+				const followUpCommandPrefix = buildExpectedDevLocalFollowUpPrefix({
+					command: "openmeld-dev",
+				});
 
 				expect(output).toContain("Starting OpenMeld...");
 				expect(output).toContain('"code":"setup.complete"');
-				expect(output).toContain('"cliCommandPrefix":"openmeld-dev"');
-				expect(output).toContain('"openmeld-dev whoami --view agent"');
+				expect(output).toContain(
+					`"cliCommandPrefix":"${followUpCommandPrefix}"`
+				);
+				expect(output).toContain(
+					`"${followUpCommandPrefix} whoami --view agent"`
+				);
 				expect(readFileSync(callsPath, "utf8")).toBe(
 					[
 						"setup --start-session preptok_demo --ott ott_demo --view human",
@@ -1277,18 +1302,21 @@ describe("setup-bootstrap-script", () => {
 						},
 					}
 				);
+				const followUpCommandPrefix = buildExpectedDevLocalFollowUpPrefix({
+					command: "openmeld-dev",
+				});
 
 				expect(output).toContain("Starting OpenMeld...");
 				const setupComplete = parseSetupCompleteEvent(output);
 				expect(setupComplete.payload).toMatchObject({
 					authBaseUrl: "http://localhost:8788",
-					cliCommandPrefix: "openmeld-dev",
+					cliCommandPrefix: followUpCommandPrefix,
 					gatewayUrl: "http://localhost:8080",
 					lane: "dev-local",
 				});
 				expect(setupComplete.payload.nextCommands).toEqual([
-					"openmeld-dev whoami --view agent",
-					"openmeld-dev service status --view agent",
+					`${followUpCommandPrefix} whoami --view agent`,
+					`${followUpCommandPrefix} service status --view agent`,
 				]);
 				expect(readFileSync(callsPath, "utf8")).toBe(
 					[

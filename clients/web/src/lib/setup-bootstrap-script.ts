@@ -608,7 +608,7 @@ run_openmeld() {
   run_interactive_openmeld_cli "$OPENMELD_SETUP_USER_FACING_COMMAND" "$@"
 }
 
-resolve_follow_up_cli_command_prefix() {
+resolve_follow_up_cli_command() {
   if [ "$OPENMELD_SETUP_DISTRIBUTION" = "binary" ]; then
     resolve_managed_binary_command_path
     return
@@ -624,6 +624,39 @@ resolve_follow_up_cli_command_prefix() {
   fi
 
   printf '%s' "$OPENMELD_SETUP_USER_FACING_COMMAND"
+}
+
+print_shell_single_quoted() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
+print_follow_up_shell_assignment() {
+  printf ' %s=' "$1"
+  print_shell_single_quoted "$2"
+}
+
+resolve_follow_up_cli_command_prefix() {
+  if [ "$OPENMELD_SETUP_ENV_PRESET" = "prod" ] && [ -z "$OPENMELD_SETUP_OPENMELD_HOME" ]; then
+    resolve_follow_up_cli_command
+    return
+  fi
+
+  printf 'env'
+  if [ -n "$OPENMELD_SETUP_OPENMELD_HOME" ]; then
+    print_follow_up_shell_assignment OPENMELD_HOME "$OPENMELD_SETUP_OPENMELD_HOME"
+  fi
+  print_follow_up_shell_assignment OPENMELD_ENV_PRESET "$OPENMELD_SETUP_ENV_PRESET"
+  if [ -n "$OPENMELD_SETUP_GATEWAY_URL" ]; then
+    print_follow_up_shell_assignment OPENMELD_GATEWAY_URL "$OPENMELD_SETUP_GATEWAY_URL"
+  fi
+  if [ -n "$OPENMELD_SETUP_AUTH_URL" ]; then
+    print_follow_up_shell_assignment OPENMELD_AUTH_URL "$OPENMELD_SETUP_AUTH_URL"
+  fi
+  printf ' '
+  OPENMELD_SETUP_FOLLOW_UP_COMMAND="$(resolve_follow_up_cli_command)"
+  print_shell_single_quoted "$OPENMELD_SETUP_FOLLOW_UP_COMMAND"
 }
 
 compare_semver_direction() {

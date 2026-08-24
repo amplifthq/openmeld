@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { sleep } from "@openmeld/utils";
 import type { DaemonServiceController } from "../../config/daemon-state";
 import { daemonRuntimeRootPath } from "../../config/daemon-state";
+import type { OpenMeldEnvironmentTarget } from "../../config/openmeld-environment-target";
 import type { OpenMeldPathResolutionInput } from "../../config/paths";
 import { assertSafePublishedProductionServiceRegistrationMutation } from "../../config/published-production-safety";
 import { resolveDaemonServiceIdentity } from "./daemon-service-identity";
@@ -43,6 +44,13 @@ export type DaemonServiceManagerRuntimeStatus = {
   enabled: boolean;
   definitionPath?: string | null;
   commandSummary?: string | null;
+  /**
+   * The OpenMeld backend target persisted in the OS service definition.
+   * `undefined` is reserved for older/custom manager implementations that do
+   * not expose this observation; `null` means the definition was readable but
+   * did not contain one complete, valid target.
+   */
+  environmentTarget?: OpenMeldEnvironmentTarget | null;
 };
 
 export type DaemonServiceJobDiagnostics = {
@@ -106,6 +114,10 @@ const LAUNCHD_STATE_PATTERN = /state\s*=\s*running/i;
 const LAUNCHD_DISABLED_SERVICES_ENTRY_PATTERN =
   /"([^"]+)"\s*=>\s*(enabled|disabled)/i;
 const LAUNCHD_STRING_PATTERN = /<string>([^<]+)<\/string>/g;
+const LAUNCHD_ENVIRONMENT_BLOCK_PATTERN =
+  /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/;
+const WINDOWS_LINE_SEPARATOR_PATTERN = /\r?\n/;
+const WINDOWS_ENVIRONMENT_ASSIGNMENT_PATTERN = /^set "([^=]+)=(.*)"$/i;
 const WINDOWS_STATE_PATTERN = /STATE\s*:\s*\d+\s+([A-Za-z_]+)/;
 const WINDOWS_AUTO_START_PATTERN = /auto|auto_start/i;
 const WINDOWS_SERVICE_DOES_NOT_EXIST_CODE_PATTERN = /(?:^|\D)1060(?:\D|$)/u;
@@ -931,6 +943,12 @@ function buildSystemdManager(
         commandSummary: installed
           ? await readSystemServiceCommandSummary(unitPath, "ExecStart=")
           : null,
+        environmentTarget: installed
+          ? await readDaemonServiceEnvironmentTargetFromDefinition({
+              controller: SYSTEMD_CONTROLLER,
+              path: unitPath,
+            })
+          : null,
       };
     },
     // systemd does not expose the launchd-style job spawn evidence yet.
@@ -1146,6 +1164,12 @@ function buildLaunchdManager(
         definitionPath: installed ? plistPath : null,
         commandSummary: installed
           ? await readLaunchdProgramArguments(plistPath)
+          : null,
+        environmentTarget: installed
+          ? await readDaemonServiceEnvironmentTargetFromDefinition({
+              controller: LAUNCHD_CONTROLLER,
+              path: plistPath,
+            })
           : null,
       };
     },
@@ -1482,6 +1506,11 @@ function buildWindowsManager(
           (await readWindowsRunnerCommandSummary(scriptPath)) ??
           parseRegexGroup(qc.stdout, WINDOWS_BINARY_PATH_PATTERN) ??
           null,
+        environmentTarget:
+          await readDaemonServiceEnvironmentTargetFromDefinition({
+            controller: WINDOWS_CONTROLLER,
+            path: scriptPath,
+          }),
       };
     },
     // Windows SCM does not expose the launchd-style job spawn evidence yet.
@@ -1595,6 +1624,125 @@ async function readLaunchdProgramArguments(
     return null;
   }
   return matches.join(" ");
+}
+
+const SERVICE_ENVIRONMENT_TARGET_KEYS = {
+  preset: "OPENMELD_ENV_PRESET",
+  gatewayUrl: "OPENMELD_GATEWAY_URL",
+  authBaseUrl: "OPENMELD_AUTH_URL",
+  userFacingCommand: "OPENMELD_USER_FACING_CLI_COMMAND",
+} as const;
+
+export function parseDaemonServiceEnvironmentTargetFromDefinition(input: {
+  controller: DaemonServiceController;
+  definition: string;
+}): OpenMeldEnvironmentTarget | null {
+  let environment: Record<string, string>;
+  if (input.controller === SYSTEMD_CONTROLLER) {
+    environment = parseSystemdEnvironment(input.definition);
+  } else if (input.controller === LAUNCHD_CONTROLLER) {
+    environment = parseLaunchdEnvironment(input.definition);
+  } else {
+    environment = parseWindowsEnvironment(input.definition);
+  }
+  const preset = environment[SERVICE_ENVIRONMENT_TARGET_KEYS.preset];
+  const gatewayUrl = environment[SERVICE_ENVIRONMENT_TARGET_KEYS.gatewayUrl];
+  const authBaseUrl = environment[SERVICE_ENVIRONMENT_TARGET_KEYS.authBaseUrl];
+  const userFacingCommand =
+    environment[SERVICE_ENVIRONMENT_TARGET_KEYS.userFacingCommand];
+  if (
+    !(
+      (preset === "prod" || preset === "canary" || preset === "dev-local") &&
+      gatewayUrl &&
+      authBaseUrl &&
+      userFacingCommand
+    )
+  ) {
+    return null;
+  }
+  return {
+    preset,
+    gatewayUrl,
+    authBaseUrl,
+    userFacingCommand,
+  };
+}
+
+async function readDaemonServiceEnvironmentTargetFromDefinition(input: {
+  controller: DaemonServiceController;
+  path: string;
+}): Promise<OpenMeldEnvironmentTarget | null> {
+  const definition = await readFile(input.path, "utf8").catch(() => null);
+  if (!definition) {
+    return null;
+  }
+  return parseDaemonServiceEnvironmentTargetFromDefinition({
+    controller: input.controller,
+    definition,
+  });
+}
+
+function parseSystemdEnvironment(definition: string): Record<string, string> {
+  const environment: Record<string, string> = {};
+  for (const rawLine of definition.split("\n")) {
+    const line = rawLine.trim();
+    if (!line.startsWith("Environment=")) {
+      continue;
+    }
+    const assignment = line.slice("Environment=".length);
+    const separatorIndex = assignment.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    const key = assignment.slice(0, separatorIndex);
+    let value = assignment.slice(separatorIndex + 1);
+    if (value.startsWith('"') && value.endsWith('"')) {
+      value = value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    }
+    environment[key] = value;
+  }
+  return environment;
+}
+
+function parseLaunchdEnvironment(definition: string): Record<string, string> {
+  const environmentBlock = definition.match(
+    LAUNCHD_ENVIRONMENT_BLOCK_PATTERN
+  )?.[1];
+  if (!environmentBlock) {
+    return {};
+  }
+  const environment: Record<string, string> = {};
+  for (const match of environmentBlock.matchAll(
+    /<key>([^<]+)<\/key>\s*<string>([^<]*)<\/string>/g
+  )) {
+    const key = decodeXmlText(match[1] ?? "");
+    if (!key) {
+      continue;
+    }
+    environment[key] = decodeXmlText(match[2] ?? "");
+  }
+  return environment;
+}
+
+function parseWindowsEnvironment(definition: string): Record<string, string> {
+  const environment: Record<string, string> = {};
+  for (const rawLine of definition.split(WINDOWS_LINE_SEPARATOR_PATTERN)) {
+    const match = rawLine.trim().match(WINDOWS_ENVIRONMENT_ASSIGNMENT_PATTERN);
+    if (!(match?.[1] && match[2] !== undefined)) {
+      continue;
+    }
+    environment[match[1]] = match[2].replace(/\\"/g, '"');
+  }
+  return environment;
+}
+
+function decodeXmlText(value: string): string {
+  return value
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&");
 }
 
 function isSystemdAvailable(): Promise<boolean> {

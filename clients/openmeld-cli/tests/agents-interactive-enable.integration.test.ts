@@ -41,6 +41,7 @@ vi.mock("../src/skills/agents", async () => {
   );
   return {
     ...actual,
+    detectInstalledRuntimeAgents: detectInstalledSkillsAgentsMock,
     detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
   };
 });

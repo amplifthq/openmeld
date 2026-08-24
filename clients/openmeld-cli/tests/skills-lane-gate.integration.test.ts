@@ -5,6 +5,7 @@ import { runSkillsEnsure, runSkillsInstall } from "../src/commands/skills";
 import { isPublishedOpenMeldHome } from "../src/config/paths";
 import {
   canManageRegistryAgentSkillTargets,
+  detectInstalledRuntimeAgents,
   detectInstalledSkillsAgents,
   type SkillsAgentRegistryEntry,
 } from "../src/skills/agents";
@@ -94,6 +95,22 @@ describe("registry agent skill targets under a lane-specific home", () => {
       };
 
       expect(await detectInstalledSkillsAgents(registry)).toEqual([
+        "fake-agent",
+      ]);
+    });
+  });
+
+  it("still detects runnable local agents without managing their shared skills directories", async () => {
+    await withTempHome(async (home) => {
+      useLaneOpenMeldHome(home);
+      const registry = {
+        "fake-agent": buildRegistryEntry({
+          runtimeSupported: true,
+        }),
+      };
+
+      expect(await detectInstalledSkillsAgents(registry)).toEqual([]);
+      expect(await detectInstalledRuntimeAgents(registry)).toEqual([
         "fake-agent",
       ]);
     });
