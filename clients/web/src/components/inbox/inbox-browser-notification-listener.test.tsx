@@ -638,6 +638,55 @@ describe("InboxBrowserNotificationListener", () => {
 		expect(hasPendingItem(queuedItem.id)).toBe(true);
 	});
 
+	it("invalidates a queued delivery when the listener unmounts", async () => {
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const queuedItem = createInboxItem({
+			id: "queued-unmount-item",
+			importance: "urgent",
+		});
+		currentItems = [existingItem];
+		const view = renderListener();
+		let queuedInput:
+			| {
+					resolveCurrentReadiness?: () => string;
+			  }
+			| undefined;
+		let rejectQueued: ((reason: unknown) => void) | undefined;
+		showInboxBrowserNotificationMock.mockImplementationOnce(
+			(input: { resolveCurrentReadiness?: () => string }) => {
+				queuedInput = input;
+				return new Promise((_resolve, reject) => {
+					rejectQueued = reject;
+				});
+			}
+		);
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		currentItems = [queuedItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		expect(queuedInput).toBeDefined();
+
+		view.unmount();
+		const setTimeoutSpy = vi
+			.spyOn(globalThis, "setTimeout")
+			.mockReturnValue(1 as unknown as ReturnType<typeof setTimeout>);
+		const readinessAfterUnmount = queuedInput?.resolveCurrentReadiness?.();
+		await act(async () => {
+			rejectQueued?.(new Error("Notification constructor failed"));
+			await Promise.resolve();
+		});
+
+		expect(readinessAfterUnmount).toBe("context_changed");
+		expect(setTimeoutSpy).not.toHaveBeenCalled();
+		expect(hasPendingItem(queuedItem.id)).toBe(true);
+	});
+
 	it("cancels a delivery retry when the signed-in user changes", async () => {
 		vi.useFakeTimers();
 		const existingItem = createInboxItem({ id: "existing-item" });

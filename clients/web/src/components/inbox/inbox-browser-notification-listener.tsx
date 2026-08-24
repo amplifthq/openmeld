@@ -164,6 +164,13 @@ export function InboxBrowserNotificationListener(input: {
 			pathname,
 			userId: input.userId,
 		};
+		return () => {
+			if (deliveryContextRef.current.feedIdentity !== feedIdentity) {
+				return;
+			}
+			deliveryContextRef.current =
+				createInactiveInboxBrowserNotificationDeliveryContext();
+		};
 	}, [
 		feedIdentity,
 		input.organizationId,
@@ -346,13 +353,25 @@ type BrowserNotificationInboxItem = Parameters<
 
 type BrowserNotificationDeliveryContext = {
 	enabled: boolean;
-	feedIdentity: string;
+	feedIdentity: string | null;
 	itemsById: Map<string, BrowserNotificationInboxItem>;
 	organizationId: string;
 	organizationSlug: string;
 	pathname: string | null;
 	userId: string;
 };
+
+function createInactiveInboxBrowserNotificationDeliveryContext(): BrowserNotificationDeliveryContext {
+	return {
+		enabled: false,
+		feedIdentity: null,
+		itemsById: new Map(),
+		organizationId: "",
+		organizationSlug: "",
+		pathname: null,
+		userId: "",
+	};
+}
 
 async function readPendingInboxBrowserNotificationItem(input: {
 	isCancelled: () => boolean;
