@@ -1,4 +1,5 @@
 CREATE INDEX `idx_openMeldDaemon_agent_profile_bindings_profile_enabled_owner` ON `openMeldDaemon_agent_profile_bindings` (`agent_profile_id`,`owner_kind`,`owner_id`) WHERE "binding_state" = 'enabled_primary';--> statement-breakpoint
+-- full-shared-schema-only
 CREATE TRIGGER `openMeldDaemon_agent_profile_bindings_canonical_enabled_insert_check`
 BEFORE INSERT ON `openMeldDaemon_agent_profile_bindings`
 FOR EACH ROW
@@ -25,6 +26,7 @@ WHEN NEW.`binding_state` = 'enabled_primary'
 BEGIN
   SELECT RAISE(ABORT, 'agent_profile_binding_canonical_enabled_check');
 END;--> statement-breakpoint
+-- full-shared-schema-only
 CREATE TRIGGER `openMeldDaemon_agent_profile_bindings_canonical_enabled_update_check`
 BEFORE UPDATE ON `openMeldDaemon_agent_profile_bindings`
 FOR EACH ROW
