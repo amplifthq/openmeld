@@ -134,6 +134,47 @@ describe("local controller install resolution", () => {
     });
   });
 
+  it("verifies a persisted install even when ordinary detection misses it", async () => {
+    const persistedLaunchContract = createLaunchContract(
+      "/Users/test/saved/bin/codex"
+    );
+    const installChoices = [
+      createInstallChoice("install_saved", "/Users/test/saved/bin/codex"),
+    ];
+    const resolveInstalledLaunchCandidates = vi.fn().mockResolvedValue({
+      candidates: installChoices,
+      ok: true,
+    });
+    setTestInstallResolver({
+      resolveInstalledLaunchCandidates,
+      verifyLaunchContract: vi.fn().mockResolvedValue({
+        launchCommand: {
+          argsPrefix: [],
+          bin: "/Users/test/saved/bin/codex",
+        },
+        ok: true,
+      }),
+    });
+
+    const resolution = await resolveBuiltinControllerInstallResolution({
+      agentId: "codex",
+      detected: false,
+      displayName: "Codex",
+      persistedLaunchContract,
+      runtimeSupported: true,
+    });
+
+    expect(resolution).toEqual({
+      detail: null,
+      installChoices,
+      launchContract: persistedLaunchContract,
+      status: "ready",
+    });
+    expect(resolveInstalledLaunchCandidates).toHaveBeenCalledWith({
+      preferredLaunchContract: persistedLaunchContract,
+    });
+  });
+
   it("keeps a persisted launch contract when its current check is incomplete", async () => {
     const persistedLaunchContract = createLaunchContract(
       "/opt/homebrew/bin/claude"

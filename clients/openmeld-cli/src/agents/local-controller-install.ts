@@ -59,7 +59,12 @@ export async function listBuiltinControllerInstalledCandidates(input: {
   persistedLaunchContract?: RuntimeAgentControllerLaunchContract | null;
   runtimeSupported: boolean;
 }): Promise<LocalControllerInstalledCandidatesResult> {
-  if (!(input.detected && input.runtimeSupported)) {
+  if (
+    !(
+      input.runtimeSupported &&
+      (input.detected || input.persistedLaunchContract)
+    )
+  ) {
     return {
       errorCode: "controller.launch.needs_repair",
       errorMessage: `${input.displayName} is not available on this computer.`,
@@ -99,7 +104,12 @@ export async function resolveBuiltinControllerInstallResolution(input: {
   persistedLaunchContract?: RuntimeAgentControllerLaunchContract | null;
   runtimeSupported: boolean;
 }): Promise<LocalControllerInstallResolution> {
-  if (!(input.detected && input.runtimeSupported)) {
+  if (
+    !(
+      input.runtimeSupported &&
+      (input.detected || input.persistedLaunchContract)
+    )
+  ) {
     return {
       detail: null,
       installChoices: [],
