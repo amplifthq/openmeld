@@ -1046,8 +1046,8 @@ ensure(
   "services/remote-agent/wrangler.jsonc local defaults must use the configured openmeld-remote-agent-prod gateway."
 );
 ensure(
-  remoteAgentWrangler?.env?.dev?.vars
-    ?.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID === "openmeld-remote-agent-prod",
+  remoteAgentWrangler?.env?.dev?.vars?.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID ===
+    "openmeld-remote-agent-prod",
   "services/remote-agent/wrangler.jsonc env.dev must use the configured openmeld-remote-agent-prod gateway."
 );
 const remoteAgentProductionConfig = remoteAgentWrangler?.env?.prod;
