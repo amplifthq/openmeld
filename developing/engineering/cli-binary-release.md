@@ -168,9 +168,11 @@ upload
   provisioning profile. Its entitlements therefore include only the Bun
   runtime requirements and must not include `keychain-access-groups`. A signed
   launch and native macOS Keychain login/read/logout smoke must pass before any
-  binary upload. CI signing selects its ephemeral signing Keychain explicitly
-  for `security` and `codesign`; it must not replace the user's Keychain search
-  list, because the post-signing smoke needs the normal login Keychain.
+  binary upload. CI signing temporarily places its ephemeral signing Keychain
+  before the existing user Keychain search list, keeps the normal login
+  Keychain in that list, and restores the original list after signing. It must
+  not replace or hide the login Keychain, because the post-signing smoke needs
+  normal user Keychain access.
 - Notarization uses a temporary ZIP submission envelope. After Apple accepts
   that exact signed executable, release creates the gzip transport from it.
   Decompression therefore reconstructs the signed executable byte for byte.
