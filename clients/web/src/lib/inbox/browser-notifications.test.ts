@@ -240,6 +240,24 @@ describe("Inbox browser notifications", () => {
 		expect(notificationConstructorMock).not.toHaveBeenCalled();
 	});
 
+	it("awaits authoritative item revalidation before creating a notification", async () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+
+		await expect(
+			showInboxBrowserNotification({
+				item: createInboxItem({ id: "resolved-while-queued" }),
+				resolveCurrentReadiness: async () => "ineligible" as const,
+				sourcePath: "/o/amplift/inbox?item=resolved-while-queued",
+				viewingSourceSession: false,
+			})
+		).resolves.toEqual({ status: "ineligible" });
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+	});
+
 	it("keeps pending retries scoped to the user and Organization", () => {
 		markInboxBrowserNotificationItemPending({
 			itemId: "pending-item",

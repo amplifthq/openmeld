@@ -30,6 +30,7 @@ export type InboxBrowserNotificationDeliveryResult =
 				| "claim_failed"
 				| "context_changed"
 				| "permission_unavailable"
+				| "revalidation_failed"
 				| "source_visible";
 			status: "deferred";
 	  };
@@ -37,6 +38,8 @@ export type InboxBrowserNotificationDeliveryResult =
 export type InboxBrowserNotificationDeliveryReadiness =
 	| "eligible"
 	| "context_changed"
+	| "ineligible"
+	| "revalidation_failed"
 	| "source_visible";
 
 const ENABLED_VALUE = "enabled";
@@ -122,7 +125,9 @@ function isDirectlyAddressedInboxUpdate(kind: InboxItem["kind"]): boolean {
 
 export async function showInboxBrowserNotification(input: {
 	item: InboxItem;
-	resolveCurrentReadiness?: () => InboxBrowserNotificationDeliveryReadiness;
+	resolveCurrentReadiness?: () =>
+		| InboxBrowserNotificationDeliveryReadiness
+		| Promise<InboxBrowserNotificationDeliveryReadiness>;
 	sourcePath: string;
 	viewingSourceSession: boolean;
 }): Promise<InboxBrowserNotificationDeliveryResult> {
@@ -138,8 +143,12 @@ export async function showInboxBrowserNotification(input: {
 	if (document.visibilityState === "visible" && input.viewingSourceSession) {
 		return { reason: "source_visible", status: "deferred" };
 	}
-	return await withInboxBrowserNotificationClaim(input.item.id, () => {
-		const currentReadiness = input.resolveCurrentReadiness?.() ?? "eligible";
+	return await withInboxBrowserNotificationClaim(input.item.id, async () => {
+		const currentReadiness =
+			(await input.resolveCurrentReadiness?.()) ?? "eligible";
+		if (currentReadiness === "ineligible") {
+			return { status: "ineligible" };
+		}
 		if (currentReadiness !== "eligible") {
 			return { reason: currentReadiness, status: "deferred" };
 		}
@@ -330,9 +339,11 @@ function readInboxBrowserNotificationDelivery(
 
 async function withInboxBrowserNotificationClaim(
 	itemId: string,
-	deliver: () => InboxBrowserNotificationDeliveryResult
+	deliver: () =>
+		| InboxBrowserNotificationDeliveryResult
+		| Promise<InboxBrowserNotificationDeliveryResult>
 ): Promise<InboxBrowserNotificationDeliveryResult> {
-	const claimAndDeliver = () => {
+	const claimAndDeliver = async () => {
 		const claim = readInboxBrowserNotificationDelivery(itemId);
 		if (claim === "already_delivered") {
 			return { status: "already_delivered" } as const;
@@ -340,7 +351,7 @@ async function withInboxBrowserNotificationClaim(
 		if (claim === "failed") {
 			return { reason: "claim_failed", status: "deferred" } as const;
 		}
-		return deliver();
+		return await deliver();
 	};
 	if (typeof navigator !== "undefined" && navigator.locks) {
 		return await navigator.locks.request(
@@ -349,7 +360,7 @@ async function withInboxBrowserNotificationClaim(
 			claimAndDeliver
 		);
 	}
-	return claimAndDeliver();
+	return await claimAndDeliver();
 }
 
 function recordInboxBrowserNotificationDelivered(itemId: string): void {

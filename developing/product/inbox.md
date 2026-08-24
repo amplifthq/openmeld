@@ -365,11 +365,13 @@ two optional delivery channels:
   client freshness-cache hit; missing, read, resolved, or otherwise ineligible
   items clear their pending record. Retry timers are owned by the current feed,
   so a late failure from a previous member or Organization cannot block its
-  retries. A queued delivery rechecks the committed member, Organization, item
-  eligibility, and visible conversation immediately before creating the
-  notification. Unmounting the authenticated listener invalidates that context,
-  so a delivery waiting on a browser lock cannot publish content from the
-  previous account. Browser delivery never forms a second unread store.
+  retries. A queued delivery uses a fresh recipient-authorized Core item read,
+  then rechecks the committed member, Organization, item eligibility, and
+  visible conversation immediately before creating the notification. A failed
+  revalidation remains pending and retryable. Unmounting the authenticated
+  listener invalidates that context, so a delivery waiting on a browser lock
+  cannot publish content from the previous account. Browser delivery never
+  forms a second unread store.
 - **Urgent email** is enabled by default at the account level and may be turned
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe

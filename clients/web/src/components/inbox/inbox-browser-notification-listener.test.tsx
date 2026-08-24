@@ -368,12 +368,12 @@ describe("InboxBrowserNotificationListener", () => {
 		queryClientMock.fetchQuery.mockResolvedValue({ item: recoveredItem });
 		let queuedInput:
 			| {
-					resolveCurrentReadiness?: () => string;
+					resolveCurrentReadiness?: () => string | Promise<string>;
 			  }
 			| undefined;
 		let resolveQueued: ((value: unknown) => void) | undefined;
 		showInboxBrowserNotificationMock.mockImplementationOnce(
-			(input: { resolveCurrentReadiness?: () => string }) => {
+			(input: { resolveCurrentReadiness?: () => string | Promise<string> }) => {
 				queuedInput = input;
 				return new Promise((resolve) => {
 					resolveQueued = resolve;
@@ -383,13 +383,13 @@ describe("InboxBrowserNotificationListener", () => {
 		const view = renderListener();
 		await waitFor(() => expect(queuedInput).toBeDefined());
 
-		currentItems = [
-			createInboxItem({
-				...recoveredItem,
-				readAt: "2026-08-04T01:01:00.000Z",
-				resolutionStatus: "resolved",
-			}),
-		];
+		const resolvedItem = createInboxItem({
+			...recoveredItem,
+			readAt: "2026-08-04T01:01:00.000Z",
+			resolutionStatus: "resolved",
+		});
+		currentItems = [resolvedItem];
+		queryClientMock.fetchQuery.mockResolvedValue({ item: resolvedItem });
 		view.rerender(
 			<InboxBrowserNotificationListener
 				organizationId="organization-123"
@@ -398,15 +398,61 @@ describe("InboxBrowserNotificationListener", () => {
 			/>
 		);
 
-		expect(queuedInput?.resolveCurrentReadiness?.()).toBe("context_changed");
+		await expect(queuedInput?.resolveCurrentReadiness?.()).resolves.toBe(
+			"ineligible"
+		);
 		await act(async () => {
-			resolveQueued?.({ reason: "context_changed", status: "deferred" });
+			resolveQueued?.({ status: "ineligible" });
 			await Promise.resolve();
 		});
 		await waitFor(() => {
 			expect(hasPendingItem(recoveredItem.id)).toBe(false);
 		});
 		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+	});
+
+	it("revalidates a listed item against Core immediately before delivery", async () => {
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const queuedItem = createInboxItem({
+			id: "resolved-before-delivery",
+			importance: "urgent",
+		});
+		const resolvedItem = createInboxItem({
+			...queuedItem,
+			readAt: "2026-08-04T01:01:00.000Z",
+			resolutionStatus: "resolved",
+		});
+		currentItems = [existingItem];
+		const view = renderListener();
+		queryClientMock.fetchQuery.mockResolvedValue({ item: resolvedItem });
+		let currentReadiness: string | undefined;
+		showInboxBrowserNotificationMock.mockImplementationOnce(
+			async (input: {
+				resolveCurrentReadiness?: () => string | Promise<string>;
+			}) => {
+				currentReadiness = await input.resolveCurrentReadiness?.();
+				return currentReadiness === "ineligible"
+					? { status: "ineligible" }
+					: { reason: "revalidation_failed", status: "deferred" };
+			}
+		);
+
+		currentItems = [queuedItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+
+		await waitFor(() => {
+			expect(currentReadiness).toBe("ineligible");
+			expect(queryClientMock.fetchQuery).toHaveBeenCalledWith(
+				expect.objectContaining({ itemId: queuedItem.id, staleTime: 0 })
+			);
+			expect(hasPendingItem(queuedItem.id)).toBe(false);
+		});
 	});
 
 	it("clears an off-page pending item that no longer exists", async () => {
@@ -601,12 +647,12 @@ describe("InboxBrowserNotificationListener", () => {
 		const view = renderListener();
 		let queuedInput:
 			| {
-					resolveCurrentReadiness?: () => string;
+					resolveCurrentReadiness?: () => string | Promise<string>;
 			  }
 			| undefined;
 		let resolveQueued: ((value: unknown) => void) | undefined;
 		showInboxBrowserNotificationMock.mockImplementationOnce(
-			(input: { resolveCurrentReadiness?: () => string }) => {
+			(input: { resolveCurrentReadiness?: () => string | Promise<string> }) => {
 				queuedInput = input;
 				return new Promise((resolve) => {
 					resolveQueued = resolve;
@@ -631,7 +677,9 @@ describe("InboxBrowserNotificationListener", () => {
 			/>
 		);
 
-		expect(queuedInput?.resolveCurrentReadiness?.()).toBe("context_changed");
+		await expect(queuedInput?.resolveCurrentReadiness?.()).resolves.toBe(
+			"context_changed"
+		);
 		act(() => {
 			resolveQueued?.({ reason: "context_changed", status: "deferred" });
 		});
@@ -648,12 +696,12 @@ describe("InboxBrowserNotificationListener", () => {
 		const view = renderListener();
 		let queuedInput:
 			| {
-					resolveCurrentReadiness?: () => string;
+					resolveCurrentReadiness?: () => string | Promise<string>;
 			  }
 			| undefined;
 		let rejectQueued: ((reason: unknown) => void) | undefined;
 		showInboxBrowserNotificationMock.mockImplementationOnce(
-			(input: { resolveCurrentReadiness?: () => string }) => {
+			(input: { resolveCurrentReadiness?: () => string | Promise<string> }) => {
 				queuedInput = input;
 				return new Promise((_resolve, reject) => {
 					rejectQueued = reject;
@@ -682,7 +730,7 @@ describe("InboxBrowserNotificationListener", () => {
 			await Promise.resolve();
 		});
 
-		expect(readinessAfterUnmount).toBe("context_changed");
+		await expect(readinessAfterUnmount).resolves.toBe("context_changed");
 		expect(setTimeoutSpy).not.toHaveBeenCalled();
 		expect(hasPendingItem(queuedItem.id)).toBe(true);
 	});
@@ -843,15 +891,16 @@ describe("InboxBrowserNotificationListener", () => {
 			importance: "urgent",
 		});
 		currentItems = [existingItem];
+		queryClientMock.fetchQuery.mockResolvedValue({ item: queuedItem });
 		const view = renderListener();
 		let queuedInput:
 			| {
-					resolveCurrentReadiness?: () => string;
+					resolveCurrentReadiness?: () => string | Promise<string>;
 			  }
 			| undefined;
 		let resolveQueued: ((value: unknown) => void) | undefined;
 		showInboxBrowserNotificationMock.mockImplementationOnce(
-			(input: { resolveCurrentReadiness?: () => string }) => {
+			(input: { resolveCurrentReadiness?: () => string | Promise<string> }) => {
 				queuedInput = input;
 				return new Promise((resolve) => {
 					resolveQueued = resolve;
@@ -877,7 +926,9 @@ describe("InboxBrowserNotificationListener", () => {
 			/>
 		);
 
-		expect(queuedInput?.resolveCurrentReadiness?.()).toBe("source_visible");
+		await expect(queuedInput?.resolveCurrentReadiness?.()).resolves.toBe(
+			"source_visible"
+		);
 		act(() => {
 			resolveQueued?.({ reason: "source_visible", status: "deferred" });
 		});
@@ -895,13 +946,14 @@ describe("InboxBrowserNotificationListener", () => {
 			importance: "urgent",
 		});
 		currentItems = [existingItem];
+		queryClientMock.fetchQuery.mockResolvedValue({ item: queuedItem });
 		let queuedInput:
 			| {
-					resolveCurrentReadiness?: () => string;
+					resolveCurrentReadiness?: () => string | Promise<string>;
 			  }
 			| undefined;
 		showInboxBrowserNotificationMock.mockImplementationOnce(
-			(input: { resolveCurrentReadiness?: () => string }) => {
+			(input: { resolveCurrentReadiness?: () => string | Promise<string> }) => {
 				queuedInput = input;
 				return new Promise(() => undefined);
 			}
@@ -930,7 +982,7 @@ describe("InboxBrowserNotificationListener", () => {
 		await waitFor(() => expect(queuedInput).toBeDefined());
 
 		usePathnameMock.mockReturnValue("/o/amplift/spaces/space-123");
-		let readinessDuringLayout: string | undefined;
+		let readinessDuringLayout: Promise<string> | undefined;
 		view.rerender(
 			<>
 				<InboxBrowserNotificationListener
@@ -940,13 +992,15 @@ describe("InboxBrowserNotificationListener", () => {
 				/>
 				<LayoutProbe
 					onLayout={() => {
-						readinessDuringLayout = queuedInput?.resolveCurrentReadiness?.();
+						readinessDuringLayout = Promise.resolve(
+							queuedInput?.resolveCurrentReadiness?.() ?? "missing"
+						);
 					}}
 				/>
 			</>
 		);
 
-		expect(readinessDuringLayout).toBe("source_visible");
+		await expect(readinessDuringLayout).resolves.toBe("source_visible");
 	});
 
 	it("keeps ordinary updates and resolved actions in Inbox without browser delivery", () => {

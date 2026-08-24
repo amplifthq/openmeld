@@ -15,6 +15,7 @@ import {
 } from "react";
 import {
 	clearInboxBrowserNotificationItemPending,
+	type InboxBrowserNotificationDeliveryReadiness,
 	isInboxBrowserNotificationEligible,
 	markInboxBrowserNotificationItemPending,
 	readInboxBrowserNotificationSettings,
@@ -312,6 +313,7 @@ export function InboxBrowserNotificationListener(input: {
 			organizationId: input.organizationId,
 			organizationSlug: input.organizationSlug,
 			pathname,
+			queryClient,
 			scheduleDeliveryRetry,
 			settledItemIds,
 			userId: input.userId,
@@ -455,6 +457,7 @@ function processInboxBrowserNotificationItems(input: {
 	organizationId: string;
 	organizationSlug: string;
 	pathname: string | null;
+	queryClient: QueryClient;
 	scheduleDeliveryRetry: () => void;
 	settledItemIds: Set<string>;
 	userId: string;
@@ -490,37 +493,16 @@ function processInboxBrowserNotificationItems(input: {
 			input.deliveryContextRef.current.feedIdentity === input.feedIdentity;
 		showInboxBrowserNotification({
 			item,
-			resolveCurrentReadiness: () => {
-				const current = input.deliveryContextRef.current;
-				if (
-					current.feedIdentity !== input.feedIdentity ||
-					!current.enabled ||
-					current.organizationId !== input.organizationId ||
-					current.userId !== input.userId
-				) {
-					return "context_changed";
-				}
-				const currentItem = current.itemsById.get(item.id);
-				if (
-					!currentItem ||
-					currentItem.recipientUserId !== current.userId ||
-					currentItem.organizationId !== current.organizationId ||
-					!shouldDeliverInboxBrowserNotification(currentItem)
-				) {
-					return "context_changed";
-				}
-				if (
-					document.visibilityState === "visible" &&
-					isInboxItemSourceLocation({
-						item: currentItem,
-						orgSlug: current.organizationSlug,
-						pathname: current.pathname,
-					})
-				) {
-					return "source_visible";
-				}
-				return "eligible";
-			},
+			resolveCurrentReadiness: async () =>
+				await resolveCurrentInboxBrowserNotificationReadiness({
+					deliveryContextRef: input.deliveryContextRef,
+					feedIdentity: input.feedIdentity,
+					itemId: item.id,
+					organizationId: input.organizationId,
+					queryClient: input.queryClient,
+					retryAttempt: input.deliveryAttempt,
+					userId: input.userId,
+				}),
 			sourcePath: buildOrganizationInboxItemPath({
 				itemId: item.id,
 				orgSlug: input.organizationSlug,
@@ -559,6 +541,84 @@ function processInboxBrowserNotificationItems(input: {
 			});
 	}
 	return sawNewItem;
+}
+
+async function resolveCurrentInboxBrowserNotificationReadiness(input: {
+	deliveryContextRef: { current: BrowserNotificationDeliveryContext };
+	feedIdentity: string;
+	itemId: string;
+	organizationId: string;
+	queryClient: QueryClient;
+	retryAttempt: number;
+	userId: string;
+}): Promise<InboxBrowserNotificationDeliveryReadiness> {
+	if (!isCurrentInboxBrowserNotificationDeliveryContext(input)) {
+		return "context_changed";
+	}
+
+	let currentItem: BrowserNotificationInboxItem;
+	try {
+		const response = await input.queryClient.fetchQuery(
+			inboxBrowserNotificationRecoveryItemQueryOptions({
+				itemId: input.itemId,
+				organizationId: input.organizationId,
+			})
+		);
+		currentItem = response.item;
+	} catch (error) {
+		if (isInboxItemNotFoundFailure(error)) {
+			return "ineligible";
+		}
+		console.warn(
+			"[openmeld.web.inbox.browser_notification_revalidation_failed]",
+			{
+				error: error instanceof Error ? error.message : String(error),
+				itemId: input.itemId,
+				organizationId: input.organizationId,
+				retryAttempt: input.retryAttempt,
+			}
+		);
+		return "revalidation_failed";
+	}
+
+	if (!isCurrentInboxBrowserNotificationDeliveryContext(input)) {
+		return "context_changed";
+	}
+	const current = input.deliveryContextRef.current;
+	if (
+		currentItem.id !== input.itemId ||
+		currentItem.recipientUserId !== current.userId ||
+		currentItem.organizationId !== current.organizationId ||
+		!shouldDeliverInboxBrowserNotification(currentItem)
+	) {
+		return "ineligible";
+	}
+	if (
+		document.visibilityState === "visible" &&
+		isInboxItemSourceLocation({
+			item: currentItem,
+			orgSlug: current.organizationSlug,
+			pathname: current.pathname,
+		})
+	) {
+		return "source_visible";
+	}
+	return "eligible";
+}
+
+function isCurrentInboxBrowserNotificationDeliveryContext(input: {
+	deliveryContextRef: { current: BrowserNotificationDeliveryContext };
+	feedIdentity: string;
+	organizationId: string;
+	userId: string;
+}): boolean {
+	const current = input.deliveryContextRef.current;
+	return (
+		current.feedIdentity === input.feedIdentity &&
+		current.enabled &&
+		current.organizationId === input.organizationId &&
+		current.userId === input.userId
+	);
 }
 
 function handleInboxBrowserNotificationDeliveryResult(input: {
