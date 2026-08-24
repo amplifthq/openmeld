@@ -153,6 +153,7 @@ import {
   getAgentExecutionReadinessBatchBodySchema,
   getAgentExecutionReadinessBatchResponseSchema,
   getAgentExecutionReadinessResponseSchema,
+  getAgentProfileControllerChangeEligibilityResponseSchema,
   getAgentProfileCreationDefaultsResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
   getCenterAgentDesignationResponseSchema,
@@ -449,6 +450,7 @@ import type {
   GetAgentExecutionReadinessBatchBody,
   GetAgentExecutionReadinessBatchResponse,
   GetAgentExecutionReadinessResponse,
+  GetAgentProfileControllerChangeEligibilityResponse,
   GetAgentProfileCreationDefaultsResponse,
   GetAgentProfilePrimaryBindingResponse,
   GetCenterAgentDesignationResponse,
@@ -666,13 +668,16 @@ import {
 import { readLocalRuntimeExpectedRoutes } from "../agent-profile-binding/application/local-runtime-expected-routes-service";
 import { applyAcceptedBindingAuthorizationPolicies } from "../agent-profile-binding/application/organization-binding-authorization-policy-service";
 import {
+  AgentProfileBindingOwnerInventoryLimitError,
+  type AgentProfileBindingRecord,
   compareAndSetPrimaryAgentProfileBindingModelSelectionRecord,
   createD1AgentProfileBindingCommandStore,
   createD1AgentProfileBindingLookupStore,
   disablePrimaryAgentProfileBindingRecord,
   listEnabledPrimaryAgentProfileBindingRecords,
+  listEnabledPrimaryAgentProfileBindingRecordsForProfile,
+  MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE,
   readPrimaryAgentProfileBindingRecord,
-  reconnectPrimaryAgentProfileBindingRecord,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
   readAgentProfileCreationDefaultsRecord,
@@ -733,6 +738,7 @@ import {
   executeCenterAgentWakePublication,
   prepareCenterAgentWakePublication,
 } from "../center-agent/application/center-agent-wake-publication-service";
+import { isHostedCenterAgentExecutionTarget } from "../center-agent/application/hosted-center-agent-binding";
 import {
   buildCenterAgentReadinessResponse,
   type CenterAgentProductOperationDeps,
@@ -791,6 +797,7 @@ import {
   requireCurrentDesignatedCenterAgentCaller,
 } from "../center-agent/current-designated-center-agent";
 import type { CenterAgentWakePublicationCommand } from "../center-agent/infrastructure/d1/center-agent-wake-publication-repo";
+import { reconcileRemoteCenterAgentBindingRecord } from "../center-agent/infrastructure/d1/remote-center-agent-binding-repo";
 import { startCenterAgentMemberResearch } from "../center-agent-member-research/member-research-service";
 import type { CenterAgentMemoryEpisodeOrigin } from "../center-agent-memory/contract";
 import { createCoreCenterAgentMemoryService } from "../center-agent-memory/core-memory-service";
@@ -834,12 +841,16 @@ import {
   listRecentDispatchLedgerEntriesForSpace,
 } from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
 import {
+  acquireRuntimeTransportAgentProfileExecutionTargetMutation,
+  isRuntimeTransportProfileWorkspaceOutcomeDefinitive,
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoutesBatch,
   manageRuntimeTransportLocalAgentInstallation,
   notifyRuntimeTransportRouteCatalogChanged,
+  readRuntimeTransportAgentProfileExecutionState,
   readRuntimeTransportComputerFileAccessPolicy,
   refreshRuntimeTransportLocalAgentCatalog,
+  releaseRuntimeTransportAgentProfileExecutionTargetMutation,
   selectRuntimeTransportLocalFolders,
   setRuntimeTransportLocalAgentEnabled,
   setRuntimeTransportProfileWorkspace,
@@ -2403,6 +2414,11 @@ export type GetAgentProfilePrimaryBindingInput = {
   context?: CoreRpcContextInput;
 };
 
+export type GetAgentProfileControllerChangeEligibilityInput = {
+  agentProfileId: string;
+  context?: CoreRpcContextInput;
+};
+
 export type DisableAgentProfilePrimaryBindingInput = {
   agentProfileId: string;
   context?: CoreRpcContextInput;
@@ -3595,39 +3611,95 @@ export async function rpcSetCurrentAgentProfileWorkspace(
       "The current local OpenMeld Service does not support Project folder changes from OpenMeld Web.",
     userId,
   });
-  const transportResult = await setRuntimeTransportProfileWorkspace({
-    deviceId: currentTarget.deviceId,
-    env,
-    ownerUserId: userId,
-    runtimeLane: currentTarget.runtimeLane,
-    targetProfileId: routeParams.data.agentProfileId,
-    workspaceMode: parsed.data.workspaceMode,
-    ...(parsed.data.workspacePath === undefined
-      ? {}
-      : { workspacePath: parsed.data.workspacePath }),
+  const executionTargetMutationAdmission =
+    await acquireAgentProfileExecutionTargetMutationAdmission({
+      agentProfileId: routeParams.data.agentProfileId,
+      env,
+      ownerUserId: userId,
+    });
+  if (executionTargetMutationAdmission.status !== "acquired") {
+    throw buildProfileWorkspaceMutationAdmissionError(
+      executionTargetMutationAdmission.status
+    );
+  }
+  let releaseExecutionTargetMutationAdmission = false;
+  try {
+    const transportResult = await setRuntimeTransportProfileWorkspace({
+      deviceId: currentTarget.deviceId,
+      env,
+      ownerUserId: userId,
+      runtimeLane: currentTarget.runtimeLane,
+      targetProfileId: routeParams.data.agentProfileId,
+      workspaceMode: parsed.data.workspaceMode,
+      ...(parsed.data.workspacePath === undefined
+        ? {}
+        : { workspacePath: parsed.data.workspacePath }),
+    });
+    releaseExecutionTargetMutationAdmission =
+      isRuntimeTransportProfileWorkspaceOutcomeDefinitive(transportResult);
+    return requireUpdatedProfileWorkspaceResponse(transportResult);
+  } finally {
+    if (releaseExecutionTargetMutationAdmission) {
+      await releaseAgentProfileExecutionTargetMutationAdmission({
+        agentProfileId: routeParams.data.agentProfileId,
+        env,
+        operationId: executionTargetMutationAdmission.operationId,
+        ownerUserId: userId,
+      });
+    } else {
+      console.warn(
+        "[core.agent_profile.workspace_mutation_outcome_unknown_lease_retained]",
+        {
+          agentProfileId: routeParams.data.agentProfileId,
+          operationId: executionTargetMutationAdmission.operationId,
+          ownerUserId: userId,
+        }
+      );
+    }
+  }
+}
+
+function buildProfileWorkspaceMutationAdmissionError(
+  status: "blocked" | "unavailable"
+): ReturnType<typeof createCoreRpcHttpError> {
+  const blocked = status === "blocked";
+  return createCoreRpcHttpError({
+    code: blocked
+      ? "agent_profile.workspace_change_blocked_active_execution"
+      : "agent_profile.workspace_change_eligibility_unavailable",
+    reason: blocked
+      ? "The working folder can’t change while this Agent is working because that would interrupt the current Wake."
+      : "OpenMeld couldn’t confirm whether this Agent is working, so the working folder is temporarily unavailable. Try again.",
+    status: blocked ? 409 : 503,
   });
+}
+
+function requireUpdatedProfileWorkspaceResponse(
+  transportResult: Awaited<
+    ReturnType<typeof setRuntimeTransportProfileWorkspace>
+  >
+): SetCurrentAgentProfileWorkspaceResponse {
   if (transportResult.status !== "accepted") {
     throw createCoreRpcHttpError({
+      code: transportResult.reasonCode,
+      reason: transportResult.message,
       status:
         transportResult.reasonCode === "local_agent_control.timeout"
           ? 504
           : 409,
-      reason: transportResult.message,
-      code: transportResult.reasonCode,
     });
   }
   if (!transportResult.payload.accepted) {
     throw createCoreRpcHttpError({
-      status: 409,
-      reason:
-        transportResult.payload.message ??
-        "The current local OpenMeld Service could not save the Project folder.",
       code:
         transportResult.payload.reasonCode ??
         "local_agent_control.profile_workspace_rejected",
+      reason:
+        transportResult.payload.message ??
+        "The current local OpenMeld Service could not save the Project folder.",
+      status: 409,
     });
   }
-
   const response: SetCurrentAgentProfileWorkspaceResponse = {
     agentProfileId: transportResult.payload.targetProfileId,
     status: "updated",
@@ -4295,6 +4367,23 @@ export async function rpcGetAgentProfilePrimaryBinding(
   );
 }
 
+export async function rpcGetAgentProfileControllerChangeEligibility(
+  env: CoreBindings,
+  input: GetAgentProfileControllerChangeEligibilityInput
+): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
+  const request = requireAgentProfileBindingRequest(input);
+  await assertAgentProfileOwnerMatchesRequest({
+    agentProfileId: request.agentProfileId,
+    env,
+    owner: request.owner,
+  });
+  return await resolveAgentProfileControllerChangeEligibility({
+    agentProfileId: request.agentProfileId,
+    env,
+    ownerUserId: request.owner.id,
+  });
+}
+
 // Contract: developing/architecture/agent-transport-contract.md ("Expected Routes Projection")
 // One Core-owned projection read replaces the CLI's per-profile
 // primary-binding fan-out: owner from auth, runtime resolved from
@@ -4373,34 +4462,66 @@ export async function rpcDisableAgentProfilePrimaryBinding(
     });
   }
 
-  const disabledBinding = await disablePrimaryAgentProfileBindingRecord({
-    agentProfileId: request.agentProfileId,
-    db,
-    disabledAtMs: Date.now(),
-    owner: request.owner,
-    reasonCode: "agent_profile_binding.primary_binding_disabled",
-  });
-
-  if (disabledBinding) {
-    await notifyRuntimeTransportRouteCatalogChanged({
-      affectedProfileIds: [request.agentProfileId],
+  let controllerMutationOperationId: string | null = null;
+  const controllerMutationAdmission =
+    await acquireAgentProfileExecutionTargetMutationAdmission({
+      agentProfileId: request.agentProfileId,
       env,
       ownerUserId: request.owner.id,
-      reason: "agent_profile_binding_changed",
-    }).catch((error) => {
-      console.warn("[core.agent_profile_binding.route_catalog_notify_failed]", {
-        event: "core.agent_profile_binding.route_catalog_notify_failed",
-        agentProfileId: request.agentProfileId,
-        ownerUserId: request.owner.id,
-        error: toErrorMessage(error),
-      });
+    });
+  if (controllerMutationAdmission.status !== "acquired") {
+    return buildDisableAgentProfilePrimaryBindingResponse({
+      agentProfileId: request.agentProfileId,
+      disabled: false,
+      reasonCodes: [
+        resolveControllerChangeAdmissionReasonCode(controllerMutationAdmission),
+      ],
+      status: "unavailable",
     });
   }
+  controllerMutationOperationId = controllerMutationAdmission.operationId;
+  try {
+    const disabledBinding = await disablePrimaryAgentProfileBindingRecord({
+      agentProfileId: request.agentProfileId,
+      db,
+      disabledAtMs: Date.now(),
+      owner: request.owner,
+      reasonCode: "agent_profile_binding.primary_binding_disabled",
+    });
 
-  return buildDisableAgentProfilePrimaryBindingResponse({
-    agentProfileId: request.agentProfileId,
-    disabled: Boolean(disabledBinding),
-  });
+    if (disabledBinding) {
+      await notifyRuntimeTransportRouteCatalogChanged({
+        affectedProfileIds: [request.agentProfileId],
+        env,
+        ownerUserId: request.owner.id,
+        reason: "agent_profile_binding_changed",
+      }).catch((error) => {
+        console.warn(
+          "[core.agent_profile_binding.route_catalog_notify_failed]",
+          {
+            event: "core.agent_profile_binding.route_catalog_notify_failed",
+            agentProfileId: request.agentProfileId,
+            ownerUserId: request.owner.id,
+            error: toErrorMessage(error),
+          }
+        );
+      });
+    }
+
+    return buildDisableAgentProfilePrimaryBindingResponse({
+      agentProfileId: request.agentProfileId,
+      disabled: Boolean(disabledBinding),
+    });
+  } finally {
+    if (controllerMutationOperationId) {
+      await releaseAgentProfileExecutionTargetMutationAdmission({
+        agentProfileId: request.agentProfileId,
+        env,
+        operationId: controllerMutationOperationId,
+        ownerUserId: request.owner.id,
+      });
+    }
+  }
 }
 
 export async function rpcAuthorizeAgentProfileBindingForOrganization(
@@ -7912,6 +8033,18 @@ function isLocalAgentBackedCenterAgentRuntimeEnabled(
   return false;
 }
 
+function assertRemoteCenterAgentDesignationEnabled(env: CoreBindings): void {
+  if (env.OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED === "true") {
+    return;
+  }
+  throw createCoreRpcHttpError({
+    status: 503,
+    reason:
+      "Remote Agent designation is temporarily paused while OpenMeld finishes a safe runtime update. Try again shortly.",
+    code: "center_agent.remote_designation_paused",
+  });
+}
+
 export async function rpcDesignateCenterAgent(
   env: CoreBindings,
   input: DesignateCenterAgentInput
@@ -7942,10 +8075,6 @@ export async function rpcDesignateCenterAgent(
     permissions: { centerAgent: ["designate"] },
   });
   const bindingDb = requireAgentProfileBindingDb(env);
-  const owner = {
-    id: activeOrganization.userId,
-    kind: "owner_account" as const,
-  };
   if (body.data.runtime === "remote_agent") {
     await designateRemoteCenterAgentBinding({
       activeOrganization,
@@ -7953,7 +8082,6 @@ export async function rpcDesignateCenterAgent(
       bindingDb,
       context,
       env,
-      owner,
     });
   } else {
     // Local-agent-backed Center Agent is intentionally hidden pending the hosted-runtime feature bar (always-on, Slack, watchdog, cross-space context); to be redesigned together with bring-your-own-agent support.
@@ -7969,7 +8097,6 @@ export async function rpcDesignateCenterAgent(
       activeOrganization,
       agentProfileId,
       bindingDb,
-      owner,
     });
   }
   const result = await upsertCenterAgentDesignationRecord({
@@ -14585,19 +14712,36 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
   });
-  const previousPrimaryBinding =
-    body.data.writeMode === "reconnect"
-      ? await readPrimaryAgentProfileBindingRecord({
-          agentProfileId: request.agentProfileId,
-          db,
-          owner: request.owner,
-        })
-      : null;
-  let result: AgentProfileBindingCommandResult;
+  const bindingMutationContext: { previousBindingId: string | null } = {
+    previousBindingId: null,
+  };
+  let controllerMutationOperationId: string | null = null;
   try {
-    result = await ensurePrimaryAgentProfileBinding({
-      agentProfileId: request.agentProfileId,
-      bindingStore: createD1AgentProfileBindingCommandStore({
+    let result: AgentProfileBindingCommandResult;
+    try {
+      const bindingStore = createD1AgentProfileBindingCommandStore({
+        acquireExecutionTargetMutationAdmission: async ({ currentBinding }) => {
+          bindingMutationContext.previousBindingId =
+            currentBinding?.bindingId ?? null;
+          if (controllerMutationOperationId) {
+            return;
+          }
+          const controllerMutationAdmission =
+            await acquireAgentProfileExecutionTargetMutationAdmission({
+              agentProfileId: request.agentProfileId,
+              env,
+              ownerUserId: request.owner.id,
+            });
+          if (controllerMutationAdmission.status !== "acquired") {
+            throw new AgentProfileExecutionTargetMutationAdmissionError(
+              resolveControllerChangeAdmissionReasonCode(
+                controllerMutationAdmission
+              )
+            );
+          }
+          controllerMutationOperationId =
+            controllerMutationAdmission.operationId;
+        },
         db,
         ...(body.data.sessionInventorySelection
           ? {
@@ -14613,85 +14757,110 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
               },
             }
           : {}),
-      }),
-      agentControllerConversationId: body.data.agentControllerConversationId,
-      agentControllerRef: body.data.agentControllerRef,
-      createdByProfileId: request.context.actorContext.openMeldProfileId,
-      agentControllerCollaborationMode:
-        body.data.agentControllerCollaborationMode,
-      agentControllerPermissionMode: body.data.agentControllerPermissionMode,
-      modelId: body.data.modelId,
-      nowMs: Date.now(),
-      openCodePermission: body.data.openCodePermission,
-      ownerAuthorization: {
-        owner: request.owner,
-        status: "allowed",
-      },
-      profileOwnerValidation,
-      reasoningLevel: body.data.reasoningLevel,
-      runtimeAgentControllerReportStore: {
-        readCurrentReport: async (reportInput) =>
-          await readCurrentRuntimeAgentControllerReport({
-            agentControllerRef: reportInput.agentControllerRef,
-            db,
-            openMeldServiceRuntimeId: reportInput.openMeldServiceRuntimeId,
-          }),
-      },
-      openMeldServiceRuntimeId: openMeldServiceRuntimeId.value,
-      runtimeLookupInput,
-      runtimeLookupStore: {
-        readRuntimeRecord: async (lookupInput) =>
-          await readRuntimeRegistryRecord({
-            db,
-            runtimeLookupInput: lookupInput.runtimeLookupInput,
-          }),
-      },
-      writeMode: body.data.writeMode,
-    });
-  } catch (error) {
-    throwAgentProfileBindingCommandHttpError(error);
-  }
-  if (result.status === "rejected") {
-    return buildRejectedAgentProfileBindingResponse(result.reasonCodes);
-  }
+      });
+      result = await ensurePrimaryAgentProfileBinding({
+        agentProfileId: request.agentProfileId,
+        bindingStore: {
+          ...bindingStore,
+          readPrimaryBinding: async (readInput) => {
+            const currentBinding =
+              await bindingStore.readPrimaryBinding(readInput);
+            bindingMutationContext.previousBindingId =
+              currentBinding?.bindingId ?? null;
+            return currentBinding;
+          },
+        },
+        agentControllerConversationId: body.data.agentControllerConversationId,
+        agentControllerRef: body.data.agentControllerRef,
+        createdByProfileId: request.context.actorContext.openMeldProfileId,
+        agentControllerCollaborationMode:
+          body.data.agentControllerCollaborationMode,
+        agentControllerPermissionMode: body.data.agentControllerPermissionMode,
+        modelId: body.data.modelId,
+        nowMs: Date.now(),
+        openCodePermission: body.data.openCodePermission,
+        ownerAuthorization: {
+          owner: request.owner,
+          status: "allowed",
+        },
+        profileOwnerValidation,
+        reasoningLevel: body.data.reasoningLevel,
+        runtimeAgentControllerReportStore: {
+          readCurrentReport: async (reportInput) =>
+            await readCurrentRuntimeAgentControllerReport({
+              agentControllerRef: reportInput.agentControllerRef,
+              db,
+              openMeldServiceRuntimeId: reportInput.openMeldServiceRuntimeId,
+            }),
+        },
+        openMeldServiceRuntimeId: openMeldServiceRuntimeId.value,
+        runtimeLookupInput,
+        runtimeLookupStore: {
+          readRuntimeRecord: async (lookupInput) =>
+            await readRuntimeRegistryRecord({
+              db,
+              runtimeLookupInput: lookupInput.runtimeLookupInput,
+            }),
+        },
+        writeMode: body.data.writeMode,
+      });
+    } catch (error) {
+      if (error instanceof AgentProfileExecutionTargetMutationAdmissionError) {
+        return buildRejectedAgentProfileBindingResponse([error.reasonCode]);
+      }
+      throwAgentProfileBindingCommandHttpError(error);
+    }
+    if (result.status === "rejected") {
+      return buildRejectedAgentProfileBindingResponse(result.reasonCodes);
+    }
 
-  await applyAcceptedBindingAuthorizationPolicies({
-    activeOrganizationId: normalizeOptionalText(
-      request.context.activeOrganizationId
-    ),
-    actorProfileId: normalizeOptionalText(
-      request.context.actorContext.openMeldProfileId
-    ),
-    agentProfileId: request.agentProfileId,
-    bindingId: result.binding.bindingId,
-    db,
-    nowMs: Date.now(),
-    ownerUserId: request.owner.id,
-    previousBindingId: previousPrimaryBinding?.bindingId ?? null,
-  });
-
-  const lookupResult = await lookupPrimaryAgentProfileBinding({
-    agentProfileId: request.agentProfileId,
-    owner: request.owner,
-    store: createD1AgentProfileBindingLookupStore({ db }),
-  });
-  await notifyRuntimeTransportRouteCatalogChanged({
-    affectedProfileIds: [request.agentProfileId],
-    env,
-    ownerUserId: request.owner.id,
-    reason: "agent_profile_binding_changed",
-  }).catch((error) => {
-    console.warn("[core.agent_profile_binding.route_catalog_notify_failed]", {
-      event: "core.agent_profile_binding.route_catalog_notify_failed",
+    await applyAcceptedBindingAuthorizationPolicies({
+      activeOrganizationId: normalizeOptionalText(
+        request.context.activeOrganizationId
+      ),
+      actorProfileId: normalizeOptionalText(
+        request.context.actorContext.openMeldProfileId
+      ),
       agentProfileId: request.agentProfileId,
+      bindingId: result.binding.bindingId,
+      db,
+      nowMs: Date.now(),
       ownerUserId: request.owner.id,
-      error: toErrorMessage(error),
+      previousBindingId: bindingMutationContext.previousBindingId,
     });
-  });
-  return buildAcceptedAgentProfileBindingResponse({
-    binding: mapAgentProfileBindingLookupResultToProjection(lookupResult),
-    result,
-  });
+
+    const lookupResult = await lookupPrimaryAgentProfileBinding({
+      agentProfileId: request.agentProfileId,
+      owner: request.owner,
+      store: createD1AgentProfileBindingLookupStore({ db }),
+    });
+    await notifyRuntimeTransportRouteCatalogChanged({
+      affectedProfileIds: [request.agentProfileId],
+      env,
+      ownerUserId: request.owner.id,
+      reason: "agent_profile_binding_changed",
+    }).catch((error) => {
+      console.warn("[core.agent_profile_binding.route_catalog_notify_failed]", {
+        event: "core.agent_profile_binding.route_catalog_notify_failed",
+        agentProfileId: request.agentProfileId,
+        ownerUserId: request.owner.id,
+        error: toErrorMessage(error),
+      });
+    });
+    return buildAcceptedAgentProfileBindingResponse({
+      binding: mapAgentProfileBindingLookupResultToProjection(lookupResult),
+      result,
+    });
+  } finally {
+    if (controllerMutationOperationId) {
+      await releaseAgentProfileExecutionTargetMutationAdmission({
+        agentProfileId: request.agentProfileId,
+        env,
+        operationId: controllerMutationOperationId,
+        ownerUserId: request.owner.id,
+      });
+    }
+  }
 }
 
 export async function rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode(
@@ -18587,7 +18756,6 @@ async function readOrInitializeCenterAgentDesignation(input: {
     agentProfileId: managedProfile.profileId,
     bindingDb,
     env: input.env,
-    owner: { id: owner.userId, kind: "owner_account" },
   });
 
   const result = await upsertCenterAgentDesignationRecord({
@@ -18857,8 +19025,7 @@ async function readCenterAgentHostedBindingOrThrow(input: {
   });
   if (
     binding?.bindingState !== "enabled_primary" ||
-    binding.runtimeKind !== "hosted_center_agent" ||
-    binding.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF
+    !isHostedCenterAgentExecutionTarget(binding)
   ) {
     throw createCoreRpcHttpError({
       code: "center_agent.binding_not_found",
@@ -18876,8 +19043,8 @@ async function designateRemoteCenterAgentBinding(input: {
   bindingDb: D1Database;
   context?: CoreRpcContextInput;
   env: CoreBindings;
-  owner: AgentProfileBindingOwner;
 }): Promise<void> {
+  assertRemoteCenterAgentDesignationEnabled(input.env);
   const availability = resolveRemoteAgentRuntimeAvailability({
     env: input.env,
     organizationId: input.activeOrganization.organizationId,
@@ -18920,6 +19087,10 @@ async function designateRemoteCenterAgentBinding(input: {
       code: "center_agent.profile_org_mismatch",
     });
   }
+  const owner: AgentProfileBindingOwner = {
+    id: profileOrganization.ownerUserId,
+    kind: "owner_account",
+  };
 
   const nowMs = Date.now();
   const actorProfileId = normalizeOptionalText(
@@ -18932,132 +19103,285 @@ async function designateRemoteCenterAgentBinding(input: {
       code: "auth.unauthenticated",
     });
   }
-  const previousPrimaryBinding = await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.agentProfileId,
-    db: input.bindingDb,
-    owner: input.owner,
-  });
-  const writeResult = await reconnectPrimaryAgentProfileBindingRecord({
-    db: input.bindingDb,
-    record: {
-      agentProfileId: input.agentProfileId,
-      agentControllerConversationId: null,
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      bindingId: `binding_${crypto.randomUUID()}`,
-      createdAtMs: nowMs,
-      createdByProfileId: actorProfileId,
-      hostedRuntimeIdentityJson: JSON.stringify(
-        HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
-      ),
-      owner: input.owner,
-      reasonCode: "center_agent.remote_agent_designation",
-      runtimeKind: "hosted_center_agent",
-      updatedAtMs: nowMs,
-      openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-    },
-  });
-  if (writeResult.status === "rejected") {
-    throw createCoreRpcHttpError({
-      status: 409,
-      reason:
-        "Remote Agent Binding could not replace the current primary Binding.",
-      code: `center_agent.${writeResult.reason}`,
-    });
-  }
-
-  await copyPreviousBindingAuthorizationsForHostedCenterAgent({
-    activeOrganizationId: input.activeOrganization.organizationId,
-    actorProfileId,
-    bindingId: writeResult.binding.bindingId,
-    db: input.bindingDb,
-    nowMs,
-    ownerUserId: input.activeOrganization.userId,
-    previousBindingId: previousPrimaryBinding?.bindingId ?? null,
-  });
-  const authorization = await ensureOrganizationBindingAuthorizationRecord({
-    authorizedBy: input.activeOrganization.userId,
-    bindingId: writeResult.binding.bindingId,
-    db: input.bindingDb,
-    nowMs,
-    organizationId: input.activeOrganization.organizationId,
-  });
-  await insertCenterAgentAuditJournalEntry({
-    action: "authorize_remote_center_agent_binding",
-    actorProfileId,
-    attribution: { actorProfileId, onBehalfOf: null },
-    db: input.bindingDb,
-    id: crypto.randomUUID(),
-    nowMs,
-    organizationId: input.activeOrganization.organizationId,
-    resource: {
-      id: authorization.record.id,
-      type: "organization_binding_authorization",
-    },
-  });
-  await insertCenterAgentAuditJournalEntry({
-    action: "designate_remote_center_agent",
-    actorProfileId,
-    attribution: { actorProfileId, onBehalfOf: null },
-    db: input.bindingDb,
-    id: crypto.randomUUID(),
-    nowMs,
-    organizationId: input.activeOrganization.organizationId,
-    resource: {
-      id: writeResult.binding.bindingId,
-      type: "agent_profile_binding",
-    },
-  });
-}
-
-async function copyPreviousBindingAuthorizationsForHostedCenterAgent(input: {
-  activeOrganizationId: string;
-  actorProfileId: string;
-  bindingId: string;
-  db: D1Database;
-  nowMs: number;
-  ownerUserId: string;
-  previousBindingId: string | null;
-}): Promise<void> {
-  if (!input.previousBindingId || input.previousBindingId === input.bindingId) {
-    return;
-  }
-  const previousAuthorizations =
-    await listOrganizationBindingAuthorizationRecordsForBinding({
-      bindingId: input.previousBindingId,
-      db: input.db,
-    });
-  for (const previousAuthorization of previousAuthorizations) {
-    if (previousAuthorization.organizationId !== input.activeOrganizationId) {
-      continue;
+  const executionTargetMutationAdmissions = new Map<string, string>();
+  const acquireMutationAdmissionForOwner = async (
+    ownerUserId: string
+  ): Promise<void> => {
+    if (executionTargetMutationAdmissions.has(ownerUserId)) {
+      return;
     }
-    const authorization = await ensureOrganizationBindingAuthorizationRecord({
-      authorizedBy: input.ownerUserId,
-      bindingId: input.bindingId,
-      db: input.db,
-      nowMs: input.nowMs,
-      organizationId: previousAuthorization.organizationId,
+    const admission = await acquireAgentProfileExecutionTargetMutationAdmission(
+      {
+        agentProfileId: input.agentProfileId,
+        env: input.env,
+        ownerUserId,
+      }
+    );
+    if (admission.status !== "acquired") {
+      const reasonCode = resolveControllerChangeAdmissionReasonCode(admission);
+      throw createCoreRpcHttpError({
+        code: reasonCode,
+        reason:
+          admission.status === "blocked"
+            ? "Center Agent runtime cannot be changed while this Agent has active work."
+            : "Center Agent runtime change eligibility is temporarily unavailable.",
+        status: admission.status === "blocked" ? 409 : 503,
+      });
+    }
+    executionTargetMutationAdmissions.set(ownerUserId, admission.operationId);
+  };
+  const assertObservedOwnerLimit = (ownerUserIds: readonly string[]): void => {
+    const observedOwnerIds = new Set([
+      ...executionTargetMutationAdmissions.keys(),
+      ...ownerUserIds,
+    ]);
+    if (
+      observedOwnerIds.size >
+      MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE
+    ) {
+      throw createCoreRpcHttpError({
+        code: "center_agent.binding_owner_inventory_exceeded",
+        reason: "Center Agent runtime ownership requires operator review.",
+        status: 503,
+      });
+    }
+  };
+  let previousPrimaryBindingIds: string[] = [];
+  try {
+    let admittedEnabledPrimaryBindings =
+      await listCenterAgentEnabledPrimaryBindingsOrThrow({
+        agentProfileId: input.agentProfileId,
+        db: input.bindingDb,
+      });
+    for (
+      let inventoryAttempt = 0;
+      inventoryAttempt <= MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE;
+      inventoryAttempt += 1
+    ) {
+      previousPrimaryBindingIds = [
+        ...new Set([
+          ...previousPrimaryBindingIds,
+          ...admittedEnabledPrimaryBindings.map((binding) => binding.bindingId),
+        ]),
+      ];
+      if (
+        !remoteCenterAgentTargetNeedsMutation({
+          bindings: admittedEnabledPrimaryBindings,
+          canonicalOwnerId: owner.id,
+        })
+      ) {
+        break;
+      }
+      const ownerUserIds = [
+        ...new Set([
+          owner.id,
+          ...admittedEnabledPrimaryBindings.map((binding) => binding.owner.id),
+        ]),
+      ].sort();
+      assertObservedOwnerLimit(ownerUserIds);
+      for (const ownerUserId of ownerUserIds) {
+        await acquireMutationAdmissionForOwner(ownerUserId);
+      }
+      admittedEnabledPrimaryBindings =
+        await listCenterAgentEnabledPrimaryBindingsOrThrow({
+          agentProfileId: input.agentProfileId,
+          db: input.bindingDb,
+        });
+      const allObservedOwnersAdmitted = [
+        owner.id,
+        ...admittedEnabledPrimaryBindings.map((binding) => binding.owner.id),
+      ].every((ownerUserId) =>
+        executionTargetMutationAdmissions.has(ownerUserId)
+      );
+      if (allObservedOwnersAdmitted) {
+        break;
+      }
+      if (
+        inventoryAttempt ===
+        MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE
+      ) {
+        throw createCoreRpcHttpError({
+          code: "center_agent.binding_owner_inventory_changed",
+          reason: "Center Agent runtime ownership changed during admission.",
+          status: 503,
+        });
+      }
+    }
+    const canonicalPrimaryBinding = admittedEnabledPrimaryBindings.find(
+      (binding) => binding.owner.id === owner.id
+    );
+    if (canonicalPrimaryBinding) {
+      previousPrimaryBindingIds = [
+        canonicalPrimaryBinding.bindingId,
+        ...previousPrimaryBindingIds.filter(
+          (bindingId) => bindingId !== canonicalPrimaryBinding.bindingId
+        ),
+      ];
+    }
+    previousPrimaryBindingIds = [
+      ...new Set([
+        ...previousPrimaryBindingIds,
+        ...admittedEnabledPrimaryBindings.map((binding) => binding.bindingId),
+      ]),
+    ];
+    const inheritedAuthorization =
+      await resolveRemoteCenterAgentBindingAuthorization({
+        activeOrganizationId: input.activeOrganization.organizationId,
+        authorizedByDefault: input.activeOrganization.userId,
+        db: input.bindingDb,
+        previousBindingIds: previousPrimaryBindingIds,
+      });
+    const writeResult = await reconcileRemoteCenterAgentBindingRecord({
+      authorization: {
+        authorizedBy: inheritedAuthorization.authorizedBy,
+        id: crypto.randomUUID(),
+        organizationId: input.activeOrganization.organizationId,
+      },
+      currentBindings: admittedEnabledPrimaryBindings,
+      db: input.bindingDb,
+      noncanonicalDisabledReasonCode: "center_agent.binding_owner_reconciled",
+      record: {
+        agentProfileId: input.agentProfileId,
+        agentControllerConversationId: null,
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        bindingId: `binding_${crypto.randomUUID()}`,
+        createdAtMs: nowMs,
+        createdByProfileId: actorProfileId,
+        hostedRuntimeIdentityJson: JSON.stringify(
+          HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+        ),
+        owner,
+        reasonCode: "center_agent.remote_agent_designation",
+        runtimeKind: "hosted_center_agent",
+        updatedAtMs: nowMs,
+        openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+      },
     });
+    if (
+      inheritedAuthorization.previousBindingId &&
+      writeResult.authorizationStatus === "authorized"
+    ) {
+      await insertCenterAgentAuditJournalEntry({
+        action: "carry_over_binding_authorization",
+        actorProfileId,
+        attribution: { actorProfileId, onBehalfOf: null },
+        db: input.bindingDb,
+        id: crypto.randomUUID(),
+        nowMs,
+        organizationId: input.activeOrganization.organizationId,
+        resource: {
+          id: writeResult.authorization.id,
+          type: "organization_binding_authorization",
+        },
+      });
+    }
     await insertCenterAgentAuditJournalEntry({
-      action: "carry_over_binding_authorization",
-      actorProfileId: input.actorProfileId,
-      attribution: { actorProfileId: input.actorProfileId, onBehalfOf: null },
-      db: input.db,
+      action: "authorize_remote_center_agent_binding",
+      actorProfileId,
+      attribution: { actorProfileId, onBehalfOf: null },
+      db: input.bindingDb,
       id: crypto.randomUUID(),
-      nowMs: input.nowMs,
-      organizationId: previousAuthorization.organizationId,
+      nowMs,
+      organizationId: input.activeOrganization.organizationId,
       resource: {
-        id: authorization.record.id,
+        id: writeResult.authorization.id,
         type: "organization_binding_authorization",
       },
     });
+    await insertCenterAgentAuditJournalEntry({
+      action: "designate_remote_center_agent",
+      actorProfileId,
+      attribution: { actorProfileId, onBehalfOf: null },
+      db: input.bindingDb,
+      id: crypto.randomUUID(),
+      nowMs,
+      organizationId: input.activeOrganization.organizationId,
+      resource: {
+        id: writeResult.binding.bindingId,
+        type: "agent_profile_binding",
+      },
+    });
+  } finally {
+    await Promise.all(
+      [...executionTargetMutationAdmissions.entries()].map(
+        ([ownerUserId, operationId]) =>
+          releaseAgentProfileExecutionTargetMutationAdmission({
+            agentProfileId: input.agentProfileId,
+            env: input.env,
+            operationId,
+            ownerUserId,
+          })
+      )
+    );
   }
+}
+
+async function listCenterAgentEnabledPrimaryBindingsOrThrow(input: {
+  agentProfileId: string;
+  db: D1Database;
+}): Promise<AgentProfileBindingRecord[]> {
+  try {
+    return await listEnabledPrimaryAgentProfileBindingRecordsForProfile(input);
+  } catch (error) {
+    if (error instanceof AgentProfileBindingOwnerInventoryLimitError) {
+      throw createCoreRpcHttpError({
+        code: "center_agent.binding_owner_inventory_exceeded",
+        reason: "Center Agent runtime ownership requires operator review.",
+        status: 503,
+      });
+    }
+    throw error;
+  }
+}
+
+function remoteCenterAgentTargetNeedsMutation(input: {
+  bindings: readonly AgentProfileBindingRecord[];
+  canonicalOwnerId: string;
+}): boolean {
+  const canonicalBinding = input.bindings.find(
+    (binding) => binding.owner.id === input.canonicalOwnerId
+  );
+  return (
+    input.bindings.some(
+      (binding) => binding.owner.id !== input.canonicalOwnerId
+    ) ||
+    !canonicalBinding ||
+    !isHostedCenterAgentExecutionTarget(canonicalBinding)
+  );
+}
+
+async function resolveRemoteCenterAgentBindingAuthorization(input: {
+  activeOrganizationId: string;
+  authorizedByDefault: string;
+  db: D1Database;
+  previousBindingIds: readonly string[];
+}): Promise<{ authorizedBy: string; previousBindingId: string | null }> {
+  for (const previousBindingId of input.previousBindingIds) {
+    const previousAuthorizations =
+      await listOrganizationBindingAuthorizationRecordsForBinding({
+        bindingId: previousBindingId,
+        db: input.db,
+      });
+    for (const previousAuthorization of previousAuthorizations) {
+      if (previousAuthorization.organizationId !== input.activeOrganizationId) {
+        continue;
+      }
+      return {
+        authorizedBy: previousAuthorization.authorizedBy,
+        previousBindingId,
+      };
+    }
+  }
+  return {
+    authorizedBy: input.authorizedByDefault,
+    previousBindingId: null,
+  };
 }
 
 async function assertSelfHostedDesignatableCenterAgentProfile(input: {
   activeOrganization: ActiveOrganization;
   agentProfileId: string;
   bindingDb: D1Database;
-  owner: AgentProfileBindingOwner;
 }): Promise<void> {
   const profileOrganization = await readAgentProfileOrganizationContext({
     db: input.bindingDb,
@@ -19089,10 +19413,14 @@ async function assertSelfHostedDesignatableCenterAgentProfile(input: {
       code: "center_agent.profile_org_mismatch",
     });
   }
+  const owner: AgentProfileBindingOwner = {
+    id: profileOrganization.ownerUserId,
+    kind: "owner_account",
+  };
   const binding = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.agentProfileId,
     db: input.bindingDb,
-    owner: input.owner,
+    owner,
   });
   if (binding?.bindingState !== "enabled_primary") {
     throw createCoreRpcHttpError({
@@ -19942,6 +20270,123 @@ function buildGetAgentProfilePrimaryBindingResponse(
     );
   }
   return validated.data;
+}
+
+async function resolveAgentProfileControllerChangeEligibility(input: {
+  agentProfileId: string;
+  env: CoreBindings;
+  ownerUserId: string;
+}): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
+  const executionState = await readRuntimeTransportAgentProfileExecutionState({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    targetProfileId: input.agentProfileId,
+  });
+  let response: GetAgentProfileControllerChangeEligibilityResponse;
+  if (executionState.status === "inactive") {
+    response = {
+      agentProfileId: input.agentProfileId,
+      reasonCode: "agent_profile_binding.controller_change_allowed",
+      status: "allowed",
+    };
+  } else if (executionState.status === "active") {
+    response = {
+      agentProfileId: input.agentProfileId,
+      reasonCode:
+        "agent_profile_binding.controller_change_blocked_active_execution",
+      status: "blocked",
+    };
+  } else {
+    response = {
+      agentProfileId: input.agentProfileId,
+      reasonCode:
+        "agent_profile_binding.controller_change_eligibility_unavailable",
+      status: "unavailable",
+    };
+  }
+  return getAgentProfileControllerChangeEligibilityResponseSchema.parse(
+    response
+  );
+}
+
+type AgentProfileExecutionTargetMutationAdmission =
+  | { operationId: string; status: "acquired" }
+  | {
+      reasonCode: string;
+      status: "blocked" | "unavailable";
+    };
+
+class AgentProfileExecutionTargetMutationAdmissionError extends Error {
+  readonly reasonCode: string;
+
+  constructor(reasonCode: string) {
+    super(reasonCode);
+    this.name = "AgentProfileExecutionTargetMutationAdmissionError";
+    this.reasonCode = reasonCode;
+  }
+}
+
+async function acquireAgentProfileExecutionTargetMutationAdmission(input: {
+  agentProfileId: string;
+  env: CoreBindings;
+  ownerUserId: string;
+}): Promise<AgentProfileExecutionTargetMutationAdmission> {
+  const operationId = `agent-profile-execution-target-mutation:${crypto.randomUUID()}`;
+  const admission =
+    await acquireRuntimeTransportAgentProfileExecutionTargetMutation({
+      env: input.env,
+      operationId,
+      ownerUserId: input.ownerUserId,
+      targetProfileId: input.agentProfileId,
+    });
+  if (admission.status === "acquired") {
+    return { operationId, status: "acquired" };
+  }
+  if (admission.status === "blocked") {
+    return {
+      reasonCode: admission.reasonCode,
+      status: "blocked",
+    };
+  }
+  return {
+    reasonCode: admission.reasonCode,
+    status: "unavailable",
+  };
+}
+
+function resolveControllerChangeAdmissionReasonCode(
+  admission: Exclude<
+    AgentProfileExecutionTargetMutationAdmission,
+    { status: "acquired" }
+  >
+): GetAgentProfileControllerChangeEligibilityResponse["reasonCode"] {
+  return admission.status === "blocked"
+    ? "agent_profile_binding.controller_change_blocked_active_execution"
+    : "agent_profile_binding.controller_change_eligibility_unavailable";
+}
+
+async function releaseAgentProfileExecutionTargetMutationAdmission(input: {
+  agentProfileId: string;
+  env: CoreBindings;
+  operationId: string;
+  ownerUserId: string;
+}): Promise<void> {
+  await releaseRuntimeTransportAgentProfileExecutionTargetMutation({
+    env: input.env,
+    operationId: input.operationId,
+    ownerUserId: input.ownerUserId,
+    targetProfileId: input.agentProfileId,
+  }).catch((error) => {
+    console.warn(
+      "[core.agent_profile.execution_target_mutation_release_failed]",
+      {
+        agentProfileId: input.agentProfileId,
+        error: toErrorMessage(error),
+        operationId: input.operationId,
+        ownerUserId: input.ownerUserId,
+      }
+    );
+  });
 }
 
 function buildDisableAgentProfilePrimaryBindingResponse(input: {

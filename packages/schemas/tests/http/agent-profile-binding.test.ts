@@ -7,6 +7,7 @@ import {
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   ensureAgentProfilePrimaryBindingBodySchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
+  getAgentProfileControllerChangeEligibilityResponseSchema,
   getAgentProfileCreationDefaultsResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
   getOrganizationBindingAuthorizationPreferenceResponseSchema,
@@ -20,6 +21,28 @@ import {
 const REASONING_REQUIRES_MODEL_PATTERN = /reasoningLevel requires modelId/u;
 
 describe("agent profile binding http schemas", () => {
+  it("keeps Controller change eligibility explicit and fail-closed", () => {
+    expect(
+      getAgentProfileControllerChangeEligibilityResponseSchema.parse({
+        agentProfileId: "agt_11111111-1111-4111-8111-111111111111",
+        reasonCode:
+          "agent_profile_binding.controller_change_blocked_active_execution",
+        status: "blocked",
+      })
+    ).toMatchObject({
+      reasonCode:
+        "agent_profile_binding.controller_change_blocked_active_execution",
+      status: "blocked",
+    });
+    expect(
+      getAgentProfileControllerChangeEligibilityResponseSchema.safeParse({
+        agentProfileId: "agt_11111111-1111-4111-8111-111111111111",
+        reasonCode: "agent_profile_binding.controller_change_allowed",
+        status: "blocked",
+      }).success
+    ).toBe(false);
+  });
+
   it("keeps remembered creation defaults scoped to one Local Agent", () => {
     expect(
       setAgentProfileCreationDefaultsBodySchema.parse({

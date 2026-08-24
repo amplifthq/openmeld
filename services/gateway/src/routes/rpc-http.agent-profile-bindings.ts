@@ -8,6 +8,7 @@ import {
   getAgentExecutionReadinessBatchBodySchema,
   getAgentExecutionReadinessBatchResponseSchema,
   getAgentExecutionReadinessResponseSchema,
+  getAgentProfileControllerChangeEligibilityResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
   listCurrentUserAgentProfileOrganizationWakeAccessResponseSchema,
   listOrganizationBindingAuthorizationsResponseSchema,
@@ -34,6 +35,8 @@ import { readJsonRequestBody } from "./rpc-http.parsers";
 
 const AGENT_PROFILE_BINDING_ROUTE =
   "/v1/agent-profiles/:agentProfileId/primary-binding";
+const AGENT_PROFILE_CONTROLLER_CHANGE_ELIGIBILITY_ROUTE =
+  "/v1/agent-profiles/:agentProfileId/controller-change-eligibility";
 const AGENT_PROFILE_DEFAULT_PROJECT_ROUTE =
   "/v1/agent-profiles/:agentProfileId/default-project";
 const AGENT_PROFILE_BINDING_MODEL_SELECTION_ROUTE =
@@ -140,6 +143,33 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: getAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.getAgentProfilePrimaryBinding({
+          agentProfileId: routeParams.value.agentProfileId,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+
+  app.get(AGENT_PROFILE_CONTROLLER_CHANGE_ELIGIBILITY_ROUTE, (c) => {
+    const routeParams = parseAgentProfileBindingRouteParams({
+      agentProfileId: c.req.param("agentProfileId"),
+    });
+    if (!routeParams.ok) {
+      return respondBadRequest({
+        c,
+        route: AGENT_PROFILE_CONTROLLER_CHANGE_ELIGIBILITY_ROUTE,
+        method: "GET",
+        code: "invalid_payload",
+        message: routeParams.message,
+      });
+    }
+
+    return executeRpcRoute({
+      c,
+      route: AGENT_PROFILE_CONTROLLER_CHANGE_ELIGIBILITY_ROUTE,
+      method: "GET",
+      responseSchema: getAgentProfileControllerChangeEligibilityResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.getAgentProfileControllerChangeEligibility({
           agentProfileId: routeParams.value.agentProfileId,
           context: buildCoreRpcContext(c),
         }),

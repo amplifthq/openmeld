@@ -6,6 +6,7 @@ import {
   type AgentProfileBindingState,
   createAgentProfileBindingDisplayProjection,
 } from "@openmeld/agent-runtime";
+import type { AgentProfileBindingOpenCodePermission } from "@openmeld/schemas/types";
 import type {
   AgentProfileBindingCommandRecord,
   AgentProfileBindingOwner,
@@ -33,6 +34,7 @@ export type AgentProfileBindingLookupResult = {
     modelId: string;
     reasoningLevel?: string;
   };
+  openCodePermission?: AgentProfileBindingOpenCodePermission;
   reasonCodes: readonly string[];
   routable: boolean;
   openMeldServiceRuntimeId?: string;
@@ -90,6 +92,7 @@ export function createAgentProfileBindingProjectionFromRecord(input: {
     agentControllerCollaborationMode:
       input.binding.agentControllerCollaborationMode,
     agentControllerPermissionMode: input.binding.agentControllerPermissionMode,
+    openCodePermission: input.binding.openCodePermission,
     modelSelection: input.binding.modelId
       ? {
           modelId: input.binding.modelId,
@@ -128,6 +131,9 @@ function mapProjection(
       : {}),
     ...(projection.modelSelection
       ? { modelSelection: projection.modelSelection }
+      : {}),
+    ...(projection.openCodePermission
+      ? { openCodePermission: projection.openCodePermission }
       : {}),
     reasonCodes: projection.reasonCodes,
     routable: projection.dispatchEligibility.routable,

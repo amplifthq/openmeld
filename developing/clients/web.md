@@ -2293,6 +2293,20 @@ me`, and owner-self details may show the richer Binding fact. Web writes the
 mode through the Binding API; it must not treat the selected mode as Space
 permission, Wake readiness, or local service truth.
 
+Controller replacement, unbinding, and working-folder changes are disruptive
+execution-target actions. Agents pages and Space maintenance dialogs must read
+the account-wide execution-state projection rather than deriving a lock from
+the current Space's Wake list. An unavailable projection disables only those
+disruptive controls. The Core writer remains the final guard against stale
+browser state; Web must not present a rejected write as saved. That writer
+acquires owner-shard execution-target mutation admission, so a Wake that starts
+after Web's eligibility read still blocks the disruptive change. A working-
+folder timeout remains an unknown outcome until the lease expires; Web shows
+the failed save and must not imply that a concurrent Wake is safe. Model,
+reasoning, collaboration, permission, and OpenCode permission controls remain
+editable while an Agent is working because they apply to future work after
+local synchronization.
+
 For Codex Bindings, the same edit surface also renders a separate
 `Codex collaboration mode` control with `Default` and `Plan`. Its copy must
 explain the user outcome: Plan can investigate, plan, and ask structured

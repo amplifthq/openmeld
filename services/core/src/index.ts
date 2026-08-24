@@ -157,6 +157,7 @@ import type {
   GetActiveSpaceWakeProgressResponse,
   GetAgentExecutionReadinessBatchResponse,
   GetAgentExecutionReadinessResponse,
+  GetAgentProfileControllerChangeEligibilityResponse,
   GetAgentProfileCreationApprovalPreferenceResponse,
   GetAgentProfileCreationDefaultsResponse,
   GetAgentProfilePrimaryBindingResponse,
@@ -589,6 +590,7 @@ import {
   type GetActiveSpaceWakeProgressInput,
   type GetAgentExecutionReadinessBatchInput,
   type GetAgentExecutionReadinessInput,
+  type GetAgentProfileControllerChangeEligibilityInput,
   type GetAgentProfileCreationDefaultsInput,
   type GetAgentProfilePrimaryBindingInput,
   type GetCenterAgentDesignationInput,
@@ -787,6 +789,7 @@ import {
   rpcGetActiveSpaceWakeProgress,
   rpcGetAgentExecutionReadiness,
   rpcGetAgentExecutionReadinessBatch,
+  rpcGetAgentProfileControllerChangeEligibility,
   rpcGetAgentProfileCreationDefaults,
   rpcGetAgentProfilePrimaryBinding,
   rpcGetCenterAgentDesignation,
@@ -2088,6 +2091,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetAgentProfilePrimaryBindingInput
   ): Promise<GetAgentProfilePrimaryBindingResponse> {
     return rpcGetAgentProfilePrimaryBinding(this.env, input);
+  }
+
+  getAgentProfileControllerChangeEligibility(
+    input: GetAgentProfileControllerChangeEligibilityInput
+  ): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
+    return rpcGetAgentProfileControllerChangeEligibility(this.env, input);
   }
 
   getLocalRuntimeExpectedRoutes(
@@ -3947,6 +3956,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetAgentProfilePrimaryBindingInput
   ): Promise<GetAgentProfilePrimaryBindingResponse> {
     return super.getAgentProfilePrimaryBinding(input);
+  }
+
+  getAgentProfileControllerChangeEligibility(
+    input: GetAgentProfileControllerChangeEligibilityInput
+  ): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
+    return super.getAgentProfileControllerChangeEligibility(input);
   }
 
   getLocalRuntimeExpectedRoutes(

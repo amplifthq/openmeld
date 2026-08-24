@@ -890,7 +890,7 @@ async function seedResearchDeliveryAuthority(
           agent_controller_ref, agent_controller_conversation_id, binding_state,
           model_id, created_at_ms, updated_at_ms
         ) VALUES (?, 'owner_account', ?, ?, ?, 'hosted_center_agent', ?, ?,
-          'center-agent', 'enabled_primary', ?, 1000, 1000)
+          NULL, 'enabled_primary', ?, 1000, 1000)
       `
     ).bind(
       bindingId,

@@ -39,6 +39,31 @@ export type DaemonExecutionCompatibility = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-transport")["daemonExecutionCompatibilitySchema"]
 >;
 
+export type RuntimeTransportAgentProfileExecutionStateRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionStateRequestSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileExecutionStateResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionStateResponseSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileExecutionTargetMutationRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionTargetMutationRequestSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema"]
+  >;
+
 export type RuntimeTransportRegisterSessionRequest = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportRegisterSessionRequestSchema"]
 >;

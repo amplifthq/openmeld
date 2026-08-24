@@ -473,6 +473,18 @@ function readDrizzleMigrationStatementsForTables(
     if (statement.includes("-- full-shared-schema-only")) {
       return false;
     }
+    const requiredFocusedTableNames = [
+      ...statement.matchAll(/-- focused-fixture-requires:\s*([A-Za-z0-9_]+)/gu),
+    ]
+      .map((match) => match[1])
+      .filter((tableName): tableName is string => tableName !== undefined);
+    if (
+      requiredFocusedTableNames.some(
+        (tableName) => !expandedTableNames.has(tableName)
+      )
+    ) {
+      return false;
+    }
     const createdTableName = readCreatedTableName(statement);
     if (
       createdTableName?.startsWith("__new_") &&

@@ -1429,6 +1429,57 @@ describe("SpaceThreadPanel", () => {
 			});
 		});
 	});
+
+	it("opens future permission settings from a permission request in a thread", () => {
+		const onEditAgentProfile = vi.fn();
+		renderThreadPanel({
+			editableAgentProfileIds: new Set([TARGET_PROFILE_ID]),
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem(),
+					pendingInteraction: {
+						canRespond: true,
+						expiresAtMs: Date.UTC(2026, 6, 29),
+						interactionId: "interaction-thread-permission",
+						kind: "permission",
+						request: {
+							expiresAtMs: Date.UTC(2026, 6, 29),
+							interactionId: "interaction-thread-permission",
+							kind: "permission",
+							options: [
+								{
+									intent: "allow_once",
+									label: "Allow once",
+									optionId: "allow-once",
+								},
+							],
+							requestedAtMs: Date.UTC(2026, 6, 28),
+							subject: { type: "tool" },
+							title: "Use this tool?",
+							v: 1,
+						},
+						requestedAtMs: Date.UTC(2026, 6, 28),
+					},
+					runtimeCoordinatorExecutionId: "rce_thread_permission",
+				},
+			],
+			onAgentInteractionResponse: vi.fn().mockResolvedValue(undefined),
+			onEditAgentProfile,
+			signals: [createWakeTextSignal()],
+		});
+
+		const sourceMessage = screen
+			.getByText("@runner please triage this")
+			.closest("[data-signal-id='sig-thread-wake']");
+		expect(sourceMessage).not.toBeNull();
+		fireEvent.click(
+			within(sourceMessage as HTMLElement).getByRole("button", {
+				name: "Edit Agent permissions",
+			})
+		);
+
+		expect(onEditAgentProfile).toHaveBeenCalledWith(TARGET_PROFILE_ID);
+	});
 });
 
 const TARGET_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";

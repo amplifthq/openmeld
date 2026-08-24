@@ -17,6 +17,8 @@ export type SpaceAgentInteractionResponseHandler = (
 	input: RespondToSpaceAgentInteractionBody
 ) => Promise<void>;
 
+export type SpaceAgentProfileEditHandler = (profileId: string) => void;
+
 type QuestionDraft = {
 	otherText: string;
 	selectedOptionIds: ReadonlySet<string>;
@@ -31,6 +33,7 @@ const EMPTY_QUESTION_DRAFT: QuestionDraft = {
 
 export function SpaceAgentInteractionCard(input: {
 	item: WakeProgressItem;
+	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onRespond?: SpaceAgentInteractionResponseHandler;
 }) {
 	const pendingInteraction = input.item.pendingInteraction;
@@ -122,6 +125,11 @@ export function SpaceAgentInteractionCard(input: {
 			{request.kind === "permission" ? (
 				<PermissionInteraction
 					disabled={isSubmitting}
+					onEditAgentProfile={
+						input.onEditAgentProfile
+							? () => input.onEditAgentProfile?.(input.item.targetProfileId)
+							: undefined
+					}
 					onRespond={respond}
 					request={request}
 				/>
@@ -193,6 +201,7 @@ function InteractionShell(input: {
 
 function PermissionInteraction(input: {
 	disabled: boolean;
+	onEditAgentProfile?: () => void;
 	onRespond: (response: AgentInteractionResponse) => Promise<void>;
 	request: Extract<AgentInteractionRequest, { kind: "permission" }>;
 }) {
@@ -221,6 +230,24 @@ function PermissionInteraction(input: {
 					/>
 				))}
 			</RadioGroup>
+			{input.onEditAgentProfile ? (
+				<div className="grid gap-2 border-border border-t pt-3">
+					<p className="text-muted-foreground text-xs leading-5">
+						This changes future work only. Respond to this request separately to
+						continue the current Wake.
+					</p>
+					<div>
+						<Button
+							disabled={input.disabled}
+							onClick={input.onEditAgentProfile}
+							type="button"
+							variant="outline"
+						>
+							Edit Agent permissions
+						</Button>
+					</div>
+				</div>
+			) : null}
 			<div className="flex justify-end">
 				<Button
 					disabled={input.disabled || !selectedOptionId}
