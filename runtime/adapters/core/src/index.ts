@@ -95,6 +95,7 @@ export {
   buildExecutableLaunchContract,
   type CliLaunchCommand,
   type InstalledLaunchCandidatesFailureReason,
+  type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
   type InstalledLaunchContractResolution,
   type LaunchContractVerificationFailureKind,

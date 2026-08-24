@@ -55,6 +55,11 @@ export type InstalledLaunchCandidatesFailureReason =
   | "not_installed"
   | "not_launchable";
 
+export type InstalledLaunchCandidatesOptions = {
+  preferredLaunchContract?: RuntimeAgentControllerLaunchContract | null;
+  timeoutMs?: number | null;
+};
+
 export type InstalledLaunchCandidatesResolution =
   | {
       candidates: RuntimeAgentControllerLaunchCandidate[];
@@ -115,6 +120,14 @@ export function materializeCliLaunchCommand(input: {
     ],
     bin: input.launchContract.nodePath,
   };
+}
+
+function resolveLaunchContractEntrypointPath(
+  launchContract: RuntimeAgentControllerLaunchContract
+): string {
+  return launchContract.kind === "executable"
+    ? launchContract.commandPath
+    : launchContract.scriptPath;
 }
 
 export function buildCliLaunchInvocation(input: {
@@ -272,11 +285,15 @@ export async function resolveInstalledNodeScriptLaunchCandidates(input: {
   commandName: string;
   configuredCommand?: string | null;
   displayName: string;
+  preferredLaunchContract?: RuntimeAgentControllerLaunchContract | null;
 }): Promise<InstalledLaunchCandidatesResolution> {
   const commandPaths = await resolveInstalledCommandPathsForLaunch({
     additionalCommandDirectories: input.additionalCommandDirectories ?? null,
     commandName: input.commandName,
     configuredCommand: input.configuredCommand ?? null,
+    preferredCommandPath: input.preferredLaunchContract
+      ? resolveLaunchContractEntrypointPath(input.preferredLaunchContract)
+      : null,
   });
   if (commandPaths.length === 0) {
     return {
@@ -433,24 +450,43 @@ async function resolveInstalledCommandPathsForLaunch(input: {
   additionalCommandDirectories?: readonly string[] | null;
   commandName: string;
   configuredCommand?: string | null;
+  preferredCommandPath?: string | null;
 }): Promise<string[]> {
+  const preferredCommandPath = normalizeOptionalText(
+    input.preferredCommandPath
+  );
+  // A saved install may no longer be reachable through this Service process's
+  // PATH. Treat it as one more discovery seed, never as trusted inventory:
+  // every returned path is still inspected here and launch-verified by the
+  // owning adapter.
+  const preferredCommandPaths =
+    preferredCommandPath && isAbsolute(preferredCommandPath)
+      ? [preferredCommandPath]
+      : [];
   const configuredCommand = normalizeOptionalText(input.configuredCommand);
   if (configuredCommand) {
     if (isAbsolute(configuredCommand)) {
-      return [configuredCommand];
+      return mergeUniquePaths(preferredCommandPaths, [configuredCommand]);
     }
     if (configuredCommand.includes("/") || configuredCommand.includes("\\")) {
-      return [];
+      return preferredCommandPaths;
     }
-    return await resolveExecutablePathsFromSearchSurface({
-      additionalCommandDirectories: input.additionalCommandDirectories ?? null,
-      commandName: configuredCommand,
-    });
+    return mergeUniquePaths(
+      preferredCommandPaths,
+      await resolveExecutablePathsFromSearchSurface({
+        additionalCommandDirectories:
+          input.additionalCommandDirectories ?? null,
+        commandName: configuredCommand,
+      })
+    );
   }
-  return await resolveExecutablePathsFromSearchSurface({
-    additionalCommandDirectories: input.additionalCommandDirectories ?? null,
-    commandName: input.commandName,
-  });
+  return mergeUniquePaths(
+    preferredCommandPaths,
+    await resolveExecutablePathsFromSearchSurface({
+      additionalCommandDirectories: input.additionalCommandDirectories ?? null,
+      commandName: input.commandName,
+    })
+  );
 }
 
 export function resolveExecutableOnPath(commandName: string): string | null {

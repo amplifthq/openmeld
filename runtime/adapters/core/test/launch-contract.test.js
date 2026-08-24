@@ -684,6 +684,46 @@ test("resolveInstalledNodeScriptLaunchCandidates finds user bin installs outside
   }
 });
 
+test("resolveInstalledNodeScriptLaunchCandidates includes a saved install outside discovery paths", async () => {
+  const fixtureDir = await mkdtemp(
+    join(tmpdir(), "adapter-core-saved-install-")
+  );
+  const savedBinDir = join(fixtureDir, "saved", "bin");
+  const commandPath = join(savedBinDir, "fixture-agent");
+  const originalHome = process.env.HOME;
+  const originalPath = process.env.PATH;
+  const originalSearchEnv = snapshotEnvVars(EXECUTABLE_SEARCH_ENV_KEYS);
+
+  await mkdir(savedBinDir, { recursive: true });
+  await writeFile(commandPath, "#!/bin/sh\nexit 0\n", "utf8");
+  await chmod(commandPath, 0o755);
+
+  try {
+    process.env.HOME = fixtureDir;
+    process.env.PATH = "/usr/bin:/bin";
+    isolateExecutableSearchEnv(fixtureDir);
+    const resolution = await resolveInstalledNodeScriptLaunchCandidates({
+      commandName: "fixture-agent",
+      displayName: "Fixture Agent",
+      preferredLaunchContract: {
+        commandPath,
+        kind: "executable",
+      },
+    });
+
+    assert.equal(resolution.ok, true);
+    if (!resolution.ok) {
+      throw new Error("Expected the saved install to remain discoverable");
+    }
+    assert.equal(resolution.candidates[0]?.commandPath, commandPath);
+  } finally {
+    restoreOptionalEnvVar("HOME", originalHome);
+    restoreOptionalEnvVar("PATH", originalPath);
+    restoreEnvVars(originalSearchEnv);
+    await rm(fixtureDir, { force: true, recursive: true });
+  }
+});
+
 test("resolveInstalledNodeScriptLaunchCandidates finds caller-provided app bundle directories outside degraded PATH", async () => {
   const fixtureDir = await mkdtemp(join(tmpdir(), "adapter-core-app-bundle-"));
   const appResourcesDir = join(

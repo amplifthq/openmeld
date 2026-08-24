@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
   type LaunchContractVerificationResult,
   type RuntimeAgentControllerLaunchContract,
@@ -17,9 +18,9 @@ const CODEX_APP_BUNDLE_RESOURCES_RELATIVE_PATH = join(
   "Resources"
 );
 
-export async function resolveInstalledCodexLaunchCandidates(input?: {
-  timeoutMs?: number | null;
-}): Promise<InstalledLaunchCandidatesResolution> {
+export async function resolveInstalledCodexLaunchCandidates(
+  input?: InstalledLaunchCandidatesOptions
+): Promise<InstalledLaunchCandidatesResolution> {
   const installedCandidates = await resolveInstalledNodeScriptLaunchCandidates({
     additionalCommandDirectories: resolveCodexAppBundleCommandDirectories(),
     commandName: DEFAULT_CODEX_COMMAND,
@@ -27,6 +28,7 @@ export async function resolveInstalledCodexLaunchCandidates(input?: {
       process.env.OPENMELD_DAEMON_RUNTIME_CODEX_BIN
     ),
     displayName: "Codex",
+    preferredLaunchContract: input?.preferredLaunchContract,
   });
   if (!installedCandidates.ok) {
     return installedCandidates;

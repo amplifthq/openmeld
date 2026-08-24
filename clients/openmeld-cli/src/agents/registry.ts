@@ -910,6 +910,7 @@ export async function manageAgentRegistrationInstallation(input: {
     agentId: state.agentId,
     detected: state.detected,
     displayName: state.displayName,
+    persistedLaunchContract: state.registration.launchContract ?? null,
     runtimeSupported: state.runtimeSupported,
   });
   if (!candidatesResult.ok) {

@@ -56,6 +56,7 @@ export async function listBuiltinControllerInstalledCandidates(input: {
   agentId: string;
   detected: boolean;
   displayName: string;
+  persistedLaunchContract?: RuntimeAgentControllerLaunchContract | null;
   runtimeSupported: boolean;
 }): Promise<LocalControllerInstalledCandidatesResult> {
   if (!(input.detected && input.runtimeSupported)) {
@@ -75,7 +76,9 @@ export async function listBuiltinControllerInstalledCandidates(input: {
     };
   }
 
-  const installedCandidates = await resolver.resolveInstalledLaunchCandidates();
+  const installedCandidates = await resolver.resolveInstalledLaunchCandidates({
+    preferredLaunchContract: input.persistedLaunchContract ?? null,
+  });
   if (!installedCandidates.ok) {
     return {
       errorCode: "controller.launch.needs_repair",
@@ -193,20 +196,24 @@ async function resolvePersistedControllerInstall(input: {
   const persistedVerification = await input.resolver.verifyLaunchContract({
     launchContract: input.persistedLaunchContract,
   });
+  const installedCandidates =
+    await input.resolver.resolveInstalledLaunchCandidates({
+      preferredLaunchContract: input.persistedLaunchContract,
+    });
   if (
     persistedVerification.ok ||
     persistedVerification.failureKind === "incomplete_check"
   ) {
     return {
       detail: null,
-      installChoices: [],
+      installChoices: installedCandidates.ok
+        ? installedCandidates.candidates
+        : [],
       launchContract: input.persistedLaunchContract,
       status: "ready",
     };
   }
 
-  const installedCandidates =
-    await input.resolver.resolveInstalledLaunchCandidates();
   if (installedCandidates.ok && installedCandidates.candidates.length > 1) {
     return {
       detail: buildNeedsInstallChoiceDetail(input.displayName),

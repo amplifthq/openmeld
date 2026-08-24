@@ -116,6 +116,15 @@ describe("agents registry resolve target state", () => {
         agentId: "claude-code",
         operation: "list",
       });
+      expect(listBuiltinControllerInstalledCandidatesMock).toHaveBeenCalledWith(
+        {
+          agentId: "claude-code",
+          detected: true,
+          displayName: "Claude Code",
+          persistedLaunchContract: localInstall.launchContract,
+          runtimeSupported: true,
+        }
+      );
       expect(listed.installations).toEqual([
         expect.objectContaining({
           installationId: "install-local",
