@@ -818,6 +818,49 @@ test("Grok Build RuntimeAdapter heals a missing session and returns the typed co
   }
 });
 
+test("Grok Build repair fails instead of replacing a missing canonical conversation", async () => {
+  const fixture = await createFixture();
+  try {
+    const adapter = createGrokBuildAdapter({
+      grokBuildTimeoutMs: 2000,
+      launchContract: {
+        kind: "node_script",
+        nodePath: process.execPath,
+        scriptPath: fixture.scriptPath,
+      },
+    });
+    const result = await adapter.dispatch({
+      agentControllerConversationId: SESSION_ID,
+      agentControllerPermissionMode: "grok-build:bypassPermissions",
+      agentId: "grok-build",
+      env: {
+        GROK_TEST_SCENARIO: "missing_context",
+        GROK_TEST_TRANSCRIPT: fixture.transcriptPath,
+      },
+      executionMode: "repair",
+      prompt: "Recover the exact persisted conversation",
+      runtimeContext: {
+        providerRuntimeWorkingDirectory: fixture.fixtureDir,
+      },
+      sourceEventId: "source-grok-repair-missing-context",
+      spaceId: "space-grok-repair-missing-context",
+      taskId: "task-grok-repair-missing-context",
+      transportMode: "acp",
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.errorCode, "context_not_found");
+    assert.deepEqual(
+      (await readTranscript(fixture.transcriptPath))
+        .filter((message) => message.method)
+        .map((message) => message.method),
+      ["initialize", "authenticate", "session/resume"]
+    );
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
 test("Grok Build RuntimeAdapter Stop uses cancel and close on the active turn", async () => {
   const fixture = await createFixture();
   try {

@@ -1492,9 +1492,10 @@ Every local adapter repair turn must preserve the validated canonical
 conversation identity and the Binding's controller-native permission intent.
 When repair needs temporary controller settings, the adapter must use a native
 isolated child conversation and apply those settings only to that child. The
-shared dispatch boundary then keeps the child identity out of Binding
-continuity. A later ordinary Wake must still use the saved Binding permission
-mode or OpenCode permission JSON.
+adapter must return the validated canonical identity, and the shared dispatch
+boundary rejects a repair result that reports a refreshed or different
+conversation instead of rewriting it. A later ordinary Wake must still use the
+saved Binding permission mode or OpenCode permission JSON.
 
 Codex exact-controller recovery copies the canonical conversation into an
 ephemeral App Server fork and applies the conservative repair approval and
@@ -1505,6 +1506,10 @@ uses the official Server session fork and passes the Binding's unchanged
 validated canonical conversation identity. If the installed controller cannot
 create the required isolated child, repair fails explicitly while ordinary
 Wake, setup, status, and diagnostics remain available.
+
+Repair also fails explicitly when the canonical conversation no longer exists.
+The ordinary-Wake context-heal path must not create a new conversation during
+repair and then present it as the missing canonical conversation.
 
 Cursor ACP and Grok Build ACP do not currently expose the native fork required
 for a temporary repair policy. Their repair turns therefore keep the exact

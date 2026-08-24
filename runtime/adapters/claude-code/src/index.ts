@@ -172,7 +172,7 @@ export const createClaudeCodeAdapter = (
     bridgeSpec: CLAUDE_CODE_CONVERSATION_BRIDGE_SPEC,
     invoke: options.invoke,
     invokeByMode: options.invokeByMode,
-    repairConversationPolicy: "preserve_canonical",
+    repairConversationPolicy: "require_canonical",
     resolveDefaultInvoke: () =>
       resolveDefaultClaudeCodeInvoke({
         options,

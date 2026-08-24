@@ -4,28 +4,28 @@ export const sharedProviderContractMatrix = Object.freeze([
     bridgeMode: "legacy_context_bridge",
     agentControllerRef: "builtin:claude-code",
     agentControllerConversationKind: "session",
-    repairConversationPolicy: "preserve_canonical",
+    repairConversationPolicy: "require_canonical",
   }),
   Object.freeze({
     adapterId: "codex",
     bridgeMode: "legacy_context_bridge",
     agentControllerRef: "builtin:codex",
     agentControllerConversationKind: "thread",
-    repairConversationPolicy: "preserve_canonical",
+    repairConversationPolicy: "require_canonical",
   }),
   Object.freeze({
     adapterId: "cursor",
     bridgeMode: "legacy_context_bridge",
     agentControllerRef: "builtin:cursor",
     agentControllerConversationKind: "session",
-    repairConversationPolicy: "preserve_canonical",
+    repairConversationPolicy: "require_canonical",
   }),
   Object.freeze({
     adapterId: "grok-build",
     bridgeMode: "legacy_context_bridge",
     agentControllerRef: "builtin:grok-build",
     agentControllerConversationKind: "session",
-    repairConversationPolicy: "preserve_canonical",
+    repairConversationPolicy: "require_canonical",
   }),
   Object.freeze({
     adapterId: "openclaw",
@@ -39,7 +39,7 @@ export const sharedProviderContractMatrix = Object.freeze([
     bridgeMode: "legacy_context_bridge",
     agentControllerRef: "builtin:opencode",
     agentControllerConversationKind: "session",
-    repairConversationPolicy: "preserve_canonical",
+    repairConversationPolicy: "require_canonical",
   }),
 ]);
 

@@ -458,7 +458,7 @@ export const createSharedDispatchShell = (input: {
   bridgeSpec?: AdapterConversationBridgeSpec | null;
   invoke?: SharedDispatchInvokeFn;
   invokeByMode?: Partial<Record<string, SharedDispatchInvokeFn>>;
-  repairConversationPolicy?: "preserve_canonical";
+  repairConversationPolicy?: "require_canonical";
   resolveInvokeRequest?: SharedDispatchInvokeRequestResolver;
   resolveSuccessContextDelta?: SharedDispatchSuccessContextDeltaResolver;
   resolveDefaultInvoke: () => SharedDispatchInvokeFn | null | undefined;
@@ -517,8 +517,7 @@ export const createSharedDispatchShell = (input: {
           bridgeSpec,
           contextDelta: result.contextDelta,
         });
-      const protectedContextDelta = preserveCanonicalRepairConversation({
-        bridgeSpec,
+      const protectedContextDelta = requireCanonicalRepairConversation({
         contextDelta,
         invokeRequest,
         policy: input.repairConversationPolicy,
@@ -540,17 +539,27 @@ export const createSharedDispatchShell = (input: {
   };
 };
 
-const preserveCanonicalRepairConversation = (input: {
-  bridgeSpec: AdapterConversationBridgeSpec | null;
+class AdapterRepairConversationError extends Error {
+  readonly code = "repair.conversation_changed";
+  readonly errorType: AdapterErrorType = "adapter";
+
+  constructor() {
+    super(
+      "repair.conversation_changed: repair could not preserve the existing Agent Controller conversation"
+    );
+    this.name = "AdapterRepairConversationError";
+  }
+}
+
+const requireCanonicalRepairConversation = (input: {
   contextDelta?: AdapterDispatchContextDelta;
   invokeRequest: AdapterDispatchRequest;
-  policy?: "preserve_canonical";
+  policy?: "require_canonical";
   request: AdapterDispatchRequest;
 }): AdapterDispatchContextDelta | undefined => {
   if (
-    input.policy !== "preserve_canonical" ||
-    input.request.executionMode !== "repair" ||
-    !input.contextDelta
+    input.policy !== "require_canonical" ||
+    input.request.executionMode !== "repair"
   ) {
     return input.contextDelta;
   }
@@ -562,22 +571,17 @@ const preserveCanonicalRepairConversation = (input: {
     return input.contextDelta;
   }
 
-  const canonicalConversation = input.bridgeSpec
-    ? bridgeAgentControllerConversationRef({
-        agentControllerConversationId: canonicalConversationId,
-        bridgeSpec: input.bridgeSpec,
-        agentControllerConversation:
-          input.invokeRequest.agentControllerConversation,
-      })
-    : input.invokeRequest.agentControllerConversation;
+  const observedConversationId = normalizeOptionalText(
+    input.contextDelta?.agentControllerConversationId
+  );
+  if (
+    input.contextDelta?.refreshed === true ||
+    observedConversationId !== canonicalConversationId
+  ) {
+    throw new AdapterRepairConversationError();
+  }
 
-  return {
-    ...input.contextDelta,
-    agentControllerConversationId: canonicalConversationId,
-    ...(canonicalConversation
-      ? { agentControllerConversation: canonicalConversation }
-      : {}),
-  };
+  return input.contextDelta;
 };
 
 export const createSharedControlShell = (input: {
@@ -664,6 +668,7 @@ export const createSharedControlShell = (input: {
 
 export const invokeWithSingleContextHeal = async (input: {
   contextId: string | null;
+  contextLossPolicy: "fail" | "rebuild";
   createRebuildFailedError: (error: unknown) => Error;
   invokeOnce: (contextId: string | null) => Promise<{
     contextId: string | null;
@@ -691,6 +696,10 @@ export const invokeWithSingleContextHeal = async (input: {
     };
   } catch (firstError) {
     if (!(input.contextId && input.isContextLostError(firstError))) {
+      throw firstError;
+    }
+
+    if (input.contextLossPolicy === "fail") {
       throw firstError;
     }
 

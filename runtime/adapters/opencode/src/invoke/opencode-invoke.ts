@@ -62,6 +62,7 @@ export async function invokeOpenCodeWithSingleContextHeal(input: {
 }> {
   const result = await invokeWithSingleContextHeal({
     contextId: input.sessionId,
+    contextLossPolicy: input.executionMode === "repair" ? "fail" : "rebuild",
     createRebuildFailedError: (error) =>
       new OpenCodeRuntimeError({
         code: "context.rebuild_failed",

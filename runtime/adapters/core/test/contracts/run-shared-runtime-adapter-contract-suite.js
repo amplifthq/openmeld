@@ -71,11 +71,11 @@ export function runSharedRuntimeAdapterContractSuite(input) {
     }
   );
 
-  if (entry.repairConversationPolicy === "preserve_canonical") {
+  if (entry.repairConversationPolicy === "require_canonical") {
     test(
       buildSharedSuiteTitle(
         input.adapterId,
-        "repair keeps isolated child context out of canonical continuity"
+        "repair rejects a provider result from a different conversation"
       ),
       async () => {
         const canonicalConversation = buildCanonicalAgentControllerConversation(
@@ -110,12 +110,11 @@ export function runSharedRuntimeAdapterContractSuite(input) {
         );
 
         assert.deepEqual(result, {
-          contextDelta: {
-            agentControllerConversationId: "canonical-conversation-1",
-            agentControllerConversation: canonicalConversation,
-          },
-          output: "repair complete",
-          status: "success",
+          errorCode: "repair.conversation_changed",
+          errorMessage:
+            "repair.conversation_changed: repair could not preserve the existing Agent Controller conversation",
+          errorType: "adapter",
+          status: "failed",
         });
       }
     );

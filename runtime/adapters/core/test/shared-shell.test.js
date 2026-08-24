@@ -151,7 +151,7 @@ test("adapter-core shared dispatch shell prefers invokeByMode and canonicalizes 
   });
 });
 
-test("adapter-core shared dispatch shell keeps repair forks out of canonical conversation continuity", async () => {
+test("adapter-core shared dispatch shell rejects a repair result from a different conversation", async () => {
   const core = await import("../dist/index.js");
   const canonicalConversation = {
     agentControllerConversationId: "thread-canonical-1",
@@ -172,7 +172,7 @@ test("adapter-core shared dispatch shell keeps repair forks out of canonical con
       },
       output: "repair complete",
     }),
-    repairConversationPolicy: "preserve_canonical",
+    repairConversationPolicy: "require_canonical",
     resolveDefaultInvoke: () => null,
   });
 
@@ -184,12 +184,11 @@ test("adapter-core shared dispatch shell keeps repair forks out of canonical con
   );
 
   assert.deepEqual(result, {
-    contextDelta: {
-      agentControllerConversationId: "thread-canonical-1",
-      agentControllerConversation: canonicalConversation,
-    },
-    output: "repair complete",
-    status: "success",
+    errorCode: "repair.conversation_changed",
+    errorMessage:
+      "repair.conversation_changed: repair could not preserve the existing Agent Controller conversation",
+    errorType: "adapter",
+    status: "failed",
   });
 });
 
@@ -622,6 +621,7 @@ test("adapter-core single-context-heal returns first successful attempt without 
 
   const result = await core.invokeWithSingleContextHeal({
     contextId: "thread-existing-1",
+    contextLossPolicy: "rebuild",
     createRebuildFailedError: (error) =>
       new Error(`context.rebuild_failed: ${String(error)}`),
     invokeOnce: async (contextId) => ({
@@ -652,6 +652,7 @@ test("adapter-core single-context-heal retries once without context and patches 
 
   const result = await core.invokeWithSingleContextHeal({
     contextId: "thread-stale-1",
+    contextLossPolicy: "rebuild",
     createRebuildFailedError: (error) =>
       new Error(`context.rebuild_failed: ${String(error)}`),
     invokeOnce: (contextId) => {
@@ -691,6 +692,7 @@ test("adapter-core single-context-heal wraps failed retry as context.rebuild_fai
   await assert.rejects(
     core.invokeWithSingleContextHeal({
       contextId: "thread-stale-2",
+      contextLossPolicy: "rebuild",
       createRebuildFailedError: (error) =>
         new Error(`context.rebuild_failed: ${String(error)}`),
       invokeOnce: (contextId) => {
@@ -703,4 +705,32 @@ test("adapter-core single-context-heal wraps failed retry as context.rebuild_fai
     }),
     CONTEXT_REBUILD_FAILED_RE
   );
+});
+
+test("adapter-core single-context-heal fails closed when repair loses its canonical context", async () => {
+  const core = await import("../dist/index.js");
+  const observedContextIds = [];
+  const contextLostError = Object.assign(new Error("context_not_found"), {
+    code: "context_not_found",
+    errorType: "adapter",
+  });
+
+  await assert.rejects(
+    core.invokeWithSingleContextHeal({
+      contextId: "thread-repair-canonical-1",
+      contextLossPolicy: "fail",
+      createRebuildFailedError: (error) =>
+        new Error(`context.rebuild_failed: ${String(error)}`),
+      invokeOnce: (contextId) => {
+        observedContextIds.push(contextId);
+        throw contextLostError;
+      },
+      isContextLostError: (error) => error === contextLostError,
+      onContextLost: () => {
+        throw new Error("repair must not run context-loss recovery");
+      },
+    }),
+    (error) => error === contextLostError
+  );
+  assert.deepEqual(observedContextIds, ["thread-repair-canonical-1"]);
 });

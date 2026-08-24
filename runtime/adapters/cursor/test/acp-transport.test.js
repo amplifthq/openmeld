@@ -1076,6 +1076,41 @@ test("Cursor ACP rebuilds a persisted conversation when session/load returns Inv
   });
 });
 
+test("Cursor ACP repair fails instead of replacing a missing canonical conversation", async () => {
+  const { createCursorAdapter } = await import("../dist/index.js");
+  await withFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const adapter = createCursorAdapter({
+      cursorTimeoutMs: 2000,
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+    });
+    const result = await adapter.dispatch({
+      agentControllerConversationId: "stale-session",
+      agentControllerPermissionMode: "cursor:force",
+      agentId: "cursor",
+      env: {
+        OPENMELD_FAKE_CURSOR_ACP_LOAD_INVALID_PARAMS: "1",
+        OPENMELD_FAKE_CURSOR_ACP_LOG: logPath,
+      },
+      executionMode: "repair",
+      prompt: "Recover the exact persisted conversation",
+      runtimeContext: createRuntimeContext(fixtureDir),
+      sourceEventId: "source-repair-missing-context",
+      spaceId: "space-repair-missing-context",
+      taskId: "task-repair-missing-context",
+      transportMode: "acp",
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.errorCode, "context_not_found");
+    assert.deepEqual(
+      (await readLog(logPath))
+        .filter((entry) => entry.method)
+        .map((entry) => entry.method),
+      ["initialize", "authenticate", "session/load"]
+    );
+  });
+});
+
 test("Cursor ACP keeps Agent content authoritative after context healing", async () => {
   const { createCursorAdapter } = await import("../dist/index.js");
   await withFixture(async ({ fixtureDir, fixturePath }) => {

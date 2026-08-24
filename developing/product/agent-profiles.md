@@ -354,7 +354,9 @@ supports a native conversation fork, temporary repair constraints run only on
 that child and the next ordinary Wake continues the canonical conversation with
 the Binding-selected mode. When no proven fork exists, repair keeps the exact
 selected mode and must fail explicitly if temporary settings would otherwise be
-required. The same rule applies to OpenCode's Binding-owned permission JSON.
+required. Repair also fails explicitly if the existing controller conversation
+is missing; it never substitutes a new conversation while claiming to continue
+the old one. The same rule applies to OpenCode's Binding-owned permission JSON.
 
 The optional Computer file access boundary is separate account-owned local
 policy. For an OpenMeld-started run, effective filesystem access is the

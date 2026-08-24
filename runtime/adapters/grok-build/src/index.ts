@@ -111,7 +111,7 @@ export function createGrokBuildAdapter(
           acp: createDefaultGrokBuildInvoke({ options, registerActiveTurn }),
           ...(options.invokeByMode ?? {}),
         },
-    repairConversationPolicy: "preserve_canonical",
+    repairConversationPolicy: "require_canonical",
     resolveDefaultInvoke: () => null,
     runtimeOptions: options,
   });
@@ -155,6 +155,8 @@ function createDefaultGrokBuildInvoke(input: {
     );
     const result = await invokeWithSingleContextHeal({
       contextId,
+      contextLossPolicy:
+        dispatchInput.executionMode === "repair" ? "fail" : "rebuild",
       createRebuildFailedError: (error) =>
         new GrokBuildAcpTransportError({
           cause: error,
