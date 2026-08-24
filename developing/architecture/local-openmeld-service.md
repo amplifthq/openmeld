@@ -1016,9 +1016,13 @@ Catalog consumption rules:
   a parallel local sign-in state.
 - On macOS, the packaged CLI uses Security.framework with the user's normal
   Keychain. Each operation runs in a short-lived child process with a
-  five-second deadline. If Security.framework returns an error or never
-  returns, the parent terminates that child and does not query Keychain again
-  during the same CLI or Service process. Setup may then keep the current
+  five-second deadline. Every operation disables Keychain user interaction
+  inside that child and must return an explicit authentication failure instead
+  of opening a macOS authorization window. Normal setup and login writes remain
+  silent; if macOS requires interaction, setup uses the documented private-file
+  fallback. If Security.framework returns an error or never returns, the parent
+  terminates that child and does not query Keychain again during the same CLI or
+  Service process. Setup may then keep the current
   session in a mode-`0600` file inside a mode-`0700` OpenMeld directory and must
   expose the downgrade as a warning. Access tokens are sent to the helper over
   stdin, never argv. The Service may consume that same CLI-owned session; it

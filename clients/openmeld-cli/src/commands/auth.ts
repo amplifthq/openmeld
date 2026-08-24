@@ -1074,6 +1074,8 @@ async function resolveAuthStatusEnvironmentMismatch(
 function buildAuthStatusPayload(input: AuthStatusSnapshot): {
   signedIn: boolean;
   state: AuthSessionState;
+  reasonCode?: AuthStatusSnapshot["reasonCode"];
+  errorMessage?: string;
   authBaseUrl: string | null;
   clientId: string | null;
   tokenType: string | null;
@@ -1088,6 +1090,8 @@ function buildAuthStatusPayload(input: AuthStatusSnapshot): {
   return {
     signedIn: input.signedIn,
     state: input.state,
+    ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+    ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
     authBaseUrl: input.authBaseUrl,
     clientId: input.clientId,
     tokenType: input.tokenType,
