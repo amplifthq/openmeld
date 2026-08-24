@@ -590,11 +590,16 @@ text revision as a new conflict-fenced latest revision. Tool output keeps actor,
 revision, and stable-id facts explicit so the model never treats a path or
 display name as file authority.
 
-Referenced JPEG and PNG revisions also enter the existing image-understanding
-path. Core resolves the exact immutable revision under the Center Agent's Space
-membership, and Remote Agent reads that private object without creating or
-deleting a legacy attachment. Other binary formats remain explicit file
-references rather than being presented as content the model understood.
+Referenced JPEG and PNG revisions also enter the image-understanding path. Core
+resolves the exact immutable revision under the Center Agent's Space membership,
+and Remote Agent reads that private object without creating or deleting a
+legacy attachment. For every current-version turn, Remote Agent creates a
+bounded transient model derivative, sends only that derivative to the frozen
+auxiliary image-understanding route, and adds the bounded escaped observation to
+the primary turn. The original bytes, their base64 encoding, and the transient
+derivative never enter the persistent Flue conversation, even when the selected
+primary model can accept images directly. Other binary formats remain explicit
+file references rather than being presented as content the model understood.
 
 `web_dm` is used for the Center Agent DM, `space_wake` for ordinary Space Wake
 delivery to the hosted Center Agent, `slack` for the legacy Slack channel
@@ -939,11 +944,14 @@ uses it.
 
 Center Agent model traffic remains **Cloudflare AI Gateway → OpenRouter**. The
 OpenRouter provider key stays in Cloudflare AI Gateway Provider Keys under
-the environment-owned alias; production uses `openrouter`, while local and
-development environments retain `openrouter`. The Remote Agent worker sends
-the authenticated gateway token plus that exact `cf-aig-byok-alias` value and
-does not carry provider API keys in code or tracked config. This is
-OpenMeld-operated provider configuration, not user BYOK.
+the environment-owned alias. Local, development, and production Remote Agent
+traffic uses the configured `openmeld-remote-agent-prod` gateway and its
+`openrouter` alias because Provider Keys are gateway-scoped; request metadata
+retains the Worker environment and Organization boundary. The Remote Agent
+worker sends the authenticated gateway token plus that exact
+`cf-aig-byok-alias` value and does not carry provider API keys in code or
+tracked config. This is OpenMeld-operated provider configuration, not user
+BYOK.
 
 The repo-owned `center-agent` catalog exposes Grok 4.6, Grok 4.5, and DeepSeek
 V4 Flash, with Grok 4.6 as the OpenMeld default. Core resolves a complete
@@ -970,16 +978,20 @@ reasoning behavior must be read through that scoped provider id rather than a
 process-global `openrouter` registration that a concurrent Organization can
 overwrite.
 
-Grok 4.6 and Grok 4.5 receive image input directly. When the selected primary
-is text-only, the worker uses the frozen image-understanding route, currently
-Grok 4.6, only to describe the image. Instructions visible inside the image are
-explicitly untrusted content, the original image is not sent to the text-only
-primary, and the bounded HTML-escaped description enters the turn under an
-untrusted-data delimiter that image content cannot close. The worker removes
-the generic attachment marker before sending this text-only turn and states
-that the original image is not attached. If the auxiliary call fails, the turn
-fails; it does not remove the image, pretend the image was understood, or
-change the selected primary model.
+Every current-version image input uses the frozen image-understanding route,
+currently Grok 4.6, before admission to the persistent primary conversation.
+The worker derives a bounded, non-animated WebP representation from the exact
+authorized source and gives only that transient representation to the
+auxiliary model. Instructions visible inside the image are explicitly untrusted
+content. The bounded HTML-escaped description enters the turn under an
+untrusted-data delimiter that image content cannot close; the original image,
+its base64 encoding, and the model derivative do not enter Flue history. This
+rule also applies when the selected primary supports image input, because model
+capability does not grant raw binary an unbounded lifetime in conversation
+state. Version 1 submissions retain their frozen direct-image behavior only for
+already-durable compatibility. If the auxiliary call fails, the turn fails; it
+does not remove the image, pretend the image was understood, or change the
+selected primary model.
 
 Model capacity and reasoning metadata are checked in with the catalog so
 admission needs no provider metadata lookup. Compaction derives its policy from
@@ -1054,6 +1066,66 @@ effect truly requires personal OpenMeld access, the Agent uses the existing
 identity-boundary and private continuation tools under their normal contracts.
 The visible reply uses ordinary product language and never exposes tool,
 catalog, session, route, or permission infrastructure.
+
+### Context admission and materialization budgets
+
+Files, conversation context, and model input are three different owners. A
+Space File stores exact durable content. Conversation state stores stable file
+and revision references plus bounded observations. A provider request contains
+only the smallest authorized representation needed for the current turn. The
+existence of a File, App object, tool result, provider transcript, or browser
+artifact never makes its full content eligible for persistent context.
+
+Every context producer follows one admission sequence:
+
+1. persist or resolve the canonical source and its exact reference;
+2. reauthorize that source for the current requester and conversation;
+3. select only sources relevant to the current request;
+4. materialize a bounded representation for this turn;
+5. account for that representation against the frozen model route before the
+   provider call; and
+6. retain only the stable reference and a bounded, source-attributed
+   observation after the turn.
+
+Media has four explicit representations: the immutable original, a UI preview,
+a transient model derivative, and a bounded textual observation. Text and
+structured data use the same principle through bounded ranges, pages, or
+records. Retrieval is therefore an authorized lazy read, not bulk prompt
+injection. Tool output and App data remain paginated and source-addressable;
+compaction summaries may preserve their references but never copy raw binary,
+base64, or an unbounded external payload.
+
+The frozen route's context window is allocated before execution across the
+authoritative system and current-turn envelope, retrieved evidence, recent
+history, tool schemas and results, and output reserve. No category may consume
+another category's reserve merely because the provider accepts a larger input.
+The worker must compact, narrow retrieval, or fail before making a provider
+request that exceeds the admitted budget. A provider `context_length_exceeded`
+response is deterministic and non-retryable; network and capacity retries must
+not repeat the same oversized prompt. The 8 MiB and 12 MiB serialized-history
+guards below protect Durable Object replay and isolate memory only; they are not
+token budgets and cannot replace this admission allocator.
+
+Current-version image admission is the first enforced binary boundary. It reads
+the authorized original from R2 as a replayable stream and prepares one image
+at a time. Each transient WebP prefers a 2560-pixel longest edge and quality 88,
+steps down through explicit profiles only when needed, never goes below a
+1600-pixel longest edge, and must fit within 4 MiB. One auxiliary request may
+contain up to five images, 8 MiB of derivative bytes, and an estimated 20
+megapixels of rendered image input; the first reached budget closes the batch.
+Four- and five-image batches reserve up to 8,192 output tokens, while smaller
+batches reserve up to 4,096. Larger turns are split into ordered,
+filename-labeled batches. The primary model receives every labeled observation
+together in the one admitted turn and performs the final cross-batch synthesis;
+batches never become separate user-visible conversation turns. A message may
+still carry all ten canonical Space File references. This is deliberately not
+one 4 MiB turn budget divided by image count: adding screenshots must not make
+each screenshot unreadable. Only the bounded textual observations survive the
+auxiliary calls.
+
+A shared pre-provider token allocator and the equivalent bounded materializers
+for every file and App/tool family remain required before this
+context-admission contract is complete.
 
 ### Conversation compaction and runtime rollover
 
@@ -2100,16 +2172,18 @@ but not trigger.
    retryable, or outcome-ambiguous result hands the same message to Queue for
    recovery. Workstation targets never use this direct-first branch.
 8. **Hosted image input:** for `web_dm` and `space_wake`, Core may copy up to
-   four canonical image attachment references from the triggering Space signal
-   into the worker turn message. The worker uses the turn's existing
-   Organization and Space identity to read each private object from the shared
-   attachment bucket and submits successfully loaded images through Flue's
-   direct-agent `images` field. Slack does not use this path. A failed image
-   read adds explicit English placeholder text and structured Worker evidence
-   without failing the remaining images or the text turn. The prompt also says
-   how many images were successfully attached so the model can associate them
-   with the current turn. Core sends references only; image bytes never enter
-   the service-binding RPC or native delivery ledger.
+   ten canonical JPEG or PNG Space File references from the triggering signal
+   into the worker turn message while preserving the legacy four-attachment
+   limit for old attachment records. The worker uses the turn's existing
+   Organization and Space identity to open each exact private object as a lazy
+   R2 stream, derives one bounded WebP at a time, and sends ordered batches only
+   to the frozen auxiliary image-understanding route. Flue receives the escaped
+   textual observations and immutable file metadata, never image bytes or the
+   direct-agent `images` field for a current-version turn. Slack does not use
+   this Space File path. A failed read or derivative fails the turn explicitly;
+   it does not pretend that the image was understood. Core sends references
+   only, so image bytes never enter the service-binding RPC or native delivery
+   ledger.
 
 Deploy the Remote Agent image consumer and R2 binding before Core begins
 emitting attachment-bearing turn messages. The field is optional, so old Core

@@ -243,6 +243,25 @@ describe("parseDispatchTask", () => {
     expect(parsed?.files).toEqual(files);
   });
 
+  it("preserves ten maximum-size image references for lazy Local Agent access", () => {
+    const files = Array.from({ length: 10 }, (_, index) => ({
+      fileId: `image-${index + 1}`,
+      revision: 1,
+      name: `screen-${index + 1}.png`,
+      mimeType: "image/png",
+      sizeBytes: 10 * 1024 * 1024,
+    }));
+    const parsed = parseDispatchTask({
+      deliverRequest: createDeliverRequest({
+        files,
+        targetProfileId: "agt-target-a",
+      }),
+      fallbackRouteConfig: null,
+    });
+
+    expect(parsed?.files).toEqual(files);
+  });
+
   it("removes multi-target Wake mentions from the task prompt without changing source envelope evidence", () => {
     const sourceText =
       "@Felix Codex Session Dogfood(wake) @Felix's Codex(wake) wake up";

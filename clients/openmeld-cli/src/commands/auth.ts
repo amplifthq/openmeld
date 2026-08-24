@@ -12,7 +12,6 @@ import {
 import {
   type AuthSessionState,
   clearAuthSession,
-  getAuthSession,
   getAuthSessionState,
   setAuthSession,
 } from "../config/auth-session";
@@ -976,8 +975,8 @@ export async function runAuthLogout(input?: {
     cleanup,
     presenter,
   });
-  const existing = await getAuthSession();
-  if (!existing) {
+  const cleared = await clearAuthSession();
+  if (!cleared.hadLocalSession) {
     presenter.line({
       code: "auth.logout.no_session",
       text: "No local sign-in session found.",
@@ -985,7 +984,6 @@ export async function runAuthLogout(input?: {
     return;
   }
 
-  await clearAuthSession();
   presenter.line({
     code: "auth.logout.cleared",
     text: "Signed out on this device.",

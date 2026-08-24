@@ -130,6 +130,12 @@ Prepare may:
 - reconnect a service-reported device identity to an authenticated,
   owner-verified existing Computer selected by the Prepare Session
 
+Lane isolation for OpenMeld-managed Agent Skills must not suppress this
+read-only Agent Controller discovery. A dev, canary, or custom
+`OPENMELD_HOME` may detect and register a runnable controller such as Codex
+without gaining permission to inspect, link, or mutate that controller's
+registry-default shared skills directory.
+
 Prepare must not:
 
 - create or join a Space
@@ -1016,7 +1022,10 @@ Catalog consumption rules:
   a parallel local sign-in state.
 - On macOS, the packaged CLI uses Security.framework with the user's normal
   Keychain. Each operation runs in a short-lived child process with a
-  five-second deadline. Every operation disables Keychain user interaction
+  five-second deadline. Before reading a request, the child verifies through
+  macOS Code Signing Services that its parent is the same OpenMeld executable;
+  direct invocation from another local process fails before Keychain access.
+  Every operation disables Keychain user interaction
   inside that child and must return an explicit authentication failure instead
   of opening a macOS authorization window. Normal setup and login writes remain
   silent; if macOS requires interaction, setup uses the documented private-file
@@ -1027,15 +1036,21 @@ Catalog consumption rules:
   expose the downgrade as a warning. Access tokens are sent to the helper over
   stdin, never argv. The Service may consume that same CLI-owned session; it
   must not create a second authentication owner. A new process may try
-  Keychain again, and the next successful login replaces the fallback with a
-  Keychain item and removes the old file.
+  Keychain again. A later login may replace the fallback with a Keychain item;
+  there is no automatic private-file-to-Keychain migration. If deleting a
+  replaced credential fails, the CLI retains its storage reference as pending
+  cleanup outside the active session and retries it during a later explicit
+  login or logout instead of silently forgetting it.
 - An npm-distributed CLI or unattended developer tool that cannot embed the
   native helper must not invoke `/usr/bin/security` as an alternate token path.
   A new npm CLI login uses the documented warned mode-`0600` private-file
   fallback. An existing Keychain reference returns an explicit setup-or-login
   recovery error. Developer HTTP tools use an isolated lane with private local
   token storage or route through the packaged CLI. These paths must fail closed
-  instead of queuing interactive authorization windows.
+  instead of queuing interactive authorization windows. Logout removes an
+  unreadable active session so it cannot block a new login. An npm login may
+  replace that session with the private-file fallback while retaining the old
+  Keychain reference for later cleanup by a capable packaged CLI.
 - A background Service must not preflight a custom workspace with the POSIX
   `access` syscall. On macOS, a LaunchAgent can block indefinitely while that
   syscall crosses a protected-folder privacy boundary. Catalog inspection uses
@@ -1274,6 +1289,16 @@ the published production lane must state an explicit `OPENMELD_ENV_PRESET`
 before mutating the production registration. Isolated validation targets the
 `dev-local` or `canary` service identity or stubs the service manager.
 
+Service alignment must compare the complete environment target persisted in
+that registration: env preset, Gateway URL, Auth URL, and user-facing CLI
+command. Matching executable and bundle versions are insufficient. When the
+registration is readable but its environment target is incomplete or differs
+from the current setup target, alignment fails closed and performs a full
+controlled update. Read-only status exposes the observed target as diagnostic
+evidence but never repairs it. This prevents a healthy process registered
+against one local or production backend from making setup for another backend
+report a false success.
+
 The supervisor registration is also the only thing that restarts OpenMeld Service
 after a crash or an external kill, so a supervised daemon treats a missing
 registration as recoverable drift: it periodically re-observes its own
@@ -1426,11 +1451,12 @@ and background-start operations run only after that entry decision and must not
 open another authentication prompt. A cancelled start remains `cancelled`; it
 must never be normalized into a completed-but-stopped repair or trigger an
 automatic retry loop.
-Repair first compares the intended bundle, service-manager registration,
-runtime contract, saved desired state, and effective running state. When those
-facts are already aligned, repair succeeds without stopping or rewriting the
-Service. Only a decision that requires mutation enters the controlled lifecycle
-below; an explicit forced repair may enter it for diagnostic recovery.
+Repair first compares the intended bundle, service-manager registration and
+its complete environment target, runtime contract, saved desired state, and
+effective running state. When those facts are already aligned, repair succeeds
+without stopping or rewriting the Service. Only a decision that requires
+mutation enters the controlled lifecycle below; an explicit forced repair may
+enter it for diagnostic recovery.
 
 Before a controlled lifecycle stops or drains the current Service, it must
 fully prepare and validate the replacement bundle without changing the active

@@ -379,13 +379,20 @@ Fixture identities must stay inside isolated test stores.
 Managed agent skills directories (`~/.claude/skills` and the other registry
 defaults) are shared real-user state owned by the published `~/.openmeld` lane.
 The CLI enforces this: with a lane-specific OpenMeld home (`openmeld-dev`,
-`openmeld-canary`, or any `OPENMELD_HOME` override), skills detection, tracking,
-install, and readiness skip the registry-default agent directories, and
+`openmeld-canary`, or any `OPENMELD_HOME` override), OpenMeld-managed skills
+detection, tracking, install, and readiness skip the registry-default agent
+directories, and
 `skills ensure --all` is a safe no-op there so setup completes inside dev
 lanes. Lane-local skills validation must use explicit targets (`--dir`, config
 custom targets, or per-agent `globalSkillsDir` overrides). A lane that links a
 shared agent directory at its own skills store hijacks the published install
 and leaves a dangling link when the lane is deleted.
+
+This skills-directory boundary does not hide installed local Agent Controllers.
+`openmeld agents detect`, setup, and Prepare may still read-only probe a
+runtime-supported controller and keep its launch contract inside the isolated
+lane. Detecting Codex in a dev lane does not authorize that lane to manage
+Codex's registry-default skills directory.
 
 ## Verification Gates
 

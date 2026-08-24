@@ -5,7 +5,11 @@ import {
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillRuntimeReleaseSelectionSchema,
 } from "../http/organization-skills";
-import { spaceMessageFileReferencesSchema } from "../http/space-files";
+import {
+  SPACE_FILE_MAX_SIZE_BYTES,
+  SPACE_MESSAGE_FILE_MAX_COUNT,
+  spaceMessageFileReferencesSchema,
+} from "../http/space-files";
 import {
   AGENT_STREAM_SNAPSHOT_MAX_CHARS,
   agentStreamToolPartSchema,
@@ -297,19 +301,42 @@ export const remoteAgentWorkerSubmitTurnResponseSchema = z.union([
   remoteAgentWorkerAdmissionRejectedResponseSchema,
 ]);
 
-export const remoteAgentWorkerInputAttachmentSchema =
+const remoteAgentWorkerLegacyInputAttachmentSchema =
   spaceMessageAttachmentSchema.extend({
-    /**
-     * Core-resolved immutable object key for a canonical Space File revision.
-     * Legacy message attachments omit this field and retain their derived key.
-     */
-    objectKey: nonEmptyStringSchema.max(4096).optional(),
+    objectKey: z.undefined().optional(),
     removeAfterAdmission: z.literal(true).optional(),
   });
 
+const remoteAgentWorkerSpaceFileInputAttachmentSchema =
+  spaceMessageAttachmentSchema.extend({
+    /**
+     * Core-resolved immutable object key for a canonical Space File revision.
+     */
+    objectKey: nonEmptyStringSchema.max(4096),
+    removeAfterAdmission: z.never().optional(),
+    sizeBytes: z.number().int().finite().min(1).max(SPACE_FILE_MAX_SIZE_BYTES),
+  });
+
+export const remoteAgentWorkerInputAttachmentSchema = z.union([
+  remoteAgentWorkerLegacyInputAttachmentSchema,
+  remoteAgentWorkerSpaceFileInputAttachmentSchema,
+]);
+
 export const remoteAgentWorkerInputAttachmentsSchema = z
   .array(remoteAgentWorkerInputAttachmentSchema)
-  .max(SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE);
+  .max(SPACE_MESSAGE_FILE_MAX_COUNT)
+  .superRefine((attachments, context) => {
+    const legacyAttachmentCount = attachments.filter(
+      (attachment) => attachment.objectKey === undefined
+    ).length;
+    if (legacyAttachmentCount > SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE) {
+      context.addIssue({
+        code: "custom",
+        path: [],
+        message: `Legacy message attachments cannot exceed ${SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE}.`,
+      });
+    }
+  });
 
 export const remoteAgentWorkerTurnMessageSchema = z.strictObject({
   role: z.enum(["user"]),

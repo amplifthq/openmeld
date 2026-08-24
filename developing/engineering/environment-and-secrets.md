@@ -133,6 +133,13 @@ projects. Web, Gateway, and Remote Agent do not receive each other's managed
 secrets. `pnpm dev:doctor` also checks one project at a time instead of building
 one process with all values.
 
+Remote Agent local and development traffic uses the checked-in
+`openmeld-remote-agent-prod` AI Gateway id because Cloudflare Provider Keys are
+gateway-scoped. The shared `openmeld-remote-agent` Doppler project supplies the
+account-scoped gateway token and the configured `openrouter` BYOK alias; it does
+not copy the OpenRouter provider key into a local file or Worker environment.
+Worker-environment and Organization metadata keep requests attributable.
+
 ## Shared Development And Optional Capabilities
 
 `pnpm dev:doctor` proves three things without printing values:
