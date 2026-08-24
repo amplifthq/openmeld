@@ -14,6 +14,21 @@ selected Agent Controller Permission Mode now remains in effect for later work.
 
 Evidence: pr:195, commit:11f10b4061748c25e5a60149dfb09ced9eba4886, workflow:32694470317
 
+### Recover a Mac with a fresh setup command
+
+Fixed · v0.3.95 · computers · cli · service
+
+Fresh setup commands on supported Macs now use the normal macOS Keychain
+without requiring a restricted app entitlement. If Keychain is temporarily
+unavailable or does not answer within five seconds, OpenMeld stops waiting,
+clearly warns the user, keeps the session in private local storage, and finishes
+reconnecting the computer. It does not keep retrying Keychain in the same
+process. A later successful setup or login automatically moves the session back
+to Keychain. OpenMeld Service also reuses its loaded session instead of
+repeatedly querying secure storage while it is running.
+
+Evidence: pr:218, pr:219, commit:18f0b1c004955828f9d7cc64c122b0588a235d1b, workflow:32727645216
+
 ## August 19, 2026
 
 ### Collapse sidebar groups when you need more room
