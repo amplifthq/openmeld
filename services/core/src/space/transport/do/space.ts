@@ -3117,27 +3117,17 @@ export class Space extends DurableObject<CoreBindings> {
             readSignalById: (signalId) => this.readSignalById(signalId),
           })
         : null;
-      if (!(finalized.intentionallySilent || visibleFinalMessage?.ok)) {
+      if (!visibleFinalMessage?.ok) {
         return buildRuntimeCoordinatorFinalizationFailureOutcome({
           finalizationCommandId: command.finalizationCommandId,
           reasonCode: "daemon.result.finalization_no_public_reply",
         });
       }
-      const publishedSignalId =
-        visibleFinalMessage?.ok === true
-          ? visibleFinalMessage.publishedSignalId
-          : null;
-      if (!(publishedSignalId || finalized.intentionallySilent)) {
-        return buildRuntimeCoordinatorFinalizationFailureOutcome({
-          finalizationCommandId: command.finalizationCommandId,
-          reasonCode: "daemon.result.finalization_no_public_reply",
-        });
-      }
+      const publishedSignalId = visibleFinalMessage.publishedSignalId;
       const confirmedFinalState =
         await recordConfirmedAcceptedDispatchFinalState({
           command,
           db,
-          intentionallySilent: finalized.intentionallySilent,
           publishedSignalId,
           readSignalById: (signalId) => this.readSignalById(signalId),
         });
@@ -18748,24 +18738,11 @@ export function resolveRuntimeCoordinatorFinalizationVisibleFinalMessage(input: 
 async function recordConfirmedAcceptedDispatchFinalState(input: {
   command: RuntimeCoordinatorFinalizationCommand;
   db: D1Database;
-  intentionallySilent: boolean;
-  publishedSignalId: string | null;
+  publishedSignalId: string;
   readSignalById: (signalId: string) => SignalEnvelope | null;
 }): Promise<{
   finalMessageKind: RuntimeCoordinatorFinalizationFinalMessageKind;
 } | null> {
-  if (input.intentionallySilent) {
-    await recordConfirmedAcceptedDispatchSuccess({
-      attemptId: input.command.acceptedResult.attemptId,
-      db: input.db,
-      idempotencyKey: input.command.dispatchFact.idempotencyKey,
-      outcome: { kind: "intentionally_silent" },
-    });
-    return { finalMessageKind: "stay_silent" };
-  }
-  if (!input.publishedSignalId) {
-    return null;
-  }
   const publishedSignal = input.readSignalById(input.publishedSignalId);
   if (!publishedSignal) {
     return null;

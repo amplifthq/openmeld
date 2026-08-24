@@ -61,6 +61,16 @@ describe("RuntimeCoordinator Agent Task terminal projection", () => {
       reasonCode: "agent_task.invalid_space_action",
       status: "failed",
     });
+    expect(
+      resolveRuntimeCoordinatorFinalizationSemantic({
+        finalMessageKind: "success_reply",
+        publishState: "invalid_space_action",
+        taskResult: implicitSuccess.acceptedResult.taskResult,
+      })
+    ).toEqual({
+      reasonCode: "agent_task.invalid_space_action",
+      status: "failed",
+    });
   });
 
   it("uses the verified final message kind instead of the planned Space action", () => {
@@ -93,6 +103,40 @@ describe("RuntimeCoordinator Agent Task terminal projection", () => {
         taskResult: plannedSilence.acceptedResult.taskResult,
       })
     ).toEqual({ reasonCode: null, status: "succeeded" });
+  });
+
+  it("does not treat non-visible silence as a successful Wake outcome", () => {
+    const internalOnly = buildFinalizationCommand({
+      acceptedResult: {
+        taskResult: {
+          code: "service.task_result",
+          payload: {
+            agentId: "child-profile",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "No public reply is needed.",
+            sourceEventId: "signal-child",
+            status: "success",
+            suppressPublicOutcome: true,
+            taskId: "task-1",
+          },
+          v: 4,
+        },
+      },
+    });
+
+    expect(
+      projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
+        command: internalOnly,
+        finalMessageKind: "stay_silent",
+        publishedSignalId: null,
+        publishState: "invalid_space_action",
+      })?.outcome
+    ).toMatchObject({
+      errorCode: "agent_task.invalid_space_action",
+      publishedSignalId: null,
+      status: "failed",
+    });
   });
 
   it("projects a published child reply as succeeded", () => {

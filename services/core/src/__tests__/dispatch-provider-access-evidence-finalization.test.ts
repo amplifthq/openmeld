@@ -414,7 +414,6 @@ describe("dispatch provider access evidence finalization", () => {
         targetProfileName: "Claude Code",
       })
     ).resolves.toEqual({
-      intentionallySilent: false,
       publishedSignalId: "signal-system-final-1",
       publishState: "reply_published",
       status: "finalized",
@@ -500,7 +499,6 @@ describe("dispatch provider access evidence finalization", () => {
         targetProfileName: "Codex",
       })
     ).resolves.toEqual({
-      intentionallySilent: false,
       publishedSignalId: "signal-system-final-1",
       publishState: "reply_published",
       status: "finalized",
@@ -537,7 +535,6 @@ describe("dispatch provider access evidence finalization", () => {
         targetProfileName: "Codex",
       })
     ).resolves.toEqual({
-      intentionallySilent: false,
       publishedSignalId: "signal-system-final-1",
       publishState: "reply_published",
       status: "finalized",
@@ -571,7 +568,6 @@ describe("dispatch provider access evidence finalization", () => {
         targetProfileName: "Claude Code",
       })
     ).resolves.toEqual({
-      intentionallySilent: false,
       publishedSignalId: "signal-system-final-1",
       publishState: "reply_published",
       status: "finalized",
@@ -620,7 +616,6 @@ describe("dispatch provider access evidence finalization", () => {
         targetProfileName: "Claude Code",
       })
     ).resolves.toEqual({
-      intentionallySilent: false,
       publishedSignalId: "signal-final-1",
       publishState: "reply_published",
       status: "finalized",

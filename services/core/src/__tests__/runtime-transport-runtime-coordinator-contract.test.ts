@@ -1347,6 +1347,22 @@ const buildSuccessfulPostMessageTaskResult =
     v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
   });
 
+const buildSuccessfulInternalOnlyTaskResult =
+  (): RuntimeTransportSubmitTaskResultRequest["taskResult"] => ({
+    code: "service.task_result",
+    payload: {
+      agentId: TARGET_AGENT_PROFILE_ID,
+      attemptId: "attempt-1",
+      deduped: false,
+      output: "No public reply is needed.",
+      sourceEventId: "signal-1",
+      status: "success",
+      suppressPublicOutcome: true,
+      taskId: "task-1",
+    },
+    v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  });
+
 const buildFailedVisibleTaskResult =
   (): RuntimeTransportSubmitTaskResultRequest["taskResult"] => ({
     code: "service.task_result",
@@ -10830,6 +10846,99 @@ describe("runtime transport runtime coordinator transport contract", () => {
         (call) => call.params[2] === "reply_published"
       )
     ).toBe(true);
+  });
+
+  it("fails closed when Space reports non-visible silence as a successful finalization", async () => {
+    const {
+      appliedFinalizationCommands,
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
+      (command: RuntimeCoordinatorFinalizationCommand) => {
+        appliedFinalizationCommands.push(command);
+        return {
+          finalMessageKind: "stay_silent" as const,
+          finalizationCommandId: command.finalizationCommandId,
+          ok: true as const,
+          publicationErrorCode: null,
+          publishedSignalId: null,
+          publishState: "invalid_space_action" as const,
+          status: "finalized" as const,
+        };
+      }
+    );
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        taskResult: buildSuccessfulInternalOnlyTaskResult(),
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+
+    expect(appliedFinalizationCommands).toHaveLength(1);
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({ status: "failed_terminal" });
+    expect(
+      JSON.parse(
+        String(
+          recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+            ?.terminal_outcome_json
+        )
+      )
+    ).toMatchObject({
+      kind: "failed_terminal",
+      reasonCode: "agent_task.invalid_space_action",
+    });
+    expect(
+      recordingD1.calls
+        .filter((call) =>
+          call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+        )
+        .map((call) => call.params[2])
+    ).toEqual(["failed"]);
+    const [, authority] =
+      findRuntimeCoordinatorExecutionTokenAuthorityEntry(storageRecords) ?? [];
+    expect(authority).toMatchObject({
+      terminalOutcome: {
+        reasonCode: "agent_task.invalid_space_action",
+        replySignalId: null,
+        status: "failed_terminal",
+      },
+    });
+    expect(spaceStub.rpcCloseAgentStream).toHaveBeenCalledWith({
+      spaceId: HEX_SPACE_ID,
+      streamId: "local-agent:10.dispatch-1:9.attempt-1",
+      terminal: {
+        kind: "failed",
+        noticeText:
+          "The Agent finished, but did not produce a valid Space reply.",
+        reasonCode: "daemon.result.invalid_space_action",
+      },
+    });
   });
 
   it("keeps a published failure notice failed across RuntimeCoordinator truth", async () => {

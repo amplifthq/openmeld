@@ -296,7 +296,6 @@ export type DispatchWaitPhaseOutcome = {
 };
 
 type AcceptedDispatchFinalizationResult = {
-  intentionallySilent: boolean;
   publishedSignalId: string | null;
   publishState: "invalid_space_action" | "reply_published";
   status: "already_final" | "finalized";
@@ -1388,7 +1387,6 @@ const finalizeExistingAcceptedDispatchResult = async (input: {
     });
   }
   return {
-    intentionallySilent: input.existingResult.publicOutcome === "internal_only",
     publishedSignalId: input.existingResult.publishedSignalId ?? null,
     publishState: input.existingResult.publishedSignalId
       ? "reply_published"
@@ -1412,9 +1410,10 @@ const markDispatchSucceeded = async (input: {
   });
 };
 
-export type ConfirmedAcceptedDispatchSuccess =
-  | { kind: "intentionally_silent" }
-  | { kind: "published_signal"; publishedSignalId: string };
+export type ConfirmedAcceptedDispatchSuccess = {
+  kind: "published_signal";
+  publishedSignalId: string;
+};
 
 export const recordConfirmedAcceptedDispatchSuccess = async (input: {
   attemptId: string;
@@ -1422,10 +1421,7 @@ export const recordConfirmedAcceptedDispatchSuccess = async (input: {
   idempotencyKey: string;
   outcome: ConfirmedAcceptedDispatchSuccess;
 }): Promise<void> => {
-  if (
-    input.outcome.kind === "published_signal" &&
-    input.outcome.publishedSignalId.trim().length === 0
-  ) {
+  if (input.outcome.publishedSignalId.trim().length === 0) {
     throw new Error(
       "A confirmed accepted dispatch success requires a published signal ID."
     );
@@ -1630,7 +1626,6 @@ export const finalizeAcceptedDispatchResult = async (input: {
       });
     }
     return {
-      intentionallySilent: false,
       publishedSignalId: failedReplyEmission.publishedSignalId,
       publishState: failedReplyEmission.publishedSignalId
         ? "reply_published"
@@ -1684,7 +1679,6 @@ export const finalizeAcceptedDispatchResult = async (input: {
     taskResult: input.inboxRecord.taskResult,
   });
   return {
-    intentionallySilent: replyEmission.intentionallySilent,
     publishedSignalId: replyEmission.publishedSignalId,
     publishState: replyEmission.publishState,
     status: "finalized",
@@ -4542,7 +4536,6 @@ const emitDispatchReplySignals = async (input: {
 }): Promise<{
   publishedSignalId: string | null;
   publishState: "invalid_space_action" | "reply_published";
-  intentionallySilent: boolean;
 }> => {
   const payload = input.taskResult.payload;
   if (!isSuccessfulRuntimeTaskResultPayload(payload)) {
@@ -4666,7 +4659,6 @@ const emitDispatchReplySignals = async (input: {
   }
   if (publicationPlan.kind === "none") {
     return {
-      intentionallySilent: true,
       publishedSignalId: null,
       publishState: "invalid_space_action",
     };
@@ -4724,7 +4716,6 @@ const emitDispatchReplySignals = async (input: {
     });
   }
   return {
-    intentionallySilent: false,
     publishedSignalId: emittedSignal?.id ?? null,
     publishState:
       emittedSignal && !publicationPlan.blockedExplicitAction

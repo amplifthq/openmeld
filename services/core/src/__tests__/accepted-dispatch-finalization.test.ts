@@ -2747,6 +2747,80 @@ describe("accepted dispatch finalization", () => {
     );
   });
 
+  it("does not treat an archived internal-only result as a successful Wake outcome", async () => {
+    const sql = {
+      exec: vi.fn((query: string) => {
+        if (query.includes("SELECT signal_id")) {
+          return { toArray: () => [] };
+        }
+        throw new Error(`unexpected Space SQL query: ${query}`);
+      }),
+    } as unknown as SqlStorage;
+    const db = createFinalizationApplyD1Db({
+      publicOutcome: "internal_only",
+      publishedSignalId: null,
+    });
+    const internalOnlyCommand = {
+      ...baseFinalizationCommand,
+      acceptedResult: {
+        ...baseFinalizationCommand.acceptedResult,
+        taskResult: {
+          ...baseFinalizationCommand.acceptedResult.taskResult,
+          payload: {
+            ...baseFinalizationCommand.acceptedResult.taskResult.payload,
+            suppressPublicOutcome: true,
+          },
+        },
+      },
+    } satisfies RuntimeCoordinatorFinalizationCommand;
+    const space = Object.create(Space.prototype) as {
+      applySpaceRef: (spaceId: string) => void;
+      bindings: { OPENMELD_DB: D1Database };
+      ctx: { storage: { sql: SqlStorage } };
+      readSignalById: (signalId: string) => SignalEnvelope | null;
+      readSpaceContractRecord: () => ReturnType<
+        typeof buildDefaultSpaceContract
+      >;
+      resolveThreadContextForSignal: () => null;
+      rpcApplyRuntimeCoordinatorFinalizationCommand: (
+        input: RuntimeCoordinatorFinalizationCommand
+      ) => Promise<unknown>;
+      spaceId: string;
+    };
+    Object.defineProperties(space, {
+      applySpaceRef: { value: vi.fn() },
+      bindings: { value: { OPENMELD_DB: db } },
+      ctx: { value: { storage: { sql } } },
+      readSignalById: {
+        value: vi.fn((signalId: string) =>
+          signalId === sourceSignal.id ? sourceSignal : null
+        ),
+      },
+      readSpaceContractRecord: {
+        value: vi.fn(() => buildDefaultSpaceContract()),
+      },
+      resolveThreadContextForSignal: { value: vi.fn(() => null) },
+      spaceId: { value: "space-1", writable: true },
+    });
+
+    await expect(
+      space.rpcApplyRuntimeCoordinatorFinalizationCommand(internalOnlyCommand)
+    ).resolves.toEqual({
+      finalizationCommandId: "command-1",
+      ok: false,
+      publicationErrorCode: "daemon.result.finalization_no_public_reply",
+      publishedSignalId: null,
+      publishState: "reply_publication_failed",
+      status: "retry_later",
+    });
+    expect(db.prepare).not.toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE openMeldDaemon_dispatch_ledger")
+    );
+    expect(db.prepare).not.toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE openMeldDaemon_dispatch_attempts")
+    );
+  });
+
   it("keeps finalization retryable when a non-silent result has no visible Space outcome", async () => {
     const sql = {
       exec: vi.fn((query: string) => {
@@ -2986,6 +3060,7 @@ function createAcceptedInboxReadDb(record: DispatchResultInboxRecord) {
 
 function createFinalizationApplyD1Db(input: {
   publishedSignalId: string | null;
+  publicOutcome?: "internal_only" | "post_message";
 }) {
   return {
     prepare: vi.fn((query: string) => {
@@ -3000,7 +3075,7 @@ function createFinalizationApplyD1Db(input: {
               final_text: "Hey, I'm here.",
               message_envelope_json: null,
               preview_text: "Hey, I'm here.",
-              public_outcome: "post_message",
+              public_outcome: input.publicOutcome ?? "post_message",
               published_signal_id: input.publishedSignalId,
               reply_to_signal_id: "signal-1",
               result_kind: "text",
