@@ -195,6 +195,8 @@ describe("openmeld upgrade in binary distribution", () => {
       expect(stdout).toContain('"code":"upgrade.installing.completed"');
       expect(stdout).toContain('"code":"upgrade.service_alignment.started"');
       expect(stdout).toContain('"code":"upgrade.service_alignment.completed"');
+      expect(stdout).toContain('"message":"OpenMeld Service check finished."');
+      expect(stdout).not.toContain("OpenMeld Service matches the new CLI.");
       expect(stdout).toContain('"durationMs":');
       expect(stdout).toContain('"code":"upgrade.reconcile.completed"');
       expect(stdout).toContain('"code":"upgrade.completed"');

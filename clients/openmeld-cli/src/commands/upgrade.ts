@@ -62,6 +62,8 @@ const CLI_BINARY_DOWNLOAD_TIMEOUT_MS = 60_000;
 const BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND =
   "curl -fsSL 'https://openmeld.ai/setup?dist=binary' | sh";
 const INSTALL_SELF_JSON_LINE_SPLIT_RE = /\r?\n/u;
+const SERVICE_CHECK_STARTED_TEXT = "Checking OpenMeld Service";
+const SERVICE_CHECK_COMPLETED_TEXT = "OpenMeld Service check finished.";
 export const UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG = "--internal-align-service";
 
 class UpgradeOutputHandledError extends Error {
@@ -410,8 +412,8 @@ async function installAndReconcileBinaryUpgrade(input: {
     presenter: input.presenter,
     resolvedView: input.resolvedView,
     code: "upgrade.service_alignment",
-    startedText: "Making sure OpenMeld Service matches the new CLI",
-    completedText: "OpenMeld Service matches the new CLI.",
+    startedText: SERVICE_CHECK_STARTED_TEXT,
+    completedText: SERVICE_CHECK_COMPLETED_TEXT,
     run: async () =>
       await handoffUpgradeServiceAlignmentToLatestBinary({
         resolvedView: input.resolvedView,
@@ -476,8 +478,8 @@ async function installAndReconcileNpmUpgrade(input: {
     presenter: input.presenter,
     resolvedView: input.resolvedView,
     code: "upgrade.service_alignment",
-    startedText: "Making sure OpenMeld Service matches the new CLI",
-    completedText: "OpenMeld Service matches the new CLI.",
+    startedText: SERVICE_CHECK_STARTED_TEXT,
+    completedText: SERVICE_CHECK_COMPLETED_TEXT,
     run: async () =>
       await handoffUpgradeServiceAlignmentToLatestBinary({
         resolvedView: input.resolvedView,
