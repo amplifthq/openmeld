@@ -22,7 +22,10 @@ type TestInstallResolver = {
   refreshPersistedLaunchContract?: (input: {
     launchContract: RuntimeAgentControllerLaunchContract;
   }) => Promise<RuntimeAgentControllerLaunchContract>;
-  resolveInstalledLaunchCandidates: () => Promise<
+  resolveInstalledLaunchCandidates: (input?: {
+    preferredLaunchContract?: RuntimeAgentControllerLaunchContract | null;
+    timeoutMs?: number | null;
+  }) => Promise<
     | {
         candidates: RuntimeAgentControllerLaunchCandidate[];
         ok: true;
@@ -60,7 +63,11 @@ describe("local controller install resolution", () => {
     const persistedLaunchContract = createLaunchContract(
       "/opt/homebrew/bin/codex"
     );
-    const resolveInstalledLaunchCandidates = vi.fn();
+    const resolveInstalledLaunchCandidates = vi.fn().mockResolvedValue({
+      errorMessage: "Install inventory is temporarily unavailable.",
+      reason: "not_launchable",
+      ok: false,
+    });
     setTestInstallResolver({
       resolveInstalledLaunchCandidates,
       verifyLaunchContract: vi.fn().mockResolvedValue({
@@ -83,14 +90,100 @@ describe("local controller install resolution", () => {
       launchContract: persistedLaunchContract,
       status: "ready",
     });
-    expect(resolveInstalledLaunchCandidates).not.toHaveBeenCalled();
+    expect(resolveInstalledLaunchCandidates).toHaveBeenCalledWith({
+      preferredLaunchContract: persistedLaunchContract,
+    });
+  });
+
+  it("keeps a verified persisted install while exposing every verified install", async () => {
+    const persistedLaunchContract = createLaunchContract(
+      "/opt/homebrew/bin/codex"
+    );
+    const installChoices = [
+      createInstallChoice("install_homebrew", "/opt/homebrew/bin/codex"),
+      createInstallChoice("install_nvm", "/Users/test/.nvm/bin/codex"),
+    ];
+    const resolveInstalledLaunchCandidates = vi.fn().mockResolvedValue({
+      candidates: installChoices,
+      ok: true,
+    });
+    setTestInstallResolver({
+      resolveInstalledLaunchCandidates,
+      verifyLaunchContract: vi.fn().mockResolvedValue({
+        launchCommand: { argsPrefix: [], bin: "/opt/homebrew/bin/codex" },
+        ok: true,
+      }),
+    });
+
+    const resolution = await resolveBuiltinControllerInstallResolution({
+      agentId: "codex",
+      detected: true,
+      displayName: "Codex",
+      persistedLaunchContract,
+      runtimeSupported: true,
+    });
+
+    expect(resolution).toEqual({
+      detail: null,
+      installChoices,
+      launchContract: persistedLaunchContract,
+      status: "ready",
+    });
+    expect(resolveInstalledLaunchCandidates).toHaveBeenCalledWith({
+      preferredLaunchContract: persistedLaunchContract,
+    });
+  });
+
+  it("verifies a persisted install even when ordinary detection misses it", async () => {
+    const persistedLaunchContract = createLaunchContract(
+      "/Users/test/saved/bin/codex"
+    );
+    const installChoices = [
+      createInstallChoice("install_saved", "/Users/test/saved/bin/codex"),
+    ];
+    const resolveInstalledLaunchCandidates = vi.fn().mockResolvedValue({
+      candidates: installChoices,
+      ok: true,
+    });
+    setTestInstallResolver({
+      resolveInstalledLaunchCandidates,
+      verifyLaunchContract: vi.fn().mockResolvedValue({
+        launchCommand: {
+          argsPrefix: [],
+          bin: "/Users/test/saved/bin/codex",
+        },
+        ok: true,
+      }),
+    });
+
+    const resolution = await resolveBuiltinControllerInstallResolution({
+      agentId: "codex",
+      detected: false,
+      displayName: "Codex",
+      persistedLaunchContract,
+      runtimeSupported: true,
+    });
+
+    expect(resolution).toEqual({
+      detail: null,
+      installChoices,
+      launchContract: persistedLaunchContract,
+      status: "ready",
+    });
+    expect(resolveInstalledLaunchCandidates).toHaveBeenCalledWith({
+      preferredLaunchContract: persistedLaunchContract,
+    });
   });
 
   it("keeps a persisted launch contract when its current check is incomplete", async () => {
     const persistedLaunchContract = createLaunchContract(
       "/opt/homebrew/bin/claude"
     );
-    const resolveInstalledLaunchCandidates = vi.fn();
+    const resolveInstalledLaunchCandidates = vi.fn().mockResolvedValue({
+      errorMessage: "Install inventory timed out.",
+      reason: "not_launchable",
+      ok: false,
+    });
     setTestInstallResolver({
       resolveInstalledLaunchCandidates,
       verifyLaunchContract: vi.fn().mockResolvedValue({
@@ -114,7 +207,9 @@ describe("local controller install resolution", () => {
       launchContract: persistedLaunchContract,
       status: "ready",
     });
-    expect(resolveInstalledLaunchCandidates).not.toHaveBeenCalled();
+    expect(resolveInstalledLaunchCandidates).toHaveBeenCalledWith({
+      preferredLaunchContract: persistedLaunchContract,
+    });
   });
 
   it("still requires repair after a completed negative launch check", async () => {
@@ -189,15 +284,19 @@ describe("local controller install resolution", () => {
     });
   });
 
-  it("uses the first verified PATH install when multiple installs are available", async () => {
+  it("prefers the Codex bundled with ChatGPT on first use", async () => {
     const installChoices = [
       createInstallChoice("install_homebrew", "/opt/homebrew/bin/codex"),
-      createInstallChoice("install_nvm", "/Users/test/.nvm/bin/codex"),
+      createInstallChoice(
+        "install_chatgpt",
+        "/Applications/ChatGPT.app/Contents/Resources/codex"
+      ),
     ];
     setTestInstallResolver({
       resolveInstalledLaunchCandidates: vi.fn().mockResolvedValue({
         candidates: installChoices,
         ok: true,
+        preferredInstallId: "install_chatgpt",
       }),
     });
 
@@ -211,7 +310,7 @@ describe("local controller install resolution", () => {
     expect(resolution).toEqual({
       detail: null,
       installChoices: [],
-      launchContract: installChoices[0]?.launchContract ?? null,
+      launchContract: installChoices[1]?.launchContract ?? null,
       status: "ready",
     });
   });

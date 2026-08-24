@@ -910,6 +910,7 @@ export async function manageAgentRegistrationInstallation(input: {
     agentId: state.agentId,
     detected: state.detected,
     displayName: state.displayName,
+    persistedLaunchContract: state.registration.launchContract ?? null,
     runtimeSupported: state.runtimeSupported,
   });
   if (!candidatesResult.ok) {
@@ -1044,14 +1045,21 @@ async function toAgentTargetState(
       registration,
       targetKind: target.targetKind,
     });
+  const effectiveDetected =
+    target.detected ||
+    Boolean(
+      registration?.launchContract &&
+        normalizedLaunchResolution.status !== "not_available"
+    );
   const selectability = resolveTargetSelectability({
-    detected: target.detected,
+    detected: effectiveDetected,
     launchStatus: normalizedLaunchResolution.status,
     runtimeSupported: target.runtimeSupported,
     targetKind: target.targetKind,
   });
   return {
     ...target,
+    detected: effectiveDetected,
     selectable: selectability.selectable,
     selectableReason: selectability.reason,
     installChoices: normalizedLaunchResolution.installChoices,

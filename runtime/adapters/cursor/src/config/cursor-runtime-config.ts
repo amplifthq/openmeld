@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import {
+  type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
   type LaunchContractVerificationResult,
   type RuntimeAgentControllerLaunchContract,
@@ -14,9 +15,9 @@ import {
 const DEFAULT_CURSOR_COMMAND = "cursor-agent";
 const PATH_SEGMENT_SPLIT_RE = /[/\\]/u;
 
-export async function resolveInstalledCursorLaunchCandidates(input?: {
-  timeoutMs?: number | null;
-}): Promise<InstalledLaunchCandidatesResolution> {
+export async function resolveInstalledCursorLaunchCandidates(
+  input?: InstalledLaunchCandidatesOptions
+): Promise<InstalledLaunchCandidatesResolution> {
   const installedCandidates = await resolveInstalledNodeScriptLaunchCandidates({
     additionalCommandDirectories: resolveCursorCommandDirectories(),
     commandName: DEFAULT_CURSOR_COMMAND,
@@ -24,6 +25,7 @@ export async function resolveInstalledCursorLaunchCandidates(input?: {
       process.env.OPENMELD_DAEMON_RUNTIME_CURSOR_BIN
     ),
     displayName: "Cursor CLI",
+    preferredLaunchContract: input?.preferredLaunchContract,
   });
   if (!installedCandidates.ok) {
     return installedCandidates;

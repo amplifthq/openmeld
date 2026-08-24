@@ -46,7 +46,7 @@ describe("LocalAgentsGuideRoute", () => {
 		render(<LocalAgentsGuideRoute />);
 
 		expect(
-			screen.getByRole("heading", { name: "Install a local agent CLI" })
+			screen.getByRole("heading", { name: "Connect a local agent" })
 		).toBeTruthy();
 		expect(screen.queryByTestId("local-agent-guide-outlet")).toBeNull();
 	});
@@ -58,7 +58,7 @@ describe("LocalAgentsGuideRoute", () => {
 
 		expect(screen.getByTestId("local-agent-guide-outlet")).toBeTruthy();
 		expect(
-			screen.queryByRole("heading", { name: "Install a local agent CLI" })
+			screen.queryByRole("heading", { name: "Connect a local agent" })
 		).toBeNull();
 	});
 });

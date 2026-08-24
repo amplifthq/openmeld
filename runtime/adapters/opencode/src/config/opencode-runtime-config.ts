@@ -1,4 +1,5 @@
 import {
+  type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
   type LaunchContractVerificationResult,
   type RuntimeAgentControllerLaunchContract,
@@ -10,15 +11,16 @@ import {
 
 const DEFAULT_OPENCODE_COMMAND = "opencode";
 
-export async function resolveInstalledOpenCodeLaunchCandidates(input?: {
-  timeoutMs?: number | null;
-}): Promise<InstalledLaunchCandidatesResolution> {
+export async function resolveInstalledOpenCodeLaunchCandidates(
+  input?: InstalledLaunchCandidatesOptions
+): Promise<InstalledLaunchCandidatesResolution> {
   const installedCandidates = await resolveInstalledNodeScriptLaunchCandidates({
     commandName: DEFAULT_OPENCODE_COMMAND,
     configuredCommand: normalizeOptionalText(
       process.env.OPENMELD_DAEMON_RUNTIME_OPENCODE_BIN
     ),
     displayName: "OpenCode",
+    preferredLaunchContract: input?.preferredLaunchContract,
   });
   if (!installedCandidates.ok) {
     return installedCandidates;
