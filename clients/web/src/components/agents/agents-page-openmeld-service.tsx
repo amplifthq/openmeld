@@ -1367,7 +1367,7 @@ function OpenMeldToolsComponentDetails(input: {
 						{item.value}
 					</p>
 					{item.description ? (
-						<div className="mt-2 min-w-0 break-words text-muted-foreground text-xs leading-5">
+						<div className="mt-2 min-w-0 text-muted-foreground text-xs leading-5 max-lg:break-words lg:truncate">
 							{item.description}
 						</div>
 					) : null}

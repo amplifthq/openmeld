@@ -135,7 +135,8 @@ describe("GlobalCenterAgentTaskLaunchers", () => {
 		const launcher = await screen.findByRole("button", {
 			name: "Open Task Audit the complete onboarding experience across every supported screen size",
 		});
-		expect(launcher.className).toContain("max-w-[12.5rem]");
+		expect(launcher.className).toContain("max-lg:max-w-[12.5rem]");
+		expect(launcher.classList.contains("max-w-[12.5rem]")).toBe(false);
 		expect(launcher.querySelector(".truncate")).toBeTruthy();
 	});
 

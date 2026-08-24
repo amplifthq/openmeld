@@ -1110,7 +1110,7 @@ function LocalAgentInstallGuideLink() {
 			<Link
 				className={cn(
 					APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
-					"inline-flex items-center font-medium text-foreground"
+					"font-medium text-foreground max-lg:inline-flex max-lg:items-center"
 				)}
 				to={LOCAL_AGENTS_GUIDE_PATH}
 			>

@@ -814,6 +814,8 @@ describe("LocalAgentsCard", () => {
 		expect(guideLink.getAttribute("href")).toBe("/guides/local-agents");
 		expect(guideLink.className).toContain("touch-manipulation");
 		expect(guideLink.className).toContain("max-lg:min-h-11");
+		expect(guideLink.className).toContain("max-lg:inline-flex");
+		expect(guideLink.classList.contains("inline-flex")).toBe(false);
 	});
 
 	it("links to the install guide when every reported local agent is undetected", () => {

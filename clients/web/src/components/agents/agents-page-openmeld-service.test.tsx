@@ -118,8 +118,8 @@ describe("OpenMeldServiceCard", () => {
 		const skillDescription = screen.getByText(
 			"The OpenMeld skill is installed and up to date for local agents."
 		);
-		expect(skillDescription.className).toContain("break-words");
-		expect(skillDescription.className).not.toContain("truncate");
+		expect(skillDescription.className).toContain("max-lg:break-words");
+		expect(skillDescription.className).toContain("lg:truncate");
 		expect(screen.queryByText("Installed · 1 skill")).toBeNull();
 		const skillHelp = screen.getByRole("button", {
 			name: "OpenMeld skill help",
