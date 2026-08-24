@@ -458,6 +458,7 @@ export const createSharedDispatchShell = (input: {
   bridgeSpec?: AdapterConversationBridgeSpec | null;
   invoke?: SharedDispatchInvokeFn;
   invokeByMode?: Partial<Record<string, SharedDispatchInvokeFn>>;
+  repairConversationPolicy?: "require_canonical";
   resolveInvokeRequest?: SharedDispatchInvokeRequestResolver;
   resolveSuccessContextDelta?: SharedDispatchSuccessContextDeltaResolver;
   resolveDefaultInvoke: () => SharedDispatchInvokeFn | null | undefined;
@@ -504,6 +505,11 @@ export const createSharedDispatchShell = (input: {
           bridgeSpec,
           request: dispatchInput,
         });
+      const requiredRepairConversationId = resolveRequiredRepairConversationId({
+        invokeRequest,
+        policy: input.repairConversationPolicy,
+        request: dispatchInput,
+      });
       const result = await resolvedInvoke(invokeRequest);
       const contextDelta =
         input.resolveSuccessContextDelta?.({
@@ -516,9 +522,15 @@ export const createSharedDispatchShell = (input: {
           bridgeSpec,
           contextDelta: result.contextDelta,
         });
+      const protectedContextDelta = requireCanonicalRepairConversation({
+        canonicalConversationId: requiredRepairConversationId,
+        contextDelta,
+      });
 
       return {
-        ...(contextDelta ? { contextDelta } : {}),
+        ...(protectedContextDelta
+          ? { contextDelta: protectedContextDelta }
+          : {}),
         ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
         output: result.output,
         status: "success",
@@ -528,6 +540,73 @@ export const createSharedDispatchShell = (input: {
       return toAdapterDispatchFailure(error, "adapter");
     }
   };
+};
+
+class AdapterRepairConversationMissingError extends Error {
+  readonly code = "repair.conversation_missing";
+  readonly errorType: AdapterErrorType = "adapter";
+
+  constructor() {
+    super(
+      "repair.conversation_missing: repair requires an existing Agent Controller conversation"
+    );
+    this.name = "AdapterRepairConversationMissingError";
+  }
+}
+
+class AdapterRepairConversationError extends Error {
+  readonly code = "repair.conversation_changed";
+  readonly errorType: AdapterErrorType = "adapter";
+
+  constructor() {
+    super(
+      "repair.conversation_changed: repair could not preserve the existing Agent Controller conversation"
+    );
+    this.name = "AdapterRepairConversationError";
+  }
+}
+
+const resolveRequiredRepairConversationId = (input: {
+  invokeRequest: AdapterDispatchRequest;
+  policy?: "require_canonical";
+  request: AdapterDispatchRequest;
+}): string | null => {
+  if (
+    input.policy !== "require_canonical" ||
+    input.request.executionMode !== "repair"
+  ) {
+    return null;
+  }
+
+  const canonicalConversationId = normalizeOptionalText(
+    input.invokeRequest.agentControllerConversationId
+  );
+  if (!canonicalConversationId) {
+    throw new AdapterRepairConversationMissingError();
+  }
+
+  return canonicalConversationId;
+};
+
+const requireCanonicalRepairConversation = (input: {
+  canonicalConversationId: string | null;
+  contextDelta?: AdapterDispatchContextDelta;
+}): AdapterDispatchContextDelta | undefined => {
+  if (!input.canonicalConversationId) {
+    return input.contextDelta;
+  }
+
+  const observedConversationId = normalizeOptionalText(
+    input.contextDelta?.agentControllerConversationId
+  );
+  if (
+    input.contextDelta?.refreshed === true ||
+    observedConversationId !== input.canonicalConversationId
+  ) {
+    throw new AdapterRepairConversationError();
+  }
+
+  return input.contextDelta;
 };
 
 export const createSharedControlShell = (input: {
@@ -614,6 +693,7 @@ export const createSharedControlShell = (input: {
 
 export const invokeWithSingleContextHeal = async (input: {
   contextId: string | null;
+  contextLossPolicy: "fail" | "rebuild";
   createRebuildFailedError: (error: unknown) => Error;
   invokeOnce: (contextId: string | null) => Promise<{
     contextId: string | null;
@@ -641,6 +721,10 @@ export const invokeWithSingleContextHeal = async (input: {
     };
   } catch (firstError) {
     if (!(input.contextId && input.isContextLostError(firstError))) {
+      throw firstError;
+    }
+
+    if (input.contextLossPolicy === "fail") {
       throw firstError;
     }
 

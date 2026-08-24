@@ -75,6 +75,40 @@ describe("auth session storage", () => {
     });
   });
 
+  it("reuses a loaded token while the persisted session is unchanged", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "token-cached",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+
+      const sessionPath = join(home, ".openmeld", "auth", "session.json");
+      const payload = JSON.parse(await readFile(sessionPath, "utf8")) as {
+        tokenRef: { key: string };
+      };
+      await rm(
+        join(
+          home,
+          ".openmeld",
+          "auth",
+          "tokens",
+          `${payload.tokenRef.key}.token`
+        )
+      );
+
+      await expect(getAuthSession()).resolves.toMatchObject({
+        accessToken: "token-cached",
+      });
+
+      Reflect.deleteProperty(
+        process.env,
+        "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+      );
+    });
+  });
+
   it("updates active organization without rewriting the stored access token", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
@@ -228,7 +262,7 @@ describe("auth session storage", () => {
     });
   });
 
-  it("reports invalid auth state without deleting a session whose token is missing", async () => {
+  it("reports invalid auth state after restart without deleting a session whose token is missing", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
       await setAuthSession({
@@ -251,7 +285,11 @@ describe("auth session storage", () => {
         )
       );
 
-      const state = await getAuthSessionState();
+      vi.resetModules();
+      const { getAuthSessionState: getReloadedAuthSessionState } = await import(
+        "../src/config/auth-session"
+      );
+      const state = await getReloadedAuthSessionState();
       expect(state.state).toBe("invalid");
       expect(state.reasonCode).toBe("session_token_missing");
       expect(state.session).toBeNull();

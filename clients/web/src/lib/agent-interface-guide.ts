@@ -48,7 +48,7 @@ Give the user a short, warm explanation: OpenMeld is not a role-play multi-agent
 
 If you know the user's work context, tailor the value to their current work. If you do not, use a practical generic example. Tell the user they can ask you any OpenMeld question and you can guide setup, Space design, agent membership, Wake, and troubleshooting.
 
-Using the Web setup command is the normal first setup path. On supported macOS computers, that command installs the managed OpenMeld CLI binary by default. For ordinary follow-up work, use the final \`cliCommandPrefix\` from \`setup.complete\`; it may be a managed binary path, \`openmeld\`, \`openmeld-dev\`, \`openmeld-canary\`, or \`npx -y openmeld@latest\`. A stable local OpenMeld command lets OpenMeld inject dispatch-scoped Space Action commands so agents can reply, update status, hand off, or stay silent without manually writing fallback JSON.
+Using the Web setup command is the normal first setup path. On supported macOS computers, that command installs the managed OpenMeld CLI binary by default. For ordinary follow-up work, use the final \`cliCommandPrefix\` from \`setup.complete\`; it may be a managed binary path, \`openmeld\`, \`openmeld-dev\`, \`openmeld-canary\`, or \`npx -y openmeld@latest\`. A stable local OpenMeld command lets OpenMeld inject dispatch-scoped Space Action commands so agents can reply, update status, hand off, or stay silent through validated tool records instead of answer text.
 
 If an older OpenMeld CLI is installed, let setup align it. If you are checking manually, use the current command prefix from \`setup.complete\`:
 

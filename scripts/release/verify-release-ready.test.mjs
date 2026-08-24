@@ -84,6 +84,18 @@ test("detects paths that require the release-ready gate", () => {
     isReleaseReadyPath("runtime/adapters/core/src/launch-contract.ts"),
     true
   );
+  assert.equal(
+    isReleaseReadyPath(
+      "clients/openmeld-cli/native/macos-keychain/binding.gyp"
+    ),
+    true
+  );
+  assert.equal(
+    isReleaseReadyPath(
+      "clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs"
+    ),
+    true
+  );
   assert.equal(isReleaseReadyPath("clients/web/src/routes/index.tsx"), false);
 });
 

@@ -1,10 +1,44 @@
 import { EventEmitter } from "node:events";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const execFileMock = vi.hoisted(() => vi.fn());
+const macOsNativeTokens = vi.hoisted(() => new Map<string, string>());
+const macOsNativeKeychainState = vi.hoisted(() => ({
+  binaryDistribution: true,
+  storeError: null as Error | null,
+}));
 
 vi.mock("node:child_process", () => ({
   execFile: (...args: unknown[]) => execFileMock(...args),
+}));
+
+vi.mock("../src/runtime/distribution", () => ({
+  isBinaryDistribution: () => macOsNativeKeychainState.binaryDistribution,
+}));
+
+vi.mock("../src/config/macos-native-keychain", () => ({
+  deleteMacOsNativeKeychainToken: vi.fn(
+    (input: { account: string; service: string }) => {
+      macOsNativeTokens.delete(`${input.service}\n${input.account}`);
+    }
+  ),
+  readMacOsNativeKeychainToken: vi.fn(
+    (input: { account: string; service: string }) =>
+      macOsNativeTokens.get(`${input.service}\n${input.account}`) ?? null
+  ),
+  storeMacOsNativeKeychainToken: vi.fn(
+    (input: { accessToken: string; account: string; service: string }) => {
+      if (macOsNativeKeychainState.storeError) {
+        throw macOsNativeKeychainState.storeError;
+      }
+      macOsNativeTokens.set(
+        `${input.service}\n${input.account}`,
+        input.accessToken
+      );
+    }
+  ),
 }));
 
 import {
@@ -63,6 +97,9 @@ function createMockExecFileChild(stdoutText = ""): EventEmitter & {
 describe("token-store command execution options", () => {
   beforeEach(() => {
     execFileMock.mockReset();
+    macOsNativeTokens.clear();
+    macOsNativeKeychainState.binaryDistribution = true;
+    macOsNativeKeychainState.storeError = null;
     execFileMock.mockImplementation(
       (
         _command: string,
@@ -89,6 +126,8 @@ describe("token-store command execution options", () => {
   });
 
   it("passes timeout options to callback-based execFile path", async () => {
+    macOsNativeKeychainState.binaryDistribution = false;
+
     await deleteAccessToken({
       provider: "macos-keychain",
       service: "svc",
@@ -111,6 +150,7 @@ describe("token-store command execution options", () => {
 
   it("reports missing macOS keychain tokens separately from unavailable keychain reads", async () => {
     setProcessPlatform("darwin");
+    macOsNativeKeychainState.binaryDistribution = false;
     execFileMock.mockImplementationOnce(
       (
         _command: string,
@@ -211,7 +251,64 @@ describe("token-store command execution options", () => {
 
     expect(firstRef.provider).toBe("macos-keychain");
     expect(secondRef.provider).toBe("macos-keychain");
+    expect(firstRef).not.toHaveProperty("accessGroup");
+    expect(secondRef).not.toHaveProperty("accessGroup");
     expect(firstRef).not.toEqual(secondRef);
+    expect(execFileMock).not.toHaveBeenCalledWith(
+      "security",
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  it("keeps setup usable with an explicit private-file fallback when macOS Keychain is unavailable", async () => {
+    setProcessPlatform("darwin");
+    macOsNativeKeychainState.storeError = new Error("securityd unavailable");
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    await withTempHome(async (home) => {
+      const ref = await storeAccessToken({
+        accessToken: "token-private",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+
+      expect(ref.provider).toBe("insecure-file");
+      if (ref.provider !== "insecure-file") {
+        throw new Error("Expected the private macOS token fallback.");
+      }
+      await expect(readAccessToken(ref)).resolves.toEqual({
+        accessToken: "token-private",
+        status: "found",
+      });
+      const tokenDirectory = join(home, ".openmeld", "auth", "tokens");
+      const tokenFile = join(tokenDirectory, `${ref.key}.token`);
+      expect((await stat(tokenDirectory)).mode % 0o1000).toBe(0o700);
+      expect((await stat(tokenFile)).mode % 0o1000).toBe(0o600);
+
+      const replacementRef = await storeAccessToken({
+        accessToken: "token-private-replacement",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+      expect(replacementRef.provider).toBe("insecure-file");
+      expect(replacementRef).not.toEqual(ref);
+      await expect(readAccessToken(ref)).resolves.toEqual({
+        accessToken: "token-private",
+        status: "found",
+      });
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("macOS Keychain is unavailable")
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("protected for your macOS user account")
+    );
+    expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 
   it("warns once when plaintext file-token fallback is used", async () => {
@@ -254,6 +351,14 @@ describe("token-store command execution options", () => {
       isStoredTokenRef({
         provider: "windows-dpapi",
         key: "not-a-sha256-key",
+      })
+    ).toBe(false);
+    expect(
+      isStoredTokenRef({
+        accessGroup: "attacker.example",
+        account: "openmeld-auth-test",
+        provider: "macos-keychain",
+        service: "sh.openmeld.auth.token",
       })
     ).toBe(false);
   });

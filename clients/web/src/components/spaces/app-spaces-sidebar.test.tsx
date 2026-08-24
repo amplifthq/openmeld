@@ -595,24 +595,33 @@ describe("AppSpacesSidebar", () => {
 		const spaceName = openSpaceButton.querySelector<HTMLElement>(
 			'[data-slot="center-truncated-text"]'
 		);
+		const nameAndDate = openSpaceButton.querySelector<HTMLElement>(
+			'[data-slot="space-sidebar-name-and-date"]'
+		);
 		const spaceRow = openSpaceButton?.parentElement;
-		const timestamp = openSpaceButton?.lastElementChild;
+		const timestamp = openSpaceButton.querySelector<HTMLElement>(
+			'[data-slot="space-sidebar-date"]'
+		);
 		const pinButton = screen.getByRole("button", { name: "Pin Alpha" });
 
 		expect(spaceRow?.classList.contains("@container/space-item")).toBe(true);
 		expect(openSpaceButton?.classList.contains("pr-10")).toBe(false);
 		expect(spaceName?.classList.contains("pr-10")).toBe(false);
 		expect(spaceName?.classList.contains("@[13rem]/space-item:pr-10")).toBe(
-			true
+			false
 		);
+		expect(nameAndDate?.classList.contains("flex")).toBe(true);
+		expect(nameAndDate?.classList.contains("min-w-0")).toBe(true);
+		expect(nameAndDate?.classList.contains("flex-1")).toBe(true);
+		expect(nameAndDate?.classList.contains("items-center")).toBe(true);
+		expect(nameAndDate?.classList.contains("gap-px")).toBe(true);
 		expect(openSpaceButton.classList.contains("items-center")).toBe(true);
-		expect(timestamp?.classList.contains("absolute")).toBe(true);
-		expect(timestamp?.classList.contains("top-2")).toBe(true);
-		expect(timestamp?.classList.contains("right-2")).toBe(true);
+		expect(timestamp?.classList.contains("absolute")).toBe(false);
+		expect(timestamp?.classList.contains("shrink-0")).toBe(true);
 		expect(timestamp?.classList.contains("hidden")).toBe(true);
-		expect(timestamp?.classList.contains("@[13rem]/space-item:block")).toBe(
-			true
-		);
+		expect(
+			timestamp?.classList.contains("@[13rem]/space-item:inline-flex")
+		).toBe(true);
 		expect(pinButton.classList.contains("top-1")).toBe(true);
 		expect(pinButton.classList.contains("top-1/2")).toBe(false);
 		expect(

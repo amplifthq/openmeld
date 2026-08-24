@@ -63,25 +63,6 @@ const CODEX_USER_AGENT_VERSION_RE = /\/([^\s]+)/u;
 const CLI_SEMVER_RE = /\b(\d+\.\d+\.\d+(?:[-+][^\s]+)?)\b/u;
 const SEMVER_CORE_RE = /^v?(\d+)\.(\d+)\.(\d+)/u;
 const WHITESPACE_RE = /\s+/u;
-const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
-// Keep the non-JSON fallback credential-specific. This auth probe must not
-// classify unrelated IDs, paths, or hook output as controller auth truth.
-const CLAUDE_UNAUTHENTICATED_OUTPUT_PATTERNS = [
-  "invalid api key",
-  "invalid token",
-  "expired token",
-  "missing api key",
-  "missing credentials",
-  "authentication_failed",
-  "oauth_org_not_allowed",
-  "failed to authenticate",
-  "authentication failed",
-  "oauth session expired",
-  "not logged in",
-  "not authenticated",
-  "not signed in",
-  "login required",
-] as const;
 
 type LatestVersionFetchFailureDiagnostic = {
   attempt: 1 | 2;
@@ -861,24 +842,30 @@ async function resolveClaudeCodeInterfaceSnapshot(input: {
     }),
     runLaunchContractCommand({
       allowNonZeroExit: true,
-      args: ["auth", "status"],
+      args: ["auth", "status", "--json"],
       launchContract: input.launchContract,
     }),
   ]);
 
   const auth = resolveClaudeAuthSnapshot(authProbe);
   const version = versionProbe.ok ? parseCliVersion(versionProbe.stdout) : null;
+  let message = input.baseSnapshot.message;
+  let status = input.baseSnapshot.status;
+  if (auth.status === "unauthenticated") {
+    message =
+      "Claude Code is installed, but this computer is not signed in to Claude Code.";
+    status = "error";
+  } else if (auth.status === "unknown") {
+    message = "OpenMeld could not read Claude Code authentication status.";
+    status = "warning";
+  }
   return {
-    probeCompleted: authProbe.ok,
+    probeCompleted: authProbe.ok && auth.status !== "unknown",
     snapshot: {
       ...input.baseSnapshot,
       auth,
-      message:
-        auth.status === "unauthenticated"
-          ? "Claude Code is installed, but this computer is not signed in to Claude Code."
-          : input.baseSnapshot.message,
-      status:
-        auth.status === "unauthenticated" ? "error" : input.baseSnapshot.status,
+      message,
+      status,
       version,
       versionAdvisory: await resolveControllerVersionAdvisory({
         checkedAt: input.baseSnapshot.checkedAt,
@@ -901,7 +888,7 @@ async function resolveCursorInterfaceSnapshot(input: {
     }),
     runLaunchContractCommand({
       allowNonZeroExit: true,
-      args: ["status"],
+      args: ["status", "--format", "json"],
       launchContract: input.launchContract,
     }),
   ]);
@@ -1604,40 +1591,19 @@ function resolveClaudeAuthSnapshot(
     return { status: "unknown" };
   }
   const payload = parseJsonRecord(probe.stdout);
-  if (payload) {
-    if (typeof payload.loggedIn !== "boolean") {
-      return { status: "unknown" };
-    }
-    if (!payload.loggedIn) {
-      return { status: "unauthenticated" };
-    }
-    const email = normalizeOptionalText(payload.email);
-    return {
-      ...(email ? { email } : {}),
-      label: email ?? "Signed in",
-      status: "authenticated",
-      type: "claude",
-    };
+  if (typeof payload?.loggedIn !== "boolean") {
+    return { status: "unknown" };
   }
-  const output = `${probe.stdout}\n${probe.stderr}`.trim();
-  const lower = output.toLowerCase();
-  if (
-    CLAUDE_UNAUTHENTICATED_OUTPUT_PATTERNS.some((pattern) =>
-      lower.includes(pattern)
-    )
-  ) {
+  if (!payload.loggedIn) {
     return { status: "unauthenticated" };
   }
-  if (probe.code === 0 && output.length > 0) {
-    const email = resolveLikelyEmail(output);
-    return {
-      ...(email ? { email } : {}),
-      label: email ?? "Signed in",
-      status: "authenticated",
-      type: "claude",
-    };
-  }
-  return { status: "unknown" };
+  const email = normalizeOptionalText(payload.email);
+  return {
+    ...(email ? { email } : {}),
+    label: email ?? "Signed in",
+    status: "authenticated",
+    type: "claude",
+  };
 }
 
 function resolveCursorAuthSnapshot(
@@ -1646,20 +1612,13 @@ function resolveCursorAuthSnapshot(
   if (!probe.ok) {
     return { status: "unknown" };
   }
-  const output = `${probe.stdout}\n${probe.stderr}`.trim();
-  const lowered = output.toLowerCase();
-  if (
-    lowered.includes("not logged in") ||
-    lowered.includes("not authenticated") ||
-    lowered.includes("login required")
-  ) {
+  const payload = parseJsonRecord(probe.stdout);
+  if (payload?.status === "unauthenticated") {
     return { status: "unauthenticated" };
   }
-  if (lowered.includes("logged in") || lowered.includes("authenticated")) {
-    const email = resolveLikelyEmail(output);
+  if (payload?.status === "authenticated") {
     return {
-      ...(email ? { email } : {}),
-      label: email ?? "Signed in",
+      label: "Signed in",
       status: "authenticated",
       type: "cursor_login",
     };
@@ -1786,11 +1745,6 @@ function normalizeOptionalText(value: unknown): string | null {
   }
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
-}
-
-function resolveLikelyEmail(value: string): string | null {
-  const match = value.match(EMAIL_RE);
-  return match?.[0] ?? null;
 }
 
 function toErrorMessage(error: unknown): string {

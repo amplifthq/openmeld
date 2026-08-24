@@ -3,20 +3,14 @@ import {
   SPACE_ACTION_CONTEXT_GUIDANCE_LINES,
   SPACE_ACTION_TARGET_GUIDANCE_LINES,
 } from "@openmeld/local-service";
-import {
-  openMeldDaemonTaskResultPayloadSchema,
-  openMeldSpaceEgressActionSchema,
-} from "@openmeld/schemas";
+import { openMeldDaemonTaskResultPayloadSchema } from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
   OpenMeldDaemonTaskResultPayload,
 } from "@openmeld/schemas/types";
 import {
-  hydrateOpenMeldSpaceEgressActionInputFromCleanedOutput,
-  normalizeOpenMeldSpaceEgressActionInput,
   resolvePublicAgentFailureReason,
   resolveSpacePublicationRequirement,
-  tryParseStructuredSpaceActionBlockInput,
 } from "@openmeld/space-mesh";
 import { normalizeOptionalText } from "../core/logger";
 import {
@@ -27,8 +21,6 @@ import type {
   ParsedDispatchTask,
   StructuredActionFailureDiagnostics,
 } from "./execute-dispatch-types";
-
-const STRUCTURED_SPACE_ACTION_BLOCK_HEADER_REGEX = /^\s*\r?\n?/u;
 
 export function resolveStructuredActionRequirementFailure(input: {
   requiresStructuredSpaceAction: boolean;
@@ -129,8 +121,8 @@ export function buildStructuredActionRepairPrompt(input: {
     "This is a bounded repair of the public delivery action only. Do not redo the user's work.",
     "Do not change the user's intent.",
     ...SPACE_ACTION_CONTEXT_GUIDANCE_LINES,
-    "OpenMeld only consumes your final answer and at most one valid trailing ```openmeld-space-action``` JSON block.",
-    "If an OpenMeld Space Action CLI command is available, run that command instead of printing fallback JSON.",
+    "Your answer text never selects an OpenMeld Space action.",
+    "Call exactly one dispatch-scoped OpenMeld Space Action CLI command to repair the delivery action.",
     publicationRequirement.repairRequirementLine,
     ...SPACE_ACTION_TARGET_GUIDANCE_LINES,
     ...(normalizeOptionalText(input.currentReplyToSignalId)
@@ -138,7 +130,7 @@ export function buildStructuredActionRepairPrompt(input: {
           `post_message.messageEnvelope.replyToSignalId must match the current dispatch reply target: ${normalizeOptionalText(input.currentReplyToSignalId)}.`,
         ]
       : []),
-    ...publicationRequirement.actionSchemaGuidanceLines,
+    ...publicationRequirement.actionGuidanceLines,
     ...buildStructuredActionRepairSendTargetReferenceLines(
       input.sendTargetReferenceLines
     ),
@@ -163,7 +155,7 @@ function buildStructuredActionRepairCompletionLines(input: {
   return [
     "Repair completion rule:",
     buildStructuredActionRepairPrimaryCommandLine(input),
-    "If the command cannot run, finish with the corrected public answer followed by exactly one valid trailing ```openmeld-space-action``` block.",
+    "If the command cannot run, stop. Do not print JSON or prose as a substitute for the tool call.",
     "Do not finish with an explanation of what you will do.",
   ];
 }
@@ -181,7 +173,7 @@ function buildStructuredActionRepairPrimaryCommandLine(input: {
   if (input.publicationRequirement.allowedActions.includes("stay_silent")) {
     return `If no public reply is needed, run \`${input.cliEntry} space action silent --reason "reason"\` now and wait for it to finish.`;
   }
-  return `Run \`${input.cliEntry} prompt space-action --raw\` now and return one valid trailing openmeld-space-action block.`;
+  return "No permitted OpenMeld Space action is available. Do not invent one in answer text.";
 }
 
 function buildStructuredActionRepairSendTargetReferenceLines(
@@ -229,93 +221,6 @@ export function resolveStructuredActionRepairContinuation(input: {
       contextDelta?.agentControllerConversation ??
       input.agentControllerConversationOverride ??
       null,
-  };
-}
-
-export function buildSyntheticStructuredSpaceActionRepairResult(input: {
-  runtimeResult: RuntimeTaskResult;
-}): RuntimeTaskResult | null {
-  const payload = input.runtimeResult.resultPayload;
-  if (payload.status !== "success" && payload.status !== "partial_success") {
-    return null;
-  }
-
-  const repairedAction = attemptLocalStructuredSpaceActionRepair(
-    payload.output
-  );
-  if (!repairedAction) {
-    return null;
-  }
-
-  const candidate = resolveTrailingStructuredSpaceActionCandidate(
-    payload.output
-  );
-  return {
-    ...input.runtimeResult,
-    resultPayload: {
-      ...payload,
-      output: resolveStructuredActionOutputFallback({
-        action: repairedAction,
-        cleanedOutput: candidate?.cleanedOutput ?? payload.output,
-      }),
-      spaceAction: repairedAction,
-    },
-  };
-}
-
-function attemptLocalStructuredSpaceActionRepair(
-  output: string
-): OpenMeldDaemonTaskResultPayload["spaceAction"] {
-  const candidate = resolveTrailingStructuredSpaceActionCandidate(output);
-  if (!candidate) {
-    return undefined;
-  }
-  const parsedBlock = tryParseStructuredSpaceActionBlockInput(
-    candidate.blockText
-  );
-  if (!(parsedBlock.actionInput && !parsedBlock.parseError)) {
-    return undefined;
-  }
-  const normalizedAction = normalizeOpenMeldSpaceEgressActionInput(
-    hydrateOpenMeldSpaceEgressActionInputFromCleanedOutput({
-      action: parsedBlock.actionInput,
-      cleanedOutput: candidate.cleanedOutput,
-    })
-  );
-  const parsedAction =
-    openMeldSpaceEgressActionSchema.safeParse(normalizedAction);
-  if (!parsedAction.success) {
-    return undefined;
-  }
-  return parsedAction.data;
-}
-
-function resolveTrailingStructuredSpaceActionCandidate(output: string): {
-  blockText: string;
-  cleanedOutput: string;
-} | null {
-  const normalizedOutput = typeof output === "string" ? output : "";
-  const marker = "```openmeld-space-action";
-  const markerIndex = normalizedOutput.lastIndexOf(marker);
-  if (markerIndex < 0) {
-    return null;
-  }
-
-  const afterMarker = normalizedOutput.slice(markerIndex + marker.length);
-  const headerMatch =
-    STRUCTURED_SPACE_ACTION_BLOCK_HEADER_REGEX.exec(afterMarker);
-  const blockStartOffset = headerMatch?.[0].length ?? 0;
-  let blockText = afterMarker.slice(blockStartOffset).trim();
-  if (blockText.endsWith("```")) {
-    blockText = blockText.slice(0, -3).trimEnd();
-  }
-  if (blockText.length === 0) {
-    return null;
-  }
-
-  return {
-    blockText,
-    cleanedOutput: normalizedOutput.slice(0, markerIndex).trimEnd(),
   };
 }
 

@@ -7,6 +7,7 @@ import type {
   CommitSpaceFileWriteInput,
   ListSpaceFilesResponse,
   SpaceFileActor,
+  SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceFileEntry,
   SpaceFileMutationErrorCode,
@@ -15,6 +16,7 @@ import type {
   TrashSpaceFileEntryResponse,
   UpdateSpaceFileEntryBody,
 } from "@openmeld/schemas/types";
+import { SpaceFileAuditRepository } from "./space-file-audit-repo";
 import { timestampMsToIso } from "./space-schema-repo";
 
 type SpaceFileEntryRow = {
@@ -233,6 +235,7 @@ export class SpaceFileRepository {
 
   createFolder(input: {
     actor: SpaceFileActor;
+    auditEvent: SpaceFileAuditEvent;
     clientMutationId: string;
     folderId: string;
     name: string;
@@ -252,6 +255,7 @@ export class SpaceFileRepository {
         fingerprint,
       });
       if (replay) {
+        this.recordAuditEvent(input.auditEvent);
         return replay;
       }
       const parentId = input.parentId ?? null;
@@ -298,12 +302,14 @@ export class SpaceFileRepository {
         nowMs: input.nowMs,
         response: folder,
       });
+      this.recordAuditEvent(input.auditEvent);
       return folder;
     });
   }
 
   updateEntry(input: {
     actor: SpaceFileActor;
+    auditEvent: SpaceFileAuditEvent;
     body: UpdateSpaceFileEntryBody;
     entryId: string;
     nowMs: number;
@@ -321,6 +327,7 @@ export class SpaceFileRepository {
         fingerprint,
       });
       if (replay) {
+        this.recordAuditEvent(input.auditEvent);
         return replay;
       }
       const current = this.requireActiveEntry(input.entryId);
@@ -363,12 +370,14 @@ export class SpaceFileRepository {
         nowMs: input.nowMs,
         response: entry,
       });
+      this.recordAuditEvent(input.auditEvent);
       return entry;
     });
   }
 
   trashEntry(input: {
     actor: SpaceFileActor;
+    auditEvent: SpaceFileAuditEvent;
     clientMutationId: string;
     entryId: string;
     nowMs: number;
@@ -381,6 +390,7 @@ export class SpaceFileRepository {
         fingerprint,
       });
       if (replay) {
+        this.recordAuditEvent(input.auditEvent);
         return replay;
       }
       const current = this.requireActiveEntry(input.entryId);
@@ -430,12 +440,14 @@ export class SpaceFileRepository {
         nowMs: input.nowMs,
         response,
       });
+      this.recordAuditEvent(input.auditEvent);
       return response;
     });
   }
 
   restoreEntry(input: {
     actor: SpaceFileActor;
+    auditEvent: SpaceFileAuditEvent;
     clientMutationId: string;
     entryId: string;
     nowMs: number;
@@ -448,6 +460,7 @@ export class SpaceFileRepository {
         fingerprint,
       });
       if (replay) {
+        this.recordAuditEvent(input.auditEvent);
         return replay;
       }
       const current = this.requireTrashedEntry(input.entryId);
@@ -478,12 +491,14 @@ export class SpaceFileRepository {
         nowMs: input.nowMs,
         response: entry,
       });
+      this.recordAuditEvent(input.auditEvent);
       return entry;
     });
   }
 
   commitWrite(input: {
     actor: SpaceFileActor;
+    auditEvent: SpaceFileAuditEvent;
     nowMs: number;
     write: CommitSpaceFileWriteInput;
   }): SpaceFileDescriptor {
@@ -495,6 +510,7 @@ export class SpaceFileRepository {
         fingerprint,
       });
       if (replay) {
+        this.recordAuditEvent(input.auditEvent);
         return replay;
       }
       this.prepareWrite(input.write);
@@ -575,6 +591,7 @@ export class SpaceFileRepository {
         nowMs: input.nowMs,
         response: file,
       });
+      this.recordAuditEvent(input.auditEvent);
       return file;
     });
   }
@@ -833,6 +850,10 @@ export class SpaceFileRepository {
       JSON.stringify(input.response),
       input.nowMs
     );
+  }
+
+  private recordAuditEvent(event: SpaceFileAuditEvent): void {
+    new SpaceFileAuditRepository(this.sql).record(event);
   }
 }
 

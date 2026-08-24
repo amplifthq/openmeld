@@ -12,7 +12,6 @@ import {
   composeEntryBrief,
   DEFAULT_SPACE_CONTRACT_FIELDS,
   deriveContinuity,
-  hydrateOpenMeldSpaceEgressActionInputFromCleanedOutput,
   normalizeOpenMeldSpaceAction,
   normalizeOpenMeldSpaceEgressAction,
   OPENMELD_GUIDE_URL,
@@ -20,7 +19,6 @@ import {
   resolveGuideEntry,
   resolveResultArchiveBehavior,
   resolveSpacePublicationRequirement,
-  tryExtractTrailingStructuredSpaceActionBlock,
 } from "../src";
 
 describe("space-mesh", () => {
@@ -198,32 +196,19 @@ describe("space-mesh", () => {
         allowedActions: ["stay_silent", "post_message"],
       })
     ).toEqual({
-      actionRequirementLine:
-        "Final outcome: use exactly one OpenMeld Space Action through the CLI. Only if every Space Action CLI command fails, use one trailing openmeld-space-action block.",
-      actionSchemaGuidanceLines: [
-        'Inside the block, JSON must use the key "type". Never use "action".',
-        "Use post_message for normal public replies, greetings, answers, and discussion.",
-        [
-          "Canonical post_message block:",
-          "```openmeld-space-action",
-          '{"type":"post_message","messageEnvelope":{"text":"Hello.","activationTargets":[],"referenceTargets":[]}}',
-          "```",
-        ].join("\n"),
-        "Use stay_silent only when you intentionally do not want OpenMeld to publish a public reply.",
-        [
-          "Canonical stay_silent block:",
-          "```openmeld-space-action",
-          '{"type":"stay_silent","reason":"No public reply is needed."}',
-          "```",
-        ].join("\n"),
+      actionGuidanceLines: [
+        "Use the dispatch-scoped Space Action reply command for normal public replies, greetings, answers, and discussion.",
+        "Use the dispatch-scoped Space Action silent command only when you intentionally do not want OpenMeld to publish a public reply.",
       ],
+      actionRequirementLine:
+        "Final outcome: call exactly one dispatch-scoped OpenMeld Space Action CLI command. Your answer text never selects or substitutes for that action.",
       allowedActions: ["post_message", "stay_silent"],
       allowsRawReplyWithoutAction: false,
       howThisSpaceWorks:
         "OpenMeld is an external collaboration layer, not your private scratchpad. Work normally in your local context, then publish only the public outcome this Space needs with one OpenMeld Space Action.",
       publicationMode: "collaboration",
       repairRequirementLine:
-        "Return the corrected final answer again, preserve the user's intent, and end with exactly one valid trailing ```openmeld-space-action``` JSON block.",
+        "Preserve the user's intent and call exactly one dispatch-scoped OpenMeld Space Action CLI command. Do not print an action as JSON or prose.",
       requiresExplicitPublicAction: true,
     });
   });
@@ -235,33 +220,20 @@ describe("space-mesh", () => {
         allowedActions: ["stay_silent", "post_status"],
       })
     ).toEqual({
-      actionRequirementLine:
-        "Raw reply is allowed. Use OpenMeld Space Action only when you need a controlled visible outcome.",
-      actionSchemaGuidanceLines: [
-        'Inside the block, JSON must use the key "type". Never use "action".',
+      actionGuidanceLines: [
         'Use post_status only for final-safe outcomes: done, blocked, needs_input, or handoff. Do not use "working" or "ready" because post_status closes the Wake.',
         "Keep post_status text at 120 characters or fewer. Use post_message for answers, discussion, or anything longer.",
-        [
-          "Canonical post_status block (prefer final-safe statuses: done | blocked | needs_input | handoff):",
-          "```openmeld-space-action",
-          '{"type":"post_status","status":"done","text":"Status update."}',
-          "```",
-        ].join("\n"),
-        "Use stay_silent only when you intentionally do not want OpenMeld to publish a public reply.",
-        [
-          "Canonical stay_silent block:",
-          "```openmeld-space-action",
-          '{"type":"stay_silent","reason":"No public reply is needed."}',
-          "```",
-        ].join("\n"),
+        "Use the dispatch-scoped Space Action silent command only when you intentionally do not want OpenMeld to publish a public reply.",
       ],
+      actionRequirementLine:
+        "Raw reply is allowed. Use OpenMeld Space Action only when you need a controlled visible outcome.",
       allowedActions: ["post_status", "stay_silent"],
       allowsRawReplyWithoutAction: true,
       howThisSpaceWorks:
         "This Space uses transparent context sharing: OpenMeld may share your raw reply directly. Use OpenMeld Space Action when you need a controlled visible outcome.",
       publicationMode: "raw_context_sharing",
       repairRequirementLine:
-        "If you keep a trailing ```openmeld-space-action``` block, it must be valid. Otherwise return the plain raw reply with no ```openmeld-space-action``` block.",
+        "Return the plain raw reply, or call one dispatch-scoped OpenMeld Space Action CLI command for a controlled visible outcome. Answer text never becomes an action.",
       requiresExplicitPublicAction: false,
     });
   });
@@ -331,360 +303,6 @@ describe("space-mesh", () => {
         text: "legacy text input",
       })
     ).toThrow();
-  });
-
-  it("repairs malformed trailing structured action blocks when the JSON is trivially recoverable", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: [
-          "I already drafted the reply.",
-          "```openmeld-space-action",
-          '{"type":"post_message","text":"hello"',
-          "```",
-        ].join("\n"),
-      })
-    ).toEqual({
-      carrierKind: "fenced_block",
-      cleanedOutput: "I already drafted the reply.",
-      action: {
-        type: "post_message",
-        messageEnvelope: {
-          activationTargets: [],
-          referenceTargets: [],
-          text: "hello",
-        },
-      },
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("extracts trailing structured action blocks that use common post_message aliases", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: [
-          "I already drafted the reply.",
-          "```openmeld-space-action",
-          '{"type":"post_message","message":"hello"}',
-          "```",
-        ].join("\n"),
-      })
-    ).toEqual({
-      carrierKind: "fenced_block",
-      cleanedOutput: "I already drafted the reply.",
-      action: {
-        type: "post_message",
-        messageEnvelope: {
-          activationTargets: [],
-          referenceTargets: [],
-          text: "hello",
-        },
-      },
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("extracts simple post_message action blocks without requiring JSON", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: [
-          "OPENCLAW-PHASE2-FINAL-A1-0323",
-          "```openmeld-space-action",
-          "post_message",
-          "OPENCLAW-PHASE2-FINAL-A1-0323",
-          "```",
-        ].join("\n"),
-      })
-    ).toEqual({
-      carrierKind: "fenced_block",
-      cleanedOutput: "OPENCLAW-PHASE2-FINAL-A1-0323",
-      action: {
-        type: "post_message",
-        messageEnvelope: {
-          activationTargets: [],
-          referenceTargets: [],
-          text: "OPENCLAW-PHASE2-FINAL-A1-0323",
-        },
-      },
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("preserves indentation and blank lines in simple post_message blocks", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: [
-          "Prelude",
-          "```openmeld-space-action",
-          "post_message",
-          "",
-          "  line one",
-          "",
-          "    line two",
-          "",
-          "```",
-        ].join("\n"),
-      })
-    ).toEqual({
-      carrierKind: "fenced_block",
-      cleanedOutput: "Prelude",
-      action: {
-        type: "post_message",
-        messageEnvelope: {
-          activationTargets: [],
-          referenceTargets: [],
-          text: "line one\n\n    line two",
-        },
-      },
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("fills post_message text from cleaned prose when the action only declares type", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: [
-          "CLAUDE-ROUNDTRIP-0322",
-          "```openmeld-space-action",
-          '{"type":"post_message"}',
-          "```",
-        ].join("\n"),
-      })
-    ).toEqual({
-      carrierKind: "fenced_block",
-      cleanedOutput: "CLAUDE-ROUNDTRIP-0322",
-      action: {
-        type: "post_message",
-        messageEnvelope: {
-          activationTargets: [],
-          referenceTargets: [],
-          text: "CLAUDE-ROUNDTRIP-0322",
-        },
-      },
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("parses post_status header notes into text", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: [
-          "Prelude",
-          "```openmeld-space-action",
-          "post_status done Ready for review",
-          "```",
-        ].join("\n"),
-      })
-    ).toEqual({
-      carrierKind: "fenced_block",
-      cleanedOutput: "Prelude",
-      action: {
-        type: "post_status",
-        status: "done",
-        text: "Ready for review",
-      },
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("preserves multiline post_status bodies when the header also includes a note", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: [
-          "Prelude",
-          "```openmeld-space-action",
-          "post_status done Ready for review",
-          "",
-          "  line two",
-          "",
-          "    line three",
-          "```",
-        ].join("\n"),
-      })
-    ).toEqual({
-      carrierKind: "fenced_block",
-      cleanedOutput: "Prelude",
-      action: {
-        type: "post_status",
-        status: "done",
-        text: "Ready for review\n\n  line two\n\n    line three",
-      },
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("accepts a single spacer line before a body-derived post_status", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: [
-          "Prelude",
-          "```openmeld-space-action",
-          "post_status",
-          "",
-          "done",
-          "",
-          "Ready for review",
-          "```",
-        ].join("\n"),
-      })
-    ).toEqual({
-      carrierKind: "fenced_block",
-      cleanedOutput: "Prelude",
-      action: {
-        type: "post_status",
-        status: "done",
-        text: "Ready for review",
-      },
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("hydrates post_status text from cleaned prose when the action omits text", () => {
-    expect(
-      hydrateOpenMeldSpaceEgressActionInputFromCleanedOutput({
-        action: {
-          type: "post_status",
-          status: "done",
-        },
-        cleanedOutput: "Ready for review",
-      })
-    ).toEqual({
-      type: "post_status",
-      status: "done",
-      text: "Ready for review",
-    });
-  });
-
-  it("keeps extracting repaired actions even when malformed output has no safe prose", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: [
-          "```openmeld-space-action",
-          '{"type":"post_message","text":"hello"',
-          "```",
-        ].join("\n"),
-      })
-    ).toEqual({
-      carrierKind: "fenced_block",
-      cleanedOutput: "",
-      action: {
-        type: "post_message",
-        messageEnvelope: {
-          activationTargets: [],
-          referenceTargets: [],
-          text: "hello",
-        },
-      },
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("treats whitespace-only output as no structured action without throwing", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: "   \n",
-      })
-    ).toEqual({
-      carrierKind: "none",
-      cleanedOutput: "",
-      action: null,
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("extracts a trailing standalone JSON action object as a compatible explicit carrier", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: ["Hi there.", '{"type":"post_message","text":"hello"}'].join(
-          "\n\n"
-        ),
-      })
-    ).toEqual({
-      carrierKind: "trailing_json",
-      cleanedOutput: "Hi there.",
-      action: {
-        type: "post_message",
-        messageEnvelope: {
-          activationTargets: [],
-          referenceTargets: [],
-          text: "hello",
-        },
-      },
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("does not treat inline JSON inside prose as a valid explicit action carrier", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: 'Hi there {"type":"post_message","text":"hello"}',
-      })
-    ).toEqual({
-      carrierKind: "none",
-      cleanedOutput: 'Hi there {"type":"post_message","text":"hello"}',
-      action: null,
-      infoString: "openmeld-space-action",
-      parseError: null,
-    });
-  });
-
-  it("rejects trailing standalone JSON actions that include unsupported extra fields", () => {
-    expect(
-      tryExtractTrailingStructuredSpaceActionBlock({
-        output: [
-          "Hi there.",
-          "{",
-          '  "type": "post_message",',
-          '  "text": "hello",',
-          '  "meta": {',
-          '    "source": "test"',
-          "  }",
-          "}",
-        ].join("\n"),
-      })
-    ).toEqual({
-      carrierKind: "invalid_json",
-      cleanedOutput: [
-        "Hi there.",
-        "{",
-        '  "type": "post_message",',
-        '  "text": "hello",',
-        '  "meta": {',
-        '    "source": "test"',
-        "  }",
-        "}",
-      ].join("\n"),
-      action: null,
-      infoString: "openmeld-space-action",
-      parseError: "Invalid input",
-    });
-  });
-
-  it("preserves the nearest trailing JSON validation error when multiple candidates fail", () => {
-    const result = tryExtractTrailingStructuredSpaceActionBlock({
-      output: [
-        "Hi there.",
-        '{"type":"post_message","text":"older","meta":{"source":"test"}}',
-        '{"type":"stay_silent"}',
-      ].join("\n"),
-    });
-
-    expect(result.carrierKind).toBe("invalid_json");
-    expect(result.action).toBeNull();
-    expect(result.parseError).toBe(
-      "Too small: expected string to have >=1 characters"
-    );
-    expect(result.parseError).not.toBe("Invalid input");
   });
 
   it("resolves result archive behavior from owner policy and action opt-out", () => {

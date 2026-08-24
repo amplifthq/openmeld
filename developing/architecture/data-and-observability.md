@@ -817,11 +817,21 @@ Organization-only viewers cannot list Trash. Physical reclamation is a later
 explicitly-owned maintenance lifecycle, not part of an interactive delete
 request.
 
+The Space Durable Object appends one durable File audit event for each accepted
+content read or metadata mutation request. A successful metadata mutation and
+its event commit in the same SQLite transaction. Core reports the final R2
+content-read result and pre-commit R2 write failures back to that same writer;
+the metadata commit owns the successful content-write event. Exact request
+retries reuse the event id, while the operation id correlates separate attempts
+of the same client mutation.
+
 File audit events include Organization id, Space id, stable entry id, revision
-id when relevant, operation, actor Profile, represented human when applicable,
-and result. Logs and diagnostics never include file bytes, text bodies, or user
-file names. `space.files.changed` is a live invalidation only; clients re-read
-the Space-owned tree and never derive file state from the frame.
+id when relevant, operation, request and operation ids, actor kind, actor
+Profile for authenticated or dispatch actors, represented human when
+applicable, result, and a bounded error code for failures. Logs and diagnostics
+never include file bytes, text bodies, or user file names.
+`space.files.changed` is a live invalidation only; clients re-read the
+Space-owned tree and never derive file state from the frame.
 
 ## Agent Profile Deletion Lifecycle
 

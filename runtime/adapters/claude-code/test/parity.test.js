@@ -514,6 +514,76 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
   }
 });
 
+test("claude repair forks the Agent SDK session without replacing canonical continuity", async () => {
+  const { createClaudeCodeAdapter } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(
+    join(tmpdir(), "claude-sdk-repair-fixture-")
+  );
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "claude-sdk-repair-dispatch-")
+  );
+  const fixturePath = join(fixtureDir, "claude-sdk-entry.mjs");
+  const captured = {};
+
+  await writeFile(
+    fixturePath,
+    [
+      "#!/usr/bin/env node",
+      "if (process.argv.includes('--version')) {",
+      "  console.log('Claude Code 2.0.0');",
+      "  process.exit(0);",
+      "}",
+      "throw new Error('The SDK test should not execute this fixture directly.');",
+    ].join("\n"),
+    "utf8"
+  );
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const adapter = createClaudeCodeAdapter({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      claudeTimeoutMs: 5000,
+      createAgentSdkQuery: createFakeClaudeAgentQueryFactory({
+        captured,
+        messages: [
+          {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            result: "recovered reply",
+            session_id: "sdk-repair-fork-session",
+          },
+        ],
+      }),
+    });
+
+    const result = await adapter.dispatch({
+      agentControllerConversationId: "sdk-canonical-session",
+      agentControllerPermissionMode: "claude-code:bypassPermissions",
+      agentId: "agt-sdk-repair",
+      executionMode: "repair",
+      prompt: "recover the completed reply",
+      runtimeContext: createRuntimeContext(dispatchDir),
+      sourceEventId: "evt-sdk-repair",
+      spaceId: "space-sdk-repair",
+      taskId: "task-sdk-repair",
+    });
+
+    assert.equal(result.status, "success");
+    assert.equal(result.output, "recovered reply");
+    assert.equal(captured.options.resume, "sdk-canonical-session");
+    assert.equal(captured.options.forkSession, true);
+    assert.equal(captured.options.permissionMode, "plan");
+    assert.equal(
+      result.contextDelta?.agentControllerConversationId,
+      "sdk-canonical-session"
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
 test("claude Agent SDK waits for OpenMeld permission and applies session suggestions", async () => {
   const { invokeClaudeAgentSdkTransport } = await import("../dist/index.js");
   const dispatchDir = await mkdtemp(
@@ -1648,6 +1718,7 @@ test("claude cli transport allows OpenMeld CLI tools in normal and streaming inv
     assert.deepEqual(JSON.parse(await readFile(argsPath, "utf8")), [
       "--resume",
       "session-existing-1",
+      "--fork-session",
       "-p",
       "stream hello",
       "--allowedTools",

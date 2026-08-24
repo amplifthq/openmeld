@@ -679,7 +679,7 @@ function renderMandatoryCompletionSection(
     "- Do not finish this Wake with a plain-text final answer. Plain prose stays local and is not a public Space reply in Collaboration mode.",
     buildMandatoryCompletionActionLine(input, publicationRequirement),
     "- After the Space Action command succeeds, stop. OpenMeld reads that command as the public outcome.",
-    `- Use fallback JSON only if the Space Action command cannot run: \`${buildPromptSpaceActionCommand(input)}\`.`,
+    "- If the command cannot run, stop and let OpenMeld report the structured failure. Do not print JSON or prose as a substitute for the tool call.",
   ].join("\n");
 }
 
@@ -705,9 +705,7 @@ function buildMandatoryCompletionActionLine(
       'silent --reason "reason"'
     )}\` and wait for it to finish.`;
   }
-  return `- Normal completion: run \`${buildPromptSpaceActionCommand(
-    input
-  )}\` and return one valid trailing openmeld-space-action block.`;
+  return "- No permitted OpenMeld Space action is available. Do not invent one in answer text.";
 }
 
 function buildServiceFreshnessWarningLines(
@@ -790,13 +788,6 @@ function buildSpaceActionCommand(
 ): string {
   const cliEntry = normalizeOptionalText(input.cliEntry) ?? "openmeld";
   return `${cliEntry} space action ${action}`;
-}
-
-function buildPromptSpaceActionCommand(
-  input: Pick<DispatchPromptBootstrapInput, "cliEntry">
-): string {
-  const cliEntry = normalizeOptionalText(input.cliEntry) ?? "openmeld";
-  return `${cliEntry} prompt space-action --raw`;
 }
 
 function buildSendTargetReferenceLines(

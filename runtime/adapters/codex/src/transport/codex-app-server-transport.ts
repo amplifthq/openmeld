@@ -257,6 +257,7 @@ export async function invokeCodexAppServerTransport(input: {
       const threadContext = await resolveDispatchThreadContext({
         conversationPolicyParams,
         codexWorkdir: input.codexWorkdir,
+        executionMode: input.executionMode,
         permissionModeParams: permissionModeParams.thread,
         session,
         threadId: input.threadId,
@@ -269,13 +270,17 @@ export async function invokeCodexAppServerTransport(input: {
           session,
           threadModel: threadContext.model,
         });
-      const threadId = threadContext.threadId;
+      const executionThreadId = threadContext.threadId;
+      const continuityThreadId =
+        input.executionMode === "repair"
+          ? (normalizeOptionalText(input.threadId) ?? executionThreadId)
+          : executionThreadId;
       const turnPrompt = resolveCodexTurnPrompt({
         fallbackPrompt: prompt,
         instructionPrompt: input.instructionPrompt,
         threadSource: threadContext.threadSource,
       });
-      session.emitProviderConversationObserved(threadId);
+      session.emitProviderConversationObserved(continuityThreadId);
       const turnResponse = await session.requestControl(
         "turn/start",
         {
@@ -290,7 +295,7 @@ export async function invokeCodexAppServerTransport(input: {
               type: "text",
             },
           ],
-          threadId,
+          threadId: executionThreadId,
         },
         {
           code: "runtime.turn_start_timeout",
@@ -302,7 +307,7 @@ export async function invokeCodexAppServerTransport(input: {
       const unregisterActiveTurn = session.registerActiveTurn({
         onActiveTurn: input.onActiveTurn,
         taskId: input.taskId,
-        threadId,
+        threadId: executionThreadId,
         turnId,
       });
       let completedTurn: AppServerTurn;
@@ -311,7 +316,7 @@ export async function invokeCodexAppServerTransport(input: {
           turn.status === "completed"
             ? turn
             : await session.waitForTurnCompleted({
-                threadId,
+                threadId: executionThreadId,
                 turnId,
               });
       } finally {
@@ -351,7 +356,7 @@ export async function invokeCodexAppServerTransport(input: {
           resumedContext: normalizeOptionalText(input.threadId) !== null,
           streamingMode: input.streamingMode ?? "final",
         }),
-        threadId,
+        threadId: continuityThreadId,
       };
     }
   );
@@ -418,7 +423,6 @@ export async function verifyCodexAppServerThread(input: {
       const response = await session.requestControl(
         "thread/resume",
         {
-          approvalPolicy: "untrusted" satisfies CodexAppServerApprovalPolicy,
           cwd: input.codexWorkdir,
           excludeTurns: true,
           threadId,
@@ -498,6 +502,7 @@ export async function forkCodexAppServerThread(input: {
 async function resolveDispatchThreadContext(input: {
   conversationPolicyParams: CodexAppServerConversationPolicyParams;
   codexWorkdir: string;
+  executionMode?: AdapterDispatchExecutionMode;
   permissionModeParams: CodexAppServerThreadPermissionModeParams;
   session: CodexAppServerSession;
   threadId: string | null;
@@ -505,6 +510,13 @@ async function resolveDispatchThreadContext(input: {
 }): Promise<CodexAppServerThreadContext> {
   const existingThreadId = normalizeOptionalText(input.threadId);
   if (existingThreadId) {
+    const dispatchThreadId =
+      input.executionMode === "repair"
+        ? await forkEphemeralCodexRepairThread({
+            session: input.session,
+            sourceThreadId: existingThreadId,
+          })
+        : existingThreadId;
     const response = await input.session.requestControl(
       "thread/resume",
       {
@@ -514,7 +526,7 @@ async function resolveDispatchThreadContext(input: {
         ...input.permissionModeParams,
         cwd: input.codexWorkdir,
         excludeTurns: true,
-        threadId: existingThreadId,
+        threadId: dispatchThreadId,
       },
       {
         code: "context.resume_timeout",
@@ -548,6 +560,25 @@ async function resolveDispatchThreadContext(input: {
     }
   );
   return readThreadContextFromResponse(response);
+}
+
+async function forkEphemeralCodexRepairThread(input: {
+  session: CodexAppServerSession;
+  sourceThreadId: string;
+}): Promise<string> {
+  const response = await input.session.requestControl(
+    "thread/fork",
+    {
+      ephemeral: true,
+      excludeTurns: true,
+      threadId: input.sourceThreadId,
+    },
+    {
+      code: "context.fork_timeout",
+      operation: "thread/fork",
+    }
+  );
+  return readThreadIdFromResponse(response);
 }
 
 function resolveCodexTurnPrompt(input: {

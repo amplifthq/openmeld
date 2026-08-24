@@ -27,6 +27,7 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME } from "#/components/app/app-nav-item-style";
 import { AgentProfileListItem } from "#/components/profiles/profile-list-item";
 import { buildOrganizationWakeAccessPath } from "#/lib/organizations/organization-routes";
 import { buildOpenMeldServiceSettingsPath } from "#/lib/settings-routes";
@@ -86,6 +87,11 @@ type AgentSpaceMemberRowProps = Omit<SpaceMemberRowProps, "entry"> & {
 type HumanSpaceMemberRowProps = Omit<SpaceMemberRowProps, "entry"> & {
 	entry: SpaceMemberDirectoryEntry;
 };
+
+const SPACE_MEMBER_NAME_CLASS_NAME = cn(
+	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
+	"sm:text-[13px]"
+);
 
 export function SpaceMemberRow(input: SpaceMemberRowProps) {
 	if (input.entry.profileKind === "agent") {
@@ -246,7 +252,7 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 				primaryDetail={primaryDetail}
 				profileName={input.entry.profileName}
 				profileNameAdornment={availabilityIndicator}
-				profileNameClassName="font-bold"
+				profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
 				profileSummaryAriaLabel={`About ${input.entry.profileName}`}
 			>
 				{recoveryActionControl}
@@ -326,7 +332,7 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 				onProfileSummaryClick={detailsDialog.openProfileDetails}
 				primaryDetail={primaryDetail}
 				profileName={input.entry.profileName}
-				profileNameClassName="font-bold"
+				profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
 				profileSummaryAriaLabel={`About ${input.entry.profileName}`}
 			/>
 			{detailsDialog.profileDetailsDialog}

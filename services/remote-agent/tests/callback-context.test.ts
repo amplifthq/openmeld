@@ -1,7 +1,4 @@
-import {
-  CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
-  REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
-} from "@openmeld/schemas";
+import { REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   assertCoreOriginatedTurnContext,
@@ -428,7 +425,7 @@ describe("remote agent callback context", () => {
     });
   });
 
-  it("rejects provider protocol text instead of publishing it as an ordinary reply", async () => {
+  it("publishes protocol-looking assistant prose as an ordinary reply", async () => {
     const request = createSubmitTurnRequest();
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
@@ -442,6 +439,8 @@ describe("remote agent callback context", () => {
       status: "accepted" as const,
     }));
 
+    const completedText =
+      "The provider calls its typed event <tool_call>, but this sentence is only an explanation.";
     const updated = await handleRemoteAgentChatResponse({
       coreWorker: { completeRemoteAgentSubmission },
       nowMs: () => TEST_NOW_MS + 1000,
@@ -450,7 +449,7 @@ describe("remote agent callback context", () => {
         message: {
           parts: [
             {
-              text: "The streaming example is still open: `<tool_call>",
+              text: completedText,
               type: "text",
             },
           ],
@@ -463,19 +462,13 @@ describe("remote agent callback context", () => {
 
     expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
       expect.objectContaining({
-        failureCode: "remote_agent.assistant_protocol_contamination",
-        failureMessage: CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
-        status: "failed",
+        status: "completed",
+        text: completedText,
       })
     );
-    expect(
-      JSON.stringify(completeRemoteAgentSubmission.mock.calls)
-    ).not.toContain("<tool_call>");
     expect(updated).toMatchObject({
-      callbackStatus: "failed",
-      terminalFailureFact: {
-        code: "remote_agent.assistant_protocol_contamination",
-      },
+      callbackStatus: "completed",
+      completedText,
     });
   });
 
