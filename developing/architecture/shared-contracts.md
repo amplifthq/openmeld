@@ -2342,9 +2342,9 @@ reader and older-action-set filters while that durable row remains.
 ### Slack Channel Read Contracts
 
 `packages/schemas` owns the Center Agent Slack channel list, channel member,
-and channel history request and response contracts. Requests are bounded and
-cursor-paginated. Model-visible responses expose channel names and provider
-metadata but not internal Slack channel ids. Member research opts into a
+channel history, and file-read request and response contracts. Requests are
+bounded and cursor-paginated. Model-visible responses expose channel names and
+provider metadata but not internal Slack channel ids. Member research opts into a
 service-binding-only `channelId` field on the member read, stores it outside
 model-visible output, and sends it back as `expectedChannelId` on the history
 read. Core resolves the name again and fails closed unless it still identifies
@@ -2365,6 +2365,28 @@ These opt-in request fields preserve the receiver-first rollout. Deploy Core
 first: callers that do not opt in receive the legacy strict response shapes.
 Then deploy Remote Agent, which opts into the new internal fields and fails
 closed if Core does not return them. Rollback removes Remote Agent before Core.
+
+Current Remote Agent callers also set `includeFiles=true` on history reads.
+Core then returns a bounded `files` array with file id, name, MIME type, size,
+and permalink for every message, including one with null text. Callers that
+omit the flag keep the legacy message shape without `files`, so Core remains
+the receiver-first deploy. Remote Agent retains only a submission-scoped
+mapping from the returned file id to the resolved channel name. A file attached
+to the current Slack request instead uses the immutable channel id from the
+Core-owned turn trigger. The model controls only `fileId`; it never supplies an
+internal channel id or download URL.
+
+`centerAgentReadSlackFile` accepts either the resolved history channel name or
+that current trigger channel id. Core reauthorizes the designated Center Agent,
+connected workspace, and exact conversation/file association through
+`files.info` before downloading from an HTTPS Slack-owned private URL with the
+Bot credential. The strict response carries at most 5 MiB as base64 plus the
+normalized metadata. Remote Agent decodes it, removes base64 from model-visible
+output, writes the exact bytes to the Center Agent Computer when available,
+returns only a bounded UTF-8 preview for text, and sends images to the selected
+auxiliary image-understanding model. Core must deploy before Remote Agent; old
+Remote Agent never opts into file metadata or calls the additive file RPC.
+Rollback removes the Remote Agent caller before Core.
 
 Each response is a strict union between its successful payload and the same
 expected-unavailable shape. Core uses that result for a missing Slack
@@ -2431,6 +2453,32 @@ shape is rollout compatibility only and must not return to the model-visible
 tool. Migration
 `0067_damp_mariko_yashida` still owns the existing ledger; no database migration
 or response-shape change is required.
+
+### Slack File Publication Contracts
+
+`packages/schemas` owns `centerAgentPostSlackFile`. The model supplies one
+Computer-relative path and a current-thread, channel-name, or exact trusted
+thread-permalink selector. Remote Agent reads one regular non-symlink Computer
+file of at most 5 MiB, computes its SHA-256 digest, and supplies the verified
+speaker, current execution source, bytes, digest, and basename outside any
+provider credential. Core reauthorizes the current interactive native delivery
+and represented member, verifies the digest, resolves the exact Slack
+destination, and uses `files.getUploadURLExternal` followed by
+`files.completeUploadExternal`. The upload URL must be HTTPS and Slack-owned;
+the Bot token is sent only to Slack API methods and never to the byte-upload
+URL.
+
+The existing publication operation repository adds `slack_file` as a
+destination kind. Its destination binds channel/thread plus content digest;
+the request signature binds represented user, filename, title, comment, and
+digest. A completed retry returns the stored strict response. A
+provider-confirmed non-publication may retry, while an interrupted or
+undecodable completion becomes `outcome_unknown` and never uploads again
+automatically. Audit records the represented publication action without file
+bytes or Bot credentials. This is an additive receiver-first RPC: deploy Core
+before Remote Agent and remove the caller before the receiver on rollback.
+Existing Slack installations require reauthorization before `files:write` is
+granted.
 
 ### Slack Search Authorization And Result Contracts
 
@@ -3684,10 +3732,12 @@ Schema rules:
   pause, resume, and delete rows; `actionSet=v18` adds Organization working
   language actions; `actionSet=v19` adds member Computer reads; and
   `actionSet=v20` opts in to the connector audit entry's nullable
-  `sourceSpaceId` projection. Interaction-source projections remain absent
-  before v14, Routine actions remain absent before v17, and `sourceSpaceId`
-  remains absent before v20. The projection is non-null only for a native
-  delivery whose `conversationKind` is `space`; Slack and generic Message
+  `sourceSpaceId` projection; and `actionSet=v21` adds Slack file reads and
+  file publications. Interaction-source projections remain absent
+  before v14, Routine actions remain absent before v17, Slack file actions
+  remain absent before v21, and `sourceSpaceId` remains absent before v20. The
+  projection is non-null only for a native delivery whose `conversationKind`
+  is `space`; Slack and generic Message
   Channel locators never populate it. Each version filters later actions and
   fields in Core before response validation, so an already-published CLI never
   receives an enum value or optional projection its frozen schema cannot parse.

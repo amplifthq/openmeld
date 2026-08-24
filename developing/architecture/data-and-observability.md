@@ -435,11 +435,21 @@ channel and fails closed unless the App is already a member; reads never call
 
 Channel members reuse the live active-human workspace profile normalization and
 the same directory-only OpenMeld membership classification. Channel history is a
-bounded newest-first page; Core resolves human display names when available and
-labels all provider text as untrusted. Neither response is written to D1,
-Remote Agent storage, Center Agent memory, Organization documents, logs, or
-diagnostics. Each successful read records only its action and Slack workspace
-or internal channel resource identifier in the Center Agent audit journal.
+bounded newest-first page; Core resolves human display names when available,
+preserves bounded file id, name, MIME type, size, and permalink metadata, and
+labels all provider text and file metadata as untrusted. An explicit file read
+uses `files.info` to prove the requested file id belongs to the exact channel or
+direct-message conversation before Core follows a Slack-owned private download
+URL. Core bounds the download to 5 MiB and transfers the encoded bytes only over
+the private Worker RPC. Remote Agent removes the encoding before returning the
+tool result and may deliberately save the bytes into the Center Agent Computer;
+it never writes file bytes or content into D1, Memory, Organization Documents,
+logs, or diagnostics. Neither history response nor descriptive file metadata is
+written to D1, Center Agent memory, Organization documents, logs, or
+diagnostics. Remote Agent retains only a short-lived submission-scoped mapping
+from observed file id to its resolved conversation for the follow-up byte read.
+Each successful read records only its action and Slack workspace
+or internal channel/file resource identifier in the Center Agent audit journal.
 Provider errors remain failures rather than empty successful results.
 
 ## Slack Real-time Search Evidence Boundary

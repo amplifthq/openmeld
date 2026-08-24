@@ -1,5 +1,8 @@
 import { defineTool } from "@flue/runtime";
-import type { RemoteAgentTurnEnvelope } from "@openmeld/schemas/types";
+import type {
+  CenterAgentModelRoute,
+  RemoteAgentTurnEnvelope,
+} from "@openmeld/schemas/types";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
@@ -9,6 +12,7 @@ import type { RemoteAgentConnectorExecutionConfig } from "../agent-core/github-t
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   getRemoteAgentOpenMeldToolDefinitions,
+  type RemoteAgentComputerFileHandoff,
   type RemoteAgentFeedbackSubmissionConfig,
   type RemoteAgentMemberProfileReportComputerFiles,
 } from "../agent-core/tools";
@@ -25,12 +29,14 @@ import {
 export async function getRemoteAgentFlueTools(input: {
   agentActivityReadEnabled?: boolean;
   codeModeRuntime?: RemoteAgentCodeModeRuntime;
+  computerFileHandoff?: RemoteAgentComputerFileHandoff;
   connectorExecution?: RemoteAgentConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   env?: RemoteAgentExternalToolEnv;
   feedbackSubmission?: RemoteAgentFeedbackSubmissionConfig;
   fetch?: typeof globalThis.fetch;
   memberProfileReportFiles?: RemoteAgentMemberProfileReportComputerFiles;
+  modelRoute?: CenterAgentModelRoute;
   sandboxDefinitions?: RemoteAgentToolDefinition[];
   storage: RemoteAgentStorage;
   submissionId: string;

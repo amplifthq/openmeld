@@ -1,4 +1,5 @@
 import {
+  CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES,
   CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS,
   CENTER_AGENT_SLACK_SEARCH_CONTEXT_MESSAGES_MAX,
   slackMessagePermalinkSchema,
@@ -6,6 +7,23 @@ import {
 import { toSlackMrkdwn } from "./slack-mrkdwn";
 
 type FetchLike = typeof fetch;
+
+type SlackApiFile = {
+  channels?: string[] | null;
+  groups?: string[] | null;
+  id?: string | null;
+  ims?: string[] | null;
+  mimetype?: string | null;
+  name?: string | null;
+  permalink?: string | null;
+  shares?: {
+    private?: Record<string, unknown> | null;
+    public?: Record<string, unknown> | null;
+  } | null;
+  size?: number | null;
+  url_private?: string | null;
+  url_private_download?: string | null;
+};
 
 type SlackApiResponse = {
   channel?: {
@@ -28,6 +46,9 @@ type SlackApiResponse = {
     num_members?: number | null;
   }> | null;
   error?: string;
+  file?: SlackApiFile | null;
+  file_id?: string | null;
+  files?: SlackApiFile[] | null;
   has_more?: boolean;
   message_ts?: string;
   messages?: Array<{
@@ -36,6 +57,7 @@ type SlackApiResponse = {
       name?: string | null;
     } | null;
     subtype?: string | null;
+    files?: SlackApiFile[] | null;
     text?: string | null;
     ts?: string | null;
     user?: string | null;
@@ -105,6 +127,7 @@ type SlackApiResponse = {
     }> | null;
   } | null;
   ts?: string;
+  upload_url?: string | null;
   user?: {
     deleted?: boolean | null;
     is_restricted?: boolean | null;
@@ -163,10 +186,22 @@ export type SlackUserIdentity = {
 export type SlackThreadMessage = {
   botId: string | null;
   displayName: string | null;
+  files: SlackFileMetadata[];
   subtype: string | null;
   text: string | null;
   ts: string;
   userId: string | null;
+};
+export type SlackFileMetadata = {
+  fileId: string;
+  mimeType: string | null;
+  name: string | null;
+  permalink: string | null;
+  sizeBytes: number | null;
+};
+export type SlackFileRead = {
+  bytes: Uint8Array;
+  file: SlackFileMetadata;
 };
 export type SlackSearchMessage = {
   authorName: string;
@@ -767,6 +802,63 @@ export async function readSlackChannelHistory(input: {
   };
 }
 
+export async function readSlackFile(input: {
+  botToken: string;
+  expectedChannelId: string;
+  fetchImpl?: FetchLike;
+  fileId: string;
+  signal?: AbortSignal;
+}): Promise<SlackFileRead> {
+  const params = new URLSearchParams({ file: input.fileId });
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const infoResponse = await fetchImpl(
+    `${SLACK_API_BASE_URL}/files.info?${params.toString()}`,
+    {
+      headers: buildSlackHeaders(input.botToken),
+      method: "GET",
+      signal: input.signal,
+    }
+  );
+  const info = await readSlackApiResponse(infoResponse);
+  assertSlackOk(infoResponse, info, "files.info");
+  const file = requireSlackFileMetadata(info.file);
+  if (file.fileId !== input.fileId) {
+    throw new Error("Slack files.info returned a different file identity.");
+  }
+  if (!slackFileIsSharedInChannel(info.file, input.expectedChannelId)) {
+    throw new Error(
+      "Slack files.info did not confirm that this file belongs to the requested conversation."
+    );
+  }
+  if (
+    file.sizeBytes !== null &&
+    file.sizeBytes > CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES
+  ) {
+    throw new Error(
+      `Slack file ${file.fileId} is larger than the ${CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES}-byte Center Agent limit.`
+    );
+  }
+  const downloadUrl = requireSlackPrivateFileDownloadUrl(info.file);
+  const downloadResponse = await fetchImpl(downloadUrl, {
+    headers: { authorization: `Bearer ${input.botToken}` },
+    method: "GET",
+    signal: input.signal,
+  });
+  if (!downloadResponse.ok) {
+    throw new Error(
+      `Slack file download failed with HTTP ${downloadResponse.status}.`
+    );
+  }
+  const bytes = await readBoundedResponseBytes(
+    downloadResponse,
+    CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES
+  );
+  if (file.sizeBytes !== null && bytes.byteLength !== file.sizeBytes) {
+    throw new Error("Slack file download size did not match files.info.");
+  }
+  return { bytes, file };
+}
+
 export async function postSlackTopLevelMessage(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
@@ -1063,6 +1155,130 @@ export async function postSlackChannelMessage(input: {
     joinedChannel,
     messageTs: publication.id,
   };
+}
+
+export async function postSlackFile(input: {
+  botToken: string;
+  bytes: Uint8Array;
+  fetchImpl?: FetchLike;
+  initialComment?: string;
+  signal?: AbortSignal;
+  target: SlackChannelMessageTarget;
+  threadTs?: string;
+  title?: string;
+  fileName: string;
+}): Promise<{ fileId: string; joinedChannel: boolean }> {
+  if (
+    input.bytes.byteLength < 1 ||
+    input.bytes.byteLength > CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES
+  ) {
+    throw new SlackMessagePublicationError({
+      message: `Slack files must be between 1 and ${CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES} bytes.`,
+      publicationOutcome: "not_published",
+    });
+  }
+  const joinedChannel = await ensureSlackChannelJoinedForPublication(input);
+  const fetchImpl = input.fetchImpl ?? fetch;
+  let uploadUrl: string;
+  let fileId: string;
+  try {
+    const uploadUrlResponse = await fetchImpl(
+      `${SLACK_API_BASE_URL}/files.getUploadURLExternal`,
+      {
+        body: new URLSearchParams({
+          filename: input.fileName,
+          length: String(input.bytes.byteLength),
+        }),
+        headers: {
+          authorization: `Bearer ${input.botToken}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        method: "POST",
+        signal: input.signal,
+      }
+    );
+    const uploadUrlData = await readSlackApiResponse(uploadUrlResponse);
+    assertSlackOk(
+      uploadUrlResponse,
+      uploadUrlData,
+      "files.getUploadURLExternal"
+    );
+    uploadUrl = requireSlackUploadUrl(uploadUrlData.upload_url);
+    fileId = requireSlackFileId(uploadUrlData.file_id);
+  } catch (error) {
+    throw createNotPublishedSlackFileError(
+      "Slack could not prepare the file upload",
+      error
+    );
+  }
+
+  try {
+    const uploadBody = new ArrayBuffer(input.bytes.byteLength);
+    new Uint8Array(uploadBody).set(input.bytes);
+    const uploadResponse = await fetchImpl(uploadUrl, {
+      body: uploadBody,
+      headers: { "content-type": "application/octet-stream" },
+      method: "POST",
+      signal: input.signal,
+    });
+    if (!uploadResponse.ok) {
+      throw new Error(`HTTP ${uploadResponse.status}`);
+    }
+  } catch (error) {
+    throw createNotPublishedSlackFileError(
+      "Slack did not accept the file bytes",
+      error
+    );
+  }
+
+  let completeResponse: Response;
+  try {
+    completeResponse = await fetchImpl(
+      `${SLACK_API_BASE_URL}/files.completeUploadExternal`,
+      {
+        body: JSON.stringify({
+          channel_id: input.target.channelId,
+          files: [
+            {
+              id: fileId,
+              ...(input.title ? { title: input.title } : {}),
+            },
+          ],
+          ...(input.initialComment
+            ? { initial_comment: toSlackMrkdwn(input.initialComment) }
+            : {}),
+          ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
+        }),
+        headers: buildSlackHeaders(input.botToken),
+        method: "POST",
+        signal: input.signal,
+      }
+    );
+  } catch (error) {
+    throw createUnknownSlackFilePublicationError(toErrorMessage(error));
+  }
+  let completed: SlackApiResponse;
+  try {
+    completed = await readSlackApiResponse(completeResponse);
+  } catch (error) {
+    throw createUnknownSlackFilePublicationError(toErrorMessage(error));
+  }
+  if (!(completeResponse.ok && completed.ok === true)) {
+    if (completed.ok === false) {
+      const error =
+        normalizeOptionalText(completed.error) ??
+        `HTTP ${completeResponse.status}`;
+      throw new SlackMessagePublicationError({
+        errorCode: error,
+        message: `Slack files.completeUploadExternal failed: ${error}`,
+        publicationOutcome: "not_published",
+      });
+    }
+    throw createUnknownSlackFilePublicationError(
+      `HTTP ${completeResponse.status}`
+    );
+  }
+  return { fileId, joinedChannel };
 }
 
 async function postSlackMessage(input: {
@@ -1453,6 +1669,26 @@ function toSlackThreadMessages(
         displayName:
           normalizeOptionalText(message.bot_profile?.name) ??
           normalizeOptionalText(message.username),
+        files: (message.files ?? []).flatMap((file) => {
+          const fileId = normalizeOptionalText(file.id);
+          if (!fileId) {
+            return [];
+          }
+          return [
+            {
+              fileId,
+              mimeType: normalizeOptionalText(file.mimetype),
+              name: normalizeOptionalText(file.name),
+              permalink: normalizeOptionalText(file.permalink),
+              sizeBytes:
+                typeof file.size === "number" &&
+                Number.isSafeInteger(file.size) &&
+                file.size >= 0
+                  ? file.size
+                  : null,
+            },
+          ];
+        }),
         subtype: normalizeOptionalText(message.subtype),
         text: normalizeOptionalText(message.text),
         ts,
@@ -1553,11 +1789,205 @@ function normalizeSlackChannelName(value: string): string {
   return normalized;
 }
 
+async function ensureSlackChannelJoinedForPublication(input: {
+  botToken: string;
+  fetchImpl?: FetchLike;
+  signal?: AbortSignal;
+  target: SlackChannelMessageTarget;
+}): Promise<boolean> {
+  if (input.target.isMember) {
+    return false;
+  }
+  if (input.target.isPrivate) {
+    throw new SlackMessagePublicationError({
+      message: `I can't join #${input.target.channelName} because it is private. Invite the OpenMeld app to that channel first.`,
+      publicationOutcome: "not_published",
+    });
+  }
+  try {
+    await joinSlackPublicChannel({
+      botToken: input.botToken,
+      channelId: input.target.channelId,
+      fetchImpl: input.fetchImpl,
+      signal: input.signal,
+    });
+  } catch (error) {
+    throw new SlackMessagePublicationError({
+      cause: error,
+      errorCode: error instanceof SlackApiError ? error.errorCode : null,
+      message: `Slack conversations.join failed before a file was published: ${toErrorMessage(error)}`,
+      publicationOutcome: "not_published",
+    });
+  }
+  return true;
+}
+
+function requireSlackFileMetadata(
+  file: SlackApiFile | null | undefined
+): SlackFileMetadata {
+  const fileId = normalizeOptionalText(file?.id);
+  if (!fileId) {
+    throw new Error("Slack files.info returned no file identity.");
+  }
+  return {
+    fileId,
+    mimeType: normalizeOptionalText(file?.mimetype),
+    name: normalizeOptionalText(file?.name),
+    permalink: normalizeHttpsUrl(file?.permalink),
+    sizeBytes:
+      typeof file?.size === "number" &&
+      Number.isSafeInteger(file.size) &&
+      file.size >= 0
+        ? file.size
+        : null,
+  };
+}
+
+function requireSlackPrivateFileDownloadUrl(
+  file: SlackApiFile | null | undefined
+): string {
+  const url = requireSlackOwnedHttpsUrl(
+    file?.url_private_download ?? file?.url_private,
+    "Slack files.info returned no safe private download URL."
+  );
+  return url.toString();
+}
+
+function slackFileIsSharedInChannel(
+  file: SlackApiFile | null | undefined,
+  expectedChannelId: string
+): boolean {
+  const canonicalShares = file?.shares;
+  if (
+    Object.hasOwn(canonicalShares?.public ?? {}, expectedChannelId) ||
+    Object.hasOwn(canonicalShares?.private ?? {}, expectedChannelId)
+  ) {
+    return true;
+  }
+  return [file?.channels, file?.groups, file?.ims].some(
+    (conversationIds) => conversationIds?.includes(expectedChannelId) === true
+  );
+}
+
+function requireSlackUploadUrl(value: unknown): string {
+  return requireSlackOwnedHttpsUrl(
+    value,
+    "Slack files.getUploadURLExternal returned no safe upload URL."
+  ).toString();
+}
+
+function requireSlackOwnedHttpsUrl(value: unknown, errorMessage: string): URL {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) {
+    throw new Error(errorMessage);
+  }
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
+    throw new Error(errorMessage);
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    !(url.hostname === "slack.com" || url.hostname.endsWith(".slack.com"))
+  ) {
+    throw new Error(errorMessage);
+  }
+  return url;
+}
+
+function normalizeHttpsUrl(value: unknown): string | null {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) {
+    return null;
+  }
+  try {
+    const url = new URL(normalized);
+    return url.protocol === "https:" && !url.username && !url.password
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function requireSlackFileId(value: unknown): string {
+  const fileId = normalizeOptionalText(value);
+  if (!fileId) {
+    throw new Error(
+      "Slack files.getUploadURLExternal returned no file identity."
+    );
+  }
+  return fileId;
+}
+
+async function readBoundedResponseBytes(
+  response: Response,
+  maxBytes: number
+): Promise<Uint8Array> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error(`Slack file is larger than the ${maxBytes}-byte limit.`);
+  }
+  if (!response.body) {
+    return new Uint8Array();
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error(`Slack file is larger than the ${maxBytes}-byte limit.`);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+function createNotPublishedSlackFileError(
+  message: string,
+  error: unknown
+): SlackMessagePublicationError {
+  return new SlackMessagePublicationError({
+    cause: error,
+    errorCode:
+      error instanceof SlackApiError ||
+      error instanceof SlackMessagePublicationError
+        ? error.errorCode
+        : null,
+    message: `${message}: ${toErrorMessage(error)}`,
+    publicationOutcome: "not_published",
+  });
+}
+
 function createUnknownSlackPublicationError(
   detail: string
 ): SlackMessagePublicationError {
   return new SlackMessagePublicationError({
     message: `Slack chat.postMessage outcome is unknown: ${detail}`,
+    publicationOutcome: "unknown",
+  });
+}
+
+function createUnknownSlackFilePublicationError(
+  detail: string
+): SlackMessagePublicationError {
+  return new SlackMessagePublicationError({
+    message: `Slack file publication outcome is unknown: ${detail}`,
     publicationOutcome: "unknown",
   });
 }

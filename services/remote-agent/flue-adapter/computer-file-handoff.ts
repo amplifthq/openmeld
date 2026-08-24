@@ -1,10 +1,12 @@
 import type { WorkspaceClient } from "@cloudflare/computer";
+import { CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
 import type { RemoteAgentComputerFileHandoff } from "../agent-core/tools";
 
 const MAX_HANDOFF_FILE_BYTES = 32_000;
 const MAX_HANDOFF_TOTAL_BYTES = 64_000;
 const WORKING_COPY_METADATA_SUFFIX = ".openmeld.json";
 const TRAILING_SLASHES_PATTERN = /\/+$/u;
+const SLACK_FILES_DIRECTORY = "slack-files";
 
 /**
  * Read an explicitly selected, bounded text snapshot for one Local Agent Wake.
@@ -19,6 +21,36 @@ export function createAgentComputerFileHandoff(input: {
     ""
   );
   return {
+    async readBinaryFile(path) {
+      const resolved = resolveSelectedPath({
+        selectedPath: path,
+        workingDirectory,
+      });
+      const declaredSize = await requireRegularFileWithoutSymlink({
+        relativePath: resolved.relativePath,
+        workingDirectory,
+        workspace: input.workspace,
+      });
+      if (declaredSize > CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES) {
+        throw new Error(
+          `${resolved.relativePath} is larger than the ${CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES}-byte Slack file limit.`
+        );
+      }
+      const bytes = await readWorkspaceFileBytes(
+        input.workspace,
+        resolved.absolutePath
+      );
+      if (bytes.byteLength !== declaredSize) {
+        throw new Error(
+          `${resolved.relativePath} changed while OpenMeld was reading it.`
+        );
+      }
+      return {
+        bytes,
+        fileName: resolved.relativePath.split("/").at(-1) ?? "file",
+        path: resolved.relativePath,
+      };
+    },
     async readTextFiles(paths) {
       const files: Array<{ content: string; path: string }> = [];
       let totalBytes = 0;
@@ -62,7 +94,71 @@ export function createAgentComputerFileHandoff(input: {
       }
       return files;
     },
+    async writeSlackFile({ bytes, fileId, fileName }) {
+      if (
+        bytes.byteLength < 1 ||
+        bytes.byteLength > CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES
+      ) {
+        throw new Error(
+          `Slack files must be between 1 and ${CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES} bytes.`
+        );
+      }
+      const safeFileId = fileId.replace(/[^A-Za-z0-9_-]/gu, "_").slice(0, 128);
+      const safeFileName = fileName
+        .replace(/[\\/\0]/gu, "_")
+        .trim()
+        .slice(0, 255);
+      if (!(safeFileId && safeFileName)) {
+        throw new Error("Slack file identity and name must be non-empty text.");
+      }
+      const directory = `${workingDirectory}/${SLACK_FILES_DIRECTORY}`;
+      await input.workspace.fs.mkdir(directory, { recursive: true });
+      const directoryStat = await input.workspace.fs.lstat(directory);
+      if (directoryStat.isSymbolicLink || !directoryStat.isDirectory) {
+        throw new Error(
+          "The Slack files directory is not a safe Computer directory."
+        );
+      }
+      const relativePath = `${SLACK_FILES_DIRECTORY}/${safeFileId}-${crypto.randomUUID()}-${safeFileName}`;
+      await input.workspace.fs.writeFile(
+        `${workingDirectory}/${relativePath}`,
+        bytes,
+        { exclusive: true }
+      );
+      return { path: relativePath };
+    },
   };
+}
+
+async function readWorkspaceFileBytes(
+  workspace: Pick<WorkspaceClient, "fs">,
+  path: string
+): Promise<Uint8Array> {
+  const stream = await workspace.fs.readFile(path);
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    size += value.byteLength;
+    if (size > CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES) {
+      await reader.cancel();
+      throw new Error(
+        `Computer file is larger than the ${CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES}-byte Slack file limit.`
+      );
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 function resolveSelectedPath(input: {

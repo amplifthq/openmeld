@@ -290,14 +290,22 @@ use the action only when its stored structured grant explicitly contains
    In product language this integration is a **Message channel**, not an App:
    it owns conversation ingress and the Slack-thread reply surface, and it does
    not authorize OpenConnector access to Slack data or general Slack actions.
-   Its one shipped outbound action may publish an explicitly requested,
-   top-level channel message through Core using the Organization-bound Bot
-   credential. Core resolves the channel internally, may join an accessible
-   public channel, requires the App to be invited to a private channel, and
-   records the internal channel ID only in the audit journal. The separately
+   Its shipped outbound actions may publish an explicitly requested channel
+   message or send one exact Center Agent Computer file through Core using the
+   Organization-bound Bot credential. Core resolves the destination
+   internally, may join an accessible public channel, requires the App to be
+   invited to a private channel, and keeps provider credentials out of model
+   arguments and audit output. The separately
    authorized read-only Slack tools may list one bounded live page of active
    visible channels, read active human members of a named channel, or read one
-   newest-first page of a named channel's message history. Channel listing
+   newest-first page of a named channel's message history. Attachment-only
+   history remains a real message: each file carries its Slack file id, name,
+   MIME type, size, and permalink. An explicit file read rechecks that exact
+   file against the requested Slack conversation, downloads at most 5 MiB from
+   a Slack-owned private URL, and saves the bytes into the Center Agent
+   Computer. Text files return a bounded UTF-8 preview; images use the selected
+   auxiliary image-understanding model. File bytes and encoded content are
+   never returned to the primary model. Channel listing
    exposes the App membership state without joining. Member and history reads
    require the App to be an existing channel member and never join or publish.
    All three reads are available to interactive and Routine turns under the
@@ -312,7 +320,13 @@ use the action only when its stored structured grant explicitly contains
    display name. Explicit channel publication accepts those IDs through a
    structured mention field, verifies that the same turn's directory read
    returned them, and constructs the Slack mention tokens outside model-authored
-   message text. Installation scopes for bookmarks, canvases, files, links,
+   message text. Slack file reads use `files:read`; sending files uses
+   `files:write` and Slack's external upload flow. Sending requires a current
+   interactive task, a verified represented member, an exact Computer file,
+   and either the originating Slack thread, a named channel, or an exact
+   trusted thread permalink. The content digest, destination, and durable
+   publication claim fence retries so an unknown provider outcome is never
+   uploaded again automatically. Installation scopes for bookmarks, canvases, links,
    pins, reactions, user groups, slash commands, and private-channel mutation
    remain dormant until each receives a separate product contract and
    model-visible tool policy.
@@ -344,6 +358,10 @@ use the action only when its stored structured grant explicitly contains
    they are not automatically copied into Center Agent Memory, Organization
    Documents, or Computer files. Query text and raw provider payloads never
    enter audit rows or diagnostics.
+   A current Slack event with files also contributes bounded untrusted
+   attachment metadata to the verified request text. This keeps a file-only
+   direct message or an app mention without a caption actionable without
+   treating the filename as file content or as model instructions.
 
    Slack shows `is working on your request…` immediately after verified
    requester and Center Agent availability checks, before bounded context reads
@@ -1423,8 +1441,11 @@ surface adopts official features where they are free**:
   access. Enabled tools are: read Organization directory, list Organization
   Spaces, read a bounded live page of active human Slack members with
   email-based current-Organization membership classification, list visible
-  Slack channels with the App membership state, and read bounded members or
+  Slack channels with the App membership state, read bounded members or
   newest-first history only from Slack channels the App has already joined,
+  read one exact file or image proved to belong to the current Slack
+  conversation, and send one exact Computer file in an interactive Slack
+  publication,
   read the current
   active Organization invite link, ensure an active
   Organization invite link on behalf of a verified owner/admin, read

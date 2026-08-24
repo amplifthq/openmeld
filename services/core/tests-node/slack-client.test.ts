@@ -9,9 +9,11 @@ import {
   openSlackModal,
   postSlackChannelMessageByName,
   postSlackDirectMessage,
+  postSlackFile,
   postSlackThreadMessage,
   readSlackChannelHistory,
   readSlackConversationInfo,
+  readSlackFile,
   readSlackThreadMessages,
   setSlackThreadStatus,
   updateSlackModal,
@@ -508,6 +510,25 @@ describe("Slack channel history", () => {
       return Promise.resolve(
         Response.json({
           messages: [
+            // Slack Web API `conversations.history` file object shape:
+            // https://docs.slack.dev/reference/objects/file-object
+            {
+              files: [
+                {
+                  id: "F_RELEASE_NOTES",
+                  mimetype: "text/markdown",
+                  name: "release-notes.md",
+                  permalink:
+                    "https://openmeld-dev.slack.com/files/U_AVA/F_RELEASE_NOTES/release-notes",
+                  size: 1234,
+                  url_private_download:
+                    "https://files.slack.com/files-pri/T_OPENMELD-F_RELEASE_NOTES/download/release-notes.md",
+                },
+              ],
+              text: null,
+              ts: "1710000004.000400",
+              user: "U_AVA",
+            },
             {
               text: "Latest release update",
               ts: "1710000003.000350",
@@ -540,6 +561,25 @@ describe("Slack channel history", () => {
         {
           botId: null,
           displayName: null,
+          files: [
+            {
+              fileId: "F_RELEASE_NOTES",
+              mimeType: "text/markdown",
+              name: "release-notes.md",
+              permalink:
+                "https://openmeld-dev.slack.com/files/U_AVA/F_RELEASE_NOTES/release-notes",
+              sizeBytes: 1234,
+            },
+          ],
+          subtype: null,
+          text: null,
+          ts: "1710000004.000400",
+          userId: "U_AVA",
+        },
+        {
+          botId: null,
+          displayName: null,
+          files: [],
           subtype: null,
           text: "Latest release update",
           ts: "1710000003.000350",
@@ -548,6 +588,7 @@ describe("Slack channel history", () => {
         {
           botId: "B_CENTER_AGENT",
           displayName: "OpenMeld Center Agent",
+          files: [],
           subtype: "bot_message",
           text: "Earlier summary",
           ts: "1710000002.000300",
@@ -557,6 +598,189 @@ describe("Slack channel history", () => {
       nextCursor: "after-this-page",
     });
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Slack file reads", () => {
+  it("resolves file metadata and downloads bounded private bytes with the bot token", async () => {
+    const fileBytes = new TextEncoder().encode("release notes");
+    const fetchMock = vi.fn<typeof fetch>((request, init) => {
+      const url = new URL(String(request));
+      if (url.pathname === "/api/files.info") {
+        expect(url.searchParams.get("file")).toBe("F_RELEASE_NOTES");
+        return Promise.resolve(
+          Response.json({
+            file: {
+              id: "F_RELEASE_NOTES",
+              mimetype: "text/markdown",
+              name: "release-notes.md",
+              permalink:
+                "https://openmeld-dev.slack.com/files/U_AVA/F_RELEASE_NOTES/release-notes",
+              shares: {
+                public: {
+                  C_OK8: [{ ts: "1710000001.000100" }],
+                },
+              },
+              size: fileBytes.byteLength,
+              url_private_download:
+                "https://files.slack.com/files-pri/T_OPENMELD-F_RELEASE_NOTES/download/release-notes.md",
+            },
+            ok: true,
+          })
+        );
+      }
+      expect(url.hostname).toBe("files.slack.com");
+      expect(new Headers(init?.headers).get("authorization")).toBe(
+        "Bearer xoxb-test"
+      );
+      return Promise.resolve(new Response(fileBytes));
+    });
+
+    await expect(
+      readSlackFile({
+        botToken: "xoxb-test",
+        fetchImpl: fetchMock,
+        expectedChannelId: "C_OK8",
+        fileId: "F_RELEASE_NOTES",
+      })
+    ).resolves.toEqual({
+      bytes: fileBytes,
+      file: {
+        fileId: "F_RELEASE_NOTES",
+        mimeType: "text/markdown",
+        name: "release-notes.md",
+        permalink:
+          "https://openmeld-dev.slack.com/files/U_AVA/F_RELEASE_NOTES/release-notes",
+        sizeBytes: fileBytes.byteLength,
+      },
+    });
+  });
+
+  it("refuses to download a Slack file that is not shared in the expected conversation", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        Response.json({
+          file: {
+            channels: ["C_OTHER"],
+            id: "F_PRIVATE",
+            size: 10,
+            url_private_download:
+              "https://files.slack.com/files-pri/T_OPENMELD-F_PRIVATE/download/private.txt",
+          },
+          ok: true,
+        })
+      )
+    );
+
+    await expect(
+      readSlackFile({
+        botToken: "xoxb-test",
+        expectedChannelId: "C_EXPECTED",
+        fetchImpl: fetchMock,
+        fileId: "F_PRIVATE",
+      })
+    ).rejects.toThrow(
+      "Slack files.info did not confirm that this file belongs to the requested conversation."
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Slack file publication", () => {
+  it("uploads bytes and completes the file in the exact Slack thread", async () => {
+    const fileBytes = new TextEncoder().encode("release notes");
+    const fetchMock = vi.fn<typeof fetch>((request, init) => {
+      const url = new URL(String(request));
+      if (url.pathname === "/api/files.getUploadURLExternal") {
+        expect(String(init?.body)).toBe(
+          `filename=release-notes.md&length=${fileBytes.byteLength}`
+        );
+        return Promise.resolve(
+          Response.json({
+            file_id: "F_UPLOADED",
+            ok: true,
+            upload_url: "https://files.slack.com/upload/v1/upload-token",
+          })
+        );
+      }
+      if (url.pathname === "/upload/v1/upload-token") {
+        expect(new Uint8Array(init?.body as ArrayBuffer)).toEqual(fileBytes);
+        expect(new Headers(init?.headers).has("authorization")).toBe(false);
+        return Promise.resolve(new Response("OK"));
+      }
+      if (url.pathname === "/api/files.completeUploadExternal") {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          channel_id: "C_RELEASE",
+          files: [{ id: "F_UPLOADED", title: "Release notes" }],
+          initial_comment: "Attached release notes.",
+          thread_ts: "1710000000.000100",
+        });
+        return Promise.resolve(
+          Response.json({ files: [{ id: "F_UPLOADED" }], ok: true })
+        );
+      }
+      throw new Error(`Unexpected Slack file request: ${url.pathname}`);
+    });
+
+    await expect(
+      postSlackFile({
+        botToken: "xoxb-test",
+        bytes: fileBytes,
+        fetchImpl: fetchMock,
+        fileName: "release-notes.md",
+        initialComment: "Attached release notes.",
+        target: {
+          channelId: "C_RELEASE",
+          channelName: "releases",
+          isMember: true,
+          isPrivate: false,
+        },
+        threadTs: "1710000000.000100",
+        title: "Release notes",
+      })
+    ).resolves.toEqual({ fileId: "F_UPLOADED", joinedChannel: false });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("classifies an interrupted Slack upload completion as outcome unknown", async () => {
+    const fileBytes = new TextEncoder().encode("release notes");
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = new URL(String(request));
+      if (url.pathname === "/api/files.getUploadURLExternal") {
+        return Promise.resolve(
+          Response.json({
+            file_id: "F_UNKNOWN",
+            ok: true,
+            upload_url: "https://files.slack.com/upload/v1/unknown",
+          })
+        );
+      }
+      if (url.pathname === "/upload/v1/unknown") {
+        return Promise.resolve(new Response("OK"));
+      }
+      if (url.pathname === "/api/files.completeUploadExternal") {
+        return Promise.reject(new Error("socket closed"));
+      }
+      throw new Error(`Unexpected Slack file request: ${url.pathname}`);
+    });
+
+    await expect(
+      postSlackFile({
+        botToken: "xoxb-test",
+        bytes: fileBytes,
+        fetchImpl: fetchMock,
+        fileName: "release-notes.md",
+        target: {
+          channelId: "C_RELEASE",
+          channelName: "releases",
+          isMember: true,
+          isPrivate: false,
+        },
+      })
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("outcome is unknown"),
+      publicationOutcome: "unknown",
+    });
   });
 });
 
@@ -610,6 +834,7 @@ describe("Slack thread messages", () => {
         {
           botId: "B_CENTER_AGENT",
           displayName: "OpenMeld Center Agent",
+          files: [],
           subtype: "bot_message",
           text: "Center Agent summary",
           ts: "1710000002.000300",
@@ -618,6 +843,7 @@ describe("Slack thread messages", () => {
         {
           botId: null,
           displayName: null,
+          files: [],
           subtype: null,
           text: "Please add the repository links.",
           ts: "1710000003.000350",

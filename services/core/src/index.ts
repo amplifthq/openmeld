@@ -60,6 +60,7 @@ import type {
   CenterAgentOrganizationMemoryPolicyResponse,
   CenterAgentPauseRoutineToolRpcInput,
   CenterAgentPostSlackChannelMessageResponse,
+  CenterAgentPostSlackFileResponse,
   CenterAgentPostSpaceMessageResponse,
   CenterAgentPrepareRemoveProjectToolResponse,
   CenterAgentPrepareRemoveProjectToolRpcInput,
@@ -73,6 +74,7 @@ import type {
   CenterAgentReadOrganizationSkillsRpcInput,
   CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersResponse,
+  CenterAgentReadSlackFileResponse,
   CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceContextResponse,
   CenterAgentReadSpaceFileResponse,
@@ -524,6 +526,7 @@ import {
   type CenterAgentListOpportunitiesInput,
   type CenterAgentListSlackChannelsInput,
   type CenterAgentPostSlackChannelMessageInput,
+  type CenterAgentPostSlackFileInput,
   type CenterAgentPostSlackThreadMessageInput,
   type CenterAgentPostSpaceMessageInput,
   type CenterAgentReadAgentActivityInput,
@@ -536,6 +539,7 @@ import {
   type CenterAgentReadOrganizationSpaceDirectoryInput,
   type CenterAgentReadSlackChannelHistoryInput,
   type CenterAgentReadSlackChannelMembersInput,
+  type CenterAgentReadSlackFileInput,
   type CenterAgentReadSlackWorkspaceDirectoryInput,
   type CenterAgentReadSpaceAuthoringContractInput,
   type CenterAgentReadSpaceContextInput,
@@ -721,6 +725,7 @@ import {
   rpcCenterAgentListSpaceFiles,
   rpcCenterAgentManageSpaceFiles,
   rpcCenterAgentPostSlackChannelMessage,
+  rpcCenterAgentPostSlackFile,
   rpcCenterAgentPostSlackThreadMessage,
   rpcCenterAgentPostSpaceMessage,
   rpcCenterAgentReadAgentActivity,
@@ -731,6 +736,7 @@ import {
   rpcCenterAgentReadMemberOpenMeldServiceStatus,
   rpcCenterAgentReadSlackChannelHistory,
   rpcCenterAgentReadSlackChannelMembers,
+  rpcCenterAgentReadSlackFile,
   rpcCenterAgentReadSlackWorkspaceDirectory,
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
@@ -2873,6 +2879,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentReadSlackChannelHistory(this.env, input);
   }
 
+  centerAgentReadSlackFile(
+    input: CenterAgentReadSlackFileInput
+  ): Promise<CenterAgentReadSlackFileResponse> {
+    return rpcCenterAgentReadSlackFile(this.env, input);
+  }
+
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
   ): Promise<CenterAgentSearchSlackMessagesResponse> {
@@ -2941,6 +2953,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: CenterAgentPostSlackChannelMessageInput
   ): Promise<CenterAgentPostSlackChannelMessageResponse> {
     return rpcCenterAgentPostSlackChannelMessage(this.env, input);
+  }
+
+  centerAgentPostSlackFile(
+    input: CenterAgentPostSlackFileInput
+  ): Promise<CenterAgentPostSlackFileResponse> {
+    return rpcCenterAgentPostSlackFile(this.env, input);
   }
 
   centerAgentPostSlackThreadMessage(
@@ -4487,6 +4505,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.centerAgentReadSlackChannelHistory(input);
   }
 
+  centerAgentReadSlackFile(
+    input: CenterAgentReadSlackFileInput
+  ): Promise<CenterAgentReadSlackFileResponse> {
+    return super.centerAgentReadSlackFile(input);
+  }
+
   centerAgentSearchSlackMessages(
     input: CenterAgentSearchSlackMessagesInput
   ): Promise<CenterAgentSearchSlackMessagesResponse> {
@@ -4521,6 +4545,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentPostSlackChannelMessageInput
   ): Promise<CenterAgentPostSlackChannelMessageResponse> {
     return super.centerAgentPostSlackChannelMessage(input);
+  }
+
+  centerAgentPostSlackFile(
+    input: CenterAgentPostSlackFileInput
+  ): Promise<CenterAgentPostSlackFileResponse> {
+    return super.centerAgentPostSlackFile(input);
   }
 
   centerAgentPostSlackThreadMessage(

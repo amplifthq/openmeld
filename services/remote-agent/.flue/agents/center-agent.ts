@@ -137,6 +137,7 @@ export default defineAgent(async () => {
             },
             memberProfileReportFiles:
               sandboxCapability.memberProfileReportFiles,
+            modelRoute: executionContext.modelRoute,
             sandboxDefinitions: sandboxCapability.definitions,
             storage,
             submissionId: executionContext.submissionId,

@@ -390,6 +390,18 @@ describe("Center Agent HTTP schemas", () => {
     ).toEqual({ actionSet: "v20" });
   });
 
+  it("versions Slack file reads and publications behind the v21 action set", () => {
+    expect(centerAgentActionSchema.parse("read_slack_file")).toBe(
+      "read_slack_file"
+    );
+    expect(centerAgentActionSchema.parse("post_slack_file")).toBe(
+      "post_slack_file"
+    );
+    expect(
+      listCenterAgentAuditJournalQuerySchema.parse({ actionSet: "v21" })
+    ).toEqual({ actionSet: "v21" });
+  });
+
   it("accepts the Center Agent Project audit actions", () => {
     for (const action of [
       "read_projects",

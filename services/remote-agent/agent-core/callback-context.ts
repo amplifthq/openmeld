@@ -70,6 +70,8 @@ import type {
   CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersBody,
   CenterAgentReadSlackChannelMembersResponse,
+  CenterAgentReadSlackFileBody,
+  CenterAgentReadSlackFileResponse,
   CenterAgentReadSlackWorkspaceDirectoryBody,
   CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceFileResponse,
@@ -429,6 +431,11 @@ export type RemoteAgentCoreWorkerBinding = {
       context: OpenMeldRequestContext;
     }
   ): Promise<CenterAgentReadSlackChannelHistoryResponse>;
+  centerAgentReadSlackFile?(
+    input: CenterAgentReadSlackFileBody & {
+      context: OpenMeldRequestContext;
+    }
+  ): Promise<CenterAgentReadSlackFileResponse>;
   centerAgentSearchSlackMessages?(
     input: CenterAgentSearchSlackMessagesBody & {
       context: OpenMeldRequestContext;
@@ -456,6 +463,7 @@ export type RemoteAgentCoreWorkerBinding = {
   ): Promise<CenterAgentManageSpaceFilesResponse>;
   listCenterAgentAuditJournal?(input: unknown): Promise<unknown>;
   centerAgentPostSlackChannelMessage?(input: unknown): Promise<unknown>;
+  centerAgentPostSlackFile?(input: unknown): Promise<unknown>;
   centerAgentPostSlackThreadMessage?(input: unknown): Promise<unknown>;
   centerAgentPostSpaceMessage?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceAuthoringContract?(input: {
