@@ -83,6 +83,8 @@ const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
 };
 
 const DELETED_SPACE_NOTICE_STORAGE_KEY = "openmeld:deleted-space-notices-shown";
+const SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME =
+	"pointer-events-none absolute top-1 right-1 z-10 inline-flex size-7 items-center justify-center transition-transform duration-150 ease-out group-focus-within/space-row:translate-x-3 group-focus-within/space-row:-translate-y-3 group-hover/space-row:translate-x-3 group-hover/space-row:-translate-y-3 motion-reduce:transition-none";
 
 function readShownDeletedSpaceNotices(): Set<string> {
 	if (typeof window === "undefined") {
@@ -612,7 +614,7 @@ function SpaceSidebarMenuItem(input: {
 								{trailingStatus === "unread" ? (
 									<span
 										aria-hidden="true"
-										className="pointer-events-none absolute top-1 right-1 inline-flex size-7 items-center justify-center transition-opacity group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0 motion-reduce:transition-none"
+										className={SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME}
 										data-space-unread-indicator="true"
 									>
 										<span
@@ -652,15 +654,10 @@ function SpaceSidebarMenuItem(input: {
 								aria-label={pinLabel}
 								aria-pressed={isPinned}
 								className={cn(
-									"absolute top-1 right-1 inline-flex size-7 translate-x-1 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none backdrop-blur-sm transition hover:text-foreground focus-visible:ring-1 focus-visible:ring-sidebar-ring disabled:pointer-events-none disabled:opacity-40 group-focus-within/space-row:translate-x-0 group-focus-within/space-row:bg-sidebar-accent group-focus-within/space-row:opacity-100 group-hover/space-row:translate-x-0 group-hover/space-row:bg-sidebar-accent group-hover/space-row:opacity-100",
+									"pointer-events-none absolute top-1 right-1 inline-flex size-7 translate-x-1 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none backdrop-blur-sm transition-[transform,opacity,background-color,color] duration-150 ease-out hover:text-foreground focus-visible:ring-1 focus-visible:ring-sidebar-ring disabled:pointer-events-none disabled:opacity-40 group-focus-within/space-row:pointer-events-auto group-focus-within/space-row:translate-x-0 group-focus-within/space-row:bg-sidebar-accent group-focus-within/space-row:opacity-100 group-hover/space-row:pointer-events-auto group-hover/space-row:translate-x-0 group-hover/space-row:bg-sidebar-accent group-hover/space-row:opacity-100 motion-reduce:transition-none",
 									isPinned ? "text-foreground" : null,
 									trailingStatus === "pinned"
-										? "translate-x-0 opacity-100"
-										: null,
-									// While an agent is working the orb owns this slot; the pin
-									// scales/blurs in only on hover or keyboard focus.
-									trailingStatus === "working"
-										? "scale-75 blur-[2px] group-focus-within/space-row:scale-100 group-focus-within/space-row:blur-none group-hover/space-row:scale-100 group-hover/space-row:blur-none motion-reduce:transition-none"
+										? "pointer-events-auto translate-x-0 opacity-100"
 										: null
 								)}
 								disabled={input.isPinPending}
@@ -685,7 +682,10 @@ function SpaceSidebarMenuItem(input: {
 				{trailingStatus === "working" ? (
 					<span
 						aria-hidden="true"
-						className="pointer-events-none absolute top-1 right-1 inline-flex size-7 items-center justify-center transition group-focus-within/space-row:scale-75 group-focus-within/space-row:opacity-0 group-focus-within/space-row:blur-[2px] group-hover/space-row:scale-75 group-hover/space-row:opacity-0 group-hover/space-row:blur-[2px] motion-reduce:transition-none"
+						className={cn(
+							SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME,
+							"group-focus-within/space-row:scale-[0.625] group-hover/space-row:scale-[0.625]"
+						)}
 						data-space-active-wake-orb="true"
 					>
 						<SpaceAgentOrb />
@@ -701,11 +701,11 @@ function resolveSpaceSidebarTrailingStatus(input: {
 	hasUnread: boolean;
 	isPinned: boolean;
 }): "pinned" | "unread" | "working" | null {
-	if (input.hasActiveWake) {
-		return "working";
-	}
 	if (input.hasUnread) {
 		return "unread";
+	}
+	if (input.hasActiveWake) {
+		return "working";
 	}
 	if (input.isPinned) {
 		return "pinned";

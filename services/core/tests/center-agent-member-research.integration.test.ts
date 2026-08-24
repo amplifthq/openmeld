@@ -582,6 +582,14 @@ describe("Center Agent member research", () => {
     expect(drafted.memberResearchDraft?.content).toContain(
       "## Research coverage"
     );
+    const storedTaskResult = await env.OPENMELD_DB.prepare(
+      "SELECT report_result FROM center_agent_member_research_tasks WHERE id = ?"
+    )
+      .bind(task.id)
+      .first<{ report_result: string }>();
+    expect(storedTaskResult).toEqual({
+      report_result: "insufficient_evidence",
+    });
     const expectedReportDate = drafted.document.profileReportDate;
     if (!expectedReportDate) {
       throw new Error("Expected the Profile Report date.");

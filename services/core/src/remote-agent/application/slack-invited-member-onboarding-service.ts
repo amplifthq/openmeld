@@ -1,3 +1,4 @@
+import type { CenterAgentMemberResearchReport } from "@openmeld/schemas";
 import type { CoreBindings } from "../../lib/bindings";
 import { resolveOrganizationDirectoryMembers } from "../../organizations/organization-directory";
 import {
@@ -245,12 +246,13 @@ async function advanceResearchingOnboarding(input: {
   }
   const task = await input.db
     .prepare(
-      "SELECT status, failure_code, observed_language_tag FROM center_agent_member_research_tasks WHERE id = ? LIMIT 1"
+      "SELECT status, failure_code, observed_language_tag, report_result FROM center_agent_member_research_tasks WHERE id = ? LIMIT 1"
     )
     .bind(taskId)
     .first<{
       failure_code: string | null;
       observed_language_tag: string | null;
+      report_result: CenterAgentMemberResearchReport["result"] | null;
       status: string;
     }>();
   if (!task) {
@@ -270,6 +272,14 @@ async function advanceResearchingOnboarding(input: {
     return;
   }
   if (task.status !== "completed") {
+    return;
+  }
+  if (!task.report_result) {
+    await failOnboarding({
+      ...input,
+      failureCode: "member_research_report_result_missing",
+      onboarding: input.onboarding,
+    });
     return;
   }
   const report = await input.db
@@ -316,9 +326,7 @@ async function advanceResearchingOnboarding(input: {
   });
   const observation = readFirstProfileObservation(report.report_content);
   const message = buildJoinedMemberWelcomeMessage({
-    hasUsefulEvidence: !report.report_content.includes(
-      "**Insufficient evidence**"
-    ),
+    hasUsefulEvidence: task.report_result === "evidence_backed",
     languageTag,
     observation,
     organizationName: organization.name,

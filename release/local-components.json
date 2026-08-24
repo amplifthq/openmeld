@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-23T10:44:21.952Z",
+  "updatedAt": "2026-08-24T02:19:14.616Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.85",
+      "packageVersion": "0.3.86",
       "updatePolicy": "available",
-      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
+      "reason": "Improves Center Agent failure diagnostics and uses structured evidence for action safety, member research, and reply publication."
     },
     "service": {
-      "bundleHash": "96dcfeb9387f664b3cfdd9012b297301333bb7cc266b8e7c68e6633a405b0e45",
-      "bundleVersion": "0.3.85",
+      "bundleHash": "1417d96986c656c4d21c14546528ca9db8b7b6d335406323d1c4211bdbc191ed",
+      "bundleVersion": "0.3.86",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
+      "reason": "Improves Center Agent failure diagnostics and uses structured evidence for action safety, member research, and reply publication."
     },
     "skills": {
       "bundleHash": "79a8ca933c1447c98097071a7434ae390c267be8f9b05f67d3102a39c614ef04",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
+      "reason": "Improves Center Agent failure diagnostics and uses structured evidence for action safety, member research, and reply publication."
     }
   }
 }

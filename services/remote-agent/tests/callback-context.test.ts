@@ -16,7 +16,6 @@ import {
   recordCallbackDeliveryFailure,
   recordRemoteAgentCenterAgentTaskReference,
   redeliverDueRemoteAgentCallbacks,
-  sanitizeCenterAgentCompletedTextForPublication,
 } from "../agent-core/callback-context";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
@@ -325,49 +324,6 @@ describe("remote agent callback context", () => {
     ).toBeNull();
   });
 
-  it("keeps internal implementation failures out of completed user replies", () => {
-    for (const unsafeReply of [
-      "This turn's active tool catalog does not include Space management tools. Re-run this request in a session where those tools are enabled.",
-      "I couldn't create the Space because the OpenMeld runtime profile ID was invalid.",
-      "The openmeld_create_space tool is unavailable in this session.",
-      "I couldn't create the Space because the tools are not enabled for this session.",
-      "I couldn't create the Space because the action requires a verified OpenMeld member identity.",
-      'The action catalog returned no match for "unread inbox count", even though 46 actions are available.',
-      "This action requires a verified OpenMeld member identity.",
-      "The action requires a verified OpenMeld member identity before I can create the Space.",
-      "This action requires a verified OpenMeld member identity, so I haven't created the Space.",
-      "I couldn't create the Space because the request was rejected with invalid_payload: password cannot be set for this access.",
-    ]) {
-      expect(sanitizeCenterAgentCompletedTextForPublication(unsafeReply)).toBe(
-        "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
-      );
-    }
-
-    expect(
-      sanitizeCenterAgentCompletedTextForPublication(
-        "I couldn't create the Space because you don't have permission. Ask an Organization owner to create it for you."
-      )
-    ).toBe(
-      "I couldn't create the Space because you don't have permission. Ask an Organization owner to create it for you."
-    );
-
-    expect(
-      sanitizeCenterAgentCompletedTextForPublication(
-        "I used your verified OpenMeld member identity and created the Space."
-      )
-    ).toBe(
-      "I used your verified OpenMeld member identity and created the Space."
-    );
-
-    expect(
-      sanitizeCenterAgentCompletedTextForPublication(
-        "This action requires a verified OpenMeld member identity. I used yours and created the Space successfully."
-      )
-    ).toBe(
-      "This action requires a verified OpenMeld member identity. I used yours and created the Space successfully."
-    );
-  });
-
   it("records accepted Core callbacks as completed", async () => {
     const request = createSubmitTurnRequest();
     const context = createRemoteAgentCallbackContext({
@@ -427,6 +383,48 @@ describe("remote agent callback context", () => {
     }
   });
 
+  it.each([
+    "Center Agent Failure & Identity Continuity 还在推进；同时还有一批本机 Session。",
+    "不是内容没查完。Space / 任务 / Session 都查完了；这和 Center Agent Failure & Identity Continuity 是一件事。",
+  ])("publishes completed task answers regardless of ordinary failure-related words: %s", async (completedText) => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, context);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_reply_123",
+      status: "accepted" as const,
+    }));
+
+    const updated = await handleRemoteAgentChatResponse({
+      coreWorker: { completeRemoteAgentSubmission },
+      nowMs: () => TEST_NOW_MS + 1000,
+      result: {
+        continuation: false,
+        message: { parts: [{ text: completedText, type: "text" }] },
+        requestId: ACK.submissionId,
+        status: "completed",
+      },
+      storage,
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "completed",
+        submissionId: ACK.submissionId,
+        text: completedText,
+      })
+    );
+    expect(updated).toMatchObject({
+      callbackStatus: "completed",
+      completedText,
+    });
+  });
+
   it("rejects provider protocol text instead of publishing it as an ordinary reply", async () => {
     const request = createSubmitTurnRequest();
     const context = createRemoteAgentCallbackContext({
@@ -476,62 +474,6 @@ describe("remote agent callback context", () => {
         code: "remote_agent.assistant_protocol_contamination",
       },
     });
-  });
-
-  it("publishes plain recovery copy instead of a completed internal failure", async () => {
-    const request = createSubmitTurnRequest();
-    const context = createRemoteAgentCallbackContext({
-      ack: ACK,
-      nowMs: TEST_NOW_MS,
-      request,
-    });
-    const storage = new InMemoryDurableObjectStorage();
-    await putRemoteAgentCallbackContext(storage, context);
-    const completeRemoteAgentSubmission = vi.fn(async () => ({
-      publishedSignalId: "signal_reply_123",
-      status: "accepted",
-    }));
-    const warning = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
-
-    try {
-      const updated = await handleRemoteAgentChatResponse({
-        coreWorker: { completeRemoteAgentSubmission },
-        nowMs: () => TEST_NOW_MS + 1000,
-        result: {
-          continuation: false,
-          message: {
-            parts: [
-              {
-                text: "This turn's active tool catalog does not include Space management tools. Re-run this request in a session where those tools are enabled.",
-                type: "text",
-              },
-            ],
-          },
-          requestId: ACK.submissionId,
-          status: "completed",
-        },
-        storage,
-      });
-
-      expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
-        expect.objectContaining({
-          submissionId: ACK.submissionId,
-          text: "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
-        })
-      );
-      expect(updated?.completedText).toBe(
-        "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
-      );
-      expect(updated?.completedText).not.toContain("tool catalog");
-      expect(warning).toHaveBeenCalledWith(
-        "[remote_agent.publication.internal_detail_suppressed]",
-        { submissionId: ACK.submissionId }
-      );
-    } finally {
-      warning.mockRestore();
-    }
   });
 
   it("logs a bounded error summary when a Core callback delivery fails", async () => {

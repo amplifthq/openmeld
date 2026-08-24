@@ -72,6 +72,7 @@ export const centerAgentMemberResearchTasks = sqliteTable(
     position: integer("position").notNull(),
     status: text("status").default("queued").notNull(),
     failureCode: text("failure_code"),
+    reportResult: text("report_result"),
     observedLanguageTag: text("observed_language_tag"),
     createdAtMs: integer("created_at_ms").notNull(),
     startedAtMs: integer("started_at_ms"),
@@ -105,6 +106,10 @@ export const centerAgentMemberResearchTasks = sqliteTable(
     check(
       "center_agent_member_research_tasks_failure_check",
       sql`("status" = 'failed' and "failure_code" is not null) or ("status" != 'failed' and "failure_code" is null)`
+    ),
+    check(
+      "center_agent_member_research_tasks_report_result_check",
+      sql`"report_result" is null or "report_result" in ('evidence_backed', 'insufficient_evidence')`
     ),
     check(
       "center_agent_member_research_tasks_language_tag_check",
