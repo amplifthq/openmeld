@@ -933,6 +933,15 @@ session for the same OpenMeld account. `openmeld setup` must not claim success f
 handoff unless that local session can be reloaded, because OpenMeld Service depends
 on it when launchd/systemd starts the service after sign-in.
 
+The signed macOS binary stores new bearer sessions in the Data Protection
+Keychain under the stable OpenMeld access group. The session file stores only
+the opaque secure-storage reference. Existing legacy macOS Keychain references
+remain readable for compatibility, while a fresh setup or login writes the
+modern reference. A future signed local client may join the same access group;
+it must reuse this session owner instead of creating a parallel sign-in state.
+Setup verifies that the newly stored token can be reloaded before it writes the
+session file or reports success.
+
 The CLI must prove account alignment. Missing, unknown, expired, or mismatched
 terminal authentication must fail closed and tell the user the next safe action.
 

@@ -1005,6 +1005,11 @@ Catalog consumption rules:
 - One catalog load resolves its account context once and reuses it for every
   Profile workspace inspection. It must not fan out identical Keychain reads
   per Profile.
+- One OpenMeld Service process reloads the unchanged local auth session from
+  secure storage once and reuses it while the persisted session payload is
+  unchanged. Clearing, replacing, or editing that payload invalidates the
+  in-process copy; a new Service process reloads it from secure storage. Remote
+  authorization checks still decide whether the bearer session is valid.
 - A background Service must not preflight a custom workspace with the POSIX
   `access` syscall. On macOS, a LaunchAgent can block indefinitely while that
   syscall crosses a protected-folder privacy boundary. Catalog inspection uses
