@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-24T03:34:53.437Z",
+  "updatedAt": "2026-08-24T05:24:48.075Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.87",
+      "packageVersion": "0.3.88",
       "updatePolicy": "available",
-      "reason": "Improves Center Agent failure diagnostics and uses structured evidence for action safety, member research, and reply publication."
+      "reason": "Keeps Codex permission settings stable during background checks and isolated repair."
     },
     "service": {
-      "bundleHash": "c8dbb452ab9b54ee370c1c095b87d4becca551c8d09ae07a534800c3560c881f",
-      "bundleVersion": "0.3.87",
+      "bundleHash": "808a83582837f5c34006386ee189776b76a7b9c3c265d33db1a085090e8c54e1",
+      "bundleVersion": "0.3.88",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Improves Center Agent failure diagnostics and uses structured evidence for action safety, member research, and reply publication."
+      "reason": "Keeps Codex permission settings stable during background checks and isolated repair."
     },
     "skills": {
       "bundleHash": "79a8ca933c1447c98097071a7434ae390c267be8f9b05f67d3102a39c614ef04",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Improves Center Agent failure diagnostics and uses structured evidence for action safety, member research, and reply publication."
+      "reason": "Keeps Codex permission settings stable during background checks and isolated repair."
     }
   }
 }
