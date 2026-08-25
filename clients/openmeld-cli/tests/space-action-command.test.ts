@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { SpaceMemberDirectorySendTargetEntry } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -99,6 +99,35 @@ describe("OpenMeld Space Action command", () => {
         text: "Implementation is done.",
       },
     });
+  });
+
+  it("records message-file text without changing newlines or backslashes", async () => {
+    const context = createTestContext([]);
+    const messageFilePath = `${tempDirs.at(-1)}/reply.txt`;
+    const message =
+      'First line\nLiteral \\n stays literal.\n`code` "$HOME" $(whoami) 😀';
+    writeFileSync(messageFilePath, message, "utf8");
+
+    await runSpaceActionReply({
+      messageFilePath,
+      messageParts: [],
+    });
+
+    expect(readLoadedActionRecord(context).action).toMatchObject({
+      type: "post_message",
+      messageEnvelope: { text: message },
+    });
+  });
+
+  it("rejects ambiguous reply message sources", () => {
+    createTestContext([]);
+
+    expect(() =>
+      runSpaceActionReply({
+        messageFilePath: "reply.txt",
+        messageParts: ["Inline reply."],
+      })
+    ).toThrow("Choose either a reply message or --message-file, not both.");
   });
 
   it("rejects removed CC syntax in action message text", () => {

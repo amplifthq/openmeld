@@ -858,6 +858,8 @@ exact Space Action command prefix printed in the current Wake dispatch prompt:
 
 ```text
 <DISPATCH_ACTION_CLI> space action reply "message"
+<DISPATCH_ACTION_CLI> space action reply --message-file <path>
+printf '%s' "message" | <DISPATCH_ACTION_CLI> space action reply --message-file -
 <DISPATCH_ACTION_CLI> space action reply --file <path> "message"
 <DISPATCH_ACTION_CLI> space action wake "@Agent Name" "summary and request"
 <DISPATCH_ACTION_CLI> space action reply --wake "@Agent Name" "message"
@@ -909,6 +911,13 @@ RuntimeCoordinator or Agent Transport Space Action Delivery. The daemon accepts
 only this dispatch-scoped record or another typed runtime action; it never parses
 model-authored answer text into a Space action. A valid CLI action is reported
 with `spaceActionProvenance: "cli_action"`.
+
+`reply --message-file <path>` reads the reply body as UTF-8; `--message-file -`
+reads it from stdin. This input is distinct from repeatable `--file <path>`,
+which shares an attachment. A reply must use either positional message text or
+`--message-file`, never both. The message-file path preserves real line breaks
+and literal backslashes as separate content; it must not decode literal `\n`
+sequences or reinterpret shell metacharacters.
 The command result must describe that record as an unpublished proposal for the
 current Wake. It must not say `Posted to Space` or otherwise claim publication;
 only RuntimeCoordinator finalization followed by Space acceptance can make that
