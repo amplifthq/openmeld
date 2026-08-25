@@ -57,15 +57,17 @@ export type RemoteAgentPreparedContextImage = {
   type: "image";
 };
 
+export type RemoteAgentImagePreparer = (
+  image: RemoteAgentAdmissionImage
+) => Promise<RemoteAgentPreparedContextImage>;
+
 export async function understandRemoteAgentImages(input: {
   env: RemoteAgentModelEnv;
   fetch?: typeof globalThis.fetch;
   images: readonly RemoteAgentAdmissionImage[];
   model: CenterAgentModelRoute["imageUnderstandingModel"];
   organizationId: string;
-  prepareImage: (
-    image: RemoteAgentAdmissionImage
-  ) => Promise<RemoteAgentPreparedContextImage>;
+  prepareImage: RemoteAgentImagePreparer;
 }): Promise<string> {
   if (input.images.length === 0) {
     throw new Error("Image understanding requires at least one image.");

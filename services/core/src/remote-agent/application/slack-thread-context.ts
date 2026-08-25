@@ -201,7 +201,7 @@ function buildBoundedChannelMessages(input: {
       continue;
     }
     seenMessageIds.add(message.ts);
-    const normalizedText = normalizeOptionalText(message.text);
+    const normalizedText = buildSlackContextMessageText(message);
     if (!normalizedText) {
       continue;
     }
@@ -231,6 +231,26 @@ function buildBoundedChannelMessages(input: {
     totalTextCharacters += boundedText.text.length;
   }
   return { messages, truncated };
+}
+
+function buildSlackContextMessageText(
+  message: SlackThreadMessage
+): string | null {
+  const text = normalizeOptionalText(message.text);
+  const fileEvidence = message.files.map((file) =>
+    [
+      "Slack file attached",
+      `fileId=${file.fileId}`,
+      ...(file.name ? [`name=${file.name}`] : []),
+      ...(file.mimeType ? [`mimeType=${file.mimeType}`] : []),
+      ...(file.sizeBytes === null ? [] : [`sizeBytes=${file.sizeBytes}`]),
+      ...(file.permalink ? [`permalink=${file.permalink}`] : []),
+    ].join("; ")
+  );
+  if (fileEvidence.length === 0) {
+    return text;
+  }
+  return [text, ...fileEvidence].filter(Boolean).join("\n");
 }
 
 function selectSlackThreadMessages(input: {

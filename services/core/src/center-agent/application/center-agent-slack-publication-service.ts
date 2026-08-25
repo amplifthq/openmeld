@@ -1,11 +1,17 @@
-import { centerAgentPostSlackChannelMessageResponseSchema } from "@openmeld/schemas";
+import {
+  centerAgentPostSlackChannelMessageResponseSchema,
+  centerAgentPostSlackFileResponseSchema,
+} from "@openmeld/schemas";
 import type {
   CenterAgentPostSlackChannelMessageBody,
   CenterAgentPostSlackChannelMessageResponse,
+  CenterAgentPostSlackFileBody,
+  CenterAgentPostSlackFileResponse,
 } from "@openmeld/schemas/types";
 import { createOrganizationDocumentService } from "../../organization-documents/organization-document-service";
 import {
   postSlackChannelMessage,
+  postSlackFile,
   type SlackChannelMessageTarget,
   SlackMessagePublicationError,
 } from "../../remote-agent/application/slack-client";
@@ -31,6 +37,8 @@ import type { VerifiedCenterAgentRepresentedMember } from "./represented-member-
 type PublicationSource = NonNullable<
   CenterAgentPostSlackChannelMessageBody["publicationSource"]
 >;
+type SlackFilePublicationSource =
+  CenterAgentPostSlackFileBody["publicationSource"];
 
 export async function executeCenterAgentSlackPublication(input: {
   authorization: CurrentDesignatedCenterAgentAuthorization;
@@ -175,6 +183,162 @@ export async function executeCenterAgentSlackPublication(input: {
     throw error;
   }
   return response;
+}
+
+export async function executeCenterAgentSlackFilePublication(input: {
+  authorization: CurrentDesignatedCenterAgentAuthorization;
+  botToken: string;
+  bytes: Uint8Array;
+  contentSha256: string;
+  fileName: string;
+  initialComment?: string;
+  publicationSource: SlackFilePublicationSource;
+  representedHuman: VerifiedCenterAgentRepresentedMember;
+  sourceNativeDeliveryId: string;
+  target: SlackChannelMessageTarget;
+  threadTs?: string;
+  title?: string;
+}): Promise<CenterAgentPostSlackFileResponse> {
+  const targetId = input.threadTs
+    ? `${input.target.channelId}:${input.threadTs}`
+    : input.target.channelId;
+  const destinationId = `${targetId}:${input.contentSha256}`;
+  const source = await resolveCenterAgentPublicationSource({
+    authorization: input.authorization,
+    publicationSource: input.publicationSource,
+    representedHuman: input.representedHuman,
+  });
+  const requestSignature = await buildCenterAgentPublicationRequestSignature({
+    contentSha256: input.contentSha256,
+    fileName: input.fileName,
+    initialComment: input.initialComment ?? null,
+    representedUserId: input.representedHuman.userId,
+    title: input.title ?? null,
+    v: 1,
+  });
+  const claim = await beginCenterAgentPublicationOperation({
+    actorProfileId: input.authorization.actorProfileId,
+    db: input.authorization.db,
+    destinationId,
+    destinationKind: "slack_file",
+    nowMs: Date.now(),
+    organizationId: input.authorization.activeOrganization.organizationId,
+    representedUserId: input.representedHuman.userId,
+    requestSignature,
+    source,
+  });
+  if (claim.outcome === "completed_replay") {
+    return parseCompletedSlackFilePublicationResponse(
+      claim.operation.responseJson
+    );
+  }
+  if (claim.outcome === "pending_in_progress") {
+    throw createCoreRpcHttpError({
+      code: "center_agent.publication_in_progress",
+      reason:
+        "This file publication is already in progress. Wait for the current attempt instead of uploading it again.",
+      status: 409,
+    });
+  }
+  if (claim.outcome === "outcome_unknown") {
+    throw createCoreRpcHttpError({
+      code: "center_agent.publication_outcome_unknown",
+      reason:
+        "OpenMeld cannot prove whether this file reached Slack, so it will not upload it again automatically.",
+      status: 409,
+    });
+  }
+  const claimId = claim.operation.claimId;
+  if (!claimId) {
+    throw new Error("Claimed Center Agent file publication has no claim id.");
+  }
+  const attribution = await writeCenterAgentAuditEntry({
+    action: "post_slack_file",
+    authorization: input.authorization,
+    onBehalfOfProfileId: input.representedHuman.profileId,
+    resource: { type: "slack_file", id: destinationId },
+    sourceNativeDeliveryId: input.sourceNativeDeliveryId,
+  }).catch(async (error) => {
+    await recordCenterAgentPublicationFailure({
+      claimId,
+      db: input.authorization.db,
+      error,
+      operationId: claim.operation.id,
+      publicationOutcome: "not_published",
+    });
+    throw error;
+  });
+  let publication: Awaited<ReturnType<typeof postSlackFile>>;
+  try {
+    publication = await postSlackFile({
+      botToken: input.botToken,
+      bytes: input.bytes,
+      fileName: input.fileName,
+      target: input.target,
+      ...(input.initialComment ? { initialComment: input.initialComment } : {}),
+      ...(input.threadTs ? { threadTs: input.threadTs } : {}),
+      ...(input.title ? { title: input.title } : {}),
+    });
+  } catch (error) {
+    await recordCenterAgentPublicationFailure({
+      claimId,
+      db: input.authorization.db,
+      error,
+      operationId: claim.operation.id,
+    });
+    throw error;
+  }
+  const response = centerAgentPostSlackFileResponseSchema.parse({
+    attribution,
+    channelName: input.target.channelName,
+    file: {
+      fileId: publication.fileId,
+      mimeType: null,
+      name: input.fileName,
+      permalink: null,
+      sizeBytes: input.bytes.byteLength,
+    },
+    joinedChannel: publication.joinedChannel,
+    organizationId: input.authorization.activeOrganization.organizationId,
+  });
+  try {
+    await completeCenterAgentPublicationOperation({
+      claimId,
+      db: input.authorization.db,
+      nowMs: Date.now(),
+      operationId: claim.operation.id,
+      responseJson: JSON.stringify(response),
+    });
+  } catch (error) {
+    await recordCenterAgentPublicationFailure({
+      claimId,
+      db: input.authorization.db,
+      error,
+      operationId: claim.operation.id,
+      publicationOutcome: "outcome_unknown",
+    });
+    throw error;
+  }
+  return response;
+}
+
+function parseCompletedSlackFilePublicationResponse(
+  responseJson: string | null
+): CenterAgentPostSlackFileResponse {
+  if (!responseJson) {
+    throw new Error(
+      "Completed Center Agent file publication is missing its durable response."
+    );
+  }
+  const response = centerAgentPostSlackFileResponseSchema.safeParse(
+    JSON.parse(responseJson)
+  );
+  if (!response.success) {
+    throw new Error(
+      `failed to replay Center Agent Slack file response: ${response.error.message}`
+    );
+  }
+  return response.data;
 }
 
 function parseCompletedPublicationResponse(

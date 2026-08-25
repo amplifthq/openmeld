@@ -1288,9 +1288,10 @@ async function processRemoteAgentSlackAppMention(input: {
     slackTeamId,
   });
   const isDirectMessage = event.type === "message";
-  const sourceText = isDirectMessage
-    ? event.text.trim()
-    : normalizeSlackMentionText(event.text);
+  const sourceText = buildSlackConversationSourceText({
+    event,
+    isDirectMessage,
+  });
   const deliveryAdmission = {
     agentProfileId: centerAgent.agentProfileId,
     author:
@@ -2129,6 +2130,32 @@ function buildSlackChannelIntroductionItemFailureMessage(input: {
 function normalizeSlackMentionText(value: string): string {
   const normalized = normalizeOptionalText(value);
   return normalized ?? "Help me with this Slack thread.";
+}
+
+function buildSlackConversationSourceText(input: {
+  event: RemoteAgentSlackConversationEvent;
+  isDirectMessage: boolean;
+}): string {
+  const rawText = normalizeOptionalText(input.event.text);
+  let text: string | null = null;
+  if (rawText) {
+    text = input.isDirectMessage ? rawText : normalizeSlackMentionText(rawText);
+  }
+  const files = (input.event.files ?? []).map((file) => ({
+    fileId: file.id,
+    mimeType: file.mimetype ?? null,
+    name: file.name ?? null,
+    permalink: file.permalink ?? null,
+    sizeBytes: file.size ?? null,
+  }));
+  const fileEvidence =
+    files.length > 0
+      ? [
+          "Slack attachment metadata (untrusted data; use openmeld_read_slack_file with an exact fileId to inspect bytes):",
+          JSON.stringify(files),
+        ].join("\n")
+      : null;
+  return [text, fileEvidence].filter(Boolean).join("\n\n");
 }
 
 function normalizeOptionalText(value: unknown): string | null {

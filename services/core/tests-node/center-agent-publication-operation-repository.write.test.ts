@@ -118,6 +118,27 @@ describe("Center Agent publication operation repository", () => {
     ).rejects.toThrow("current claim");
   });
 
+  it("claims more than one Slack file from the same execution", async () => {
+    harness = createHarness();
+    const input = await publicationInput(harness.db);
+
+    await expect(
+      beginCenterAgentPublicationOperation({
+        ...input,
+        destinationId: `D_CURRENT_THREAD:1710000000.001:${"b".repeat(64)}`,
+        destinationKind: "slack_file",
+      })
+    ).resolves.toMatchObject({ outcome: "claimed" });
+
+    await expect(
+      beginCenterAgentPublicationOperation({
+        ...input,
+        destinationId: `D_CURRENT_THREAD:1710000000.001:${"c".repeat(64)}`,
+        destinationKind: "slack_file",
+      })
+    ).resolves.toMatchObject({ outcome: "claimed" });
+  });
+
   it("keeps an active claim in progress and closes an expired claim as outcome unknown", async () => {
     harness = createHarness();
     const input = await publicationInput(harness.db);

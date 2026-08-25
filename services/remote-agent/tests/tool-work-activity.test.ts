@@ -147,6 +147,25 @@ describe("Remote Agent user-visible work semantics", () => {
     });
   });
 
+  it("describes Slack file reads and sends precisely", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_read_slack_file", {
+        fileId: "F_FILE",
+      })
+    ).toEqual({
+      key: "slack.file.read",
+      v: 1,
+    });
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_send_slack_file", {
+        filePath: "report.pdf",
+      })
+    ).toEqual({
+      key: "slack.file.send",
+      v: 1,
+    });
+  });
+
   it("describes canonical Center Agent Task creation without using execution-handle semantics", () => {
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_create_task", {

@@ -23,6 +23,7 @@ import {
   readRemoteAgentExecutionState,
 } from "../../agent-core/execution-state";
 import {
+  type RemoteAgentImagePreparer,
   transformRemoteAgentImageForContext,
   understandRemoteAgentImages,
 } from "../../agent-core/image-understanding";
@@ -80,9 +81,19 @@ import { getRemoteAgentFlueTools } from "../../flue-adapter/tools";
 
 installRemoteAgentExecutionInstrumentation();
 
+function createRemoteAgentImagePreparer(
+  imagesBinding: Pick<ImagesBinding, "info" | "input">
+): RemoteAgentImagePreparer {
+  return async (image) =>
+    await transformRemoteAgentImageForContext({ image, imagesBinding });
+}
+
 export default defineAgent(async () => {
   const context = getCloudflareContext();
   const env = context.env as CloudflareBindings;
+  const prepareImageForContext = createRemoteAgentImagePreparer(
+    env.OPENMELD_IMAGES
+  );
   const storage = createRemoteAgentSqlStorage(context.storage.sql);
   const executionContext = await resolveRemoteAgentExecutionCallbackContext({
     storage,
@@ -137,6 +148,8 @@ export default defineAgent(async () => {
             },
             memberProfileReportFiles:
               sandboxCapability.memberProfileReportFiles,
+            modelRoute: executionContext.modelRoute,
+            prepareImage: prepareImageForContext,
             sandboxDefinitions: sandboxCapability.definitions,
             storage,
             submissionId: executionContext.submissionId,
@@ -270,6 +283,9 @@ export const cloudflare = extend({
           targetProfileId: request.agentProfileId,
         };
         const env = this.env as CloudflareBindings;
+        const prepareImageForContext = createRemoteAgentImagePreparer(
+          env.OPENMELD_IMAGES
+        );
         const reportStage = (
           operation: RemoteAgentAdmissionStageOperation
         ): void => {
@@ -384,12 +400,7 @@ export const cloudflare = extend({
               await understandRemoteAgentImages({
                 ...imageInput,
                 env: this.env as CloudflareBindings,
-                prepareImage: async (image) =>
-                  await transformRemoteAgentImageForContext({
-                    image,
-                    imagesBinding: (this.env as CloudflareBindings)
-                      .OPENMELD_IMAGES,
-                  }),
+                prepareImage: prepareImageForContext,
               }),
           });
           let ack: RemoteAgentWorkerSubmitMessagesResult;

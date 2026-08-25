@@ -43,6 +43,7 @@ import {
   rpcCenterAgentListSlackChannels,
   rpcCenterAgentListSpaceFiles,
   rpcCenterAgentPostSlackChannelMessage,
+  rpcCenterAgentPostSlackFile,
   rpcCenterAgentPostSlackThreadMessage,
   rpcCenterAgentPostSpaceMessage,
   rpcCenterAgentReadDispatchHistory,
@@ -50,6 +51,7 @@ import {
   rpcCenterAgentReadMemberOpenMeldServiceStatus,
   rpcCenterAgentReadSlackChannelHistory,
   rpcCenterAgentReadSlackChannelMembers,
+  rpcCenterAgentReadSlackFile,
   rpcCenterAgentReadSlackWorkspaceDirectory,
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
@@ -4906,6 +4908,155 @@ describe("organization Core RPC", () => {
     expect(postedBodies).toHaveLength(2);
   });
 
+  it("uploads and deduplicates a Slack file in the originating interactive thread", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      nativeDeliveries: [
+        nativeDeliveryLedgerRow({
+          deliveryId: "delivery-slack-file",
+          slackChannelId: "C123",
+          slackTeamId: "T123",
+          slackThreadTs: "1786979718.343639",
+          submissionId: "remote_agent_submission_slack_file",
+        }),
+      ],
+      slackWorkspaceBindings: [
+        {
+          createdAtMs: TEST_NOW_MS,
+          organizationId: "org-a",
+          slackTeamId: "T123",
+          updatedAtMs: TEST_NOW_MS,
+        },
+      ],
+    });
+    const bytes = new TextEncoder().encode("release asset");
+    const contentSha256 = Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))
+    )
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    const completedUploads: unknown[] = [];
+    const slackFetch = vi.fn<typeof fetch>((request, init) => {
+      const url = new URL(String(request));
+      if (url.pathname === "/api/conversations.list") {
+        return Promise.resolve(
+          Response.json({
+            channels: [
+              {
+                id: "C123",
+                is_archived: false,
+                is_member: true,
+                is_private: false,
+                name: "ok8-okok",
+              },
+            ],
+            ok: true,
+            response_metadata: { next_cursor: "" },
+          })
+        );
+      }
+      if (url.pathname === "/api/files.getUploadURLExternal") {
+        return Promise.resolve(
+          Response.json({
+            file_id: "F_RELEASE_ASSET",
+            ok: true,
+            upload_url: "https://files.slack.com/upload/v1/release-asset",
+          })
+        );
+      }
+      if (url.pathname === "/upload/v1/release-asset") {
+        expect(init?.method).toBe("POST");
+        expect(new Uint8Array(init?.body as ArrayBuffer)).toEqual(bytes);
+        return Promise.resolve(new Response(null, { status: 200 }));
+      }
+      if (url.pathname === "/api/files.completeUploadExternal") {
+        completedUploads.push(JSON.parse(String(init?.body)));
+        return Promise.resolve(Response.json({ files: [], ok: true }));
+      }
+      throw new Error(`Unexpected Slack API request: ${url.pathname}`);
+    });
+    vi.stubGlobal("fetch", slackFetch);
+    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const request = {
+      contentBase64: btoa(String.fromCharCode(...bytes)),
+      contentSha256,
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        agentControllerConversationId: "remote_agent_submission_slack_file",
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        profileId: AGENT_PROFILE_ID,
+        profileKind: "agent" as const,
+        userId: "user-a",
+      }),
+      currentThread: true as const,
+      fileName: "release-asset.txt",
+      initialComment: "Attached release asset.",
+      publicationSource: {
+        executionId: "remote_agent_submission_slack_file",
+        kind: "remote_agent_execution" as const,
+      },
+      speakerMember: { memberId: "member-a", userId: "user-a" },
+      title: "Release asset",
+    };
+
+    await expect(
+      rpcCenterAgentPostSlackFile(env, request)
+    ).resolves.toMatchObject({
+      channelName: "ok8-okok",
+      file: {
+        fileId: "F_RELEASE_ASSET",
+        name: "release-asset.txt",
+        sizeBytes: bytes.byteLength,
+      },
+      joinedChannel: false,
+      organizationId: "org-a",
+    });
+    await expect(
+      rpcCenterAgentPostSlackFile(env, request)
+    ).resolves.toMatchObject({ file: { fileId: "F_RELEASE_ASSET" } });
+    expect(completedUploads).toEqual([
+      {
+        channel_id: "C123",
+        files: [{ id: "F_RELEASE_ASSET", title: "Release asset" }],
+        initial_comment: "Attached release asset.",
+        thread_ts: "1786979718.343639",
+      },
+    ]);
+    expect(db.centerAgentAuditRows).toEqual([
+      expect.objectContaining({
+        action: "post_slack_file",
+        resourceType: "slack_file",
+      }),
+    ]);
+    const memberContext = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+    await expect(
+      rpcListCenterAgentAuditJournal(env, {
+        actionSet: "v20",
+        context: memberContext,
+      })
+    ).resolves.toEqual({ entries: [], organizationId: "org-a" });
+    await expect(
+      rpcListCenterAgentAuditJournal(env, {
+        actionSet: "v21",
+        context: memberContext,
+      })
+    ).resolves.toMatchObject({
+      entries: [expect.objectContaining({ action: "post_slack_file" })],
+      organizationId: "org-a",
+    });
+  });
+
   it("allows an exact Slack publication retry when the audit write fails before sending", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
@@ -5461,6 +5612,21 @@ describe("organization Core RPC", () => {
           Response.json({
             messages: [
               {
+                files: [
+                  {
+                    id: "F_RELEASE_NOTES",
+                    mimetype: "text/markdown",
+                    name: "release-notes.md",
+                    permalink:
+                      "https://openmeld-dev.slack.com/files/U_AVA/F_RELEASE_NOTES/release-notes",
+                    size: 13,
+                  },
+                ],
+                text: null,
+                ts: "1710000004.000400",
+                user: "U_AVA",
+              },
+              {
                 text: "Latest release update",
                 ts: "1710000003.000350",
                 user: "U_AVA",
@@ -5511,6 +5677,7 @@ describe("organization Core RPC", () => {
           userId: "user-a",
         }),
         expectedChannelId: "C_RENAMED",
+        includeFiles: true,
         limit: 15,
       })
     ).rejects.toMatchObject({
@@ -5528,6 +5695,7 @@ describe("organization Core RPC", () => {
           profileKind: "agent",
           userId: "user-a",
         }),
+        includeFiles: true,
         limit: 15,
       })
     ).resolves.toMatchObject({
@@ -5536,18 +5704,56 @@ describe("organization Core RPC", () => {
         {
           authorDisplayName: "Ava",
           authorSlackUserId: "U_AVA",
+          files: [
+            {
+              fileId: "F_RELEASE_NOTES",
+              mimeType: "text/markdown",
+              name: "release-notes.md",
+              permalink:
+                "https://openmeld-dev.slack.com/files/U_AVA/F_RELEASE_NOTES/release-notes",
+              sizeBytes: 13,
+            },
+          ],
+          isAuthorBot: false,
+          text: null,
+        },
+        {
+          authorDisplayName: "Ava",
+          authorSlackUserId: "U_AVA",
+          files: [],
           isAuthorBot: false,
           text: "Latest release update",
         },
         {
           authorDisplayName: "OpenMeld Center Agent",
           authorSlackUserId: null,
+          files: [],
           isAuthorBot: true,
           text: "Earlier summary",
         },
       ],
       nextCursor: null,
       organizationId: "org-a",
+    });
+    const legacyCompatibleResponse =
+      await rpcCenterAgentReadSlackChannelHistory(env, {
+        channelName: "ok8-okok",
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+        limit: 15,
+      });
+    expect(legacyCompatibleResponse).toMatchObject({
+      channelName: "ok8-okok",
+      messages: [
+        expect.not.objectContaining({ files: expect.anything() }),
+        expect.not.objectContaining({ files: expect.anything() }),
+        expect.not.objectContaining({ files: expect.anything() }),
+      ],
     });
     expect(
       slackFetch.mock.calls.some(
@@ -5561,7 +5767,163 @@ describe("organization Core RPC", () => {
         resourceId: "C_OK8",
         resourceType: "slack_channel",
       }),
+      expect.objectContaining({
+        action: "read_slack_channel_history",
+        resourceId: "C_OK8",
+        resourceType: "slack_channel",
+      }),
     ]);
+  });
+
+  it("downloads a Slack file only after Core confirms the connected channel owns it", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      slackWorkspaceBindings: [
+        {
+          createdAtMs: TEST_NOW_MS,
+          organizationId: "org-a",
+          slackTeamId: "T123",
+          updatedAtMs: TEST_NOW_MS,
+        },
+      ],
+    });
+    const bytes = new TextEncoder().encode("release notes");
+    const slackFetch = vi.fn<typeof fetch>((request) => {
+      const url = new URL(String(request));
+      if (url.pathname === "/api/conversations.list") {
+        return Promise.resolve(
+          Response.json({
+            channels: [
+              {
+                id: "C_OK8",
+                is_archived: false,
+                is_member: true,
+                is_private: false,
+                name: "ok8-okok",
+              },
+            ],
+            ok: true,
+            response_metadata: { next_cursor: "" },
+          })
+        );
+      }
+      if (url.pathname === "/api/files.info") {
+        return Promise.resolve(
+          Response.json({
+            file: {
+              channels: ["C_OK8"],
+              id: "F_RELEASE_NOTES",
+              mimetype: "text/markdown",
+              name: "release-notes.md",
+              permalink:
+                "https://openmeld-dev.slack.com/files/U_AVA/F_RELEASE_NOTES/release-notes",
+              size: bytes.byteLength,
+              url_private_download:
+                "https://files.slack.com/files-pri/T123-F_RELEASE_NOTES/download/release-notes.md",
+            },
+            ok: true,
+          })
+        );
+      }
+      if (url.hostname === "files.slack.com") {
+        return Promise.resolve(new Response(bytes));
+      }
+      throw new Error(`Unexpected Slack API request: ${url.pathname}`);
+    });
+    vi.stubGlobal("fetch", slackFetch);
+    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+
+    await expect(
+      rpcCenterAgentReadSlackFile(env, {
+        channelName: "ok8-okok",
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+        fileId: "F_RELEASE_NOTES",
+      })
+    ).resolves.toEqual({
+      channelName: "ok8-okok",
+      contentBase64: "cmVsZWFzZSBub3Rlcw==",
+      file: {
+        fileId: "F_RELEASE_NOTES",
+        mimeType: "text/markdown",
+        name: "release-notes.md",
+        permalink:
+          "https://openmeld-dev.slack.com/files/U_AVA/F_RELEASE_NOTES/release-notes",
+        sizeBytes: bytes.byteLength,
+      },
+      organizationId: "org-a",
+    });
+    await expect(
+      rpcCenterAgentReadSlackFile(env, {
+        channelId: "C_OK8",
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+        fileId: "F_RELEASE_NOTES",
+      })
+    ).resolves.toEqual({
+      contentBase64: "cmVsZWFzZSBub3Rlcw==",
+      file: {
+        fileId: "F_RELEASE_NOTES",
+        mimeType: "text/markdown",
+        name: "release-notes.md",
+        permalink:
+          "https://openmeld-dev.slack.com/files/U_AVA/F_RELEASE_NOTES/release-notes",
+        sizeBytes: bytes.byteLength,
+      },
+      organizationId: "org-a",
+    });
+    expect(db.centerAgentAuditRows).toEqual([
+      expect.objectContaining({
+        action: "read_slack_file",
+        resourceId: "F_RELEASE_NOTES",
+        resourceType: "slack_file",
+      }),
+      expect.objectContaining({
+        action: "read_slack_file",
+        resourceId: "F_RELEASE_NOTES",
+        resourceType: "slack_file",
+      }),
+    ]);
+    const memberContext = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+    await expect(
+      rpcListCenterAgentAuditJournal(env, {
+        actionSet: "v20",
+        context: memberContext,
+      })
+    ).resolves.toEqual({ entries: [], organizationId: "org-a" });
+    await expect(
+      rpcListCenterAgentAuditJournal(env, {
+        actionSet: "v21",
+        context: memberContext,
+      })
+    ).resolves.toMatchObject({
+      entries: [
+        expect.objectContaining({ action: "read_slack_file" }),
+        expect.objectContaining({ action: "read_slack_file" }),
+      ],
+      organizationId: "org-a",
+    });
   });
 
   it("searches public Slack messages with authorization bound to the requester", async () => {
@@ -10512,6 +10874,8 @@ type CenterAgentAuditJournalTestRow = {
   organizationId: string;
   resourceId: string | null;
   resourceType: string | null;
+  sourceNativeDeliveryId?: string | null;
+  sourceSpaceId?: string | null;
 };
 
 type CenterAgentPublicationOperationTestRow = {
@@ -10520,7 +10884,7 @@ type CenterAgentPublicationOperationTestRow = {
   claim_id: string | null;
   created_at_ms: number;
   destination_id: string;
-  destination_kind: "slack_channel";
+  destination_kind: "slack_channel" | "slack_file";
   id: string;
   organization_id: string;
   represented_user_id: string;
@@ -10613,6 +10977,9 @@ function agentProfileBindingTestRow(
 function nativeDeliveryLedgerRow(input: {
   deliveryId: string;
   routineRunId?: string | null;
+  slackChannelId?: string | null;
+  slackTeamId?: string | null;
+  slackThreadTs?: string | null;
   submissionId: string;
 }) {
   return {
@@ -10677,9 +11044,9 @@ function nativeDeliveryLedgerRow(input: {
     retired_deadline_failure_reconciled_at_ms: null,
     routine_name_snapshot: null,
     routine_run_id: input.routineRunId ?? null,
-    slack_channel_id: null,
-    slack_team_id: null,
-    slack_thread_ts: null,
+    slack_channel_id: input.slackChannelId ?? null,
+    slack_team_id: input.slackTeamId ?? null,
+    slack_thread_ts: input.slackThreadTs ?? null,
     slack_working_status_turn_id: null,
     source_client_message_id: null,
     space_id: JOINED_PUBLIC_SPACE_ID,
@@ -10936,7 +11303,9 @@ function createOrganizationRpcDb(input: {
                 claim_id: String(args[10] ?? ""),
                 created_at_ms: Number(args[12] ?? 0),
                 destination_id: String(args[8] ?? ""),
-                destination_kind: "slack_channel",
+                destination_kind: String(args[7] ?? "") as
+                  | "slack_channel"
+                  | "slack_file",
                 id: String(args[0] ?? ""),
                 organization_id: String(args[1] ?? ""),
                 represented_user_id: String(args[3] ?? ""),
@@ -11081,7 +11450,11 @@ function createOrganizationRpcDb(input: {
                   args[6] === null ? null : String(args[6] ?? ""),
                 resourceType: args[7] === null ? null : String(args[7] ?? ""),
                 resourceId: args[8] === null ? null : String(args[8] ?? ""),
-                createdAtMs: Number(args[9] ?? 0),
+                sourceNativeDeliveryId:
+                  args[9] === null ? null : String(args[9] ?? ""),
+                sourceSpaceId:
+                  args[10] === null ? null : String(args[10] ?? ""),
+                createdAtMs: Number(args[11] ?? 0),
               });
               return createD1RunResult(1);
             }
@@ -12281,7 +12654,8 @@ function resolveAllRows(input: {
         organization_id: row.organizationId,
         resource_id: row.resourceId,
         resource_type: row.resourceType,
-        source_native_delivery_id: null,
+        source_native_delivery_id: row.sourceNativeDeliveryId ?? null,
+        source_space_id: row.sourceSpaceId ?? null,
       }));
   }
 

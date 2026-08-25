@@ -1,4 +1,4 @@
-import { desc, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import {
   check,
   index,
@@ -48,7 +48,7 @@ export const centerAgentPublicationOperations = sqliteTable(
     ),
     index("center_agent_publication_operations_org_updated_idx").on(
       table.organizationId,
-      desc(table.updatedAtMs)
+      table.updatedAtMs
     ),
     check(
       "center_agent_publication_operations_id_non_empty_check",
@@ -69,7 +69,7 @@ export const centerAgentPublicationOperations = sqliteTable(
     ),
     check(
       "center_agent_publication_operations_destination_kind_check",
-      sql`"destination_kind" in ('slack_channel')`
+      sql`"destination_kind" in ('slack_channel', 'slack_file')`
     ),
     check(
       "center_agent_publication_operations_destination_id_non_empty_check",

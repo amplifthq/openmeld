@@ -96,8 +96,12 @@ type CenterAgentPostSlackChannelMessageBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentPostSlackChannelMessageBodySchema"];
 type CenterAgentPostSlackThreadMessageBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentPostSlackThreadMessageBodySchema"];
+type CenterAgentPostSlackFileBodySchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentPostSlackFileBodySchema"];
 type CenterAgentPostSlackChannelMessageResponseSchema =
   typeof import("../../schemas/http/center-agent")["centerAgentPostSlackChannelMessageResponseSchema"];
+type CenterAgentPostSlackFileResponseSchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentPostSlackFileResponseSchema"];
 type CenterAgentSearchSlackMessagesBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentSearchSlackMessagesBodySchema"];
 type CenterAgentSearchSlackMessagesResponseSchema =
@@ -290,8 +294,12 @@ export type CenterAgentPostSlackChannelMessageBody =
   z.infer<CenterAgentPostSlackChannelMessageBodySchema>;
 export type CenterAgentPostSlackThreadMessageBody =
   z.infer<CenterAgentPostSlackThreadMessageBodySchema>;
+export type CenterAgentPostSlackFileBody =
+  z.infer<CenterAgentPostSlackFileBodySchema>;
 export type CenterAgentPostSlackChannelMessageResponse =
   z.infer<CenterAgentPostSlackChannelMessageResponseSchema>;
+export type CenterAgentPostSlackFileResponse =
+  z.infer<CenterAgentPostSlackFileResponseSchema>;
 export type CenterAgentSearchSlackMessagesBody =
   z.infer<CenterAgentSearchSlackMessagesBodySchema>;
 export type CenterAgentSearchSlackMessagesResponse =

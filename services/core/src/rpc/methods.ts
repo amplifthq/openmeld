@@ -36,6 +36,7 @@ import {
   buildSpaceFileRevisionIdForMutation,
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
+  CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
   CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
   canonicalizeAgentControllerRef,
@@ -68,6 +69,7 @@ import {
   centerAgentManageSpaceFilesRpcInputSchema,
   centerAgentOrganizationMemoryPolicyResponseSchema,
   centerAgentPostSlackChannelMessageBodySchema,
+  centerAgentPostSlackFileBodySchema,
   centerAgentPostSlackThreadMessageBodySchema,
   centerAgentPostSpaceMessageBodySchema,
   centerAgentPostSpaceMessageResponseSchema,
@@ -81,6 +83,8 @@ import {
   centerAgentReadMemberOpenMeldServiceStatusResponseSchema,
   centerAgentReadSlackChannelHistoryBodySchema,
   centerAgentReadSlackChannelMembersBodySchema,
+  centerAgentReadSlackFileBodySchema,
+  centerAgentReadSlackFileResponseSchema,
   centerAgentReadSlackWorkspaceDirectoryBodySchema,
   centerAgentReadSpaceContextBodySchema,
   centerAgentReadSpaceContextResponseSchema,
@@ -346,6 +350,8 @@ import type {
   CenterAgentOrganizationMemoryPolicyResponse,
   CenterAgentPostSlackChannelMessageBody,
   CenterAgentPostSlackChannelMessageResponse,
+  CenterAgentPostSlackFileBody,
+  CenterAgentPostSlackFileResponse,
   CenterAgentPostSlackThreadMessageBody,
   CenterAgentPostSpaceMessageBody,
   CenterAgentPostSpaceMessageResponse,
@@ -363,6 +369,8 @@ import type {
   CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersBody,
   CenterAgentReadSlackChannelMembersResponse,
+  CenterAgentReadSlackFileBody,
+  CenterAgentReadSlackFileResponse,
   CenterAgentReadSlackWorkspaceDirectoryBody,
   CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceContextBody,
@@ -732,7 +740,10 @@ import {
   projectCenterAgentModelConfiguration,
   resolveCenterAgentModelRouteForBinding,
 } from "../center-agent/application/center-agent-model-service";
-import { executeCenterAgentSlackPublication } from "../center-agent/application/center-agent-slack-publication-service";
+import {
+  executeCenterAgentSlackFilePublication,
+  executeCenterAgentSlackPublication,
+} from "../center-agent/application/center-agent-slack-publication-service";
 import { prepareCenterAgentTaskWatch } from "../center-agent/application/center-agent-task-watch-service";
 import {
   executeCenterAgentWakePublication,
@@ -954,9 +965,12 @@ import {
   listSlackChannels,
   listSlackWorkspaceMembers,
   readSlackChannelHistory,
+  readSlackFile,
   readSlackUserIdentity,
   resolveSlackChannelMessageTarget,
+  resolveSlackConversationMessageTargetById,
   SlackApiError,
+  type SlackChannelMessageTarget,
   type SlackWorkspaceMember,
   searchSlackPublicMessages,
 } from "../remote-agent/application/slack-client";
@@ -2852,6 +2866,10 @@ export type CenterAgentPostSlackThreadMessageInput =
     context?: CoreRpcContextInput;
   };
 
+export type CenterAgentPostSlackFileInput = CenterAgentPostSlackFileBody & {
+  context?: CoreRpcContextInput;
+};
+
 export type CenterAgentListSlackChannelsInput =
   CenterAgentListSlackChannelsBody & {
     context?: CoreRpcContextInput;
@@ -2866,6 +2884,10 @@ export type CenterAgentReadSlackChannelHistoryInput =
   CenterAgentReadSlackChannelHistoryBody & {
     context?: CoreRpcContextInput;
   };
+
+export type CenterAgentReadSlackFileInput = CenterAgentReadSlackFileBody & {
+  context?: CoreRpcContextInput;
+};
 
 export type CenterAgentReadSlackWorkspaceDirectoryInput =
   CenterAgentReadSlackWorkspaceDirectoryBody & {
@@ -9411,6 +9433,45 @@ export async function rpcRecordCenterAgentAudit(
   return attribution;
 }
 
+const CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS: readonly CenterAgentAction[] = [
+  "post_slack_file",
+  "read_slack_file",
+];
+const CENTER_AGENT_AUDIT_ACTION_SETS_WITH_CONTEXT_DETAILS: ReadonlySet<string> =
+  new Set(["v16", "v17", "v18", "v19", "v20", "v21"]);
+const CENTER_AGENT_AUDIT_ACTION_SETS_WITH_INTERACTION_SOURCE: ReadonlySet<string> =
+  new Set(["v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21"]);
+const CENTER_AGENT_AUDIT_ACTION_SETS_WITH_SOURCE_SPACE: ReadonlySet<string> =
+  new Set(["v20", "v21"]);
+
+function initialCenterAgentAuditExcludedActions(
+  actionSet: ListCenterAgentAuditJournalQuery["actionSet"]
+): readonly CenterAgentAction[] | undefined {
+  return actionSet === "v21"
+    ? undefined
+    : CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS;
+}
+
+function centerAgentAuditProjectionOptions(
+  actionSet: ListCenterAgentAuditJournalQuery["actionSet"]
+): {
+  includeContextDetails: boolean;
+  includeInteractionSource: boolean;
+  includeSourceSpaceId: boolean;
+} {
+  const currentActionSet = actionSet ?? "";
+  return {
+    includeContextDetails:
+      CENTER_AGENT_AUDIT_ACTION_SETS_WITH_CONTEXT_DETAILS.has(currentActionSet),
+    includeInteractionSource:
+      CENTER_AGENT_AUDIT_ACTION_SETS_WITH_INTERACTION_SOURCE.has(
+        currentActionSet
+      ),
+    includeSourceSpaceId:
+      CENTER_AGENT_AUDIT_ACTION_SETS_WITH_SOURCE_SPACE.has(currentActionSet),
+  };
+}
+
 export async function rpcListCenterAgentAuditJournal(
   env: CoreBindings,
   input: ListCenterAgentAuditJournalInput
@@ -9431,7 +9492,9 @@ export async function rpcListCenterAgentAuditJournal(
       code: "invalid_payload",
     });
   }
-  let excludedActions: readonly CenterAgentAction[] | undefined;
+  let excludedActions = initialCenterAgentAuditExcludedActions(
+    parsed.data.actionSet
+  );
   const connectorActions: readonly CenterAgentAction[] = [
     "execute_connector_action",
     "complete_connector_action",
@@ -9488,6 +9551,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
       ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
     ];
   } else if (parsed.data.actionSet === "v3") {
     excludedActions = [
@@ -9501,6 +9565,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
       ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
     ];
   } else if (parsed.data.actionSet === "v4") {
     excludedActions = [
@@ -9512,6 +9577,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
       ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
     ];
   } else if (parsed.data.actionSet === "v5") {
     excludedActions = [
@@ -9522,6 +9588,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
       ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
     ];
   } else if (parsed.data.actionSet === "v6") {
     excludedActions = [
@@ -9531,6 +9598,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
       ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
     ];
   } else if (parsed.data.actionSet === "v7") {
     excludedActions = [
@@ -9539,6 +9607,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
       ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
     ];
   } else if (parsed.data.actionSet === "v8") {
     excludedActions = [
@@ -9546,6 +9615,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
       ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
     ];
   } else if (parsed.data.actionSet === "v9") {
     excludedActions = [
@@ -9553,15 +9623,21 @@ export async function rpcListCenterAgentAuditJournal(
       ...taskReadActions,
       ...memberServiceStatusActions,
       ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
     ];
   } else if (parsed.data.actionSet === "v10") {
     excludedActions = [
       ...slackChannelReadActions,
       ...memberServiceStatusActions,
       ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
     ];
   } else if (parsed.data.actionSet === "v11") {
-    excludedActions = [...memberServiceStatusActions, ...memberComputerActions];
+    excludedActions = [
+      ...memberServiceStatusActions,
+      ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
+    ];
   } else if (
     parsed.data.actionSet === "v12" ||
     parsed.data.actionSet === "v13" ||
@@ -9571,7 +9647,10 @@ export async function rpcListCenterAgentAuditJournal(
     parsed.data.actionSet === "v17" ||
     parsed.data.actionSet === "v18"
   ) {
-    excludedActions = memberComputerActions;
+    excludedActions = [
+      ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
+    ];
   } else if (!isCurrentCenterAgentAuditActionSet(parsed.data.actionSet)) {
     excludedActions = [
       "post_slack_channel_message",
@@ -9586,6 +9665,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
       ...memberComputerActions,
+      ...CENTER_AGENT_SLACK_FILE_AUDIT_ACTIONS,
     ];
   }
   excludedActions = applyCenterAgentAuditOperatingStateCompatibility({
@@ -9599,26 +9679,13 @@ export async function rpcListCenterAgentAuditJournal(
     limit: parsed.data.limit ?? CENTER_AGENT_AUDIT_JOURNAL_DEFAULT_LIMIT,
     organizationId: activeOrganization.organizationId,
   });
+  const projectionOptions = centerAgentAuditProjectionOptions(
+    parsed.data.actionSet
+  );
   const response: ListCenterAgentAuditJournalResponse = {
     organizationId: activeOrganization.organizationId,
     entries: entries.map((entry) =>
-      toCenterAgentAuditJournalEntryDto(entry, {
-        includeContextDetails:
-          parsed.data.actionSet === "v16" ||
-          parsed.data.actionSet === "v17" ||
-          parsed.data.actionSet === "v18" ||
-          parsed.data.actionSet === "v19" ||
-          parsed.data.actionSet === "v20",
-        includeInteractionSource:
-          parsed.data.actionSet === "v14" ||
-          parsed.data.actionSet === "v15" ||
-          parsed.data.actionSet === "v16" ||
-          parsed.data.actionSet === "v17" ||
-          parsed.data.actionSet === "v18" ||
-          parsed.data.actionSet === "v19" ||
-          parsed.data.actionSet === "v20",
-        includeSourceSpaceId: parsed.data.actionSet === "v20",
-      })
+      toCenterAgentAuditJournalEntryDto(entry, projectionOptions)
     ),
   };
   const validated =
@@ -9643,7 +9710,8 @@ function isCurrentCenterAgentAuditActionSet(
     actionSet === "v17" ||
     actionSet === "v18" ||
     actionSet === "v19" ||
-    actionSet === "v20"
+    actionSet === "v20" ||
+    actionSet === "v21"
   );
 }
 
@@ -9659,7 +9727,8 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
-    input.actionSet === "v20"
+    input.actionSet === "v20" ||
+    input.actionSet === "v21"
       ? []
       : ["receive_local_agent_request"];
   const contextCompatibilityActions: readonly CenterAgentAction[] =
@@ -9668,7 +9737,8 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
-    input.actionSet === "v20"
+    input.actionSet === "v20" ||
+    input.actionSet === "v21"
       ? []
       : ["read_center_agent_context"];
   const contextLoadCompatibilityActions: readonly CenterAgentAction[] =
@@ -9676,20 +9746,23 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
-    input.actionSet === "v20"
+    input.actionSet === "v20" ||
+    input.actionSet === "v21"
       ? []
       : ["load_center_agent_context"];
   const routineCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
-    input.actionSet === "v20"
+    input.actionSet === "v20" ||
+    input.actionSet === "v21"
       ? []
       : input.routineActions;
   const workingLanguageCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
-    input.actionSet === "v20"
+    input.actionSet === "v20" ||
+    input.actionSet === "v21"
       ? []
       : ["set_working_language", "observe_working_language"];
   if (
@@ -9700,7 +9773,8 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v17" ||
     input.actionSet === "v18" ||
     input.actionSet === "v19" ||
-    input.actionSet === "v20"
+    input.actionSet === "v20" ||
+    input.actionSet === "v21"
   ) {
     return [
       ...(input.excludedActions ?? []),
@@ -11160,6 +11234,9 @@ export async function rpcCenterAgentReadSlackChannelHistory(
     ...(input.expectedChannelId === undefined
       ? {}
       : { expectedChannelId: input.expectedChannelId }),
+    ...(input.includeFiles === undefined
+      ? {}
+      : { includeFiles: input.includeFiles }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
   if (!parsed.success) {
@@ -11243,6 +11320,7 @@ export async function rpcCenterAgentReadSlackChannelHistory(
       authorSlackUserId: message.userId,
       isAuthorBot: message.botId !== null,
       messageTs: message.ts,
+      ...(parsed.data.includeFiles ? { files: message.files } : {}),
       text: message.text,
     })),
     nextCursor: slackPage.nextCursor,
@@ -11258,6 +11336,93 @@ export async function rpcCenterAgentReadSlackChannelHistory(
     authorization,
     onBehalfOfProfileId: null,
     resource: { id: target.channelId, type: "slack_channel" },
+  });
+  return validated.data;
+}
+
+export async function rpcCenterAgentReadSlackFile(
+  env: CoreBindings,
+  input: CenterAgentReadSlackFileInput
+): Promise<CenterAgentReadSlackFileResponse> {
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: requireRpcContext(input.context),
+    env,
+  });
+  const parsed = centerAgentReadSlackFileBodySchema.safeParse({
+    ...("channelName" in input
+      ? { channelName: input.channelName }
+      : { channelId: input.channelId }),
+    fileId: input.fileId,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ??
+        "invalid Center Agent Slack file read payload",
+      status: 400,
+    });
+  }
+  const organizationId = authorization.activeOrganization.organizationId;
+  const slackDb = localStateDb(env);
+  if (!slackDb) {
+    return buildSlackConnectionStateUnavailableResult(organizationId);
+  }
+  const binding = await readRemoteAgentSlackWorkspaceBindingByOrganization({
+    db: slackDb,
+    organizationId,
+  });
+  if (!binding) {
+    return buildSlackNotConnectedResult(organizationId);
+  }
+  const botToken = await resolveSlackBotToken({
+    cryptoKey: env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+    db: slackDb,
+    fallbackBotToken: env.SLACK_OPENMELD_BOT_TOKEN,
+    slackTeamId: binding.slackTeamId,
+  });
+  let channelName: string | undefined;
+  let expectedChannelId: string;
+  if ("channelName" in parsed.data) {
+    const target = await resolveSlackChannelMessageTarget({
+      botToken,
+      channelName: parsed.data.channelName,
+    });
+    if (!target.isMember) {
+      return buildSlackReadUnavailable({
+        message: `OpenMeld hasn't been added to #${target.channelName} yet.`,
+        nextAction: `In Slack, invite OpenMeld to #${target.channelName}, then ask me to try again.`,
+        organizationId,
+        reasonCode: "channel_access_required",
+      });
+    }
+    channelName = target.channelName;
+    expectedChannelId = target.channelId;
+  } else {
+    expectedChannelId = parsed.data.channelId;
+  }
+  const slackFile = await readSlackFile({
+    botToken,
+    expectedChannelId,
+    fileId: parsed.data.fileId,
+  });
+  const response = {
+    ...(channelName ? { channelName } : {}),
+    contentBase64: encodeBytesAsBase64(slackFile.bytes),
+    file: slackFile.file,
+    organizationId,
+  };
+  const validated = centerAgentReadSlackFileResponseSchema.safeParse(response);
+  if (!validated.success) {
+    throw new Error(
+      `failed to build Slack file read response: ${validated.error.message}`
+    );
+  }
+  await writeCenterAgentAuditEntry({
+    action: "read_slack_file",
+    authorization,
+    onBehalfOfProfileId: null,
+    resource: { id: parsed.data.fileId, type: "slack_file" },
   });
   return validated.data;
 }
@@ -11300,7 +11465,7 @@ async function requireInteractiveSlackThreadPublicationProvenance(input: {
   >;
   representedHuman: VerifiedCenterAgentRepresentedMember;
   sourceNativeDeliveryId: string | null;
-}): Promise<void> {
+}) {
   const db = wakeEvidenceDb(input.env);
   if (!(db && input.sourceNativeDeliveryId)) {
     throw createCoreRpcHttpError({
@@ -11336,6 +11501,7 @@ async function requireInteractiveSlackThreadPublicationProvenance(input: {
       status: 409,
     });
   }
+  return delivery;
 }
 
 function classifySlackWorkspaceMembers(input: {
@@ -12564,12 +12730,16 @@ async function executeRpcCenterAgentSlackPublication(input: {
     }
     trustedThreadTarget = canonicalTarget;
   }
-  const target = await resolveSlackChannelMessageTarget({
-    botToken,
-    channelName:
-      trustedThreadTarget?.channelId ??
-      ("channelName" in input.input ? input.input.channelName : ""),
-  });
+  const target = trustedThreadTarget
+    ? await resolveSlackConversationMessageTargetById({
+        botToken,
+        conversationId: trustedThreadTarget.channelId,
+      })
+    : await resolveSlackChannelMessageTarget({
+        botToken,
+        channelName:
+          "channelName" in input.input ? input.input.channelName : "",
+      });
   const threadTs =
     trustedThreadTarget?.threadTs ??
     ("threadTs" in input.input ? input.input.threadTs : undefined);
@@ -12582,6 +12752,191 @@ async function executeRpcCenterAgentSlackPublication(input: {
     target,
     text: input.input.text,
     ...(threadTs ? { threadTs } : {}),
+  });
+}
+
+async function resolveCenterAgentSlackFilePublicationTarget(input: {
+  botToken: string;
+  request: CenterAgentPostSlackFileBody;
+  slackTeamId: string;
+  sourceDelivery: {
+    slackChannelId: string | null;
+    slackTeamId: string | null;
+    slackThreadTs: string | null;
+  };
+}): Promise<{
+  target: SlackChannelMessageTarget;
+  threadTs?: string;
+}> {
+  let channelName: string | null = null;
+  let trustedConversationId: string | null = null;
+  let threadTs: string | undefined;
+  if ("currentThread" in input.request) {
+    if (
+      input.sourceDelivery.slackTeamId !== input.slackTeamId ||
+      !input.sourceDelivery.slackChannelId ||
+      !input.sourceDelivery.slackThreadTs
+    ) {
+      throw createCoreRpcHttpError({
+        code: "center_agent.slack_thread_target_invalid",
+        reason:
+          "The current Center Agent task did not originate from a writable Slack thread.",
+        status: 409,
+      });
+    }
+    trustedConversationId = input.sourceDelivery.slackChannelId;
+    threadTs = input.sourceDelivery.slackThreadTs;
+  } else if ("threadPermalink" in input.request) {
+    const requestedTarget = parseSlackThreadPublicationPermalink(
+      input.request.threadPermalink
+    );
+    if (!requestedTarget) {
+      throw createCoreRpcHttpError({
+        code: "invalid_payload",
+        reason: "Slack file publication requires an exact message permalink.",
+        status: 400,
+      });
+    }
+    const canonicalPermalink = await getSlackMessagePermalink({
+      botToken: input.botToken,
+      channelId: requestedTarget.channelId,
+      messageTs: requestedTarget.threadTs,
+    });
+    const canonicalTarget =
+      parseSlackThreadPublicationPermalink(canonicalPermalink);
+    if (
+      !canonicalTarget ||
+      canonicalTarget.channelId !== requestedTarget.channelId
+    ) {
+      throw createCoreRpcHttpError({
+        code: "center_agent.slack_thread_target_invalid",
+        reason:
+          "Slack could not verify the exact thread in the connected workspace.",
+        status: 409,
+      });
+    }
+    trustedConversationId = canonicalTarget.channelId;
+    threadTs = canonicalTarget.threadTs;
+  } else {
+    channelName = input.request.channelName;
+  }
+  const target = trustedConversationId
+    ? await resolveSlackConversationMessageTargetById({
+        botToken: input.botToken,
+        conversationId: trustedConversationId,
+      })
+    : await resolveSlackChannelMessageTarget({
+        botToken: input.botToken,
+        channelName: channelName ?? "",
+      });
+  return { target, ...(threadTs ? { threadTs } : {}) };
+}
+
+export async function rpcCenterAgentPostSlackFile(
+  env: CoreBindings,
+  input: CenterAgentPostSlackFileInput
+): Promise<CenterAgentPostSlackFileResponse> {
+  const { context: _context, ...requestBody } = input;
+  const parsed = centerAgentPostSlackFileBodySchema.safeParse(requestBody);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ??
+        "invalid Center Agent Slack file publication payload",
+      status: 400,
+    });
+  }
+  const { authorization, representedHuman, sourceNativeDeliveryId } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(input.context),
+      parsed.data.speakerMember,
+      {
+        code: "center_agent.slack_file_speaker_required",
+        reason:
+          "Slack file publication requires a verified active human Organization member.",
+      }
+    );
+  const sourceDelivery =
+    await requireInteractiveSlackThreadPublicationProvenance({
+      authorization,
+      env,
+      publicationSource: parsed.data.publicationSource,
+      representedHuman,
+      sourceNativeDeliveryId,
+    });
+  if (!sourceNativeDeliveryId) {
+    throw new Error("Verified Slack file publication has no source delivery.");
+  }
+  const bytes = decodeBase64Bytes(parsed.data.contentBase64);
+  if (
+    bytes.byteLength < 1 ||
+    bytes.byteLength > CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES
+  ) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: `Slack files must be between 1 and ${CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES} bytes.`,
+      status: 400,
+    });
+  }
+  const contentSha256 = await sha256Hex(bytes);
+  if (contentSha256 !== parsed.data.contentSha256) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.slack_file_content_mismatch",
+      reason: "The Slack file bytes did not match the selected Computer file.",
+      status: 409,
+    });
+  }
+  const slackDb = localStateDb(env);
+  if (!slackDb) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.slack_connection_state_unavailable",
+      reason: "Slack connection state is unavailable.",
+      status: 503,
+    });
+  }
+  const binding = await readRemoteAgentSlackWorkspaceBindingByOrganization({
+    db: slackDb,
+    organizationId: authorization.activeOrganization.organizationId,
+  });
+  if (!binding) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.slack_workspace_not_connected",
+      reason:
+        "Connect this Organization to Slack before asking the Center Agent to send a file.",
+      status: 409,
+    });
+  }
+  const botToken = await resolveSlackBotToken({
+    cryptoKey: env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+    db: slackDb,
+    fallbackBotToken: env.SLACK_OPENMELD_BOT_TOKEN,
+    slackTeamId: binding.slackTeamId,
+  });
+  const publicationTarget = await resolveCenterAgentSlackFilePublicationTarget({
+    botToken,
+    request: parsed.data,
+    slackTeamId: binding.slackTeamId,
+    sourceDelivery,
+  });
+  return await executeCenterAgentSlackFilePublication({
+    authorization,
+    botToken,
+    bytes,
+    contentSha256,
+    fileName: parsed.data.fileName,
+    publicationSource: parsed.data.publicationSource,
+    representedHuman,
+    sourceNativeDeliveryId,
+    target: publicationTarget.target,
+    ...(parsed.data.initialComment
+      ? { initialComment: parsed.data.initialComment }
+      : {}),
+    ...(publicationTarget.threadTs
+      ? { threadTs: publicationTarget.threadTs }
+      : {}),
+    ...(parsed.data.title ? { title: parsed.data.title } : {}),
   });
 }
 
@@ -20889,6 +21244,35 @@ function throwUnauthenticated(): never {
     reason: "authentication required",
     code: "auth.unauthenticated",
   });
+}
+
+function encodeBytesAsBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let offset = 0; offset < bytes.byteLength; offset += 0x80_00) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x80_00));
+  }
+  return btoa(binary);
+}
+
+function decodeBase64Bytes(value: string): Uint8Array {
+  let binary: string;
+  try {
+    binary = atob(value);
+  } catch {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Slack file content must be valid base64.",
+      status: 400,
+    });
+  }
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes.slice().buffer);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function toErrorMessage(error: unknown): string {

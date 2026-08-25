@@ -1,14 +1,19 @@
 import { defineTool } from "@flue/runtime";
-import type { RemoteAgentTurnEnvelope } from "@openmeld/schemas/types";
+import type {
+  CenterAgentModelRoute,
+  RemoteAgentTurnEnvelope,
+} from "@openmeld/schemas/types";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import type { RemoteAgentExternalToolEnv } from "../agent-core/external-tools";
 import type { RemoteAgentConnectorExecutionConfig } from "../agent-core/github-tools";
+import type { RemoteAgentImagePreparer } from "../agent-core/image-understanding";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   getRemoteAgentOpenMeldToolDefinitions,
+  type RemoteAgentComputerFileHandoff,
   type RemoteAgentFeedbackSubmissionConfig,
   type RemoteAgentMemberProfileReportComputerFiles,
 } from "../agent-core/tools";
@@ -25,12 +30,15 @@ import {
 export async function getRemoteAgentFlueTools(input: {
   agentActivityReadEnabled?: boolean;
   codeModeRuntime?: RemoteAgentCodeModeRuntime;
+  computerFileHandoff?: RemoteAgentComputerFileHandoff;
   connectorExecution?: RemoteAgentConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   env?: RemoteAgentExternalToolEnv;
   feedbackSubmission?: RemoteAgentFeedbackSubmissionConfig;
   fetch?: typeof globalThis.fetch;
   memberProfileReportFiles?: RemoteAgentMemberProfileReportComputerFiles;
+  modelRoute?: CenterAgentModelRoute;
+  prepareImage?: RemoteAgentImagePreparer;
   sandboxDefinitions?: RemoteAgentToolDefinition[];
   storage: RemoteAgentStorage;
   submissionId: string;
