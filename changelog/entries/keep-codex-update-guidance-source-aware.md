@@ -4,6 +4,8 @@ title: Keep Codex update guidance tied to its installation
 kind: fixed
 areas: ["computers", "local-agents"]
 audiences: ["members"]
+publishedAt: 2026-08-25
+evidence: ["pr:248", "pr:250", "commit:d178ec59a0a74555fc897b0d16623a1a62cb93d2", "workflow:32805444531", "workflow:32806735335"]
 ---
 
 OpenMeld no longer compares the Codex included with the ChatGPT app against the
