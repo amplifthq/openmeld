@@ -156,6 +156,34 @@ describe("daemon service background update coordinator", () => {
     ]);
   });
 
+  it("keeps the same operation identity when the CLI hands off to the Service", async () => {
+    const result = await scheduleDaemonServiceUpdate(
+      {
+        operationId: "tools-update-1",
+        requestedAt: "2026-08-25T00:00:00.000Z",
+        requestSource: "automatic",
+        targetVersion: "0.3.98",
+        urgency: "available",
+      },
+      {
+        now: () => "2026-08-25T00:02:00.000Z",
+        prepareBundle: async () => PREPARED_BUNDLE,
+        readPendingJob: async () => null,
+        resolveDesiredState: async () => "background",
+        persistPendingJob: async () => undefined,
+        installWorker: async () => undefined,
+        startWorker: async () => undefined,
+      }
+    );
+
+    expect(result.job).toMatchObject({
+      jobId: "tools-update-1",
+      requestedAt: "2026-08-25T00:00:00.000Z",
+      requestSource: "automatic",
+      updatedAt: "2026-08-25T00:02:00.000Z",
+    });
+  });
+
   it("keeps the pending job until the replacement is healthy, then completes it", async () => {
     const job: DaemonServiceUpdateJob = {
       v: 2,

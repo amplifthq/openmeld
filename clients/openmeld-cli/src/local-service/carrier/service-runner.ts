@@ -98,6 +98,10 @@ import {
   journalDaemonStopSignalEvidence,
   startDaemonServiceRegistrationReconcileLoop,
 } from "../lifecycle/daemon-service-registration-reconcile";
+import {
+  createOpenMeldToolsUpdateCoordinator,
+  startOpenMeldToolsAutomaticUpdateLoop,
+} from "../maintenance/openmeld-tools-update-coordinator";
 import { syncLocalServiceRuntimeAgentControllerReports } from "../reporting/runtime-agent-controller-report-sync";
 import type { RuntimeReportingAttemptObserver } from "../reporting/runtime-agent-controller-reporting-submission";
 import { createRuntimeReportingAttemptObserver } from "../reporting/runtime-reporting-attempt-observer";
@@ -885,6 +889,23 @@ export const runDaemonServiceLoop = async (
       },
     }
   );
+  const stopOpenMeldToolsAutomaticUpdates =
+    startOpenMeldToolsAutomaticUpdateLoop({
+      coordinator: createOpenMeldToolsUpdateCoordinator({
+        reportBackgroundError: (error) => {
+          warnDaemonEvent("[openmeld.tools.update_failed]", {
+            event: "cli.openmeld_tools.update_failed",
+            errorMessage: toErrorMessage(error),
+          });
+        },
+      }),
+      onError: (error) => {
+        warnDaemonEvent("[openmeld.tools.automatic_update_failed]", {
+          event: "cli.openmeld_tools.automatic_update_failed",
+          errorMessage: toErrorMessage(error),
+        });
+      },
+    });
 
   const agentActivitySync = startLocalAgentActivitySyncLoop({
     onError: (error) => {
@@ -1127,6 +1148,7 @@ export const runDaemonServiceLoop = async (
       localFolderPicker.close(),
       agentActivityIntegrationRefresh.stop(),
       agentActivitySync.stop(),
+      stopOpenMeldToolsAutomaticUpdates(),
       stopRegistrationReconcile(),
     ]);
   }
