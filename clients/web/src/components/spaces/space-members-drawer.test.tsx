@@ -895,9 +895,18 @@ describe("SpaceMembersSidePanel", () => {
 				"agt_33333333-3333-4333-8333-333333333333",
 			]);
 		});
-		expect(
-			screen.getByText("Choose profiles to add to this Space.")
-		).toBeTruthy();
+		await waitFor(() => {
+			expect(
+				screen
+					.getByRole("button", { name: "Add members" })
+					.getAttribute("aria-expanded")
+			).toBe("false");
+		});
+		await waitFor(() => {
+			expect(
+				screen.queryByText("Choose profiles to add to this Space.")
+			).toBeNull();
+		});
 	});
 
 	it("adds Human Profiles from the explicit Humans mode", async () => {
@@ -966,6 +975,13 @@ describe("SpaceMembersSidePanel", () => {
 			expect(onAddProfiles).toHaveBeenCalledWith([
 				"22222222-2222-4222-8222-222222222222",
 			]);
+		});
+		await waitFor(() => {
+			expect(
+				screen
+					.getByRole("button", { name: "Add members" })
+					.getAttribute("aria-expanded")
+			).toBe("false");
 		});
 	});
 
@@ -1060,11 +1076,19 @@ describe("SpaceMembersSidePanel", () => {
 		await waitFor(() => {
 			expect(onAddOrganizationDirectoryProfiles).toHaveBeenCalledTimes(2);
 		});
-		expect(screen.getByText("2 members added to this Space.")).toBeTruthy();
-		expect(screen.getByText("Select members to add")).toBeTruthy();
+		await waitFor(() => {
+			expect(
+				screen
+					.getByRole("button", { name: "Add members" })
+					.getAttribute("aria-expanded")
+			).toBe("false");
+		});
+		await waitFor(() => {
+			expect(screen.queryByText("Select members to add")).toBeNull();
+		});
 	});
 
-	it("uses the server add-members result for success copy", async () => {
+	it("closes Add members when the server confirms the selection is already present", async () => {
 		const onAddProfiles = vi.fn(async () => ({
 			addedCount: 0,
 			alreadyMemberCount: 1,
@@ -1116,10 +1140,16 @@ describe("SpaceMembersSidePanel", () => {
 
 		await waitFor(() => {
 			expect(
-				screen.getByText("That member is already in this Space.")
-			).toBeTruthy();
+				screen
+					.getByRole("button", { name: "Add members" })
+					.getAttribute("aria-expanded")
+			).toBe("false");
 		});
-		expect(screen.queryByText("Member added to this Space.")).toBeNull();
+		await waitFor(() => {
+			expect(
+				screen.queryByText("That member is already in this Space.")
+			).toBeNull();
+		});
 	});
 
 	it("requires explicit confirmation before adding a third profile to a Direct Message", async () => {
@@ -1532,6 +1562,8 @@ describe("SpaceMembersSidePanel", () => {
 
 		const region = document.getElementById("space-add-members-region");
 		expect(region).toBeTruthy();
+		expect(region?.className).toContain("rounded-lg");
+		expect(region?.className).toContain("bg-card");
 		expect(trigger.getAttribute("aria-controls")).toBe(
 			"space-add-members-region"
 		);
