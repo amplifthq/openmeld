@@ -1738,6 +1738,7 @@ describe("Remote Agent Slack signal service", () => {
                 size: 654,
               },
             ],
+            subtype: "file_share",
             text: "",
           })
         )
@@ -7705,6 +7706,7 @@ function createDirectMessagePayload(
       permalink?: string;
       size?: number;
     }>;
+    subtype?: "file_share";
     text?: string;
     threadTs?: string;
     ts?: string;
@@ -7725,6 +7727,7 @@ function createDirectMessagePayload(
       channel: "D123",
       event_ts: ts,
       ...(overrides.files ? { files: overrides.files } : {}),
+      ...(overrides.subtype ? { subtype: overrides.subtype } : {}),
       ...(overrides.actionToken ? { action_token: overrides.actionToken } : {}),
       ...(overrides.threadTs ? { thread_ts: overrides.threadTs } : {}),
     },
