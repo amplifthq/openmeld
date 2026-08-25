@@ -16,7 +16,10 @@ import {
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
 const CURRENT_WORKER_VERSION_RE =
   /11111111-1111-1111-1111-111111111111 \(100%\)/u;
+const COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE = /requires the Remote Agent scope/u;
 const INBOX_SCOPE_ERROR_RE = /requires the Web, Gateway, and Core scopes/u;
+const LOCAL_SERVICE_CORE_SCOPE_ERROR_RE =
+  /requires the Core scope before publishing CLI\/Service/u;
 const WRANGLER_RELEASE_STATE = JSON.parse(
   readFileSync(
     new URL(
@@ -444,10 +447,7 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
     sourceSha: REMOTE_SOURCE_SHA,
   });
 
-  assert.equal(
-    plan.deployOrderProfile,
-    "local-service-runtime-receiver-first"
-  );
+  assert.equal(plan.deployOrderProfile, "local-service-runtime-receiver-first");
   assert.deepEqual(
     plan.deploySteps.map((step) => step.label),
     [
@@ -481,7 +481,7 @@ test("rejects a strict Local Service runtime release without its Core receiver",
         scope: "cli",
         sourceSha: REMOTE_SOURCE_SHA,
       }),
-    /requires the Core scope before publishing CLI\/Service/u
+    LOCAL_SERVICE_CORE_SCOPE_ERROR_RE
   );
 });
 
@@ -694,7 +694,36 @@ test("deploys Inbox Message Channel receivers before the Core writer", () => {
     sourceSha: REMOTE_SOURCE_SHA,
   });
 
-  assert.equal(plan.deployOrderProfile, "inbox-message-channel-receiver-first");
+  assert.equal(plan.deployOrderProfile, "inbox-source-target-receiver-first");
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Deploy Web",
+      "Verify Web health",
+      "Deploy Gateway Worker",
+      "Verify Gateway Worker health",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core deployment is visible",
+      "Publish CLI and deploy its Core release projection",
+      "Verify final R2/npm/Core alignment",
+    ]
+  );
+});
+
+test("deploys Agent Interaction Inbox receivers before the Core writer", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/http/inbox.ts",
+    "services/core/src/runtime-transport/application/runtime-coordinator-interaction-inbox-producer.ts",
+  ];
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths,
+    scope: "web,gateway,core,cli",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(plan.deployOrderProfile, "inbox-source-target-receiver-first");
   assert.deepEqual(
     plan.deploySteps.map((step) => step.label),
     [
@@ -794,7 +823,7 @@ test("fails closed when a combined receiver-first release omits Remote Agent", (
         scope: "web,gateway,core",
         sourceSha: REMOTE_SOURCE_SHA,
       }),
-    /requires the Remote Agent scope/u
+    COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE
   );
 });
 
@@ -812,7 +841,7 @@ test("keeps Core before a response producer while retaining Inbox receiver-first
     sourceSha: REMOTE_SOURCE_SHA,
   });
 
-  assert.equal(plan.deployOrderProfile, "inbox-message-channel-receiver-first");
+  assert.equal(plan.deployOrderProfile, "inbox-source-target-receiver-first");
   assert.deepEqual(
     plan.deploySteps.map((step) => step.label),
     [

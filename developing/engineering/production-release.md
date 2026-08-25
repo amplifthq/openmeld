@@ -187,17 +187,18 @@ The planner reports this ordinary order as `default-auth-receiver-first`, which
 names its mixed-version invariant instead of implying that every boundary in
 the cloud graph is consumer-first.
 
-### Inbox Message Channel receiver-first order
+### Inbox source-target receiver-first order
 
-The planner selects `inbox-message-channel-receiver-first` when a diff changes
-the strict Inbox source-target schema and the Core Slack Inbox writer together.
-It automatically includes Web, Gateway, and Core, and rejects a manually
-narrowed scope that omits any of those components. Within the selected scopes,
-Database migration `0128_massive_blur` applies first when selected, Web
-deploys and passes health next, Gateway deploys and passes health after Web, and
-Core deploys last. The nullable migration records fair Inbox repair attempts;
-old Core ignores it, so applying it before the receiver rollout does not start
-new writes. If the shared schema also selects the local-component
+The planner selects `inbox-source-target-receiver-first` when a diff changes the
+strict Inbox source-target schema together with a Core writer for those targets.
+The writer inventory includes Message Channel terminal-delivery projection and
+RuntimeCoordinator Agent Interaction projection. It automatically includes Web,
+Gateway, and Core, and rejects a manually narrowed scope that omits any of those
+components. Within the selected scopes, Web deploys and passes health first,
+Gateway deploys and passes health next, and Core deploys last. When the Message
+Channel repair migration is selected, Database migration `0128_massive_blur`
+applies before those receivers. Its nullable last-attempt field does not start
+new writes under old Core. If the shared schema also selects a local-component
 release, the existing receiver-first CLI mechanism keeps immutable CLI
 publication last and uses the current production CLI projection for the first
 Core deploy.
@@ -215,18 +216,19 @@ The strict persisted-row readers are Core's D1-to-Inbox mapper and RPC response,
 Gateway's response boundary, and the Web API client. Core is also the only
 writer. The receiver-first window is therefore safe in both directions: the new
 Web and Gateway continue accepting old Core responses, then the new Core writes
-rows that every deployed reader accepts. Already-loaded older Web tabs omit the
-Inbox source-target version header; the new Gateway validates Core's complete
-response, then projects `message_channel` to the prior `center_agent` target in
-list, direct-item, and read-mutation responses. Their items, counts, and cursors
-remain aligned. After reload, the current API client sends version `2` through
-the Web proxy on all three operations and receives exact Slack targets. SQL-only
-Inbox filters and urgent-email delivery do not deserialize
-`source_target_json`; Remote Agent and CLI do not read these rows and are not
-additional receiver stages. After Core is active, its bounded ledger-driven
-repair upgrades pre-release Slack targets in place while preserving item id,
-read time, action resolution, and dismissal. The nullable last-attempt field
-makes repeated permalink failures rotate behind never-attempted repairs.
+rows that every deployed reader accepts. Source-target version `4` receives the
+current thread-aware Agent Interaction target. Version `3` receives the same
+target without its thread locator, and missing or older headers receive the
+legacy target projection. Gateway applies those projections after validating
+Core's complete response for list, direct-item, and read-mutation operations, so
+items, counts, and cursors stay aligned. SQL-only Inbox filters and urgent-email
+delivery do not deserialize `source_target_json`; Remote Agent and CLI do not
+read these rows and are not additional runtime receiver stages. CLI remains a
+release scope when the shared schema changes because that package feeds the
+immutable OpenMeld Service bundle. After Core is active, Message Channel repair
+upgrades pre-release Slack targets in place while preserving item id, read time,
+action resolution, and dismissal. RuntimeCoordinator repair records preserve an
+absent legacy thread locator rather than manufacturing main-timeline identity.
 
 Rollback is forward-only at the reader boundary. First stop new writes with a
 Core change that retains the new schema. Keep the compatible Core, Gateway, and
