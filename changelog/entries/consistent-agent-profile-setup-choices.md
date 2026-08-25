@@ -10,4 +10,6 @@ Web, the CLI, Local Agents, and the Center Agent now use the same Agent Profile
 setup choices for Project, model, reasoning effort, collaboration mode, and
 permissions. After a successful setup, the next Agent starts from the same
 saved choices on every surface. Project folders remain private to each
-computer's existing Local Project Connection.
+computer's existing Local Project Connection. The Center Agent now sends those
+choices through the same creation request and can create a working Agent
+without forcing it into a Space when the task does not need one.
