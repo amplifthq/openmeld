@@ -221,6 +221,60 @@ describe("Settings Local Agent usage limits", () => {
     expect(screen.getByText("Not reported by provider.")).toBeTruthy();
   });
 
+  it("puts Codex's overall weekly limit first and uses the lighter detail gauge", () => {
+    render(
+      <SettingsLocalAgentUsageLimits
+        agentName="Codex"
+        limits={[
+          {
+            key: "codex_spark:primary",
+            label: "GPT-5.3-Codex-Spark weekly usage",
+            observedAt: "2026-08-20T07:50:00.000Z",
+            resetsAt: "2026-08-27T08:00:00.000Z",
+            status: "available",
+            usedPercent: 0,
+          },
+          {
+            key: "codex:primary",
+            label: "5-hour usage",
+            observedAt: "2026-08-20T07:50:00.000Z",
+            resetsAt: "2026-08-20T10:00:00.000Z",
+            status: "available",
+            usedPercent: 0,
+          },
+          {
+            key: "codex:secondary",
+            label: "Weekly usage",
+            observedAt: "2026-08-20T07:50:00.000Z",
+            resetsAt: "2026-08-27T08:00:00.000Z",
+            status: "available",
+            usedPercent: 88,
+          },
+        ]}
+        nowMs={NOW_MS}
+      />
+    );
+
+    const grid = screen.getByTestId("local-agent-usage-limit-grid");
+    expect(grid.firstElementChild?.textContent).toContain("Weekly usage");
+    expect(grid.firstElementChild?.textContent).not.toContain(
+      "GPT-5.3-Codex-Spark"
+    );
+
+    const weeklyGauge = screen.getByRole("progressbar", {
+      name: LOW_WEEKLY_USAGE_GAUGE_NAME,
+    });
+    for (const circle of weeklyGauge.querySelectorAll("circle")) {
+      expect(circle.getAttribute("stroke-width")).toBe("2");
+    }
+    expect(
+      weeklyGauge.querySelector("[data-usage-limit-value]")?.className
+    ).toContain("text-sm");
+    expect(
+      weeklyGauge.querySelector("[data-usage-limit-unit]")?.className
+    ).toContain("text-[9px]");
+  });
+
   it("keeps an absent usage-limit projection out of the product surface", () => {
     render(<SettingsLocalAgentUsageLimits agentName="Cursor" nowMs={NOW_MS} />);
 

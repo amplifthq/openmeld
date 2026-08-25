@@ -71,6 +71,37 @@ describe("agent controller version advisory", () => {
     ).toBe(true);
   });
 
+  it("does not compare ChatGPT app's bundled Codex with the standalone CLI channel", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-chatgpt-codex-"));
+    try {
+      const commandPath = join(
+        home,
+        "Applications",
+        "ChatGPT.app",
+        "Contents",
+        "Resources",
+        "codex"
+      );
+      await writeCodexExecutable(commandPath, "0.149.0-alpha.4.3");
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { resolveAgentControllerInterfaceSnapshot } = await import(
+        "../src/local-service/inventory/agent-controller-interface"
+      );
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:codex",
+        state: createAgentTargetState("codex", "Codex", commandPath),
+      });
+
+      expect(snapshot.version).toBe("0.149.0-alpha.4.3");
+      expect(snapshot.versionAdvisory).toBeUndefined();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
   it("reports the Cursor update command from its managed version path", async () => {
     const home = await mkdtemp(join(tmpdir(), "openmeld-aci-cursor-version-"));
     try {

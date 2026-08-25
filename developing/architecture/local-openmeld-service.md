@@ -186,6 +186,12 @@ ACI-owned local evidence may include:
   not authenticated
 
 The selected launch contract remains the install and update identity. When an
+Agent Controller is bundled inside a host application, ACI must treat that host
+application as the update owner. It must not compare the bundled runtime with a
+standalone CLI package's release channel or offer that CLI package's update
+command. If the host application does not expose a stable update-status
+contract, ACI omits the version advisory instead of guessing across sources.
+When an
 official controller package adds a thin launcher around a packaged native
 runtime, an ACI adapter may execute that native runtime directly only after it
 proves the official package identity, declared entry point, platform package,
