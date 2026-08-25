@@ -7,6 +7,7 @@ import { normalizeKnownBuiltinAgentControllerId } from "../daemon/agent-controll
 import {
   localComponentUpdatePolicySchema,
   localComponentUpdateStatusSchema,
+  openMeldToolsMaintenanceProjectionSchema,
   openMeldToolsUpdateOperationSchema,
 } from "../local-components";
 import {
@@ -30,6 +31,7 @@ const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const REASON_CODES_SCHEMA = z.array(BOUNDED_ID_SCHEMA).max(64);
 
 export const organizationComputerOpenMeldToolsSchema = z.strictObject({
+  maintenance: openMeldToolsMaintenanceProjectionSchema.optional(),
   updateOperation: openMeldToolsUpdateOperationSchema.optional(),
   cli: z.strictObject({
     installedPackageVersion: BOUNDED_ID_SCHEMA.nullable(),

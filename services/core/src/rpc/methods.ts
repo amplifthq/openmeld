@@ -5549,6 +5549,9 @@ function projectOrganizationComputerLiveSessions(input: {
         deviceId: session.deviceId,
         executionCompatibility: session.executionCompatibility,
         openMeldTools: {
+          ...(localComponents.maintenance
+            ? { maintenance: localComponents.maintenance }
+            : {}),
           ...(localComponents.updateOperation
             ? { updateOperation: localComponents.updateOperation }
             : {}),

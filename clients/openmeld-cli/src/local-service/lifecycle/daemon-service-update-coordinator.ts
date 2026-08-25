@@ -35,6 +35,8 @@ const MAX_BACKGROUND_UPDATE_ATTEMPTS = 5;
 
 type ScheduleDaemonServiceUpdateInput = {
   cliScriptPath?: string;
+  operationId?: string;
+  requestedAt?: string;
   requestSource?: OpenMeldToolsUpdateRequestSource;
   targetVersion: string;
   urgency: "available" | "required";
@@ -119,9 +121,9 @@ export async function scheduleDaemonServiceUpdate(
     attempts: 0,
     desiredState: await deps.resolveDesiredState(),
     errorMessage: null,
-    jobId: deps.createJobId(),
+    jobId: input.operationId ?? deps.createJobId(),
     preparedBundle,
-    requestedAt: now,
+    requestedAt: input.requestedAt ?? now,
     phase: "waiting_for_work",
     requestSource: input.requestSource ?? "cli",
     targetVersion: input.targetVersion,

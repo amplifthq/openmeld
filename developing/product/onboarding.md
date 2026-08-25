@@ -688,6 +688,11 @@ Terminal after that handoff. Setup must not use this path to hide a broken or
 ambiguous Service; those states remain explicit repair work. A background update
 does not make Setup the owner of Wake completion or final Agent readiness.
 
+A newly connected computer keeps OpenMeld Tools up to date by default. This is
+a saved computer preference, not a condition for completing Setup. Turning it
+off stops ordinary automatic requests but never removes the direct Update
+action or the explicit reconnect/CLI recovery path.
+
 After successful setup, OpenMeld does not create a separate welcoming Agent
 Profile or a setup-owned welcoming Space. The user's personal Center Agent owns
 the first-touch onboarding conversation in the Center Agent DM. Setup completion

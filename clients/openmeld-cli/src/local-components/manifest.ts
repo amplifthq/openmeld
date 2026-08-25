@@ -24,7 +24,8 @@ import {
   type DaemonServiceAnomalyCode,
   inspectDaemonServiceInventory,
 } from "../local-service/lifecycle/daemon-service-inventory";
-import { resolveDaemonServiceUpdateOperation } from "../local-service/lifecycle/daemon-service-update-state";
+import { resolveOpenMeldToolsMaintenanceProjection } from "../local-service/maintenance/openmeld-tools-maintenance-policy";
+import { resolveOpenMeldToolsUpdateOperation } from "../local-service/maintenance/openmeld-tools-update-operation";
 import {
   hashBundledSkillAssets,
   loadBundledSkillAssets,
@@ -136,12 +137,13 @@ export async function writeInstalledLocalComponentsSnapshot(input: {
 export async function resolveLocalComponentsStatus(
   input: CliUpdateInput = {}
 ): Promise<LocalComponentsStatus> {
-  const [expectedManifest, service, skills, updateOperation] =
+  const [expectedManifest, service, skills, maintenance, updateOperation] =
     await Promise.all([
       buildExpectedLocalComponentsManifest(),
       resolveServiceComponentState(),
       resolveSkillsComponentState(),
-      resolveDaemonServiceUpdateOperation(),
+      resolveOpenMeldToolsMaintenanceProjection(),
+      resolveOpenMeldToolsUpdateOperation(),
     ]);
   const cli = resolveCliComponentStatus(input);
   const setupAction = resolveLocalComponentsSetupAction({
@@ -166,6 +168,7 @@ export async function resolveLocalComponentsStatus(
     setupAction,
     setupActionLabel: formatLocalSetupActionLabel(setupAction),
     setupActionDescription: formatLocalSetupActionDescription(setupAction),
+    maintenance,
     ...(updateOperation ? { updateOperation } : {}),
     cli,
     service: {

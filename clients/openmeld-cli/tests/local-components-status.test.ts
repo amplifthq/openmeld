@@ -10,9 +10,18 @@ const STALE_SKILLS_BUNDLE_HASH = "a".repeat(64);
 describe("local components status", () => {
   beforeEach(() => {
     vi.doMock(
-      "../src/local-service/lifecycle/daemon-service-update-state",
+      "../src/local-service/maintenance/openmeld-tools-maintenance-policy",
       () => ({
-        resolveDaemonServiceUpdateOperation: vi.fn(async () => null),
+        resolveOpenMeldToolsMaintenanceProjection: vi.fn(async () => ({
+          automaticUpdatesEnabled: true,
+          status: "ready",
+        })),
+      })
+    );
+    vi.doMock(
+      "../src/local-service/maintenance/openmeld-tools-update-operation",
+      () => ({
+        resolveOpenMeldToolsUpdateOperation: vi.fn(async () => null),
       })
     );
   });
@@ -24,7 +33,12 @@ describe("local components status", () => {
     vi.doUnmock("../src/local-service/lifecycle/current-daemon-version");
     vi.doUnmock("../src/local-service/lifecycle/daemon-service-bundle");
     vi.doUnmock("../src/local-service/lifecycle/daemon-service-inventory");
-    vi.doUnmock("../src/local-service/lifecycle/daemon-service-update-state");
+    vi.doUnmock(
+      "../src/local-service/maintenance/openmeld-tools-maintenance-policy"
+    );
+    vi.doUnmock(
+      "../src/local-service/maintenance/openmeld-tools-update-operation"
+    );
     vi.doUnmock("../src/skills/bundled");
     vi.doUnmock("../src/skills/bundled-assets");
     vi.doUnmock("../src/skills/content-hash");

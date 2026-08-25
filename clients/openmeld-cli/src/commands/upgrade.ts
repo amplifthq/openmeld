@@ -25,6 +25,7 @@ import {
 import { inspectDaemonServiceInventory } from "../local-service/lifecycle/daemon-service-inventory";
 import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-coordinator";
 import { resolveVersionChangeDirection } from "../local-service/lifecycle/version-change-direction";
+import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
 import {
   type CliBinaryUpdatePlan,
   downloadCliBinaryUpdateArtifact,
@@ -892,6 +893,7 @@ async function runInternalUpgradeServiceAlignment(input: {
   const scheduled = await scheduleDaemonServiceUpdate({
     targetVersion: input.daemonVersion,
     urgency: await resolveServiceUpdateUrgency(),
+    ...(readOpenMeldToolsUpdateContextFromEnv() ?? {}),
     ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),
   });
   if (input.resolvedView === "human") {

@@ -49,6 +49,18 @@ export const openMeldToolsUpdateOperationSchema = z.strictObject({
   urgency: z.enum(["available", "required"]),
 });
 
+export const openMeldToolsMaintenanceProjectionSchema = z.strictObject({
+  automaticUpdatesEnabled: z.boolean(),
+  status: z.enum(["ready", "needs_help"]),
+});
+
+export const openMeldToolsUpdateAttemptSchema = z.strictObject({
+  v: z.literal(1),
+  attempts: z.number().int().nonnegative(),
+  errorMessage: nullableNonEmptyStringSchema,
+  operation: openMeldToolsUpdateOperationSchema,
+});
+
 export const localSetupActionSchema = z.enum([
   "none",
   "connect_service",
@@ -156,6 +168,7 @@ export const localComponentsStatusSchema = z.strictObject({
   setupAction: localSetupActionSchema,
   setupActionLabel: nonEmptyStringSchema,
   setupActionDescription: nonEmptyStringSchema,
+  maintenance: openMeldToolsMaintenanceProjectionSchema.optional(),
   updateOperation: openMeldToolsUpdateOperationSchema.optional(),
   cli: localCliComponentProjectionSchema,
   service: localServiceComponentProjectionSchema,
@@ -203,6 +216,7 @@ export const localComponentUpdateProjectionSchema = z.strictObject({
   setupActionDescription: nonEmptyStringSchema,
   humanSetupCommand: nonEmptyStringSchema,
   agentSetupCommand: nonEmptyStringSchema,
+  maintenance: openMeldToolsMaintenanceProjectionSchema.optional(),
   updateOperation: openMeldToolsUpdateOperationSchema.optional(),
   cli: localCliComponentUpdateProjectionSchema,
   service: localServiceComponentUpdateProjectionSchema,

@@ -81,6 +81,10 @@ export type RuntimeDaemonConfig = {
   dispatch?: RuntimeDaemonDispatchConfig;
 };
 
+export type RuntimeOpenMeldToolsMaintenanceConfig = {
+  automaticUpdatesEnabled: boolean;
+};
+
 export type RuntimeDaemonDispatchLimits = {
   globalConcurrency: number;
   queueMax: number;
@@ -159,6 +163,7 @@ type RuntimeConfigV1 = {
   viewCustomization?: RuntimeViewCustomization;
   skills?: RuntimeSkillsConfig;
   daemon?: RuntimeDaemonConfig;
+  openMeldToolsMaintenance?: RuntimeOpenMeldToolsMaintenanceConfig;
   deviceRuntimeState?: RuntimeDeviceRuntimeState;
   onboarding?: RuntimeOnboardingConfig;
   updatedAt: string;
@@ -169,6 +174,7 @@ type DevicePreferencesV1 = {
   baseUrl?: string;
   viewCustomization?: RuntimeViewCustomization;
   daemon?: RuntimeDaemonConfig;
+  openMeldToolsMaintenance?: RuntimeOpenMeldToolsMaintenanceConfig;
   onboarding?: RuntimeOnboardingConfig;
   updatedAt: string;
 };
@@ -207,6 +213,7 @@ type RuntimeConfigOverrides = {
   viewCustomization?: RuntimeViewCustomization | null;
   skills?: RuntimeSkillsConfig | null;
   daemon?: RuntimeDaemonConfig | null;
+  openMeldToolsMaintenance?: RuntimeOpenMeldToolsMaintenanceConfig | null;
   deviceRuntimeState?: RuntimeDeviceRuntimeState | null;
   onboarding?: RuntimeOnboardingConfig | null;
 };
@@ -296,6 +303,34 @@ export async function getConfiguredDaemonDispatchLimits(): Promise<RuntimeDaemon
   return resolveRuntimeDaemonDispatchLimits(config?.daemon?.dispatch);
 }
 
+export async function getConfiguredOpenMeldToolsMaintenance(): Promise<RuntimeOpenMeldToolsMaintenanceConfig> {
+  const result = await readRuntimeConfigDetailed();
+  if (result.health.parseFallback) {
+    throw new Error("OpenMeld update setting is invalid.");
+  }
+  const preferencesFile = await readOptionalJsonFile(devicePreferencesPath());
+  if (preferencesFile.error) {
+    throw new Error("OpenMeld update setting is invalid.");
+  }
+  if (
+    preferencesFile.found &&
+    preferencesFile.value &&
+    typeof preferencesFile.value === "object" &&
+    "openMeldToolsMaintenance" in preferencesFile.value &&
+    !parseRuntimeOpenMeldToolsMaintenanceConfig(
+      (preferencesFile.value as { openMeldToolsMaintenance?: unknown })
+        .openMeldToolsMaintenance
+    )
+  ) {
+    throw new Error("OpenMeld update setting is invalid.");
+  }
+  return (
+    result.config?.openMeldToolsMaintenance ?? {
+      automaticUpdatesEnabled: true,
+    }
+  );
+}
+
 export async function getConfiguredOnboardingConfig(): Promise<RuntimeOnboardingConfig | null> {
   const config = await readRuntimeConfig();
   return config?.onboarding ?? null;
@@ -355,6 +390,19 @@ export async function setConfiguredBaseUrl(baseUrl: string): Promise<void> {
     const normalized = normalizeGatewayBaseUrl(baseUrl);
     const previous = await readRuntimeConfig();
     const next = buildNextConfig(previous, { baseUrl: normalized });
+
+    await writeRuntimeConfig(next);
+  });
+}
+
+export async function setConfiguredOpenMeldToolsMaintenance(
+  maintenance: RuntimeOpenMeldToolsMaintenanceConfig
+): Promise<void> {
+  await withRuntimeConfigLock(async () => {
+    const previous = await readRuntimeConfig();
+    const next = buildNextConfig(previous, {
+      openMeldToolsMaintenance: maintenance,
+    });
 
     await writeRuntimeConfig(next);
   });
@@ -498,6 +546,11 @@ function buildNextConfig(
   );
   const skills = resolveConfigOverride("skills", previous?.skills, overrides);
   const daemon = resolveConfigOverride("daemon", previous?.daemon, overrides);
+  const openMeldToolsMaintenance = resolveConfigOverride(
+    "openMeldToolsMaintenance",
+    previous?.openMeldToolsMaintenance,
+    overrides
+  );
   const deviceRuntimeState = resolveConfigOverride(
     "deviceRuntimeState",
     previous?.deviceRuntimeState,
@@ -515,6 +568,7 @@ function buildNextConfig(
     ...(viewCustomization ? { viewCustomization } : {}),
     ...(skills ? { skills } : {}),
     ...(daemon ? { daemon } : {}),
+    ...(openMeldToolsMaintenance ? { openMeldToolsMaintenance } : {}),
     ...(deviceRuntimeState ? { deviceRuntimeState } : {}),
     ...(onboarding ? { onboarding } : {}),
     updatedAt: new Date().toISOString(),
@@ -539,6 +593,7 @@ function resolveConfigOverride<T>(
     | "viewCustomization"
     | "skills"
     | "daemon"
+    | "openMeldToolsMaintenance"
     | "deviceRuntimeState"
     | "onboarding",
   previous: T | undefined,
@@ -696,6 +751,21 @@ function parseRuntimeDaemonConfig(
     return undefined;
   }
   return { dispatch };
+}
+
+function parseRuntimeOpenMeldToolsMaintenanceConfig(
+  value: unknown
+): RuntimeOpenMeldToolsMaintenanceConfig | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const automaticUpdatesEnabled = (
+    value as { automaticUpdatesEnabled?: unknown }
+  ).automaticUpdatesEnabled;
+  if (typeof automaticUpdatesEnabled !== "boolean") {
+    return undefined;
+  }
+  return { automaticUpdatesEnabled };
 }
 
 function parseRuntimeDaemonDispatchConfig(
@@ -1406,6 +1476,7 @@ async function readSplitRuntimeConfigDetailed(): Promise<{
     baseUrl: preferences.baseUrl,
     viewCustomization: preferences.viewCustomization,
     daemon: preferences.daemon,
+    openMeldToolsMaintenance: preferences.openMeldToolsMaintenance,
     onboarding: preferences.onboarding,
     deviceRuntimeState: agentRuntime,
     skills,
@@ -1457,6 +1528,7 @@ async function readLegacyRuntimeConfigDetailed(): Promise<{
     agents?: unknown;
     daemon?: unknown;
     onboarding?: unknown;
+    openMeldToolsMaintenance?: unknown;
   };
   try {
     parsed = JSON.parse(raw) as Partial<RuntimeConfigV1> & {
@@ -1498,6 +1570,9 @@ async function readLegacyRuntimeConfigDetailed(): Promise<{
       ),
       skills: parseRuntimeSkillsConfig(parsed.skills),
       daemon: parseRuntimeDaemonConfig(parsed.daemon),
+      openMeldToolsMaintenance: parseRuntimeOpenMeldToolsMaintenanceConfig(
+        parsed.openMeldToolsMaintenance
+      ),
       deviceRuntimeState: parseRuntimeDeviceRuntimeState(
         parsed.deviceRuntimeState
       ),
@@ -1518,6 +1593,7 @@ function buildRuntimeConfigFromParts(input: {
   viewCustomization?: RuntimeViewCustomization;
   skills?: RuntimeSkillsConfig;
   daemon?: RuntimeDaemonConfig;
+  openMeldToolsMaintenance?: RuntimeOpenMeldToolsMaintenanceConfig;
   deviceRuntimeState?: RuntimeDeviceRuntimeState;
   onboarding?: RuntimeOnboardingConfig;
   updatedAt?: string;
@@ -1529,6 +1605,7 @@ function buildRuntimeConfigFromParts(input: {
       input.viewCustomization ||
       input.skills ||
       input.daemon ||
+      input.openMeldToolsMaintenance ||
       input.deviceRuntimeState ||
       input.onboarding
     )
@@ -1544,6 +1621,9 @@ function buildRuntimeConfigFromParts(input: {
       : {}),
     ...(input.skills ? { skills: input.skills } : {}),
     ...(input.daemon ? { daemon: input.daemon } : {}),
+    ...(input.openMeldToolsMaintenance
+      ? { openMeldToolsMaintenance: input.openMeldToolsMaintenance }
+      : {}),
     ...(input.deviceRuntimeState
       ? { deviceRuntimeState: input.deviceRuntimeState }
       : {}),
@@ -1556,7 +1636,11 @@ function parseDevicePreferencesConfig(
   value: unknown
 ): Pick<
   RuntimeConfigV1,
-  "baseUrl" | "viewCustomization" | "daemon" | "onboarding"
+  | "baseUrl"
+  | "viewCustomization"
+  | "daemon"
+  | "openMeldToolsMaintenance"
+  | "onboarding"
 > {
   if (!value || typeof value !== "object") {
     return {};
@@ -1578,6 +1662,15 @@ function parseDevicePreferencesConfig(
       : {}),
     ...(parseRuntimeDaemonConfig(parsed.daemon)
       ? { daemon: parseRuntimeDaemonConfig(parsed.daemon) }
+      : {}),
+    ...(parseRuntimeOpenMeldToolsMaintenanceConfig(
+      parsed.openMeldToolsMaintenance
+    )
+      ? {
+          openMeldToolsMaintenance: parseRuntimeOpenMeldToolsMaintenanceConfig(
+            parsed.openMeldToolsMaintenance
+          ),
+        }
       : {}),
     ...(parseRuntimeOnboardingConfig(parsed.onboarding)
       ? { onboarding: parseRuntimeOnboardingConfig(parsed.onboarding) }
@@ -1669,7 +1762,13 @@ function buildDevicePreferencesState(
   updatedAt: string
 ): DevicePreferencesV1 | null {
   if (
-    !(next.baseUrl || next.viewCustomization || next.daemon || next.onboarding)
+    !(
+      next.baseUrl ||
+      next.viewCustomization ||
+      next.daemon ||
+      next.openMeldToolsMaintenance ||
+      next.onboarding
+    )
   ) {
     return null;
   }
@@ -1680,6 +1779,9 @@ function buildDevicePreferencesState(
       ? { viewCustomization: next.viewCustomization }
       : {}),
     ...(next.daemon ? { daemon: next.daemon } : {}),
+    ...(next.openMeldToolsMaintenance
+      ? { openMeldToolsMaintenance: next.openMeldToolsMaintenance }
+      : {}),
     ...(next.onboarding ? { onboarding: next.onboarding } : {}),
     updatedAt,
   };
