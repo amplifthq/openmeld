@@ -362,6 +362,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .loading-ui-wave-bar {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+
   [data-vaul-drawer],
   [data-vaul-overlay] {
     animation: none !important;

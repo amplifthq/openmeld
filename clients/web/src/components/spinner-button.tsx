@@ -11,6 +11,7 @@ type SpinnerButtonProps = React.ComponentProps<typeof Button> & {
 	errorElement?: React.ReactNode;
 	isLoading?: boolean;
 	loadingElement?: React.ReactNode;
+	loadingLabel?: React.ReactNode;
 	motionClassName?: string;
 	successElement?: React.ReactNode;
 };
@@ -22,8 +23,10 @@ export function SpinnerButton({
 	errorElement,
 	isLoading = false,
 	loadingElement,
+	loadingLabel,
 	motionClassName,
 	successElement,
+	disabled,
 	...props
 }: SpinnerButtonProps) {
 	const currentState: ButtonState =
@@ -32,7 +35,17 @@ export function SpinnerButton({
 	const content = useMemo(() => {
 		switch (currentState) {
 			case "loading":
-				return loadingElement ?? <Bars className="h-4 w-5" />;
+				return (
+					loadingElement ?? (
+						<>
+							<Bars
+								aria-hidden={loadingLabel ? true : undefined}
+								className="h-4 w-5"
+							/>
+							{loadingLabel ? <span>{loadingLabel}</span> : null}
+						</>
+					)
+				);
 			case "success":
 				return successElement ?? children;
 			case "error":
@@ -40,17 +53,26 @@ export function SpinnerButton({
 			default:
 				return children;
 		}
-	}, [children, currentState, errorElement, loadingElement, successElement]);
+	}, [
+		children,
+		currentState,
+		errorElement,
+		loadingElement,
+		loadingLabel,
+		successElement,
+	]);
 
 	return (
 		<Button
+			{...props}
+			aria-busy={currentState === "loading" ? true : undefined}
+			aria-live={currentState === "loading" ? "polite" : undefined}
 			className={cn(
 				"relative select-none overflow-hidden",
 				currentState === "loading" ? "cursor-wait" : "",
 				className
 			)}
-			disabled={props.disabled || currentState === "loading"}
-			{...props}
+			disabled={disabled || currentState === "loading"}
 		>
 			<span
 				className={cn(

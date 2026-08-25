@@ -22,6 +22,7 @@ import type {
 	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
+import { Bars } from "@openmeld/ui/components/bars";
 import {
 	Dialog,
 	DialogContent,
@@ -306,9 +307,7 @@ export function CreateProfileDialog(input: CreateProfileDialogProps) {
 					<DialogTitle>{view.title}</DialogTitle>
 					<DialogDescription>{view.description}</DialogDescription>
 				</DialogHeader>
-				<div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
-					<CreateProfileForm {...view.formProps} />
-				</div>
+				<CreateProfileForm {...view.formProps} />
 			</DialogContent>
 		</Dialog>
 	);
@@ -692,6 +691,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			boundAgentId,
 			ownerMode,
 			projectFolderPath,
+			projectsPending: projectsQuery.isPending,
 			projectWorkspaceFallback,
 			selectedProjectBindingGeneration,
 			selectedProjectId,
@@ -991,6 +991,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		projectSelectionSlot,
 		recoveryActionHref,
 		submitLabel: ownerMode === "teammate" ? "Request Agent" : undefined,
+		submittingLabel: ownerMode === "teammate" ? "Requesting Agent…" : undefined,
 	} satisfies ComponentProps<typeof CreateProfileForm>;
 
 	return {
@@ -1669,7 +1670,19 @@ function renderProjectSelectionSlot(input: {
 }): ReactNode {
 	if (input.organizationId && input.projectsPending) {
 		return (
-			<p className="text-muted-foreground text-sm">Loading active Projects.</p>
+			<section className="grid min-w-0 gap-2">
+				<p className="font-medium text-sm">Working folder</p>
+				<div className="flex items-center gap-2 text-muted-foreground text-sm">
+					<Bars
+						aria-label="Loading working folder choices"
+						className="h-4 w-5 shrink-0"
+					/>
+					<span>Loading your Projects and saved working folder.</span>
+				</div>
+				<p className="text-muted-foreground text-xs leading-5">
+					You can keep editing other settings while this finishes.
+				</p>
+			</section>
 		);
 	}
 	if (!input.organizationId || input.projectsError) {
@@ -1872,12 +1885,16 @@ function resolveOwnerProjectSelectionBlockReason(input: {
 	boundAgentId: string;
 	ownerMode: AgentProfileOwnerMode;
 	projectFolderPath: string;
+	projectsPending: boolean;
 	projectWorkspaceFallback: "advanced" | "managed" | null;
 	selectedProjectBindingGeneration: string | null;
 	selectedProjectId: string;
 }): string | null {
 	if (input.ownerMode !== "self") {
 		return null;
+	}
+	if (input.boundAgentId && input.projectsPending) {
+		return "Loading working folder choices.";
 	}
 	return resolveProjectSelectionBlockReason(input);
 }
@@ -2273,7 +2290,7 @@ function resolveProjectSelectionBlockReason(input: {
 			? null
 			: "Enter the full workspace path.";
 	}
-	return "Choose a connected folder or another workspace option.";
+	return "Waiting for a connected working folder. Choose another working folder to continue now.";
 }
 
 function resolveCreateAgentControllerPermissionMode(input: {
