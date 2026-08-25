@@ -11,6 +11,7 @@
     "release:status": "node scripts/release/production-release-status.mjs",
     "release:preflight": "node scripts/release/release-preflight.mjs",
     "release:preflight:local": "node scripts/release/production-release.mjs preflight",
+    "release:preflight:core-current-cli-projection": "node scripts/release/preflight-core-current-cli-projection.mjs",
     "release:verify:local": "node scripts/release/production-release.mjs verify",
     "release:deploy:local": "node scripts/release/production-release.mjs deploy",
     "deploy:cloud": "pnpm run release:deploy:local -- --scope cloud",

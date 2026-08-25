@@ -711,6 +711,7 @@ test("routes stable CLI projection recovery through the guarded Core workflow", 
   );
   assert.ok(core.includes("pnpm run evidence:startup:core"));
   assert.ok(core.includes("deploy-core-worker.mjs"));
+  assert.ok(core.includes("release:preflight:core-current-cli-projection"));
   assert.ok(core.includes("core-startup-evidence-"));
   assert.ok(core.includes("core-startup-profile-"));
   assert.ok(

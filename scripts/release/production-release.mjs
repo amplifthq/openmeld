@@ -369,6 +369,24 @@ export function buildProductionPreflightStepSpecs(input) {
   return steps;
 }
 
+export function buildCoreCurrentCliProjectionPreflightStepSpecs(
+  changedPaths = []
+) {
+  return [
+    ...buildCommonReleaseStepSpecs(changedPaths),
+    productionQueueVerificationStep("core"),
+  ];
+}
+
+export function runCoreCurrentCliProjectionPreflight(input = {}) {
+  const executeStep = input.runStep ?? runStep;
+  for (const step of buildCoreCurrentCliProjectionPreflightStepSpecs(
+    input.changedPaths
+  )) {
+    executeStep(step);
+  }
+}
+
 function productionQueueVerificationStep(scope) {
   return {
     args: [

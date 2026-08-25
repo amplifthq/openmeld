@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  buildCoreCurrentCliProjectionPreflightStepSpecs,
   buildProductionDeployStepSpecs,
   buildProductionPreflightStepSpecs,
   buildProductionReleasePlan,
@@ -293,6 +294,24 @@ test("keeps deployment preflight cheap while preserving release invariants", () 
       "Check retired identifiers",
       "Verify production Gateway Queue resources",
     ]
+  );
+});
+
+test("preflights current-stable Core recovery without comparing the checked-in future projection", () => {
+  const steps = buildCoreCurrentCliProjectionPreflightStepSpecs([]);
+
+  assert.deepEqual(
+    steps.map((step) => step.label),
+    [
+      "Verify Cloudflare environment contracts",
+      "Check retired identifiers",
+      "Verify production Core Queue resources",
+    ]
+  );
+  assert.ok(
+    !steps.some(
+      (step) => step.label === "Verify Core CLI channel compatibility"
+    )
   );
 });
 
