@@ -28,6 +28,10 @@ type CenterAgentRequesterIdentitySchema =
   typeof import("../../schemas/runtime/remote-agent-turn-envelope")["centerAgentRequesterIdentitySchema"];
 type CenterAgentResultAudienceSchema =
   typeof import("../../schemas/runtime/remote-agent-turn-envelope")["centerAgentResultAudienceSchema"];
+type RemoteAgentWorkLoopCheckpointSchema =
+  typeof import("../../schemas/runtime/remote-agent-turn-envelope")["remoteAgentWorkLoopCheckpointSchema"];
+type RemoteAgentWorkLoopContinuationSchema =
+  typeof import("../../schemas/runtime/remote-agent-turn-envelope")["remoteAgentWorkLoopContinuationSchema"];
 
 export type RemoteAgentTurnEnvelope = z.infer<RemoteAgentTurnEnvelopeSchema>;
 export type RemoteAgentTurnEnvelopeSender =
@@ -56,3 +60,7 @@ export type CenterAgentRequesterIdentity =
   z.infer<CenterAgentRequesterIdentitySchema>;
 export type CenterAgentResultAudience =
   z.infer<CenterAgentResultAudienceSchema>;
+export type RemoteAgentWorkLoopCheckpoint =
+  z.infer<RemoteAgentWorkLoopCheckpointSchema>;
+export type RemoteAgentWorkLoopContinuation =
+  z.infer<RemoteAgentWorkLoopContinuationSchema>;

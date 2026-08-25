@@ -120,6 +120,7 @@ export {
   centerAgentResultAudienceSchema,
   REMOTE_AGENT_TRIGGER_TEXT_MAX_CHARS,
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
+  REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS,
   remoteAgentSlackSearchAuthorizationSchema,
   remoteAgentTurnEnvelopeMemoryItemSchema,
   remoteAgentTurnEnvelopeMemorySchema,
@@ -130,6 +131,8 @@ export {
   remoteAgentTurnEnvelopeSenderSchema,
   remoteAgentTurnEnvelopeSpaceSchema,
   remoteAgentTurnEnvelopeTriggerSchema,
+  remoteAgentWorkLoopCheckpointSchema,
+  remoteAgentWorkLoopContinuationSchema,
 } from "./remote-agent-turn-envelope";
 export {
   buildRemoteAgentCenterAgentTaskConversationId,
@@ -148,9 +151,11 @@ export {
   remoteAgentConversationContinuityEntrySchema,
   remoteAgentConversationContinuityEntrySourceSchema,
   remoteAgentCoreCallbackBodySchema,
+  remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
   remoteAgentCoreCompletedCallbackBodySchema,
   remoteAgentCoreFailedCallbackBodySchema,
+  remoteAgentCoreWorkLoopContinuationCallbackBodySchema,
   remoteAgentRpcOperationSchema,
   remoteAgentRuntimeConversationSchema,
   remoteAgentRuntimeEvidenceOutcomeReasonCodeSchema,

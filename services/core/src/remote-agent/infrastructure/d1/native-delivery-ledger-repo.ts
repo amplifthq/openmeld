@@ -12,6 +12,7 @@ import type {
   CenterAgentTurnDiagnostic,
   MessageChannelConversationLocator,
   RemoteAgentWorkerSubmitTurnRequest,
+  RemoteAgentWorkLoopCheckpoint,
   SpaceMessageAttachment,
   SpaceMessageFileReference,
   SpaceThreadContext,
@@ -228,6 +229,17 @@ export type RemoteAgentNativeDeliveryRecord = {
   retiredDeadlineFailureCode: string | null;
   retiredDeadlineFailurePublishedSignalId: string | null;
   retiredDeadlineFailureReconciledAtMs: number | null;
+};
+
+export type RemoteAgentWorkLoopAttemptRecord = {
+  attempt: number;
+  checkpoint: RemoteAgentWorkLoopCheckpoint;
+  continuedAtMs: number;
+  deliveryId: string;
+  idempotencyKey: string;
+  nextIdempotencyKey: string;
+  submissionId: string;
+  workerSubmitRequest: RemoteAgentWorkerSubmitTurnRequest;
 };
 
 export type ActiveRemoteAgentNativeDeliveryCancellationTarget = {
@@ -1403,6 +1415,271 @@ export async function persistRemoteAgentWorkerSubmitRequest(input: {
     );
   }
   return record;
+}
+
+export async function readRemoteAgentWorkLoopAttemptByCallbackIdentity(input: {
+  db: D1Database;
+  idempotencyKey: string;
+  submissionId: string;
+}): Promise<RemoteAgentWorkLoopAttemptRecord | null> {
+  const row = await input.db
+    .prepare(
+      `
+        SELECT
+          attempt,
+          checkpoint_reason,
+          continued_at_ms,
+          delivery_id,
+          idempotency_key,
+          next_idempotency_key,
+          submission_id,
+          tool_call_limit,
+          worker_submit_request_json
+        FROM openMeldRemoteAgent_work_loop_attempts
+        WHERE idempotency_key = ?
+          AND submission_id = ?
+        LIMIT 1
+      `
+    )
+    .bind(input.idempotencyKey, input.submissionId)
+    .first<{
+      attempt: number;
+      checkpoint_reason: string;
+      continued_at_ms: number;
+      delivery_id: string;
+      idempotency_key: string;
+      next_idempotency_key: string;
+      submission_id: string;
+      tool_call_limit: number;
+      worker_submit_request_json: string;
+    }>();
+  if (!row) {
+    return null;
+  }
+  const workerSubmitRequest = parseWorkerSubmitRequest(
+    row.worker_submit_request_json
+  ).request;
+  if (
+    !workerSubmitRequest ||
+    row.checkpoint_reason !== "tool_call_budget_exhausted" ||
+    !Number.isSafeInteger(row.attempt) ||
+    row.attempt <= 0 ||
+    !Number.isSafeInteger(row.tool_call_limit) ||
+    row.tool_call_limit <= 0
+  ) {
+    throw new Error(
+      `Remote Agent work-loop attempt ${row.delivery_id}/${row.attempt} is invalid.`
+    );
+  }
+  return {
+    attempt: row.attempt,
+    checkpoint: {
+      reason: "tool_call_budget_exhausted",
+      toolCallLimit: row.tool_call_limit,
+      v: 1,
+    },
+    continuedAtMs: row.continued_at_ms,
+    deliveryId: row.delivery_id,
+    idempotencyKey: row.idempotency_key,
+    nextIdempotencyKey: row.next_idempotency_key,
+    submissionId: row.submission_id,
+    workerSubmitRequest,
+  };
+}
+
+export async function countRemoteAgentWorkLoopAttempts(input: {
+  db: D1Database;
+  deliveryId: string;
+}): Promise<number> {
+  const row = await input.db
+    .prepare(
+      `
+        SELECT COUNT(*) AS attempt_count
+        FROM openMeldRemoteAgent_work_loop_attempts
+        WHERE delivery_id = ?
+      `
+    )
+    .bind(input.deliveryId)
+    .first<{ attempt_count: number }>();
+  const count = row?.attempt_count ?? 0;
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new Error(
+      `Remote Agent work-loop attempt count for ${input.deliveryId} is invalid.`
+    );
+  }
+  return count;
+}
+
+export async function rearmRemoteAgentNativeDeliveryForWorkLoop(input: {
+  attempt: number;
+  checkpoint: RemoteAgentWorkLoopCheckpoint;
+  db: D1Database;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  nextIdempotencyKey: string;
+  nextWorkerSubmitRequest: RemoteAgentWorkerSubmitTurnRequest;
+  nowMs: number;
+}): Promise<RemoteAgentNativeDeliveryRecord> {
+  const previousSubmissionId = input.delivery.submissionId;
+  const previousWorkerSubmitRequest =
+    input.delivery.workerSubmitRequest ??
+    input.delivery.executionRecoverySubmitRequest;
+  if (!(previousSubmissionId && previousWorkerSubmitRequest)) {
+    throw new Error(
+      `Remote Agent native delivery ${input.delivery.deliveryId} has no work-loop submission to continue.`
+    );
+  }
+  const nextWorkerSubmitRequest =
+    remoteAgentWorkerSubmitTurnRequestSchema.parse(
+      input.nextWorkerSubmitRequest
+    );
+  if (
+    nextWorkerSubmitRequest.dispatchId !== input.delivery.dispatchId ||
+    nextWorkerSubmitRequest.idempotencyKey !== input.nextIdempotencyKey ||
+    nextWorkerSubmitRequest.organizationId !== input.delivery.organizationId ||
+    nextWorkerSubmitRequest.spaceId !== input.delivery.spaceId ||
+    nextWorkerSubmitRequest.agentProfileId !== input.delivery.profileId ||
+    nextWorkerSubmitRequest.bindingId !== input.delivery.bindingId
+  ) {
+    throw new Error(
+      `Remote Agent work-loop continuation ${input.nextIdempotencyKey} does not match its native delivery.`
+    );
+  }
+  const checkpoint = input.checkpoint;
+  const [archiveResult, rearmResult] = await input.db.batch([
+    input.db
+      .prepare(
+        `
+          INSERT INTO openMeldRemoteAgent_work_loop_attempts (
+            delivery_id,
+            attempt,
+            idempotency_key,
+            submission_id,
+            worker_submit_request_json,
+            checkpoint_reason,
+            tool_call_limit,
+            next_idempotency_key,
+            continued_at_ms
+          )
+          SELECT
+            delivery_id,
+            ?,
+            idempotency_key,
+            submission_id,
+            execution_recovery_submit_request_json,
+            ?,
+            ?,
+            ?,
+            ?
+          FROM openMeldRemoteAgent_native_delivery_ledger
+          WHERE delivery_id = ?
+            AND idempotency_key = ?
+            AND submission_id = ?
+            AND status IN ('accepted', 'retry_observed')
+            AND execution_recovery_submit_request_json IS NOT NULL
+            AND final_publication_state IS NULL
+        `
+      )
+      .bind(
+        input.attempt,
+        checkpoint.reason,
+        checkpoint.toolCallLimit,
+        input.nextIdempotencyKey,
+        input.nowMs,
+        input.delivery.deliveryId,
+        input.delivery.idempotencyKey,
+        previousSubmissionId
+      ),
+    input.db
+      .prepare(
+        `
+          UPDATE openMeldRemoteAgent_native_delivery_ledger
+          SET
+            idempotency_key = ?,
+            submission_id = NULL,
+            worker_request_id = NULL,
+            status = 'submitted',
+            failure_code = NULL,
+            failure_detail = NULL,
+            worker_submit_request_json = ?,
+            execution_recovery_submit_request_json = ?,
+            provider_progress_state = CASE
+              WHEN conversation_kind = 'message_channel'
+                AND provider_progress_state = 'sent'
+              THEN 'sent'
+              ELSE provider_progress_state
+            END,
+            provider_progress_claim_id = NULL,
+            provider_progress_claimed_at_ms = NULL,
+            provider_progress_claim_expires_at_ms = NULL,
+            provider_progress_publication_idempotency_key = NULL,
+            provider_progress_sequence = CASE
+              WHEN conversation_kind = 'message_channel' THEN 0
+              ELSE provider_progress_sequence
+            END,
+            provider_progress_pending_sequence = NULL,
+            provider_progress_source_offset = CASE
+              WHEN conversation_kind = 'message_channel' THEN 0
+              ELSE provider_progress_source_offset
+            END,
+            provider_progress_pending_source_offset = NULL,
+            provider_progress_pending_text_hash = NULL,
+            provider_progress_pending_card_id = NULL,
+            provider_progress_failure_code = NULL,
+            execution_evidence_at_ms = NULL,
+            execution_evidence_sequence = NULL,
+            submitted_at_ms = ?,
+            accepted_at_ms = NULL,
+            callback_received_at_ms = NULL,
+            completed_at_ms = NULL,
+            deadline_probe_enqueued_at_ms = NULL,
+            accepted_probe_next_due_at_ms = NULL,
+            updated_at_ms = ?
+          WHERE delivery_id = ?
+            AND idempotency_key = ?
+            AND submission_id = ?
+            AND status IN ('accepted', 'retry_observed')
+            AND final_publication_state IS NULL
+            AND (
+              conversation_kind <> 'message_channel'
+              OR provider_progress_state IN ('sent', 'unavailable')
+            )
+        `
+      )
+      .bind(
+        input.nextIdempotencyKey,
+        serializeWorkerSubmitRequest(nextWorkerSubmitRequest),
+        serializeWorkerSubmitRequest(nextWorkerSubmitRequest),
+        input.nowMs,
+        input.nowMs,
+        input.delivery.deliveryId,
+        input.delivery.idempotencyKey,
+        previousSubmissionId
+      ),
+  ]);
+  if (
+    Number(archiveResult?.meta.changes ?? 0) !== 1 ||
+    Number(rearmResult?.meta.changes ?? 0) !== 1
+  ) {
+    throw new Error(
+      `Remote Agent native delivery ${input.delivery.deliveryId} could not atomically continue its work loop.`
+    );
+  }
+  const rearmed = await readRemoteAgentNativeDeliveryByDeliveryId({
+    db: input.db,
+    deliveryId: input.delivery.deliveryId,
+  });
+  if (
+    !rearmed ||
+    rearmed.idempotencyKey !== input.nextIdempotencyKey ||
+    rearmed.status !== "submitted" ||
+    rearmed.submissionId !== null ||
+    !rearmed.workerSubmitRequest
+  ) {
+    throw new Error(
+      `Remote Agent native delivery ${input.delivery.deliveryId} lost its continued work loop.`
+    );
+  }
+  return rearmed;
 }
 
 export async function replaceRemoteAgentWorkerSubmitRequestForGeneration(input: {

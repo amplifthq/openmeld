@@ -513,6 +513,56 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
   ]
 );
 
+export const openMeldRemoteAgentWorkLoopAttempts = sqliteTable(
+  "openMeldRemoteAgent_work_loop_attempts",
+  {
+    deliveryId: text("delivery_id")
+      .notNull()
+      .references(() => openMeldRemoteAgentNativeDeliveryLedger.deliveryId, {
+        onDelete: "cascade",
+      }),
+    attempt: integer("attempt").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    submissionId: text("submission_id").notNull(),
+    workerSubmitRequestJson: text("worker_submit_request_json").notNull(),
+    checkpointReason: text("checkpoint_reason").notNull(),
+    toolCallLimit: integer("tool_call_limit").notNull(),
+    nextIdempotencyKey: text("next_idempotency_key").notNull(),
+    continuedAtMs: integer("continued_at_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deliveryId, table.attempt],
+      name: "openMeldRemoteAgent_work_loop_attempts_pk",
+    }),
+    uniqueIndex(
+      "openMeldRemoteAgent_work_loop_attempts_idempotency_key_unique"
+    ).on(table.idempotencyKey),
+    uniqueIndex(
+      "openMeldRemoteAgent_work_loop_attempts_submission_id_unique"
+    ).on(table.submissionId),
+    uniqueIndex(
+      "openMeldRemoteAgent_work_loop_attempts_next_idempotency_key_unique"
+    ).on(table.nextIdempotencyKey),
+    check(
+      "openMeldRemoteAgent_work_loop_attempts_attempt_positive_check",
+      sql`"attempt" > 0`
+    ),
+    check(
+      "openMeldRemoteAgent_work_loop_attempts_reason_check",
+      sql`"checkpoint_reason" = 'tool_call_budget_exhausted'`
+    ),
+    check(
+      "openMeldRemoteAgent_work_loop_attempts_tool_call_limit_positive_check",
+      sql`"tool_call_limit" > 0`
+    ),
+    check(
+      "openMeldRemoteAgent_work_loop_attempts_continued_at_nonnegative_check",
+      sql`"continued_at_ms" >= 0`
+    ),
+  ]
+);
+
 export const openMeldRemoteAgentDailyAdmissions = sqliteTable(
   "openMeldRemoteAgent_daily_admissions",
   {
@@ -1655,6 +1705,7 @@ export const coreSchema = {
   openMeldDaemonDispatchResultInbox,
   openMeldDaemonDispatchResults,
   openMeldRemoteAgentNativeDeliveryLedger,
+  openMeldRemoteAgentWorkLoopAttempts,
   openMeldRemoteAgentDailyAdmissions,
   openMeldRemoteAgentConversationGenerations,
   organizationMessageChannelSetupRequests,

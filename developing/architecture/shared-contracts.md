@@ -1511,6 +1511,13 @@ Agent Space-stream paths:
   inside the same ceiling, and never relies on a downstream provider to
   silently drop text. The deprecated submit deadline field remains optional
   for mixed-version parsing but current workers ignore it.
+  The same module owns a distinct callback-event union for structured
+  work-loop checkpoints. `continuation_required` carries only the exact callback
+  identity and a versioned positive tool-call limit; it is not a completed or
+  failed callback body and cannot carry assistant text. The turn envelope owns
+  the matching continuation attempt, previous submission id, and reason. Core
+  consumes this additive event before the Remote Agent emits it; older final
+  callback bodies remain valid throughout rollout.
 - `packages/schemas/src/schemas/daemon/runtime-transport.ts` owns the Local
   OpenMeld Service-to-Core privacy-bounded tool-activity frame. The frame
   carries RuntimeCoordinator execution identity, current execution-token echo,

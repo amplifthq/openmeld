@@ -48,6 +48,10 @@ export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE =
   "remote_agent.conversation_history_limit_exceeded";
 export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY =
   "Center Agent could not continue this conversation automatically. Try again or open diagnostics.";
+export const REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE =
+  "remote_agent.work_loop_continuation_limit_exceeded";
+export const REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY =
+  "Center Agent kept working but could not finish this request within the safe execution limit. Try again or open diagnostics.";
 const EXACT_PATTERN_PREFIX = "=";
 const RUNTIME_PERMISSION_DENIAL_PUBLIC_COPY =
   "The requested action was blocked by the Agent Profile’s permission settings. Review its permissions and choose a less restrictive mode only if you trust the access it grants, then wake the agent again.";
@@ -103,6 +107,8 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
       return REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
       return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+    case REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE:
+      return REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY;
     case "remote_agent.turn_not_completed":
       return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
     default:

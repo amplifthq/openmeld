@@ -269,7 +269,7 @@ import type {
   RecordOrganizationSkillActivationResponse,
   RecordOrganizationSkillActivationRpcInput,
   RefreshCurrentLocalAgentCatalogResponse,
-  RemoteAgentCoreCallbackBody,
+  RemoteAgentCoreCallbackEvent,
   RemoteAgentCoreCallbackResponse,
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamDeltaCallbackResponse,
@@ -2721,7 +2721,7 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   }
 
   completeRemoteAgentSubmission(
-    input: RemoteAgentCoreCallbackBody
+    input: RemoteAgentCoreCallbackEvent
   ): Promise<RemoteAgentCoreCallbackResponse> {
     const db = localStateDb(this.env);
     return completeRemoteAgentNativeDelivery(this.env, input, {
@@ -4425,7 +4425,7 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 
   completeRemoteAgentSubmission(
-    input: RemoteAgentCoreCallbackBody
+    input: RemoteAgentCoreCallbackEvent
   ): Promise<RemoteAgentCoreCallbackResponse> {
     return super.completeRemoteAgentSubmission(input);
   }

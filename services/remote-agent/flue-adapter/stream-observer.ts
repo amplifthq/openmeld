@@ -295,6 +295,9 @@ async function handleCenterAgentStreamDelta(input: {
   if (input.streamDelta.kind === "thinking") {
     return;
   }
+  if (context.workLoopCheckpoint) {
+    return;
+  }
   if (!isRemoteAgentStreamEligible(context)) {
     return;
   }

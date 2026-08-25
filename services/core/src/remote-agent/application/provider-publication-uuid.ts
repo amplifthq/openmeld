@@ -13,7 +13,8 @@ export async function buildMessageChannelProviderPublicationUuid(input: {
     | `rollover:${number}:create`
     | `rollover:${number}:finalize:${number}`
     | `rollover:${number}:send`
-    | `stream:${number}`;
+    | `stream:${number}`
+    | `work-loop:${number}:stream:${number}`;
 }): Promise<string> {
   const name = [input.provider, input.deliveryId, input.publicationKind].join(
     "\u001f"
