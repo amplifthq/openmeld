@@ -1164,11 +1164,17 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const spaceName = (
-			await screen.findByRole("button", { name: "Alpha" })
-		).querySelector<HTMLElement>('[data-slot="center-truncated-text"]');
+		const openSpaceButton = await screen.findByRole("button", {
+			name: "Alpha",
+		});
+		const spaceName = openSpaceButton.querySelector<HTMLElement>(
+			'[data-slot="center-truncated-text"]'
+		);
 
 		expect(spaceName?.classList.contains("pr-10")).toBe(true);
+		expect(
+			openSpaceButton.querySelector('[data-slot="space-sidebar-date"]')
+		).toBeNull();
 		expect(screen.getByRole("button", { name: "Unpin Alpha" })).toBeTruthy();
 	});
 
