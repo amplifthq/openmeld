@@ -1,31 +1,24 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { runCoreStartupAdmission } from "../cloudflare/core-startup-admission.mjs";
+import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
 
 const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
-
-export function buildCoreWorkerDeployStepSpec(input) {
-  return {
-    args: [
-      "--filter",
-      "@openmeld/core",
-      "run",
-      "deploy",
-      ...(input.tag ? ["--tag", input.tag] : []),
-    ],
-    command: "pnpm",
-    label: "Deploy the startup-admitted Core Worker",
-  };
-}
 
 export function deployCoreWorker(input = {}) {
   const cwd = input.cwd ?? process.cwd();
   const env = input.env ?? process.env;
   const adapters = {
+    readCoreWranglerConfig:
+      input.adapters?.readCoreWranglerConfig ??
+      (() =>
+        readFileSync(path.join(cwd, "services/core/wrangler.jsonc"), "utf8")),
     readHeadSha:
       input.adapters?.readHeadSha ??
       (() =>
@@ -54,13 +47,19 @@ export function deployCoreWorker(input = {}) {
     command: "pnpm",
     label: "Build Core receiver dependencies",
   });
-  adapters.runStartupAdmission({
+  const evidence = adapters.runStartupAdmission({
     cwd,
     env,
     releaseSha,
     tag: input.tag,
   });
-  adapters.runStep(buildCoreWorkerDeployStepSpec({ tag: input.tag }));
+  const releaseSteps = buildCoreVersionReleaseStepSpecs({
+    versionId: evidence.versionId,
+    wranglerConfigSource: adapters.readCoreWranglerConfig(),
+  });
+  for (const step of releaseSteps) {
+    adapters.runStep(step);
+  }
 }
 
 function runStep(input) {
