@@ -757,7 +757,11 @@ provider, scrape Web, expose Computer controls, or define a second schema.
 Its optional `openMeldTools` object is also a sanitized live-session
 projection. It permits component installed/latest versions, required Service
 version, update status/policy, Wake-blocking state, bounded reason codes, and
-managed skill target count. Setup commands, component hashes, runtime lanes,
+managed skill target count. When an OpenMeld Tools update exists, the same
+object may include the Service-owned safe operation projection: opaque id,
+phase, request source, target version, urgency, and timestamps. Core passes
+that operation through unchanged; it does not create another update state.
+Setup commands, component hashes, runtime lanes, local paths, raw errors,
 credentials, and actions are not members of the Organization schema.
 
 Both `details` and `openMeldTools` are additive optional response fields. The

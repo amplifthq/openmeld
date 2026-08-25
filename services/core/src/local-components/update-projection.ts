@@ -13,6 +13,7 @@ import type {
   LocalServiceComponentUpdateProjection,
   LocalSetupAction,
   LocalSkillsComponentUpdateProjection,
+  OpenMeldToolsUpdateOperation,
 } from "@openmeld/schemas/types";
 import releaseManifestJson from "../../../../release/local-components.json";
 
@@ -48,10 +49,7 @@ export function resolveLocalComponentUpdateProjection(input: {
   serviceConnected: boolean;
   serviceVersion: string | null;
 }): LocalComponentUpdateProjection {
-  const manifest =
-    input.releaseManifest === undefined
-      ? resolveReleaseManifest()
-      : input.releaseManifest;
+  const manifest = resolveRequestedReleaseManifest(input.releaseManifest);
   if (!manifest) {
     const service = buildServiceUpdateProjection({
       installedVersion: input.serviceVersion,
@@ -89,6 +87,7 @@ export function resolveLocalComponentUpdateProjection(input: {
       generatedAt: input.generatedAt,
       service,
       skills,
+      updateOperation: input.localComponentsStatus?.updateOperation ?? null,
     });
   }
 
@@ -121,6 +120,7 @@ export function resolveLocalComponentUpdateProjection(input: {
       generatedAt: input.generatedAt,
       service,
       skills,
+      updateOperation: input.localComponentsStatus?.updateOperation ?? null,
     });
   }
 
@@ -172,7 +172,16 @@ export function resolveLocalComponentUpdateProjection(input: {
     generatedAt: input.generatedAt,
     service,
     skills,
+    updateOperation: input.localComponentsStatus?.updateOperation ?? null,
   });
+}
+
+function resolveRequestedReleaseManifest(
+  releaseManifest: LocalComponentsReleaseManifest | null | undefined
+): LocalComponentsReleaseManifest | null {
+  return releaseManifest === undefined
+    ? resolveReleaseManifest()
+    : releaseManifest;
 }
 
 function resolveReleaseManifest(): LocalComponentsReleaseManifest | null {
@@ -497,6 +506,7 @@ function buildProjection(input: {
   generatedAt: string;
   service: LocalServiceComponentUpdateProjection;
   skills: LocalSkillsComponentUpdateProjection;
+  updateOperation: OpenMeldToolsUpdateOperation | null;
 }): LocalComponentUpdateProjection {
   const setupAction = resolveProjectionSetupAction(input);
   return {
@@ -507,6 +517,9 @@ function buildProjection(input: {
     setupActionDescription: formatLocalSetupActionDescription(setupAction),
     humanSetupCommand: HUMAN_SETUP_COMMAND,
     agentSetupCommand: AGENT_SETUP_COMMAND,
+    ...(input.updateOperation
+      ? { updateOperation: input.updateOperation }
+      : {}),
     cli: input.cli,
     service: input.service,
     skills: input.skills,

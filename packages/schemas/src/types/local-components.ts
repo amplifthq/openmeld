@@ -32,6 +32,12 @@ type LocalSkillsComponentProjectionSchema =
   typeof import("../schemas/local-components")["localSkillsComponentProjectionSchema"];
 type LocalSkillsComponentUpdateProjectionSchema =
   typeof import("../schemas/local-components")["localSkillsComponentUpdateProjectionSchema"];
+type OpenMeldToolsUpdateOperationSchema =
+  typeof import("../schemas/local-components")["openMeldToolsUpdateOperationSchema"];
+type OpenMeldToolsUpdateOperationPhaseSchema =
+  typeof import("../schemas/local-components")["openMeldToolsUpdateOperationPhaseSchema"];
+type OpenMeldToolsUpdateRequestSourceSchema =
+  typeof import("../schemas/local-components")["openMeldToolsUpdateRequestSourceSchema"];
 
 export type InstalledLocalComponentsSnapshot =
   z.infer<InstalledLocalComponentsSnapshotSchema>;
@@ -60,3 +66,9 @@ export type LocalSkillsComponentProjection =
   z.infer<LocalSkillsComponentProjectionSchema>;
 export type LocalSkillsComponentUpdateProjection =
   z.infer<LocalSkillsComponentUpdateProjectionSchema>;
+export type OpenMeldToolsUpdateOperation =
+  z.infer<OpenMeldToolsUpdateOperationSchema>;
+export type OpenMeldToolsUpdateOperationPhase =
+  z.infer<OpenMeldToolsUpdateOperationPhaseSchema>;
+export type OpenMeldToolsUpdateRequestSource =
+  z.infer<OpenMeldToolsUpdateRequestSourceSchema>;

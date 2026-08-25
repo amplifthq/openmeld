@@ -21,6 +21,15 @@ describe("local components schema", () => {
       setupActionLabel: "Update OpenMeld Service",
       setupActionDescription:
         "Update OpenMeld Service through setup on this computer.",
+      updateOperation: {
+        operationId: "update-1",
+        phase: "waiting_for_work",
+        requestSource: "cli",
+        requestedAt: "2026-05-30T00:00:00.000Z",
+        targetVersion: "0.6.9",
+        updatedAt: "2026-05-30T00:01:00.000Z",
+        urgency: "available",
+      },
       cli: {
         commandContractVersion:
           "openmeld-cli-command-contract-2026-05-local-components-v1",
@@ -53,6 +62,7 @@ describe("local components schema", () => {
     });
 
     expect(parsed.setupAction).toBe("update_service");
+    expect(parsed.updateOperation?.phase).toBe("waiting_for_work");
   });
 
   it("owns the user-facing labels for setup actions", () => {
@@ -132,6 +142,15 @@ describe("local components schema", () => {
       humanSetupCommand: "npm install -g openmeld@latest && openmeld setup",
       agentSetupCommand:
         "npm install -g openmeld@latest && openmeld setup --view agent",
+      updateOperation: {
+        operationId: "update-1",
+        phase: "updating",
+        requestSource: "web",
+        requestedAt: "2026-06-03T00:00:00.000Z",
+        targetVersion: "0.7.24",
+        updatedAt: "2026-06-03T00:01:00.000Z",
+        urgency: "required",
+      },
       cli: {
         commandContractVersion:
           "openmeld-cli-command-contract-2026-05-local-components-v1",
@@ -166,5 +185,6 @@ describe("local components schema", () => {
     });
 
     expect(parsed.service.wakeBlocked).toBe(true);
+    expect(parsed.updateOperation?.requestSource).toBe("web");
   });
 });
