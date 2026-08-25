@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { openMeldProfileIdSchema } from "../daemon/profile-identity";
 import {
   START_BOUNDED_ID_SCHEMA,

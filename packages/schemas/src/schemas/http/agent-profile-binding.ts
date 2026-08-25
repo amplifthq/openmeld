@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { agentControllerCollaborationModeSchema } from "../agent-controller-collaboration-mode";
 import { agentControllerPermissionModeSchema } from "../agent-controller-permission-mode";
 import { openCodePermissionConfigSchema } from "../open-code-permission";

@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const FEEDBACK_SUBMIT_INVALID_INPUT_ERROR_CODE =
   "feedback.submit.invalid_input" as const;

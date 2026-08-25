@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { runtimeCoordinatorExecutionRecordSchema } from "../daemon/runtime-coordinator-execution";
 import { agentInteractionPendingSummarySchema } from "../protocol/agent-interaction";
 import { clientMessageIdSchema } from "../protocol/client-message-id";

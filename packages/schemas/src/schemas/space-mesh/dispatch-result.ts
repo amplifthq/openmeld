@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { agentControllerConversationRefSchema } from "../daemon/conversation-contract";
 import { dispatchExecutionSchema } from "../daemon/conversation-lifecycle";
 import { messageEnvelopeSchema } from "../protocol/message-envelope";

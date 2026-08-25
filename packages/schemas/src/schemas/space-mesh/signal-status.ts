@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { coreReadinessFactsChangedSchema } from "../protocol/core-readiness-facts-changed";
 import { openMeldRuntimeProfileIdSchema } from "../protocol/profile";
 import { trimmedStringFromUnknown } from "../protocol/shared";

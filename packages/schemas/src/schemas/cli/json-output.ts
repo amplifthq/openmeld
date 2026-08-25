@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { localProjectControlConnectionSchema } from "../daemon/local-project-control";
 import { agentActivitySnapshotResponseSchema } from "../http/agent-activity";
 import { agentActivitySessionInventoryResponseSchema } from "../http/agent-activity-sessions";

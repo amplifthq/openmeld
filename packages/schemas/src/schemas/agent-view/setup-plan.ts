@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { onboardingFactsSchema, onboardingPlanSchema } from "../start";
 
 export const SETUP_PLAN_AGENT_VIEW_SCHEMA_VERSION = 1 as const;

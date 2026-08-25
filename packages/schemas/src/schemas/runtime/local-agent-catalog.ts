@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const LOCAL_AGENT_CATALOG_BOUNDED_ID_SCHEMA = z.string().trim().min(1).max(256);
 const LOCAL_AGENT_CATALOG_BOUNDED_LABEL_SCHEMA = z

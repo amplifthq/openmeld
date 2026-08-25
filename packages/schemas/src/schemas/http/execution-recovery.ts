@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const requiredIdentifierSchema = z.string().trim().min(1).max(512);
 const nullableIdentifierSchema = requiredIdentifierSchema.nullable();

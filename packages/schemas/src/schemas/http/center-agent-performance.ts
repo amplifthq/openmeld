@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const CENTER_AGENT_PERFORMANCE_MODEL_VERSION =
   "openmeld.center_agent.performance.v1" as const;

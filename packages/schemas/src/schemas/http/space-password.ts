@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const SPACE_PASSWORD_MIN_LENGTH = 6;
 export const SPACE_PASSWORD_RATE_LIMITED_ERROR_CODE =

@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 export const CENTER_AGENT_ORGANIZATION_MEMORY_FACT_MAX_CHARS = 1200;

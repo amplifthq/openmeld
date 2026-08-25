@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const SPACE_FILE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 export const SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES = 1024 * 1024;

@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
 import { START_BOUNDED_ID_SCHEMA } from "../start/shared";
 

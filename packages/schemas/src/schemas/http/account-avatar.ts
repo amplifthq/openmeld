@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import {
   IDENTITY_IMAGE_MAX_DIMENSION,
   IDENTITY_IMAGE_MAX_PIXELS,

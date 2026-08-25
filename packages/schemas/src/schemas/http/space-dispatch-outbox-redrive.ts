@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const spaceDispatchOutboxRedriveReasonSchema = z.enum([
   "runtime_coordinator_head_waiting_recovery",

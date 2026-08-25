@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { localAgentCatalogLaunchStatusSchema } from "./local-agent-catalog";
 
 const ACI_BOUNDED_ID_SCHEMA = z.string().trim().min(1).max(256);

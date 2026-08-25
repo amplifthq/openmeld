@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const MESSAGE_CHANNEL_PROVIDERS = ["slack", "lark", "feishu"] as const;
 export const MESSAGE_CHANNEL_TRANSPORTS = ["webhook", "websocket"] as const;

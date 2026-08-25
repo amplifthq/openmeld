@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const nullableTrimmedStringSchema = z.union([

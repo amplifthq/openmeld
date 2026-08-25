@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const CENTER_AGENT_DIRECT_MESSAGE_SPACE_KIND =
   "center_agent_direct_message_space" as const;

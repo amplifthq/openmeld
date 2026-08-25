@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const CATCHUP_DEFAULT_LIMIT = 200;
 const CATCHUP_MAX_LIMIT = 500;

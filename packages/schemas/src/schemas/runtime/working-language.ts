@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const WORKING_LANGUAGE_TAG_MAX_CHARS = 64;
 

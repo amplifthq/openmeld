@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { resolveBuiltinAgentControllerConversationCapability } from "./agent-controller-conversation-capability";
 
 const BUILTIN_AGENT_CONTROLLER_REF_PREFIX = "builtin:";

@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 const reasonCodeSchema = z.string().trim().min(1).max(256);

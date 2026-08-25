@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const AGENT_EXECUTION_READINESS_IMPACT_FRESH_TTL_MS = 30 * 60 * 1000;
 

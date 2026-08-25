@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { agentProfileIdSchema, uuidProfileIdSchema } from "../protocol/profile";
 import { getAgentExecutionReadinessResponseSchema } from "./agent-execution-readiness";
 import { authProfileManagedRoleSchema } from "./profiles";

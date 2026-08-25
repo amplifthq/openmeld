@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { clientMessageIdSchema } from "../protocol/client-message-id";
 import { OBSERVABILITY_WAKE_CORRELATION_MODEL_VERSION } from "./observability-correlation";
 

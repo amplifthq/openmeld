@@ -1,0 +1,14 @@
+{
+  "root": false,
+  "extends": "//",
+  "linter": {
+    "rules": {
+      "performance": {
+        // Zod's v4 barrel produces a smaller Cloudflare Worker bundle when it
+        // is consumed as a namespace. Keep this measured exception scoped to
+        // the shared schema package; the repository-wide rule stays enabled.
+        "noNamespaceImport": "off"
+      }
+    }
+  }
+}

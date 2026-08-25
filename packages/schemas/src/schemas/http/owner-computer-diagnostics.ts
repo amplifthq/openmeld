@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import type { ComputerFileAccessPolicyResponse } from "../../types/daemon/computer-file-access";
 import type { LocalRuntimesResponse } from "../../types/http/local-runtimes";
 import { computerFileAccessModeSchema } from "../daemon/computer-file-access";

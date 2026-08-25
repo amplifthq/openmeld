@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { spaceAgentStreamSnapshotSchema } from "../protocol/agent-stream";
 import { spaceRouteParamsSchema } from "./space-route-params";
 

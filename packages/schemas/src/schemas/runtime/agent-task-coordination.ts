@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import { agentProfileIdSchema } from "../protocol/profile";

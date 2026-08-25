@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { agentControllerPermissionModeSchema } from "../agent-controller-permission-mode";
 import {
   agentProfileIdSchema,

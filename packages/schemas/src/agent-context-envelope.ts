@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const AGENT_CONTEXT_ENVELOPE_VERSION = "agent_context.v1" as const;
 

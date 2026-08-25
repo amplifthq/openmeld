@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const IDENTITY_IMAGE_MAX_SIZE_BYTES = 5_242_880;
 export const IDENTITY_IMAGE_MAX_DIMENSION = 20_000;

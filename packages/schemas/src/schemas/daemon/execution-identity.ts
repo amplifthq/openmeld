@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION =
   "openmeld.runtime.execution_identity.v1" as const;

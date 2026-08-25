@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const ORGANIZATION_NAME_MAX_LENGTH = 255;
 

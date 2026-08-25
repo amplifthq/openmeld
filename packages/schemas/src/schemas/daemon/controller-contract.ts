@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { agentControllerConversationRefSchema } from "./conversation-contract";
 
 export const LEGACY_RUNTIME_DISPATCH_POLICY = "mention_only" as const;

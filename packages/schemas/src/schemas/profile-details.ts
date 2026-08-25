@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { authProfileKindSchema } from "./http/profiles";
 
 export const profileDetailsViewerScopeSchema = z.enum([

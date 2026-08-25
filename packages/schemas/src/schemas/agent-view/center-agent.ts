@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const centerAgentOrganizationTargetSchema = z.strictObject({
   id: z.string().trim().min(1),

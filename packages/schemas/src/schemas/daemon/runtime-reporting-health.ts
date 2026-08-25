@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const RUNTIME_REPORTING_HEALTH_SCHEMA_VERSION = 1 as const;
 export const RUNTIME_REPORTING_HEALTH_SCHEMA_NAME =

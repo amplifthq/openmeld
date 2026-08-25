@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE } from "../http/space-signals";
 import { openMeldDaemonTaskResultEnvelopeSchema } from "./task-result";
 

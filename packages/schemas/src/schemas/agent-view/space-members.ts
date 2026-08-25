@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { spaceMembersSnapshotSchema } from "../http/space-members";
 
 export const spaceMembersEventSchema = z.strictObject({

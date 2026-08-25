@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES = 500;
 
