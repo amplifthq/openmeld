@@ -218,7 +218,7 @@ describe("Space Inbox projection", () => {
     ).toBeNull();
   });
 
-  it("delivers a terminal Wake failure only to the exact requester", () => {
+  it("delivers a terminal Wake failure as urgent action only to the exact requester", () => {
     const signal = systemNoticeSignal({
       noticeType: "terminal_failure",
       text: "The Wake could not finish.",
@@ -237,8 +237,17 @@ describe("Space Inbox projection", () => {
 
     expect(record?.candidates).toEqual([
       expect.objectContaining({
+        attention: "action_required",
+        importance: "urgent",
         kind: "wake_outcome",
+        preview: "The Wake could not finish.",
         recipientUserId: "user-requester",
+        sourceTarget: {
+          kind: "space",
+          signalId: "signal-1",
+          spaceId: "space-1",
+        },
+        title: "Agent couldn't finish in Operations",
       }),
     ]);
   });

@@ -68,6 +68,9 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   if (!audience) {
     return null;
   }
+  const isTerminalWakeFailure =
+    signal.type === "signal.system_notice" &&
+    signal.data.noticeType === "terminal_failure";
   const memberRecordsByUserId = groupRecipientMemberRecords({
     activeMemberRecords: input.activeMemberRecords,
     allowedRecipientUserIds: audience.allowedRecipientUserIds,
@@ -85,9 +88,9 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
       normalizeText(input.threadRootAuthorUserId) === recipientUserId;
     candidates.push(
       inboxSourceCandidateSchema.parse({
-        attention: "update",
+        attention: isTerminalWakeFailure ? "action_required" : "update",
         contextLabel: spaceLabel,
-        importance: "normal",
+        importance: isTerminalWakeFailure ? "urgent" : "normal",
         kind,
         occurredAtMs: Math.max(0, signal.ts),
         organizationId: requireText(input.organizationId, "organizationId"),
@@ -109,6 +112,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
         title: buildTitle({
           actorName,
           isReference,
+          isTerminalWakeFailure,
           isThreadRootAuthor,
           kind,
           spaceLabel,
@@ -277,6 +281,7 @@ function resolveExplicitlyTargetedRecipientUserIds(input: {
 function buildTitle(input: {
   actorName: string;
   isReference: boolean;
+  isTerminalWakeFailure: boolean;
   isThreadRootAuthor: boolean;
   kind: InboxSourceCandidate["kind"];
   spaceLabel: string;
@@ -290,6 +295,12 @@ function buildTitle(input: {
   if (input.isThreadRootAuthor) {
     return truncateInboxText(
       `${input.actorName} replied to your thread in ${input.spaceLabel}`,
+      INBOX_TITLE_MAX_CHARS
+    );
+  }
+  if (input.isTerminalWakeFailure) {
+    return truncateInboxText(
+      `Agent couldn't finish in ${input.spaceLabel}`,
       INBOX_TITLE_MAX_CHARS
     );
   }
