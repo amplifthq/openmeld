@@ -59,6 +59,11 @@ const AGENT_WORK_COPY = {
 		"Checked Agent Profile readiness",
 		"Couldn't check Agent Profile readiness"
 	),
+	"agent_profile.settings.read": workCopy(
+		"Reviewing Agent Profile setup choices…",
+		"Reviewed Agent Profile setup choices",
+		"Couldn't review Agent Profile setup choices"
+	),
 	"agent_profile.settings.update": workCopy(
 		"Updating Agent Profile settings…",
 		"Updated Agent Profile settings",
