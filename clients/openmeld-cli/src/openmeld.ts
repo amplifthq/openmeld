@@ -2258,7 +2258,7 @@ serviceCmd
   .description("Resume one durable OpenMeld Service update in the background.")
   .action(async () => {
     const result = await runPendingDaemonServiceUpdate();
-    if (result?.status === "failed") {
+    if (result?.phase === "restored" || result?.phase === "needs_help") {
       process.exitCode = 1;
     }
   });

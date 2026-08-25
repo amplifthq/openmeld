@@ -24,6 +24,7 @@ import {
   type DaemonServiceAnomalyCode,
   inspectDaemonServiceInventory,
 } from "../local-service/lifecycle/daemon-service-inventory";
+import { resolveDaemonServiceUpdateOperation } from "../local-service/lifecycle/daemon-service-update-state";
 import {
   hashBundledSkillAssets,
   loadBundledSkillAssets,
@@ -135,11 +136,13 @@ export async function writeInstalledLocalComponentsSnapshot(input: {
 export async function resolveLocalComponentsStatus(
   input: CliUpdateInput = {}
 ): Promise<LocalComponentsStatus> {
-  const [expectedManifest, service, skills] = await Promise.all([
-    buildExpectedLocalComponentsManifest(),
-    resolveServiceComponentState(),
-    resolveSkillsComponentState(),
-  ]);
+  const [expectedManifest, service, skills, updateOperation] =
+    await Promise.all([
+      buildExpectedLocalComponentsManifest(),
+      resolveServiceComponentState(),
+      resolveSkillsComponentState(),
+      resolveDaemonServiceUpdateOperation(),
+    ]);
   const cli = resolveCliComponentStatus(input);
   const setupAction = resolveLocalComponentsSetupAction({
     cliStatus: cli.status,
@@ -163,6 +166,7 @@ export async function resolveLocalComponentsStatus(
     setupAction,
     setupActionLabel: formatLocalSetupActionLabel(setupAction),
     setupActionDescription: formatLocalSetupActionDescription(setupAction),
+    ...(updateOperation ? { updateOperation } : {}),
     cli,
     service: {
       expectedBundleHash: expectedManifest.service.bundleHash,
