@@ -45,7 +45,7 @@ export type SpaceTimelineItem = {
 	spaceId: string;
 	signalType: VisibleTimelineSignalType;
 	spaceStatus?: SpaceStatus;
-	deliveryState: "pending" | "sent";
+	deliveryState: "failed" | "pending" | "sent";
 	attachments: readonly SpaceTimelineAttachment[];
 	files?: readonly SpaceTimelineFile[];
 	createdAtMs: number;
@@ -320,7 +320,7 @@ function buildSpaceTimelineItem(input: {
 		...(input.signal.type === "signal.status"
 			? { spaceStatus: input.signal.data.status }
 			: {}),
-		deliveryState: input.signal.id.startsWith("pending:") ? "pending" : "sent",
+		deliveryState: resolveLocalSignalDeliveryState(input.signal.id),
 		attachments: readTimelineAttachments({
 			pendingAttachmentPreviewUrlsById: input.pendingAttachmentPreviewUrlsById,
 			signal: input.signal,
@@ -372,6 +372,18 @@ function buildSpaceTimelineItem(input: {
 		text: projection.text,
 		...readSourceWakeDetails(input.signal),
 	};
+}
+
+function resolveLocalSignalDeliveryState(
+	signalId: string
+): SpaceTimelineItem["deliveryState"] {
+	if (signalId.startsWith("pending:")) {
+		return "pending";
+	}
+	if (signalId.startsWith("failed:")) {
+		return "failed";
+	}
+	return "sent";
 }
 
 function readConversationCompaction(

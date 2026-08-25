@@ -6,6 +6,7 @@ export const SPACE_AGENT_WORKING_STATUS_TEXT = "Agent is working";
 
 export type SpaceMessageDeliveryPresentation =
 	| "delivered"
+	| "send_failed"
 	| "sending"
 	| "sending_delayed"
 	| "agent_sending"
@@ -50,6 +51,9 @@ export function resolveSpaceMessageDeliveryPresentation(input: {
 	if (input.item.deliveryState === "sent") {
 		return "delivered";
 	}
+	if (input.item.deliveryState === "failed") {
+		return "send_failed";
+	}
 
 	return input.nowMs - input.item.createdAtMs >=
 		SPACE_LOCAL_PENDING_MESSAGE_DELAY_MS
@@ -66,6 +70,8 @@ export function resolveSpaceMessageDeliveryStatusText(
 	switch (presentation) {
 		case "delivered":
 			return null;
+		case "send_failed":
+			return "Message not sent";
 		case "sending":
 			return null;
 		case "sending_delayed":

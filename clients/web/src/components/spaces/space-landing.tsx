@@ -18,7 +18,9 @@ import {
 	isDirectMessageSpace,
 	resolveSpaceMemberAgentOwnerWakeDiagnosticsView,
 } from "@openmeld/space";
+import { Button } from "@openmeld/ui/components/button";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
+import { ArrowUpIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
@@ -44,6 +46,11 @@ import {
 	UnsavedChangesDialog,
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
+import {
+	PromptInput,
+	PromptInputActions,
+	PromptInputTextarea,
+} from "#/components/ibelick/prompt-input";
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
 import {
 	buildCenterAgentHeaderMenuItems,
@@ -1304,7 +1311,13 @@ export function SpaceLanding(input: SpaceLandingInput) {
 	const state = useSpaceLandingState(input);
 	const { controller } = state;
 	if (controller.mode === "loading") {
-		return input.loadingFallback ?? <SpaceLandingLoadingShell />;
+		return (
+			input.loadingFallback ?? (
+				<SpaceLandingLoadingShell
+					composer={<SpaceColdLoadingComposer controller={controller} />}
+				/>
+			)
+		);
 	}
 
 	if (controller.mode === "password") {
@@ -1335,6 +1348,65 @@ export function SpaceLanding(input: SpaceLandingInput) {
 
 	return (
 		<SpaceLandingReady controller={controller} input={input} state={state} />
+	);
+}
+
+function SpaceColdLoadingComposer(input: {
+	controller: Extract<SpaceLandingState["controller"], { mode: "loading" }>;
+}) {
+	const controller = input.controller;
+	return (
+		<PromptInput
+			className="w-full"
+			maxHeight={240}
+			onSubmit={() => undefined}
+			value={controller.composerText}
+		>
+			<PromptInputTextarea
+				aria-label="Message this space"
+				autoComplete="off"
+				className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
+				name="space-message"
+				onBlur={controller.onComposerBlur}
+				onChange={(event) => {
+					controller.onComposerChange(event.target.value, {
+						end: event.target.selectionEnd,
+						start: event.target.selectionStart,
+					});
+				}}
+				onFocus={controller.onComposerFocus}
+				onKeyDown={(event) => {
+					controller.onComposerKeyDown(event).catch((error) => {
+						console.error(
+							"Failed to handle Space composer input while opening the Space.",
+							error
+						);
+					});
+				}}
+				onSelect={(event) => {
+					controller.onComposerSelectionChange({
+						end: event.currentTarget.selectionEnd,
+						start: event.currentTarget.selectionStart,
+					});
+				}}
+				placeholder="Write a message while OpenMeld opens this space…"
+				ref={(element) => {
+					controller.textareaRef.current = element;
+				}}
+			/>
+			<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
+				<p
+					aria-live="polite"
+					className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-5"
+				>
+					You can keep writing. Sending will be available after this Space
+					opens.
+				</p>
+				<Button aria-label="Send message" disabled size="icon-sm" type="button">
+					<ArrowUpIcon aria-hidden="true" weight="bold" />
+				</Button>
+			</PromptInputActions>
+		</PromptInput>
 	);
 }
 
@@ -1756,7 +1828,7 @@ function SpaceLandingConversation({
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}
 			readOnly={!controller.isCurrentAccessConfirmed}
-			readOnlyComposerPlaceholder="Checking access…"
+			readOnlyComposerPlaceholder="Write a message while OpenMeld checks access…"
 			renderSetupGuidance={(presentation) =>
 				controller.isCurrentAccessConfirmed ? (
 					<SpaceConversationRecoveryBanner

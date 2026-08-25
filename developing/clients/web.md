@@ -2099,14 +2099,22 @@ read in the current signed-in account, Organization, Space, and acting-Profile
 scope, Web derives the smaller display snapshot by removing current actions and
 the latest-message preview before persistence. On a return visit, that display
 snapshot and the bounded history may render immediately while current access is
-checked. The composer remains visible but disabled with **Checking access…**,
-and every mutation or authority-bearing secondary surface stays unavailable
-until the current status succeeds. Background `isFetching` and a transient
-refresh failure do not erase an already visible conversation. An explicit
-access rejection immediately hides the private content and clears only that
+checked. The composer remains available for browser-local text authoring with
+**Write a message while OpenMeld checks access…**, but Send, file actions, and
+every other mutation or authority-bearing secondary surface stay unavailable
+until the current status succeeds. Pressing Enter during confirmation must not
+bypass that mutation boundary. Background `isFetching` and a transient refresh
+failure do not erase an already visible conversation. An explicit access
+rejection immediately hides the private content and clears only that
 account-plus-Organization-plus-Space-plus-acting-Profile segment. Session
 expiry, account replacement, or Organization-scope change still wins
 immediately and clears its broader owning segment.
+
+On a cold open with no safe display snapshot yet, the loading shell mounts the
+same browser-local text draft immediately instead of a Composer skeleton. That
+draft and its focus carry into the confirmed conversation without remount loss;
+it still cannot send or attach files before current status authorizes the
+mutation.
 
 Persisted records are segmented by confirmed account and by account plus the
 immutable Organization id. Organization slug is a secondary cleanup index for a
@@ -2184,14 +2192,21 @@ files upload immediately and remain visible as canonical Space Files, but the
 unsent message association and local preview are not restored across refresh in
 the MVP.
 
-The send path clears the draft once it takes ownership of the submission and
-restores it when a definitive unsent failure returns control to the Composer.
-Center Agent Task continuation clears only after Core accepts the continuation.
-An authentication boundary clears all private Composer drafts before the next
-account can render. Invalid or corrupt records are removed. Unavailable or full
-`localStorage` remains observable but does not block normal authoring or sending.
-Composer drafts never authorize access, enable a mutation, become offline send
-replay, or replace current Space, thread, membership, Task, or execution reads.
+The send path takes an immutable snapshot of the current submission, clears that
+draft once, and immediately leaves the Composer available for the next draft.
+The next draft cannot send until the current request has a safe outcome, and
+neither a success callback nor a projection refresh may clear or overwrite it.
+When a definitive unsent failure returns and no next draft exists, Web restores
+the failed submission to the Composer. When the member has already started the
+next draft, Web preserves that draft and keeps the failed submission visibly
+marked **Message not sent** instead. Outcome-unknown submissions remain pending
+under their original idempotent identity. Center Agent Task continuation clears
+only after Core accepts the continuation. An authentication boundary clears all
+private Composer drafts before the next account can render. Invalid or corrupt
+records are removed. Unavailable or full `localStorage` remains observable but
+does not block normal authoring or sending. Composer drafts never authorize
+access, enable a mutation, become offline send replay, or replace current Space,
+thread, membership, Task, or execution reads.
 
 The Center Agent page may accept one plain-text message while Core is still
 opening the real Center Agent Direct Message Space. That message remains an

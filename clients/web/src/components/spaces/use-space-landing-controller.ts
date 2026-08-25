@@ -195,17 +195,20 @@ type PreparedSpaceMessageSubmission = Pick<
 type ProgrammaticWakeRetryInput = SpaceWakeRetryAttempt;
 
 class PreparedSpaceMessageSendError extends Error {
+	readonly clientMessageId: string;
 	readonly originalError: unknown;
 	readonly outcomeUnknown: boolean;
 	readonly postedMessage: boolean;
 
 	constructor(input: {
+		clientMessageId: string;
 		originalError: unknown;
 		outcomeUnknown: boolean;
 		postedMessage: boolean;
 	}) {
 		super("The prepared Space message send failed.");
 		this.name = "PreparedSpaceMessageSendError";
+		this.clientMessageId = input.clientMessageId;
 		this.originalError = input.originalError;
 		this.outcomeUnknown = input.outcomeUnknown;
 		this.postedMessage = input.postedMessage;
@@ -444,14 +447,74 @@ function removePendingOutgoingSignal(
 	);
 }
 
+function markPendingOutgoingSignalFailed(
+	setPendingSignals: (value: SetStateAction<PendingOutgoingSignal[]>) => void,
+	clientMessageId: string
+) {
+	setPendingSignals((current) =>
+		current.map((item) =>
+			item.clientMessageId === clientMessageId
+				? {
+						...item,
+						signal: {
+							...item.signal,
+							id: `failed:${clientMessageId}`,
+						},
+					}
+				: item
+		)
+	);
+}
+
 function restoreFailedPendingSubmission(input: {
 	mentionAuthoring: SpaceMentionAuthoringController;
 	pendingSubmission: PendingComposerSubmission | null;
-}) {
+}): boolean {
 	if (!input.pendingSubmission) {
+		return false;
+	}
+	return input.mentionAuthoring.restoreFailedSubmission(
+		input.pendingSubmission
+	);
+}
+
+function canStartSpaceComposerSend(input: {
+	allowedToPost: boolean;
+	isInFlight: boolean;
+	statusReady: boolean;
+}): boolean {
+	return input.statusReady && input.allowedToPost && !input.isInFlight;
+}
+
+function settleDefinitiveSpaceComposerFailure(input: {
+	clearFiles: () => void;
+	clientMessageId: string;
+	isPendingMessage: boolean;
+	mentionAuthoring: SpaceMentionAuthoringController;
+	outcomeUnknown: boolean;
+	pendingSubmission: PendingComposerSubmission | null;
+	postedMessage: boolean;
+	setPendingSignals: (value: SetStateAction<PendingOutgoingSignal[]>) => void;
+}) {
+	if (input.postedMessage || input.outcomeUnknown) {
 		return;
 	}
-	input.mentionAuthoring.restoreFailedSubmission(input.pendingSubmission);
+	const restoredPreviousSubmission = restoreFailedPendingSubmission({
+		mentionAuthoring: input.mentionAuthoring,
+		pendingSubmission: input.pendingSubmission,
+	});
+	if (restoredPreviousSubmission) {
+		removePendingOutgoingSignal(input.setPendingSignals, input.clientMessageId);
+		return;
+	}
+	markPendingOutgoingSignalFailed(
+		input.setPendingSignals,
+		input.clientMessageId
+	);
+	clearManualComposerFiles({
+		clearFiles: input.clearFiles,
+		isPendingMessage: input.isPendingMessage,
+	});
 }
 
 function createSpaceMessageSendSeed(input: {
@@ -832,7 +895,19 @@ function shouldShowSpaceLandingLoading(input: {
 
 export type SpaceLandingController =
 	| {
+			composerText: string;
 			mode: "loading";
+			onComposerBlur: () => void;
+			onComposerChange: (
+				value: string,
+				selection: SpaceComposerSelection
+			) => void;
+			onComposerFocus: () => void;
+			onComposerKeyDown: (
+				event: KeyboardEvent<HTMLTextAreaElement>
+			) => Promise<void>;
+			onComposerSelectionChange: (selection: SpaceComposerSelection) => void;
+			textareaRef: { current: HTMLTextAreaElement | null };
 	  }
 	| {
 			inlineErrorMessage: string | null;
@@ -1136,6 +1211,7 @@ export function useSpaceLandingController(input: {
 	const [composerBlockedWakeProfileId, setComposerBlockedWakeProfileId] =
 		useState<string | null>(null);
 	const [isSendingMessage, setIsSendingMessage] = useState(false);
+	const composerSendInFlightRef = useRef(false);
 	const [pendingOutgoingSignals, setPendingOutgoingSignals] = useState<
 		PendingOutgoingSignal[]
 	>([]);
@@ -1392,6 +1468,14 @@ export function useSpaceLandingController(input: {
 		spaceId: input.spaceId,
 		snapshot: membersSnapshot,
 	});
+	const restoreColdLoadingComposerFocusRef = useRef(false);
+	useLayoutEffect(() => {
+		if (!(statusReady && restoreColdLoadingComposerFocusRef.current)) {
+			return;
+		}
+		restoreColdLoadingComposerFocusRef.current = false;
+		mentionAuthoring.textareaRef.current?.focus();
+	}, [mentionAuthoring.textareaRef, statusReady]);
 	const consumedInitialPendingMessageIdRef = useRef<string | null>(null);
 	const sendInitialPendingMessage = useEffectEvent(
 		async (pendingMessage: PendingSpaceMessage) => {
@@ -1836,7 +1920,20 @@ export function useSpaceLandingController(input: {
 		})
 	) {
 		return {
+			composerText: mentionAuthoring.composerText,
 			mode: "loading",
+			onComposerBlur: () => {
+				restoreColdLoadingComposerFocusRef.current = false;
+			},
+			onComposerChange: mentionAuthoring.onComposerChange,
+			onComposerFocus: () => {
+				restoreColdLoadingComposerFocusRef.current = true;
+			},
+			onComposerKeyDown: async (event) => {
+				await mentionAuthoring.onComposerKeyDown(event, sendMessage);
+			},
+			onComposerSelectionChange: mentionAuthoring.onComposerSelectionChange,
+			textareaRef: mentionAuthoring.textareaRef,
 		};
 	}
 
@@ -2069,6 +2166,16 @@ export function useSpaceLandingController(input: {
 		pendingMessage?: PendingSpaceMessage;
 		throwOnFailure?: boolean;
 	}) {
+		if (
+			!canStartSpaceComposerSend({
+				allowedToPost:
+					statusSnapshot?.allowedActions.includes("post_message") === true,
+				isInFlight: composerSendInFlightRef.current,
+				statusReady,
+			})
+		) {
+			return;
+		}
 		const sendAttempt = prepareSpaceMessageSendAttempt({
 			composerFiles: composerFilesController.files,
 			composerText: mentionAuthoring.composerText,
@@ -2090,6 +2197,7 @@ export function useSpaceLandingController(input: {
 
 		setComposerErrorMessage(null);
 		setComposerBlockedWakeProfileId(null);
+		composerSendInFlightRef.current = true;
 		setIsSendingMessage(true);
 
 		let postedMessage = false;
@@ -2125,9 +2233,16 @@ export function useSpaceLandingController(input: {
 				error instanceof PreparedSpaceMessageSendError ? error : null;
 			postedMessage ||= sendError?.postedMessage ?? false;
 			const originalError = sendError?.originalError ?? error;
-			if (!(postedMessage || sendError?.outcomeUnknown)) {
-				restoreFailedPendingSubmission({ mentionAuthoring, pendingSubmission });
-			}
+			settleDefinitiveSpaceComposerFailure({
+				clearFiles: composerFilesController.clearFiles,
+				clientMessageId: messageSeed.clientMessageId,
+				isPendingMessage: options?.pendingMessage !== undefined,
+				mentionAuthoring,
+				outcomeUnknown: sendError?.outcomeUnknown ?? false,
+				pendingSubmission,
+				postedMessage,
+				setPendingSignals: setPendingOutgoingSignals,
+			});
 			const failure = toStructuredApiClientFailure(originalError);
 			reportComposerSendFailure({
 				failure,
@@ -2148,6 +2263,7 @@ export function useSpaceLandingController(input: {
 				throwOnFailure: options?.throwOnFailure === true,
 			});
 		} finally {
+			composerSendInFlightRef.current = false;
 			setIsSendingMessage(false);
 		}
 	}
@@ -2267,10 +2383,6 @@ export function useSpaceLandingController(input: {
 				toStructuredApiClientFailure(error)
 			);
 			if (!(postedMessage || outcomeUnknown)) {
-				removePendingOutgoingSignal(
-					setPendingOutgoingSignals,
-					sendInput.clientMessageId
-				);
 				setWakeProgressItems((currentItems) =>
 					removeWakeProgressItemsForClientMessageId({
 						clientMessageId: sendInput.clientMessageId,
@@ -2279,6 +2391,7 @@ export function useSpaceLandingController(input: {
 				);
 			}
 			throw new PreparedSpaceMessageSendError({
+				clientMessageId: sendInput.clientMessageId,
 				originalError: error,
 				outcomeUnknown,
 				postedMessage,
@@ -2740,6 +2853,7 @@ function useSpaceThreadController(input: {
 		useState<string | null>(null);
 	const [isCreatingThread, setIsCreatingThread] = useState(false);
 	const [isSendingMessage, setIsSendingMessage] = useState(false);
+	const threadComposerSendInFlightRef = useRef(false);
 	const [wakeProgressItems, setWakeProgressItems] = useState<
 		WakeProgressItem[]
 	>([]);
@@ -2950,6 +3064,9 @@ function useSpaceThreadController(input: {
 	}
 
 	async function sendMessage() {
+		if (threadComposerSendInFlightRef.current || !input.statusReady) {
+			return;
+		}
 		const thread = activeThread;
 		const trimmedText = mentionAuthoring.composerText.trim();
 		const fileSubmission = buildComposerFileSubmission({
@@ -2973,6 +3090,7 @@ function useSpaceThreadController(input: {
 
 		setComposerErrorMessage(null);
 		setComposerBlockedWakeProfileId(null);
+		threadComposerSendInFlightRef.current = true;
 		setIsSendingMessage(true);
 
 		let pendingSubmission: PendingComposerSubmission | null = null;
@@ -2999,6 +3117,7 @@ function useSpaceThreadController(input: {
 		} catch (error) {
 			await handleSendMessageFailure({ error, pendingSubmission });
 		} finally {
+			threadComposerSendInFlightRef.current = false;
 			setIsSendingMessage(false);
 		}
 	}
@@ -3017,10 +3136,22 @@ function useSpaceThreadController(input: {
 		const outcomeUnknown =
 			sendError?.outcomeUnknown ?? isSpaceComposerSendOutcomeUnknown(failure);
 		if (!(postedMessage || outcomeUnknown)) {
-			restoreFailedPendingSubmission({
+			const restoredPreviousSubmission = restoreFailedPendingSubmission({
 				mentionAuthoring,
 				pendingSubmission: failureInput.pendingSubmission,
 			});
+			if (sendError && restoredPreviousSubmission) {
+				removePendingOutgoingSignal(
+					setPendingOutgoingSignals,
+					sendError.clientMessageId
+				);
+			} else if (sendError) {
+				markPendingOutgoingSignalFailed(
+					setPendingOutgoingSignals,
+					sendError.clientMessageId
+				);
+				composerFilesController.clearFiles();
+			}
 		}
 		reportComposerSendFailure({
 			failure,
@@ -3225,7 +3356,6 @@ function useSpaceThreadController(input: {
 				toStructuredApiClientFailure(error)
 			);
 			if (!(postedMessage || outcomeUnknown)) {
-				removePendingOutgoingSignal(setPendingOutgoingSignals, clientMessageId);
 				setWakeProgressItems((currentItems) =>
 					removeWakeProgressItemsForClientMessageId({
 						clientMessageId,
@@ -3235,6 +3365,7 @@ function useSpaceThreadController(input: {
 				input.onWakeProgressRemoveClientMessageId(clientMessageId);
 			}
 			throw new PreparedSpaceMessageSendError({
+				clientMessageId,
 				originalError: error,
 				outcomeUnknown,
 				postedMessage,

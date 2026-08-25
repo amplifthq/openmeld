@@ -898,7 +898,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		}
 	}, [input.activeSpaceView, input.onViewingLatestChange]);
 	const submitComposer = () => {
-		if (composerSendBlocked) {
+		if (composerSendBlocked || !canSendMessage || input.isSendingMessage) {
 			return;
 		}
 		input.onSend().catch((error) => {
@@ -1476,7 +1476,6 @@ function SpaceComposerSection(input: {
 					) : null}
 					<PromptInput
 						className="w-full"
-						disabled={panel.isSendingMessage || !input.canSendMessage}
 						isLoading={panel.isSendingMessage}
 						maxHeight={240}
 						onSubmit={input.submitComposer}
@@ -1491,7 +1490,6 @@ function SpaceComposerSection(input: {
 							aria-label="Message this space"
 							autoComplete="off"
 							className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
-							disabled={panel.isSendingMessage || !input.canSendMessage}
 							name="space-message"
 							onChange={(event) => {
 								panel.onComposerChange(event.target.value, {

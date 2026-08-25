@@ -60,6 +60,7 @@ export function SpaceMessageDeliveryStatus(input: {
 			aria-label={statusText}
 			className={cn(
 				"w-fit gap-2 text-muted-foreground",
+				presentation === "send_failed" ? "text-destructive" : null,
 				input.align === "end" ? "ml-auto text-right" : null,
 				input.className
 			)}
@@ -117,6 +118,7 @@ function renderDeliveryStatusIcon(
 			return <SpaceAgentOrb data-testid="agent-working-orb" />;
 		case "agent_stream_failed":
 		case "agent_stream_publish_failed":
+		case "send_failed":
 			return <WarningCircleIcon aria-hidden="true" className="size-4" />;
 		case "agent_stream_stopped":
 			return <StopCircleIcon aria-hidden="true" className="size-4" />;

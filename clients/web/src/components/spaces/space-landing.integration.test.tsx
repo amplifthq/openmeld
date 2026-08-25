@@ -1711,7 +1711,89 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("Couldn't Load This Space")).toBeNull();
 	});
 
-	it("renders a restored conversation read-only while current access is confirming", () => {
+	it("keeps a cold-start draft available and carries it into the confirmed Space", async () => {
+		const postNormalMessageMock = vi.fn();
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			bootstrap: createQueryResult({
+				isFetching: true,
+				isPending: true,
+			}),
+			status: createQueryResult({
+				isFetchedAfterMount: false,
+				isFetching: true,
+				isPending: true,
+			}),
+			members: createQueryResult({
+				isPending: true,
+			}),
+			history: createQueryResult({
+				isPending: true,
+			}),
+		});
+
+		const rendered = renderSpaceLanding();
+		const loadingComposer = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		expect((loadingComposer as HTMLTextAreaElement).disabled).toBe(false);
+		loadingComposer.focus();
+		setComposerValue(loadingComposer, "Draft from the first frame");
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Send message",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		fireEvent.keyDown(loadingComposer, { key: "Enter" });
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+		rendered.rerender(
+			<SpaceLanding
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+
+		await waitFor(() => {
+			const confirmedComposer = screen.getByRole("textbox", {
+				name: "Message this space",
+			}) as HTMLTextAreaElement;
+			expect(confirmedComposer.value).toBe("Draft from the first frame");
+			expect(document.activeElement).toBe(confirmedComposer);
+		});
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Send message",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(false);
+	});
+
+	it("keeps restored conversation authoring available while current access is confirming", () => {
+		const postNormalMessageMock = vi.fn();
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
 		mockSpaceQueries({
 			bootstrap: createQueryResult({
 				isFetching: true,
@@ -1749,8 +1831,28 @@ describe("SpaceLanding", () => {
 
 		expect(screen.getByText("Private launch numbers")).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Design Room" })).toBeTruthy();
-		expect(screen.getByRole("textbox")).toHaveProperty("disabled", true);
-		expect(screen.getByPlaceholderText("Checking access…")).toBeTruthy();
+		const composer = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		expect(composer).toHaveProperty("disabled", false);
+		expect(
+			screen.getByPlaceholderText(
+				"Write a message while OpenMeld checks access…"
+			)
+		).toBeTruthy();
+		setComposerValue(composer, "Draft while access is checked");
+		expect((composer as HTMLTextAreaElement).value).toBe(
+			"Draft while access is checked"
+		);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Send message",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		fireEvent.keyDown(composer, { key: "Enter" });
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
 		expect(screen.queryByRole("button", { name: "Leave space" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Delete space" })).toBeNull();
@@ -12446,6 +12548,125 @@ describe("SpaceLanding", () => {
 		expect(screen.getByText("send failed")).toBeTruthy();
 	});
 
+	it("keeps the composer editable and preserves the next draft while a message sends", async () => {
+		let resolvePost:
+			| ((signal: ReturnType<typeof createTextSignal>) => void)
+			| null = null;
+		const postNormalMessageMock = vi.fn().mockImplementation(
+			() =>
+				new Promise<ReturnType<typeof createTextSignal>>((resolve) => {
+					resolvePost = resolve;
+				})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		setComposerValue(textarea, "First message");
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
+		});
+		expect((textarea as HTMLTextAreaElement).disabled).toBe(false);
+		setComposerValue(textarea, "My next message");
+		expect((textarea as HTMLTextAreaElement).value).toBe("My next message");
+		expect(
+			(screen.getByRole("button", { name: "Sending…" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+		fireEvent.keyDown(textarea, { key: "Enter" });
+		expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			resolvePost?.(
+				createTextSignal({
+					id: "sig-first-message",
+					text: "First message",
+				})
+			);
+			await Promise.resolve();
+		});
+
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
+		});
+		expect((textarea as HTMLTextAreaElement).value).toBe("My next message");
+		expect((textarea as HTMLTextAreaElement).disabled).toBe(false);
+	});
+
+	it("preserves both the failed submission and a next draft written during sending", async () => {
+		let rejectPost: ((error: Error) => void) | null = null;
+		const postNormalMessageMock = vi.fn().mockImplementation(
+			() =>
+				new Promise<ReturnType<typeof createTextSignal>>((_resolve, reject) => {
+					rejectPost = reject;
+				})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		setComposerValue(textarea, "Message that fails");
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
+		});
+		setComposerValue(textarea, "Do not overwrite this next draft");
+
+		await act(async () => {
+			rejectPost?.(new Error("send failed"));
+			await Promise.resolve();
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText("Message not sent")).toBeTruthy();
+		});
+		expect((textarea as HTMLTextAreaElement).value).toBe(
+			"Do not overwrite this next draft"
+		);
+		expect(screen.getByText("Message that fails")).toBeTruthy();
+		expect(screen.getByText("send failed")).toBeTruthy();
+	});
+
 	it("keeps an outcome-unknown main message under one idempotent send identity", async () => {
 		const hangingRequest = createHangingFetchRequest();
 		const postNormalMessageMock = vi.fn(
@@ -14487,6 +14708,20 @@ describe("SpaceLanding", () => {
 				selector: "p",
 			})
 		).toBeTruthy();
+		expect((threadComposer as HTMLTextAreaElement).disabled).toBe(false);
+		setComposerValue(threadComposer, "Next thread reply");
+		expect((threadComposer as HTMLTextAreaElement).value).toBe(
+			"Next thread reply"
+		);
+		expect(
+			(
+				within(threadPanel).getByRole("button", {
+					name: "Send reply",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		fireEvent.keyDown(threadComposer, { key: "Enter" });
+		expect(postThreadSignalMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("keeps an outcome-unknown thread reply under one idempotent send identity", async () => {

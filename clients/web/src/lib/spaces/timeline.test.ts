@@ -327,6 +327,24 @@ describe("space timeline helpers", () => {
 		});
 	});
 
+	it("projects a definitively failed local submission separately from pending delivery", () => {
+		const [failed] = buildSpaceTimelineItems({
+			envelopes: [
+				createTextSignal({
+					id: "failed:client-message-1",
+					text: "Message that did not send",
+					ts: 10,
+				}),
+			],
+			membersSnapshot: createMembersSnapshot(),
+		});
+
+		expect(failed).toMatchObject({
+			deliveryState: "failed",
+			text: "Message that did not send",
+		});
+	});
+
 	it("materializes one temporary Center Agent bubble per stream id", () => {
 		const items = buildSpaceTimelineItems({
 			envelopes: [
