@@ -70,6 +70,7 @@ export {
   openMeldRemoteAgentSlackEventIngress,
   openMeldRemoteAgentSlackThreadContextCursors,
   openMeldRemoteAgentSlackWorkspaceBindings,
+  openMeldRemoteAgentWorkLoopAttempts,
   slackChannelIntroductionItems,
   slackChannelIntroductionRuns,
   slackInstallationWelcomeDeliveries,

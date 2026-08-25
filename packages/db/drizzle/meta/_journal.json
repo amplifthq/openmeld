@@ -995,6 +995,13 @@
       "when": 1787600775419,
       "tag": "0141_awesome_lady_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "6",
+      "when": 1787649702150,
+      "tag": "0142_oval_maginty",
+      "breakpoints": true
     }
   ]
 }

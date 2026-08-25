@@ -117,6 +117,7 @@ export const {
   openMeldDaemonDlq,
   openMeldDaemonDispatchResults,
   openMeldRemoteAgentNativeDeliveryLedger,
+  openMeldRemoteAgentWorkLoopAttempts,
   openMeldRemoteAgentDailyAdmissions,
   openMeldRemoteAgentConversationGenerations,
   openMeldRemoteAgentLarkPlatformChannelConnections,
