@@ -2,8 +2,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "openmeld-core",
   "main": "src/index.ts",
-  // Keep the generated Zep SDK out of Core's startup module. The memory adapter
-  // loads this additional module only when it first needs Zep.
+  // Keep request-only dependencies out of Core's startup module. Their existing
+  // lazy boundaries load these additional modules only when the feature runs.
   "base_dir": "src",
   "find_additional_modules": true,
   "rules": [

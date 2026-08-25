@@ -2,17 +2,17 @@ import { describe, expect, it } from "vitest";
 import { toSlackMrkdwn } from "../src/remote-agent/application/slack-mrkdwn";
 
 describe("Slack mrkdwn formatting", () => {
-  it("normalizes Markdown hard breaks to Slack newlines", () => {
+  it("normalizes Markdown hard breaks to Slack newlines", async () => {
     const markdown = ["First line\\", "Second line  ", "Third line"].join("\n");
 
-    expect(toSlackMrkdwn(markdown)).toBe(
+    expect(await toSlackMrkdwn(markdown)).toBe(
       ["First line", "Second line", "Third line"].join("\n")
     );
   });
 
-  it("converts common Markdown shapes to Slack mrkdwn", () => {
+  it("converts common Markdown shapes to Slack mrkdwn", async () => {
     expect(
-      toSlackMrkdwn(`# Release notes
+      await toSlackMrkdwn(`# Release notes
 
 **Bold** and *italic* plus [OpenMeld](https://openmeld.ai).
 
@@ -46,9 +46,9 @@ const ok = true;
     `);
   });
 
-  it("keeps Center Agent navigation actions clickable in Slack", () => {
+  it("keeps Center Agent navigation actions clickable in Slack", async () => {
     expect(
-      toSlackMrkdwn(
+      await toSlackMrkdwn(
         "[Open GitHub access](https://openmeld.ai/o/amplift/center-agent/apps/github)"
       )
     ).toBe(
@@ -56,9 +56,9 @@ const ok = true;
     );
   });
 
-  it("unwraps Slack presentation tokens accidentally wrapped in inline code", () => {
+  it("unwraps Slack presentation tokens accidentally wrapped in inline code", async () => {
     expect(
-      toSlackMrkdwn(
+      await toSlackMrkdwn(
         "`<https://github.com/amplifthq/reply/pull/154|#154 fix P0 · 3 files · +5/-3>`"
       )
     ).toBe(
@@ -66,7 +66,7 @@ const ok = true;
     );
 
     expect(
-      toSlackMrkdwn(
+      await toSlackMrkdwn(
         "See `[Open Space](https://openmeld.ai/o/amplift/spaces/space_123)` and notify `<@U123456>`."
       )
     ).toBe(
@@ -74,7 +74,7 @@ const ok = true;
     );
 
     expect(
-      toSlackMrkdwn(
+      await toSlackMrkdwn(
         "Track `<https://openmeld.ai/o/amplift/spaces/space_123?tab=timeline&from=slack|Open Space>`."
       )
     ).toBe(
@@ -82,9 +82,9 @@ const ok = true;
     );
   });
 
-  it("unwraps presentation-only code fences without flattening real code", () => {
+  it("unwraps presentation-only code fences without flattening real code", async () => {
     expect(
-      toSlackMrkdwn(
+      await toSlackMrkdwn(
         [
           "```text",
           "PR ready:",
@@ -104,7 +104,7 @@ const ok = true;
     );
 
     expect(
-      toSlackMrkdwn(
+      await toSlackMrkdwn(
         [
           "```ts",
           'const pr = "<https://github.com/amplifthq/reply/pull/154|#154>";',
@@ -120,9 +120,9 @@ const ok = true;
     );
   });
 
-  it("preserves table content through the library fallback", () => {
+  it("preserves table content through the library fallback", async () => {
     expect(
-      toSlackMrkdwn(`| Feature | Status |
+      await toSlackMrkdwn(`| Feature | Status |
 | --- | --- |
 | Bold | **works** |
 | Link | [docs](https://example.com/docs) |`)
@@ -134,23 +134,25 @@ const ok = true;
     `);
   });
 
-  it("converts block Markdown without leaking unsupported markers", () => {
+  it("converts block Markdown without leaking unsupported markers", async () => {
     const markdown = ["# Heading", "", "---", "", "> Quoted guidance"].join(
       "\n"
     );
 
-    expect(toSlackMrkdwn(markdown)).toBe(
+    expect(await toSlackMrkdwn(markdown)).toBe(
       ["*Heading*", "", "──────────", "", "> Quoted guidance"].join("\n")
     );
   });
 
-  it("preserves line-ending backslashes inside code blocks", () => {
+  it("preserves line-ending backslashes inside code blocks", async () => {
     const markdown = ["```text", "path\\", "```"].join("\n");
 
-    expect(toSlackMrkdwn(markdown)).toBe(["```", "path\\", "```"].join("\n"));
+    expect(await toSlackMrkdwn(markdown)).toBe(
+      ["```", "path\\", "```"].join("\n")
+    );
   });
 
-  it("preserves a trailing backslash without a following line", () => {
-    expect(toSlackMrkdwn("Literal\\")).toBe("Literal\\");
+  it("preserves a trailing backslash without a following line", async () => {
+    expect(await toSlackMrkdwn("Literal\\")).toBe("Literal\\");
   });
 });

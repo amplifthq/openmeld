@@ -47,14 +47,14 @@ type SlackFinalReplyPresentation = Readonly<{
   text: string;
 }>;
 
-export function buildSlackFinalReplyPresentation(
+export async function buildSlackFinalReplyPresentation(
   markdown: string,
   navigationAction?: NavigationAction
-): SlackFinalReplyPresentation {
+): Promise<SlackFinalReplyPresentation> {
   const presentationMarkdown = normalizeSlackPresentationMarkdown(
     removeInternalNavigationActionEmbeds(markdown)
   );
-  const slackMrkdwn = toSlackMrkdwn(presentationMarkdown);
+  const slackMrkdwn = await toSlackMrkdwn(presentationMarkdown);
   const shortenedBodyText = shortenSlackText(slackMrkdwn);
   const text = navigationAction
     ? buildSlackNavigationFallbackText(slackMrkdwn, navigationAction)
