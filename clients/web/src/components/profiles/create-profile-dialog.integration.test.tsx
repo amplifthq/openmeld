@@ -23,6 +23,7 @@ const FELIX_ID = "11111111-1111-4111-8111-111111111111";
 const NEW_HUMAN_ID = "55555555-5555-4555-8555-555555555555";
 const NEW_AGENT_ID = "agt_99999999-9999-4999-8999-999999999999";
 const CREATE_PROFILE_BUTTON_PATTERN = /create profile/i;
+const CREATING_PROFILE_BUTTON_PATTERN = /creating profile/i;
 const CHOOSE_LATER_PATTERN = /Choose later/i;
 const HUMAN_PROFILE_CARD_PATTERN = /Human profile/i;
 const AGENT_PROFILE_CARD_PATTERN = /Agent profile/i;
@@ -1331,8 +1332,43 @@ describe("CreateProfileDialog", () => {
 		});
 		const panel = screen.getByTestId("create-profile-panel");
 
+		expect(panel.tagName).toBe("FORM");
 		expect(panel.className).toContain("min-w-0");
-		expect(panel.querySelector("form")?.className).toContain("min-w-0");
+		expect(panel.className).toContain("min-h-0");
+		expect(screen.getByTestId("create-profile-actions")).not.toBeNull();
+	});
+
+	it("keeps the Working folder state and create action clear while Projects load", async () => {
+		listProjectsMock.mockImplementation(() => new Promise(() => undefined));
+		renderCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+
+		await selectAgentProfileKind();
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Research Agent" },
+		});
+		fireEvent.click(await screen.findByRole("radio", { name: "Codex" }));
+
+		expect(await screen.findByText("Working folder")).toBeTruthy();
+		expect(
+			screen.getByRole("status", { name: "Loading working folder choices" })
+		).toBeTruthy();
+		const actions = screen.getByTestId("create-profile-actions");
+		const submitButton = screen.getByRole("button", {
+			name: CREATE_PROFILE_BUTTON_PATTERN,
+		}) as HTMLButtonElement;
+		expect(actions.contains(submitButton)).toBe(true);
+		expect(submitButton.disabled).toBe(true);
+		expect(
+			screen.getByText("Loading your Projects and saved working folder.")
+		).toBeTruthy();
 	});
 
 	it("creates an agent profile with Choose later and joins no Space", async () => {
@@ -1402,6 +1438,11 @@ describe("CreateProfileDialog", () => {
 			expect(createStartAgentProfileMock).toHaveBeenCalled();
 		});
 		expect(createStartAgentProfileMock).toHaveBeenCalledTimes(1);
+		const creatingButton = screen.getByRole("button", {
+			name: CREATING_PROFILE_BUTTON_PATTERN,
+		}) as HTMLButtonElement;
+		expect(creatingButton.disabled).toBe(true);
+		expect(creatingButton.getAttribute("aria-busy")).toBe("true");
 		for (const resolveCreate of pendingCreates) {
 			resolveCreate(buildAgentProfileFixture());
 		}

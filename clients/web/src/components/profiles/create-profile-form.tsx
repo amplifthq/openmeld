@@ -108,6 +108,7 @@ export function CreateProfileForm(input: {
 	onSelectProfileKind: (profileKind: NewProfileKind) => void;
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 	submitLabel?: string;
+	submittingLabel?: string;
 }) {
 	const submitBlockReasonId = useId();
 	// Block submit until the account profiles have resolved, so the acting human
@@ -121,58 +122,69 @@ export function CreateProfileForm(input: {
 	});
 
 	return (
-		<div
-			className="grid w-full min-w-0 gap-4"
+		<form
+			className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
 			data-testid="create-profile-panel"
+			onSubmit={input.onSubmit}
 		>
-			{input.additionalHumanProfileCreationEnabled &&
-			input.allowProfileKindSelection !== false ? (
-				<ProfileKindTabs
-					onSelect={input.onSelectProfileKind}
-					value={input.profileKind}
-				/>
-			) : null}
-			<form className="grid min-w-0 gap-4" onSubmit={input.onSubmit}>
-				{input.profileKind === "agent" ? input.agentOwnershipSlot : null}
-				{input.profileKind === "agent" ? input.agentSessionSlot : null}
-				<div className="grid min-w-0 gap-2">
-					<Label htmlFor="create-profile-name-input">Profile name</Label>
-					<Input
-						disabled={input.isSubmitting}
-						id="create-profile-name-input"
-						onChange={(event) => {
-							input.onChangeProfileName(event.target.value);
-						}}
-						placeholder={
-							input.profileKind === "human" ? "Work" : "Research Agent"
-						}
-						value={input.profileName}
-					/>
-				</div>
-				{input.profileKind === "agent" ? (
-					<AgentProfileFields
-						agentBindingHelpText={agentBindingHelpText}
-						input={input}
-					/>
-				) : null}
-				{input.organizationWakeAccessSlot}
-				{input.errorState ? (
-					<div className="grid gap-3 rounded-md border border-destructive/40 p-4">
-						<p className="text-destructive text-sm">
-							{input.errorState.message}
-						</p>
-						{input.errorState.setupRefreshAvailable ? (
-							<div>
-								<Link
-									className={buttonVariants({ size: "sm", variant: "outline" })}
-									to={input.recoveryActionHref}
-								>
-									{input.errorState.setupRefreshActionLabel}
-								</Link>
-							</div>
-						) : null}
+			<div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+				<div className="grid min-w-0 gap-4 pb-4">
+					{input.additionalHumanProfileCreationEnabled &&
+					input.allowProfileKindSelection !== false ? (
+						<ProfileKindTabs
+							onSelect={input.onSelectProfileKind}
+							value={input.profileKind}
+						/>
+					) : null}
+					{input.profileKind === "agent" ? input.agentOwnershipSlot : null}
+					{input.profileKind === "agent" ? input.agentSessionSlot : null}
+					<div className="grid min-w-0 gap-2">
+						<Label htmlFor="create-profile-name-input">Profile name</Label>
+						<Input
+							disabled={input.isSubmitting}
+							id="create-profile-name-input"
+							onChange={(event) => {
+								input.onChangeProfileName(event.target.value);
+							}}
+							placeholder={
+								input.profileKind === "human" ? "Work" : "Research Agent"
+							}
+							value={input.profileName}
+						/>
 					</div>
-				) : null}
+					{input.profileKind === "agent" ? (
+						<AgentProfileFields
+							agentBindingHelpText={agentBindingHelpText}
+							input={input}
+						/>
+					) : null}
+					{input.organizationWakeAccessSlot}
+					{input.errorState ? (
+						<div className="grid gap-3 rounded-md border border-destructive/40 p-4">
+							<p className="text-destructive text-sm">
+								{input.errorState.message}
+							</p>
+							{input.errorState.setupRefreshAvailable ? (
+								<div>
+									<Link
+										className={buttonVariants({
+											size: "sm",
+											variant: "outline",
+										})}
+										to={input.recoveryActionHref}
+									>
+										{input.errorState.setupRefreshActionLabel}
+									</Link>
+								</div>
+							) : null}
+						</div>
+					) : null}
+				</div>
+			</div>
+			<div
+				className="shrink-0 border-border border-t bg-background pt-4"
+				data-testid="create-profile-actions"
+			>
 				<div className="grid justify-items-end gap-2">
 					{submitBlockReason ? (
 						<p
@@ -189,13 +201,14 @@ export function CreateProfileForm(input: {
 						buttonState={input.isSubmitting ? "loading" : "idle"}
 						className="w-full sm:w-auto"
 						disabled={!canSubmit}
+						loadingLabel={input.submittingLabel ?? "Creating profile…"}
 						type="submit"
 					>
 						{input.submitLabel ?? "Create profile"}
 					</SpinnerButton>
 				</div>
-			</form>
-		</div>
+			</div>
+		</form>
 	);
 }
 
