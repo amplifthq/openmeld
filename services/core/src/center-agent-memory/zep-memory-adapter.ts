@@ -80,7 +80,7 @@ export function createZepCenterAgentMemoryAdapter(input: {
   const logger = input.logger ?? console;
   let clientPromise: Promise<ZepClientLike> | null = null;
   const getClient = (): Promise<ZepClientLike> => {
-    clientPromise ??= import("@getzep/zep-cloud").then(
+    clientPromise ??= import("../generated-runtime/zep-cloud.mjs").then(
       ({ ZepClient }) =>
         new ZepClient({ apiKey: input.apiKey }) as unknown as ZepClientLike
     );
