@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type {
   DaemonServiceUpdateJob,
@@ -13,11 +12,6 @@ import {
 } from "../../command-entry-checks/cli-update-assessment";
 import { resolveServiceUpdateUrgency } from "../../command-entry-checks/service-update-urgency";
 import { resolveOpenMeldEnvironmentTarget } from "../../config/openmeld-environment-target";
-import { isBinaryDistribution } from "../../runtime/distribution";
-import {
-  type DaemonActiveBundleState,
-  readDaemonActiveBundleState,
-} from "../lifecycle/daemon-service-bundle";
 import { readPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-state";
 import {
   type OpenMeldToolsMaintenancePolicy,
@@ -29,15 +23,11 @@ import {
   persistOpenMeldToolsUpdateAttempt,
   readPendingOpenMeldToolsUpdateAttempt,
 } from "./openmeld-tools-update-attempt-state";
+import type { OpenMeldToolsUpdateContext } from "./openmeld-tools-update-context";
 import {
-  buildOpenMeldToolsUpdateContextEnv,
-  type OpenMeldToolsUpdateContext,
-} from "./openmeld-tools-update-context";
-
-const INITIAL_AUTOMATIC_UPDATE_DELAY_MS = 2 * 60 * 1000;
-const AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
-
-type UpgradeProcessResult = { exitCode: number };
+  type OpenMeldToolsUpgradeProcessResult,
+  runOpenMeldToolsUpgradeProcess,
+} from "./openmeld-tools-upgrade-process";
 
 type OpenMeldToolsUpdateCoordinatorDependencies = {
   assessUpdate: () => Promise<CliUpdateAssessment>;
@@ -53,7 +43,7 @@ type OpenMeldToolsUpdateCoordinatorDependencies = {
   resolveUrgency: () => Promise<"available" | "required">;
   runUpgrade: (
     context: OpenMeldToolsUpdateContext
-  ) => Promise<UpgradeProcessResult>;
+  ) => Promise<OpenMeldToolsUpgradeProcessResult>;
 };
 
 export type OpenMeldToolsUpdateRequestResult =
@@ -65,15 +55,17 @@ export type OpenMeldToolsUpdateRequestResult =
       operation: OpenMeldToolsUpdateOperation;
     };
 
-export function createOpenMeldToolsUpdateCoordinator(
-  overrides: Partial<OpenMeldToolsUpdateCoordinatorDependencies> = {}
-): {
+export type OpenMeldToolsUpdateCoordinator = {
   requestUpdate: (input: {
     requestSource: OpenMeldToolsUpdateRequestSource;
   }) => Promise<OpenMeldToolsUpdateRequestResult>;
   resumePendingUpdate: () => Promise<boolean>;
   waitForIdle: () => Promise<void>;
-} {
+};
+
+export function createOpenMeldToolsUpdateCoordinator(
+  overrides: Partial<OpenMeldToolsUpdateCoordinatorDependencies> = {}
+): OpenMeldToolsUpdateCoordinator {
   const deps = resolveDependencies(overrides);
   let inFlight: Promise<void> | null = null;
   let coordination: Promise<void> = Promise.resolve();
@@ -191,57 +183,6 @@ export function createOpenMeldToolsUpdateCoordinator(
   };
 }
 
-export function startOpenMeldToolsAutomaticUpdateLoop(input: {
-  coordinator: ReturnType<typeof createOpenMeldToolsUpdateCoordinator>;
-  initialDelayMs?: number;
-  intervalMs?: number;
-  onError?: (error: unknown) => void;
-}): () => void {
-  let stopped = false;
-  let timer: NodeJS.Timeout | null = null;
-  const intervalMs = input.intervalMs ?? AUTOMATIC_UPDATE_CHECK_INTERVAL_MS;
-
-  const schedule = (delayMs: number): void => {
-    if (stopped) {
-      return;
-    }
-    timer = setTimeout(() => {
-      timer = null;
-      tick().catch((error) => {
-        input.onError?.(error);
-      });
-    }, delayMs);
-    timer.unref?.();
-  };
-  const tick = async (): Promise<void> => {
-    if (stopped) {
-      return;
-    }
-    try {
-      const resumed = await input.coordinator.resumePendingUpdate();
-      if (!resumed) {
-        await input.coordinator.requestUpdate({ requestSource: "automatic" });
-      }
-    } catch (error) {
-      input.onError?.(error);
-    } finally {
-      schedule(intervalMs);
-    }
-  };
-
-  input.coordinator.resumePendingUpdate().catch((error) => {
-    input.onError?.(error);
-  });
-  schedule(input.initialDelayMs ?? INITIAL_AUTOMATIC_UPDATE_DELAY_MS);
-  return () => {
-    stopped = true;
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
-  };
-}
-
 async function runAttempt(
   attempt: OpenMeldToolsUpdateAttempt,
   deps: OpenMeldToolsUpdateCoordinatorDependencies
@@ -326,65 +267,6 @@ function resolveDependencies(
       }),
     resolveUrgency: overrides.resolveUrgency ?? resolveServiceUpdateUrgency,
     runUpgrade: overrides.runUpgrade ?? runOpenMeldToolsUpgradeProcess,
-  };
-}
-
-async function runOpenMeldToolsUpgradeProcess(
-  context: OpenMeldToolsUpdateContext
-): Promise<UpgradeProcessResult> {
-  const activeBundle = await readDaemonActiveBundleState().catch(() => null);
-  const { command, argsPrefix } = resolveOpenMeldToolsUpgradeProgram({
-    activeBundle,
-    binaryDistribution: isBinaryDistribution(),
-    processEntryScriptPath: process.argv[1],
-    processExecutablePath: process.execPath,
-  });
-  return await new Promise((resolve, reject) => {
-    const child = spawn(
-      command,
-      [...argsPrefix, "--view", "agent", "upgrade", "--yes"],
-      {
-        env: {
-          ...process.env,
-          ...buildOpenMeldToolsUpdateContextEnv(context),
-          OPENMELD_INTERNAL_SKIP_STARTUP_UPGRADE: "1",
-        },
-        stdio: "ignore",
-      }
-    );
-    child.once("error", reject);
-    child.once("close", (code) => {
-      resolve({ exitCode: Number(code ?? 1) });
-    });
-  });
-}
-
-export function resolveOpenMeldToolsUpgradeProgram(input: {
-  activeBundle: Pick<
-    DaemonActiveBundleState,
-    "bundleFormat" | "sourceEntryScriptPath"
-  > | null;
-  binaryDistribution: boolean;
-  processEntryScriptPath?: string;
-  processExecutablePath: string;
-}): { argsPrefix: string[]; command: string } {
-  if (input.binaryDistribution) {
-    return {
-      argsPrefix: [],
-      command:
-        input.activeBundle?.bundleFormat === "binary_v1"
-          ? input.activeBundle.sourceEntryScriptPath
-          : input.processExecutablePath,
-    };
-  }
-  const sourceEntryScriptPath =
-    input.activeBundle?.sourceEntryScriptPath ?? input.processEntryScriptPath;
-  if (!sourceEntryScriptPath) {
-    throw new Error("OpenMeld could not find its update program.");
-  }
-  return {
-    argsPrefix: [sourceEntryScriptPath],
-    command: input.processExecutablePath,
   };
 }
 

@@ -3,11 +3,9 @@ import type {
   OpenMeldToolsUpdateAttempt,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-import {
-  createOpenMeldToolsUpdateCoordinator,
-  resolveOpenMeldToolsUpgradeProgram,
-  startOpenMeldToolsAutomaticUpdateLoop,
-} from "../src/local-service/maintenance/openmeld-tools-update-coordinator";
+import { startOpenMeldToolsAutomaticUpdateLoop } from "../src/local-service/maintenance/openmeld-tools-automatic-update-loop";
+import { createOpenMeldToolsUpdateCoordinator } from "../src/local-service/maintenance/openmeld-tools-update-coordinator";
+import { resolveOpenMeldToolsUpgradeProgram } from "../src/local-service/maintenance/openmeld-tools-upgrade-process";
 
 const NOW = "2026-08-25T08:00:00.000Z";
 
