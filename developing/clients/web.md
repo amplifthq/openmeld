@@ -798,8 +798,11 @@ Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
 automatically. In the collapsed row, a compact summary follows the existing
 version and update metadata; its tooltip previews every reported window, and
-selecting the existing row reveals the full gauges in its details. Owned and
-teammate Computers use the same shared summary and accessible gauge component.
+selecting the existing row reveals a responsive grid of compact Usage Limit
+cards in its details. Each card reuses the collapsed summary's circular gauge
+and keeps the reset and last-observed times visible without a full-width
+progress bar. Owned and teammate Computers use the same shared summary and
+accessible gauge component.
 A provider with no quantified evidence does not add a collapsed-row badge or
 placeholder gauge. Web explicitly opts in to both owner and Organization
 projections and refreshes them while the Computers surface is active.
@@ -845,10 +848,20 @@ Agent can reply.
 On the exact current owned Computer, each enabled reported local agent may show
 **Change installation** when the live Service advertises installation
 management. The action sits beside the **Launch check** value in that local
-agent's detail rows instead of creating a separate Installation section. The
-dialog lists only locally verified choices, clearly marks the current choice,
-and updates the Service-owned local registry. It loads on demand, never blocks
-setup, and never appears for another member's Computer.
+agent's detail rows instead of creating a separate Installation section.
+**Launch check** is the second detail row after **Controller** and names the
+selected installation source and version when more than one verified choice
+exists. The collapsed row names that same selected source beside the version so
+people never need to infer an installation from a version number. The dialog
+lists only locally verified choices, clearly marks the current choice, stages a
+new choice without changing it, and requires an explicit **Use ...**
+confirmation before it updates the Service-owned local registry. Long paths
+truncate inside a width-bounded dialog rather than overflowing the viewport. It
+loads on demand, never blocks setup, and never appears for another member's
+Computer. When a confirmed change outlives the Web request budget, Web
+reconciles the Service-owned selected installation before it reports a failure;
+a transport timeout alone is neither shown as the result nor treated as a
+rejected change.
 
 A local agent that the owner turned off remains visible as a muted row. It does
 not show activation copy, repair guidance, version advice, or an attention
