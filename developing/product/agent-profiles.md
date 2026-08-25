@@ -542,6 +542,15 @@ Core-owned preference contract. The stored Default Project is a cloud Project
 id, never a local path. Custom and OpenMeld-chosen paths therefore save no
 Default Project id.
 
+Those four creation surfaces also submit the same shared creation-selection
+contract for Default Project, model, reasoning effort, Agent Controller
+Permission Mode, Agent Controller Collaboration Mode, and controller-specific
+permissions. A client may present those fields differently, but it must not own
+a smaller private settings model or write the same choice through a second
+state path. Core applies the shared selection to the Binding, reuses the
+existing Default Project mutation, and writes remembered creation defaults
+only after the usable local Agent Profile setup succeeds.
+
 The next creation may prefill only values that remain valid in the current
 Project list and current Agent Controller catalog. Missing or archived Projects,
 removed models, unsupported reasoning levels, and unsupported permission modes
