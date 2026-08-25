@@ -90,7 +90,10 @@ export async function publishRemoteAgentMessageChannelCardStreamDelta(input: {
     await buildMessageChannelProviderPublicationUuid({
       deliveryId: delivery.deliveryId,
       provider: locator.provider,
-      publicationKind: `stream:${input.sequence}`,
+      publicationKind: buildMessageChannelStreamPublicationKind(
+        delivery,
+        input.sequence
+      ),
     });
   const claim = await claimRemoteAgentMessageChannelProviderCardUpdate({
     claimExpiresAtMs: input.nowMs + MESSAGE_CHANNEL_CARD_UPDATE_CLAIM_LEASE_MS,
@@ -112,6 +115,18 @@ export async function publishRemoteAgentMessageChannelCardStreamDelta(input: {
     providerPublicationIdempotencyKey,
     textSnapshot: activeSegment.head,
   });
+}
+
+function buildMessageChannelStreamPublicationKind(
+  delivery: RemoteAgentNativeDeliveryRecord,
+  sequence: number
+): `stream:${number}` | `work-loop:${number}:stream:${number}` {
+  const workLoopAttempt =
+    delivery.executionRecoverySubmitRequest?.turnEnvelope.workLoopContinuation
+      ?.attempt;
+  return workLoopAttempt
+    ? `work-loop:${workLoopAttempt}:stream:${sequence}`
+    : `stream:${sequence}`;
 }
 
 async function publishClaimedCardUpdate(input: {

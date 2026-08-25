@@ -3,7 +3,10 @@ import type {
   RemoteAgentCallbackContext,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
-import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
+import {
+  readRemoteAgentCallbackContext,
+  recordRemoteAgentWorkLoopCheckpoint,
+} from "../agent-core/callback-context";
 import {
   assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
@@ -110,6 +113,15 @@ export async function beginRemoteAgentToolExecutionAttempt(input: {
     return attempt;
   } catch (error) {
     if (error instanceof RemoteAgentToolCallBudgetExceededError) {
+      await recordRemoteAgentWorkLoopCheckpoint({
+        checkpoint: {
+          reason: "tool_call_budget_exhausted",
+          toolCallLimit: error.limit,
+          v: 1,
+        },
+        storage: input.storage,
+        submissionId: input.submissionId,
+      });
       await recordRemoteAgentTurnObservabilityBestEffort({
         event: { observedAtMs: Date.now(), type: "tool_budget_exhausted" },
         storage: input.storage,

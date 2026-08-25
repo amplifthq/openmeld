@@ -19,8 +19,12 @@ import {
   REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   REMOTE_AGENT_FAILURE_PURPOSE,
+  REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
+  REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
+  REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   remoteAgentCoreCallbackBodySchema,
+  remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
   remoteAgentWorkerAdmissionRejectionCodeSchema,
   remoteAgentWorkerCancellationResponseSchema,
@@ -48,6 +52,7 @@ import type {
   OpenMeldRequestContext,
   OrganizationSkillRuntimeReleaseSelection,
   RemoteAgentCoreCallbackBody,
+  RemoteAgentCoreCallbackEvent,
   RemoteAgentCoreCallbackResponse,
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
   RemoteAgentTurnEnvelope,
@@ -167,6 +172,7 @@ import {
   claimRemoteAgentSlackAdmissionFailurePublication,
   clearPreviousRoutineWorkerSubmitRequest,
   clearRemoteAgentFinalPublicationPayload,
+  countRemoteAgentWorkLoopAttempts,
   expireRemoteAgentFinalPublicationClaim,
   handoffRoutineRunNativeDelivery,
   insertRemoteAgentRejectedCallbackRecord,
@@ -202,6 +208,8 @@ import {
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
+  readRemoteAgentWorkLoopAttemptByCallbackIdentity,
+  rearmRemoteAgentNativeDeliveryForWorkLoop,
   reconcileRemoteAgentRoutineSubmissionWithTerminalRun,
   recordRemoteAgentFinalPublicationPayload,
   recordRemoteAgentNativeDeliveryRepresentedMember,
@@ -363,9 +371,13 @@ type RemoteAgentFailedCallbackBody = Extract<
   RemoteAgentCoreCallbackBody,
   { status: "failed" }
 >;
-type RemoteAgentCompletedCallbackBody = Exclude<
+type RemoteAgentWorkLoopContinuationCallbackBody = Extract<
+  RemoteAgentCoreCallbackEvent,
+  { status: "continuation_required" }
+>;
+type RemoteAgentCompletedCallbackBody = Extract<
   RemoteAgentCoreCallbackBody,
-  RemoteAgentFailedCallbackBody
+  { text: string }
 >;
 
 type NativeDeliveryBindingSnapshot = {
@@ -7585,7 +7597,7 @@ async function requeueRemoteAgentNativeDeliveryDeadlineProbe(input: {
 }
 
 async function reconcileRetiredDeadlineFailureForCallback(input: {
-  body: RemoteAgentCoreCallbackBody;
+  body: RemoteAgentCoreCallbackEvent;
   db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
@@ -7621,14 +7633,17 @@ async function reconcileRetiredDeadlineFailureForCallback(input: {
 }
 
 function canonicalizeRemoteAgentCallbackBody(
-  body: RemoteAgentCoreCallbackBody
-): RemoteAgentCoreCallbackBody {
+  body: RemoteAgentCoreCallbackEvent
+): RemoteAgentCoreCallbackEvent {
   if (isRemoteAgentFailedCallback(body)) {
     return {
       ...body,
       failureDetail: body.failureDetail ?? body.failureMessage,
       failureMessage: resolveCenterAgentCallbackFailureMessage(body),
     };
+  }
+  if (isRemoteAgentWorkLoopContinuationCallback(body)) {
+    return body;
   }
   return {
     ...body,
@@ -7638,10 +7653,10 @@ function canonicalizeRemoteAgentCallbackBody(
 
 export async function completeRemoteAgentNativeDelivery(
   env: CoreBindings,
-  input: RemoteAgentCoreCallbackBody,
+  input: RemoteAgentCoreCallbackEvent,
   options: CenterAgentMemoryRuntimeOptions = {}
 ): Promise<RemoteAgentCoreCallbackResponse> {
-  const parsed = remoteAgentCoreCallbackBodySchema.safeParse(input);
+  const parsed = remoteAgentCoreCallbackEventSchema.safeParse(input);
   if (!parsed.success) {
     console.warn("[core.remote_agent.native_delivery.callback_invalid]", {
       event: CORE_LOG_EVENTS.coreInternalError,
@@ -7662,6 +7677,12 @@ export async function completeRemoteAgentNativeDelivery(
     });
   }
   const nowMs = options.messageChannelNowMs?.() ?? Date.now();
+  const archivedWorkLoopReplay = await resolveRemoteAgentWorkLoopCallbackReplay(
+    { body, db }
+  );
+  if (archivedWorkLoopReplay) {
+    return archivedWorkLoopReplay;
+  }
   let delivery = await resolveRemoteAgentCallbackDelivery({
     body,
     db,
@@ -7737,6 +7758,16 @@ export async function completeRemoteAgentNativeDelivery(
   });
   if (taskStopSettlement) {
     return taskStopSettlement;
+  }
+  if (isRemoteAgentWorkLoopContinuationCallback(body)) {
+    return await continueRemoteAgentNativeDeliveryWorkLoop({
+      body,
+      db,
+      delivery,
+      env,
+      nowMs,
+      options,
+    });
   }
   if (
     delivery.finalPublicationState === "claimed" ||
@@ -7864,8 +7895,356 @@ export async function completeRemoteAgentNativeDelivery(
   });
 }
 
+const REMOTE_AGENT_WORK_LOOP_CONTINUATION_INSTRUCTION = [
+  "Continue the same request after the tool-call checkpoint.",
+  "Use the durable conversation context and the work already completed.",
+  "Do not repeat completed work.",
+  "Continue from the next unfinished step, verify the result, and finish the user's full request before replying.",
+].join(" ");
+
+async function resolveRemoteAgentWorkLoopCallbackReplay(input: {
+  body: RemoteAgentCoreCallbackEvent;
+  db: D1Database;
+}): Promise<RemoteAgentCoreCallbackResponse | null> {
+  const attempt = await readRemoteAgentWorkLoopAttemptByCallbackIdentity({
+    db: input.db,
+    idempotencyKey: input.body.idempotencyKey,
+    submissionId: input.body.submissionId,
+  });
+  if (!attempt) {
+    return null;
+  }
+  const request = attempt.workerSubmitRequest;
+  const body = input.body;
+  const identityMatches =
+    isRemoteAgentWorkLoopContinuationCallback(body) &&
+    body.agentProfileId === request.agentProfileId &&
+    body.bindingId === request.bindingId &&
+    body.dispatchId === request.dispatchId &&
+    body.organizationId === request.organizationId &&
+    body.spaceId === request.spaceId &&
+    body.triggerMessageId === request.triggerMessageId &&
+    body.checkpoint.reason === attempt.checkpoint.reason &&
+    body.checkpoint.toolCallLimit === attempt.checkpoint.toolCallLimit;
+  if (!identityMatches) {
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      reasonCode: "remote_agent.work_loop_callback_mismatch",
+      status: "rejected",
+    });
+  }
+  console.info("[core.remote_agent.native_delivery.work_loop_replayed]", {
+    attempt: attempt.attempt,
+    deliveryId: attempt.deliveryId,
+    dispatchId: request.dispatchId,
+    submissionId: attempt.submissionId,
+  });
+  return remoteAgentCoreCallbackResponseSchema.parse({
+    publishedSignalId: null,
+    status: "accepted",
+  });
+}
+
+async function continueRemoteAgentNativeDeliveryWorkLoop(input: {
+  body: RemoteAgentWorkLoopContinuationCallbackBody;
+  db: D1Database;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+  options: CenterAgentMemoryRuntimeOptions;
+}): Promise<RemoteAgentCoreCallbackResponse> {
+  if (!isRemoteAgentNativeDeliveryIncomplete(input.delivery)) {
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      reasonCode: "remote_agent.callback_submission_not_incomplete",
+      status: "rejected",
+    });
+  }
+  const previousRequest =
+    input.delivery.workerSubmitRequest ??
+    input.delivery.executionRecoverySubmitRequest;
+  if (!previousRequest) {
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      reasonCode: "remote_agent.work_loop_request_unavailable",
+      status: "retryable",
+    });
+  }
+  const completedAttemptCount = await countRemoteAgentWorkLoopAttempts({
+    db: input.db,
+    deliveryId: input.delivery.deliveryId,
+  });
+  if (
+    completedAttemptCount >= REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS
+  ) {
+    return await completeRemoteAgentNativeDelivery(
+      input.env,
+      buildRemoteAgentWorkLoopTerminalFailure({ body: input.body }),
+      input.options
+    );
+  }
+  const attempt = completedAttemptCount + 1;
+  const nextIdempotencyKey = `${input.delivery.deliveryId}:work-loop:${attempt}`;
+  const nextRequest = buildRemoteAgentWorkLoopContinuationRequest({
+    attempt,
+    body: input.body,
+    idempotencyKey: nextIdempotencyKey,
+    previousRequest,
+  });
+  const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
+  if (!worker?.submitConversationTurn) {
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      reasonCode: "remote_agent.work_loop_worker_unavailable",
+      retryAfterMs: 5000,
+      status: "retryable",
+    });
+  }
+  const watchdogEnqueued = await enqueueRemoteAgentAdmissionWatchdog({
+    ack: {
+      submissionId:
+        buildRemoteAgentAdmissionWatchdogSubmissionId(nextIdempotencyKey),
+    },
+    env: input.env,
+    nowMs: input.nowMs,
+    target: {
+      dispatchId: input.delivery.dispatchId,
+      idempotencyKey: nextIdempotencyKey,
+      organizationId: input.delivery.organizationId,
+      profileId: input.delivery.profileId,
+      spaceId: input.delivery.spaceId,
+    },
+  });
+  if (!watchdogEnqueued) {
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      reasonCode: "remote_agent.work_loop_watchdog_unavailable",
+      retryAfterMs: 5000,
+      status: "retryable",
+    });
+  }
+
+  let rearmed: RemoteAgentNativeDeliveryRecord;
+  try {
+    rearmed = await rearmRemoteAgentNativeDeliveryForWorkLoop({
+      attempt,
+      checkpoint: input.body.checkpoint,
+      db: input.db,
+      delivery: input.delivery,
+      nextIdempotencyKey,
+      nextWorkerSubmitRequest: nextRequest,
+      nowMs: input.nowMs,
+    });
+  } catch (error) {
+    const replay = await resolveRemoteAgentWorkLoopCallbackReplay({
+      body: input.body,
+      db: input.db,
+    });
+    if (replay) {
+      return replay;
+    }
+    console.warn("[core.remote_agent.native_delivery.work_loop_rearm_failed]", {
+      attempt,
+      deliveryId: input.delivery.deliveryId,
+      error: toErrorMessage(error),
+      event: CORE_LOG_EVENTS.coreInternalError,
+      submissionId: input.body.submissionId,
+    });
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      reasonCode: "remote_agent.work_loop_rearm_unavailable",
+      retryAfterMs: 5000,
+      status: "retryable",
+    });
+  }
+
+  if (
+    await stopCenterAgentTaskBeforeWorkerAdmissionIfRequested({
+      db: input.db,
+      delivery: rearmed,
+      env: input.env,
+      nowMs: input.nowMs,
+    })
+  ) {
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      publishedSignalId: null,
+      status: "accepted",
+    });
+  }
+
+  const admission = await submitRemoteAgentWorkerAdmission({
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    organizationId: input.delivery.organizationId,
+    request: nextRequest,
+    worker,
+  });
+  if (admission.status === "rejected") {
+    return await failRearmedRemoteAgentWorkLoopAdmission({
+      body: input.body,
+      db: input.db,
+      env: input.env,
+      nextIdempotencyKey,
+      nowMs: input.nowMs,
+      options: input.options,
+      reasonCode: admission.response.reasonCode,
+      reasonDetail: admission.response.message,
+      attempt,
+      deliveryId: input.delivery.deliveryId,
+    });
+  }
+  if (admission.status !== "acknowledged") {
+    console.warn(
+      "[core.remote_agent.native_delivery.work_loop_submit_outcome_unknown]",
+      {
+        attempt,
+        deliveryId: input.delivery.deliveryId,
+        error: toErrorMessage(admission.error),
+        event: CORE_LOG_EVENTS.coreInternalError,
+        status: admission.status,
+      }
+    );
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      publishedSignalId: null,
+      status: "accepted",
+    });
+  }
+  let acceptedDelivery: RemoteAgentNativeDeliveryRecord;
+  try {
+    acceptedDelivery = await markRemoteAgentNativeDeliveryAckWithProbe({
+      accepted: admission.ack.accepted,
+      db: input.db,
+      env: input.env,
+      idempotencyKey: nextIdempotencyKey,
+      nowMs: input.nowMs,
+      submissionId: admission.ack.submissionId,
+      workerRequestId: admission.ack.requestId ?? null,
+    });
+  } catch (error) {
+    console.warn(
+      "[core.remote_agent.native_delivery.work_loop_ack_persist_failed]",
+      {
+        attempt,
+        deliveryId: input.delivery.deliveryId,
+        error: toErrorMessage(error),
+        event: CORE_LOG_EVENTS.coreInternalError,
+        submissionId: admission.ack.submissionId,
+      }
+    );
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      publishedSignalId: null,
+      status: "accepted",
+    });
+  }
+  try {
+    await forwardDurableCenterAgentTaskStopAfterAdmission({
+      db: input.db,
+      delivery: acceptedDelivery,
+      env: input.env,
+      nowMs: input.nowMs,
+    });
+  } catch {
+    // The durable admission watchdog owns recovery for an already-admitted turn.
+  }
+  console.info("[core.remote_agent.native_delivery.work_loop_continued]", {
+    attempt,
+    deliveryId: input.delivery.deliveryId,
+    dispatchId: input.delivery.dispatchId,
+    previousSubmissionId: input.body.submissionId,
+    submissionId: admission.ack.submissionId,
+  });
+  return remoteAgentCoreCallbackResponseSchema.parse({
+    publishedSignalId: null,
+    status: "accepted",
+  });
+}
+
+function buildRemoteAgentWorkLoopContinuationRequest(input: {
+  attempt: number;
+  body: RemoteAgentWorkLoopContinuationCallbackBody;
+  idempotencyKey: string;
+  previousRequest: RemoteAgentWorkerSubmitTurnRequest;
+}): RemoteAgentWorkerSubmitTurnRequest {
+  return remoteAgentWorkerSubmitTurnRequestSchema.parse({
+    ...input.previousRequest,
+    ...(input.previousRequest.v === 4 ? { continuityContext: undefined } : {}),
+    idempotencyKey: input.idempotencyKey,
+    messages: [
+      {
+        content: REMOTE_AGENT_WORK_LOOP_CONTINUATION_INSTRUCTION,
+        role: "user",
+      },
+    ],
+    turnEnvelope: {
+      ...input.previousRequest.turnEnvelope,
+      workLoopContinuation: {
+        attempt: input.attempt,
+        previousSubmissionId: input.body.submissionId,
+        reason: input.body.checkpoint.reason,
+        v: 1,
+      },
+    },
+  });
+}
+
+function buildRemoteAgentWorkLoopTerminalFailure(input: {
+  body: RemoteAgentWorkLoopContinuationCallbackBody;
+}): RemoteAgentFailedCallbackBody {
+  return remoteAgentCoreCallbackBodySchema.parse({
+    agentProfileId: input.body.agentProfileId,
+    bindingId: input.body.bindingId,
+    callbackAttempt: input.body.callbackAttempt,
+    dispatchId: input.body.dispatchId,
+    failureCode: REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
+    failureDetail: `Center Agent reached ${REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS} automatic work-loop continuations.`,
+    failureMessage: REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
+    idempotencyKey: input.body.idempotencyKey,
+    organizationId: input.body.organizationId,
+    spaceId: input.body.spaceId,
+    status: "failed",
+    submissionId: input.body.submissionId,
+    triggerMessageId: input.body.triggerMessageId,
+  }) as RemoteAgentFailedCallbackBody;
+}
+
+async function failRearmedRemoteAgentWorkLoopAdmission(input: {
+  attempt: number;
+  body: RemoteAgentWorkLoopContinuationCallbackBody;
+  db: D1Database;
+  deliveryId: string;
+  env: CoreBindings;
+  nextIdempotencyKey: string;
+  nowMs: number;
+  options: CenterAgentMemoryRuntimeOptions;
+  reasonCode: string;
+  reasonDetail: string;
+}): Promise<RemoteAgentCoreCallbackResponse> {
+  const submissionId = `work-loop-admission-rejected:${input.deliveryId}:${input.attempt}`;
+  await markRemoteAgentNativeDeliveryAck({
+    accepted: false,
+    db: input.db,
+    idempotencyKey: input.nextIdempotencyKey,
+    nowMs: input.nowMs,
+    submissionId,
+    workerRequestId: null,
+  });
+  return await completeRemoteAgentNativeDelivery(
+    input.env,
+    remoteAgentCoreCallbackBodySchema.parse({
+      agentProfileId: input.body.agentProfileId,
+      bindingId: input.body.bindingId,
+      dispatchId: input.body.dispatchId,
+      failureCode: input.reasonCode,
+      failureDetail: input.reasonDetail,
+      failureMessage: input.reasonDetail,
+      idempotencyKey: input.nextIdempotencyKey,
+      organizationId: input.body.organizationId,
+      spaceId: input.body.spaceId,
+      status: "failed",
+      submissionId,
+      triggerMessageId: input.body.triggerMessageId,
+    }),
+    input.options
+  );
+}
+
 async function trySettleCenterAgentTaskStopCallback(input: {
-  body: RemoteAgentCoreCallbackBody;
+  body: RemoteAgentCoreCallbackEvent;
   db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
@@ -7954,7 +8333,7 @@ export function resolveCenterAgentTaskNativeDeliveryIdentity(
 }
 
 async function projectRemoteAgentCallbackRejectedTask(input: {
-  body: Pick<RemoteAgentCoreCallbackBody, "idempotencyKey" | "submissionId">;
+  body: Pick<RemoteAgentCoreCallbackEvent, "idempotencyKey" | "submissionId">;
   db: D1Database;
   env: CoreBindings;
   nowMs: number;
@@ -8176,7 +8555,7 @@ async function resolveRoutineDeliveryTargetMismatch(input: {
 }
 
 async function resolveRemoteAgentCallbackDelivery(input: {
-  body: RemoteAgentCoreCallbackBody;
+  body: RemoteAgentCoreCallbackEvent;
   db: D1Database;
   nowMs: number;
 }): Promise<RemoteAgentNativeDeliveryRecord | null> {
@@ -8265,7 +8644,13 @@ async function routeRoutineWorkflowCallback(input: {
   if (run?.executionEngine !== "workflow") {
     return null;
   }
-  const isInitialCallback = input.delivery.idempotencyKey === run.id;
+  const isInitialCallback =
+    input.delivery.idempotencyKey === run.id ||
+    (input.delivery.deliveryId === run.nativeDeliveryId &&
+      Boolean(
+        input.delivery.executionRecoverySubmitRequest?.turnEnvelope
+          .workLoopContinuation
+      ));
   if (!isInitialCallback) {
     const previousDeliveryId = run.nativeDeliveryId;
     if (!previousDeliveryId) {
@@ -8693,7 +9078,7 @@ async function isRemoteAgentSpaceWakeStoppedBeforeExecution(input: {
 }
 
 async function settleRemoteAgentStoppedCallback(input: {
-  body: RemoteAgentCoreCallbackBody;
+  body: Pick<RemoteAgentCoreCallbackEvent, "idempotencyKey" | "submissionId">;
   db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord & {
     status: "accepted" | "retry_observed";
@@ -12187,7 +12572,7 @@ function resolveCallbackMismatchReason(
     spaceId: string;
     triggerMessageId: string;
   },
-  body: RemoteAgentCoreCallbackBody
+  body: RemoteAgentCoreCallbackEvent
 ): string | null {
   const mismatch = resolveRemoteAgentNativeDeliveryIdentityMismatch(
     delivery,
@@ -12813,9 +13198,15 @@ function buildNativeDeliveryTerminalOutcome(
 }
 
 function isRemoteAgentFailedCallback(
-  body: RemoteAgentCoreCallbackBody
+  body: RemoteAgentCoreCallbackEvent
 ): body is RemoteAgentFailedCallbackBody {
   return body.status === "failed";
+}
+
+function isRemoteAgentWorkLoopContinuationCallback(
+  body: RemoteAgentCoreCallbackEvent
+): body is RemoteAgentWorkLoopContinuationCallbackBody {
+  return body.status === "continuation_required";
 }
 
 function isRemoteAgentNativeDeliveryIncomplete(

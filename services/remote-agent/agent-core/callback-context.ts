@@ -13,8 +13,10 @@ import {
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
   remoteAgentCoreCallbackBodySchema,
+  remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
   remoteAgentWorkerConversationIdentitySchema,
+  remoteAgentWorkLoopCheckpointSchema,
   resolveMappedPublicAgentFailureReason,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   SPACE_MESSAGE_FILE_MAX_COUNT,
@@ -124,6 +126,7 @@ import type {
   RecordOrganizationSkillActivationResponse,
   RecordOrganizationSkillActivationRpcInput,
   RemoteAgentCoreCallbackBody,
+  RemoteAgentCoreCallbackEvent,
   RemoteAgentCoreCallbackResponse,
   RemoteAgentRuntimeEvidenceOutcomeReasonCode,
   RemoteAgentStreamDeltaCallbackBody,
@@ -132,6 +135,7 @@ import type {
   RemoteAgentWorkerConversationIdentity,
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
+  RemoteAgentWorkLoopCheckpoint,
   ResumeCenterAgentRoutineResponse,
   SpaceAttachmentDescriptor,
   SpaceFileDescriptor,
@@ -163,6 +167,7 @@ const ANONYMOUS_IDENTITY_BOUNDARY_WRITE_MAX_ATTEMPTS = 8;
 const NAVIGATION_TARGET_WRITE_MAX_ATTEMPTS = 8;
 const CENTER_AGENT_TASK_REFERENCE_WRITE_MAX_ATTEMPTS = 8;
 const CONVERSATION_COMPACTION_WRITE_MAX_ATTEMPTS = 8;
+const WORK_LOOP_CHECKPOINT_WRITE_MAX_ATTEMPTS = 8;
 export const REMOTE_AGENT_CALLBACK_CONTEXT_WAIT_MS = 5000;
 const REMOTE_AGENT_COMPLETED_TEXT_TRUNCATION_NOTICE =
   "\n\n_Response shortened because it exceeded OpenMeld's 100,000-character response limit._";
@@ -225,6 +230,7 @@ export type RemoteAgentCallbackContext = {
   toolExecutionDeadlineAtMs?: number;
   triggerMessageId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope;
+  workLoopCheckpoint?: RemoteAgentWorkLoopCheckpoint;
   v: 1;
 };
 
@@ -281,7 +287,7 @@ export type RemoteAgentCoreWorkerBinding = {
     input: CenterAgentRequestMemberAttentionRpcInput
   ): Promise<CenterAgentRequestMemberAttentionResponse>;
   completeRemoteAgentSubmission?(
-    input: RemoteAgentCoreCallbackBody
+    input: RemoteAgentCoreCallbackEvent
   ): Promise<unknown>;
   submitRemoteAgentStreamDelta?(
     input: RemoteAgentStreamDeltaCallbackBody
@@ -1015,6 +1021,72 @@ export function buildRemoteAgentCoreCallbackBody(input: {
   });
 }
 
+export function buildRemoteAgentCoreWorkLoopContinuationCallbackBody(input: {
+  context: RemoteAgentCallbackContext;
+}): RemoteAgentCoreCallbackEvent {
+  const checkpoint = remoteAgentWorkLoopCheckpointSchema.parse(
+    input.context.workLoopCheckpoint
+  );
+  return remoteAgentCoreCallbackEventSchema.parse({
+    agentProfileId: input.context.agentProfileId,
+    bindingId: input.context.bindingId,
+    callbackAttempt: input.context.callbackAttempts + 1,
+    checkpoint,
+    dispatchId: input.context.dispatchId,
+    idempotencyKey: input.context.idempotencyKey,
+    organizationId: input.context.organizationId,
+    spaceId: input.context.spaceId,
+    status: "continuation_required",
+    submissionId: input.context.submissionId,
+    triggerMessageId: input.context.triggerMessageId,
+  });
+}
+
+export async function recordRemoteAgentWorkLoopCheckpoint(input: {
+  checkpoint: RemoteAgentWorkLoopCheckpoint;
+  storage: RemoteAgentStorage;
+  submissionId: string;
+}): Promise<RemoteAgentCallbackContext> {
+  const checkpoint = remoteAgentWorkLoopCheckpointSchema.parse(
+    input.checkpoint
+  );
+  const key = buildRemoteAgentCallbackContextKey(input.submissionId);
+  for (
+    let attempt = 0;
+    attempt < WORK_LOOP_CHECKPOINT_WRITE_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
+    const current = await readRemoteAgentCallbackContext(
+      input.storage,
+      input.submissionId
+    );
+    if (!current) {
+      throw new Error(
+        `Remote Agent work-loop checkpoint requires persisted context ${input.submissionId}.`
+      );
+    }
+    if (current.callbackStatus !== "pending") {
+      throw new Error(
+        `Remote Agent work-loop checkpoint cannot update ${current.callbackStatus} callback context ${input.submissionId}.`
+      );
+    }
+    if (
+      current.workLoopCheckpoint &&
+      JSON.stringify(current.workLoopCheckpoint) === JSON.stringify(checkpoint)
+    ) {
+      return current;
+    }
+    const updated = { ...current, workLoopCheckpoint: checkpoint };
+    if (await input.storage.compareAndSet(key, current, updated)) {
+      notifyRemoteAgentCallbackContextWaiters(input.submissionId);
+      return updated;
+    }
+  }
+  throw new Error(
+    `Remote Agent work-loop checkpoint ${input.submissionId} could not be persisted after concurrent writes.`
+  );
+}
+
 export async function recordRemoteAgentCenterAgentTaskReference(input: {
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -1336,10 +1408,12 @@ export async function attemptRemoteAgentCallbackDelivery(input: {
     );
   }
   const text = context.completedText?.trim();
-  const failure = text
-    ? null
-    : (context.terminalFailureFact ?? context.lastFailureFact ?? null);
-  if (!(text || failure)) {
+  const checkpoint = context.workLoopCheckpoint;
+  const failure =
+    text || checkpoint
+      ? null
+      : (context.terminalFailureFact ?? context.lastFailureFact ?? null);
+  if (!(checkpoint || text || failure)) {
     return await updateRemoteAgentCallbackContext({
       storage: input.storage,
       submissionId: context.submissionId,
@@ -1369,12 +1443,17 @@ export async function attemptRemoteAgentCallbackDelivery(input: {
   }
 
   try {
-    const body = text
-      ? buildRemoteAgentCoreCallbackBody({ context, text })
-      : buildRemoteAgentCoreFailureCallbackBody({
-          context,
-          failure: failure as RemoteAgentFailureFact,
-        });
+    let body: RemoteAgentCoreCallbackEvent;
+    if (checkpoint) {
+      body = buildRemoteAgentCoreWorkLoopContinuationCallbackBody({ context });
+    } else if (text) {
+      body = buildRemoteAgentCoreCallbackBody({ context, text });
+    } else {
+      body = buildRemoteAgentCoreFailureCallbackBody({
+        context,
+        failure: failure as RemoteAgentFailureFact,
+      });
+    }
     const response = remoteAgentCoreCallbackResponseSchema.parse(
       await completeRemoteAgentSubmission(body)
     );
@@ -1514,6 +1593,34 @@ export async function handleRemoteAgentChatResponse(input: {
   }
 
   const nowMs = input.nowMs?.() ?? Date.now();
+  if (context.workLoopCheckpoint) {
+    const checkpointContext = await updateRemoteAgentCallbackContext({
+      storage: input.storage,
+      submissionId: context.submissionId,
+      update: (current) => ({
+        ...current,
+        lastUsage: input.result.usage ?? undefined,
+        modelId: input.result.modelId ?? current.modelId ?? null,
+      }),
+    });
+    if (checkpointContext.lastUsage) {
+      await putRemoteAgentUsageRecord(
+        input.storage,
+        buildRemoteAgentUsageRecord({
+          context: checkpointContext,
+          modelId: checkpointContext.modelId ?? null,
+          nowMs,
+          usage: checkpointContext.lastUsage,
+        })
+      );
+    }
+    return attemptRemoteAgentCallbackDelivery({
+      context: checkpointContext,
+      coreWorker: input.coreWorker,
+      nowMs,
+      storage: input.storage,
+    });
+  }
   const completedText = extractCompletedAssistantText(input.result);
   if (!completedText) {
     return recordAndDeliverRemoteAgentTerminalFailure({
@@ -1752,6 +1859,10 @@ function isRemoteAgentCallbackContext(
         ))) &&
     (candidate.modelRoute === undefined ||
       centerAgentModelRouteSchema.safeParse(candidate.modelRoute).success) &&
+    (candidate.workLoopCheckpoint === undefined ||
+      remoteAgentWorkLoopCheckpointSchema.safeParse(
+        candidate.workLoopCheckpoint
+      ).success) &&
     typeof candidate.callbackAttempts === "number" &&
     typeof candidate.callbackStatus === "string"
   );

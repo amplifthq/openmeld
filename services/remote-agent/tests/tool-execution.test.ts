@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
+  readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
   buildRemoteAgentExecutionIdentity,
@@ -217,6 +218,15 @@ describe("Remote Agent tool execution", () => {
       })
     ).rejects.toBeInstanceOf(RemoteAgentToolCallBudgetExceededError);
     expect(execute).toHaveBeenCalledTimes(64);
+    await expect(
+      readRemoteAgentCallbackContext(storage, SUBMISSION_ID)
+    ).resolves.toMatchObject({
+      workLoopCheckpoint: {
+        reason: "tool_call_budget_exhausted",
+        toolCallLimit: 64,
+        v: 1,
+      },
+    });
   });
 
   it("accounts for concurrent outer and inner attempts without losing budget updates", async () => {

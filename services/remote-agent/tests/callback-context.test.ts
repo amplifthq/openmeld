@@ -5,6 +5,7 @@ import {
   attemptRemoteAgentCallbackDelivery,
   buildRemoteAgentCoreCallbackBody,
   buildRemoteAgentCoreFailureCallbackBody,
+  buildRemoteAgentCoreWorkLoopContinuationCallbackBody,
   createRemoteAgentCallbackContext,
   extractCompletedAssistantText,
   handleRemoteAgentChatResponse,
@@ -52,6 +53,57 @@ async function persistReadyCallbackContext(
 }
 
 describe("remote agent callback context", () => {
+  it("turns a durable tool-budget checkpoint into continuation instead of publishing the model's stop text", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const context: RemoteAgentCallbackContext = {
+      ...createRemoteAgentCallbackContext({
+        ack: ACK,
+        nowMs: TEST_NOW_MS,
+        request: createSubmitTurnRequest(),
+      }),
+      workLoopCheckpoint: {
+        reason: "tool_call_budget_exhausted",
+        toolCallLimit: 64,
+        v: 1,
+      },
+    };
+    await putRemoteAgentCallbackContext(storage, context);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: null,
+      status: "accepted" as const,
+    }));
+
+    const completed = await handleRemoteAgentChatResponse({
+      coreWorker: { completeRemoteAgentSubmission },
+      nowMs: () => TEST_NOW_MS + 1000,
+      result: {
+        continuation: false,
+        message: {
+          parts: [
+            {
+              text: "I used all tool calls, so I stopped before updating the tests.",
+              type: "text",
+            },
+          ],
+        },
+        requestId: ACK.requestId,
+        status: "completed",
+      },
+      storage,
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      buildRemoteAgentCoreWorkLoopContinuationCallbackBody({ context })
+    );
+    expect(completeRemoteAgentSubmission).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "completed",
+        text: expect.any(String),
+      })
+    );
+    expect(completed).toMatchObject({ callbackStatus: "completed" });
+  });
+
   it("publishes the latest canonical callback context after tools add Task references", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const staleContext = readyCallbackContext("Started the research Task.");

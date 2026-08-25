@@ -9,6 +9,7 @@ import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
+  recordRemoteAgentWorkLoopCheckpoint,
 } from "../agent-core/callback-context";
 import { readRemoteAgentTurnObservability } from "../agent-core/turn-observability";
 import { createRemoteAgentConversationCompactionObserver } from "../flue-adapter/conversation-compaction";
@@ -384,6 +385,47 @@ describe("Center Agent stream observation", () => {
 
     await handleCenterAgentObservation({
       event: thinkingDeltaObservation(thinking),
+      resolveDependencies: () => ({
+        coreWorker: { submitRemoteAgentStreamDelta },
+        env: {} as CloudflareBindings,
+        storage,
+      }),
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    });
+
+    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+  });
+
+  it("keeps post-checkpoint stop prose out of the user-visible stream", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: "remote-agent:dispatch_123",
+          requestId: SUBMISSION_ID,
+          status: "pending",
+          submissionId: SUBMISSION_ID,
+        },
+        nowMs: TEST_NOW_MS,
+        request: createSubmitTurnRequest(),
+      })
+    );
+    await recordRemoteAgentWorkLoopCheckpoint({
+      checkpoint: {
+        reason: "tool_call_budget_exhausted",
+        toolCallLimit: 64,
+        v: 1,
+      },
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+    const submitRemoteAgentStreamDelta = vi.fn();
+
+    await handleCenterAgentObservation({
+      event: textDeltaObservation("I stopped before testing. ".repeat(10)),
       resolveDependencies: () => ({
         coreWorker: { submitRemoteAgentStreamDelta },
         env: {} as CloudflareBindings,

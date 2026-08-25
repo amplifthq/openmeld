@@ -9,6 +9,9 @@ import {
   REMOTE_AGENT_FAILURE_PURPOSE,
   REMOTE_AGENT_TRIGGER_TEXT_MAX_CHARS,
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
+  REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
+  REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
+  REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS,
   remoteAgentNativeDeliveryDeadlineProbeQueueMessageSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   resolveListSignalsReadQuerySemantics,
@@ -90,6 +93,7 @@ import {
   markRemoteAgentNativeDeliveryDeadlineProbeEnqueued,
   markRemoteAgentNativeDeliveryFailure,
   persistRemoteAgentWorkerSubmitRequest,
+  readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByDispatchAndConversation,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
@@ -122,6 +126,218 @@ const THREAD_CONTEXT: NonNullable<
   rootSignalId: "signal_thread_root",
 };
 describe("Remote Agent native delivery callback service", () => {
+  it("continues the same delivery after a tool-budget checkpoint and publishes only the later final result", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 2100,
+        requestId: "request-work-loop-2",
+        status: "pending" as const,
+        submissionId: "submission-work-loop-2",
+      })
+    );
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        deliveryId: "delivery-work-loop",
+        dispatchId: "dispatch-work-loop",
+        idempotencyKey: "idempotency-work-loop-1",
+        modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+        onBehalfOfDisplayName: "Ari",
+        onBehalfOfProfileId: HUMAN_PROFILE_ID,
+        onBehalfOfUserId: "user_1",
+        spaceId: SPACE_ID,
+        submissionId: "submission-work-loop-1",
+        triggerMessageId: "signal-work-loop",
+      });
+      const checkpoint = {
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding_1",
+        callbackAttempt: 1,
+        checkpoint: {
+          reason: "tool_call_budget_exhausted" as const,
+          toolCallLimit: 64,
+          v: 1 as const,
+        },
+        dispatchId: "dispatch-work-loop",
+        idempotencyKey: "idempotency-work-loop-1",
+        organizationId: "org_1",
+        spaceId: SPACE_ID,
+        status: "continuation_required" as const,
+        submissionId: "submission-work-loop-1",
+        triggerMessageId: "signal-work-loop",
+      };
+
+      await expect(
+        completeRemoteAgentNativeDelivery(env, checkpoint)
+      ).resolves.toEqual({ publishedSignalId: null, status: "accepted" });
+      await expect(
+        completeRemoteAgentNativeDelivery(env, checkpoint)
+      ).resolves.toEqual({ publishedSignalId: null, status: "accepted" });
+
+      expect(workerSubmit).toHaveBeenCalledTimes(1);
+      const continuedRequest = workerSubmit.mock.calls[0]?.[0];
+      expect(continuedRequest).toMatchObject({
+        dispatchId: "dispatch-work-loop",
+        messages: [
+          {
+            role: "user",
+            content: expect.stringContaining(
+              "Continue the same request after the tool-call checkpoint"
+            ),
+          },
+        ],
+        turnEnvelope: {
+          workLoopContinuation: {
+            attempt: 1,
+            reason: "tool_call_budget_exhausted",
+            v: 1,
+          },
+        },
+      });
+      expect(continuedRequest?.idempotencyKey).not.toBe(
+        checkpoint.idempotencyKey
+      );
+      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+
+      const active = await readRemoteAgentNativeDeliveryByDeliveryId({
+        db: harness.db,
+        deliveryId: "delivery-work-loop",
+      });
+      expect(active).toMatchObject({
+        deliveryId: "delivery-work-loop",
+        idempotencyKey: continuedRequest?.idempotencyKey,
+        status: "accepted",
+        submissionId: "submission-work-loop-2",
+      });
+
+      await expect(
+        completeRemoteAgentNativeDelivery(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          bindingId: "binding_1",
+          dispatchId: "dispatch-work-loop",
+          idempotencyKey: continuedRequest?.idempotencyKey ?? "missing",
+          organizationId: "org_1",
+          spaceId: SPACE_ID,
+          status: "completed",
+          submissionId: "submission-work-loop-2",
+          text: "Tests are updated and passing.",
+          triggerMessageId: "signal-work-loop",
+        })
+      ).resolves.toEqual({
+        publishedSignalId: "signal_reply_1",
+        status: "accepted",
+      });
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledTimes(1);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("publishes an explicit failure instead of looping after the safe continuation limit", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn(
+      (request: RemoteAgentWorkerSubmitTurnRequest) => {
+        const attempt = request.turnEnvelope.workLoopContinuation?.attempt;
+        if (!attempt) {
+          throw new Error("Expected a work-loop continuation attempt.");
+        }
+        return Promise.resolve({
+          accepted: true,
+          createdAt: 2100 + attempt,
+          requestId: `request-work-loop-limit-${attempt}`,
+          status: "pending" as const,
+          submissionId: `submission-work-loop-limit-${attempt + 1}`,
+        });
+      }
+    );
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        deliveryId: "delivery-work-loop-limit",
+        dispatchId: "dispatch-work-loop-limit",
+        idempotencyKey: "idempotency-work-loop-limit-1",
+        modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+        onBehalfOfDisplayName: "Ari",
+        onBehalfOfProfileId: HUMAN_PROFILE_ID,
+        onBehalfOfUserId: "user_1",
+        spaceId: SPACE_ID,
+        submissionId: "submission-work-loop-limit-1",
+        triggerMessageId: "signal-work-loop-limit",
+      });
+
+      let idempotencyKey = "idempotency-work-loop-limit-1";
+      let submissionId = "submission-work-loop-limit-1";
+      const buildCheckpoint = () => ({
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding_1",
+        checkpoint: {
+          reason: "tool_call_budget_exhausted" as const,
+          toolCallLimit: 64,
+          v: 1 as const,
+        },
+        dispatchId: "dispatch-work-loop-limit",
+        idempotencyKey,
+        organizationId: "org_1",
+        spaceId: SPACE_ID,
+        status: "continuation_required" as const,
+        submissionId,
+        triggerMessageId: "signal-work-loop-limit",
+      });
+
+      for (
+        let attempt = 1;
+        attempt <= REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS;
+        attempt += 1
+      ) {
+        await expect(
+          completeRemoteAgentNativeDelivery(env, buildCheckpoint())
+        ).resolves.toEqual({ publishedSignalId: null, status: "accepted" });
+        idempotencyKey = `delivery-work-loop-limit:work-loop:${attempt}`;
+        submissionId = `submission-work-loop-limit-${attempt + 1}`;
+      }
+
+      expect(workerSubmit).toHaveBeenCalledTimes(
+        REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS
+      );
+      await expect(
+        completeRemoteAgentNativeDelivery(env, buildCheckpoint())
+      ).resolves.toEqual({
+        publishedSignalId: "signal_reply_1",
+        status: "accepted",
+      });
+      expect(workerSubmit).toHaveBeenCalledTimes(
+        REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS
+      );
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledTimes(1);
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
+        })
+      );
+
+      const terminal = await readRemoteAgentNativeDeliveryByDeliveryId({
+        db: harness.db,
+        deliveryId: "delivery-work-loop-limit",
+      });
+      expect(terminal).toMatchObject({
+        failureCode: REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
+        status: "failed",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("keeps a Routine parent private while its Center Agent continuation is pending", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -10570,7 +10786,10 @@ function applyRemoteAgentLedgerMigration(
     "center_agent_task_admission_outbox",
     "center_agent_task_events",
   ]);
-  applyMigrationForTable(input, "openMeldRemoteAgent_native_delivery_ledger");
+  applyDrizzleMigrationsForTables(input, [
+    "openMeldRemoteAgent_native_delivery_ledger",
+    "openMeldRemoteAgent_work_loop_attempts",
+  ]);
   applyMigrationForTable(input, "openMeldRemoteAgent_daily_admissions");
   applyMigrationForTable(input, "openMeldRemoteAgent_conversation_generations");
   applyMigrationForTable(input, "slack_workspace_tokens");

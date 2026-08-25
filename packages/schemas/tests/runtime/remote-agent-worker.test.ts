@@ -13,6 +13,7 @@ import {
   remoteAgentAdmissionStageOperationSchema,
   remoteAgentConversationContinuityEntrySchema,
   remoteAgentCoreCallbackBodySchema,
+  remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
   remoteAgentRpcOperationSchema,
   remoteAgentRuntimeEvidenceOutcomeReasonCodeSchema,
@@ -1701,6 +1702,41 @@ describe("Remote Agent worker contracts", () => {
       submissionId: "sub_123",
       triggerMessageId: "signal_1",
     });
+  });
+
+  it("keeps work-loop checkpoints distinct from terminal callback bodies", () => {
+    const checkpoint = {
+      agentProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      bindingId: "binding_1",
+      checkpoint: {
+        reason: "tool_call_budget_exhausted" as const,
+        toolCallLimit: 64,
+        v: 1 as const,
+      },
+      dispatchId: "dispatch_1",
+      idempotencyKey: "space_1:dispatch_1",
+      organizationId: "org_1",
+      spaceId: "space_1",
+      status: "continuation_required" as const,
+      submissionId: "sub_123",
+      triggerMessageId: "signal_1",
+    };
+
+    expect(remoteAgentCoreCallbackEventSchema.parse(checkpoint)).toEqual(
+      checkpoint
+    );
+    expect(
+      remoteAgentCoreCallbackBodySchema.safeParse(checkpoint).success
+    ).toBe(false);
+    expect(
+      remoteAgentCoreCallbackEventSchema.safeParse({
+        ...checkpoint,
+        checkpoint: {
+          ...checkpoint.checkpoint,
+          toolCallLimit: 0,
+        },
+      }).success
+    ).toBe(false);
   });
 
   it("strictly validates both Routine Workflow continuation event variants", () => {

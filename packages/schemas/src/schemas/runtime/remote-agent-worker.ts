@@ -30,7 +30,10 @@ import {
   spaceMessageAttachmentsSchema,
 } from "../protocol/space-attachment";
 import { centerAgentModelRouteSchema } from "./center-agent-model";
-import { remoteAgentTurnEnvelopeSchema } from "./remote-agent-turn-envelope";
+import {
+  remoteAgentTurnEnvelopeSchema,
+  remoteAgentWorkLoopCheckpointSchema,
+} from "./remote-agent-turn-envelope";
 
 const nonEmptyStringSchema = z.string().trim().min(1);
 const optionalNonEmptyStringSchema = nonEmptyStringSchema.optional();
@@ -856,6 +859,18 @@ export const remoteAgentCoreCallbackBodySchema = z.union([
     failureDetail: optionalDispatchErrorSummarySchema,
     failureMessage: nonEmptyStringSchema,
   }),
+]);
+
+export const remoteAgentCoreWorkLoopContinuationCallbackBodySchema =
+  z.strictObject({
+    ...remoteAgentCoreCallbackIdentitySchema,
+    checkpoint: remoteAgentWorkLoopCheckpointSchema,
+    status: z.literal("continuation_required"),
+  });
+
+export const remoteAgentCoreCallbackEventSchema = z.union([
+  remoteAgentCoreCallbackBodySchema,
+  remoteAgentCoreWorkLoopContinuationCallbackBodySchema,
 ]);
 
 export const routineWorkflowContinuationEventPayloadSchema =

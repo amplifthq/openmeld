@@ -2,6 +2,10 @@ import type { z } from "zod/v4";
 
 type RemoteAgentCoreCallbackBodySchema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentCoreCallbackBodySchema"];
+type RemoteAgentCoreCallbackEventSchema =
+  typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentCoreCallbackEventSchema"];
+type RemoteAgentCoreWorkLoopContinuationCallbackBodySchema =
+  typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentCoreWorkLoopContinuationCallbackBodySchema"];
 type RemoteAgentCoreCallbackResponseSchema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentCoreCallbackResponseSchema"];
 type RoutineWorkflowContinuationEventPayloadSchema =
@@ -77,6 +81,10 @@ type RemoteAgentStreamPartCallbackBodySchema =
 
 export type RemoteAgentCoreCallbackBody =
   z.infer<RemoteAgentCoreCallbackBodySchema>;
+export type RemoteAgentCoreCallbackEvent =
+  z.infer<RemoteAgentCoreCallbackEventSchema>;
+export type RemoteAgentCoreWorkLoopContinuationCallbackBody =
+  z.infer<RemoteAgentCoreWorkLoopContinuationCallbackBodySchema>;
 export type RemoteAgentCoreCallbackResponse =
   z.infer<RemoteAgentCoreCallbackResponseSchema>;
 export type RoutineWorkflowContinuationEventPayload =

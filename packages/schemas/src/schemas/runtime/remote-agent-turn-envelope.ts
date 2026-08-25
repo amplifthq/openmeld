@@ -25,6 +25,24 @@ import { workingLanguageGuidanceSchema } from "./working-language";
 const nonEmptyStringSchema = z.string().trim().min(1);
 export const REMOTE_AGENT_TRIGGER_TEXT_MAX_CHARS = 4000;
 export const REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS = 1200;
+export const REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS = 8;
+
+export const remoteAgentWorkLoopCheckpointSchema = z.strictObject({
+  reason: z.literal("tool_call_budget_exhausted"),
+  toolCallLimit: z.number().int().positive(),
+  v: z.literal(1),
+});
+
+export const remoteAgentWorkLoopContinuationSchema = z.strictObject({
+  attempt: z
+    .number()
+    .int()
+    .positive()
+    .max(REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS),
+  previousSubmissionId: nonEmptyStringSchema,
+  reason: z.literal("tool_call_budget_exhausted"),
+  v: z.literal(1),
+});
 
 export const remoteAgentInteractionEnvironmentSchema = z.enum([
   "requester_private",
@@ -267,6 +285,7 @@ export const remoteAgentTurnEnvelopeSchema = z
     centerAgentInteractionSource: centerAgentInteractionSourceSchema.optional(),
     channelContext: channelContextSchema.optional(),
     memory: remoteAgentTurnEnvelopeMemorySchema.optional(),
+    workLoopContinuation: remoteAgentWorkLoopContinuationSchema.optional(),
   })
   .superRefine((envelope, context) => {
     const hasRoutineSender = envelope.sender.kind === "routine";
