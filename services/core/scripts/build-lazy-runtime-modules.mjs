@@ -38,6 +38,13 @@ export async function buildLazyRuntimeModules() {
     outputPath: path.join(OUTPUT_DIRECTORY, "yaml.mjs"),
     verify: verifyYamlRuntimeModule,
   });
+  await buildLazyRuntimeModule({
+    displayName: "Slack Markdown",
+    entryPath: fileURLToPath(import.meta.resolve("slackify-markdown")),
+    outputPath: path.join(OUTPUT_DIRECTORY, "slackify-markdown.mjs"),
+    platform: "neutral",
+    verify: verifySlackMarkdownRuntimeModule,
+  });
 }
 
 async function buildLazyRuntimeModule(input) {
@@ -51,7 +58,7 @@ async function buildLazyRuntimeModule(input) {
     legalComments: "eof",
     minify: true,
     outfile: input.outputPath,
-    platform: "browser",
+    platform: input.platform ?? "browser",
     target: "es2022",
     write: false,
   });
@@ -138,6 +145,19 @@ async function verifyYamlRuntimeModule(output) {
   const parsed = module.parse("name: OpenMeld\nportable: true");
   if (parsed?.name !== "OpenMeld" || parsed?.portable !== true) {
     throw new Error("Lazy YAML runtime module failed build validation");
+  }
+}
+
+async function verifySlackMarkdownRuntimeModule(output) {
+  const module = await importRuntimeModule(output);
+  if (typeof module.slackifyMarkdown !== "function") {
+    throw new Error(
+      "Lazy Slack Markdown runtime module does not export slackifyMarkdown"
+    );
+  }
+  const rendered = module.slackifyMarkdown("[OpenMeld](https://openmeld.ai)");
+  if (rendered.trimEnd() !== "<https://openmeld.ai|OpenMeld>") {
+    throw new Error("Lazy Slack Markdown runtime module failed validation");
   }
 }
 

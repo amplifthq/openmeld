@@ -1,5 +1,3 @@
-import { slackifyMarkdown } from "slackify-markdown";
-
 const BLOCKQUOTE_PREFIX_PATTERN = /^((?: {0,3}>[ \t]?)+)(.*)$/;
 const INDENTED_CODE_LINE_PATTERN = /^(?: {4}|\t)/;
 const MARKDOWN_CLOSING_FENCE_PATTERN = /^ {0,3}(?:`{3,}|~{3,})[ \t]*$/;
@@ -28,7 +26,10 @@ type MarkdownFence = {
   marker: "`" | "~";
 };
 
-export function toSlackMrkdwn(markdown: string): string {
+export async function toSlackMrkdwn(markdown: string): Promise<string> {
+  const { slackifyMarkdown } = await import(
+    "../../generated-runtime/slackify-markdown.mjs"
+  );
   return slackifyMarkdown(
     normalizeMarkdownForSlack(normalizeSlackPresentationMarkdown(markdown))
   ).trimEnd();
