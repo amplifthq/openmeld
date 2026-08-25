@@ -308,6 +308,7 @@ import {
   runSpaceActionTargets,
   runSpaceActionWake,
 } from "./space/action-command";
+import { runSpaceActionMcpServer } from "./space/action-mcp-server";
 import { runSpaceAddMe } from "./space/add-me-command";
 import { runSpaceBoard } from "./space/board-command";
 import {
@@ -5178,10 +5179,23 @@ async function main() {
     return;
   }
   const argv = process.argv.map((arg) => (arg === "--h" ? "--help" : arg));
+  if (isDispatchSpaceActionToolServerArgv(argv)) {
+    await runSpaceActionMcpServer();
+    return;
+  }
   if (await delegateToManagedCliIfAuthoritative(argv)) {
     return;
   }
   await runLocalCli(argv);
+}
+
+function isDispatchSpaceActionToolServerArgv(argv: readonly string[]): boolean {
+  return (
+    argv.length === 5 &&
+    argv[2] === "space" &&
+    argv[3] === "action" &&
+    argv[4] === "tool-server"
+  );
 }
 
 async function runLocalCli(argv: string[]): Promise<void> {

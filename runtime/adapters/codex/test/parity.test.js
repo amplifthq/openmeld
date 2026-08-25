@@ -690,6 +690,12 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
 
     assert.equal(result.threadId, "thread-existing-1");
     assert.equal(
+      messages[0].argv.some((arg) =>
+        arg.startsWith("mcp_servers.openmeld_internal_dispatch_space_action.")
+      ),
+      false
+    );
+    assert.equal(
       result.output,
       `app-server:${expectedControllerDir}:${dispatchDir}:hello from app-server`
     );
@@ -2302,6 +2308,11 @@ test("invokeCodexAppServerTransport applies model and reasoning to every app-ser
       },
       env: {
         OPENMELD_FAKE_CODEX_APP_SERVER_LOG: newLogPath,
+        OPENMELD_SPACE_ACTION_CONTEXT_PATH: join(
+          newDispatchDir,
+          "space-action-context.json"
+        ),
+        OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
       },
       prompt: "new app-server thread with conversation policy",
       taskId: "task-app-server-conversation-new",
@@ -2314,6 +2325,13 @@ test("invokeCodexAppServerTransport applies model and reasoning to every app-ser
     const newTurnStartParams = newMessages.find(
       (message) => message.method === "turn/start"
     ).params;
+    assert.equal(
+      newMessages[0].argv.includes(
+        "mcp_servers.openmeld_internal_dispatch_space_action.required=true"
+      ),
+      true
+    );
+    assert.equal(newMessages[0].argv.includes("app-server"), true);
     assert.equal(threadStartParams.model, "gpt-5.3-codex-spark");
     assert.equal(newTurnStartParams.model, "gpt-5.3-codex-spark");
     assert.equal(newTurnStartParams.effort, "low");
@@ -2328,6 +2346,11 @@ test("invokeCodexAppServerTransport applies model and reasoning to every app-ser
       },
       env: {
         OPENMELD_FAKE_CODEX_APP_SERVER_LOG: resumeLogPath,
+        OPENMELD_SPACE_ACTION_CONTEXT_PATH: join(
+          resumeDispatchDir,
+          "space-action-context.json"
+        ),
+        OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
       },
       prompt: "resumed app-server thread with conversation policy",
       taskId: "task-app-server-conversation-resume",
@@ -2340,6 +2363,13 @@ test("invokeCodexAppServerTransport applies model and reasoning to every app-ser
     const resumeTurnStartParams = resumeMessages.find(
       (message) => message.method === "turn/start"
     ).params;
+    assert.equal(
+      resumeMessages[0].argv.includes(
+        "mcp_servers.openmeld_internal_dispatch_space_action.required=true"
+      ),
+      true
+    );
+    assert.equal(resumeMessages[0].argv.includes("app-server"), true);
     assert.equal(threadResumeParams.model, "gpt-5.3-codex-spark");
     assert.equal(resumeTurnStartParams.model, "gpt-5.3-codex-spark");
     assert.equal(resumeTurnStartParams.effort, "low");

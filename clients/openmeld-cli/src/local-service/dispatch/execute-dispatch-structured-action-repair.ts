@@ -122,7 +122,7 @@ export function buildStructuredActionRepairPrompt(input: {
     "Do not change the user's intent.",
     ...SPACE_ACTION_CONTEXT_GUIDANCE_LINES,
     "Your answer text never selects an OpenMeld Space action.",
-    "Call exactly one dispatch-scoped OpenMeld Space Action CLI command to repair the delivery action.",
+    "Call exactly one dispatch-scoped OpenMeld Space Action tool to repair the delivery action. Use the CLI only if the tool is unavailable.",
     publicationRequirement.repairRequirementLine,
     ...SPACE_ACTION_TARGET_GUIDANCE_LINES,
     ...(normalizeOptionalText(input.currentReplyToSignalId)
@@ -155,7 +155,7 @@ function buildStructuredActionRepairCompletionLines(input: {
   return [
     "Repair completion rule:",
     buildStructuredActionRepairPrimaryCommandLine(input),
-    "If the command cannot run, stop. Do not print JSON or prose as a substitute for the tool call.",
+    "If neither the tool nor the fallback command can record the action, stop. Do not print JSON or prose as a substitute.",
     "Do not finish with an explanation of what you will do.",
   ];
 }
@@ -165,13 +165,13 @@ function buildStructuredActionRepairPrimaryCommandLine(input: {
   publicationRequirement: ReturnType<typeof resolveSpacePublicationRequirement>;
 }): string {
   if (input.publicationRequirement.allowedActions.includes("post_message")) {
-    return `For a normal reply, run \`${input.cliEntry} space action reply "corrected public message"\` now and wait for it to finish.`;
+    return `For a normal reply, call the OpenMeld Space Action \`reply\` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command \`${input.cliEntry} space action reply "corrected public message"\` and wait for it to finish.`;
   }
   if (input.publicationRequirement.allowedActions.includes("post_status")) {
-    return `For a final status, run \`${input.cliEntry} space action status done "short completion update"\` now and wait for it to finish.`;
+    return `For a final status, call the OpenMeld Space Action \`status\` tool with a final-safe status and short update. If that tool is unavailable, run the fallback CLI command \`${input.cliEntry} space action status done "short completion update"\` and wait for it to finish.`;
   }
   if (input.publicationRequirement.allowedActions.includes("stay_silent")) {
-    return `If no public reply is needed, run \`${input.cliEntry} space action silent --reason "reason"\` now and wait for it to finish.`;
+    return `If no public reply is needed, call the OpenMeld Space Action \`stay_silent\` tool with your reason. If that tool is unavailable, run the fallback CLI command \`${input.cliEntry} space action silent --reason "reason"\` and wait for it to finish.`;
   }
   return "No permitted OpenMeld Space action is available. Do not invent one in answer text.";
 }

@@ -30,6 +30,7 @@ import {
 } from "./codex-app-server-admission.js";
 import { buildCodexAppServerLaunch } from "./codex-app-server-launch.js";
 import { buildCodexFileAccessBoundaryGlobalArgs } from "./codex-file-access-boundary.js";
+import { buildCodexSpaceActionMcpGlobalArgs } from "./codex-space-action-mcp-config.js";
 
 const CODEX_APP_SERVER_VERSION_PATTERN = /\/([^\s]+)/u;
 
@@ -920,12 +921,20 @@ class CodexAppServerSession {
           permissionMode: this.#permissionMode,
         })
       : [];
+    const env = {
+      ...process.env,
+      ...(this.#env ?? {}),
+    };
+    const spaceActionMcpArgs = buildCodexSpaceActionMcpGlobalArgs(env);
     const launch = buildCodexAppServerLaunch({
-      args: [...computerFileAccessArgs, "app-server", "--listen", "stdio://"],
-      env: {
-        ...process.env,
-        ...(this.#env ?? {}),
-      },
+      args: [
+        ...computerFileAccessArgs,
+        ...spaceActionMcpArgs,
+        "app-server",
+        "--listen",
+        "stdio://",
+      ],
+      env,
       launchContract: this.#launchContract,
     });
     const runtimeProcess = spawnAgentControllerProcess({

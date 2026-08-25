@@ -852,9 +852,18 @@ unsent. Thread replies use the same message file contract.
 
 ### OpenMeld Space Action Commands
 
-`openmeld space action ...` is the canonical agent-facing operation surface for a
-Wake dispatch final outcome. In static docs, `<DISPATCH_ACTION_CLI>` means the
-exact Space Action command prefix printed in the current Wake dispatch prompt:
+An Agent chooses exactly one dispatch-scoped OpenMeld Space Action as a Wake's
+final outcome. A supported controller receives first-party `reply`, `status`,
+and `stay_silent` tools for text, status, and silent outcomes. Those tools are
+scoped to the current dispatch, record through the same action writer as the
+CLI, and do not require approval for an arbitrary shell command. They do not
+weaken the Agent Profile's controller-native filesystem, network, or general
+command permissions.
+
+`openmeld space action ...` remains the fallback, attachment, diagnostic, and
+backward-compatible operation surface. In static docs,
+`<DISPATCH_ACTION_CLI>` means the exact Space Action command prefix printed in
+the current Wake dispatch prompt:
 
 ```text
 <DISPATCH_ACTION_CLI> space action reply "message"
@@ -870,9 +879,10 @@ printf '%s' "message" | <DISPATCH_ACTION_CLI> space action reply --message-file 
 ```
 
 The current dispatch prompt should present one primary final action before any
-optional action forms. Optional handoff, Reference, status, silent, target,
-help, or fallback examples must not sit at the same priority as the primary
-final action for a normal Wake.
+optional action forms. It tells the Agent to use the first-party Space Action
+tool when available and presents the exact CLI command only as fallback.
+Optional handoff, Reference, status, silent, target, help, or fallback examples
+must not sit at the same priority as the primary final action for a normal Wake.
 
 Agents must keep the final action aligned to the current source. If the answer
 uses other Space messages, private context, memory, or tool results, the visible
@@ -888,14 +898,15 @@ explicit fallback when the provided facts, exact thread, and anchored window are
 insufficient. Truncated source summaries carry an explicit `[truncated]`
 marker.
 
-These commands are dispatch-scoped. Write actions require the active
+Both tool and CLI writes are dispatch-scoped. Write actions require the active
 dispatch-owned runtime context and must fail closed without it. The command
 shown to the agent inside a Wake is not a hard-coded production `openmeld` command.
 OpenMeld resolves the active lane (`openmeld`, `openmeld-dev`, or `openmeld-canary`), injects a
 per-dispatch CLI shim ahead of `PATH`, and binds that shim to the current
-dispatch ID, target Agent Profile, and Space Action context. Agents should run
-the exact `space action` command printed in the dispatch prompt and must not
-rewrite it to `npx`. Outside a Wake dispatch, help must use the
+dispatch ID, target Agent Profile, and Space Action context. When the first-party
+tool is unavailable, Agents should run the exact fallback `space action`
+command printed in the dispatch prompt and must not rewrite it to `npx`.
+Outside a Wake dispatch, help must use the
 `<DISPATCH_ACTION_CLI>` placeholder instead of presenting a guessed runnable
 command. `targets` requires the current dispatch target snapshot.
 
@@ -905,12 +916,15 @@ It is not the preferred visible entry for dispatch-owned Space Actions because
 the action must record against the active Wake context. If a runtime needs a
 package-backed implementation, OpenMeld may hide that behind the injected shim.
 
-The CLI action command records one local action record for the current dispatch
-attempt. It must not publish a Space message directly and must not bypass
+The first-party tool and CLI action command share one local action writer and
+record one local action record for the current dispatch attempt. Neither may
+publish a Space message directly or bypass
 RuntimeCoordinator or Agent Transport Space Action Delivery. The daemon accepts
 only this dispatch-scoped record or another typed runtime action; it never parses
-model-authored answer text into a Space action. A valid CLI action is reported
-with `spaceActionProvenance: "cli_action"`.
+model-authored answer text into a Space action. The existing diagnostic
+provenance value for this shared local record path remains
+`spaceActionProvenance: "cli_action"`; it is a compatibility label, not proof
+that the Agent used a shell command.
 
 `reply --message-file <path>` reads the reply body as UTF-8; `--message-file -`
 reads it from stdin. This input is distinct from repeatable `--file <path>`,

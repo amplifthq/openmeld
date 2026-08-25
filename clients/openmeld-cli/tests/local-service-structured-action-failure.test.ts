@@ -700,20 +700,20 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       "Your answer text never selects an OpenMeld Space action."
     );
     expect(prompt).toContain(
-      "Call exactly one dispatch-scoped OpenMeld Space Action CLI command to repair the delivery action."
+      "Call exactly one dispatch-scoped OpenMeld Space Action tool to repair the delivery action. Use the CLI only if the tool is unavailable."
     );
     expect(prompt).toContain(
-      "Preserve the user's intent and call exactly one dispatch-scoped OpenMeld Space Action CLI command. Do not print an action as JSON or prose."
+      "Preserve the user's intent and record exactly one dispatch-scoped OpenMeld Space Action. Do not print an action as JSON or prose."
     );
     expect(prompt).toContain(
-      "Use the dispatch-scoped Space Action reply command for normal public replies, greetings, answers, and discussion."
+      "Use the dispatch-scoped Space Action reply for normal public replies, greetings, answers, and discussion."
     );
     expect(prompt).toContain("Repair completion rule:");
     expect(prompt).toContain(
-      'For a normal reply, run `openmeld space action reply "corrected public message"` now and wait for it to finish.'
+      'For a normal reply, call the OpenMeld Space Action `reply` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command `openmeld space action reply "corrected public message"` and wait for it to finish.'
     );
     expect(prompt).toContain(
-      "If the command cannot run, stop. Do not print JSON or prose as a substitute for the tool call."
+      "If neither the tool nor the fallback command can record the action, stop. Do not print JSON or prose as a substitute."
     );
     expect(prompt).toContain(
       "Do not finish with an explanation of what you will do."
@@ -752,7 +752,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       "`openmeld-dev space history space-123 --kind text --limit 20`"
     );
     expect(prompt).toContain(
-      'For a normal reply, run `openmeld-dev space action reply "corrected public message"` now and wait for it to finish.'
+      'For a normal reply, call the OpenMeld Space Action `reply` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command `openmeld-dev space action reply "corrected public message"` and wait for it to finish.'
     );
     expect(prompt).toContain("`openmeld-dev prompt`");
     expect(prompt).toContain("`openmeld-dev space guide space-123`");
@@ -789,7 +789,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     });
 
     expect(prompt).toContain(
-      "Return the plain raw reply, or call one dispatch-scoped OpenMeld Space Action CLI command for a controlled visible outcome. Answer text never becomes an action."
+      "Return the plain raw reply, or record one dispatch-scoped OpenMeld Space Action for a controlled visible outcome. Use the OpenMeld Space Action tool when available and the CLI only as fallback. Answer text never becomes an action."
     );
     expect(prompt).not.toContain(
       "OpenMeld will not publish raw prose for you."
