@@ -78,6 +78,18 @@ export function createWorkerStartupEvidence(input) {
   };
 }
 
+export function writeWorkerStartupEvidence(input) {
+  mkdirSync(path.dirname(input.profileOutput), { recursive: true });
+  copyFileSync(input.profileSourcePath, input.profileOutput);
+  const evidence = createWorkerStartupEvidence({
+    profile: JSON.parse(readFileSync(input.profileSourcePath, "utf8")),
+    worker: input.worker,
+  });
+  mkdirSync(path.dirname(input.output), { recursive: true });
+  writeFileSync(input.output, `${JSON.stringify(evidence, null, 2)}\n`);
+  return evidence;
+}
+
 function main() {
   const options = parseArguments(process.argv.slice(2));
   const configPath = path.resolve(REPOSITORY_ROOT, options.config);
@@ -121,14 +133,12 @@ function main() {
         `Wrangler startup profile command failed with exit code ${String(result.status)}`
       );
     }
-    const evidence = createWorkerStartupEvidence({
-      profile: JSON.parse(readFileSync(temporaryProfilePath, "utf8")),
+    const evidence = writeWorkerStartupEvidence({
+      output: options.output,
+      profileOutput: options.profileOutput,
+      profileSourcePath: temporaryProfilePath,
       worker: options.worker,
     });
-    mkdirSync(path.dirname(options.output), { recursive: true });
-    mkdirSync(path.dirname(options.profileOutput), { recursive: true });
-    writeFileSync(options.output, `${JSON.stringify(evidence, null, 2)}\n`);
-    copyFileSync(temporaryProfilePath, options.profileOutput);
     console.log(
       `[worker-startup] ${options.worker}: application ${String(evidence.profile.applicationMs)} ms, garbage collection ${String(evidence.profile.garbageCollectionMs)} ms, active including GC ${String(evidence.profile.activeMs)} ms, idle ${String(evidence.profile.idleMs)} ms`
     );
