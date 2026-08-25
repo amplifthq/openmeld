@@ -2245,6 +2245,8 @@ export {
   localSetupEntrypointSchema,
   localSkillsComponentProjectionSchema,
   localSkillsComponentUpdateProjectionSchema,
+  openMeldToolsMaintenanceProjectionSchema,
+  openMeldToolsUpdateAttemptSchema,
   openMeldToolsUpdateOperationPhaseSchema,
   openMeldToolsUpdateOperationSchema,
   openMeldToolsUpdateRequestSourceSchema,

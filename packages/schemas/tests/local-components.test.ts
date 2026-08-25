@@ -21,6 +21,10 @@ describe("local components schema", () => {
       setupActionLabel: "Update OpenMeld Service",
       setupActionDescription:
         "Update OpenMeld Service through setup on this computer.",
+      maintenance: {
+        automaticUpdatesEnabled: true,
+        status: "ready",
+      },
       updateOperation: {
         operationId: "update-1",
         phase: "waiting_for_work",
@@ -62,6 +66,7 @@ describe("local components schema", () => {
     });
 
     expect(parsed.setupAction).toBe("update_service");
+    expect(parsed.maintenance?.automaticUpdatesEnabled).toBe(true);
     expect(parsed.updateOperation?.phase).toBe("waiting_for_work");
   });
 
@@ -142,6 +147,10 @@ describe("local components schema", () => {
       humanSetupCommand: "npm install -g openmeld@latest && openmeld setup",
       agentSetupCommand:
         "npm install -g openmeld@latest && openmeld setup --view agent",
+      maintenance: {
+        automaticUpdatesEnabled: false,
+        status: "ready",
+      },
       updateOperation: {
         operationId: "update-1",
         phase: "updating",
@@ -185,6 +194,7 @@ describe("local components schema", () => {
     });
 
     expect(parsed.service.wakeBlocked).toBe(true);
+    expect(parsed.maintenance?.automaticUpdatesEnabled).toBe(false);
     expect(parsed.updateOperation?.requestSource).toBe("web");
   });
 });

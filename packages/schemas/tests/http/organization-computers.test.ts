@@ -57,6 +57,10 @@ const TEAM_SAFE_DETAILS = {
 } as const;
 
 const TEAM_SAFE_OPENMELD_TOOLS = {
+  maintenance: {
+    automaticUpdatesEnabled: true,
+    status: "ready",
+  },
   updateOperation: {
     operationId: "update-1",
     phase: "waiting_for_work",

@@ -57,6 +57,25 @@ describe("local component update projection", () => {
     });
   });
 
+  it("passes the computer's automatic update setting through unchanged", () => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-06-04T00:00:00.000Z",
+      localComponentsStatus: createLocalComponentsStatus({
+        automaticUpdatesEnabled: false,
+      }),
+      releaseManifest: createReleaseManifest({
+        serviceUpdatePolicy: "available",
+      }),
+      serviceConnected: true,
+      serviceVersion: "0.7.28",
+    });
+
+    expect(projection.maintenance).toEqual({
+      automaticUpdatesEnabled: false,
+      status: "ready",
+    });
+  });
+
   it("blocks only Service versions below Core's minimum supported version", () => {
     const releaseManifest = createReleaseManifest({
       serviceUpdatePolicy: "available",
@@ -497,6 +516,7 @@ function createReleaseManifest(input: {
 }
 
 function createLocalComponentsStatus(input: {
+  automaticUpdatesEnabled?: boolean;
   cliPackageVersion?: string;
   includeUpdateOperation?: boolean;
   serviceBundleHash?: string | null;
@@ -513,6 +533,14 @@ function createLocalComponentsStatus(input: {
     setupActionLabel: "Everything is up to date",
     setupActionDescription:
       "OpenMeld local components are aligned for this computer.",
+    ...(input.automaticUpdatesEnabled === undefined
+      ? {}
+      : {
+          maintenance: {
+            automaticUpdatesEnabled: input.automaticUpdatesEnabled,
+            status: "ready" as const,
+          },
+        }),
     ...(input.includeUpdateOperation
       ? {
           updateOperation: {

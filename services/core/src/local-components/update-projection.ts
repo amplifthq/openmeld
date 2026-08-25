@@ -13,6 +13,7 @@ import type {
   LocalServiceComponentUpdateProjection,
   LocalSetupAction,
   LocalSkillsComponentUpdateProjection,
+  OpenMeldToolsMaintenanceProjection,
   OpenMeldToolsUpdateOperation,
 } from "@openmeld/schemas/types";
 import releaseManifestJson from "../../../../release/local-components.json";
@@ -50,6 +51,8 @@ export function resolveLocalComponentUpdateProjection(input: {
   serviceVersion: string | null;
 }): LocalComponentUpdateProjection {
   const manifest = resolveRequestedReleaseManifest(input.releaseManifest);
+  const maintenance = input.localComponentsStatus?.maintenance ?? null;
+  const updateOperation = input.localComponentsStatus?.updateOperation ?? null;
   if (!manifest) {
     const service = buildServiceUpdateProjection({
       installedVersion: input.serviceVersion,
@@ -87,7 +90,8 @@ export function resolveLocalComponentUpdateProjection(input: {
       generatedAt: input.generatedAt,
       service,
       skills,
-      updateOperation: input.localComponentsStatus?.updateOperation ?? null,
+      maintenance,
+      updateOperation,
     });
   }
 
@@ -120,7 +124,8 @@ export function resolveLocalComponentUpdateProjection(input: {
       generatedAt: input.generatedAt,
       service,
       skills,
-      updateOperation: input.localComponentsStatus?.updateOperation ?? null,
+      maintenance,
+      updateOperation,
     });
   }
 
@@ -172,7 +177,8 @@ export function resolveLocalComponentUpdateProjection(input: {
     generatedAt: input.generatedAt,
     service,
     skills,
-    updateOperation: input.localComponentsStatus?.updateOperation ?? null,
+    maintenance,
+    updateOperation,
   });
 }
 
@@ -504,6 +510,7 @@ function buildSkillsUpdateProjection(input: {
 function buildProjection(input: {
   cli: LocalCliComponentUpdateProjection;
   generatedAt: string;
+  maintenance: OpenMeldToolsMaintenanceProjection | null;
   service: LocalServiceComponentUpdateProjection;
   skills: LocalSkillsComponentUpdateProjection;
   updateOperation: OpenMeldToolsUpdateOperation | null;
@@ -517,6 +524,7 @@ function buildProjection(input: {
     setupActionDescription: formatLocalSetupActionDescription(setupAction),
     humanSetupCommand: HUMAN_SETUP_COMMAND,
     agentSetupCommand: AGENT_SETUP_COMMAND,
+    ...(input.maintenance ? { maintenance: input.maintenance } : {}),
     ...(input.updateOperation
       ? { updateOperation: input.updateOperation }
       : {}),
