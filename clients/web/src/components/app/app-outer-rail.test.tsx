@@ -683,8 +683,8 @@ describe("AppOuterRail", () => {
 
 		expect(workTrigger.getAttribute("aria-expanded")).toBe("false");
 		expect(
-			within(railContent).queryByRole("link", { name: "Center Agent" })
-		).toBeNull();
+			within(railContent).getByRole("link", { name: "Center Agent" })
+		).toBeTruthy();
 		expect(
 			within(railContent).queryByRole("link", { name: "Spaces" })
 		).toBeNull();
