@@ -69,7 +69,7 @@ export const remoteAgentSlackDirectMessageEventSchema = z
     channel: nonEmptyStringSchema,
     action_token: nonEmptyStringSchema.max(4096).optional(),
     bot_id: z.never().optional(),
-    subtype: z.never().optional(),
+    subtype: z.literal("file_share").optional(),
     thread_ts: nonEmptyStringSchema.optional(),
     event_ts: nonEmptyStringSchema.optional(),
   })

@@ -76,6 +76,13 @@ describe("Remote Agent Slack contracts", () => {
     expect(
       remoteAgentSlackDirectMessageEventSchema.safeParse({
         ...directMessage,
+        files: [{ id: "F123" }],
+        subtype: "file_share",
+      }).success
+    ).toBe(true);
+    expect(
+      remoteAgentSlackDirectMessageEventSchema.safeParse({
+        ...directMessage,
         subtype: "message_changed",
       }).success
     ).toBe(false);
