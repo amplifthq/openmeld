@@ -937,6 +937,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith({
 				configuration: {
+					agentControllerCollaborationMode: "codex:default",
 					agentControllerPermissionMode: "codex:askForApproval",
 					agentControllerRef: "builtin:codex",
 					authorizeForOrganization: true,
@@ -1831,6 +1832,10 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(screen.getByRole("option", { name: "GPT-5.4 Mini" }));
 		fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
 		fireEvent.click(screen.getByRole("option", { name: "Medium" }));
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Codex collaboration mode" })
+		);
+		fireEvent.click(screen.getByRole("option", { name: "Plan" }));
 
 		fireEvent.click(
 			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
@@ -1840,6 +1845,7 @@ describe("CreateProfileDialog", () => {
 			expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
 				expect.objectContaining({
 					agentProfileId: NEW_AGENT_ID,
+					agentControllerCollaborationMode: "codex:plan",
 					agentControllerPermissionMode: "codex:approveForMe",
 					agentControllerRef: "builtin:codex",
 					modelId: "gpt-5.4-mini",
@@ -2151,6 +2157,7 @@ describe("CreateProfileDialog", () => {
 		});
 		await waitFor(() => {
 			expect(setAgentProfileCreationDefaultsMock).toHaveBeenCalledWith({
+				agentControllerCollaborationMode: null,
 				agentControllerPermissionMode: null,
 				agentControllerRef: "builtin:opencode",
 				defaultProjectId: null,
@@ -2166,6 +2173,8 @@ describe("CreateProfileDialog", () => {
 		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
 		getAgentProfileCreationDefaultsMock.mockImplementation(
 			async ({ agentControllerRef, organizationId }) => ({
+				agentControllerCollaborationMode:
+					agentControllerRef === "builtin:codex" ? "codex:plan" : null,
 				agentControllerPermissionMode:
 					agentControllerRef === "builtin:codex" ? "codex:approveForMe" : null,
 				agentControllerRef,
@@ -2200,6 +2209,11 @@ describe("CreateProfileDialog", () => {
 		);
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
 		await waitFor(() => {
+			expect(
+				screen.getByRole("combobox", {
+					name: "Codex collaboration mode",
+				}).textContent
+			).toContain("Plan");
 			expect(
 				screen.getByRole("combobox", { name: "Codex permissions mode" })
 					.textContent

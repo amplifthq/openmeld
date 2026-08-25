@@ -1,5 +1,6 @@
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
+	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
 	AgentProfileBindingSessionInventorySelection,
@@ -62,6 +63,7 @@ export type NewProfileCreationInput = {
 
 export type NewAgentProfileLocalSetupInput = {
 	agentControllerConversationId?: string | null;
+	agentControllerCollaborationMode?: AgentControllerCollaborationMode;
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	boundAgentId: string;
 	currentServiceCanSetProfileWorkspace?: boolean;
@@ -155,6 +157,12 @@ export async function setupNewAgentProfileLocalState(
 
 	await bindNewAgentProfileToLocalAgent({
 		agentControllerConversationId: input.agentControllerConversationId ?? null,
+		...(input.agentControllerCollaborationMode
+			? {
+					agentControllerCollaborationMode:
+						input.agentControllerCollaborationMode,
+				}
+			: {}),
 		...(input.agentControllerPermissionMode
 			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 			: {}),
@@ -200,6 +208,7 @@ function requireNewAgentProfileOrganizationId(
 
 async function bindNewAgentProfileToLocalAgent(input: {
 	agentControllerConversationId: string | null;
+	agentControllerCollaborationMode?: AgentControllerCollaborationMode;
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	agentProfileId: string;
 	agentControllerRef: string;
@@ -214,6 +223,12 @@ async function bindNewAgentProfileToLocalAgent(input: {
 	const bindingResult = await ensureWebAgentProfileRuntimeBinding({
 		actorProfileId: input.selectedHumanProfileId,
 		agentProfileId: input.agentProfileId,
+		...(input.agentControllerCollaborationMode
+			? {
+					agentControllerCollaborationMode:
+						input.agentControllerCollaborationMode,
+				}
+			: {}),
 		...(input.agentControllerPermissionMode
 			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 			: {}),
