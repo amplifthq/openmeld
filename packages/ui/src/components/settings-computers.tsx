@@ -359,6 +359,7 @@ export function SettingsLocalAgentUsageSummary({
   const remainingPercentLabel = formatRemainingPercent(
     summary.remainingPercent
   );
+  const orderedLimits = orderUsageLimitsForDisplay({ agentName, limits });
 
   return (
     <Tooltip>
@@ -388,9 +389,9 @@ export function SettingsLocalAgentUsageSummary({
         side="top"
       >
         <span className="font-medium">Usage limits</span>
-        {limits && limits.length > 0 ? (
+        {orderedLimits && orderedLimits.length > 0 ? (
           <span className="grid gap-2">
-            {limits.map((limit) => (
+            {orderedLimits.map((limit) => (
               <UsageLimitPreview key={limit.key} limit={limit} nowMs={nowMs} />
             ))}
           </span>
@@ -450,6 +451,7 @@ export function SettingsLocalAgentUsageLimits({
   if (limits === undefined) {
     return null;
   }
+  const orderedLimits = orderUsageLimitsForDisplay({ agentName, limits });
 
   return (
     <section aria-label={`${agentName} usage limits`} className="space-y-2.5">
@@ -460,12 +462,12 @@ export function SettingsLocalAgentUsageLimits({
           agent can run.
         </p>
       </div>
-      {limits && limits.length > 0 ? (
+      {orderedLimits && orderedLimits.length > 0 ? (
         <div
           className="grid gap-2.5 md:grid-cols-3"
           data-testid="local-agent-usage-limit-grid"
         >
-          {limits.map((limit) => (
+          {orderedLimits.map((limit) => (
             <SettingsLocalAgentUsageLimitGauge
               agentName={agentName}
               key={limit.key}
@@ -541,13 +543,17 @@ function SettingsLocalAgentUsageLimitGauge({
             <UsageLimitRing
               className="absolute inset-0 size-full"
               remainingPercent={remainingPercent}
+              strokeWidth={2}
               tone={presentation.tone}
             />
             <span className="flex flex-col items-center font-medium tabular-nums leading-none">
-              <span className="text-base">
+              <span className="text-sm" data-usage-limit-value>
                 {formatRemainingPercent(remainingPercent)}
               </span>
-              <span className="mt-1 text-[10px] text-muted-foreground">
+              <span
+                className="mt-1 text-[9px] text-muted-foreground"
+                data-usage-limit-unit
+              >
                 left
               </span>
             </span>
@@ -571,10 +577,12 @@ function SettingsLocalAgentUsageLimitGauge({
 function UsageLimitRing({
   className,
   remainingPercent,
+  strokeWidth = 2.5,
   tone,
 }: {
   className?: string;
   remainingPercent: number;
+  strokeWidth?: number;
   tone: UsageLimitPresentation["tone"];
 }) {
   return (
@@ -594,7 +602,7 @@ function UsageLimitRing({
         fill="none"
         r="7.5"
         stroke="currentColor"
-        strokeWidth="2.5"
+        strokeWidth={strokeWidth}
       />
       <circle
         cx="10"
@@ -605,10 +613,33 @@ function UsageLimitRing({
         stroke="currentColor"
         strokeDasharray={`${remainingPercent} 100`}
         strokeLinecap="round"
-        strokeWidth="2.5"
+        strokeWidth={strokeWidth}
       />
     </svg>
   );
+}
+
+function orderUsageLimitsForDisplay(input: {
+  agentName: string;
+  limits?: AgentControllerUsageLimits;
+}): AgentControllerUsageLimits | undefined {
+  if (
+    input.agentName.trim().toLocaleLowerCase("en-US") !== "codex" ||
+    !input.limits?.some(isCodexOverallWeeklyUsageLimit)
+  ) {
+    return input.limits;
+  }
+  return input.limits.toSorted(
+    (left, right) =>
+      Number(isCodexOverallWeeklyUsageLimit(right)) -
+      Number(isCodexOverallWeeklyUsageLimit(left))
+  );
+}
+
+function isCodexOverallWeeklyUsageLimit(
+  limit: AgentControllerUsageLimits[number]
+): boolean {
+  return limit.label.trim().toLocaleLowerCase("en-US") === "weekly usage";
 }
 
 function UsageLimitTime({
