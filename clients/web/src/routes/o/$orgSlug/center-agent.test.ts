@@ -30,7 +30,6 @@ describe("loadCenterAgentRouteContext", () => {
 		)}; Path=/`;
 
 		await expect(loadCenterAgentRouteContext()).resolves.toEqual({
-			initialInnerSidebarState: innerState,
 			initialOuterSidebarState: outerState,
 		});
 	});

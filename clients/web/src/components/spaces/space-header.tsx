@@ -12,9 +12,13 @@ import {
 	HashIcon,
 	WarningIcon,
 } from "@phosphor-icons/react";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useState } from "react";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
+import {
+	SpaceHeaderNavigationMenu,
+	type SpaceHeaderNavigationMenuItem,
+} from "./space-header-navigation-menu";
 import { SpaceInfoDialog } from "./space-info-dialog";
 import { SpaceShareDialog } from "./space-share-dialog";
 
@@ -132,6 +136,8 @@ export function SpaceHeader(input: {
 	liveErrorMessage?: string | null;
 	liveState?: SpaceLiveState;
 	managementControl?: ReactNode;
+	menuItems?: readonly SpaceHeaderNavigationMenuItem[];
+	menuLabel?: string;
 	// Forces an immediate live-stream reconnect; wired to the manual retry control
 	// on the degraded status indicator.
 	onReconnectLiveUpdates?: () => void;
@@ -156,6 +162,7 @@ export function SpaceHeader(input: {
 	spaceNameErrorMessage: string | null;
 	status: GetSpaceStatusResponse;
 }) {
+	const [spaceInformationOpen, setSpaceInformationOpen] = useState(false);
 	const spaceName = input.status.name?.trim() || "Untitled space";
 	const isDirectMessage = isDirectMessageSpace({
 		activeMemberCount: input.status.members.totalCount,
@@ -205,6 +212,15 @@ export function SpaceHeader(input: {
 								spaceName={spaceName}
 							/>
 						)}
+						{input.menuItems ? (
+							<SpaceHeaderNavigationMenu
+								ariaLabel={input.menuLabel ?? "More options"}
+								items={input.menuItems}
+								onOpenConversationInformation={() => {
+									setSpaceInformationOpen(true);
+								}}
+							/>
+						) : null}
 						<SpaceInfoDialog
 							access={{
 								canManage: input.canManageSpaceAccess,
@@ -238,6 +254,11 @@ export function SpaceHeader(input: {
 								onSave: input.onUpdateSpaceName,
 								value: spaceName,
 							}}
+							onOpenChange={
+								input.menuItems ? setSpaceInformationOpen : undefined
+							}
+							open={input.menuItems ? spaceInformationOpen : undefined}
+							showTrigger={!input.menuItems}
 							spaceId={input.status.spaceId}
 						/>
 					</div>
@@ -249,14 +270,17 @@ export function SpaceHeader(input: {
 			}
 			navigation={input.viewControl}
 			renderFrame={input.renderFrame}
-			secondaryContentClassName={
-				input.setupRecallAction ? "max-lg:pr-12" : undefined
-			}
+			secondaryContentClassName={cn(
+				input.isCenterAgentDirectMessage && "overflow-x-auto",
+				input.setupRecallAction && "max-lg:pr-12"
+			)}
 			subtitleItems={subtitleItems}
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
-					{isDirectMessage ? <DirectMessageHeaderLabel /> : null}
+					{isDirectMessage && !input.isCenterAgentDirectMessage ? (
+						<DirectMessageHeaderLabel />
+					) : null}
 					{input.isCenterAgentDirectMessage || isDirectMessage
 						? null
 						: renderSpaceAccessModeHeaderLabel(input.status.accessMode)}
@@ -271,7 +295,7 @@ export function SpaceHeader(input: {
 	);
 }
 
-function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
+export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 	const Icon = input.isDirectMessage ? ChatCircleTextIcon : HashIcon;
 	return (
 		<Icon

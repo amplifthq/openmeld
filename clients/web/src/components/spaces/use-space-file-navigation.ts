@@ -18,8 +18,11 @@ type PendingSpaceNavigation =
  * Keeps Space tab changes and chat-to-file links on one guarded path so a
  * person never loses an in-progress file edit by navigating elsewhere.
  */
-export function useSpaceFileNavigation() {
-	const [spaceView, setSpaceView] = useState<SpaceView>("messages");
+export function useSpaceFileNavigation(
+	initialView: SpaceView = "messages",
+	onViewCommitted?: (view: SpaceView) => void
+) {
+	const [spaceView, setSpaceView] = useState<SpaceView>(initialView);
 	const [spaceFileToOpen, setSpaceFileToOpen] =
 		useState<SpaceFileOpenRequest | null>(null);
 	const [leaveGuard, setLeaveGuard] = useState<SpaceFileLeaveGuard | null>(
@@ -30,19 +33,22 @@ export function useSpaceFileNavigation() {
 	const shouldProtectDraft =
 		spaceView === "files" && leaveGuard?.hasUnsavedChanges === true;
 
-	const commitNavigation = useCallback((intent: PendingSpaceNavigation) => {
-		if (intent.kind === "file") {
-			setSpaceFileToOpen({
-				fileId: intent.fileId,
-				requestId: crypto.randomUUID(),
-				revision: intent.revision,
-			});
-			setSpaceView("files");
-		} else {
-			setSpaceView(intent.view);
-		}
-		setPendingNavigation(null);
-	}, []);
+	const commitNavigation = useCallback(
+		(intent: PendingSpaceNavigation) => {
+			const committedView = intent.kind === "file" ? "files" : intent.view;
+			if (intent.kind === "file") {
+				setSpaceFileToOpen({
+					fileId: intent.fileId,
+					requestId: crypto.randomUUID(),
+					revision: intent.revision,
+				});
+			}
+			setSpaceView(committedView);
+			setPendingNavigation(null);
+			onViewCommitted?.(committedView);
+		},
+		[onViewCommitted]
+	);
 
 	const changeSpaceView = useCallback(
 		(view: SpaceView) => {

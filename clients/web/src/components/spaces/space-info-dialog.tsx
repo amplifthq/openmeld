@@ -58,6 +58,9 @@ export function SpaceInfoDialog(input: {
 		onSave: (name: string) => Promise<void>;
 		value: string;
 	};
+	onOpenChange?: (open: boolean) => void;
+	open?: boolean;
+	showTrigger?: boolean;
 	spaceId: string;
 }) {
 	const [isConfirmingLeave, setIsConfirmingLeave] = useState(false);
@@ -72,26 +75,28 @@ export function SpaceInfoDialog(input: {
 	const showSpaceAccessControls = !isDirectConversation;
 
 	return (
-		<Dialog>
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						<DialogTrigger
-							render={
-								<Button
-									aria-label="Space information"
-									size="icon-sm"
-									type="button"
-									variant="ghost"
-								>
-									<DotsThreeIcon />
-								</Button>
-							}
-						/>
-					}
-				/>
-				<TooltipContent side="bottom">Space information</TooltipContent>
-			</Tooltip>
+		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
+			{input.showTrigger === false ? null : (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<DialogTrigger
+								render={
+									<Button
+										aria-label="Space information"
+										size="icon-sm"
+										type="button"
+										variant="ghost"
+									>
+										<DotsThreeIcon />
+									</Button>
+								}
+							/>
+						}
+					/>
+					<TooltipContent side="bottom">Space information</TooltipContent>
+				</Tooltip>
+			)}
 			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden bg-surface-1 sm:max-w-xl">
 				<DialogHeader className="shrink-0 pr-8">
 					<DialogTitle>Space information</DialogTitle>

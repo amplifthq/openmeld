@@ -6,7 +6,10 @@ import { useSpaceFileNavigation } from "./use-space-file-navigation";
 describe("useSpaceFileNavigation", () => {
 	it("protects a draft before changing Space tabs", () => {
 		const discard = vi.fn();
-		const { result } = renderHook(() => useSpaceFileNavigation());
+		const onViewCommitted = vi.fn();
+		const { result } = renderHook(() =>
+			useSpaceFileNavigation("messages", onViewCommitted)
+		);
 
 		act(() => result.current.changeSpaceView("files"));
 		act(() =>
@@ -23,10 +26,14 @@ describe("useSpaceFileNavigation", () => {
 			kind: "view",
 			view: "messages",
 		});
+		expect(onViewCommitted).toHaveBeenCalledTimes(1);
+		expect(onViewCommitted).toHaveBeenLastCalledWith("files");
 
 		act(() => result.current.discardAndContinue());
 		expect(discard).toHaveBeenCalledOnce();
 		expect(result.current.spaceView).toBe("messages");
+		expect(onViewCommitted).toHaveBeenCalledTimes(2);
+		expect(onViewCommitted).toHaveBeenLastCalledWith("messages");
 	});
 
 	it("opens the exact linked revision only after the current draft is saved", async () => {

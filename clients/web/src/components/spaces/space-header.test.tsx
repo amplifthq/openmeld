@@ -4,6 +4,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
+import { SparkleIcon } from "@phosphor-icons/react";
 import {
 	cleanup,
 	fireEvent,
@@ -12,7 +13,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	PUBLIC_SPACE_ACCESS_DESCRIPTION,
@@ -358,6 +359,36 @@ describe("SpaceHeader", () => {
 		expect(screen.getByRole("button", { name: "Delete space" })).toBeTruthy();
 	});
 
+	it("consolidates Center Agent destinations and conversation information into one menu", async () => {
+		render(
+			createSpaceHeader({
+				isCenterAgentDirectMessage: true,
+				menuItems: [
+					{
+						icon: SparkleIcon,
+						label: "Skills",
+						to: "/o/acme/center-agent/skills",
+					},
+				],
+			})
+		);
+
+		expect(
+			screen.queryByRole("button", { name: "Space information" })
+		).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Center Agent menu" }));
+		expect(
+			await screen.findByRole("menuitem", { name: "Skills" })
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: "Conversation information" })
+		);
+
+		expect(await screen.findByRole("dialog")).toBeTruthy();
+		expect(screen.getByText("Space ID")).toBeTruthy();
+		expect(screen.queryByText("About")).toBeNull();
+	});
+
 	it("hides ordinary Space access and membership controls for Center Agent DMs", () => {
 		render(
 			createSpaceHeader({
@@ -368,7 +399,7 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		expect(screen.getByText("Direct Message")).toBeTruthy();
+		expect(screen.queryByText("Direct Message")).toBeNull();
 		expect(screen.queryByText("Public")).toBeNull();
 		expect(screen.queryByTestId("space-public-access-warning")).toBeNull();
 		expect(screen.queryByRole("button", { name: "Share space" })).toBeNull();
@@ -942,6 +973,7 @@ function createSpaceHeader(
 		onLeaveSpace?: () => void;
 		isCenterAgentDirectMessage?: boolean;
 		memberCount?: number;
+		menuItems?: ComponentProps<typeof SpaceHeader>["menuItems"];
 		membersControl?: ReactNode;
 		passwordProtected?: boolean;
 		renderFrame?: boolean;
@@ -975,6 +1007,8 @@ function createSpaceHeader(
 						input.membersControl
 					)
 				}
+				menuItems={input.menuItems}
+				menuLabel="Center Agent menu"
 				notificationControl={<button type="button">Notifications</button>}
 				onDeleteSpace={input.onDeleteSpace ?? vi.fn()}
 				onLeaveSpace={input.onLeaveSpace ?? vi.fn()}
