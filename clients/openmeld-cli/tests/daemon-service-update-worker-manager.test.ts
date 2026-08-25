@@ -10,7 +10,12 @@ vi.mock("../src/local-service/lifecycle/daemon-service-manager", () => ({
   resolveDaemonServiceManager: vi.fn(),
 }));
 
+import { resolveDaemonBundleEntryPathFromState } from "../src/local-service/lifecycle/daemon-service-bundle";
+import { buildDaemonSystemServiceCommandSpec } from "../src/local-service/lifecycle/daemon-service-command-spec";
+import { resolveDaemonServiceManager } from "../src/local-service/lifecycle/daemon-service-manager";
+import type { DaemonServiceUpdateJob } from "../src/local-service/lifecycle/daemon-service-update-state";
 import {
+  buildDaemonServiceUpdateWorkerSpec,
   buildLaunchdServiceUpdateWorkerPlist,
   buildSystemdServiceUpdateWorkerPathUnit,
   buildSystemdServiceUpdateWorkerUnit,
@@ -28,6 +33,60 @@ const SPEC = {
 };
 
 describe("daemon service update worker manager", () => {
+  it("starts a binary update worker from the prepared version before replacing the stable carrier", async () => {
+    const preparedExecutable = "/tmp/openmeld-home/versions/0.3.98/openmeld";
+    vi.mocked(resolveDaemonServiceManager).mockResolvedValue({
+      controller: "launchd",
+    } as never);
+    vi.mocked(buildDaemonSystemServiceCommandSpec).mockReturnValue({
+      args: ["service", "run", "--mode", "foreground"],
+      env: SPEC.env,
+      executable:
+        "/tmp/openmeld-home/runtime/daemon/service-manager/OpenMeld Service",
+      workingDirectory: SPEC.workingDirectory,
+    });
+    vi.mocked(resolveDaemonBundleEntryPathFromState).mockResolvedValue(
+      "/tmp/openmeld-home/runtime/daemon/service-manager/OpenMeld Service"
+    );
+    const job: DaemonServiceUpdateJob = {
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 0,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "stable-carrier-update",
+      phase: "waiting_for_work",
+      preparedBundle: {
+        v: 2,
+        schema: "openmeld-daemon-active-bundle-v2",
+        bundleFormat: "binary_v1",
+        bundleId: "binary-0.3.98",
+        createdAt: "2026-08-25T00:00:00.000Z",
+        daemonVersion: "0.3.98",
+        entryScriptRelativePath: "openmeld",
+        sourceDistFingerprint: "abc123",
+        sourceDistRootPath: "/tmp/openmeld-home/versions/0.3.98",
+        sourceEntryScriptPath: preparedExecutable,
+        sourceKind: "package_install",
+        sourcePackageRootPath: "/tmp/openmeld-home/versions/0.3.98",
+        updatedAt: "2026-08-25T00:00:00.000Z",
+      },
+      requestedAt: "2026-08-25T00:00:00.000Z",
+      requestSource: "cli",
+      targetVersion: "0.3.98",
+      updatedAt: "2026-08-25T00:00:00.000Z",
+      urgency: "available",
+    };
+
+    await expect(
+      buildDaemonServiceUpdateWorkerSpec(job)
+    ).resolves.toMatchObject({
+      args: ["service", "update-worker"],
+      executable: preparedExecutable,
+    });
+    expect(resolveDaemonBundleEntryPathFromState).not.toHaveBeenCalled();
+  });
+
   it("keeps the macOS worker alive only while a durable update is pending", () => {
     const plist = buildLaunchdServiceUpdateWorkerPlist({
       label: "com.openmeld.openmeld-service-update",

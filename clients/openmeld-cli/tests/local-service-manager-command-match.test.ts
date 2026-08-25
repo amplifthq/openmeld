@@ -5,7 +5,6 @@ import {
   type OpenMeldPathResolutionInput,
   openMeldManagedVersionBinaryPath,
 } from "../src/config/paths";
-import { resolveCliSelfVersion } from "../src/local-components/managed-install";
 import { daemonServiceExecutableWrapperPath } from "../src/local-service/lifecycle/daemon-service-bundle";
 import {
   matchesExpectedDaemonServiceManagerCommand,
@@ -42,14 +41,12 @@ async function writeLaunchdDefinition(commandPath: string): Promise<string> {
 }
 
 describe("local service manager command matching", () => {
-  it("matches binary launchd definitions that point at the managed version binary", async () => {
+  it("matches binary launchd definitions that point at the stable Service executable", async () => {
     await withTempHome(async () => {
       const pathInput = testPathInput();
-      const managedBinaryPath = openMeldManagedVersionBinaryPath(
-        resolveCliSelfVersion(),
-        pathInput
-      );
-      const definitionPath = await writeLaunchdDefinition(managedBinaryPath);
+      const stableExecutablePath =
+        daemonServiceExecutableWrapperPath(pathInput);
+      const definitionPath = await writeLaunchdDefinition(stableExecutablePath);
 
       await expect(
         matchesExpectedDaemonServiceManagerDefinition({
@@ -61,7 +58,7 @@ describe("local service manager command matching", () => {
       ).resolves.toBe(true);
       expect(
         matchesExpectedDaemonServiceManagerCommand({
-          commandSummary: `${managedBinaryPath} service run --mode foreground`,
+          commandSummary: `${stableExecutablePath} service run --mode foreground`,
           controller: "launchd",
           definitionPath,
           distribution: "binary",
@@ -71,7 +68,7 @@ describe("local service manager command matching", () => {
     });
   });
 
-  it("matches binary launchd definitions that point at another managed version binary", async () => {
+  it("rejects a versioned binary launchd definition so repair migrates it to the stable executable", async () => {
     await withTempHome(async () => {
       const pathInput = testPathInput();
       const managedBinaryPath = openMeldManagedVersionBinaryPath(
@@ -87,7 +84,7 @@ describe("local service manager command matching", () => {
           distribution: "binary",
           pathInput,
         })
-      ).resolves.toBe(true);
+      ).resolves.toBe(false);
       expect(
         matchesExpectedDaemonServiceManagerCommand({
           commandSummary: `${managedBinaryPath} service run --mode foreground`,
@@ -96,15 +93,21 @@ describe("local service manager command matching", () => {
           distribution: "binary",
           pathInput,
         })
-      ).toBe(true);
+      ).toBe(false);
     });
   });
 
-  it("does not accept the npm launchd wrapper as aligned in binary distribution", async () => {
+  it("does not accept an unrelated launchd path in binary distribution", async () => {
     await withTempHome(async () => {
       const pathInput = testPathInput();
-      const wrapperPath = daemonServiceExecutableWrapperPath(pathInput);
-      const definitionPath = await writeLaunchdDefinition(wrapperPath);
+      const unrelatedPath = join(
+        process.env.OPENMELD_HOME ?? "",
+        "runtime",
+        "daemon",
+        "service-manager",
+        "OpenMeld Service Copy"
+      );
+      const definitionPath = await writeLaunchdDefinition(unrelatedPath);
 
       await expect(
         matchesExpectedDaemonServiceManagerDefinition({
@@ -116,7 +119,7 @@ describe("local service manager command matching", () => {
       ).resolves.toBe(false);
       expect(
         matchesExpectedDaemonServiceManagerCommand({
-          commandSummary: `${wrapperPath} service run --mode foreground`,
+          commandSummary: `${unrelatedPath} service run --mode foreground`,
           controller: "launchd",
           definitionPath,
           distribution: "binary",

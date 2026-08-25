@@ -7,6 +7,7 @@ import {
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -31,6 +32,7 @@ import {
   resolveDaemonBundleRootPath,
   verifyDaemonActiveBundleIntegrity,
 } from "../src/local-service/lifecycle/daemon-service-bundle";
+import { ensureDaemonSystemServiceCommandFiles } from "../src/local-service/lifecycle/daemon-service-command-spec";
 import { withTempHome } from "./helpers/fs";
 
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/u;
@@ -588,7 +590,7 @@ describe("local service bundle", () => {
     });
   });
 
-  it("resolves binary active bundle entries to the managed binary path", async () => {
+  it("materializes a physical stable macOS Service executable from the active signed binary", async () => {
     await withTempHome(async () => {
       await installDaemon({
         daemonVersion: "1.2.3",
@@ -624,9 +626,22 @@ describe("local service bundle", () => {
         )}\n`,
         "utf8"
       );
+      const stableExecutablePath = daemonServiceExecutableWrapperPath();
+      await symlink(managedBinaryPath, stableExecutablePath);
+      await ensureDaemonSystemServiceCommandFiles({
+        controller: "launchd",
+        distribution: "binary",
+      });
+
+      const stableExecutableStat = await lstat(stableExecutablePath);
+      expect(stableExecutableStat.isFile()).toBe(true);
+      expect(stableExecutableStat.isSymbolicLink()).toBe(false);
+      await expect(readFile(stableExecutablePath, "utf8")).resolves.toBe(
+        managedBinaryContent
+      );
 
       await expect(resolveAlignedDaemonActiveBundleEntryPath()).resolves.toBe(
-        managedBinaryPath
+        stableExecutablePath
       );
       const activeBundle = await readDaemonActiveBundleState();
       if (!activeBundle) {
@@ -636,9 +651,84 @@ describe("local service bundle", () => {
         verifyDaemonActiveBundleIntegrity(activeBundle)
       ).resolves.toBe(true);
 
-      await writeFile(managedBinaryPath, "corrupted binary fixture", "utf8");
+      await writeFile(stableExecutablePath, "corrupted binary fixture", "utf8");
       await expect(
         verifyDaemonActiveBundleIntegrity(activeBundle)
+      ).resolves.toBe(false);
+    });
+  });
+
+  it("replaces the stable macOS Service executable on upgrade and rollback", async () => {
+    await withTempHome(async () => {
+      const activateBinaryVersion = async (input: {
+        content: string;
+        version: string;
+      }): Promise<void> => {
+        const managedBinaryPath = openMeldManagedVersionBinaryPath(
+          input.version
+        );
+        await mkdir(dirname(managedBinaryPath), { recursive: true });
+        await writeFile(managedBinaryPath, input.content, "utf8");
+        await mkdir(dirname(daemonServiceActiveBundlePath()), {
+          recursive: true,
+        });
+        await writeFile(
+          daemonServiceActiveBundlePath(),
+          `${JSON.stringify(
+            {
+              v: 2,
+              schema: "openmeld-daemon-active-bundle-v2",
+              bundleId: `binary-${input.version}`,
+              daemonVersion: input.version,
+              entryScriptRelativePath: "openmeld",
+              bundleFormat: "binary_v1",
+              sourceEntryScriptPath: managedBinaryPath,
+              sourcePackageRootPath: dirname(managedBinaryPath),
+              sourceDistRootPath: dirname(managedBinaryPath),
+              sourceDistFingerprint: createHash("sha256")
+                .update(input.content)
+                .digest("hex"),
+              sourceKind: "package_install",
+              createdAt: "2026-03-08T00:00:00.000Z",
+              updatedAt: "2026-03-08T00:00:00.000Z",
+            },
+            null,
+            2
+          )}\n`,
+          "utf8"
+        );
+        await ensureDaemonSystemServiceCommandFiles({
+          controller: "launchd",
+          distribution: "binary",
+        });
+      };
+      const stableExecutablePath = daemonServiceExecutableWrapperPath();
+
+      await activateBinaryVersion({
+        content: "previous signed binary fixture",
+        version: "1.2.3",
+      });
+      await expect(readFile(stableExecutablePath, "utf8")).resolves.toBe(
+        "previous signed binary fixture"
+      );
+
+      await activateBinaryVersion({
+        content: "next signed binary fixture",
+        version: "1.2.4",
+      });
+      await expect(readFile(stableExecutablePath, "utf8")).resolves.toBe(
+        "next signed binary fixture"
+      );
+
+      await activateBinaryVersion({
+        content: "previous signed binary fixture",
+        version: "1.2.3",
+      });
+      await expect(readFile(stableExecutablePath, "utf8")).resolves.toBe(
+        "previous signed binary fixture"
+      );
+      await expect(
+        lstat(stableExecutablePath).then((stats) => stats.isSymbolicLink())
       ).resolves.toBe(false);
     });
   });

@@ -8,11 +8,9 @@ vi.mock("../src/runtime/distribution", () => ({
 }));
 
 import type { DaemonStatus } from "../src/config/daemon-state";
-import {
-  type OpenMeldPathResolutionInput,
-  openMeldManagedVersionBinaryPath,
-} from "../src/config/paths";
+import type { OpenMeldPathResolutionInput } from "../src/config/paths";
 import { resolveCliSelfVersion } from "../src/local-components/managed-install";
+import { daemonServiceExecutableWrapperPath } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { inspectDaemonServiceInventory } from "../src/local-service/lifecycle/daemon-service-inventory";
 import type {
   DaemonServiceManager,
@@ -82,15 +80,13 @@ async function writeLaunchdDefinition(commandPath: string): Promise<string> {
 }
 
 describe("binary local service inventory", () => {
-  it("accepts launchd definitions that point at the managed binary", async () => {
+  it("accepts launchd definitions that point at the stable Service executable", async () => {
     await withTempHome(async () => {
       const pathInput = testPathInput();
       const version = resolveCliSelfVersion();
-      const managedBinaryPath = openMeldManagedVersionBinaryPath(
-        version,
-        pathInput
-      );
-      const definitionPath = await writeLaunchdDefinition(managedBinaryPath);
+      const stableExecutablePath =
+        daemonServiceExecutableWrapperPath(pathInput);
+      const definitionPath = await writeLaunchdDefinition(stableExecutablePath);
 
       const inventory = await inspectDaemonServiceInventory({
         expectedVersion: version,
@@ -98,7 +94,7 @@ describe("binary local service inventory", () => {
         readDaemonStatus: async () => createInstalledStatus(version),
         resolveServiceManager: async () =>
           createServiceManager({
-            commandSummary: `${managedBinaryPath} service run --mode foreground`,
+            commandSummary: `${stableExecutablePath} service run --mode foreground`,
             definitionPath,
             enabled: true,
             installed: true,
