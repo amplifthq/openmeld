@@ -1,11 +1,14 @@
 import { createHash } from "node:crypto";
 import {
   chmod,
+  copyFile,
   cp,
+  lstat,
   mkdir,
   readdir,
   readFile,
   realpath,
+  rename,
   rm,
   stat,
   writeFile,
@@ -274,7 +277,8 @@ async function resolveCurrentDaemonFingerprintForState(
   state: DaemonActiveBundleState | null
 ): Promise<string | null> {
   if (state?.bundleFormat === "binary_v1") {
-    return await hashDaemonBinaryFile(state.sourceEntryScriptPath);
+    const entryPath = await resolveDaemonBundleEntryPathFromState(state);
+    return entryPath ? await hashDaemonBinaryFile(entryPath) : null;
   }
   return await resolveCurrentDaemonSourceDistFingerprint();
 }
@@ -287,6 +291,10 @@ export async function resolveDaemonBundleEntryPathFromState(
     return null;
   }
   if (state.bundleFormat === "binary_v1") {
+    const stableExecutablePath = daemonServiceExecutableWrapperPath(pathInput);
+    if (await pathExists(stableExecutablePath)) {
+      return stableExecutablePath;
+    }
     return (await pathExists(state.sourceEntryScriptPath))
       ? state.sourceEntryScriptPath
       : null;
@@ -465,6 +473,52 @@ async function hashDaemonBinaryFile(filePath: string): Promise<string> {
   const hash = createHash("sha256");
   hash.update(await readFile(filePath));
   return hash.digest("hex");
+}
+
+export async function ensureDaemonServiceStableBinaryExecutable(
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<string> {
+  const activeBundle = await readDaemonActiveBundleState();
+  if (activeBundle?.bundleFormat !== "binary_v1") {
+    throw new Error(
+      "OpenMeld cannot prepare the stable macOS Service executable without an active binary bundle."
+    );
+  }
+  const sourcePath = activeBundle.sourceEntryScriptPath;
+  const expectedFingerprint =
+    activeBundle.sourceDistFingerprint ??
+    (await hashDaemonBinaryFile(sourcePath));
+  const stableExecutablePath = daemonServiceExecutableWrapperPath(pathInput);
+  const stableExecutableStat = await lstat(stableExecutablePath).catch(
+    () => null
+  );
+  if (
+    stableExecutableStat?.isFile() === true &&
+    !stableExecutableStat.isSymbolicLink() &&
+    (await hashDaemonBinaryFile(stableExecutablePath).catch(() => null)) ===
+      expectedFingerprint
+  ) {
+    await chmod(stableExecutablePath, 0o700);
+    return stableExecutablePath;
+  }
+
+  await mkdir(dirname(stableExecutablePath), { recursive: true });
+  const preparedPath = `${stableExecutablePath}.next-${String(process.pid)}`;
+  await rm(preparedPath, { force: true });
+  try {
+    await copyFile(sourcePath, preparedPath);
+    await chmod(preparedPath, 0o700);
+    const preparedFingerprint = await hashDaemonBinaryFile(preparedPath);
+    if (preparedFingerprint !== expectedFingerprint) {
+      throw new Error(
+        "OpenMeld could not verify the prepared stable macOS Service executable."
+      );
+    }
+    await rename(preparedPath, stableExecutablePath);
+    return stableExecutablePath;
+  } finally {
+    await rm(preparedPath, { force: true }).catch(() => undefined);
+  }
 }
 
 export async function verifyDaemonActiveBundleIntegrity(

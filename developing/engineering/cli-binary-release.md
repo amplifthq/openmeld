@@ -55,6 +55,12 @@ node scripts/release/build-cli-binary.mjs
   semantic-version directories are removed during `install-self`; unrecognized
   directories are preserved because the installer cannot prove that it owns
   them.
+- On macOS, those version directories remain the verified update and rollback
+  sources, while launchd runs OpenMeld Service from one stable physical
+  executable path. Installing, upgrading, or rolling back atomically copies the
+  selected signed binary to that path and verifies its sha256 before launchd
+  starts it. Do not replace this copy with a symlink: macOS Files and Folders
+  authorization must not acquire a new executable path on every release.
 - Production `install-self` also prepends `~/.openmeld/bin` in the user's zsh,
   bash, or fish startup configuration so future `openmeld` commands resolve to
   the managed binary instead of an older package-manager copy. Custom

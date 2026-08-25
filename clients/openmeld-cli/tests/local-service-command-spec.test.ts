@@ -90,16 +90,38 @@ describe("local service system service command spec", () => {
     expect(spec.args[0]).toMatch(DAEMON_SERVICE_LAUNCHER_PATH_PATTERN);
   });
 
-  it("uses the prepared managed binary path for binary service registration", () => {
-    const spec = buildDaemonSystemServiceCommandSpec({
+  it("keeps the macOS binary Service executable path stable across versions", () => {
+    const previousSpec = buildDaemonSystemServiceCommandSpec({
       binaryExecutablePath: "/Users/dev/.openmeld/versions/0.2.14/openmeld",
       controller: "launchd",
       distribution: "binary",
     });
+    const nextSpec = buildDaemonSystemServiceCommandSpec({
+      binaryExecutablePath: "/Users/dev/.openmeld/versions/0.2.15/openmeld",
+      controller: "launchd",
+      distribution: "binary",
+    });
 
-    expect(spec.executable).toBe(
-      "/Users/dev/.openmeld/versions/0.2.14/openmeld"
-    );
+    expect(previousSpec.executable).toBe(daemonServiceExecutableWrapperPath());
+    expect(nextSpec.executable).toBe(previousSpec.executable);
+    expect(previousSpec.executable).toMatch(PROD_SERVICE_WRAPPER_PATH_PATTERN);
+    expect(previousSpec.args).toEqual([
+      "service",
+      "run",
+      "--mode",
+      "foreground",
+    ]);
+  });
+
+  it("keeps non-macOS binary Service registration on its prepared binary", () => {
+    const managedBinaryPath = "/Users/dev/.openmeld/versions/0.2.14/openmeld";
+    const spec = buildDaemonSystemServiceCommandSpec({
+      binaryExecutablePath: managedBinaryPath,
+      controller: "systemd",
+      distribution: "binary",
+    });
+
+    expect(spec.executable).toBe(managedBinaryPath);
     expect(spec.args).toEqual(["service", "run", "--mode", "foreground"]);
   });
 

@@ -1281,10 +1281,17 @@ until OpenMeld Service starts again.
 
 On macOS, the managed LaunchAgent uses `RunAtLoad=true` and `KeepAlive=true`.
 The npm distribution invokes its generated OpenMeld-owned wrapper through
-`/bin/sh`, while the binary distribution executes the prepared managed binary
-directly. The user-facing stop path must disable the LaunchAgent before booting
-it out, so explicitly stopping OpenMeld Service is respected instead of being
-immediately undone by launchd.
+`/bin/sh`. The binary distribution keeps its versioned, signed managed binaries
+as the update and rollback sources, but launchd executes an exact copy from one
+stable lane-owned physical path. An update or rollback must verify the source
+fingerprint, atomically replace that copy, and preserve the same launchd command
+path; the stable executable must not be a symlink to a version directory. This
+keeps macOS Files and Folders authorization attached to one Service identity
+across ordinary version changes. The first update that migrates an older
+versioned launchd registration may still require one macOS confirmation. The
+user-facing stop path must disable the LaunchAgent before booting it out, so
+explicitly stopping OpenMeld Service is respected instead of being immediately
+undone by launchd.
 
 The npm Service bundle copies and fingerprints only its platform-neutral
 JavaScript runtime. CLI-only compiled artifacts, including the macOS secure

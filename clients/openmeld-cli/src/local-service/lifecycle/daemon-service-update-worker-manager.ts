@@ -266,15 +266,15 @@ export async function buildDaemonServiceUpdateWorkerSpec(
       ? { binaryExecutablePath: job.preparedBundle.sourceEntryScriptPath }
       : {}),
   });
-  const targetEntryPath = await resolveDaemonBundleEntryPathFromState(
-    job.preparedBundle
-  );
+  const binaryDistribution = job.preparedBundle.bundleFormat === "binary_v1";
+  const targetEntryPath = binaryDistribution
+    ? job.preparedBundle.sourceEntryScriptPath
+    : await resolveDaemonBundleEntryPathFromState(job.preparedBundle);
   if (!targetEntryPath) {
     throw new Error(
       "OpenMeld could not resolve the prepared Service update executable."
     );
   }
-  const binaryDistribution = job.preparedBundle.bundleFormat === "binary_v1";
   return {
     args: binaryDistribution
       ? ["service", "update-worker"]

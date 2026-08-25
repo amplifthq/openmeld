@@ -28,6 +28,16 @@ export function matchesExpectedDaemonServiceManagerCommand(input: {
     );
   }
   if ((input.distribution ?? resolveOpenMeldDistribution()) === "binary") {
+    if (input.controller === "launchd") {
+      const stableExecutablePath = daemonServiceExecutableWrapperPath(
+        input.pathInput
+      );
+      return [
+        `${stableExecutablePath} service run`,
+        `"${stableExecutablePath}" service run`,
+        `'${stableExecutablePath}' service run`,
+      ].some((expectedPrefix) => input.commandSummary.includes(expectedPrefix));
+    }
     return containsOpenMeldManagedBinaryPath(
       input.commandSummary,
       input.pathInput
@@ -62,6 +72,12 @@ export async function matchesExpectedDaemonServiceManagerDefinition(input: {
   }
 
   if ((input.distribution ?? resolveOpenMeldDistribution()) === "binary") {
+    if (input.controller === "launchd") {
+      const stableExecutablePath = daemonServiceExecutableWrapperPath(
+        input.pathInput
+      );
+      return definition.includes(`<string>${stableExecutablePath}</string>`);
+    }
     return containsOpenMeldManagedBinaryPath(definition, input.pathInput);
   }
 

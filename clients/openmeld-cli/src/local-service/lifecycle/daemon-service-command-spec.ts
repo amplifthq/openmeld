@@ -24,6 +24,7 @@ import {
 import {
   daemonServiceExecutableWrapperPath,
   daemonServiceLauncherPath,
+  ensureDaemonServiceStableBinaryExecutable,
   writeDaemonServiceExecutableWrapper,
   writeDaemonServiceLauncher,
 } from "./daemon-service-bundle";
@@ -98,12 +99,16 @@ function resolveDaemonServiceExecutable(input: {
   distribution?: OpenMeldDistribution;
 }): { executable: string; specArgs: string[] } {
   if ((input.distribution ?? resolveOpenMeldDistribution()) === "binary") {
-    // Binary distribution: launchd/systemd/SCM run the managed binary directly
-    // via `service run`; there is no launcher.mjs / wrapper middle layer.
+    // macOS privacy grants identify a bare CLI by its executable path. Keep the
+    // launchd carrier at one physical path across upgrades; the prepared,
+    // signed version binary is copied there before registration. Other service
+    // managers retain the existing versioned executable contract.
     return {
       executable:
-        input.binaryExecutablePath ??
-        openMeldManagedVersionBinaryPath(resolveCliSelfVersion()),
+        input.controller === "launchd"
+          ? daemonServiceExecutableWrapperPath()
+          : (input.binaryExecutablePath ??
+            openMeldManagedVersionBinaryPath(resolveCliSelfVersion())),
       specArgs: input.args,
     };
   }
@@ -125,7 +130,9 @@ export async function ensureDaemonSystemServiceCommandFiles(input: {
   distribution?: OpenMeldDistribution;
 }): Promise<void> {
   if ((input.distribution ?? resolveOpenMeldDistribution()) === "binary") {
-    // No launcher/wrapper in binary mode; command-spec points at the binary.
+    if (input.controller === "launchd") {
+      await ensureDaemonServiceStableBinaryExecutable();
+    }
     return;
   }
   await writeDaemonServiceLauncher();
