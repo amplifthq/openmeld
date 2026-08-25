@@ -908,7 +908,7 @@ describe("ComputersPage", () => {
 		).toBeNull();
 	});
 
-	it("shows status unavailable while a connected computer retries a local agent check", () => {
+	it("shows a warning while a connected computer retries a local agent check", () => {
 		useLocalAgentRecoveryControllerMock.mockReturnValue(
 			buildRecoveryControllerStub({
 				currentReadiness: buildCurrentRuntimeReadiness({
@@ -934,14 +934,13 @@ describe("ComputersPage", () => {
 			within(currentComputerCard).queryByText("Local agents need repair")
 		).toBeNull();
 		expect(
-			within(currentComputerCard).getByText("OpenMeld Tools status unavailable")
-				.className
-		).toContain("text-muted-foreground");
+			within(currentComputerCard).getByText("Couldn't check").className
+		).toContain("text-amber");
 		expect(
 			within(currentComputerCard).getByTestId(
 				"computer-status-dot-device-current"
 			).className
-		).toContain("bg-muted-foreground");
+		).toContain("bg-amber");
 	});
 
 	it("opens the reused computer actions dialog from the picker card", () => {

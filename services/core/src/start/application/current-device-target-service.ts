@@ -1015,6 +1015,17 @@ function resolveExecutionTargetReplyBlocker(
       status: "blocked",
     };
   }
+  if (
+    target.capabilities.length > 0 &&
+    resolveEnabledExecutionTargetCapabilities(target.capabilities).length === 0
+  ) {
+    return {
+      message: "All local agents on this computer are turned off.",
+      nextAction: "none",
+      primaryBlocker: "agent_controller_report_not_ready",
+      status: "blocked",
+    };
+  }
   if (target.status === "ready") {
     return null;
   }
@@ -1062,7 +1073,9 @@ function hasOnlyRetryableControllerCheckFailureEvidence(
   }
 
   let hasCheckFailure = false;
-  for (const capability of target.capabilities) {
+  for (const capability of resolveEnabledExecutionTargetCapabilities(
+    target.capabilities
+  )) {
     if (capability.status === "ready") {
       continue;
     }
@@ -1680,19 +1693,26 @@ function resolveExecutionTargetStatus(
   if (capabilities.length === 0) {
     return "unknown";
   }
-  const readyCount = capabilities.filter(
+  const enabledCapabilities =
+    resolveEnabledExecutionTargetCapabilities(capabilities);
+  if (enabledCapabilities.length === 0) {
+    return "not_ready";
+  }
+  const readyCount = enabledCapabilities.filter(
     (capability) => capability.status === "ready"
   ).length;
-  if (readyCount === capabilities.length) {
+  if (readyCount === enabledCapabilities.length) {
     return "ready";
   }
   if (readyCount > 0) {
     return "partial";
   }
-  if (capabilities.some((capability) => capability.status === "stale")) {
+  if (enabledCapabilities.some((capability) => capability.status === "stale")) {
     return "stale";
   }
-  if (capabilities.some((capability) => capability.status === "not_ready")) {
+  if (
+    enabledCapabilities.some((capability) => capability.status === "not_ready")
+  ) {
     return "not_ready";
   }
   return "unknown";
@@ -1705,10 +1725,21 @@ function resolveExecutionTargetReasonCodes(
     return ["runtime.agent_controller_report_missing"];
   }
 
-  const reasonCodes = capabilities.flatMap(
+  const enabledCapabilities =
+    resolveEnabledExecutionTargetCapabilities(capabilities);
+  if (enabledCapabilities.length === 0) {
+    return ["local_agent_preparation.not_enabled"];
+  }
+  const reasonCodes = enabledCapabilities.flatMap(
     (capability) => capability.reasonCodes
   );
   return [...new Set(reasonCodes)];
+}
+
+function resolveEnabledExecutionTargetCapabilities(
+  capabilities: readonly LocalRuntimeExecutionTarget["capabilities"][number][]
+): readonly LocalRuntimeExecutionTarget["capabilities"][number][] {
+  return capabilities.filter((capability) => capability.enabled);
 }
 
 function resolveUserFacingCommand(

@@ -1365,6 +1365,257 @@ describe("current device target service", () => {
     });
   });
 
+  it("excludes a disabled local-agent failure from current-computer reply readiness", async () => {
+    const store = createInMemoryCurrentDeviceTargetStore({
+      executionTargetsByUserId: {
+        "owner-1": [
+          {
+            agentControllerRef: "builtin:codex",
+            capabilityEnabled: true,
+            capabilityReasonCodes: ["runtime.agent_controller_report.ready"],
+            capabilityStatus: "ready",
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+          {
+            agentControllerRef: "builtin:claude-code",
+            capabilityEnabled: false,
+            capabilityReasonCodes: ["local_agent_preparation.not_enabled"],
+            capabilityStatus: "not_ready",
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+        ],
+      },
+      ownedDevicesByUserId: {
+        "owner-1": [
+          createOwnedDeviceRecord({
+            deviceId: "device-owner-1",
+            ownerUserId: "owner-1",
+          }),
+        ],
+      },
+    });
+    await seedCurrentDeviceTarget({
+      store,
+      userId: "owner-1",
+      deviceId: "device-owner-1",
+      runtimeLane: "dev-local",
+      now: new Date("2026-04-10T00:00:00.000Z"),
+    });
+
+    await expect(
+      getCurrentLocalRuntimeReplyReadinessUseCase({
+        lookupOwnerService: () =>
+          Promise.resolve({
+            online: true,
+            sessions: [
+              {
+                capabilities: {
+                  localComponents: CURRENT_LOCAL_COMPONENTS_STATUS,
+                },
+                connectionGeneration: 1,
+                daemonSessionId: "daemon-session-1",
+                deviceId: "device-owner-1",
+                executionCompatibility: COMPATIBLE_SERVICE,
+                lane: "dev-local",
+                lastHeartbeatMs: Date.parse("2026-04-10T00:05:00.000Z"),
+                serviceVersion: "999.0.0",
+              },
+            ],
+          }),
+        now: new Date("2026-04-10T00:10:00.000Z"),
+        store,
+        userId: "owner-1",
+      })
+    ).resolves.toMatchObject({
+      canReplyFromThisComputer: true,
+      nextAction: "none",
+      primaryBlocker: "none",
+      runtime: {
+        executionTargetStatus: "ready",
+        reasonCodes: ["runtime.agent_controller_report.ready"],
+      },
+      status: "ready",
+    });
+
+    await expect(
+      listLocalRuntimesUseCase({ store, userId: "owner-1" })
+    ).resolves.toMatchObject({
+      localRuntimes: [
+        {
+          executionTargets: [
+            {
+              capabilities: expect.arrayContaining([
+                expect.objectContaining({
+                  agentControllerRef: "builtin:claude-code",
+                  enabled: false,
+                  status: "not_ready",
+                }),
+              ]),
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("keeps an enabled check failure retryable when another local agent is disabled", async () => {
+    const store = createInMemoryCurrentDeviceTargetStore({
+      executionTargetsByUserId: {
+        "owner-1": [
+          {
+            agentControllerRef: "builtin:grok-build",
+            capabilityEnabled: true,
+            capabilityReasonCodes: ["controller.interface.check_failed"],
+            capabilityStatus: "not_ready",
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+          {
+            agentControllerRef: "builtin:claude-code",
+            capabilityEnabled: false,
+            capabilityReasonCodes: ["local_agent_preparation.not_enabled"],
+            capabilityStatus: "not_ready",
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+        ],
+      },
+      ownedDevicesByUserId: {
+        "owner-1": [
+          createOwnedDeviceRecord({
+            deviceId: "device-owner-1",
+            ownerUserId: "owner-1",
+          }),
+        ],
+      },
+    });
+    await seedCurrentDeviceTarget({
+      store,
+      userId: "owner-1",
+      deviceId: "device-owner-1",
+      runtimeLane: "dev-local",
+      now: new Date("2026-04-10T00:00:00.000Z"),
+    });
+
+    await expect(
+      getCurrentLocalRuntimeReplyReadinessUseCase({
+        lookupOwnerService: () =>
+          Promise.resolve({
+            online: true,
+            sessions: [
+              {
+                capabilities: {
+                  localComponents: CURRENT_LOCAL_COMPONENTS_STATUS,
+                },
+                connectionGeneration: 1,
+                daemonSessionId: "daemon-session-1",
+                deviceId: "device-owner-1",
+                executionCompatibility: COMPATIBLE_SERVICE,
+                lane: "dev-local",
+                lastHeartbeatMs: Date.parse("2026-04-10T00:05:00.000Z"),
+                serviceVersion: "999.0.0",
+              },
+            ],
+          }),
+        now: new Date("2026-04-10T00:10:00.000Z"),
+        store,
+        userId: "owner-1",
+      })
+    ).resolves.toMatchObject({
+      canReplyFromThisComputer: false,
+      nextAction: "check_status",
+      primaryBlocker: "agent_controller_report_not_ready",
+      runtime: {
+        executionTargetStatus: "not_ready",
+        reasonCodes: ["controller.interface.check_failed"],
+      },
+      status: "blocked",
+    });
+  });
+
+  it.each([
+    "ready",
+    "not_ready",
+  ] as const)("keeps an all-disabled computer quiet when its hidden capability is %s", async (capabilityStatus) => {
+    const store = createInMemoryCurrentDeviceTargetStore({
+      executionTargetsByUserId: {
+        "owner-1": [
+          {
+            agentControllerRef: "builtin:claude-code",
+            capabilityEnabled: false,
+            capabilityReasonCodes: ["local_agent_preparation.not_enabled"],
+            capabilityStatus,
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+        ],
+      },
+      ownedDevicesByUserId: {
+        "owner-1": [
+          createOwnedDeviceRecord({
+            deviceId: "device-owner-1",
+            ownerUserId: "owner-1",
+          }),
+        ],
+      },
+    });
+    await seedCurrentDeviceTarget({
+      store,
+      userId: "owner-1",
+      deviceId: "device-owner-1",
+      runtimeLane: "dev-local",
+      now: new Date("2026-04-10T00:00:00.000Z"),
+    });
+
+    await expect(
+      getCurrentLocalRuntimeReplyReadinessUseCase({
+        lookupOwnerService: () =>
+          Promise.resolve({
+            online: true,
+            sessions: [
+              {
+                capabilities: {
+                  localComponents: CURRENT_LOCAL_COMPONENTS_STATUS,
+                },
+                connectionGeneration: 1,
+                daemonSessionId: "daemon-session-1",
+                deviceId: "device-owner-1",
+                executionCompatibility: COMPATIBLE_SERVICE,
+                lane: "dev-local",
+                lastHeartbeatMs: Date.parse("2026-04-10T00:05:00.000Z"),
+                serviceVersion: "999.0.0",
+              },
+            ],
+          }),
+        now: new Date("2026-04-10T00:10:00.000Z"),
+        store,
+        userId: "owner-1",
+      })
+    ).resolves.toMatchObject({
+      canReplyFromThisComputer: false,
+      message: "All local agents on this computer are turned off.",
+      nextAction: "none",
+      primaryBlocker: "agent_controller_report_not_ready",
+      runtime: {
+        executionTargetStatus: "not_ready",
+        reasonCodes: ["local_agent_preparation.not_enabled"],
+      },
+      status: "blocked",
+    });
+  });
+
   it("reports a connected computer as ready from ServiceRuntime liveness even before any Agent Profile is bound", async () => {
     // Regression: a freshly connected computer (OpenMeld Service + local agents up)
     // has no enabled-primary Binding yet, so the Binding-derived current-device

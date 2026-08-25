@@ -1,7 +1,4 @@
-import type {
-	CurrentLocalRuntimeReplyReadinessResponse,
-	LocalRuntimeExecutionTarget,
-} from "@openmeld/schemas/types";
+import type { CurrentLocalRuntimeReplyReadinessResponse } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
 	resolveComputerAttentionTone,
@@ -112,85 +109,6 @@ function resolveUpdatePolicy(
 	}
 }
 
-function buildExecutionTarget(input: {
-	claudeEnabled: boolean;
-	claudeStatus: "ready" | "not_ready";
-	codexEnabled: boolean;
-	codexStatus: "ready" | "not_ready";
-}): LocalRuntimeExecutionTarget {
-	const entries = [
-		{
-			agentId: "codex",
-			detected: true,
-			displayName: "Codex",
-			enabled: input.codexEnabled,
-			lifecycleStatus: "active" as const,
-			launchStatus:
-				input.codexStatus === "ready"
-					? ("ready" as const)
-					: ("needs_repair" as const),
-			selectable: true,
-			selectableReason: null,
-			targetKind: "builtin" as const,
-		},
-		{
-			agentId: "claude-code",
-			detected: true,
-			displayName: "Claude Code",
-			enabled: input.claudeEnabled,
-			lifecycleStatus: "active" as const,
-			launchStatus:
-				input.claudeStatus === "ready"
-					? ("ready" as const)
-					: ("needs_repair" as const),
-			selectable: true,
-			selectableReason: null,
-			targetKind: "builtin" as const,
-		},
-	];
-	return {
-		capabilities: [
-			{
-				agentControllerInterface: null,
-				agentControllerRef: "builtin:codex",
-				enabled: input.codexEnabled,
-				reasonCodes: [],
-				status: input.codexStatus,
-			},
-			{
-				agentControllerInterface: null,
-				agentControllerRef: "builtin:claude-code",
-				enabled: input.claudeEnabled,
-				reasonCodes: [],
-				status: input.claudeStatus,
-			},
-		],
-		deviceId: "device-1",
-		isCurrent: true,
-		lastObservedAtMs: 1_700_000_000_000,
-		localAgentCatalog: {
-			detectedNotSupportedYet: 0,
-			detectedSupported: 2,
-			entries,
-			needsChoice: 0,
-			needsRepair: entries.filter(
-				(entry) => entry.launchStatus === "needs_repair"
-			).length,
-			notDetected: 0,
-			totalBuiltins: 2,
-		},
-		localAgentControl: {
-			refreshCatalog: true,
-			setEnabled: true,
-		},
-		openMeldServiceRuntimeId: null,
-		reasonCodes: [],
-		runtimeLane: "dev-local",
-		status: "partial",
-		userFacingCommand: "openmeld-dev",
-	};
-}
-
 describe("computer summary status", () => {
 	it("returns one ready status for a healthy current computer", () => {
 		const status = resolveCurrentLocalRuntimeComputerSummaryStatus({
@@ -280,54 +198,45 @@ describe("computer summary status", () => {
 		).toMatchObject({ label: "Local agents need repair", tone: "danger" });
 	});
 
-	it("does not create Computers attention from a local agent the user turned off", () => {
+	it("shows all-disabled local agents as an intentional quiet state", () => {
 		const readiness = buildReadiness({
 			canReplyFromThisComputer: false,
-			nextAction: "run_setup",
+			nextAction: "none",
 			primaryBlocker: "agent_controller_report_not_ready",
+			runtime: {
+				...buildReadiness().runtime,
+				executionTargetStatus: "not_ready",
+				reasonCodes: ["local_agent_preparation.not_enabled"],
+			},
 			status: "blocked",
-		});
-		const executionTarget = buildExecutionTarget({
-			claudeEnabled: false,
-			claudeStatus: "not_ready",
-			codexEnabled: true,
-			codexStatus: "ready",
 		});
 
 		expect(
-			resolveCurrentLocalRuntimeComputerSummaryStatus({
-				executionTarget,
-				readiness,
-			})
-		).toMatchObject({ reason: "ready", tone: "ready" });
+			resolveCurrentLocalRuntimeComputerSummaryStatus({ readiness })
+		).toMatchObject({
+			label: "Local agents are off",
+			reason: "local_agents_off",
+			tone: "muted",
+		});
 		expect(
 			resolveCurrentLocalRuntimeComputerAttentionToneForInventory({
-				executionTarget,
 				localRuntimeCount: 1,
 				readiness,
 			})
 		).toBeNull();
 	});
 
-	it("still shows an OpenMeld Tools update when only a disabled local agent needs repair", () => {
+	it("still shows an OpenMeld Tools update when all local agents are off", () => {
 		const readiness = buildReadiness({
 			canReplyFromThisComputer: false,
 			localComponents: buildLocalComponents({ cliStatus: "update_available" }),
-			nextAction: "run_setup",
+			nextAction: "none",
 			primaryBlocker: "agent_controller_report_not_ready",
 			status: "blocked",
 		});
 
 		expect(
-			resolveCurrentLocalRuntimeComputerSummaryStatus({
-				executionTarget: buildExecutionTarget({
-					claudeEnabled: false,
-					claudeStatus: "not_ready",
-					codexEnabled: true,
-					codexStatus: "ready",
-				}),
-				readiness,
-			})
+			resolveCurrentLocalRuntimeComputerSummaryStatus({ readiness })
 		).toMatchObject({ reason: "openmeld_tools_update", tone: "warning" });
 	});
 
@@ -341,19 +250,13 @@ describe("computer summary status", () => {
 
 		expect(
 			resolveCurrentLocalRuntimeComputerAttentionToneForInventory({
-				executionTarget: buildExecutionTarget({
-					claudeEnabled: true,
-					claudeStatus: "not_ready",
-					codexEnabled: true,
-					codexStatus: "ready",
-				}),
 				localRuntimeCount: 1,
 				readiness,
 			})
 		).toBe("danger");
 	});
 
-	it("shows an incomplete controller check as unavailable without global attention", () => {
+	it("maps an incomplete controller check to the same warning used in agent detail", () => {
 		const status = resolveCurrentLocalRuntimeComputerSummaryStatus({
 			readiness: buildReadiness({
 				canReplyFromThisComputer: false,
@@ -369,13 +272,14 @@ describe("computer summary status", () => {
 		});
 
 		expect(status).toMatchObject({
-			reason: "status_unavailable",
-			tone: "muted",
+			label: "Couldn't check",
+			reason: "agent_check_failed",
+			tone: "warning",
 		});
-		expect(resolveComputerAttentionTone(status)).toBeNull();
+		expect(resolveComputerAttentionTone(status)).toBe("warning");
 	});
 
-	it("does not escalate mixed ready and incomplete controller checks to global attention", () => {
+	it("keeps mixed ready and incomplete controller checks warning-only", () => {
 		const readiness = buildReadiness({
 			canReplyFromThisComputer: false,
 			nextAction: "check_status",
@@ -394,15 +298,15 @@ describe("computer summary status", () => {
 		expect(
 			resolveCurrentLocalRuntimeComputerSummaryStatus({ readiness })
 		).toMatchObject({
-			reason: "status_unavailable",
-			tone: "muted",
+			reason: "agent_check_failed",
+			tone: "warning",
 		});
 		expect(
 			resolveCurrentLocalRuntimeComputerAttentionToneForInventory({
 				localRuntimeCount: 1,
 				readiness,
 			})
-		).toBeNull();
+		).toBe("warning");
 	});
 
 	it("keeps global repair attention when an incomplete check accompanies real repair evidence", () => {
