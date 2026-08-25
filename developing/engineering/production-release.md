@@ -553,11 +553,13 @@ approved that exact version; `--version` and `--next` are mutually exclusive.
 The stamp command rebuilds the packaged CLI before recording its Service hash,
 rejects source drift, and verifies the result. Never hand-edit the hash, reuse
 an existing `dist`, or pass `--current` to prepare a release manifest. Rerun the
-stamp after any merge, rebase, or later local-component change. Stamp commits
-land only on `main`, pushed directly from a clean `main` worktree; feature and
-PR branches must keep the base package version and manifest unchanged, which
-the pre-push gate enforces through deferred-release verification against the
-PR base.
+stamp after any merge, rebase, or later local-component change. Land the stamp
+through a versioned `codex/release-X.Y.Z-<baseSHA>` PR from a clean worktree;
+never push `main` directly. A normal release PR changes only the CLI package and
+local-components manifest. If `main` already declares the same not-yet-published
+version, a later restamp may change only the manifest. Ordinary feature branches
+must keep both release files unchanged, which the pre-push gate enforces through
+deferred-release verification against the PR base.
 
 At publication time, `pnpm run release:cli --next --with-binary` rechecks the
 same npm/R2 decision and requires it to match the committed package and manifest;

@@ -1457,14 +1457,18 @@ source.
 
 The final operator-approved release commit uses a versioned
 `codex/release-X.Y.Z-<baseSHA>` branch. The version must match the CLI package
-and local-components manifest, the SHA suffix must match the PR's exact base,
-and the base diff must contain exactly `clients/openmeld-cli/package.json` and
-`release/local-components.json`. That explicit, release-only branch shape
-selects strict release-ready verification in both pre-push and PR CI, so the
-stamped manifest can pass Fast PR before merging to PR-only `main`. The shared
-release branch policy script owns this classification; ordinary feature
-branches remain deferred and cannot carry a release stamp, while a malformed or
-mixed-scope release branch fails closed.
+and local-components manifest, and the SHA suffix must match the PR's exact
+base. A normal release PR changes exactly
+`clients/openmeld-cli/package.json` and `release/local-components.json`. If the
+base package and manifest already declare that same release version, a restamp
+after later local-component changes may change only
+`release/local-components.json`; publication preflight must still confirm that
+version is unpublished. That explicit, release-only branch shape selects strict
+release-ready verification in both pre-push and PR CI, so the stamped manifest
+can pass Fast PR before merging to PR-only `main`. The shared release branch
+policy script owns this classification; ordinary feature branches remain
+deferred and cannot carry a release stamp, while a malformed or mixed-scope
+release branch fails closed.
 
 The pre-push hook chooses deferred mode only when every pushed destination is an
 ordinary non-`main` branch. It parses Git's pushed-ref lines; a push that

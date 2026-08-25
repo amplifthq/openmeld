@@ -10,10 +10,9 @@ const VERSIONED_RELEASE_BRANCH_PATTERN =
   /^codex\/release-(?<version>\d+\.\d+\.\d+)-(?<baseSha>[0-9a-f]{8,40})$/iu;
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_PATTERN = /\r?\n/u;
-const RELEASE_ONLY_PATHS = [
-  "clients/openmeld-cli/package.json",
-  "release/local-components.json",
-];
+const CLI_PACKAGE_PATH = "clients/openmeld-cli/package.json";
+const LOCAL_COMPONENTS_MANIFEST_PATH = "release/local-components.json";
+const RELEASE_ONLY_PATHS = [CLI_PACKAGE_PATH, LOCAL_COMPONENTS_MANIFEST_PATH];
 
 export function parseVersionedReleaseBranchName(value) {
   const match = VERSIONED_RELEASE_BRANCH_PATTERN.exec(
@@ -69,10 +68,11 @@ export function assertVersionedReleaseBranchFacts(input) {
     );
   }
   const changedPaths = [...new Set(input.changedPaths ?? [])].sort();
-  if (
-    changedPaths.length !== RELEASE_ONLY_PATHS.length ||
-    RELEASE_ONLY_PATHS.some((path, index) => changedPaths[index] !== path)
-  ) {
+  const isVersionBump = pathsMatch(changedPaths, RELEASE_ONLY_PATHS);
+  const isManifestOnlyRestamp = pathsMatch(changedPaths, [
+    LOCAL_COMPONENTS_MANIFEST_PATH,
+  ]);
+  if (!(isVersionBump || isManifestOnlyRestamp)) {
     throw new Error(
       [
         "A strict release PR requires a release-only diff:",
@@ -82,6 +82,17 @@ export function assertVersionedReleaseBranchFacts(input) {
           ? changedPaths.map((path) => `- ${path}`)
           : ["- none"]),
       ].join("\n")
+    );
+  }
+  if (
+    isManifestOnlyRestamp &&
+    !(
+      input.basePackageVersion === designation.version &&
+      input.baseManifestVersion === designation.version
+    )
+  ) {
+    throw new Error(
+      "A manifest-only restamp requires the base package and release manifest to already declare the release version."
     );
   }
 }
@@ -97,10 +108,20 @@ export function resolvePullRequestReleaseMode(input) {
 export function assertCurrentVersionedReleaseBranch(input) {
   const repoRoot = input.repoRoot ?? process.cwd();
   const baseSha = resolveGitCommitSha(input.baseSha, repoRoot);
-  const packageManifest = readJson(
-    `${repoRoot}/clients/openmeld-cli/package.json`
+  const packageManifest = readJson(`${repoRoot}/${CLI_PACKAGE_PATH}`);
+  const releaseManifest = readJson(
+    `${repoRoot}/${LOCAL_COMPONENTS_MANIFEST_PATH}`
   );
-  const releaseManifest = readJson(`${repoRoot}/release/local-components.json`);
+  const basePackageManifest = readJsonAtRevision(
+    repoRoot,
+    baseSha,
+    CLI_PACKAGE_PATH
+  );
+  const baseReleaseManifest = readJsonAtRevision(
+    repoRoot,
+    baseSha,
+    LOCAL_COMPONENTS_MANIFEST_PATH
+  );
   const changedPaths = execFileSync(
     process.platform === "win32" ? "git.exe" : "git",
     ["diff", "--name-only", "--no-renames", `${baseSha}...HEAD`, "--"],
@@ -111,6 +132,8 @@ export function assertCurrentVersionedReleaseBranch(input) {
 
   assertVersionedReleaseBranchFacts({
     baseSha,
+    baseManifestVersion: baseReleaseManifest.components?.cli?.packageVersion,
+    basePackageVersion: basePackageManifest.version,
     branchName: input.branchName,
     changedPaths,
     manifestVersion: releaseManifest.components?.cli?.packageVersion,
@@ -118,8 +141,25 @@ export function assertCurrentVersionedReleaseBranch(input) {
   });
 }
 
+function pathsMatch(actual, expected) {
+  return (
+    actual.length === expected.length &&
+    expected.every((path, index) => actual[index] === path)
+  );
+}
+
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function readJsonAtRevision(repoRoot, revision, filePath) {
+  return JSON.parse(
+    execFileSync(
+      process.platform === "win32" ? "git.exe" : "git",
+      ["show", `${revision}:${filePath}`],
+      { cwd: repoRoot, encoding: "utf8" }
+    )
+  );
 }
 
 function resolveGitCommitSha(value, repoRoot) {
