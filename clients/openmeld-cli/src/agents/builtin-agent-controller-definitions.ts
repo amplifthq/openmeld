@@ -3,6 +3,7 @@ import {
   verifyClaudeCodeLaunchContract,
 } from "@openmeld/adapter-claude-code";
 import {
+  isCodexHostApplicationCommandPath,
   resolveInstalledCodexLaunchCandidates,
   verifyCodexLaunchContract,
 } from "@openmeld/adapter-codex";
@@ -61,6 +62,7 @@ export type BuiltinAgentControllerVersionMaintenanceDefinition = {
     kind: "cask" | "formula";
     name: string;
   };
+  hostApplicationPath?: (commandPath: string) => boolean;
   npmPackageName?: string;
   officialUpdateCommand?: string;
   officialUpdatePath: (commandPath: string) => boolean;
@@ -139,6 +141,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     usageLimitSupport: "native",
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "codex" },
+      hostApplicationPath: isCodexHostApplicationCommandPath,
       npmPackageName: "@openai/codex",
       officialUpdatePath: () => false,
     },

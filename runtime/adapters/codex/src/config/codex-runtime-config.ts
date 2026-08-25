@@ -161,6 +161,12 @@ export function resolveCodexTimeoutMs(): number | null {
   return parsed;
 }
 
+export function isCodexHostApplicationCommandPath(
+  commandPath: string
+): boolean {
+  return resolveCodexAppLabel(commandPath) !== null;
+}
+
 function resolveCodexAppBundleCommandDirectories(
   appBundleRoots?: readonly string[]
 ): string[] {
