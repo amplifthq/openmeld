@@ -4168,7 +4168,9 @@ strict shared HTTP response shape, including required nullable fields and the
 closed Run status set. The API client parses that strict response before a
 Routine command presents or emits it; missing or unknown fields fail closed as
 an invalid upstream response. The existing strict v1 CLI error envelope remains
-unchanged.
+unchanged. Its entry-check code enum distinguishes a temporarily unavailable
+saved-sign-in read as `auth.session_token_unavailable`; the existing `message`
+field may carry the sanitized local cause without adding a new envelope field.
 
 `space.members` success output follows the same strict rule. Its versioned CLI
 envelope flattens the shared `spaceMemberDirectorySchema` response without

@@ -223,6 +223,7 @@ export type CurrentCommandCheckState = {
       | "expired"
       | "revoked"
       | "mismatch"
+      | "unavailable"
       | "unknown";
   } | null;
   selectedProfile: {

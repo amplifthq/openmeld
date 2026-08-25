@@ -596,6 +596,15 @@ describe("cli --json output envelope contract", () => {
       ["schema issue message", { schemaIssueMessage: "Invalid option" }],
       ["schema issue path", { schemaIssuePath: "routines.0.status" }],
       ["raw response body", { rawBody: "secret" }],
+      [
+        "diagnostic details",
+        {
+          details: {
+            reasonCode: "session_token_unavailable",
+            errorMessage: "must stay in the existing message field",
+          },
+        },
+      ],
     ])("rejects extra v1 error fields: %s", (_name, field) => {
       const parsed = cliJsonErrorEnvelopeSchema.safeParse({
         schemaVersion: VERSION,

@@ -70,6 +70,8 @@ export async function runSignInCheck(input: {
       context: input.context,
       guidance,
       blocking: false,
+      authStateReasonCode: evaluated.reasonCode,
+      authStateErrorMessage: evaluated.errorMessage,
     });
     return {
       status: "continue",
@@ -81,6 +83,7 @@ export async function runSignInCheck(input: {
       context: input.context,
       action: copy.signInAction,
       guidance,
+      evaluated,
     });
   }
 
@@ -94,7 +97,7 @@ export async function runSignInCheck(input: {
     context: input.context,
     action: copy.signInAction,
     guidance,
-    evaluatedStatus: evaluated.status,
+    evaluated,
   });
 }
 
@@ -102,11 +105,20 @@ async function runRequiredSignInCheck(input: {
   context: CommandEntryContext;
   action: string | null;
   guidance: ReturnType<typeof resolveAuthenticationGuidance>;
+  evaluated: Awaited<ReturnType<typeof evaluateCommandAuthentication>>;
 }): Promise<CommandEntryResult> {
   if (input.context.jsonOutput) {
+    const unavailable = input.evaluated.status === "unavailable";
     return buildBlockedEntryCheckResult({
-      code: ENTRY_CHECK_BLOCKED_ERROR_CODES.signIn,
-      message: input.guidance.agentErrorMessage,
+      code: unavailable
+        ? ENTRY_CHECK_BLOCKED_ERROR_CODES.signInUnavailable
+        : ENTRY_CHECK_BLOCKED_ERROR_CODES.signIn,
+      message: [
+        input.guidance.agentErrorMessage,
+        ...(unavailable && input.evaluated.errorMessage
+          ? [`Diagnostic: ${input.evaluated.errorMessage}`]
+          : []),
+      ].join(" "),
     });
   }
   if (
@@ -117,6 +129,8 @@ async function runRequiredSignInCheck(input: {
       context: input.context,
       guidance: input.guidance,
       blocking: true,
+      authStateReasonCode: input.evaluated.reasonCode,
+      authStateErrorMessage: input.evaluated.errorMessage,
     });
     return {
       status: "blocked",
@@ -133,6 +147,7 @@ async function runRequiredSignInCheck(input: {
       input.action ?? undefined
     ),
     allowPrompt: true,
+    evaluated: input.evaluated,
   });
   if (!authenticated) {
     return {
@@ -150,9 +165,7 @@ async function runOptionalSignInCheck(input: {
   context: CommandEntryContext;
   action: string | null;
   guidance: ReturnType<typeof resolveAuthenticationGuidance>;
-  evaluatedStatus: Awaited<
-    ReturnType<typeof evaluateCommandAuthentication>
-  >["status"];
+  evaluated: Awaited<ReturnType<typeof evaluateCommandAuthentication>>;
 }): Promise<CommandEntryResult> {
   if (
     input.context.runtime.resolvedView !== "human" ||
@@ -162,6 +175,8 @@ async function runOptionalSignInCheck(input: {
       context: input.context,
       guidance: input.guidance,
       blocking: false,
+      authStateReasonCode: input.evaluated.reasonCode,
+      authStateErrorMessage: input.evaluated.errorMessage,
     });
     return {
       status: "continue",
@@ -206,7 +221,7 @@ async function runOptionalSignInCheck(input: {
   return await runOptionalSignInLogin({
     context: input.context,
     action: input.action,
-    evaluatedStatus: input.evaluatedStatus,
+    evaluatedStatus: input.evaluated.status,
   });
 }
 
@@ -268,6 +283,8 @@ async function runOptionalSignInLogin(input: {
       gatewayUrl: input.context.gatewayUrl,
     }),
     blocking: false,
+    authStateReasonCode: afterLogin.reasonCode,
+    authStateErrorMessage: afterLogin.errorMessage,
   });
   return {
     status: "continue",
@@ -326,6 +343,12 @@ function emitSignInStatus(input: {
   context: CommandEntryContext;
   guidance: ReturnType<typeof resolveAuthenticationGuidance>;
   blocking: boolean;
+  authStateReasonCode?: Awaited<
+    ReturnType<typeof evaluateCommandAuthentication>
+  >["reasonCode"];
+  authStateErrorMessage?: Awaited<
+    ReturnType<typeof evaluateCommandAuthentication>
+  >["errorMessage"];
 }): void {
   if (input.context.runtime.resolvedView === "human") {
     const card = buildHumanAuthenticationCard({
@@ -346,20 +369,34 @@ function emitSignInStatus(input: {
     return;
   }
 
+  const signInUnavailable = input.guidance.reason === "unavailable";
   input.context.presenter.data({
     code: input.blocking
       ? "command.entry.sign_in.blocked"
       : "command.entry.sign_in.status",
     payload: buildAgentCheckResult({
-      code: "auth.authentication_required",
+      code: signInUnavailable
+        ? ENTRY_CHECK_BLOCKED_ERROR_CODES.signInUnavailable
+        : ENTRY_CHECK_BLOCKED_ERROR_CODES.signIn,
       status: input.blocking ? "blocked" : "needs_attention",
       reason: input.guidance.agentErrorMessage,
-      nextSteps: formatOpenMeldCliCommands(["openmeld login"]),
-      humanActionRequired: true,
+      nextSteps: signInUnavailable
+        ? formatOpenMeldCliCommands([
+            "Retry the same command.",
+            "If it still fails, run `openmeld auth status --view agent` for diagnostics.",
+          ])
+        : formatOpenMeldCliCommands(["openmeld login"]),
+      humanActionRequired: !signInUnavailable,
       canContinueAfterFix: true,
       details: {
         guidanceReason: input.guidance.reason,
         action: input.guidance.action,
+        ...(input.authStateReasonCode
+          ? { authStateReasonCode: input.authStateReasonCode }
+          : {}),
+        ...(input.authStateErrorMessage
+          ? { authStateErrorMessage: input.authStateErrorMessage }
+          : {}),
         ...(input.guidance.authBaseUrl
           ? { authBaseUrl: input.guidance.authBaseUrl }
           : {}),
@@ -377,11 +414,17 @@ function resolveGuidanceReason(
     | "invalid"
     | "expired"
     | "revoked"
+    | "unavailable"
     | "unknown"
     | "mismatch"
     | "valid"
-): "required" | "expired" | "invalid" | "revoked" {
-  if (status === "expired" || status === "invalid" || status === "revoked") {
+): "required" | "expired" | "invalid" | "revoked" | "unavailable" {
+  if (
+    status === "expired" ||
+    status === "invalid" ||
+    status === "revoked" ||
+    status === "unavailable"
+  ) {
     return status;
   }
   return "required";
