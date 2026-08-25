@@ -374,7 +374,6 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 				currentLocalRuntimeReplyReadiness={
 					input.currentLocalRuntimeReplyReadiness
 				}
-				executionTarget={input.recovery.selectedExecutionTarget}
 				expectedServiceVersion={input.currentExpectedServiceVersion}
 				isCheckingStatus={isCheckingStatus}
 				isSavingAutomaticUpdates={isSavingAutomaticUpdates}
@@ -611,7 +610,6 @@ function ReadOnlyRuntimeTargetList(input: {
 
 function CurrentLocalRuntimeServiceFacts(input: {
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
-	executionTarget: LocalRuntimeExecutionTarget | null;
 	expectedServiceVersion: string | null;
 	isCheckingStatus: boolean;
 	isSavingAutomaticUpdates: boolean;
@@ -642,7 +640,6 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		input.setupCompleteRefreshPending && requiredServiceUpdate;
 	const computerSummaryStatus = resolveCurrentLocalRuntimeComputerSummaryStatus(
 		{
-			executionTarget: input.executionTarget,
 			readiness: input.currentLocalRuntimeReplyReadiness,
 		}
 	);

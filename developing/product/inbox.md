@@ -430,8 +430,9 @@ adapters without changing Inbox truth.
 
 ## Phase 1 acceptance
 
-- The current Organization opens to Home after authorization. Inbox remains a
-  canonical full page reached from its global launcher and Home preview.
+- The current Organization opens to the Center Agent conversation as Home after
+  authorization. Inbox remains a canonical full page reached from its permanent
+  bottom-right global launcher and compact launcher preview.
 - Inbox stays out of the primary product rail. A bottom-right global launcher
   remains available across the authorized Web shell and shows the
   high-attention count.

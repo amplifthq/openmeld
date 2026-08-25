@@ -93,8 +93,10 @@ jobs:
 
       - name: Verify changed local components manifest
         if: steps.scope.outputs.required == 'true' && steps.scope.outputs.mode == 'base'
-        env:
-          OPENMELD_AFFECTED_BASE: ${{ steps.scope.outputs.base }}
+        # The latest release tag is the immutable publication baseline. The
+        # push base above only decides whether this guard needs to run; using
+        # it for policy verification would reject a safe restamp of a version
+        # that main declared but no channel has published yet.
         run: pnpm run verify:release-ready
 
       - name: Verify current local components manifest

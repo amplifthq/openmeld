@@ -517,50 +517,24 @@ header keeps its five primary work tabs and one compact menu available without
 reintroducing a contextual drawer. Narrow layouts may horizontally scroll the
 tab row, but they must not hide Tasks, Routines, or any menu destination.
 
-### Organization Home
+### Home and Center Agent Chat
 
-Home is one adaptive surface for both a new Organization and an established
-team. Web must not branch into separate beginner and expert dashboards. A new
-Organization keeps the same structure and uses quiet, concrete empty states;
-real activity progressively replaces them without changing the user's mental
-model.
+The authorized Organization root `/o/{orgSlug}` is canonical Home and renders
+the existing Center Agent conversation directly. Home is not an Organization
+dashboard and owns no parallel Inbox, Task, Space, Directory, Project,
+Document, or Agent Activity preview.
 
-Home is a read-oriented composition of existing product truths. It must not
-invent a second Center Agent conversation, duplicate Inbox state, summarize
-engineering diagnostics as business status, infer member responsibilities, or
-fabricate aggregate usage when source coverage is incomplete. Healthy Center
-Agent readiness stays visually quiet; only an authoritative exception such as
-Paused earns a status label.
+The outer app rail keeps one **Home** destination and does not expose a separate
+Center Agent destination. Home owns the Center Agent conversation's unread
+indicator and intent preload. The Center Agent header continues to expose
+Messages, Graph, Files, Tasks, Routines, Skills, Apps, and its compact menu;
+their explicit `/o/{orgSlug}/center-agent/*` routes remain stable and keep Home
+selected in the outer rail.
 
-The fixed information order is:
-
-1. the designated Center Agent identity and one compact primary **Ask Center
-   Agent** action aligned to the right; it opens the canonical full Center Agent
-   Chat rather than the compact global launcher
-2. the member's bounded Inbox preview, containing unresolved action-required
-   items and unread updates rather than read history
-3. **Work**, containing current Tasks and active Spaces
-4. **Team**, containing People, ordinary Agents, and relevant Computers
-5. **Resources**, containing Agent Activity first, followed by active Projects
-   and Organization Documents
-
-The page favors recognizable names, avatars, recent items, and the existing
-Agent Activity visualization over abstract inventory totals or explanatory
-copy. Bounded previews link to their canonical full pages. Motion is limited to
-short interaction feedback and respects reduced-motion preferences; Home must
-not add ambient animation, decorative AI effects, or continuously moving status
-signals.
-
-Home's Agent Activity preview is always Organization-wide. It ignores a
-leftover `?project=` search parameter because Home exposes no Project filter or
-scope label; Project-scoped Activity belongs only on the canonical Agent
-Activity pages where that scope is explicit.
-
-Home's Computers preview reads the same Organization Computer projection as the
-first-level Computers home and groups it with the current Directory. It must not
-derive Computers only from Agent Profiles: a teammate Computer with no Agent
-Profile is still relevant and must appear. Query loading, failure, retry, and
-staleness cover the Directory and Organization Computer projection together.
+The legacy `/o/{orgSlug}/center-agent/chat` URL performs one history-replacing
+compatibility redirect to `/o/{orgSlug}` and preserves supported conversation
+search state such as `focusSignalId` and `view`. No current Web navigation emits
+the legacy URL.
 
 ### Inbox
 
@@ -571,14 +545,10 @@ bottom-right launcher; it must not become the default authenticated or
 post-onboarding destination. Inbox uses the full-width inset app surface without
 an empty secondary sidebar.
 
-The full page is also reached from the global Inbox preview's maximize action.
-The preview is a convenience surface, not a second Inbox: it reads the same
-Core list and summary, uses the same structured source mapping and read mutation,
-and owns no parallel unread state. When unresolved action-required items exist,
-the preview names that attention count instead of claiming the member is caught
-up and shows the **Needs action** list before ordinary updates. When the Home
-preview is empty, its body owns the **You’re all caught up** message; the panel
-header keeps only the full-Inbox navigation action instead of repeating it.
+The full page is also reached from the permanent bottom-right Inbox launcher's
+maximize action. The compact launcher preview reads the same Core list and
+summary, uses the same structured source mapping and read mutation, and owns no
+parallel unread state.
 
 The page provides **All**, **Unread**, and **Needs action** filters, a compact
 high-attention summary, an explicit **Mark all as read** action, and a
@@ -1947,7 +1917,7 @@ must preserve `authorizedActions` when supplied; silently dropping that field
 would create a Routine that cannot fulfill its visible document-maintenance or
 team-report promise.
 
-### Organization Home first paint
+### Home first paint
 
 The deferred proposal for replacing the current aggregate Space bootstrap with
 a bounded, versioned entry read model is tracked in
@@ -1955,18 +1925,19 @@ a bounded, versioned entry read model is tracked in
 production behavior and does not authorize implementation before its trigger
 and consumer-inventory gates are satisfied.
 
-The Organization index renders Home at `/o/{orgSlug}` after its route guard
-confirms current Organization access. Ordinary Organization selection,
-creation, invitation acceptance, and onboarding completion all use this same
-default path. An explicit intent, such as continuing Slack installation, may
-still enter its named destination directly.
+The Organization index renders the canonical Center Agent conversation as Home
+at `/o/{orgSlug}` after its route guard confirms current Organization access.
+Ordinary Organization selection, creation, invitation acceptance, and
+onboarding completion all use this same default path. An explicit intent, such
+as continuing Slack installation, may still enter its named destination
+directly.
 
-The Center Agent remains a first-class pathless layout branch with outer app
-rail + full-width content and no secondary sidebar in its layout tree. That
-branch owns its pending component; the global router does not infer Center
-Agent pending UI from a pathname. The outer rail derives its selected
-destination from route matches instead of page props or navigation-intent
-state.
+The Center Agent pathless layout branch owns both Home Chat and its explicit
+capability routes with outer app rail + full-width content and no secondary
+sidebar. That branch owns its pending component; the global router does not
+infer Center Agent pending UI from a pathname. The outer rail derives its
+selected destination from route matches instead of page props or
+navigation-intent state.
 
 Agents, Spaces, ordinary Space conversations, and the Center Agent conversation
 each own a route pending shell behind the shared 300 ms optimistic-navigation
@@ -3313,16 +3284,23 @@ from credentials or unrelated app state. This evidence remains absent from
 another member's read-only Computer view together with the rest of the local
 agent inventory.
 
-An incomplete controller check is row-scoped retryable evidence, not global
-Computers attention and not proof of repair. Web must show `Checking` only while
-an actual local-agent check request is running; it must not manufacture a
-checking state from an unrelated readiness fetch or a fixed grace timer.
-Computers, Agents, and Space recovery surfaces must consume the Core-owned
-current-local-runtime `nextAction` for the completed outcome. A completed
-`check_status` verdict remains unavailable without repair attention or a setup
-action; Web may retain the raw reason code for diagnostics and the affected
-local-agent row, but must not maintain a reason-code allowlist that independently
-decides whether setup is required.
+An incomplete controller check is retryable warning evidence, not proof of
+repair. Web must show `Checking` only while an actual local-agent check request
+is running; it must not manufacture a checking state from an unrelated
+readiness fetch or a fixed grace timer. Computers, Agents, and Space recovery
+surfaces must consume the Core-owned current-local-runtime `nextAction` for the
+completed outcome. A completed `check_status` verdict uses the same amber
+**Couldn't check** outcome on the affected local-agent row, the current Computer
+summary, and Computers navigation attention. It never becomes a red repair
+alert or setup action.
+
+Web does not inspect a second execution-target snapshot to override the Core
+verdict. Core excludes disabled local agents from Computer status, aggregate
+reason codes, and recovery actions. Web keeps an all-disabled Computer neutral,
+with no navigation attention, while the disabled rows and their diagnostic
+details remain available. Raw reason codes remain diagnostic evidence; Web must
+not maintain a reason-code allowlist that independently decides whether setup,
+retry, or attention is required.
 
 Computers may let the user turn an already reported local agent on or
 off, but Web is only the intent surface. The write must go through Core to the

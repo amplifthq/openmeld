@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-25T15:27:10.537Z",
+  "updatedAt": "2026-08-25T17:44:34.598Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
@@ -9,7 +9,7 @@
       "reason": "Keep macOS Service permissions stable and ship safe in-app OpenMeld Tools updates."
     },
     "service": {
-      "bundleHash": "fb222876ee3f46845b7862092684cc90a86ca3dd47fbabb1b7d1694a5b6fb384",
+      "bundleHash": "a74773d92a8d7205eefc920b07f09d46e9da2a44f714f08ed0503b7b9a253a36",
       "bundleVersion": "0.3.107",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
@@ -21,7 +21,7 @@
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Ship current OpenMeld reliability and contract fixes without interrupting active Wake work."
+      "reason": "Keep macOS Service permissions stable and ship safe in-app OpenMeld Tools updates."
     }
   }
 }

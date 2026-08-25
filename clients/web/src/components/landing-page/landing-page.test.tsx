@@ -138,18 +138,16 @@ describe("LandingPage", () => {
 		expect(addToSlackLink.className).toContain("rounded-md");
 		expect(within(addToSlackLink).getByTestId("slack-mark-icon")).toBeTruthy();
 
-		rerender(
-			<LandingPage authenticatedEntryPath="/o/acme/center-agent/chat" />
-		);
+		rerender(<LandingPage authenticatedEntryPath="/o/acme" />);
 
 		expect(
 			screen.getByRole("link", { name: "Enter" }).getAttribute("href")
-		).toBe("/o/acme/center-agent/chat");
+		).toBe("/o/acme");
 		expect(
 			screen
 				.getByRole("link", { name: "Start with your Center Agent" })
 				.getAttribute("href")
-		).toBe("/o/acme/center-agent/chat");
+		).toBe("/o/acme");
 		expect(
 			screen.getByRole("link", { name: "Add to Slack" }).getAttribute("href")
 		).toBe("/add-to-slack");
@@ -157,7 +155,7 @@ describe("LandingPage", () => {
 			screen
 				.getByRole("link", { name: "Open your Center Agent" })
 				.getAttribute("href")
-		).toBe("/o/acme/center-agent/chat");
+		).toBe("/o/acme");
 		expect(
 			screen
 				.getByRole("link", { name: "Add Center Agent to Slack" })

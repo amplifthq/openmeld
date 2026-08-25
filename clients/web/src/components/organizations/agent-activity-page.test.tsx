@@ -30,7 +30,6 @@ import {
 	AgentActivitySessions,
 	type AgentActivitySessionsFilters,
 } from "./agent-activity-sessions";
-import { OrganizationHomeActivity } from "./organization-home-activity";
 
 const PROVIDER_SESSION_ID_PATTERN = /providerSessionId/u;
 const STALE_ACTIVITY_PATTERN = /Activity data may be stale/iu;
@@ -1084,94 +1083,6 @@ describe("Agent Activity pages", () => {
 		expect(screen.getByText(STALE_ACTIVITY_PATTERN)).toBeTruthy();
 		expect(screen.getByText(REFRESH_FAILURE_PATTERN)).toBeTruthy();
 	});
-
-	it("keeps Home activity Organization-wide without loading aggregate stats", async () => {
-		const projects = [project({ id: "project-two" })];
-		listProjects.mockResolvedValueOnce({
-			organizationId: "org-acme",
-			projects,
-		});
-		readSnapshot.mockImplementationOnce(async (input) =>
-			snapshot({ organizationId: input.organizationId, projects })
-		);
-
-		renderHomeActivity({ searchParams: "?project=project-two" });
-
-		expect(await screen.findByText("Working now")).toBeTruthy();
-		expect(readSnapshot).toHaveBeenCalled();
-		expect(readSnapshot.mock.calls[0]?.[0]).not.toHaveProperty("projectId");
-		expect(readStats).not.toHaveBeenCalled();
-	});
-
-	it("uses plain Home totals and explains truncated snapshot coverage", async () => {
-		const projects = [project({ id: "project-active" })];
-		listProjects.mockResolvedValueOnce({
-			organizationId: "org-acme",
-			projects,
-		});
-		readSnapshot.mockResolvedValueOnce(
-			snapshot({
-				projects,
-				sessions: [session()],
-				sessionsTruncated: true,
-			})
-		);
-
-		renderHomeActivity();
-
-		expect((await screen.findAllByText("1")).length).toBeGreaterThanOrEqual(2);
-		expect(screen.queryByText(TILDE_VALUE_PATTERN)).toBeNull();
-		expect(
-			screen.getByText("Totals reflect the newest 500 sessions.")
-		).toBeTruthy();
-	});
-
-	it("keeps cached Home activity visible when a background refresh fails", async () => {
-		vi.useFakeTimers();
-		const nowMs = new Date("2026-07-13T00:00:00.000Z").getTime();
-		vi.setSystemTime(nowMs);
-		const projects = [project({ id: "project-active" })];
-		listProjects.mockResolvedValueOnce({
-			organizationId: "org-acme",
-			projects,
-		});
-		readSnapshot.mockResolvedValueOnce(
-			snapshot({
-				asOfMs: nowMs,
-				projects,
-				sessions: [
-					session({
-						expiresAtMs: nowMs + 60_000,
-						lastObservedAtMs: nowMs,
-						startedAtMs: nowMs - 1000,
-					}),
-				],
-			})
-		);
-		renderHomeActivity();
-		await vi.waitFor(() => {
-			expect(screen.getByText("Working now")).toBeTruthy();
-		});
-
-		readSnapshot.mockRejectedValueOnce(
-			Object.assign(new Error("snapshot unavailable"), {
-				code: "gateway.invalid_response",
-			})
-		);
-		await act(async () => {
-			await vi.advanceTimersByTimeAsync(15_000);
-		});
-
-		await vi.waitFor(() => {
-			expect(screen.getByText("Last known working")).toBeTruthy();
-			expect(screen.queryByText("Working now")).toBeNull();
-			expect(
-				screen.getByText(
-					"Agent Activity couldn’t refresh. Showing the latest available data."
-				)
-			).toBeTruthy();
-		});
-	});
 });
 
 type ActivityTestSection = "changes" | "overview" | "sessions";
@@ -1216,22 +1127,6 @@ function renderPageTree(
 				<AgentActivityContent>
 					{renderSection(section, options.canManage ?? true, options)}
 				</AgentActivityContent>
-			</QueryClientProvider>
-		</NuqsTestingAdapter>
-	);
-}
-
-function renderHomeActivity(options: { searchParams?: string } = {}) {
-	const queryClient = new QueryClient({
-		defaultOptions: { queries: { retry: false } },
-	});
-	return render(
-		<NuqsTestingAdapter hasMemory searchParams={options.searchParams}>
-			<QueryClientProvider client={queryClient}>
-				<OrganizationHomeActivity
-					organizationId="org-acme"
-					organizationSlug="acme"
-				/>
 			</QueryClientProvider>
 		</NuqsTestingAdapter>
 	);

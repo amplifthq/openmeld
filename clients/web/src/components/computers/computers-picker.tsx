@@ -67,17 +67,8 @@ export function ComputersPicker(input: {
 		resolveConnectedLocalRuntime(input.recovery)?.deviceId ??
 		input.recovery.localRuntimesQuery.data?.currentDeviceId ??
 		null;
-	const currentLocalRuntime =
-		input.recovery.localRuntimesQuery.data?.localRuntimes.find(
-			(computer) => computer.deviceId === currentRuntimeSubjectDeviceId
-		) ?? null;
-	const currentExecutionTarget =
-		currentLocalRuntime?.executionTargets.find((target) => target.isCurrent) ??
-		currentLocalRuntime?.executionTargets[0] ??
-		null;
 	const currentComputerStatus = resolveCurrentLocalRuntimeComputerSummaryStatus(
 		{
-			executionTarget: currentExecutionTarget,
 			isReconcilingStatus: input.isReconcilingCurrentToolsStatus,
 			readiness: currentReadiness,
 		}

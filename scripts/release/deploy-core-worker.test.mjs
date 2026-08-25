@@ -1,41 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  buildCoreWorkerDeployStepSpec,
-  deployCoreWorker,
-} from "./deploy-core-worker.mjs";
+import { deployCoreWorker } from "./deploy-core-worker.mjs";
 
 const RELEASE_SHA = "a".repeat(40);
 const SOURCE_MISMATCH_RE = /does not match checked-out HEAD/u;
 
-test("builds the ordinary Core deploy without changing its production configuration path", () => {
-  assert.deepEqual(buildCoreWorkerDeployStepSpec({}), {
-    args: ["--filter", "@openmeld/core", "run", "deploy"],
-    command: "pnpm",
-    label: "Deploy the startup-admitted Core Worker",
-  });
-  assert.deepEqual(
-    buildCoreWorkerDeployStepSpec({ tag: "openmeld-release-target" }).args,
-    [
-      "--filter",
-      "@openmeld/core",
-      "run",
-      "deploy",
-      "--tag",
-      "openmeld-release-target",
-    ]
-  );
-});
-
-test("admits the exact checked-out Core source before deploying it", () => {
+test("deploys the exact admitted Core version without rebuilding it", () => {
   const events = [];
 
   deployCoreWorker({
     adapters: {
+      readCoreWranglerConfig: () => "{}",
       readHeadSha: () => RELEASE_SHA,
       runStartupAdmission: (input) => {
         events.push(`admit:${input.releaseSha}`);
+        return { versionId: "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3" };
       },
       runStep: (step) => {
         events.push(step.label);
@@ -47,7 +27,8 @@ test("admits the exact checked-out Core source before deploying it", () => {
   assert.deepEqual(events, [
     "Build Core receiver dependencies",
     `admit:${RELEASE_SHA}`,
-    "Deploy the startup-admitted Core Worker",
+    "Deploy the startup-admitted Core version",
+    "Synchronize Core triggers",
   ]);
 });
 
