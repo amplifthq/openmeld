@@ -1,4 +1,7 @@
-import type { CurrentLocalRuntimeReplyReadinessResponse } from "@openmeld/schemas/types";
+import type {
+	CurrentLocalRuntimeReplyReadinessResponse,
+	LocalRuntimeExecutionTarget,
+} from "@openmeld/schemas/types";
 import {
 	hasCurrentLocalRuntimeOpenMeldToolsUpdate,
 	isOpenMeldToolsComponentUpdateRequired,
@@ -99,6 +102,7 @@ const STATUS_UNAVAILABLE = {
 } as const satisfies ComputerSummaryStatus;
 
 export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
+	executionTarget?: LocalRuntimeExecutionTarget | null;
 	isReconcilingStatus?: boolean;
 	readiness: CurrentLocalRuntimeReplyReadinessResponse | null | undefined;
 }): ComputerSummaryStatus | null {
@@ -112,7 +116,16 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 	if (isCurrentLocalRuntimeServiceDisconnected(readiness)) {
 		return SERVICE_NOT_CONNECTED_STATUS;
 	}
-	if (readiness.nextAction === "run_setup") {
+	const disabledLocalAgentOnlySetupBlocker =
+		readiness.nextAction === "run_setup" &&
+		isDisabledLocalAgentOnlySetupBlocker({
+			executionTarget: input.executionTarget,
+			readiness,
+		});
+	if (
+		readiness.nextAction === "run_setup" &&
+		!disabledLocalAgentOnlySetupBlocker
+	) {
 		return AGENT_NEEDS_SETUP_STATUS;
 	}
 	if (
@@ -128,7 +141,9 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 		return CHECKING_STATUS;
 	}
 	if (readiness.primaryBlocker !== "none") {
-		return STATUS_UNAVAILABLE;
+		return disabledLocalAgentOnlySetupBlocker
+			? READY_STATUS
+			: STATUS_UNAVAILABLE;
 	}
 	return READY_STATUS;
 }
@@ -157,6 +172,7 @@ export function resolveComputerAttentionTone(
 }
 
 export function resolveCurrentLocalRuntimeComputerAttentionToneForInventory(input: {
+	executionTarget?: LocalRuntimeExecutionTarget | null;
 	isReconcilingStatus?: boolean;
 	localRuntimeCount: number | null | undefined;
 	readiness: CurrentLocalRuntimeReplyReadinessResponse | null | undefined;
@@ -167,6 +183,55 @@ export function resolveCurrentLocalRuntimeComputerAttentionToneForInventory(inpu
 	return resolveComputerAttentionTone(
 		resolveCurrentLocalRuntimeComputerSummaryStatus(input)
 	);
+}
+
+function isDisabledLocalAgentOnlySetupBlocker(input: {
+	executionTarget: LocalRuntimeExecutionTarget | null | undefined;
+	readiness: CurrentLocalRuntimeReplyReadinessResponse;
+}): boolean {
+	if (
+		input.readiness.primaryBlocker !== "agent_controller_report_not_ready" ||
+		!input.executionTarget
+	) {
+		return false;
+	}
+
+	const actionableEntries =
+		input.executionTarget.localAgentCatalog.entries.filter(
+			(entry) =>
+				entry.detected &&
+				entry.lifecycleStatus === "active" &&
+				(entry.enabled || entry.selectable)
+		);
+	if (actionableEntries.length === 0) {
+		return false;
+	}
+	const capabilitiesByRef = new Map(
+		input.executionTarget.capabilities.map((capability) => [
+			capability.agentControllerRef,
+			capability,
+		])
+	);
+
+	let foundDisabledIssue = false;
+	for (const entry of actionableEntries) {
+		const capability = capabilitiesByRef.get(`builtin:${entry.agentId}`);
+		const controllerReady =
+			entry.launchStatus === "ready" &&
+			capability?.enabled === true &&
+			capability.status === "ready";
+		if (entry.enabled) {
+			if (!controllerReady) {
+				return false;
+			}
+			continue;
+		}
+		if (entry.launchStatus !== "ready" || capability?.status !== "ready") {
+			foundDisabledIssue = true;
+		}
+	}
+
+	return foundDisabledIssue;
 }
 
 export function resolveCurrentLocalRuntimeComputerSummaryStatusDeviceId(input: {
