@@ -902,9 +902,11 @@ describe("SpaceMembersSidePanel", () => {
 					.getAttribute("aria-expanded")
 			).toBe("false");
 		});
-		expect(
-			screen.queryByText("Choose profiles to add to this Space.")
-		).toBeNull();
+		await waitFor(() => {
+			expect(
+				screen.queryByText("Choose profiles to add to this Space.")
+			).toBeNull();
+		});
 	});
 
 	it("adds Human Profiles from the explicit Humans mode", async () => {
@@ -1081,7 +1083,9 @@ describe("SpaceMembersSidePanel", () => {
 					.getAttribute("aria-expanded")
 			).toBe("false");
 		});
-		expect(screen.queryByText("Select members to add")).toBeNull();
+		await waitFor(() => {
+			expect(screen.queryByText("Select members to add")).toBeNull();
+		});
 	});
 
 	it("closes Add members when the server confirms the selection is already present", async () => {
@@ -1141,9 +1145,11 @@ describe("SpaceMembersSidePanel", () => {
 					.getAttribute("aria-expanded")
 			).toBe("false");
 		});
-		expect(
-			screen.queryByText("That member is already in this Space.")
-		).toBeNull();
+		await waitFor(() => {
+			expect(
+				screen.queryByText("That member is already in this Space.")
+			).toBeNull();
+		});
 	});
 
 	it("requires explicit confirmation before adding a third profile to a Direct Message", async () => {
