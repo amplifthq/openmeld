@@ -29,6 +29,7 @@ import {
 	DialogTrigger,
 } from "@openmeld/ui/components/dialog";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { Switch } from "@openmeld/ui/components/switch";
 import {
 	Tooltip,
 	TooltipContent,
@@ -65,6 +66,10 @@ import {
 } from "#/lib/computer-summary-status";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { buildExecutionTargetLabel } from "#/lib/connect/local-runtime-display";
+import {
+	requestCurrentOpenMeldToolsUpdate,
+	setCurrentOpenMeldToolsMaintenance,
+} from "#/lib/connect/local-runtimes";
 import {
 	isOpenMeldToolsComponentUpdateActionable,
 	isOpenMeldToolsComponentUpdateRequired,
@@ -208,6 +213,9 @@ function resolveTeamOpenMeldToolsStatusDescription(
 function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	const orgSlug = useCurrentOrganizationSlug();
 	const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+	const [isUpdatingTools, setIsUpdatingTools] = useState(false);
+	const [isSavingAutomaticUpdates, setIsSavingAutomaticUpdates] =
+		useState(false);
 	const [isServiceHighlighted, setIsServiceHighlighted] = useState(false);
 	const serviceCardRef = useRef<HTMLDivElement | null>(null);
 	const highlightEndTimerRef = useRef<number | null>(null);
@@ -261,6 +269,45 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			);
 		} finally {
 			setIsCheckingStatus(false);
+		}
+	};
+	const refreshServiceStatus = async () => {
+		await refreshWebAgentReadinessSharedCaches({
+			queryClient: input.queryClient,
+			storageScope: input.recovery.storageScope,
+		});
+		await input.recovery.refreshAll();
+	};
+	const updateOpenMeldTools = async () => {
+		setIsUpdatingTools(true);
+		try {
+			const result = await requestCurrentOpenMeldToolsUpdate();
+			if (result.status === "current") {
+				toast.success("OpenMeld Tools are up to date.");
+			} else if (
+				result.status === "started" ||
+				result.status === "already_running"
+			) {
+				toast.success("Update started.");
+			} else {
+				toast.error("Update not started.");
+			}
+			await refreshServiceStatus();
+		} catch (error) {
+			toast.error(formatMutationError(error, "Update failed."));
+		} finally {
+			setIsUpdatingTools(false);
+		}
+	};
+	const setAutomaticUpdates = async (automaticUpdatesEnabled: boolean) => {
+		setIsSavingAutomaticUpdates(true);
+		try {
+			await setCurrentOpenMeldToolsMaintenance({ automaticUpdatesEnabled });
+			await refreshServiceStatus();
+		} catch (error) {
+			toast.error(formatMutationError(error, "Setting not saved."));
+		} finally {
+			setIsSavingAutomaticUpdates(false);
 		}
 	};
 	const setupPath = buildConnectComputerPath({
@@ -330,6 +377,10 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 				executionTarget={input.recovery.selectedExecutionTarget}
 				expectedServiceVersion={input.currentExpectedServiceVersion}
 				isCheckingStatus={isCheckingStatus}
+				isSavingAutomaticUpdates={isSavingAutomaticUpdates}
+				isUpdatingTools={isUpdatingTools}
+				onAutomaticUpdatesChange={setAutomaticUpdates}
+				onUpdateOpenMeldTools={updateOpenMeldTools}
 				replyReadiness={input.replyReadiness}
 				serviceUpdatePath={serviceUpdatePath}
 				setupCompleteRefreshPending={input.setupCompleteRefreshPending}
@@ -563,6 +614,10 @@ function CurrentLocalRuntimeServiceFacts(input: {
 	executionTarget: LocalRuntimeExecutionTarget | null;
 	expectedServiceVersion: string | null;
 	isCheckingStatus: boolean;
+	isSavingAutomaticUpdates: boolean;
+	isUpdatingTools: boolean;
+	onAutomaticUpdatesChange: (enabled: boolean) => Promise<void>;
+	onUpdateOpenMeldTools: () => Promise<void>;
 	replyReadiness: ComputerReplyReadiness;
 	serviceUpdatePath: string;
 	setupPath: string;
@@ -577,6 +632,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		: input.replyReadiness.status === "ready";
 	const localComponents =
 		input.currentLocalRuntimeReplyReadiness?.localComponents ?? null;
+	const maintenance = localComponents?.maintenance ?? null;
 	const serviceUpdate = localComponents?.service ?? null;
 	const cliUpdate = resolveOpenMeldToolsCliUpdate(localComponents);
 	const skillsUpdate = resolveOpenMeldToolsSkillsUpdate(localComponents);
@@ -625,6 +681,15 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		serviceVersionValue,
 		skillsUpdate,
 	});
+	const primaryAction =
+		maintenance && display.primaryAction?.label === UPDATE_OPENMELD_TOOLS_LABEL
+			? {
+					disabled: input.isUpdatingTools,
+					kind: "managed" as const,
+					label: input.isUpdatingTools ? "Starting..." : "Update",
+					onClick: input.onUpdateOpenMeldTools,
+				}
+			: display.primaryAction;
 	return (
 		<div className="flex flex-col">
 			<div
@@ -660,14 +725,22 @@ function CurrentLocalRuntimeServiceFacts(input: {
 						{display.description}
 					</p>
 				</div>
-				{display.primaryAction ? (
+				{primaryAction ? (
 					<OpenMeldToolsActionControl
-						action={display.primaryAction}
+						action={primaryAction}
 						className="w-fit shrink-0"
 						tone={display.tone}
 					/>
 				) : null}
 			</div>
+			{maintenance ? (
+				<OpenMeldToolsMaintenanceControls
+					automaticUpdatesEnabled={maintenance.automaticUpdatesEnabled}
+					disabled={input.isSavingAutomaticUpdates}
+					onAutomaticUpdatesChange={input.onAutomaticUpdatesChange}
+					operation={localComponents?.updateOperation ?? null}
+				/>
+			) : null}
 
 			{display.hideVersionDetails ? null : (
 				<OpenMeldToolsComponentDetails items={componentDetails} />
@@ -1135,7 +1208,68 @@ type OpenMeldToolsAction =
 			kind: "link";
 			label: string;
 			path: string;
+	  }
+	| {
+			disabled: boolean;
+			kind: "managed";
+			label: string;
+			onClick: () => Promise<void>;
 	  };
+
+function OpenMeldToolsMaintenanceControls(input: {
+	automaticUpdatesEnabled: boolean;
+	disabled: boolean;
+	onAutomaticUpdatesChange: (enabled: boolean) => Promise<void>;
+	operation:
+		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
+		| null;
+}) {
+	return (
+		<div className="flex flex-col gap-3 border-border/60 border-t py-4 sm:flex-row sm:items-center sm:justify-between">
+			<div className="min-w-0">
+				<p className="font-medium text-sm">Keep OpenMeld Tools up to date</p>
+				{input.operation ? (
+					<p className="mt-1 text-muted-foreground text-xs">
+						{formatOpenMeldToolsUpdatePhase(input.operation.phase)}
+					</p>
+				) : null}
+			</div>
+			<Switch
+				aria-label="Keep OpenMeld Tools up to date"
+				checked={input.automaticUpdatesEnabled}
+				disabled={input.disabled}
+				onCheckedChange={(enabled) => {
+					input.onAutomaticUpdatesChange(enabled).catch((error: unknown) => {
+						console.error("OpenMeld Tools update setting failed.", error);
+					});
+				}}
+			/>
+		</div>
+	);
+}
+
+function formatOpenMeldToolsUpdatePhase(
+	phase: NonNullable<
+		CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
+	>["phase"]
+): string {
+	switch (phase) {
+		case "waiting_for_work":
+			return "Waiting for work to finish";
+		case "updating":
+			return "Updating";
+		case "updated":
+			return "Updated";
+		case "restored":
+			return "Old version restored";
+		case "needs_help":
+			return "Update needs help";
+		default: {
+			const exhaustive: never = phase;
+			return exhaustive;
+		}
+	}
+}
 
 function buildOpenMeldToolsComponentDetails(input: {
 	canManage: boolean;
@@ -1385,6 +1519,29 @@ function OpenMeldToolsActionControl(input: {
 	className?: string;
 	tone: OpenMeldServiceVisualTone;
 }) {
+	if (input.action.kind === "managed") {
+		return (
+			<Button
+				className={cn(
+					input.className,
+					resolveOpenMeldToolsComponentActionClassName(input.tone)
+				)}
+				disabled={input.action.disabled}
+				onClick={() => {
+					input.action.kind === "managed" &&
+						input.action.onClick().catch((error: unknown) => {
+							console.error("OpenMeld Tools update failed.", error);
+						});
+				}}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				<ArrowsClockwiseIcon aria-hidden="true" data-icon="inline-start" />
+				{input.action.label}
+			</Button>
+		);
+	}
 	if (input.action.kind === "link") {
 		return (
 			<Link

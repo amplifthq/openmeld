@@ -7,8 +7,10 @@ import type {
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalRuntimesResponse,
 	RefreshCurrentLocalAgentCatalogResponse,
+	RequestCurrentOpenMeldToolsUpdateResponse,
 	SelectCurrentLocalAgentInstallationResponse,
 	SetCurrentLocalAgentEnabledResponse,
+	SetCurrentOpenMeldToolsMaintenanceResponse,
 } from "@openmeld/schemas";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
@@ -81,6 +83,28 @@ export async function selectCurrentLocalAgentInstallation(input: {
 		return await createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
 		).selectCurrentLocalAgentInstallation(input);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function requestCurrentOpenMeldToolsUpdate(): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {
+	try {
+		return await createCurrentDeviceApi(
+			createUnscopedWebOpenMeldApiFoundation()
+		).requestCurrentOpenMeldToolsUpdate();
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function setCurrentOpenMeldToolsMaintenance(input: {
+	automaticUpdatesEnabled: boolean;
+}): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
+	try {
+		return await createCurrentDeviceApi(
+			createUnscopedWebOpenMeldApiFoundation()
+		).setCurrentOpenMeldToolsMaintenance(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

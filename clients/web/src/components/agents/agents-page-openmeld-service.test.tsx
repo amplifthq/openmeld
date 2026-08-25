@@ -20,6 +20,9 @@ import {
 } from "./agents-page-openmeld-service";
 
 const copyCliEntryCommandMock = vi.hoisted(() => vi.fn());
+const refreshSharedCachesMock = vi.hoisted(() => vi.fn());
+const requestCurrentOpenMeldToolsUpdateMock = vi.hoisted(() => vi.fn());
+const setCurrentOpenMeldToolsMaintenanceMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 
@@ -43,6 +46,15 @@ vi.mock("#/lib/cli-entry-command", async (importOriginal) => {
 		copyCliEntryCommand: copyCliEntryCommandMock,
 	};
 });
+
+vi.mock("#/lib/connect/local-runtimes", () => ({
+	requestCurrentOpenMeldToolsUpdate: requestCurrentOpenMeldToolsUpdateMock,
+	setCurrentOpenMeldToolsMaintenance: setCurrentOpenMeldToolsMaintenanceMock,
+}));
+
+vi.mock("#/query/agents/execution-readiness", () => ({
+	refreshWebAgentReadinessSharedCaches: refreshSharedCachesMock,
+}));
 
 vi.mock("sonner", () => ({
 	toast: {
@@ -81,6 +93,7 @@ describe("OpenMeldServiceCard", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
+		refreshSharedCachesMock.mockResolvedValue(undefined);
 	});
 
 	it("summarizes a healthy installation as one ready OpenMeld Tools outcome", () => {
@@ -199,6 +212,89 @@ describe("OpenMeldServiceCard", () => {
 		expect(
 			screen.getAllByRole("link", { name: "Update OpenMeld Tools" })
 		).toHaveLength(1);
+	});
+
+	it("updates OpenMeld Tools without sending the user to Terminal", async () => {
+		requestCurrentOpenMeldToolsUpdateMock.mockResolvedValueOnce({
+			operation: {
+				operationId: "update-1",
+				phase: "updating",
+				requestSource: "web",
+				requestedAt: "2026-08-25T10:00:00.000Z",
+				targetVersion: "0.8.0",
+				updatedAt: "2026-08-25T10:00:00.000Z",
+				urgency: "available",
+			},
+			status: "started",
+		});
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Update" }));
+
+		await waitFor(() => {
+			expect(requestCurrentOpenMeldToolsUpdateMock).toHaveBeenCalledTimes(1);
+		});
+		expect(screen.queryByRole("link", { name: "Update" })).toBeNull();
+		expect(toastSuccessMock).toHaveBeenCalledWith("Update started.");
+	});
+
+	it("shows the saved automatic update setting and operation state", async () => {
+		setCurrentOpenMeldToolsMaintenanceMock.mockResolvedValueOnce({
+			automaticUpdatesEnabled: false,
+			status: "updated",
+		});
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					updateOperation: {
+						operationId: "update-1",
+						phase: "waiting_for_work",
+						requestSource: "automatic",
+						requestedAt: "2026-08-25T10:00:00.000Z",
+						targetVersion: "0.8.0",
+						updatedAt: "2026-08-25T10:00:00.000Z",
+						urgency: "available",
+					},
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		const toggle = screen.getByRole("switch", {
+			name: "Keep OpenMeld Tools up to date",
+		});
+		expect(toggle.getAttribute("aria-checked")).toBe("true");
+		expect(screen.getByText("Waiting for work to finish")).toBeTruthy();
+		fireEvent.click(toggle);
+
+		await waitFor(() => {
+			expect(setCurrentOpenMeldToolsMaintenanceMock).toHaveBeenCalledWith({
+				automaticUpdatesEnabled: false,
+			});
+		});
 	});
 
 	it("uses one OpenMeld Tools command action for a CLI-only update", () => {
@@ -615,9 +711,11 @@ describe("OpenMeldServiceCard", () => {
 
 function buildCurrentLocalRuntimeReplyReadiness(input?: {
 	cli?: CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["cli"];
+	maintenance?: CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["maintenance"];
 	runtimeLane?: "prod" | "dev-local" | "canary";
 	service?: CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["service"];
 	skills?: CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["skills"];
+	updateOperation?: CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"];
 }): CurrentLocalRuntimeReplyReadinessResponse {
 	const runtimeLane = input?.runtimeLane ?? "dev-local";
 	return {
@@ -634,6 +732,10 @@ function buildCurrentLocalRuntimeReplyReadiness(input?: {
 			generatedAt: "2026-07-01T00:00:00.000Z",
 			humanSetupCommand: "npm install -g openmeld@latest && openmeld setup",
 			schemaVersion: 1,
+			...(input?.maintenance ? { maintenance: input.maintenance } : {}),
+			...(input?.updateOperation
+				? { updateOperation: input.updateOperation }
+				: {}),
 			cli: input?.cli ?? {
 				commandContractVersion:
 					"openmeld-cli-command-contract-2026-05-local-components-v1",
