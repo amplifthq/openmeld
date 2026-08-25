@@ -1035,9 +1035,15 @@ Catalog consumption rules:
   inside that child and must return an explicit authentication failure instead
   of opening a macOS authorization window. Normal setup and login writes remain
   silent; if macOS requires interaction, setup uses the documented private-file
-  fallback. If Security.framework returns an error or never returns, the parent
-  terminates that child and does not query Keychain again during the same CLI or
-  Service process. Setup may then keep the current
+  fallback. If Security.framework never returns, the parent terminates that
+  child, caches the timeout, and does not query Keychain again during the same
+  CLI or Service process. A command authentication check may re-evaluate the
+  CLI-owned session once after `session_token_unavailable`; the cached timeout
+  makes that re-evaluation fail immediately without another Keychain query,
+  while another one-off helper failure may recover through the single bounded
+  retry. A persistent unavailable result remains distinct from an invalid,
+  expired, or revoked session and keeps its reason in Agent View. Setup may
+  then keep the current
   session in a mode-`0600` file inside a mode-`0700` OpenMeld directory and must
   expose the downgrade as a warning. Access tokens are sent to the helper over
   stdin, never argv. The Service may consume that same CLI-owned session; it

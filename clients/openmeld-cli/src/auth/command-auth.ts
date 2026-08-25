@@ -1,4 +1,5 @@
 import { cancel, isCancel, select } from "@clack/prompts";
+import { sanitizeDispatchErrorSummary } from "@openmeld/schemas";
 import {
   getCurrentCommandCheckState,
   isCurrentCommandCheckScopeActive,
@@ -6,6 +7,8 @@ import {
 import { runAuthLogin } from "../commands/auth";
 import { deriveAuthBaseUrlFromGatewayUrl } from "../config/auth-request-compatibility";
 import {
+  type AuthSessionStateReasonCode,
+  type AuthSessionStateResult,
   getAuthSessionState,
   type StoredAuthSession,
 } from "../config/auth-session";
@@ -31,6 +34,7 @@ export type CommandAuthenticationStatus =
   | "expired"
   | "revoked"
   | "mismatch"
+  | "unavailable"
   | "unknown";
 
 export type EvaluatedCommandAuthentication = {
@@ -38,14 +42,19 @@ export type EvaluatedCommandAuthentication = {
   session: StoredAuthSession | null;
   email: string | null;
   authBaseUrl: string | null;
+  reasonCode: AuthSessionStateReasonCode | null;
+  errorMessage: string | null;
 };
 
 export async function evaluateCommandAuthentication(input?: {
   gatewayUrl?: string;
 }): Promise<EvaluatedCommandAuthentication> {
-  const authState = await getAuthSessionState({
-    validateRemote: true,
-  }).catch(() => null);
+  let authState = await readCommandAuthState();
+  if (authState?.reasonCode === "session_token_unavailable") {
+    // This recovers one-off token-store failures. A timed-out macOS Keychain
+    // helper is cached by its owner, so this re-read never launches it twice.
+    authState = (await readCommandAuthState()) ?? authState;
+  }
   const session = authState?.session ?? null;
   const authBaseUrl = normalizeOptionalString(session?.authBaseUrl);
   const email = normalizeOptionalString(session?.user?.email);
@@ -56,15 +65,15 @@ export async function evaluateCommandAuthentication(input?: {
       canAttachAuthTokenToRequest(session, input.gatewayUrl));
 
   return {
-    status:
-      authState?.state === "valid" &&
-      session !== null &&
-      !isCompatibleWithGateway
-        ? "mismatch"
-        : (authState?.state ?? "unknown"),
+    status: resolveCommandAuthenticationStatus({
+      authState,
+      isCompatibleWithGateway,
+    }),
     session,
     email,
     authBaseUrl,
+    reasonCode: authState?.reasonCode ?? null,
+    errorMessage: sanitizeAuthStateErrorMessage(authState?.errorMessage),
   };
 }
 
@@ -101,6 +110,15 @@ export async function ensureCommandAuthenticationOrCancel(input: {
     authBaseUrl: auth.authBaseUrl,
     gatewayUrl: input.gatewayUrl,
   });
+
+  if (auth.status === "unavailable") {
+    throw createAuthenticationError({
+      reason: guidance.reason,
+      action: guidance.action,
+      authBaseUrl: guidance.authBaseUrl,
+      gatewayUrl: guidance.gatewayUrl,
+    });
+  }
 
   if (input.runtime.resolvedView !== "human" || !canPrompt) {
     throw createAuthenticationError({
@@ -194,15 +212,55 @@ function normalizeOptionalString(value: unknown): string | null {
 
 function resolveAuthReason(
   auth: EvaluatedCommandAuthentication
-): "required" | "expired" | "invalid" | "revoked" {
+): "required" | "expired" | "invalid" | "revoked" | "unavailable" {
   if (
     auth.status === "expired" ||
     auth.status === "invalid" ||
-    auth.status === "revoked"
+    auth.status === "revoked" ||
+    auth.status === "unavailable"
   ) {
     return auth.status;
   }
   return "required";
+}
+
+async function readCommandAuthState(): Promise<AuthSessionStateResult | null> {
+  try {
+    return await getAuthSessionState({
+      validateRemote: true,
+    });
+  } catch (error) {
+    return {
+      state: "invalid",
+      session: null,
+      reasonCode: "session_token_unavailable",
+      errorMessage:
+        sanitizeAuthStateErrorMessage(
+          error instanceof Error ? error.message : error
+        ) ?? "Authentication state could not be read.",
+    };
+  }
+}
+
+function sanitizeAuthStateErrorMessage(value: unknown): string | null {
+  return sanitizeDispatchErrorSummary(normalizeOptionalString(value));
+}
+
+function resolveCommandAuthenticationStatus(input: {
+  authState: AuthSessionStateResult | null;
+  isCompatibleWithGateway: boolean;
+}): CommandAuthenticationStatus {
+  if (
+    input.authState?.state === "valid" &&
+    input.authState.session !== null &&
+    !input.isCompatibleWithGateway
+  ) {
+    return "mismatch";
+  }
+  if (input.authState?.reasonCode === "session_token_unavailable") {
+    return "unavailable";
+  }
+  return input.authState?.state ?? "unknown";
 }
 
 export function buildCommandAuthenticationPromptMessage(

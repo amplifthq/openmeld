@@ -68,6 +68,34 @@ describe("auth guidance", () => {
     });
   });
 
+  it("tells users to retry when saved sign-in is temporarily unreadable", () => {
+    const guidance = resolveAuthenticationGuidance({
+      reason: "unavailable",
+      action: "downloading a Space file",
+    });
+
+    expect(
+      buildHumanAuthenticationCard({
+        guidance,
+        mode: "error",
+      })
+    ).toEqual({
+      title: "OpenMeld Sign-In Unavailable",
+      rows: [
+        {
+          label: "What happened",
+          value:
+            "OpenMeld could not read this device's saved sign-in before downloading a Space file.",
+        },
+        {
+          label: "Next",
+          value:
+            "Retry the same command. If it still fails, run `openmeld auth status --view agent` for diagnostics.",
+        },
+      ],
+    });
+  });
+
   it("builds explicit agent guidance for operators and agents", () => {
     vi.stubEnv("OPENMELD_USER_FACING_CLI_COMMAND", "openmeld-dev");
     const guidance = resolveAuthenticationGuidance({

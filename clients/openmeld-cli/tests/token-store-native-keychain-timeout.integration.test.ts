@@ -65,11 +65,12 @@ describe("macOS native Keychain timeout recovery", () => {
       .mockImplementation(() => undefined);
 
     await withTempHome(async (home) => {
-      const oldSessionRead = readAccessToken({
+      const oldSessionRef = {
         provider: "macos-keychain",
         service: "sh.openmeld.auth.token",
         account: "openmeld-auth-old-session",
-      });
+      } as const;
+      const oldSessionRead = readAccessToken(oldSessionRef);
 
       await vi.advanceTimersByTimeAsync(5000);
 
@@ -80,6 +81,14 @@ describe("macOS native Keychain timeout recovery", () => {
         ),
       });
       expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+
+      await expect(readAccessToken(oldSessionRef)).resolves.toMatchObject({
+        status: "unavailable",
+        errorMessage: expect.stringContaining(
+          "macOS Keychain did not respond within 5 seconds"
+        ),
+      });
+      expect(spawnMock).toHaveBeenCalledTimes(1);
 
       const replacementRef = await storeAccessToken({
         accessToken: "replacement-access-token",

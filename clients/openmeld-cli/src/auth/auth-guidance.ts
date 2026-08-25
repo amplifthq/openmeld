@@ -17,6 +17,7 @@ export type AuthenticationGuidanceReason =
   | "expired"
   | "invalid"
   | "revoked"
+  | "unavailable"
   | "mismatch";
 
 export type AuthenticationGuidance = {
@@ -136,6 +137,24 @@ export function buildHumanAuthenticationCard(input: {
 export function buildAgentAuthenticationGuide(
   guidance: AuthenticationGuidance
 ): DualViewGuideInput {
+  if (guidance.reason === "unavailable") {
+    return {
+      summary: guidance.agentErrorMessage,
+      humanSteps: [
+        "Retry the same command from a fresh CLI process.",
+        ...formatOpenMeldCliCommands([
+          "If it still fails, run `openmeld auth status --view agent` and share the diagnostics with the operator.",
+        ]),
+      ],
+      agentCommands: [
+        "Retry the same command once from a fresh CLI process.",
+        ...formatOpenMeldCliCommands([
+          "If it still fails, run `openmeld auth status --view agent` for diagnostics.",
+        ]),
+      ],
+      notes: buildAgentAuthenticationNotes(guidance),
+    };
+  }
   return {
     summary: guidance.agentErrorMessage,
     humanSteps: buildAgentAuthenticationHumanSteps(guidance),
@@ -163,6 +182,8 @@ export function buildAuthenticationStatusLabel(
       return "sign in removed";
     case "mismatch":
       return "wrong OpenMeld environment";
+    case "unavailable":
+      return "saved sign-in unavailable";
     default:
       return "sign in needed";
   }
@@ -242,6 +263,11 @@ export function resolveAuthenticationGuidanceFromMessage(
       reason: "revoked",
     });
   }
+  if (loweredMessage.includes("saved sign-in is temporarily unavailable")) {
+    return resolveAuthenticationGuidance({
+      reason: "unavailable",
+    });
+  }
   if (
     loweredMessage.includes("authentication required") ||
     loweredMessage.includes("auth.unauthenticated") ||
@@ -274,6 +300,24 @@ function resolveRequiredAuthenticationGuidance(
   "reason" | "action" | "authBaseUrl" | "gatewayUrl"
 > {
   switch (reason) {
+    case "unavailable":
+      return {
+        title: "OpenMeld Sign-In Unavailable",
+        statusLabel: "saved sign-in unavailable",
+        summary: "OpenMeld could not read this device's saved sign-in.",
+        promptNextStep: formatInlineOpenMeldCliCommands(
+          "Retry the same command. If it still fails, run `openmeld auth status --view agent` for diagnostics."
+        ),
+        errorNextStep: formatInlineOpenMeldCliCommands(
+          "Retry the same command. If it still fails, run `openmeld auth status --view agent` for diagnostics."
+        ),
+        commandErrorMessage: formatInlineOpenMeldCliCommands(
+          "saved sign-in is temporarily unavailable; retry the same command; if it still fails, run `openmeld auth status --view agent` for diagnostics"
+        ),
+        agentErrorMessage: formatInlineOpenMeldCliCommands(
+          "saved sign-in is temporarily unavailable; retry the same command; if it still fails, run `openmeld auth status --view agent` for diagnostics"
+        ),
+      };
     case "expired":
       return {
         title: "Sign In Needed",
@@ -365,6 +409,9 @@ function buildHumanAuthenticationStatusText(
     : " to continue";
   if (guidance.reason === "mismatch") {
     return `Sign in to the right OpenMeld environment${actionText}.`;
+  }
+  if (guidance.reason === "unavailable") {
+    return `OpenMeld could not read this device's saved sign-in${actionText}.`;
   }
   if (
     guidance.reason === "expired" ||

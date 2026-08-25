@@ -826,6 +826,13 @@ active Agent Profile; CLI does not turn local filesystem access or a Space
 password into Space membership. File writes use the same revision fence as Web
 and Center Agent tools and never auto-overwrite a conflict.
 
+Before a Space File command starts, one `session_token_unavailable` credential
+read is reread once. A recovered reread continues without login guidance. A
+persistent failure preserves the sanitized token-store reason in Agent View and
+uses `auth.session_token_unavailable` plus the sanitized cause in the existing
+strict `--json` error shape; it never turns an unavailable Keychain read into a
+missing-session or login-required diagnosis.
+
 `openmeld space send <space-id> [text...] --file <path>` and the top-level
 `openmeld send --space <space-id>` alias accept repeatable local paths and may
 send files with or without message text. `--text-file <path>` is the distinct
@@ -968,6 +975,15 @@ writes remain silent. If macOS requires interaction to save a replacement,
 setup uses the documented private-file fallback instead. After one timeout,
 that CLI process does not retry Keychain; a new process may try again. Access
 tokens cross that private child boundary through stdin, never argv. A later
+command authentication check may re-read the CLI-owned session once when the
+first result is `session_token_unavailable`. A cached Keychain timeout makes
+that re-read fail immediately without launching another Keychain child; other
+one-off helper failures may recover through the single bounded retry. If the
+session is still unavailable, the command fails closed, preserves
+`session_token_unavailable` in Agent View, and tells the caller to retry from a
+fresh CLI process or inspect `openmeld auth status --view agent`. It must not
+misreport that unavailable state as an invalid sign-in or require a new login
+without that evidence. A later
 login through a packaged CLI stores its newly issued replacement in Keychain
 only when that Keychain write succeeds, then removes the previous private file.
 A failed old credential deletion is retained as pending cleanup outside the
