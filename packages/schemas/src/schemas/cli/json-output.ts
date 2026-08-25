@@ -98,6 +98,12 @@ export const cliJsonErrorEnvelopeSchema = z.strictObject({
     code: z.string(),
     message: z.string(),
     requestId: z.string().optional(),
+    details: z
+      .strictObject({
+        reasonCode: z.string().trim().min(1).max(256),
+        errorMessage: z.string().trim().min(1).max(2048).optional(),
+      })
+      .optional(),
   }),
 });
 

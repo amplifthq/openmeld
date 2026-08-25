@@ -80,6 +80,23 @@ describe("command authentication", () => {
     expect(getAuthSessionStateMock).toHaveBeenCalledTimes(2);
   });
 
+  it("preserves an unexpected credential-read exception as unavailable", async () => {
+    getAuthSessionStateMock.mockRejectedValue(
+      new Error(
+        "macOS Keychain helper crashed before returning a result; access_token=not-a-real-secret"
+      )
+    );
+
+    await expect(evaluateCommandAuthentication()).resolves.toMatchObject({
+      status: "unavailable",
+      session: null,
+      reasonCode: "session_token_unavailable",
+      errorMessage:
+        "macOS Keychain helper crashed before returning a result; access_token=[redacted]",
+    });
+    expect(getAuthSessionStateMock).toHaveBeenCalledTimes(2);
+  });
+
   it("does not retry a genuinely invalid local session", async () => {
     getAuthSessionStateMock.mockResolvedValue({
       state: "invalid",

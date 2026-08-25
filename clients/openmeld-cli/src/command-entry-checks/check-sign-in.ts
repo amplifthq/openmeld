@@ -71,6 +71,7 @@ export async function runSignInCheck(input: {
       guidance,
       blocking: false,
       authStateReasonCode: evaluated.reasonCode,
+      authStateErrorMessage: evaluated.errorMessage,
     });
     return {
       status: "continue",
@@ -110,6 +111,16 @@ async function runRequiredSignInCheck(input: {
     return buildBlockedEntryCheckResult({
       code: ENTRY_CHECK_BLOCKED_ERROR_CODES.signIn,
       message: input.guidance.agentErrorMessage,
+      ...(input.evaluated.reasonCode
+        ? {
+            details: {
+              reasonCode: input.evaluated.reasonCode,
+              ...(input.evaluated.errorMessage
+                ? { errorMessage: input.evaluated.errorMessage }
+                : {}),
+            },
+          }
+        : {}),
     });
   }
   if (
@@ -121,6 +132,7 @@ async function runRequiredSignInCheck(input: {
       guidance: input.guidance,
       blocking: true,
       authStateReasonCode: input.evaluated.reasonCode,
+      authStateErrorMessage: input.evaluated.errorMessage,
     });
     return {
       status: "blocked",
@@ -166,6 +178,7 @@ async function runOptionalSignInCheck(input: {
       guidance: input.guidance,
       blocking: false,
       authStateReasonCode: input.evaluated.reasonCode,
+      authStateErrorMessage: input.evaluated.errorMessage,
     });
     return {
       status: "continue",
@@ -273,6 +286,7 @@ async function runOptionalSignInLogin(input: {
     }),
     blocking: false,
     authStateReasonCode: afterLogin.reasonCode,
+    authStateErrorMessage: afterLogin.errorMessage,
   });
   return {
     status: "continue",
@@ -334,6 +348,9 @@ function emitSignInStatus(input: {
   authStateReasonCode?: Awaited<
     ReturnType<typeof evaluateCommandAuthentication>
   >["reasonCode"];
+  authStateErrorMessage?: Awaited<
+    ReturnType<typeof evaluateCommandAuthentication>
+  >["errorMessage"];
 }): void {
   if (input.context.runtime.resolvedView === "human") {
     const card = buildHumanAuthenticationCard({
@@ -376,6 +393,9 @@ function emitSignInStatus(input: {
         action: input.guidance.action,
         ...(input.authStateReasonCode
           ? { authStateReasonCode: input.authStateReasonCode }
+          : {}),
+        ...(input.authStateErrorMessage
+          ? { authStateErrorMessage: input.authStateErrorMessage }
           : {}),
         ...(input.guidance.authBaseUrl
           ? { authBaseUrl: input.guidance.authBaseUrl }

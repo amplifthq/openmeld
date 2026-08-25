@@ -1,4 +1,5 @@
 import { cancel, isCancel, select } from "@clack/prompts";
+import { sanitizeDispatchErrorSummary } from "@openmeld/schemas";
 import {
   getCurrentCommandCheckState,
   isCurrentCommandCheckScopeActive,
@@ -72,7 +73,7 @@ export async function evaluateCommandAuthentication(input?: {
     email,
     authBaseUrl,
     reasonCode: authState?.reasonCode ?? null,
-    errorMessage: normalizeOptionalString(authState?.errorMessage),
+    errorMessage: sanitizeAuthStateErrorMessage(authState?.errorMessage),
   };
 }
 
@@ -224,9 +225,25 @@ function resolveAuthReason(
 }
 
 async function readCommandAuthState(): Promise<AuthSessionStateResult | null> {
-  return await getAuthSessionState({
-    validateRemote: true,
-  }).catch(() => null);
+  try {
+    return await getAuthSessionState({
+      validateRemote: true,
+    });
+  } catch (error) {
+    return {
+      state: "invalid",
+      session: null,
+      reasonCode: "session_token_unavailable",
+      errorMessage:
+        sanitizeAuthStateErrorMessage(
+          error instanceof Error ? error.message : error
+        ) ?? "Authentication state could not be read.",
+    };
+  }
+}
+
+function sanitizeAuthStateErrorMessage(value: unknown): string | null {
+  return sanitizeDispatchErrorSummary(normalizeOptionalString(value));
 }
 
 function resolveCommandAuthenticationStatus(input: {

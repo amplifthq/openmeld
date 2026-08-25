@@ -100,6 +100,38 @@ describe("entry-check blocked json", () => {
     });
   });
 
+  it("forwards structured diagnostic details into the envelope", async () => {
+    const { stdout } = await withCapturedStdio(() =>
+      Promise.resolve(
+        applyEntryCheckResult({
+          result: buildBlockedEntryCheckResult({
+            code: ENTRY_CHECK_BLOCKED_ERROR_CODES.signIn,
+            message: "Saved sign-in is temporarily unavailable.",
+            details: {
+              reasonCode: "session_token_unavailable",
+              errorMessage: "macOS Keychain helper timed out after 5000ms",
+            },
+          }),
+          jsonOutput: true,
+        })
+      )
+    );
+
+    const lines = parseStdoutLines(stdout);
+    expect(lines[0]).toEqual({
+      schemaVersion: 1,
+      type: "error",
+      error: {
+        code: "auth.authentication_required",
+        message: "Saved sign-in is temporarily unavailable.",
+        details: {
+          reasonCode: "session_token_unavailable",
+          errorMessage: "macOS Keychain helper timed out after 5000ms",
+        },
+      },
+    });
+  });
+
   it("does not emit an envelope when blocked outside --json", async () => {
     const { stdout, result } = await withCapturedStdio(() =>
       Promise.resolve(

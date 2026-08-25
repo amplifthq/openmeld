@@ -7,26 +7,24 @@ import { emitCliJsonEnvelope } from "./cli-json-output";
  */
 export type CliErrorJsonEnvelope = CliJsonErrorEnvelope;
 
-export function buildCliErrorJsonEnvelope(input: {
-  code: string;
-  message: string;
+type CliErrorJsonInput = Omit<CliJsonErrorEnvelope["error"], "requestId"> & {
   requestId?: string | null;
-}): CliErrorJsonEnvelope {
+};
+
+export function buildCliErrorJsonEnvelope(
+  input: CliErrorJsonInput
+): CliErrorJsonEnvelope {
+  const { requestId, ...error } = input;
   return {
     schemaVersion: 1,
     type: "error",
     error: {
-      code: input.code,
-      message: input.message,
-      ...(input.requestId ? { requestId: input.requestId } : {}),
+      ...error,
+      ...(requestId ? { requestId } : {}),
     },
   };
 }
 
-export function emitCliErrorJson(input: {
-  code: string;
-  message: string;
-  requestId?: string | null;
-}): void {
+export function emitCliErrorJson(input: CliErrorJsonInput): void {
   emitCliJsonEnvelope(buildCliErrorJsonEnvelope(input));
 }

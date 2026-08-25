@@ -64,8 +64,81 @@ describe("sign-in command entry check", () => {
           guidanceReason: "unavailable",
           action: "downloading a Space file",
           authStateReasonCode: "session_token_unavailable",
+          authStateErrorMessage: "macOS Keychain helper could not start",
         }),
       }),
+    });
+  });
+
+  it("continues a Space file download when the bounded credential reread recovers", async () => {
+    getAuthSessionStateMock
+      .mockResolvedValueOnce({
+        state: "invalid",
+        session: null,
+        reasonCode: "session_token_unavailable",
+        errorMessage: "macOS Keychain helper could not start",
+      })
+      .mockResolvedValueOnce({
+        state: "valid",
+        session: {
+          v: 1,
+          accessToken: "token-123",
+          tokenType: "Bearer",
+          authBaseUrl: "https://auth.testing.example",
+          clientId: "openmeld-cli",
+          createdAt: "2026-08-25T00:00:00.000Z",
+          user: {
+            id: "user-1",
+            email: "felix@example.com",
+          },
+        },
+      });
+    const data = vi.fn();
+
+    const result = await runSignInCheck({
+      context: createAgentContext(data),
+      requirement: {
+        mode: "required",
+        stage: "before-entry",
+      },
+    });
+
+    expect(result).toEqual({ status: "continue" });
+    expect(getAuthSessionStateMock).toHaveBeenCalledTimes(2);
+    expect(data).not.toHaveBeenCalled();
+  });
+
+  it("keeps the credential-read cause structured under --json", async () => {
+    getAuthSessionStateMock.mockResolvedValue({
+      state: "invalid",
+      session: null,
+      reasonCode: "session_token_unavailable",
+      errorMessage: "macOS Keychain helper timed out after 5000ms",
+    });
+    const context = createAgentContext(vi.fn());
+    context.jsonOutput = true;
+
+    const result = await runSignInCheck({
+      context,
+      requirement: {
+        mode: "required",
+        stage: "before-entry",
+      },
+    });
+
+    expect(result).toEqual({
+      status: "blocked",
+      exitCode: 1,
+      jsonError: {
+        code: "auth.authentication_required",
+        message: expect.stringContaining(
+          "saved sign-in is temporarily unavailable"
+        ),
+        details: {
+          reasonCode: "session_token_unavailable",
+          errorMessage: "macOS Keychain helper timed out after 5000ms",
+        },
+      },
     });
   });
 });

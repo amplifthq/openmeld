@@ -1,3 +1,4 @@
+import type { CliJsonErrorEnvelope } from "@openmeld/schemas";
 import type { OpenMeldEnvironmentTarget } from "../config/openmeld-environment-target";
 import type { OpenMeldProfile } from "../config/openmeld-profiles-api";
 import type { Presenter } from "../runtime/presenter";
@@ -188,11 +189,7 @@ export type CommandEntryName =
   | "profile.requests.preferences.get"
   | "profile.requests.preferences.set";
 
-export type CommandEntryJsonError = {
-  code: string;
-  message: string;
-  requestId?: string;
-};
+export type CommandEntryJsonError = CliJsonErrorEnvelope["error"];
 
 export type CommandEntryResult =
   | { status: "continue" }

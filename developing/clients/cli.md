@@ -826,6 +826,12 @@ active Agent Profile; CLI does not turn local filesystem access or a Space
 password into Space membership. File writes use the same revision fence as Web
 and Center Agent tools and never auto-overwrite a conflict.
 
+Before a Space File command starts, one `session_token_unavailable` credential
+read is reread once. A recovered reread continues without login guidance. A
+persistent failure preserves the sanitized token-store reason in Agent View and
+in the strict `--json` error `details`; it never turns an unavailable Keychain
+read into a missing-session or login-required diagnosis.
+
 `openmeld space send <space-id> [text...] --file <path>` and the top-level
 `openmeld send --space <space-id>` alias accept repeatable local paths and may
 send files with or without message text. `--text-file <path>` is the distinct
