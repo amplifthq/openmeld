@@ -90,6 +90,14 @@ cannot use. If CLI cannot read the current executable, it reports the preserved
 filesystem error before using the complete archive; an ordinary readable-byte
 mismatch selects the archive without presenting an error.
 
+The published background Service reuses this same verified `openmeld upgrade`
+path for automatic OpenMeld Tools updates. It does not implement a second
+downloader or installer. The automatic request records durable local progress,
+uses the CLI installation that created the active Service bundle, and hands the
+same operation to the background Service switch. An explicit update and an
+automatic update therefore have the same installation, verification, rollback,
+and status behavior.
+
 `openmeld skills` is the canonical Organization Skills command group. Phase 1
 provides `list`, `show`, and `load` with Human View, Agent View, and strict JSON
 contracts. `load` resolves one enabled exact release from the authenticated

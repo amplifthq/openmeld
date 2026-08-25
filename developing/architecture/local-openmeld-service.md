@@ -1499,6 +1499,18 @@ Schemas and Core before publishing a Service that emits `updateOperation`.
 New Core accepts older Services that omit it; rollback removes the new local
 Service before rolling Core back.
 
+OpenMeld Tools maintenance uses the same operation identity across both stages:
+the running Service first records the CLI download/install attempt, then the
+new CLI hands that operation to the Service update job above. The Service job
+becomes the projection owner as soon as the handoff exists. A computer with no
+saved preference enables automatic OpenMeld Tools updates; an invalid preference
+fails closed and reports maintenance attention. Automatic requests obey that
+preference, while an explicit user request still runs when automation is off.
+The published Service checks the cached release channel on a low-frequency
+schedule, resumes a saved attempt immediately after restart, and never waits for
+the downloader when the Service itself must stop. Dev and canary lanes do not
+check or install the published channel.
+
 For an `available` update, the current Service keeps admitting new Wake work
 while the prepared replacement waits for a safe switch. For a `required`
 update, Core blocks affected new Wake work and the worker enters the controlled
