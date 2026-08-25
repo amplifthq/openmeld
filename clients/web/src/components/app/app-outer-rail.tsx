@@ -87,7 +87,6 @@ import {
 	buildOrganizationAccountSettingsPath,
 	buildOrganizationAgentActivityPath,
 	buildOrganizationAgentsPath,
-	buildOrganizationCenterAgentChatPath,
 	buildOrganizationComputersPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationDocumentsPath,
@@ -172,15 +171,9 @@ function buildAppRailGroups(input: {
 				{
 					id: "home",
 					label: "Home",
+					onIntentPrefetch: input.prefetchCenterAgentConversation,
 					to: buildOrganizationRootPath(input.orgSlug),
 					icon: <HouseIcon aria-hidden="true" className="size-4" />,
-				},
-				{
-					id: "centerAgent",
-					label: "Center Agent",
-					onIntentPrefetch: input.prefetchCenterAgentConversation,
-					to: buildOrganizationCenterAgentChatPath(input.orgSlug),
-					icon: <RobotIcon aria-hidden="true" className="size-4" />,
 					unreadCount: input.centerAgentUnreadCount,
 				},
 			],
@@ -1253,7 +1246,7 @@ function buildAppRailAccessibleLabel(input: {
 function resolveAppRailUnreadIndicatorKind(
 	destinationId: AppOuterRailDestination
 ): AppRailStatusIndicatorKind | null {
-	if (destinationId === "centerAgent") {
+	if (destinationId === "home") {
 		return "center-agent-unread";
 	}
 	if (destinationId === "spaces") {
@@ -1266,7 +1259,7 @@ function resolveAppRailUnreadCopy(input: {
 	count: number;
 	destinationId: AppOuterRailDestination;
 }): string {
-	if (input.destinationId === "centerAgent") {
+	if (input.destinationId === "home") {
 		return input.count === 1 ? "reply" : "replies";
 	}
 	return input.count === 1 ? "message" : "messages";

@@ -247,7 +247,7 @@ export function buildOrganizationCenterAgentChatPath(
 		view?: "files" | "graph" | "messages";
 	}
 ): string {
-	const path = `${buildOrganizationCenterAgentRootPath(orgSlug)}/chat`;
+	const path = buildOrganizationDefaultPath(orgSlug);
 	if (!(search?.focusSignalId || search?.view)) {
 		return path;
 	}
