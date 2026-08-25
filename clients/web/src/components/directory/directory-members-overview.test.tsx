@@ -68,7 +68,12 @@ vi.mock("@tanstack/react-router", () => ({
 		to: string;
 		[key: string]: unknown;
 	}) => (
-		<a {...props} className={className} href={to}>
+		<a
+			{...props}
+			className={className}
+			href={to}
+			onClick={(event) => event.preventDefault()}
+		>
 			{children}
 		</a>
 	),
@@ -1341,6 +1346,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(connectSlackLink.getAttribute("href")).toBe(
 			"/slack/identity/start?organization_slug=acme"
 		);
+		expect(clickWasInterceptedByClientRouter(connectSlackLink)).toBe(false);
 		expect(
 			within(teammateCard).queryByRole("link", { name: "Connect Slack" })
 		).toBeNull();
@@ -1352,6 +1358,21 @@ describe("DirectoryMembersOverview", () => {
 		expect(within(currentCard).queryByText("Connect Slack")).toBeNull();
 		expect(within(currentCard).queryByText("@grace")).toBeNull();
 		expect(screen.queryByRole("dialog", { name: "Profile" })).toBeNull();
+
+		fireEvent.click(
+			within(currentCard).getByRole("button", {
+				name: "Open Felix's profile",
+			})
+		);
+		const profileDrawer = await screen.findByRole("dialog", {
+			name: "Profile",
+		});
+		const drawerConnectSlackLink = within(profileDrawer).getByRole("link", {
+			name: "Connect Slack",
+		});
+		expect(clickWasInterceptedByClientRouter(drawerConnectSlackLink)).toBe(
+			false
+		);
 	});
 
 	it("keeps a cached Channel visible but unavailable after its refresh fails", async () => {
@@ -2109,6 +2130,20 @@ function renderOverview(
 			/>
 		</TestQueryClientProvider>
 	);
+}
+
+function clickWasInterceptedByClientRouter(element: HTMLElement): boolean {
+	let defaultPreventedBeforeDocumentNavigation: boolean | null = null;
+	const observeDocumentNavigation = (event: MouseEvent) => {
+		defaultPreventedBeforeDocumentNavigation = event.defaultPrevented;
+		event.preventDefault();
+	};
+	document.addEventListener("click", observeDocumentNavigation, { once: true });
+	fireEvent.click(element);
+	if (defaultPreventedBeforeDocumentNavigation === null) {
+		throw new Error("Expected the click event to reach the document boundary.");
+	}
+	return defaultPreventedBeforeDocumentNavigation;
 }
 
 function buildDirectoryAgentProfile(input: {
