@@ -106,6 +106,7 @@ export type {
   AgentProfileBindingSessionInventorySelection,
   AgentProfileBindingState,
   AgentProfileCreationDefaults,
+  AgentProfileCreationPreferenceSelection,
   AgentProfileOrganizationWakeAccessEntry,
   AuthorizeAgentProfileBindingForOrganizationResponse,
   BulkAuthorizeAgentProfileBindingsForOrganizationBody,

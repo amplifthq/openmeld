@@ -298,6 +298,8 @@ describe("Center Agent product operations", () => {
       calls.push("check_agent_profile_readiness");
       return Promise.resolve(readiness);
     });
+    const rememberAgentProfileCreationDefaults = vi.fn(() => Promise.resolve());
+    const setAgentProfileDefaultProject = vi.fn(() => Promise.resolve());
     const deps: CenterAgentProductOperationDeps = {
       addAgentProfileToSpace,
       authorizeAgentProfileForOrganization: vi.fn(() => Promise.resolve()),
@@ -313,6 +315,8 @@ describe("Center Agent product operations", () => {
           organizationId: ORGANIZATION_ID,
         })
       ),
+      rememberAgentProfileCreationDefaults,
+      setAgentProfileDefaultProject,
       setAgentProfileWorkspace: vi.fn(() => Promise.resolve(workspace)),
       updateAgentControllerCollaborationMode: vi.fn(),
       updateAgentControllerPermissionMode: vi.fn(),
@@ -324,10 +328,32 @@ describe("Center Agent product operations", () => {
       deps,
       request: {
         candidateId: candidate.candidateId,
+        configuration: {
+          agentControllerCollaborationMode: "codex:plan",
+          agentControllerPermissionMode: "codex:approveForMe",
+          defaultProjectId: "project-1",
+          modelId: "gpt-5.6-sol",
+          openCodePermission: null,
+          reasoningLevel: "high",
+        },
         profileName: "Codex Agent",
         spaceId: SPACE_ID,
-        workspaceMode: "custom",
-        workspacePath: "/Users/felix/work/openmeld",
+      },
+    });
+
+    expect(setAgentProfileDefaultProject).toHaveBeenCalledWith({
+      agentProfileId: AGENT_PROFILE_ID,
+      defaultProjectId: "project-1",
+    });
+    expect(rememberAgentProfileCreationDefaults).toHaveBeenCalledWith({
+      agentControllerRef: candidate.agentControllerRef,
+      configuration: {
+        agentControllerCollaborationMode: "codex:plan",
+        agentControllerPermissionMode: "codex:approveForMe",
+        defaultProjectId: "project-1",
+        modelId: "gpt-5.6-sol",
+        openCodePermission: null,
+        reasoningLevel: "high",
       },
     });
 
@@ -354,7 +380,6 @@ describe("Center Agent product operations", () => {
       },
       spaceId: SPACE_ID,
       status: "blocked",
-      workspace,
     });
     expect(
       response.readiness?.blockers.map(({ reasonCode }) => reasonCode)
@@ -376,7 +401,7 @@ describe("Center Agent product operations", () => {
         name: "authorize_agent_profile_for_organization",
         status: "completed",
       },
-      { name: "update_agent_profile_workspace", status: "completed" },
+      { name: "update_agent_profile_runtime_settings", status: "completed" },
       { name: "add_agent_profile_to_space", status: "completed" },
       { name: "check_agent_profile_readiness", status: "completed" },
     ]);

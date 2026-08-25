@@ -4574,6 +4574,14 @@ profileCmd
     formatAgentControllerPermissionModeHelp()
   )
   .option(
+    "--agent-controller-collaboration-mode <mode>",
+    "Collaboration mode for this Agent Controller, such as codex:default or codex:plan"
+  )
+  .option(
+    "--open-code-permission <json>",
+    "OpenCode permission configuration as a JSON object"
+  )
+  .option(
     "--confirm-dangerous-agent-controller-permission-mode",
     "Confirm a dangerous Agent Controller Permission Mode without prompting",
     false
@@ -4634,7 +4642,16 @@ profileCmd
       routeTokens: ["profile", "create"],
       view,
       run: async () => {
-        if (typeof opts.owner === "string") {
+        const usesCreationRequest =
+          typeof opts.owner === "string" ||
+          typeof opts.computer === "string" ||
+          typeof opts.project === "string" ||
+          typeof opts.space === "string" ||
+          typeof opts.organization === "string" ||
+          typeof opts.agentControllerCollaborationMode === "string" ||
+          typeof opts.openCodePermission === "string" ||
+          opts.organizationWakeAccess === false;
+        if (usesCreationRequest) {
           if (
             typeof opts.kind === "string" &&
             opts.kind.trim().toLowerCase() !== "agent"
@@ -4645,6 +4662,8 @@ profileCmd
           }
           await runProfileCreationRequestCreate({
             agentController: opts.agentController,
+            agentControllerCollaborationMode:
+              opts.agentControllerCollaborationMode,
             agentControllerPermissionModeInput:
               opts.agentControllerPermissionMode,
             authorizeForOrganization: opts.organizationWakeAccess,
@@ -4654,6 +4673,7 @@ profileCmd
             defaultProjectId: opts.project,
             idempotencyKey: opts.requestKey,
             modelId: opts.model,
+            openCodePermissionInput: opts.openCodePermission,
             nativeSessionId: opts.nativeSession,
             organization: opts.organization,
             profileName: targetName,
@@ -4662,7 +4682,7 @@ profileCmd
             sessionStrategy: opts.session,
             source: opts.source,
             targetComputerId: opts.computer,
-            targetOwner: opts.owner,
+            targetOwner: typeof opts.owner === "string" ? opts.owner : "self",
             view,
           });
           return;

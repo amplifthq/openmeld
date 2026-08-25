@@ -26,6 +26,7 @@ import type {
   SetAgentProfileCreationApprovalPreferenceResponse,
 } from "@openmeld/schemas/types";
 import { resolveAgentActivitySessionInventoryExecutionSelection } from "../agent-activity/activity-session-inventory-repository";
+import { rememberAgentProfileCreationDefaults } from "../agent-profile-binding/application/agent-profile-creation-defaults-service";
 import { projectCenterAgentLocalAgentConnectionCandidates } from "../center-agent/application/product-operations";
 import { resolveCenterAgentAuditAttribution } from "../center-agent/center-agent-audit";
 import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
@@ -576,11 +577,38 @@ async function completeRequestedAgentProfileSetup(input: {
     });
   }
 
-  if (
-    input.request.configuration.agentControllerRef &&
-    input.request.configuration.targetComputerId
-  ) {
+  const agentControllerRef = input.request.configuration.agentControllerRef;
+  const targetComputerId = input.request.configuration.targetComputerId;
+  if (agentControllerRef && targetComputerId) {
     await connectRequestedAgentProfile(input);
+    const configuration = input.request.configuration;
+    await rememberAgentProfileCreationDefaults({
+      agentControllerRef,
+      db: requireDb(input.env),
+      nowMs: Date.now(),
+      organizationId: input.request.organizationId,
+      selection: {
+        agentControllerCollaborationMode:
+          configuration.agentControllerCollaborationMode,
+        agentControllerPermissionMode:
+          configuration.agentControllerPermissionMode,
+        defaultProjectId: configuration.defaultProjectId,
+        modelId: configuration.modelId,
+        openCodePermission: configuration.openCodePermission,
+        reasoningLevel: configuration.reasoningLevel,
+      },
+      userId: input.request.targetOwnerUserId,
+    }).catch((error) => {
+      console.error(
+        "[core.agent_profile_creation_request.defaults_write_failed]",
+        {
+          error: error instanceof Error ? error.message : String(error),
+          organizationId: input.request.organizationId,
+          requestId: input.request.id,
+          targetOwnerUserId: input.request.targetOwnerUserId,
+        }
+      );
+    });
   }
 }
 
@@ -679,6 +707,12 @@ async function connectRequestedAgentProfile(input: {
     lane: candidate.runtimeLane,
     openMeldServiceRuntimeId: candidate.openMeldServiceRuntimeId,
     writeMode: "reconnect",
+    ...(configuration.agentControllerCollaborationMode
+      ? {
+          agentControllerCollaborationMode:
+            configuration.agentControllerCollaborationMode,
+        }
+      : {}),
     ...(configuration.agentControllerPermissionMode
       ? {
           agentControllerPermissionMode:

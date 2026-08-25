@@ -30,6 +30,8 @@ type AgentProfileBindingSessionInventorySelectionSchema =
   typeof import("../../schemas/http/agent-profile-binding")["agentProfileBindingSessionInventorySelectionSchema"];
 type AgentProfileCreationDefaultsSchema =
   typeof import("../../schemas/http/agent-profile-binding")["agentProfileCreationDefaultsSchema"];
+type AgentProfileCreationPreferenceSelectionSchema =
+  typeof import("../../schemas/http/agent-profile-binding")["agentProfileCreationPreferenceSelectionSchema"];
 type GetAgentProfileCreationDefaultsResponseSchema =
   typeof import("../../schemas/http/agent-profile-binding")["getAgentProfileCreationDefaultsResponseSchema"];
 type SetAgentProfileCreationDefaultsBodySchema =
@@ -126,6 +128,8 @@ export type AgentProfileBindingWriteMode =
   z.infer<AgentProfileBindingWriteModeSchema>;
 export type AgentProfileCreationDefaults =
   z.infer<AgentProfileCreationDefaultsSchema>;
+export type AgentProfileCreationPreferenceSelection =
+  z.infer<AgentProfileCreationPreferenceSelectionSchema>;
 export type GetAgentProfileCreationDefaultsResponse =
   z.infer<GetAgentProfileCreationDefaultsResponseSchema>;
 export type SetAgentProfileCreationDefaultsBody =

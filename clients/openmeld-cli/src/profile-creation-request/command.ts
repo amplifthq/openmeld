@@ -28,12 +28,14 @@ import {
 export type ProfileCreationRequestCreateInput =
   ProfileCreationRequestCommonCommandInput & {
     agentController?: string;
+    agentControllerCollaborationMode?: string;
     agentControllerPermissionModeInput?: string;
     authorizeForOrganization?: boolean;
     confirmDangerousAgentControllerPermissionMode?: boolean;
     defaultProjectId?: string;
     idempotencyKey?: string;
     modelId?: string;
+    openCodePermissionInput?: string;
     nativeSessionId?: string;
     profileName?: string;
     reasoningLevel?: string;
@@ -109,15 +111,32 @@ async function resolveRequestConfiguration(
   });
   return agentProfileCreationConfigurationSchema.parse({
     ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+    agentControllerCollaborationMode:
+      normalizeOptionalText(input.agentControllerCollaborationMode) ?? null,
     agentControllerPermissionMode:
       permissionMode.agentControllerPermissionMode ?? null,
     agentControllerRef: agentControllerRef ?? null,
     authorizeForOrganization: input.authorizeForOrganization !== false,
     defaultProjectId: normalizeOptionalText(input.defaultProjectId) ?? null,
     modelId: normalizeOptionalText(input.modelId) ?? null,
+    openCodePermission: parseOpenCodePermissionInput(
+      input.openCodePermissionInput
+    ),
     reasoningLevel: normalizeOptionalText(input.reasoningLevel) ?? null,
     targetComputerId: targetComputerId ?? null,
   });
+}
+
+function parseOpenCodePermissionInput(value: string | undefined): unknown {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) {
+    return null;
+  }
+  try {
+    return JSON.parse(normalized) as unknown;
+  } catch {
+    throw new Error("--open-code-permission must be a valid JSON object.");
+  }
 }
 
 export async function runProfileCreationRequestList(
