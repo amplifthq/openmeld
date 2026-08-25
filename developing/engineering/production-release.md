@@ -349,6 +349,61 @@ expand into raw per-component deploy scripts. The former `deploy:cloud:*` raw
 aliases are retired because they bypassed source validation, preflight, ordered
 health checks, and the planner's mixed-version contract.
 
+## Core Worker Startup Admission
+
+Cloudflare requires a Worker to parse and run its global scope within one
+second. A Worker that crosses that fixed limit is rejected with error `10021`
+before it can receive traffic. Raising `limits.cpu_ms` does not change this
+startup limit; that setting applies to request CPU after startup.
+
+Every supported Core release path must therefore use the guarded Core deploy
+entrypoint. This includes the GitHub Core workflow, a local scoped Core release,
+the temporary current-CLI projection used by receiver-first releases, and the
+final Core projection in a CLI release. The guard performs these steps in
+order:
+
+1. Build Core's workspace dependencies from the exact checked-out release SHA.
+2. Upload the production Core source and compile-time definitions as a new
+   Cloudflare Worker Version with zero production traffic.
+3. Read Cloudflare's actual `Worker Startup Time` and the structured
+   `version-upload` result. Missing or malformed evidence fails closed.
+4. Continue only when Cloudflare reports at most `500 ms`. This OpenMeld limit
+   deliberately keeps 50 percent headroom below Cloudflare's hard limit.
+5. Run the ordinary production deploy only after admission passes. The
+   ordinary deploy remains responsible for applying the tracked routes,
+   triggers, bindings, migrations, and other production configuration.
+
+The zero-traffic upload and the ordinary deploy use the same immutable source,
+production environment, minification, and compile-time definitions. They are
+two builds because routing the uploaded version directly would not by itself
+prove that every non-versioned production setting was applied. Do not replace
+the ordinary deploy with an exact-version traffic change until configuration
+parity has a separate reviewed and tested contract.
+
+`pnpm run evidence:startup:core` captures a local CPU profile and summarizes
+active, garbage-collection, and idle time. Use it to locate expensive global
+initialization and compare two revisions on the same machine. It is diagnostic
+evidence only: Cloudflare hardware differs, and the local number must never be
+used as a substitute for the zero-traffic Cloudflare admission result.
+
+The workflow preserves these files for diagnosis:
+
+```text
+dev-tmp/core-bundle-evidence.json
+dev-tmp/core-startup-evidence.json
+dev-tmp/core-startup-admission.json
+dev-tmp/core-startup.cpuprofile
+```
+
+If admission rejects a version, or the later deploy still reports `10021`, do
+not retry the unchanged source hoping for a faster Cloudflare machine. Do not
+raise the `500 ms` OpenMeld limit and do not raise request CPU limits as a
+workaround. Keep the current production version active, use the bundle and CPU
+profile evidence to remove eager global initialization, and rerun admission
+only after a reviewed source change. Cloudflare's current startup and version
+upload contracts are documented in [Worker limits](https://developers.cloudflare.com/workers/platform/limits/)
+and [Gradual deployments](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/gradual-deployments/).
+
 ## GitHub Scoped Release
 
 Use `.github/workflows/release-on-main.yml` (`Scoped Production Release`) for

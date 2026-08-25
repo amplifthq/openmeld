@@ -709,6 +709,10 @@ test("routes stable CLI projection recovery through the guarded Core workflow", 
   assert.ok(
     core.includes("node scripts/release/deploy-core-current-cli-projection.mjs")
   );
+  assert.ok(core.includes("pnpm run evidence:startup:core"));
+  assert.ok(core.includes("deploy-core-worker.mjs"));
+  assert.ok(core.includes("core-startup-evidence-"));
+  assert.ok(core.includes("core-startup-profile-"));
   assert.ok(
     core.includes("inputs.deployment_mode == 'current-stable-cli-projection'")
   );

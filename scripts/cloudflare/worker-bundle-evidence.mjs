@@ -31,23 +31,59 @@ export function parseWranglerUploadMetrics(output) {
 }
 
 export function summarizeMetafileInputs(metafile, forbiddenPatterns = []) {
-  const inputs = Object.entries(metafile.inputs ?? {})
-    .map(([inputPath, value]) => ({
-      bytes: Number(value?.bytes ?? 0),
-      path: inputPath,
+  const sourceInputs = new Map(
+    Object.entries(metafile.inputs ?? {}).map(([inputPath, value]) => [
+      inputPath,
+      Number(value?.bytes ?? 0),
+    ])
+  );
+  const outputCandidates = Object.entries(metafile.outputs ?? {})
+    .map(([outputPath, value]) => ({
+      entryPoint: value?.entryPoint,
+      inputs: value?.inputs ?? {},
+      outputPath,
+      totalBytesInOutput: Object.values(value?.inputs ?? {}).reduce(
+        (total, input) => total + Number(input?.bytesInOutput ?? 0),
+        0
+      ),
     }))
-    .sort((left, right) => right.bytes - left.bytes);
+    .sort((left, right) => right.totalBytesInOutput - left.totalBytesInOutput);
+  const entryOutput =
+    outputCandidates.find((candidate) => candidate.entryPoint) ??
+    outputCandidates[0];
+  if (!entryOutput) {
+    throw new Error("Wrangler metafile did not include a Worker output");
+  }
+  const inputs = Object.entries(entryOutput.inputs)
+    .map(([inputPath, value]) => ({
+      bytesInOutput: Number(value?.bytesInOutput ?? 0),
+      path: inputPath,
+      sourceBytes: sourceInputs.get(inputPath) ?? 0,
+    }))
+    .sort((left, right) => right.bytesInOutput - left.bytesInOutput);
   const forbiddenInputs = forbiddenPatterns.flatMap((pattern) =>
-    inputs
-      .filter((input) => input.path.includes(pattern))
-      .map((input) => ({ ...input, pattern }))
+    [...sourceInputs.entries()]
+      .filter(([inputPath]) => inputPath.includes(pattern))
+      .map(([inputPath, sourceBytes]) => ({
+        bytesInOutput: Number(
+          entryOutput.inputs[inputPath]?.bytesInOutput ?? 0
+        ),
+        path: inputPath,
+        pattern,
+        sourceBytes,
+      }))
   );
 
   return {
     forbiddenInputs,
-    inputCount: inputs.length,
+    inputCount: sourceInputs.size,
     largestInputs: inputs.slice(0, TOP_INPUT_COUNT),
-    sourceBytes: inputs.reduce((total, input) => total + input.bytes, 0),
+    outputInputCount: inputs.length,
+    outputPath: entryOutput.outputPath,
+    sourceBytes: [...sourceInputs.values()].reduce(
+      (total, bytes) => total + bytes,
+      0
+    ),
   };
 }
 
@@ -64,7 +100,7 @@ export function createWorkerBundleEvidence(input) {
     },
     generatedAt: new Date().toISOString(),
     ...inputSummary,
-    schemaVersion: 1,
+    schemaVersion: 2,
     worker: input.worker,
   };
 }

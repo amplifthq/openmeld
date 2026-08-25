@@ -430,7 +430,35 @@ test("deploys the Context Scope Plan receiver before Core and keeps the CLI last
   );
   assert.deepEqual(plan.deploySteps[5]?.args, [
     "scripts/release/deploy-core-current-cli-projection.mjs",
+    "--release-sha",
+    REMOTE_SOURCE_SHA,
   ]);
+});
+
+test("routes a local Core release through startup admission at the exact source SHA", () => {
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths: [],
+    scope: "core",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.deepEqual(plan.deploySteps[0], {
+    args: [
+      "scripts/release/deploy-core-worker.mjs",
+      "--release-sha",
+      REMOTE_SOURCE_SHA,
+    ],
+    command: "node",
+    label: "Deploy Core Worker",
+    workerDeploymentArgs: [
+      "--config",
+      "services/core/wrangler.jsonc",
+      "--env",
+      "prod",
+    ],
+  });
 });
 
 test("deploys a strict Local Service runtime receiver before publishing the CLI", () => {

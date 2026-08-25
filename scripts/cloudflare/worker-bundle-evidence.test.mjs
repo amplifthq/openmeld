@@ -26,6 +26,21 @@ test("summarizes the largest inputs and reports forbidden dependencies", () => {
         "src/index.ts": { bytes: 140_000 },
         "src/small.ts": { bytes: 20 },
       },
+      outputs: {
+        "bundle/index.js": {
+          entryPoint: "src/index.ts",
+          inputs: {
+            "node_modules/mailchecker/index.js": { bytesInOutput: 12_000 },
+            "src/index.ts": { bytesInOutput: 125_000 },
+            "src/small.ts": { bytesInOutput: 20 },
+          },
+        },
+        "bundle/lazy.js": {
+          inputs: {
+            "node_modules/mailchecker/index.js": { bytesInOutput: 900_000 },
+          },
+        },
+      },
     },
     ["mailchecker", "better-auth-harmony"]
   );
@@ -33,14 +48,16 @@ test("summarizes the largest inputs and reports forbidden dependencies", () => {
   assert.equal(summary.inputCount, 3);
   assert.equal(summary.sourceBytes, 1_112_231);
   assert.deepEqual(summary.largestInputs[0], {
-    bytes: 972_211,
-    path: "node_modules/mailchecker/index.js",
+    bytesInOutput: 125_000,
+    path: "src/index.ts",
+    sourceBytes: 140_000,
   });
   assert.deepEqual(summary.forbiddenInputs, [
     {
-      bytes: 972_211,
+      bytesInOutput: 12_000,
       path: "node_modules/mailchecker/index.js",
       pattern: "mailchecker",
+      sourceBytes: 972_211,
     },
   ]);
 });
@@ -49,13 +66,21 @@ test("creates bounded machine-readable release evidence", () => {
   const evidence = createWorkerBundleEvidence({
     forbiddenPatterns: ["mailchecker"],
     gzipBytes: 100,
-    metafile: { inputs: { "src/index.ts": { bytes: 200 } } },
+    metafile: {
+      inputs: { "src/index.ts": { bytes: 200 } },
+      outputs: {
+        "bundle/index.js": {
+          entryPoint: "src/index.ts",
+          inputs: { "src/index.ts": { bytesInOutput: 180 } },
+        },
+      },
+    },
     outputBytes: 300,
     uploadBytes: 400,
     worker: "core",
   });
 
-  assert.equal(evidence.schemaVersion, 1);
+  assert.equal(evidence.schemaVersion, 2);
   assert.equal(evidence.worker, "core");
   assert.deepEqual(evidence.bundle, {
     gzipBytes: 100,
