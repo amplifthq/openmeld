@@ -32,6 +32,15 @@ describe("organization computers service", () => {
               status: "compatible" as const,
             },
             openMeldTools: {
+              updateOperation: {
+                operationId: "update-1",
+                phase: "waiting_for_work" as const,
+                requestSource: "automatic" as const,
+                requestedAt: "2026-08-18T05:00:00.000Z",
+                targetVersion: "0.3.66",
+                updatedAt: "2026-08-18T05:01:00.000Z",
+                urgency: "available" as const,
+              },
               cli: {
                 installedPackageVersion: "0.3.66",
                 latestPackageVersion: "0.3.66",
@@ -71,6 +80,10 @@ describe("organization computers service", () => {
         deviceDisplayName: "Fangyuan's MacBook Pro",
         localAgents: [],
         openMeldTools: expect.objectContaining({
+          updateOperation: expect.objectContaining({
+            operationId: "update-1",
+            phase: "waiting_for_work",
+          }),
           service: expect.objectContaining({
             installedVersion: "0.3.65",
             status: "update_available",

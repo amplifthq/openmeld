@@ -1486,6 +1486,19 @@ one coordinator. The initiating browser or Terminal is not a lifecycle owner:
 it may close immediately after the durable handoff, and the OS worker must
 resume the same job after its own crash, sign-in, or computer restart.
 
+That update job is the single operation truth. Its safe projection reports one
+of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
+the opaque operation id, request source, target version, urgency, and
+timestamps. The Service includes this projection in its normal local-component
+capability report; Core, Web, CLI, and Center Agent must read that projection
+instead of inferring progress from connectivity, component versions, or their
+own request lifetime. Local paths, commands, and raw error text remain local.
+Completed operation phases remain visible for at most 24 hours.
+Because runtime capability payloads are strict, rollout deploys the accepting
+Schemas and Core before publishing a Service that emits `updateOperation`.
+New Core accepts older Services that omit it; rollback removes the new local
+Service before rolling Core back.
+
 For an `available` update, the current Service keeps admitting new Wake work
 while the prepared replacement waits for a safe switch. For a `required`
 update, Core blocks affected new Wake work and the worker enters the controlled
@@ -1494,6 +1507,12 @@ safe-switch fact is false while either an accepted Wake remains in flight or a
 durable result still awaits Core's acceptance receipt; process exit alone is
 not sufficient evidence. Each accepted Wake stays on the Service version that
 accepted it, and an update must never retry or silently replay it.
+
+Waiting for that safe-switch fact must not hold the Service lifecycle lock.
+The worker acquires the lock only for the short switch and verification phase,
+so a newer request can replace an older prepared target and a required request
+can escalate an available one. Requests coalesce into the existing operation;
+they never create parallel Service update lifecycles.
 
 After the safe switch begins, RuntimeCoordinator remains the in-flight Wake
 authority. New Wake work may wait for the replacement route and resume after

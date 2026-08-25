@@ -33,6 +33,30 @@ describe("local component update projection", () => {
     });
   });
 
+  it("preserves the Service-owned update operation without deriving another state", () => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-06-04T00:00:00.000Z",
+      localComponentsStatus: createLocalComponentsStatus({
+        includeUpdateOperation: true,
+      }),
+      releaseManifest: createReleaseManifest({
+        serviceUpdatePolicy: "available",
+      }),
+      serviceConnected: true,
+      serviceVersion: "0.7.27",
+    });
+
+    expect(projection.updateOperation).toEqual({
+      operationId: "update-1",
+      phase: "waiting_for_work",
+      requestSource: "automatic",
+      requestedAt: "2026-06-04T00:00:00.000Z",
+      targetVersion: "0.7.28",
+      updatedAt: "2026-06-04T00:01:00.000Z",
+      urgency: "available",
+    });
+  });
+
   it("blocks only Service versions below Core's minimum supported version", () => {
     const releaseManifest = createReleaseManifest({
       serviceUpdatePolicy: "available",
@@ -474,6 +498,7 @@ function createReleaseManifest(input: {
 
 function createLocalComponentsStatus(input: {
   cliPackageVersion?: string;
+  includeUpdateOperation?: boolean;
   serviceBundleHash?: string | null;
   skillsBundleHash?: string | null;
 }): LocalComponentsStatus {
@@ -488,6 +513,19 @@ function createLocalComponentsStatus(input: {
     setupActionLabel: "Everything is up to date",
     setupActionDescription:
       "OpenMeld local components are aligned for this computer.",
+    ...(input.includeUpdateOperation
+      ? {
+          updateOperation: {
+            operationId: "update-1",
+            phase: "waiting_for_work" as const,
+            requestSource: "automatic" as const,
+            requestedAt: "2026-06-04T00:00:00.000Z",
+            targetVersion: "0.7.28",
+            updatedAt: "2026-06-04T00:01:00.000Z",
+            urgency: "available" as const,
+          },
+        }
+      : {}),
     cli: {
       commandContractVersion: "cli-contract-v1",
       latestPackageVersion: "0.7.28",

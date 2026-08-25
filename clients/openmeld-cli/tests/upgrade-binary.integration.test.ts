@@ -20,6 +20,7 @@ const {
   isCancelMock,
   resolveDaemonServiceAlignmentDecisionMock,
   runDaemonServiceFullAlignmentMock,
+  scheduleDaemonServiceUpdateMock,
 } = vi.hoisted(() => ({
   canUseInteractivePromptsMock: vi.fn(),
   confirmMock: vi.fn(),
@@ -27,6 +28,7 @@ const {
   isCancelMock: vi.fn((value: unknown) => value === "__cancel__"),
   resolveDaemonServiceAlignmentDecisionMock: vi.fn(),
   runDaemonServiceFullAlignmentMock: vi.fn(),
+  scheduleDaemonServiceUpdateMock: vi.fn(),
 }));
 
 vi.mock("node:child_process", async () => {
@@ -77,6 +79,14 @@ vi.mock(
   })
 );
 
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-update-coordinator",
+  () => ({
+    scheduleDaemonServiceUpdate: (...args: unknown[]) =>
+      scheduleDaemonServiceUpdateMock(...args),
+  })
+);
+
 const BINARY_MANIFEST_URL = "https://dev.openmeld.test/cli/manifest.json";
 const BINARY_VERSION = "9.9.9";
 
@@ -105,6 +115,13 @@ describe("openmeld upgrade in binary distribution", () => {
       restoredBackground: false,
       backupDataPath: null,
       errorMessage: null,
+    });
+    scheduleDaemonServiceUpdateMock.mockReset().mockResolvedValue({
+      status: "scheduled",
+      job: {
+        jobId: "update-1",
+        targetVersion: packageJson.version,
+      },
     });
   });
 
@@ -520,15 +537,16 @@ describe("openmeld upgrade in binary distribution", () => {
           });
         });
 
-        expect(runDaemonServiceFullAlignmentMock).toHaveBeenCalledWith(
+        expect(scheduleDaemonServiceUpdateMock).toHaveBeenCalledWith(
           expect.objectContaining({
-            expectedVersion: packageJson.version,
-            intent: "upgrade_reconcile",
+            targetVersion: packageJson.version,
+            urgency: "available",
           })
         );
-        const alignmentInput =
-          runDaemonServiceFullAlignmentMock.mock.calls[0]?.[0];
-        expect(alignmentInput).not.toHaveProperty("cliScriptPath");
+        const scheduleInput =
+          scheduleDaemonServiceUpdateMock.mock.calls[0]?.[0];
+        expect(scheduleInput).not.toHaveProperty("cliScriptPath");
+        expect(runDaemonServiceFullAlignmentMock).not.toHaveBeenCalled();
       } finally {
         process.argv[1] = originalArgvEntry ?? process.execPath;
       }

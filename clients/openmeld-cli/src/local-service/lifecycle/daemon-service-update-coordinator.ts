@@ -1,27 +1,31 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import {
-  daemonServiceUpdateJobSchema,
-  OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA,
-  type DaemonServiceUpdateJob as SharedDaemonServiceUpdateJob,
-} from "@openmeld/schemas";
+import type { OpenMeldToolsUpdateRequestSource } from "@openmeld/schemas/types";
 import { sleep, toErrorMessage } from "@openmeld/utils";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
-import {
-  daemonRuntimeStateRootPath,
-  withDaemonServiceReconcileLock,
-} from "../../config/daemon-state";
-import type { OpenMeldPathResolutionInput } from "../../config/paths";
+import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
+import { compareSemver } from "../../config/version-state";
 import {
   LocalDaemonControlPlaneClientError,
   requestLocalDaemonServiceUpdateReadiness,
 } from "../control-plane/client";
 import type { DaemonActiveBundleState } from "./daemon-service-bundle";
-import { prepareDaemonServiceBundle } from "./daemon-service-bundle";
-import type { DaemonServiceLifecycleOutcome } from "./daemon-service-lifecycle";
+import {
+  discardPreparedDaemonServiceBundle,
+  prepareDaemonServiceBundle,
+} from "./daemon-service-bundle";
+import type {
+  DaemonServiceLifecycleOutcome,
+  DaemonServiceLifecycleRecoveryStatus,
+} from "./daemon-service-lifecycle";
 import { runDaemonServiceLifecycle } from "./daemon-service-lifecycle";
 import { readCurrentObservedDaemonRuntimeStatus } from "./daemon-service-runtime";
+import {
+  completePendingDaemonServiceUpdate,
+  DAEMON_SERVICE_UPDATE_JOB_SCHEMA,
+  type DaemonServiceUpdateJob,
+  persistPendingDaemonServiceUpdate,
+  readPendingDaemonServiceUpdate,
+} from "./daemon-service-update-state";
 import {
   installDaemonServiceUpdateWorker,
   startDaemonServiceUpdateWorker,
@@ -29,12 +33,16 @@ import {
 
 const MAX_BACKGROUND_UPDATE_ATTEMPTS = 5;
 
-export const DAEMON_SERVICE_UPDATE_JOB_SCHEMA =
-  OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA;
-export type DaemonServiceUpdateJob = SharedDaemonServiceUpdateJob;
+type ScheduleDaemonServiceUpdateInput = {
+  cliScriptPath?: string;
+  requestSource?: OpenMeldToolsUpdateRequestSource;
+  targetVersion: string;
+  urgency: "available" | "required";
+};
 
 type ScheduleDaemonServiceUpdateDependencies = {
   createJobId: () => string;
+  discardBundle: (bundle: DaemonActiveBundleState) => Promise<void>;
   installWorker: (job: DaemonServiceUpdateJob) => Promise<void>;
   now: () => string;
   persistPendingJob: (job: DaemonServiceUpdateJob) => Promise<void>;
@@ -62,7 +70,11 @@ type RunPendingDaemonServiceUpdateDependencies = {
     forceReinstall: true;
     forceKillAfterDrainTimeout: false;
     preparedBundle: DaemonActiveBundleState;
-  }) => Promise<Pick<DaemonServiceLifecycleOutcome, "errorMessage" | "status">>;
+  }) => Promise<
+    Pick<DaemonServiceLifecycleOutcome, "errorMessage" | "status"> & {
+      recoveryStatus?: DaemonServiceLifecycleRecoveryStatus;
+    }
+  >;
   waitUntilSafeToSwitch: (job: DaemonServiceUpdateJob) => Promise<void>;
 };
 
@@ -72,11 +84,7 @@ export type ScheduleDaemonServiceUpdateResult = {
 };
 
 export async function scheduleDaemonServiceUpdate(
-  input: {
-    cliScriptPath?: string;
-    targetVersion: string;
-    urgency: "available" | "required";
-  },
+  input: ScheduleDaemonServiceUpdateInput,
   overrides: Partial<ScheduleDaemonServiceUpdateDependencies> = {}
 ): Promise<ScheduleDaemonServiceUpdateResult> {
   if (Object.keys(overrides).length === 0) {
@@ -92,20 +100,11 @@ export async function scheduleDaemonServiceUpdate(
   const deps = resolveScheduleDependencies(overrides);
   const pending = await deps.readPendingJob();
   if (pending) {
-    const retained =
-      input.urgency === "required" && pending.urgency === "available"
-        ? {
-            ...pending,
-            updatedAt: deps.now(),
-            urgency: "required" as const,
-          }
-        : pending;
-    await deps.installWorker(retained);
-    if (retained !== pending) {
-      await deps.persistPendingJob(retained);
-    }
-    await deps.startWorker(retained);
-    return { job: retained, status: "already_scheduled" };
+    return await reschedulePendingDaemonServiceUpdate({
+      dependencies: deps,
+      pending,
+      request: input,
+    });
   }
 
   const preparedBundle = await deps.prepareBundle({
@@ -115,7 +114,7 @@ export async function scheduleDaemonServiceUpdate(
   });
   const now = deps.now();
   const job: DaemonServiceUpdateJob = {
-    v: 1,
+    v: 2,
     schema: DAEMON_SERVICE_UPDATE_JOB_SCHEMA,
     attempts: 0,
     desiredState: await deps.resolveDesiredState(),
@@ -123,7 +122,8 @@ export async function scheduleDaemonServiceUpdate(
     jobId: deps.createJobId(),
     preparedBundle,
     requestedAt: now,
-    status: "scheduled",
+    phase: "waiting_for_work",
+    requestSource: input.requestSource ?? "cli",
     targetVersion: input.targetVersion,
     updatedAt: now,
     urgency: input.urgency,
@@ -138,12 +138,82 @@ export async function scheduleDaemonServiceUpdate(
   return { job, status: "scheduled" };
 }
 
+async function reschedulePendingDaemonServiceUpdate(input: {
+  dependencies: ScheduleDaemonServiceUpdateDependencies;
+  pending: DaemonServiceUpdateJob;
+  request: ScheduleDaemonServiceUpdateInput;
+}): Promise<ScheduleDaemonServiceUpdateResult> {
+  const replaceTarget = isNewerTargetVersion(
+    input.request.targetVersion,
+    input.pending.targetVersion
+  );
+  const escalateUrgency =
+    input.request.urgency === "required" &&
+    input.pending.urgency === "available";
+  const retained: DaemonServiceUpdateJob =
+    replaceTarget || escalateUrgency
+      ? {
+          ...input.pending,
+          ...(replaceTarget
+            ? {
+                attempts: 0,
+                errorMessage: null,
+                phase: "waiting_for_work" as const,
+                preparedBundle: await input.dependencies.prepareBundle({
+                  activate: false,
+                  daemonVersion: input.request.targetVersion,
+                  ...(input.request.cliScriptPath
+                    ? { cliScriptPath: input.request.cliScriptPath }
+                    : {}),
+                }),
+                requestSource: input.request.requestSource ?? "cli",
+                targetVersion: input.request.targetVersion,
+              }
+            : {}),
+          updatedAt: input.dependencies.now(),
+          urgency: escalateUrgency ? "required" : input.pending.urgency,
+        }
+      : input.pending;
+  await input.dependencies.installWorker(retained);
+  if (retained !== input.pending) {
+    await input.dependencies.persistPendingJob(retained);
+  }
+  await input.dependencies.startWorker(retained);
+  if (replaceTarget) {
+    await discardReplacedBundleBestEffort({
+      dependencies: input.dependencies,
+      pending: input.pending,
+    });
+  }
+  return { job: retained, status: "already_scheduled" };
+}
+
+async function discardReplacedBundleBestEffort(input: {
+  dependencies: ScheduleDaemonServiceUpdateDependencies;
+  pending: DaemonServiceUpdateJob;
+}): Promise<void> {
+  await input.dependencies
+    .discardBundle(input.pending.preparedBundle)
+    .catch((error) => {
+      console.warn("[openmeld.daemon_service.update_bundle_cleanup_failed]", {
+        bundleId: input.pending.preparedBundle.bundleId,
+        errorMessage: toErrorMessage(error),
+        operationId: input.pending.jobId,
+      });
+    });
+}
+
 export async function runPendingDaemonServiceUpdate(
   overrides: Partial<RunPendingDaemonServiceUpdateDependencies> = {}
 ): Promise<DaemonServiceUpdateJob | null> {
   if (Object.keys(overrides).length === 0) {
+    const deps = resolveRunDependencies(defaultRunOverrides());
+    const pending = await preparePendingUpdateForSwitch(deps);
+    if (!pending) {
+      return null;
+    }
     return await withDaemonServiceReconcileLock(
-      async () => await runPendingDaemonServiceUpdate(defaultRunOverrides()),
+      async () => await runPreparedPendingUpdate(deps),
       {
         command: "openmeld service update-worker",
         intent: "upgrade_reconcile",
@@ -151,6 +221,46 @@ export async function runPendingDaemonServiceUpdate(
     );
   }
   const deps = resolveRunDependencies(overrides);
+  const pending = await preparePendingUpdateForSwitch(deps);
+  if (!pending) {
+    return null;
+  }
+  return await runPreparedPendingUpdate(deps);
+}
+
+async function preparePendingUpdateForSwitch(
+  deps: RunPendingDaemonServiceUpdateDependencies
+): Promise<DaemonServiceUpdateJob | null> {
+  const pending = await deps.readPendingJob();
+  if (!pending) {
+    return null;
+  }
+  if (pending.urgency === "available") {
+    const waiting: DaemonServiceUpdateJob = {
+      ...pending,
+      errorMessage: null,
+      phase: "waiting_for_work",
+      updatedAt: deps.now(),
+    };
+    await deps.persistPendingJob(waiting);
+    try {
+      await deps.waitUntilSafeToSwitch(waiting);
+    } catch (error) {
+      await deps.persistPendingJob({
+        ...waiting,
+        errorMessage: toErrorMessage(error),
+        updatedAt: deps.now(),
+      });
+      throw error;
+    }
+    return waiting;
+  }
+  return pending;
+}
+
+async function runPreparedPendingUpdate(
+  deps: RunPendingDaemonServiceUpdateDependencies
+): Promise<DaemonServiceUpdateJob | null> {
   const pending = await deps.readPendingJob();
   if (!pending) {
     return null;
@@ -160,15 +270,12 @@ export async function runPendingDaemonServiceUpdate(
     ...pending,
     attempts: pending.attempts + 1,
     errorMessage: null,
-    status: "running",
+    phase: "updating",
     updatedAt: deps.now(),
   };
   await deps.persistPendingJob(running);
 
   try {
-    if (running.urgency === "available") {
-      await deps.waitUntilSafeToSwitch(running);
-    }
     const lifecycle = await deps.runLifecycle({
       desiredState: running.desiredState,
       expectedVersion: running.targetVersion,
@@ -179,13 +286,19 @@ export async function runPendingDaemonServiceUpdate(
       preparedBundle: running.preparedBundle,
       shouldStartAfterLifecycle: running.desiredState === "background",
     });
-    if (lifecycle.status !== "aligned") {
+    if (
+      lifecycle.status !== "aligned" &&
+      lifecycle.status !== "already_aligned"
+    ) {
       const failed = finishJob(running, {
         errorMessage:
           lifecycle.errorMessage ||
           "OpenMeld restored the previous Service after the replacement did not become healthy.",
         now: deps.now(),
-        status: "failed",
+        phase:
+          lifecycle.recoveryStatus === "restored_verified_previous_state"
+            ? "restored"
+            : "needs_help",
       });
       await deps.completePendingJob(failed);
       return failed;
@@ -194,7 +307,7 @@ export async function runPendingDaemonServiceUpdate(
     const completed = finishJob(running, {
       errorMessage: null,
       now: deps.now(),
-      status: "completed",
+      phase: "updated",
     });
     await deps.completePendingJob(completed);
     return completed;
@@ -204,7 +317,7 @@ export async function runPendingDaemonServiceUpdate(
       const retry: DaemonServiceUpdateJob = {
         ...running,
         errorMessage,
-        status: "scheduled",
+        phase: "waiting_for_work",
         updatedAt: deps.now(),
       };
       await deps.persistPendingJob(retry);
@@ -213,7 +326,7 @@ export async function runPendingDaemonServiceUpdate(
     const failed = finishJob(running, {
       errorMessage,
       now: deps.now(),
-      status: "failed",
+      phase: "needs_help",
     });
     await deps.completePendingJob(failed);
     return failed;
@@ -223,6 +336,7 @@ export async function runPendingDaemonServiceUpdate(
 function defaultScheduleOverrides(): Partial<ScheduleDaemonServiceUpdateDependencies> {
   return {
     createJobId: randomUUID,
+    discardBundle: discardPreparedDaemonServiceBundle,
     installWorker: installDaemonServiceUpdateWorker,
     now: () => new Date().toISOString(),
     persistPendingJob: persistPendingDaemonServiceUpdate,
@@ -244,65 +358,13 @@ function defaultRunOverrides(): Partial<RunPendingDaemonServiceUpdateDependencie
   };
 }
 
-export function daemonServicePendingUpdatePath(
-  pathInput: OpenMeldPathResolutionInput = {}
-): string {
-  return join(daemonRuntimeStateRootPath(pathInput), "service-update.json");
-}
-
-export function daemonServiceLastUpdatePath(
-  pathInput: OpenMeldPathResolutionInput = {}
-): string {
-  return join(
-    daemonRuntimeStateRootPath(pathInput),
-    "service-update-last.json"
-  );
-}
-
-export async function readPendingDaemonServiceUpdate(
-  pathInput: OpenMeldPathResolutionInput = {}
-): Promise<DaemonServiceUpdateJob | null> {
-  const raw = await readFile(
-    daemonServicePendingUpdatePath(pathInput),
-    "utf8"
-  ).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") {
-      return null;
-    }
-    throw error;
-  });
-  if (raw === null) {
-    return null;
-  }
-  return parseDaemonServiceUpdateJob(JSON.parse(raw) as unknown);
-}
-
-export async function persistPendingDaemonServiceUpdate(
-  job: DaemonServiceUpdateJob,
-  pathInput: OpenMeldPathResolutionInput = {}
-): Promise<void> {
-  await writeUpdateJobAtomically({
-    job,
-    path: daemonServicePendingUpdatePath(pathInput),
-  });
-}
-
-export async function completePendingDaemonServiceUpdate(
-  job: DaemonServiceUpdateJob,
-  pathInput: OpenMeldPathResolutionInput = {}
-): Promise<void> {
-  await writeUpdateJobAtomically({
-    job,
-    path: daemonServiceLastUpdatePath(pathInput),
-  });
-  await rm(daemonServicePendingUpdatePath(pathInput), { force: true });
-}
-
 function resolveScheduleDependencies(
   overrides: Partial<ScheduleDaemonServiceUpdateDependencies>
 ): ScheduleDaemonServiceUpdateDependencies {
   return {
     createJobId: overrides.createJobId ?? randomUUID,
+    discardBundle:
+      overrides.discardBundle ?? discardPreparedDaemonServiceBundle,
     installWorker: overrides.installWorker ?? installDaemonServiceUpdateWorker,
     now: overrides.now ?? (() => new Date().toISOString()),
     persistPendingJob:
@@ -331,8 +393,18 @@ function resolveRunDependencies(
   };
 }
 
-async function waitUntilDaemonServiceSafeSwitch(): Promise<void> {
+async function waitUntilDaemonServiceSafeSwitch(
+  job: DaemonServiceUpdateJob
+): Promise<void> {
   while (true) {
+    const pending = await readPendingDaemonServiceUpdate();
+    if (
+      pending === null ||
+      pending.jobId !== job.jobId ||
+      pending.urgency === "required"
+    ) {
+      return;
+    }
     try {
       const readiness = await requestLocalDaemonServiceUpdateReadiness();
       if (readiness.safeToSwitch) {
@@ -378,34 +450,17 @@ function finishJob(
   input: {
     errorMessage: string | null;
     now: string;
-    status: "completed" | "failed";
+    phase: "updated" | "restored" | "needs_help";
   }
 ): DaemonServiceUpdateJob {
   return {
     ...job,
     errorMessage: input.errorMessage,
-    status: input.status,
+    phase: input.phase,
     updatedAt: input.now,
   };
 }
 
-async function writeUpdateJobAtomically(input: {
-  job: DaemonServiceUpdateJob;
-  path: string;
-}): Promise<void> {
-  const temporaryPath = `${input.path}.${String(process.pid)}.tmp`;
-  await mkdir(dirname(input.path), { recursive: true });
-  await writeFile(temporaryPath, `${JSON.stringify(input.job, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  await rename(temporaryPath, input.path);
-}
-
-function parseDaemonServiceUpdateJob(value: unknown): DaemonServiceUpdateJob {
-  const parsed = daemonServiceUpdateJobSchema.safeParse(value);
-  if (!parsed.success) {
-    throw new Error("OpenMeld Service update state is invalid.");
-  }
-  return parsed.data;
+function isNewerTargetVersion(candidate: string, current: string): boolean {
+  return compareSemver(candidate, current) > 0;
 }

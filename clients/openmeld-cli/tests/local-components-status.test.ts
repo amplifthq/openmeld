@@ -2,12 +2,21 @@ import { Buffer } from "node:buffer";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const LIVE_SKILLS_BUNDLE_HASH = "b".repeat(64);
 const STALE_SKILLS_BUNDLE_HASH = "a".repeat(64);
 
 describe("local components status", () => {
+  beforeEach(() => {
+    vi.doMock(
+      "../src/local-service/lifecycle/daemon-service-update-state",
+      () => ({
+        resolveDaemonServiceUpdateOperation: vi.fn(async () => null),
+      })
+    );
+  });
+
   afterEach(() => {
     vi.resetModules();
     vi.doUnmock("../src/commands/skills");
@@ -15,6 +24,7 @@ describe("local components status", () => {
     vi.doUnmock("../src/local-service/lifecycle/current-daemon-version");
     vi.doUnmock("../src/local-service/lifecycle/daemon-service-bundle");
     vi.doUnmock("../src/local-service/lifecycle/daemon-service-inventory");
+    vi.doUnmock("../src/local-service/lifecycle/daemon-service-update-state");
     vi.doUnmock("../src/skills/bundled");
     vi.doUnmock("../src/skills/bundled-assets");
     vi.doUnmock("../src/skills/content-hash");

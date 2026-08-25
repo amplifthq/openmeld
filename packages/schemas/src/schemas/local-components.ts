@@ -24,6 +24,31 @@ export const localComponentUpdateStatusSchema = z.enum([
   "unknown",
 ]);
 
+export const openMeldToolsUpdateOperationPhaseSchema = z.enum([
+  "waiting_for_work",
+  "updating",
+  "updated",
+  "restored",
+  "needs_help",
+]);
+
+export const openMeldToolsUpdateRequestSourceSchema = z.enum([
+  "automatic",
+  "center_agent",
+  "cli",
+  "web",
+]);
+
+export const openMeldToolsUpdateOperationSchema = z.strictObject({
+  operationId: nonEmptyStringSchema,
+  phase: openMeldToolsUpdateOperationPhaseSchema,
+  requestSource: openMeldToolsUpdateRequestSourceSchema,
+  requestedAt: z.iso.datetime({ offset: true }),
+  targetVersion: nonEmptyStringSchema,
+  updatedAt: z.iso.datetime({ offset: true }),
+  urgency: z.enum(["available", "required"]),
+});
+
 export const localSetupActionSchema = z.enum([
   "none",
   "connect_service",
@@ -131,6 +156,7 @@ export const localComponentsStatusSchema = z.strictObject({
   setupAction: localSetupActionSchema,
   setupActionLabel: nonEmptyStringSchema,
   setupActionDescription: nonEmptyStringSchema,
+  updateOperation: openMeldToolsUpdateOperationSchema.optional(),
   cli: localCliComponentProjectionSchema,
   service: localServiceComponentProjectionSchema,
   skills: localSkillsComponentProjectionSchema,
@@ -177,6 +203,7 @@ export const localComponentUpdateProjectionSchema = z.strictObject({
   setupActionDescription: nonEmptyStringSchema,
   humanSetupCommand: nonEmptyStringSchema,
   agentSetupCommand: nonEmptyStringSchema,
+  updateOperation: openMeldToolsUpdateOperationSchema.optional(),
   cli: localCliComponentUpdateProjectionSchema,
   service: localServiceComponentUpdateProjectionSchema,
   skills: localSkillsComponentUpdateProjectionSchema,

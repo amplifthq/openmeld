@@ -632,8 +632,10 @@ export {
 } from "./daemon/service-recommendation";
 export {
   daemonServiceUpdateJobSchema,
+  daemonServiceUpdateJobV1Schema,
   daemonServiceUpdatePreparedBundleSchema,
   OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA,
+  storedDaemonServiceUpdateJobSchema,
 } from "./daemon/service-update-job";
 export {
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
@@ -2243,6 +2245,9 @@ export {
   localSetupEntrypointSchema,
   localSkillsComponentProjectionSchema,
   localSkillsComponentUpdateProjectionSchema,
+  openMeldToolsUpdateOperationPhaseSchema,
+  openMeldToolsUpdateOperationSchema,
+  openMeldToolsUpdateRequestSourceSchema,
 } from "./local-components";
 export {
   MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION,

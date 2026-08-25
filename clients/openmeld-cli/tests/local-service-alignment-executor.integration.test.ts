@@ -35,6 +35,7 @@ const {
   listDaemonOwnedProcessesMock,
   requestLocalDaemonShutdownMock,
   resolveDaemonServiceManagerMock,
+  verifyDaemonActiveBundleIntegrityMock,
   waitForDaemonSystemServiceToStopMock,
 } = vi.hoisted(() => ({
   backupDaemonRuntimeDataForReinstallMock: vi.fn(),
@@ -54,6 +55,7 @@ const {
   listDaemonOwnedProcessesMock: vi.fn(),
   requestLocalDaemonShutdownMock: vi.fn(),
   resolveDaemonServiceManagerMock: vi.fn(),
+  verifyDaemonActiveBundleIntegrityMock: vi.fn(),
   waitForDaemonSystemServiceToStopMock: vi.fn(),
 }));
 
@@ -109,6 +111,7 @@ vi.mock("../src/local-service/lifecycle/daemon-service-bundle", async () => {
   return {
     ...actual,
     prepareDaemonServiceBundle: prepareDaemonServiceBundleMock,
+    verifyDaemonActiveBundleIntegrity: verifyDaemonActiveBundleIntegrityMock,
   };
 });
 
@@ -251,6 +254,7 @@ describe("local service alignment executor", () => {
       mode: "graceful",
     });
     resolveDaemonServiceManagerMock.mockReset();
+    verifyDaemonActiveBundleIntegrityMock.mockReset().mockResolvedValue(false);
     waitForDaemonSystemServiceToStopMock.mockReset().mockResolvedValue(true);
     aliveProcessIds.clear();
     processKillSpy = vi.spyOn(process, "kill").mockImplementation(((
@@ -1489,6 +1493,7 @@ describe("local service alignment executor", () => {
 
   it("restores the previous install, bundle, and contract snapshots after a failed background restart", async () => {
     await withTempHome(async () => {
+      verifyDaemonActiveBundleIntegrityMock.mockResolvedValue(true);
       const serviceManager = createServiceManager();
       let currentRuntimeStatus = createRuntimeStatus({
         status: "not_running",
