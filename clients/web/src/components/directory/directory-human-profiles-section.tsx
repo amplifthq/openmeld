@@ -62,6 +62,7 @@ import {
 	DirectoryIdentityAccountSummary,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DirectoryHumanProfileRoleBadge } from "#/components/directory/directory-human-profile-role-badge";
+import { DirectoryIdentityAccountActionLink } from "#/components/directory/directory-identity-account-action-link";
 import { ProfileCard } from "#/components/profiles/profile-list-item";
 import { ProfilesSectionLayout } from "#/components/profiles/profiles-section-layout";
 
@@ -481,17 +482,18 @@ function HumanProfileIdentitySummary(input: {
 					account.action.kind !== "connect_via_center_agent"
 				) {
 					return (
-						<Link
-							aria-label={account.action.label}
+						<DirectoryIdentityAccountActionLink
+							actionKind={account.action.kind}
+							ariaLabel={account.action.label}
 							className="inline-flex items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
 							key={account.provider}
-							to={account.action.path}
+							path={account.action.path}
 						>
 							<DirectoryIdentityAccountSummary
 								account={account}
 								context="card"
 							/>
-						</Link>
+						</DirectoryIdentityAccountActionLink>
 					);
 				}
 				return (
@@ -640,9 +642,13 @@ function ChannelSetupChoice(input: {
 		"flex min-h-12 w-full items-center gap-3 rounded-md border border-border px-3 py-2 text-left transition-colors hover:bg-muted/40";
 	if (action.path) {
 		return (
-			<Link className={className} to={action.path}>
+			<DirectoryIdentityAccountActionLink
+				actionKind={action.kind}
+				className={className}
+				path={action.path}
+			>
 				{content}
-			</Link>
+			</DirectoryIdentityAccountActionLink>
 		);
 	}
 	if (action.kind === "ask_admin") {

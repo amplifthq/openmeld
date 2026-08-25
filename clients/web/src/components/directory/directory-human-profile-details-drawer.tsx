@@ -32,6 +32,7 @@ import {
 	DirectoryIdentityAccountSummary,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DirectoryHumanProfileRoleBadge } from "#/components/directory/directory-human-profile-role-badge";
+import { DirectoryIdentityAccountActionLink } from "#/components/directory/directory-identity-account-action-link";
 import { HumanProfileNameEditor } from "#/components/profiles/human-profile-name-editor";
 import { copyTextToClipboard } from "#/lib/clipboard";
 
@@ -348,12 +349,13 @@ function ConnectedIdentityAction(input: {
 	}
 	if (action.path && action.kind !== "connect_via_center_agent") {
 		return (
-			<Link
+			<DirectoryIdentityAccountActionLink
+				actionKind={action.kind}
 				className={buttonVariants({ size: "sm", variant: "outline" })}
-				to={action.path}
+				path={action.path}
 			>
 				{action.label}
-			</Link>
+			</DirectoryIdentityAccountActionLink>
 		);
 	}
 	return (
