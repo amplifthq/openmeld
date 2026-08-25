@@ -194,7 +194,7 @@ describe("Remote Agent model reasoning", () => {
         TEXT_ONLY_MODEL
       )
     ).rejects.toThrow(
-      "context_length_exceeded: estimated provider input is 153 tokens, above this model route's 100-token input budget"
+      "context_length_exceeded: estimated provider input is 145 tokens, above this model route's 100-token input budget"
     );
   });
 
