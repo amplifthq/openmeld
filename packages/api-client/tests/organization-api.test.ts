@@ -335,6 +335,7 @@ describe("api-client organization api", () => {
 
   it("reads and saves Agent Profile creation defaults per Local Agent", async () => {
     const defaults = {
+      agentControllerCollaborationMode: "codex:plan" as const,
       agentControllerPermissionMode: "codex:approveForMe" as const,
       agentControllerRef: "builtin:codex",
       defaultProjectId: "project-1",
@@ -365,6 +366,7 @@ describe("api-client organization api", () => {
     ).resolves.toEqual(defaults);
     await expect(
       api.setAgentProfileCreationDefaults({
+        agentControllerCollaborationMode: "codex:plan",
         agentControllerPermissionMode: "codex:approveForMe",
         agentControllerRef: "builtin:codex",
         defaultProjectId: "project-1",
@@ -389,6 +391,7 @@ describe("api-client organization api", () => {
       expect.objectContaining({
         init: expect.objectContaining({
           body: JSON.stringify({
+            agentControllerCollaborationMode: "codex:plan",
             agentControllerPermissionMode: "codex:approveForMe",
             defaultProjectId: "project-1",
             modelId: "gpt-5.4-mini",

@@ -87,6 +87,51 @@ type ToolPayloadScenario = {
 };
 
 describe("remote agent OpenMeld tool catalog", () => {
+  it("reads the represented member's complete Agent Profile creation defaults", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const centerAgentListAgentProfileCreationDefaults = vi.fn(async () => ({
+      defaults: [
+        {
+          agentControllerCollaborationMode: "codex:plan" as const,
+          agentControllerPermissionMode: "codex:approveForMe" as const,
+          agentControllerRef: "builtin:codex",
+          defaultProjectId: "project-1",
+          modelId: "gpt-5.6-sol",
+          openCodePermission: null,
+          organizationId: "org_123",
+          reasoningLevel: "high",
+          updatedAt: "2026-08-26T01:00:00.000Z",
+          userId: "user_1",
+        },
+      ],
+      organizationId: "org_123",
+      userId: "user_1",
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentListAgentProfileCreationDefaults },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_read_agent_profile_creation_defaults", {})
+    ).resolves.toMatchObject({
+      defaults: [
+        {
+          agentControllerCollaborationMode: "codex:plan",
+          agentControllerRef: "builtin:codex",
+          defaultProjectId: "project-1",
+          modelId: "gpt-5.6-sol",
+          reasoningLevel: "high",
+        },
+      ],
+    });
+    expect(centerAgentListAgentProfileCreationDefaults).toHaveBeenCalledWith({
+      context: expect.any(Object),
+      onBehalfOf: { profileId: request.author.profileId },
+    });
+  });
+
   it("keeps Agent Activity hidden until its independent caller fence is enabled", () => {
     const disabled = buildRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {},
