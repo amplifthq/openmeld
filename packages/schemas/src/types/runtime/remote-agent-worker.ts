@@ -64,6 +64,8 @@ type RemoteAgentWorkerRuntimeDiagnosticsRequestSchema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerRuntimeDiagnosticsRequestSchema"];
 type RemoteAgentWorkerRuntimeDiagnosticsResponseSchema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerRuntimeDiagnosticsResponseSchema"];
+type RemoteAgentTurnRuntimeEvidenceSchema =
+  typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentTurnRuntimeEvidenceSchema"];
 type RemoteAgentWorkerTurnMessageSchema =
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerTurnMessageSchema"];
 type RemoteAgentStreamDeltaCallbackBodySchema =
@@ -136,6 +138,8 @@ export type RemoteAgentWorkerRuntimeDiagnosticsRequest =
   z.infer<RemoteAgentWorkerRuntimeDiagnosticsRequestSchema>;
 export type RemoteAgentWorkerRuntimeDiagnosticsResponse =
   z.infer<RemoteAgentWorkerRuntimeDiagnosticsResponseSchema>;
+export type RemoteAgentTurnRuntimeEvidence =
+  z.infer<RemoteAgentTurnRuntimeEvidenceSchema>;
 export type RemoteAgentWorkerTurnMessage =
   z.infer<RemoteAgentWorkerTurnMessageSchema>;
 export type RemoteAgentStreamDeltaCallbackBody =

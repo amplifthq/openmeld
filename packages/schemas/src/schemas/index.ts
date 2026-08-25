@@ -1094,6 +1094,17 @@ export {
   updateCenterAgentOrganizationMemoryPolicyBodySchema,
 } from "./http/center-agent-memory";
 export {
+  CENTER_AGENT_PERFORMANCE_ANALYTICS_BLOBS,
+  CENTER_AGENT_PERFORMANCE_ANALYTICS_DOUBLES,
+  CENTER_AGENT_PERFORMANCE_MODEL_VERSION,
+  type CenterAgentPerformanceEvent,
+  centerAgentPerformanceAnalyticsDataPointSchema,
+  centerAgentPerformanceEventSchema,
+  centerAgentPerformanceMilestoneSchema,
+  centerAgentPerformanceTriggerSourceSchema,
+  projectCenterAgentPerformanceAnalyticsDataPoint,
+} from "./http/center-agent-performance";
+export {
   buildDefaultCenterAgentProfileName,
   DEFAULT_CENTER_AGENT_PROFILE_NAME,
 } from "./http/center-agent-profile-name";
@@ -2626,6 +2637,7 @@ export {
   remoteAgentTurnEnvelopeSenderSchema,
   remoteAgentTurnEnvelopeSpaceSchema,
   remoteAgentTurnEnvelopeTriggerSchema,
+  remoteAgentTurnRuntimeEvidenceSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerAdmissionRejectionCodeSchema,
   remoteAgentWorkerAuthorContextSchema,

@@ -1857,6 +1857,26 @@ tokens, raw provider payloads, another member's history, or Routine history.
 Execution status, failure evidence, and publication are independent facts; a
 reader must not infer any one from the others or from user-facing copy.
 
+For an interactive Center Agent turn, that self-diagnostic projection also
+joins bounded exact runtime evidence by the native-delivery submission id. Core
+reads each distinct frozen runtime conversation represented in the bounded
+history, so a conversation-generation rollover does not hide evidence for an
+older Slack or Message Channel turn. The Remote Agent Durable Object owns this
+per-turn evidence and expires it after seven days. It records only structured
+milestones and decisions: provider
+request preparation and response headers, first model event, first visible
+assistant content, model completion, model and tool counts, capability search
+and describe results, the source of each tool call, and whether the per-attempt
+tool budget was exhausted. It never records prompt text, reply text, model
+reasoning, tool arguments, tool results, tokens, or provider payloads.
+
+Core reports runtime evidence as `available`, `not_recorded`, or `unavailable`.
+`not_recorded` means the exact runtime was reached but has no retained evidence
+for that turn, including turns created before this contract shipped.
+`unavailable` means Core could not read the exact frozen runtime conversation.
+Readers must preserve that difference and must never reconstruct either state
+from answer wording, elapsed time, or publication outcome.
+
 For Lark-platform final replies, the same native-delivery row also owns the
 frozen provider payload, attempt count, next-attempt time, provider-progress
 sequence, and ambiguity deadline. The first standalone reply attempt starts
@@ -2842,6 +2862,23 @@ Cloudflare runtime evidence around the same IDs.
 Cloudflare evidence query tooling must derive its field order from the shared
 runtime evidence contract. Do not hand-maintain a second Analytics Engine schema
 inside scripts or runbooks.
+
+Center Agent performance uses a separate Analytics Engine projection named
+`openmeld_center_agent_performance` in local and development environments and
+`openmeld_center_agent_performance_prod` in production. The Organization is the
+index; milestone, exact trigger source, model id, status, source client, and
+bounded correlation ids are dimensions. Numeric fields contain admission-to-
+milestone latency, stage duration, tool-exposure counts, and provider status.
+Prompt text, reply text, model reasoning, tool arguments, tool results, and
+provider payloads must not enter this projection.
+
+This projection answers aggregate questions such as p50, p95, and p99 by
+channel and model. Analytics Engine may sample rows, so aggregate queries must
+weight counts, averages, and quantiles by `_sample_interval`. It must never be
+used to decide what happened in one specific turn; exact turn diagnosis starts
+with the Core projection backed by the Remote Agent Durable Object record.
+`pnpm ops:cf:center-agent-performance` is the supported aggregate query entry
+point and derives its physical field order from the shared schema.
 
 ## Structured Log Events
 

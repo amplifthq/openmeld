@@ -660,6 +660,58 @@ const remoteAgentRuntimeCallbackContextDiagnosticSchema = z.strictObject({
   updatedAtMs: z.number().int().nonnegative(),
 });
 
+const remoteAgentRecentToolCallDiagnosticSchema = z.strictObject({
+  calledAtMs: z.number().int().nonnegative(),
+  source: z.enum(["code_mode", "direct"]),
+  toolName: nonEmptyStringSchema.max(160),
+});
+
+const remoteAgentCapabilityDiscoveryDiagnosticSchema = z.strictObject({
+  capabilityNames: z.array(nonEmptyStringSchema.max(160)).max(12),
+  observedAtMs: z.number().int().nonnegative(),
+  operation: z.enum(["describe", "search"]),
+  resultCount: z.number().int().nonnegative(),
+});
+
+const remoteAgentProviderRequestDiagnosticSchema = z.strictObject({
+  availableToolCount: z.number().int().nonnegative(),
+  deferredToolCount: z.number().int().nonnegative(),
+  exposedToolCount: z.number().int().nonnegative(),
+  modelId: nullableNonEmptyStringSchema,
+  preparedAtMs: z.number().int().nonnegative(),
+});
+
+export const remoteAgentTurnRuntimeEvidenceSchema = z.strictObject({
+  budgetExhaustedAtMs: nullableNonNegativeIntegerSchema,
+  capabilityDescribeCount: z.number().int().nonnegative(),
+  capabilitySearchCount: z.number().int().nonnegative(),
+  codeModeToolCallCount: z.number().int().nonnegative(),
+  directToolCallCount: z.number().int().nonnegative(),
+  firstAssistantTextAtMs: nullableNonNegativeIntegerSchema,
+  firstModelEventAtMs: nullableNonNegativeIntegerSchema,
+  firstProviderRequestPreparedAtMs: nullableNonNegativeIntegerSchema,
+  firstProviderResponseHeadersAtMs: nullableNonNegativeIntegerSchema,
+  firstVisibleContentAtMs: nullableNonNegativeIntegerSchema,
+  lastModelCompletedAtMs: nullableNonNegativeIntegerSchema,
+  modelCallCount: z.number().int().nonnegative(),
+  modelId: nullableNonEmptyStringSchema,
+  providerAvailableToolCount: z.number().int().nonnegative(),
+  providerDeferredToolCount: z.number().int().nonnegative(),
+  providerExposedToolCount: z.number().int().nonnegative(),
+  providerRequestCount: z.number().int().nonnegative(),
+  recentCapabilityDiscovery: z
+    .array(remoteAgentCapabilityDiscoveryDiagnosticSchema)
+    .max(16),
+  recentProviderRequests: z
+    .array(remoteAgentProviderRequestDiagnosticSchema)
+    .max(16),
+  recentToolCalls: z.array(remoteAgentRecentToolCallDiagnosticSchema).max(32),
+  submissionId: nonEmptyStringSchema,
+  toolCallCount: z.number().int().nonnegative(),
+  toolCallLimit: z.number().int().positive(),
+  updatedAtMs: z.number().int().nonnegative(),
+});
+
 export const remoteAgentWorkerRuntimeDiagnosticsResponseSchema = z.strictObject(
   {
     activeRuns: z.array(remoteAgentRuntimeActiveRunDiagnosticSchema).max(50),
@@ -675,6 +727,12 @@ export const remoteAgentWorkerRuntimeDiagnosticsResponseSchema = z.strictObject(
     schedules: z.array(remoteAgentRuntimeScheduleDiagnosticSchema).max(50),
     spaceId: nonEmptyStringSchema,
     submissions: z.array(remoteAgentRuntimeSubmissionDiagnosticSchema).max(50),
+    // Optional during rolling deploys so a new Core can still inspect an older
+    // Remote Agent generation without misreporting missing evidence as zeroes.
+    turnObservability: z
+      .array(remoteAgentTurnRuntimeEvidenceSchema)
+      .max(50)
+      .optional(),
     v: z.literal(1),
   }
 );

@@ -24,6 +24,7 @@ import {
   assertRemoteAgentTurnAllowsToolExecution,
   markRemoteAgentTurnEnded,
 } from "../agent-core/turn-end";
+import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
 
 const toolExecutionQueues = new WeakMap<object, Map<string, Promise<void>>>();
 
@@ -48,6 +49,7 @@ export async function requireRemoteAgentToolExecutionContext(input: {
 export async function executeRemoteAgentToolDefinition(input: {
   definition: RemoteAgentToolDefinition;
   signal?: AbortSignal;
+  source?: "code_mode" | "direct";
   storage: RemoteAgentStorage;
   submissionId: string;
   toolInput: Record<string, unknown>;
@@ -60,6 +62,7 @@ export async function executeRemoteAgentToolDefinition(input: {
       submissionId: input.submissionId,
       toolInput: input.toolInput,
       toolName: input.definition.name,
+      source: input.source ?? "direct",
     });
     const result = input.signal
       ? await input.definition.execute(input.toolInput, {
@@ -87,13 +90,32 @@ export async function beginRemoteAgentToolExecutionAttempt(input: {
   progressTracking?: RemoteAgentToolDefinition["progressTracking"];
   storage: RemoteAgentStorage;
   submissionId: string;
+  source: "code_mode" | "direct";
   toolInput: Record<string, unknown>;
   toolName: string;
 }): Promise<RemoteAgentToolAttempt> {
   await assertRemoteAgentTurnAllowsToolExecution(input);
   try {
-    return await beginRemoteAgentToolAttempt(input);
+    const attempt = await beginRemoteAgentToolAttempt(input);
+    await recordRemoteAgentTurnObservabilityBestEffort({
+      event: {
+        observedAtMs: Date.now(),
+        source: input.source,
+        toolName: input.toolName,
+        type: "tool_call",
+      },
+      storage: input.storage,
+      submissionId: input.submissionId,
+    });
+    return attempt;
   } catch (error) {
+    if (error instanceof RemoteAgentToolCallBudgetExceededError) {
+      await recordRemoteAgentTurnObservabilityBestEffort({
+        event: { observedAtMs: Date.now(), type: "tool_budget_exhausted" },
+        storage: input.storage,
+        submissionId: input.submissionId,
+      });
+    }
     if (
       error instanceof RemoteAgentToolCallBudgetExceededError ||
       error instanceof RemoteAgentToolProgressStateInvalidError

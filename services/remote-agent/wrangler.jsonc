@@ -26,6 +26,10 @@
     {
       "binding": "OPENMELD_OBSERVABILITY",
       "dataset": "openmeld_runtime_evidence"
+    },
+    {
+      "binding": "OPENMELD_CENTER_AGENT_PERFORMANCE",
+      "dataset": "openmeld_center_agent_performance"
     }
   ],
   "images": {
@@ -118,6 +122,10 @@
         {
           "binding": "OPENMELD_OBSERVABILITY",
           "dataset": "openmeld_runtime_evidence"
+        },
+        {
+          "binding": "OPENMELD_CENTER_AGENT_PERFORMANCE",
+          "dataset": "openmeld_center_agent_performance"
         }
       ],
       "images": {
@@ -200,6 +208,10 @@
         {
           "binding": "OPENMELD_OBSERVABILITY",
           "dataset": "openmeld_runtime_evidence_prod"
+        },
+        {
+          "binding": "OPENMELD_CENTER_AGENT_PERFORMANCE",
+          "dataset": "openmeld_center_agent_performance_prod"
         }
       ],
       "images": {

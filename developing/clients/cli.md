@@ -1316,6 +1316,12 @@ still supplies only the normal Space and dispatch selectors. Core resolves the
 frozen runtime conversation generation; the CLI must not accept or reconstruct
 that generation identity.
 
+Center Agent self-diagnostics use the same exact runtime-conversation boundary
+for Message Channel turns. The projection distinguishes retained runtime
+evidence, a turn with no retained evidence, and an unavailable runtime read.
+CLI or operator views must preserve those structured states and must not infer
+tool use, completion, or failure from assistant text.
+
 When the shared result inbox reports `late_result_available`, trace shows the
 retained result and recovery-notice references, preserves the RuntimeCoordinator
 terminal outcome, and sets `agentSummary.nextAction` to recover the retained

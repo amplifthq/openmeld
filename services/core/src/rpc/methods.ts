@@ -923,6 +923,7 @@ import {
   rpcListProjects as listProjects,
   rpcUpdateProject as updateProject,
 } from "../projects/project-rpc";
+import { attachCenterAgentTurnRuntimeEvidence } from "../remote-agent/application/center-agent-turn-diagnostics";
 import { listLarkPlatformProvidersEnabledForOrganization } from "../remote-agent/application/lark-platform-provider-policy";
 import {
   beginRemoteAgentLarkPlatformRegistration,
@@ -1000,8 +1001,7 @@ import {
 } from "../remote-agent/infrastructure/d1/message-channel-identity-link-token-repo";
 import {
   countActiveRemoteAgentNativeDeliveriesBySpaceIds,
-  listRemoteAgentNativeDeliveryTurnDiagnostics,
-  projectRemoteAgentNativeDeliveryTurnDiagnostic,
+  listRemoteAgentNativeDeliveryTurnDiagnosticRecords,
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByDispatchAndConversation,
   readRemoteAgentNativeDeliveryBySubmissionId,
@@ -1480,15 +1480,21 @@ export async function rpcCenterAgentReadTurnDiagnostics(
     throw centerAgentTurnDiagnosticsUnavailableError();
   }
 
-  return centerAgentReadTurnDiagnosticsResponseSchema.parse({
-    currentTurn:
-      projectRemoteAgentNativeDeliveryTurnDiagnostic(currentDelivery),
-    organizationId: authorization.activeOrganization.organizationId,
-    previousTurns: await listRemoteAgentNativeDeliveryTurnDiagnostics({
+  const previousDeliveries =
+    await listRemoteAgentNativeDeliveryTurnDiagnosticRecords({
       currentDelivery,
       db,
       limit: parsed.data.limit ?? CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
-    }),
+    });
+  const turns = await attachCenterAgentTurnRuntimeEvidence({
+    deliveries: [currentDelivery, ...previousDeliveries],
+    remoteAgentWorker: env.OPENMELD_REMOTE_AGENT_WORKER,
+  });
+
+  return centerAgentReadTurnDiagnosticsResponseSchema.parse({
+    currentTurn: turns[0],
+    organizationId: authorization.activeOrganization.organizationId,
+    previousTurns: turns.slice(1),
   });
 }
 

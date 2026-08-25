@@ -10,6 +10,7 @@ import {
   putRemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { readRemoteAgentTurnObservability } from "../agent-core/turn-observability";
 import { createRemoteAgentConversationCompactionObserver } from "../flue-adapter/conversation-compaction";
 import { runWithRemoteAgentSubmissionExecution } from "../flue-adapter/execution-context";
 import {
@@ -86,6 +87,11 @@ describe("Center Agent stream observation", () => {
       submissionId: SUBMISSION_ID,
       triggerMessageId: expect.any(String),
       v: 1,
+    });
+    await expect(
+      readRemoteAgentTurnObservability({ storage, submissionId: SUBMISSION_ID })
+    ).resolves.toMatchObject({
+      firstVisibleContentAtMs: expect.any(Number),
     });
   });
 
