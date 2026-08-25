@@ -10,6 +10,12 @@ import {
 	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
 
+export type InboxVisibleConversation = {
+	kind: "space";
+	spaceId: string;
+	threadRootSignalId: string | null;
+};
+
 export function buildInboxItemSourceNavigation(input: {
 	item: InboxItem;
 	orgSlug: string;
@@ -43,6 +49,7 @@ export function buildInboxItemSourceNavigation(input: {
 					search: {
 						focusInteractionId: target.interactionId,
 						focusSignalId: target.sourceSignalId,
+						focusThreadRootSignalId: target.threadRootSignalId ?? undefined,
 					},
 					spaceId: target.spaceId,
 				}),
@@ -103,16 +110,38 @@ function resolveSettingsTargetPath(input: {
 }
 
 /**
- * Whether the given app pathname is the canonical source location of the item,
- * ignoring query params: a member standing inside that conversation is already
- * seeing its updates, so a system notification would only repeat the screen.
+ * Whether the current app surface is the exact source conversation for the
+ * item. Space pages need the rendered view and active thread because Messages,
+ * Files, Graph, the main timeline, and every thread share one pathname.
  * External targets (for example message_channel permalinks) never match.
  */
 export function isInboxItemSourceLocation(input: {
 	item: InboxItem;
 	orgSlug: string;
 	pathname: string | null;
+	visibleConversation: InboxVisibleConversation | null;
 }): boolean {
+	const target = input.item.sourceTarget;
+	if (target.kind === "space") {
+		return (
+			input.visibleConversation?.kind === "space" &&
+			input.visibleConversation.spaceId === target.spaceId &&
+			input.visibleConversation.threadRootSignalId ===
+				(target.threadRootSignalId ?? null)
+		);
+	}
+	if (target.kind === "agent_interaction") {
+		// Missing means this durable item predates the exact thread locator. Do
+		// not guess that it came from the main timeline and hide its alert.
+		if (target.threadRootSignalId === undefined) {
+			return false;
+		}
+		return (
+			input.visibleConversation?.kind === "space" &&
+			input.visibleConversation.spaceId === target.spaceId &&
+			input.visibleConversation.threadRootSignalId === target.threadRootSignalId
+		);
+	}
 	if (!input.pathname) {
 		return false;
 	}

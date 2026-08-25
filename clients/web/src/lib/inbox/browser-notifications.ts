@@ -36,11 +36,14 @@ export type InboxBrowserNotificationDeliveryResult =
 	  };
 
 export type InboxBrowserNotificationDeliveryReadiness =
-	| "eligible"
-	| "context_changed"
-	| "ineligible"
-	| "revalidation_failed"
-	| "source_visible";
+	| { item: InboxItem; status: "eligible" }
+	| {
+			status:
+				| "context_changed"
+				| "ineligible"
+				| "revalidation_failed"
+				| "source_visible";
+	  };
 
 const ENABLED_VALUE = "enabled";
 const DISABLED_VALUE = "disabled";
@@ -144,33 +147,36 @@ export async function showInboxBrowserNotification(input: {
 		return { reason: "source_visible", status: "deferred" };
 	}
 	return await withInboxBrowserNotificationClaim(input.item.id, async () => {
-		const currentReadiness =
-			(await input.resolveCurrentReadiness?.()) ?? "eligible";
-		if (currentReadiness === "ineligible") {
+		const currentReadiness = (await input.resolveCurrentReadiness?.()) ?? {
+			item: input.item,
+			status: "eligible",
+		};
+		if (currentReadiness.status === "ineligible") {
 			return { status: "ineligible" };
 		}
-		if (currentReadiness !== "eligible") {
-			return { reason: currentReadiness, status: "deferred" };
+		if (currentReadiness.status !== "eligible") {
+			return { reason: currentReadiness.status, status: "deferred" };
 		}
-		const body = input.item.contextLabel
-			? `${input.item.contextLabel}: ${input.item.preview}`
-			: input.item.preview;
-		const notification = new window.Notification(input.item.title, {
+		const currentItem = currentReadiness.item;
+		const body = currentItem.contextLabel
+			? `${currentItem.contextLabel}: ${currentItem.preview}`
+			: currentItem.preview;
+		const notification = new window.Notification(currentItem.title, {
 			badge: BADGE_PATH,
 			body,
 			icon: ICON_PATH,
 			requireInteraction:
-				input.item.importance === "urgent" ||
-				(input.item.attention === "action_required" &&
-					input.item.resolutionStatus === "open"),
-			tag: `openmeld-inbox:${input.item.id}`,
+				currentItem.importance === "urgent" ||
+				(currentItem.attention === "action_required" &&
+					currentItem.resolutionStatus === "open"),
+			tag: `openmeld-inbox:${currentItem.id}`,
 		});
 		notification.onclick = () => {
 			window.focus();
 			window.location.assign(input.sourcePath);
 			notification.close();
 		};
-		recordInboxBrowserNotificationDelivered(input.item.id);
+		recordInboxBrowserNotificationDelivered(currentItem.id);
 		return { notification, status: "delivered" };
 	});
 }
@@ -194,7 +200,16 @@ export function readPendingInboxBrowserNotificationItemIds(input: {
 			if (!encodedItemId) {
 				continue;
 			}
-			itemIds.add(decodeURIComponent(encodedItemId));
+			try {
+				itemIds.add(decodeURIComponent(encodedItemId));
+			} catch (error) {
+				console.warn(
+					"[openmeld.web.inbox.browser_notification_pending_item_invalid]",
+					{
+						error: error instanceof Error ? error.message : String(error),
+					}
+				);
+			}
 		}
 		return itemIds;
 	} catch (error) {

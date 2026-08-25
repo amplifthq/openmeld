@@ -23,6 +23,10 @@ vi.mock("#/lib/inbox/browser-notifications", () => {
 		disableInboxBrowserNotifications: disableMock,
 		enableInboxBrowserNotifications: enableMock,
 		readInboxBrowserNotificationSettings: readSettingsMock,
+		resolveBrowserNotificationDescription: (permission: string) =>
+			permission === "denied"
+				? "Notifications are blocked. Allow them in your browser’s site settings, then return here."
+				: "Notification permission is not available.",
 		subscribeInboxBrowserNotificationSettings: (...args: unknown[]) =>
 			subscribeMock(...args),
 	};
@@ -43,6 +47,8 @@ vi.mock("#/components/inbox/browser-notification-toggle", () => ({
 }));
 
 const GLOBAL_SCOPE_TEXT_PATTERN = /every Space and Direct Message/i;
+const BLOCKED_PERMISSION_GUIDANCE_PATTERN =
+	/allow them in your browser’s site settings/i;
 
 describe("SpaceInfoNotificationsSection", () => {
 	beforeEach(() => {
@@ -88,5 +94,19 @@ describe("SpaceInfoNotificationsSection", () => {
 			expect(enableMock).toHaveBeenCalledWith({ userId: "user-123" });
 		});
 		expect(disableMock).not.toHaveBeenCalled();
+	});
+
+	it("explains how to recover when browser permission is blocked", () => {
+		useOptionalAppOrganizationMock.mockReturnValue({
+			currentUserId: "user-123",
+		});
+		readSettingsMock.mockReturnValue({
+			enabled: false,
+			permission: "denied",
+		});
+
+		render(<SpaceInfoNotificationsSection />);
+
+		expect(screen.getByText(BLOCKED_PERMISSION_GUIDANCE_PATTERN)).toBeTruthy();
 	});
 });

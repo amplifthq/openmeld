@@ -88,10 +88,14 @@ Core owns one canonical item with:
 - Inbox-owned `readAt` and dismissal state.
 
 An Agent Interaction target includes its stable source Space signal when the
-producer knows it. The interaction id remains useful while the request is open,
-but resolved history must still navigate after RuntimeCoordinator retires the
-transient interaction state. Older targets without the additive signal remain
-valid during mixed-version rollout.
+producer knows it and an exact nullable thread root for every new
+RuntimeCoordinator projection. A string identifies one thread; explicit null
+identifies the Space main timeline. The interaction id remains useful while the
+request is open, but resolved history must still navigate after
+RuntimeCoordinator retires the transient interaction state. Older targets
+without either additive locator remain valid during mixed-version rollout.
+Clients must not treat a missing thread root as the main timeline: when the
+origin conversation is unknown, browser alerts fail open and remain visible.
 
 A linked Slack delivery uses a `message_channel` target containing the exact
 workspace, channel, thread-root, and published-message ids plus Slack's

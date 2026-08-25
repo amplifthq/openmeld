@@ -256,17 +256,24 @@ external canonical source: it carries exact provider ids and a permalink that
 the shared schema restricts to HTTPS `slack.com` hosts. Core resolves that link
 through Slack `chat.getPermalink`; clients never construct or accept a
 recipient-authored external URL.
-An Agent Interaction target carries the stable source Space signal when known,
-so resolved interaction history remains navigable after transient interaction
-state is retired. Readers remain compatible with older targets that do not yet
-contain that additive locator. Existing resolved targets may be migrated to the
-already-supported Space target shape; open interactions retain their interaction
-target.
+An Agent Interaction target carries the stable source Space signal when known
+and an exact nullable Space thread root for every new RuntimeCoordinator
+projection, so resolved interaction history remains navigable and clients can
+identify the exact visible source conversation. A string identifies one thread;
+explicit null identifies the main timeline; an absent field means legacy
+unknown context and must not be interpreted as main. Readers remain compatible
+with older targets that do not yet contain either additive locator. Existing
+resolved targets may be migrated to the already-supported Space target shape;
+open interactions retain their interaction target.
 
-The additive Agent Interaction signal locator rolls out consumer first: deploy
-Web before Core begins emitting it. The historical-data migration rewrites only
-resolved items to the existing Space target shape, so it remains readable by
-old and new strict consumers during the Database-to-Core deployment window.
+The additive Agent Interaction thread locator rolls out receiver first: deploy
+Web, then Gateway, before Core begins emitting it. Source-target version `4`
+identifies a thread-aware client. Gateway removes the additive thread locator
+for version `3` clients, while preserving the remaining Agent Interaction
+target; missing or older version headers continue through the existing legacy
+target projection. The historical-data migration rewrites only resolved items
+to the existing Space target shape, so it remains readable by old and new
+strict consumers during the Database-to-Core deployment window.
 
 The additive Slack Message Channel target uses the
 `inbox-message-channel-receiver-first` release profile. The persisted-row reader

@@ -2,6 +2,7 @@
 
 import { BrowserNotificationControl } from "#/components/inbox/browser-notification-toggle";
 import { useInboxBrowserNotificationSettings } from "#/components/inbox/use-inbox-browser-notification-settings";
+import { resolveBrowserNotificationDescription } from "#/lib/inbox/browser-notifications";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 
 /**
@@ -21,6 +22,10 @@ export function SpaceInfoNotificationsSection() {
 	if (!(currentUserId && settings)) {
 		return null;
 	}
+	const statusDescription = resolveSpaceInfoNotificationStatusDescription({
+		enabled: settings.enabled,
+		permission: settings.permission,
+	});
 
 	return (
 		<section className="min-w-0 border-border/60 border-t pt-4">
@@ -35,13 +40,7 @@ export function SpaceInfoNotificationsSection() {
 			<div className="flex items-center justify-between gap-3">
 				<div className="min-w-0">
 					<p className="text-sm">Browser notifications</p>
-					{settings.permission === "granted" ? (
-						<p className="text-muted-foreground text-xs">
-							{settings.enabled
-								? "On for all conversations while OpenMeld runs in the background."
-								: "Off for all conversations."}
-						</p>
-					) : null}
+					<p className="text-muted-foreground text-xs">{statusDescription}</p>
 				</div>
 				<BrowserNotificationControl
 					disabled={isPending}
@@ -56,4 +55,16 @@ export function SpaceInfoNotificationsSection() {
 			) : null}
 		</section>
 	);
+}
+
+function resolveSpaceInfoNotificationStatusDescription(input: {
+	enabled: boolean;
+	permission: Parameters<typeof resolveBrowserNotificationDescription>[0];
+}): string {
+	if (input.permission !== "granted") {
+		return resolveBrowserNotificationDescription(input.permission);
+	}
+	return input.enabled
+		? "On for all conversations while OpenMeld runs in the background."
+		: "Off for all conversations.";
 }

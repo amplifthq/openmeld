@@ -3,6 +3,7 @@ import { Outlet, useMatches } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
 import { InboxBrowserNotificationListener } from "#/components/inbox/inbox-browser-notification-listener";
+import { InboxVisibleConversationProvider } from "#/components/inbox/inbox-visible-conversation";
 import { OnboardingEntryGate } from "#/components/onboarding/onboarding-entry-gate";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
@@ -33,23 +34,27 @@ export function AppShell(input: {
 		<AppShellAccountContext.Provider value={input.account}>
 			<AppOrganizationProvider scope={input.organizationScope}>
 				<StartFlowStateProvider storageScope={input.storageScope}>
-					<AppReadinessInvalidationListener
-						organizationId={input.organizationScope.currentOrganization.id}
-						storageScope={input.storageScope}
-					/>
-					<InboxBrowserNotificationListener
-						organizationId={input.organizationScope.currentOrganization.id}
-						organizationSlug={input.organizationScope.currentOrganization.slug}
-						userId={input.organizationScope.currentUserId}
-					/>
-					<OnboardingEntryGate
-						currentOrganization={input.organizationScope.currentOrganization}
-						currentSection={currentSection}
-						organizations={input.organizationScope.organizations}
-						storageScope={input.storageScope}
-					>
-						<AppShellScaffold currentSection={currentSection} />
-					</OnboardingEntryGate>
+					<InboxVisibleConversationProvider>
+						<AppReadinessInvalidationListener
+							organizationId={input.organizationScope.currentOrganization.id}
+							storageScope={input.storageScope}
+						/>
+						<InboxBrowserNotificationListener
+							organizationId={input.organizationScope.currentOrganization.id}
+							organizationSlug={
+								input.organizationScope.currentOrganization.slug
+							}
+							userId={input.organizationScope.currentUserId}
+						/>
+						<OnboardingEntryGate
+							currentOrganization={input.organizationScope.currentOrganization}
+							currentSection={currentSection}
+							organizations={input.organizationScope.organizations}
+							storageScope={input.storageScope}
+						>
+							<AppShellScaffold currentSection={currentSection} />
+						</OnboardingEntryGate>
+					</InboxVisibleConversationProvider>
 				</StartFlowStateProvider>
 			</AppOrganizationProvider>
 		</AppShellAccountContext.Provider>
