@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
 import {
-  buildCoreCurrentCliProjectionDeployStepSpec,
+  buildCoreCurrentCliProjectionDryRunStepSpec,
   deployCoreWithCurrentCliProjection,
   resolveCurrentCliProjectionReleaseManifest,
   resolveCurrentCliProjectionTarget,
@@ -149,8 +149,8 @@ test("refuses a release tag that does not resolve to an exact commit", () => {
   );
 });
 
-test("builds one Core deploy whose compiled projection stays on the published manifest", () => {
-  const step = buildCoreCurrentCliProjectionDeployStepSpec({
+test("builds one Core dry run whose compiled projection stays on the published manifest", () => {
+  const step = buildCoreCurrentCliProjectionDryRunStepSpec({
     expectedCoreTag: EXPECTED_CORE_TAG,
     releaseManifest: PUBLISHED_MANIFEST,
   });
@@ -187,8 +187,7 @@ test("builds one Core deploy whose compiled projection stays on the published ma
 });
 
 test("dry-runs the exact tagged projection without changing production", () => {
-  const step = buildCoreCurrentCliProjectionDeployStepSpec({
-    dryRun: true,
+  const step = buildCoreCurrentCliProjectionDryRunStepSpec({
     expectedCoreTag: EXPECTED_CORE_TAG,
     releaseManifest: PUBLISHED_MANIFEST,
   });
@@ -219,6 +218,7 @@ test("reads channel truth before running the guarded Core receiver deploy", asyn
         return TAG_COMMIT_SHA;
       },
       readHeadSha: () => CORE_RELEASE_SHA,
+      readCoreWranglerConfig: () => "{}",
       runStep: (step) => {
         events.push(step.label);
       },
@@ -227,6 +227,7 @@ test("reads channel truth before running the guarded Core receiver deploy", asyn
         assert.equal(input.tag, EXPECTED_CORE_TAG);
         assert.equal(input.defines.length, 1);
         assert.match(input.defines[0], RELEASE_MANIFEST_DEFINE_RE);
+        return { versionId: "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3" };
       },
       verifyAlignment: ({ expectedCoreTag }) => {
         events.push(`verify-alignment:${expectedCoreTag}`);
@@ -242,7 +243,8 @@ test("reads channel truth before running the guarded Core receiver deploy", asyn
     "read-tag",
     "Build Core receiver dependencies",
     `admit-startup:${CORE_RELEASE_SHA}`,
-    "Deploy Core with the current published CLI projection",
+    "Deploy the startup-admitted Core version",
+    "Synchronize Core triggers",
     "Verify Core deployment is visible",
     `verify-alignment:${EXPECTED_CORE_TAG}`,
   ]);

@@ -43,7 +43,6 @@ import { Route as DesktopDownloadRouteImport } from './routes/desktop/download'
 import { Route as CliManifestDotjsonRouteImport } from './routes/cli/manifest[.json]'
 import { Route as ApiWaitlistRouteImport } from './routes/api/waitlist'
 import { Route as AgentInterfaceGuideDotmdRouteImport } from './routes/agent-interface/guide[.md]'
-import { Route as OOrgSlugIndexRouteImport } from './routes/o/$orgSlug/index'
 import { Route as V1AccountLastSelectedOrganizationRouteImport } from './routes/v1/account/last-selected-organization'
 import { Route as V1AccountDisplayNameRouteImport } from './routes/v1/account/display-name'
 import { Route as SlackOauthStartRouteImport } from './routes/slack/oauth/start'
@@ -75,6 +74,7 @@ import { Route as OOrgSlugDocumentsIndexRouteImport } from './routes/o/$orgSlug/
 import { Route as OOrgSlugDirectoryIndexRouteImport } from './routes/o/$orgSlug/directory/index'
 import { Route as OOrgSlugDirectMessagesIndexRouteImport } from './routes/o/$orgSlug/direct-messages/index'
 import { Route as OOrgSlugAgentActivityIndexRouteImport } from './routes/o/$orgSlug/agent-activity/index'
+import { Route as OOrgSlugCenterAgentIndexRouteImport } from './routes/o/$orgSlug/_center-agent/index'
 import { Route as V1SpacesSpaceIdStreamRouteImport } from './routes/v1/spaces/$spaceId/stream'
 import { Route as OOrgSlugSpacesSpaceIdRouteImport } from './routes/o/$orgSlug/spaces/$spaceId'
 import { Route as OOrgSlugSettingsServiceRouteImport } from './routes/o/$orgSlug/settings/service'
@@ -284,11 +284,6 @@ const AgentInterfaceGuideDotmdRoute =
     path: '/guide.md',
     getParentRoute: () => AgentInterfaceRoute,
   } as any)
-const OOrgSlugIndexRoute = OOrgSlugIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => OOrgSlugRoute,
-} as any)
 const V1AccountLastSelectedOrganizationRoute =
   V1AccountLastSelectedOrganizationRouteImport.update({
     id: '/v1/account/last-selected-organization',
@@ -446,6 +441,12 @@ const OOrgSlugAgentActivityIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => OOrgSlugAgentActivityRoute,
+  } as any)
+const OOrgSlugCenterAgentIndexRoute =
+  OOrgSlugCenterAgentIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => OOrgSlugCenterAgentRoute,
   } as any)
 const V1SpacesSpaceIdStreamRoute = V1SpacesSpaceIdStreamRouteImport.update({
   id: '/v1/spaces/$spaceId/stream',
@@ -718,7 +719,6 @@ export interface FileRoutesByFullPath {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
-  '/o/$orgSlug/': typeof OOrgSlugIndexRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
@@ -740,6 +740,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
+  '/o/$orgSlug/': typeof OOrgSlugCenterAgentIndexRoute
   '/o/$orgSlug/agent-activity/': typeof OOrgSlugAgentActivityIndexRoute
   '/o/$orgSlug/direct-messages/': typeof OOrgSlugDirectMessagesIndexRoute
   '/o/$orgSlug/directory/': typeof OOrgSlugDirectoryIndexRoute
@@ -797,12 +798,12 @@ export interface FileRoutesByTo {
   '/desktop/update.json': typeof DesktopUpdateDotjsonRoute
   '/device/approve': typeof DeviceApproveRoute
   '/guides/local-agents': typeof GuidesLocalAgentsRouteWithChildren
+  '/o/$orgSlug': typeof OOrgSlugCenterAgentIndexRoute
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
-  '/o/$orgSlug': typeof OOrgSlugIndexRoute
   '/o/$orgSlug/agents': typeof OOrgSlugAgentsRoute
   '/o/$orgSlug/computers': typeof OOrgSlugComputersRouteWithChildren
   '/o/$orgSlug/connect': typeof OOrgSlugConnectRoute
@@ -918,7 +919,6 @@ export interface FileRoutesById {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
-  '/o/$orgSlug/': typeof OOrgSlugIndexRoute
   '/o/$orgSlug/_center-agent/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
@@ -940,6 +940,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
+  '/o/$orgSlug/_center-agent/': typeof OOrgSlugCenterAgentIndexRoute
   '/o/$orgSlug/agent-activity/': typeof OOrgSlugAgentActivityIndexRoute
   '/o/$orgSlug/direct-messages/': typeof OOrgSlugDirectMessagesIndexRoute
   '/o/$orgSlug/directory/': typeof OOrgSlugDirectoryIndexRoute
@@ -1024,7 +1025,6 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
-    | '/o/$orgSlug/'
     | '/o/$orgSlug/center-agent'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
@@ -1046,6 +1046,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/spaces/$spaceId/stream'
+    | '/o/$orgSlug/'
     | '/o/$orgSlug/agent-activity/'
     | '/o/$orgSlug/direct-messages/'
     | '/o/$orgSlug/directory/'
@@ -1103,12 +1104,12 @@ export interface FileRouteTypes {
     | '/desktop/update.json'
     | '/device/approve'
     | '/guides/local-agents'
+    | '/o/$orgSlug'
     | '/spaces/$spaceId'
     | '/v1/$'
     | '/api/auth/$'
     | '/cli/download/$artifact'
     | '/guides/local-agents/$agentId'
-    | '/o/$orgSlug'
     | '/o/$orgSlug/agents'
     | '/o/$orgSlug/computers'
     | '/o/$orgSlug/connect'
@@ -1223,7 +1224,6 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
-    | '/o/$orgSlug/'
     | '/o/$orgSlug/_center-agent/center-agent'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
@@ -1245,6 +1245,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/spaces/$spaceId/stream'
+    | '/o/$orgSlug/_center-agent/'
     | '/o/$orgSlug/agent-activity/'
     | '/o/$orgSlug/direct-messages/'
     | '/o/$orgSlug/directory/'
@@ -1553,13 +1554,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentInterfaceGuideDotmdRouteImport
       parentRoute: typeof AgentInterfaceRoute
     }
-    '/o/$orgSlug/': {
-      id: '/o/$orgSlug/'
-      path: '/'
-      fullPath: '/o/$orgSlug/'
-      preLoaderRoute: typeof OOrgSlugIndexRouteImport
-      parentRoute: typeof OOrgSlugRoute
-    }
     '/v1/account/last-selected-organization': {
       id: '/v1/account/last-selected-organization'
       path: '/v1/account/last-selected-organization'
@@ -1776,6 +1770,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/o/$orgSlug/agent-activity/'
       preLoaderRoute: typeof OOrgSlugAgentActivityIndexRouteImport
       parentRoute: typeof OOrgSlugAgentActivityRoute
+    }
+    '/o/$orgSlug/_center-agent/': {
+      id: '/o/$orgSlug/_center-agent/'
+      path: '/'
+      fullPath: '/o/$orgSlug/'
+      preLoaderRoute: typeof OOrgSlugCenterAgentIndexRouteImport
+      parentRoute: typeof OOrgSlugCenterAgentRoute
     }
     '/v1/spaces/$spaceId/stream': {
       id: '/v1/spaces/$spaceId/stream'
@@ -2178,11 +2179,13 @@ const OOrgSlugCenterAgentCenterAgentRouteWithChildren =
 
 interface OOrgSlugCenterAgentRouteChildren {
   OOrgSlugCenterAgentCenterAgentRoute: typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
+  OOrgSlugCenterAgentIndexRoute: typeof OOrgSlugCenterAgentIndexRoute
 }
 
 const OOrgSlugCenterAgentRouteChildren: OOrgSlugCenterAgentRouteChildren = {
   OOrgSlugCenterAgentCenterAgentRoute:
     OOrgSlugCenterAgentCenterAgentRouteWithChildren,
+  OOrgSlugCenterAgentIndexRoute: OOrgSlugCenterAgentIndexRoute,
 }
 
 const OOrgSlugCenterAgentRouteWithChildren =
@@ -2331,7 +2334,6 @@ interface OOrgSlugRouteChildren {
   OOrgSlugPeopleRoute: typeof OOrgSlugPeopleRoute
   OOrgSlugProjectsRoute: typeof OOrgSlugProjectsRouteWithChildren
   OOrgSlugSettingsRoute: typeof OOrgSlugSettingsRouteWithChildren
-  OOrgSlugIndexRoute: typeof OOrgSlugIndexRoute
   OOrgSlugDirectMessagesSpaceIdRoute: typeof OOrgSlugDirectMessagesSpaceIdRoute
   OOrgSlugSpacesSpaceIdRoute: typeof OOrgSlugSpacesSpaceIdRoute
   OOrgSlugDirectMessagesIndexRoute: typeof OOrgSlugDirectMessagesIndexRoute
@@ -2354,7 +2356,6 @@ const OOrgSlugRouteChildren: OOrgSlugRouteChildren = {
   OOrgSlugPeopleRoute: OOrgSlugPeopleRoute,
   OOrgSlugProjectsRoute: OOrgSlugProjectsRouteWithChildren,
   OOrgSlugSettingsRoute: OOrgSlugSettingsRouteWithChildren,
-  OOrgSlugIndexRoute: OOrgSlugIndexRoute,
   OOrgSlugDirectMessagesSpaceIdRoute: OOrgSlugDirectMessagesSpaceIdRoute,
   OOrgSlugSpacesSpaceIdRoute: OOrgSlugSpacesSpaceIdRoute,
   OOrgSlugDirectMessagesIndexRoute: OOrgSlugDirectMessagesIndexRoute,

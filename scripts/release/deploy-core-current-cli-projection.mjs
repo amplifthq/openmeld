@@ -2,11 +2,14 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { localComponentsReleaseManifestSchema } from "../../packages/schemas/src/schemas/local-components.ts";
 import { runCoreStartupAdmission } from "../cloudflare/core-startup-admission.mjs";
+import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
 
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
@@ -120,7 +123,7 @@ function parseReleaseManifest(input) {
   return parsed.data;
 }
 
-export function buildCoreCurrentCliProjectionDeployStepSpec(input) {
+export function buildCoreCurrentCliProjectionDryRunStepSpec(input) {
   const manifestJson = JSON.stringify(input.releaseManifest);
   return {
     args: [
@@ -141,10 +144,10 @@ export function buildCoreCurrentCliProjectionDeployStepSpec(input) {
       input.expectedCoreTag,
       "--define",
       `${RELEASE_MANIFEST_DEFINE}:${JSON.stringify(manifestJson)}`,
-      ...(input.dryRun ? ["--dry-run"] : []),
+      "--dry-run",
     ],
     command: "pnpm",
-    label: "Deploy Core with the current published CLI projection",
+    label: "Dry-run Core with the current published CLI projection",
   };
 }
 
@@ -170,6 +173,10 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
           cwd,
           encoding: "utf8",
         }).trim()),
+    readCoreWranglerConfig:
+      input.adapters?.readCoreWranglerConfig ??
+      (() =>
+        readFileSync(path.join(cwd, "services/core/wrangler.jsonc"), "utf8")),
     readTagFile:
       input.adapters?.readTagFile ??
       ((tagInput) =>
@@ -210,6 +217,7 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     command: "pnpm",
     label: "Build Core receiver dependencies",
   });
+  let admissionEvidence;
   if (!input.dryRun) {
     const headSha = adapters.readHeadSha();
     if (input.releaseSha !== headSha) {
@@ -217,7 +225,7 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
         `Core receiver deploy release SHA ${String(input.releaseSha)} does not match checked-out HEAD ${headSha}`
       );
     }
-    await adapters.runStartupAdmission({
+    admissionEvidence = await adapters.runStartupAdmission({
       cwd,
       defines: [
         `${RELEASE_MANIFEST_DEFINE}:${JSON.stringify(JSON.stringify(target.releaseManifest))}`,
@@ -227,14 +235,21 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
       tag: target.expectedCoreTag,
     });
   }
-  const step = buildCoreCurrentCliProjectionDeployStepSpec({
-    dryRun: input.dryRun,
-    expectedCoreTag: target.expectedCoreTag,
-    releaseManifest: target.releaseManifest,
-  });
-  adapters.runStep(step);
   if (input.dryRun) {
+    adapters.runStep(
+      buildCoreCurrentCliProjectionDryRunStepSpec({
+        expectedCoreTag: target.expectedCoreTag,
+        releaseManifest: target.releaseManifest,
+      })
+    );
     return target;
+  }
+  const releaseSteps = buildCoreVersionReleaseStepSpecs({
+    versionId: admissionEvidence.versionId,
+    wranglerConfigSource: adapters.readCoreWranglerConfig(),
+  });
+  for (const step of releaseSteps) {
+    adapters.runStep(step);
   }
   adapters.runStep({
     args: [

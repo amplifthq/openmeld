@@ -3871,13 +3871,24 @@ the last successful timestamp without treating historical evidence as current
 readiness.
 
 Core owns the recovery verdict in the current-local-runtime reply-readiness
-response. When every non-ready capability is blocked only by
-`controller.interface.check_failed`, Core must keep Wake fail closed with
+response. Execution-target status, aggregate reason codes, and the recovery
+verdict use enabled capabilities only. A disabled capability remains available
+as row-scoped diagnostic evidence, but its status and reason codes never change
+the Computer verdict. When every non-ready enabled capability is blocked only
+by `controller.interface.check_failed`, Core must keep Wake fail closed with
 `canReplyFromThisComputer: false` and `status: blocked`, while publishing
-`nextAction: check_status` instead of `run_setup`. Clients must consume that
-owner verdict for summary status and recovery actions; they may expose raw
-reason codes as diagnostic or row-scoped evidence, but must not reinterpret
-them into a second setup-or-retry decision.
+`nextAction: check_status` instead of `run_setup`. Clients present that verdict
+as the same warning-level **Couldn't check** outcome used by the affected local
+agent row; they must not escalate it to repair guidance.
+
+When the Computer reports capabilities but all of them are disabled, Core keeps
+`canReplyFromThisComputer: false` and `status: blocked`, publishes
+`nextAction: none`, and describes the intentional all-off state. Clients keep
+that state neutral and create no Computer or navigation attention. They may
+continue to show each disabled capability and its diagnostics in detail. Clients
+must consume these owner verdicts for summary status and recovery actions; they
+may expose raw reason codes as diagnostic or row-scoped evidence, but must not
+reinterpret them into a second setup-or-retry decision.
 
 The shared schema supports both the rich local snapshot and its cloud-bound
 projection, but runtime reporting must construct the cloud projection through

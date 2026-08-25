@@ -112,7 +112,7 @@ describe("GlobalCenterAgentLauncher", () => {
 			screen
 				.getByRole("link", { name: "Open full Center Agent Chat" })
 				.getAttribute("href")
-		).toBe("/o/amplift/center-agent/chat");
+		).toBe("/o/amplift");
 		expect(
 			screen.queryByRole("button", { name: "Continue in Chat" })
 		).toBeNull();
@@ -140,8 +140,8 @@ describe("GlobalCenterAgentLauncher", () => {
 		).toBeTruthy();
 	});
 
-	it("hides the redundant shortcut while the full Chat is already open", () => {
-		renderLauncher("/o/amplift/center-agent/chat");
+	it("hides the redundant shortcut while Home Chat is already open", () => {
+		renderLauncher("/o/amplift");
 
 		expect(
 			screen.queryByRole("button", { name: "Open Center Agent" })

@@ -770,7 +770,7 @@ Web exposes Routines at `/o/{orgSlug}/center-agent/routines` inside the Center
 Agent product's stable secondary navigation. The page reads the current Center
 Agent designation before it
 requests Routines. When the Organization has no designation, Web shows one
-short explanation and links to `/o/{orgSlug}/center-agent/chat`; it does not render
+short explanation and links to `/o/{orgSlug}`; it does not render
 the Routine management surface. Once designated, Web reads the canonical
 Routine, Run, permission, and eligible-target projections.
 `canManage` controls update, pause, resume, and delete; read-only members still

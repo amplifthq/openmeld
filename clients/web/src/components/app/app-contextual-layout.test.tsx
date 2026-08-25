@@ -65,24 +65,24 @@ describe("AppContextualSidebarNav", () => {
 	it("renders quiet group labels above contextual navigation items", () => {
 		render(
 			<AppContextualSidebarNav
-				activeItemId="chat"
-				ariaLabel="Center Agent"
+				activeItemId="overview"
+				ariaLabel="Projects"
 				groups={[
 					{
-						ariaLabel: "Center Agent work",
+						ariaLabel: "Project navigation",
 						id: "work",
 						items: [
 							{
 								icon: MonitorIcon,
-								id: "chat",
-								label: "Chat",
-								to: "/o/acme/center-agent/chat",
+								id: "overview",
+								label: "Overview",
+								to: "/o/acme/projects",
 							},
 						],
 						label: "Work",
 					},
 				]}
-				title="Center Agent"
+				title="Projects"
 			/>
 		);
 
@@ -99,31 +99,31 @@ describe("AppContextualSidebarNav", () => {
 		expect(group?.className).toContain("gap-2");
 		expect(group?.className).toContain("p-0");
 		expect(
-			screen.getByRole("navigation", { name: "Center Agent work" })
+			screen.getByRole("navigation", { name: "Project navigation" })
 		).toBeTruthy();
 	});
 
 	it("collapses a labeled group through an accessible disclosure trigger", () => {
 		render(
 			<AppContextualSidebarNav
-				activeItemId="chat"
-				ariaLabel="Center Agent"
+				activeItemId="overview"
+				ariaLabel="Projects"
 				groups={[
 					{
-						ariaLabel: "Center Agent work",
+						ariaLabel: "Project navigation",
 						id: "work",
 						items: [
 							{
 								icon: MonitorIcon,
-								id: "chat",
-								label: "Chat",
-								to: "/o/acme/center-agent/chat",
+								id: "overview",
+								label: "Overview",
+								to: "/o/acme/projects",
 							},
 						],
 						label: "Work",
 					},
 				]}
-				title="Center Agent"
+				title="Projects"
 			/>
 		);
 
@@ -135,12 +135,12 @@ describe("AppContextualSidebarNav", () => {
 		expect(trigger.className).toContain("gap-1.5");
 		expect(caret).toBe(trigger.lastElementChild);
 		expect(trigger.getAttribute("aria-expanded")).toBe("true");
-		expect(screen.getByRole("link", { name: "Chat" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Overview" })).toBeTruthy();
 
 		fireEvent.click(trigger);
 
 		expect(trigger.getAttribute("aria-expanded")).toBe("false");
-		expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
+		expect(screen.queryByRole("link", { name: "Overview" })).toBeNull();
 	});
 
 	it("renders warning-status nav items in amber", () => {

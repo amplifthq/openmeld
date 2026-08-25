@@ -1,7 +1,6 @@
 import {
 	buildOrganizationAgentActivityPath,
 	buildOrganizationAgentsPath,
-	buildOrganizationCenterAgentChatPath,
 	buildOrganizationComputersPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationDocumentsPath,
@@ -33,11 +32,6 @@ export function resolveAppNavigationItems(input: {
 			label: "Inbox",
 			section: "inbox",
 			to: buildOrganizationInboxPath(input.orgSlug),
-		},
-		{
-			label: "Center Agent",
-			section: "centerAgent",
-			to: buildOrganizationCenterAgentChatPath(input.orgSlug),
 		},
 		{
 			label: "Spaces",

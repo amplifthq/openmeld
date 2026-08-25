@@ -50,6 +50,10 @@ local agents installed).
 
 - Applied: Local Agents surfaces per-agent status issues with a per-agent CTA;
   the top banner shows only in the zero-agent case.
+- Applied: a local agent the owner turned off remains available for inspection,
+  but its health never creates Computer or navigation attention. When every
+  local agent is off, the Computer shows that intentional state without a
+  warning or repair prompt.
 - Applied: missing Organization Wake access appears as an amber, per-agent
   configuration outcome with a direct `Turn on Wake access` action, while real
   execution failures remain destructive.
