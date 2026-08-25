@@ -8,7 +8,7 @@ import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { registerApiProvider, registerProvider } from "@flue/runtime";
 import { getCloudflareContext } from "@flue/runtime/cloudflare";
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
 import { REMOTE_AGENT_CONNECTOR_TOOL_NAMES } from "../agent-core/connector-tools";
 import {

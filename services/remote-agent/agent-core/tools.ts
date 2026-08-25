@@ -199,7 +199,7 @@ import {
   union,
   unknown as unknownSchema,
 } from "valibot";
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentReadableStorage,
