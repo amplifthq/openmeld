@@ -175,12 +175,6 @@ function buildAppRailGroups(input: {
 					to: buildOrganizationRootPath(input.orgSlug),
 					icon: <HouseIcon aria-hidden="true" className="size-4" />,
 				},
-			],
-		},
-		{
-			id: "work",
-			label: "Work",
-			destinations: [
 				{
 					id: "centerAgent",
 					label: "Center Agent",
@@ -189,6 +183,12 @@ function buildAppRailGroups(input: {
 					icon: <RobotIcon aria-hidden="true" className="size-4" />,
 					unreadCount: input.centerAgentUnreadCount,
 				},
+			],
+		},
+		{
+			id: "work",
+			label: "Work",
+			destinations: [
 				{
 					id: "spaces",
 					label: "Spaces",
