@@ -522,17 +522,14 @@ function SpaceSidebarMenuItem(input: {
 										)}
 										text={input.item.spaceName}
 									/>
-									<span
-										className={cn(
-											"@[13rem]/space-item:inline-flex hidden shrink-0 text-muted-foreground text-xs transition-opacity",
-											trailingStatus !== null
-												? "opacity-0"
-												: "opacity-100 group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
-										)}
-										data-slot="space-sidebar-date"
-									>
-										{formatLastJoinedAt(input.item.lastJoinedAt)}
-									</span>
+									{trailingStatus === null ? (
+										<span
+											className="@[13rem]/space-item:inline-flex hidden shrink-0 text-muted-foreground text-xs opacity-100 transition-opacity group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
+											data-slot="space-sidebar-date"
+										>
+											{formatLastJoinedAt(input.item.lastJoinedAt)}
+										</span>
+									) : null}
 								</div>
 								{trailingStatus === "unread" ? (
 									<span
