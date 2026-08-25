@@ -43,11 +43,23 @@ describe("Center Agent turn diagnostics contracts", () => {
           status: "completed",
           submissionId: "remote-agent-slack:event_previous",
           triggerMessageId: "1787539182.522639",
+          conversationSource: {
+            channelId: "D_CURRENT",
+            isCurrentConversation: false,
+            kind: "slack",
+            teamId: "T_CURRENT",
+            threadTs: "1787539182.522639",
+          },
         }),
       ],
     });
 
     expect(response.previousTurns[0]).toMatchObject({
+      conversationSource: {
+        isCurrentConversation: false,
+        kind: "slack",
+        threadTs: "1787539182.522639",
+      },
       failureCode: null,
       publicationState: "published",
       status: "completed",
@@ -70,6 +82,19 @@ function turn(
     acceptedAtMs: number | null;
     callbackReceivedAtMs: number | null;
     completedAtMs: number | null;
+    conversationSource:
+      | {
+          isCurrentConversation: boolean;
+          kind: "space";
+          spaceId: string;
+        }
+      | {
+          channelId: string;
+          isCurrentConversation: boolean;
+          kind: "slack";
+          teamId: string;
+          threadTs: string;
+        };
     createdAtMs: number;
     deliveryId: string;
     dispatchId: string;
@@ -98,6 +123,13 @@ function turn(
     acceptedAtMs: 1_787_539_203_000,
     callbackReceivedAtMs: null,
     completedAtMs: null,
+    conversationSource: {
+      channelId: "D_CURRENT",
+      isCurrentConversation: true,
+      kind: "slack" as const,
+      teamId: "T_CURRENT",
+      threadTs: "1787539713.153179",
+    },
     createdAtMs: 1_787_539_182_522,
     deliveryId: "delivery_1",
     dispatchId: "dispatch_1",

@@ -3225,10 +3225,12 @@ Agent/Core self-diagnostics contract. The request carries only the trusted
 OpenMeld request context and a bounded limit; Core derives all conversation and
 requester scope from the current native delivery. The response keeps raw
 lifecycle status, failure evidence, and final publication evidence separate,
-and bounds sanitized failure detail. Deploy Core before Remote Agent: old
-Remote Agent never calls the additive receiver, while new Remote Agent fails
-closed if the receiver is absent. Rollback removes the Remote Agent caller
-before Core. Gateway, Auth, Web, CLI, OpenMeld Service, daemon, Prepare,
+and bounds sanitized failure detail. Each turn also carries an optional typed
+`conversationSource` with `isCurrentConversation`; Core emits it for all new
+responses, while optionality lets a new Remote Agent read an old Core response
+during rollout. Deploy Remote Agent before Core for this response expansion so
+the strict old reader never receives an unknown field. Rollback removes the
+Core writer before the Remote Agent reader. Gateway, Auth, Web, CLI, OpenMeld Service, daemon, Prepare,
 RuntimeCoordinator, and workstation Wake contracts do not change.
 
 The provider-neutral Message Channel identity handoff is additive to

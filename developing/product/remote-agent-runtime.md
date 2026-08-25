@@ -1912,10 +1912,16 @@ prompt must preserve that boundary for `queued`, `dispatching`, and
 The interactive Center Agent also has a self-diagnostic native-delivery read.
 When a requester asks why a recent Center Agent turn succeeded, failed,
 stopped, or produced no reply, the model reads exact Core-owned lifecycle and
-publication fields for that requester on the current conversation surface. It
+publication fields for that requester on the current conversation surface. A
+Slack direct-message read may include the requester's earlier top-level threads
+from the same channel so a person can continue the diagnosis from a new thread,
+but every returned turn names its exact conversation source and whether it is
+the current thread. The model must cite that source and must never present a
+different thread as part of the current conversation. It
 reports recorded status, failure code and detail, publication state, and the
 published result id separately; it never classifies the answer text. The model
-cannot choose arbitrary history selectors, read another requester or surface,
+cannot choose arbitrary history selectors, read another requester, channel, or
+Space,
 or use this tool from a Routine. If the bounded history does not contain the
 turn, the Center Agent says that exact diagnostics are unavailable rather than
 guessing.

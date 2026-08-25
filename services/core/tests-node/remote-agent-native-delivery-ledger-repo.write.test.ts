@@ -81,6 +81,13 @@ describe("Remote Agent native delivery ledger repo", () => {
         })
       ).resolves.toMatchObject([
         {
+          conversationSource: {
+            channelId: "D_CURRENT",
+            isCurrentConversation: false,
+            kind: "slack",
+            teamId: "T1",
+            threadTs: "3000.1",
+          },
           deliveryId: "delivery_previous_1",
           publicationState: "published",
           publishedResultId: "3100.1",
@@ -93,10 +100,27 @@ describe("Remote Agent native delivery ledger repo", () => {
         projectRemoteAgentNativeDeliveryTurnDiagnostic({
           ...current,
           conversationKind: "message_channel",
+          messageChannelLocator: {
+            channelId: "D_CURRENT",
+            connectionId: "connection_1",
+            provider: "slack",
+            rootMessageId: "5000.1",
+            teamId: "T_CURRENT",
+          },
           providerPublicationResultId: "om_provider_result_1",
           publishedSignalId: null,
         })
-      ).toMatchObject({ publishedResultId: "om_provider_result_1" });
+      ).toMatchObject({
+        conversationSource: {
+          isCurrentConversation: true,
+          kind: "message_channel",
+          locator: {
+            channelId: "D_CURRENT",
+            rootMessageId: "5000.1",
+          },
+        },
+        publishedResultId: "om_provider_result_1",
+      });
       expect(
         projectRemoteAgentNativeDeliveryTurnDiagnostic({
           ...current,

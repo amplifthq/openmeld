@@ -1846,7 +1846,11 @@ dispatch, submission, user, channel, or Space selector. Previous rows must
 match the same Organization, Center Agent profile, requester identity, and
 surface. Slack direct-message history is scoped to the same workspace and
 channel rather than one thread so separate top-level requests remain
-diagnosable. The projection returns identifiers, lifecycle timestamps, raw
+diagnosable. Every row carries its typed conversation source and an explicit
+current-conversation comparison, so this broader read never erases thread
+provenance. A malformed historical source remains unattributed instead of
+being relabeled as the current thread. The projection returns identifiers,
+lifecycle timestamps, raw
 recorded status, bounded sanitized failure evidence, final-publication state,
 and the provider result pointer. It never returns prompt text, reply text,
 tokens, raw provider payloads, another member's history, or Routine history.
