@@ -174,6 +174,57 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
+  it("rejects a complete provider payload that exceeds the frozen model input budget", async () => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
+      {},
+      undefined,
+      { inputTokenBudget: 100 }
+    );
+
+    await expect(
+      options.onPayload?.(
+        {
+          messages: [
+            {
+              content: "x".repeat(500),
+              role: "user",
+            },
+          ],
+        },
+        TEXT_ONLY_MODEL
+      )
+    ).rejects.toThrow(
+      "context_length_exceeded: estimated provider input is 153 tokens, above this model route's 100-token input budget"
+    );
+  });
+
+  it("adapts provider preflight to the active model route instead of a global limit", async () => {
+    const payload = {
+      messages: [{ content: "x".repeat(500), role: "user" }],
+    };
+    const smallerRoute = withRemoteAgentProviderObservabilityAndSessionAffinity(
+      {},
+      undefined,
+      {
+        inputTokenBudget: 100,
+      }
+    );
+    const largerRoute = withRemoteAgentProviderObservabilityAndSessionAffinity(
+      {},
+      undefined,
+      {
+        inputTokenBudget: 200,
+      }
+    );
+
+    await expect(
+      smallerRoute.onPayload?.(payload, TEXT_ONLY_MODEL)
+    ).rejects.toThrow("context_length_exceeded");
+    await expect(
+      largerRoute.onPayload?.(payload, TEXT_ONLY_MODEL)
+    ).resolves.toMatchObject(payload);
+  });
+
   it("keeps progressive discovery beside Code Mode without duplicating the catalog in the provider payload", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
