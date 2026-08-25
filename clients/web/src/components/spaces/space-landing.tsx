@@ -529,7 +529,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	const membersOpen =
 		membersPanelOpenOverrides.get(input.spaceId) ??
 		resolveInitialMembersPanelOpen({
-			isDesktopMembersPanel,
 			spaceId: input.spaceId,
 		});
 	const setMembersOpen = useCallback(
@@ -3274,14 +3273,6 @@ function useSpaceLandingCurrentUserAvatarImageUrl(
 	});
 }
 
-function resolveInitialMembersPanelOpen(input: {
-	isDesktopMembersPanel: boolean;
-	spaceId: string;
-}): boolean {
-	const storedOpen = readSpaceMembersPanelOpen({ spaceId: input.spaceId });
-	if (storedOpen !== null) {
-		return storedOpen;
-	}
-
-	return input.isDesktopMembersPanel;
+function resolveInitialMembersPanelOpen(input: { spaceId: string }): boolean {
+	return readSpaceMembersPanelOpen({ spaceId: input.spaceId }) ?? false;
 }

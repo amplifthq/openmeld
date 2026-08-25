@@ -1065,6 +1065,7 @@ function SpaceAddProfilesSection(input: {
 			.then((result) => {
 				setSuccessMessage(formatAddProfilesSuccess(result));
 				setSelectedProfileIds(new Set());
+				input.onOpenChange(false);
 			})
 			.catch((error: unknown) => {
 				setErrorMessage(formatAddProfilesError(error));
@@ -1091,6 +1092,7 @@ function SpaceAddProfilesSection(input: {
 			setSuccessMessage(formatAddProfilesSuccess(result));
 			setSelectedProfileIds(new Set());
 			setConversionRequest(null);
+			input.onOpenChange(false);
 		} catch (error) {
 			setErrorMessage(formatAddProfilesError(error));
 			setConversionRequest(null);
@@ -1147,6 +1149,7 @@ function SpaceAddProfilesSection(input: {
 				humanCandidates={humanCandidates}
 				isSubmitting={isSubmitting}
 				onAddQueryChange={setAddQuery}
+				onAddSuccess={() => input.onOpenChange(false)}
 				onClear={() => {
 					setSelectedProfileIds(new Set());
 					clearMessages();
@@ -1247,6 +1250,7 @@ function SpaceAddProfilesPanel(input: {
 	humanCandidates: readonly SpaceAddMembersCandidateSummary[];
 	isSubmitting: boolean;
 	onAddQueryChange: (query: string) => void;
+	onAddSuccess: () => void;
 	onClear: () => void;
 	onRefresh: (input?: SpaceMembersRefreshInput) => Promise<void>;
 	onRetryDirectory: () => void;
@@ -1300,7 +1304,7 @@ function SpaceAddProfilesPanel(input: {
 					transition={springs.moderate}
 				>
 					<div
-						className="@container border border-border"
+						className="@container rounded-lg border border-border bg-card"
 						id={SPACE_ADD_MEMBERS_REGION_ID}
 						ref={setRegionNode}
 					>
@@ -1311,13 +1315,14 @@ function SpaceAddProfilesPanel(input: {
 									<SpaceCreateProfileButton
 										className="@min-[20rem]:w-auto w-full"
 										label="Create Agent"
-										onAfterJoin={(profile) =>
-											input.onRefresh(
+										onAfterJoin={async (profile) => {
+											input.onAddSuccess();
+											await input.onRefresh(
 												profile.profileKind === "agent"
 													? { agentProfileIds: [profile.openMeldProfileId] }
 													: undefined
-											)
-										}
+											);
+										}}
 										orgSlug={input.orgSlug}
 										spaceId={input.spaceId}
 										spaceName={input.spaceName ?? null}

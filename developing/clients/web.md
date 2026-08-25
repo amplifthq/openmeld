@@ -2482,7 +2482,8 @@ minimum and maximum widths, and reduced-motion behavior. Members and Thread
 widths are persisted as separate browser presentation preferences. The
 Members open/closed state and width are scoped to the current Space id, so
 switching Spaces restores each room's last Members layout without changing any
-other room. The Thread width remains a separate Thread-panel preference. The
+other room. Without a stored preference, Members starts closed at its bounded
+minimum width. The Thread width remains a separate Thread-panel preference. The
 authenticated centered conversation layout uses the current Members width when
 it reserves space, so reopening a resized Members panel does not introduce a
 second hard-coded layout width. Opening an inline panel must lay out its content
@@ -2495,9 +2496,10 @@ Members header descriptions and Add-members guidance own full-width rows below
 their related title-and-action rows. Add-members controls respond to the panel's
 own width rather than the browser viewport: narrow panels stack heading actions
 and footer actions into full-width rows, while wider panels keep the compact
-side-by-side layout. Agent and Human names use the same compact type scale as
-the app sidebars so the Members panel does not introduce a heavier navigation
-hierarchy.
+side-by-side layout. After Core confirms an Agent or Human membership write,
+Web collapses Add members so the roster regains the available space. Agent and
+Human names use the same compact type scale as the app sidebars so the Members
+panel does not introduce a heavier navigation hierarchy.
 
 The active Thread panel selection is a per-Space browser presentation
 preference. Web persists only the selected Thread id, resolves that id against
