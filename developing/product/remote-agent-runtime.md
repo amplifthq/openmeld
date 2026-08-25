@@ -472,6 +472,36 @@ use the action only when its stored structured grant explicitly contains
    "Remote Agent · Experimental" mirrors this status — the risk is hedged,
    not hidden.
 
+### Work-loop continuation
+
+A per-submission tool-call budget is a runtime safety checkpoint, not proof
+that the user's request is finished. When the Remote Agent reaches that budget,
+it persists a versioned `tool_call_budget_exhausted` checkpoint and sends Core a
+structured `continuation_required` callback. Assistant prose, including text
+such as "I stopped before testing," must never be inspected to decide whether
+work continues.
+
+Core keeps the same native delivery, conversation, Task, requester, frozen
+result surface, and model route. It durably archives the completed internal
+submission, advances that delivery to a new idempotent worker submission, and
+instructs the same conversation to continue from the next unfinished step
+without repeating completed work. Only a later structured completed or failed
+callback may finalize the native delivery or publish its result. A replay of an
+archived checkpoint is accepted without starting another submission.
+
+One delivery may advance through at most eight automatic work-loop
+continuations. Reaching the next checkpoint publishes one explicit
+OpenMeld-owned safe-limit failure instead of looping indefinitely. Stop,
+authorization, admission, quota, watchdog, publication fencing, and provider
+placement are rechecked through their ordinary owners for every internal
+submission. This contract applies equally to Space, Web Direct Message, Slack,
+generic Message Channel, Task, and Routine turns.
+
+The mixed-version rollout is D1 migration first, then Core as the new callback
+consumer, and Remote Agent last as the checkpoint producer. Rollback removes
+the Remote Agent producer before Core or the migration. Gateway, Web, CLI,
+OpenMeld Service, daemon, and workstation execution contracts are unchanged.
+
 ### Turn envelope (2026-07-09)
 
 Core assembles the Remote Agent turn envelope when it submits a turn to the

@@ -502,6 +502,9 @@ context revision, start reason, current linkage, and terminal result.
 An attempt may link:
 
 - one initial Center Agent native delivery;
+- zero or more internal work-loop submissions under that same native delivery
+  when a structured runtime safety checkpoint requires the Center Agent to
+  keep working;
 - zero or more exact delegated Space Wake or controller-native Agent Task
   Handles;
 - declared Agent Task Coordination barriers and continuations; and
@@ -513,6 +516,12 @@ explain history. Its presentation may summarize `pending`, `active`, or
 must not become a competing execution state machine. A settled attempt records
 one bounded outcome reference; later owner evidence is reconciliation data and
 cannot reopen it.
+
+An internal work-loop submission is not a new Task execution attempt, Retry,
+Task event, or user-visible result. The native-delivery owner preserves the
+same Task conversation and only the eventual structured terminal callback may
+settle the Task attempt. Task Stop fences a pending internal continuation by
+the same durable Stop intent used for the initial submission.
 
 RuntimeCoordinator, native delivery, and controller owners continue to decide
 their exact execution state. Agent Task Coordination continues to decide exact

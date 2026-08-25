@@ -1730,6 +1730,17 @@ has cleared both request copies, continuation fails with
 not permission to create a version-1/default-model request. A new, independent
 turn resolves again.
 
+`openMeldRemoteAgent_work_loop_attempts` is the append-only diagnostic history
+for automatic continuation inside one native delivery. Each row archives the
+exact prior idempotency key, worker submission id, durable worker request,
+structured checkpoint, next idempotency key, attempt number, and continuation
+time before the active ledger row advances. The native-delivery row remains the
+single current delivery projection and the only finalization/publication
+owner; the history table is neither a second execution state machine nor a
+second conversation transcript. Core changes both records in one transactional
+D1 batch. A duplicate old callback reads this history and converges without
+resubmission, while mismatched identity or checkpoint evidence fails closed.
+
 Model ids, friendly names, capacity values, reasoning levels, and the auxiliary
 model id are non-secret diagnostic metadata. Raw image bytes, base64,
 image-understanding descriptions, prompts, provider responses, and user message
