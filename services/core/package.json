@@ -6,6 +6,7 @@
     "predev": "node ../../scripts/dev/run-guarded-service-predev.mjs core \"pnpm -C ../.. exec turbo run build --filter=@openmeld/core\"",
     "dev": "wrangler dev --persist-to ../../.wrangler-dev-state --inspector-port 19331",
     "dev:prod": "wrangler dev --env prod --persist-to ../../.wrangler-dev-state --inspector-port 19331",
+    "build:lazy-runtime-modules": "node scripts/build-lazy-runtime-modules.mjs",
     "build:workspace-dependencies": "pnpm -C ../.. exec turbo run build --filter=@openmeld/core^...",
     "deploy": "pnpm run build:workspace-dependencies && dotenv -e ../../.env -o -- wrangler deploy --minify --env prod",
     "sync:config:prod": "pnpm run deploy",
@@ -48,6 +49,7 @@
     "@openmeld/adapter-core": "workspace:*",
     "@slack/web-api": "8.0.0",
     "dotenv-cli": "^11.0.0",
+    "esbuild": "0.27.7",
     "typescript": "^5.9.3",
     "vitest": "~3.2.0",
     "wrangler": "catalog:"
