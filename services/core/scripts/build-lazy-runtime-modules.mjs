@@ -32,6 +32,12 @@ export async function buildLazyRuntimeModules() {
     outputPath: path.join(OUTPUT_DIRECTORY, "routine-schedule.mjs"),
     verify: verifyRoutineScheduleRuntimeModule,
   });
+  await buildLazyRuntimeModule({
+    displayName: "YAML",
+    entryPath: "yaml",
+    outputPath: path.join(OUTPUT_DIRECTORY, "yaml.mjs"),
+    verify: verifyYamlRuntimeModule,
+  });
 }
 
 async function buildLazyRuntimeModule(input) {
@@ -121,6 +127,17 @@ async function verifyRoutineScheduleRuntimeModule(output) {
     throw new Error(
       "Lazy Routine schedule runtime module failed build validation"
     );
+  }
+}
+
+async function verifyYamlRuntimeModule(output) {
+  const module = await importRuntimeModule(output);
+  if (typeof module.parse !== "function") {
+    throw new Error("Lazy YAML runtime module does not export parse");
+  }
+  const parsed = module.parse("name: OpenMeld\nportable: true");
+  if (parsed?.name !== "OpenMeld" || parsed?.portable !== true) {
+    throw new Error("Lazy YAML runtime module failed build validation");
   }
 }
 
