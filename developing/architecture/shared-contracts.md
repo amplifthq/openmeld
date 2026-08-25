@@ -3907,12 +3907,13 @@ local account OpenMeld will use; it must not flow into Organization computer
 directories or another member's read model. Do not make every schema field
 cloud-visible merely because a local adapter can populate it.
 
-The optional Organization Computer model ID is additive. Deploy Web receivers
-before the Core producer. Older Services report an empty model list and new Web
-treats that as unknown, so neither mixed-version direction disables a model
-without evidence. Rollback removes the Core producer before the Web receiver.
-Runtime Transport, Wake, Space action, diagnostics, and Binding contracts do not
-change.
+The optional Organization Computer model ID is additive. Deploy Web and Gateway
+receivers before the Core producer, then publish the CLI and Service producer.
+Older Services report an empty model list and new Web treats that as unknown, so
+neither mixed-version direction disables a model without evidence. Rollback
+removes the CLI and Service producer first, then the Core producer, Gateway, and
+Web. Runtime Transport, Wake, Space action, diagnostics, and Binding contracts
+do not change.
 
 The Usage Limit allowlist never includes credentials, provider account identity,
 subscription or payment state, balances, monetary values, history, or raw
