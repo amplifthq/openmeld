@@ -1,4 +1,8 @@
 import { REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE } from "@openmeld/schemas";
+import {
+  REMOTE_AGENT_ESTIMATED_PROVIDER_BYTES_PER_TOKEN,
+  type RemoteAgentProviderContextCapacity,
+} from "./provider-context-capacity";
 
 // The 128 MiB Durable Object isolate limit covers the full live object graph,
 // not only Flue's serialized stream. Replay temporarily holds the SQL result,
@@ -8,6 +12,7 @@ import { REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE } from "@o
 // to a fresh runtime generation.
 export const REMOTE_AGENT_CONVERSATION_SOFT_LIMIT_BYTES = 8 * 1024 * 1024;
 export const REMOTE_AGENT_CONVERSATION_HARD_LIMIT_BYTES = 12 * 1024 * 1024;
+const REMOTE_AGENT_CANONICAL_CONTEXT_BUDGET_RATIO = 0.85;
 
 const FLUE_CONVERSATION_STREAMS_TABLE = "flue_conversation_streams";
 const FLUE_CONVERSATION_STREAM_BATCHES_TABLE =
@@ -128,21 +133,45 @@ function assertFlueConversationFootprintSchema(
 
 export function resolveRemoteAgentConversationFootprintAdmission(
   footprint: RemoteAgentConversationFootprint,
-  options: { automaticRolloverSupported?: boolean } = {}
+  options: {
+    automaticRolloverSupported?: boolean;
+    providerContextCapacity?: RemoteAgentProviderContextCapacity;
+  } = {}
 ): {
   message: string;
   reasonCode: "remote_agent.conversation_history_limit_exceeded";
 } | null {
-  if (
-    footprint.level !== "hard_limit" &&
-    !(footprint.level === "soft_limit" && options.automaticRolloverSupported)
-  ) {
+  const automaticRolloverLimitBytes =
+    resolveRemoteAgentConversationAutomaticRolloverLimitBytes(
+      options.providerContextCapacity
+    );
+  const automaticRolloverRequired = Boolean(
+    options.automaticRolloverSupported &&
+      footprint.canonicalBytes >= automaticRolloverLimitBytes
+  );
+  if (footprint.level !== "hard_limit" && !automaticRolloverRequired) {
     return null;
   }
   return {
     message: REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_DIAGNOSTIC_DETAIL,
     reasonCode: REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   };
+}
+
+export function resolveRemoteAgentConversationAutomaticRolloverLimitBytes(
+  providerContextCapacity?: RemoteAgentProviderContextCapacity
+): number {
+  if (!providerContextCapacity) {
+    return REMOTE_AGENT_CONVERSATION_SOFT_LIMIT_BYTES;
+  }
+  return Math.min(
+    REMOTE_AGENT_CONVERSATION_SOFT_LIMIT_BYTES,
+    Math.floor(
+      providerContextCapacity.inputTokenBudget *
+        REMOTE_AGENT_ESTIMATED_PROVIDER_BYTES_PER_TOKEN *
+        REMOTE_AGENT_CANONICAL_CONTEXT_BUDGET_RATIO
+    )
+  );
 }
 
 function parseAggregate(value: unknown): number {

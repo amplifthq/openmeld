@@ -3066,7 +3066,10 @@ Flue stream and never chooses, advances, or aliases generations.
 
 `remote_agent.conversation_history_limit_exceeded` is the deterministic
 pre-replay rejection for a runtime generation whose serialized Flue stream
-reached its safety boundary. The Remote Agent first resolves the request's
+reached either the frozen controller model's adaptive rollover boundary or the
+hard infrastructure safety boundary. This changes only when the existing
+version-4 rollover response is emitted; it does not add a second request or
+response shape. The Remote Agent first resolves the request's
 durable idempotency receipt: finalized retries return their original ACK
 without Flue replay, claimed retries retain their existing recovery path, and
 only a request with no matching receipt is eligible for this rejection. For a
