@@ -3314,6 +3314,17 @@ ACI read model. Web may render a status badge, detail row, and manual update
 command guidance, but it must not run Codex, Claude Code, npm, Homebrew, or any
 other local controller upgrade command from the browser.
 
+Agent Profile create and edit compare each catalog model with the selected
+Computer's reported Local Agent inventory. A model that the current inventory
+explicitly excludes is disabled with a plain explanation and an **Update or
+change {Local Agent}** link to that exact Computer. A valid catalog version floor
+may provide the same guard when inventory is unavailable. Missing, failed, or
+unrecognized evidence does not disable a model. Existing incompatible selections
+remain visible until the user chooses another model or changes the installation.
+When a Wake proves that the selected Local Agent cannot use the model, the
+failure action opens Computers directly instead of sending the user through
+generic setup or diagnostics first.
+
 Web must not maintain a second update-status source. Computers, Agent
 Profiles, the Space member panel, Space Wake banner, and Web setup handoff all
 read the Core local component update projection or a Core readiness result

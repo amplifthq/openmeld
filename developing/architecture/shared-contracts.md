@@ -739,7 +739,8 @@ display/platform/last-seen metadata, coarse per-computer Service state, and
 bounded local-agent availability. Its optional local-agent `details` object is
 a sanitized projection of canonical Agent Controller Interface evidence and
 permits controller state, native interface, installed version and update
-status, launch status and install count, model display names, native capability
+status, launch status and install count, model display names and optional exact
+model IDs, native capability
 flags, check status and timestamps, and sanitized provider Usage Limits. Each
 Usage Limit contains only its stable key, label, 0–100 used percentage when
 known, reset time when known, observation time, and status. Controller accounts, executable or
@@ -3893,16 +3894,25 @@ reinterpret them into a second setup-or-retry decision.
 The shared schema supports both the rich local snapshot and its cloud-bound
 projection, but runtime reporting must construct the cloud projection through
 one shared allowlist. The cloud projection clears local command paths and launch
-arguments, authentication type, controller-provided model and skill inventories,
-and free-text local messages. It preserves only the controller identity, coarse
-authentication status, optional provider email or bounded account label, static
-capabilities, native interface, version/update evidence, launch status/count,
-bounded check evidence, Usage Limits, and stable readiness fields needed by Core and
-owner-facing clients. Provider account evidence is allowed only because the
+arguments, authentication type, controller-provided skill inventory, and
+free-text local messages. It preserves the bounded controller-provided model IDs
+and display names as installation compatibility evidence, plus controller
+identity, coarse authentication status, optional provider email or bounded
+account label, static capabilities, native interface, version/update evidence,
+launch status/count, bounded check evidence, Usage Limits, and stable readiness
+fields needed by Core and owner-facing clients. Provider account evidence is
+allowed only because the
 authenticated owner-only `listLocalRuntimes` surface needs to identify which
 local account OpenMeld will use; it must not flow into Organization computer
 directories or another member's read model. Do not make every schema field
 cloud-visible merely because a local adapter can populate it.
+
+The optional Organization Computer model ID is additive. Deploy Web receivers
+before the Core producer. Older Services report an empty model list and new Web
+treats that as unknown, so neither mixed-version direction disables a model
+without evidence. Rollback removes the Core producer before the Web receiver.
+Runtime Transport, Wake, Space action, diagnostics, and Binding contracts do not
+change.
 
 The Usage Limit allowlist never includes credentials, provider account identity,
 subscription or payment state, balances, monetary values, history, or raw

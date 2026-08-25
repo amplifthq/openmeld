@@ -644,6 +644,11 @@ and observer views must not receive them. Agent Profile settings may show the
 friendly controller name and Computer currently providing its runtime, followed
 by **Manage on Computer**. Installation selection remains exclusively on that
 Computer; Agent Profile settings must not add a second installation selector.
+Create and edit surfaces use that Computer's current Agent Controller Interface
+model inventory, or a valid catalog version floor when inventory is unavailable,
+to prevent a known-incompatible model selection. Unknown evidence remains
+selectable. A saved selection that later becomes incompatible stays visible and
+must offer the exact Computer as the recovery path; it is never silently replaced.
 The computer display name is the one bounded exception: a current Organization
 member may see it in the read-only Organization Computers directory. That
 exception grants no local diagnostics or computer-management authority.
