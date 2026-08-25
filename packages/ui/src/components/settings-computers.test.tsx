@@ -203,16 +203,18 @@ describe("Settings Local Agent usage limits", () => {
     });
     expect(lowGauge.getAttribute("aria-valuenow")).toBe("12");
     expect(lowGauge.getAttribute("aria-valuetext")).toBe("12% left");
-    expect(availableGauge.querySelector(".bg-emerald-500")).toBeTruthy();
-    expect(lowGauge.querySelector(".bg-amber-500")).toBeTruthy();
-    expect(exhaustedGauge.querySelector(".bg-destructive")).toBeTruthy();
-    expect(staleGauge.querySelector(".bg-amber-500")).toBeTruthy();
+    expect(availableGauge.querySelectorAll("circle")).toHaveLength(2);
+    expect(lowGauge.querySelectorAll("circle")).toHaveLength(2);
+    expect(exhaustedGauge.querySelectorAll("circle")).toHaveLength(2);
+    expect(staleGauge.querySelectorAll("circle")).toHaveLength(2);
     expect(
-      (availableGauge.firstElementChild as HTMLElement | null)?.style.width
-    ).toBe("58%");
+      availableGauge
+        .querySelectorAll("circle")[1]
+        ?.getAttribute("stroke-dasharray")
+    ).toBe("58 100");
     expect(
-      (lowGauge.firstElementChild as HTMLElement | null)?.style.width
-    ).toBe("12%");
+      lowGauge.querySelectorAll("circle")[1]?.getAttribute("stroke-dasharray")
+    ).toBe("12 100");
     expect(screen.getByText("Reset time passed")).toBeTruthy();
     expect(screen.getByText("Last updated 1 day ago")).toBeTruthy();
     expect(screen.getByText("Temporarily unavailable.")).toBeTruthy();
