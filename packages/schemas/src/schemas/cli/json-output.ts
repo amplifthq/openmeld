@@ -77,6 +77,7 @@ const schemaVersionSchema = z.literal(CLI_JSON_OUTPUT_SCHEMA_VERSION);
  */
 export const cliJsonEntryCheckBlockedErrorCodeSchema = z.enum([
   "auth.authentication_required",
+  "auth.session_token_unavailable",
   "profile.required",
   "local_state.repair_required",
   "upgrade.required",
@@ -98,12 +99,6 @@ export const cliJsonErrorEnvelopeSchema = z.strictObject({
     code: z.string(),
     message: z.string(),
     requestId: z.string().optional(),
-    details: z
-      .strictObject({
-        reasonCode: z.string().trim().min(1).max(256),
-        errorMessage: z.string().trim().min(1).max(2048).optional(),
-      })
-      .optional(),
   }),
 });
 

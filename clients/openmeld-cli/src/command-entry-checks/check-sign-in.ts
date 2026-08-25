@@ -108,19 +108,17 @@ async function runRequiredSignInCheck(input: {
   evaluated: Awaited<ReturnType<typeof evaluateCommandAuthentication>>;
 }): Promise<CommandEntryResult> {
   if (input.context.jsonOutput) {
+    const unavailable = input.evaluated.status === "unavailable";
     return buildBlockedEntryCheckResult({
-      code: ENTRY_CHECK_BLOCKED_ERROR_CODES.signIn,
-      message: input.guidance.agentErrorMessage,
-      ...(input.evaluated.reasonCode
-        ? {
-            details: {
-              reasonCode: input.evaluated.reasonCode,
-              ...(input.evaluated.errorMessage
-                ? { errorMessage: input.evaluated.errorMessage }
-                : {}),
-            },
-          }
-        : {}),
+      code: unavailable
+        ? ENTRY_CHECK_BLOCKED_ERROR_CODES.signInUnavailable
+        : ENTRY_CHECK_BLOCKED_ERROR_CODES.signIn,
+      message: [
+        input.guidance.agentErrorMessage,
+        ...(unavailable && input.evaluated.errorMessage
+          ? [`Diagnostic: ${input.evaluated.errorMessage}`]
+          : []),
+      ].join(" "),
     });
   }
   if (
@@ -377,7 +375,9 @@ function emitSignInStatus(input: {
       ? "command.entry.sign_in.blocked"
       : "command.entry.sign_in.status",
     payload: buildAgentCheckResult({
-      code: "auth.authentication_required",
+      code: signInUnavailable
+        ? ENTRY_CHECK_BLOCKED_ERROR_CODES.signInUnavailable
+        : ENTRY_CHECK_BLOCKED_ERROR_CODES.signIn,
       status: input.blocking ? "blocked" : "needs_attention",
       reason: input.guidance.agentErrorMessage,
       nextSteps: signInUnavailable

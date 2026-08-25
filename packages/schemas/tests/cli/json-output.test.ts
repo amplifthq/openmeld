@@ -127,22 +127,6 @@ describe("cli --json output envelope contract", () => {
       expect(parsed.success).toBe(true);
     });
 
-    it("accepts bounded structured error details", () => {
-      const parsed = cliJsonErrorEnvelopeSchema.safeParse({
-        schemaVersion: VERSION,
-        type: "error",
-        error: {
-          code: "auth.authentication_required",
-          message: "Saved sign-in is temporarily unavailable.",
-          details: {
-            reasonCode: "session_token_unavailable",
-            errorMessage: "macOS Keychain helper timed out after 5000ms",
-          },
-        },
-      });
-      expect(parsed.success).toBe(true);
-    });
-
     it("accepts every documented success envelope with its flattened payload", () => {
       const samples = [
         { schemaVersion: VERSION, type: "daemon.run", ok: true, reason: null },
@@ -612,6 +596,15 @@ describe("cli --json output envelope contract", () => {
       ["schema issue message", { schemaIssueMessage: "Invalid option" }],
       ["schema issue path", { schemaIssuePath: "routines.0.status" }],
       ["raw response body", { rawBody: "secret" }],
+      [
+        "diagnostic details",
+        {
+          details: {
+            reasonCode: "session_token_unavailable",
+            errorMessage: "must stay in the existing message field",
+          },
+        },
+      ],
     ])("rejects extra v1 error fields: %s", (_name, field) => {
       const parsed = cliJsonErrorEnvelopeSchema.safeParse({
         schemaVersion: VERSION,
@@ -620,22 +613,6 @@ describe("cli --json output envelope contract", () => {
           code: "gateway.invalid_response",
           message: "bad response",
           ...field,
-        },
-      });
-      expect(parsed.success).toBe(false);
-    });
-
-    it("rejects unknown fields inside structured error details", () => {
-      const parsed = cliJsonErrorEnvelopeSchema.safeParse({
-        schemaVersion: VERSION,
-        type: "error",
-        error: {
-          code: "auth.authentication_required",
-          message: "Saved sign-in is temporarily unavailable.",
-          details: {
-            reasonCode: "session_token_unavailable",
-            rawToken: "must-not-be-accepted",
-          },
         },
       });
       expect(parsed.success).toBe(false);

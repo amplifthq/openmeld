@@ -829,8 +829,9 @@ and Center Agent tools and never auto-overwrite a conflict.
 Before a Space File command starts, one `session_token_unavailable` credential
 read is reread once. A recovered reread continues without login guidance. A
 persistent failure preserves the sanitized token-store reason in Agent View and
-in the strict `--json` error `details`; it never turns an unavailable Keychain
-read into a missing-session or login-required diagnosis.
+uses `auth.session_token_unavailable` plus the sanitized cause in the existing
+strict `--json` error shape; it never turns an unavailable Keychain read into a
+missing-session or login-required diagnosis.
 
 `openmeld space send <space-id> [text...] --file <path>` and the top-level
 `openmeld send --space <space-id>` alias accept repeatable local paths and may

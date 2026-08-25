@@ -14,6 +14,7 @@ import type { CommandEntryJsonError, CommandEntryResult } from "./types";
  */
 export const ENTRY_CHECK_BLOCKED_ERROR_CODES = {
   signIn: "auth.authentication_required",
+  signInUnavailable: "auth.session_token_unavailable",
   selectedProfile: "profile.required",
   localRuntimeState: "local_state.repair_required",
   cliUpdate: "upgrade.required",

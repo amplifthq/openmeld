@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAuthSessionStateMock = vi.hoisted(() => vi.fn());
+const UNAVAILABLE_JSON_MESSAGE_RE =
+  /saved sign-in is temporarily unavailable.*macOS Keychain helper timed out after 5000ms/u;
 
 vi.mock("../src/config/auth-session", async () => {
   const actual = await vi.importActual<
@@ -50,7 +52,7 @@ describe("sign-in command entry check", () => {
     expect(data).toHaveBeenCalledWith({
       code: "command.entry.sign_in.blocked",
       payload: expect.objectContaining({
-        code: "auth.authentication_required",
+        code: "auth.session_token_unavailable",
         status: "blocked",
         reason: expect.stringContaining(
           "saved sign-in is temporarily unavailable"
@@ -130,14 +132,8 @@ describe("sign-in command entry check", () => {
       status: "blocked",
       exitCode: 1,
       jsonError: {
-        code: "auth.authentication_required",
-        message: expect.stringContaining(
-          "saved sign-in is temporarily unavailable"
-        ),
-        details: {
-          reasonCode: "session_token_unavailable",
-          errorMessage: "macOS Keychain helper timed out after 5000ms",
-        },
+        code: "auth.session_token_unavailable",
+        message: expect.stringMatching(UNAVAILABLE_JSON_MESSAGE_RE),
       },
     });
   });

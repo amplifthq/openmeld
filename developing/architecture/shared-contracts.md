@@ -4162,18 +4162,15 @@ This is distinct from the `--view agent` presenter protocol (the flat
 `schemaVersion`), which is a separate machine-readable surface this contract does
 not own.
 
-The strict v1 failure envelope may include optional bounded `details` with a
-machine-readable `reasonCode` and a sanitized `errorMessage`. Entry checks use
-that field only when the underlying owner provides diagnostic provenance; they
-must not put credentials, request bodies, or unbounded raw errors there.
-
 Routine success output is stricter than the documented relaxed deep-payload
 default. The eight `routines.*` success envelopes reuse the corresponding
 strict shared HTTP response shape, including required nullable fields and the
 closed Run status set. The API client parses that strict response before a
 Routine command presents or emits it; missing or unknown fields fail closed as
-an invalid upstream response. The strict v1 CLI error envelope remains the one
-shared failure shape for every command.
+an invalid upstream response. The existing strict v1 CLI error envelope remains
+unchanged. Its entry-check code enum distinguishes a temporarily unavailable
+saved-sign-in read as `auth.session_token_unavailable`; the existing `message`
+field may carry the sanitized local cause without adding a new envelope field.
 
 `space.members` success output follows the same strict rule. Its versioned CLI
 envelope flattens the shared `spaceMemberDirectorySchema` response without

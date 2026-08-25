@@ -25,6 +25,7 @@ describe("entry-check blocked json", () => {
   it("maps blocked entry checks to stable error codes", () => {
     expect(ENTRY_CHECK_BLOCKED_ERROR_CODES).toEqual({
       signIn: "auth.authentication_required",
+      signInUnavailable: "auth.session_token_unavailable",
       selectedProfile: "profile.required",
       localRuntimeState: "local_state.repair_required",
       cliUpdate: "upgrade.required",
@@ -100,17 +101,14 @@ describe("entry-check blocked json", () => {
     });
   });
 
-  it("forwards structured diagnostic details into the envelope", async () => {
+  it("keeps an unavailable saved sign-in structured without changing the v1 envelope", async () => {
     const { stdout } = await withCapturedStdio(() =>
       Promise.resolve(
         applyEntryCheckResult({
           result: buildBlockedEntryCheckResult({
-            code: ENTRY_CHECK_BLOCKED_ERROR_CODES.signIn,
-            message: "Saved sign-in is temporarily unavailable.",
-            details: {
-              reasonCode: "session_token_unavailable",
-              errorMessage: "macOS Keychain helper timed out after 5000ms",
-            },
+            code: ENTRY_CHECK_BLOCKED_ERROR_CODES.signInUnavailable,
+            message:
+              "Saved sign-in is temporarily unavailable. Diagnostic: macOS Keychain helper timed out after 5000ms",
           }),
           jsonOutput: true,
         })
@@ -122,12 +120,9 @@ describe("entry-check blocked json", () => {
       schemaVersion: 1,
       type: "error",
       error: {
-        code: "auth.authentication_required",
-        message: "Saved sign-in is temporarily unavailable.",
-        details: {
-          reasonCode: "session_token_unavailable",
-          errorMessage: "macOS Keychain helper timed out after 5000ms",
-        },
+        code: "auth.session_token_unavailable",
+        message:
+          "Saved sign-in is temporarily unavailable. Diagnostic: macOS Keychain helper timed out after 5000ms",
       },
     });
   });
