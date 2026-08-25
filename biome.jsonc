@@ -49,6 +49,24 @@
   },
   "overrides": [
     {
+      // These Worker entrypoints use Zod's namespace import so esbuild can
+      // remove unused locale modules from the production bundle.
+      "includes": [
+        "services/gateway/src/lib/openconnector-client.ts",
+        "services/gateway/src/lib/slack-oauth-client.ts",
+        "services/remote-agent/agent-core/image-understanding.ts",
+        "services/remote-agent/agent-core/tools.ts",
+        "services/remote-agent/flue-adapter/model.ts"
+      ],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noNamespaceImport": "off"
+          }
+        }
+      }
+    },
+    {
       // Vendored Plate registry UI (platejs.org/r, v53). Kept close to
       // upstream so future registry updates stay diffable; upstream style
       // and a11y patterns are accepted here and only here.

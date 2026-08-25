@@ -1,6 +1,6 @@
 import { connectorAppCatalogProviderSchema } from "@openmeld/schemas";
 import type { ConnectorAppCatalogProvider } from "@openmeld/schemas/types";
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const TRAILING_SLASH_PATTERN = /\/+$/u;
 

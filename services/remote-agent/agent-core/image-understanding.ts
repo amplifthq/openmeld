@@ -1,5 +1,5 @@
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,

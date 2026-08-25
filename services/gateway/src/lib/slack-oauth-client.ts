@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const SLACK_OAUTH_ACCESS_URL = "https://slack.com/api/oauth.v2.access";
 const SLACK_OIDC_TOKEN_URL = "https://slack.com/api/openid.connect.token";
