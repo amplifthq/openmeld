@@ -77,6 +77,30 @@ describe("Remote Agent user-visible work semantics", () => {
     });
   });
 
+  it("describes owner Computer maintenance controls precisely", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_update_openmeld_tools", {})
+    ).toEqual({ key: "computer.openmeld_tools.update", v: 1 });
+    expect(
+      resolveRemoteAgentToolWorkActivity(
+        "openmeld_set_openmeld_tools_updates",
+        { enabled: true }
+      )
+    ).toEqual({ key: "computer.openmeld_tools.settings.update", v: 1 });
+    expect(
+      resolveRemoteAgentToolWorkActivity(
+        "openmeld_list_local_agent_installations",
+        { agentId: "codex" }
+      )
+    ).toEqual({ key: "computer.local_agent.installations.read", v: 1 });
+    expect(
+      resolveRemoteAgentToolWorkActivity(
+        "openmeld_select_local_agent_installation",
+        { agentId: "codex", installationId: "install-nvm" }
+      )
+    ).toEqual({ key: "computer.local_agent.installation.select", v: 1 });
+  });
+
   it("describes Space file reads and writes as distinct user-visible work", () => {
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_list_space_files", {

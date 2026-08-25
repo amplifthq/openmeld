@@ -623,6 +623,18 @@ action. It must not infer update state from conversation text, substitute a
 device id, treat current-computer diagnostics as Agent Profile readiness, or
 expose another member's private computer context.
 
+In that same requester-private conversation, an explicit member request may
+use `openmeld_update_openmeld_tools` or
+`openmeld_set_openmeld_tools_updates`. Both call the same owner-scoped Service
+coordinator used by Web; neither tool accepts a device id, command, path, or
+teammate target. `openmeld_list_computers` remains the canonical status read.
+If the member asks to switch Codex or another supported local-agent
+installation, the Center Agent first calls
+`openmeld_list_local_agent_installations`, names the exact friendly choice, and
+asks for confirmation. Only a later confirmed call to
+`openmeld_select_local_agent_installation` may change the saved installation.
+These controls are unavailable in shared conversations and Routines.
+
 Presentation follows the conversation host:
 
 - In the first-party Center Agent Direct Message, the trusted computer action

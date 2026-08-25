@@ -103,6 +103,46 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     ],
     namespace: "agents_and_computers",
   },
+  openmeld_list_local_agent_installations: {
+    aliases: [
+      "list Codex installations",
+      "check local agent installations",
+      "查看 Codex 安装版本",
+      "查看本地代理安装版本",
+    ],
+    dependencies: ["openmeld_list_computers"],
+    namespace: "agents_and_computers",
+  },
+  openmeld_select_local_agent_installation: {
+    aliases: [
+      "switch Codex installation",
+      "change local agent installation",
+      "切换 Codex 安装版本",
+      "切换本地代理安装版本",
+    ],
+    dependencies: ["openmeld_list_local_agent_installations"],
+    namespace: "agents_and_computers",
+  },
+  openmeld_set_openmeld_tools_updates: {
+    aliases: [
+      "turn OpenMeld Tools updates on",
+      "turn OpenMeld Tools updates off",
+      "开启 OpenMeld 工具自动更新",
+      "关闭 OpenMeld 工具自动更新",
+    ],
+    dependencies: ["openmeld_list_computers"],
+    namespace: "agents_and_computers",
+  },
+  openmeld_update_openmeld_tools: {
+    aliases: [
+      "update OpenMeld Tools",
+      "update this computer",
+      "更新 OpenMeld 工具",
+      "更新这台电脑",
+    ],
+    dependencies: ["openmeld_list_computers"],
+    namespace: "agents_and_computers",
+  },
   openmeld_list_connected_apps: {
     aliases: [
       "list connected apps",

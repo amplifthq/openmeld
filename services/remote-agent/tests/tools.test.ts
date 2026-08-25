@@ -2243,6 +2243,126 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it("updates OpenMeld Tools through the requester's private Computer control", async () => {
+    const centerAgentRequestOpenMeldToolsUpdate = vi.fn(async () => ({
+      organizationId: "org_123",
+      result: { currentVersion: "0.3.87", status: "current" as const },
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentRequestOpenMeldToolsUpdate },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_update_openmeld_tools", {})
+    ).resolves.toEqual({
+      organizationId: "org_123",
+      result: { currentVersion: "0.3.87", status: "current" },
+    });
+    expect(centerAgentRequestOpenMeldToolsUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      })
+    );
+  });
+
+  it("changes the current Computer's OpenMeld Tools update setting", async () => {
+    const centerAgentSetOpenMeldToolsMaintenance = vi.fn(async () => ({
+      organizationId: "org_123",
+      result: { automaticUpdatesEnabled: false, status: "updated" as const },
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentSetOpenMeldToolsMaintenance },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_set_openmeld_tools_updates", {
+        enabled: false,
+      })
+    ).resolves.toEqual({
+      organizationId: "org_123",
+      result: { automaticUpdatesEnabled: false, status: "updated" },
+    });
+    expect(centerAgentSetOpenMeldToolsMaintenance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        automaticUpdatesEnabled: false,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      })
+    );
+  });
+
+  it("lists local agent installations before a confirmed switch", async () => {
+    const centerAgentListLocalAgentInstallations = vi.fn(async () => ({
+      agentId: "codex",
+      installations: [
+        {
+          details: "v0.149.1 · Signed in",
+          installationId: "install-nvm",
+          name: "nvm install",
+          selected: true,
+        },
+      ],
+      organizationId: "org_123",
+      selectedInstallationId: "install-nvm",
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentListLocalAgentInstallations },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_list_local_agent_installations", {
+        agentId: "codex",
+      })
+    ).resolves.toMatchObject({
+      agentId: "codex",
+      organizationId: "org_123",
+      selectedInstallationId: "install-nvm",
+    });
+    expect(centerAgentListLocalAgentInstallations).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "codex",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      })
+    );
+  });
+
+  it("cannot switch a local agent installation without explicit confirmation", async () => {
+    const centerAgentSelectLocalAgentInstallation = vi.fn(() =>
+      Promise.reject(new Error("switch reached Core"))
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentSelectLocalAgentInstallation },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_select_local_agent_installation", {
+        agentId: "codex",
+        confirmed: false,
+        installationId: "install-chatgpt",
+      })
+    ).rejects.toThrow();
+    expect(centerAgentSelectLocalAgentInstallation).not.toHaveBeenCalled();
+
+    await expect(
+      executeTool(tools, "openmeld_select_local_agent_installation", {
+        agentId: "codex",
+        confirmed: true,
+        installationId: "install-chatgpt",
+      })
+    ).rejects.toThrow("switch reached Core");
+    expect(centerAgentSelectLocalAgentInstallation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "codex",
+        confirmed: true,
+        installationId: "install-chatgpt",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      })
+    );
+  });
+
   it("rejects owner Computer diagnostics outside a requester-private conversation", async () => {
     const baseRequest = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({

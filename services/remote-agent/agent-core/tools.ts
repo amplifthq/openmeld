@@ -46,6 +46,7 @@ import {
   centerAgentListAgentTasksResponseSchema,
   centerAgentListComputersResponseSchema,
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
+  centerAgentListLocalAgentInstallationsResponseSchema,
   centerAgentListOpportunitiesToolResponseSchema,
   centerAgentListProjectsToolResponseSchema,
   centerAgentListSlackChannelsBodySchema,
@@ -83,11 +84,14 @@ import {
   centerAgentRemoveAgentProfilesFromSpaceResponseSchema,
   centerAgentRemoveProjectToolResponseSchema,
   centerAgentRequestMemberAttentionResponseSchema,
+  centerAgentRequestOpenMeldToolsUpdateResponseSchema,
   centerAgentRespondToOpportunityToolResponseSchema,
   centerAgentSaveSpaceFileResponseSchema,
   centerAgentSaveSpaceFileRpcInputSchema,
   centerAgentSearchSlackMessagesResponseSchema,
+  centerAgentSelectLocalAgentInstallationResponseSchema,
   centerAgentSetAgentProfileDefaultProjectToolResponseSchema,
+  centerAgentSetOpenMeldToolsMaintenanceResponseSchema,
   centerAgentSetOrganizationWorkingLanguageToolResponseSchema,
   centerAgentSpaceAuthoringContractResponseSchema,
   centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema,
@@ -1221,6 +1225,10 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_create_agent_profile",
   "openmeld_enable_agent_profile",
   "openmeld_list_computers",
+  "openmeld_update_openmeld_tools",
+  "openmeld_set_openmeld_tools_updates",
+  "openmeld_list_local_agent_installations",
+  "openmeld_select_local_agent_installation",
   "openmeld_list_local_agent_connection_candidates",
   "openmeld_connect_agent_profile_to_local_agent",
   "openmeld_update_agent_profile_runtime_settings",
@@ -1278,6 +1286,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_list_agent_tasks",
   "openmeld_inspect_execution_recovery",
   "openmeld_list_computers",
+  "openmeld_list_local_agent_installations",
   "openmeld_list_local_agent_connection_candidates",
   "openmeld_check_agent_profile_readiness",
   "openmeld_list_connected_apps",
@@ -1307,6 +1316,10 @@ export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_set_organization_working_language",
   "openmeld_manage_agent_profile_creation_request",
   "openmeld_set_agent_profile_creation_approval_preferences",
+  "openmeld_update_openmeld_tools",
+  "openmeld_set_openmeld_tools_updates",
+  "openmeld_list_local_agent_installations",
+  "openmeld_select_local_agent_installation",
 ] as const satisfies readonly RemoteAgentOpenMeldToolName[];
 
 const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAME_SET =
@@ -4284,6 +4297,121 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             ...toolContext,
             includeDiagnostics: true,
             includeUsageLimits: "true",
+          })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_update_openmeld_tools",
+      description:
+        "Update OpenMeld Tools on the verified requester's current Computer. Use only when the requester asks to update now. OpenMeld handles the update in the background.",
+      input: object({}),
+      execute: async () => {
+        const toolContext =
+          await buildRequesterPrivateVerifiedMemberToolContext({
+            missingSpeakerMessage:
+              "Updating this Computer requires a verified human member speaker.",
+            sharedAudienceMessage:
+              "Computer updates are available only in your direct conversation with the Center Agent.",
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_update_openmeld_tools",
+          });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentRequestOpenMeldToolsUpdate,
+          "centerAgentRequestOpenMeldToolsUpdate"
+        );
+        return centerAgentRequestOpenMeldToolsUpdateResponseSchema.parse(
+          await rpc(toolContext)
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_set_openmeld_tools_updates",
+      description:
+        "Turn automatic OpenMeld Tools updates on or off for the verified requester's current Computer. Use only when the requester asks to change this setting.",
+      input: object({ enabled: boolean() }),
+      execute: async (payload) => {
+        const toolContext =
+          await buildRequesterPrivateVerifiedMemberToolContext({
+            missingSpeakerMessage:
+              "Changing this Computer requires a verified human member speaker.",
+            sharedAudienceMessage:
+              "Computer settings are available only in your direct conversation with the Center Agent.",
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_set_openmeld_tools_updates",
+          });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentSetOpenMeldToolsMaintenance,
+          "centerAgentSetOpenMeldToolsMaintenance"
+        );
+        return centerAgentSetOpenMeldToolsMaintenanceResponseSchema.parse(
+          await rpc({
+            ...toolContext,
+            automaticUpdatesEnabled: payload.enabled,
+          })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_list_local_agent_installations",
+      description:
+        "List working installations of one local agent on the verified requester's current Computer. Use this before asking the requester to switch installations.",
+      input: object({ agentId: nonEmptyStringSchema }),
+      execute: async (payload) => {
+        const toolContext =
+          await buildRequesterPrivateVerifiedMemberToolContext({
+            missingSpeakerMessage:
+              "Computer installations require a verified human member speaker.",
+            sharedAudienceMessage:
+              "Computer installations are available only in your direct conversation with the Center Agent.",
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_list_local_agent_installations",
+          });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentListLocalAgentInstallations,
+          "centerAgentListLocalAgentInstallations"
+        );
+        return centerAgentListLocalAgentInstallationsResponseSchema.parse(
+          await rpc({ ...toolContext, agentId: payload.agentId })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_select_local_agent_installation",
+      description:
+        "Switch one local agent installation on the verified requester's current Computer. First list installations, name the exact choice, and ask for confirmation. Call this only after the requester confirms.",
+      input: object({
+        agentId: nonEmptyStringSchema,
+        confirmed: literal(true),
+        installationId: nonEmptyStringSchema,
+      }),
+      execute: async (payload) => {
+        if (payload.confirmed !== true) {
+          throw new Error("Confirm the installation first.");
+        }
+        const toolContext =
+          await buildRequesterPrivateVerifiedMemberToolContext({
+            missingSpeakerMessage:
+              "Switching installations requires a verified human member speaker.",
+            sharedAudienceMessage:
+              "Computer installations are available only in your direct conversation with the Center Agent.",
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_select_local_agent_installation",
+          });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentSelectLocalAgentInstallation,
+          "centerAgentSelectLocalAgentInstallation"
+        );
+        return centerAgentSelectLocalAgentInstallationResponseSchema.parse(
+          await rpc({
+            ...toolContext,
+            agentId: payload.agentId,
+            confirmed: payload.confirmed,
+            installationId: payload.installationId,
           })
         );
       },

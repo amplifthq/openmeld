@@ -49,6 +49,10 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_list_connected_apps", "connected_apps.read"],
   ["openmeld_list_computers", "agent_profile.connections.read"],
   [
+    "openmeld_list_local_agent_installations",
+    "computer.local_agent.installations.read",
+  ],
+  [
     "openmeld_list_local_agent_connection_candidates",
     "agent_profile.connections.read",
   ],
@@ -84,6 +88,14 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_read_center_agent_activity", "center_agent.activity.read"],
   ["openmeld_read_center_agent_turn_diagnostics", "center_agent.activity.read"],
   ["openmeld_request_member_attention", "center_agent.attention.request"],
+  [
+    "openmeld_select_local_agent_installation",
+    "computer.local_agent.installation.select",
+  ],
+  [
+    "openmeld_set_openmeld_tools_updates",
+    "computer.openmeld_tools.settings.update",
+  ],
   ["openmeld_read_dispatch_history", "dispatch.history.read"],
   ["openmeld_read_member_computers", "organization.member_computers.read"],
   [
@@ -93,6 +105,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_read_org_documents", "organization.documents.read"],
   ["openmeld_manage_org_documents", "organization.documents.manage"],
   ["openmeld_submit_org_document_working_copy", "organization.document.draft"],
+  ["openmeld_update_openmeld_tools", "computer.openmeld_tools.update"],
   ["openmeld_read_organization_skills", "organization.skills.read"],
   ["openmeld_install_organization_skill", "organization.skills.install"],
   ["openmeld_read_organization_directory", "organization.members.read"],
