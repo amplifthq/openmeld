@@ -370,17 +370,19 @@ order:
 4. Compare the measurement with OpenMeld's `500 ms` performance target. A
    higher value produces durable warning evidence but does not reject a version
    that Cloudflare accepted within its platform limit.
-5. Run the ordinary production deploy only after Cloudflare accepts the
-   zero-traffic version. The ordinary deploy remains responsible for applying
-   the tracked routes, triggers, bindings, migrations, and other production
-   configuration.
+5. Deploy that exact accepted Version to 100 percent production traffic without
+   rebuilding it. This prevents a second startup validation of equivalent code
+   from producing a different result.
+6. Synchronize routes, domains, and Cron Triggers through `wrangler triggers
+   deploy` after the Version is active.
 
-The zero-traffic upload and the ordinary deploy use the same immutable source,
-production environment, minification, and compile-time definitions. They are
-two builds because routing the uploaded version directly would not by itself
-prove that every non-versioned production setting was applied. Do not replace
-the ordinary deploy with an exact-version traffic change until configuration
-parity has a separate reviewed and tested contract.
+The uploaded Version owns the code, bindings, migrations, compatibility
+settings, and compile-time definitions that Cloudflare accepted. Core's release
+guard rejects `logpush` or `tail_consumers` in the Wrangler configuration
+because Cloudflare does not apply those non-versioned settings through a Version
+deployment. Do not add either setting until the release path has a separately
+reviewed way to apply and verify it. Trigger synchronization remains explicit
+because routes, domains, and schedules are also outside the Version payload.
 
 `pnpm run evidence:startup:core` captures a local CPU profile and summarizes
 active, garbage-collection, and idle time. Use it to locate expensive global
@@ -397,15 +399,15 @@ dev-tmp/core-startup-admission.json
 dev-tmp/core-startup.cpuprofile
 ```
 
-If Cloudflare rejects the zero-traffic version, or the later deploy reports
-`10021`, do not retry the unchanged source hoping for a faster Cloudflare
-machine. Keep the current production version active, use the bundle and CPU
-profile evidence to remove eager global initialization, and rerun admission
-only after a reviewed source change. A version above OpenMeld's `500 ms`
-performance target may continue through the guarded release when Cloudflare
-accepts it, but the warning remains actionable optimization evidence. Raising
-request CPU limits does not change the startup limit. Cloudflare's current
-startup and version upload contracts are documented in [Worker limits](https://developers.cloudflare.com/workers/platform/limits/)
+If Cloudflare rejects the zero-traffic version with `10021`, do not retry the
+unchanged source hoping for a faster Cloudflare machine. Keep the current
+production version active, use the bundle and CPU profile evidence to remove
+eager global initialization, and rerun admission only after a reviewed source
+change. A version above OpenMeld's `500 ms` performance target may continue
+through the guarded release when Cloudflare accepts it, but the warning remains
+actionable optimization evidence. Raising request CPU limits does not change
+the startup limit. Cloudflare's current startup and version upload contracts
+are documented in [Worker limits](https://developers.cloudflare.com/workers/platform/limits/)
 and [Gradual deployments](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/gradual-deployments/).
 
 ## GitHub Scoped Release
