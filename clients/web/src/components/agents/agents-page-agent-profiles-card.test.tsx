@@ -727,6 +727,42 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
+	it("does not report settings saved when the server returns the previous Permission Mode", async () => {
+		updatePrimaryBindingAgentControllerPermissionModeMock.mockResolvedValue(
+			createEnsureBindingResponse("codex:approveForMe")
+		);
+		renderAgentProfilesCard();
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Edit Agent" }));
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Codex permissions mode" })
+		);
+		fireEvent.click(screen.getByRole("option", { name: "Full access" }));
+		fireEvent.click(
+			screen.getByLabelText(
+				"I understand this permissions mode can run with dangerous full access."
+			)
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		await waitFor(() => {
+			expect(toastMock.error).toHaveBeenCalledWith(
+				"OpenMeld could not verify that the Agent Profile settings were saved. Please try again."
+			);
+		});
+		expect(toastMock.success).not.toHaveBeenCalled();
+		expect(screen.getByRole("heading", { name: "Edit Agent" })).toBeTruthy();
+		expect(
+			screen.getByTestId("agent-controller-permission-mode-inline-display")
+				.textContent
+		).toBe("Codex permissions mode: Approve for me");
+	});
+
 	it("updates Codex Collaboration Mode without changing Permission Mode", async () => {
 		let currentCollaborationMode = "codex:default";
 		readPrimaryBindingMock.mockImplementation(async () =>

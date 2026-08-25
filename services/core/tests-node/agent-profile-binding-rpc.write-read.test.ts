@@ -782,6 +782,138 @@ describe("agent profile binding Core RPC", () => {
     }
   });
 
+  it("rejects a permission update when a reconnect replaces the Binding before the settings write", async () => {
+    const harness = createSqliteD1Harness();
+    applyAgentProfileBindingRpcMigrations(harness);
+    try {
+      const registeredRuntimeId =
+        await seedRuntimeAgentControllerReport(harness);
+      await rpcEnsureAgentProfilePrimaryBinding(coreEnv(harness.db), {
+        agentControllerConversationId: "conversation-before-settings-race",
+        agentControllerPermissionMode: "codex:approveForMe",
+        agentControllerRef: "builtin:codex",
+        agentProfileId: AGENT_PROFILE_ID,
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        openMeldServiceRuntimeId: {
+          source: "runtime_registry_authority",
+          value: registeredRuntimeId.value,
+        },
+      });
+      const staleBinding = await readPrimaryAgentProfileBindingRecord({
+        agentProfileId: AGENT_PROFILE_ID,
+        db: harness.db,
+        owner: { id: "owner-1", kind: "owner_account" },
+      });
+      expect(staleBinding).not.toBeNull();
+
+      let bindingReplaced = false;
+      const racingDb = new Proxy(harness.db, {
+        get(target, property, receiver) {
+          if (property === "prepare") {
+            return (sql: string) => {
+              const statement = target.prepare(sql);
+              if (
+                !(
+                  sql.includes(
+                    "UPDATE openMeldDaemon_agent_profile_bindings"
+                  ) && sql.includes("agent_controller_permission_mode = ?")
+                )
+              ) {
+                return statement;
+              }
+              return new Proxy(statement, {
+                get(statementTarget, statementProperty, statementReceiver) {
+                  if (statementProperty === "bind") {
+                    return (...values: unknown[]) => {
+                      const boundStatement = statementTarget.bind(...values);
+                      return new Proxy(boundStatement, {
+                        get(boundTarget, boundProperty, boundReceiver) {
+                          if (boundProperty === "run") {
+                            return async () => {
+                              if (!bindingReplaced) {
+                                bindingReplaced = true;
+                                await reconnectPrimaryAgentProfileBindingRecord(
+                                  {
+                                    acquireExecutionTargetMutationAdmission:
+                                      async () => undefined,
+                                    db: harness.db,
+                                    record: {
+                                      ...(staleBinding as NonNullable<
+                                        typeof staleBinding
+                                      >),
+                                      agentControllerConversationId:
+                                        "conversation-after-settings-race",
+                                      bindingId: "binding-after-settings-race",
+                                      updatedAtMs: Date.now(),
+                                    },
+                                  }
+                                );
+                              }
+                              return await boundTarget.run();
+                            };
+                          }
+                          const value = Reflect.get(
+                            boundTarget,
+                            boundProperty,
+                            boundReceiver
+                          );
+                          return typeof value === "function"
+                            ? value.bind(boundTarget)
+                            : value;
+                        },
+                      });
+                    };
+                  }
+                  const value = Reflect.get(
+                    statementTarget,
+                    statementProperty,
+                    statementReceiver
+                  );
+                  return typeof value === "function"
+                    ? value.bind(statementTarget)
+                    : value;
+                },
+              });
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
+      const result =
+        await rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode(
+          coreEnv(racingDb),
+          {
+            agentControllerPermissionMode: "codex:fullAccess",
+            agentProfileId: AGENT_PROFILE_ID,
+            context: DEFAULT_CONTEXT,
+          }
+        );
+      const current = await readPrimaryAgentProfileBindingRecord({
+        agentProfileId: AGENT_PROFILE_ID,
+        db: harness.db,
+        owner: { id: "owner-1", kind: "owner_account" },
+      });
+
+      expect(bindingReplaced).toBe(true);
+      expect(result).toEqual({
+        grantsClaimSuccess: false,
+        reasonCodes: ["agent_profile_binding.settings_conflict"],
+        routable: false,
+        status: "rejected",
+      });
+      expect(current).toMatchObject({
+        agentControllerPermissionMode: "codex:approveForMe",
+        bindingId: "binding-after-settings-race",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("takes mutation admission before unbinding even when the first Binding read is empty", async () => {
     const harness = createSqliteD1Harness();
     applyAgentProfileBindingRpcMigrations(harness);

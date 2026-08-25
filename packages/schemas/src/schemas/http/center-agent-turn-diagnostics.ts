@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { messageChannelConversationLocatorSchema } from "../runtime/message-channel";
 
 export const CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT = 10;
 export const CENTER_AGENT_TURN_DIAGNOSTICS_MAX_LIMIT = 20;
@@ -26,10 +27,34 @@ export const centerAgentTurnDiagnosticPublicationStateSchema = z.enum([
 const nullableTimestampMsSchema = z.number().int().nonnegative().nullable();
 const nullableIdentifierSchema = z.string().trim().min(1).nullable();
 
+export const centerAgentTurnDiagnosticConversationSourceSchema = z
+  .discriminatedUnion("kind", [
+    z.strictObject({
+      isCurrentConversation: z.boolean(),
+      kind: z.literal("space"),
+      spaceId: z.string().trim().min(1),
+    }),
+    z.strictObject({
+      channelId: z.string().trim().min(1),
+      isCurrentConversation: z.boolean(),
+      kind: z.literal("slack"),
+      teamId: z.string().trim().min(1),
+      threadTs: z.string().trim().min(1),
+    }),
+    z.strictObject({
+      isCurrentConversation: z.boolean(),
+      kind: z.literal("message_channel"),
+      locator: messageChannelConversationLocatorSchema,
+    }),
+  ])
+  .nullable();
+
 export const centerAgentTurnDiagnosticSchema = z.strictObject({
   acceptedAtMs: nullableTimestampMsSchema,
   callbackReceivedAtMs: nullableTimestampMsSchema,
   completedAtMs: nullableTimestampMsSchema,
+  conversationSource:
+    centerAgentTurnDiagnosticConversationSourceSchema.optional(),
   createdAtMs: z.number().int().nonnegative(),
   deliveryId: z.string().trim().min(1),
   dispatchId: z.string().trim().min(1),

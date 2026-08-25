@@ -2710,7 +2710,8 @@ export async function readRemoteAgentNativeDeliveryBySubmissionId(input: {
 }
 
 export function projectRemoteAgentNativeDeliveryTurnDiagnostic(
-  delivery: RemoteAgentNativeDeliveryRecord
+  delivery: RemoteAgentNativeDeliveryRecord,
+  currentDelivery: RemoteAgentNativeDeliveryRecord = delivery
 ): CenterAgentTurnDiagnostic {
   const failureDetail = delivery.failureDetail?.trim() || null;
   const failureDetailTruncated =
@@ -2721,6 +2722,10 @@ export function projectRemoteAgentNativeDeliveryTurnDiagnostic(
     acceptedAtMs: delivery.acceptedAtMs,
     callbackReceivedAtMs: delivery.callbackReceivedAtMs,
     completedAtMs: delivery.completedAtMs,
+    conversationSource: projectRemoteAgentNativeDeliveryConversationSource({
+      currentDelivery,
+      delivery,
+    }),
     createdAtMs: delivery.createdAtMs,
     deliveryId: delivery.deliveryId,
     dispatchId: delivery.dispatchId,
@@ -2744,6 +2749,96 @@ export function projectRemoteAgentNativeDeliveryTurnDiagnostic(
     triggerMessageId: delivery.triggerMessageId,
     updatedAtMs: delivery.updatedAtMs,
   };
+}
+
+function projectRemoteAgentNativeDeliveryConversationSource(input: {
+  currentDelivery: RemoteAgentNativeDeliveryRecord;
+  delivery: RemoteAgentNativeDeliveryRecord;
+}): CenterAgentTurnDiagnostic["conversationSource"] {
+  const isCurrentConversation = isSameNativeDeliveryConversation(
+    input.delivery,
+    input.currentDelivery
+  );
+  if (input.delivery.conversationKind === "space") {
+    return {
+      isCurrentConversation,
+      kind: "space",
+      spaceId: input.delivery.spaceId,
+    };
+  }
+  if (input.delivery.conversationKind === "slack") {
+    if (
+      !(
+        input.delivery.slackTeamId &&
+        input.delivery.slackChannelId &&
+        input.delivery.slackThreadTs
+      )
+    ) {
+      return null;
+    }
+    return {
+      channelId: input.delivery.slackChannelId,
+      isCurrentConversation,
+      kind: "slack",
+      teamId: input.delivery.slackTeamId,
+      threadTs: input.delivery.slackThreadTs,
+    };
+  }
+  if (!input.delivery.messageChannelLocator) {
+    return null;
+  }
+  return {
+    isCurrentConversation,
+    kind: "message_channel",
+    locator: input.delivery.messageChannelLocator,
+  };
+}
+
+function isSameNativeDeliveryConversation(
+  left: RemoteAgentNativeDeliveryRecord,
+  right: RemoteAgentNativeDeliveryRecord
+): boolean {
+  if (left.conversationKind !== right.conversationKind) {
+    return false;
+  }
+  if (left.conversationKind === "space") {
+    return left.spaceId === right.spaceId;
+  }
+  if (left.conversationKind === "slack") {
+    return (
+      left.slackTeamId === right.slackTeamId &&
+      left.slackChannelId === right.slackChannelId &&
+      left.slackThreadTs === right.slackThreadTs
+    );
+  }
+  const leftLocator = left.messageChannelLocator;
+  const rightLocator = right.messageChannelLocator;
+  if (!(leftLocator && rightLocator)) {
+    return false;
+  }
+  if (leftLocator.provider !== rightLocator.provider) {
+    return false;
+  }
+  if (leftLocator.provider === "slack") {
+    return (
+      rightLocator.provider === "slack" &&
+      leftLocator.connectionId === rightLocator.connectionId &&
+      leftLocator.teamId === rightLocator.teamId &&
+      leftLocator.channelId === rightLocator.channelId &&
+      leftLocator.rootMessageId === rightLocator.rootMessageId
+    );
+  }
+  if (rightLocator.provider === "slack") {
+    return false;
+  }
+  return (
+    leftLocator.connectionId === rightLocator.connectionId &&
+    leftLocator.appId === rightLocator.appId &&
+    leftLocator.tenantKey === rightLocator.tenantKey &&
+    leftLocator.chatId === rightLocator.chatId &&
+    leftLocator.rootMessageId === rightLocator.rootMessageId &&
+    leftLocator.threadId === rightLocator.threadId
+  );
 }
 
 export async function listRemoteAgentNativeDeliveryTurnDiagnostics(input: {
@@ -2837,7 +2932,10 @@ export async function listRemoteAgentNativeDeliveryTurnDiagnostics(input: {
     .all<RemoteAgentNativeDeliveryRow>();
 
   return rows.results.map((row) =>
-    projectRemoteAgentNativeDeliveryTurnDiagnostic(mapNativeDeliveryRow(row))
+    projectRemoteAgentNativeDeliveryTurnDiagnostic(
+      mapNativeDeliveryRow(row),
+      current
+    )
   );
 }
 

@@ -908,12 +908,15 @@ describe("Agent Profile Binding repo write-side", () => {
           updatedAtMs: 3000,
         })
       ).resolves.toEqual({
-        ...record,
-        agentControllerPermissionMode: "codex:fullAccess",
-        configurationRevision: 2,
-        bindingState: "enabled_primary",
-        disabledAtMs: null,
-        updatedAtMs: 3000,
+        binding: {
+          ...record,
+          agentControllerPermissionMode: "codex:fullAccess",
+          configurationRevision: 2,
+          bindingState: "enabled_primary",
+          disabledAtMs: null,
+          updatedAtMs: 3000,
+        },
+        status: "updated",
       });
 
       expect(
@@ -963,12 +966,15 @@ describe("Agent Profile Binding repo write-side", () => {
           updatedAtMs: 2000,
         })
       ).resolves.toEqual({
-        ...record,
-        agentControllerCollaborationMode: "codex:plan",
-        configurationRevision: 2,
-        bindingState: "enabled_primary",
-        disabledAtMs: null,
-        updatedAtMs: 2000,
+        binding: {
+          ...record,
+          agentControllerCollaborationMode: "codex:plan",
+          configurationRevision: 2,
+          bindingState: "enabled_primary",
+          disabledAtMs: null,
+          updatedAtMs: 2000,
+        },
+        status: "updated",
       });
 
       expect(

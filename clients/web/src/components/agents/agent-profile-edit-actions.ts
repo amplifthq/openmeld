@@ -9,7 +9,10 @@ import type {
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
-import { isOpenCodeAgentControllerRef } from "#/components/profiles/open-code-permissions-field";
+import {
+	isOpenCodeAgentControllerRef,
+	openCodePermissionEquals,
+} from "#/components/profiles/open-code-permissions-field";
 import {
 	updateAgentProfilePrimaryBindingAgentControllerCollaborationMode,
 	updateAgentProfilePrimaryBindingAgentControllerPermissionMode,
@@ -148,6 +151,9 @@ export async function updateAgentProfileControllerCollaborationMode(input: {
 }) {
 	await runAgentProfileBindingUpdate({
 		context: input.context,
+		matchesRequestedBinding: (binding) =>
+			binding.agentControllerCollaborationMode ===
+			input.agentControllerCollaborationMode,
 		update: async () =>
 			await updateAgentProfilePrimaryBindingAgentControllerCollaborationMode({
 				actorProfileId: input.context.actorProfileId,
@@ -164,6 +170,9 @@ export async function updateAgentProfileControllerPermissionMode(input: {
 }) {
 	await runAgentProfileBindingUpdate({
 		context: input.context,
+		matchesRequestedBinding: (binding) =>
+			binding.agentControllerPermissionMode ===
+			input.agentControllerPermissionMode,
 		update: async () =>
 			await updateAgentProfilePrimaryBindingAgentControllerPermissionMode({
 				actorProfileId: input.context.actorProfileId,
@@ -179,6 +188,10 @@ export async function updateAgentProfileModelSelection(input: {
 }) {
 	await runAgentProfileBindingUpdate({
 		context: input.context,
+		matchesRequestedBinding: (binding) =>
+			binding.modelSelection?.modelId === input.modelSelection.modelId &&
+			(binding.modelSelection.reasoningLevel ?? null) ===
+				input.modelSelection.reasoningLevel,
 		update: async () =>
 			await updateAgentProfilePrimaryBindingModelSelection({
 				actorProfileId: input.context.actorProfileId,
@@ -195,6 +208,11 @@ export async function updateAgentProfileOpenCodePermission(input: {
 }) {
 	await runAgentProfileBindingUpdate({
 		context: input.context,
+		matchesRequestedBinding: (binding) =>
+			openCodePermissionEquals(
+				binding.openCodePermission ?? null,
+				input.openCodePermission
+			),
 		update: async () =>
 			await updateAgentProfilePrimaryBindingOpenCodePermission({
 				actorProfileId: input.context.actorProfileId,
@@ -288,11 +306,19 @@ export async function invalidateAgentProfilePrimaryBindingEditQueries(input: {
 
 async function runAgentProfileBindingUpdate(input: {
 	context: AgentProfileEditActionContext;
+	matchesRequestedBinding: (
+		binding: NonNullable<GetAgentProfilePrimaryBindingResponse["binding"]>
+	) => boolean;
 	update: () => Promise<AgentProfileBindingUpdateResult>;
 }) {
 	const response = await input.update();
 	if (response.status !== "accepted" || !response.binding) {
 		throw new Error("OpenMeld could not save the Agent Profile settings.");
+	}
+	if (!input.matchesRequestedBinding(response.binding)) {
+		throw new Error(
+			"OpenMeld could not verify that the Agent Profile settings were saved. Please try again."
+		);
 	}
 	await commitAgentProfileBindingUpdate({
 		binding: response.binding,

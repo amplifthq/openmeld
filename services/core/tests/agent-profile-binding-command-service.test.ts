@@ -1132,11 +1132,22 @@ describe("Agent Profile Binding command service", () => {
             outcome: "reconnected",
             status: "accepted",
           }),
-          updatePrimaryBindingAgentControllerCollaborationMode: async () =>
-            null,
-          updatePrimaryBindingAgentControllerPermissionMode: async () => null,
-          updatePrimaryBindingModelSelection: async () => null,
-          updatePrimaryBindingOpenCodePermission: async () => null,
+          updatePrimaryBindingAgentControllerCollaborationMode: async () => ({
+            binding: null,
+            status: "missing",
+          }),
+          updatePrimaryBindingAgentControllerPermissionMode: async () => ({
+            binding: null,
+            status: "missing",
+          }),
+          updatePrimaryBindingModelSelection: async () => ({
+            binding: null,
+            status: "missing",
+          }),
+          updatePrimaryBindingOpenCodePermission: async () => ({
+            binding: null,
+            status: "missing",
+          }),
         },
       })
     ).resolves.toEqual({
@@ -1177,11 +1188,22 @@ describe("Agent Profile Binding command service", () => {
             outcome: "reconnected",
             status: "accepted",
           }),
-          updatePrimaryBindingAgentControllerCollaborationMode: async () =>
-            null,
-          updatePrimaryBindingAgentControllerPermissionMode: async () => null,
-          updatePrimaryBindingModelSelection: async () => null,
-          updatePrimaryBindingOpenCodePermission: async () => null,
+          updatePrimaryBindingAgentControllerCollaborationMode: async () => ({
+            binding: null,
+            status: "missing",
+          }),
+          updatePrimaryBindingAgentControllerPermissionMode: async () => ({
+            binding: null,
+            status: "missing",
+          }),
+          updatePrimaryBindingModelSelection: async () => ({
+            binding: null,
+            status: "missing",
+          }),
+          updatePrimaryBindingOpenCodePermission: async () => ({
+            binding: null,
+            status: "missing",
+          }),
         },
         agentControllerConversationId: "ctx-shared",
       })
@@ -1621,12 +1643,12 @@ function createInMemoryBindingStore(): AgentProfileBindingCommandStore & {
           candidate.bindingState === "enabled_primary"
       );
       if (!current) {
-        return Promise.resolve(null);
+        return Promise.resolve({ binding: null, status: "missing" });
       }
       updateStoredModelSelection(current, modelSelectionPatch, {
         updatedAtMs,
       });
-      return Promise.resolve(current);
+      return Promise.resolve({ binding: current, status: "updated" });
     },
     updatePrimaryBindingAgentControllerPermissionMode: ({
       agentProfileId,
@@ -1642,14 +1664,14 @@ function createInMemoryBindingStore(): AgentProfileBindingCommandStore & {
           candidate.bindingState === "enabled_primary"
       );
       if (!current) {
-        return Promise.resolve(null);
+        return Promise.resolve({ binding: null, status: "missing" });
       }
       updateStoredAgentControllerPermissionMode(
         current,
         agentControllerPermissionModePatch,
         { updatedAtMs }
       );
-      return Promise.resolve(current);
+      return Promise.resolve({ binding: current, status: "updated" });
     },
     updatePrimaryBindingAgentControllerCollaborationMode: ({
       agentProfileId,
@@ -1665,14 +1687,14 @@ function createInMemoryBindingStore(): AgentProfileBindingCommandStore & {
           candidate.bindingState === "enabled_primary"
       );
       if (!current) {
-        return Promise.resolve(null);
+        return Promise.resolve({ binding: null, status: "missing" });
       }
       updateStoredAgentControllerCollaborationMode(
         current,
         agentControllerCollaborationModePatch,
         { updatedAtMs }
       );
-      return Promise.resolve(current);
+      return Promise.resolve({ binding: current, status: "updated" });
     },
     updatePrimaryBindingOpenCodePermission: ({
       agentProfileId,
@@ -1688,12 +1710,12 @@ function createInMemoryBindingStore(): AgentProfileBindingCommandStore & {
           candidate.bindingState === "enabled_primary"
       );
       if (!current) {
-        return Promise.resolve(null);
+        return Promise.resolve({ binding: null, status: "missing" });
       }
       updateStoredOpenCodePermission(current, openCodePermissionPatch, {
         updatedAtMs,
       });
-      return Promise.resolve(current);
+      return Promise.resolve({ binding: current, status: "updated" });
     },
   };
 }
