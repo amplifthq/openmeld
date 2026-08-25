@@ -968,6 +968,15 @@ writes remain silent. If macOS requires interaction to save a replacement,
 setup uses the documented private-file fallback instead. After one timeout,
 that CLI process does not retry Keychain; a new process may try again. Access
 tokens cross that private child boundary through stdin, never argv. A later
+command authentication check may re-read the CLI-owned session once when the
+first result is `session_token_unavailable`. A cached Keychain timeout makes
+that re-read fail immediately without launching another Keychain child; other
+one-off helper failures may recover through the single bounded retry. If the
+session is still unavailable, the command fails closed, preserves
+`session_token_unavailable` in Agent View, and tells the caller to retry from a
+fresh CLI process or inspect `openmeld auth status --view agent`. It must not
+misreport that unavailable state as an invalid sign-in or require a new login
+without that evidence. A later
 login through a packaged CLI stores its newly issued replacement in Keychain
 only when that Keychain write succeeds, then removes the previous private file.
 A failed old credential deletion is retained as pending cleanup outside the
