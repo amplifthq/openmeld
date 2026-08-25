@@ -21,6 +21,25 @@
       "body": "Local agents that you turn off now stay visually quiet and no longer create a\nComputer alert. Installation choices also sit with the local agent's launch\ndetails, and OpenMeld waits for the final result before calling a slow setting\nchange a failure."
     },
     {
+      "id": "clearer-local-agent-installations-and-usage",
+      "title": "See which local agent installation OpenMeld uses",
+      "kind": "improved",
+      "areas": [
+        "computers",
+        "local-agents"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-25",
+      "evidence": [
+        "pr:244",
+        "commit:04a7f925b140d0e38d11cc33a9b79c10240fd9aa",
+        "workflow:32803874709"
+      ],
+      "body": "Computer details now name the exact local agent installation OpenMeld uses and\nshow provider limits in compact circular cards. Choosing another installation\nrequires confirmation, stays readable on smaller screens, and no longer shows\na timeout when the computer completed the change."
+    },
+    {
       "id": "keep-codex-permissions-stable",
       "title": "Keep Codex permissions stable during background checks",
       "kind": "fixed",
