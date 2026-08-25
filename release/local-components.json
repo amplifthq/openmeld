@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-25T02:30:36.517Z",
+  "updatedAt": "2026-08-25T03:41:33.259Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.101",
+      "packageVersion": "0.3.102",
       "updatePolicy": "available",
-      "reason": "Keep background Service update status accurate."
+      "reason": "Keep Codex update guidance on its own installation source."
     },
     "service": {
-      "bundleHash": "cec68932c1e0319aa66d1da19a51c815b3a502ec86ddbf3249080d6f472bc6f5",
-      "bundleVersion": "0.3.101",
+      "bundleHash": "aa3741cc7f53a304899fafa3fe5cdb71b7c856973a0e60c06d966eec1ae8fbe4",
+      "bundleVersion": "0.3.102",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Keep background Service update status accurate."
+      "reason": "Keep Codex update guidance on its own installation source."
     },
     "skills": {
       "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "ok",
-      "reason": "Keep background Service update status accurate."
+      "reason": "Keep Codex update guidance on its own installation source."
     }
   }
 }
