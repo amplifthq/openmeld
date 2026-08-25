@@ -5,7 +5,6 @@ import {
 } from "@openmeld/api-client";
 import type {
 	AuthProfileView,
-	CenterAgentSlackWorkspaceConnection,
 	ConvertDirectMessageToSpaceResponse,
 	CurrentLocalRuntimeReplyReadinessResponse,
 	GetSpaceStatusResponse,
@@ -19,7 +18,9 @@ import {
 	isDirectMessageSpace,
 	resolveSpaceMemberAgentOwnerWakeDiagnosticsView,
 } from "@openmeld/space";
+import { Button } from "@openmeld/ui/components/button";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
+import { ArrowUpIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
@@ -45,8 +46,16 @@ import {
 	UnsavedChangesDialog,
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
+import {
+	PromptInput,
+	PromptInputActions,
+	PromptInputTextarea,
+} from "#/components/ibelick/prompt-input";
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
-import { CenterAgentSlackChannelsShortcut } from "#/components/organizations/center-agent-slack-channels-shortcut";
+import {
+	buildCenterAgentHeaderMenuItems,
+	CenterAgentHeaderTabs,
+} from "#/components/organizations/center-agent-header-navigation";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import {
 	planAgentProfileReplyRecoveryFromWebEvidence,
@@ -361,32 +370,8 @@ function useActiveWakeTargetProfileIds(
 	};
 }
 
-function SpaceSlackSettingsShortcutControl(input: {
-	designationPending: boolean;
-	isCenterAgentDirectMessage: boolean;
-	organizationId: string | null;
-	organizationSlug: string;
-	slackConnection?: CenterAgentSlackWorkspaceConnection;
-}) {
-	if (
-		!input.isCenterAgentDirectMessage ||
-		input.organizationId === null ||
-		input.designationPending
-	) {
-		return null;
-	}
-
-	return (
-		<CenterAgentSlackChannelsShortcut
-			organizationSlug={input.organizationSlug}
-			slackConnection={input.slackConnection}
-		/>
-	);
-}
-
 type SpaceLandingInput = {
 	accountProfiles?: readonly AuthProfileView[];
-	centerAgentAboutControl?: ReactNode;
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	currentUserAvatarImageUrl?: string | null;
 	initialComposerDraft?: ComposerDraftRecord | null;
@@ -394,10 +379,12 @@ type SpaceLandingInput = {
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	initialPendingMessage?: PendingSpaceMessage | null;
+	initialSpaceView?: SpaceView;
 	isPersonalContext?: boolean;
 	isCenterAgentDirectMessage?: boolean;
 	loadingFallback?: ReactNode;
 	onInitialPendingMessageConsumed?: () => void;
+	onSpaceViewCommitted?: (view: SpaceView) => void;
 	orgSlug: string;
 	presentation?: "compact" | "full";
 	spaceId: string;
@@ -409,7 +396,10 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	const navigate = useNavigate();
 	const generatedSpaceViewId = useId();
 	const spaceViewIdPrefix = `space-view-${generatedSpaceViewId}`;
-	const spaceFileNavigation = useSpaceFileNavigation();
+	const spaceFileNavigation = useSpaceFileNavigation(
+		input.initialSpaceView,
+		input.onSpaceViewCommitted
+	);
 	const { changeSpaceView, openSpaceFile, spaceFileToOpen, spaceView } =
 		spaceFileNavigation;
 	const accountProfiles = resolveSpaceLandingAccountProfiles(
@@ -1321,7 +1311,13 @@ export function SpaceLanding(input: SpaceLandingInput) {
 	const state = useSpaceLandingState(input);
 	const { controller } = state;
 	if (controller.mode === "loading") {
-		return input.loadingFallback ?? <SpaceLandingLoadingShell />;
+		return (
+			input.loadingFallback ?? (
+				<SpaceLandingLoadingShell
+					composer={<SpaceColdLoadingComposer controller={controller} />}
+				/>
+			)
+		);
 	}
 
 	if (controller.mode === "password") {
@@ -1355,6 +1351,65 @@ export function SpaceLanding(input: SpaceLandingInput) {
 	);
 }
 
+function SpaceColdLoadingComposer(input: {
+	controller: Extract<SpaceLandingState["controller"], { mode: "loading" }>;
+}) {
+	const controller = input.controller;
+	return (
+		<PromptInput
+			className="w-full"
+			maxHeight={240}
+			onSubmit={() => undefined}
+			value={controller.composerText}
+		>
+			<PromptInputTextarea
+				aria-label="Message this space"
+				autoComplete="off"
+				className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
+				name="space-message"
+				onBlur={controller.onComposerBlur}
+				onChange={(event) => {
+					controller.onComposerChange(event.target.value, {
+						end: event.target.selectionEnd,
+						start: event.target.selectionStart,
+					});
+				}}
+				onFocus={controller.onComposerFocus}
+				onKeyDown={(event) => {
+					controller.onComposerKeyDown(event).catch((error) => {
+						console.error(
+							"Failed to handle Space composer input while opening the Space.",
+							error
+						);
+					});
+				}}
+				onSelect={(event) => {
+					controller.onComposerSelectionChange({
+						end: event.currentTarget.selectionEnd,
+						start: event.currentTarget.selectionStart,
+					});
+				}}
+				placeholder="Write a message while OpenMeld opens this space…"
+				ref={(element) => {
+					controller.textareaRef.current = element;
+				}}
+			/>
+			<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
+				<p
+					aria-live="polite"
+					className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-5"
+				>
+					You can keep writing. Sending will be available after this Space
+					opens.
+				</p>
+				<Button aria-label="Send message" disabled size="icon-sm" type="button">
+					<ArrowUpIcon aria-hidden="true" weight="bold" />
+				</Button>
+			</PromptInputActions>
+		</PromptInput>
+	);
+}
+
 function SpaceLandingReady({
 	controller,
 	input,
@@ -1366,7 +1421,6 @@ function SpaceLandingReady({
 }) {
 	const {
 		accountProfiles,
-		centerAgentState,
 		currentSpaceIsCenterAgentDirectMessage,
 		currentOwnerUserId,
 		handleAddAgentsFromBanner,
@@ -1380,7 +1434,6 @@ function SpaceLandingReady({
 		membersPanelWidth,
 		modelCatalog,
 		navigate,
-		organizationId,
 		recovery,
 		refreshCurrentSpaceMemberFacts,
 		setupRecallAction,
@@ -1398,16 +1451,6 @@ function SpaceLandingReady({
 		handleConvertDirectMessageToSpace,
 		showDeleteSpaceAction: controller.showDeleteSpaceAction,
 	});
-	const slackSettingsShortcut = (
-		<SpaceSlackSettingsShortcutControl
-			designationPending={centerAgentState.designationPending}
-			isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
-			organizationId={organizationId}
-			organizationSlug={input.orgSlug}
-			slackConnection={centerAgentState.slackConnection}
-		/>
-	);
-
 	const historyErrorMessage =
 		controller.historyError && controller.timelineItems.length === 0
 			? `Couldn't load recent history. ${controller.historyError.message}${
@@ -1521,14 +1564,14 @@ function SpaceLandingReady({
 						leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
 						liveErrorMessage={controller.liveErrorMessage}
 						liveState={controller.liveState}
-						managementControl={
-							<>
-								{input.centerAgentAboutControl}
-								{currentSpaceControls.managementControl}
-								{slackSettingsShortcut}
-							</>
-						}
+						managementControl={currentSpaceControls.managementControl}
 						membersControl={membersControl}
+						menuItems={
+							currentSpaceIsCenterAgentDirectMessage
+								? buildCenterAgentHeaderMenuItems(input.orgSlug)
+								: undefined
+						}
+						menuLabel="Center Agent menu"
 						onDeleteSpace={controller.onDeleteSpace}
 						onLeaveSpace={
 							controller.isCurrentAccessConfirmed
@@ -1548,12 +1591,23 @@ function SpaceLandingReady({
 						status={controller.status}
 						unreadCount={controller.unreadCount}
 						viewControl={
-							<SpaceViewTabs
-								activeView={spaceView}
-								className="shrink-0"
-								idPrefix={spaceViewIdPrefix}
-								onViewChange={spaceFileNavigation.changeSpaceView}
-							/>
+							currentSpaceIsCenterAgentDirectMessage ? (
+								<CenterAgentHeaderTabs
+									activeSectionId="chat"
+									activeSpaceView={spaceView}
+									className="h-full shrink-0 gap-5"
+									idPrefix={spaceViewIdPrefix}
+									onSpaceViewChange={spaceFileNavigation.changeSpaceView}
+									organizationSlug={input.orgSlug}
+								/>
+							) : (
+								<SpaceViewTabs
+									activeView={spaceView}
+									className="shrink-0"
+									idPrefix={spaceViewIdPrefix}
+									onViewChange={spaceFileNavigation.changeSpaceView}
+								/>
+							)
 						}
 					/>
 				}
@@ -1774,7 +1828,7 @@ function SpaceLandingConversation({
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}
 			readOnly={!controller.isCurrentAccessConfirmed}
-			readOnlyComposerPlaceholder="Checking access…"
+			readOnlyComposerPlaceholder="Write a message while OpenMeld checks access…"
 			renderSetupGuidance={(presentation) =>
 				controller.isCurrentAccessConfirmed ? (
 					<SpaceConversationRecoveryBanner

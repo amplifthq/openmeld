@@ -1,9 +1,8 @@
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
 export async function loadCenterAgentRouteContext() {
-	const { inner, outer } = await getAppSidebarStatesForRoute("center-agent");
+	const { outer } = await getAppSidebarStatesForRoute();
 	return {
-		initialInnerSidebarState: inner,
 		initialOuterSidebarState: outer,
 	};
 }

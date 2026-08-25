@@ -1449,6 +1449,14 @@ function ThreadComposer(input: {
 		composerHint = `${input.composerFiles.length} ${input.composerFiles.length === 1 ? "file" : "files"} ready to send`;
 	}
 	const submitComposer = () => {
+		if (
+			input.isSendingMessage ||
+			uploadInProgress ||
+			uploadFailed ||
+			!composerHasContent
+		) {
+			return;
+		}
 		input.onSend().catch((error) => {
 			console.error("Failed to send a thread message.", error);
 		});
@@ -1473,7 +1481,6 @@ function ThreadComposer(input: {
 				/>
 				<PromptInput
 					className="w-full"
-					disabled={input.isSendingMessage}
 					isLoading={input.isSendingMessage}
 					maxHeight={180}
 					onSubmit={submitComposer}
@@ -1488,7 +1495,6 @@ function ThreadComposer(input: {
 						aria-label="Reply in thread"
 						autoComplete="off"
 						className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
-						disabled={input.isSendingMessage}
 						name="thread-message"
 						onChange={(event) => {
 							input.onComposerChange(event.target.value, {

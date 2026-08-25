@@ -3,11 +3,12 @@
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { GearSixIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useCallback, useState } from "react";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { SpaceLanding } from "#/components/spaces/space-landing";
+import type { SpaceView } from "#/components/spaces/space-view";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import { resolveCenterAgentErrorMessage } from "#/lib/organizations/center-agent";
@@ -24,14 +25,17 @@ import {
 	loadCenterAgentDirectMessageRouteData,
 } from "#/lib/organizations/center-agent-route-loader";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationCenterAgentSettingsPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationCenterAgentChatPath,
+	buildOrganizationCenterAgentSettingsPath,
+} from "#/lib/organizations/organization-routes";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
-import { CenterAgentAboutControl } from "./center-agent-about-control";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 
 export function CenterAgentPage(input: {
 	directMessageRouteData: CenterAgentDirectMessageRouteData | null;
 	initialFocusSignalId?: string;
+	initialSpaceView?: SpaceView;
 	presentation?: "compact" | "full";
 }) {
 	if (!input.directMessageRouteData) {
@@ -41,6 +45,7 @@ export function CenterAgentPage(input: {
 		<CenterAgentDirectMessagePage
 			directMessageRouteData={input.directMessageRouteData}
 			initialFocusSignalId={input.initialFocusSignalId}
+			initialSpaceView={input.initialSpaceView}
 			presentation={input.presentation}
 		/>
 	);
@@ -49,6 +54,7 @@ export function CenterAgentPage(input: {
 function CenterAgentDirectMessagePage(input: {
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
 	initialFocusSignalId?: string;
+	initialSpaceView?: SpaceView;
 	presentation?: "compact" | "full";
 }) {
 	const { currentOrganization } = useAppOrganization();
@@ -59,6 +65,7 @@ function CenterAgentDirectMessagePage(input: {
 			currentUserAvatarImageUrl={currentAccountAvatar?.avatar ?? null}
 			directMessageRouteData={input.directMessageRouteData}
 			initialFocusSignalId={input.initialFocusSignalId}
+			initialSpaceView={input.initialSpaceView}
 			key={currentOrganization.id}
 			organizationId={currentOrganization.id}
 			organizationSlug={currentOrganization.slug}
@@ -71,6 +78,7 @@ function CenterAgentDirectMessageOrganizationBoundary(input: {
 	currentUserAvatarImageUrl: string | null;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
 	initialFocusSignalId?: string;
+	initialSpaceView?: SpaceView;
 	organizationId: string;
 	organizationSlug: string;
 	presentation?: "compact" | "full";
@@ -91,6 +99,7 @@ function CenterAgentDirectMessageOrganizationBoundary(input: {
 			currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
 			directMessageRouteData={input.directMessageRouteData}
 			initialFocusSignalId={input.initialFocusSignalId}
+			initialSpaceView={input.initialSpaceView}
 			onConnectRequired={(organizationId) => {
 				if (organizationId === input.organizationId) {
 					setConnectRequired(true);
@@ -107,13 +116,32 @@ function CenterAgentDirectMessageEntry(input: {
 	currentUserAvatarImageUrl: string | null;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
 	initialFocusSignalId?: string;
+	initialSpaceView?: SpaceView;
 	onConnectRequired: (organizationId: string) => void;
 	organizationId: string;
 	organizationSlug: string;
 	presentation?: "compact" | "full";
 }) {
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
 	const { storageScope } = useStartFlowState();
+	const handleSpaceViewCommitted = useCallback(
+		(view: SpaceView) => {
+			navigate({
+				replace: true,
+				to: buildOrganizationCenterAgentChatPath(
+					input.organizationSlug,
+					view === "messages" ? undefined : { view }
+				),
+			}).catch((error: unknown) => {
+				console.error(
+					"Failed to update the Center Agent conversation view.",
+					error
+				);
+			});
+		},
+		[input.organizationSlug, navigate]
+	);
 	const pendingScope = {
 		organizationId: input.organizationId,
 		organizationSlug: input.organizationSlug,
@@ -181,12 +209,6 @@ function CenterAgentDirectMessageEntry(input: {
 		return (
 			<SpaceLanding
 				accountProfiles={profilesQuery.data ?? []}
-				centerAgentAboutControl={
-					<CenterAgentAboutControl
-						organizationId={input.organizationId}
-						organizationSlug={input.organizationSlug}
-					/>
-				}
 				composerDraftMigrationScopes={
 					composerDraftScope ? [composerDraftScope] : undefined
 				}
@@ -194,12 +216,14 @@ function CenterAgentDirectMessageEntry(input: {
 				initialComposerDraft={composerDraft.record}
 				initialFocusSignalId={input.initialFocusSignalId}
 				initialPendingMessage={pendingMessage}
+				initialSpaceView={input.initialSpaceView}
 				isCenterAgentDirectMessage
 				loadingFallback={optimisticConversation}
 				onInitialPendingMessageConsumed={() => {
 					clearCenterAgentPendingMessage(queryClient, pendingScope);
 					setPendingMessage(null);
 				}}
+				onSpaceViewCommitted={handleSpaceViewCommitted}
 				orgSlug={input.organizationSlug}
 				presentation={input.presentation}
 				profileId={directMessage.memberProfileId}

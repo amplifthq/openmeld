@@ -17,7 +17,6 @@ import { CenterAgentPendingLayout } from "./center-agent-layout";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 
 export function CenterAgentRoutePendingPage(input: {
-	initialInnerSidebarState?: SidebarPersistedState;
 	initialOuterSidebarState?: SidebarPersistedState;
 	ownerAccountId?: string;
 	organizationId?: string;
@@ -26,10 +25,7 @@ export function CenterAgentRoutePendingPage(input: {
 }) {
 	return (
 		<CenterAgentPendingLayout
-			initialInnerSidebarState={input.initialInnerSidebarState}
 			initialOuterSidebarState={input.initialOuterSidebarState}
-			organizationSlug={input.organizationSlug}
-			section={input.section}
 		>
 			{input.section === "chat" ? (
 				<CenterAgentPendingConversation

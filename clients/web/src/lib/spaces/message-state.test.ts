@@ -51,6 +51,21 @@ describe("message-state", () => {
 		expect(resolveSpaceMessageDeliveryStatusText(presentation)).toBeNull();
 	});
 
+	it("keeps a definitively failed local submission visible as not sent", () => {
+		const presentation = resolveSpaceMessageDeliveryPresentation({
+			item: {
+				createdAtMs: CREATED_AT_MS,
+				deliveryState: "failed",
+			},
+			nowMs: CREATED_AT_MS + SPACE_LOCAL_PENDING_MESSAGE_DELAY_MS,
+		});
+
+		expect(presentation).toBe("send_failed");
+		expect(resolveSpaceMessageDeliveryStatusText(presentation)).toBe(
+			"Message not sent"
+		);
+	});
+
 	it("uses the thinking status for admitted optimistic work", () => {
 		const presentation = resolveSpaceMessageDeliveryPresentation({
 			item: {

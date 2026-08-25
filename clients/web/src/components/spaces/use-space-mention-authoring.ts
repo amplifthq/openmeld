@@ -118,9 +118,13 @@ export function useSpaceMentionAuthoring(input: {
 		? { signalId: composerDraft.content.replyToSignalId }
 		: null;
 	const currentComposerTextRef = useRef(composerText);
+	const composerHasDraft =
+		composerText.length > 0 || authoredMentions.length > 0 || replyTo !== null;
+	const currentComposerHasDraftRef = useRef(composerHasDraft);
 	useLayoutEffect(() => {
 		currentComposerTextRef.current = composerText;
-	}, [composerText]);
+		currentComposerHasDraftRef.current = composerHasDraft;
+	}, [composerHasDraft, composerText]);
 	const [composerSelection, setComposerSelection] =
 		useState<SpaceComposerSelection>({
 			end: 0,
@@ -540,6 +544,9 @@ export function useSpaceMentionAuthoring(input: {
 		restoreFailedSubmission: (
 			preparedSubmission: PreparedSpaceComposerSubmission
 		) => {
+			if (currentComposerHasDraftRef.current) {
+				return false;
+			}
 			const nextCaretPosition = preparedSubmission.text.length;
 			composerDraft.setContent({
 				authoredMentions: trackAuthoredMentionsInText({
@@ -561,6 +568,7 @@ export function useSpaceMentionAuthoring(input: {
 				end: nextCaretPosition,
 				start: nextCaretPosition,
 			};
+			return true;
 		},
 		recordSuccessfulSubmission: (
 			preparedSubmission: PreparedSpaceComposerSubmission
@@ -588,8 +596,6 @@ export function useSpaceMentionAuthoring(input: {
 					});
 				}
 			}
-
-			resetComposerState();
 		},
 		textareaRef,
 		onComposerKeyDown,

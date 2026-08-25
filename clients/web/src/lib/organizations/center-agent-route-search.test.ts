@@ -10,6 +10,12 @@ describe("Center Agent route search", () => {
 		expect(search).toEqual({});
 	});
 
+	it("keeps a valid Center Agent conversation view", () => {
+		expect(parseCenterAgentRouteSearch({ view: "files" })).toEqual({
+			view: "files",
+		});
+	});
+
 	it("keeps the informed Slack workspace move context", () => {
 		expect(
 			parseCenterAgentRouteSearch({

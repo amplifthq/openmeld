@@ -45,11 +45,12 @@ function CenterAgentConversationPending() {
 
 function CenterAgentRoute() {
 	const directMessageRouteData = Route.useLoaderData();
-	const { focusSignalId } = Route.useSearch();
+	const { focusSignalId, view } = Route.useSearch();
 	return (
 		<CenterAgentPage
 			directMessageRouteData={directMessageRouteData}
 			initialFocusSignalId={focusSignalId}
+			initialSpaceView={view}
 		/>
 	);
 }

@@ -102,12 +102,15 @@ scope, not the nine product destinations or their order.
 
 ## Current Center Agent Presentation
 
-One product per context uses the same first rail slot and never moves. Its
-secondary navigation is **Chat, Tasks, Routines, Skills, Channels, Apps,
-Memory, Center Agent settings**. The daily home is the full-width Center Agent chat
-with a read-only About panel. Center Agent configuration lives once under
-**Center Agent → Center Agent settings**; the former multi-tab management
-panel is retired rather than preserved as a hidden or personal-only route.
+One product per context uses the same first rail slot and never moves. Center
+Agent has no secondary sidebar. Its daily work is the full-width conversation
+with stable header navigation: **Messages, Graph, Files, Tasks, Routines,
+Skills, Apps**. Lower-frequency destinations live in one compact header menu:
+**Channels, Memory, Center Agent settings**. The conversation variant also
+contains **Conversation information**. There is no separate About surface.
+Center Agent configuration lives once under **Center Agent → Center Agent
+settings**; the former multi-tab management panel is retired rather than
+preserved as a hidden or personal-only route.
 
 - Header names the owner: "Coordinator agent for Felix Lu" / "… for Acme".
 - **Chat** remains the low-friction place to start work and ask the resident
@@ -126,8 +129,8 @@ panel is retired rather than preserved as a hidden or personal-only route.
   Routine owner contract defines the requester-attributed Routine mutation rows
   exposed through the current Audit Log action set.
 - The former Manage Center Agent tabs are retired as a parallel management
-  panel. Their surviving product destinations live directly in the stable
-  Center Agent sidebar.
+  panel. Their surviving product destinations live in the stable header or its
+  compact menu.
 - **Channels** and **Apps** remain separate. Never group Slack conversation
   routing and GitHub tool access under one generic `Connections` heading.
   Channels are places where people and systems can message the Center Agent and

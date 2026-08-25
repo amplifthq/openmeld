@@ -11,10 +11,11 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import type { ReactNode } from "react";
 import { SessionExpiredCard } from "#/components/auth/session-expired-card";
 import { toSessionExpiredState } from "#/lib/session-expired";
 
-export function SpaceLandingLoadingShell() {
+export function SpaceLandingLoadingShell(input: { composer?: ReactNode } = {}) {
 	return (
 		<section className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
 			<header className="flex h-[var(--space-conversation-header-height)] shrink-0 items-center border-border border-b px-4">
@@ -34,7 +35,7 @@ export function SpaceLandingLoadingShell() {
 				</div>
 			</div>
 			<footer className="shrink-0 border-border border-t p-4">
-				<Skeleton className="h-28 w-full" />
+				{input.composer ?? <Skeleton className="h-28 w-full" />}
 			</footer>
 		</section>
 	);

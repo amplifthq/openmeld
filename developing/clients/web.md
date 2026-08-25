@@ -244,17 +244,16 @@ The destinations resolve in that group order:
    owns no parallel state or mutation path. Its Center Agent action opens the
    canonical compact Center Agent conversation, and every other item links to
    its existing product home.
-2. **Center Agent** — the workspace's managed-agent home. Its secondary sidebar is exactly
-   **Chat**, **Tasks**, **Routines**, **Skills**, **Channels**, **Apps**,
-   **Memory**, and **Center Agent settings**, in that order. Chat preserves the
-   everyday conversation surface and header. Tasks owns durable parallel work,
-   its read-only board, and conversation-first detail. The remaining
-   destinations collect the work,
-   capabilities, context, and configuration owned by the selected workspace's
-   Center Agent. The Chat header opens a read-only About panel with the Center
-   Agent's name, `@handle`, model, and status. Its Slack shortcut links to
-   **Center Agent → Channels**. For an owner or admin, **Manage →** links to
-   **Center Agent → Center Agent settings**.
+2. **Center Agent** — the workspace's managed-agent home. It has no secondary
+   sidebar. Its persistent header navigation is exactly **Messages**, **Graph**,
+   **Files**, **Tasks**, **Routines**, **Skills**, and **Apps**, in that order.
+   Messages, Graph, and Files preserve the canonical Center Agent conversation
+   surface; Tasks owns durable parallel work, its read-only board, and
+   conversation-first detail. One compact header menu preserves **Channels**,
+   **Memory**, and **Center Agent settings**. The conversation variant of that
+   menu also preserves **Conversation information**. There is no separate About
+   surface or Slack shortcut; Center Agent identity, model, status, and Slack
+   management remain available through Center Agent settings and Channels.
 3. **Spaces** — the current workspace's Space collaboration surface.
 4. **Direct Messages** — the current workspace's private one-to-one
    conversations. Its canonical routes are `/o/{orgSlug}/direct-messages` and
@@ -481,14 +480,14 @@ The **Artifacts** placeholder is not part of the target rail. Remove the
 placeholder and return Artifacts to navigation only when it has real product
 content and passes the Use vs. Configure test.
 
-The product destinations that own a secondary sidebar are **Center Agent**,
-**Spaces**, **Direct Messages**, and **Agent Activity**. The Settings utility
+The product destinations that own a secondary sidebar are **Spaces**, **Direct
+Messages**, and **Agent Activity**. The Settings utility
 owns its own secondary sidebar. **People**, **Agents**, and **Computers** are independent full-width
-homes and must not recreate Directory as an inner sidebar. Center Agent's inner navigation is the single home for
-the Center Agent's conversation, recurring work, Skills, Channels, Apps,
-Memory, and configuration.
+homes and must not recreate Directory as an inner sidebar. Center Agent is also
+a full-width home: its primary work lives in the shared header and its lower-frequency
+capabilities and configuration live in one header menu.
 
-Each of those five route families owns one independent browser-persisted
+Each of those four route families owns one independent browser-persisted
 secondary-sidebar width. Child routes and selected records within a family
 share that width, as do different Organizations. The preference boundary is the
 stable route family, never the full pathname or a specific Organization, Space,
@@ -514,9 +513,9 @@ tier state, and they must close after an unmodified navigation activation.
 Shell controls remain outside the content scroll plane, respect safe-area
 insets, expose touch-sized targets, trap focus while open, restore focus when
 closed, and remove their transition under reduced motion. Center Agent's Space
-header keeps About, Slack, and information actions available as labeled icons
-when its own header container is narrow; wider containers retain the existing
-text-button presentation.
+header keeps its five primary work tabs and one compact menu available without
+reintroducing a contextual drawer. Narrow layouts may horizontally scroll the
+tab row, but they must not hide Tasks, Routines, or any menu destination.
 
 ### Organization Home
 
@@ -770,8 +769,8 @@ enumerate the auxiliary model or its internal image-description handoff. A
 stale save reloads the configuration and tells the admin to review it rather
 than overwriting a concurrent change.
 
-The Chat header's read-only **About** panel uses the same model-configuration
-query and friendly effective name. It must not infer the model from Agent
+The **Model** section in Center Agent settings is the single Web read surface
+for the friendly effective model name. It must not infer the model from Agent
 Profile directory readiness or retain a stale provider id. The Center Agent's
 system prompt receives the same friendly name so a member can also ask which
 model is active.
@@ -1015,8 +1014,8 @@ The audit journal must never be renamed **Activity**.
 ### Personal workspace parity
 
 The personal workspace and a multi-member Organization use the same root rail,
-Center Agent sidebar, and Settings structure. Differences are content-level
-only. In the
+Center Agent header navigation and menu, and Settings structure. Differences
+are content-level only. In the
 personal workspace, **People** shows the current member plus an
 invitation guidance card. The card explains that collaboration requires an
 Organization and links to **Create organization** instead of attempting an
@@ -1047,6 +1046,10 @@ this order:
 5. **W-NAV5 — personal parity.** Make the personal workspace structurally
    identical, remove personal-only route redirects, and close remaining
    content-level parity gaps.
+6. **W-NAV6 — Center Agent progressive disclosure.** Remove the contextual
+   sidebar; keep Tasks, Routines, Skills, and Apps in the conversation header;
+   move Channels, Memory, and Center Agent settings into one header menu; and
+   retire the redundant About surface and Slack shortcut.
 
 The temporary Organization rail destination was removed in W-NAV4. The
 2026-07-27 consolidation also removes root Routines and the former
@@ -1242,9 +1245,8 @@ production apps and credentials never share a connection.
 as a two-way conversation surface in each Organization and as a discoverable,
 read-only provider in a Personal Workspace. The Center Agent page
 does not repeat Channel management or provide a personal-only inline variant.
-Its header may show `Connect Slack` or `Slack connected` as a read-only status
-shortcut. That shortcut may open a compact dialog that deep-links to the
-canonical Channels page, but it must not install, move, or disconnect Slack.
+Its header menu links directly to the canonical Channels page; it does not
+render a separate `Connect Slack` or `Slack connected` shortcut.
 In an Organization, `Connect Slack` presents `Add to Slack` as the primary path; after connection
 the action becomes `Manage Slack`. The browser
 uses the same-origin `/slack/oauth/start` route so its OpenMeld session reaches
@@ -1952,7 +1954,7 @@ default path. An explicit intent, such as continuing Slack installation, may
 still enter its named destination directly.
 
 The Center Agent remains a first-class pathless layout branch with outer app
-rail + chat content and no Spaces secondary sidebar in its layout tree. That
+rail + full-width content and no secondary sidebar in its layout tree. That
 branch owns its pending component; the global router does not infer Center
 Agent pending UI from a pathname. The outer rail derives its selected
 destination from route matches instead of page props or navigation-intent
@@ -2097,14 +2099,22 @@ read in the current signed-in account, Organization, Space, and acting-Profile
 scope, Web derives the smaller display snapshot by removing current actions and
 the latest-message preview before persistence. On a return visit, that display
 snapshot and the bounded history may render immediately while current access is
-checked. The composer remains visible but disabled with **Checking access…**,
-and every mutation or authority-bearing secondary surface stays unavailable
-until the current status succeeds. Background `isFetching` and a transient
-refresh failure do not erase an already visible conversation. An explicit
-access rejection immediately hides the private content and clears only that
+checked. The composer remains available for browser-local text authoring with
+**Write a message while OpenMeld checks access…**, but Send, file actions, and
+every other mutation or authority-bearing secondary surface stay unavailable
+until the current status succeeds. Pressing Enter during confirmation must not
+bypass that mutation boundary. Background `isFetching` and a transient refresh
+failure do not erase an already visible conversation. An explicit access
+rejection immediately hides the private content and clears only that
 account-plus-Organization-plus-Space-plus-acting-Profile segment. Session
 expiry, account replacement, or Organization-scope change still wins
 immediately and clears its broader owning segment.
+
+On a cold open with no safe display snapshot yet, the loading shell mounts the
+same browser-local text draft immediately instead of a Composer skeleton. That
+draft and its focus carry into the confirmed conversation without remount loss;
+it still cannot send or attach files before current status authorizes the
+mutation.
 
 Persisted records are segmented by confirmed account and by account plus the
 immutable Organization id. Organization slug is a secondary cleanup index for a
@@ -2182,14 +2192,21 @@ files upload immediately and remain visible as canonical Space Files, but the
 unsent message association and local preview are not restored across refresh in
 the MVP.
 
-The send path clears the draft once it takes ownership of the submission and
-restores it when a definitive unsent failure returns control to the Composer.
-Center Agent Task continuation clears only after Core accepts the continuation.
-An authentication boundary clears all private Composer drafts before the next
-account can render. Invalid or corrupt records are removed. Unavailable or full
-`localStorage` remains observable but does not block normal authoring or sending.
-Composer drafts never authorize access, enable a mutation, become offline send
-replay, or replace current Space, thread, membership, Task, or execution reads.
+The send path takes an immutable snapshot of the current submission, clears that
+draft once, and immediately leaves the Composer available for the next draft.
+The next draft cannot send until the current request has a safe outcome, and
+neither a success callback nor a projection refresh may clear or overwrite it.
+When a definitive unsent failure returns and no next draft exists, Web restores
+the failed submission to the Composer. When the member has already started the
+next draft, Web preserves that draft and keeps the failed submission visibly
+marked **Message not sent** instead. Outcome-unknown submissions remain pending
+under their original idempotent identity. Center Agent Task continuation clears
+only after Core accepts the continuation. An authentication boundary clears all
+private Composer drafts before the next account can render. Invalid or corrupt
+records are removed. Unavailable or full `localStorage` remains observable but
+does not block normal authoring or sending. Composer drafts never authorize
+access, enable a mutation, become offline send replay, or replace current Space,
+thread, membership, Task, or execution reads.
 
 The Center Agent page may accept one plain-text message while Core is still
 opening the real Center Agent Direct Message Space. That message remains an
