@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-25T06:49:32.411Z",
+  "updatedAt": "2026-08-25T09:57:33.371Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.104",
+      "packageVersion": "0.3.105",
       "updatePolicy": "available",
-      "reason": "Keep Codex update guidance on its own installation source."
+      "reason": "Ship current OpenMeld reliability and contract fixes without interrupting active Wake work."
     },
     "service": {
-      "bundleHash": "20aedeb8d6902adca8778b5c97f7489c94245e46037cb8bc891ade39c6496d8c",
-      "bundleVersion": "0.3.104",
+      "bundleHash": "f8c4a3a002faf2dde2598d9a0544112b2ebf0e60a81dd024fbd9e678eb25d7a4",
+      "bundleVersion": "0.3.105",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Keep Codex update guidance on its own installation source."
+      "reason": "Ship current OpenMeld reliability and contract fixes without interrupting active Wake work."
     },
     "skills": {
       "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "A newer local component is available, but current Wake work can continue."
+      "reason": "Ship current OpenMeld reliability and contract fixes without interrupting active Wake work."
     }
   }
 }
