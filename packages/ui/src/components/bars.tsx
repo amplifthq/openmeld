@@ -16,7 +16,7 @@ function Bars({
       {barIndexes.map((barIndex) => (
         <span
           aria-hidden="true"
-          className="inline-block h-full rounded-xs bg-current"
+          className="loading-ui-wave-bar inline-block h-full rounded-xs bg-current"
           key={`bar-${barIndex + 1}`}
           style={{
             width: `${100 / bars}%`,

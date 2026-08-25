@@ -420,6 +420,9 @@ describe("Status primitives", () => {
     expect(
       view.container.querySelectorAll("span[aria-hidden='true']")
     ).toHaveLength(4);
+    expect(
+      view.container.querySelectorAll(".loading-ui-wave-bar")
+    ).toHaveLength(4);
   });
 
   it("renders ThinkingIndicator generic words and advances them over time", () => {
