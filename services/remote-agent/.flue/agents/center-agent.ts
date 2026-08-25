@@ -61,6 +61,7 @@ import {
 import {
   assertRemoteAgentConversationFootprintSchema,
   readRemoteAgentConversationFootprint,
+  resolveRemoteAgentConversationAutomaticRolloverLimitBytes,
 } from "../../flue-adapter/conversation-footprint";
 import { cancelFlueRemoteAgentExecution } from "../../flue-adapter/execution-cancellation";
 import {
@@ -74,6 +75,10 @@ import {
 import { registerRemoteAgentCloudflareProvider } from "../../flue-adapter/model";
 import { resolveCurrentOrganizationDocumentPromptContext } from "../../flue-adapter/organization-document-prompt-context";
 import { materializeOrganizationSkillFlueSkills } from "../../flue-adapter/organization-skills";
+import {
+  resolveRemoteAgentCompactionReserveTokens,
+  resolveRemoteAgentProviderContextCapacity,
+} from "../../flue-adapter/provider-context-capacity";
 import { readRemoteAgentRuntimeDiagnostics } from "../../flue-adapter/runtime-diagnostics";
 import { disabledNoNetworkSandbox } from "../../flue-adapter/sandbox";
 import { createRemoteAgentSqlStorage } from "../../flue-adapter/storage";
@@ -317,8 +322,18 @@ export const cloudflare = extend({
             nowMs: startedAtMs,
             storage,
           });
+          const providerContextCapacity =
+            request.v === 4
+              ? resolveRemoteAgentProviderContextCapacity({
+                  contextWindow: request.modelRoute.contextWindow,
+                  reserveTokens: resolveRemoteAgentCompactionReserveTokens(
+                    request.modelRoute.contextWindow
+                  ),
+                })
+              : undefined;
           const admission = await prepareFlueCenterAgentAdmission({
             automaticRolloverSupported: request.v === 4,
+            providerContextCapacity,
             assertConversationFootprintSchema: () =>
               assertRemoteAgentConversationFootprintSchema(
                 this.ctx.storage.sql
@@ -353,6 +368,12 @@ export const cloudflare = extend({
               {
                 ...logContext,
                 ...admission.footprint,
+                automaticRolloverLimitBytes:
+                  resolveRemoteAgentConversationAutomaticRolloverLimitBytes(
+                    providerContextCapacity
+                  ),
+                providerInputTokenBudget:
+                  providerContextCapacity?.inputTokenBudget ?? null,
               }
             );
             return remoteAgentWorkerAdmissionRejectedResponseSchema.parse({

@@ -244,15 +244,58 @@ describe("Remote Agent conversation footprint", () => {
         {
           automaticRolloverSupported: true,
           providerContextCapacity: { inputTokenBudget: 450_000 },
-        } as Parameters<
-          typeof resolveRemoteAgentConversationFootprintAdmission
-        >[1]
+        }
       )
     ).toEqual({
       message:
         "Remote Agent rejected the turn before replay because its conversation history reached the safety limit.",
       reasonCode: "remote_agent.conversation_history_limit_exceeded",
     });
+  });
+
+  it("keeps the same normal-size history when the selected model has enough room", () => {
+    expect(
+      resolveRemoteAgentConversationFootprintAdmission(
+        {
+          batchCount: 40,
+          canonicalBytes: 2_000_000,
+          largestBatchBytes: 131_072,
+          level: "normal",
+        },
+        {
+          automaticRolloverSupported: true,
+          providerContextCapacity: { inputTokenBudget: 936_000 },
+        }
+      )
+    ).toBeNull();
+  });
+
+  it("rejects a model-limited history before initializing or replaying Flue", async () => {
+    const ensureInitialized = vi.fn(async () => undefined);
+
+    await expect(
+      prepareFlueCenterAgentAdmission({
+        automaticRolloverSupported: true,
+        assertConversationFootprintSchema: () => undefined,
+        cleanupFinalizedSubmissionReplay: async () => undefined,
+        ensureInitialized,
+        providerContextCapacity: { inputTokenBudget: 450_000 },
+        readConversationFootprint: () => ({
+          batchCount: 40,
+          canonicalBytes: 2_000_000,
+          largestBatchBytes: 131_072,
+          level: "normal",
+        }),
+        readExistingSubmission: async () => null,
+        reportConversationFootprintBeforeReplay: () => undefined,
+      })
+    ).resolves.toMatchObject({
+      outcome: "rejected",
+      rejection: {
+        reasonCode: "remote_agent.conversation_history_limit_exceeded",
+      },
+    });
+    expect(ensureInitialized).not.toHaveBeenCalled();
   });
 
   it("fails closed when aggregate storage facts are invalid", () => {

@@ -30,6 +30,8 @@ import {
   assertRemoteAgentProviderContextFits,
   measureRemoteAgentProviderContext,
   type RemoteAgentProviderContextCapacity,
+  resolveRemoteAgentCompactionReserveTokens,
+  resolveRemoteAgentProviderContextCapacity,
 } from "./provider-context-capacity";
 
 const OPENROUTER_MODEL_METADATA_BASE_URL = "https://openrouter.ai/api/v1/model";
@@ -37,9 +39,6 @@ const OPENAI_GPT_5_4_MINI_MODEL_ID = "openai/gpt-5.4-mini";
 export const REMOTE_AGENT_MODEL_METADATA_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS = 8000;
 const MODEL_METADATA_FETCH_TIMEOUT_MS = 3000;
-const MIN_COMPACTION_RESERVE_TOKENS = 8000;
-const MAX_COMPACTION_RESERVE_TOKENS = 64_000;
-const COMPACTION_RESERVE_CONTEXT_RATIO = 0.1;
 // Flue estimates context tokens, so compact before reaching a provider tier.
 const PRICE_TIER_COMPACTION_SAFETY_RATIO = 0.8;
 
@@ -161,9 +160,10 @@ export async function registerRemoteAgentCloudflareProvider(input: {
       ...openRouterModel?.compat,
       thinkingFormat: "openrouter",
     },
-    contextCapacity: {
-      inputTokenBudget: contextWindow - runtimeConfig.compaction.reserveTokens,
-    },
+    contextCapacity: resolveRemoteAgentProviderContextCapacity({
+      contextWindow,
+      reserveTokens: runtimeConfig.compaction.reserveTokens,
+    }),
     cost: openRouterModel?.cost,
     inputModalities: input.modelRoute?.inputModalities ?? ["text", "image"],
     modelId,
@@ -298,23 +298,13 @@ export function resolveRemoteAgentOpenRouterModelMetadataUrl(
   )}/${encodeURIComponent(slug)}`;
 }
 
-function resolveBaseCompactionReserveTokens(contextWindow: number): number {
-  const proportionalReserve = Math.ceil(
-    contextWindow * COMPACTION_RESERVE_CONTEXT_RATIO
-  );
-  const maximumSafeReserve = Math.max(1, Math.floor(contextWindow / 4));
-  return Math.min(
-    Math.max(proportionalReserve, MIN_COMPACTION_RESERVE_TOKENS),
-    MAX_COMPACTION_RESERVE_TOKENS,
-    maximumSafeReserve
-  );
-}
-
 function resolveCompactionThreshold(input: {
   contextWindow: number;
   pricingOverrides?: readonly OpenRouterPricingOverride[] | null;
 }): number {
-  const baseReserve = resolveBaseCompactionReserveTokens(input.contextWindow);
+  const baseReserve = resolveRemoteAgentCompactionReserveTokens(
+    input.contextWindow
+  );
   const baseThreshold = input.contextWindow - baseReserve;
   const priceTierBoundary = resolvePriceTierBoundary(input.pricingOverrides);
   if (priceTierBoundary === null) {
@@ -355,7 +345,7 @@ export async function resolveRemoteAgentModelRuntimeConfigForRegistration(input:
     return {
       compaction: {
         keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
-        reserveTokens: resolveBaseCompactionReserveTokens(
+        reserveTokens: resolveRemoteAgentCompactionReserveTokens(
           input.modelRoute.contextWindow
         ),
       },

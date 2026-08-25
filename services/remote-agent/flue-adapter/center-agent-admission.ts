@@ -16,6 +16,7 @@ import {
   type RemoteAgentConversationFootprint,
   resolveRemoteAgentConversationFootprintAdmission,
 } from "./conversation-footprint";
+import type { RemoteAgentProviderContextCapacity } from "./provider-context-capacity";
 
 type FlueCenterAgentAdmissionReceipt<Result> =
   | { claimedAtMs: number; status: "claimed" }
@@ -23,6 +24,7 @@ type FlueCenterAgentAdmissionReceipt<Result> =
 
 export async function prepareFlueCenterAgentAdmission<Result>(input: {
   automaticRolloverSupported?: boolean;
+  providerContextCapacity?: RemoteAgentProviderContextCapacity;
   assertConversationFootprintSchema(): void;
   cleanupFinalizedSubmissionReplay(): Promise<void>;
   ensureInitialized(): Promise<void>;
@@ -64,6 +66,7 @@ export async function prepareFlueCenterAgentAdmission<Result>(input: {
       footprint,
       {
         automaticRolloverSupported: input.automaticRolloverSupported,
+        providerContextCapacity: input.providerContextCapacity,
       }
     );
     if (rejection) {
