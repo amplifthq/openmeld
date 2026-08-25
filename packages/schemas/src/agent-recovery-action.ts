@@ -3,6 +3,7 @@ export const agentRecoveryActionLabels = {
   choose_local_agent: "Choose local agent",
   connect_openmeld_service: "Connect OpenMeld Service",
   connect_local_agent: "Connect local agent",
+  manage_local_agent: "Update or change local agent",
   manage_cursor_plan: "Manage Cursor plan",
   reconnect_openmeld_service: "Reconnect OpenMeld Service",
   reconnect_local_agent: "Reconnect local agent",

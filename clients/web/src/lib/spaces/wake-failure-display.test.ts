@@ -53,6 +53,20 @@ describe("resolveWakeFailureDisplay", () => {
 		});
 	});
 
+	it("sends an incompatible Local Agent version to Computer management", () => {
+		const display = resolveWakeFailureDisplay({
+			failureReasonCode: "controller.client.upgrade_required",
+			targetLabel: "@monica's codex",
+		});
+
+		expect(display).toEqual({
+			actionTarget: "computer",
+			body: "Codex on this computer can't use the selected model. Update Codex or choose another Codex installation, then try again.",
+			primaryActionId: "manage_local_agent",
+			primaryActionLabel: "Update or change local agent",
+		});
+	});
+
 	it("links runtime permission denials to the Agent Profile permissions surface", () => {
 		const display = resolveWakeFailureDisplay({
 			failureReasonCode: "permission.denied.runtime",

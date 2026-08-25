@@ -6,7 +6,10 @@ import {
   createEmptyLedgerState,
   type RuntimeTaskResult,
 } from "@openmeld/local-execution";
-import { openMeldDaemonTaskResultPayloadSchema } from "@openmeld/schemas";
+import {
+  CODEX_UPGRADE_REQUIRED_REASON,
+  openMeldDaemonTaskResultPayloadSchema,
+} from "@openmeld/schemas";
 import { resolvePublicAgentFailureReason } from "@openmeld/space-mesh";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LedgerPaths } from "../src/local-service/core/types";
@@ -937,8 +940,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
         runtimeResult,
       })
     ).toEqual({
-      failureReason:
-        "Codex on this device is too old for the current model. Upgrade Codex on this device, then try again.",
+      failureReason: CODEX_UPGRADE_REQUIRED_REASON,
       kind: "preserve_runtime_failure",
     });
   });

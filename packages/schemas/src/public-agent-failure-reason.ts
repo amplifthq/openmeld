@@ -17,7 +17,7 @@ export type ProjectLocalConnectionFailureReasonCode =
   (typeof PROJECT_LOCAL_CONNECTION_FAILURE_REASON_CODES)[number];
 
 export const CODEX_UPGRADE_REQUIRED_REASON =
-  "Codex on this device is too old for the current model. Upgrade Codex on this device, then try again.";
+  "Codex on this computer can't use the selected model. Update Codex or choose another Codex installation, then try again.";
 export const CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY =
   "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.";
 export const CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY =
@@ -265,6 +265,7 @@ export type PublicAgentFailureRecoveryKind =
 
 export type PublicAgentFailureRecoveryTarget =
   | "agents"
+  | "computer"
   | "cursor_account"
   | "prepare_setup";
 
@@ -1158,8 +1159,8 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       body: CODEX_UPGRADE_REQUIRED_REASON,
       kind: "local_agent_prepare",
       patterns: ["controller.client.upgrade_required"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "manage_local_agent",
+      recoveryTarget: "computer",
     },
     {
       body: "This local agent is not available on this device. Connect a local agent, then try again.",
