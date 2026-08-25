@@ -1106,8 +1106,8 @@ function SettingsLocalAgentIcon({
       <span
         aria-hidden="true"
         className={cn(
-          "mt-0.5 grid h-8 w-8 shrink-0 place-items-center text-foreground",
-          muted ? "opacity-50" : null
+          "mt-0.5 grid h-8 w-8 shrink-0 place-items-center",
+          muted ? "text-muted-foreground opacity-50" : "text-foreground"
         )}
       >
         <LocalAgentLogo

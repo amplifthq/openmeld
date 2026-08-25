@@ -1,4 +1,7 @@
-import type { CurrentLocalRuntimeReplyReadinessResponse } from "@openmeld/schemas/types";
+import type {
+	CurrentLocalRuntimeReplyReadinessResponse,
+	LocalRuntimeExecutionTarget,
+} from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
 	resolveComputerAttentionTone,
@@ -109,6 +112,85 @@ function resolveUpdatePolicy(
 	}
 }
 
+function buildExecutionTarget(input: {
+	claudeEnabled: boolean;
+	claudeStatus: "ready" | "not_ready";
+	codexEnabled: boolean;
+	codexStatus: "ready" | "not_ready";
+}): LocalRuntimeExecutionTarget {
+	const entries = [
+		{
+			agentId: "codex",
+			detected: true,
+			displayName: "Codex",
+			enabled: input.codexEnabled,
+			lifecycleStatus: "active" as const,
+			launchStatus:
+				input.codexStatus === "ready"
+					? ("ready" as const)
+					: ("needs_repair" as const),
+			selectable: true,
+			selectableReason: null,
+			targetKind: "builtin" as const,
+		},
+		{
+			agentId: "claude-code",
+			detected: true,
+			displayName: "Claude Code",
+			enabled: input.claudeEnabled,
+			lifecycleStatus: "active" as const,
+			launchStatus:
+				input.claudeStatus === "ready"
+					? ("ready" as const)
+					: ("needs_repair" as const),
+			selectable: true,
+			selectableReason: null,
+			targetKind: "builtin" as const,
+		},
+	];
+	return {
+		capabilities: [
+			{
+				agentControllerInterface: null,
+				agentControllerRef: "builtin:codex",
+				enabled: input.codexEnabled,
+				reasonCodes: [],
+				status: input.codexStatus,
+			},
+			{
+				agentControllerInterface: null,
+				agentControllerRef: "builtin:claude-code",
+				enabled: input.claudeEnabled,
+				reasonCodes: [],
+				status: input.claudeStatus,
+			},
+		],
+		deviceId: "device-1",
+		isCurrent: true,
+		lastObservedAtMs: 1_700_000_000_000,
+		localAgentCatalog: {
+			detectedNotSupportedYet: 0,
+			detectedSupported: 2,
+			entries,
+			needsChoice: 0,
+			needsRepair: entries.filter(
+				(entry) => entry.launchStatus === "needs_repair"
+			).length,
+			notDetected: 0,
+			totalBuiltins: 2,
+		},
+		localAgentControl: {
+			refreshCatalog: true,
+			setEnabled: true,
+		},
+		openMeldServiceRuntimeId: null,
+		reasonCodes: [],
+		runtimeLane: "dev-local",
+		status: "partial",
+		userFacingCommand: "openmeld-dev",
+	};
+}
+
 describe("computer summary status", () => {
 	it("returns one ready status for a healthy current computer", () => {
 		const status = resolveCurrentLocalRuntimeComputerSummaryStatus({
@@ -196,6 +278,79 @@ describe("computer summary status", () => {
 				}),
 			})
 		).toMatchObject({ label: "Local agents need repair", tone: "danger" });
+	});
+
+	it("does not create Computers attention from a local agent the user turned off", () => {
+		const readiness = buildReadiness({
+			canReplyFromThisComputer: false,
+			nextAction: "run_setup",
+			primaryBlocker: "agent_controller_report_not_ready",
+			status: "blocked",
+		});
+		const executionTarget = buildExecutionTarget({
+			claudeEnabled: false,
+			claudeStatus: "not_ready",
+			codexEnabled: true,
+			codexStatus: "ready",
+		});
+
+		expect(
+			resolveCurrentLocalRuntimeComputerSummaryStatus({
+				executionTarget,
+				readiness,
+			})
+		).toMatchObject({ reason: "ready", tone: "ready" });
+		expect(
+			resolveCurrentLocalRuntimeComputerAttentionToneForInventory({
+				executionTarget,
+				localRuntimeCount: 1,
+				readiness,
+			})
+		).toBeNull();
+	});
+
+	it("still shows an OpenMeld Tools update when only a disabled local agent needs repair", () => {
+		const readiness = buildReadiness({
+			canReplyFromThisComputer: false,
+			localComponents: buildLocalComponents({ cliStatus: "update_available" }),
+			nextAction: "run_setup",
+			primaryBlocker: "agent_controller_report_not_ready",
+			status: "blocked",
+		});
+
+		expect(
+			resolveCurrentLocalRuntimeComputerSummaryStatus({
+				executionTarget: buildExecutionTarget({
+					claudeEnabled: false,
+					claudeStatus: "not_ready",
+					codexEnabled: true,
+					codexStatus: "ready",
+				}),
+				readiness,
+			})
+		).toMatchObject({ reason: "openmeld_tools_update", tone: "warning" });
+	});
+
+	it("keeps Computers attention when an enabled local agent needs repair", () => {
+		const readiness = buildReadiness({
+			canReplyFromThisComputer: false,
+			nextAction: "run_setup",
+			primaryBlocker: "agent_controller_report_not_ready",
+			status: "blocked",
+		});
+
+		expect(
+			resolveCurrentLocalRuntimeComputerAttentionToneForInventory({
+				executionTarget: buildExecutionTarget({
+					claudeEnabled: true,
+					claudeStatus: "not_ready",
+					codexEnabled: true,
+					codexStatus: "ready",
+				}),
+				localRuntimeCount: 1,
+				readiness,
+			})
+		).toBe("danger");
 	});
 
 	it("shows an incomplete controller check as unavailable without global attention", () => {

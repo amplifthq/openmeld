@@ -17,7 +17,7 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isLocalAgentCheckStillRunningError } from "./agents-page-formatters";
+import { isLocalAgentControlStillRunningError } from "./agents-page-formatters";
 import {
 	LocalAgentsCard,
 	type LocalAgentsCardOwnerProps,
@@ -445,9 +445,20 @@ describe("LocalAgentsCard", () => {
 		expect(rowTrigger).toBeTruthy();
 		fireEvent.click(rowTrigger as HTMLButtonElement);
 
+		const launchCheckLabel = within(row).getByText("Launch check");
+		const launchCheckValue = launchCheckLabel.nextElementSibling;
+		expect(launchCheckValue).toBeTruthy();
 		expect(
-			screen.getByText("OpenMeld uses one installation on this computer.")
+			within(launchCheckValue as HTMLElement).getByRole("button", {
+				name: "Change installation",
+			})
 		).toBeTruthy();
+		expect(within(row).queryByText("Installation")).toBeNull();
+		expect(
+			within(row).queryByText(
+				"OpenMeld uses one installation on this computer."
+			)
+		).toBeNull();
 		fireEvent.click(
 			screen.getByRole("button", { name: "Change installation" })
 		);
@@ -475,9 +486,15 @@ describe("LocalAgentsCard", () => {
 		);
 	});
 
-	it("places setup guidance on the disabled runnable agent row", () => {
+	it("presents a disabled runnable agent as quiet without setup guidance", () => {
 		renderLocalAgentsCard({
+			agentControllerAuth: {
+				status: "unauthenticated",
+				type: "none",
+			},
+			agentControllerStatus: "error",
 			codexEnabled: false,
+			includeAgentControllerInterface: true,
 			replyReadiness: NEEDS_LOCAL_AGENT_REPLY_READINESS,
 			setEnabledSupported: true,
 		});
@@ -488,15 +505,71 @@ describe("LocalAgentsCard", () => {
 			)
 		).toBeNull();
 		const row = screen.getByTestId("settings-local-agent-row-codex");
-		const setupLabel = within(row).getByText("Turn on");
-		expect(setupLabel.getAttribute("data-slot")).not.toBe("badge");
-		expect(setupLabel.className).toContain("text-amber");
+		expect(row.getAttribute("data-muted")).toBe("true");
+		expect(within(row).queryByText("Turn on")).toBeNull();
+		expect(within(row).queryByText("Sign in required")).toBeNull();
+		expect(within(row).queryByText("Not authenticated · v0.38.0")).toBeNull();
+		expect(within(row).queryByText("Needs repair")).toBeNull();
 		expect(within(row).queryByText("Connect local agent")).toBeNull();
 		expect(
-			within(row).getByText(
-				"Turn on Codex to let OpenMeld launch it on this computer."
-			)
-		).toBeTruthy();
+			within(row)
+				.getByText("Built-in local agent found on this computer.")
+				.classList.contains("text-muted-foreground")
+		).toBe(true);
+		expect(
+			within(row)
+				.getByTestId("local-agent-logo-codex")
+				.parentElement?.classList.contains("text-muted-foreground")
+		).toBe(true);
+		expect(
+			within(row)
+				.getByRole("button", { name: "Codex details" })
+				.querySelector("p")
+				?.classList.contains("text-muted-foreground")
+		).toBe(true);
+		expect(
+			within(row)
+				.getByTestId("settings-local-agent-row-trigger")
+				.closest("[data-state]")
+				?.getAttribute("data-state")
+		).not.toBe("open");
+	});
+
+	it("reconciles a slow local agent change before reporting a failure", async () => {
+		const setLocalAgentEnabled = vi.fn().mockRejectedValue({
+			code: "local_agent_control.timeout",
+			status: 504,
+		});
+		const refreshAll = vi.fn().mockResolvedValue(undefined);
+		const { executionTarget } = renderLocalAgentsCard({
+			refreshAll,
+			setEnabledSupported: true,
+			setLocalAgentEnabled,
+		});
+		refreshAll.mockImplementation(() => {
+			const codex = executionTarget.localAgentCatalog.entries.find(
+				(entry) => entry.agentId === "codex"
+			);
+			if (codex) {
+				codex.enabled = false;
+			}
+			return Promise.resolve();
+		});
+
+		fireEvent.click(screen.getByRole("switch", { name: "Codex local agent" }));
+		fireEvent.click(screen.getByRole("button", { name: "Disable Codex" }));
+
+		await waitFor(() => {
+			expect(refreshAll).toHaveBeenCalled();
+		});
+		expect(
+			screen.queryByText("OpenMeld could not change this local agent.")
+		).toBeNull();
+		expect(
+			screen
+				.getByRole("switch", { name: "Codex local agent" })
+				.getAttribute("aria-checked")
+		).toBe("false");
 	});
 
 	it("hides suspended local agents that have not been enabled on this computer", () => {
@@ -1113,29 +1186,29 @@ describe("LocalAgentsCard", () => {
 	});
 });
 
-describe("isLocalAgentCheckStillRunningError", () => {
+describe("isLocalAgentControlStillRunningError", () => {
 	it("treats gateway timeouts as still running", () => {
-		expect(isLocalAgentCheckStillRunningError({ status: 504 })).toBe(true);
+		expect(isLocalAgentControlStillRunningError({ status: 504 })).toBe(true);
 		expect(
-			isLocalAgentCheckStillRunningError({
+			isLocalAgentControlStillRunningError({
 				code: "local_agent_control.timeout",
 			})
 		).toBe(true);
 		expect(
-			isLocalAgentCheckStillRunningError({ code: "network.timeout" })
+			isLocalAgentControlStillRunningError({ code: "network.timeout" })
 		).toBe(true);
 	});
 
 	it("treats explicit rejections and other errors as failures", () => {
 		expect(
-			isLocalAgentCheckStillRunningError({
+			isLocalAgentControlStillRunningError({
 				code: "local_agent_control.refresh_catalog_rejected",
 				status: 409,
 			})
 		).toBe(false);
-		expect(isLocalAgentCheckStillRunningError(new Error("boom"))).toBe(false);
-		expect(isLocalAgentCheckStillRunningError(null)).toBe(false);
-		expect(isLocalAgentCheckStillRunningError(undefined)).toBe(false);
+		expect(isLocalAgentControlStillRunningError(new Error("boom"))).toBe(false);
+		expect(isLocalAgentControlStillRunningError(null)).toBe(false);
+		expect(isLocalAgentControlStillRunningError(undefined)).toBe(false);
 	});
 });
 
