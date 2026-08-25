@@ -42,6 +42,32 @@
       "body": "Local agents that you turn off now stay visually quiet and no longer create a\nComputer alert. Installation choices also sit with the local agent's launch\ndetails, and OpenMeld waits for the final result before calling a slow setting\nchange a failure."
     },
     {
+      "id": "recover-transient-local-sign-in-reads",
+      "title": "Recover transient local sign-in reads",
+      "kind": "fixed",
+      "areas": [
+        "authentication",
+        "cli",
+        "spaces",
+        "files"
+      ],
+      "audiences": [
+        "members",
+        "agents"
+      ],
+      "publishedAt": "2026-08-25",
+      "release": "v0.3.103",
+      "evidence": [
+        "pr:251",
+        "pr:253",
+        "commit:2ca575653b5cdc0fc646cf6da3e93b3aa4475db2",
+        "commit:41ddadfb5064b631358a29984f172ef9893a9af2",
+        "workflow:32815108186",
+        "workflow:32816201983"
+      ],
+      "body": "OpenMeld now retries one temporarily unavailable saved sign-in read before it\nblocks a command, so a brief local credential-store failure does not\nunnecessarily stop Space file work. If the saved sign-in remains unavailable,\nOpenMeld keeps the diagnostic reason and sanitized lower-level cause in Agent\nView and `--json`, then asks the caller to retry or inspect authentication\nstatus instead of incorrectly claiming that the sign-in is invalid. Unexpected\ncredential-read exceptions follow the same unavailable path instead of being\nsilently treated as a missing session. Expired, revoked, mismatched, and\ngenuinely invalid sessions still fail closed."
+    },
+    {
       "id": "clearer-local-agent-installations-and-usage",
       "title": "See which local agent installation OpenMeld uses",
       "kind": "improved",
