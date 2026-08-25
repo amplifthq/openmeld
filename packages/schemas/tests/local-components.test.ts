@@ -6,9 +6,37 @@ import {
   localComponentsReleaseManifestSchema,
   localComponentsStatusSchema,
   localComponentUpdateProjectionSchema,
+  openMeldToolsControlRequestSchema,
+  openMeldToolsControlResultSchema,
 } from "../src/schemas";
 
 describe("local components schema", () => {
+  it("keeps Web and Center Agent maintenance requests on one contract", () => {
+    expect(
+      openMeldToolsControlRequestSchema.parse({
+        operation: "request_update",
+        requestSource: "web",
+      })
+    ).toEqual({ operation: "request_update", requestSource: "web" });
+    expect(
+      openMeldToolsControlRequestSchema.parse({
+        automaticUpdatesEnabled: false,
+        operation: "set_automatic_updates",
+        requestSource: "center_agent",
+      })
+    ).toEqual({
+      automaticUpdatesEnabled: false,
+      operation: "set_automatic_updates",
+      requestSource: "center_agent",
+    });
+    expect(
+      openMeldToolsControlResultSchema.safeParse({
+        operation: "set_automatic_updates",
+        result: { automaticUpdatesEnabled: false, status: "updated" },
+      }).success
+    ).toBe(true);
+  });
+
   it("accepts the normalized setup action projection", () => {
     const parsed = localComponentsStatusSchema.parse({
       schemaVersion: 1,

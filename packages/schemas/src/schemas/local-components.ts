@@ -54,6 +54,61 @@ export const openMeldToolsMaintenanceProjectionSchema = z.strictObject({
   status: z.enum(["ready", "needs_help"]),
 });
 
+export const openMeldToolsControlCapabilitySchema = z.strictObject({
+  requestUpdate: z.literal(true).optional(),
+  setAutomaticUpdates: z.literal(true).optional(),
+});
+
+export const openMeldToolsUpdateRequestResultSchema = z.discriminatedUnion(
+  "status",
+  [
+    z.strictObject({ status: z.literal("disabled") }),
+    z.strictObject({ status: z.literal("unavailable") }),
+    z.strictObject({
+      currentVersion: nonEmptyStringSchema,
+      status: z.literal("current"),
+    }),
+    z.strictObject({
+      operation: openMeldToolsUpdateOperationSchema,
+      status: z.enum(["started", "already_running"]),
+    }),
+  ]
+);
+
+export const openMeldToolsMaintenanceMutationResultSchema = z.strictObject({
+  automaticUpdatesEnabled: z.boolean(),
+  status: z.enum(["updated", "unchanged"]),
+});
+
+export const openMeldToolsControlRequestSchema = z.discriminatedUnion(
+  "operation",
+  [
+    z.strictObject({
+      operation: z.literal("request_update"),
+      requestSource: z.enum(["center_agent", "web"]),
+    }),
+    z.strictObject({
+      automaticUpdatesEnabled: z.boolean(),
+      operation: z.literal("set_automatic_updates"),
+      requestSource: z.enum(["center_agent", "web"]),
+    }),
+  ]
+);
+
+export const openMeldToolsControlResultSchema = z.discriminatedUnion(
+  "operation",
+  [
+    z.strictObject({
+      operation: z.literal("request_update"),
+      result: openMeldToolsUpdateRequestResultSchema,
+    }),
+    z.strictObject({
+      operation: z.literal("set_automatic_updates"),
+      result: openMeldToolsMaintenanceMutationResultSchema,
+    }),
+  ]
+);
+
 export const openMeldToolsUpdateAttemptSchema = z.strictObject({
   v: z.literal(1),
   attempts: z.number().int().nonnegative(),

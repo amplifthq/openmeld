@@ -34,6 +34,8 @@ import {
   runtimeTransportManageLocalAgentInstallationResponseSchema,
   runtimeTransportNotifyRouteCatalogChangedRequestSchema,
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
+  runtimeTransportOpenMeldToolsControlRequestSchema,
+  runtimeTransportOpenMeldToolsControlResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
   runtimeTransportRefreshLocalAgentCatalogResponseSchema,
   runtimeTransportSetLocalAgentEnabledRequestSchema,
@@ -61,6 +63,7 @@ import type {
   LocalProjectControlRemoveMissingConnectionsResponse,
   LocalProjectControlSetDefaultConnectionRequest,
   LocalProjectControlSetDefaultConnectionResponse,
+  OpenMeldToolsControlRequest,
   RuntimeTransportAgentProfileExecutionStateResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
@@ -71,6 +74,7 @@ import type {
   RuntimeTransportLookupRoutesBatchResponse,
   RuntimeTransportManageLocalAgentInstallationResponse,
   RuntimeTransportNotifyRouteCatalogChangedResponse,
+  RuntimeTransportOpenMeldToolsControlResponse,
   RuntimeTransportRefreshLocalAgentCatalogResponse,
   RuntimeTransportSetLocalAgentEnabledResponse,
   RuntimeTransportSetProfileWorkspaceResponse,
@@ -468,6 +472,50 @@ export const manageRuntimeTransportLocalAgentInstallation = async (input: {
       reasonCode: "local_agent_control.invalid_response",
       message:
         "Runtime Transport returned an invalid local agent installation response.",
+    };
+  }
+  return parsed.data;
+};
+
+export const controlRuntimeTransportOpenMeldTools = async (input: {
+  deviceId: string;
+  env: CoreBindings;
+  ownerUserId: string;
+  request: OpenMeldToolsControlRequest;
+  runtimeLane: DaemonServiceLane;
+}): Promise<RuntimeTransportOpenMeldToolsControlResponse> => {
+  const parsedRequest =
+    runtimeTransportOpenMeldToolsControlRequestSchema.safeParse({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      deviceId: input.deviceId,
+      lane: input.runtimeLane,
+      ownerUserId: input.ownerUserId,
+      request: input.request,
+      requestId: crypto.randomUUID(),
+    });
+  if (!parsedRequest.success) {
+    return {
+      message:
+        parsedRequest.error.issues[0]?.message ??
+        "Invalid OpenMeld Tools request.",
+      reasonCode: "openmeld_tools_control.invalid_request",
+      status: "rejected",
+    };
+  }
+
+  const response = await callRuntimeTransportApi({
+    body: parsedRequest.data,
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/openmeld-tools-control",
+  });
+  const parsed =
+    runtimeTransportOpenMeldToolsControlResponseSchema.safeParse(response);
+  if (!parsed.success) {
+    return {
+      message: "OpenMeld Service returned an invalid update response.",
+      reasonCode: "openmeld_tools_control.invalid_response",
+      status: "rejected",
     };
   }
   return parsed.data;

@@ -585,6 +585,7 @@ export function sendDaemonFrame(
       | "daemon.dispatch.interaction_delivered"
       | "daemon.dispatch.interaction_request"
       | "daemon.local_agent_control.result"
+      | "daemon.openmeld_tools_control.result"
       | "daemon.execution_recovery.resume_controller_conversation_result"
       | "daemon.session.heartbeat"
       | "daemon.session.register";

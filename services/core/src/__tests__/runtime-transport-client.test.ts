@@ -17,6 +17,7 @@ import {
 } from "../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 import {
   acquireRuntimeTransportAgentProfileExecutionTargetMutation,
+  controlRuntimeTransportOpenMeldTools,
   discoverRuntimeTransportProjects,
   forkRuntimeTransportAgentSession,
   isRuntimeTransportProfileWorkspaceOutcomeDefinitive,
@@ -597,6 +598,47 @@ describe("runtime transport split clients call fallback behavior", () => {
         method: "POST",
       })
     );
+  });
+
+  it("sends an owner-scoped OpenMeld Tools update through RuntimeTransport", async () => {
+    const { env, stub } = createEnv();
+    stub.fetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          result: {
+            operation: "request_update",
+            result: { currentVersion: "0.3.104", status: "current" },
+          },
+          status: "accepted",
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      controlRuntimeTransportOpenMeldTools({
+        deviceId: "device-1",
+        env,
+        ownerUserId: "owner-1",
+        request: { operation: "request_update", requestSource: "web" },
+        runtimeLane: "dev-local",
+      })
+    ).resolves.toMatchObject({
+      result: { operation: "request_update" },
+      status: "accepted",
+    });
+    expect(stub.fetch).toHaveBeenCalledWith(
+      "https://runtime-transport.internal/openmeld-tools-control",
+      expect.objectContaining({ method: "POST" })
+    );
+    const requestInit = stub.fetch.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(requestInit.body))).toMatchObject({
+      deviceId: "device-1",
+      lane: "dev-local",
+      ownerUserId: "owner-1",
+      request: { operation: "request_update", requestSource: "web" },
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+    });
   });
 
   it("forks the exact native Session through its owner's selected Computer", async () => {

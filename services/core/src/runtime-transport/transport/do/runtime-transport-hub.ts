@@ -30,6 +30,7 @@ import {
   localProjectControlSetDefaultConnectionResultSchema,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
+  openMeldToolsControlResultSchema,
   postSpaceDispatchOutboxRedriveBodySchema,
   postSpaceDispatchOutboxRedriveResponseSchema,
   projectTargetWakeLifecycleIdentity,
@@ -85,6 +86,9 @@ import {
   runtimeTransportManageLocalAgentInstallationResponseSchema,
   runtimeTransportNotifyRouteCatalogChangedRequestSchema,
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
+  runtimeTransportOpenMeldToolsControlRequestSchema,
+  runtimeTransportOpenMeldToolsControlResponseSchema,
+  runtimeTransportOpenMeldToolsControlResultFramePayloadSchema,
   runtimeTransportPreExecutionHandoffRequestSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
   runtimeTransportRefreshLocalAgentCatalogResponseSchema,
@@ -136,6 +140,7 @@ import type {
   OpenMeldDaemonSetProfileWorkspacePayload,
   OpenMeldDaemonSyncRouteCatalogPayload,
   OpenMeldDaemonTaskResultEnvelope,
+  OpenMeldToolsControlCapability,
   PostSpaceDispatchOutboxRedriveResponse,
   RuntimeCoordinatorExecutionEventType,
   RuntimeCoordinatorExecutionRecord,
@@ -176,6 +181,7 @@ import type {
   RuntimeTransportLocalAgentControlSetEnabledFramePayload,
   RuntimeTransportLocalAgentControlSetProfileWorkspaceFramePayload,
   RuntimeTransportManageLocalAgentInstallationResponse,
+  RuntimeTransportOpenMeldToolsControlResponse,
   RuntimeTransportPreExecutionHandoffRequest,
   RuntimeTransportPreExecutionHandoffResponse,
   RuntimeTransportRefreshLocalAgentCatalogResponse,
@@ -2231,6 +2237,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         this.handleLocalAgentControlResultFrame(webSocket, frame.payload);
         return;
       }
+      case "daemon.openmeld_tools_control.result": {
+        this.handleOpenMeldToolsControlResultFrame(webSocket, frame.payload);
+        return;
+      }
       case "daemon.execution_recovery.resume_controller_conversation_result": {
         this.handleExecutionRecoveryResultFrame(webSocket, frame.payload);
         return;
@@ -2261,6 +2271,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       case "daemon.local_agent_control.manage_installation":
       case "daemon.local_agent_control.set_enabled":
       case "daemon.local_agent_control.set_profile_workspace":
+      case "daemon.openmeld_tools_control.request":
       case "daemon.execution_recovery.resume_controller_conversation":
       case "daemon.computer_file_access.read_policy":
       case "daemon.computer_file_access.update_policy":
@@ -8666,6 +8677,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const localAgentControlHandler:
       | ((request: Request) => Promise<Response>)
       | undefined = {
+      "/openmeld-tools-control": (input: Request) =>
+        this.handleOpenMeldToolsControlRequest(input),
       "/local-agent-control/set-enabled": (input: Request) =>
         this.handleSetLocalAgentEnabledRequest(input),
       "/local-agent-control/fork-session": (input: Request) =>
@@ -16359,6 +16372,157 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
     return undefined;
+  }
+
+  private async handleOpenMeldToolsControlRequest(
+    request: Request
+  ): Promise<Response> {
+    const parsed = runtimeTransportOpenMeldToolsControlRequestSchema.safeParse(
+      await readJsonBody(request)
+    );
+    if (!parsed.success) {
+      return Response.json(
+        {
+          message:
+            parsed.error.issues[0]?.message ??
+            "The OpenMeld Tools request is invalid.",
+          reasonCode: "openmeld_tools_control.invalid_request",
+          status: "rejected",
+        } satisfies RuntimeTransportOpenMeldToolsControlResponse,
+        { status: 400 }
+      );
+    }
+
+    this.reapExpiredLeases(Date.now());
+    const capability: keyof OpenMeldToolsControlCapability =
+      parsed.data.request.operation === "request_update"
+        ? "requestUpdate"
+        : "setAutomaticUpdates";
+    const session = this.resolveOpenMeldToolsControlSession({
+      capability,
+      deviceId: parsed.data.deviceId,
+      lane: parsed.data.lane,
+      ownerUserId: parsed.data.ownerUserId,
+    });
+    if (!session.ok) {
+      return Response.json(
+        {
+          message: session.message,
+          reasonCode: session.reasonCode,
+          status: "rejected",
+        } satisfies RuntimeTransportOpenMeldToolsControlResponse,
+        { status: session.reasonCode.endsWith("service_offline") ? 503 : 409 }
+      );
+    }
+
+    try {
+      const result = await this.sendCurrentDeviceOperationAndWait({
+        code: "daemon.openmeld_tools_control.request",
+        expectedResponseCode: "daemon.openmeld_tools_control.result",
+        isExpectedPayload: (payload) =>
+          openMeldToolsControlResultSchema.safeParse(payload).success,
+        payload: {
+          requestId: parsed.data.requestId,
+          request: parsed.data.request,
+        },
+        requestId: parsed.data.requestId,
+        session: session.session,
+        timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
+      });
+      const response: RuntimeTransportOpenMeldToolsControlResponse = {
+        result: openMeldToolsControlResultSchema.parse(result),
+        status: "accepted",
+      };
+      return Response.json(
+        runtimeTransportOpenMeldToolsControlResponseSchema.parse(response)
+      );
+    } catch (error) {
+      const operationError =
+        error instanceof CurrentDeviceOperationError ? error : null;
+      const reasonCode =
+        operationError?.kind === "send_failed"
+          ? "openmeld_tools_control.service_offline"
+          : `openmeld_tools_control.${operationError?.kind ?? "internal_error"}`;
+      return Response.json(
+        {
+          message:
+            error instanceof Error
+              ? error.message
+              : "OpenMeld Tools could not be changed.",
+          reasonCode,
+          status: "rejected",
+        } satisfies RuntimeTransportOpenMeldToolsControlResponse,
+        { status: operationError?.kind === "timeout" ? 504 : 502 }
+      );
+    }
+  }
+
+  private resolveOpenMeldToolsControlSession(input: {
+    capability: keyof OpenMeldToolsControlCapability;
+    deviceId: string;
+    lane: string;
+    ownerUserId: string;
+  }):
+    | {
+        ok: true;
+        session: RuntimeTransportSessionState & { socket: WebSocket };
+      }
+    | { ok: false; message: string; reasonCode: string } {
+    const latestSession = [...this.state.sessionsById.values()]
+      .filter(
+        (session) =>
+          session.ownerUserId === input.ownerUserId &&
+          session.deviceId === input.deviceId &&
+          session.lane === input.lane
+      )
+      .sort(compareRuntimeTransportSessionsByFreshness)[0];
+    if (!latestSession?.socket) {
+      return {
+        message: "OpenMeld Service is offline.",
+        ok: false,
+        reasonCode: "openmeld_tools_control.service_offline",
+      };
+    }
+    if (
+      !isDaemonExecutionCompatible(latestSession.executionCompatibility) ||
+      latestSession.capabilities.openMeldToolsControl?.[input.capability] !==
+        true
+    ) {
+      return {
+        message: "Reconnect OpenMeld Service to use this action.",
+        ok: false,
+        reasonCode: "openmeld_tools_control.service_update_required",
+      };
+    }
+    return {
+      ok: true,
+      session: latestSession as RuntimeTransportSessionState & {
+        socket: WebSocket;
+      },
+    };
+  }
+
+  private handleOpenMeldToolsControlResultFrame(
+    webSocket: WebSocket,
+    payload: unknown
+  ): void {
+    const parsed =
+      runtimeTransportOpenMeldToolsControlResultFramePayloadSchema.safeParse(
+        payload
+      );
+    if (!parsed.success) {
+      this.sendErrorFrame(webSocket, {
+        code: "schema.invalid",
+        message: "invalid OpenMeld Tools control result",
+      });
+      return;
+    }
+    this.resolveCurrentDeviceOperationResultFrame({
+      code: "daemon.openmeld_tools_control.result",
+      invalidMessage: "Received an invalid OpenMeld Tools response.",
+      payload: parsed.data,
+      webSocket,
+    });
   }
 
   private async handleLocalFolderPickerRequest(

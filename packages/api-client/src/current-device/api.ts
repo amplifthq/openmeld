@@ -9,12 +9,15 @@ import {
   localRuntimesQuerySchema,
   localRuntimesResponseSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
+  requestCurrentOpenMeldToolsUpdateResponseSchema,
   selectCurrentLocalAgentInstallationBodySchema,
   selectCurrentLocalAgentInstallationResponseSchema,
   setCurrentAgentProfileWorkspaceBodySchema,
   setCurrentAgentProfileWorkspaceResponseSchema,
   setCurrentLocalAgentEnabledBodySchema,
   setCurrentLocalAgentEnabledResponseSchema,
+  setCurrentOpenMeldToolsMaintenanceBodySchema,
+  setCurrentOpenMeldToolsMaintenanceResponseSchema,
   setLocalRuntimeDisplayNameBodySchema,
   writeCurrentDeviceObservedMetadataBodySchema,
   writeCurrentDeviceObservedMetadataResponseSchema,
@@ -32,6 +35,8 @@ import {
   CURRENT_DEVICE_ROUTE,
   CURRENT_LOCAL_AGENT_CATALOG_REFRESH_ROUTE,
   CURRENT_LOCAL_RUNTIME_REPLY_READINESS_ROUTE,
+  CURRENT_OPENMELD_TOOLS_MAINTENANCE_ROUTE,
+  CURRENT_OPENMELD_TOOLS_UPDATE_ROUTE,
   FORGET_CURRENT_COMPUTER_ROUTE,
 } from "./routes";
 import type {
@@ -41,6 +46,7 @@ import type {
   SelectCurrentLocalAgentInstallationInput,
   SetCurrentAgentProfileWorkspaceInput,
   SetCurrentLocalAgentEnabledInput,
+  SetCurrentOpenMeldToolsMaintenanceInput,
   SetLocalRuntimeDisplayNameInput,
   WriteCurrentDeviceObservedMetadataInput,
 } from "./types";
@@ -127,6 +133,18 @@ function requireValidCurrentLocalAgentInstallationBody(
     throw new Error(
       parsed.error.issues[0]?.message ??
         "Invalid local agent installation payload."
+    );
+  }
+  return parsed.data;
+}
+
+function requireValidCurrentOpenMeldToolsMaintenanceBody(
+  input: SetCurrentOpenMeldToolsMaintenanceInput
+) {
+  const parsed = setCurrentOpenMeldToolsMaintenanceBodySchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? "Invalid update setting."
     );
   }
   return parsed.data;
@@ -262,6 +280,28 @@ export const createCurrentDeviceApi: CreateCurrentDeviceApi = (
         body: JSON.stringify(body),
         schema: selectCurrentLocalAgentInstallationResponseSchema,
         invalidMessage: "Invalid selected local agent installation response.",
+      });
+    },
+    requestCurrentOpenMeldToolsUpdate: async () =>
+      await client.requestJson({
+        url: CURRENT_OPENMELD_TOOLS_UPDATE_ROUTE,
+        operation: "local_runtime.current.openmeld_tools.update",
+        method: "POST",
+        schema: requestCurrentOpenMeldToolsUpdateResponseSchema,
+        invalidMessage: "Invalid OpenMeld Tools update response.",
+      }),
+    setCurrentOpenMeldToolsMaintenance: async (input) => {
+      const body = requireValidCurrentOpenMeldToolsMaintenanceBody(input);
+      return await client.requestJson({
+        url: CURRENT_OPENMELD_TOOLS_MAINTENANCE_ROUTE,
+        operation: "local_runtime.current.openmeld_tools.maintenance.write",
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+        schema: setCurrentOpenMeldToolsMaintenanceResponseSchema,
+        invalidMessage: "Invalid OpenMeld Tools update setting response.",
       });
     },
     setCurrentAgentProfileWorkspace: async (input) => {

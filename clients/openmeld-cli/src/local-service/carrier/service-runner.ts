@@ -887,16 +887,17 @@ export const runDaemonServiceLoop = async (
       },
     }
   );
+  const openMeldToolsUpdateCoordinator = createOpenMeldToolsUpdateCoordinator({
+    reportBackgroundError: (error) => {
+      warnDaemonEvent("[openmeld.tools.update_failed]", {
+        event: "cli.openmeld_tools.update_failed",
+        errorMessage: toErrorMessage(error),
+      });
+    },
+  });
   const stopOpenMeldToolsAutomaticUpdates =
     startOpenMeldToolsAutomaticUpdateLoop({
-      coordinator: createOpenMeldToolsUpdateCoordinator({
-        reportBackgroundError: (error) => {
-          warnDaemonEvent("[openmeld.tools.update_failed]", {
-            event: "cli.openmeld_tools.update_failed",
-            errorMessage: toErrorMessage(error),
-          });
-        },
-      }),
+      coordinator: openMeldToolsUpdateCoordinator,
       onError: (error) => {
         warnDaemonEvent("[openmeld.tools.automatic_update_failed]", {
           event: "cli.openmeld_tools.automatic_update_failed",
@@ -1085,6 +1086,7 @@ export const runDaemonServiceLoop = async (
             onAgentActivitySessionsChanged: requestAgentActivitySync,
             onLocalProjectConnectionsChanged:
               refreshAgentActivityForProjectConnectionChange,
+            openMeldToolsUpdateCoordinator,
             ownerUserId,
             profileOwnerName,
             presenter: input.presenter,

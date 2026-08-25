@@ -101,6 +101,7 @@ async function openDaemonStream(
 }
 
 async function registerSession(input: {
+  capabilities?: Record<string, unknown>;
   daemonSessionId: string;
   deviceId: string;
   lane?: string;
@@ -132,7 +133,7 @@ async function registerSession(input: {
         daemonSessionId: input.daemonSessionId,
         connectionGeneration: 1,
         profileIds: input.profileIds,
-        capabilities: {},
+        capabilities: input.capabilities ?? {},
         runtimeContract: {
           epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
         },
@@ -744,6 +745,88 @@ describe("runtime transport lease reconciliation", () => {
         expect(
           internal.state.sessionsById.get(daemonSessionId)?.capabilities
         ).not.toHaveProperty("localFolderPicker");
+      });
+    } finally {
+      socket.close(1000, "test_done");
+    }
+  });
+
+  it("returns the exact OpenMeld Tools result from the current compatible Service", async () => {
+    const ownerUserId = "owner-openmeld-tools-control";
+    const daemonSessionId = "daemon-session-openmeld-tools-control";
+    const deviceId = "device-openmeld-tools-control";
+    const shard = getRuntimeTransportShard(ownerUserId);
+    const socket = await openDaemonStream(ownerUserId);
+
+    try {
+      await registerSession({
+        capabilities: {
+          openMeldToolsControl: {
+            requestUpdate: true,
+            setAutomaticUpdates: true,
+          },
+        },
+        daemonSessionId,
+        deviceId,
+        ownerUserId,
+        profileIds: [],
+        socket,
+      });
+      const responsePromise = shard.fetch(
+        "https://runtime-transport.internal/openmeld-tools-control",
+        {
+          body: JSON.stringify({
+            deviceId,
+            lane: "dev-local",
+            ownerUserId,
+            request: {
+              operation: "request_update",
+              requestSource: "web",
+            },
+            requestId: "request-openmeld-tools-control",
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }
+      );
+      const requestFrame = await waitForJsonMessage(
+        socket,
+        (value) => value.code === "daemon.openmeld_tools_control.request",
+        5000
+      );
+      expect(requestFrame).toMatchObject({
+        code: "daemon.openmeld_tools_control.request",
+        payload: {
+          requestId: "request-openmeld-tools-control",
+          request: {
+            operation: "request_update",
+            requestSource: "web",
+          },
+        },
+      });
+      socket.send(
+        JSON.stringify({
+          code: "daemon.openmeld_tools_control.result",
+          payload: {
+            requestId: "request-openmeld-tools-control",
+            result: {
+              operation: "request_update",
+              result: { currentVersion: "0.3.104", status: "current" },
+            },
+          },
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        })
+      );
+
+      await expect(
+        responsePromise.then((response) => response.json())
+      ).resolves.toEqual({
+        result: {
+          operation: "request_update",
+          result: { currentVersion: "0.3.104", status: "current" },
+        },
+        status: "accepted",
       });
     } finally {
       socket.close(1000, "test_done");

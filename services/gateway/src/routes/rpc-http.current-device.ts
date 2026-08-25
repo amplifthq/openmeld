@@ -15,6 +15,7 @@ import {
   localRuntimesQuerySchema,
   localRuntimesResponseSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
+  requestCurrentOpenMeldToolsUpdateResponseSchema,
   selectCurrentLocalAgentInstallationBodySchema,
   selectCurrentLocalAgentInstallationResponseSchema,
   setCurrentAgentProfileWorkspaceBodySchema,
@@ -23,6 +24,8 @@ import {
   setCurrentLocalAgentEnabledBodySchema,
   setCurrentLocalAgentEnabledResponseSchema,
   setCurrentLocalAgentEnabledRouteParamsSchema,
+  setCurrentOpenMeldToolsMaintenanceBodySchema,
+  setCurrentOpenMeldToolsMaintenanceResponseSchema,
   setLocalRuntimeDisplayNameBodySchema,
   writeCurrentDeviceObservedMetadataBodySchema,
   writeCurrentDeviceObservedMetadataResponseSchema,
@@ -55,6 +58,10 @@ const CURRENT_LOCAL_AGENT_INSTALLATIONS_ROUTE =
   "/v1/local-runtimes/current/local-agents/:agentId/installations";
 const CURRENT_LOCAL_AGENT_CATALOG_REFRESH_ROUTE =
   "/v1/local-runtimes/current/local-agents/refresh-catalog";
+const CURRENT_OPENMELD_TOOLS_UPDATE_ROUTE =
+  "/v1/local-runtimes/current/openmeld-tools/update";
+const CURRENT_OPENMELD_TOOLS_MAINTENANCE_ROUTE =
+  "/v1/local-runtimes/current/openmeld-tools/maintenance";
 const CURRENT_AGENT_PROFILE_WORKSPACE_ROUTE =
   "/v1/local-runtimes/current/agent-profiles/:agentProfileId/workspace";
 const LOCAL_RUNTIMES_ROUTE = "/v1/local-runtimes";
@@ -333,6 +340,54 @@ export function registerCurrentDeviceTargetRoutes(
     CURRENT_LOCAL_AGENT_ENABLED_ROUTE,
     async (c) => await handleCurrentLocalAgentEnabledWrite(c)
   );
+
+  app.post(CURRENT_OPENMELD_TOOLS_UPDATE_ROUTE, (c) =>
+    executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.requestCurrentOpenMeldToolsUpdate({
+          context: buildCoreRpcContext(c),
+        }),
+      method: "POST",
+      responseSchema: requestCurrentOpenMeldToolsUpdateResponseSchema,
+      route: CURRENT_OPENMELD_TOOLS_UPDATE_ROUTE,
+    })
+  );
+  app.put(CURRENT_OPENMELD_TOOLS_MAINTENANCE_ROUTE, async (c) => {
+    const body = await readJsonRequestBody(c.req.raw);
+    if (!body.ok) {
+      return respondBadRequest({
+        c,
+        code: "invalid_json",
+        message: body.message,
+        method: "PUT",
+        route: CURRENT_OPENMELD_TOOLS_MAINTENANCE_ROUTE,
+      });
+    }
+    const parsed = setCurrentOpenMeldToolsMaintenanceBodySchema.safeParse(
+      body.value
+    );
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message: parsed.error.issues[0]?.message ?? "Invalid update setting.",
+        method: "PUT",
+        route: CURRENT_OPENMELD_TOOLS_MAINTENANCE_ROUTE,
+      });
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.setCurrentOpenMeldToolsMaintenance({
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "PUT",
+      responseSchema: setCurrentOpenMeldToolsMaintenanceResponseSchema,
+      route: CURRENT_OPENMELD_TOOLS_MAINTENANCE_ROUTE,
+    });
+  });
 
   app.get(
     CURRENT_LOCAL_AGENT_INSTALLATIONS_ROUTE,

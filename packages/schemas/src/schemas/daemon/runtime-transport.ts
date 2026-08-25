@@ -7,7 +7,12 @@ import { organizationProtectedInformationSchema } from "../http/organization-inf
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";
 import { postSpaceWakeStopResponseSchema } from "../http/space-wake-stop";
-import { localComponentsStatusSchema } from "../local-components";
+import {
+  localComponentsStatusSchema,
+  openMeldToolsControlCapabilitySchema,
+  openMeldToolsControlRequestSchema,
+  openMeldToolsControlResultSchema,
+} from "../local-components";
 import {
   agentInteractionPendingSummarySchema,
   agentInteractionRequestSchema,
@@ -192,6 +197,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
   localAgentInteraction: z.literal(true).optional(),
   profileConfigurationRevision: z.literal(true).optional(),
   localComponents: localComponentsStatusSchema.optional(),
+  openMeldToolsControl: openMeldToolsControlCapabilitySchema.optional(),
   localAgentControl: z
     .strictObject({
       cancel: z.literal(true).optional(),
@@ -486,6 +492,30 @@ export const runtimeTransportManageLocalAgentInstallationResponseSchema =
     }),
   ]);
 
+export const runtimeTransportOpenMeldToolsControlRequestSchema = z.strictObject(
+  {
+    v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
+    ownerUserId: z.string().min(1),
+    deviceId: z.string().min(1),
+    lane: daemonServiceLaneSchema,
+    requestId: z.string().min(1),
+    request: openMeldToolsControlRequestSchema,
+  }
+);
+
+export const runtimeTransportOpenMeldToolsControlResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      status: z.literal("accepted"),
+      result: openMeldToolsControlResultSchema,
+    }),
+    z.strictObject({
+      status: z.literal("rejected"),
+      reasonCode: z.string().min(1),
+      message: z.string().min(1),
+    }),
+  ]);
+
 export const runtimeTransportRefreshLocalAgentCatalogRequestSchema =
   z.strictObject({
     v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
@@ -638,6 +668,18 @@ export const runtimeTransportLocalAgentControlResultFramePayloadSchema =
       openMeldDaemonInterruptPayloadSchema,
       runtimeTransportForkAgentSessionResultSchema,
     ]),
+  });
+
+export const runtimeTransportOpenMeldToolsControlFramePayloadSchema =
+  z.strictObject({
+    requestId: z.string().min(1),
+    request: openMeldToolsControlRequestSchema,
+  });
+
+export const runtimeTransportOpenMeldToolsControlResultFramePayloadSchema =
+  z.strictObject({
+    requestId: z.string().min(1),
+    result: openMeldToolsControlResultSchema,
   });
 
 export const runtimeTransportInspectExecutionRecoveryRequestSchema =
@@ -1811,6 +1853,8 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.local_agent_control.set_enabled",
   "daemon.local_agent_control.set_profile_workspace",
   "daemon.local_agent_control.result",
+  "daemon.openmeld_tools_control.request",
+  "daemon.openmeld_tools_control.result",
   "daemon.execution_recovery.resume_controller_conversation",
   "daemon.execution_recovery.resume_controller_conversation_result",
   "daemon.local_project_control.discover_projects",

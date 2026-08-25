@@ -27,12 +27,82 @@ describe("api-client current device api", () => {
       "getCurrentTarget",
       "listLocalRuntimes",
       "refreshCurrentLocalAgentCatalog",
+      "requestCurrentOpenMeldToolsUpdate",
       "selectCurrentLocalAgentInstallation",
       "setCurrentAgentProfileWorkspace",
       "setCurrentLocalAgentEnabled",
+      "setCurrentOpenMeldToolsMaintenance",
       "setDisplayName",
       "writeObservedMetadata",
     ]);
+  });
+
+  it("uses one-click OpenMeld Tools update routes", async () => {
+    const transport = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            operation: {
+              operationId: "update-1",
+              phase: "updating",
+              requestSource: "web",
+              requestedAt: "2026-08-25T10:00:00.000Z",
+              targetVersion: "0.3.90",
+              updatedAt: "2026-08-25T10:00:00.000Z",
+              urgency: "available",
+            },
+            status: "started",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            automaticUpdatesEnabled: false,
+            status: "updated",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      );
+    const api = createCurrentDeviceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.requestCurrentOpenMeldToolsUpdate()
+    ).resolves.toMatchObject({
+      status: "started",
+    });
+    await expect(
+      api.setCurrentOpenMeldToolsMaintenance({ automaticUpdatesEnabled: false })
+    ).resolves.toEqual({
+      automaticUpdatesEnabled: false,
+      status: "updated",
+    });
+    expect(transport).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        init: expect.objectContaining({ method: "POST" }),
+        operation: "local_runtime.current.openmeld_tools.update",
+        url: "https://gateway.openmeld.invalid/v1/local-runtimes/current/openmeld-tools/update",
+      })
+    );
+    expect(transport).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        init: expect.objectContaining({
+          body: JSON.stringify({ automaticUpdatesEnabled: false }),
+          method: "PUT",
+        }),
+        operation: "local_runtime.current.openmeld_tools.maintenance.write",
+        url: "https://gateway.openmeld.invalid/v1/local-runtimes/current/openmeld-tools/maintenance",
+      })
+    );
   });
 
   it("reads the current device target through the canonical current-device route", async () => {
