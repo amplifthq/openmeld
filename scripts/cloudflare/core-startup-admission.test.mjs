@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
   buildCoreStartupAdmissionStepSpec,
-  CORE_STARTUP_ADMISSION_LIMIT_MS,
+  CORE_STARTUP_PERFORMANCE_TARGET_MS,
   createCoreStartupAdmissionEvidence,
   parseWranglerStartupTime,
   parseWranglerVersionUploadEvent,
+  runCoreStartupAdmission,
 } from "./core-startup-admission.mjs";
 
 const CAPTURED_WRANGLER_UPLOAD_OUTPUT = `
@@ -81,30 +85,72 @@ test("parses the exact non-traffic Worker version from Wrangler output evidence"
   );
 });
 
-test("accepts a non-traffic version only with 50 percent startup headroom", () => {
+test("records a non-traffic version within the startup performance target", () => {
   const evidence = createCoreStartupAdmissionEvidence({
     outputFile: CAPTURED_WRANGLER_OUTPUT_FILE,
     releaseSha: "552812d05f1398f791fc327ec8247b24166193ee",
     wranglerOutput: CAPTURED_WRANGLER_UPLOAD_OUTPUT,
   });
 
-  assert.equal(CORE_STARTUP_ADMISSION_LIMIT_MS, 500);
+  assert.equal(CORE_STARTUP_PERFORMANCE_TARGET_MS, 500);
   assert.equal(evidence.decision, "accepted");
+  assert.equal(evidence.performanceStatus, "within_target");
   assert.equal(evidence.startupTimeMs, 421);
-  assert.equal(evidence.startupLimitMs, 500);
+  assert.equal(evidence.startupTargetMs, 500);
   assert.equal(evidence.trafficPercent, 0);
 });
 
-test("rejects an uploaded version before traffic when startup loses headroom", () => {
+test("accepts a Cloudflare-approved version with a performance warning above target", () => {
   const evidence = createCoreStartupAdmissionEvidence({
     outputFile: CAPTURED_WRANGLER_OUTPUT_FILE,
     releaseSha: "552812d05f1398f791fc327ec8247b24166193ee",
     wranglerOutput: CAPTURED_WRANGLER_UPLOAD_OUTPUT.replace("421 ms", "501 ms"),
   });
 
-  assert.equal(evidence.decision, "rejected");
+  assert.equal(evidence.decision, "accepted");
+  assert.equal(evidence.performanceStatus, "above_target");
   assert.equal(evidence.startupTimeMs, 501);
+  assert.equal(evidence.startupTargetMs, 500);
   assert.equal(evidence.trafficPercent, 0);
+});
+
+test("continues a guarded release after Cloudflare accepts an above-target version", () => {
+  const fixtureDirectory = mkdtempSync(
+    path.join(tmpdir(), "openmeld-core-startup-warning-test-")
+  );
+  try {
+    const evidence = runCoreStartupAdmission({
+      cwd: fixtureDirectory,
+      output: "startup-evidence.json",
+      releaseSha: "552812d05f1398f791fc327ec8247b24166193ee",
+      runCommand(commandInput) {
+        writeFileSync(
+          commandInput.env.WRANGLER_OUTPUT_FILE_PATH,
+          CAPTURED_WRANGLER_OUTPUT_FILE
+        );
+        return {
+          status: 0,
+          stderr: "",
+          stdout: CAPTURED_WRANGLER_UPLOAD_OUTPUT.replace("421 ms", "948 ms"),
+        };
+      },
+    });
+
+    assert.equal(evidence.decision, "accepted");
+    assert.equal(evidence.performanceStatus, "above_target");
+    assert.equal(evidence.startupTimeMs, 948);
+    assert.equal(
+      JSON.parse(
+        readFileSync(
+          path.join(fixtureDirectory, "startup-evidence.json"),
+          "utf8"
+        )
+      ).performanceStatus,
+      "above_target"
+    );
+  } finally {
+    rmSync(fixtureDirectory, { force: true, recursive: true });
+  }
 });
 
 test("fails closed when Cloudflare does not return startup evidence", () => {

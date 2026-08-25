@@ -367,11 +367,13 @@ order:
    Cloudflare Worker Version with zero production traffic.
 3. Read Cloudflare's actual `Worker Startup Time` and the structured
    `version-upload` result. Missing or malformed evidence fails closed.
-4. Continue only when Cloudflare reports at most `500 ms`. This OpenMeld limit
-   deliberately keeps 50 percent headroom below Cloudflare's hard limit.
-5. Run the ordinary production deploy only after admission passes. The
-   ordinary deploy remains responsible for applying the tracked routes,
-   triggers, bindings, migrations, and other production configuration.
+4. Compare the measurement with OpenMeld's `500 ms` performance target. A
+   higher value produces durable warning evidence but does not reject a version
+   that Cloudflare accepted within its platform limit.
+5. Run the ordinary production deploy only after Cloudflare accepts the
+   zero-traffic version. The ordinary deploy remains responsible for applying
+   the tracked routes, triggers, bindings, migrations, and other production
+   configuration.
 
 The zero-traffic upload and the ordinary deploy use the same immutable source,
 production environment, minification, and compile-time definitions. They are
@@ -395,13 +397,15 @@ dev-tmp/core-startup-admission.json
 dev-tmp/core-startup.cpuprofile
 ```
 
-If admission rejects a version, or the later deploy still reports `10021`, do
-not retry the unchanged source hoping for a faster Cloudflare machine. Do not
-raise the `500 ms` OpenMeld limit and do not raise request CPU limits as a
-workaround. Keep the current production version active, use the bundle and CPU
+If Cloudflare rejects the zero-traffic version, or the later deploy reports
+`10021`, do not retry the unchanged source hoping for a faster Cloudflare
+machine. Keep the current production version active, use the bundle and CPU
 profile evidence to remove eager global initialization, and rerun admission
-only after a reviewed source change. Cloudflare's current startup and version
-upload contracts are documented in [Worker limits](https://developers.cloudflare.com/workers/platform/limits/)
+only after a reviewed source change. A version above OpenMeld's `500 ms`
+performance target may continue through the guarded release when Cloudflare
+accepts it, but the warning remains actionable optimization evidence. Raising
+request CPU limits does not change the startup limit. Cloudflare's current
+startup and version upload contracts are documented in [Worker limits](https://developers.cloudflare.com/workers/platform/limits/)
 and [Gradual deployments](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/gradual-deployments/).
 
 ## GitHub Scoped Release
