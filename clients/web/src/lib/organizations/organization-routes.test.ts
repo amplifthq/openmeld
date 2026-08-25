@@ -177,6 +177,9 @@ describe("primary organization routes", () => {
 		expect(buildOrganizationCenterAgentChatPath("acme")).toBe(
 			"/o/acme/center-agent/chat"
 		);
+		expect(
+			buildOrganizationCenterAgentChatPath("acme", { view: "graph" })
+		).toBe("/o/acme/center-agent/chat?view=graph");
 		expect(buildOrganizationSkillsPath("acme")).toBe(
 			"/o/acme/center-agent/skills"
 		);

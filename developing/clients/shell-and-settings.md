@@ -37,10 +37,9 @@ Current Web uses the fixed
 product rail, with **Settings** as a separated utility and **Inbox** in the
 bottom-right global control area, and
 the **Personal / current Organization name** Settings groups defined in
-`developing/clients/web.md`. In particular, Center Agent-owned work and
-configuration belongs in its stable **Chat / Tasks / Routines / Skills /
-Channels / Apps / Memory / Center Agent settings** secondary navigation in every
-workspace.
+`developing/clients/web.md`. Center Agent has no secondary sidebar: **Messages /
+Graph / Files / Tasks / Routines / Skills / Apps** live in its header, while
+**Channels / Memory / Center Agent settings** live in its compact header menu.
 
 One shell and one Settings framework let Web and the Electron GUI reuse shared
 pieces without forcing two clients to keep an obsolete route map. Current Web:
@@ -244,10 +243,9 @@ The Web shell is a stable two-layer composition built from the shared
   new session or conversation store. An unavailable control must not leave a
   placeholder or dead action.
 - **Inner contextual sidebar** — optional, rendered inside the inset app
-  surface, and owned only by route families that
-  need contextual navigation. Center Agent fills it with Chat / Tasks /
-  Routines / Skills / Channels / Apps / Memory / Center Agent settings. Spaces
-  fills it with New Space, Explore, Pinned, and the existing Spaces list.
+  surface, and owned only by route families that need contextual navigation.
+  Center Agent does not own one. Spaces fills it with New Space, Explore,
+  Pinned, and the existing Spaces list.
   Direct Messages fills it with the current workspace's DM list, using the
   other participant's profile identity and opening the shared Space conversation
   surface in the content region. Agent Activity fills it with Overview / Sessions / Changes.

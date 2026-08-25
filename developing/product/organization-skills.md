@@ -241,18 +241,20 @@ removed Skill cannot appear in runtime or CLI snapshots.
 
 ## Web Product
 
-Center Agent owns a secondary sidebar with exactly:
+Center Agent owns no secondary sidebar. Its primary header navigation is:
 
-1. **Chat**
-2. **Routines**
-3. **Skills**
-4. **Channels**
-5. **Apps**
-6. **Memory**
-7. **Settings**
+1. **Messages**
+2. **Graph**
+3. **Files**
+4. **Tasks**
+5. **Routines**
+6. **Skills**
+7. **Apps**
 
-The Center Agent remains one primary-rail destination. Skills is one capability
-inside that product home; required system behavior remains internal.
+One compact header menu preserves **Channels**, **Memory**, and **Center Agent
+settings**. Skills remains one capability inside
+that product home; required system behavior remains internal. The Center Agent
+remains one primary-rail destination.
 
 Canonical routes are:
 

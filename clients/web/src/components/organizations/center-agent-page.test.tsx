@@ -62,10 +62,6 @@ vi.mock("#/components/spaces/space-landing", () => ({
 	},
 }));
 
-vi.mock("./center-agent-about-control", () => ({
-	CenterAgentAboutControl: () => <div data-testid="center-agent-about" />,
-}));
-
 vi.mock("@tanstack/react-router", async () => {
 	const actual = await vi.importActual<typeof import("@tanstack/react-router")>(
 		"@tanstack/react-router"
@@ -359,15 +355,8 @@ describe("CenterAgentPage", () => {
 			})
 		);
 		expect(openCenterAgentDirectMessageSpaceMock).not.toHaveBeenCalled();
-		expect(spaceLandingSpy).toHaveBeenCalledWith(
-			expect.objectContaining({
-				centerAgentAboutControl: expect.objectContaining({
-					props: {
-						organizationId: "org-acme",
-						organizationSlug: "acme",
-					},
-				}),
-			})
+		expect(spaceLandingSpy.mock.calls.at(-1)?.[0]).not.toHaveProperty(
+			"centerAgentAboutControl"
 		);
 	});
 

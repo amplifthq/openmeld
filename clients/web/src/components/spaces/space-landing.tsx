@@ -5,7 +5,6 @@ import {
 } from "@openmeld/api-client";
 import type {
 	AuthProfileView,
-	CenterAgentSlackWorkspaceConnection,
 	ConvertDirectMessageToSpaceResponse,
 	CurrentLocalRuntimeReplyReadinessResponse,
 	GetSpaceStatusResponse,
@@ -46,7 +45,10 @@ import {
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
-import { CenterAgentSlackChannelsShortcut } from "#/components/organizations/center-agent-slack-channels-shortcut";
+import {
+	buildCenterAgentHeaderMenuItems,
+	CenterAgentHeaderTabs,
+} from "#/components/organizations/center-agent-header-navigation";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import {
 	planAgentProfileReplyRecoveryFromWebEvidence,
@@ -361,32 +363,8 @@ function useActiveWakeTargetProfileIds(
 	};
 }
 
-function SpaceSlackSettingsShortcutControl(input: {
-	designationPending: boolean;
-	isCenterAgentDirectMessage: boolean;
-	organizationId: string | null;
-	organizationSlug: string;
-	slackConnection?: CenterAgentSlackWorkspaceConnection;
-}) {
-	if (
-		!input.isCenterAgentDirectMessage ||
-		input.organizationId === null ||
-		input.designationPending
-	) {
-		return null;
-	}
-
-	return (
-		<CenterAgentSlackChannelsShortcut
-			organizationSlug={input.organizationSlug}
-			slackConnection={input.slackConnection}
-		/>
-	);
-}
-
 type SpaceLandingInput = {
 	accountProfiles?: readonly AuthProfileView[];
-	centerAgentAboutControl?: ReactNode;
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	currentUserAvatarImageUrl?: string | null;
 	initialComposerDraft?: ComposerDraftRecord | null;
@@ -394,10 +372,12 @@ type SpaceLandingInput = {
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	initialPendingMessage?: PendingSpaceMessage | null;
+	initialSpaceView?: SpaceView;
 	isPersonalContext?: boolean;
 	isCenterAgentDirectMessage?: boolean;
 	loadingFallback?: ReactNode;
 	onInitialPendingMessageConsumed?: () => void;
+	onSpaceViewCommitted?: (view: SpaceView) => void;
 	orgSlug: string;
 	presentation?: "compact" | "full";
 	spaceId: string;
@@ -409,7 +389,10 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	const navigate = useNavigate();
 	const generatedSpaceViewId = useId();
 	const spaceViewIdPrefix = `space-view-${generatedSpaceViewId}`;
-	const spaceFileNavigation = useSpaceFileNavigation();
+	const spaceFileNavigation = useSpaceFileNavigation(
+		input.initialSpaceView,
+		input.onSpaceViewCommitted
+	);
 	const { changeSpaceView, openSpaceFile, spaceFileToOpen, spaceView } =
 		spaceFileNavigation;
 	const accountProfiles = resolveSpaceLandingAccountProfiles(
@@ -1366,7 +1349,6 @@ function SpaceLandingReady({
 }) {
 	const {
 		accountProfiles,
-		centerAgentState,
 		currentSpaceIsCenterAgentDirectMessage,
 		currentOwnerUserId,
 		handleAddAgentsFromBanner,
@@ -1380,7 +1362,6 @@ function SpaceLandingReady({
 		membersPanelWidth,
 		modelCatalog,
 		navigate,
-		organizationId,
 		recovery,
 		refreshCurrentSpaceMemberFacts,
 		setupRecallAction,
@@ -1398,16 +1379,6 @@ function SpaceLandingReady({
 		handleConvertDirectMessageToSpace,
 		showDeleteSpaceAction: controller.showDeleteSpaceAction,
 	});
-	const slackSettingsShortcut = (
-		<SpaceSlackSettingsShortcutControl
-			designationPending={centerAgentState.designationPending}
-			isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
-			organizationId={organizationId}
-			organizationSlug={input.orgSlug}
-			slackConnection={centerAgentState.slackConnection}
-		/>
-	);
-
 	const historyErrorMessage =
 		controller.historyError && controller.timelineItems.length === 0
 			? `Couldn't load recent history. ${controller.historyError.message}${
@@ -1521,14 +1492,14 @@ function SpaceLandingReady({
 						leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
 						liveErrorMessage={controller.liveErrorMessage}
 						liveState={controller.liveState}
-						managementControl={
-							<>
-								{input.centerAgentAboutControl}
-								{currentSpaceControls.managementControl}
-								{slackSettingsShortcut}
-							</>
-						}
+						managementControl={currentSpaceControls.managementControl}
 						membersControl={membersControl}
+						menuItems={
+							currentSpaceIsCenterAgentDirectMessage
+								? buildCenterAgentHeaderMenuItems(input.orgSlug)
+								: undefined
+						}
+						menuLabel="Center Agent menu"
 						onDeleteSpace={controller.onDeleteSpace}
 						onLeaveSpace={
 							controller.isCurrentAccessConfirmed
@@ -1548,12 +1519,23 @@ function SpaceLandingReady({
 						status={controller.status}
 						unreadCount={controller.unreadCount}
 						viewControl={
-							<SpaceViewTabs
-								activeView={spaceView}
-								className="shrink-0"
-								idPrefix={spaceViewIdPrefix}
-								onViewChange={spaceFileNavigation.changeSpaceView}
-							/>
+							currentSpaceIsCenterAgentDirectMessage ? (
+								<CenterAgentHeaderTabs
+									activeSectionId="chat"
+									activeSpaceView={spaceView}
+									className="h-full shrink-0 gap-5"
+									idPrefix={spaceViewIdPrefix}
+									onSpaceViewChange={spaceFileNavigation.changeSpaceView}
+									organizationSlug={input.orgSlug}
+								/>
+							) : (
+								<SpaceViewTabs
+									activeView={spaceView}
+									className="shrink-0"
+									idPrefix={spaceViewIdPrefix}
+									onViewChange={spaceFileNavigation.changeSpaceView}
+								/>
+							)
 						}
 					/>
 				}

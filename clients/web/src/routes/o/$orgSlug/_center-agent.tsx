@@ -27,20 +27,15 @@ export const Route = createFileRoute("/o/$orgSlug/_center-agent")({
 });
 
 function CenterAgentRouteLayout() {
-	const { initialInnerSidebarState, initialOuterSidebarState } =
-		Route.useRouteContext();
-	const { orgSlug } = Route.useParams();
+	const { initialOuterSidebarState } = Route.useRouteContext();
 	const pathname = useRouterState({
 		select: (state) => state.location.pathname,
 	});
 
 	return (
 		<CenterAgentLayout
-			activeSectionId={resolveCenterAgentSectionId(pathname)}
 			currentPathname={pathname}
-			initialInnerSidebarState={initialInnerSidebarState}
 			initialOuterSidebarState={initialOuterSidebarState}
-			organizationSlug={orgSlug}
 		>
 			<Outlet />
 		</CenterAgentLayout>
@@ -50,8 +45,7 @@ function CenterAgentRouteLayout() {
 function CenterAgentRoutePending() {
 	const { storageScope } = useStartFlowState();
 	const { currentOrganization } = useAppOrganization();
-	const { initialInnerSidebarState, initialOuterSidebarState } =
-		Route.useRouteContext();
+	const { initialOuterSidebarState } = Route.useRouteContext();
 	const { orgSlug } = Route.useParams();
 	const pathname = useRouterState({
 		select: (state) => state.location.pathname,
@@ -59,7 +53,6 @@ function CenterAgentRoutePending() {
 
 	return (
 		<CenterAgentRoutePendingPage
-			initialInnerSidebarState={initialInnerSidebarState}
 			initialOuterSidebarState={initialOuterSidebarState}
 			organizationId={currentOrganization.id}
 			organizationSlug={orgSlug}

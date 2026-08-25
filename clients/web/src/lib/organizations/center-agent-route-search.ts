@@ -4,6 +4,7 @@ import type { SlackOAuthResult } from "./slack-oauth-result";
 
 export const centerAgentRouteSearchSchema = z.object({
 	focusSignalId: z.string().trim().min(1).max(256).optional(),
+	view: z.enum(["messages", "graph", "files"]).optional(),
 	slack_oauth: z.enum(["connected", "error", "move_required"]).optional(),
 	slack_oauth_error: slackOAuthErrorCodeSchema.optional(),
 	slack_oauth_from_organization_id: z

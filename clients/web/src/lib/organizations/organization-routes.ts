@@ -242,13 +242,22 @@ export function buildOrganizationCenterAgentRootPath(orgSlug: string): string {
 
 export function buildOrganizationCenterAgentChatPath(
 	orgSlug: string,
-	search?: { focusSignalId?: string }
+	search?: {
+		focusSignalId?: string;
+		view?: "files" | "graph" | "messages";
+	}
 ): string {
 	const path = `${buildOrganizationCenterAgentRootPath(orgSlug)}/chat`;
-	if (!search?.focusSignalId) {
+	if (!(search?.focusSignalId || search?.view)) {
 		return path;
 	}
-	const params = new URLSearchParams({ focusSignalId: search.focusSignalId });
+	const params = new URLSearchParams();
+	if (search.focusSignalId) {
+		params.set("focusSignalId", search.focusSignalId);
+	}
+	if (search.view) {
+		params.set("view", search.view);
+	}
 	return `${path}?${params.toString()}`;
 }
 

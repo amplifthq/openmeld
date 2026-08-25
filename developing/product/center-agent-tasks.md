@@ -624,11 +624,14 @@ realtime delivery.
 
 ## Web Product Surfaces
 
-Center Agent secondary navigation is:
+Center Agent header navigation is:
 
 ```text
-Chat / Tasks / Routines / Skills / Channels / Apps / Memory / Center Agent settings
+Messages / Graph / Files / Tasks / Routines / Skills / Apps
 ```
+
+Channels, Memory, and Center Agent settings remain reachable from the compact
+header menu; they are not parallel Task surfaces.
 
 ### Task cards
 

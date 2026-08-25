@@ -437,8 +437,8 @@ Profile identity for the org, marked with `managedRole = "center_agent"`.
 Users do not create or choose a second Center Agent from the ordinary Agent
 Profile list. Ordinary Agent Profiles remain unrestricted; the managed
 Center Agent profile is hidden from ordinary Agent Profile lists. Web presents
-its read-only identity in the Center Agent About panel and its configuration in
-**Center Agent → Center Agent settings**.
+its identity, status, and configuration in **Center Agent → Center Agent
+settings** rather than duplicating them in a separate About surface.
 
 New profiles default to "<Organization name> Center Agent" so they remain
 recognizable across Organizations. A missing or blank Organization name falls
@@ -529,17 +529,14 @@ where translation would reduce precision.
 The Center Agent has one Web product home with complementary destinations:
 
 - **Center Agent** is the product home for the workspace's managed agent and
-  owns a stable secondary sidebar
-  with exactly **Chat, Tasks, Routines, Skills, Channels, Apps, Memory, Center
-  Agent settings**.
-  Chat keeps the existing everyday conversation surface. Tasks owns durable
-  parallel work and conversation-first re-entry. Routines, Skills, Channels,
-  Apps, and Memory are the single product homes for the scheduled work,
-  capabilities, ingress, external access, and retained context they represent.
-  The Chat header opens a read-only **About** panel containing the Center
-  Agent's name, `@handle`, model, and status. Its Slack shortcut links to
-  **Center Agent → Channels**. Owners and admins also see **Manage →**, a link
-  to **Center Agent → Center Agent settings**.
+  owns no secondary sidebar. Its stable header navigation is **Messages,
+  Graph, Files, Tasks, Routines, Skills, Apps**. The first three preserve the everyday
+  conversation surface; Tasks owns durable parallel work and conversation-first
+  re-entry; Routines owns scheduled work. One compact header menu preserves
+  **Channels, Memory, Center Agent settings** and, on the
+  conversation, **Conversation information**. There is no separate About
+  surface or Slack shortcut. Identity and configuration live in Center Agent
+  settings, while Slack management lives in Channels.
 - **Center Agent → Center Agent settings** is the only Center Agent management
   page. It contains model information, usage, the Audit Log, and the reversible
   **Pause Center Agent** control in Danger Zone. Only the immutable Organization
@@ -698,11 +695,11 @@ guidance remains active when no Organization policy exists or its read is
 temporarily unavailable.
 
 The seven-tab **Manage Center Agent** panel remains retired as a parallel
-concept. Its surviving destinations are placed directly in the product sidebar:
+concept. Its surviving destinations use the stable header or its compact menu:
 
 | Former tab | Target home                                          | Placement rule                                                                                     |
 | ---------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Overview   | **Center Agent → About**                             | Read-only identity and runtime summary beside the chat home.                                       |
+| Overview   | **Center Agent → Center Agent settings**             | Identity, status, and configuration live in one low-frequency management surface.                  |
 | Channels   | **Center Agent → Channels**                          | The single Channel destination in every workspace; Organizations manage connections, while Personal Workspaces show read-only discovery and an Organization-creation guide. |
 | Apps       | **Center Agent → Apps**                              | The single member and shared App catalog in every workspace.                                       |
 | Memory     | **Center Agent → Memory**                            | Organization policy and the current member's erase action share one clearly separated memory home. |
@@ -1050,10 +1047,9 @@ reasoning control in this release.
 
 The Center Agent system prompt receives the friendly effective model name so
 it answers a member's question with that exact full name, without shortening or
-renaming it from the model's internal knowledge. Web's Model setting and Chat
-About panel read the same Core projection and never infer the current model
-from profile directory metadata or show raw provider ids. BYOK is not part of
-this release.
+renaming it from the model's internal knowledge. Web's Model setting reads the
+Core projection and never infers the current model from profile directory
+metadata or shows raw provider ids. BYOK is not part of this release.
 
 ### Permission model (fail closed)
 
