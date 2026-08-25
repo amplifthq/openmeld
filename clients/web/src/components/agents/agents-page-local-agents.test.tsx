@@ -23,7 +23,12 @@ import {
 	type LocalAgentsCardOwnerProps,
 } from "./agents-page-local-agents";
 
-const HOMEBREW_INSTALLATION_NAME = /Homebrew installation/;
+const CHATGPT_APP_INSTALLATION_NAME = /ChatGPT app/;
+const CHATGPT_APP_INSTALLATION_SUMMARY =
+	/Authenticated.*v0\.38\.0.*ChatGPT app/u;
+const NVM_INSTALLATION_LAUNCH_CHECK =
+	/nvm install.*v0\.38\.0.*Can launch.*2 local installs found/u;
+const NVM_INSTALLATION_SUMMARY = /Authenticated.*v0\.38\.0.*nvm install/u;
 const LOW_CODEX_USAGE_GAUGE_NAME = /Codex 5-hour usage, 16% left, Low/u;
 const OWNED_USAGE_SUMMARY_ORDER = /v0\.38\.0.*16%/u;
 const TEAM_USAGE_SUMMARY_ORDER = /v0\.148\.0.*16%/u;
@@ -390,34 +395,34 @@ describe("LocalAgentsCard", () => {
 			agentId: "codex",
 			installations: [
 				{
-					details: "Codex installed for this account",
-					installationId: "install-local",
-					name: "User installation",
+					details: "v0.38.0 · Signed in · Node 24.14.0",
+					installationId: "install-nvm",
+					name: "nvm install",
 					selected: true,
 				},
 				{
-					details: "Codex installed with Homebrew",
-					installationId: "install-homebrew",
-					name: "Homebrew installation",
+					details: "v0.37.0 · Signed in · ChatGPT",
+					installationId: "install-chatgpt",
+					name: "ChatGPT app",
 					selected: false,
 				},
 			],
-			selectedInstallationId: "install-local",
+			selectedInstallationId: "install-nvm",
 		});
 		selectCurrentLocalAgentInstallationMock.mockResolvedValue({
 			agentId: "codex",
 			changed: true,
 			installations: [
 				{
-					details: "Codex installed for this account",
-					installationId: "install-local",
-					name: "User installation",
+					details: "v0.38.0 · Signed in · Node 24.14.0",
+					installationId: "install-nvm",
+					name: "nvm install",
 					selected: false,
 				},
 				{
-					details: "Codex installed with Homebrew",
-					installationId: "install-homebrew",
-					name: "Homebrew installation",
+					details: "v0.37.0 · Signed in · ChatGPT",
+					installationId: "install-chatgpt",
+					name: "ChatGPT app",
 					selected: true,
 				},
 			],
@@ -427,7 +432,7 @@ describe("LocalAgentsCard", () => {
 				localRuntimes: [],
 			},
 			reportSyncStatus: "submitted",
-			selectedInstallationId: "install-homebrew",
+			selectedInstallationId: "install-chatgpt",
 			status: "updated",
 		});
 
@@ -439,15 +444,29 @@ describe("LocalAgentsCard", () => {
 			setEnabledSupported: true,
 		});
 		const row = screen.getByTestId("settings-local-agent-row-codex");
+		await waitFor(() => {
+			expect(row.textContent).toMatch(NVM_INSTALLATION_SUMMARY);
+		});
 		const rowTrigger = within(row)
 			.getByTestId("settings-local-agent-row-trigger")
 			.querySelector("button");
 		expect(rowTrigger).toBeTruthy();
 		fireEvent.click(rowTrigger as HTMLButtonElement);
+		expect(
+			Array.from(
+				row.querySelectorAll("dt"),
+				(element) => element.textContent
+			).slice(0, 2)
+		).toEqual(["Controller", "Launch check"]);
 
 		const launchCheckLabel = within(row).getByText("Launch check");
 		const launchCheckValue = launchCheckLabel.nextElementSibling;
 		expect(launchCheckValue).toBeTruthy();
+		expect(
+			within(launchCheckValue as HTMLElement).getByText(
+				NVM_INSTALLATION_LAUNCH_CHECK
+			)
+		).toBeTruthy();
 		expect(
 			within(launchCheckValue as HTMLElement).getByRole("button", {
 				name: "Change installation",
@@ -470,20 +489,96 @@ describe("LocalAgentsCard", () => {
 		).toBeTruthy();
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: HOMEBREW_INSTALLATION_NAME,
+				name: CHATGPT_APP_INSTALLATION_NAME,
 			})
 		);
+		expect(selectCurrentLocalAgentInstallationMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Use ChatGPT app" }));
 
 		await waitFor(() => {
 			expect(selectCurrentLocalAgentInstallationMock).toHaveBeenCalledWith({
 				agentId: "codex",
-				installationId: "install-homebrew",
+				installationId: "install-chatgpt",
 			});
 			expect(refreshAll).toHaveBeenCalledTimes(1);
 		});
 		expect(toastMock.success).toHaveBeenCalledWith(
 			"Codex installation updated."
 		);
+	});
+
+	it("reconciles a slow installation switch instead of showing a timeout", async () => {
+		const nvmInstallation = {
+			details: "v0.38.0 · Signed in · Node 24.14.0",
+			installationId: "install-nvm",
+			name: "nvm install",
+			selected: true,
+		};
+		const chatGptInstallation = {
+			details: "v0.37.0 · Signed in · ChatGPT",
+			installationId: "install-chatgpt",
+			name: "ChatGPT app",
+			selected: false,
+		};
+		readCurrentLocalAgentInstallationsMock.mockReset();
+		readCurrentLocalAgentInstallationsMock
+			.mockResolvedValueOnce({
+				agentId: "codex",
+				installations: [nvmInstallation, chatGptInstallation],
+				selectedInstallationId: "install-nvm",
+			})
+			.mockResolvedValueOnce({
+				agentId: "codex",
+				installations: [nvmInstallation, chatGptInstallation],
+				selectedInstallationId: "install-nvm",
+			})
+			.mockResolvedValue({
+				agentId: "codex",
+				installations: [
+					{ ...nvmInstallation, selected: false },
+					{ ...chatGptInstallation, selected: true },
+				],
+				selectedInstallationId: "install-chatgpt",
+			});
+		selectCurrentLocalAgentInstallationMock.mockReset();
+		selectCurrentLocalAgentInstallationMock.mockRejectedValue({
+			code: "local_agent_control.timeout",
+			status: 504,
+		});
+
+		renderLocalAgentsCard({
+			includeAgentControllerInterface: true,
+			installChoiceCount: 2,
+			manageInstallationsSupported: true,
+			refreshAll: vi.fn().mockResolvedValue(undefined),
+			setEnabledSupported: true,
+		});
+		const row = screen.getByTestId("settings-local-agent-row-codex");
+		await waitFor(() => {
+			expect(row.textContent).toMatch(NVM_INSTALLATION_SUMMARY);
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Codex details" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change installation" })
+		);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: CHATGPT_APP_INSTALLATION_NAME,
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Use ChatGPT app" }));
+
+		await waitFor(() => {
+			expect(toastMock.success).toHaveBeenCalledWith(
+				"Codex installation updated."
+			);
+		});
+		expect(
+			screen.queryByText(
+				"Timed out waiting for the local OpenMeld Service response."
+			)
+		).toBeNull();
+		expect(row.textContent).toMatch(CHATGPT_APP_INSTALLATION_SUMMARY);
 	});
 
 	it("presents a disabled runnable agent as quiet without setup guidance", () => {
