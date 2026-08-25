@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { MAX_PROFILE_NAME_LENGTH } from "../protocol/constants";
 import { targetWakeLifecycleIdentitySchema } from "../protocol/target-wake-lifecycle";

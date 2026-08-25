@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const AGENT_ACTIVITY_ROUTE_REGISTRY_VERSION = 1 as const;
 

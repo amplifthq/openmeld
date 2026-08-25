@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { localFolderPathSchema } from "./local-folder-path";
 import { openMeldRequestContextSchema } from "./profile-identity";
 import { daemonServiceLaneSchema } from "./service-contract";

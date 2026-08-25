@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { trimmedStringFromUnknown } from "../protocol/shared";
 import { spaceAuthorityOrderSchema } from "./authority-order";
 import { spaceDispatchPolicySchema } from "./dispatch-policy";

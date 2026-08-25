@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { profileSpaceHistoryGatewayHostSchema } from "./profile-space-history";
 
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);

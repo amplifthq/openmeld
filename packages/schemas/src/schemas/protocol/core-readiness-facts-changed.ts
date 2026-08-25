@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { agentProfileIdSchema } from "./profile";
 
 export const CORE_READINESS_FACTS_CHANGED_MARKER_KIND =

@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const CENTER_AGENT_INTERACTION_CLIENT_MAX_CHARS = 80;
 export const CENTER_AGENT_INTERACTION_SESSION_ID_MAX_CHARS = 512;

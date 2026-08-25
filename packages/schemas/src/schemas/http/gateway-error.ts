@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { commonErrorSchema } from "../common/error-response";
 import { CENTER_AGENT_CONTEXT_ERROR_CODES } from "./center-agent-context-manifest";
 import { CENTER_AGENT_ROUTINE_ERROR_CODES } from "./center-agent-routines";

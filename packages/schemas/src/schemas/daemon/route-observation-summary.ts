@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const DAEMON_ROUTE_OBSERVATION_STATUS_VALUES = [
   "online",

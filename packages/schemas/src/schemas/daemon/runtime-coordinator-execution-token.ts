@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const RUNTIME_COORDINATOR_EXECUTION_TOKEN_MODEL_VERSION =
   "openmeld.runtime_coordinator.execution_token.v1" as const;

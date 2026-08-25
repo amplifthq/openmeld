@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const agentControllerConversationExternalImportCapabilitySchema = z.enum(
   ["unsupported", "by_ref_id"]

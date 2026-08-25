@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const LOCAL_MACHINE_RECOVERY_SCHEMA_VERSION = 1 as const;
 

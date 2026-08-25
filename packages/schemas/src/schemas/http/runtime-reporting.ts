@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
 import { runtimeTransportModeSchema } from "../daemon/controller-contract";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";

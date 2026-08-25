@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { openMeldWebUrlSchema } from "../../navigation-action";
 import {
   CENTER_AGENT_ROUTINE_NAME_MAX_CHARS,

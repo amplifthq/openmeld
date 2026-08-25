@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import { openMeldRuntimeProfileIdSchema } from "../protocol/profile";

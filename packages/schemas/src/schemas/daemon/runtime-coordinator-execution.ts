@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { runtimeExecutionAuthorityOpenMeldServiceRuntimeIdSchema } from "./execution-identity";
 import { runtimeCoordinatorSafeEventPayloadJsonSchema } from "./runtime-coordinator-execution-token";
 

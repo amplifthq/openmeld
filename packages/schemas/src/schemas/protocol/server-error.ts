@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { clientMessageIdSchema } from "./client-message-id";
 import { nonEmptyTrimmedStringFromUnknown } from "./shared";
 

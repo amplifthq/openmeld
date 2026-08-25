@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { trimmedStringFromUnknown } from "../protocol/shared";
 
 const MULTI_SPACE_PATTERN = /\s+/g;

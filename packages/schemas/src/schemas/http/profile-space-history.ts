@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const GATEWAY_HOST_MAX_LENGTH = 255;

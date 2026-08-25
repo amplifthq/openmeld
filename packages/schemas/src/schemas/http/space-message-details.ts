@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { agentStreamToolPartSchema } from "../protocol/agent-stream";
 import { clientMessageIdSchema } from "../protocol/client-message-id";
 import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";

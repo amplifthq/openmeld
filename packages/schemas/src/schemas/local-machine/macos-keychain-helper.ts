@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION = 2 as const;
 export const MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION = "disallow" as const;

@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const SPACE_ATTACHMENT_ALLOWED_MIME_TYPES = [
   "image/jpeg",

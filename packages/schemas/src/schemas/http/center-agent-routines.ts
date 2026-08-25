@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { CENTER_AGENT_INTERACTION_CLIENT_MAX_CHARS } from "../protocol/center-agent-interaction-source";
 import { MAX_PROFILE_NAME_LENGTH } from "../protocol/constants";

@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { profileWorkingDirectorySchema } from "../protocol/profile";
 import { agentControllerConversationRefSchema } from "./conversation-contract";
 import { conversationBootstrapReasonSchema } from "./conversation-lifecycle";

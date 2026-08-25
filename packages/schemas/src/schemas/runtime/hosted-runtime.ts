@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "../daemon/agent-controller-ref";
 
 export const HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID =

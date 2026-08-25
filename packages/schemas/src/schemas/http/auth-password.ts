@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 // Better Auth owns password policy enforcement (min/max length, reuse rules, etc).
 // This bridge schema only locks the request/response shape for our HTTP contract.

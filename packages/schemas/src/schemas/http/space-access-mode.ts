@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { spacePasswordSchema } from "./space-password";
 
 export const SPACE_ACCESS_MODES = [

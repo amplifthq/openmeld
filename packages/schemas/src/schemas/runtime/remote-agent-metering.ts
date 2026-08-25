@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 /**
  * AI Gateway REST Logs API response contract used for Remote Agent per-org

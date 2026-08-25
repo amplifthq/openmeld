@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { MAX_PROFILE_NAME_LENGTH } from "./constants";
 import { openMeldRuntimeProfileIdSchema } from "./profile";
 import { trimmedStringFromUnknown } from "./shared";

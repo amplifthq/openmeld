@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const nonnegativeIntegerSchema = z.number().int().nonnegative();
 const rateSchema = z.number().min(0).max(1);

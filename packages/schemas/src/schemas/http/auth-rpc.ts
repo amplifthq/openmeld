@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { resolvedOpenMeldProfileSchema } from "../daemon/profile-identity";
 import { agentProfileIdSchema, profileKindSchema } from "../protocol/profile";
 import {

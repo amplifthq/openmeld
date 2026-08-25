@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { navigationActionSchema } from "../../navigation-action";
 import { MAX_TEXT_LENGTH } from "./constants";
 import { openMeldRuntimeProfileIdSchema } from "./profile";

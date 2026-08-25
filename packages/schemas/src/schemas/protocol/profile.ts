@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { MAX_PROFILE_ID_LENGTH, MAX_PROFILE_NAME_LENGTH } from "./constants";
 import { trimmedStringFromUnknown } from "./shared";
 

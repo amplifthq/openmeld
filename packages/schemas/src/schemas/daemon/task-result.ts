@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { projectLocalConnectionFailureReasonCodeSchema } from "../../public-agent-failure-reason";
 import { profileWorkingDirectorySchema } from "../protocol/profile";
 import { openMeldSpaceEgressActionSchema } from "../space-mesh/openmeld-space-action";

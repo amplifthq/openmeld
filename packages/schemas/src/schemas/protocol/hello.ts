@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { profileSchema } from "./profile";
 
 export const helloCapabilitiesSchema = z.object({

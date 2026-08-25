@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { clientMessageIdSchema } from "./client-message-id";
 
 export const TARGET_WAKE_LIFECYCLE_IDENTITY_MODEL_VERSION =

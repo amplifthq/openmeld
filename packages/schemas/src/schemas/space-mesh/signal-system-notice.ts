@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { runtimeTransportStopCauseSchema } from "../daemon/runtime-transport-stop-cause";
 import { coreReadinessFactsChangedSchema } from "../protocol/core-readiness-facts-changed";
 import { openMeldRuntimeProfileIdSchema } from "../protocol/profile";

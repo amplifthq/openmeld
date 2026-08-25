@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { canonicalizeBuiltinAgentControllerRef } from "./agent-controller-ref";
 
 export const agentControllerConversationKindSchema = z.enum([

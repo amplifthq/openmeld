@@ -5,7 +5,7 @@ import {
   toLegacySpaceAddressingWireValue,
 } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const HUMAN_PROFILE_ID = "11111111-1111-4111-8111-111111111111";

@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const AGENT_INTERACTION_SCHEMA_VERSION = 1 as const;
 export const AGENT_INTERACTION_DEFAULT_TIMEOUT_MS = 8 * 60 * 60 * 1000;
