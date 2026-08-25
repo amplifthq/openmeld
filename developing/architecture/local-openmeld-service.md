@@ -130,6 +130,12 @@ Prepare may:
 - reconnect a service-reported device identity to an authenticated,
   owner-verified existing Computer selected by the Prepare Session
 
+Lane isolation for OpenMeld-managed Agent Skills must not suppress this
+read-only Agent Controller discovery. A dev, canary, or custom
+`OPENMELD_HOME` may detect and register a runnable controller such as Codex
+without gaining permission to inspect, link, or mutate that controller's
+registry-default shared skills directory.
+
 Prepare must not:
 
 - create or join a Space
@@ -180,6 +186,12 @@ ACI-owned local evidence may include:
   not authenticated
 
 The selected launch contract remains the install and update identity. When an
+Agent Controller is bundled inside a host application, ACI must treat that host
+application as the update owner. It must not compare the bundled runtime with a
+standalone CLI package's release channel or offer that CLI package's update
+command. If the host application does not expose a stable update-status
+contract, ACI omits the version advisory instead of guessing across sources.
+When an
 official controller package adds a thin launcher around a packaged native
 runtime, an ACI adapter may execute that native runtime directly only after it
 proves the official package identity, declared entry point, platform package,
@@ -1015,11 +1027,36 @@ Catalog consumption rules:
   do not read the bearer token through a shared Keychain access group or create
   a parallel local sign-in state.
 - On macOS, the packaged CLI uses Security.framework with the user's normal
-  Keychain. When Keychain is unavailable, setup may keep the current session in
-  a mode-`0600` file inside a mode-`0700` OpenMeld directory and must expose the
-  downgrade as a warning. The Service may consume that same CLI-owned session;
-  it must not create a second authentication owner. The next successful login
-  replaces the fallback with a Keychain item and removes the old file.
+  Keychain. Each operation runs in a short-lived child process with a
+  five-second deadline. Before reading a request, the child verifies through
+  macOS Code Signing Services that its parent is the same OpenMeld executable;
+  direct invocation from another local process fails before Keychain access.
+  Every operation disables Keychain user interaction
+  inside that child and must return an explicit authentication failure instead
+  of opening a macOS authorization window. Normal setup and login writes remain
+  silent; if macOS requires interaction, setup uses the documented private-file
+  fallback. If Security.framework returns an error or never returns, the parent
+  terminates that child and does not query Keychain again during the same CLI or
+  Service process. Setup may then keep the current
+  session in a mode-`0600` file inside a mode-`0700` OpenMeld directory and must
+  expose the downgrade as a warning. Access tokens are sent to the helper over
+  stdin, never argv. The Service may consume that same CLI-owned session; it
+  must not create a second authentication owner. A new process may try
+  Keychain again. A later login may replace the fallback with a Keychain item;
+  there is no automatic private-file-to-Keychain migration. If deleting a
+  replaced credential fails, the CLI retains its storage reference as pending
+  cleanup outside the active session and retries it during a later explicit
+  login or logout instead of silently forgetting it.
+- An npm-distributed CLI or unattended developer tool that cannot embed the
+  native helper must not invoke `/usr/bin/security` as an alternate token path.
+  A new npm CLI login uses the documented warned mode-`0600` private-file
+  fallback. An existing Keychain reference returns an explicit setup-or-login
+  recovery error. Developer HTTP tools use an isolated lane with private local
+  token storage or route through the packaged CLI. These paths must fail closed
+  instead of queuing interactive authorization windows. Logout removes an
+  unreadable active session so it cannot block a new login. An npm login may
+  replace that session with the private-file fallback while retaining the old
+  Keychain reference for later cleanup by a capable packaged CLI.
 - A background Service must not preflight a custom workspace with the POSIX
   `access` syscall. On macOS, a LaunchAgent can block indefinitely while that
   syscall crosses a protected-folder privacy boundary. Catalog inspection uses
@@ -1258,6 +1295,16 @@ the published production lane must state an explicit `OPENMELD_ENV_PRESET`
 before mutating the production registration. Isolated validation targets the
 `dev-local` or `canary` service identity or stubs the service manager.
 
+Service alignment must compare the complete environment target persisted in
+that registration: env preset, Gateway URL, Auth URL, and user-facing CLI
+command. Matching executable and bundle versions are insufficient. When the
+registration is readable but its environment target is incomplete or differs
+from the current setup target, alignment fails closed and performs a full
+controlled update. Read-only status exposes the observed target as diagnostic
+evidence but never repairs it. This prevents a healthy process registered
+against one local or production backend from making setup for another backend
+report a false success.
+
 The supervisor registration is also the only thing that restarts OpenMeld Service
 after a crash or an external kill, so a supervised daemon treats a missing
 registration as recoverable drift: it periodically re-observes its own
@@ -1410,11 +1457,12 @@ and background-start operations run only after that entry decision and must not
 open another authentication prompt. A cancelled start remains `cancelled`; it
 must never be normalized into a completed-but-stopped repair or trigger an
 automatic retry loop.
-Repair first compares the intended bundle, service-manager registration,
-runtime contract, saved desired state, and effective running state. When those
-facts are already aligned, repair succeeds without stopping or rewriting the
-Service. Only a decision that requires mutation enters the controlled lifecycle
-below; an explicit forced repair may enter it for diagnostic recovery.
+Repair first compares the intended bundle, service-manager registration and
+its complete environment target, runtime contract, saved desired state, and
+effective running state. When those facts are already aligned, repair succeeds
+without stopping or rewriting the Service. Only a decision that requires
+mutation enters the controlled lifecycle below; an explicit forced repair may
+enter it for diagnostic recovery.
 
 Before a controlled lifecycle stops or drains the current Service, it must
 fully prepare and validate the replacement bundle without changing the active
@@ -1423,6 +1471,32 @@ registration, and its desired running state untouched. Only a prepared bundle
 may enter the destructive lifecycle. Activation happens after the old Service
 is confirmed absent; an abandoned prepared bundle is removed unless it became
 the active bundle.
+
+An OpenMeld Service update request is complete only after a lane-scoped,
+strictly validated update job and prepared replacement have been handed to an
+operating-system-owned update worker. Web Setup, Center Agent actions, the
+ordinary Service command, and top-level CLI upgrade must all converge on this
+one coordinator. The initiating browser or Terminal is not a lifecycle owner:
+it may close immediately after the durable handoff, and the OS worker must
+resume the same job after its own crash, sign-in, or computer restart.
+
+For an `available` update, the current Service keeps admitting new Wake work
+while the prepared replacement waits for a safe switch. For a `required`
+update, Core blocks affected new Wake work and the worker enters the controlled
+drain immediately. Neither policy may terminate already accepted work. The
+safe-switch fact is false while either an accepted Wake remains in flight or a
+durable result still awaits Core's acceptance receipt; process exit alone is
+not sufficient evidence. Each accepted Wake stays on the Service version that
+accepted it, and an update must never retry or silently replay it.
+
+After the safe switch begins, RuntimeCoordinator remains the in-flight Wake
+authority. New Wake work may wait for the replacement route and resume after
+the Service reconnects, but it must not be duplicated or converted into an
+early local timeout failure. The update job is complete only after the target
+Service reaches its verified desired state. Replacement startup or health
+verification failure must restore and verify the previous Service before the
+job records failure. Uninstall and reset remove the background update worker
+and its lane-owned disposable state.
 
 Controlled update, reinstall, and repair use a quiesce-and-drain stop. The
 Service first rejects new dispatch admission with `service.draining` while
@@ -1574,7 +1648,7 @@ The marker means the code is part of one of these explicitly scoped groups:
 | Group              | Meaning                                                                                                                                                                                                                                                                    | Current primary files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Carrier            | The local service run loop: owner/device/lane identity, adapter container, socket session, registration, heartbeat, reconnect, and route-catalog sync.                                                                                                                     | `clients/openmeld-cli/src/local-service/carrier/service-runner.ts`, `clients/openmeld-cli/src/local-service/carrier/run-socket-session.ts`, `clients/openmeld-cli/src/local-service/carrier/register-session.ts`, `clients/openmeld-cli/src/local-service/carrier/heartbeat-loop.ts`                                                                                                                                                                                                                                                                                                   |
-| Execution          | RuntimeCoordinator delivery intake, local execution slots, local runtime invocation, pending-interaction registry and response delivery, progress frames, result evidence, and result outbox.                                                                                                                                                | `clients/openmeld-cli/src/local-service/dispatch/execute-dispatch-task.ts`, `clients/openmeld-cli/src/local-service/dispatch/send-dispatch-result.ts`, `clients/openmeld-cli/src/local-service/dispatch/dispatch-result-outbox.ts`, `clients/openmeld-cli/src/local-service/execution/dispatch-runtime-preparation.ts`, `runtime/local-service/src/pending-agent-interaction-registry.ts`, `runtime/local-service/src/serial-agent-interaction-callback.ts`, `runtime/local-service/src/local-execution-slots.ts`, `runtime/local-service/src/dispatch-queue-routing.ts`, `runtime/local-service/src/dispatch-continuity.ts` |
+| Execution          | RuntimeCoordinator delivery intake, local execution slots, local runtime invocation, pending-interaction registry and response delivery, progress frames, result evidence, and result outbox.                                                                                | `clients/openmeld-cli/src/local-service/dispatch/execute-dispatch-task.ts`, `clients/openmeld-cli/src/local-service/dispatch/send-dispatch-result.ts`, `clients/openmeld-cli/src/local-service/dispatch/dispatch-result-outbox.ts`, `clients/openmeld-cli/src/local-service/execution/dispatch-runtime-preparation.ts`, `runtime/local-service/src/pending-agent-interaction-registry.ts`, `runtime/local-service/src/serial-agent-interaction-callback.ts`, `runtime/local-service/src/local-execution-slots.ts`, `runtime/local-service/src/dispatch-queue-routing.ts`, `runtime/local-service/src/dispatch-continuity.ts` |
 | Runtime Inventory  | Detection and reporting of local agent controllers and capabilities. It is local evidence, not final product readiness.                                                                                                                                                    | `clients/openmeld-cli/src/local-service/inventory/agent-controller-inventory.ts`, `clients/openmeld-cli/src/local-service/reporting/runtime-agent-controller-reporting-submission.ts`, `clients/openmeld-cli/src/local-service/reporting/runtime-agent-controller-report-sync.ts`, `clients/openmeld-cli/src/local-service/reporting/selected-agent-controller-reporting.ts`, `clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts`, `clients/openmeld-cli/src/local-service/routing/resolve-controller-support.ts`, `runtime/local-service/src/adapters/*` |
 | Lifecycle          | Install, update, repair, start, stop, bundle, launchd/system-service, runtime-state projection, lane-root management, and local service demand checks. It may restore the local carrier, but it does not decide final product readiness.                                   | `clients/openmeld-cli/src/commands/service.ts`, `clients/openmeld-cli/src/local-service/lifecycle/local-service-demand.ts`, `clients/openmeld-cli/src/local-service/lifecycle/*`, `clients/openmeld-cli/src/local-service/state/runtime-state-tracker.ts`, `clients/openmeld-cli/src/local-service/state/runtime-contract-guard.ts`, `runtime/local-service/src/startup-command-capability.ts`, `runtime/local-service/src/service-reconcile-decision.ts`                                                                                                                              |
 | Diagnostics        | Read-only or explicitly diagnostic evidence that explains the local link. It must not become a second readiness, Binding, Wake outcome, or Space truth owner.                                                                                                              | `clients/openmeld-cli/src/commands/service-trace.ts`, `clients/openmeld-cli/src/local-service/diagnostics/*`, `clients/openmeld-cli/src/local-service/status/*`, `clients/openmeld-cli/src/local-service/dispatch/daemon-dispatch-journal.ts`                                                                                                                                                                                                                                                                                                                                          |

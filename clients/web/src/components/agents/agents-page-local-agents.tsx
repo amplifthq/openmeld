@@ -87,7 +87,7 @@ import { useCurrentOrganizationSlug } from "#/lib/organizations/organization-con
 import { resolveCurrentExecutionTarget } from "./agents-page-computer";
 import {
 	formatMutationError,
-	isLocalAgentCheckStillRunningError,
+	isLocalAgentControlStillRunningError,
 } from "./agents-page-formatters";
 import { resolveCurrentLocalRuntimeServiceActionLabel } from "./agents-page-service-action";
 
@@ -100,6 +100,7 @@ type LocalAgentCatalogRowSummaryStatus = NonNullable<
 type LocalAgentEnabledOverrides = Record<string, boolean>;
 const SLOW_LOCAL_AGENT_CHECK_RECONCILE_INTERVAL_MS = 750;
 const SLOW_LOCAL_AGENT_CHECK_RECONCILE_TIMEOUT_MS = 12_000;
+const LOCAL_AGENT_INSTALLATION_QUERY_STALE_TIME_MS = 30_000;
 const LOCAL_AGENT_CHECK_COMPLETE_MESSAGE = "Local agent check complete.";
 
 export type LocalAgentsCardOwnerProps = {
@@ -159,7 +160,9 @@ function TeamLocalAgentsCard(input: {
 function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 	const description = resolveTeamLocalAgentDescription(agent);
 	const detailRows = agent.details
-		? createAgentControllerInterfaceOperationalDisplayRows(agent.details)
+		? placeLaunchCheckSecond(
+				createAgentControllerInterfaceOperationalDisplayRows(agent.details)
+			)
 		: [
 				{
 					label: "Controller",
@@ -249,7 +252,7 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 			await input.recovery.refreshLocalAgentCatalog();
 			toast.success(LOCAL_AGENT_CHECK_COMPLETE_MESSAGE);
 		} catch (error) {
-			if (isLocalAgentCheckStillRunningError(error)) {
+			if (isLocalAgentControlStillRunningError(error)) {
 				// The probe outran the request budget but keeps running on the OpenMeld
 				// Service. Reconcile from the canonical catalog instead of reporting a
 				// transport timeout as a failed check, and stay in the checking state
@@ -320,7 +323,7 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 				isCheckingAgents={isCheckingAgents}
 				muted={catalogState.rowsMuted}
 				onCheckAgents={checkLocalAgents}
-				onInstallationsChanged={input.recovery.refreshAll}
+				onRefresh={input.recovery.refreshAll}
 				onSetEnabled={input.recovery.setLocalAgentEnabled}
 				showInstallGuideLink={shouldShowLocalAgentInstallGuideLink(
 					catalogState.entries
@@ -360,6 +363,77 @@ function reconcileLocalAgentsAfterSlowCheck(input: {
 }): Promise<"updated" | "timed_out"> {
 	const deadlineMs = Date.now() + SLOW_LOCAL_AGENT_CHECK_RECONCILE_TIMEOUT_MS;
 	return pollForLocalAgentCheck({ ...input, deadlineMs });
+}
+
+function reconcileLocalAgentEnabledChange(input: {
+	agentId: string;
+	enabled: boolean;
+	getEntries: () => readonly DeviceAgentCatalogEntry[];
+	refresh: () => Promise<unknown>;
+}): Promise<"updated" | "timed_out"> {
+	const deadlineMs = Date.now() + SLOW_LOCAL_AGENT_CHECK_RECONCILE_TIMEOUT_MS;
+	return pollForLocalAgentEnabledChange({ ...input, deadlineMs });
+}
+
+function reconcileLocalAgentInstallationChange(input: {
+	agentId: string;
+	installationId: string;
+}): Promise<
+	| { data: CurrentLocalAgentInstallationsResponse; status: "updated" }
+	| { status: "timed_out" }
+> {
+	const deadlineMs = Date.now() + SLOW_LOCAL_AGENT_CHECK_RECONCILE_TIMEOUT_MS;
+	return pollForLocalAgentInstallationChange({ ...input, deadlineMs });
+}
+
+async function pollForLocalAgentInstallationChange(input: {
+	agentId: string;
+	deadlineMs: number;
+	installationId: string;
+}): Promise<
+	| { data: CurrentLocalAgentInstallationsResponse; status: "updated" }
+	| { status: "timed_out" }
+> {
+	const data = await readCurrentLocalAgentInstallations({
+		agentId: input.agentId,
+	});
+	if (data.selectedInstallationId === input.installationId) {
+		return { data, status: "updated" };
+	}
+
+	const remainingMs = input.deadlineMs - Date.now();
+	if (remainingMs <= 0) {
+		return { status: "timed_out" };
+	}
+	await waitForLocalAgentReconciliation(
+		Math.min(SLOW_LOCAL_AGENT_CHECK_RECONCILE_INTERVAL_MS, remainingMs)
+	);
+	return pollForLocalAgentInstallationChange(input);
+}
+
+async function pollForLocalAgentEnabledChange(input: {
+	agentId: string;
+	deadlineMs: number;
+	enabled: boolean;
+	getEntries: () => readonly DeviceAgentCatalogEntry[];
+	refresh: () => Promise<unknown>;
+}): Promise<"updated" | "timed_out"> {
+	await input.refresh();
+	const entry = input
+		.getEntries()
+		.find((candidate) => candidate.agentId === input.agentId);
+	if (entry?.enabled === input.enabled) {
+		return "updated";
+	}
+
+	const remainingMs = input.deadlineMs - Date.now();
+	if (remainingMs <= 0) {
+		return "timed_out";
+	}
+	await waitForLocalAgentReconciliation(
+		Math.min(SLOW_LOCAL_AGENT_CHECK_RECONCILE_INTERVAL_MS, remainingMs)
+	);
+	return pollForLocalAgentEnabledChange(input);
 }
 
 async function pollForLocalAgentCheck(input: {
@@ -769,13 +843,14 @@ function LocalAgentCatalogList(input: {
 	muted: boolean;
 	onCheckAgents: () => Promise<void>;
 	onSetEnabled: (input: { agentId: string; enabled: boolean }) => Promise<void>;
-	onInstallationsChanged: () => Promise<unknown>;
+	onRefresh: () => Promise<unknown>;
 	showInstallGuideLink: boolean;
 	target: LocalRuntimeExecutionTarget | null;
 	targetStatus: LocalRuntimeExecutionTarget["status"] | null;
 }) {
 	const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const [statusMessage, setStatusMessage] = useState<string | null>(null);
 	const [enabledOverrides, setEnabledOverrides] =
 		useState<LocalAgentEnabledOverrides>({});
 	const [revealedAccountEmailAgentIds, setRevealedAccountEmailAgentIds] =
@@ -784,6 +859,10 @@ function LocalAgentCatalogList(input: {
 		agentId: string;
 		displayName: string;
 	} | null>(null);
+	const entriesRef = useRef(input.entries);
+	useEffect(() => {
+		entriesRef.current = input.entries;
+	}, [input.entries]);
 	const usableEntries = filterUsableLocalAgentCatalogEntries(input.entries);
 	const visibleEntries = [...usableEntries].sort(
 		compareLocalAgentCatalogEntries
@@ -794,6 +873,7 @@ function LocalAgentCatalogList(input: {
 	}) => {
 		setPendingAgentId(target.agentId);
 		setErrorMessage(null);
+		setStatusMessage(null);
 		setEnabledOverrides((current) => ({
 			...current,
 			[target.agentId]: target.enabled,
@@ -801,7 +881,31 @@ function LocalAgentCatalogList(input: {
 		try {
 			await input.onSetEnabled(target);
 		} catch (error) {
-			setErrorMessage(resolveLocalAgentEnabledErrorMessage(error));
+			if (isLocalAgentControlStillRunningError(error)) {
+				try {
+					const reconciliation = await reconcileLocalAgentEnabledChange({
+						agentId: target.agentId,
+						enabled: target.enabled,
+						getEntries: () => entriesRef.current,
+						refresh: input.onRefresh,
+					});
+					if (reconciliation === "timed_out") {
+						setStatusMessage(
+							"OpenMeld is still applying this change. Check again in a moment."
+						);
+					}
+				} catch (reconciliationError) {
+					console.error(
+						"Failed to read the latest local agent setting.",
+						reconciliationError
+					);
+					setErrorMessage(
+						resolveLocalAgentEnabledErrorMessage(reconciliationError)
+					);
+				}
+			} else {
+				setErrorMessage(resolveLocalAgentEnabledErrorMessage(error));
+			}
 		} finally {
 			setEnabledOverrides((current) =>
 				removeLocalAgentEnabledOverride(current, target.agentId)
@@ -888,7 +992,7 @@ function LocalAgentCatalogList(input: {
 									isCheckingAgents: input.isCheckingAgents,
 									muted: input.muted,
 									onCheckAgents: input.onCheckAgents,
-									onInstallationsChanged: input.onInstallationsChanged,
+									onRefresh: input.onRefresh,
 									onRevealAccountEmail: revealAccountEmail,
 									onSetEnabled: requestSetEnabled,
 									pending: pendingAgentId === entry.agentId,
@@ -901,6 +1005,11 @@ function LocalAgentCatalogList(input: {
 				</div>
 				{errorMessage ? (
 					<p className="text-destructive text-sm leading-5">{errorMessage}</p>
+				) : null}
+				{statusMessage ? (
+					<p className="text-muted-foreground text-sm leading-5">
+						{statusMessage}
+					</p>
 				) : null}
 			</div>
 			<LocalAgentDisableConfirmationDialog
@@ -923,47 +1032,109 @@ function LocalAgentCatalogList(input: {
 	);
 }
 
-function LocalAgentInstallationManager(input: {
+function localAgentInstallationsQueryKey(agentId: string) {
+	return ["current-local-agent-installations", agentId] as const;
+}
+
+function useLocalAgentInstallations(agentId: string) {
+	return useQuery({
+		queryFn: () => readCurrentLocalAgentInstallations({ agentId }),
+		queryKey: localAgentInstallationsQueryKey(agentId),
+		staleTime: LOCAL_AGENT_INSTALLATION_QUERY_STALE_TIME_MS,
+	});
+}
+
+function LocalAgentInstallationSummary(input: { agentId: string }) {
+	const installationsQuery = useLocalAgentInstallations(input.agentId);
+	const installation = resolveSelectedLocalAgentInstallation(
+		installationsQuery.data
+	);
+	return installation ? <> · {installation.name}</> : null;
+}
+
+function LocalAgentInstallationControl(input: {
 	agentId: string;
 	displayName: string;
+	launchValue: string;
 	onChanged: () => Promise<unknown>;
+	version: string | null;
 }) {
 	const [open, setOpen] = useState(false);
+	const [chosenInstallationId, setChosenInstallationId] = useState<
+		string | null
+	>(null);
 	const [pendingInstallationId, setPendingInstallationId] = useState<
 		string | null
 	>(null);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const [statusMessage, setStatusMessage] = useState<string | null>(null);
 	const queryClient = useQueryClient();
-	const queryKey = [
-		"current-local-agent-installations",
-		input.agentId,
-	] as const;
-	const installationsQuery = useQuery({
-		enabled: open,
-		queryFn: () =>
-			readCurrentLocalAgentInstallations({ agentId: input.agentId }),
-		queryKey,
-		staleTime: 0,
-	});
+	const queryKey = localAgentInstallationsQueryKey(input.agentId);
+	const installationsQuery = useLocalAgentInstallations(input.agentId);
+	const currentInstallation = resolveSelectedLocalAgentInstallation(
+		installationsQuery.data
+	);
+	const effectiveChosenInstallationId =
+		chosenInstallationId ?? currentInstallation?.installationId ?? null;
+	const chosenInstallation = installationsQuery.data?.installations.find(
+		(installation) =>
+			installation.installationId === effectiveChosenInstallationId
+	);
 
+	const updateInstallationCache = (
+		data: CurrentLocalAgentInstallationsResponse
+	) => {
+		queryClient.setQueryData<CurrentLocalAgentInstallationsResponse>(
+			queryKey,
+			data
+		);
+	};
+	const finishInstallationChange = (
+		data: CurrentLocalAgentInstallationsResponse
+	) => {
+		updateInstallationCache(data);
+		setOpen(false);
+		toast.success(`${input.displayName} installation updated.`);
+		input.onChanged().catch((error: unknown) => {
+			console.error(
+				"Local agent installation changed, but its catalog refresh failed.",
+				error
+			);
+		});
+	};
 	const selectInstallation = async (installationId: string) => {
 		setPendingInstallationId(installationId);
 		setErrorMessage(null);
+		setStatusMessage(null);
 		try {
-			const result = await selectCurrentLocalAgentInstallation({
-				agentId: input.agentId,
-				installationId,
-			});
-			queryClient.setQueryData<CurrentLocalAgentInstallationsResponse>(
-				queryKey,
-				{
+			try {
+				const result = await selectCurrentLocalAgentInstallation({
+					agentId: input.agentId,
+					installationId,
+				});
+				finishInstallationChange({
 					agentId: result.agentId,
 					installations: result.installations,
 					selectedInstallationId: result.selectedInstallationId,
+				});
+				return;
+			} catch (error) {
+				if (!isLocalAgentControlStillRunningError(error)) {
+					throw error;
 				}
+			}
+
+			const reconciliation = await reconcileLocalAgentInstallationChange({
+				agentId: input.agentId,
+				installationId,
+			});
+			if (reconciliation.status === "updated") {
+				finishInstallationChange(reconciliation.data);
+				return;
+			}
+			setStatusMessage(
+				"OpenMeld is still switching installations. You can close this window and check again in a moment."
 			);
-			await input.onChanged();
-			toast.success(`${input.displayName} installation updated.`);
 		} catch (error) {
 			setErrorMessage(
 				formatMutationError(
@@ -975,50 +1146,108 @@ function LocalAgentInstallationManager(input: {
 			setPendingInstallationId(null);
 		}
 	};
+	const handleOpenChange = (nextOpen: boolean) => {
+		setOpen(nextOpen);
+		if (nextOpen) {
+			setChosenInstallationId(null);
+			setErrorMessage(null);
+			setStatusMessage(null);
+			installationsQuery.refetch().catch((error: unknown) => {
+				console.error("Failed to refresh local agent installations.", error);
+			});
+			return;
+		}
+		setChosenInstallationId(null);
+	};
 	const installationOptions = renderLocalAgentInstallationOptions({
+		chosenInstallationId: effectiveChosenInstallationId,
 		displayName: input.displayName,
 		installations: installationsQuery.data?.installations ?? [],
 		isError: installationsQuery.isError,
 		isPending: installationsQuery.isPending,
-		onSelect: (installationId) => {
-			selectInstallation(installationId).catch((error: unknown) => {
-				console.error("Failed to select local agent installation.", error);
-			});
-		},
+		onChoose: setChosenInstallationId,
 		pendingInstallationId,
+	});
+	const canConfirm = Boolean(
+		chosenInstallation &&
+			chosenInstallation.installationId !==
+				currentInstallation?.installationId &&
+			pendingInstallationId === null
+	);
+	let confirmationLabel = "Current installation";
+	if (pendingInstallationId) {
+		confirmationLabel = "Switching…";
+	} else if (chosenInstallation && canConfirm) {
+		confirmationLabel = `Use ${chosenInstallation.name}`;
+	}
+	const launchValue = formatLocalAgentLaunchWithInstallation({
+		fallback: input.launchValue,
+		installation: currentInstallation,
+		version: input.version,
 	});
 
 	return (
 		<>
-			<div className="flex items-center justify-between gap-3 border-border/70 border-t pt-3">
-				<div className="min-w-0">
-					<p className="font-medium text-sm">Installation</p>
-					<p className="text-muted-foreground text-xs leading-5">
-						OpenMeld uses one installation on this computer.
-					</p>
-				</div>
-				<Button onClick={() => setOpen(true)} size="sm" variant="outline">
+			<span className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+				<span className="min-w-0 break-words">{launchValue}</span>
+				<Button
+					className="w-fit shrink-0"
+					onClick={() => handleOpenChange(true)}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
 					Change installation
 				</Button>
-			</div>
-			<Dialog onOpenChange={setOpen} open={open}>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Choose a {input.displayName} installation</DialogTitle>
-						<DialogDescription>
-							OpenMeld found these working installations on this computer. Your
-							choice affects only this computer and can be changed later.
+			</span>
+			<Dialog onOpenChange={handleOpenChange} open={open}>
+				<DialogContent className="min-w-0 overflow-x-hidden sm:max-w-lg">
+					<DialogHeader className="min-w-0 pr-8">
+						<DialogTitle className="break-words">
+							Choose a {input.displayName} installation
+						</DialogTitle>
+						<DialogDescription className="break-words">
+							Choose the installation OpenMeld should use on this computer.
+							Nothing changes until you confirm.
 						</DialogDescription>
 					</DialogHeader>
-					<div className="grid gap-2 py-1">
-						{installationOptions}
+					<div className="grid min-w-0 gap-2 py-1">
+						<div className="grid max-h-[min(24rem,50dvh)] min-w-0 gap-2 overflow-y-auto pr-1">
+							{installationOptions}
+						</div>
 						{errorMessage ? (
-							<p className="text-destructive text-sm">{errorMessage}</p>
+							<p className="break-words text-destructive text-sm" role="alert">
+								{errorMessage}
+							</p>
+						) : null}
+						{statusMessage ? (
+							<p className="break-words text-muted-foreground text-sm">
+								{statusMessage}
+							</p>
 						) : null}
 					</div>
 					<DialogFooter>
-						<Button onClick={() => setOpen(false)} variant="outline">
-							Done
+						<Button onClick={() => handleOpenChange(false)} variant="outline">
+							Close
+						</Button>
+						<Button
+							className="min-w-0"
+							disabled={!canConfirm}
+							onClick={() => {
+								if (!chosenInstallation) {
+									return;
+								}
+								selectInstallation(chosenInstallation.installationId).catch(
+									(error: unknown) => {
+										console.error(
+											"Failed to select local agent installation.",
+											error
+										);
+									}
+								);
+							}}
+						>
+							<span className="truncate">{confirmationLabel}</span>
 						</Button>
 					</DialogFooter>
 				</DialogContent>
@@ -1028,11 +1257,12 @@ function LocalAgentInstallationManager(input: {
 }
 
 function renderLocalAgentInstallationOptions(input: {
+	chosenInstallationId: string | null;
 	displayName: string;
 	installations: readonly LocalAgentInstallationOption[];
 	isError: boolean;
 	isPending: boolean;
-	onSelect: (installationId: string) => void;
+	onChoose: (installationId: string) => void;
 	pendingInstallationId: string | null;
 }): ReactNode {
 	if (input.isPending) {
@@ -1058,24 +1288,26 @@ function renderLocalAgentInstallationOptions(input: {
 	}
 	return input.installations.map((installation) => (
 		<button
+			aria-pressed={input.chosenInstallationId === installation.installationId}
 			className={cn(
-				"flex min-h-14 w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-				installation.selected
+				"flex min-h-14 w-full min-w-0 items-center justify-between gap-3 overflow-hidden rounded-md border px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+				input.chosenInstallationId === installation.installationId
 					? "border-foreground/35 bg-muted/30"
 					: "border-border"
 			)}
 			disabled={input.pendingInstallationId !== null}
 			key={installation.installationId}
-			onClick={() => input.onSelect(installation.installationId)}
+			onClick={() => input.onChoose(installation.installationId)}
 			type="button"
 		>
-			<span className="min-w-0">
+			<span className="min-w-0 flex-1">
 				<span className="block font-medium text-sm">{installation.name}</span>
 				<span className="block truncate text-muted-foreground text-xs">
 					{installation.details}
 				</span>
 			</span>
 			{renderLocalAgentInstallationAccessory({
+				chosen: input.chosenInstallationId === installation.installationId,
 				installation,
 				pendingInstallationId: input.pendingInstallationId,
 			})}
@@ -1084,23 +1316,59 @@ function renderLocalAgentInstallationOptions(input: {
 }
 
 function renderLocalAgentInstallationAccessory(input: {
+	chosen: boolean;
 	installation: LocalAgentInstallationOption;
 	pendingInstallationId: string | null;
 }): ReactNode {
-	if (input.installation.selected) {
+	if (input.pendingInstallationId === input.installation.installationId) {
+		return (
+			<span className="shrink-0 text-muted-foreground text-xs">Switching…</span>
+		);
+	}
+	if (input.installation.selected || input.chosen) {
 		return (
 			<span className="inline-flex shrink-0 items-center gap-1 font-medium text-xs">
 				<CheckIcon aria-hidden="true" className="size-4" />
-				Current
+				{input.installation.selected ? "Current" : "Selected"}
 			</span>
 		);
 	}
-	if (input.pendingInstallationId === input.installation.installationId) {
-		return (
-			<span className="shrink-0 text-muted-foreground text-xs">Updating…</span>
-		);
-	}
 	return null;
+}
+
+function resolveSelectedLocalAgentInstallation(
+	data: CurrentLocalAgentInstallationsResponse | undefined
+): LocalAgentInstallationOption | null {
+	if (!data) {
+		return null;
+	}
+	return (
+		data.installations.find(
+			(installation) =>
+				installation.installationId === data.selectedInstallationId
+		) ??
+		data.installations.find((installation) => installation.selected) ??
+		null
+	);
+}
+
+function formatLocalAgentLaunchWithInstallation(input: {
+	fallback: string;
+	installation: LocalAgentInstallationOption | null;
+	version: string | null;
+}): string {
+	if (!input.installation) {
+		return input.fallback;
+	}
+	let version: string | null = null;
+	if (input.version) {
+		version = input.version.startsWith("v")
+			? input.version
+			: `v${input.version}`;
+	}
+	return [input.installation.name, version, input.fallback]
+		.filter((part): part is string => Boolean(part))
+		.join(" · ");
 }
 
 function LocalAgentInstallGuideLink() {
@@ -1229,7 +1497,7 @@ function shouldShowLocalAgentInstallGuideLink(
 	return entries.length === 0 || entries.every((entry) => !entry.detected);
 }
 
-function buildLocalAgentCatalogRow(input: {
+type BuildLocalAgentCatalogRowInput = {
 	accountEmailRevealed: boolean;
 	canManageInstallations: boolean;
 	canRefreshCatalog: boolean;
@@ -1238,22 +1506,26 @@ function buildLocalAgentCatalogRow(input: {
 	isCheckingAgents: boolean;
 	muted: boolean;
 	onCheckAgents: () => Promise<void>;
-	onInstallationsChanged: () => Promise<unknown>;
+	onRefresh: () => Promise<unknown>;
 	onRevealAccountEmail: (agentId: string) => void;
 	onSetEnabled: (entry: DeviceAgentCatalogEntry, enabled: boolean) => void;
 	pending: boolean;
 	target: LocalRuntimeExecutionTarget | null;
 	targetStatus: LocalRuntimeExecutionTarget["status"] | null;
-}): SettingsLocalAgentRow {
+};
+
+function buildLocalAgentCatalogRow(
+	input: BuildLocalAgentCatalogRowInput
+): SettingsLocalAgentRow {
+	const enabled = input.entry.enabled === true;
 	const display = resolveLocalAgentCatalogRowDisplay(input);
 	const agentControllerInterface = resolveAgentControllerInterfaceForEntry({
 		entry: input.entry,
 		target: input.target,
 	});
-	const setupStatus = resolveLocalAgentSetupSummaryStatus(input.entry);
-	const versionAdvisory = getAgentControllerVersionAdvisoryPresentation(
-		agentControllerInterface
-	);
+	const setupStatus = enabled
+		? resolveLocalAgentSetupSummaryStatus(input.entry)
+		: null;
 	const canChangeInstallation = Boolean(
 		input.canManageInstallations &&
 			input.entry.enabled &&
@@ -1266,21 +1538,25 @@ function buildLocalAgentCatalogRow(input: {
 			entry: input.entry,
 			targetStatus: input.targetStatus,
 		});
-	const setupDescription = resolveLocalAgentSetupDescription({
-		displayDescription: display.description,
-		entry: input.entry,
-		setupStatus,
-	});
-	let description = resolveAgentControllerInterfaceDescription({
-		displayDescription: display.description,
-		snapshot: agentControllerInterface,
-	});
+	const setupDescription = enabled
+		? resolveLocalAgentSetupDescription({
+				displayDescription: display.description,
+				setupStatus,
+			})
+		: null;
+	let description = enabled
+		? resolveAgentControllerInterfaceDescription({
+				displayDescription: display.description,
+				snapshot: agentControllerInterface,
+			})
+		: display.description;
 	if (setupDescription) {
 		description = setupDescription;
 	}
-	const controllerStatus = setupStatus
-		? null
-		: resolveAgentControllerInterfaceSummaryStatus(agentControllerInterface);
+	const controllerStatus =
+		setupStatus || !enabled
+			? null
+			: resolveAgentControllerInterfaceSummaryStatus(agentControllerInterface);
 	const summaryStatuses = [
 		setupStatus,
 		controllerStatus,
@@ -1288,23 +1564,11 @@ function buildLocalAgentCatalogRow(input: {
 	].filter(
 		(status): status is LocalAgentCatalogRowSummaryStatus => status !== null
 	);
-	const summaryAccessory = agentControllerInterface ? (
-		<span className="inline-flex items-center gap-1.5">
-			{versionAdvisory ? (
-				<SettingsLocalAgentAdvisoryBadge
-					detail={versionAdvisory.detail}
-					key="version-advisory"
-					label={versionAdvisory.label}
-					tone={versionAdvisory.tone}
-					updateCommand={versionAdvisory.updateCommand}
-				/>
-			) : null}
-			<SettingsLocalAgentUsageSummary
-				agentName={input.entry.displayName}
-				limits={agentControllerInterface.usageLimits}
-			/>
-		</span>
-	) : null;
+	const summaryAccessory = renderLocalAgentCatalogRowSummaryAccessory({
+		displayName: input.entry.displayName,
+		enabled,
+		snapshot: agentControllerInterface,
+	});
 
 	return {
 		badge: display.label ? (
@@ -1320,72 +1584,122 @@ function buildLocalAgentCatalogRow(input: {
 				}}
 			/>
 		),
-		defaultExpanded: shouldExpandAgentControllerInterface(
-			agentControllerInterface
-		),
+		defaultExpanded:
+			enabled && shouldExpandAgentControllerInterface(agentControllerInterface),
 		description,
-		detail:
-			agentControllerInterface || canChangeInstallation ? (
-				<div className="space-y-3">
-					{agentControllerInterface ? (
-						<>
-							<SettingsLocalAgentUsageLimits
-								agentName={input.entry.displayName}
-								limits={agentControllerInterface.usageLimits}
-							/>
-							<SettingsDetailList
-								rows={createAgentControllerInterfaceDetailRows({
-									agentId: input.entry.agentId,
-									canRefreshCatalog: input.canRefreshCatalog,
-									emailRevealed: input.accountEmailRevealed,
-									isCheckingAgents: input.isCheckingAgents,
-									onCheckAgents: input.onCheckAgents,
-									onRevealEmail: input.onRevealAccountEmail,
-									snapshot: agentControllerInterface,
-								})}
-							/>
-						</>
-					) : null}
-					{canChangeInstallation ? (
-						<LocalAgentInstallationManager
-							agentId={input.entry.agentId}
-							displayName={input.entry.displayName}
-							onChanged={input.onInstallationsChanged}
-						/>
-					) : null}
-				</div>
-			) : null,
+		detail: renderLocalAgentCatalogRowDetail({
+			canChangeInstallation,
+			rowInput: input,
+			snapshot: agentControllerInterface,
+		}),
 		displayName: input.entry.displayName,
 		id: input.entry.agentId,
 		logoAgentId: input.entry.agentId,
-		muted: input.muted,
+		muted: input.muted || !enabled,
 		summaryAccessory,
-		summaryMeta: agentControllerInterface
-			? renderAgentControllerInterfaceSummary({
-					agentId: input.entry.agentId,
-					emailRevealed: input.accountEmailRevealed,
-					onRevealEmail: input.onRevealAccountEmail,
-					snapshot: agentControllerInterface,
-				})
-			: null,
+		summaryMeta:
+			enabled && agentControllerInterface
+				? renderAgentControllerInterfaceSummary({
+						agentId: input.entry.agentId,
+						emailRevealed: input.accountEmailRevealed,
+						onRevealEmail: input.onRevealAccountEmail,
+						showInstallation: canChangeInstallation,
+						snapshot: agentControllerInterface,
+					})
+				: null,
 		summaryStatuses: summaryStatuses.length > 0 ? summaryStatuses : undefined,
 	};
+}
+
+function renderLocalAgentCatalogRowSummaryAccessory(input: {
+	displayName: string;
+	enabled: boolean;
+	snapshot: AgentControllerInterfaceSnapshot | null;
+}): ReactNode {
+	if (!(input.enabled && input.snapshot)) {
+		return null;
+	}
+	const versionAdvisory = getAgentControllerVersionAdvisoryPresentation(
+		input.snapshot
+	);
+	return (
+		<span className="inline-flex items-center gap-1.5">
+			{versionAdvisory ? (
+				<SettingsLocalAgentAdvisoryBadge
+					detail={versionAdvisory.detail}
+					label={versionAdvisory.label}
+					tone={versionAdvisory.tone}
+					updateCommand={versionAdvisory.updateCommand}
+				/>
+			) : null}
+			<SettingsLocalAgentUsageSummary
+				agentName={input.displayName}
+				limits={input.snapshot.usageLimits}
+			/>
+		</span>
+	);
+}
+
+function renderLocalAgentCatalogRowDetail(input: {
+	canChangeInstallation: boolean;
+	rowInput: BuildLocalAgentCatalogRowInput;
+	snapshot: AgentControllerInterfaceSnapshot | null;
+}): ReactNode {
+	if (!input.snapshot) {
+		return null;
+	}
+	return (
+		<div className="space-y-3">
+			<SettingsLocalAgentUsageLimits
+				agentName={input.rowInput.entry.displayName}
+				limits={input.snapshot.usageLimits}
+			/>
+			<SettingsDetailList
+				rows={createAgentControllerInterfaceDetailRows({
+					agentId: input.rowInput.entry.agentId,
+					canChangeInstallation: input.canChangeInstallation,
+					canRefreshCatalog: input.rowInput.canRefreshCatalog,
+					displayName: input.rowInput.entry.displayName,
+					emailRevealed: input.rowInput.accountEmailRevealed,
+					isCheckingAgents: input.rowInput.isCheckingAgents,
+					onCheckAgents: input.rowInput.onCheckAgents,
+					onInstallationChanged: input.rowInput.onRefresh,
+					onRevealEmail: input.rowInput.onRevealAccountEmail,
+					snapshot: input.snapshot,
+				})}
+			/>
+		</div>
+	);
 }
 
 function renderAgentControllerInterfaceSummary(input: {
 	agentId: string;
 	emailRevealed: boolean;
 	onRevealEmail: (agentId: string) => void;
+	showInstallation: boolean;
 	snapshot: AgentControllerInterfaceSnapshot;
 }): ReactNode {
 	const summary = formatAgentControllerInterfaceSummary(input.snapshot);
+	const installationSummary = input.showInstallation ? (
+		<LocalAgentInstallationSummary agentId={input.agentId} />
+	) : null;
 	const email = resolveAgentControllerAccountEmailText(input.snapshot);
 	if (!email) {
-		return summary;
+		return (
+			<>
+				{summary}
+				{installationSummary}
+			</>
+		);
 	}
 	const parts = splitTextAroundFirstMatch(summary, email);
 	if (!parts) {
-		return summary;
+		return (
+			<>
+				{summary}
+				{installationSummary}
+			</>
+		);
 	}
 	return (
 		<>
@@ -1398,23 +1712,41 @@ function renderAgentControllerInterfaceSummary(input: {
 				revealed={input.emailRevealed}
 			/>
 			{parts.after}
+			{installationSummary}
 		</>
 	);
 }
 
 function createAgentControllerInterfaceDetailRows(input: {
 	agentId: string;
+	canChangeInstallation: boolean;
 	canRefreshCatalog: boolean;
+	displayName: string;
 	emailRevealed: boolean;
 	isCheckingAgents: boolean;
 	onCheckAgents: () => Promise<void>;
+	onInstallationChanged: () => Promise<unknown>;
 	onRevealEmail: (agentId: string) => void;
 	snapshot: AgentControllerInterfaceSnapshot;
 }): SettingsDetailListRow[] {
 	const email = resolveAgentControllerAccountEmailText(input.snapshot);
 	const hasIssueMessage = shouldRenderAgentControllerIssueRow(input.snapshot);
-	return createAgentControllerInterfaceDisplayRows(input.snapshot).map(
+	const rows = createAgentControllerInterfaceDisplayRows(input.snapshot).map(
 		(row) => {
+			if (row.label === "Launch check" && input.canChangeInstallation) {
+				return {
+					...row,
+					value: (
+						<LocalAgentInstallationControl
+							agentId={input.agentId}
+							displayName={input.displayName}
+							launchValue={row.value}
+							onChanged={input.onInstallationChanged}
+							version={input.snapshot.version}
+						/>
+					),
+				};
+			}
 			if (hasIssueMessage && row.label === "Message") {
 				return {
 					label: "Issue",
@@ -1445,6 +1777,24 @@ function createAgentControllerInterfaceDetailRows(input: {
 			return row;
 		}
 	);
+	return placeLaunchCheckSecond(rows);
+}
+
+function placeLaunchCheckSecond(
+	rows: readonly SettingsDetailListRow[]
+): SettingsDetailListRow[] {
+	const launchCheckIndex = rows.findIndex(
+		(row) => row.label === "Launch check"
+	);
+	if (launchCheckIndex <= 1) {
+		return [...rows];
+	}
+	const orderedRows = [...rows];
+	const [launchCheck] = orderedRows.splice(launchCheckIndex, 1);
+	if (launchCheck) {
+		orderedRows.splice(1, 0, launchCheck);
+	}
+	return orderedRows;
 }
 
 function AgentControllerIssueDetail(input: {
@@ -1619,13 +1969,6 @@ function resolveLocalAgentSetupSummaryStatus(
 	if (!shouldShowLocalAgentSetupStatus(entry)) {
 		return null;
 	}
-	if (
-		entry.selectable &&
-		entry.launchStatus === "ready" &&
-		entry.enabled !== true
-	) {
-		return { label: "Turn on", tone: "warning" };
-	}
 	if (entry.launchStatus === "needs_choice") {
 		return { label: "Choose setup", tone: "warning" };
 	}
@@ -1656,37 +1999,25 @@ function resolveAgentControllerInterfaceSummaryStatus(
 function shouldShowLocalAgentSetupStatus(
 	entry: DeviceAgentCatalogEntry
 ): boolean {
-	if (entry.lifecycleStatus === "suspended" || !entry.detected) {
+	if (
+		entry.enabled !== true ||
+		entry.lifecycleStatus === "suspended" ||
+		!entry.detected
+	) {
 		return false;
 	}
-	if (
-		entry.selectable &&
-		entry.launchStatus === "ready" &&
-		entry.enabled !== true
-	) {
-		return true;
-	}
 	return (
-		(entry.enabled === true || entry.selectable) &&
-		(entry.launchStatus === "needs_choice" ||
-			entry.launchStatus === "needs_repair")
+		entry.launchStatus === "needs_choice" ||
+		entry.launchStatus === "needs_repair"
 	);
 }
 
 function resolveLocalAgentSetupDescription(input: {
 	displayDescription: string;
-	entry: DeviceAgentCatalogEntry;
 	setupStatus: LocalAgentCatalogRowSummaryStatus | null;
 }): string | null {
 	if (!input.setupStatus) {
 		return null;
-	}
-	if (
-		input.entry.selectable &&
-		input.entry.launchStatus === "ready" &&
-		input.entry.enabled !== true
-	) {
-		return `Turn on ${input.entry.displayName} to let OpenMeld launch it on this computer.`;
 	}
 	return input.displayDescription;
 }
@@ -1769,6 +2100,19 @@ function resolveLocalAgentCatalogRowDisplay(input: {
 	label: string | null;
 	status: LocalAgentCatalogRowSummaryStatus | null;
 } {
+	if (
+		input.entry.enabled !== true &&
+		input.entry.lifecycleStatus !== "suspended" &&
+		input.entry.detected &&
+		input.entry.selectable
+	) {
+		return {
+			badgeVariant: "secondary",
+			description: "Built-in local agent found on this computer.",
+			label: null,
+			status: null,
+		};
+	}
 	const status: LocalAgentCatalogRowSummaryStatus | null =
 		input.entry.lifecycleStatus === "suspended"
 			? {

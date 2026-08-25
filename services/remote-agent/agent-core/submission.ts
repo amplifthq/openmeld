@@ -39,12 +39,20 @@ const REMOTE_AGENT_SUBMISSION_RECEIPT_PREFIX =
 export const REMOTE_AGENT_SUBMISSION_RECEIPT_RETENTION_MS = 60 * 60 * 1000;
 export const REMOTE_AGENT_SUBMISSION_RECEIPT_CLEANUP_BATCH_SIZE = 64;
 
-export type RemoteAgentAdmissionImage = {
-  data: string;
-  filename?: string;
-  mimeType: string;
-  type: "image";
-};
+export type RemoteAgentAdmissionImage =
+  | {
+      data: string;
+      filename?: string;
+      mimeType: string;
+      type: "image";
+    }
+  | {
+      filename?: string;
+      mimeType: string;
+      openStream(): Promise<ReadableStream<Uint8Array>>;
+      sizeBytes: number;
+      type: "image";
+    };
 
 export type RemoteAgentSubmissionMetadata = {
   agentProfileId: string;
@@ -942,13 +950,24 @@ async function resolveRemoteAgentAdmissionImages(input: {
       }
       continue;
     }
-    placeholders.push(buildAttachmentLoadFailurePlaceholder(attachment));
     logRemoteAgentAttachmentLoadDegradation({
       attachment,
       reason: result.reason,
       request: input.request,
       ...(result.error ? { error: result.error } : {}),
     });
+    if (attachment.objectKey !== undefined) {
+      const sourceLabel = attachment.fileName ?? attachment.id;
+      await deleteTransientRemoteAgentAttachments({
+        attachmentBucket: input.attachmentBucket,
+        objectKeys: transientObjectKeys,
+        request: input.request,
+      });
+      throw new Error(
+        `Remote Agent could not load canonical Space File image ${JSON.stringify(sourceLabel)} (${attachment.id}): ${result.reason}.${result.error ? ` Cause: ${result.error}` : ""}`
+      );
+    }
+    placeholders.push(buildAttachmentLoadFailurePlaceholder(attachment));
   }
 
   return { images, placeholders, transientObjectKeys };
@@ -1036,6 +1055,7 @@ async function loadRemoteAgentAdmissionImage(input: {
   }
 
   try {
+    const attachmentBucket = input.attachmentBucket;
     const objectKey =
       input.attachment.objectKey ??
       buildSpaceAttachmentObjectKey({
@@ -1043,9 +1063,18 @@ async function loadRemoteAgentAdmissionImage(input: {
         organizationId: input.request.organizationId,
         spaceId: input.request.spaceId,
       });
-    const object = await input.attachmentBucket.get(objectKey);
+    const object = await attachmentBucket.get(objectKey);
     if (!object) {
       return { ok: false, reason: "r2_object_missing" };
+    }
+    if (input.request.v !== 1) {
+      return buildStreamingRemoteAgentAdmissionImage({
+        attachment: input.attachment,
+        attachmentBucket,
+        initialObject: object,
+        mimeType: parsedMimeType.data,
+        objectKey,
+      });
     }
     if (
       base64CharacterCount(object.size) >
@@ -1093,6 +1122,51 @@ async function loadRemoteAgentAdmissionImage(input: {
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function buildStreamingRemoteAgentAdmissionImage(input: {
+  attachment: RemoteAgentWorkerInputAttachment;
+  attachmentBucket: Pick<R2Bucket, "get">;
+  initialObject: R2ObjectBody;
+  mimeType: string;
+  objectKey: string;
+}):
+  | {
+      ok: true;
+      image: RemoteAgentAdmissionImage;
+      transientObjectKey: string | null;
+    }
+  | { ok: false; reason: string } {
+  if (input.initialObject.size !== input.attachment.sizeBytes) {
+    return { ok: false, reason: "r2_size_mismatch" };
+  }
+  let initialObject: R2ObjectBody | null = input.initialObject;
+  return {
+    ok: true,
+    image: {
+      type: "image",
+      mimeType: input.mimeType,
+      openStream: async () => {
+        const currentObject =
+          initialObject ?? (await input.attachmentBucket.get(input.objectKey));
+        initialObject = null;
+        if (!currentObject) {
+          throw new Error("The R2 image object is no longer available.");
+        }
+        if (currentObject.size !== input.attachment.sizeBytes) {
+          throw new Error("The R2 image object size changed.");
+        }
+        return currentObject.body as ReadableStream<Uint8Array>;
+      },
+      sizeBytes: input.initialObject.size,
+      ...(input.attachment.fileName
+        ? { filename: input.attachment.fileName }
+        : {}),
+    },
+    transientObjectKey: input.attachment.removeAfterAdmission
+      ? input.objectKey
+      : null,
+  };
 }
 
 function appendRemoteAgentImageContext(

@@ -29,7 +29,7 @@ import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organiza
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { spaceMembersQueryOptions } from "#/query/spaces/members";
-import { selectAccountSpaceSidebarSections } from "./account-space-sidebar-sections";
+import { selectAccountSpaceSections } from "./account-space-sections";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import {
 	type SpaceConversationIntentPrefetch,
@@ -63,7 +63,7 @@ export function AppDirectMessagesSidebar(input: {
 		})
 	);
 	const directMessageItems = spacesQuery.data
-		? selectAccountSpaceSidebarSections({
+		? selectAccountSpaceSections({
 				currentOrganizationId: currentOrganization.id,
 				sections: spacesQuery.data,
 			}).directMessageItems

@@ -69,6 +69,54 @@ describe("Agent Profile Binding lookup service", () => {
       status: "routable",
     });
   });
+
+  it("preserves saved OpenCode permissions in the owner and dispatch projections", async () => {
+    const openCodePermission = {
+      bash: {
+        "*": "ask" as const,
+        "git status *": "allow" as const,
+      },
+      edit: "allow" as const,
+    };
+
+    await expect(
+      lookupPrimaryAgentProfileBinding({
+        agentProfileId: "agent-profile-1",
+        owner: {
+          id: "owner-1",
+          kind: "owner_account",
+        },
+        store: createLookupStore({
+          agentProfileId: "agent-profile-1",
+          bindingId: "binding_opaque_1",
+          bindingState: "enabled_primary",
+          agentControllerRef: "builtin:opencode",
+          createdAtMs: 1000,
+          createdByProfileId: "profile-1",
+          disabledAtMs: null,
+          owner: {
+            id: "owner-1",
+            kind: "owner_account",
+          },
+          reasonCode: "agent_profile_binding.command_eligible",
+          openCodePermission,
+          openMeldServiceRuntimeId: "runtime_opaque_1",
+          updatedAtMs: 1000,
+        }),
+      })
+    ).resolves.toMatchObject({
+      openCodePermission,
+      displayProjection: {
+        openCodePermission,
+        dispatchReadableFacts: {
+          openCodePermission,
+        },
+      },
+      dispatchReadableFacts: {
+        openCodePermission,
+      },
+    });
+  });
 });
 
 function createLookupStore(

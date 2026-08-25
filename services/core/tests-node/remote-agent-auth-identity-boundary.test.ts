@@ -67,7 +67,7 @@ describe("Remote Agent Auth identity ownership boundary", () => {
     for (const [startMarker, endMarker] of [
       [
         "async function readDelegatedNativeDeliveryMember",
-        "function parseHostedCenterAgentRuntimeIdentity",
+        "async function failRemoteAgentRoutineDelivery",
       ],
       [
         "async function resolveDeliveryMemorySpeaker",

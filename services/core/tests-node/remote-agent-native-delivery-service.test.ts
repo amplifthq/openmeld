@@ -3819,6 +3819,194 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it("fails the turn visibly when a canonical Space File image cannot be resolved", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn();
+    const file = {
+      fileId: "space-file-missing-image",
+      mimeType: "image/png",
+      name: "missing-image.png",
+      revision: 1,
+      sizeBytes: 4096,
+    } as const;
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+      sourceSignal: {
+        ...createSignalEnvelope("signal_1"),
+        data: {
+          files: [file],
+          text: "Read this screenshot.",
+        },
+      } as SignalEnvelope,
+    });
+
+    try {
+      await expect(
+        submitRemoteAgentNativeDelivery({
+          binding: createBinding(),
+          db: harness.db,
+          env,
+          executionAttemptId: "attempt_1",
+          message: createDispatchMessage({
+            sourceSignalSnapshot: {
+              files: [file],
+              profileId: HUMAN_PROFILE_ID,
+              profileKind: "human",
+              text: "Read this screenshot.",
+            },
+          }),
+          nowMs: 1000,
+        })
+      ).resolves.toEqual({ shouldAck: true, status: "failed" });
+
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            noticeType: "terminal_failure",
+            reasonCode: "remote_agent.turn_envelope_unavailable",
+            text: expect.stringContaining(
+              "conversation context was unavailable"
+            ),
+          }),
+        })
+      );
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: "idem_1",
+        })
+      ).resolves.toMatchObject({
+        failureCode: "remote_agent.turn_envelope_unavailable",
+        failureDetail: expect.stringContaining("space_file.not_found"),
+        status: "failed",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("forwards ten canonical Space File images without applying the legacy four-image limit", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: 1001,
+      requestId: "req_ten_space_file_images",
+      status: "pending" as const,
+      submissionId: "sub_ten_space_file_images",
+    }));
+    const files = Array.from({ length: 10 }, (_, index) => ({
+      fileId: `space-file-screen-${index + 1}`,
+      mimeType: "image/png" as const,
+      name: `screen-${index + 1}.png`,
+      revision: 1,
+      sizeBytes: 10 * 1024 * 1024,
+    }));
+    const actor = {
+      displayName: "Ari",
+      ownerUserId: "user_1",
+      profileId: HUMAN_PROFILE_ID,
+      profileKind: "human" as const,
+    };
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+      sourceSignal: {
+        ...createSignalEnvelope("signal_1"),
+        data: {
+          files,
+          text: "Compare every screenshot and report the exact differences.",
+        },
+      } as SignalEnvelope,
+      spaceFileContent: {},
+    });
+    env.__spaceStub.rpcResolveSpaceFileContent.mockImplementation(
+      (input: { content: { fileId: string; revision: number } }) => {
+        const file = files.find(
+          (candidate) => candidate.fileId === input.content.fileId
+        );
+        if (!file) {
+          throw new Error("space_file.not_found");
+        }
+        return Promise.resolve({
+          file: {
+            createdAt: "2026-08-23T00:00:00.000Z",
+            createdBy: actor,
+            id: file.fileId,
+            kind: "file" as const,
+            latestRevision: {
+              createdAt: "2026-08-23T00:00:00.000Z",
+              createdBy: actor,
+              fileId: file.fileId,
+              id: `revision-${file.fileId}-1`,
+              mimeType: file.mimeType,
+              revision: file.revision,
+              sizeBytes: file.sizeBytes,
+            },
+            name: file.name,
+            parentId: null,
+            path: `/${file.name}`,
+            spaceId: SPACE_ID,
+            updatedAt: "2026-08-23T00:00:00.000Z",
+            updatedBy: actor,
+          },
+          objectKey: `org/org_1/space/${SPACE_ID}/files/${file.fileId}/revisions/revision-1`,
+          organizationId: "org_1",
+          revision: {
+            createdAt: "2026-08-23T00:00:00.000Z",
+            createdBy: actor,
+            fileId: file.fileId,
+            id: `revision-${file.fileId}-1`,
+            mimeType: file.mimeType,
+            revision: file.revision,
+            sizeBytes: file.sizeBytes,
+          },
+        });
+      }
+    );
+
+    try {
+      await submitRemoteAgentNativeDelivery({
+        binding: createBinding(),
+        db: harness.db,
+        env,
+        executionAttemptId: "attempt_1",
+        message: createDispatchMessage({
+          sourceSignalSnapshot: {
+            files,
+            profileId: HUMAN_PROFILE_ID,
+            profileKind: "human",
+            text: "Compare every screenshot and report the exact differences.",
+          },
+        }),
+        nowMs: 1000,
+      });
+
+      expect(env.__spaceStub.rpcResolveSpaceFileContent).toHaveBeenCalledTimes(
+        10
+      );
+      expect(workerSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [
+            expect.objectContaining({
+              attachments: files.map((file) => ({
+                fileName: file.name,
+                id: file.fileId,
+                mimeType: file.mimeType,
+                objectKey: `org/org_1/space/${SPACE_ID}/files/${file.fileId}/revisions/revision-1`,
+                sizeBytes: file.sizeBytes,
+              })),
+              role: "user",
+            }),
+          ],
+        })
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
   it("reports an older Space RPC receiver while preserving the text-only turn", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -8254,6 +8442,68 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it("keeps a precise provider rate-limit reason in the published failure", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "idem_rate_limited",
+        submissionId: "sub_rate_limited",
+        spaceId: SPACE_ID,
+        threadContext: THREAD_CONTEXT,
+      });
+      const env = buildEnv(harness.db, {
+        postSignalId: "signal_rate_limited",
+      });
+
+      await expect(
+        completeRemoteAgentNativeDelivery(env, {
+          submissionId: "sub_rate_limited",
+          idempotencyKey: "idem_rate_limited",
+          organizationId: "org_1",
+          spaceId: SPACE_ID,
+          agentProfileId: AGENT_PROFILE_ID,
+          bindingId: "binding_1",
+          triggerMessageId: "signal_1",
+          dispatchId: "dispatch_1",
+          status: "failed",
+          failureCode: "remote_agent.provider.rate_limited",
+          failureDetail: "Provider request returned 429.",
+          failureMessage:
+            "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+        })
+      ).resolves.toEqual({
+        status: "accepted",
+        publishedSignalId: "signal_rate_limited",
+      });
+
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          meta: expect.objectContaining({
+            errorCode: "remote_agent.provider.rate_limited",
+            errorDetail: "Provider request returned 429.",
+            purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+          }),
+          text: "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+          threadContext: THREAD_CONTEXT,
+        })
+      );
+      expect(env.__spaceStub.rpcCloseAgentStream).toHaveBeenCalledWith({
+        spaceId: SPACE_ID,
+        streamId: "stream:sub_rate_limited",
+        terminal: {
+          kind: "failed",
+          reasonCode: "remote_agent.provider.rate_limited",
+          noticeText:
+            "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+        },
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("completes member research callbacks without fabricating a Direct Message reply", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -10660,7 +10910,7 @@ function seedCenterAgentTaskAdmissionAuthority(
       "hosted_center_agent",
       JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
       HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      "center-agent",
+      null,
       "enabled_primary",
       100,
       100,

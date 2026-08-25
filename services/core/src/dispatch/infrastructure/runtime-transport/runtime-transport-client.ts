@@ -7,6 +7,11 @@ import {
   localProjectControlRemoveMissingConnectionsResultSchema,
   localProjectControlSetDefaultConnectionResultSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  runtimeTransportAgentProfileExecutionStateRequestSchema,
+  runtimeTransportAgentProfileExecutionStateResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
   runtimeTransportDisconnectRatesResponseSchema,
@@ -56,6 +61,9 @@ import type {
   LocalProjectControlRemoveMissingConnectionsResponse,
   LocalProjectControlSetDefaultConnectionRequest,
   LocalProjectControlSetDefaultConnectionResponse,
+  RuntimeTransportAgentProfileExecutionStateResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
   RuntimeTransportDisconnectRatesResponse,
   RuntimeTransportForkAgentSessionResult,
   RuntimeTransportLookupOwnerServiceResponse,
@@ -70,6 +78,143 @@ import type {
 import { type CoreBindings, localStateDb } from "../../../lib/bindings";
 import { readForgottenDeviceRecord } from "../../../start/infrastructure/d1/forgotten-device-repo";
 import { callRuntimeTransportApi } from "./runtime-transport-api-client";
+import { resolveRuntimeTransportOwnerShard } from "./runtime-transport-shard";
+
+export const acquireRuntimeTransportAgentProfileExecutionTargetMutation =
+  async (input: {
+    env: CoreBindings;
+    operationId: string;
+    ownerUserId: string;
+    targetProfileId: string;
+  }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> => {
+    const parsedRequest =
+      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse(
+        {
+          operationId: input.operationId,
+          ownerUserId: input.ownerUserId,
+          targetProfileId: input.targetProfileId,
+        }
+      );
+    if (!parsedRequest.success) {
+      return {
+        reasonCode:
+          "runtime_coordinator.execution_target_mutation_request_invalid",
+        status: "unavailable",
+      };
+    }
+    try {
+      const shard = resolveRuntimeTransportOwnerShard(
+        input.env,
+        input.ownerUserId
+      );
+      const parsedResponse =
+        runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema.safeParse(
+          await shard.rpcAcquireAgentProfileControllerMutation(
+            parsedRequest.data
+          )
+        );
+      if (parsedResponse.success) {
+        return parsedResponse.data;
+      }
+      console.warn(
+        "[core.runtime_coordinator.execution_target_mutation_acquire_response_invalid]",
+        {
+          error: parsedResponse.error.message,
+          operationId: input.operationId,
+          ownerUserId: input.ownerUserId,
+          targetProfileId: input.targetProfileId,
+        }
+      );
+    } catch (error) {
+      console.warn(
+        "[core.runtime_coordinator.execution_target_mutation_acquire_failed]",
+        {
+          error: error instanceof Error ? error.message : String(error),
+          operationId: input.operationId,
+          ownerUserId: input.ownerUserId,
+          targetProfileId: input.targetProfileId,
+        }
+      );
+    }
+    return {
+      reasonCode: "runtime_coordinator.execution_state_unavailable",
+      status: "unavailable",
+    };
+  };
+
+export const releaseRuntimeTransportAgentProfileExecutionTargetMutation =
+  async (input: {
+    env: CoreBindings;
+    operationId: string;
+    ownerUserId: string;
+    targetProfileId: string;
+  }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse> => {
+    const request =
+      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.parse({
+        operationId: input.operationId,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+      });
+    const shard = resolveRuntimeTransportOwnerShard(
+      input.env,
+      input.ownerUserId
+    );
+    return runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema.parse(
+      await shard.rpcReleaseAgentProfileControllerMutation(request)
+    );
+  };
+
+export const readRuntimeTransportAgentProfileExecutionState = async (input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  targetProfileId: string;
+}): Promise<RuntimeTransportAgentProfileExecutionStateResponse> => {
+  const parsedRequest =
+    runtimeTransportAgentProfileExecutionStateRequestSchema.safeParse({
+      ownerUserId: input.ownerUserId,
+      targetProfileId: input.targetProfileId,
+    });
+  if (!parsedRequest.success) {
+    return {
+      reasonCode: "runtime_coordinator.execution_state_request_invalid",
+      status: "unavailable",
+    };
+  }
+  try {
+    const shard = resolveRuntimeTransportOwnerShard(
+      input.env,
+      input.ownerUserId
+    );
+    const response = await shard.rpcReadAgentProfileExecutionState(
+      parsedRequest.data
+    );
+    const parsedResponse =
+      runtimeTransportAgentProfileExecutionStateResponseSchema.safeParse(
+        response
+      );
+    if (parsedResponse.success) {
+      return parsedResponse.data;
+    }
+    console.warn(
+      "[core.runtime_coordinator.execution_state_response_invalid]",
+      {
+        error: parsedResponse.error.message,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+      }
+    );
+  } catch (error) {
+    console.warn("[core.runtime_coordinator.execution_state_read_failed]", {
+      error: error instanceof Error ? error.message : String(error),
+      ownerUserId: input.ownerUserId,
+      targetProfileId: input.targetProfileId,
+    });
+  }
+  return {
+    reasonCode: "runtime_coordinator.execution_state_unavailable",
+    status: "unavailable",
+  };
+};
 
 export const lookupRuntimeTransportRoute = async (input: {
   blockForgottenDevices?: boolean;
@@ -426,6 +571,13 @@ export const setRuntimeTransportProfileWorkspace = async (input: {
   }
   return parsed.data;
 };
+
+export const isRuntimeTransportProfileWorkspaceOutcomeDefinitive = (
+  response: RuntimeTransportSetProfileWorkspaceResponse
+): boolean =>
+  response.status === "accepted" ||
+  (response.reasonCode !== "local_agent_control.timeout" &&
+    response.reasonCode !== "local_agent_control.invalid_response");
 
 export const refreshRuntimeTransportLocalAgentCatalog = async (input: {
   deviceId: string;

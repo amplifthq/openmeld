@@ -118,22 +118,19 @@ export function formatMutationError(error: unknown, fallback: string): string {
 	return getMutationErrorMessage(error) ?? fallback;
 }
 
-const LOCAL_AGENT_CHECK_TIMEOUT_STATUS = 504;
+const LOCAL_AGENT_CONTROL_TIMEOUT_STATUS = 504;
 
-// A "Check agents" refresh asks the OpenMeld Service to cold-start each local agent
-// and probe it (seconds per agent). That routinely outlives the gateway request
-// budget and surfaces as an HTTP 504 (`local_agent_control.timeout`) even though
-// the probe keeps running - and usually succeeds - on the Service. Treat those
-// as "still checking" rather than a failed check so the UI does not report a
-// transport timeout that the next catalog read quietly resolves. An explicit
-// Service rejection (HTTP 409) is a real failure and is deliberately excluded.
-export function isLocalAgentCheckStillRunningError(error: unknown): boolean {
+// Local-agent control work can outlive the gateway request budget and surface as
+// an HTTP 504 even though OpenMeld Service keeps applying it. Treat that outcome
+// as still running and reconcile from the canonical catalog. An explicit Service
+// rejection (HTTP 409) is a real failure and is deliberately excluded.
+export function isLocalAgentControlStillRunningError(error: unknown): boolean {
 	if (typeof error !== "object" || error === null) {
 		return false;
 	}
 	const { code, status } = error as { code?: unknown; status?: unknown };
 	return (
-		status === LOCAL_AGENT_CHECK_TIMEOUT_STATUS ||
+		status === LOCAL_AGENT_CONTROL_TIMEOUT_STATUS ||
 		code === "local_agent_control.timeout" ||
 		code === "network.timeout"
 	);

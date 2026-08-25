@@ -21,6 +21,7 @@ const CONTEXT_WINDOW_EXCEEDED_PATTERNS = [
   /\bcontext_(?:length|window)_exceeded\b/i,
   /\bcontext (?:length|window) (?:has been |was )?exceeded\b/i,
   /\bmaximum context length is \d[\d,]* tokens\b/i,
+  /\bmaximum prompt length is \d[\d,]*(?: tokens)?\b/i,
 ] as const;
 const TOOL_RESULT_TOO_LARGE_PATTERNS = [
   /\bsqlite_toobig\b/i,

@@ -137,6 +137,41 @@ describe("auth command status states", () => {
     });
   });
 
+  it("preserves a local token-read failure for Agent View recovery", async () => {
+    await withTempHome(async (home) => {
+      const tokenKey = "a".repeat(64);
+      await mkdir(
+        join(home, ".openmeld", "auth", "tokens", `${tokenKey}.token`),
+        { recursive: true }
+      );
+      await writeFile(
+        join(home, ".openmeld", "auth", "session.json"),
+        `${JSON.stringify({
+          v: 1,
+          tokenRef: { provider: "insecure-file", key: tokenKey },
+          tokenType: "Bearer",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          createdAt: new Date().toISOString(),
+        })}\n`,
+        "utf8"
+      );
+
+      const result = await runCommandAndCapture(() =>
+        runAuthStatus({ view: "agent" })
+      );
+      const authLine = parseJsonLine(result.stdout, "auth.status.session");
+
+      expect(result.exitCode).toBe(1);
+      expect(authLine?.payload).toMatchObject({
+        signedIn: false,
+        state: "invalid",
+        reasonCode: "session_token_unavailable",
+      });
+      expect(authLine?.payload?.errorMessage).toEqual(expect.any(String));
+    });
+  });
+
   it("reports revoked auth state without changing the local session", async () => {
     vi.stubGlobal(
       "fetch",

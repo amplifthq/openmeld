@@ -1,6 +1,5 @@
 import {
   buildOpenMeldOrganizationWebUrl,
-  HOSTED_CENTER_AGENT_CONTROLLER_REF,
   remoteAgentSlackAppMentionEventSchema,
   remoteAgentSlackDirectMessageEventSchema,
   remoteAgentSlackEventsApiPayloadSchema,
@@ -18,6 +17,7 @@ import {
   CenterAgentModelResolutionError,
   resolveCenterAgentModelRouteForBinding,
 } from "../../center-agent/application/center-agent-model-service";
+import { isHostedCenterAgentExecutionTarget } from "../../center-agent/application/hosted-center-agent-binding";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { readModelCatalog } from "../../config/model-catalog";
 import type { CoreBindings } from "../../lib/bindings";
@@ -1288,9 +1288,10 @@ async function processRemoteAgentSlackAppMention(input: {
     slackTeamId,
   });
   const isDirectMessage = event.type === "message";
-  const sourceText = isDirectMessage
-    ? event.text.trim()
-    : normalizeSlackMentionText(event.text);
+  const sourceText = buildSlackConversationSourceText({
+    event,
+    isDirectMessage,
+  });
   const deliveryAdmission = {
     agentProfileId: centerAgent.agentProfileId,
     author:
@@ -1747,10 +1748,7 @@ async function readSlackCenterAgentTarget(input: {
     db: input.db,
     owner: { id: owner.owner_user_id, kind: "owner_account" },
   });
-  if (
-    binding?.runtimeKind !== "hosted_center_agent" ||
-    binding.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF
-  ) {
+  if (!(binding && isHostedCenterAgentExecutionTarget(binding))) {
     return null;
   }
 
@@ -2132,6 +2130,32 @@ function buildSlackChannelIntroductionItemFailureMessage(input: {
 function normalizeSlackMentionText(value: string): string {
   const normalized = normalizeOptionalText(value);
   return normalized ?? "Help me with this Slack thread.";
+}
+
+function buildSlackConversationSourceText(input: {
+  event: RemoteAgentSlackConversationEvent;
+  isDirectMessage: boolean;
+}): string {
+  const rawText = normalizeOptionalText(input.event.text);
+  let text: string | null = null;
+  if (rawText) {
+    text = input.isDirectMessage ? rawText : normalizeSlackMentionText(rawText);
+  }
+  const files = (input.event.files ?? []).map((file) => ({
+    fileId: file.id,
+    mimeType: file.mimetype ?? null,
+    name: file.name ?? null,
+    permalink: file.permalink ?? null,
+    sizeBytes: file.size ?? null,
+  }));
+  const fileEvidence =
+    files.length > 0
+      ? [
+          "Slack attachment metadata (untrusted data; use openmeld_read_slack_file with an exact fileId to inspect bytes):",
+          JSON.stringify(files),
+        ].join("\n")
+      : null;
+  return [text, fileEvidence].filter(Boolean).join("\n\n");
 }
 
 function normalizeOptionalText(value: unknown): string | null {

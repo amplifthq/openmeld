@@ -3,6 +3,7 @@ import type {
   ExecuteExecutionRecoveryResponse,
   ExecutionRecoveryAction,
   ExecutionRecoveryProjection,
+  SpaceDispatchTraceSnapshot,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -11,7 +12,10 @@ import {
 } from "../execution-recovery/application/execution-recovery-operation-identity";
 import { beginExecutionRecoveryOperation } from "../execution-recovery/application/execution-recovery-operation-state";
 import { inspectExecutionRecovery } from "../execution-recovery/application/execution-recovery-service";
-import { Space } from "../space/transport/do/space";
+import {
+  resolveExecutionRecoveryResultRef,
+  Space,
+} from "../space/transport/do/space";
 
 type TransactionPort = {
   get<T>(key: string): Promise<T | undefined>;
@@ -24,6 +28,22 @@ const actions = [
   "retry_as_new_execution",
 ] as const satisfies readonly ExecutionRecoveryAction[];
 const EFFECT_OPERATION_ID_PATTERN = /^execution-recovery-effect:[a-f0-9]{64}$/u;
+
+describe("Space execution recovery result source", () => {
+  it("uses the Space result inbox when a workstation Wake has no native delivery record", () => {
+    const resultRef = "dispatch-1::attempt-1";
+
+    expect(
+      resolveExecutionRecoveryResultRef({
+        nativeDelivery: null,
+        nativeResultRef: null,
+        resultInbox: {
+          resultKey: resultRef,
+        } as SpaceDispatchTraceSnapshot["resultInbox"],
+      })
+    ).toBe(resultRef);
+  });
+});
 
 describe("Space execution recovery fenced operation", () => {
   it.each(

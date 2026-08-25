@@ -54,6 +54,10 @@ import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
 import { authProfileViewSchema } from "./profiles";
 import { agentControllerTaskLifecycleEventSourceSchema } from "./runtime-reporting";
 import {
+  CENTER_AGENT_SLACK_FILE_MAX_BASE64_CHARACTERS,
+  slackFileMetadataSchema,
+} from "./slack-channel-reads";
+import {
   spaceAccessModeSchema,
   spaceAccessModeStateSchema,
 } from "./space-access-mode";
@@ -123,9 +127,11 @@ export const centerAgentActionSchema = z.enum([
   "add_members_to_space",
   "add_agent_profiles_to_space",
   "post_slack_channel_message",
+  "post_slack_file",
   "list_slack_channels",
   "read_slack_channel_members",
   "read_slack_channel_history",
+  "read_slack_file",
   "search_slack_messages",
   "post_space_message",
   "remove_agent_profiles_from_space",
@@ -553,6 +559,7 @@ export const centerAgentAuditJournalEntrySchema = z.strictObject({
     })
     .optional(),
   resource: centerAgentResourceSchema.nullable(),
+  sourceSpaceId: trimmedNonEmptyStringSchema.nullable().optional(),
   createdAt: ISO_DATE_TIME_SCHEMA,
 });
 
@@ -577,6 +584,8 @@ export const listCenterAgentAuditJournalQuerySchema = z.strictObject({
       "v17",
       "v18",
       "v19",
+      "v20",
+      "v21",
     ])
     .optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -763,6 +772,34 @@ export const centerAgentPostSlackThreadMessageBodySchema = z.union([
       .trim()
       .regex(/^\d+\.\d+$/)
       .max(32),
+  }),
+]);
+
+const centerAgentSlackFilePublicationCommonFields = {
+  contentBase64: z
+    .string()
+    .max(CENTER_AGENT_SLACK_FILE_MAX_BASE64_CHARACTERS)
+    .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u),
+  contentSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  fileName: trimmedNonEmptyStringSchema.max(255),
+  initialComment: z.string().trim().min(1).max(MAX_TEXT_LENGTH).optional(),
+  publicationSource: centerAgentRemoteAgentExecutionPublicationSourceSchema,
+  speakerMember: centerAgentToolSpeakerSchema,
+  title: trimmedNonEmptyStringSchema.max(255).optional(),
+};
+
+export const centerAgentPostSlackFileBodySchema = z.union([
+  z.strictObject({
+    ...centerAgentSlackFilePublicationCommonFields,
+    currentThread: z.literal(true),
+  }),
+  z.strictObject({
+    ...centerAgentSlackFilePublicationCommonFields,
+    channelName: trimmedNonEmptyStringSchema.max(80),
+  }),
+  z.strictObject({
+    ...centerAgentSlackFilePublicationCommonFields,
+    threadPermalink: slackThreadPublicationPermalinkSchema,
   }),
 ]);
 
@@ -1373,6 +1410,14 @@ export const centerAgentPostSlackChannelMessageResponseSchema = z.strictObject({
   channelName: trimmedNonEmptyStringSchema.max(80),
   joinedChannel: z.boolean(),
   messageTs: trimmedNonEmptyStringSchema,
+  organizationId: trimmedNonEmptyStringSchema,
+});
+
+export const centerAgentPostSlackFileResponseSchema = z.strictObject({
+  attribution: centerAgentAttributionSchema,
+  channelName: trimmedNonEmptyStringSchema.max(80),
+  file: slackFileMetadataSchema,
+  joinedChannel: z.boolean(),
   organizationId: trimmedNonEmptyStringSchema,
 });
 

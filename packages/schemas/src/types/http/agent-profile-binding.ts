@@ -80,6 +80,8 @@ type DisableAgentProfilePrimaryBindingResponseSchema =
   typeof import("../../schemas/http/agent-profile-binding")["disableAgentProfilePrimaryBindingResponseSchema"];
 type GetAgentProfilePrimaryBindingResponseSchema =
   typeof import("../../schemas/http/agent-profile-binding")["getAgentProfilePrimaryBindingResponseSchema"];
+type GetAgentProfileControllerChangeEligibilityResponseSchema =
+  typeof import("../../schemas/http/agent-profile-binding")["getAgentProfileControllerChangeEligibilityResponseSchema"];
 type NotifyAgentProfileRouteCatalogChangedBodySchema =
   typeof import("../../schemas/http/agent-profile-binding")["notifyAgentProfileRouteCatalogChangedBodySchema"];
 type NotifyAgentProfilesRouteCatalogChangedBodySchema =
@@ -174,6 +176,8 @@ export type DisableAgentProfilePrimaryBindingResponse =
   z.infer<DisableAgentProfilePrimaryBindingResponseSchema>;
 export type GetAgentProfilePrimaryBindingResponse =
   z.infer<GetAgentProfilePrimaryBindingResponseSchema>;
+export type GetAgentProfileControllerChangeEligibilityResponse =
+  z.infer<GetAgentProfileControllerChangeEligibilityResponseSchema>;
 export type NotifyAgentProfileRouteCatalogChangedBody =
   z.infer<NotifyAgentProfileRouteCatalogChangedBodySchema>;
 export type NotifyAgentProfilesRouteCatalogChangedBody =

@@ -28,6 +28,10 @@
       "dataset": "openmeld_runtime_evidence"
     }
   ],
+  "images": {
+    "binding": "OPENMELD_IMAGES",
+    "remote": true
+  },
   "browser": {
     "binding": "BROWSER",
     "remote": true
@@ -65,7 +69,7 @@
     "OPENMELD_WORKER_ENVIRONMENT": "local",
     "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
     "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",
-    "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID": "openmeld-remote-agent",
+    "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID": "openmeld-remote-agent-prod",
     "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS": "openrouter",
     "OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID": "x-ai/grok-4.5",
     "OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "true",
@@ -116,6 +120,10 @@
           "dataset": "openmeld_runtime_evidence"
         }
       ],
+      "images": {
+        "binding": "OPENMELD_IMAGES",
+        "remote": true
+      },
       "browser": {
         "binding": "BROWSER",
         "remote": true
@@ -153,7 +161,7 @@
         "OPENMELD_WORKER_ENVIRONMENT": "dev",
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
         "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",
-        "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID": "openmeld-remote-agent",
+        "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID": "openmeld-remote-agent-prod",
         "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS": "openrouter",
         "OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID": "x-ai/grok-4.5",
         "OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "true",
@@ -194,6 +202,9 @@
           "dataset": "openmeld_runtime_evidence_prod"
         }
       ],
+      "images": {
+        "binding": "OPENMELD_IMAGES"
+      },
       "browser": {
         "binding": "BROWSER",
         "remote": true

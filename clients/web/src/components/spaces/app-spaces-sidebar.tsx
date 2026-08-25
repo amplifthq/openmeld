@@ -20,7 +20,7 @@ import {
 	PlusIcon,
 	PushPinIcon,
 } from "@phosphor-icons/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { toast } from "sonner";
@@ -43,29 +43,24 @@ import {
 	buildOrganizationSpacePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
-import {
-	type AccountSpaceItem,
-	type AccountSpaceSections,
-	setAccountSpaceItemPinned,
+import type {
+	AccountSpaceItem,
+	AccountSpaceSections,
 } from "#/lib/spaces/account-spaces";
-import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
-import {
-	accountSpaceActiveWakeSummaryQueryOptions,
-	accountSpaceItemsQueryOptions,
-	accountSpaceQueryKeys,
-	useUsableAccountSpaceActiveWakeSummaryItems,
-} from "#/query/spaces/account-spaces";
+import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import {
 	spaceActiveWakeProgressSummaryQueryOptions,
 	spaceWakeProgressPresentationQueryOptions,
 } from "#/query/spaces/active-wake-progress";
 import {
+	resolveAccountSpaceTrailingStatus,
 	type SpaceUnreadById,
-	selectAccountSpaceSidebarSections,
-	sortAccountSpaceItems,
-} from "./account-space-sidebar-sections";
+	selectAccountSpaceSections,
+} from "./account-space-sections";
 import { SpaceAgentOrb } from "./space-agent-orb";
 import { useSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
+import { useAccountSpaceIndicators } from "./use-account-space-indicators";
+import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 import {
 	type SpaceConversationIntentPrefetch,
 	useSpaceConversationIntentPrefetch,
@@ -117,18 +112,6 @@ function writeShownDeletedSpaceNotices(shown: Set<string>): void {
 	}
 }
 
-type SpacePinMutationInput = {
-	item: AccountSpaceItem;
-	pinnedAt: string | null;
-	profileIds: readonly string[];
-};
-
-type SpacePinMutation = {
-	isPending: boolean;
-	mutate: (variables: SpacePinMutationInput) => void;
-	variables?: SpacePinMutationInput;
-};
-
 export function AppSpacesSidebar(input: {
 	browseSpacesActive?: boolean;
 	currentProfileId: string;
@@ -140,46 +123,20 @@ export function AppSpacesSidebar(input: {
 	const orgSlug = currentOrganization.slug;
 	const browseSpacesActive =
 		input.browseSpacesActive ?? input.currentSpaceId.length === 0;
-	const queryClient = useQueryClient();
 	const routeIntentPrefetch = useRouteIntentPrefetch();
 	const prefetchSpaceConversation = useSpaceConversationIntentPrefetch();
-	const accountSpacesScope = "account";
-	const accountSpacesQueryKey = accountSpaceQueryKeys.items(
-		input.currentProfileId,
-		accountSpacesScope
-	);
 	const spacesQuery = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: input.currentProfileId.trim().length > 0,
 			profileId: input.currentProfileId,
-			scope: accountSpacesScope,
+			scope: "account",
 		})
 	);
-	const spaceInboxSummaryQuery = useQuery(
-		spaceInboxSummaryQueryOptions({
-			enabled: currentOrganizationId.trim().length > 0,
-			organizationId: currentOrganizationId,
-		})
-	);
-	const unreadBySpaceId: SpaceUnreadById = new Map(
-		(spaceInboxSummaryQuery.data?.spaces ?? []).map((item) => [
-			item.spaceId,
-			{
-				latestUnreadOccurredAtMs: item.latestUnreadOccurredAtMs,
-				unreadCount: item.unreadCount,
-			},
-		])
-	);
-	const activeWakeSummaryQuery = useQuery(
-		accountSpaceActiveWakeSummaryQueryOptions({
+	const { activeWakeSpaceIds: ambientActiveWakeSpaceIds, unreadBySpaceId } =
+		useAccountSpaceIndicators({
 			enabled: input.currentProfileId.trim().length > 0,
+			organizationId: currentOrganizationId,
 			profileId: input.currentProfileId,
-		})
-	);
-	const usableActiveWakeSummaryItems =
-		useUsableAccountSpaceActiveWakeSummaryItems({
-			data: activeWakeSummaryQuery.data,
-			isError: activeWakeSummaryQuery.isError,
 		});
 	const currentSpaceWakeProgressPresentationQuery = useQuery(
 		spaceWakeProgressPresentationQueryOptions({
@@ -196,12 +153,11 @@ export function AppSpacesSidebar(input: {
 	);
 	const currentSpaceWakeProgressVisibleProjection =
 		useSpaceWakeProgressVisibleProjection();
-	const activeWakeSpaceIds = new Set<string>();
-	for (const item of usableActiveWakeSummaryItems) {
-		if (item.spaceId !== input.currentSpaceId) {
-			activeWakeSpaceIds.add(item.spaceId);
-		}
-	}
+	const activeWakeSpaceIds = new Set(
+		Array.from(ambientActiveWakeSpaceIds).filter(
+			(spaceId) => spaceId !== input.currentSpaceId
+		)
+	);
 	const currentSpaceWakeProgressItems =
 		currentSpaceWakeProgressVisibleProjection ??
 		mergeWakeProgressItems({
@@ -217,53 +173,11 @@ export function AppSpacesSidebar(input: {
 	) {
 		activeWakeSpaceIds.add(input.currentSpaceId);
 	}
-	const pinMutation = useMutation({
-		mutationFn: async (variables: SpacePinMutationInput) =>
-			await setAccountSpaceItemPinned({
-				pinnedAt: variables.pinnedAt,
-				profileIds: variables.profileIds,
-				spaceId: variables.item.spaceId,
-			}),
-		onMutate: async (variables) => {
-			await queryClient.cancelQueries({ queryKey: accountSpacesQueryKey });
-			const previous = queryClient.getQueryData<AccountSpaceSections>(
-				accountSpacesQueryKey
-			);
-			queryClient.setQueryData<AccountSpaceSections>(
-				accountSpacesQueryKey,
-				(current) =>
-					applyOptimisticPinnedUpdate(
-						current ?? EMPTY_ACCOUNT_SPACE_SECTIONS,
-						variables
-					)
-			);
-
-			return { previous };
-		},
-		onError: (error, _variables, context) => {
-			if (context?.previous) {
-				queryClient.setQueryData(accountSpacesQueryKey, context.previous);
-			}
-			console.error("Failed to update pinned space.", error);
-			toast.error("Could not update pinned spaces.");
-		},
-		onSuccess: async (result) => {
-			if (spaceIndexOverlayApplied(result)) {
-				await queryClient.invalidateQueries({
-					queryKey: accountSpaceQueryKeys.all,
-				});
-				return;
-			}
-
-			console.warn("Pinned space update is waiting for Space Index.", {
-				spaceId: result[0]?.item.spaceId,
-				statuses: result.map((item) => item.spaceIndexOverlay.status),
-			});
-			toast.warning("Pinned spaces are still syncing.");
-		},
+	const pinMutation = useAccountSpacePinMutation({
+		currentProfileId: input.currentProfileId,
 	});
 	const sections = spacesQuery.data ?? EMPTY_ACCOUNT_SPACE_SECTIONS;
-	const sidebarSections = selectAccountSpaceSidebarSections({
+	const sidebarSections = selectAccountSpaceSections({
 		currentOrganizationId,
 		sections,
 		unreadBySpaceId,
@@ -281,13 +195,6 @@ export function AppSpacesSidebar(input: {
 			console.error("Failed to open space from sidebar.", error);
 		});
 	};
-	const togglePinned = (item: AccountSpaceItem) => {
-		togglePinnedSpace({
-			currentProfileId: input.currentProfileId,
-			item,
-			pinMutation,
-		});
-	};
 	const renderSpacesList = (listInput: {
 		isError?: boolean;
 		isPending?: boolean;
@@ -299,7 +206,7 @@ export function AppSpacesSidebar(input: {
 			currentSpaceId={input.currentSpaceId}
 			isError={listInput.isError ?? false}
 			isPending={listInput.isPending ?? false}
-			isPinPending={(item) => isPinMutationPendingForItem(pinMutation, item)}
+			isPinPending={() => pinMutation.arePinActionsPending}
 			items={listInput.items}
 			navigationLabel={listInput.navigationLabel}
 			onOpenSpace={openSpace}
@@ -308,7 +215,7 @@ export function AppSpacesSidebar(input: {
 					console.error("Failed to refresh spaces.", error);
 				});
 			}}
-			onTogglePinned={togglePinned}
+			onTogglePinned={pinMutation.toggle}
 			openMeldProfileId={input.currentProfileId}
 			prefetchSpaceConversation={prefetchSpaceConversation}
 			resolveRoutePath={resolveSpaceRoutePath}
@@ -525,7 +432,7 @@ function SpaceSidebarMenuItem(input: {
 		? `Unpin ${input.item.spaceName}`
 		: `Pin ${input.item.spaceName}`;
 	const hasUnread = input.unreadCount > 0;
-	const trailingStatus = resolveSpaceSidebarTrailingStatus({
+	const trailingStatus = resolveAccountSpaceTrailingStatus({
 		hasActiveWake,
 		hasUnread,
 		isPinned,
@@ -615,17 +522,14 @@ function SpaceSidebarMenuItem(input: {
 										)}
 										text={input.item.spaceName}
 									/>
-									<span
-										className={cn(
-											"@[13rem]/space-item:inline-flex hidden shrink-0 text-muted-foreground text-xs transition-opacity",
-											trailingStatus !== null
-												? "opacity-0"
-												: "opacity-100 group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
-										)}
-										data-slot="space-sidebar-date"
-									>
-										{formatLastJoinedAt(input.item.lastJoinedAt)}
-									</span>
+									{trailingStatus === null ? (
+										<span
+											className="@[13rem]/space-item:inline-flex hidden shrink-0 text-muted-foreground text-xs opacity-100 transition-opacity group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
+											data-slot="space-sidebar-date"
+										>
+											{formatLastJoinedAt(input.item.lastJoinedAt)}
+										</span>
+									) : null}
 								</div>
 								{trailingStatus === "unread" ? (
 									<span
@@ -702,92 +606,6 @@ function SpaceSidebarMenuItem(input: {
 	);
 }
 
-function resolveSpaceSidebarTrailingStatus(input: {
-	hasActiveWake: boolean;
-	hasUnread: boolean;
-	isPinned: boolean;
-}): "pinned" | "unread" | "working" | null {
-	if (input.hasUnread) {
-		return "unread";
-	}
-	if (input.hasActiveWake) {
-		return "working";
-	}
-	if (input.isPinned) {
-		return "pinned";
-	}
-	return null;
-}
-
-function togglePinnedSpace(input: {
-	currentProfileId: string;
-	item: AccountSpaceItem;
-	pinMutation: SpacePinMutation;
-}) {
-	const isPinned = input.item.pinnedAt !== null;
-	const profileIds = isPinned
-		? resolvePinnedProfileIds(input.item)
-		: [input.currentProfileId];
-	input.pinMutation.mutate({
-		item: input.item,
-		pinnedAt: isPinned ? null : new Date().toISOString(),
-		profileIds,
-	});
-}
-
-function resolvePinnedProfileIds(item: AccountSpaceItem): readonly string[] {
-	return item.pinnedProfileIds.length > 0
-		? item.pinnedProfileIds
-		: [item.openProfileId];
-}
-
-function isPinMutationPendingForItem(
-	pinMutation: SpacePinMutation,
-	item: AccountSpaceItem
-): boolean {
-	const pendingItem = pinMutation.variables?.item;
-	return (
-		pinMutation.isPending &&
-		normalizeSpaceKey(pendingItem?.spaceId ?? "") ===
-			normalizeSpaceKey(item.spaceId)
-	);
-}
-
-function applyOptimisticPinnedUpdate(
-	current: AccountSpaceSections,
-	variables: SpacePinMutationInput
-): AccountSpaceSections {
-	const nextItem: AccountSpaceItem = {
-		...variables.item,
-		pinnedAt: variables.pinnedAt,
-		pinnedProfileIds: variables.pinnedAt ? variables.profileIds : [],
-	};
-	const nextItems = [...current.pinnedItems, ...current.spaceItems].filter(
-		(item) =>
-			normalizeSpaceKey(item.spaceId) !== normalizeSpaceKey(nextItem.spaceId)
-	);
-	nextItems.push(nextItem);
-
-	return {
-		pinnedItems: sortAccountSpaceItems(
-			nextItems.filter((item) => item.pinnedAt !== null)
-		),
-		recentlyDeletedItems: current.recentlyDeletedItems,
-		spaceItems: sortAccountSpaceItems(
-			nextItems.filter((item) => item.pinnedAt === null)
-		),
-	};
-}
-
-function spaceIndexOverlayApplied(
-	result: Awaited<ReturnType<typeof setAccountSpaceItemPinned>>
-): boolean {
-	return (
-		result.length > 0 &&
-		result.every((item) => item.spaceIndexOverlay.status === "applied")
-	);
-}
-
 function formatLastJoinedAt(value: string): string {
 	const timestamp = Date.parse(value);
 	if (!Number.isFinite(timestamp)) {
@@ -795,8 +613,4 @@ function formatLastJoinedAt(value: string): string {
 	}
 
 	return SIDEBAR_TIME_FORMATTER.format(timestamp);
-}
-
-function normalizeSpaceKey(value: string): string {
-	return value.trim().toLowerCase();
 }

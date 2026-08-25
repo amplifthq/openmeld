@@ -34,14 +34,18 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import { handleDispatchQueueBatch } from "../dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../lib/bindings";
+import { runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys } from "../runtime-transport/application/agent-profile-execution-admission";
 import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
 import {
   buildRuntimeCoordinatorFinalizationOutcomeStorageKey,
+  buildRuntimeCoordinatorHeadLifecycleStorageKey,
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_STORAGE_KEY_PREFIX,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_DELAY_MS,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_MAX_AGE_MS,
+  RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
   RUNTIME_COORDINATOR_WAKE_STOPPED_NOTICE_PUBLICATION_MODEL_VERSION,
+  type RuntimeCoordinatorHeadLifecycleRecord,
   type RuntimeCoordinatorRunCommandState,
 } from "../runtime-transport/application/runtime-coordinator-authority";
 import { retireRuntimeCoordinatorTokenRun } from "../runtime-transport/application/runtime-coordinator-execution-token";
@@ -919,6 +923,7 @@ const createHarness = (input?: {
       ): RuntimeCoordinatorFinalizationOutcome => {
         appliedFinalizationCommands.push(command);
         return {
+          finalMessageKind: "success_reply" as const,
           finalizationCommandId: command.finalizationCommandId,
           ok: true as const,
           publicationErrorCode: null,
@@ -1043,16 +1048,31 @@ const createHarness = (input?: {
     }
     return Promise.resolve();
   });
-  const storageGet = vi.fn(async (key: string) => storageRecords.get(key));
+  const storageGet = vi.fn(async (key: string | string[]) =>
+    Array.isArray(key)
+      ? new Map(
+          key.flatMap((entry) =>
+            storageRecords.has(entry)
+              ? ([[entry, storageRecords.get(entry)]] as const)
+              : []
+          )
+        )
+      : storageRecords.get(key)
+  );
   const storageDelete = vi.fn(async (key: string) =>
     storageRecords.delete(key)
   );
   const storageList = vi.fn(
-    async (options: { limit?: number; prefix?: string } = {}) =>
+    async (
+      options: { limit?: number; prefix?: string; startAfter?: string } = {}
+    ) =>
       new Map(
         [...storageRecords.entries()]
           .filter(([key]) =>
             options.prefix ? key.startsWith(options.prefix) : true
+          )
+          .filter(([key]) =>
+            options.startAfter ? key > options.startAfter : true
           )
           .sort(([left], [right]) => left.localeCompare(right))
           .slice(0, options.limit)
@@ -1224,7 +1244,10 @@ const createHarness = (input?: {
     socket,
     spaceStub,
     state,
+    storageGet,
+    storageList,
     storageSetAlarm,
+    storageTransaction,
     storagePut,
     storageRecords,
     waitUntilTasks,
@@ -1341,6 +1364,58 @@ const buildSuccessfulPostMessageTaskResult =
         type: "post_message",
       },
       status: "success",
+      taskId: "task-1",
+    },
+    v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  });
+
+const buildSuccessfulInternalOnlyTaskResult =
+  (): RuntimeTransportSubmitTaskResultRequest["taskResult"] => ({
+    code: "service.task_result",
+    payload: {
+      agentId: TARGET_AGENT_PROFILE_ID,
+      attemptId: "attempt-1",
+      deduped: false,
+      output: "No public reply is needed.",
+      sourceEventId: "signal-1",
+      status: "success",
+      suppressPublicOutcome: true,
+      taskId: "task-1",
+    },
+    v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  });
+
+const buildSuccessfulStaySilentTaskResult =
+  (): RuntimeTransportSubmitTaskResultRequest["taskResult"] => ({
+    code: "service.task_result",
+    payload: {
+      agentId: TARGET_AGENT_PROFILE_ID,
+      attemptId: "attempt-1",
+      deduped: false,
+      output: "No public reply is needed.",
+      sourceEventId: "signal-1",
+      spaceAction: {
+        reason: "The Wake does not need a reply.",
+        type: "stay_silent",
+      },
+      status: "success",
+      taskId: "task-1",
+    },
+    v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  });
+
+const buildFailedVisibleTaskResult =
+  (): RuntimeTransportSubmitTaskResultRequest["taskResult"] => ({
+    code: "service.task_result",
+    payload: {
+      agentId: TARGET_AGENT_PROFILE_ID,
+      attemptId: "attempt-1",
+      deduped: false,
+      errorCode: "quota.exceeded",
+      errorMessage: "Provider quota exhausted.",
+      errorType: "adapter",
+      sourceEventId: "signal-1",
+      status: "failed",
       taskId: "task-1",
     },
     v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
@@ -3209,6 +3284,638 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
+  it("does not report inactive when the legacy head index is missing an active Wake", async () => {
+    const { hub, storageRecords } = createHarness();
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    storageRecords.delete(RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY);
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcReadAgentProfileExecutionState: (input: {
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "active" });
+  });
+
+  it("rebuilds a stale active-profile projection from canonical execution truth", async () => {
+    const { hub, storageRecords } = createHarness();
+    storageRecords.set("runtime-coordinator:agent-profile-active-index:v1", [
+      TARGET_AGENT_PROFILE_ID,
+    ]);
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcReadAgentProfileExecutionState: (input: {
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "inactive" });
+  });
+
+  it("repairs a ready execution index that loses its per-profile admission", async () => {
+    const { hub, storageRecords } = createHarness();
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const executionStateHub = hub as unknown as {
+      rpcReadAgentProfileExecutionState: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    const request = {
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+    await expect(
+      executionStateHub.rpcReadAgentProfileExecutionState(request)
+    ).resolves.toEqual({ status: "active" });
+
+    const admissionKey = [...storageRecords.keys()].find((key) =>
+      key.startsWith(
+        "runtime-coordinator:agent-profile-execution-admission:v1:"
+      )
+    );
+    expect(admissionKey).toBeDefined();
+    storageRecords.delete(admissionKey as string);
+
+    await expect(
+      executionStateHub.rpcReadAgentProfileExecutionState(request)
+    ).resolves.toEqual({
+      reasonCode: "runtime_coordinator.execution_state_rebuilding",
+      status: "unavailable",
+    });
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    await expect(
+      executionStateHub.rpcReadAgentProfileExecutionState(request)
+    ).resolves.toEqual({ status: "active" });
+  });
+
+  it("bounds execution-state repair work instead of reading the full owner history", async () => {
+    const { hub, storageGet, storageList, storageRecords } = createHarness();
+    const historyIds: string[] = [];
+    for (let index = 0; index < 512; index += 1) {
+      const dispatchId = `history-dispatch-${String(index).padStart(4, "0")}`;
+      const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `history-client-message-${index}`,
+        dispatchId,
+        sourceSignalId: `history-signal-${index}`,
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: "agt_22222222-2222-4222-8222-222222222222",
+      });
+      const record: RuntimeCoordinatorHeadLifecycleRecord = {
+        createdAtMs: index,
+        duplicateDispatches: [],
+        executionLinkedAtMs: null,
+        modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+        ownerUserId: "owner-1",
+        primaryDispatchId: dispatchId,
+        primaryIdempotencyKey: `history-idempotency-${index}`,
+        runtimeCoordinatorExecutionId: null,
+        status: "publication_intent_ready",
+        targetWakeLifecycleId:
+          targetWakeLifecycleIdentity.targetWakeLifecycleId,
+        targetWakeLifecycleIdentity,
+        updatedAtMs: index,
+      };
+      historyIds.push(record.targetWakeLifecycleId);
+      storageRecords.set(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          record.targetWakeLifecycleId
+        ),
+        record
+      );
+    }
+    storageRecords.set(
+      RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
+      historyIds
+    );
+    storageGet.mockClear();
+
+    const executionStateHub = hub as unknown as {
+      rpcReadAgentProfileExecutionState: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    const readExecutionState = () =>
+      executionStateHub.rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+
+    await expect(readExecutionState()).resolves.toMatchObject({
+      status: "unavailable",
+    });
+    expect(storageGet.mock.calls.length).toBeLessThan(32);
+
+    for (let step = 0; step < 4; step += 1) {
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    }
+    await expect(readExecutionState()).resolves.toEqual({
+      status: "inactive",
+    });
+
+    storageList.mockClear();
+    await expect(readExecutionState()).resolves.toEqual({
+      status: "inactive",
+    });
+    expect(storageList).not.toHaveBeenCalled();
+  });
+
+  it("keeps a Wake that starts during index repair active after the repair completes", async () => {
+    const { hub, storageRecords } = createHarness();
+    for (let index = 0; index < 256; index += 1) {
+      const dispatchId = `repair-race-history-${String(index).padStart(4, "0")}`;
+      const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `repair-race-client-message-${index}`,
+        dispatchId,
+        sourceSignalId: `repair-race-signal-${index}`,
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: "agt_22222222-2222-4222-8222-222222222222",
+      });
+      const record: RuntimeCoordinatorHeadLifecycleRecord = {
+        createdAtMs: index,
+        duplicateDispatches: [],
+        executionLinkedAtMs: null,
+        modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+        ownerUserId: "owner-1",
+        primaryDispatchId: dispatchId,
+        primaryIdempotencyKey: `repair-race-idempotency-${index}`,
+        runtimeCoordinatorExecutionId: null,
+        status: "publication_intent_ready",
+        targetWakeLifecycleId:
+          targetWakeLifecycleIdentity.targetWakeLifecycleId,
+        targetWakeLifecycleIdentity,
+        updatedAtMs: index,
+      };
+      storageRecords.set(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          record.targetWakeLifecycleId
+        ),
+        record
+      );
+    }
+
+    const executionStateHub = hub as unknown as {
+      rpcReadAgentProfileExecutionState: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    await expect(
+      executionStateHub.rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({ status: "unavailable" });
+
+    const acceptedDuringRepair = await acceptDefaultRuntimeCoordinatorHead(hub);
+    expect(acceptedDuringRepair.status).toBe(200);
+
+    await expect(
+      executionStateHub.rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "active" });
+  });
+
+  it("retries a transient index repair failure instead of locking normal changes forever", async () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    try {
+      const { hub, storageList } = createHarness();
+      storageList.mockRejectedValueOnce(new Error("transient storage failure"));
+      const executionStateHub = hub as unknown as {
+        rpcReadAgentProfileExecutionState: (input: {
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<unknown>;
+      };
+      const readExecutionState = () =>
+        executionStateHub.rpcReadAgentProfileExecutionState({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        });
+
+      await expect(readExecutionState()).resolves.toEqual({
+        reasonCode: "runtime_coordinator.execution_state_repair_failed",
+        status: "unavailable",
+      });
+
+      vi.setSystemTime(1_700_000_005_001);
+      await expect(readExecutionState()).resolves.toEqual({
+        status: "inactive",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("backs off and recovers when applying an index repair page fails", async () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    try {
+      const { hub, storagePut, storageRecords } = createHarness();
+      await acceptDefaultRuntimeCoordinatorHead(hub);
+      await expect(
+        (
+          hub as unknown as {
+            rpcReadAgentProfileExecutionState: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileExecutionState({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({ status: "active" });
+
+      const readyIndex = storageRecords.get(
+        "runtime-coordinator:agent-profile-execution-index:v1"
+      ) as { generation: number; modelVersion: string; ownerUserId: string };
+      storageRecords.set(
+        "runtime-coordinator:agent-profile-execution-index:v1",
+        {
+          cursor: null,
+          failureCount: 0,
+          generation: readyIndex.generation + 1,
+          modelVersion: readyIndex.modelVersion,
+          ownerUserId: readyIndex.ownerUserId,
+          phase: "head_lifecycles",
+          repairRequested: true,
+          status: "rebuilding",
+          updatedAtMs: Date.now(),
+        }
+      );
+      storageRecords.set("runtime-coordinator:agent-profile-active-index:v1", {
+        generation: readyIndex.generation + 1,
+        modelVersion:
+          "openmeld.runtime_coordinator.agent_profile_active_index.v1",
+        targetProfileIds: [],
+      });
+      const originalStoragePut = storagePut.getMockImplementation();
+      expect(originalStoragePut).toBeDefined();
+      let shouldFailRepairApply = true;
+      storagePut.mockImplementation((key: string, value: unknown) => {
+        if (
+          shouldFailRepairApply &&
+          key.startsWith(
+            "runtime-coordinator:agent-profile-execution-admission:v1:"
+          )
+        ) {
+          shouldFailRepairApply = false;
+          return Promise.reject(new Error("repair page apply unavailable"));
+        }
+        return originalStoragePut?.(key, value) ?? Promise.resolve();
+      });
+
+      const readExecutionState = () =>
+        (
+          hub as unknown as {
+            rpcReadAgentProfileExecutionState: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileExecutionState({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        });
+      await expect(readExecutionState()).resolves.toEqual({
+        reasonCode: "runtime_coordinator.execution_state_repair_failed",
+        status: "unavailable",
+      });
+
+      vi.setSystemTime(1_700_000_005_001);
+      await expect(readExecutionState()).resolves.toEqual({ status: "active" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps per-profile execution references bounded", async () => {
+    const { hub, storageRecords } = createHarness();
+    for (let index = 0; index < 130; index += 1) {
+      const dispatchId = `bounded-dispatch-${index}`;
+      const response = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        buildRuntimeCoordinatorHeadAcceptRequest({
+          dispatchId,
+          idempotencyKey: `bounded-idempotency-${index}`,
+          targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+            clientMessageId: `bounded-client-message-${index}`,
+            dispatchId,
+            sourceSignalId: `bounded-signal-${index}`,
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+          }),
+        })
+      );
+      expect(response.status).toBe(200);
+    }
+
+    const admission = [...storageRecords.entries()].find(([key]) =>
+      key.startsWith(
+        "runtime-coordinator:agent-profile-execution-admission:v1:"
+      )
+    )?.[1] as
+      | { activeHeadLifecycleIds?: unknown[]; referencesOverflowed?: boolean }
+      | undefined;
+    expect(admission?.activeHeadLifecycleIds).toHaveLength(128);
+    expect(admission?.referencesOverflowed).toBe(true);
+  });
+
+  it("fails closed without batch-reading corrupted over-limit execution references", async () => {
+    const seeded = createHarness();
+    await acceptDefaultRuntimeCoordinatorHead(seeded.hub);
+    await expect(
+      (
+        seeded.hub as unknown as {
+          rpcReadAgentProfileExecutionState: (input: {
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "active" });
+    const storageRecords = new Map(seeded.storageRecords);
+    const { hub, storageGet } = createHarness({ storageRecords });
+    const admissionKey =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const admission = storageRecords.get(admissionKey);
+    expect(admission).toBeDefined();
+    storageRecords.set(admissionKey, {
+      ...(admission as Record<string, unknown>),
+      activeExecutionIds: Array.from(
+        { length: 129 },
+        (_, index) => `corrupt-execution-${index}`
+      ),
+      activeHeadLifecycleIds: [],
+      referencesOverflowed: false,
+    });
+    expect(
+      (
+        storageRecords.get(admissionKey) as {
+          activeExecutionIds: string[];
+        }
+      ).activeExecutionIds
+    ).toHaveLength(129);
+    storageGet.mockClear();
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcReadAgentProfileExecutionState: (input: {
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({ status: "unavailable" });
+    expect(
+      storageGet.mock.calls.some(
+        ([key]) => Array.isArray(key) && key.length > 128
+      )
+    ).toBe(false);
+  });
+
+  it("serializes Controller mutation admission with new Wake acceptance", async () => {
+    const { hub } = createHarness();
+    const mutationHub = hub as unknown as {
+      rpcAcquireAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<{
+        expiresAtMs?: number;
+        operationId?: string;
+        status: string;
+      }>;
+      rpcReleaseAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<{ status: string }>;
+    };
+
+    await expect(
+      mutationHub.rpcAcquireAgentProfileControllerMutation({
+        operationId: "controller-mutation-1",
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({
+      operationId: "controller-mutation-1",
+      status: "acquired",
+    });
+
+    const blockedAccept = await acceptDefaultRuntimeCoordinatorHead(hub);
+    expect(blockedAccept.status).toBe(503);
+    await expect(blockedAccept.json()).resolves.toMatchObject({
+      ok: false,
+      reasonCode: "runtime_coordinator.execution_target_mutation_in_progress",
+      status: "retry_later",
+    });
+
+    await expect(
+      mutationHub.rpcReleaseAgentProfileControllerMutation({
+        operationId: "controller-mutation-1",
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "released" });
+
+    const acceptedAfterRelease = await acceptDefaultRuntimeCoordinatorHead(hub);
+    expect(acceptedAfterRelease.status).toBe(200);
+    await expect(acceptedAfterRelease.json()).resolves.toMatchObject({
+      action: "create_execution",
+      ok: true,
+      status: "accepted",
+    });
+  });
+
+  it("rechecks both sides when Wake acceptance and execution-target mutation overlap", async () => {
+    const createMutationHub = (hub: RuntimeTransportHub) =>
+      hub as unknown as {
+        rpcAcquireAgentProfileControllerMutation: (input: {
+          operationId: string;
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<{ status: string }>;
+        rpcReadAgentProfileExecutionState: (input: {
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<unknown>;
+      };
+    const pauseNextTransaction = (
+      storageTransaction: ReturnType<typeof vi.fn>
+    ) => {
+      const original = storageTransaction.getMockImplementation();
+      expect(original).toBeDefined();
+      let signalEntered: (() => void) | null = null;
+      let signalRelease: (() => void) | null = null;
+      const entered = new Promise<void>((resolve) => {
+        signalEntered = resolve;
+      });
+      const release = new Promise<void>((resolve) => {
+        signalRelease = resolve;
+      });
+      storageTransaction.mockImplementationOnce(
+        async (
+          operation: (transaction: DurableObjectTransaction) => unknown
+        ) => {
+          signalEntered?.();
+          await release;
+          return await original?.(operation);
+        }
+      );
+      return {
+        entered,
+        release: () => signalRelease?.(),
+      };
+    };
+    const executionStateRequest = {
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+
+    const mutationFirst = createHarness();
+    const mutationFirstHub = createMutationHub(mutationFirst.hub);
+    await expect(
+      mutationFirstHub.rpcReadAgentProfileExecutionState(executionStateRequest)
+    ).resolves.toEqual({ status: "inactive" });
+    const pausedMutation = pauseNextTransaction(
+      mutationFirst.storageTransaction
+    );
+    const mutationPromise =
+      mutationFirstHub.rpcAcquireAgentProfileControllerMutation({
+        operationId: "overlapping-mutation",
+        ...executionStateRequest,
+      });
+    await pausedMutation.entered;
+    const acceptedWake = await acceptDefaultRuntimeCoordinatorHead(
+      mutationFirst.hub
+    );
+    expect(acceptedWake.status).toBe(200);
+    pausedMutation.release();
+    await expect(mutationPromise).resolves.toMatchObject({ status: "blocked" });
+
+    const wakeFirst = createHarness();
+    const wakeFirstHub = createMutationHub(wakeFirst.hub);
+    await expect(
+      wakeFirstHub.rpcReadAgentProfileExecutionState(executionStateRequest)
+    ).resolves.toEqual({ status: "inactive" });
+    const pausedWake = pauseNextTransaction(wakeFirst.storageTransaction);
+    const wakePromise = acceptDefaultRuntimeCoordinatorHead(wakeFirst.hub);
+    await pausedWake.entered;
+    await expect(
+      wakeFirstHub.rpcAcquireAgentProfileControllerMutation({
+        operationId: "overlapping-mutation",
+        ...executionStateRequest,
+      })
+    ).resolves.toMatchObject({ status: "acquired" });
+    pausedWake.release();
+    const blockedWake = await wakePromise;
+    expect(blockedWake.status).toBe(503);
+    await expect(blockedWake.json()).resolves.toMatchObject({
+      reasonCode: "runtime_coordinator.execution_target_mutation_in_progress",
+      status: "retry_later",
+    });
+  });
+
+  it("lets a new Wake proceed after an abandoned Controller mutation lease expires", async () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    try {
+      const { hub } = createHarness();
+      const mutationHub = hub as unknown as {
+        rpcAcquireAgentProfileControllerMutation: (input: {
+          operationId: string;
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<{ expiresAtMs?: number; status: string }>;
+      };
+      await expect(
+        mutationHub.rpcAcquireAgentProfileControllerMutation({
+          operationId: "abandoned-controller-mutation",
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({ status: "acquired" });
+
+      vi.setSystemTime(1_700_000_300_001);
+      const acceptedAfterExpiry =
+        await acceptDefaultRuntimeCoordinatorHead(hub);
+      expect(acceptedAfterExpiry.status).toBe(200);
+      await expect(acceptedAfterExpiry.json()).resolves.toMatchObject({
+        action: "create_execution",
+        ok: true,
+        status: "accepted",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a new Wake blocked while an unknown working-folder outcome may arrive late", async () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    try {
+      const { hub } = createHarness();
+      const mutationHub = hub as unknown as {
+        rpcAcquireAgentProfileControllerMutation: (input: {
+          operationId: string;
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<{ status: string }>;
+      };
+      await expect(
+        mutationHub.rpcAcquireAgentProfileControllerMutation({
+          operationId: "working-folder-outcome-unknown",
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({ status: "acquired" });
+
+      const blockedWhileLateResultIsPossible =
+        await acceptDefaultRuntimeCoordinatorHead(hub);
+      expect(blockedWhileLateResultIsPossible.status).toBe(503);
+      await expect(
+        blockedWhileLateResultIsPossible.json()
+      ).resolves.toMatchObject({
+        reasonCode: "runtime_coordinator.execution_target_mutation_in_progress",
+        status: "retry_later",
+      });
+
+      vi.setSystemTime(1_700_000_300_001);
+      const acceptedAfterUnknownOutcomeLease =
+        await acceptDefaultRuntimeCoordinatorHead(hub);
+      expect(acceptedAfterUnknownOutcomeLease.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("records pre-agent Stop before execution without creating execution authority", async () => {
     const { hub, spaceFetchRequests, storageRecords } = createHarness();
     const stopRequest = buildRuntimeCoordinatorHeadPreAgentStopRequest();
@@ -4441,6 +5148,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "cancelled",
       },
     });
+    await expect(
+      (
+        hub as unknown as {
+          rpcReadAgentProfileExecutionState: (input: {
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "inactive" });
     const events = getRuntimeCoordinatorEventCalls(recordingD1.calls);
     expect(events.some((call) => call.params[2] === "reply_published")).toBe(
       false
@@ -10814,6 +11534,181 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toBe(true);
   });
 
+  it("fails closed when Space reports non-visible silence as a successful finalization", async () => {
+    const {
+      appliedFinalizationCommands,
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
+      (command: RuntimeCoordinatorFinalizationCommand) => {
+        appliedFinalizationCommands.push(command);
+        return {
+          finalMessageKind: "stay_silent" as const,
+          finalizationCommandId: command.finalizationCommandId,
+          ok: true as const,
+          publicationErrorCode: null,
+          publishedSignalId: null,
+          publishState: "invalid_space_action" as const,
+          status: "finalized" as const,
+        };
+      }
+    );
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        taskResult: buildSuccessfulInternalOnlyTaskResult(),
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+
+    expect(appliedFinalizationCommands).toHaveLength(1);
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({ status: "failed_terminal" });
+    expect(
+      JSON.parse(
+        String(
+          recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+            ?.terminal_outcome_json
+        )
+      )
+    ).toMatchObject({
+      kind: "failed_terminal",
+      reasonCode: "agent_task.invalid_space_action",
+    });
+    expect(
+      recordingD1.calls
+        .filter((call) =>
+          call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+        )
+        .map((call) => call.params[2])
+    ).toEqual(["failed"]);
+    const [, authority] =
+      findRuntimeCoordinatorExecutionTokenAuthorityEntry(storageRecords) ?? [];
+    expect(authority).toMatchObject({
+      terminalOutcome: {
+        reasonCode: "agent_task.invalid_space_action",
+        replySignalId: null,
+        status: "failed_terminal",
+      },
+    });
+    expect(spaceStub.rpcCloseAgentStream).toHaveBeenCalledWith({
+      spaceId: HEX_SPACE_ID,
+      streamId: "local-agent:10.dispatch-1:9.attempt-1",
+      terminal: {
+        kind: "failed",
+        noticeText:
+          "The Agent finished, but did not produce a valid Space reply.",
+        reasonCode: "daemon.result.invalid_space_action",
+      },
+    });
+  });
+
+  it("keeps a published failure notice failed across RuntimeCoordinator truth", async () => {
+    const {
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+    try {
+      await (
+        hub as unknown as {
+          handleDispatchResultFrame: (
+            webSocket: WebSocket,
+            payload: unknown
+          ) => Promise<void>;
+        }
+      ).handleDispatchResultFrame(
+        socket,
+        buildResultRequest({
+          executionTokenEcho: buildExecutionTokenEcho(executionToken),
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          taskResult: buildFailedVisibleTaskResult(),
+        })
+      );
+      await Promise.all(waitUntilTasks.splice(0));
+
+      expect(
+        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      ).toMatchObject({
+        status: "failed_terminal",
+      });
+      expect(
+        JSON.parse(
+          String(
+            recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+              ?.terminal_outcome_json
+          )
+        )
+      ).toMatchObject({
+        kind: "failed_terminal",
+        reasonCode: "quota.exceeded",
+      });
+      expect(
+        recordingD1.calls
+          .filter((call) =>
+            call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+          )
+          .map((call) => call.params[2])
+      ).toEqual(["failed"]);
+      const [, authority] =
+        findRuntimeCoordinatorExecutionTokenAuthorityEntry(storageRecords) ??
+        [];
+      expect(authority).toMatchObject({
+        terminalOutcome: {
+          reasonCode: "quota.exceeded",
+          replySignalId: "signal-final-1",
+          status: "failed_terminal",
+        },
+      });
+      expect(consoleInfo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "core.openmeld.space.final_visible_outcome_observed",
+          reasonCode: "quota.exceeded",
+          status: "failed",
+        })
+      );
+    } finally {
+      consoleInfo.mockRestore();
+    }
+  });
+
   it("refuses to mint a replay command from D1 accepted result facts", async () => {
     const {
       appliedFinalizationCommands,
@@ -11014,6 +11909,101 @@ describe("runtime transport runtime coordinator transport contract", () => {
       reasonCode: "daemon.result.finalization_unavailable",
       status: "retry_later",
     });
+  });
+
+  it("upgrades a legacy stored finalization outcome from the verified Space claim", async () => {
+    const {
+      appliedFinalizationCommands,
+      hub,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+
+    const command = appliedFinalizationCommands[0];
+    if (!command) {
+      throw new Error("Expected a RuntimeCoordinator finalization command.");
+    }
+    const outcomeKey = buildRuntimeCoordinatorFinalizationOutcomeStorageKey(
+      command.finalizationCommandId
+    );
+    const storedOutcome = storageRecords.get(outcomeKey) as Extract<
+      RuntimeCoordinatorFinalizationOutcome,
+      { ok: true }
+    >;
+    const { finalMessageKind: _legacyMissingKind, ...legacyOutcome } =
+      storedOutcome;
+    storageRecords.set(outcomeKey, legacyOutcome);
+    (
+      spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome as ReturnType<
+        typeof vi.fn
+      >
+    ).mockResolvedValue({
+      outcome: {
+        ...storedOutcome,
+        status: "already_final" as const,
+      },
+      status: "finalization_visible" as const,
+    });
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcReplayRuntimeCoordinatorFinalizationCommand: (
+            input: Record<string, string>
+          ) => Promise<unknown>;
+        }
+      ).rpcReplayRuntimeCoordinatorFinalizationCommand({
+        attemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        executionTokenRunId: executionToken.runId,
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        spaceId: HEX_SPACE_ID,
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      outcome: {
+        finalMessageKind: "success_reply",
+        publishedSignalId: "signal-final-1",
+        publishState: "reply_published",
+      },
+    });
+    expect(storageRecords.get(outcomeKey)).toEqual(
+      expect.objectContaining({
+        finalMessageKind: "success_reply",
+        publishedSignalId: "signal-final-1",
+        publishState: "reply_published",
+      })
+    );
+    expect(
+      spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome
+    ).toHaveBeenCalledTimes(1);
+    expect(appliedFinalizationCommands).toHaveLength(1);
   });
 
   it("repairs stream closure separately after reply publication succeeds", async () => {
@@ -11333,6 +12323,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             };
           }
           return {
+            finalMessageKind: "success_reply" as const,
             finalizationCommandId: command.finalizationCommandId,
             ok: true as const,
             publicationErrorCode: null,
@@ -11889,6 +12880,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             };
           }
           return {
+            finalMessageKind: "success_reply" as const,
             finalizationCommandId: command.finalizationCommandId,
             ok: true as const,
             publicationErrorCode: null,
@@ -12432,6 +13424,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
         Promise.resolve({
           outcome: {
+            finalMessageKind: "success_reply" as const,
             finalizationCommandId: command.finalizationCommandId,
             ok: true as const,
             publicationErrorCode: null,
@@ -12441,6 +13434,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
           },
           status: "finalization_visible" as const,
         })
+      );
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
+        (command: RuntimeCoordinatorFinalizationCommand) => {
+          appliedFinalizationCommands.push(command);
+          return {
+            finalMessageKind: "success_reply" as const,
+            finalizationCommandId: command.finalizationCommandId,
+            ok: true as const,
+            publicationErrorCode: null,
+            publishedSignalId: "signal-after-terminal-decision",
+            publishState: "reply_published" as const,
+            status: "already_final" as const,
+          };
+        }
       );
 
       const taskProjectionAttemptAtMs =
@@ -12452,7 +13459,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(3);
+      expect(appliedFinalizationCommands).toHaveLength(4);
       expect(
         storageRecords.get(
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
@@ -12681,14 +13688,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await expect(
       (
         hub as unknown as {
-          setRuntimeCoordinatorPublishedTerminalOutcome: (input: {
+          setRuntimeCoordinatorFinalizationTerminalOutcome: (input: {
             command: RuntimeCoordinatorFinalizationCommand;
+            executionSemantic: {
+              reasonCode: null;
+              status: "succeeded";
+            };
             nowMs: number;
-            publishedSignalId: string;
+            publishedSignalId: string | null;
           }) => Promise<boolean>;
         }
-      ).setRuntimeCoordinatorPublishedTerminalOutcome({
+      ).setRuntimeCoordinatorFinalizationTerminalOutcome({
         command,
+        executionSemantic: { reasonCode: null, status: "succeeded" },
         nowMs: 1_700_000_200_000,
         publishedSignalId: "signal-late-visible-reply",
       })
@@ -12699,7 +13711,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toEqual(terminalOutcome);
   });
 
-  it("keeps a legacy retry when a stored success conflicts with Agent Task publication_failed", async () => {
+  it("keeps a legacy retry when its verified success conflicts with Agent Task publication_failed", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
       // Intentionally suppress the expected structured warning.
@@ -12812,12 +13824,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceStub.rpcCloseAgentStream.mockClear();
 
       (
-        spaceStub.rpcApplyRuntimeCoordinatorPublicationExhaustionCommand as ReturnType<
+        spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome as ReturnType<
           typeof vi.fn
         >
       ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
         Promise.resolve({
           outcome: {
+            finalMessageKind: "success_reply" as const,
             finalizationCommandId: command.finalizationCommandId,
             ok: true as const,
             publicationErrorCode: null,
@@ -13517,9 +14530,21 @@ describe("runtime transport runtime coordinator transport contract", () => {
         socket,
         state,
       });
+      let finalClaimVisible = false;
       spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
         (command: RuntimeCoordinatorFinalizationCommand) => {
           appliedFinalizationCommands.push(command);
+          if (finalClaimVisible) {
+            return {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            };
+          }
           return {
             finalizationCommandId: command.finalizationCommandId,
             ok: false as const,
@@ -13535,16 +14560,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
           typeof vi.fn
         >
       ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
-        Promise.resolve({
-          outcome: {
-            finalizationCommandId: command.finalizationCommandId,
-            ok: true as const,
-            publicationErrorCode: null,
-            publishedSignalId: "signal-visible-final",
-            publishState: "reply_published" as const,
-            status: "already_final" as const,
-          },
-          status: "finalization_visible" as const,
+        Promise.resolve().then(() => {
+          finalClaimVisible = true;
+          return {
+            outcome: {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            },
+            status: "finalization_visible" as const,
+          };
         })
       );
 
@@ -13583,7 +14612,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(3);
+      expect(appliedFinalizationCommands).toHaveLength(4);
       expect(
         spaceStub.rpcApplyRuntimeCoordinatorPublicationExhaustionCommand
       ).toHaveBeenCalled();
@@ -13664,9 +14693,21 @@ describe("runtime transport runtime coordinator transport contract", () => {
         socket,
         state,
       });
+      let finalClaimVisible = false;
       spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
         (command: RuntimeCoordinatorFinalizationCommand) => {
           appliedFinalizationCommands.push(command);
+          if (finalClaimVisible) {
+            return {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final-repair",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            };
+          }
           return {
             finalizationCommandId: command.finalizationCommandId,
             ok: false as const,
@@ -13682,16 +14723,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
           typeof vi.fn
         >
       ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
-        Promise.resolve({
-          outcome: {
-            finalizationCommandId: command.finalizationCommandId,
-            ok: true as const,
-            publicationErrorCode: null,
-            publishedSignalId: "signal-visible-final-repair",
-            publishState: "reply_published" as const,
-            status: "already_final" as const,
-          },
-          status: "finalization_visible" as const,
+        Promise.resolve().then(() => {
+          finalClaimVisible = true;
+          return {
+            outcome: {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final-repair",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            },
+            status: "finalization_visible" as const,
+          };
         })
       );
 
@@ -13730,7 +14775,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(3);
+      expect(appliedFinalizationCommands).toHaveLength(4);
       expect(
         storageRecords.get(
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
@@ -13767,7 +14812,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(3);
+      expect(appliedFinalizationCommands).toHaveLength(4);
       expect(
         storageRecords.get(
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
@@ -13821,9 +14866,21 @@ describe("runtime transport runtime coordinator transport contract", () => {
         socket,
         state,
       });
+      let finalClaimVisible = false;
       spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
         (command: RuntimeCoordinatorFinalizationCommand) => {
           appliedFinalizationCommands.push(command);
+          if (finalClaimVisible) {
+            return {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final-after-retry",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            };
+          }
           return {
             finalizationCommandId: command.finalizationCommandId,
             ok: false as const,
@@ -13897,16 +14954,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
           typeof vi.fn
         >
       ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
-        Promise.resolve({
-          outcome: {
-            finalizationCommandId: command.finalizationCommandId,
-            ok: true as const,
-            publicationErrorCode: null,
-            publishedSignalId: "signal-visible-final-after-retry",
-            publishState: "reply_published" as const,
-            status: "already_final" as const,
-          },
-          status: "finalization_visible" as const,
+        Promise.resolve().then(() => {
+          finalClaimVisible = true;
+          return {
+            outcome: {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final-after-retry",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            },
+            status: "finalization_visible" as const,
+          };
         })
       );
       const taskRepairAtMs =
@@ -13918,7 +14979,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(4);
+      expect(appliedFinalizationCommands).toHaveLength(5);
       expect(
         storageRecords.get(
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
@@ -13951,7 +15012,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(5);
+      expect(appliedFinalizationCommands).toHaveLength(6);
       expect(
         storageRecords.get(
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
@@ -13972,7 +15033,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("lets an in-flight late publication settle before exhaustion decides the terminal outcome", async () => {
+  it("lets an in-flight late failure publication settle before exhaustion decides the terminal outcome", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       const {
@@ -14048,6 +15109,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             markLatePublicationStarted();
             await latePublicationGate;
             return {
+              finalMessageKind: "failure_notice" as const,
               finalizationCommandId: command.finalizationCommandId,
               ok: true as const,
               publicationErrorCode: null,
@@ -14122,13 +15184,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
         expect(
           recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
         ).toMatchObject({
-          status: "reply_published",
+          status: "failed_terminal",
         });
       });
       expect(
         recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
       ).toMatchObject({
-        status: "reply_published",
+        status: "failed_terminal",
       });
       expect(
         recordingD1.inboxRows.get("dispatch-1::attempt-1")?.published_signal_id
@@ -14139,7 +15201,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             call.query.includes("INSERT INTO agent_task_terminal_outcomes")
           )
           .map((call) => call.params[2])
-      ).toEqual(["succeeded"]);
+      ).toEqual(["failed"]);
     } finally {
       nowSpy.mockRestore();
     }
@@ -14202,16 +15264,34 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand as ReturnType<
         typeof vi.fn
       >
+    ).mockClear();
+    let replayApplyCallCount = 0;
+    (
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand as ReturnType<
+        typeof vi.fn
+      >
     ).mockImplementation(
       async (command: RuntimeCoordinatorFinalizationCommand) => {
-        await publicationResponseGate;
+        replayApplyCallCount += 1;
+        if (replayApplyCallCount === 1) {
+          await publicationResponseGate;
+          return {
+            finalizationCommandId: command.finalizationCommandId,
+            ok: false as const,
+            publicationErrorCode: "space.task_outcome_write_failed",
+            publishedSignalId: null,
+            publishState: "reply_publication_failed" as const,
+            status: "retry_later" as const,
+          };
+        }
         return {
+          finalMessageKind: "success_reply" as const,
           finalizationCommandId: command.finalizationCommandId,
-          ok: false as const,
-          publicationErrorCode: "space.task_outcome_write_failed",
-          publishedSignalId: null,
-          publishState: "reply_publication_failed" as const,
-          status: "retry_later" as const,
+          ok: true as const,
+          publicationErrorCode: null,
+          publishedSignalId: "signal-claim-recovered",
+          publishState: "reply_published" as const,
+          status: "already_final" as const,
         };
       }
     );
@@ -14222,11 +15302,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
       Promise.resolve({
         outcome: {
+          finalMessageKind: "success_reply" as const,
           finalizationCommandId: command.finalizationCommandId,
           ok: true as const,
           publicationErrorCode: null,
           publishedSignalId: "signal-claim-recovered",
-          publishState: "invalid_space_action" as const,
+          publishState: "reply_published" as const,
           status: "already_final" as const,
         },
         status: "finalization_visible" as const,
@@ -14251,14 +15332,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ok: true,
       outcome: {
         publishedSignalId: "signal-claim-recovered",
-        publishState: "invalid_space_action",
+        publishState: "reply_published",
         status: "already_final",
       },
     });
     expect(
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
+    ).toHaveBeenCalledTimes(2);
+    expect(
       wakeEvidenceD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
     ).toMatchObject({
-      status: "failed_terminal",
+      status: "reply_published",
     });
     expect(
       recordingD1.calls.some((call) =>
@@ -14293,7 +15377,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({
       ok: true,
       publishedSignalId: "signal-claim-recovered",
-      publishState: "invalid_space_action",
+      publishState: "reply_published",
     });
     expect(
       storageRecords.get(
@@ -14699,6 +15783,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         await publishGate;
         appliedFinalizationCommands.push(command);
         return {
+          finalMessageKind: "success_reply" as const,
           finalizationCommandId: command.finalizationCommandId,
           ok: true as const,
           publicationErrorCode: null,
@@ -14772,6 +15857,158 @@ describe("runtime transport runtime coordinator transport contract", () => {
         RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
       ) as unknown[] | undefined) ?? []
     ).toHaveLength(0);
+  });
+
+  it.each([
+    ["raw_context_sharing reply", buildResultRequest().taskResult],
+    ["stay_silent notice", buildSuccessfulStaySilentTaskResult()],
+  ])("keeps a first legacy %s result retryable until Space confirms its final claim", async (_label, taskResult) => {
+    const {
+      appliedFinalizationCommands,
+      hub,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
+      (command: RuntimeCoordinatorFinalizationCommand) => {
+        appliedFinalizationCommands.push(command);
+        return {
+          finalizationCommandId: command.finalizationCommandId,
+          ok: true as const,
+          publicationErrorCode: null,
+          publishedSignalId: "signal-legacy-final",
+          publishState: "reply_published" as const,
+          status: "finalized" as const,
+        };
+      }
+    );
+    spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome.mockResolvedValue(
+      { status: "unresolved" as const }
+    );
+
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        taskResult,
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+
+    expect(
+      spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome
+    ).toHaveBeenCalledOnce();
+    expect(
+      storageRecords.get(
+        RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
+      )
+    ).toEqual([
+      expect.objectContaining({
+        dispatchId: "dispatch-1",
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      }),
+    ]);
+  });
+
+  it("uses the visible Space claim instead of legacy task prose to classify the first final result", async () => {
+    const {
+      hub,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
+      (command: RuntimeCoordinatorFinalizationCommand) => ({
+        finalizationCommandId: command.finalizationCommandId,
+        ok: true as const,
+        publicationErrorCode: null,
+        publishedSignalId: "signal-legacy-final",
+        publishState: "reply_published" as const,
+        status: "finalized" as const,
+      })
+    );
+    (
+      spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome as ReturnType<
+        typeof vi.fn
+      >
+    ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) => ({
+      outcome: {
+        finalMessageKind: "stay_silent" as const,
+        finalizationCommandId: command.finalizationCommandId,
+        ok: true as const,
+        publicationErrorCode: null,
+        publishedSignalId: "signal-legacy-final",
+        publishState: "reply_published" as const,
+        status: "already_final" as const,
+      },
+      status: "finalization_visible" as const,
+    }));
+
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+
+    expect(
+      spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome
+    ).toHaveBeenCalledOnce();
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorFinalizationOutcomeStorageKey(
+          buildRuntimeCoordinatorFinalizationCommandId({
+            executionTokenRunId: executionToken.runId,
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          })
+        )
+      )
+    ).toMatchObject({
+      finalMessageKind: "stay_silent",
+      publishedSignalId: "signal-legacy-final",
+      publishState: "reply_published",
+    });
+    expect(
+      storageRecords.get(
+        RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
+      )
+    ).toEqual([]);
   });
 
   it("returns review_required without accepting the result when a capable Service proposed a stale reply", async () => {

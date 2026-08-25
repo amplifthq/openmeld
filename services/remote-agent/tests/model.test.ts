@@ -207,6 +207,47 @@ describe("remote agent model routing", () => {
     }
   });
 
+  it("wires the frozen route budget into final provider preflight", async () => {
+    resetProviderRuntime();
+    try {
+      const constrainedRoute = {
+        ...TEST_CENTER_AGENT_MODEL_ROUTE,
+        contextWindow: 600,
+      };
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        modelRoute: constrainedRoute,
+        organizationId: "org_constrained",
+      });
+      const model = resolveModel(runtime.modelSpecifier);
+      const stream = streamRegisteredModel(
+        model,
+        {
+          messages: [
+            {
+              content: "x".repeat(2000),
+              role: "user",
+              timestamp: 1,
+            },
+          ],
+        },
+        { apiKey: "unused" }
+      );
+
+      await expect(stream.result()).resolves.toMatchObject({
+        errorMessage: expect.stringContaining(
+          "context_length_exceeded: estimated provider input"
+        ),
+        stopReason: "error",
+      });
+    } finally {
+      resetProviderRuntime();
+    }
+  });
+
   it("preserves OpenRouter reasoning for a scoped Grok provider", async () => {
     resetProviderRuntime();
     try {

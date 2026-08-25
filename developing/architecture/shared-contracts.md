@@ -597,6 +597,30 @@ CLI retains its legacy fallback because no `local_machine.*` code is present.
 No cloud service or Wake transport payload became stricter, so these clients
 and the CLI can roll out in either order.
 
+### macOS Keychain Helper Contract
+
+`packages/schemas/src/schemas/local-machine/macos-keychain-helper.ts` owns the
+strict private request and response contract between the packaged macOS CLI
+and its short-lived Keychain helper process. Version 2 supports only `store`,
+`read`, and `delete`, bounds every field, and rejects unknown fields. A `read`
+request and the `store` and `delete` mutations must all declare
+`authenticationInteraction: "disallow"`. The access token is carried through
+stdin rather than argv. This contract never crosses the computer boundary and
+carries no Space, Agent Profile, Wake, Service readiness, or
+RuntimeCoordinator authority.
+
+The parent CLI owns the five-second deadline and kills a helper that does not
+return. The helper owns the one synchronous Security.framework call. Before a
+Security.framework call, the helper disables Keychain user interaction for its
+process and also applies modern and legacy noninteractive query policies. An
+operation that needs approval therefore returns an explicit local storage
+failure instead of opening a system authorization window that can outlive the
+helper. The helper restores the previous process interaction setting after the
+call. The timeout remains a final crash or platform-hang backstop; it is not the
+way OpenMeld cancels authentication UI. Parent and helper are always the same
+packaged binary version, so no mixed-version rollout exists at this private
+boundary.
+
 ### Center Agent Project Tool Contracts
 
 `packages/schemas/src/schemas/http/center-agent-projects.ts` owns the
@@ -993,14 +1017,18 @@ array to a workstation route only when the route reports
 unsupported routes. The local service then uses the existing authenticated
 attachment download route and provides validated local file paths to the Agent
 Controller. Hosted Center Agent native delivery has a separate explicit
-image-input contract: Core reads the triggering Space signal through the
-authorized Space RPC, copies the optional attachment reference subset into
-`remoteAgentWorkerTurnMessageSchema.attachments`, and never puts image bytes
-into the worker RPC. The Remote Agent worker combines the request's existing
-`organizationId` and `spaceId` with each attachment id through
-`buildSpaceAttachmentObjectKey`, reads the private R2 object, and sends validated
-base64 images to Flue. Clients must not derive image rendering from Markdown or
-relax the Markdown image policy.
+image-input contract. Legacy Message Channel attachment records remain bounded
+compatibility inputs: Core copies their metadata references into
+`remoteAgentWorkerTurnMessageSchema.attachments`, and Remote Agent derives their
+private object address from the request's existing Organization and Space
+identity. Current Space messages use canonical Space File references instead:
+Core reauthorizes the exact immutable revision through the owning Space Durable
+Object and sends its private object key to Remote Agent. Remote Agent reads the
+exact source, creates a bounded transient WebP derivative, and sends only that
+derivative to the auxiliary image-understanding route. Flue's persistent primary
+conversation receives escaped text observations and immutable file metadata,
+never source or derivative image bytes. Clients must not derive image rendering
+from Markdown or relax the Markdown image policy.
 
 Remote Agent browser screenshots reuse the same attachment contract in the
 opposite direction. The worker asks Core to create organization- and
@@ -1038,10 +1066,14 @@ alternate file shapes, paths, or MIME maps.
 The shared file contract uses stable entry ids and immutable revision ids.
 Content writes carry `baseRevision` (`null` only when creating a file) plus a
 client mutation id. The canonical response returns the committed revision. A
-stale base is `space_file.conflict`; name collisions, invalid parents, and
-missing entries remain separate explicit outcomes. Upload and download bodies
-are raw bytes, not base64 JSON. Agent-facing text reads and writes adapt through
-Core but preserve the same ids and revision fence.
+stale base is `space_file.conflict`. A create write with `baseRevision: null`
+atomically resolves an occupied case-insensitive sibling name to the first
+available `name (n).ext` and returns that canonical name. Explicit folder
+creation, rename, move, and restore keep `space_file.name_conflict` as a
+separate outcome because those mutations express an exact organization request.
+Invalid parents and missing entries remain separate explicit outcomes. Upload
+and download bodies are raw bytes, not base64 JSON. Agent-facing text reads and
+writes adapt through Core but preserve the same ids and revision fence.
 
 `packages/schemas` also owns the private Core-to-Space File audit event. The
 strict envelope carries only canonical scope and identity ids, operation,
@@ -1072,12 +1104,32 @@ the historical signal.
 For hosted Center Agent admission, Core reauthorizes each referenced JPEG or
 PNG revision through the owning Space Durable Object and passes its immutable
 object key through the private Remote Agent worker contract. Remote Agent reads
-those exact bytes from the existing private Space object store and feeds them
-through its existing image-understanding path. It does not copy the image into
-the legacy attachment namespace, mint a second attachment record, or delete the
-canonical revision after admission. Text files remain available through the
-Space File read tool; unsupported binary formats remain visible by metadata and
-available to Human and Local Agent download.
+those exact bytes from the existing private Space object store, creates a
+bounded transient WebP derivative, and feeds only that derivative through the
+frozen auxiliary image-understanding route. The persistent primary conversation
+receives one bounded escaped observation plus the immutable file reference; it
+never receives or stores the original bytes, their base64 encoding, or the
+transient derivative. This applies even when the primary model advertises image
+input. Remote Agent does not copy the image into the legacy attachment
+namespace, mint a second attachment record, create a Space File revision for a
+derivative, or delete the canonical revision after admission. Text files remain
+available through the Space File read tool; unsupported binary formats remain
+visible by metadata and available to Human and Local Agent download.
+
+The current image-input contract accepts up to ten canonical Space File images
+in one message while preserving the legacy maximum of four attachment records.
+Remote Agent opens the immutable R2 source as a replayable stream and prepares
+one derivative at a time. Each transient WebP has a 4 MiB ceiling, prefers a
+2560-pixel longest edge at quality 88, and never falls below 1600 pixels. One
+auxiliary request contains at most five images, 8 MiB of derivative bytes, and
+an estimated 20 megapixels of rendered image input; reaching any one budget
+closes that batch. Four- and five-image batches reserve up to 8,192 output
+tokens, while smaller batches reserve up to 4,096. Larger turns are split into
+ordered batches whose prompt labels every global image index and filename. The
+primary model receives all labeled batch observations in one admitted turn and
+owns their final cross-batch synthesis; auxiliary batches never become durable
+conversation turns. These are model-materialization limits, not Space File
+storage limits, and they never replace or mutate the original revision.
 
 A text signal may have empty text only when it carries at least one canonical
 Space File. Web and CLI may therefore publish a file-only
@@ -1092,11 +1144,58 @@ metadata and grants no access. Clients refresh the shared file-list contract.
 Older clients safely ignore the topic and continue to observe current state on
 their next read.
 
-The MVP accepts individual files up to 10 MiB. Browser text editing is limited
-to UTF-8 text files no larger than 1 MiB. Binary files remain upload, download,
-rename, move, and Trash capable. There is no multipart upload, public object URL,
-per-file ACL, Resources projection, automatic Computer materialization, CRDT,
-or live character stream in this contract.
+The current single-request compatibility path accepts individual files up to
+10 MiB. That transport ceiling is not the intended user-facing file policy and
+must not be raised by buffering a larger request in Gateway. Removing it
+requires one shared resumable multipart contract: Core-authorized upload
+sessions, streamed R2 parts, exact size and part-integrity verification, atomic
+Space File commit, abandoned-session cleanup, and the same idempotent canonical
+response for Web, CLI, and Agents. Browser text editing remains limited to UTF-8
+text files no larger than 1 MiB; that editor working-set boundary does not limit
+upload or download. Until the multipart contract ships, large-file support
+remains incomplete. There is no public object URL, per-file ACL, Resources
+projection, automatic Computer materialization, CRDT, or live character stream
+in this contract.
+
+The resumable contract uses one server-owned lifecycle for creates and new
+revisions:
+
+1. `start` carries the exact target, requested name and folder when creating,
+   MIME type, expected byte size, base revision, and client mutation id. The
+   owning Space reauthorizes the actor, freezes that metadata, and returns an
+   opaque upload-session id plus the R2-compatible part policy.
+2. Gateway creates or resumes the R2 multipart upload under the exact private
+   revision object key. The R2 upload id and object key remain server-only and
+   never become client authorization.
+3. Each numbered part is reauthorized through the upload session and streamed
+   from the request body to R2 without whole-file buffering. Gateway returns the
+   canonical part number and ETag. Web persists the opaque session and completed
+   part list with its draft; CLI streams from disk. Both retry only missing or
+   failed parts and can report byte-accurate progress.
+4. `complete` carries the ordered canonical part list. Gateway completes the R2
+   object and verifies the resulting object size against the frozen session.
+   The owning Space then atomically commits the immutable revision through the
+   existing base-revision and mutation fence. A create collision receives the
+   server-assigned numbered name in this final canonical response.
+5. A stale base revision, changed frozen metadata, invalid part list, size
+   mismatch, or reused mutation with different upload evidence fails explicitly.
+   It never creates a visible partial revision.
+6. Explicit cancel aborts the multipart upload. Expired sessions are aborted by
+   the owning cleanup lifecycle, and a completed R2 object whose metadata commit
+   fails is deleted best-effort with observable cleanup evidence.
+7. Small files may retain one raw streaming PUT as an optimization, but they use
+   the same prepare, authorization, immutable-object, commit, idempotency, and
+   canonical-response semantics. The threshold is an implementation choice,
+   not a user-facing file-size rule.
+
+The product may enforce Organization storage policy and the backing store's
+hard object limit, but it must not invent a lower context-driven per-file limit
+or ask the user to compress an original. Media preview and model-input
+compression operate on separate derivatives after the original revision is
+stored. Shipping this protocol requires shared schemas, Core Space upload
+session state and cleanup, Gateway multipart routes, API-client streaming
+operations, Web draft resume, CLI stream upload, and captured R2 multipart
+contract fixtures in one receiver-first rollout.
 
 The canonical Space File rollout is receiver-first across strict boundaries:
 
@@ -2243,9 +2342,9 @@ reader and older-action-set filters while that durable row remains.
 ### Slack Channel Read Contracts
 
 `packages/schemas` owns the Center Agent Slack channel list, channel member,
-and channel history request and response contracts. Requests are bounded and
-cursor-paginated. Model-visible responses expose channel names and provider
-metadata but not internal Slack channel ids. Member research opts into a
+channel history, and file-read request and response contracts. Requests are
+bounded and cursor-paginated. Model-visible responses expose channel names and
+provider metadata but not internal Slack channel ids. Member research opts into a
 service-binding-only `channelId` field on the member read, stores it outside
 model-visible output, and sends it back as `expectedChannelId` on the history
 read. Core resolves the name again and fails closed unless it still identifies
@@ -2266,6 +2365,28 @@ These opt-in request fields preserve the receiver-first rollout. Deploy Core
 first: callers that do not opt in receive the legacy strict response shapes.
 Then deploy Remote Agent, which opts into the new internal fields and fails
 closed if Core does not return them. Rollback removes Remote Agent before Core.
+
+Current Remote Agent callers also set `includeFiles=true` on history reads.
+Core then returns a bounded `files` array with file id, name, MIME type, size,
+and permalink for every message, including one with null text. Callers that
+omit the flag keep the legacy message shape without `files`, so Core remains
+the receiver-first deploy. Remote Agent retains only a submission-scoped
+mapping from the returned file id to the resolved channel name. A file attached
+to the current Slack request instead uses the immutable channel id from the
+Core-owned turn trigger. The model controls only `fileId`; it never supplies an
+internal channel id or download URL.
+
+`centerAgentReadSlackFile` accepts either the resolved history channel name or
+that current trigger channel id. Core reauthorizes the designated Center Agent,
+connected workspace, and exact conversation/file association through
+`files.info` before downloading from an HTTPS Slack-owned private URL with the
+Bot credential. The strict response carries at most 5 MiB as base64 plus the
+normalized metadata. Remote Agent decodes it, removes base64 from model-visible
+output, writes the exact bytes to the Center Agent Computer when available,
+returns only a bounded UTF-8 preview for text, and sends images to the selected
+auxiliary image-understanding model. Core must deploy before Remote Agent; old
+Remote Agent never opts into file metadata or calls the additive file RPC.
+Rollback removes the Remote Agent caller before Core.
 
 Each response is a strict union between its successful payload and the same
 expected-unavailable shape. Core uses that result for a missing Slack
@@ -2332,6 +2453,35 @@ shape is rollout compatibility only and must not return to the model-visible
 tool. Migration
 `0067_damp_mariko_yashida` still owns the existing ledger; no database migration
 or response-shape change is required.
+
+### Slack File Publication Contracts
+
+`packages/schemas` owns `centerAgentPostSlackFile`. The model supplies one
+Computer-relative path and a current-thread, channel-name, or exact trusted
+thread-permalink selector. Remote Agent reads one regular non-symlink Computer
+file of at most 5 MiB, computes its SHA-256 digest, and supplies the verified
+speaker, current execution source, bytes, digest, and basename outside any
+provider credential. Core reauthorizes the current interactive native delivery
+and represented member, verifies the digest, resolves the exact Slack
+destination, and uses `files.getUploadURLExternal` followed by
+`files.completeUploadExternal`. The upload URL must be HTTPS and Slack-owned;
+the Bot token is sent only to Slack API methods and never to the byte-upload
+URL.
+
+The existing publication operation repository adds `slack_file` as a
+destination kind. Its destination binds channel/thread plus content digest;
+the request signature binds represented user, filename, title, comment, and
+digest. A completed retry returns the stored strict response. A
+provider-confirmed non-publication may retry, while an interrupted or
+undecodable completion becomes `outcome_unknown` and never uploads again
+automatically. Audit records the represented publication action without file
+bytes or Bot credentials. Apply D1 migration
+`0141_awesome_lady_bullseye` before Core;
+the previous table constraint rejects `slack_file` claims and therefore cannot
+fence file uploads safely. This is otherwise an additive receiver-first RPC:
+deploy Core before Remote Agent and remove the caller before the receiver on
+rollback. Existing Slack installations require reauthorization before
+`files:write` is granted.
 
 ### Slack Search Authorization And Result Contracts
 
@@ -2916,7 +3066,10 @@ Flue stream and never chooses, advances, or aliases generations.
 
 `remote_agent.conversation_history_limit_exceeded` is the deterministic
 pre-replay rejection for a runtime generation whose serialized Flue stream
-reached its safety boundary. The Remote Agent first resolves the request's
+reached either the frozen controller model's adaptive rollover boundary or the
+hard infrastructure safety boundary. This changes only when the existing
+version-4 rollover response is emitted; it does not add a second request or
+response shape. The Remote Agent first resolves the request's
 durable idempotency receipt: finalized retries return their original ACK
 without Flue replay, claimed retries retain their existing recovery path, and
 only a request with no matching receipt is eligible for this rejection. For a
@@ -3582,11 +3735,18 @@ Schema rules:
   `actionSet=v14` adds Local Agent-carried requests; `actionSet=v15` adds
   Context Manifest reads; and `actionSet=v16` adds Context Load Receipts and
   opt-in manifest/load counts; and `actionSet=v17` adds Routine create, update,
-  pause, resume, and delete rows. Interaction-source projections remain absent
-  before v14, and Routine actions remain absent before v17. Each version filters
-  later actions and fields in Core before response validation, so an
-  already-published CLI never receives an enum value or optional projection its
-  frozen schema cannot parse.
+  pause, resume, and delete rows; `actionSet=v18` adds Organization working
+  language actions; `actionSet=v19` adds member Computer reads; and
+  `actionSet=v20` opts in to the connector audit entry's nullable
+  `sourceSpaceId` projection; and `actionSet=v21` adds Slack file reads and
+  file publications. Interaction-source projections remain absent
+  before v14, Routine actions remain absent before v17, Slack file actions
+  remain absent before v21, and `sourceSpaceId` remains absent before v20. The
+  projection is non-null only for a native delivery whose `conversationKind`
+  is `space`; Slack and generic Message
+  Channel locators never populate it. Each version filters later actions and
+  fields in Core before response validation, so an already-published CLI never
+  receives an enum value or optional projection its frozen schema cannot parse.
 - Deploy a new Center Agent RPC receiver and its audit action-set reader in Core
   before deploying the Remote Agent caller or clients that request the new
   action set. During rollback, remove callers first. Once Core has written a new

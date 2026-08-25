@@ -22,7 +22,7 @@ type SpacePanelWidthMetrics = {
 
 export const SPACE_PANEL_WIDTH_METRICS = {
 	members: {
-		defaultWidth: "22rem",
+		defaultWidth: "17rem",
 		maxWidth: "32rem",
 		minWidth: "17rem",
 	},

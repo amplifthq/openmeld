@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -89,6 +90,12 @@ export async function smokeSignedMacOsSecureStorage(input) {
       label: "delete the secure storage smoke session",
     });
     loggedOut = true;
+
+    await smokeNoninteractiveProtectedKeychainRead({
+      command: input.outFile,
+      env,
+      sessionPayload,
+    });
   } finally {
     if (!loggedOut) {
       await runCli({
@@ -104,6 +111,74 @@ export async function smokeSignedMacOsSecureStorage(input) {
     }
     await server.close();
     await rm(tempRoot, { force: true, recursive: true });
+  }
+}
+
+async function smokeNoninteractiveProtectedKeychainRead(input) {
+  const account = `openmeld-auth-noninteractive-${randomUUID()}`;
+  const service = "sh.openmeld.auth.token";
+  await runCli({
+    args: [
+      "add-generic-password",
+      "-a",
+      account,
+      "-s",
+      service,
+      "-T",
+      "/usr/bin/security",
+      "-w",
+      SMOKE_ACCESS_TOKEN,
+    ],
+    command: "/usr/bin/security",
+    env: input.env,
+    label: "create a protected Keychain item for the noninteractive read smoke",
+  });
+
+  try {
+    await writeFile(
+      path.join(input.env.OPENMELD_HOME, "auth", "session.json"),
+      `${JSON.stringify({
+        ...input.sessionPayload,
+        tokenRef: {
+          provider: "macos-keychain",
+          service,
+          account,
+        },
+      })}\n`,
+      "utf8"
+    );
+
+    const status = await runCli({
+      args: ["auth", "status", "--view", "agent"],
+      allowedExitCodes: [1],
+      command: input.command,
+      env: input.env,
+      label: "fail closed without a background Keychain authorization window",
+      timeoutMs: 4000,
+    });
+    if (
+      !(
+        status.stdout.includes('"reasonCode":"session_token_unavailable"') &&
+        status.stdout.includes(
+          "OpenMeld did not open a background authorization window"
+        )
+      )
+    ) {
+      throw new Error(
+        `signed CLI did not report the protected Keychain item clearly:\n${status.stdout}\n${status.stderr}`
+      );
+    }
+  } finally {
+    await runCli({
+      args: ["delete-generic-password", "-a", account, "-s", service],
+      command: "/usr/bin/security",
+      env: input.env,
+      label: "delete the protected Keychain smoke item",
+    }).catch((error) => {
+      process.stderr.write(
+        `[release:apple] protected Keychain smoke cleanup needs attention: ${error instanceof Error ? error.message : String(error)}\n`
+      );
+    });
   }
 }
 
@@ -132,10 +207,11 @@ function runCli(input) {
     });
     let stdout = "";
     let stderr = "";
+    const timeoutMs = input.timeoutMs ?? 30_000;
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error(`${input.label} timed out after 30 seconds`));
-    }, 30_000);
+      reject(new Error(`${input.label} timed out after ${timeoutMs} ms`));
+    }, timeoutMs);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
@@ -150,7 +226,8 @@ function runCli(input) {
     });
     child.on("close", (code, signal) => {
       clearTimeout(timeout);
-      if (code !== 0) {
+      const allowedExitCodes = input.allowedExitCodes ?? [0];
+      if (!(code !== null && allowedExitCodes.includes(code))) {
         const outcome = signal ? `signal ${signal}` : `exit ${String(code)}`;
         reject(
           new Error(
@@ -159,7 +236,7 @@ function runCli(input) {
         );
         return;
       }
-      resolve({ stderr, stdout });
+      resolve({ code, stderr, stdout });
     });
   });
 }

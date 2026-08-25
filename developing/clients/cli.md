@@ -557,6 +557,18 @@ current Service remains available. A preparation failure must leave the current
 Service running. The CLI drains and stops the current Service only after that
 preflight succeeds, then activates the prepared replacement and verifies its
 health before reporting success.
+For an update, the public command reports success after the prepared replacement
+and durable job have been handed to the operating system's background update
+worker; it does not hold the Terminal open for the later drain and switch. The
+user may close the Terminal or Web Setup immediately. The worker waits for all
+accepted Wake work and durable result receipts, resumes after interruption or
+computer restart, verifies the replacement, and restores the previous verified
+Service if replacement startup fails. Setup uses this background path only when
+the current Service has trustworthy running evidence and the drift includes a
+version change. Broken or ambiguous Service state remains an explicit repair.
+Core's update projection selects the job policy: `available` keeps admitting new
+Wake work while waiting for an idle switch; `required` stops new admission but
+still lets already accepted work finish safely.
 `openmeld uninstall` removes local OpenMeld data
 for this device as a whole, while `openmeld service uninstall` removes only the
 daemon registration and disposable Runtime state. The lane's stable local device
@@ -938,15 +950,46 @@ Keychain through Security.framework. The bare Developer ID CLI must not request
 a restricted Keychain access-group entitlement, because it has no embedded
 provisioning profile and macOS would reject the executable before it starts.
 The session file stores only the opaque secure-storage reference. Existing
-macOS Keychain references remain readable for compatibility. If the user's
-Keychain is temporarily unavailable, setup writes the bearer session to a
-private OpenMeld directory with mode `0700` and a file with mode `0600`, warns
-clearly about that fallback, and continues. The next successful setup or login
-stores the replacement session in Keychain and removes the previous private
-file. A future signed local client must reuse the CLI-owned session through the
-local OpenMeld Service contract instead of reading the token directly or
-creating a parallel sign-in state. Setup verifies that the newly stored token
-can be reloaded before it writes the session file or reports success.
+macOS Keychain references remain readable by the packaged CLI for
+compatibility. If the user's Keychain returns an error or does not answer
+within five seconds, setup writes
+the bearer session to a private OpenMeld directory with mode `0700` and a file
+with mode `0600`, warns clearly about that fallback, and continues. Packaged
+CLI Keychain operations run in a short-lived child process so a blocked
+Security.framework call can be terminated without blocking setup or the
+Service. Before reading its request, that child must verify through macOS Code
+Signing Services that its parent is the same OpenMeld executable. Direct helper
+invocation by a shell or another local program fails before Keychain access.
+Every Keychain operation is noninteractive: if an existing entry needs
+approval, the operation fails immediately and Agent View preserves the reason
+and the interactive setup-or-login recovery path. The CLI must not create a
+macOS authorization window that can outlive its helper. Normal setup and login
+writes remain silent. If macOS requires interaction to save a replacement,
+setup uses the documented private-file fallback instead. After one timeout,
+that CLI process does not retry Keychain; a new process may try again. Access
+tokens cross that private child boundary through stdin, never argv. A later
+login through a packaged CLI stores its newly issued replacement in Keychain
+only when that Keychain write succeeds, then removes the previous private file.
+A failed old credential deletion is retained as pending cleanup outside the
+active session and retried only during a later explicit login or logout; it is
+never reported internally as deleted or silently forgotten. This cleanup does
+not migrate the current private-file session into Keychain. A future signed
+local client must reuse the CLI-owned session through the local OpenMeld Service
+contract instead of reading the token directly or creating a parallel sign-in
+state. Setup verifies that the newly stored token can be reloaded before it
+writes the session file or reports success.
+
+An npm-distributed CLI or unattended developer script that cannot embed the
+native helper must never fall back to `/usr/bin/security`. New npm CLI logins
+use the same warned mode-`0600` private-file fallback. An existing Keychain
+reference fails immediately with a setup-or-login recovery action. Developer
+HTTP tools require an isolated lane with private local token storage or must
+route the request through the packaged CLI. This prevents concurrent dev
+processes from queuing authorization windows that outlive the requesting
+command. Logout removes the active session file even when its referenced token
+cannot be read, so an unreadable old session cannot block a new login. An npm
+login that replaces such a session keeps the old Keychain reference in pending
+cleanup while the new private-file session becomes usable immediately.
 
 The CLI must prove account alignment. Missing, unknown, expired, or mismatched
 terminal authentication must fail closed and tell the user the next safe action.

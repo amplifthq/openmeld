@@ -475,6 +475,7 @@ export {
   runtimeCoordinatorFinalizationCommandSchema,
   runtimeCoordinatorFinalizationDispatchFactSchema,
   runtimeCoordinatorFinalizationDispatchOwnerSchema,
+  runtimeCoordinatorFinalizationFinalMessageKindSchema,
   runtimeCoordinatorFinalizationOutcomeSchema,
   runtimeCoordinatorFinalizationSuccessOutcomeSchema,
 } from "./daemon/runtime-coordinator-finalization-command";
@@ -508,6 +509,11 @@ export {
   localAgentToolActivityNameSchema,
   localWakeRouteReportSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  runtimeTransportAgentProfileExecutionStateRequestSchema,
+  runtimeTransportAgentProfileExecutionStateResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
   runtimeTransportBaseCapabilitiesSchema,
   runtimeTransportCapabilitiesSchema,
   runtimeTransportDeliverDispatchPayloadSchema,
@@ -624,6 +630,11 @@ export {
   daemonBootstrapRecommendationPayloadSchema,
   daemonBootstrapRecommendationResultSchema,
 } from "./daemon/service-recommendation";
+export {
+  daemonServiceUpdateJobSchema,
+  daemonServiceUpdatePreparedBundleSchema,
+  OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA,
+} from "./daemon/service-update-job";
 export {
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
   openMeldDaemonProviderAccessEvidenceProviderSchema,
@@ -829,6 +840,7 @@ export {
   disableAgentProfilePrimaryBindingResponseSchema,
   ensureAgentProfilePrimaryBindingBodySchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
+  getAgentProfileControllerChangeEligibilityResponseSchema,
   getAgentProfileCreationDefaultsResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
   getOrganizationBindingAuthorizationPreferenceResponseSchema,
@@ -955,6 +967,8 @@ export {
   centerAgentOperatingStateSchema,
   centerAgentPostSlackChannelMessageBodySchema,
   centerAgentPostSlackChannelMessageResponseSchema,
+  centerAgentPostSlackFileBodySchema,
+  centerAgentPostSlackFileResponseSchema,
   centerAgentPostSlackThreadMessageBodySchema,
   centerAgentPostSpaceMessageBodySchema,
   centerAgentPostSpaceMessageResponseSchema,
@@ -1823,17 +1837,23 @@ export {
   submitRuntimeRegistrationResponseSchema,
 } from "./http/runtime-reporting";
 export {
+  CENTER_AGENT_SLACK_FILE_MAX_BASE64_CHARACTERS,
+  CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES,
   centerAgentListSlackChannelsBodySchema,
   centerAgentListSlackChannelsResponseSchema,
   centerAgentReadSlackChannelHistoryBodySchema,
   centerAgentReadSlackChannelHistoryResponseSchema,
   centerAgentReadSlackChannelMembersBodySchema,
   centerAgentReadSlackChannelMembersResponseSchema,
+  centerAgentReadSlackFileBodySchema,
+  centerAgentReadSlackFileResponseSchema,
   slackChannelHistoryMessageSchema,
   slackChannelHistoryResponseSchema,
   slackChannelListResponseSchema,
   slackChannelMembersResponseSchema,
   slackChannelSummarySchema,
+  slackFileMetadataSchema,
+  slackFileReadResponseSchema,
 } from "./http/slack-channel-reads";
 export {
   SLACK_DIRECT_MESSAGE_REQUIRED_BOT_SCOPES,
@@ -2224,6 +2244,15 @@ export {
   localSkillsComponentProjectionSchema,
   localSkillsComponentUpdateProjectionSchema,
 } from "./local-components";
+export {
+  MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION,
+  MAC_OS_KEYCHAIN_HELPER_SCHEMA_VERSION,
+  type MacOsKeychainHelperRequest,
+  type MacOsKeychainHelperResponse,
+  macOsKeychainHelperOperationSchema,
+  macOsKeychainHelperRequestSchema,
+  macOsKeychainHelperResponseSchema,
+} from "./local-machine/macos-keychain-helper";
 export {
   formatLocalMachineIssueMessage,
   LOCAL_MACHINE_RECOVERY_POLICY_BY_CODE,

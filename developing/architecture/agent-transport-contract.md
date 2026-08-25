@@ -511,6 +511,49 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   Service reports the identity it has applied, and Runtime Transport must not
   deliver the dispatch until both values match. This consistency fence does
   not make the projection or the Service an execution authority.
+- Controller target changes, Controller unbinding, and local working-folder
+  changes use an owner-sharded RuntimeCoordinator execution-state read that
+  spans every Space. Web may use that read to disable disruptive actions
+  immediately, but it is advisory. The mutation writer must acquire a
+  short-lived execution-target mutation admission from the same owner shard and
+  hold it across its D1 or local Service mutation. RuntimeCoordinator stores
+  Wake-head acceptance, active execution references, and execution-target
+  mutation admission through one transactionally coordinated owner-shard model:
+  `active` blocks admission, and a new Wake that arrives after admission
+  receives a retryable response instead of being accepted against the changing
+  target. D1 remains Binding storage, never in-flight execution authority.
+  Unavailable or rebuilding owner-shard authority fails closed. A definitive
+  mutation result releases admission; timeout or invalid-response outcomes keep
+  the lease until expiry because the local write may still complete. Settings-
+  only writes do not use this guard because
+  RuntimeCoordinator already freezes their accepted Binding revision for the
+  current execution. The Core-internal schema names describe execution-target
+  mutation, while the Durable Object RPC wire retains the historical
+  `rpc*AgentProfileControllerMutation` names so old and new Worker and shard
+  code remain mutually callable during eventual deployment propagation.
+- An Agent Profile's authoritative owner is the canonical Binding owner and
+  RuntimeCoordinator shard owner. Administrative action and authorization do
+  not transfer that ownership. If legacy data contains enabled Bindings for one
+  Agent Profile under more than one owner, reconciliation must acquire mutation
+  admission on every affected owner shard. Exact legacy disables, canonical
+  target installation or reuse, and Organization authorization carry-over are
+  one D1 batch so a failed target or authorization write leaves every prior
+  enabled Binding and authorization intact.
+  The D1 Binding writer is the final mixed-version fence: it rejects a new or
+  re-enabled primary Binding whose owner is not the Agent Profile owner, and it
+  rejects a second enabled primary Binding for the same Profile. Installing
+  that fence preserves existing legacy rows so Core can reconcile them under
+  every affected RuntimeCoordinator shard instead of changing ownership during
+  migration. Profile-wide owner discovery uses a bounded, profile-first index
+  and fails before admission or mutation when operator review is required.
+- The owner shard keeps bounded per-profile active references plus a
+  generation-bound active-profile projection and co-writes them with canonical
+  head and execution-token authority. Before the bounded model is ready, or
+  after a detectable ready-state inconsistency, it repairs from paginated
+  canonical storage keys without trusting the legacy head or run-command
+  indexes. Collection and page-apply failures share the same fail-closed,
+  backoff-based state machine. Reference overflow is explicit and bounded, and
+  the ready-state hot path never scans total account history.
 - Consumers use the response inside one operation and must not persist it.
 - Device-scoped derivations (daemon route catalog, projected controllers,
   local service demand) must consume this projection instead of rebuilding the
@@ -837,18 +880,6 @@ OpenMeld-generated `signal.system_notice` outcomes such as `terminal_failure`,
 `post_status` becomes a final status signal, and `stay_silent` remains a visible
 system notice that closes the Wake unless a future product contract explicitly
 defines a non-visible silent-close outcome.
-
-A RuntimeCoordinator result with no valid explicit Space action does not prove
-that the user received a final outcome. Collaboration mode classifies that
-result as `invalid_space_action`, publishes one claimed `terminal_failure`, and
-projects the same failed Agent Task outcome. Core must never synthesize a
-completion notice from private output or a successful process exit alone.
-The explicit `raw_context_sharing` exception remains a successful published
-reply when its claimed final signal is a real text reply. The claimed Space
-final signal and frozen finalization command together determine this terminal
-classification. Initial finalization, archived-result replay, stored-outcome
-repair, and Space-claim recovery must preserve that same classification rather
-than inferring success merely because some final Signal id exists.
 
 When `post_message.observedThroughSignalId` is present, Agent Transport Space
 Action Delivery carries it to the Space Durable Object. Space checks for a

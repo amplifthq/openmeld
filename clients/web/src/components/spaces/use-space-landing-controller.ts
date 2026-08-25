@@ -1096,6 +1096,16 @@ function resolveSpaceExecutionRecoverySuccessMessage(input: {
 	return "Result recovered";
 }
 
+function showSpaceExecutionRecoveryFailureToast(input: {
+	action: SpaceExecutionRecoveryAttempt["action"];
+	message: string;
+}): void {
+	if (input.action === null) {
+		return;
+	}
+	toast.error(`Couldn't recover this result. ${input.message}`);
+}
+
 export function useSpaceLandingController(input: {
 	initialComposerDraft?: ComposerDraftRecord | null;
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
@@ -2410,7 +2420,10 @@ export function useSpaceLandingController(input: {
 			return projectSpaceExecutionRecoveryResolution(result.recovery);
 		} catch (error) {
 			const failure = toStructuredApiClientFailure(error);
-			toast.error(`Couldn't recover this result. ${failure.message}`);
+			showSpaceExecutionRecoveryFailureToast({
+				action: recoveryInput.action,
+				message: failure.message,
+			});
 			if (isProtectedSpaceFailure(failure)) {
 				await statusQuery.refetch();
 			}

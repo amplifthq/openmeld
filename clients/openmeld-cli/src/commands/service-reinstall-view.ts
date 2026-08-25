@@ -114,6 +114,13 @@ export type DaemonReinstallAlreadyHealthyOutcome = {
   serviceState: DaemonReinstallServiceState;
 };
 
+export type DaemonReinstallScheduledOutcome = {
+  ok: true;
+  result: "scheduled";
+  jobId: string;
+  targetVersion: string;
+};
+
 export type DaemonReinstallStoppedSafeOutcome = {
   ok: true;
   result: "stopped_safe";
@@ -167,6 +174,7 @@ export type DaemonReinstallOutcome =
       upgradeCommand: string;
     }
   | DaemonReinstallStoppedSafeOutcome
+  | DaemonReinstallScheduledOutcome
   | DaemonReinstallAlreadyHealthyOutcome
   | DaemonReinstallCompletedOutcome;
 
@@ -486,6 +494,8 @@ export function buildDaemonReinstallResultTitle(
   switch (outcome.result) {
     case "already_healthy":
       return "✅ OpenMeld Service Is Already Healthy";
+    case "scheduled":
+      return "✅ OpenMeld Service Update Is Ready";
     case "completed":
       return outcome.serviceState === "running"
         ? `✅ OpenMeld Service ${actionPastTitle}`
@@ -526,6 +536,8 @@ export function buildDaemonReinstallWhyText(
   switch (outcome.result) {
     case "already_healthy":
       return "OpenMeld checked the installed bundle, service registration, runtime contract, and running state. They already match, so nothing was stopped, reinstalled, or restarted.";
+    case "scheduled":
+      return "OpenMeld saved this update on the computer and handed it to the background service. Running Agent work will finish before OpenMeld switches versions.";
     case "completed":
       return outcome.serviceState === "running"
         ? `OpenMeld ${actionPast} OpenMeld Service and restored background service for this lane.${forcedSuffix}`
@@ -563,6 +575,8 @@ export function buildDaemonReinstallCurrentStateText(
       return outcome.serviceState === "running"
         ? "OpenMeld Service is running in the background for this lane."
         : "OpenMeld Service is healthy and remains stopped because that is the saved state for this lane.";
+    case "scheduled":
+      return `OpenMeld will update to v${outcome.targetVersion} in the background.`;
     case "completed":
       return outcome.serviceState === "running"
         ? "OpenMeld Service is running in the background for this lane."
@@ -603,6 +617,8 @@ export function buildDaemonReinstallNextStepText(
   switch (outcome.result) {
     case "already_healthy":
       return "No action is required.";
+    case "scheduled":
+      return "You can close this window. No action is required.";
     case "completed":
       return outcome.serviceState === "running"
         ? "No action is required."
@@ -662,6 +678,8 @@ export function buildDaemonReinstallHeadlineText(
   switch (outcome.result) {
     case "already_healthy":
       return "OpenMeld Service is already healthy. Nothing was changed.";
+    case "scheduled":
+      return "OpenMeld will finish this update in the background. You can close this window.";
     case "completed":
       return outcome.serviceState === "running"
         ? `OpenMeld Service was ${actionPast} and is now running.`

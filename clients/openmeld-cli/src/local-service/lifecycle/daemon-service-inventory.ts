@@ -73,6 +73,7 @@ export type DaemonServiceAnomalyCode =
   | "bundle_provenance_drift"
   | "bundle_path_invalid"
   | "service_manager_path_drift"
+  | "service_manager_environment_drift"
   | "duplicate_owned_processes"
   | "foreground_background_conflict"
   | "background_foreground_conflict"

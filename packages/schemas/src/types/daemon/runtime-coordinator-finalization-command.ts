@@ -16,6 +16,11 @@ export type RuntimeCoordinatorFinalizationCommand = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-coordinator-finalization-command")["runtimeCoordinatorFinalizationCommandSchema"]
 >;
 
+export type RuntimeCoordinatorFinalizationFinalMessageKind =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-coordinator-finalization-command")["runtimeCoordinatorFinalizationFinalMessageKindSchema"]
+  >;
+
 export type RuntimeCoordinatorFinalizationOutcome = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-coordinator-finalization-command")["runtimeCoordinatorFinalizationOutcomeSchema"]
 >;

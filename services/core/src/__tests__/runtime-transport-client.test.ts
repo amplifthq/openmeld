@@ -16,14 +16,17 @@ import {
   waitRuntimeTransportDispatchResult,
 } from "../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 import {
+  acquireRuntimeTransportAgentProfileExecutionTargetMutation,
   discoverRuntimeTransportProjects,
   forkRuntimeTransportAgentSession,
+  isRuntimeTransportProfileWorkspaceOutcomeDefinitive,
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoute,
   lookupRuntimeTransportRoutesBatch,
   readRuntimeTransportComputerFileAccessPolicy,
   readRuntimeTransportDisconnectRates,
   refreshRuntimeTransportLocalAgentCatalog,
+  releaseRuntimeTransportAgentProfileExecutionTargetMutation,
   selectRuntimeTransportLocalFolders,
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import type { CoreBindings } from "../lib/bindings";
@@ -165,6 +168,66 @@ const createEnv = (input?: {
 };
 
 describe("runtime transport split clients call fallback behavior", () => {
+  it("uses the backward-compatible Controller mutation RPC names on the Durable Object wire", async () => {
+    const acquire = vi.fn(async (request: { operationId: string }) => ({
+      expiresAtMs: 1_700_000_300_000,
+      operationId: request.operationId,
+      status: "acquired" as const,
+    }));
+    const release = vi.fn(async () => ({ status: "released" as const }));
+    const env = {
+      OPENMELD_RUNTIME_TRANSPORT: {
+        get: vi.fn(() => ({
+          rpcAcquireAgentProfileControllerMutation: acquire,
+          rpcReleaseAgentProfileControllerMutation: release,
+        })),
+        idFromName: vi.fn(() => "owner-shard"),
+      },
+    } as unknown as CoreBindings;
+    const request = {
+      env,
+      operationId: "mutation-1",
+      ownerUserId: "owner-1",
+      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+    };
+
+    await expect(
+      acquireRuntimeTransportAgentProfileExecutionTargetMutation(request)
+    ).resolves.toMatchObject({
+      operationId: "mutation-1",
+      status: "acquired",
+    });
+    await expect(
+      releaseRuntimeTransportAgentProfileExecutionTargetMutation(request)
+    ).resolves.toEqual({ status: "released" });
+    expect(acquire).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("keeps workspace mutation admission when the local outcome is unknown", () => {
+    expect(
+      isRuntimeTransportProfileWorkspaceOutcomeDefinitive({
+        message: "Timed out waiting for the local OpenMeld Service response.",
+        reasonCode: "local_agent_control.timeout",
+        status: "rejected",
+      })
+    ).toBe(false);
+    expect(
+      isRuntimeTransportProfileWorkspaceOutcomeDefinitive({
+        message: "Runtime Transport returned an invalid response.",
+        reasonCode: "local_agent_control.invalid_response",
+        status: "rejected",
+      })
+    ).toBe(false);
+    expect(
+      isRuntimeTransportProfileWorkspaceOutcomeDefinitive({
+        message: "The current local OpenMeld Service is not connected.",
+        reasonCode: "local_agent_control.service_offline",
+        status: "rejected",
+      })
+    ).toBe(true);
+  });
+
   beforeEach(() => {
     vi.useRealTimers();
   });

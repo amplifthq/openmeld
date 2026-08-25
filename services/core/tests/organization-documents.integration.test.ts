@@ -5,7 +5,10 @@ import {
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
-import { rpcCenterAgentAuthorizeAnonymousMemberTool } from "../src/center-agent/application/anonymous-member-request";
+import {
+  prepareCenterAgentOrganizationMemberRequest,
+  rpcCenterAgentAuthorizeAnonymousMemberTool,
+} from "../src/center-agent/application/anonymous-member-request";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   beginCenterAgentOrganizationDocumentOperation,
@@ -2018,6 +2021,19 @@ describe("Organization documents", () => {
         providerUserId: "U123",
       },
     };
+
+    await expect(
+      prepareCenterAgentOrganizationMemberRequest(
+        coreEnv,
+        context,
+        speakerMember
+      )
+    ).resolves.toMatchObject({
+      member: {
+        sourceNativeDeliveryId: delivery.deliveryId,
+        sourceSpaceId: null,
+      },
+    });
 
     await expect(
       rpcCenterAgentAuthorizeAnonymousMemberTool(coreEnv, {

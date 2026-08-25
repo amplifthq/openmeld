@@ -379,13 +379,20 @@ Fixture identities must stay inside isolated test stores.
 Managed agent skills directories (`~/.claude/skills` and the other registry
 defaults) are shared real-user state owned by the published `~/.openmeld` lane.
 The CLI enforces this: with a lane-specific OpenMeld home (`openmeld-dev`,
-`openmeld-canary`, or any `OPENMELD_HOME` override), skills detection, tracking,
-install, and readiness skip the registry-default agent directories, and
+`openmeld-canary`, or any `OPENMELD_HOME` override), OpenMeld-managed skills
+detection, tracking, install, and readiness skip the registry-default agent
+directories, and
 `skills ensure --all` is a safe no-op there so setup completes inside dev
 lanes. Lane-local skills validation must use explicit targets (`--dir`, config
 custom targets, or per-agent `globalSkillsDir` overrides). A lane that links a
 shared agent directory at its own skills store hijacks the published install
 and leaves a dangling link when the lane is deleted.
+
+This skills-directory boundary does not hide installed local Agent Controllers.
+`openmeld agents detect`, setup, and Prepare may still read-only probe a
+runtime-supported controller and keep its launch contract inside the isolated
+lane. Detecting Codex in a dev lane does not authorize that lane to manage
+Codex's registry-default skills directory.
 
 ## Verification Gates
 
@@ -715,6 +722,51 @@ Answer these questions in the PR, task handoff, or release note:
   stable, retryable capability gap rather than success. Record each direction
   separately; a single generic "Core before Remote Agent" statement is not a
   Contract Impact Audit.
+
+### Active-Wake Agent Settings Contract Impact Audit
+
+Active-Wake Agent settings change Web behavior, Core Binding writers,
+RuntimeCoordinator's Core-owned execution-target mutation RPC, and shared D1
+Binding storage. They do not change CLI commands, OpenMeld Service frames,
+Prepare Session, Wake dispatch frames, Space Actions, trace/diagnostics, or any
+local Agent Controller adapter.
+
+- First deploy only the Core compatibility bridge while the old D1 schema is
+  still active. The bridge keeps the historical Durable Object
+  `rpc*AgentProfileControllerMutation` wire names, admits every owner shard
+  before an execution-target change, and atomically disables admitted legacy
+  Bindings, installs or reuses the canonical hosted target, and carries its
+  Organization authorization in one guarded D1 batch. Do not select Database
+  in this first release. Confirm the exact merged Core SHA and health with
+  `pnpm run release:status -- --ref <merged-sha>` before continuing; this is the
+  observable bridge-propagation signal, and the old wire names keep old and new
+  RuntimeTransportHub instances interoperable during the wait.
+- After the bridge is confirmed active, set the designation-only gate with
+  `pnpm ops:remote-agent policy --env prod --disable-designation`, land that
+  single Wrangler policy change, deploy Core with
+  `pnpm run release:deploy:local -- --scope core`, and verify an authenticated
+  Remote Agent designation attempt returns
+  `center_agent.remote_designation_paused`. Existing Remote Agent execution
+  stays enabled; do not use the broader runtime kill switch for this rollout.
+- With designation visibly paused, apply canonical-Binding D1 migration
+  `0140_aspiring_masked_marvel`.
+  Its profile-first partial index bounds legacy-owner discovery, and its write
+  triggers preserve existing legacy rows while rejecting any new or re-enabled
+  noncanonical or parallel enabled primary Binding. Then set the gate back with
+  `pnpm ops:remote-agent policy --env prod --enable-designation`, land that
+  single policy change, deploy and verify Core again, and deploy Web last. An
+  authenticated designation must succeed before the rollout is closed.
+- No Runtime Transport epoch, OpenMeld Service contract, CLI command contract,
+  or local-component release stamp changes. The broader execution-target schema
+  names remain internal to Core; the Durable Object RPC wire names stay
+  backward-compatible throughout eventual Worker and shard propagation. Old
+  and new local components keep their existing setup, Wake, status, Space
+  Action, and diagnostic behavior.
+- Rollback keeps the D1 index and triggers. Never restore a Core version from
+  before execution-target admission, even if the migration has not run yet;
+  keep designation disabled and roll Core forward with a compatible fix. Web
+  can roll back independently because it does not own Binding or execution
+  truth. Never delete or rewrite legacy Binding rows as a rollback shortcut.
 
 ### Local Agent Interaction Contract Impact Audit
 

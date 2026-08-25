@@ -22,6 +22,7 @@ const EXPECTED_SLACK_BOT_SCOPES = [
   "chat:write",
   "commands",
   "files:read",
+  "files:write",
   "groups:history",
   "groups:read",
   "groups:write",

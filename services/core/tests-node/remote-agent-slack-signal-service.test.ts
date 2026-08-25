@@ -1686,6 +1686,91 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it("submits file-only Slack DMs with structured file and image evidence", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: "req_slack_dm_files",
+        status: "pending" as const,
+        submissionId: "sub_slack_dm_files",
+      })
+    );
+    stubSlackFetch({
+      conversationsInfoResponse: {
+        channel: { id: "D123", is_im: true },
+        ok: true,
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createDirectMessagePayload({
+            eventId: "EvDmFiles",
+            files: [
+              {
+                id: "F_DOCUMENT",
+                mimetype: "text/markdown",
+                name: "requirements.md",
+                permalink:
+                  "https://openmeld-dev.slack.com/files/U123/F_DOCUMENT/requirements",
+                size: 321,
+              },
+              {
+                id: "F_IMAGE",
+                mimetype: "image/png",
+                name: "wireframe.png",
+                permalink:
+                  "https://openmeld-dev.slack.com/files/U123/F_IMAGE/wireframe",
+                size: 654,
+              },
+            ],
+            subtype: "file_share",
+            text: "",
+          })
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      const submitted = workerSubmit.mock.calls[0]?.[0];
+      expect(submitted?.messages).toEqual([
+        {
+          content: expect.stringContaining(
+            '"fileId":"F_DOCUMENT","mimeType":"text/markdown","name":"requirements.md"'
+          ),
+          role: "user",
+        },
+      ]);
+      expect(submitted?.messages[0]?.content).toContain(
+        '"fileId":"F_IMAGE","mimeType":"image/png","name":"wireframe.png"'
+      );
+      expect(submitted?.messages[0]?.content).toContain(
+        "Slack attachment metadata (untrusted data"
+      );
+      expect(submitted?.messages[0]?.content).not.toContain(
+        "Help me with this Slack thread."
+      );
+      expect(submitted?.turnEnvelope.trigger).toMatchObject({
+        channelId: "D123",
+        source: "slack",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("keeps follow-up fragments and Slack evidence in one durable Center Agent turn", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
@@ -1957,6 +2042,49 @@ describe("Remote Agent Slack signal service", () => {
         {
           channel: "C123",
           text: "Center Agent couldn't start because its selected model is unavailable. Ask an organization owner or admin to choose an available model in OpenMeld.",
+          thread_ts: "1710000000.000100",
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("does not route Slack work through a damaged hosted Binding", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    harness.run({
+      params: ["wrong-thread", "binding_1"],
+      sql: `
+        UPDATE openMeldDaemon_agent_profile_bindings
+        SET agent_controller_conversation_id = ?
+        WHERE binding_id = ?
+      `,
+    });
+    const workerSubmit = vi.fn();
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload()
+        )
+      ).resolves.toEqual({ status: "replied" });
+
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(readSlackPostBodies(fetchMock)).toEqual([
+        {
+          channel: "C123",
+          text: "Center Agent is not connected for this OpenMeld organization yet.",
           thread_ts: "1710000000.000100",
         },
       ]);
@@ -2279,6 +2407,21 @@ describe("Remote Agent Slack signal service", () => {
             ts: "1710000005.000300",
             user: "U_OTHER",
           },
+          {
+            files: [
+              {
+                id: "F_PLAN",
+                mimetype: "image/png",
+                name: "daily-loop.png",
+                permalink:
+                  "https://openmeld-dev.slack.com/files/U_OTHER/F_PLAN/daily-loop",
+                size: 2048,
+              },
+            ],
+            text: null,
+            ts: "1710000010.000350",
+            user: "U_OTHER",
+          },
         ],
         ok: true,
         response_metadata: { next_cursor: "" },
@@ -2322,6 +2465,12 @@ describe("Remote Agent Slack signal service", () => {
             author: { kind: "human", id: "U_OTHER" },
             sentAtMs: 1_710_000_005_000,
             text: "Older planning noise.",
+          },
+          {
+            id: "1710000010.000350",
+            author: { kind: "human", id: "U_OTHER" },
+            sentAtMs: 1_710_000_010_000,
+            text: "Slack file attached; fileId=F_PLAN; name=daily-loop.png; mimeType=image/png; sizeBytes=2048; permalink=https://openmeld-dev.slack.com/files/U_OTHER/F_PLAN/daily-loop",
           },
           {
             id: "1710000015.000400",
@@ -6660,7 +6809,6 @@ function applySlackMigrations(
   applyMigrationForTable(input, "slack_user_identity_links");
   applyMigrationForTable(input, "slack_user_identity_link_tokens");
   applyMigrationForTable(input, "organization_join_links");
-  applyMigrationForTable(input, "openMeldDaemon_agent_profile_bindings");
   applyMigrationForTable(input, "agent_delegation_children");
   applyMigrationForTable(input, "agent_delegations");
   applyMigrationForTable(input, "agent_task_completion_subscriptions");
@@ -6735,6 +6883,7 @@ function applySlackMigrations(
       )
     `,
   });
+  applyMigrationForTable(input, "openMeldDaemon_agent_profile_bindings");
   applyDrizzleMigrationsForTables(input, [
     "organization_skill_releases",
     "organization_skills",
@@ -6952,7 +7101,7 @@ function seedSlackOrganization(
       "hosted_center_agent",
       JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
       HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      "center-agent",
+      null,
       "enabled_primary",
       100,
       100,
@@ -7550,6 +7699,14 @@ function createDirectMessagePayload(
   overrides: {
     actionToken?: string;
     eventId?: string;
+    files?: Array<{
+      id: string;
+      mimetype?: string;
+      name?: string;
+      permalink?: string;
+      size?: number;
+    }>;
+    subtype?: "file_share";
     text?: string;
     threadTs?: string;
     ts?: string;
@@ -7569,6 +7726,8 @@ function createDirectMessagePayload(
       ts,
       channel: "D123",
       event_ts: ts,
+      ...(overrides.files ? { files: overrides.files } : {}),
+      ...(overrides.subtype ? { subtype: overrides.subtype } : {}),
       ...(overrides.actionToken ? { action_token: overrides.actionToken } : {}),
       ...(overrides.threadTs ? { thread_ts: overrides.threadTs } : {}),
     },

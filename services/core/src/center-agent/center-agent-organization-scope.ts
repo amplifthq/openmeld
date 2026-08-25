@@ -1,6 +1,7 @@
 export type AgentProfileOrganizationContext = {
   managedRole: string | null;
   organizationId: string | null;
+  ownerUserId: string;
   profileKind: "human" | "agent" | "system";
   profileName: string;
 };
@@ -25,6 +26,7 @@ export async function readAgentProfileOrganizationContext(input: {
       `
         SELECT
           organization_id,
+          owner_user_id,
           profile_kind,
           profile_name,
           managed_role
@@ -37,15 +39,21 @@ export async function readAgentProfileOrganizationContext(input: {
     .first<{
       managed_role: string | null;
       organization_id: string | null;
+      owner_user_id: string;
       profile_kind: "human" | "agent" | "system";
       profile_name: string;
     }>();
   if (!row) {
     return null;
   }
+  const ownerUserId = normalizeNullableText(row.owner_user_id);
+  if (!ownerUserId) {
+    return null;
+  }
   return {
     managedRole: normalizeNullableText(row.managed_role),
     organizationId: normalizeNullableText(row.organization_id),
+    ownerUserId,
     profileKind: row.profile_kind,
     profileName: row.profile_name,
   };

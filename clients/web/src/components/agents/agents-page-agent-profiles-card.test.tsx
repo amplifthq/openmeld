@@ -2,6 +2,7 @@ import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
 	GetAgentProfilePrimaryBindingResponse,
+	ModelCatalog,
 } from "@openmeld/schemas/types";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import {
@@ -33,6 +34,7 @@ const PERMISSIONS_MODE_NAME_PATTERN = /permissions mode/i;
 const ensureRuntimeBindingMock = vi.hoisted(() => vi.fn());
 const disablePrimaryBindingMock = vi.hoisted(() => vi.fn());
 const readPrimaryBindingMock = vi.hoisted(() => vi.fn());
+const readControllerChangeEligibilityMock = vi.hoisted(() => vi.fn());
 const refreshReadinessFactsMock = vi.hoisted(() => vi.fn());
 const refreshReadinessSharedCachesMock = vi.hoisted(() => vi.fn());
 const renameOpenMeldProfileMock = vi.hoisted(() => vi.fn());
@@ -56,6 +58,7 @@ const updatePrimaryBindingAgentControllerCollaborationModeMock = vi.hoisted(
 	() => vi.fn()
 );
 const updatePrimaryBindingModelSelectionMock = vi.hoisted(() => vi.fn());
+const updatePrimaryBindingOpenCodePermissionMock = vi.hoisted(() => vi.fn());
 const openCurrentDirectMessageSpaceMock = vi.hoisted(() => vi.fn());
 const readCurrentAgentActivitySessionsMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
@@ -85,6 +88,9 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("#/lib/profiles/agent-profile-primary-binding", () => ({
+	readAgentProfileControllerChangeEligibility: (
+		...args: Parameters<typeof readControllerChangeEligibilityMock>
+	) => readControllerChangeEligibilityMock(...args),
 	disableAgentProfilePrimaryBinding: (
 		...args: Parameters<typeof disablePrimaryBindingMock>
 	) => disablePrimaryBindingMock(...args),
@@ -104,6 +110,9 @@ vi.mock("#/lib/profiles/agent-profile-primary-binding", () => ({
 	updateAgentProfilePrimaryBindingModelSelection: (
 		...args: Parameters<typeof updatePrimaryBindingModelSelectionMock>
 	) => updatePrimaryBindingModelSelectionMock(...args),
+	updateAgentProfilePrimaryBindingOpenCodePermission: (
+		...args: Parameters<typeof updatePrimaryBindingOpenCodePermissionMock>
+	) => updatePrimaryBindingOpenCodePermissionMock(...args),
 }));
 
 vi.mock("#/lib/profiles/agent-profile-runtime-binding", () => ({
@@ -253,6 +262,13 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			.mockImplementation(async () =>
 				createPrimaryBindingResponse("codex:approveForMe")
 			);
+		readControllerChangeEligibilityMock
+			.mockReset()
+			.mockImplementation(async ({ agentProfileId }) => ({
+				agentProfileId,
+				reasonCode: "agent_profile_binding.controller_change_allowed" as const,
+				status: "allowed" as const,
+			}));
 		refreshReadinessFactsMock.mockReset().mockResolvedValue(undefined);
 		refreshReadinessSharedCachesMock.mockReset().mockResolvedValue(undefined);
 		renameOpenMeldProfileMock.mockReset().mockImplementation(async (input) =>
@@ -286,6 +302,17 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 					modelId: input.modelId,
 					reasoningLevel: input.reasoningLevel,
 				})
+			);
+		updatePrimaryBindingOpenCodePermissionMock
+			.mockReset()
+			.mockImplementation(async (input) =>
+				createEnsureBindingResponse(
+					null,
+					"builtin:opencode",
+					null,
+					null,
+					input.openCodePermission
+				)
 			);
 		listOrganizationBindingAuthorizationProfilesMock
 			.mockReset()
@@ -902,6 +929,220 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBe("/o/amplift/computers/device-fangyuan");
 	});
 
+	it("locks only the controller while an Agent is working", () => {
+		const primaryBinding = createPrimaryBindingResponse(
+			"codex:askForApproval",
+			"builtin:codex",
+			{
+				modelId: "gpt-5.5",
+				reasoningLevel: "medium",
+			}
+		).binding as GetAgentProfilePrimaryBindingResponse["binding"];
+		const modelCatalog: ModelCatalog = {
+			agentControllers: {
+				codex: {
+					defaultModelId: "gpt-5.5",
+					models: [
+						{
+							displayName: "GPT-5.5",
+							id: "gpt-5.5",
+							minCliVersion: null,
+							supportedReasoningLevels: ["low", "medium", "high"],
+							unavailable: false,
+						},
+					],
+				},
+			},
+			schemaVersion: 1,
+			updatedAt: "2026-06-18T00:00:00.000Z",
+		};
+
+		render(
+			<AgentProfileEditDialog
+				controllerChangeEligibilityStatus="blocked"
+				controllerChangeOptions={[
+					{
+						agentControllerRef: "builtin:claude-code",
+						label: "Claude Code",
+					},
+				]}
+				editState={resolveAgentProfileEditState({
+					binding: primaryBinding,
+					modelCatalog,
+				})}
+				isPending={false}
+				modelCatalog={modelCatalog}
+				onControllerChange={() => Promise.resolve()}
+				onControllerCollaborationModeUpdate={() => Promise.resolve()}
+				onControllerPermissionModeUpdate={() => Promise.resolve()}
+				onModelSelectionUpdate={() => Promise.resolve()}
+				onOpenChange={() => undefined}
+				onOpenCodePermissionUpdate={() => Promise.resolve()}
+				onRenameProfile={() => Promise.resolve()}
+				open={true}
+				profileName="Research Agent"
+			/>
+		);
+
+		expect(
+			(
+				screen.getByRole("combobox", {
+					name: "Change controller",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		expect(
+			(screen.getByRole("combobox", { name: "Model" }) as HTMLButtonElement)
+				.disabled
+		).toBe(false);
+		expect(
+			(
+				screen.getByRole("combobox", {
+					name: "Reasoning effort",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(false);
+		expect(
+			(
+				screen.getByRole("combobox", {
+					name: PERMISSIONS_MODE_NAME_PATTERN,
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(false);
+		expect(
+			screen.getByText(
+				"Controller changes are unavailable while this Agent is working because reconnecting would interrupt the current Wake."
+			)
+		).toBeTruthy();
+	});
+
+	it("does not submit a stale Controller draft after the Agent starts working", () => {
+		const primaryBinding = createPrimaryBindingResponse(
+			"codex:askForApproval",
+			"builtin:codex"
+		).binding as GetAgentProfilePrimaryBindingResponse["binding"];
+		const editState = resolveAgentProfileEditState({
+			binding: primaryBinding,
+			modelCatalog: null,
+		});
+		const onControllerChange = vi.fn(() => Promise.resolve());
+		const onRenameProfile = vi.fn(() => Promise.resolve());
+		const renderDialog = (
+			controllerChangeEligibilityStatus: "allowed" | "blocked"
+		) => (
+			<AgentProfileEditDialog
+				controllerChangeEligibilityStatus={controllerChangeEligibilityStatus}
+				controllerChangeOptions={[
+					{
+						agentControllerRef: "builtin:claude-code",
+						label: "Claude Code",
+					},
+				]}
+				editState={editState}
+				isPending={false}
+				modelCatalog={null}
+				onControllerChange={onControllerChange}
+				onControllerCollaborationModeUpdate={() => Promise.resolve()}
+				onControllerPermissionModeUpdate={() => Promise.resolve()}
+				onModelSelectionUpdate={() => Promise.resolve()}
+				onOpenChange={() => undefined}
+				onOpenCodePermissionUpdate={() => Promise.resolve()}
+				onRenameProfile={onRenameProfile}
+				open={true}
+				profileName="Research Agent"
+			/>
+		);
+		const { rerender } = render(renderDialog("allowed"));
+
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: "Renamed Agent" },
+		});
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Change controller" })
+		);
+		fireEvent.click(screen.getByRole("option", { name: "Claude Code" }));
+		rerender(renderDialog("blocked"));
+
+		const saveButton = screen.getByRole("button", { name: "Save changes" });
+		expect((saveButton as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.click(saveButton);
+		expect(onControllerChange).not.toHaveBeenCalled();
+		expect(onRenameProfile).not.toHaveBeenCalled();
+	});
+
+	it("uses account-wide RuntimeCoordinator truth to lock Controller changes from the Agents page", async () => {
+		readControllerChangeEligibilityMock.mockImplementation(
+			async ({ agentProfileId }) => ({
+				agentProfileId,
+				reasonCode:
+					"agent_profile_binding.controller_change_blocked_active_execution" as const,
+				status: "blocked" as const,
+			})
+		);
+		renderAgentProfilesCard(
+			{ selectedExecutionTarget: createSelectedExecutionTarget() },
+			createPrimaryBindingResponse("codex:approveForMe").binding
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Edit Agent" }));
+
+		await waitFor(() => {
+			expect(
+				(
+					screen.getByRole("combobox", { name: "Change controller" }) as
+						| HTMLButtonElement
+						| HTMLInputElement
+				).disabled
+			).toBe(true);
+		});
+		expect(
+			screen.getByText(
+				"Controller changes are unavailable while this Agent is working because reconnecting would interrupt the current Wake."
+			)
+		).toBeTruthy();
+		expect(
+			(screen.getByRole("combobox", { name: "Model" }) as HTMLButtonElement)
+				.disabled
+		).toBe(false);
+	});
+
+	it("prevents unbinding a Controller from the Agents page while the Agent is working", async () => {
+		readControllerChangeEligibilityMock.mockImplementation(
+			async ({ agentProfileId }) => ({
+				agentProfileId,
+				reasonCode:
+					"agent_profile_binding.controller_change_blocked_active_execution" as const,
+				status: "blocked" as const,
+			})
+		);
+		renderAgentProfilesCard(
+			{ selectedExecutionTarget: createSelectedExecutionTarget() },
+			createPrimaryBindingResponse("codex:approveForMe").binding
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+
+		await waitFor(() => {
+			expect(
+				(
+					screen.getByRole("button", { name: "Unbind controller" }) as
+						| HTMLButtonElement
+						| HTMLInputElement
+				).disabled
+			).toBe(true);
+		});
+		expect(screen.getByText("Agent is working")).toBeTruthy();
+	});
+
 	it("offers Agent editing for OpenCode model variants without a permissions mode", async () => {
 		const openCodeBinding = createPrimaryBindingResponse(
 			null,
@@ -967,8 +1208,67 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			queryKey: organizationQueryKeys.all,
 		});
 		expect(toastMock.success).toHaveBeenCalledWith(
-			"Agent settings saved for Research Agent. New work will wait for this computer to sync the changes before it starts."
+			"Settings saved for Research Agent. This computer must sync the changes before new work starts. Work already running keeps its current settings."
 		);
+	});
+
+	it("keeps saved OpenCode permissions after closing and reopening Agent settings", async () => {
+		let currentOpenCodePermission: { edit: "allow" } | null = null;
+		const createCurrentResponse = () =>
+			createPrimaryBindingResponse(
+				null,
+				"builtin:opencode",
+				{
+					modelId: "opencode/north-mini-code-free",
+				},
+				null,
+				currentOpenCodePermission
+			);
+		readPrimaryBindingMock.mockImplementation(async () =>
+			createCurrentResponse()
+		);
+		updatePrimaryBindingOpenCodePermissionMock.mockImplementation((input) => {
+			currentOpenCodePermission = input.openCodePermission;
+			return Promise.resolve({
+				...createCurrentResponse(),
+				outcome: "reused",
+				status: "accepted",
+			});
+		});
+		renderAgentProfilesCard({}, createCurrentResponse().binding);
+
+		expect(await screen.findByText("Research Agent")).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Edit Agent" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "File changes" }));
+		fireEvent.click(
+			screen.getByRole("option", { name: "Allow without asking" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		await waitFor(() => {
+			expect(updatePrimaryBindingOpenCodePermissionMock).toHaveBeenCalledWith({
+				actorProfileId: "human-1",
+				agentProfileId: AGENT_PROFILE_ID,
+				openCodePermission: { edit: "allow" },
+			});
+			expect(screen.queryByRole("heading", { name: "Edit Agent" })).toBeNull();
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Edit Agent" }));
+
+		expect(
+			screen.getByRole("combobox", { name: "File changes" }).textContent
+		).toContain("Allow without asking");
 	});
 
 	it("renames an Agent without sending unchanged binding fields", async () => {
@@ -1054,7 +1354,13 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Unbind controller" }));
+		const unbindControllerButton = screen.getByRole("button", {
+			name: "Unbind controller",
+		}) as HTMLButtonElement;
+		await waitFor(() => {
+			expect(unbindControllerButton.disabled).toBe(false);
+		});
+		fireEvent.click(unbindControllerButton);
 
 		expect(
 			screen.getByRole("heading", { name: "Unbind controller?" })
@@ -1097,6 +1403,38 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeNull();
 	});
 
+	it("explains a server-rejected unbind when active work starts after the menu check", async () => {
+		disablePrimaryBindingMock.mockResolvedValue({
+			agentProfileId: AGENT_PROFILE_ID,
+			disabled: false,
+			reasonCodes: [
+				"agent_profile_binding.controller_change_blocked_active_execution",
+			],
+			status: "unavailable",
+		});
+		renderAgentProfilesCard();
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		const unbindControllerButton = screen.getByRole("button", {
+			name: "Unbind controller",
+		}) as HTMLButtonElement;
+		await waitFor(() => {
+			expect(unbindControllerButton.disabled).toBe(false);
+		});
+		fireEvent.click(unbindControllerButton);
+		fireEvent.click(screen.getByRole("button", { name: "Unbind controller" }));
+
+		await waitFor(() => {
+			expect(toastMock.error).toHaveBeenCalledWith(
+				"This Agent is still working. Wait for the current Wake to finish before unbinding its Controller."
+			);
+		});
+	});
+
 	it("rebinds an Agent and switches the card icon", async () => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		let currentBinding =
@@ -1136,9 +1474,13 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			})
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Edit Agent" }));
-		fireEvent.click(
-			screen.getByRole("combobox", { name: "Change controller" })
-		);
+		const controllerSelect = screen.getByRole("combobox", {
+			name: "Change controller",
+		}) as HTMLButtonElement;
+		await waitFor(() => {
+			expect(controllerSelect.disabled).toBe(false);
+		});
+		fireEvent.click(controllerSelect);
 		fireEvent.click(screen.getByRole("option", { name: "Claude Code" }));
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -1735,7 +2077,8 @@ function createPrimaryBindingResponse(
 	agentControllerCollaborationMode: string | null = agentControllerRef ===
 	"builtin:codex"
 		? "codex:default"
-		: null
+		: null,
+	openCodePermission: { edit: "allow" } | null = null
 ) {
 	return {
 		binding: {
@@ -1758,6 +2101,7 @@ function createPrimaryBindingResponse(
 				},
 			},
 			grantsClaimSuccess: false,
+			...(openCodePermission ? { openCodePermission } : {}),
 			...(modelSelection
 				? {
 						modelSelection: {
@@ -1890,14 +2234,16 @@ function createEnsureBindingResponse(
 	agentControllerCollaborationMode: string | null = agentControllerRef ===
 	"builtin:codex"
 		? "codex:default"
-		: null
+		: null,
+	openCodePermission: { edit: "allow" } | null = null
 ) {
 	return {
 		binding: createPrimaryBindingResponse(
 			agentControllerPermissionMode,
 			agentControllerRef,
 			modelSelection,
-			agentControllerCollaborationMode
+			agentControllerCollaborationMode,
+			openCodePermission
 		).binding,
 		grantsClaimSuccess: false,
 		outcome: "reused",

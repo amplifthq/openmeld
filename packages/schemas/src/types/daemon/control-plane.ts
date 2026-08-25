@@ -66,6 +66,8 @@ type OpenMeldDaemonInterruptPayloadSchema =
   typeof import("../../schemas/daemon/control-plane")["openMeldDaemonInterruptPayloadSchema"];
 type OpenMeldDaemonShutdownRequestPayloadSchema =
   typeof import("../../schemas/daemon/control-plane")["openMeldDaemonShutdownRequestPayloadSchema"];
+type OpenMeldDaemonServiceUpdateReadinessPayloadSchema =
+  typeof import("../../schemas/daemon/control-plane")["openMeldDaemonServiceUpdateReadinessPayloadSchema"];
 type OpenMeldDaemonStatusPayloadSchema =
   typeof import("../../schemas/daemon/control-plane")["openMeldDaemonStatusPayloadSchema"];
 
@@ -133,5 +135,7 @@ export type OpenMeldDaemonInterruptPayload =
   z.infer<OpenMeldDaemonInterruptPayloadSchema>;
 export type OpenMeldDaemonShutdownRequestPayload =
   z.infer<OpenMeldDaemonShutdownRequestPayloadSchema>;
+export type OpenMeldDaemonServiceUpdateReadinessPayload =
+  z.infer<OpenMeldDaemonServiceUpdateReadinessPayloadSchema>;
 export type OpenMeldDaemonStatusPayload =
   z.infer<OpenMeldDaemonStatusPayloadSchema>;

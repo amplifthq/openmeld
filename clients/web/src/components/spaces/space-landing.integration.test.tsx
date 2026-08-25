@@ -486,6 +486,16 @@ function renderSpaceLanding(
 	};
 }
 
+function openDesktopMembersPanel(): HTMLElement {
+	const membersButton = screen.getByRole("button", {
+		name: MEMBERS_TOGGLE_BUTTON_NAME,
+	});
+	if (membersButton.getAttribute("aria-expanded") !== "true") {
+		fireEvent.click(membersButton);
+	}
+	return screen.getByRole("complementary", { name: "Members" });
+}
+
 function PendingCenterAgentSpaceLanding(input: {
 	message: {
 		clientMessageId: string;
@@ -1019,9 +1029,7 @@ describe("SpaceLanding", () => {
 		});
 
 		const view = renderSpaceLanding();
-		const panel = screen.getByRole("complementary", {
-			name: "Members",
-		});
+		const panel = openDesktopMembersPanel();
 
 		expect(within(panel).getByText("Current Cache")).toBeTruthy();
 		expect(within(panel).queryByText("Old Bootstrap")).toBeNull();
@@ -1082,9 +1090,7 @@ describe("SpaceLanding", () => {
 		});
 
 		const view = renderSpaceLanding();
-		const panel = screen.getByRole("complementary", {
-			name: "Members",
-		});
+		const panel = openDesktopMembersPanel();
 
 		expect(
 			within(panel).getByText(SPACE_MEMBERS_LOAD_ERROR_MESSAGE)
@@ -1199,10 +1205,16 @@ describe("SpaceLanding", () => {
 				spaceId: "space-123",
 			});
 		});
-		expect(screen.getByText("2 members added to this Space.")).toBeTruthy();
+		await waitFor(() => {
+			expect(
+				screen
+					.getByRole("button", { name: "Add members" })
+					.getAttribute("aria-expanded")
+			).toBe("false");
+		});
 	});
 
-	it("keeps add-members success visible when profile history refresh fails after the write", async () => {
+	it("closes Add members when profile history refresh fails after the membership write", async () => {
 		const addMembersMock = vi.fn().mockResolvedValue({
 			addedMemberIds: [SECOND_AGENT_PROFILE_ID],
 			alreadyMemberIds: [],
@@ -1294,8 +1306,13 @@ describe("SpaceLanding", () => {
 				}),
 				spaceId: "space-123",
 			});
-			expect(screen.getByText("Member added to this Space.")).toBeTruthy();
+			expect(
+				screen
+					.getByRole("button", { name: "Add members" })
+					.getAttribute("aria-expanded")
+			).toBe("false");
 		});
+		expect(screen.queryByText("Member added to this Space.")).toBeNull();
 		expect(screen.queryByText("history write failed")).toBeNull();
 		expect(consoleWarnMock).toHaveBeenCalledWith(
 			"OpenMeld added Space members but could not update history.",
@@ -1535,6 +1552,11 @@ describe("SpaceLanding", () => {
 		vi.useFakeTimers();
 		fireEvent.click(submitButton);
 		await flushPromiseQueue();
+		expect(
+			screen
+				.getByRole("button", { name: "Add members" })
+				.getAttribute("aria-expanded")
+		).toBe("false");
 		expect(membersRefetchMock).toHaveBeenCalledTimes(2);
 		expect(createStartAgentProfileMock).toHaveBeenCalledWith({
 			data: {
@@ -5527,7 +5549,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("defaults the member roster to an inline side panel on desktop", async () => {
+	it("keeps the desktop member roster closed until the user opens it", async () => {
 		vi.stubGlobal(
 			"matchMedia",
 			createMatchMediaMock({ desktopMembersPanel: true })
@@ -5559,20 +5581,27 @@ describe("SpaceLanding", () => {
 			"space-members-panel"
 		);
 
-		const panel = screen.getByRole("complementary", {
-			name: "Members",
-		});
 		const conversationLayout = screen.getByRole("region", {
 			name: "Space conversation",
 		}).parentElement;
-		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
+		expect(membersButton.getAttribute("aria-expanded")).toBe("false");
 		expect(
 			conversationLayout?.getAttribute("data-space-members-panel-open")
-		).toBe("true");
+		).toBe("false");
+		expect(screen.queryByRole("complementary", { name: "Members" })).toBeNull();
 		expect(screen.queryByRole("dialog")).toBeNull();
 		expect(
 			screen.getByRole("log", { name: "Conversation history" })
 		).toBeTruthy();
+
+		fireEvent.click(membersButton);
+		const panel = await screen.findByRole("complementary", {
+			name: "Members",
+		});
+		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
+		expect(
+			conversationLayout?.getAttribute("data-space-members-panel-open")
+		).toBe("true");
 		expect(
 			within(panel).getByRole("heading", { name: "Members" })
 		).toBeTruthy();
@@ -5822,10 +5851,8 @@ describe("SpaceLanding", () => {
 		const membersButton = screen.getByRole("button", {
 			name: MEMBERS_TOGGLE_BUTTON_NAME,
 		});
-		expect(
-			await screen.findByRole("complementary", { name: "Members" })
-		).toBeTruthy();
-		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
+		expect(membersButton.getAttribute("aria-expanded")).toBe("false");
+		expect(screen.queryByRole("complementary", { name: "Members" })).toBeNull();
 		expect(
 			window.localStorage.getItem(SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY)
 		).toBeNull();
@@ -5834,7 +5861,17 @@ describe("SpaceLanding", () => {
 		).toBe("open");
 
 		fireEvent.click(membersButton);
+		expect(
+			await screen.findByRole("complementary", { name: "Members" })
+		).toBeTruthy();
+		expect(
+			window.localStorage.getItem(SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY)
+		).toBe("open");
+		expect(
+			window.localStorage.getItem(OTHER_SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY)
+		).toBe("open");
 
+		fireEvent.click(membersButton);
 		await waitFor(() => {
 			expect(
 				screen.queryByRole("complementary", { name: "Members" })
@@ -5843,18 +5880,6 @@ describe("SpaceLanding", () => {
 		expect(
 			window.localStorage.getItem(SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY)
 		).toBe("closed");
-		expect(
-			window.localStorage.getItem(OTHER_SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY)
-		).toBe("open");
-
-		fireEvent.click(membersButton);
-
-		expect(
-			await screen.findByRole("complementary", { name: "Members" })
-		).toBeTruthy();
-		expect(
-			window.localStorage.getItem(SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY)
-		).toBe("open");
 	});
 
 	it("restores each Space's member roster state without remounting the page", async () => {
@@ -5907,7 +5932,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows a choose-local-agent action beside unavailable unbound agents in the member roster", async () => {
+	it("shows a choose-local-agent action beside unavailable unbound agents in the member roster", () => {
 		vi.stubGlobal(
 			"matchMedia",
 			createMatchMediaMock({ desktopMembersPanel: true })
@@ -5963,9 +5988,7 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
-		const panel = await screen.findByRole("complementary", {
-			name: "Members",
-		});
+		const panel = openDesktopMembersPanel();
 		expect(
 			screen.queryByRole("region", {
 				name: "Local agent wake warning",
@@ -6145,9 +6168,7 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
-		const panel = await screen.findByRole("complementary", {
-			name: "Members",
-		});
+		const panel = openDesktopMembersPanel();
 		await waitFor(() => {
 			expectSpaceAgentAvailabilityIndicator(panel, {
 				label: "Available",
@@ -6311,9 +6332,7 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
-		const panel = screen.getByRole("complementary", {
-			name: "Members",
-		});
+		const panel = openDesktopMembersPanel();
 		await flushPromiseQueue();
 		expectSpaceAgentAvailabilityIndicator(panel, {
 			isRefreshing: false,
@@ -6669,9 +6688,7 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
-		const panel = screen.getByRole("complementary", {
-			name: "Members",
-		});
+		const panel = openDesktopMembersPanel();
 		fireEvent.click(
 			within(panel).getByRole("button", { name: "Refresh members" })
 		);
@@ -7589,7 +7606,7 @@ describe("SpaceLanding", () => {
 		expect(membersRefetchMock).toHaveBeenCalled();
 	});
 
-	it("opens the member roster with shared checking route status while a ready local agent route refreshes", async () => {
+	it("shows shared checking route status when the member roster opens while a ready local agent route refreshes", () => {
 		vi.stubGlobal(
 			"matchMedia",
 			createMatchMediaMock({ desktopMembersPanel: true })
@@ -7682,9 +7699,7 @@ describe("SpaceLanding", () => {
 			);
 		});
 
-		const panel = await screen.findByRole("complementary", {
-			name: "Members",
-		});
+		const panel = openDesktopMembersPanel();
 		expect(
 			screen
 				.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
@@ -10095,9 +10110,7 @@ describe("SpaceLanding", () => {
 		});
 
 		const view = renderSpaceLanding();
-		const checkingPanel = screen.getByRole("complementary", {
-			name: "Members",
-		});
+		const checkingPanel = openDesktopMembersPanel();
 		expectSpaceAgentAvailabilityIndicator(checkingPanel, {
 			isRefreshing: true,
 			label: "Checking",
@@ -10184,9 +10197,7 @@ describe("SpaceLanding", () => {
 		});
 
 		const view = renderSpaceLanding();
-		const unavailablePanel = screen.getByRole("complementary", {
-			name: "Members",
-		});
+		const unavailablePanel = openDesktopMembersPanel();
 		expect(
 			within(unavailablePanel).queryByText("Checking availability")
 		).toBeNull();
@@ -13736,6 +13747,85 @@ describe("SpaceLanding", () => {
 		).toBeTruthy();
 	});
 
+	it("does not turn an automatic recovery inspection failure into a user error", async () => {
+		const inspectExecutionRecovery = vi
+			.fn()
+			.mockRejectedValue(new Error("recovery capability mismatch"));
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		createWebSpaceApiMock.mockReturnValue({
+			getActiveWakeProgress: vi.fn().mockResolvedValue({ items: [] }),
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+			getWakeProgress: vi.fn().mockResolvedValue({
+				items: [],
+				query: {
+					clientMessageId: "client-message-recovery",
+					spaceId: "space-123",
+					targetProfileId: null,
+				},
+			}),
+			inspectExecutionRecovery,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [
+						createTextSignal({
+							id: "sig-recovery-source",
+							messageEnvelope: {
+								activationTargets: [DEFAULT_AGENT_PROFILE_ID],
+								referenceTargets: [],
+								text: "@Runner finish the report",
+							},
+							text: "@Runner finish the report",
+						}),
+						createTerminalFailureNoticeSignal({
+							actorProfileId: DEFAULT_AGENT_PROFILE_ID,
+							dispatchId: "dispatch-recovery",
+							id: "sig-recovery-failure",
+							replyToSignalId: "sig-recovery-source",
+							text: "Runner stopped before posting the result.",
+						}),
+						createExecutionRecoveryAvailableSignal({
+							actorProfileId: DEFAULT_AGENT_PROFILE_ID,
+							dispatchId: "dispatch-recovery",
+							id: "sig-recovery-available",
+							replyToSignalId: "sig-recovery-source",
+							resultRef: "dispatch-recovery::attempt-1",
+						}),
+					],
+					nextCursor: null,
+				},
+			}),
+		});
+
+		renderSpaceLanding();
+
+		await waitFor(() =>
+			expect(inspectExecutionRecovery).toHaveBeenCalledOnce()
+		);
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("button", { name: "Recovery unavailable" })
+			).toBeNull();
+		});
+		expect(toastMock.error).not.toHaveBeenCalled();
+		expect(consoleError).toHaveBeenCalledWith(
+			"Failed to inspect execution recovery.",
+			expect.any(Error)
+		);
+	});
+
 	it("retries a single-target anchored execution failure as a new Wake", async () => {
 		const sourceText = "@Scout check the release build";
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
@@ -17154,6 +17244,42 @@ function createTerminalFailureNoticeSignal(input: {
 			generatedBy: "openmeld",
 		},
 	};
+}
+
+function createExecutionRecoveryAvailableSignal(input: {
+	actorProfileId: string;
+	dispatchId: string;
+	id: string;
+	replyToSignalId: string;
+	resultRef: string;
+}): SignalEnvelope {
+	return {
+		v: 1,
+		id: input.id,
+		spaceId: "space-123",
+		ts: 11,
+		profile: {
+			kind: "system",
+			profileId: "openmeld-system",
+			profileName: "OpenMeld",
+		},
+		type: "signal.system_notice",
+		data: {
+			noticeType: "execution_recovery_available",
+			actorProfileId: input.actorProfileId,
+			dispatchId: input.dispatchId,
+			generatedBy: "openmeld",
+			replyTo: {
+				previewText: "@Runner finish the report",
+				profileId: DEFAULT_SPACE_PROFILE_ID,
+				profileKind: "human",
+				profileName: "Mira",
+				signalId: input.replyToSignalId,
+			},
+			resultRef: input.resultRef,
+			text: "OpenMeld retained the completed result.",
+		},
+	} as SignalEnvelope;
 }
 
 function createPresenceSignal(input: {

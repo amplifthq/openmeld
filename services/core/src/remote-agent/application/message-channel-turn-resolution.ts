@@ -1,7 +1,4 @@
-import {
-  buildOpenMeldOrganizationWebUrl,
-  HOSTED_CENTER_AGENT_CONTROLLER_REF,
-} from "@openmeld/schemas";
+import { buildOpenMeldOrganizationWebUrl } from "@openmeld/schemas";
 import type {
   AuthRpcResolveOrganizationAccountIdentityResult,
   CenterAgentModelRoute,
@@ -13,6 +10,7 @@ import {
   CenterAgentModelResolutionError,
   resolveCenterAgentModelRouteForBinding,
 } from "../../center-agent/application/center-agent-model-service";
+import { isHostedCenterAgentExecutionTarget } from "../../center-agent/application/hosted-center-agent-binding";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { readModelCatalog } from "../../config/model-catalog";
 import type { CoreBindings } from "../../lib/bindings";
@@ -438,10 +436,7 @@ async function readMessageChannelCenterAgentTarget(input: {
     db: input.db,
     owner: { id: profile.owner_user_id, kind: "owner_account" },
   });
-  if (
-    binding?.runtimeKind !== "hosted_center_agent" ||
-    binding.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF
-  ) {
+  if (!(binding && isHostedCenterAgentExecutionTarget(binding))) {
     return null;
   }
   return {

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
+import { prepareCenterAgentRepresentedMemberRequest } from "../src/center-agent/application/represented-member-request";
 import { recordCenterAgentConnectorActionOperation } from "../src/center-agent/connector-action-operation-repository";
 import {
   createConnectorConnectionName,
@@ -23,6 +24,7 @@ import {
   rpcCenterAgentResolveConnectorConnection,
   rpcCompleteConnectorDisconnect,
   rpcCompleteGitHubAppInstallation,
+  rpcListCenterAgentAuditJournal,
   rpcReadPendingGitHubAppInstallation,
   rpcReconcileCurrentOrganizationConnectorConnections,
 } from "../src/rpc/methods";
@@ -66,6 +68,7 @@ describe("Core connector connection ownership", () => {
       },
       requestSignature: "a".repeat(64),
       service: "github",
+      sourceSpaceId: "space-authorized",
     } as const;
 
     const claimed = await recordCenterAgentConnectorActionOperation({
@@ -104,6 +107,7 @@ describe("Core connector connection ownership", () => {
       nowMs: Date.now() + 3,
       outcome: "completed",
       providerExecutionId: "provider-execution-1",
+      sourceSpaceId: "space-retry",
     });
     const replayedCompletion = await recordCenterAgentConnectorActionOperation({
       ...baseInput,
@@ -144,6 +148,50 @@ describe("Core connector connection ownership", () => {
       )
       .first<{ count: number }>();
     expect(Number(auditCount?.count ?? 0)).toBe(2);
+    const sourceSpaces = await env.OPENMELD_DB.prepare(
+      `
+        SELECT source_space_id
+        FROM center_agent_audit_journal
+        WHERE resource_id = ?
+        ORDER BY created_at ASC
+      `
+    )
+      .bind(
+        `${baseInput.service}:${baseInput.actionId}:${baseInput.operationId}`
+      )
+      .all<{ source_space_id: string | null }>();
+    expect(sourceSpaces.results).toEqual([
+      { source_space_id: "space-authorized" },
+      { source_space_id: "space-authorized" },
+    ]);
+    const auditContext = connectorRequestContext({
+      organizationId: fixture.organizationA,
+      userId: fixture.ownerA,
+    });
+    const v19Audit = await rpcListCenterAgentAuditJournal(connectorCoreEnv(), {
+      actionSet: "v19",
+      context: auditContext,
+      limit: 25,
+    });
+    const v20Audit = await rpcListCenterAgentAuditJournal(connectorCoreEnv(), {
+      actionSet: "v20",
+      context: auditContext,
+      limit: 25,
+    });
+    expect(
+      v19Audit.entries.find(
+        (entry) =>
+          entry.resource?.id ===
+          `${baseInput.service}:${baseInput.actionId}:${baseInput.operationId}`
+      )
+    ).not.toHaveProperty("sourceSpaceId");
+    expect(
+      v20Audit.entries.find(
+        (entry) =>
+          entry.resource?.id ===
+          `${baseInput.service}:${baseInput.actionId}:${baseInput.operationId}`
+      )
+    ).toMatchObject({ sourceSpaceId: "space-authorized" });
 
     const concurrentInput = {
       ...baseInput,
@@ -575,6 +623,7 @@ describe("Core connector connection ownership", () => {
         nowMs
       )
       .run();
+    const sourceSpaceId = `space-${crypto.randomUUID()}`;
     await upsertRemoteAgentNativeDeliveryRecord({
       attemptId: null,
       bindingId: `binding-${crypto.randomUUID()}`,
@@ -588,7 +637,7 @@ describe("Core connector connection ownership", () => {
       onBehalfOfUserId: fixture.memberA,
       organizationId: fixture.organizationA,
       profileId: centerAgent.profileId,
-      spaceId: `dm-${crypto.randomUUID()}`,
+      spaceId: sourceSpaceId,
       status: "submitted",
       triggerMessageId: `message-${crypto.randomUUID()}`,
     });
@@ -646,9 +695,112 @@ describe("Core connector connection ownership", () => {
       source_native_delivery_id: null,
     });
     await expect(
+      env.OPENMELD_DB.prepare(
+        `
+          SELECT source_space_id
+          FROM center_agent_audit_journal
+          WHERE resource_id = ?
+        `
+      )
+        .bind(`gmail:gmail.fetch_emails:${operationId}`)
+        .first()
+    ).resolves.toEqual({ source_space_id: sourceSpaceId });
+    await expect(
       rpcCenterAgentReadConnectorActionOperation(connectorCoreEnv(), input)
     ).resolves.toMatchObject({
       operation: { operationId, status: "pending" },
+    });
+  });
+
+  it.each([
+    "slack",
+    "message_channel",
+  ] as const)("does not treat a %s conversation identity as a source Space", async (conversationKind) => {
+    const fixture = await seedConnectorFixture();
+    const centerAgent = await seedDesignatedCenterAgent(fixture);
+    const representedProfileId = crypto.randomUUID();
+    const submissionId = `submission-${crypto.randomUUID()}`;
+    const idempotencyKey = `delivery-${crypto.randomUUID()}`;
+    const deliveryId = crypto.randomUUID();
+    const nowMs = Date.now();
+    const externalConversationId = `${conversationKind}-${crypto.randomUUID()}`;
+    await env.OPENMELD_DB.prepare(
+      `
+          INSERT INTO openmeld_profiles (
+            profile_id, profile_name, profile_handle, profile_kind, is_default,
+            status, organization_id, owner_user_id, created_by_user_id, source,
+            created_at, updated_at
+          ) VALUES (?, 'Represented member', ?, 'human', 1, 'active', NULL, ?, ?, 'auth_bootstrap', ?, ?)
+        `
+    )
+      .bind(
+        representedProfileId,
+        `represented-${crypto.randomUUID()}`,
+        fixture.memberA,
+        fixture.memberA,
+        nowMs,
+        nowMs
+      )
+      .run();
+    await upsertRemoteAgentNativeDeliveryRecord({
+      attemptId: null,
+      bindingId: `binding-${crypto.randomUUID()}`,
+      conversationKind,
+      db: env.OPENMELD_DB,
+      deliveryId,
+      dispatchId: `dispatch-${crypto.randomUUID()}`,
+      idempotencyKey,
+      ...(conversationKind === "slack"
+        ? {
+            slackChannelId: "C123",
+            slackTeamId: "T123",
+            slackThreadTs: externalConversationId,
+          }
+        : {
+            messageChannelLocator: {
+              appId: "app-123",
+              chatId: "chat-123",
+              connectionId: "connection-123",
+              provider: "lark" as const,
+              rootMessageId: externalConversationId,
+              tenantKey: "tenant-123",
+              threadId: null,
+            },
+            providerPublicationIdempotencyKey: `publication-${crypto.randomUUID()}`,
+          }),
+      nowMs,
+      onBehalfOfDisplayName: "Represented member",
+      onBehalfOfProfileId: representedProfileId,
+      onBehalfOfUserId: fixture.memberA,
+      organizationId: fixture.organizationA,
+      profileId: centerAgent.profileId,
+      spaceId: externalConversationId,
+      status: "submitted",
+      triggerMessageId: `message-${crypto.randomUUID()}`,
+    });
+    await markRemoteAgentNativeDeliveryAck({
+      accepted: true,
+      db: env.OPENMELD_DB,
+      idempotencyKey,
+      nowMs: nowMs + 1,
+      submissionId,
+    });
+
+    await expect(
+      prepareCenterAgentRepresentedMemberRequest(
+        connectorCoreEnv(),
+        {
+          ...centerAgent.context,
+          agentControllerConversationId: submissionId,
+        },
+        {
+          memberId: fixture.memberAId,
+          userId: fixture.memberA,
+        }
+      )
+    ).resolves.toMatchObject({
+      sourceNativeDeliveryId: deliveryId,
+      sourceSpaceId: null,
     });
   });
 

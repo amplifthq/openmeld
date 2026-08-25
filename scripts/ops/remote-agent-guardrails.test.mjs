@@ -21,6 +21,7 @@ const CONFIG = `{
   "name": "openmeld-core",
   "vars": {
     "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
+    "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED": "true",
     "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
     "CORS_ORIGINS": "http://localhost:8080"
   },
@@ -34,6 +35,7 @@ const CONFIG = `{
     "prod": {
       "vars": {
         "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
+        "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED": "true",
         "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "org_old",
         "CORS_ORIGINS": "https://gateway.openmeld.ai"
       },
@@ -48,6 +50,8 @@ const CONFIG = `{
 }`;
 
 const RUNTIME_DISABLED_RE = /"OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "false"/u;
+const DESIGNATION_DISABLED_RE =
+  /"OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED": "false"/u;
 const BLOCKED_ORGS_SORTED_RE =
   /"OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "org_new,org_old"/u;
 const PROD_CORS_ORIGIN_RE =
@@ -78,6 +82,7 @@ test("reads policy from the requested env vars", async () => {
   await withConfig(async (configPath) => {
     const policy = await readRemoteAgentPolicy({ configPath, env: "prod" });
     assert.equal(policy.runtimeEnabled, true);
+    assert.equal(policy.designationEnabled, true);
     assert.deepEqual([...policy.blockedOrganizationIds], ["org_old"]);
   });
 });
@@ -85,9 +90,11 @@ test("reads policy from the requested env vars", async () => {
 test("updates policy vars without touching unrelated vars", () => {
   const nextText = updateWranglerPolicyVars(CONFIG, "prod", {
     OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS: "org_new,org_old",
+    OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED: "false",
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "false",
   });
   assert.match(nextText, RUNTIME_DISABLED_RE);
+  assert.match(nextText, DESIGNATION_DISABLED_RE);
   assert.match(nextText, BLOCKED_ORGS_SORTED_RE);
   assert.match(nextText, PROD_CORS_ORIGIN_RE);
 });
@@ -140,6 +147,22 @@ test("dry-run policy write reports change without writing", async () => {
     assert.equal(result.dryRun, true);
     const policy = await readRemoteAgentPolicy({ configPath, env: "prod" });
     assert.equal(policy.runtimeEnabled, true);
+  });
+});
+
+test("pauses designation without disabling Remote Agent execution", async () => {
+  await withConfig(async (configPath) => {
+    const parsed = parseRemoteAgentOpsArgs([
+      "policy",
+      "--config",
+      configPath,
+      "--disable-designation",
+    ]);
+    const result = await applyRemoteAgentPolicyChanges(parsed);
+    assert.equal(result.policy.designationEnabled, false);
+    assert.equal(result.policy.runtimeEnabled, true);
+    const text = await readFile(configPath, "utf8");
+    assert.match(text, DESIGNATION_DISABLED_RE);
   });
 });
 
@@ -214,12 +237,14 @@ test("formats policy and usage diagnostics for operators", () => {
   assert.equal(
     formatPolicy({
       blockedOrganizationIds: new Set(["org_1"]),
+      designationEnabled: false,
       env: "prod",
       runtimeEnabled: false,
     }),
     [
       "Remote Agent policy (prod)",
       "  runtime: disabled",
+      "  designation: disabled",
       "  blocked organizations: org_1",
     ].join("\n")
   );

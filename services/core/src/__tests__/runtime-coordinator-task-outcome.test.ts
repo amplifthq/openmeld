@@ -14,8 +14,131 @@ import {
   projectRuntimeCoordinatorPublicationFailedTaskTerminalRecord,
   projectRuntimeCoordinatorStoppedTaskTerminalRecord,
 } from "../agent-task-coordination/application/runtime-coordinator-task-outcome";
+import { resolveRuntimeCoordinatorFinalizationSemantic } from "../runtime-transport/application/runtime-coordinator-finalization-semantic";
 
 describe("RuntimeCoordinator Agent Task terminal projection", () => {
+  it("requires the verified final message kind for an implicit reply", () => {
+    const implicitSuccess = buildFinalizationCommand({
+      acceptedResult: {
+        taskResult: {
+          code: "service.task_result",
+          payload: {
+            agentId: "child-profile",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "Done",
+            sourceEventId: "signal-child",
+            status: "success",
+            taskId: "task-1",
+          },
+          v: 4,
+        },
+      },
+    });
+    expect(
+      resolveRuntimeCoordinatorFinalizationSemantic({
+        publishState: "reply_published",
+        taskResult: implicitSuccess.acceptedResult.taskResult,
+      })
+    ).toEqual({
+      reasonCode: "agent_task.invalid_space_action",
+      status: "failed",
+    });
+    expect(
+      resolveRuntimeCoordinatorFinalizationSemantic({
+        finalMessageKind: "success_reply",
+        publishState: "reply_published",
+        taskResult: implicitSuccess.acceptedResult.taskResult,
+      })
+    ).toEqual({ reasonCode: null, status: "succeeded" });
+    expect(
+      resolveRuntimeCoordinatorFinalizationSemantic({
+        finalMessageKind: "failure_notice",
+        publishState: "reply_published",
+        taskResult: implicitSuccess.acceptedResult.taskResult,
+      })
+    ).toEqual({
+      reasonCode: "agent_task.invalid_space_action",
+      status: "failed",
+    });
+    expect(
+      resolveRuntimeCoordinatorFinalizationSemantic({
+        finalMessageKind: "success_reply",
+        publishState: "invalid_space_action",
+        taskResult: implicitSuccess.acceptedResult.taskResult,
+      })
+    ).toEqual({
+      reasonCode: "agent_task.invalid_space_action",
+      status: "failed",
+    });
+  });
+
+  it("uses the verified final message kind instead of the planned Space action", () => {
+    const plannedSilence = buildFinalizationCommand({
+      acceptedResult: {
+        taskResult: {
+          code: "service.task_result",
+          payload: {
+            agentId: "child-profile",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "Done",
+            sourceEventId: "signal-child",
+            spaceAction: {
+              reason: "No public reply is needed.",
+              type: "stay_silent",
+            },
+            status: "success",
+            taskId: "task-1",
+          },
+          v: 4,
+        },
+      },
+    });
+
+    expect(
+      resolveRuntimeCoordinatorFinalizationSemantic({
+        finalMessageKind: "success_reply",
+        publishState: "reply_published",
+        taskResult: plannedSilence.acceptedResult.taskResult,
+      })
+    ).toEqual({ reasonCode: null, status: "succeeded" });
+  });
+
+  it("does not treat non-visible silence as a successful Wake outcome", () => {
+    const internalOnly = buildFinalizationCommand({
+      acceptedResult: {
+        taskResult: {
+          code: "service.task_result",
+          payload: {
+            agentId: "child-profile",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "No public reply is needed.",
+            sourceEventId: "signal-child",
+            status: "success",
+            suppressPublicOutcome: true,
+            taskId: "task-1",
+          },
+          v: 4,
+        },
+      },
+    });
+
+    expect(
+      projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
+        command: internalOnly,
+        finalMessageKind: "stay_silent",
+        publishedSignalId: null,
+        publishState: "invalid_space_action",
+      })?.outcome
+    ).toMatchObject({
+      errorCode: "agent_task.invalid_space_action",
+      publishedSignalId: null,
+      status: "failed",
+    });
+  });
+
   it("projects a published child reply as succeeded", () => {
     const command = buildFinalizationCommand({
       acceptedResult: {
@@ -71,6 +194,46 @@ describe("RuntimeCoordinator Agent Task terminal projection", () => {
         targetProfileId: "child-profile",
         v: 1,
       },
+    });
+  });
+
+  it("projects a policy-blocked final Space outcome as failed", () => {
+    const command = buildFinalizationCommand({
+      acceptedResult: {
+        taskResult: {
+          code: "service.task_result",
+          payload: {
+            agentId: "child-profile",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "Done",
+            sourceEventId: "signal-child",
+            spaceAction: {
+              messageEnvelope: {
+                activationTargets: [],
+                referenceTargets: [],
+                text: "Done",
+              },
+              type: "post_message",
+            },
+            status: "success",
+            taskId: "task-1",
+          },
+          v: 4,
+        },
+      },
+    });
+
+    expect(
+      projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
+        command,
+        publishedSignalId: "signal-policy-blocked",
+        publishState: "invalid_space_action",
+      })?.outcome
+    ).toMatchObject({
+      errorCode: "agent_task.invalid_space_action",
+      publishedSignalId: "signal-policy-blocked",
+      status: "failed",
     });
   });
 
@@ -135,110 +298,6 @@ describe("RuntimeCoordinator Agent Task terminal projection", () => {
     ).toMatchObject({
       errorCode: "git.auth_failed",
       publishedSignalId: "signal-failure",
-      status: "failed",
-    });
-  });
-
-  it("projects a visible raw-context reply without a Space action as succeeded", () => {
-    const command = buildFinalizationCommand({
-      acceptedResult: {
-        taskResult: {
-          code: "service.task_result",
-          payload: {
-            agentId: "child-profile",
-            attemptId: "attempt-1",
-            deduped: false,
-            output: "Private output only",
-            sourceEventId: "signal-child",
-            status: "success",
-            taskId: "task-1",
-          },
-          v: 4,
-        },
-      },
-    });
-
-    expect(
-      projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
-        command,
-        publishedSignalId: "signal-raw-reply",
-        publishState: "reply_published",
-      })?.outcome
-    ).toMatchObject({
-      errorCode: null,
-      publishedSignalId: "signal-raw-reply",
-      status: "succeeded",
-    });
-  });
-
-  it("projects a successful collaboration result without a Space action as failed", () => {
-    const command = buildFinalizationCommand({
-      acceptedResult: {
-        taskResult: {
-          code: "service.task_result",
-          payload: {
-            agentId: "child-profile",
-            attemptId: "attempt-1",
-            deduped: false,
-            output: "Private output only",
-            sourceEventId: "signal-child",
-            status: "success",
-            taskId: "task-1",
-          },
-          v: 4,
-        },
-      },
-    });
-
-    expect(
-      projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
-        command,
-        publishedSignalId: "signal-failure",
-        publishState: "invalid_space_action",
-      })?.outcome
-    ).toMatchObject({
-      errorCode: "agent_task.invalid_space_action",
-      publishedSignalId: "signal-failure",
-      status: "failed",
-    });
-  });
-
-  it("projects a Space-policy-blocked final action as failed", () => {
-    const command = buildFinalizationCommand({
-      acceptedResult: {
-        taskResult: {
-          code: "service.task_result",
-          payload: {
-            agentId: "child-profile",
-            attemptId: "attempt-1",
-            deduped: false,
-            output: "Done",
-            sourceEventId: "signal-child",
-            spaceAction: {
-              messageEnvelope: {
-                activationTargets: [],
-                referenceTargets: [],
-                text: "Done",
-              },
-              type: "post_message",
-            },
-            status: "success",
-            taskId: "task-1",
-          },
-          v: 4,
-        },
-      },
-    });
-
-    expect(
-      projectRuntimeCoordinatorFinalizationTaskTerminalRecord({
-        command,
-        publishedSignalId: "signal-policy-blocked",
-        publishState: "invalid_space_action",
-      })?.outcome
-    ).toMatchObject({
-      errorCode: "agent_task.invalid_space_action",
-      publishedSignalId: "signal-policy-blocked",
       status: "failed",
     });
   });

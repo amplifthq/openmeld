@@ -8,5 +8,8 @@ audiences: ["members"]
 
 Space setup guidance now stays flush with the conversation, Members use a
 compact type scale, and Space dates no longer collide with long titles. Muted
-Agent Activity statuses also keep a quiet, theme-aware surface instead of a
-bright solid background.
+Pinned Space rows also give titles all available room up to the pin instead of
+reserving space for a hidden date. The Members panel starts closed at its
+compact minimum width, and Add members uses a quiet card that collapses after a
+successful add. Muted Agent Activity statuses keep a quiet, theme-aware surface
+instead of a bright solid background.

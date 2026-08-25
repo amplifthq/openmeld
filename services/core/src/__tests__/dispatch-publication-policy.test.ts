@@ -80,7 +80,7 @@ describe("dispatch publication policy", () => {
     expect(plan.text).not.toContain("/private/local/path");
   });
 
-  it("fails visibly when a successful payload has no explicit public action", () => {
+  it("requires an explicit public action in collaboration mode", () => {
     const plan = resolveDispatchPublicationPlan({
       actorName: "oh-my-claude",
       dispatchMessage: createDispatchMessage(),
@@ -96,6 +96,8 @@ describe("dispatch publication policy", () => {
       noticeType: "terminal_failure",
       publicOutcome: "system_notice",
       reason: "OpenMeld did not receive a message it could post in this space.",
+      // A success payload with no publishable action carries no errorCode,
+      // so the structured reasonCode stays empty instead of being invented.
       reasonCode: null,
     });
     if (plan.kind !== "system_notice") {

@@ -9,7 +9,7 @@ import {
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { selectAccountSpaceSidebarSections } from "#/components/spaces/account-space-sidebar-sections";
+import { selectAccountSpaceSections } from "#/components/spaces/account-space-sections";
 import { StaleDataNotice } from "#/components/stale-data-notice";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -280,7 +280,7 @@ function selectHomeSpaces(input: {
 	pinnedItems: readonly AccountSpaceItem[];
 	spaceItems: readonly AccountSpaceItem[];
 }): AccountSpaceItem[] {
-	const sections = selectAccountSpaceSidebarSections({
+	const sections = selectAccountSpaceSections({
 		currentOrganizationId: input.organizationId,
 		sections: {
 			pinnedItems: input.pinnedItems,

@@ -41,6 +41,11 @@ import {
   runtimeCoordinatorFinalizationClaimReadSchema,
   runtimeCoordinatorFinalizationCommandSchema,
   runtimeCoordinatorFinalizationOutcomeSchema,
+  runtimeTransportAgentProfileExecutionStateRequestSchema,
+  runtimeTransportAgentProfileExecutionStateResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
+  runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
   runtimeTransportDeliverDispatchRequestSchema,
@@ -146,6 +151,11 @@ import type {
   RuntimeCoordinatorTokenReasonCode,
   RuntimeCoordinatorTokenRunAuthority,
   RuntimeCoordinatorTokenStatus,
+  RuntimeTransportAgentProfileExecutionStateRequest,
+  RuntimeTransportAgentProfileExecutionStateResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
+  RuntimeTransportAgentProfileExecutionTargetMutationRequest,
   RuntimeTransportDeliverDispatchRequest,
   RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDispatchInteractionDeliveredRequest,
@@ -247,6 +257,14 @@ import { readCurrentRuntimeAgentControllerReport } from "../../../runtime-regist
 import { emitCoreFinalVisibleOutcomeRuntimeEvidence } from "../../../shared/observability/final-visible-outcome-evidence";
 import { readAcceptedDispatchFinalizationFact } from "../../../space/infrastructure/d1/accepted-dispatch-finalization-repo";
 import { listActiveSpaceIdsForProfileFromSpaceIndex } from "../../../space-index/space-index-repository";
+import {
+  acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation,
+  advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
+  readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs,
+  readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission,
+  releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
+  writeRuntimeCoordinatorHeadLifecycleWithAdmission,
+} from "../../application/agent-profile-execution-admission";
 import {
   publishAgentReadinessInvalidationToSpaces,
   resolveRouteCatalogChangedInvalidationProfileIds,
@@ -405,6 +423,10 @@ import {
   validateRuntimeCoordinatorExecutionTokenAgainstAuthority,
 } from "../../application/runtime-coordinator-execution-token";
 import { processRuntimeCoordinatorFinalizationRetryAlarm as processRuntimeCoordinatorFinalizationRetryAlarmWithPorts } from "../../application/runtime-coordinator-finalization-retry-alarm";
+import {
+  type RuntimeCoordinatorFinalizationSemantic,
+  resolveRuntimeCoordinatorFinalizationSemantic,
+} from "../../application/runtime-coordinator-finalization-semantic";
 import { processRuntimeCoordinatorHeadAcceptedHandoffAlarm as processRuntimeCoordinatorHeadAcceptedHandoffAlarmWithPorts } from "../../application/runtime-coordinator-head-accepted-handoff-alarm";
 import { processRuntimeCoordinatorHeadFailurePublicationRetryAlarm as processRuntimeCoordinatorHeadFailurePublicationRetryAlarmWithPorts } from "../../application/runtime-coordinator-head-failure-publication-retry-alarm";
 import { processRuntimeCoordinatorHeadWaitingDeadlineAlarm as processRuntimeCoordinatorHeadWaitingDeadlineAlarmWithPorts } from "../../application/runtime-coordinator-head-waiting-deadline-alarm";
@@ -433,6 +455,7 @@ import {
   upsertRuntimeCoordinatorFinalizationRetryEntryInStorage,
   writeRuntimeCoordinatorHeadLifecycleRecordToStorage,
   writeRuntimeCoordinatorPreExecutionHandoffRecordToStorage,
+  writeRuntimeCoordinatorRunCommandStateInTransaction,
   writeRuntimeCoordinatorRunCommandStateToStorage,
   writeRuntimeCoordinatorTokenAuthorityToStorage,
 } from "../../application/runtime-coordinator-storage";
@@ -589,6 +612,7 @@ export function resolveLocalAgentControlResponseTimeoutMs(
 
 type RuntimeTransportHubHousekeepingAlarmPhase =
   | "local_agent_stream_closure_retry"
+  | "runtime_coordinator_agent_profile_execution_index"
   | "runtime_coordinator_finalization_retry"
   | "runtime_coordinator_watchdog"
   | "runtime_coordinator_head_accepted_handoff"
@@ -962,6 +986,54 @@ type RuntimeCoordinatorFinalizationOutcomeReplayResult =
   | { ok: true; outcome: RuntimeCoordinatorFinalizationOutcome }
   | RuntimeCoordinatorFinalizationReplayFailure;
 
+const runtimeCoordinatorFinalizationOutcomeMatchesVisibleClaim = (
+  outcome: RuntimeCoordinatorFinalizationOutcome,
+  expected: Extract<RuntimeCoordinatorFinalizationOutcome, { ok: true }>
+): boolean =>
+  outcome.ok &&
+  outcome.finalizationCommandId === expected.finalizationCommandId &&
+  outcome.finalMessageKind === expected.finalMessageKind &&
+  outcome.publishState === expected.publishState &&
+  outcome.publishedSignalId === expected.publishedSignalId;
+
+const upgradeLegacyRuntimeCoordinatorFinalizationOutcomeFromVisibleClaim = (
+  outcome: Extract<RuntimeCoordinatorFinalizationOutcome, { ok: true }>,
+  visibleClaim: Extract<RuntimeCoordinatorFinalizationOutcome, { ok: true }>
+): Extract<RuntimeCoordinatorFinalizationOutcome, { ok: true }> | null => {
+  if (outcome.finalMessageKind !== undefined) {
+    return outcome;
+  }
+  if (
+    visibleClaim.finalMessageKind === undefined ||
+    outcome.finalizationCommandId !== visibleClaim.finalizationCommandId ||
+    outcome.publishState !== visibleClaim.publishState ||
+    outcome.publishedSignalId !== visibleClaim.publishedSignalId
+  ) {
+    return null;
+  }
+  return {
+    ...outcome,
+    finalMessageKind: visibleClaim.finalMessageKind,
+  };
+};
+
+const resolveRuntimeCoordinatorFinalVisibleReasonCode = (input: {
+  executionSemantic: RuntimeCoordinatorFinalizationSemantic | null;
+  outcome: RuntimeCoordinatorFinalizationOutcome;
+  reasonCode: string | null;
+}): string => {
+  if (input.reasonCode) {
+    return input.reasonCode;
+  }
+  if (input.executionSemantic?.status === "stayed_silent") {
+    return "space.stayed_silent";
+  }
+  if (input.outcome.publishState === "reply_published") {
+    return "space.reply_published";
+  }
+  return input.outcome.publishState;
+};
+
 export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private readonly state = createRuntimeTransportHubMutableState();
   private readonly currentDeviceOperationWaiters = new Map<
@@ -1094,6 +1166,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         () =>
           this.processRuntimeCoordinatorInteractionInboxRepairAlarm(nowMs, run)
       );
+      await this.runHousekeepingAlarmPhase(
+        run,
+        "runtime_coordinator_agent_profile_execution_index",
+        () =>
+          this.processRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm(
+            nowMs,
+            run
+          )
+      );
     } catch (error) {
       this.requestHousekeepingAlarmContinuation(
         run,
@@ -1126,6 +1207,101 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       reasonCode: "daemon.result.finalization_unavailable",
       status: "retry_later",
     };
+  }
+
+  async rpcReadAgentProfileExecutionState(
+    input: RuntimeTransportAgentProfileExecutionStateRequest
+  ): Promise<RuntimeTransportAgentProfileExecutionStateResponse> {
+    const parsed =
+      runtimeTransportAgentProfileExecutionStateRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        reasonCode: "runtime_coordinator.execution_state_request_invalid",
+        status: "unavailable",
+      };
+    }
+    const response =
+      await readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission({
+        nowMs: Date.now(),
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileId: parsed.data.targetProfileId,
+      });
+    if (
+      response.status === "unavailable" &&
+      (response.reasonCode ===
+        "runtime_coordinator.execution_state_rebuilding" ||
+        response.reasonCode ===
+          "runtime_coordinator.execution_state_repair_failed")
+    ) {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    return runtimeTransportAgentProfileExecutionStateResponseSchema.parse(
+      response
+    );
+  }
+
+  // Keep the original ControllerMutation wire names during the broader
+  // execution-target rollout. Durable Object code propagates eventually, so a
+  // newly deployed Worker must remain callable against an older live shard and
+  // an older Worker must remain callable against this shard.
+  async rpcAcquireAgentProfileControllerMutation(
+    input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
+  ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
+    const parsed =
+      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse(
+        input
+      );
+    if (!parsed.success) {
+      return {
+        reasonCode:
+          "runtime_coordinator.execution_target_mutation_request_invalid",
+        status: "unavailable",
+      };
+    }
+    const response =
+      await acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation({
+        nowMs: Date.now(),
+        operationId: parsed.data.operationId,
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileId: parsed.data.targetProfileId,
+      });
+    if (
+      response.status === "unavailable" &&
+      (response.reasonCode ===
+        "runtime_coordinator.execution_state_rebuilding" ||
+        response.reasonCode ===
+          "runtime_coordinator.execution_state_repair_failed")
+    ) {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    return runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema.parse(
+      response
+    );
+  }
+
+  async rpcReleaseAgentProfileControllerMutation(
+    input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
+  ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse> {
+    const parsed =
+      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse(
+        input
+      );
+    if (!parsed.success) {
+      return { status: "not_owner" };
+    }
+    const response =
+      await releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation({
+        nowMs: Date.now(),
+        operationId: parsed.data.operationId,
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileId: parsed.data.targetProfileId,
+      });
+    return runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema.parse(
+      response
+    );
   }
 
   async rpcInspectHostedExecutionRecovery(
@@ -3335,45 +3511,34 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const outcome = claimRead.outcome;
     if (
       outcome.finalizationCommandId !== command.finalizationCommandId ||
-      (outcome.publishState !== "reply_published" &&
-        outcome.publishState !== "invalid_space_action") ||
+      outcome.publishState !== "reply_published" ||
       !outcome.publishedSignalId
     ) {
       return null;
     }
-    const coordinationDb = agentTaskCoordinationDb(this.env);
-    if (!coordinationDb) {
+    const replayed =
+      await this.replayRuntimeCoordinatorFinalizationCommandUnserialized({
+        attemptId: input.attemptId,
+        dispatchId: input.dispatchId,
+        executionTokenRunId: input.executionTokenRunId,
+        expectedVisibleOutcome: outcome,
+        preloadedCommand: command,
+        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+        spaceId: input.spaceId,
+      });
+    if (!replayed.ok) {
       return null;
     }
-    if (
-      !(await this.confirmRuntimeCoordinatorFinalizationTaskOutcome({
-        command,
-        coordinationDb,
-        publishedSignalId: outcome.publishedSignalId,
-        publishState: outcome.publishState,
-      }))
-    ) {
-      return null;
-    }
-    const streamSettled = await this.settleLocalAgentStreamForFinalization({
-      command,
-      outcome,
-    });
-    const outcomeWrite = await this.writeRuntimeCoordinatorFinalizationOutcome({
-      command,
-      db,
-      keepRetryOnSuccess: !streamSettled,
-      outcome,
-      taskOutcomeConfirmed: true,
-    });
-    return outcomeWrite.recoveryPending
-      ? null
-      : { ok: true, outcome: outcomeWrite.outcome };
+    return replayed;
   }
 
   private async confirmRuntimeCoordinatorFinalizationTaskOutcome(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     coordinationDb: D1Database;
+    finalMessageKind?: Extract<
+      RuntimeCoordinatorFinalizationOutcome,
+      { ok: true }
+    >["finalMessageKind"];
     publishedSignalId: string | null;
     publishState: "invalid_space_action" | "reply_published";
   }): Promise<boolean> {
@@ -3383,6 +3548,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           command: input.command,
           db: input.coordinationDb,
           env: this.env,
+          finalMessageKind: input.finalMessageKind,
           publishedSignalId: input.publishedSignalId,
           publishState: input.publishState,
         });
@@ -3522,6 +3688,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     attemptId: string;
     dispatchId: string;
     executionTokenRunId: string;
+    expectedVisibleOutcome?: Extract<
+      RuntimeCoordinatorFinalizationOutcome,
+      { ok: true }
+    >;
     preloadedCommand?: RuntimeCoordinatorFinalizationCommand;
     runtimeCoordinatorExecutionId: string;
     spaceId: string;
@@ -3566,6 +3736,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return await this.repairStoredRuntimeCoordinatorFinalizationSuccess({
         command,
         db,
+        expectedVisibleOutcome: input.expectedVisibleOutcome,
         outcome: storedOutcome,
       });
     }
@@ -3587,12 +3758,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       command.spaceId
     );
     if (!spaceStub) {
-      const outcome = await this.writeRuntimeCoordinatorFinalizationFailure({
+      return await this.resolveMissingRuntimeCoordinatorFinalizationSpace({
         command,
         db,
-        reasonCode: "daemon.result.finalization_unavailable",
+        preserveVisibleClaim: Boolean(input.expectedVisibleOutcome),
       });
-      return { ok: true, outcome };
     }
 
     let rawOutcome: unknown;
@@ -3623,6 +3793,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           status: "suppressed",
         };
       }
+      if (input.expectedVisibleOutcome) {
+        return rejectRuntimeCoordinatorFinalizationReplay({
+          publicationUncertain: true,
+        });
+      }
       const outcome = this.buildRuntimeCoordinatorFinalizationFailureOutcome({
         command,
         reasonCode: "daemon.result.finalization_unavailable",
@@ -3642,19 +3817,99 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         });
       return { ok: true, outcome: outcomeWrite.outcome };
     }
-    const parsedOutcome =
-      runtimeCoordinatorFinalizationOutcomeSchema.safeParse(rawOutcome);
-    const outcome = parsedOutcome.success
-      ? parsedOutcome.data
-      : this.buildRuntimeCoordinatorFinalizationFailureOutcome({
-          command,
-          reasonCode: "runtime_coordinator.finalization_outcome_invalid",
-        });
+    const resolvedOutcome =
+      await this.resolveAppliedRuntimeCoordinatorFinalizationOutcome({
+        command,
+        expectedVisibleOutcome: input.expectedVisibleOutcome,
+        rawOutcome,
+      });
+    if (!resolvedOutcome.ok) {
+      return resolvedOutcome;
+    }
     return await this.completeRuntimeCoordinatorFinalizationReplay({
       command,
       db,
-      outcome,
+      outcome: resolvedOutcome.outcome,
     });
+  }
+
+  private async resolveAppliedRuntimeCoordinatorFinalizationOutcome(input: {
+    command: RuntimeCoordinatorFinalizationCommand;
+    expectedVisibleOutcome?: Extract<
+      RuntimeCoordinatorFinalizationOutcome,
+      { ok: true }
+    >;
+    rawOutcome: unknown;
+  }): Promise<RuntimeCoordinatorFinalizationOutcomeReplayResult> {
+    const parsedOutcome = runtimeCoordinatorFinalizationOutcomeSchema.safeParse(
+      input.rawOutcome
+    );
+    if (!parsedOutcome.success && input.expectedVisibleOutcome) {
+      return rejectRuntimeCoordinatorFinalizationReplay({
+        publicationUncertain: true,
+      });
+    }
+    let outcome = parsedOutcome.success
+      ? parsedOutcome.data
+      : this.buildRuntimeCoordinatorFinalizationFailureOutcome({
+          command: input.command,
+          reasonCode: "runtime_coordinator.finalization_outcome_invalid",
+        });
+    if (outcome.ok && outcome.finalMessageKind === undefined) {
+      let visibleOutcome = input.expectedVisibleOutcome;
+      if (!visibleOutcome) {
+        const claimRead = await this.readRuntimeCoordinatorFinalizationClaim(
+          input.command
+        );
+        if (claimRead?.status !== "finalization_visible") {
+          return rejectRuntimeCoordinatorFinalizationReplay({
+            publicationUncertain: true,
+          });
+        }
+        visibleOutcome = claimRead.outcome;
+      }
+      const upgradedOutcome =
+        upgradeLegacyRuntimeCoordinatorFinalizationOutcomeFromVisibleClaim(
+          outcome,
+          visibleOutcome
+        );
+      if (!upgradedOutcome) {
+        return rejectRuntimeCoordinatorFinalizationReplay({
+          publicationUncertain: true,
+        });
+      }
+      outcome = upgradedOutcome;
+    }
+    if (
+      input.expectedVisibleOutcome &&
+      !runtimeCoordinatorFinalizationOutcomeMatchesVisibleClaim(
+        outcome,
+        input.expectedVisibleOutcome
+      )
+    ) {
+      return rejectRuntimeCoordinatorFinalizationReplay({
+        publicationUncertain: true,
+      });
+    }
+    return { ok: true, outcome };
+  }
+
+  private async resolveMissingRuntimeCoordinatorFinalizationSpace(input: {
+    command: RuntimeCoordinatorFinalizationCommand;
+    db: D1Database;
+    preserveVisibleClaim: boolean;
+  }): Promise<RuntimeCoordinatorFinalizationOutcomeReplayResult> {
+    if (input.preserveVisibleClaim) {
+      return rejectRuntimeCoordinatorFinalizationReplay({
+        publicationUncertain: true,
+      });
+    }
+    const outcome = await this.writeRuntimeCoordinatorFinalizationFailure({
+      command: input.command,
+      db: input.db,
+      reasonCode: "daemon.result.finalization_unavailable",
+    });
+    return { ok: true, outcome };
   }
 
   private async completeRuntimeCoordinatorFinalizationReplay(input: {
@@ -3695,6 +3950,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         (await this.confirmRuntimeCoordinatorFinalizationTaskOutcome({
           command,
           coordinationDb,
+          finalMessageKind: outcome.finalMessageKind,
           publishedSignalId: outcome.publishedSignalId,
           publishState: outcome.publishState,
         }))
@@ -3736,18 +3992,55 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async repairStoredRuntimeCoordinatorFinalizationSuccess(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     db: D1Database;
-    outcome: RuntimeCoordinatorFinalizationOutcome;
+    expectedVisibleOutcome?: Extract<
+      RuntimeCoordinatorFinalizationOutcome,
+      { ok: true }
+    >;
+    outcome: Extract<RuntimeCoordinatorFinalizationOutcome, { ok: true }>;
   }): Promise<RuntimeCoordinatorFinalizationOutcomeReplayResult> {
+    let expectedVisibleOutcome = input.expectedVisibleOutcome;
+    if (
+      input.outcome.finalMessageKind === undefined &&
+      !expectedVisibleOutcome
+    ) {
+      const claimRead = await this.readRuntimeCoordinatorFinalizationClaim(
+        input.command
+      );
+      if (claimRead?.status !== "finalization_visible") {
+        return rejectRuntimeCoordinatorFinalizationReplay({
+          publicationUncertain: true,
+        });
+      }
+      expectedVisibleOutcome = claimRead.outcome;
+    }
+    const outcome = expectedVisibleOutcome
+      ? upgradeLegacyRuntimeCoordinatorFinalizationOutcomeFromVisibleClaim(
+          input.outcome,
+          expectedVisibleOutcome
+        )
+      : input.outcome;
+    if (
+      !outcome ||
+      (expectedVisibleOutcome &&
+        !runtimeCoordinatorFinalizationOutcomeMatchesVisibleClaim(
+          outcome,
+          expectedVisibleOutcome
+        ))
+    ) {
+      return rejectRuntimeCoordinatorFinalizationReplay({
+        publicationUncertain: true,
+      });
+    }
     const coordinationDb = agentTaskCoordinationDb(this.env);
     if (
       !(
-        input.outcome.ok &&
         coordinationDb &&
         (await this.confirmRuntimeCoordinatorFinalizationTaskOutcome({
           command: input.command,
           coordinationDb,
-          publishedSignalId: input.outcome.publishedSignalId,
-          publishState: input.outcome.publishState,
+          finalMessageKind: outcome.finalMessageKind,
+          publishedSignalId: outcome.publishedSignalId,
+          publishState: outcome.publishState,
         }))
       )
     ) {
@@ -3757,13 +4050,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     const streamSettled = await this.settleLocalAgentStreamForFinalization({
       command: input.command,
-      outcome: input.outcome,
+      outcome,
     });
     const outcomeWrite = await this.writeRuntimeCoordinatorFinalizationOutcome({
       command: input.command,
       db: input.db,
       keepRetryOnSuccess: !streamSettled,
-      outcome: input.outcome,
+      outcome,
       taskOutcomeConfirmed: true,
     });
     return this.resolveRuntimeCoordinatorFinalizationOutcomeReplay({
@@ -4321,7 +4614,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const storedOutcome = await this.readRuntimeCoordinatorFinalizationOutcome(
       input.command.finalizationCommandId
     );
-    const outcome = storedOutcome?.ok ? storedOutcome : input.outcome;
+    const upgradedStoredOutcome =
+      storedOutcome?.ok && input.outcome.ok
+        ? upgradeLegacyRuntimeCoordinatorFinalizationOutcomeFromVisibleClaim(
+            storedOutcome,
+            input.outcome
+          )
+        : null;
+    const outcome = storedOutcome?.ok
+      ? (upgradedStoredOutcome ?? storedOutcome)
+      : input.outcome;
     if (outcome.status === "review_required") {
       throw new Error(
         "runtime_coordinator.review_required_outcome_is_not_terminal"
@@ -5444,12 +5746,23 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     outcome: RuntimeCoordinatorFinalizationOutcome;
   }): Promise<boolean> {
     const nowMs = Date.now();
-    const status = resolveRuntimeCoordinatorPublicationStatus(
-      input.outcome.publishState
-    );
+    const executionSemantic = input.outcome.ok
+      ? resolveRuntimeCoordinatorFinalizationSemantic({
+          finalMessageKind: input.outcome.finalMessageKind,
+          publishState: input.outcome.publishState,
+          taskResult: input.command.acceptedResult.taskResult,
+        })
+      : null;
+    const status =
+      executionSemantic?.status === "failed"
+        ? "failed_terminal"
+        : resolveRuntimeCoordinatorPublicationStatus(
+            input.outcome.publishState
+          );
     const terminalOutcomeKind =
       resolveRuntimeCoordinatorPublicationTerminalOutcomeKind(status);
     const reasonCode =
+      executionSemantic?.reasonCode ??
       input.outcome.publicationErrorCode ??
       (input.outcome.publishState === "invalid_space_action"
         ? "invalid_space_action"
@@ -5472,6 +5785,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       idempotencyKey: `finalization-command:${input.command.finalizationCommandId}:${input.outcome.publishState}`,
       observedAtMs: nowMs,
       payload: {
+        finalMessageKind: input.outcome.ok
+          ? (input.outcome.finalMessageKind ?? null)
+          : null,
         finalizationCommandId: input.command.finalizationCommandId,
         publishedSignalId: input.outcome.publishedSignalId,
         publishState: input.outcome.publishState,
@@ -5497,33 +5813,31 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       dispatchId: input.command.dispatchId,
       latestAttemptId: input.command.dispatchFact.attemptId,
       publishedSignalId: input.outcome.publishedSignalId,
-      reasonCode:
-        reasonCode ??
-        (input.outcome.publishState === "reply_published"
-          ? "space.reply_published"
-          : input.outcome.publishState),
-      replySignalId:
-        input.outcome.publishState === "reply_published"
-          ? input.outcome.publishedSignalId
-          : null,
+      reasonCode: resolveRuntimeCoordinatorFinalVisibleReasonCode({
+        executionSemantic,
+        outcome: input.outcome,
+        reasonCode,
+      }),
+      replySignalId: input.outcome.ok ? input.outcome.publishedSignalId : null,
       runtimeCoordinatorExecutionId:
         input.command.runtimeCoordinatorExecutionId,
       runtimeKind: "durable_object",
       sourceSignalId: input.command.dispatchFact.sourceEventId,
       spaceId: input.command.spaceId,
       status:
-        input.outcome.publishState === "reply_published"
+        input.outcome.ok && executionSemantic?.status !== "failed"
           ? "succeeded"
           : "failed",
       targetProfileId: input.command.targetProfileId,
     });
 
-    if (input.outcome.publishState !== "reply_published") {
+    if (!(input.outcome.ok && executionSemantic)) {
       return true;
     }
     const authoritySettled =
-      await this.setRuntimeCoordinatorPublishedTerminalOutcome({
+      await this.setRuntimeCoordinatorFinalizationTerminalOutcome({
         command: input.command,
+        executionSemantic,
         nowMs,
         publishedSignalId: input.outcome.publishedSignalId,
       });
@@ -5627,8 +5941,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
   }
 
-  private async setRuntimeCoordinatorPublishedTerminalOutcome(input: {
+  private async setRuntimeCoordinatorFinalizationTerminalOutcome(input: {
     command: RuntimeCoordinatorFinalizationCommand;
+    executionSemantic: RuntimeCoordinatorFinalizationSemantic;
     nowMs: number;
     publishedSignalId: string | null;
   }): Promise<boolean> {
@@ -5656,14 +5971,30 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return false;
     }
     const terminalOutcome = authority.terminalOutcome;
-    if (terminalOutcome?.status === "reply_published") {
-      return terminalOutcome.replySignalId === input.publishedSignalId;
-    }
+    const expectedStatus =
+      input.executionSemantic.status === "failed"
+        ? "failed_terminal"
+        : "reply_published";
     const repairsLegacyPublicationExhaustion =
       terminalOutcome?.status === "failed_terminal" &&
       terminalOutcome.reasonCode ===
         RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE;
-    if (terminalOutcome && !repairsLegacyPublicationExhaustion) {
+    const repairsMissingVisibleSignal =
+      terminalOutcome?.status === expectedStatus &&
+      terminalOutcome.replySignalId === null &&
+      input.publishedSignalId !== null;
+    if (
+      terminalOutcome?.status === expectedStatus &&
+      !repairsLegacyPublicationExhaustion &&
+      !repairsMissingVisibleSignal
+    ) {
+      return terminalOutcome.replySignalId === input.publishedSignalId;
+    }
+    if (
+      terminalOutcome &&
+      !repairsLegacyPublicationExhaustion &&
+      !repairsMissingVisibleSignal
+    ) {
       return false;
     }
     try {
@@ -5671,9 +6002,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ...authority,
         terminalOutcome: {
           finalizedAtMs: input.nowMs,
-          reasonCode: "space.reply_published",
+          reasonCode:
+            input.executionSemantic.reasonCode ??
+            (input.executionSemantic.status === "stayed_silent"
+              ? "space.stayed_silent"
+              : "space.reply_published"),
           replySignalId: input.publishedSignalId,
-          status: "reply_published",
+          status: expectedStatus,
         },
       });
       if (repairsLegacyPublicationExhaustion) {
@@ -7196,7 +7531,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       null;
     if (agentTaskObservation) {
       await this.ctx.storage.transaction(async (transaction) => {
-        await writeRuntimeCoordinatorRunCommandStateToStorage(
+        await writeRuntimeCoordinatorRunCommandStateInTransaction(
           transaction,
           nextCommandState
         );
@@ -9759,7 +10094,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetDisplay: resolveRuntimeCoordinatorHeadTargetDisplay(request),
         updatedAtMs: nowMs,
       };
-      await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
+      const admission = await writeRuntimeCoordinatorHeadLifecycleWithAdmission(
+        {
+          blockForExecutionTargetMutation: true,
+          nowMs,
+          record: nextRecord,
+          storage: this.ctx.storage,
+        }
+      );
+      if (admission === "execution_target_mutation_in_progress") {
+        return {
+          ok: false,
+          primaryDispatchId: null,
+          reasonCode:
+            "runtime_coordinator.execution_target_mutation_in_progress",
+          status: "retry_later",
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        };
+      }
       return {
         action: "create_execution",
         ok: true,
@@ -10647,6 +10999,31 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           ),
       },
     });
+  }
+
+  private async processRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm(
+    nowMs: number,
+    run: RuntimeTransportHubHousekeepingAlarmRun
+  ): Promise<void> {
+    if (
+      !this.reserveHousekeepingAlarmWorkUnit(
+        run,
+        "runtime_coordinator_agent_profile_execution_index"
+      )
+    ) {
+      return;
+    }
+    const status =
+      await advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair({
+        nowMs,
+        storage: this.ctx.storage,
+      });
+    if (status === "rebuilding") {
+      this.requestHousekeepingAlarmContinuation(
+        run,
+        "runtime_coordinator.execution_index_rebuilding"
+      );
+    }
   }
 
   private async processRuntimeCoordinatorHeadAcceptedHandoffAlarm(
@@ -15379,7 +15756,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       await this.resolveNextLocalAgentStreamClosureRetryAlarmAtMs()
     );
     const coordinatorAlarmAtMs = minNullableTimestamp(
-      await this.resolveNextRuntimeCoordinatorWatchdogAlarmAtMs(),
+      minNullableTimestamp(
+        await this.resolveNextRuntimeCoordinatorWatchdogAlarmAtMs(),
+        await readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs(
+          this.ctx.storage,
+          Date.now()
+        )
+      ),
       minNullableTimestamp(
         await this.resolveNextRuntimeCoordinatorHeadAcceptedHandoffAlarmAtMs(),
         minNullableTimestamp(
@@ -15426,6 +15809,23 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
 
   private queueHousekeepingAlarmSync(): void {
     this.ctx.waitUntil(this.syncHousekeepingAlarm());
+  }
+
+  private queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm(): void {
+    const alarmAtMs =
+      Date.now() +
+      RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_CONTINUATION_DELAY_MS;
+    this.ctx.waitUntil(
+      (async () => {
+        const scheduledAlarmAtMs =
+          await this.readScheduledHousekeepingAlarmAtMs();
+        if (scheduledAlarmAtMs !== null && scheduledAlarmAtMs <= alarmAtMs) {
+          return;
+        }
+        await this.ctx.storage.setAlarm(alarmAtMs);
+        this.scheduledHousekeepingAlarmAtMs = alarmAtMs;
+      })()
+    );
   }
 
   private async readScheduledHousekeepingAlarmAtMs(): Promise<number | null> {

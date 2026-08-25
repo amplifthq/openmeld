@@ -12,7 +12,6 @@ import {
 import {
   type AuthSessionState,
   clearAuthSession,
-  getAuthSession,
   getAuthSessionState,
   setAuthSession,
 } from "../config/auth-session";
@@ -976,8 +975,8 @@ export async function runAuthLogout(input?: {
     cleanup,
     presenter,
   });
-  const existing = await getAuthSession();
-  if (!existing) {
+  const cleared = await clearAuthSession();
+  if (!cleared.hadLocalSession) {
     presenter.line({
       code: "auth.logout.no_session",
       text: "No local sign-in session found.",
@@ -985,7 +984,6 @@ export async function runAuthLogout(input?: {
     return;
   }
 
-  await clearAuthSession();
   presenter.line({
     code: "auth.logout.cleared",
     text: "Signed out on this device.",
@@ -1074,6 +1072,8 @@ async function resolveAuthStatusEnvironmentMismatch(
 function buildAuthStatusPayload(input: AuthStatusSnapshot): {
   signedIn: boolean;
   state: AuthSessionState;
+  reasonCode?: AuthStatusSnapshot["reasonCode"];
+  errorMessage?: string;
   authBaseUrl: string | null;
   clientId: string | null;
   tokenType: string | null;
@@ -1088,6 +1088,8 @@ function buildAuthStatusPayload(input: AuthStatusSnapshot): {
   return {
     signedIn: input.signedIn,
     state: input.state,
+    ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+    ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
     authBaseUrl: input.authBaseUrl,
     clientId: input.clientId,
     tokenType: input.tokenType,

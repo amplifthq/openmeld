@@ -22,7 +22,11 @@ import {
   markRemoteAgentExecutionProgress,
   readRemoteAgentExecutionState,
 } from "../../agent-core/execution-state";
-import { understandRemoteAgentImages } from "../../agent-core/image-understanding";
+import {
+  type RemoteAgentImagePreparer,
+  transformRemoteAgentImageForContext,
+  understandRemoteAgentImages,
+} from "../../agent-core/image-understanding";
 import { resolveRemoteAgentModelDisplayName } from "../../agent-core/model";
 import { buildRemoteAgentSystemPrompt } from "../../agent-core/prompt";
 import {
@@ -57,6 +61,7 @@ import {
 import {
   assertRemoteAgentConversationFootprintSchema,
   readRemoteAgentConversationFootprint,
+  resolveRemoteAgentConversationAutomaticRolloverLimitBytes,
 } from "../../flue-adapter/conversation-footprint";
 import { cancelFlueRemoteAgentExecution } from "../../flue-adapter/execution-cancellation";
 import {
@@ -70,6 +75,10 @@ import {
 import { registerRemoteAgentCloudflareProvider } from "../../flue-adapter/model";
 import { resolveCurrentOrganizationDocumentPromptContext } from "../../flue-adapter/organization-document-prompt-context";
 import { materializeOrganizationSkillFlueSkills } from "../../flue-adapter/organization-skills";
+import {
+  resolveRemoteAgentCompactionReserveTokens,
+  resolveRemoteAgentProviderContextCapacity,
+} from "../../flue-adapter/provider-context-capacity";
 import { readRemoteAgentRuntimeDiagnostics } from "../../flue-adapter/runtime-diagnostics";
 import { disabledNoNetworkSandbox } from "../../flue-adapter/sandbox";
 import { createRemoteAgentSqlStorage } from "../../flue-adapter/storage";
@@ -77,9 +86,19 @@ import { getRemoteAgentFlueTools } from "../../flue-adapter/tools";
 
 installRemoteAgentExecutionInstrumentation();
 
+function createRemoteAgentImagePreparer(
+  imagesBinding: Pick<ImagesBinding, "info" | "input">
+): RemoteAgentImagePreparer {
+  return async (image) =>
+    await transformRemoteAgentImageForContext({ image, imagesBinding });
+}
+
 export default defineAgent(async () => {
   const context = getCloudflareContext();
   const env = context.env as CloudflareBindings;
+  const prepareImageForContext = createRemoteAgentImagePreparer(
+    env.OPENMELD_IMAGES
+  );
   const storage = createRemoteAgentSqlStorage(context.storage.sql);
   const executionContext = await resolveRemoteAgentExecutionCallbackContext({
     storage,
@@ -134,6 +153,8 @@ export default defineAgent(async () => {
             },
             memberProfileReportFiles:
               sandboxCapability.memberProfileReportFiles,
+            modelRoute: executionContext.modelRoute,
+            prepareImage: prepareImageForContext,
             sandboxDefinitions: sandboxCapability.definitions,
             storage,
             submissionId: executionContext.submissionId,
@@ -267,6 +288,9 @@ export const cloudflare = extend({
           targetProfileId: request.agentProfileId,
         };
         const env = this.env as CloudflareBindings;
+        const prepareImageForContext = createRemoteAgentImagePreparer(
+          env.OPENMELD_IMAGES
+        );
         const reportStage = (
           operation: RemoteAgentAdmissionStageOperation
         ): void => {
@@ -298,8 +322,18 @@ export const cloudflare = extend({
             nowMs: startedAtMs,
             storage,
           });
+          const providerContextCapacity =
+            request.v === 4
+              ? resolveRemoteAgentProviderContextCapacity({
+                  contextWindow: request.modelRoute.contextWindow,
+                  reserveTokens: resolveRemoteAgentCompactionReserveTokens(
+                    request.modelRoute.contextWindow
+                  ),
+                })
+              : undefined;
           const admission = await prepareFlueCenterAgentAdmission({
             automaticRolloverSupported: request.v === 4,
+            providerContextCapacity,
             assertConversationFootprintSchema: () =>
               assertRemoteAgentConversationFootprintSchema(
                 this.ctx.storage.sql
@@ -334,6 +368,12 @@ export const cloudflare = extend({
               {
                 ...logContext,
                 ...admission.footprint,
+                automaticRolloverLimitBytes:
+                  resolveRemoteAgentConversationAutomaticRolloverLimitBytes(
+                    providerContextCapacity
+                  ),
+                providerInputTokenBudget:
+                  providerContextCapacity?.inputTokenBudget ?? null,
               }
             );
             return remoteAgentWorkerAdmissionRejectedResponseSchema.parse({
@@ -381,6 +421,7 @@ export const cloudflare = extend({
               await understandRemoteAgentImages({
                 ...imageInput,
                 env: this.env as CloudflareBindings,
+                prepareImage: prepareImageForContext,
               }),
           });
           let ack: RemoteAgentWorkerSubmitMessagesResult;

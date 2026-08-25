@@ -23,7 +23,7 @@ import {
 } from "../config/runtime-config";
 import { notifyDaemonRouteCatalogChanged } from "../local-service/state/route-catalog-sync-notifier";
 import {
-  detectInstalledSkillsAgents,
+  detectInstalledRuntimeAgents,
   resolveSkillsAgentRegistry,
   type SkillsAgentRegistryEntry,
   type SkillsAgentTransportMode,
@@ -120,7 +120,7 @@ export async function loadAgentCatalog(): Promise<AgentCatalog> {
     throw wrapConfigError(error, "agents.config_read_failed");
   });
   const builtins = resolveSkillsAgentRegistry(skillsConfig);
-  const detectedIds = new Set(await detectInstalledSkillsAgents(builtins));
+  const detectedIds = new Set(await detectInstalledRuntimeAgents(builtins));
   const builtinsById = new Map<string, AgentTargetDescriptor>();
   for (const [agentId, entry] of Object.entries(builtins)) {
     builtinsById.set(agentId, {
@@ -910,6 +910,7 @@ export async function manageAgentRegistrationInstallation(input: {
     agentId: state.agentId,
     detected: state.detected,
     displayName: state.displayName,
+    persistedLaunchContract: state.registration.launchContract ?? null,
     runtimeSupported: state.runtimeSupported,
   });
   if (!candidatesResult.ok) {
@@ -1044,14 +1045,21 @@ async function toAgentTargetState(
       registration,
       targetKind: target.targetKind,
     });
+  const effectiveDetected =
+    target.detected ||
+    Boolean(
+      registration?.launchContract &&
+        normalizedLaunchResolution.status !== "not_available"
+    );
   const selectability = resolveTargetSelectability({
-    detected: target.detected,
+    detected: effectiveDetected,
     launchStatus: normalizedLaunchResolution.status,
     runtimeSupported: target.runtimeSupported,
     targetKind: target.targetKind,
   });
   return {
     ...target,
+    detected: effectiveDetected,
     selectable: selectability.selectable,
     selectableReason: selectability.reason,
     installChoices: normalizedLaunchResolution.installChoices,

@@ -359,6 +359,7 @@ export function SettingsLocalAgentUsageSummary({
   const remainingPercentLabel = formatRemainingPercent(
     summary.remainingPercent
   );
+  const orderedLimits = orderUsageLimitsForDisplay({ agentName, limits });
 
   return (
     <Tooltip>
@@ -374,35 +375,11 @@ export function SettingsLocalAgentUsageSummary({
             data-testid="local-agent-usage-summary"
             role="progressbar"
           >
-            <svg
-              aria-hidden="true"
-              className={cn(
-                "size-4 -rotate-90",
-                resolveStatusToneStrongTextClassName(summary.presentation.tone)
-              )}
-              viewBox="0 0 20 20"
-            >
-              <circle
-                className="text-muted-foreground/20"
-                cx="10"
-                cy="10"
-                fill="none"
-                r="7.5"
-                stroke="currentColor"
-                strokeWidth="2.5"
-              />
-              <circle
-                cx="10"
-                cy="10"
-                fill="none"
-                pathLength="100"
-                r="7.5"
-                stroke="currentColor"
-                strokeDasharray={`${summary.remainingPercent} 100`}
-                strokeLinecap="round"
-                strokeWidth="2.5"
-              />
-            </svg>
+            <UsageLimitRing
+              className="size-4"
+              remainingPercent={summary.remainingPercent}
+              tone={summary.presentation.tone}
+            />
             <span>{remainingPercentLabel}</span>
           </span>
         }
@@ -412,9 +389,9 @@ export function SettingsLocalAgentUsageSummary({
         side="top"
       >
         <span className="font-medium">Usage limits</span>
-        {limits && limits.length > 0 ? (
+        {orderedLimits && orderedLimits.length > 0 ? (
           <span className="grid gap-2">
-            {limits.map((limit) => (
+            {orderedLimits.map((limit) => (
               <UsageLimitPreview key={limit.key} limit={limit} nowMs={nowMs} />
             ))}
           </span>
@@ -474,6 +451,7 @@ export function SettingsLocalAgentUsageLimits({
   if (limits === undefined) {
     return null;
   }
+  const orderedLimits = orderUsageLimitsForDisplay({ agentName, limits });
 
   return (
     <section aria-label={`${agentName} usage limits`} className="space-y-2.5">
@@ -484,9 +462,12 @@ export function SettingsLocalAgentUsageLimits({
           agent can run.
         </p>
       </div>
-      {limits && limits.length > 0 ? (
-        <div className="grid gap-2.5">
-          {limits.map((limit) => (
+      {orderedLimits && orderedLimits.length > 0 ? (
+        <div
+          className="grid gap-2.5 md:grid-cols-3"
+          data-testid="local-agent-usage-limit-grid"
+        >
+          {orderedLimits.map((limit) => (
             <SettingsLocalAgentUsageLimitGauge
               agentName={agentName}
               key={limit.key}
@@ -540,16 +521,44 @@ function SettingsLocalAgentUsageLimitGauge({
     .join(", ");
 
   return (
-    <div className="rounded-md border border-border/70 bg-background/45 px-3 py-2.5">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-medium text-sm">{limit.label}</p>
-          <p className="mt-0.5 text-muted-foreground text-xs">
-            {remainingPercent === null
-              ? resolveMissingUsageCopy(limit.status)
-              : `${formatRemainingPercent(remainingPercent)} left`}
+    <div className="grid min-h-52 min-w-0 grid-rows-[auto_1fr_auto] rounded-md border border-border/70 bg-background/45 px-3 py-3">
+      <p className="min-h-10 text-center font-medium text-sm leading-5">
+        {limit.label}
+      </p>
+      <div className="flex min-h-28 flex-col items-center justify-center gap-2 py-2">
+        {remainingPercent === null ? (
+          <p className="max-w-40 text-center text-muted-foreground text-xs leading-5">
+            {resolveMissingUsageCopy(limit.status)}
           </p>
-        </div>
+        ) : (
+          <div
+            aria-label={accessibleLabel}
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={remainingPercent}
+            aria-valuetext={`${formatRemainingPercent(remainingPercent)} left`}
+            className="relative grid size-20 place-items-center"
+            role="progressbar"
+          >
+            <UsageLimitRing
+              className="absolute inset-0 size-full"
+              remainingPercent={remainingPercent}
+              strokeWidth={2}
+              tone={presentation.tone}
+            />
+            <span className="flex flex-col items-center font-medium tabular-nums leading-none">
+              <span className="text-sm" data-usage-limit-value>
+                {formatRemainingPercent(remainingPercent)}
+              </span>
+              <span
+                className="mt-1 text-[9px] text-muted-foreground"
+                data-usage-limit-unit
+              >
+                left
+              </span>
+            </span>
+          </div>
+        )}
         <Badge
           className={resolveUsageLimitBadgeClassName(presentation.tone)}
           variant="secondary"
@@ -557,32 +566,80 @@ function SettingsLocalAgentUsageLimitGauge({
           {presentation.label}
         </Badge>
       </div>
-      {remainingPercent === null ? null : (
-        <div
-          aria-label={accessibleLabel}
-          aria-valuemax={100}
-          aria-valuemin={0}
-          aria-valuenow={remainingPercent}
-          aria-valuetext={`${formatRemainingPercent(remainingPercent)} left`}
-          className="mt-2 h-2 overflow-hidden rounded-full bg-muted"
-          role="progressbar"
-        >
-          <div
-            aria-hidden="true"
-            className={cn(
-              "h-full rounded-full",
-              resolveUsageLimitBarClassName(presentation.tone)
-            )}
-            style={{ width: `${remainingPercent}%` }}
-          />
-        </div>
-      )}
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground text-xs leading-5">
+      <div className="grid gap-0.5 border-border/60 border-t pt-2.5 text-center text-muted-foreground text-xs leading-5">
         <UsageLimitTime dateTime={limit.resetsAt} label={resetLabel} />
         <UsageLimitTime dateTime={limit.observedAt} label={observedLabel} />
       </div>
     </div>
   );
+}
+
+function UsageLimitRing({
+  className,
+  remainingPercent,
+  strokeWidth = 2.5,
+  tone,
+}: {
+  className?: string;
+  remainingPercent: number;
+  strokeWidth?: number;
+  tone: UsageLimitPresentation["tone"];
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={cn(
+        "-rotate-90",
+        resolveStatusToneStrongTextClassName(tone),
+        className
+      )}
+      viewBox="0 0 20 20"
+    >
+      <circle
+        className="text-muted-foreground/20"
+        cx="10"
+        cy="10"
+        fill="none"
+        r="7.5"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+      />
+      <circle
+        cx="10"
+        cy="10"
+        fill="none"
+        pathLength="100"
+        r="7.5"
+        stroke="currentColor"
+        strokeDasharray={`${remainingPercent} 100`}
+        strokeLinecap="round"
+        strokeWidth={strokeWidth}
+      />
+    </svg>
+  );
+}
+
+function orderUsageLimitsForDisplay(input: {
+  agentName: string;
+  limits?: AgentControllerUsageLimits;
+}): AgentControllerUsageLimits | undefined {
+  if (
+    input.agentName.trim().toLocaleLowerCase("en-US") !== "codex" ||
+    !input.limits?.some(isCodexOverallWeeklyUsageLimit)
+  ) {
+    return input.limits;
+  }
+  return input.limits.toSorted(
+    (left, right) =>
+      Number(isCodexOverallWeeklyUsageLimit(right)) -
+      Number(isCodexOverallWeeklyUsageLimit(left))
+  );
+}
+
+function isCodexOverallWeeklyUsageLimit(
+  limit: AgentControllerUsageLimits[number]
+): boolean {
+  return limit.label.trim().toLocaleLowerCase("en-US") === "weekly usage";
 }
 
 function UsageLimitTime({
@@ -793,21 +850,6 @@ function resolveUsageLimitBadgeClassName(
     return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
   }
   return "text-muted-foreground";
-}
-
-function resolveUsageLimitBarClassName(
-  tone: UsageLimitPresentation["tone"]
-): string {
-  if (tone === "danger") {
-    return "bg-destructive";
-  }
-  if (tone === "warning") {
-    return "bg-amber-500";
-  }
-  if (tone === "ready") {
-    return "bg-emerald-500";
-  }
-  return "bg-muted-foreground";
 }
 
 export type SettingsLocalAgentAdvisoryBadgeProps = {
@@ -1106,8 +1148,8 @@ function SettingsLocalAgentIcon({
       <span
         aria-hidden="true"
         className={cn(
-          "mt-0.5 grid h-8 w-8 shrink-0 place-items-center text-foreground",
-          muted ? "opacity-50" : null
+          "mt-0.5 grid h-8 w-8 shrink-0 place-items-center",
+          muted ? "text-muted-foreground opacity-50" : "text-foreground"
         )}
       >
         <LocalAgentLogo

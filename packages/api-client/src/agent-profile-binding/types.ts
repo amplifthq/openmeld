@@ -8,6 +8,7 @@ import type {
   GetAgentExecutionReadinessBatchBody,
   GetAgentExecutionReadinessBatchResponse,
   GetAgentExecutionReadinessResponse,
+  GetAgentProfileControllerChangeEligibilityResponse,
   GetAgentProfilePrimaryBindingResponse,
   ListCurrentUserAgentProfileOrganizationWakeAccessResponse,
   ListOrganizationBindingAuthorizationsResponse,
@@ -24,6 +25,11 @@ import type {
 import type { OpenMeldApiClientFoundation } from "../client";
 
 export type GetAgentProfilePrimaryBindingInput =
+  AgentProfileBindingRouteParams & {
+    requestContext?: OpenMeldRequestContext;
+  };
+
+export type GetAgentProfileControllerChangeEligibilityInput =
   AgentProfileBindingRouteParams & {
     requestContext?: OpenMeldRequestContext;
   };
@@ -132,6 +138,9 @@ export type CreateAgentProfileBindingApi = (
   getPrimaryBinding: (
     input: GetAgentProfilePrimaryBindingInput
   ) => Promise<GetAgentProfilePrimaryBindingResponse>;
+  getControllerChangeEligibility: (
+    input: GetAgentProfileControllerChangeEligibilityInput
+  ) => Promise<GetAgentProfileControllerChangeEligibilityResponse>;
   notifyRouteCatalogChanged: (
     input: NotifyAgentProfileRouteCatalogChangedInput
   ) => Promise<NotifyAgentProfileRouteCatalogChangedResponse>;

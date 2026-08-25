@@ -489,6 +489,16 @@ const AGENT_WORK_COPY = {
 		"Reviewed Slack channels",
 		"Couldn't review Slack channels"
 	),
+	"slack.file.read": workCopy(
+		"Reading a Slack file…",
+		"Read a Slack file",
+		"Couldn't read the Slack file"
+	),
+	"slack.file.send": workCopy(
+		"Sending a Slack file…",
+		"Sent a Slack file",
+		"Couldn't send the Slack file"
+	),
 	"slack.members.read": workCopy(
 		"Reviewing Slack members…",
 		"Reviewed Slack members",

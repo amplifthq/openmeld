@@ -1,11 +1,13 @@
+import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  detectInstalledSkillsAgentsMock,
+  detectInstalledRuntimeAgentsMock,
   listBuiltinControllerInstalledCandidatesMock,
   refreshBuiltinControllerPersistedLaunchContractMock,
 } = vi.hoisted(() => ({
-  detectInstalledSkillsAgentsMock: vi.fn(),
+  detectInstalledRuntimeAgentsMock: vi.fn(),
   listBuiltinControllerInstalledCandidatesMock: vi.fn(),
   refreshBuiltinControllerPersistedLaunchContractMock: vi.fn(),
 }));
@@ -16,7 +18,7 @@ vi.mock("../src/skills/agents", async () => {
   );
   return {
     ...actual,
-    detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
+    detectInstalledRuntimeAgents: detectInstalledRuntimeAgentsMock,
   };
 });
 
@@ -51,7 +53,7 @@ import { withTempHome } from "./helpers/fs";
 
 describe("agents registry resolve target state", () => {
   beforeEach(() => {
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["codex"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
     refreshBuiltinControllerPersistedLaunchContractMock.mockImplementation(
       async (input: { launchContract: unknown }) => input.launchContract
     );
@@ -60,7 +62,7 @@ describe("agents registry resolve target state", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    detectInstalledSkillsAgentsMock.mockReset();
+    detectInstalledRuntimeAgentsMock.mockReset();
     listBuiltinControllerInstalledCandidatesMock.mockReset();
   });
 
@@ -90,7 +92,7 @@ describe("agents registry resolve target state", () => {
         candidates: [localInstall, homebrewInstall],
         ok: true,
       });
-      detectInstalledSkillsAgentsMock.mockResolvedValue(["claude-code"]);
+      detectInstalledRuntimeAgentsMock.mockResolvedValue(["claude-code"]);
       await setConfiguredDeviceRuntimeState({
         controllers: [
           {
@@ -116,6 +118,15 @@ describe("agents registry resolve target state", () => {
         agentId: "claude-code",
         operation: "list",
       });
+      expect(listBuiltinControllerInstalledCandidatesMock).toHaveBeenCalledWith(
+        {
+          agentId: "claude-code",
+          detected: true,
+          displayName: "Claude Code",
+          persistedLaunchContract: localInstall.launchContract,
+          runtimeSupported: true,
+        }
+      );
       expect(listed.installations).toEqual([
         expect.objectContaining({
           installationId: "install-local",
@@ -142,6 +153,73 @@ describe("agents registry resolve target state", () => {
         (await getConfiguredDeviceRuntimeState())?.controllers?.[0]
           ?.launchContract
       ).toEqual(homebrewInstall.launchContract);
+    });
+  });
+
+  it("keeps a saved working installation available when ordinary detection misses it", async () => {
+    await withTempHome(async (home) => {
+      const commandDirectory = join(home, "saved", "bin");
+      const commandPath = join(commandDirectory, "claude");
+      await mkdir(commandDirectory, { recursive: true });
+      await writeFile(commandPath, "#!/bin/sh\necho '1.0.0'\n", "utf8");
+      await chmod(commandPath, 0o755);
+
+      const launchContract = {
+        commandPath,
+        kind: "executable" as const,
+      };
+      const savedInstall = {
+        commandPath,
+        detail: "Saved Claude Code installation",
+        installId: "install-saved",
+        label: "Saved installation",
+        launchContract,
+      };
+      listBuiltinControllerInstalledCandidatesMock.mockResolvedValue({
+        candidates: [savedInstall],
+        ok: true,
+      });
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "claude-code",
+            displayName: "Claude Code",
+            enabled: true,
+            launchContract,
+            registeredAt: "2026-08-18T00:00:00.000Z",
+            updatedAt: "2026-08-18T00:00:00.000Z",
+          },
+        ],
+      });
+
+      const state = await resolveAgentTargetState("claude-code");
+      expect(state).toMatchObject({
+        agentId: "claude-code",
+        detected: true,
+        launchContract,
+        launchStatus: "ready",
+        selectable: true,
+      });
+
+      const listed = await manageAgentRegistrationInstallation({
+        agentId: "claude-code",
+        operation: "list",
+      });
+      expect(listBuiltinControllerInstalledCandidatesMock).toHaveBeenCalledWith(
+        {
+          agentId: "claude-code",
+          detected: true,
+          displayName: "Claude Code",
+          persistedLaunchContract: launchContract,
+          runtimeSupported: true,
+        }
+      );
+      expect(listed.installations).toEqual([
+        expect.objectContaining({
+          installationId: "install-saved",
+          selected: true,
+        }),
+      ]);
     });
   });
 
@@ -447,7 +525,7 @@ describe("agents registry resolve target state", () => {
   });
 
   it("keeps suspended built-in targets technically selectable for existing users", async () => {
-    detectInstalledSkillsAgentsMock.mockResolvedValueOnce(["openclaw"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValueOnce(["openclaw"]);
 
     await withTempHome(async () => {
       const state = await resolveAgentTargetState("openclaw");

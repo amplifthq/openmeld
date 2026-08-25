@@ -11,10 +11,22 @@ describe("local service alignment target", () => {
       buildDaemonServiceTargetSpec({
         daemonVersion: "0.2.0",
         distribution: "binary",
+        environmentTarget: {
+          preset: "dev-local",
+          gatewayUrl: "http://localhost:31025",
+          authBaseUrl: "http://localhost:31026",
+          userFacingCommand: "openmeld-dev",
+        },
       })
     ).toEqual({
       daemonVersion: "0.2.0",
       bundleFormat: "binary_v1",
+      environmentTarget: {
+        preset: "dev-local",
+        gatewayUrl: "http://localhost:31025",
+        authBaseUrl: "http://localhost:31026",
+        userFacingCommand: "openmeld-dev",
+      },
     });
   });
 
@@ -110,6 +122,40 @@ describe("local service alignment target", () => {
 
     expect(decision.status).toBe("needs_auto_heal");
     expect(decision.reasonCodes).toEqual(["service_manager_path_drift"]);
+  });
+
+  it("requires full alignment when the registered service environment targets another OpenMeld backend", () => {
+    const decision = resolveDaemonServiceAlignmentDecision({
+      inventory: createInventory({
+        serviceManagerStatus: {
+          installed: true,
+          running: true,
+          enabled: true,
+          definitionPath:
+            "/Users/felix/Library/LaunchAgents/com.openmeld.openmeld-background-service.plist",
+          commandSummary:
+            "openmeld service run --mode foreground http://localhost:8080 http://localhost:8788",
+          environmentTarget: {
+            preset: "dev-local",
+            gatewayUrl: "http://localhost:8080",
+            authBaseUrl: "http://localhost:8788",
+            userFacingCommand: "openmeld-dev",
+          },
+        },
+      }),
+      target: buildDaemonServiceTargetSpec({
+        daemonVersion: "0.2.0",
+        environmentTarget: {
+          preset: "dev-local",
+          gatewayUrl: "http://localhost:31025",
+          authBaseUrl: "http://localhost:31026",
+          userFacingCommand: "openmeld-dev",
+        },
+      }),
+    });
+
+    expect(decision.status).toBe("needs_full_alignment");
+    expect(decision.reasonCodes).toEqual(["service_manager_environment_drift"]);
   });
 
   it("requires full alignment when same-version service bundle content has drifted", () => {

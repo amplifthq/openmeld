@@ -1,7 +1,11 @@
 #include <CoreFoundation/CoreFoundation.h>
+#import <LocalAuthentication/LocalAuthentication.h>
 #include <Security/Security.h>
 #include <node_api.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -22,6 +26,112 @@ class ScopedCfType {
  private:
   CFTypeRef value_;
 };
+
+class ScopedKeychainUserInteraction {
+ public:
+  ScopedKeychainUserInteraction() = default;
+  ~ScopedKeychainUserInteraction() {
+    if (disabled_) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+      SecKeychainSetUserInteractionAllowed(previous_state_);
+#pragma clang diagnostic pop
+    }
+  }
+  ScopedKeychainUserInteraction(const ScopedKeychainUserInteraction&) = delete;
+  ScopedKeychainUserInteraction& operator=(
+      const ScopedKeychainUserInteraction&) = delete;
+
+  OSStatus Disable() {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    OSStatus status =
+        SecKeychainGetUserInteractionAllowed(&previous_state_);
+    if (status == errSecSuccess) {
+      status = SecKeychainSetUserInteractionAllowed(false);
+      disabled_ = status == errSecSuccess;
+    }
+#pragma clang diagnostic pop
+    return status;
+  }
+
+ private:
+  bool disabled_ = false;
+  Boolean previous_state_ = true;
+};
+
+bool CopyCodePathForPid(pid_t pid, std::string* path) {
+  ScopedCfType pid_value(
+      CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &pid));
+  if (pid_value.get() == nullptr) {
+    return false;
+  }
+
+  const void* keys[] = {kSecGuestAttributePid};
+  const void* values[] = {pid_value.get()};
+  ScopedCfType attributes(CFDictionaryCreate(
+      kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks,
+      &kCFTypeDictionaryValueCallBacks));
+  if (attributes.get() == nullptr) {
+    return false;
+  }
+
+  SecCodeRef code = nullptr;
+  const OSStatus code_status = SecCodeCopyGuestWithAttributes(
+      nullptr, static_cast<CFDictionaryRef>(attributes.get()),
+      kSecCSDefaultFlags, &code);
+  ScopedCfType scoped_code(code);
+  if (code_status != errSecSuccess || code == nullptr) {
+    return false;
+  }
+
+  SecStaticCodeRef static_code = nullptr;
+  const OSStatus static_code_status =
+      SecCodeCopyStaticCode(code, kSecCSDefaultFlags, &static_code);
+  ScopedCfType scoped_static_code(static_code);
+  if (static_code_status != errSecSuccess || static_code == nullptr) {
+    return false;
+  }
+
+  CFURLRef code_url = nullptr;
+  const OSStatus path_status =
+      SecCodeCopyPath(static_code, kSecCSDefaultFlags, &code_url);
+  ScopedCfType scoped_url(code_url);
+  if (path_status != errSecSuccess || code_url == nullptr) {
+    return false;
+  }
+
+  std::array<UInt8, PATH_MAX> buffer{};
+  if (!CFURLGetFileSystemRepresentation(code_url, true, buffer.data(),
+                                        buffer.size())) {
+    return false;
+  }
+  *path = reinterpret_cast<const char*>(buffer.data());
+  return !path->empty();
+}
+
+bool IsParentSameExecutable() {
+  const pid_t parent_pid = getppid();
+  if (parent_pid <= 1) {
+    return false;
+  }
+
+  std::string current_path;
+  std::string parent_path;
+  if (!CopyCodePathForPid(getpid(), &current_path) ||
+      !CopyCodePathForPid(parent_pid, &parent_path)) {
+    return false;
+  }
+
+  struct stat current_stat {};
+  struct stat parent_stat {};
+  if (stat(current_path.c_str(), &current_stat) != 0 ||
+      stat(parent_path.c_str(), &parent_stat) != 0) {
+    return false;
+  }
+  return current_stat.st_dev == parent_stat.st_dev &&
+         current_stat.st_ino == parent_stat.st_ino;
+}
 
 std::string ReadUtf8(napi_env env, napi_value value) {
   size_t length = 0;
@@ -64,6 +174,18 @@ CFMutableDictionaryRef CreateQuery(const std::string& service,
   CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
   CFDictionarySetValue(query, kSecAttrService, service_value.get());
   CFDictionarySetValue(query, kSecAttrAccount, account_value.get());
+  LAContext* context = [[LAContext alloc] init];
+  context.interactionNotAllowed = YES;
+  CFDictionarySetValue(query, kSecUseAuthenticationContext,
+                       (__bridge CFTypeRef)context);
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  // LAContext controls modern authentication policies. The explicit UI policy
+  // also covers legacy macOS Keychain ACL prompts, which otherwise can outlive
+  // the short-lived helper process.
+  CFDictionarySetValue(query, kSecUseAuthenticationUI,
+                       kSecUseAuthenticationUIFail);
+#pragma clang diagnostic pop
   return query;
 }
 
@@ -81,6 +203,19 @@ void ThrowStatus(napi_env env, const char* operation, OSStatus status) {
   }
   const std::string text = std::string(operation) + " failed: " + detail;
   napi_throw_error(env, nullptr, text.c_str());
+}
+
+void ThrowReadStatus(napi_env env, OSStatus status) {
+  if (status == errSecAuthFailed || status == errSecInteractionNotAllowed ||
+      status == errSecInteractionRequired) {
+    napi_throw_error(
+        env, nullptr,
+        "Read access token failed: macOS Keychain approval is required. "
+        "OpenMeld did not open a background authorization window. Reconnect "
+        "this computer from an interactive setup or login.");
+    return;
+  }
+  ThrowStatus(env, "Read access token", status);
 }
 
 bool ReadArguments(napi_env env, napi_callback_info info, size_t expected,
@@ -139,6 +274,14 @@ napi_value Store(napi_env env, napi_callback_info info) {
   }
   ScopedCfType scoped_update(update);
   CFDictionarySetValue(update, kSecValueData, token_data.get());
+
+  ScopedKeychainUserInteraction user_interaction;
+  const OSStatus interaction_status = user_interaction.Disable();
+  if (interaction_status != errSecSuccess) {
+    ThrowStatus(env, "Disable Keychain user interaction", interaction_status);
+    return nullptr;
+  }
+
   OSStatus status =
       SecItemUpdate(static_cast<CFDictionaryRef>(query.get()), update);
   if (status == errSecItemNotFound) {
@@ -181,6 +324,13 @@ napi_value Read(napi_env env, napi_callback_info info) {
   CFDictionarySetValue(mutable_query, kSecReturnData, kCFBooleanTrue);
   CFDictionarySetValue(mutable_query, kSecMatchLimit, kSecMatchLimitOne);
 
+  ScopedKeychainUserInteraction user_interaction;
+  const OSStatus interaction_status = user_interaction.Disable();
+  if (interaction_status != errSecSuccess) {
+    ThrowStatus(env, "Disable Keychain user interaction", interaction_status);
+    return nullptr;
+  }
+
   CFTypeRef result = nullptr;
   const OSStatus status = SecItemCopyMatching(
       static_cast<CFDictionaryRef>(query.get()), &result);
@@ -192,8 +342,7 @@ napi_value Read(napi_env env, napi_callback_info info) {
   }
   if (status != errSecSuccess || result == nullptr ||
       CFGetTypeID(result) != CFDataGetTypeID()) {
-    ThrowStatus(env, "Read access token",
-                status == errSecSuccess ? errSecDecode : status);
+    ThrowReadStatus(env, status == errSecSuccess ? errSecDecode : status);
     return nullptr;
   }
 
@@ -215,6 +364,13 @@ napi_value Remove(napi_env env, napi_callback_info info) {
     napi_throw_error(env, nullptr, "Could not create a secure storage query.");
     return nullptr;
   }
+  ScopedKeychainUserInteraction user_interaction;
+  const OSStatus interaction_status = user_interaction.Disable();
+  if (interaction_status != errSecSuccess) {
+    ThrowStatus(env, "Disable Keychain user interaction", interaction_status);
+    return nullptr;
+  }
+
   const OSStatus status =
       SecItemDelete(static_cast<CFDictionaryRef>(query.get()));
   if (status != errSecSuccess && status != errSecItemNotFound) {
@@ -226,6 +382,19 @@ napi_value Remove(napi_env env, napi_callback_info info) {
   return result;
 }
 
+napi_value ParentIsSameExecutable(napi_env env, napi_callback_info info) {
+  size_t argc = 0;
+  if (napi_get_cb_info(env, info, &argc, nullptr, nullptr, nullptr) != napi_ok ||
+      argc != 0) {
+    napi_throw_type_error(env, nullptr,
+                          "Parent executable check takes no arguments.");
+    return nullptr;
+  }
+  napi_value result;
+  napi_get_boolean(env, IsParentSameExecutable(), &result);
+  return result;
+}
+
 napi_value Initialize(napi_env env, napi_value exports) {
   napi_property_descriptor properties[] = {
       {"store", nullptr, Store, nullptr, nullptr, nullptr, napi_default,
@@ -234,6 +403,8 @@ napi_value Initialize(napi_env env, napi_value exports) {
        nullptr},
       {"remove", nullptr, Remove, nullptr, nullptr, nullptr, napi_default,
        nullptr},
+      {"isParentSameExecutable", nullptr, ParentIsSameExecutable, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
   };
   napi_define_properties(env, exports,
                          sizeof(properties) / sizeof(properties[0]),

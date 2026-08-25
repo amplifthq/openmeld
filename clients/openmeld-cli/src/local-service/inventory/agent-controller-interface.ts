@@ -445,6 +445,12 @@ async function resolveControllerVersionAdvisory(input: {
   const commandPaths = [commandPath, realCommandPath].filter(
     (value): value is string => Boolean(value)
   );
+  if (
+    definition.hostApplicationPath &&
+    commandPaths.some(definition.hostApplicationPath)
+  ) {
+    return undefined;
+  }
   const updateCommand = resolveControllerUpdateCommand({
     commandPath,
     commandPaths,

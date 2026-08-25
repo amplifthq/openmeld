@@ -1,13 +1,10 @@
 #!/usr/bin/env node
 
-import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
 const DEFAULT_GATEWAY_URL = "https://gateway.openmeld.ai";
 const TRAILING_SLASHES_PATTERN = /\/+$/u;
 const TOKEN_FILE_KEY_PATTERN = /^[a-f0-9]{64}$/u;
@@ -356,19 +353,12 @@ async function readStoredAuthSession(input) {
 export async function readStoredAccessToken(input) {
   const tokenRef = input.tokenRef;
   if (tokenRef.provider === "macos-keychain") {
-    const { stdout } = await execFileAsync("security", [
-      "find-generic-password",
-      "-a",
-      String(tokenRef.account),
-      "-s",
-      String(tokenRef.service),
-      "-w",
-    ]);
-    const accessToken = stdout.trim();
-    if (accessToken.length === 0) {
-      throw new Error("macOS Keychain returned an empty access token");
-    }
-    return accessToken;
+    throw new Error(
+      "start-surface-http cannot read a macOS Keychain session because this " +
+        "developer tool runs unattended and must not open authorization windows. " +
+        "Run this request through the current packaged OpenMeld CLI, or sign in " +
+        "to an isolated dev-local lane that uses private local token storage."
+    );
   }
 
   if (tokenRef.provider === "insecure-file") {

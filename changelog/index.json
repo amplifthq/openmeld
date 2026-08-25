@@ -2,6 +2,65 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "keep-codex-update-guidance-source-aware",
+      "title": "Keep Codex update guidance tied to its installation",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "local-agents"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-25",
+      "evidence": [
+        "pr:248",
+        "pr:250",
+        "commit:d178ec59a0a74555fc897b0d16623a1a62cb93d2",
+        "workflow:32805444531",
+        "workflow:32806735335"
+      ],
+      "body": "OpenMeld no longer compares the Codex included with the ChatGPT app against the\nstandalone Codex CLI release. ChatGPT app installations stay under the app's\nown update channel, while npm and Homebrew installations continue to use their\nmatching package channels. Codex usage details also put the overall weekly\nlimit first and use a lighter circular gauge."
+    },
+    {
+      "id": "quiet-disabled-local-agents",
+      "title": "Keep disabled local agents out of the way",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "local-agents"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-25",
+      "evidence": [
+        "pr:238",
+        "commit:b5261e72a3ef5752c246105a517b419b91fb1dc6",
+        "workflow:32799908682"
+      ],
+      "body": "Local agents that you turn off now stay visually quiet and no longer create a\nComputer alert. Installation choices also sit with the local agent's launch\ndetails, and OpenMeld waits for the final result before calling a slow setting\nchange a failure."
+    },
+    {
+      "id": "clearer-local-agent-installations-and-usage",
+      "title": "See which local agent installation OpenMeld uses",
+      "kind": "improved",
+      "areas": [
+        "computers",
+        "local-agents"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-25",
+      "evidence": [
+        "pr:244",
+        "commit:04a7f925b140d0e38d11cc33a9b79c10240fd9aa",
+        "workflow:32803874709"
+      ],
+      "body": "Computer details now name the exact local agent installation OpenMeld uses and\nshow provider limits in compact circular cards. Choosing another installation\nrequires confirmation, stays readable on smaller screens, and no longer shows\na timeout when the computer completed the change."
+    },
+    {
       "id": "keep-codex-permissions-stable",
       "title": "Keep Codex permissions stable during background checks",
       "kind": "fixed",
@@ -20,6 +79,52 @@
         "workflow:32694470317"
       ],
       "body": "OpenMeld no longer changes a Codex conversation's approval or sandbox settings\nwhile checking it in the background or recovering an interrupted task. Your\nselected Agent Controller Permission Mode now remains in effect for later work."
+    },
+    {
+      "id": "recover-macos-computers-with-a-fresh-setup",
+      "title": "Recover a Mac with a fresh setup command",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "cli",
+        "service"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-24",
+      "release": "v0.3.95",
+      "evidence": [
+        "pr:218",
+        "pr:219",
+        "commit:18f0b1c004955828f9d7cc64c122b0588a235d1b",
+        "workflow:32727645216"
+      ],
+      "body": "Fresh setup commands on supported Macs now use the normal macOS Keychain\nwithout requiring a restricted app entitlement. If Keychain is temporarily\nunavailable or does not answer within five seconds, OpenMeld stops waiting,\nclearly warns the user, keeps the session in private local storage, and finishes\nreconnecting the computer. It does not keep retrying Keychain in the same\nprocess. A later successful setup or login automatically moves the session back\nto Keychain. OpenMeld Service also reuses its loaded session instead of\nrepeatedly querying secure storage while it is running."
+    },
+    {
+      "id": "stop-background-keychain-authorization-windows",
+      "title": "Stop background Keychain authorization windows",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "cli",
+        "service"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-24",
+      "release": "v0.3.96",
+      "evidence": [
+        "pr:222",
+        "pr:223",
+        "commit:9cea7139ade576121d8dd46bade2531b71859881",
+        "workflow:32747450190"
+      ],
+      "body": "OpenMeld no longer opens macOS Keychain password dialogs while local agents are\nworking in the background or while setup is recovering the computer. Normal\nKeychain access stays silent. If macOS requires approval, OpenMeld stops the\nKeychain operation immediately, uses its protected local fallback during setup,\nand leaves no waiting helper or orphaned password window behind. Developer and\nnpm CLI paths also stop immediately instead of launching macOS's interactive\n`security` tool, so parallel local work cannot queue repeated password dialogs."
     },
     {
       "id": "collapsible-sidebar-groups",

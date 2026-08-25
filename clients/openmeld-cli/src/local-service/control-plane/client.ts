@@ -5,6 +5,7 @@ import type {
   OpenMeldDaemonConversationExecutionStatusRequestPayload,
   OpenMeldDaemonRequestAgentActivitySyncPayload,
   OpenMeldDaemonRequestAgentActivitySyncRequestPayload,
+  OpenMeldDaemonServiceUpdateReadinessPayload,
   OpenMeldDaemonSetLocalAgentEnabledPayload,
   OpenMeldDaemonSetLocalAgentEnabledRequestPayload,
   OpenMeldDaemonShutdownRequestPayload,
@@ -213,6 +214,31 @@ export async function requestLocalDaemonShutdown(input: {
     throw new LocalDaemonControlPlaneClientError(
       "daemon.control.invalid_response",
       "local daemon control returned an unexpected response for shutdown"
+    );
+  }
+  return response.payload;
+}
+
+export async function requestLocalDaemonServiceUpdateReadiness(
+  input: { endpoint?: string; timeoutMs?: number } = {}
+): Promise<OpenMeldDaemonServiceUpdateReadinessPayload> {
+  let response: OpenMeldDaemonControlPlaneResponse;
+  try {
+    response = await sendLocalDaemonControlPlaneRequest({
+      endpoint: input.endpoint,
+      timeoutMs: input.timeoutMs,
+      request: {
+        v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
+        command: "service_update_readiness",
+      },
+    });
+  } catch (error) {
+    throw rewriteDaemonControlPlaneContractMismatch(error);
+  }
+  if (response.code !== "service.update_readiness") {
+    throw new LocalDaemonControlPlaneClientError(
+      "daemon.control.invalid_response",
+      "local daemon control returned an unexpected response for service update readiness"
     );
   }
   return response.payload;

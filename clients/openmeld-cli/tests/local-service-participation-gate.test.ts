@@ -73,6 +73,7 @@ function createInventory(input?: {
   installedVersion?: string | null;
   runtimeStatus?: "not_running" | "running" | "stale" | "unknown";
   anomalyCodes?: string[];
+  verifiedRunning?: boolean;
 }) {
   const installedVersion =
     input?.installedVersion === undefined
@@ -111,6 +112,15 @@ function createInventory(input?: {
       code,
       message: String(code),
     })),
+    ...(input?.verifiedRunning
+      ? {
+          activeBundleEntryPath: "/tmp/openmeld/active/openmeld.mjs",
+          runtimeCommandEntryPath: "/tmp/openmeld/active/openmeld.mjs",
+          runtimeCommandPathExists: true,
+          runtimeContractCompatibility: { status: "compatible" },
+          serviceContract: createServiceContract(),
+        }
+      : {}),
   };
 }
 
@@ -455,6 +465,45 @@ describe("local service participation gate", () => {
     expect(selectPromptMock).not.toHaveBeenCalled();
     expect(runDaemonReinstallMock).not.toHaveBeenCalled();
     expect(runDaemonBackgroundStartForDecisionMock).not.toHaveBeenCalled();
+  });
+
+  it("lets Web setup finish after scheduling a healthy running Service update", async () => {
+    inspectDaemonServiceInventoryMock.mockResolvedValue(
+      createInventory({
+        anomalyCodes: ["version_outdated", "bundle_version_drift"],
+        installedVersion: "0.3.96",
+        runtimeStatus: "running",
+        verifiedRunning: true,
+      })
+    );
+    runDaemonReinstallMock.mockResolvedValueOnce({
+      ok: true,
+      result: "scheduled",
+      jobId: "update-1",
+      targetVersion: packageJson.version,
+    });
+    const presenter = createPresenter();
+
+    const result = await runDaemonServiceParticipationGate({
+      intent: "start",
+      presenter,
+      resolvedView: "human",
+      allowPrompt: false,
+      autoRepair: true,
+      forcePrompt: true,
+      gatewayUrl: "http://localhost:8080",
+      view: "human",
+    });
+
+    expect(result).toEqual({ status: "aligned" });
+    expect(runDaemonReinstallMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayAction: "update",
+      }),
+      expect.objectContaining({
+        skipConfirm: true,
+      })
+    );
   });
 
   it("force-refreshes a running service so prepare can switch to the current account", async () => {

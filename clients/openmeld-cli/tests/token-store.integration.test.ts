@@ -125,86 +125,32 @@ describe("token-store command execution options", () => {
     vi.restoreAllMocks();
   });
 
-  it("passes timeout options to callback-based execFile path", async () => {
-    macOsNativeKeychainState.binaryDistribution = false;
-
-    await deleteAccessToken({
-      provider: "macos-keychain",
-      service: "svc",
-      account: "acct",
-    });
-
-    const securityCall = execFileMock.mock.calls.find(
-      (call) => call[0] === "security" && typeof call[3] === "function"
-    );
-    expect(securityCall).toBeDefined();
-    expect(securityCall?.[2]).toEqual(
-      expect.objectContaining({
-        windowsHide: true,
-        maxBuffer: COMMAND_MAX_BUFFER_BYTES,
-        timeout: COMMAND_TIMEOUT_MS,
-        encoding: "utf8",
-      })
-    );
-  });
-
-  it("reports missing macOS keychain tokens separately from unavailable keychain reads", async () => {
+  it("does not read or delete Keychain items through the interactive security CLI", async () => {
     setProcessPlatform("darwin");
     macOsNativeKeychainState.binaryDistribution = false;
-    execFileMock.mockImplementationOnce(
-      (
-        _command: string,
-        _args: string[],
-        _options: Record<string, unknown>,
-        callback?: (
-          error: Error | null,
-          stdout?: string | Buffer,
-          stderr?: string | Buffer
-        ) => void
-      ) => {
-        const error = Object.assign(new Error("not found"), {
-          code: 44,
-          stderr: "The specified item could not be found in the keychain.",
-        });
-        callback?.(error);
-      }
-    );
+
     await expect(
       readAccessToken({
         account: "acct",
         provider: "macos-keychain",
         service: "svc",
       })
-    ).resolves.toEqual({ status: "missing" });
-
-    execFileMock.mockImplementationOnce(
-      (
-        _command: string,
-        _args: string[],
-        _options: Record<string, unknown>,
-        callback?: (
-          error: Error | null,
-          stdout?: string | Buffer,
-          stderr?: string | Buffer
-        ) => void
-      ) => {
-        const error = Object.assign(new Error("security failed"), {
-          code: 1,
-          stderr: "securityd unavailable",
-        });
-        callback?.(error);
-      }
-    );
-    const unavailable = await readAccessToken({
-      account: "acct",
-      provider: "macos-keychain",
-      service: "svc",
+    ).resolves.toMatchObject({
+      status: "unavailable",
+      errorMessage: expect.stringContaining(
+        "will not open an authorization window"
+      ),
     });
 
-    expect(unavailable.status).toBe("unavailable");
-    expect(
-      unavailable.status === "unavailable" ? unavailable.errorMessage : ""
-    ).toContain("securityd unavailable");
+    await expect(
+      deleteAccessToken({
+        account: "acct",
+        provider: "macos-keychain",
+        service: "svc",
+      })
+    ).rejects.toThrow("unavailable in this OpenMeld distribution");
+
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 
   it("passes timeout options to stdin-based execFile path", async () => {
@@ -308,7 +254,51 @@ describe("token-store command execution options", () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("protected for your macOS user account")
     );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "This session stays in private local storage unless a later sign-in replaces it."
+      )
+    );
+    expect(String(warnSpy.mock.calls[0]?.[0] ?? "")).not.toContain(
+      "A future successful setup or login will move"
+    );
     expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses private local storage instead of the interactive security CLI in an npm distribution", async () => {
+    vi.resetModules();
+    setProcessPlatform("darwin");
+    macOsNativeKeychainState.binaryDistribution = false;
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const {
+      readAccessToken: readNpmAccessToken,
+      storeAccessToken: storeNpmAccessToken,
+    } = await import("../src/config/token-store");
+
+    await withTempHome(async () => {
+      const replacementRef = await storeNpmAccessToken({
+        accessToken: "replacement-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+      expect(replacementRef.provider).toBe("insecure-file");
+      await expect(readNpmAccessToken(replacementRef)).resolves.toEqual({
+        accessToken: "replacement-token",
+        status: "found",
+      });
+    });
+
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "This npm installation cannot use macOS Keychain."
+      )
+    );
+    expect(String(warnSpy.mock.calls[0]?.[0] ?? "")).not.toContain(
+      "A future successful setup or login will move"
+    );
   });
 
   it("warns once when plaintext file-token fallback is used", async () => {

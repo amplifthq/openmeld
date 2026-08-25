@@ -23,6 +23,7 @@ import type {
   BootstrapTemplateFacts,
   CenterAgentModelRoute,
   DispatchExecution,
+  DispatchResult,
   HostedCenterAgentRuntimeIdentity,
   MessageEnvelope,
   OpenMeldDaemonDispatchQueueMessage,
@@ -31,7 +32,6 @@ import type {
   RuntimeTransportDeliveryExecutionIdentity,
   RuntimeTransportDispatchLifecycleSnapshot,
 } from "@openmeld/schemas/types";
-import { buildDefaultSpaceContract } from "@openmeld/space-mesh";
 import {
   clearAgentExecutionReadinessImpactForExecutionSuccess,
   resolveAcceptedAgentExecutionReadinessImpactReasonCode,
@@ -70,6 +70,10 @@ import {
   readRuntimeDeviceDisplayNameByRuntimeId,
   readRuntimeRegistryRecordByRuntimeId,
 } from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
+import {
+  type RuntimeCoordinatorFinalizationSemantic,
+  resolveRuntimeCoordinatorFinalizationSemantic,
+} from "../../runtime-transport/application/runtime-coordinator-finalization-semantic";
 import {
   type DispatchResultInboxRecord,
   updateDispatchResultInboxPublishState,
@@ -1361,7 +1365,6 @@ const finalizeExistingAcceptedDispatchResult = async (input: {
   inboxRecord: DispatchResultInboxRecord;
   recordPublicationProjection: boolean;
 }): Promise<AcceptedDispatchFinalizationResult> => {
-  const publishState = resolveExistingAcceptedDispatchPublishState(input);
   if (
     input.existingResult.publishedSignalId &&
     input.recordPublicationProjection
@@ -1370,61 +1373,90 @@ const finalizeExistingAcceptedDispatchResult = async (input: {
       attemptId: input.inboxRecord.attemptId,
       db: input.db,
       dispatchId: input.dispatchMessage.dispatchId,
+      executionSemantic: resolveRuntimeCoordinatorFinalizationSemantic({
+        finalMessageKind: resolveArchivedFinalMessageKind(
+          input.existingResult.publicOutcome
+        ),
+        publishState: "reply_published",
+        taskResult: input.inboxRecord.taskResult,
+      }),
       publishedSignalId: input.existingResult.publishedSignalId,
-      publishState,
+      publishState: "reply_published",
       spaceId: input.dispatchMessage.spaceId,
       targetProfileId: input.dispatchMessage.targetProfileId,
     });
   }
-  await markDispatchStatus({
-    attemptId: input.inboxRecord.attemptId,
-    attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.succeeded,
-    db: input.db,
-    idempotencyKey: input.dispatchMessage.idempotencyKey,
-    nowMs: Date.now(),
-    status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
-  });
   return {
     publishedSignalId: input.existingResult.publishedSignalId ?? null,
-    publishState,
+    publishState: input.existingResult.publishedSignalId
+      ? "reply_published"
+      : "invalid_space_action",
     status: "already_final",
   };
 };
 
-function resolveExistingAcceptedDispatchPublishState(input: {
-  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
-  existingResult: NonNullable<
-    Awaited<ReturnType<typeof getDispatchResultByDispatchId>>
-  >;
-  inboxRecord: DispatchResultInboxRecord;
-}): AcceptedDispatchFinalizationResult["publishState"] {
-  if (
-    input.inboxRecord.publishState === "invalid_space_action" ||
-    input.inboxRecord.publishState === "reply_published"
-  ) {
-    return input.inboxRecord.publishState;
+const markDispatchSucceeded = async (input: {
+  attemptId: string;
+  db: D1Database;
+  idempotencyKey: string;
+}): Promise<void> => {
+  await markDispatchStatus({
+    attemptId: input.attemptId,
+    attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.succeeded,
+    db: input.db,
+    idempotencyKey: input.idempotencyKey,
+    nowMs: Date.now(),
+    status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
+  });
+};
+
+export type ConfirmedAcceptedDispatchSuccess = {
+  kind: "published_signal";
+  publishedSignalId: string;
+};
+
+export const recordConfirmedAcceptedDispatchSuccess = async (input: {
+  attemptId: string;
+  db: D1Database;
+  idempotencyKey: string;
+  outcome: ConfirmedAcceptedDispatchSuccess;
+}): Promise<void> => {
+  if (input.outcome.publishedSignalId.trim().length === 0) {
+    throw new Error(
+      "A confirmed accepted dispatch success requires a published signal ID."
+    );
   }
-  if (!input.existingResult.publishedSignalId) {
-    return "invalid_space_action";
+  await markDispatchSucceeded({
+    attemptId: input.attemptId,
+    db: input.db,
+    idempotencyKey: input.idempotencyKey,
+  });
+};
+
+export const recordConfirmedAcceptedDispatchFailure = async (input: {
+  attemptId: string;
+  db: D1Database;
+  errorCode: string;
+  errorMessage?: string | null;
+  idempotencyKey: string;
+}): Promise<void> => {
+  const errorCode = input.errorCode.trim();
+  if (!errorCode) {
+    throw new Error(
+      "A confirmed accepted dispatch failure requires an error code."
+    );
   }
-  const payload = input.inboxRecord.taskResult.payload;
-  if (input.existingResult.publicOutcome !== "system_notice") {
-    return input.existingResult.publicOutcome === "internal_only"
-      ? "invalid_space_action"
-      : "reply_published";
-  }
-  const spaceAction =
-    "spaceAction" in payload ? payload.spaceAction : undefined;
-  const allowedActions =
-    input.dispatchMessage.spaceContractSnapshot?.allowedActions ??
-    buildDefaultSpaceContract().allowedActions;
-  if (spaceAction && !allowedActions.includes(spaceAction.type)) {
-    return "invalid_space_action";
-  }
-  return payload.status === "failed"
-    ? "reply_published"
-    : "invalid_space_action";
-}
+  await markDispatchStatus({
+    attemptId: input.attemptId,
+    attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
+    db: input.db,
+    errorCode,
+    errorMessage: input.errorMessage ?? null,
+    idempotencyKey: input.idempotencyKey,
+    nowMs: Date.now(),
+    status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+  });
+};
 
 export const finalizeAcceptedDispatchResult = async (input: {
   db: D1Database;
@@ -1645,14 +1677,6 @@ export const finalizeAcceptedDispatchResult = async (input: {
     targetProfileMentionLabel,
     targetProfileName,
     taskResult: input.inboxRecord.taskResult,
-  });
-  await markDispatchStatus({
-    attemptId: input.inboxRecord.attemptId,
-    attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.succeeded,
-    db: input.db,
-    idempotencyKey: input.dispatchMessage.idempotencyKey,
-    nowMs: Date.now(),
-    status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
   });
   return {
     publishedSignalId: replyEmission.publishedSignalId,
@@ -2589,15 +2613,20 @@ const finalizePublishedDispatchReply = async (input: {
     taskResult: input.taskResult,
   });
   if (input.recordPublicationProjection) {
-    const publishState = resolveDispatchPublicationPublishState({
-      payload: input.taskResult.payload,
-      plan: input.plan,
+    const publishState = input.plan.blockedExplicitAction
+      ? "invalid_space_action"
+      : "reply_published";
+    const executionSemantic = resolveRuntimeCoordinatorFinalizationSemantic({
+      finalMessageKind: resolvePublicationPlanFinalMessageKind(input.plan),
+      publishState,
+      taskResult: input.taskResult,
     });
     const publicationProjectionEvidence =
       await recordDispatchResultInboxPublicationProjection({
         attemptId: input.executionContext.attemptId,
         db: input.db,
         dispatchId: input.dispatchMessage.dispatchId,
+        executionSemantic,
         publishedSignalId: input.emittedSignal.id,
         publishState,
         spaceId: input.dispatchMessage.spaceId,
@@ -2609,9 +2638,10 @@ const finalizePublishedDispatchReply = async (input: {
       latestAttemptId: input.executionContext.attemptId,
       publishedSignalId: input.emittedSignal.id,
       reasonCode:
-        publishState === "reply_published"
+        executionSemantic.reasonCode ??
+        (publishState === "reply_published"
           ? "space.reply_published"
-          : publishState,
+          : publishState),
       replySignalId:
         publishState === "reply_published" ? input.emittedSignal.id : null,
       resultRef: dispatchResult?.resultRef ?? null,
@@ -2620,7 +2650,7 @@ const finalizePublishedDispatchReply = async (input: {
       runtimeKind: "queue",
       sourceSignalId: input.dispatchMessage.sourceEventId,
       spaceId: input.dispatchMessage.spaceId,
-      status: publishState === "reply_published" ? "succeeded" : "failed",
+      status: executionSemantic.status === "failed" ? "failed" : "succeeded",
       targetProfileId: input.dispatchMessage.targetProfileId,
     });
   }
@@ -2630,6 +2660,7 @@ const recordDispatchResultInboxPublicationProjection = async (input: {
   attemptId: string;
   db: D1Database;
   dispatchId: string;
+  executionSemantic?: RuntimeCoordinatorFinalizationSemantic;
   publicationErrorCode?: string | null;
   publishedSignalId?: string | null;
   publishState:
@@ -2697,6 +2728,7 @@ const recordRuntimeCoordinatorPublicationProjection = async (input: {
   attemptId: string;
   db: D1Database;
   dispatchId: string;
+  executionSemantic?: RuntimeCoordinatorFinalizationSemantic;
   publicationErrorCode?: string | null;
   publishedSignalId?: string | null;
   publishState:
@@ -2718,8 +2750,12 @@ const recordRuntimeCoordinatorPublicationProjection = async (input: {
     return { runtimeCoordinatorExecutionId: null };
   }
   const nowMs = Date.now();
-  const status = resolveRuntimeCoordinatorPublicationStatus(input.publishState);
+  const status =
+    input.executionSemantic?.status === "failed"
+      ? "failed_terminal"
+      : resolveRuntimeCoordinatorPublicationStatus(input.publishState);
   const reasonCode =
+    input.executionSemantic?.reasonCode ??
     input.publicationErrorCode ??
     (input.publishState === "invalid_space_action"
       ? "invalid_space_action"
@@ -2796,6 +2832,33 @@ const resolveRuntimeCoordinatorTerminalOutcomeKind = (
     return "failed_terminal";
   }
   return "failed_retryable";
+};
+
+const resolvePublicationPlanFinalMessageKind = (
+  plan: Extract<
+    DispatchPublicationPlan,
+    { kind: "message" | "status" | "system_notice" }
+  >
+): "failure_notice" | "stay_silent" | "success_reply" => {
+  if (plan.kind !== "system_notice") {
+    return "success_reply";
+  }
+  return plan.noticeType === "stay_silent" ? "stay_silent" : "failure_notice";
+};
+
+const resolveArchivedFinalMessageKind = (
+  publicOutcome: DispatchResult["publicOutcome"]
+): "failure_notice" | "stay_silent" | "success_reply" | "unknown" => {
+  if (publicOutcome === "stay_silent") {
+    return "stay_silent";
+  }
+  if (publicOutcome === "system_notice") {
+    return "failure_notice";
+  }
+  if (publicOutcome === "internal_only") {
+    return "unknown";
+  }
+  return "success_reply";
 };
 
 export const normalizePostPublicationDispatchError = (input: {
@@ -4654,12 +4717,10 @@ const emitDispatchReplySignals = async (input: {
   }
   return {
     publishedSignalId: emittedSignal?.id ?? null,
-    publishState: emittedSignal
-      ? resolveDispatchPublicationPublishState({
-          payload,
-          plan: publicationPlan,
-        })
-      : "invalid_space_action",
+    publishState:
+      emittedSignal && !publicationPlan.blockedExplicitAction
+        ? "reply_published"
+        : "invalid_space_action",
   };
 
   function resolvePublicationMessageEnvelopeMode(input: {
@@ -4681,23 +4742,6 @@ const emitDispatchReplySignals = async (input: {
     return "synthesized";
   }
 };
-
-function resolveDispatchPublicationPublishState(input: {
-  payload: OpenMeldDaemonTaskResultEnvelope["payload"];
-  plan: DispatchPublicationPlan;
-}): "invalid_space_action" | "reply_published" {
-  if (input.plan.blockedExplicitAction || input.plan.kind === "none") {
-    return "invalid_space_action";
-  }
-  if (
-    input.payload.status !== "failed" &&
-    input.plan.kind === "system_notice" &&
-    input.plan.noticeType === "terminal_failure"
-  ) {
-    return "invalid_space_action";
-  }
-  return "reply_published";
-}
 
 const emitSystemNoticeReplySignal = async (input: {
   attemptId: string;

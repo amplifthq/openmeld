@@ -16,6 +16,38 @@ describe("daemon control-plane schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts a strict Service update readiness request and response", () => {
+    expect(
+      openMeldDaemonControlPlaneRequestSchema.safeParse({
+        v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
+        command: "service_update_readiness",
+      }).success
+    ).toBe(true);
+    expect(
+      openMeldDaemonControlPlaneResponseSchema.safeParse({
+        v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
+        code: "service.update_readiness",
+        payload: {
+          acceptedWakeCount: 1,
+          safeToSwitch: false,
+          unacknowledgedResultCount: 1,
+        },
+      }).success
+    ).toBe(true);
+    expect(
+      openMeldDaemonControlPlaneResponseSchema.safeParse({
+        v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
+        code: "service.update_readiness",
+        payload: {
+          acceptedWakeCount: 0,
+          safeToSwitch: true,
+          unacknowledgedResultCount: 0,
+          processIdle: true,
+        },
+      }).success
+    ).toBe(false);
+  });
+
   it("accepts conversation execution status request envelope", () => {
     const result = openMeldDaemonControlPlaneRequestSchema.safeParse({
       v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,

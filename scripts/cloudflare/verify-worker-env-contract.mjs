@@ -170,6 +170,7 @@ const workerPackages = [
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
     requiredVarNames: [
       "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED",
+      "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED",
       "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS",
       "OPENMELD_LARK_CHANNEL_ENABLED",
       "OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS",
@@ -191,6 +192,7 @@ const workerPackages = [
       "OPENMELD_DAEMON_DISPATCH_QUEUE",
       "OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE",
       "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED",
+      "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED",
       "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS",
       "OPENMELD_LARK_CHANNEL_ENABLED",
       "OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS",
@@ -1039,6 +1041,16 @@ for (const secretName of [
 
 const remoteAgentWrangler = parseJsoncObject(
   "services/remote-agent/wrangler.jsonc"
+);
+ensure(
+  remoteAgentWrangler?.vars?.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID ===
+    "openmeld-remote-agent-prod",
+  "services/remote-agent/wrangler.jsonc local defaults must use the configured openmeld-remote-agent-prod gateway."
+);
+ensure(
+  remoteAgentWrangler?.env?.dev?.vars?.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID ===
+    "openmeld-remote-agent-prod",
+  "services/remote-agent/wrangler.jsonc env.dev must use the configured openmeld-remote-agent-prod gateway."
 );
 const remoteAgentProductionConfig = remoteAgentWrangler?.env?.prod;
 ensure(

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { detectInstalledSkillsAgentsMock } = vi.hoisted(() => ({
-  detectInstalledSkillsAgentsMock: vi.fn(),
+const { detectInstalledRuntimeAgentsMock } = vi.hoisted(() => ({
+  detectInstalledRuntimeAgentsMock: vi.fn(),
 }));
 
 const { resolveBuiltinControllerInstallResolutionMock } = vi.hoisted(() => ({
@@ -14,7 +14,7 @@ vi.mock("../src/skills/agents", async () => {
   );
   return {
     ...actual,
-    detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
+    detectInstalledRuntimeAgents: detectInstalledRuntimeAgentsMock,
   };
 });
 
@@ -34,7 +34,7 @@ import { withCapturedStdio, withTempHome } from "./helpers/fs";
 
 describe("openmeld agents detect", () => {
   beforeEach(() => {
-    detectInstalledSkillsAgentsMock.mockResolvedValue(["cursor", "codex"]);
+    detectInstalledRuntimeAgentsMock.mockResolvedValue(["cursor", "codex"]);
     resolveBuiltinControllerInstallResolutionMock.mockImplementation(
       (input: { agentId: string; runtimeSupported: boolean }) => {
         if (!input.runtimeSupported) {
@@ -65,7 +65,7 @@ describe("openmeld agents detect", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    detectInstalledSkillsAgentsMock.mockReset();
+    detectInstalledRuntimeAgentsMock.mockReset();
     resolveBuiltinControllerInstallResolutionMock.mockReset();
   });
 
@@ -112,7 +112,7 @@ describe("openmeld agents detect", () => {
 
   it("does not surface unconfigured suspended agents as detected choices", async () => {
     await withTempHome(async () => {
-      detectInstalledSkillsAgentsMock.mockResolvedValue(["codex", "openclaw"]);
+      detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex", "openclaw"]);
 
       const { stdout } = await withCapturedStdio(async () => {
         await runAgentsDetect({
@@ -201,7 +201,7 @@ describe("openmeld agents detect", () => {
 
   it("surfaces a detected agent that cannot launch with its real reason, not as not-found", async () => {
     await withTempHome(async () => {
-      detectInstalledSkillsAgentsMock.mockResolvedValue(["codex"]);
+      detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
       resolveBuiltinControllerInstallResolutionMock.mockImplementation(() => ({
         detail:
           "Codex is installed, but OpenMeld can't start it on this device.",

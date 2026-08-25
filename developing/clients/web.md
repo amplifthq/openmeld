@@ -466,6 +466,17 @@ after the document is visible and the member remains at the latest message for
 the normal debounce. If the unread summary is unavailable, Space navigation
 remains usable in Account Space Index order without inventing read state.
 
+Browse Spaces composes the Organization Space Directory with those same
+Account Space Index, unread-summary, and active-Wake projections. Joined cards
+use one status slot with unread first, Working second, and pinned last. When
+unread or Working owns that slot, hover or keyboard focus reveals the shared
+pin or unpin action without showing competing status labels. Joined cards
+follow pinned order before the unread-aware unpinned order. Discover cards keep
+the directory's public-Space order and expose only Join; Web does not attach
+account status or pin actions to an unjoined Space.
+If a joined directory item has no matching Account Space Index item, Open stays
+available while account status and pin controls fail closed.
+
 The **Artifacts** placeholder is not part of the target rail. Remove the
 placeholder and return Artifacts to navigation only when it has real product
 content and passes the Use vs. Configure test.
@@ -787,8 +798,11 @@ Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
 automatically. In the collapsed row, a compact summary follows the existing
 version and update metadata; its tooltip previews every reported window, and
-selecting the existing row reveals the full gauges in its details. Owned and
-teammate Computers use the same shared summary and accessible gauge component.
+selecting the existing row reveals a responsive grid of compact Usage Limit
+cards in its details. Each card reuses the collapsed summary's circular gauge
+and keeps the reset and last-observed times visible without a full-width
+progress bar. Owned and teammate Computers use the same shared summary and
+accessible gauge component.
 A provider with no quantified evidence does not add a collapsed-row badge or
 placeholder gauge. Web explicitly opts in to both owner and Organization
 projections and refreshes them while the Computers surface is active.
@@ -833,9 +847,29 @@ Agent can reply.
 
 On the exact current owned Computer, each enabled reported local agent may show
 **Change installation** when the live Service advertises installation
-management. The dialog lists only locally verified choices, clearly marks the
-current choice, and updates the Service-owned local registry. It loads on
-demand, never blocks setup, and never appears for another member's Computer.
+management. The action sits beside the **Launch check** value in that local
+agent's detail rows instead of creating a separate Installation section.
+**Launch check** is the second detail row after **Controller** and names the
+selected installation source and version when more than one verified choice
+exists. The collapsed row names that same selected source beside the version so
+people never need to infer an installation from a version number. The dialog
+lists only locally verified choices, clearly marks the current choice, stages a
+new choice without changing it, and requires an explicit **Use ...**
+confirmation before it updates the Service-owned local registry. Long paths
+truncate inside a width-bounded dialog rather than overflowing the viewport. It
+loads on demand, never blocks setup, and never appears for another member's
+Computer. When a confirmed change outlives the Web request budget, Web
+reconciles the Service-owned selected installation before it reports a failure;
+a transport timeout alone is neither shown as the result nor treated as a
+rejected change.
+
+A local agent that the owner turned off remains visible as a muted row. It does
+not show activation copy, repair guidance, version advice, or an attention
+status, and a problem reported only by that disabled local agent does not create
+Computer or sidebar attention. Its last reported diagnostic details may remain
+available when expanded. When an enable or disable request outlives the Web
+request budget, Web reconciles the canonical Service-backed catalog before it
+reports a failure; a transport timeout alone is not a rejected change.
 
 The current Computer detail includes **File access** after **Local agents**.
 It is an optional, account-owned control for OpenMeld-started runs on that
@@ -2282,6 +2316,20 @@ me`, and owner-self details may show the richer Binding fact. Web writes the
 mode through the Binding API; it must not treat the selected mode as Space
 permission, Wake readiness, or local service truth.
 
+Controller replacement, unbinding, and working-folder changes are disruptive
+execution-target actions. Agents pages and Space maintenance dialogs must read
+the account-wide execution-state projection rather than deriving a lock from
+the current Space's Wake list. An unavailable projection disables only those
+disruptive controls. The Core writer remains the final guard against stale
+browser state; Web must not present a rejected write as saved. That writer
+acquires owner-shard execution-target mutation admission, so a Wake that starts
+after Web's eligibility read still blocks the disruptive change. A working-
+folder timeout remains an unknown outcome until the lease expires; Web shows
+the failed save and must not imply that a concurrent Wake is safe. Model,
+reasoning, collaboration, permission, and OpenCode permission controls remain
+editable while an Agent is working because they apply to future work after
+local synchronization.
+
 For Codex Bindings, the same edit surface also renders a separate
 `Codex collaboration mode` control with `Default` and `Plan`. Its copy must
 explain the user outcome: Plan can investigate, plan, and ask structured
@@ -2434,7 +2482,8 @@ minimum and maximum widths, and reduced-motion behavior. Members and Thread
 widths are persisted as separate browser presentation preferences. The
 Members open/closed state and width are scoped to the current Space id, so
 switching Spaces restores each room's last Members layout without changing any
-other room. The Thread width remains a separate Thread-panel preference. The
+other room. Without a stored preference, Members starts closed at its bounded
+minimum width. The Thread width remains a separate Thread-panel preference. The
 authenticated centered conversation layout uses the current Members width when
 it reserves space, so reopening a resized Members panel does not introduce a
 second hard-coded layout width. Opening an inline panel must lay out its content
@@ -2447,9 +2496,10 @@ Members header descriptions and Add-members guidance own full-width rows below
 their related title-and-action rows. Add-members controls respond to the panel's
 own width rather than the browser viewport: narrow panels stack heading actions
 and footer actions into full-width rows, while wider panels keep the compact
-side-by-side layout. Agent and Human names use the same compact type scale as
-the app sidebars so the Members panel does not introduce a heavier navigation
-hierarchy.
+side-by-side layout. After Core confirms an Agent or Human membership write,
+Web collapses Add members so the roster regains the available space. Agent and
+Human names use the same compact type scale as the app sidebars so the Members
+panel does not introduce a heavier navigation hierarchy.
 
 The active Thread panel selection is a per-Space browser presentation
 preference. Web persists only the selected Thread id, resolves that id against
@@ -2683,6 +2733,11 @@ reference, then inspects Core's current Execution Recovery projection. It
 suppresses generic Retry only when that projection exposes a higher-priority
 action. It shows **Recover result** only when Core exposes the authorized
 durable-result recovery command; a setup/reconnect link is not that command.
+That automatic inspection is a background capability check, not a user action.
+If it fails, Web keeps the failure scoped to the unavailable recovery control:
+it shows no toast, banner, or disabled `Recovery unavailable` action and does
+not tell the user to open diagnostics merely because the check failed. The
+original terminal outcome and its existing Message details remain unchanged.
 When Core instead exposes a verified exact-controller continuation, Web shows
 **Recover reply** and explains that the same Agent conversation will post
 its already-finished reply without running the task again. Web accepts the

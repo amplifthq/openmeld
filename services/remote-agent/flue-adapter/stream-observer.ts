@@ -316,6 +316,12 @@ async function handleCenterAgentPromptCompletion(input: {
     cancelled,
     isError: input.event.isError,
   });
+  const failureReasonCode = input.event.isError
+    ? classifyRemoteAgentTurnFailure({
+        error: input.event.error,
+        errorInfo: input.event.errorInfo,
+      }).reasonCode
+    : undefined;
   let completed: RemoteAgentCallbackContext | null = null;
   try {
     completed = await handleRemoteAgentChatResponse({
@@ -328,6 +334,7 @@ async function handleCenterAgentPromptCompletion(input: {
               errorInfo: input.event.errorInfo,
             }
           : undefined,
+        ...(failureReasonCode ? { failureReasonCode } : {}),
         message: {
           parts: [{ text: extractAssistantText(input.event), type: "text" }],
         },
