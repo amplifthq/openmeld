@@ -155,7 +155,9 @@ The first release creates items for these explicit user-visible events:
    a visible failure or stopped outcome, a `stay_silent` outcome, or an
    explicit final status. A successful final reply uses the Agent reply item
    instead of a duplicate success item. An accepted result without a valid
-   public Space action is a visible failure, never a synthetic completion.
+   public Space action is a visible failure, never a synthetic completion. A
+   terminal failure is an urgent action item whose preview carries the bounded
+   public failure reason; other Wake endings remain ordinary updates.
 5. A linked member's Center Agent work started through a Message Channel when
    the result or intervention request is available in OpenMeld.
 6. A Center Agent Task that requests the recipient's action, produces a final
