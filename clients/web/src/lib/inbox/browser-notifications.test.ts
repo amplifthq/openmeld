@@ -1,9 +1,13 @@
 import type { InboxItem } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	clearInboxBrowserNotificationItemPending,
 	disableInboxBrowserNotifications,
 	enableInboxBrowserNotifications,
+	isInboxBrowserNotificationEligible,
+	markInboxBrowserNotificationItemPending,
 	readInboxBrowserNotificationSettings,
+	readPendingInboxBrowserNotificationItemIds,
 	showInboxBrowserNotification,
 	subscribeInboxBrowserNotificationSettings,
 } from "./browser-notifications";
@@ -82,21 +86,26 @@ describe("Inbox browser notifications", () => {
 		expect(window.localStorage.getItem(PREFERENCE_KEY)).toBe("disabled");
 	});
 
-	it("refreshes settings after focus and visible-tab permission changes", () => {
+	it("refreshes settings after focus and every visibility change", () => {
 		const onChange = vi.fn();
 		const unsubscribe = subscribeInboxBrowserNotificationSettings(onChange);
 
 		window.dispatchEvent(new Event("focus"));
 		Object.defineProperty(document, "visibilityState", {
 			configurable: true,
+			value: "hidden",
+		});
+		document.dispatchEvent(new Event("visibilitychange"));
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
 			value: "visible",
 		});
 		document.dispatchEvent(new Event("visibilitychange"));
 
-		expect(onChange).toHaveBeenCalledTimes(2);
+		expect(onChange).toHaveBeenCalledTimes(3);
 		unsubscribe();
 		window.dispatchEvent(new Event("focus"));
-		expect(onChange).toHaveBeenCalledTimes(2);
+		expect(onChange).toHaveBeenCalledTimes(3);
 	});
 
 	it("shows one hidden-tab notification across concurrent tab delivery attempts", async () => {
@@ -112,15 +121,17 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+				viewingSourceSession: false,
 			}),
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+				viewingSourceSession: false,
 			}),
 		]);
 
-		expect(first).not.toBeNull();
-		expect(second).toBeNull();
+		expect(first.status).toBe("delivered");
+		expect(second).toEqual({ status: "already_delivered" });
 		expect(requestLock).toHaveBeenCalledTimes(2);
 		expect(notificationConstructorMock).toHaveBeenCalledOnce();
 		expect(notificationConstructorMock).toHaveBeenCalledWith(
@@ -150,18 +161,261 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=retry-item",
+				viewingSourceSession: false,
 			})
 		).rejects.toThrow("Notification constructor failed");
 		await expect(
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=retry-item",
+				viewingSourceSession: false,
 			})
-		).resolves.not.toBeNull();
+		).resolves.toMatchObject({ status: "delivered" });
 		expect(notificationConstructorMock).toHaveBeenCalledTimes(2);
 	});
 
-	it("does not claim or show an item while the tab is visible", async () => {
+	it("does not record delivery before the Notification constructor succeeds", async () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+		notificationConstructorMock.mockImplementationOnce(() => {
+			throw new Error("Notification constructor failed");
+		});
+		const deliveredKey =
+			"openmeld.inbox.browser-notifications.delivered-item-ids";
+
+		await expect(
+			showInboxBrowserNotification({
+				item: createInboxItem({ id: "constructor-crash-item" }),
+				sourcePath: "/o/amplift/inbox?item=constructor-crash-item",
+				viewingSourceSession: false,
+			})
+		).rejects.toThrow("Notification constructor failed");
+
+		expect(window.localStorage.getItem(deliveredKey)).toBeNull();
+	});
+
+	it("revalidates the active feed after acquiring the cross-tab lock", async () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+		let releaseLock: (() => void) | undefined;
+		const lockGate = new Promise<void>((resolve) => {
+			releaseLock = resolve;
+		});
+		Object.defineProperty(navigator, "locks", {
+			configurable: true,
+			value: {
+				request: vi.fn(
+					async <T>(
+						_name: string,
+						_options: LockOptions,
+						callback: () => PromiseLike<T> | T
+					) => {
+						await lockGate;
+						return await callback();
+					}
+				),
+			},
+		});
+		let contextChanged = false;
+		const item = createInboxItem({ id: "queued-context-item" });
+		const delivery = showInboxBrowserNotification({
+			item,
+			resolveCurrentReadiness: () =>
+				contextChanged
+					? { status: "context_changed" as const }
+					: { item, status: "eligible" as const },
+			sourcePath: "/o/amplift/inbox?item=queued-context-item",
+			viewingSourceSession: false,
+		});
+
+		contextChanged = true;
+		releaseLock?.();
+
+		await expect(delivery).resolves.toEqual({
+			reason: "context_changed",
+			status: "deferred",
+		});
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+	});
+
+	it("awaits authoritative item revalidation before creating a notification", async () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+
+		await expect(
+			showInboxBrowserNotification({
+				item: createInboxItem({ id: "resolved-while-queued" }),
+				resolveCurrentReadiness: async () => ({
+					status: "ineligible" as const,
+				}),
+				sourcePath: "/o/amplift/inbox?item=resolved-while-queued",
+				viewingSourceSession: false,
+			})
+		).resolves.toEqual({ status: "ineligible" });
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+	});
+
+	it("uses the fresh authoritative item to render a queued notification", async () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+		const queuedItem = createInboxItem();
+		const freshItem = createInboxItem({
+			attention: "update",
+			importance: "normal",
+			kind: "agent_reply",
+			preview: "The migration review is complete.",
+			resolutionStatus: "not_applicable",
+			title: "Agent finished the review",
+		});
+
+		await expect(
+			showInboxBrowserNotification({
+				item: queuedItem,
+				resolveCurrentReadiness: async () => ({
+					item: freshItem,
+					status: "eligible" as const,
+				}),
+				sourcePath: "/o/amplift/inbox?item=fresh-item",
+				viewingSourceSession: false,
+			})
+		).resolves.toMatchObject({ status: "delivered" });
+
+		expect(notificationConstructorMock).toHaveBeenCalledWith(
+			"Agent finished the review",
+			expect.objectContaining({
+				body: "Design Room: The migration review is complete.",
+				requireInteraction: false,
+			})
+		);
+	});
+
+	it("keeps pending retries scoped to the user and Organization", () => {
+		markInboxBrowserNotificationItemPending({
+			itemId: "pending-item",
+			organizationId: "organization-a",
+			userId: USER_ID,
+		});
+
+		expect(
+			readPendingInboxBrowserNotificationItemIds({
+				organizationId: "organization-a",
+				userId: USER_ID,
+			})
+		).toEqual(new Set(["pending-item"]));
+		expect(
+			readPendingInboxBrowserNotificationItemIds({
+				organizationId: "organization-b",
+				userId: USER_ID,
+			})
+		).toEqual(new Set());
+
+		clearInboxBrowserNotificationItemPending({
+			itemId: "pending-item",
+			organizationId: "organization-a",
+			userId: USER_ID,
+		});
+		expect(
+			readPendingInboxBrowserNotificationItemIds({
+				organizationId: "organization-a",
+				userId: USER_ID,
+			})
+		).toEqual(new Set());
+	});
+
+	it("stores pending items in independent cross-tab-safe records", () => {
+		markInboxBrowserNotificationItemPending({
+			itemId: "pending-item-a",
+			organizationId: "organization-a",
+			userId: USER_ID,
+		});
+		markInboxBrowserNotificationItemPending({
+			itemId: "pending-item-b",
+			organizationId: "organization-a",
+			userId: USER_ID,
+		});
+
+		const pendingKeys = Array.from(
+			{ length: window.localStorage.length },
+			(_, index) => window.localStorage.key(index)
+		).filter((key) =>
+			key?.startsWith("openmeld.inbox.browser-notifications.pending-item:")
+		);
+		expect(pendingKeys).toHaveLength(2);
+		expect(
+			readPendingInboxBrowserNotificationItemIds({
+				organizationId: "organization-a",
+				userId: USER_ID,
+			})
+		).toEqual(new Set(["pending-item-a", "pending-item-b"]));
+	});
+
+	it("skips one malformed pending key without hiding valid retries", () => {
+		markInboxBrowserNotificationItemPending({
+			itemId: "valid-pending-item",
+			organizationId: "organization-a",
+			userId: USER_ID,
+		});
+		window.localStorage.setItem(
+			`openmeld.inbox.browser-notifications.pending-item:${encodeURIComponent(USER_ID)}:${encodeURIComponent("organization-a")}:broken%encoding`,
+			"pending"
+		);
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		expect(
+			readPendingInboxBrowserNotificationItemIds({
+				organizationId: "organization-a",
+				userId: USER_ID,
+			})
+		).toEqual(new Set(["valid-pending-item"]));
+	});
+
+	it("defers a failed cross-tab claim without marking the item delivered", async () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+		const storageRead = vi
+			.spyOn(Storage.prototype, "getItem")
+			.mockImplementationOnce(() => {
+				throw new Error("Storage is unavailable");
+			});
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const item = createInboxItem({ id: "claim-retry-item" });
+
+		await expect(
+			showInboxBrowserNotification({
+				item,
+				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
+				viewingSourceSession: false,
+			})
+		).resolves.toEqual({ reason: "claim_failed", status: "deferred" });
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+
+		storageRead.mockRestore();
+		await expect(
+			showInboxBrowserNotification({
+				item,
+				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
+				viewingSourceSession: false,
+			})
+		).resolves.toMatchObject({ status: "delivered" });
+		expect(notificationConstructorMock).toHaveBeenCalledOnce();
+	});
+
+	it("suppresses only the viewed conversation on a visible tab and keeps other deliveries", async () => {
 		installNotificationMock({
 			constructorMock: notificationConstructorMock,
 			permission: "granted",
@@ -174,19 +428,120 @@ describe("Inbox browser notifications", () => {
 		const item = createInboxItem();
 
 		await expect(
-			showInboxBrowserNotification({ item, sourcePath: "/o/amplift/inbox" })
-		).resolves.toBeNull();
+			showInboxBrowserNotification({
+				item,
+				sourcePath: "/o/amplift/inbox",
+				viewingSourceSession: true,
+			})
+		).resolves.toEqual({ reason: "source_visible", status: "deferred" });
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+
+		await expect(
+			showInboxBrowserNotification({
+				item,
+				sourcePath: "/o/amplift/inbox",
+				viewingSourceSession: false,
+			})
+		).resolves.toMatchObject({ status: "delivered" });
+		expect(notificationConstructorMock).toHaveBeenCalledOnce();
+
 		Object.defineProperty(document, "visibilityState", {
 			configurable: true,
 			value: "hidden",
 		});
 		await expect(
-			showInboxBrowserNotification({ item, sourcePath: "/o/amplift/inbox" })
-		).resolves.not.toBeNull();
+			showInboxBrowserNotification({
+				item: createInboxItem({ id: "hidden-tab-item" }),
+				sourcePath: "/o/amplift/inbox",
+				viewingSourceSession: true,
+			})
+		).resolves.toMatchObject({ status: "delivered" });
+	});
+
+	it("delivers directly addressed updates but not ordinary space messages", () => {
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					kind: "space_reference",
+				})
+			)
+		).toBe(true);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({ importance: "normal", kind: "agent_reply" })
+			)
+		).toBe(true);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({ importance: "normal", kind: "wake_outcome" })
+			)
+		).toBe(true);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					attention: "update",
+					kind: "center_agent_task",
+				})
+			)
+		).toBe(true);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({ importance: "urgent" })
+			)
+		).toBe(true);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					attention: "action_required",
+					resolutionStatus: "open",
+				})
+			)
+		).toBe(true);
+
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					attention: "update",
+					resolutionStatus: "not_applicable",
+				})
+			)
+		).toBe(false);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					attention: "action_required",
+					resolutionStatus: "resolved",
+				})
+			)
+		).toBe(false);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					attention: "update",
+					kind: "agent_interaction",
+				})
+			)
+		).toBe(false);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					attention: "action_required",
+					importance: "urgent",
+					kind: "center_agent_task",
+					resolutionStatus: "resolved",
+				})
+			)
+		).toBe(false);
 	});
 });
 
-function createInboxItem(): InboxItem {
+function createInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
 	return {
 		attention: "action_required",
 		contextLabel: "Design Room",
@@ -208,6 +563,7 @@ function createInboxItem(): InboxItem {
 		},
 		title: "Agent approval required",
 		updatedAt: "2026-08-04T01:00:00.000Z",
+		...overrides,
 	};
 }
 

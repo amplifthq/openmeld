@@ -67,7 +67,7 @@ const CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER = [
   "web",
   "cli",
 ];
-const INBOX_MESSAGE_CHANNEL_RECEIVER_FIRST_SCOPE_ORDER = [
+const INBOX_SOURCE_TARGET_RECEIVER_FIRST_SCOPE_ORDER = [
   "db",
   "auth",
   "web",
@@ -100,22 +100,23 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
   "core-worker-response-reader-first":
     CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "default-auth-receiver-first": SCOPE_ORDER,
-  "inbox-message-channel-receiver-first":
-    INBOX_MESSAGE_CHANNEL_RECEIVER_FIRST_SCOPE_ORDER,
+  "inbox-source-target-receiver-first":
+    INBOX_SOURCE_TARGET_RECEIVER_FIRST_SCOPE_ORDER,
   "local-service-runtime-receiver-first":
     LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER,
   "remote-agent-and-inbox-receivers-first":
     REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER,
   "remote-agent-receiver-first": REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER,
 };
-const INBOX_MESSAGE_CHANNEL_SOURCE_TARGET_SCHEMA_PATH =
+const INBOX_SOURCE_TARGET_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/inbox.ts";
-const INBOX_MESSAGE_CHANNEL_WRITER_PATHS = new Set([
+const INBOX_SOURCE_TARGET_WRITER_PATHS = new Set([
   "services/core/src/remote-agent/application/native-delivery-inbox-producer.ts",
   "services/core/src/remote-agent/application/native-delivery-service.ts",
   "services/core/src/remote-agent/application/slack-inbox-source-target.ts",
+  "services/core/src/runtime-transport/application/runtime-coordinator-interaction-inbox-producer.ts",
 ]);
-const INBOX_MESSAGE_CHANNEL_REQUIRED_SCOPES = ["web", "gateway", "core"];
+const INBOX_SOURCE_TARGET_REQUIRED_SCOPES = ["web", "gateway", "core"];
 const LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH =
   "packages/schemas/src/schemas/daemon/runtime-transport.ts";
 const LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX =
@@ -293,8 +294,8 @@ export function resolveAutomaticReleaseScopes(input) {
   ) {
     scopes.add("cli");
   }
-  if (isInboxMessageChannelReceiverFirstDiff(input.changedPaths)) {
-    for (const scope of INBOX_MESSAGE_CHANNEL_REQUIRED_SCOPES) {
+  if (isInboxSourceTargetReceiverFirstDiff(input.changedPaths)) {
+    for (const scope of INBOX_SOURCE_TARGET_REQUIRED_SCOPES) {
       scopes.add(scope);
     }
   }
@@ -410,7 +411,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const selected = new Set(scopes);
   const steps = [];
   const changedPaths = input.changedPaths ?? [];
-  assertInboxMessageChannelReleaseScopes(scopes, changedPaths);
+  assertInboxSourceTargetReleaseScopes(scopes, changedPaths);
   assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
   const orderedScopes = resolveProductionDeployScopeOrder(scopes, changedPaths);
@@ -550,7 +551,7 @@ function resolveProductionDeployScopeOrder(scopes, changedPaths) {
 
 function resolveProductionDeployOrderProfile(changedPaths) {
   const isInboxReceiverFirst =
-    isInboxMessageChannelReceiverFirstDiff(changedPaths);
+    isInboxSourceTargetReceiverFirstDiff(changedPaths);
   const isRemoteAgentRequestReceiverFirst =
     isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths);
   if (isRemoteAgentRequestReceiverFirst) {
@@ -560,7 +561,7 @@ function resolveProductionDeployOrderProfile(changedPaths) {
   }
   if (isCoreWorkerResponseReaderFirstDiff(changedPaths)) {
     return isInboxReceiverFirst
-      ? "inbox-message-channel-receiver-first"
+      ? "inbox-source-target-receiver-first"
       : "core-worker-response-reader-first";
   }
   const isRemoteAgentReceiverFirst = changedPaths.some(
@@ -576,7 +577,7 @@ function resolveProductionDeployOrderProfile(changedPaths) {
     return "remote-agent-and-inbox-receivers-first";
   }
   if (isInboxReceiverFirst) {
-    return "inbox-message-channel-receiver-first";
+    return "inbox-source-target-receiver-first";
   }
   if (isRemoteAgentReceiverFirst) {
     return "remote-agent-receiver-first";
@@ -604,8 +605,10 @@ function isLocalServiceRuntimeReceiverFirstDiff(changedPaths) {
 
 function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
   if (
-    !isLocalServiceRuntimeReceiverFirstDiff(changedPaths) ||
-    !scopes.includes("cli") ||
+    !(
+      isLocalServiceRuntimeReceiverFirstDiff(changedPaths) &&
+      scopes.includes("cli")
+    ) ||
     scopes.includes("core")
   ) {
     return;
@@ -615,24 +618,24 @@ function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
   );
 }
 
-function isInboxMessageChannelReceiverFirstDiff(changedPaths) {
+function isInboxSourceTargetReceiverFirstDiff(changedPaths) {
   return (
-    changedPaths.includes(INBOX_MESSAGE_CHANNEL_SOURCE_TARGET_SCHEMA_PATH) &&
-    changedPaths.some((path) => INBOX_MESSAGE_CHANNEL_WRITER_PATHS.has(path))
+    changedPaths.includes(INBOX_SOURCE_TARGET_SCHEMA_PATH) &&
+    changedPaths.some((path) => INBOX_SOURCE_TARGET_WRITER_PATHS.has(path))
   );
 }
 
-function assertInboxMessageChannelReleaseScopes(scopes, changedPaths) {
-  if (!isInboxMessageChannelReceiverFirstDiff(changedPaths)) {
+function assertInboxSourceTargetReleaseScopes(scopes, changedPaths) {
+  if (!isInboxSourceTargetReceiverFirstDiff(changedPaths)) {
     return;
   }
   const selected = new Set(scopes);
-  const missing = INBOX_MESSAGE_CHANNEL_REQUIRED_SCOPES.filter(
+  const missing = INBOX_SOURCE_TARGET_REQUIRED_SCOPES.filter(
     (scope) => !selected.has(scope)
   );
   if (missing.length > 0) {
     throw new Error(
-      `Inbox Message Channel receiver-first release requires the Web, Gateway, and Core scopes before Core can write durable targets. Missing: ${missing.join(", ")}.`
+      `Inbox source-target receiver-first release requires the Web, Gateway, and Core scopes before Core can write durable targets. Missing: ${missing.join(", ")}.`
     );
   }
   if (

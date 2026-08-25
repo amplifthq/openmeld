@@ -177,7 +177,7 @@ describe("Inbox routes", () => {
     );
     const currentResponse = await app.fetch(
       new Request("http://local/v1/inbox?limit=25", {
-        headers: { "x-openmeld-inbox-source-target-version": "3" },
+        headers: { "x-openmeld-inbox-source-target-version": "4" },
       }),
       env,
       TEST_EXECUTION_CONTEXT
@@ -189,7 +189,7 @@ describe("Inbox routes", () => {
     );
     const currentItemResponse = await app.fetch(
       new Request("http://local/v1/inbox/items/inbox-item-2", {
-        headers: { "x-openmeld-inbox-source-target-version": "3" },
+        headers: { "x-openmeld-inbox-source-target-version": "4" },
       }),
       env,
       TEST_EXECUTION_CONTEXT
@@ -206,7 +206,7 @@ describe("Inbox routes", () => {
         "http://local/v1/inbox/items/inbox-item-2/read",
         "PATCH",
         { read: true },
-        { "x-openmeld-inbox-source-target-version": "3" }
+        { "x-openmeld-inbox-source-target-version": "4" }
       ),
       env,
       TEST_EXECUTION_CONTEXT
@@ -248,6 +248,60 @@ describe("Inbox routes", () => {
     });
   });
 
+  it("removes the Agent Interaction thread locator for version 3 Inbox clients", async () => {
+    const { coreRpc, env } = makeEnv();
+    const threadAwareItem = {
+      ...ITEM,
+      sourceTarget: {
+        ...ITEM.sourceTarget,
+        sourceSignalId: "signal-1",
+        threadRootSignalId: "thread-root-1",
+      },
+    };
+    coreRpc.listInboxItems.mockResolvedValue({
+      items: [threadAwareItem],
+      nextCursor: null,
+      organizationId: "org-1",
+    });
+    coreRpc.getInboxItem.mockResolvedValue({ item: threadAwareItem });
+    coreRpc.markInboxItemRead.mockResolvedValue({
+      item: {
+        ...threadAwareItem,
+        readAt: "2026-08-04T01:01:00.000Z",
+      },
+    });
+
+    const requests = (version: "3" | "4") => [
+      new Request("http://local/v1/inbox?limit=25", {
+        headers: { "x-openmeld-inbox-source-target-version": version },
+      }),
+      new Request("http://local/v1/inbox/items/inbox-item-1", {
+        headers: { "x-openmeld-inbox-source-target-version": version },
+      }),
+      jsonRequest(
+        "http://local/v1/inbox/items/inbox-item-1/read",
+        "PATCH",
+        { read: true },
+        { "x-openmeld-inbox-source-target-version": version }
+      ),
+    ];
+
+    for (const request of requests("3")) {
+      const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
+      expect(response.status).toBe(200);
+      expect(JSON.stringify(await response.json())).not.toContain(
+        "threadRootSignalId"
+      );
+    }
+    for (const request of requests("4")) {
+      const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
+      expect(response.status).toBe(200);
+      expect(JSON.stringify(await response.json())).toContain(
+        '"threadRootSignalId":"thread-root-1"'
+      );
+    }
+  });
+
   it("keeps a new Agent creation approval readable for stale Inbox clients", async () => {
     const { coreRpc, env } = makeEnv();
     coreRpc.listInboxItems.mockResolvedValue({
@@ -265,7 +319,7 @@ describe("Inbox routes", () => {
     );
     const currentResponse = await app.fetch(
       new Request("http://local/v1/inbox?limit=25", {
-        headers: { "x-openmeld-inbox-source-target-version": "3" },
+        headers: { "x-openmeld-inbox-source-target-version": "4" },
       }),
       env,
       TEST_EXECUTION_CONTEXT

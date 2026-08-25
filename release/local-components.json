@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-25T05:43:56.839Z",
+  "updatedAt": "2026-08-25T06:49:32.411Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.103",
+      "packageVersion": "0.3.104",
       "updatePolicy": "available",
       "reason": "Keep Codex update guidance on its own installation source."
     },
     "service": {
-      "bundleHash": "dced9cc0109dad132dcd1225feb553b9d73c4ed2f686499b463e3c6c2b537946",
-      "bundleVersion": "0.3.103",
+      "bundleHash": "20aedeb8d6902adca8778b5c97f7489c94245e46037cb8bc891ade39c6496d8c",
+      "bundleVersion": "0.3.104",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",

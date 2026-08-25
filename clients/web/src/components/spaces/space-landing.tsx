@@ -45,6 +45,7 @@ import {
 	UnsavedChangesDialog,
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
+import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
 import { CenterAgentSlackChannelsShortcut } from "#/components/organizations/center-agent-slack-channels-shortcut";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import {
@@ -511,6 +512,15 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		ownerAccountId: recovery.storageScope,
 		organizationId,
 	});
+	usePublishInboxVisibleConversation(
+		controller.mode === "ready" && spaceView === "messages"
+			? {
+					kind: "space",
+					spaceId: input.spaceId,
+					threadRootSignalId: controller.activeThread?.rootSignalId ?? null,
+				}
+			: null
+	);
 	// A Space the viewer is looking at can be deleted by anyone (e.g. via the CLI),
 	// which makes the Space load fail; this redirects away from the dead URL instead
 	// of stranding the viewer on a futile "Try Again" (extracted to a hook to keep

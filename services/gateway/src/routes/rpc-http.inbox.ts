@@ -1,5 +1,6 @@
 import {
   OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_INBOX_SOURCE_TARGET_THREAD_UNAWARE_VERSION,
   OPENMELD_INBOX_SOURCE_TARGET_VERSION,
 } from "@openmeld/gateway-contract";
 import {
@@ -138,7 +139,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       resolveSuccessPayload: (result) =>
         resolveInboxListResponse({
           result,
-          supportsCurrentSourceTargets: supportsCurrentInboxSourceTargets(c),
+          sourceTargetVersion: resolveInboxSourceTargetVersion(c),
         }),
       responseSchema: listInboxItemsResponseSchema,
       route: INBOX_ROUTE,
@@ -180,7 +181,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         resolveInboxItemResponse({
           result,
           schema: getInboxItemResponseSchema,
-          supportsCurrentSourceTargets: supportsCurrentInboxSourceTargets(c),
+          sourceTargetVersion: resolveInboxSourceTargetVersion(c),
         }),
       responseSchema: getInboxItemResponseSchema,
       route: INBOX_ITEM_ROUTE,
@@ -242,7 +243,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         resolveInboxItemResponse({
           result,
           schema: markInboxItemReadResponseSchema,
-          supportsCurrentSourceTargets: supportsCurrentInboxSourceTargets(c),
+          sourceTargetVersion: resolveInboxSourceTargetVersion(c),
         }),
       responseSchema: markInboxItemReadResponseSchema,
       route: INBOX_ITEM_READ_ROUTE,
@@ -301,15 +302,17 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
 
 function resolveInboxListResponse(input: {
   result: unknown;
-  supportsCurrentSourceTargets: boolean;
+  sourceTargetVersion: InboxSourceTargetClientVersion;
 }): z.infer<typeof listInboxItemsResponseSchema> {
   const response = listInboxItemsResponseSchema.parse(input.result);
-  if (input.supportsCurrentSourceTargets) {
+  if (input.sourceTargetVersion === "current") {
     return response;
   }
   return {
     ...response,
-    items: response.items.map(projectLegacyInboxSourceTarget),
+    items: response.items.map((item) =>
+      projectInboxSourceTargetForClient(item, input.sourceTargetVersion)
+    ),
   };
 }
 
@@ -318,38 +321,66 @@ type InboxItemResponse = z.infer<typeof getInboxItemResponseSchema>;
 function resolveInboxItemResponse(input: {
   result: unknown;
   schema: { parse: (value: unknown) => InboxItemResponse };
-  supportsCurrentSourceTargets: boolean;
+  sourceTargetVersion: InboxSourceTargetClientVersion;
 }): InboxItemResponse {
   const response = input.schema.parse(input.result);
-  if (input.supportsCurrentSourceTargets) {
+  if (input.sourceTargetVersion === "current") {
     return response;
   }
   return {
     ...response,
-    item: projectLegacyInboxSourceTarget(response.item),
+    item: projectInboxSourceTargetForClient(
+      response.item,
+      input.sourceTargetVersion
+    ),
   };
 }
 
-function projectLegacyInboxSourceTarget(
-  item: z.infer<typeof listInboxItemsResponseSchema>["items"][number]
+type InboxItem = z.infer<typeof listInboxItemsResponseSchema>["items"][number];
+type InboxSourceTargetClientVersion = "current" | "legacy" | "thread_unaware";
+
+function projectInboxSourceTargetForClient(
+  item: InboxItem,
+  clientVersion: InboxSourceTargetClientVersion
 ): z.infer<typeof listInboxItemsResponseSchema>["items"][number] {
-  if (
-    item.sourceTarget.kind !== "message_channel" &&
-    item.sourceTarget.kind !== "agent_profile_creation_request"
-  ) {
+  if (clientVersion === "current") {
     return item;
   }
-  return {
-    ...item,
-    sourceTarget: { kind: "center_agent" },
-  };
+  let sourceTarget: InboxItem["sourceTarget"] = item.sourceTarget;
+  if (
+    sourceTarget.kind === "agent_interaction" &&
+    sourceTarget.threadRootSignalId !== undefined
+  ) {
+    const { threadRootSignalId: _threadRootSignalId, ...threadUnawareTarget } =
+      sourceTarget;
+    sourceTarget = threadUnawareTarget;
+  }
+  if (
+    clientVersion === "legacy" &&
+    (sourceTarget.kind === "message_channel" ||
+      sourceTarget.kind === "agent_profile_creation_request")
+  ) {
+    sourceTarget = { kind: "center_agent" };
+  }
+  return sourceTarget === item.sourceTarget
+    ? item
+    : {
+        ...item,
+        sourceTarget,
+      };
 }
 
-function supportsCurrentInboxSourceTargets(c: Context<HonoBindings>): boolean {
-  return (
-    c.req.header(OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION) ===
-    OPENMELD_INBOX_SOURCE_TARGET_VERSION
-  );
+function resolveInboxSourceTargetVersion(
+  c: Context<HonoBindings>
+): InboxSourceTargetClientVersion {
+  const version = c.req.header(OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION);
+  if (version === OPENMELD_INBOX_SOURCE_TARGET_VERSION) {
+    return "current";
+  }
+  if (version === OPENMELD_INBOX_SOURCE_TARGET_THREAD_UNAWARE_VERSION) {
+    return "thread_unaware";
+  }
+  return "legacy";
 }
 
 async function parseBody<T>(

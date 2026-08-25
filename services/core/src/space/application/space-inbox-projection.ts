@@ -228,8 +228,19 @@ function resolveAudience(input: {
   }
   if (
     input.signal.type === "signal.system_notice" &&
-    (input.signal.data.noticeType === "terminal_failure" ||
-      input.signal.data.noticeType === "wake_stopped")
+    (input.signal.data.noticeType === "policy_blocked" ||
+      input.signal.data.noticeType === "terminal_failure" ||
+      input.signal.data.noticeType === "wake_stopped" ||
+      input.signal.data.noticeType === "stay_silent")
+  ) {
+    return {
+      allowedRecipientUserIds: new Set([wakeRequesterUserId]),
+      kind: "wake_outcome",
+    };
+  }
+  if (
+    input.signal.type === "signal.status" &&
+    input.signal.data.status !== "working"
   ) {
     return {
       allowedRecipientUserIds: new Set([wakeRequesterUserId]),

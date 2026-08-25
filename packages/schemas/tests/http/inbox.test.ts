@@ -30,6 +30,7 @@ const item = {
     runtimeCoordinatorExecutionId: "runtime_1",
     sourceSignalId: "signal_1",
     spaceId: "space_1",
+    threadRootSignalId: "thread_root_1",
   },
   title: "Approval required",
   updatedAt: "2026-08-04T01:02:03.000Z",
@@ -38,6 +39,30 @@ const item = {
 describe("Inbox HTTP contracts", () => {
   it("accepts the canonical member-private item shape", () => {
     expect(inboxItemSchema.parse(item)).toEqual(item);
+  });
+
+  it("distinguishes an exact Agent Interaction thread from legacy unknown context", () => {
+    expect(
+      inboxItemSchema.parse({
+        ...item,
+        sourceTarget: {
+          ...item.sourceTarget,
+          threadRootSignalId: null,
+        },
+      }).sourceTarget
+    ).toMatchObject({ threadRootSignalId: null });
+    expect(
+      inboxItemSchema.safeParse({
+        ...item,
+        sourceTarget: {
+          interactionId: "interaction_legacy",
+          kind: "agent_interaction",
+          runtimeCoordinatorExecutionId: "runtime_legacy",
+          sourceSignalId: "signal_legacy",
+          spaceId: "space_1",
+        },
+      }).success
+    ).toBe(true);
   });
 
   it("targets an exact Center Agent Task without copying its state", () => {

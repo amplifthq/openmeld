@@ -88,10 +88,14 @@ Core owns one canonical item with:
 - Inbox-owned `readAt` and dismissal state.
 
 An Agent Interaction target includes its stable source Space signal when the
-producer knows it. The interaction id remains useful while the request is open,
-but resolved history must still navigate after RuntimeCoordinator retires the
-transient interaction state. Older targets without the additive signal remain
-valid during mixed-version rollout.
+producer knows it and an exact nullable thread root for every new
+RuntimeCoordinator projection. A string identifies one thread; explicit null
+identifies the Space main timeline. The interaction id remains useful while the
+request is open, but resolved history must still navigate after
+RuntimeCoordinator retires the transient interaction state. Older targets
+without either additive locator remain valid during mixed-version rollout.
+Clients must not treat a missing thread root as the main timeline: when the
+origin conversation is unknown, browser alerts fail open and remain visible.
 
 A linked Slack delivery uses a `message_channel` target containing the exact
 workspace, channel, thread-root, and published-message ids plus Slack's
@@ -147,9 +151,11 @@ The first release creates items for these explicit user-visible events:
    the current human author of the target thread.
 3. An Agent Interaction that explicitly requests approval, an answer, plan
    review, or other supported human response.
-4. A Wake requested by the member that ends in a visible failure or stopped
-   outcome; a successful final reply uses the Agent reply item instead of a
-   duplicate success item.
+4. A Wake requested by the member that reaches a system-owned ending:
+   a visible failure or stopped outcome, a `stay_silent` outcome, or an
+   explicit final status. A successful final reply uses the Agent reply item
+   instead of a duplicate success item. An accepted result without a valid
+   public Space action is a visible failure, never a synthetic completion.
 5. A linked member's Center Agent work started through a Message Channel when
    the result or intervention request is available in OpenMeld.
 6. A Center Agent Task that requests the recipient's action, produces a final
@@ -336,9 +342,40 @@ The in-product Inbox is always available and cannot be disabled. Phase 1 has
 two optional delivery channels:
 
 - **Browser notifications** are off until the member enables them in this
-  browser and grants browser permission. They deliver newly observed urgent or
-  action-required items while OpenMeld Web is open but hidden. They never form
-  a second unread store.
+  browser and grants browser permission. The switch is global for all Spaces
+  and Direct Messages and is reachable from Settings -> Personal ->
+  Notifications and from any Space Info. Phase 1 delivers newly observed
+  unread items that are urgent, open action-required, or directly addressed to
+  the member: references of that member, replies intended for them (a
+  successful Wake reaches its requester through its final reply item), their
+  system-owned Wake endings addressed to that requester (visible failure,
+  stopped, `stay_silent`, policy-blocked action, or explicit final status), and
+  Center Agent Task endings (succeeded, failed, or stopped) addressed to the
+  Task requester. The Task producer never creates items for intermediate
+  progress, so these deliveries are always endings, not chatter. Ordinary
+  Space message updates stay in Inbox without a system notification. A visible
+  tab suppresses delivery only for the conversation it is currently showing;
+  a hidden tab can deliver any eligible item. Current-conversation suppression
+  is temporary: leaving that conversation or hiding the tab re-evaluates the
+  same unread item. The client records an item as delivered only after this tab
+  creates the notification or another tab proves it already did; a permission,
+  claim, or delivery failure remains retryable. A low-frequency browser-local
+  timer re-evaluates pending failures even when the Inbox query data does not
+  change. The browser-local pending ledger stores each member-, Organization-,
+  and item-scoped retry independently so concurrent tabs cannot overwrite one
+  another. After reload, the client resolves pending ids through bounded,
+  authenticated single-item reads even when an item has moved beyond the first
+  Inbox page. Every recovery attempt requires a fresh Core read rather than a
+  client freshness-cache hit; missing, read, resolved, or otherwise ineligible
+  items clear their pending record. Retry timers are owned by the current feed,
+  so a late failure from a previous member or Organization cannot block its
+  retries. A queued delivery uses a fresh recipient-authorized Core item read,
+  then rechecks the committed member, Organization, item eligibility, and
+  visible conversation immediately before creating the notification. A failed
+  revalidation remains pending and retryable. Unmounting the authenticated
+  listener invalidates that context, so a delivery waiting on a browser lock
+  cannot publish content from the previous account. Browser delivery never
+  forms a second unread store.
 - **Urgent email** is enabled by default at the account level and may be turned
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe

@@ -121,6 +121,7 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
     runtimeCoordinatorExecutionId: identifierSchema,
     sourceSignalId: identifierSchema.optional(),
     spaceId: identifierSchema,
+    threadRootSignalId: identifierSchema.nullable().optional(),
   }),
   z.strictObject({
     documentId: identifierSchema,
