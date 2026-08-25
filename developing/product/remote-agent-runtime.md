@@ -1141,9 +1141,14 @@ one 4 MiB turn budget divided by image count: adding screenshots must not make
 each screenshot unreadable. Only the bounded textual observations survive the
 auxiliary calls.
 
-A shared pre-provider token allocator and the equivalent bounded materializers
-for every file and App/tool family remain required before this
-context-admission contract is complete.
+The registered provider route measures the complete serialized provider input
+after tools, routing, affinity, history, and current-turn context are composed.
+It derives the input budget from the frozen route's context window and output
+reserve. An oversized input raises the same typed context-limit outcome that
+Flue already uses to compact the canonical conversation and retry once; the
+retry is admitted only after the newly compiled input fits. Equivalent bounded
+materializers for remaining file and App/tool families are still required
+before this context-admission contract is complete.
 
 ### Conversation compaction and runtime rollover
 

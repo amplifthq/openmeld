@@ -26,6 +26,11 @@ import {
 import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "./capability-discovery";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
+import {
+  assertRemoteAgentProviderContextFits,
+  measureRemoteAgentProviderContext,
+  type RemoteAgentProviderContextCapacity,
+} from "./provider-context-capacity";
 
 const OPENROUTER_MODEL_METADATA_BASE_URL = "https://openrouter.ai/api/v1/model";
 const OPENAI_GPT_5_4_MINI_MODEL_ID = "openai/gpt-5.4-mini";
@@ -117,6 +122,7 @@ type FetchModelMetadata = (
 const modelRuntimeConfigCache = new Map<string, CachedModelRuntimeConfig>();
 type RegisteredRemoteAgentModelCapabilities = {
   compat: OpenAICompletionsCompat;
+  contextCapacity: RemoteAgentProviderContextCapacity;
   cost?: Model<"openai-completions">["cost"];
   inputModalities: readonly ("image" | "text")[];
   modelId: string;
@@ -154,6 +160,9 @@ export async function registerRemoteAgentCloudflareProvider(input: {
         modelId.startsWith("anthropic/") || modelId.startsWith("openai/"),
       ...openRouterModel?.compat,
       thinkingFormat: "openrouter",
+    },
+    contextCapacity: {
+      inputTokenBudget: contextWindow - runtimeConfig.compaction.reserveTokens,
     },
     cost: openRouterModel?.cost,
     inputModalities: input.modelRoute?.inputModalities ?? ["text", "image"],
@@ -639,32 +648,41 @@ function registerRemoteAgentModelCapabilitiesApi(): void {
   const base = openAICompletionsApi();
   registerApiProvider({
     api: "openai-completions",
-    stream: (model, context, options) =>
-      base.stream(
+    stream: (model, context, options) => {
+      const capabilities = registeredRemoteAgentModelCapabilities.get(
+        model.provider
+      );
+      return base.stream(
         declareRemoteAgentModelCapabilities(model),
         context,
         withRemoteAgentProviderObservabilityAndSessionAffinity(
           options,
-          registeredRemoteAgentModelCapabilities.get(model.provider)
-            ?.reportStage
+          capabilities?.reportStage,
+          capabilities?.contextCapacity
         )
-      ),
-    streamSimple: (model, context, options) =>
-      base.streamSimple(
+      );
+    },
+    streamSimple: (model, context, options) => {
+      const capabilities = registeredRemoteAgentModelCapabilities.get(
+        model.provider
+      );
+      return base.streamSimple(
         declareRemoteAgentModelCapabilities(model),
         context,
         withRemoteAgentProviderObservabilityAndSessionAffinity(
           options,
-          registeredRemoteAgentModelCapabilities.get(model.provider)
-            ?.reportStage
+          capabilities?.reportStage,
+          capabilities?.contextCapacity
         )
-      ),
+      );
+    },
   });
 }
 
 export function withRemoteAgentProviderObservabilityAndSessionAffinity(
   options: StreamOptions | undefined,
-  reportStage?: (observation: RemoteAgentProviderStageObservation) => void
+  reportStage?: (observation: RemoteAgentProviderStageObservation) => void,
+  contextCapacity?: RemoteAgentProviderContextCapacity
 ): StreamOptions {
   const sessionId = options?.sessionId;
   if (sessionId && sessionId.length > 256) {
@@ -716,12 +734,16 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
         },
         ...(sessionId ? { session_id: sessionId } : {}),
       };
-      const inputBytes = new TextEncoder().encode(
-        JSON.stringify(providerPayload)
-      ).byteLength;
+      const measurement = measureRemoteAgentProviderContext(providerPayload);
+      enforceRemoteAgentProviderContextCapacity({
+        capacity: contextCapacity,
+        measurement,
+        modelId: model?.id ?? null,
+        submissionId,
+      });
       console.info("[remote_agent.provider.request_prepared]", {
         durationMs,
-        inputBytes,
+        inputBytes: measurement.inputBytes,
         messageCount,
         modelId: model?.id ?? null,
         originalToolCount,
@@ -731,7 +753,7 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
       });
       reportRemoteAgentProviderStage(reportStage, {
         durationMs,
-        inputBytes,
+        inputBytes: measurement.inputBytes,
         messageCount,
         modelId: model?.id ?? null,
         stage: "request_prepared",
@@ -763,6 +785,32 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
       }
     },
   };
+}
+
+function enforceRemoteAgentProviderContextCapacity(input: {
+  capacity?: RemoteAgentProviderContextCapacity;
+  measurement: ReturnType<typeof measureRemoteAgentProviderContext>;
+  modelId: string | null;
+  submissionId: string | null;
+}): void {
+  if (!input.capacity) {
+    return;
+  }
+  if (
+    input.measurement.estimatedInputTokens > input.capacity.inputTokenBudget
+  ) {
+    console.warn("[remote_agent.provider.context_capacity_exceeded]", {
+      estimatedInputTokens: input.measurement.estimatedInputTokens,
+      inputBytes: input.measurement.inputBytes,
+      inputTokenBudget: input.capacity.inputTokenBudget,
+      modelId: input.modelId,
+      submissionId: input.submissionId,
+    });
+  }
+  assertRemoteAgentProviderContextFits({
+    capacity: input.capacity,
+    measurement: input.measurement,
+  });
 }
 
 const REMOTE_AGENT_DIRECT_TOOL_SCHEMA_LIMIT = 64;

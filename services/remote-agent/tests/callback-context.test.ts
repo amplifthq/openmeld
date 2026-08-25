@@ -830,6 +830,44 @@ describe("remote agent callback context", () => {
     });
   });
 
+  it("classifies xAI maximum prompt length failures as context overflow", async () => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, context);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_failure_xai_context_window",
+      status: "accepted" as const,
+    }));
+    const providerError =
+      "This model's maximum prompt length is 500000 but the request contains 949418 tokens.";
+
+    await handleRemoteAgentChatResponse({
+      coreWorker: { completeRemoteAgentSubmission },
+      nowMs: () => TEST_NOW_MS + 1000,
+      result: {
+        continuation: false,
+        error: providerError,
+        message: { parts: [] },
+        requestId: ACK.requestId,
+        status: "error",
+      },
+      storage,
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.turn.context_window_exceeded",
+        failureDetail: providerError,
+        status: "failed",
+      })
+    );
+  });
+
   it("publishes a specific actionable failure when Flue cannot persist an oversized tool result", async () => {
     const request = createSubmitTurnRequest();
     const context = createRemoteAgentCallbackContext({
