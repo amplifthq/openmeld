@@ -254,12 +254,12 @@ Center Agent owns no secondary sidebar. Its primary header navigation is:
 One compact header menu preserves **Channels**, **Memory**, and **Center Agent
 settings**. Skills remains one capability inside
 that product home; required system behavior remains internal. The Center Agent
-remains one primary-rail destination.
+conversation is canonical Home in the primary rail.
 
 Canonical routes are:
 
 ```text
-/o/{orgSlug}/center-agent/chat
+/o/{orgSlug}
 /o/{orgSlug}/center-agent/routines
 /o/{orgSlug}/center-agent/skills
 /o/{orgSlug}/center-agent/skills/{skillId}

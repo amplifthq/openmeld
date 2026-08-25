@@ -37,13 +37,11 @@ describe("landing route loader", () => {
 		});
 	});
 
-	it("resolves an authenticated visitor's direct Center Agent entry once", async () => {
-		resolveOptionalActiveOrganizationEntryPathMock.mockResolvedValue(
-			"/o/acme/center-agent/chat"
-		);
+	it("resolves an authenticated visitor's Home entry once", async () => {
+		resolveOptionalActiveOrganizationEntryPathMock.mockResolvedValue("/o/acme");
 
 		await expect(loadLandingPage()).resolves.toEqual({
-			authenticatedEntryPath: "/o/acme/center-agent/chat",
+			authenticatedEntryPath: "/o/acme",
 		});
 		expect(
 			resolveOptionalActiveOrganizationEntryPathMock

@@ -100,7 +100,7 @@ describe("WelcomeSpaceScreen", () => {
 		const onConnectComputer = vi.fn();
 		renderScreen({
 			computerSetupActions: {
-				centerAgentPath: "/o/acme/center-agent/chat",
+				centerAgentPath: "/o/acme",
 				onConnectComputer,
 			},
 			joinableSpaces: [{ spaceId: "space-1", name: "Existing room" }],
@@ -126,9 +126,7 @@ describe("WelcomeSpaceScreen", () => {
 		const centerAgentLink = screen.getByRole("link", {
 			name: "Center Agent",
 		});
-		expect(centerAgentLink.getAttribute("href")).toBe(
-			"/o/acme/center-agent/chat"
-		);
+		expect(centerAgentLink.getAttribute("href")).toBe("/o/acme");
 		expect(centerAgentLink.className).toContain("underline");
 		expect(
 			screen.queryByRole("button", { name: "Open Center Agent" })

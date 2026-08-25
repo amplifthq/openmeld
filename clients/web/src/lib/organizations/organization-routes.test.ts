@@ -42,8 +42,15 @@ import {
 } from "./organization-routes";
 
 describe("organization default route", () => {
-	it("uses Home for login and organization entry", () => {
+	it("uses the Center Agent conversation for Home and organization entry", () => {
 		expect(buildOrganizationDefaultPath("acme")).toBe("/o/acme");
+		expect(buildOrganizationCenterAgentChatPath("acme")).toBe("/o/acme");
+		expect(
+			buildOrganizationCenterAgentChatPath("acme", {
+				focusSignalId: "signal-123",
+				view: "graph",
+			})
+		).toBe("/o/acme?focusSignalId=signal-123&view=graph");
 	});
 
 	it("builds an encoded Inbox item deep link", () => {
@@ -174,12 +181,6 @@ describe("primary organization routes", () => {
 	});
 
 	it("keeps Organization Skills inside the Center Agent route family", () => {
-		expect(buildOrganizationCenterAgentChatPath("acme")).toBe(
-			"/o/acme/center-agent/chat"
-		);
-		expect(
-			buildOrganizationCenterAgentChatPath("acme", { view: "graph" })
-		).toBe("/o/acme/center-agent/chat?view=graph");
 		expect(buildOrganizationSkillsPath("acme")).toBe(
 			"/o/acme/center-agent/skills"
 		);
@@ -211,12 +212,8 @@ describe("primary organization routes", () => {
 describe("resolveOrganizationSwitchPath", () => {
 	it.each([
 		["Inbox", "/o/acme/inbox", "/o/beta/inbox"],
-		["Center Agent", "/o/acme/center-agent/chat", "/o/beta/center-agent/chat"],
-		[
-			"Center Agent Chat",
-			"/o/acme/center-agent/chat",
-			"/o/beta/center-agent/chat",
-		],
+		["Home", "/o/acme", "/o/beta"],
+		["Legacy Center Agent Chat", "/o/acme/center-agent/chat", "/o/beta"],
 		[
 			"Center Agent Routines",
 			"/o/acme/center-agent/routines",
