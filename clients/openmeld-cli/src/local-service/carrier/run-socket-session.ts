@@ -28,6 +28,8 @@ import {
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema,
   runtimeTransportLocalAgentControlSetProfileWorkspaceFramePayloadSchema,
+  runtimeTransportOpenMeldToolsControlFramePayloadSchema,
+  runtimeTransportOpenMeldToolsControlResultFramePayloadSchema,
   runtimeTransportRegisterSessionRequestSchema,
   runtimeTransportResumeControllerConversationFramePayloadSchema,
   runtimeTransportResumeControllerConversationResultFramePayloadSchema,
@@ -106,6 +108,8 @@ import {
   resolveNextRuntimeAgentControllerReportSyncAtMs,
 } from "../inventory/agent-controller-interface-keeper";
 import { resolveCurrentDaemonExpectedVersion } from "../lifecycle/current-daemon-version";
+import { handleOpenMeldToolsControlRequest } from "../maintenance/openmeld-tools-control-handler";
+import type { OpenMeldToolsUpdateCoordinator } from "../maintenance/openmeld-tools-update-coordinator";
 import { didLocalProjectConnectionsChange } from "../projects/local-project-activity-sync";
 import { handleLocalProjectControlFrame } from "../projects/local-project-control-handler";
 import { syncLocalServiceProviderConversationProofs } from "../reporting/provider-conversation-proof-sync";
@@ -449,6 +453,7 @@ export async function runDaemonSocketSession(input: {
   ) => Promise<void> | void;
   onAgentActivitySessionsChanged?: () => void;
   onLocalProjectConnectionsChanged?: () => void;
+  openMeldToolsUpdateCoordinator?: OpenMeldToolsUpdateCoordinator;
   profileOwnerName: string | null;
   presenter: Presenter;
   persistRouteCatalogCache?: (catalog: RouteCatalog) => Promise<void>;
@@ -2228,6 +2233,61 @@ export async function runDaemonSocketSession(input: {
     return false;
   };
 
+  const handleOpenMeldToolsControlFrame = (frame: {
+    code: string;
+    payload: Record<string, unknown>;
+  }): boolean => {
+    if (frame.code !== "daemon.openmeld_tools_control.request") {
+      return false;
+    }
+    const parsed =
+      runtimeTransportOpenMeldToolsControlFramePayloadSchema.safeParse(
+        frame.payload
+      );
+    if (!parsed.success) {
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.openmeld_tools_control_invalid",
+        text: "OpenMeld Tools control request was invalid.",
+      });
+      return true;
+    }
+    handleOpenMeldToolsControlRequest({
+      coordinator: input.openMeldToolsUpdateCoordinator,
+      request: parsed.data.request,
+    })
+      .then((result) => {
+        const payload =
+          runtimeTransportOpenMeldToolsControlResultFramePayloadSchema.parse({
+            requestId: parsed.data.requestId,
+            result,
+          });
+        sendDaemonFrame(input.socket, {
+          code: "daemon.openmeld_tools_control.result",
+          payload,
+        });
+        scheduleHeartbeat({
+          delayMs: 0,
+          reason: "openmeld_tools_control_changed",
+        });
+      })
+      .catch((error) => {
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.openmeld_tools_control_failed",
+          text: `OpenMeld Tools control failed: ${toErrorMessage(error)}`,
+        });
+      });
+    return true;
+  };
+
+  const handleServiceControlFrame = (frame: {
+    code: string;
+    payload: Record<string, unknown>;
+  }): boolean =>
+    handleOpenMeldToolsControlFrame(frame) ||
+    handleLocalAgentRegistrationControlFrame(frame);
+
   input.socket.onMessage((raw) => {
     // Keepalive PONG (bare "pong", auto-answered by the RuntimeTransportHub DO)
     // is not a daemon frame; feed the keepalive watchdog and swallow it before
@@ -2262,7 +2322,7 @@ export async function runDaemonSocketSession(input: {
       });
       return;
     }
-    if (handleLocalAgentRegistrationControlFrame(parsedFrame)) {
+    if (handleServiceControlFrame(parsedFrame)) {
       return;
     }
     if (parsedFrame.code === "daemon.local_agent_control.refresh_catalog") {

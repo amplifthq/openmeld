@@ -3355,12 +3355,22 @@ has an actionable update, the card-level action is:
 Update OpenMeld Tools
 ```
 
-Web chooses the owning path instead of asking the user to choose a component.
-Service or skill alignment, including combined updates, enters the existing setup
-flow. A CLI-only advisory opens the existing `openmeld upgrade --yes` command
-guidance. Service connection recovery remains explicitly `Connect OpenMeld
-Service` or `Reconnect OpenMeld Service`; it is not presented as an update. Other
-Service-specific Web surfaces continue to use `Update OpenMeld Service`.
+When the current Service advertises OpenMeld Tools control, **Update** sends one
+owner-scoped request to the Service's background coordinator. The user may
+close the page immediately and never sees or copies a command. This direct
+action remains available when automatic updates are off. The same card shows
+one capability-gated **Keep OpenMeld Tools up to date** switch and reads its
+value from the Service-owned maintenance projection. It never keeps a browser
+preference.
+
+The card renders the canonical operation phase as one short status:
+**Waiting for work to finish**, **Updating**, **Updated**, **Old version
+restored**, or **Update needs help**. Web refreshes the same Computer projection
+after a request; request completion is not update completion. An older Service
+without the control capability keeps the existing Setup guidance. Service
+connection recovery remains explicitly **Connect OpenMeld Service** or
+**Reconnect OpenMeld Service**, and the Reconnect action remains the CLI
+fallback.
 
 For an `update_service` setup run, terminal completion proves only that the CLI
 flow ended. Web must keep the result in a bounded confirming state until both

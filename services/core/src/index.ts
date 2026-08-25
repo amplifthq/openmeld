@@ -44,6 +44,7 @@ import type {
   CenterAgentListAgentTasksResponse,
   CenterAgentListComputersResponse,
   CenterAgentListLocalAgentConnectionCandidatesResponse,
+  CenterAgentListLocalAgentInstallationsResponse,
   CenterAgentListProjectsToolResponse,
   CenterAgentListProjectsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
@@ -88,12 +89,15 @@ import type {
   CenterAgentRemoveProjectToolRpcInput,
   CenterAgentRequestMemberAttentionResponse,
   CenterAgentRequestMemberAttentionRpcInput,
+  CenterAgentRequestOpenMeldToolsUpdateResponse,
   CenterAgentResumeRoutineToolRpcInput,
   CenterAgentSaveSpaceFileResponse,
   CenterAgentSaveSpaceFileRpcInput,
   CenterAgentSearchSlackMessagesResponse,
+  CenterAgentSelectLocalAgentInstallationResponse,
   CenterAgentSetAgentProfileDefaultProjectToolResponse,
   CenterAgentSetAgentProfileDefaultProjectToolRpcInput,
+  CenterAgentSetOpenMeldToolsMaintenanceResponse,
   CenterAgentSetOrganizationWorkingLanguageToolResponse,
   CenterAgentSetOrganizationWorkingLanguageToolRpcInput,
   CenterAgentSlackWorkspaceConnectionResponse,
@@ -275,6 +279,7 @@ import type {
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
   RemoveSpaceMembersResponse,
+  RequestCurrentOpenMeldToolsUpdateResponse,
   ResolveSpaceFileContentResponse,
   RespondToSpaceAgentInteractionResponse,
   RestoreSpaceFileEntryResponse,
@@ -287,6 +292,7 @@ import type {
   SetAgentProfileCreationDefaultsResponse,
   SetCurrentAgentProfileWorkspaceResponse,
   SetCurrentLocalAgentEnabledResponse,
+  SetCurrentOpenMeldToolsMaintenanceResponse,
   SetOrganizationBindingAuthorizationPreferenceResponse,
   SetOrganizationSkillEnabledResponse,
   SetOrganizationSkillEnabledRpcInput,
@@ -524,6 +530,7 @@ import {
   type CenterAgentListAgentTasksInput,
   type CenterAgentListComputersInput,
   type CenterAgentListLocalAgentConnectionCandidatesInput,
+  type CenterAgentListLocalAgentInstallationsInput,
   type CenterAgentListOpportunitiesInput,
   type CenterAgentListSlackChannelsInput,
   type CenterAgentPostSlackChannelMessageInput,
@@ -550,9 +557,12 @@ import {
   type CenterAgentRecordConnectorActionOperationInput,
   type CenterAgentRememberForOrganizationInput,
   type CenterAgentRemoveAgentProfilesFromSpaceInput,
+  type CenterAgentRequestOpenMeldToolsUpdateInput,
   type CenterAgentResolveConnectorConnectionInput,
   type CenterAgentRespondToOpportunityInput,
   type CenterAgentSearchSlackMessagesInput,
+  type CenterAgentSelectLocalAgentInstallationInput,
+  type CenterAgentSetOpenMeldToolsMaintenanceInput,
   type CenterAgentUpdateAgentProfileRuntimeSettingsInput,
   type CenterAgentUpdateSpaceSettingsInput,
   type CenterAgentWakeAgentProfilesInSpaceInput,
@@ -687,6 +697,7 @@ import {
   type RemoveConnectionInput,
   type RemoveMissingConnectionsInput,
   type RemoveSpaceMembersInput,
+  type RequestCurrentOpenMeldToolsUpdateInput,
   type RequestMessageChannelSetupInput,
   type ResolveSpaceAttachmentForDownloadInput,
   type ResolveSpaceFileContentRpcInput,
@@ -722,6 +733,7 @@ import {
   rpcCenterAgentListAgentTasks,
   rpcCenterAgentListComputers,
   rpcCenterAgentListLocalAgentConnectionCandidates,
+  rpcCenterAgentListLocalAgentInstallations,
   rpcCenterAgentListOpportunities,
   rpcCenterAgentListSlackChannels,
   rpcCenterAgentListSpaceFiles,
@@ -749,10 +761,13 @@ import {
   rpcCenterAgentRecordConnectorActionOperation,
   rpcCenterAgentRememberForOrganization,
   rpcCenterAgentRemoveAgentProfilesFromSpace,
+  rpcCenterAgentRequestOpenMeldToolsUpdate,
   rpcCenterAgentResolveConnectorConnection,
   rpcCenterAgentRespondToOpportunity,
   rpcCenterAgentSaveSpaceFile,
   rpcCenterAgentSearchSlackMessages,
+  rpcCenterAgentSelectLocalAgentInstallation,
+  rpcCenterAgentSetOpenMeldToolsMaintenance,
   rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
   rpcCenterAgentUpdateSpaceSettings,
@@ -892,6 +907,7 @@ import {
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
+  rpcRequestCurrentOpenMeldToolsUpdate,
   rpcRequestMessageChannelSetup,
   rpcResolveSpaceAttachmentForDownload,
   rpcResolveSpaceFileContent,
@@ -907,6 +923,7 @@ import {
   rpcSetCenterAgentOrganizationMemoryPolicy,
   rpcSetCurrentAgentProfileWorkspace,
   rpcSetCurrentLocalAgentEnabled,
+  rpcSetCurrentOpenMeldToolsMaintenance,
   rpcSetCurrentOrganizationFeedbackReportingPolicy,
   rpcSetDefaultConnection,
   rpcSetLocalRuntimeDisplayName,
@@ -946,6 +963,7 @@ import {
   type SetCenterAgentOrganizationMemoryPolicyInput,
   type SetCurrentAgentProfileWorkspaceInput,
   type SetCurrentLocalAgentEnabledInput,
+  type SetCurrentOpenMeldToolsMaintenanceInput,
   type SetCurrentOrganizationFeedbackReportingPolicyInput,
   type SetDefaultConnectionInput,
   type SetLocalRuntimeDisplayNameInput,
@@ -2696,6 +2714,30 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentListComputers(this.env, input);
   }
 
+  centerAgentRequestOpenMeldToolsUpdate(
+    input: CenterAgentRequestOpenMeldToolsUpdateInput
+  ): Promise<CenterAgentRequestOpenMeldToolsUpdateResponse> {
+    return rpcCenterAgentRequestOpenMeldToolsUpdate(this.env, input);
+  }
+
+  centerAgentSetOpenMeldToolsMaintenance(
+    input: CenterAgentSetOpenMeldToolsMaintenanceInput
+  ): Promise<CenterAgentSetOpenMeldToolsMaintenanceResponse> {
+    return rpcCenterAgentSetOpenMeldToolsMaintenance(this.env, input);
+  }
+
+  centerAgentListLocalAgentInstallations(
+    input: CenterAgentListLocalAgentInstallationsInput
+  ): Promise<CenterAgentListLocalAgentInstallationsResponse> {
+    return rpcCenterAgentListLocalAgentInstallations(this.env, input);
+  }
+
+  centerAgentSelectLocalAgentInstallation(
+    input: CenterAgentSelectLocalAgentInstallationInput
+  ): Promise<CenterAgentSelectLocalAgentInstallationResponse> {
+    return rpcCenterAgentSelectLocalAgentInstallation(this.env, input);
+  }
+
   centerAgentConnectAgentProfileToLocalAgent(
     input: CenterAgentConnectAgentProfileToLocalAgentInput
   ): Promise<CenterAgentConnectAgentProfileToLocalAgentResponse> {
@@ -3096,6 +3138,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SelectCurrentLocalAgentInstallationInput
   ): Promise<SelectCurrentLocalAgentInstallationResponse> {
     return rpcSelectCurrentLocalAgentInstallation(this.env, input);
+  }
+
+  requestCurrentOpenMeldToolsUpdate(
+    input: RequestCurrentOpenMeldToolsUpdateInput
+  ): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {
+    return rpcRequestCurrentOpenMeldToolsUpdate(this.env, input);
+  }
+
+  setCurrentOpenMeldToolsMaintenance(
+    input: SetCurrentOpenMeldToolsMaintenanceInput
+  ): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
+    return rpcSetCurrentOpenMeldToolsMaintenance(this.env, input);
   }
 
   setCurrentAgentProfileWorkspace(
@@ -3893,6 +3947,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: SelectCurrentLocalAgentInstallationInput
   ): Promise<SelectCurrentLocalAgentInstallationResponse> {
     return super.selectCurrentLocalAgentInstallation(input);
+  }
+
+  requestCurrentOpenMeldToolsUpdate(
+    input: RequestCurrentOpenMeldToolsUpdateInput
+  ): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {
+    return super.requestCurrentOpenMeldToolsUpdate(input);
+  }
+
+  setCurrentOpenMeldToolsMaintenance(
+    input: SetCurrentOpenMeldToolsMaintenanceInput
+  ): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
+    return super.setCurrentOpenMeldToolsMaintenance(input);
   }
 
   setCurrentAgentProfileWorkspace(

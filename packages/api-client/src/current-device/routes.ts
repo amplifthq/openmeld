@@ -13,6 +13,10 @@ export const CURRENT_LOCAL_RUNTIME_OBSERVED_METADATA_ROUTE =
   "/v1/local-runtimes/current/observed-metadata";
 export const CURRENT_LOCAL_AGENT_CATALOG_REFRESH_ROUTE =
   "/v1/local-runtimes/current/local-agents/refresh-catalog";
+export const CURRENT_OPENMELD_TOOLS_UPDATE_ROUTE =
+  "/v1/local-runtimes/current/openmeld-tools/update";
+export const CURRENT_OPENMELD_TOOLS_MAINTENANCE_ROUTE =
+  "/v1/local-runtimes/current/openmeld-tools/maintenance";
 export function buildCurrentAgentProfileWorkspaceRoute(
   agentProfileId: string
 ): string {

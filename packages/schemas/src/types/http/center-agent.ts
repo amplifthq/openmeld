@@ -78,6 +78,22 @@ type CenterAgentListComputersBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentListComputersBodySchema"];
 type CenterAgentListComputersResponseSchema =
   typeof import("../../schemas/http/center-agent")["centerAgentListComputersResponseSchema"];
+type CenterAgentRequestOpenMeldToolsUpdateBodySchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentRequestOpenMeldToolsUpdateBodySchema"];
+type CenterAgentRequestOpenMeldToolsUpdateResponseSchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentRequestOpenMeldToolsUpdateResponseSchema"];
+type CenterAgentSetOpenMeldToolsMaintenanceBodySchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentSetOpenMeldToolsMaintenanceBodySchema"];
+type CenterAgentSetOpenMeldToolsMaintenanceResponseSchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentSetOpenMeldToolsMaintenanceResponseSchema"];
+type CenterAgentListLocalAgentInstallationsBodySchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentListLocalAgentInstallationsBodySchema"];
+type CenterAgentListLocalAgentInstallationsResponseSchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentListLocalAgentInstallationsResponseSchema"];
+type CenterAgentSelectLocalAgentInstallationBodySchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentSelectLocalAgentInstallationBodySchema"];
+type CenterAgentSelectLocalAgentInstallationResponseSchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentSelectLocalAgentInstallationResponseSchema"];
 type CenterAgentReadMemberComputersBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentReadMemberComputersBodySchema"];
 type CenterAgentReadMemberComputersResponseSchema =
@@ -276,6 +292,22 @@ export type CenterAgentListComputersBody =
   z.infer<CenterAgentListComputersBodySchema>;
 export type CenterAgentListComputersResponse =
   z.infer<CenterAgentListComputersResponseSchema>;
+export type CenterAgentRequestOpenMeldToolsUpdateBody =
+  z.infer<CenterAgentRequestOpenMeldToolsUpdateBodySchema>;
+export type CenterAgentRequestOpenMeldToolsUpdateResponse =
+  z.infer<CenterAgentRequestOpenMeldToolsUpdateResponseSchema>;
+export type CenterAgentSetOpenMeldToolsMaintenanceBody =
+  z.infer<CenterAgentSetOpenMeldToolsMaintenanceBodySchema>;
+export type CenterAgentSetOpenMeldToolsMaintenanceResponse =
+  z.infer<CenterAgentSetOpenMeldToolsMaintenanceResponseSchema>;
+export type CenterAgentListLocalAgentInstallationsBody =
+  z.infer<CenterAgentListLocalAgentInstallationsBodySchema>;
+export type CenterAgentListLocalAgentInstallationsResponse =
+  z.infer<CenterAgentListLocalAgentInstallationsResponseSchema>;
+export type CenterAgentSelectLocalAgentInstallationBody =
+  z.infer<CenterAgentSelectLocalAgentInstallationBodySchema>;
+export type CenterAgentSelectLocalAgentInstallationResponse =
+  z.infer<CenterAgentSelectLocalAgentInstallationResponseSchema>;
 export type CenterAgentReadMemberComputersBody =
   z.infer<CenterAgentReadMemberComputersBodySchema>;
 export type CenterAgentReadMemberComputersResponse =

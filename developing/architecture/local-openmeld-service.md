@@ -1518,6 +1518,15 @@ schedule, resumes a saved attempt immediately after restart, and never waits for
 the downloader when the Service itself must stop. Dev and canary lanes do not
 check or install the published channel.
 
+Web and the Center Agent do not execute update commands. They send one strict
+owner-scoped control request through Core and Runtime Transport to the current
+account/device/lane Service. That Service invokes the same coordinator used by
+CLI and automatic maintenance. The request may start an update or change the
+computer's saved automatic-update preference; it cannot run arbitrary shell or
+target another member's computer. An explicit update remains available when
+automatic updates are off. Older Services that do not advertise the control
+capability fail explicitly and keep Setup/Reconnect as the recovery path.
+
 For an `available` update, the current Service keeps admitting new Wake work
 while the prepared replacement waits for a safe switch. For a `required`
 update, Core blocks affected new Wake work and the worker enters the controlled

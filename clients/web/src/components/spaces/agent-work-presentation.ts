@@ -99,6 +99,26 @@ const AGENT_WORK_COPY = {
 		"Checked connected apps",
 		"Couldn't check connected apps"
 	),
+	"computer.local_agent.installation.select": workCopy(
+		"Switching the local agent…",
+		"Switched the local agent",
+		"Couldn't switch the local agent"
+	),
+	"computer.local_agent.installations.read": workCopy(
+		"Checking local agent installations…",
+		"Checked local agent installations",
+		"Couldn't check local agent installations"
+	),
+	"computer.openmeld_tools.settings.update": workCopy(
+		"Changing OpenMeld Tools updates…",
+		"Changed OpenMeld Tools updates",
+		"Couldn't change OpenMeld Tools updates"
+	),
+	"computer.openmeld_tools.update": workCopy(
+		"Updating OpenMeld Tools…",
+		"Updated OpenMeld Tools",
+		"Couldn't update OpenMeld Tools"
+	),
 	"dependencies.install": workCopy(
 		"Installing project dependencies…",
 		"Installed project dependencies",

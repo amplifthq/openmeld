@@ -42,6 +42,16 @@ type OpenMeldToolsUpdateOperationPhaseSchema =
   typeof import("../schemas/local-components")["openMeldToolsUpdateOperationPhaseSchema"];
 type OpenMeldToolsUpdateRequestSourceSchema =
   typeof import("../schemas/local-components")["openMeldToolsUpdateRequestSourceSchema"];
+type OpenMeldToolsControlCapabilitySchema =
+  typeof import("../schemas/local-components")["openMeldToolsControlCapabilitySchema"];
+type OpenMeldToolsControlRequestSchema =
+  typeof import("../schemas/local-components")["openMeldToolsControlRequestSchema"];
+type OpenMeldToolsControlResultSchema =
+  typeof import("../schemas/local-components")["openMeldToolsControlResultSchema"];
+type OpenMeldToolsMaintenanceMutationResultSchema =
+  typeof import("../schemas/local-components")["openMeldToolsMaintenanceMutationResultSchema"];
+type OpenMeldToolsUpdateRequestResultSchema =
+  typeof import("../schemas/local-components")["openMeldToolsUpdateRequestResultSchema"];
 
 export type InstalledLocalComponentsSnapshot =
   z.infer<InstalledLocalComponentsSnapshotSchema>;
@@ -80,3 +90,13 @@ export type OpenMeldToolsUpdateOperationPhase =
   z.infer<OpenMeldToolsUpdateOperationPhaseSchema>;
 export type OpenMeldToolsUpdateRequestSource =
   z.infer<OpenMeldToolsUpdateRequestSourceSchema>;
+export type OpenMeldToolsControlCapability =
+  z.infer<OpenMeldToolsControlCapabilitySchema>;
+export type OpenMeldToolsControlRequest =
+  z.infer<OpenMeldToolsControlRequestSchema>;
+export type OpenMeldToolsControlResult =
+  z.infer<OpenMeldToolsControlResultSchema>;
+export type OpenMeldToolsMaintenanceMutationResult =
+  z.infer<OpenMeldToolsMaintenanceMutationResultSchema>;
+export type OpenMeldToolsUpdateRequestResult =
+  z.infer<OpenMeldToolsUpdateRequestResultSchema>;

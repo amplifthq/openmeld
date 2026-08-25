@@ -330,6 +330,8 @@ export type ParsedDaemonFrame = {
     | "daemon.local_agent_control.result"
     | "daemon.local_agent_control.set_enabled"
     | "daemon.local_agent_control.set_profile_workspace"
+    | "daemon.openmeld_tools_control.request"
+    | "daemon.openmeld_tools_control.result"
     | "daemon.local_folder_picker.select_folders"
     | "daemon.local_folder_picker.select_folders_result"
     | "daemon.local_project_control.connect_candidate"

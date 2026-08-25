@@ -40,6 +40,7 @@ import {
   rpcCenterAgentCreateAgentProfile,
   rpcCenterAgentCreateSpace,
   rpcCenterAgentListComputers,
+  rpcCenterAgentListLocalAgentInstallations,
   rpcCenterAgentListSlackChannels,
   rpcCenterAgentListSpaceFiles,
   rpcCenterAgentPostSlackChannelMessage,
@@ -57,7 +58,10 @@ import {
   rpcCenterAgentReadSpaceContext,
   rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRemoveAgentProfilesFromSpace,
+  rpcCenterAgentRequestOpenMeldToolsUpdate,
   rpcCenterAgentSearchSlackMessages,
+  rpcCenterAgentSelectLocalAgentInstallation,
+  rpcCenterAgentSetOpenMeldToolsMaintenance,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
   rpcClearSpacePassword,
@@ -1759,6 +1763,68 @@ describe("organization Core RPC", () => {
     });
     expect(lookupOwnerService).not.toHaveBeenCalled();
     expect(db.centerAgentAuditRows).toEqual([]);
+  });
+
+  it("fails closed before changing a Computer for a speaker outside the current Organization", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const env = buildEnv({ db });
+    const controlOpenMeldTools = vi.spyOn(
+      runtimeTransportClient,
+      "controlRuntimeTransportOpenMeldTools"
+    );
+    const manageInstallations = vi.spyOn(
+      runtimeTransportClient,
+      "manageRuntimeTransportLocalAgentInstallation"
+    );
+    const request = {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        profileId: AGENT_PROFILE_ID,
+        profileKind: "agent" as const,
+        userId: "user-a",
+      }),
+      speakerMember: {
+        memberId: "member-outside",
+        userId: "user-outside",
+      },
+    };
+
+    await expect(
+      rpcCenterAgentRequestOpenMeldToolsUpdate(env, request)
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      rpcCenterAgentSetOpenMeldToolsMaintenance(env, {
+        ...request,
+        automaticUpdatesEnabled: false,
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      rpcCenterAgentListLocalAgentInstallations(env, {
+        ...request,
+        agentId: "codex",
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      rpcCenterAgentSelectLocalAgentInstallation(env, {
+        ...request,
+        agentId: "codex",
+        confirmed: true,
+        installationId: "install-chatgpt",
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    expect(controlOpenMeldTools).not.toHaveBeenCalled();
+    expect(manageInstallations).not.toHaveBeenCalled();
   });
 
   it("fails closed before reading Computers for a user outside the current Organization", async () => {

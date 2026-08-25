@@ -556,6 +556,12 @@ describe("remote agent system prompt", () => {
       "Before offering to set up, reconnect, or update a computer, use openmeld_list_computers"
     );
     expect(prompt).toContain(
+      "use the matching OpenMeld tool instead of sending them to the CLI"
+    );
+    expect(prompt).toContain(
+      "call openmeld_select_local_agent_installation only after the requester confirms"
+    );
+    expect(prompt).toContain(
       "for supported Center Agent workflows, inline after your final reply"
     );
     expect(prompt).toContain(

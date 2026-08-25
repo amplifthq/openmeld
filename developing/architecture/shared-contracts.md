@@ -772,6 +772,23 @@ object may include the Service-owned safe operation projection: opaque id,
 phase, request source, target version, urgency, and timestamps. Core passes
 the maintenance and operation projections through unchanged; it does not create
 another update state.
+
+`local-components.ts`, `daemon/runtime-transport.ts`, and
+`http/local-runtimes.ts` also own the strict OpenMeld Tools control contract.
+The request surface has only two operations: request the current computer's
+update, or set its automatic-update preference. Web and Center Agent requests
+carry a bounded source value; Runtime Transport binds the request to the
+authenticated owner and exact current device/lane before the Service accepts
+it. The result reuses the same maintenance and update-operation schemas shown
+in Computer diagnostics, so clients never invent a parallel progress state.
+
+`http/center-agent.ts` wraps those owner controls with the verified represented
+member and active Organization. It also reuses the current-computer local-agent
+installation list and selection contracts. Listing is read-only. Selection
+requires the exact installation id and literal confirmation, and Core resolves
+the represented member's own current Computer instead of accepting a device id
+from the model. The model-safe result includes friendly installation names and
+details, never executable paths or commands.
 Setup commands, component hashes, runtime lanes, local paths, raw errors,
 credentials, and actions are not members of the Organization schema.
 

@@ -11,12 +11,16 @@ import {
   centerAgentListComputersBodySchema,
   centerAgentListComputersResponseSchema,
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
+  centerAgentListLocalAgentInstallationsResponseSchema,
   centerAgentModelConfigurationResponseSchema,
   centerAgentReadConnectorActionOperationResponseSchema,
   centerAgentReadMemberComputersResponseSchema,
   centerAgentReadSpaceContextBodySchema,
   centerAgentReadSpaceContextResponseSchema,
   centerAgentRemoteRuntimeAvailabilityReasonCodeSchema,
+  centerAgentRequestOpenMeldToolsUpdateResponseSchema,
+  centerAgentSelectLocalAgentInstallationBodySchema,
+  centerAgentSetOpenMeldToolsMaintenanceResponseSchema,
   centerAgentUpdateAgentProfileRuntimeSettingsBodySchema,
   deriveCenterAgentDirectMessageSpaceProjection,
   getCenterAgentDesignationResponseSchema,
@@ -147,6 +151,61 @@ describe("Center Agent HTTP schemas", () => {
         organizationId: "org_1",
       }).success
     ).toBe(false);
+  });
+
+  it("keeps OpenMeld Tools maintenance and local agent installation controls explicit", () => {
+    expect(
+      centerAgentRequestOpenMeldToolsUpdateResponseSchema.parse({
+        organizationId: "org_1",
+        result: { currentVersion: "0.3.87", status: "current" },
+      })
+    ).toEqual({
+      organizationId: "org_1",
+      result: { currentVersion: "0.3.87", status: "current" },
+    });
+    expect(
+      centerAgentSetOpenMeldToolsMaintenanceResponseSchema.parse({
+        organizationId: "org_1",
+        result: { automaticUpdatesEnabled: true, status: "updated" },
+      })
+    ).toEqual({
+      organizationId: "org_1",
+      result: { automaticUpdatesEnabled: true, status: "updated" },
+    });
+    expect(
+      centerAgentListLocalAgentInstallationsResponseSchema.parse({
+        agentId: "codex",
+        installations: [
+          {
+            details: "v0.149.1 · Signed in",
+            installationId: "install-nvm",
+            name: "nvm install",
+            selected: true,
+          },
+        ],
+        organizationId: "org_1",
+        selectedInstallationId: "install-nvm",
+      }).installations[0]?.selected
+    ).toBe(true);
+  });
+
+  it("requires an explicit confirmation before switching a local agent installation", () => {
+    const request = {
+      agentId: "codex",
+      installationId: "install-chatgpt",
+      speakerMember: { memberId: "member_1", userId: "user_1" },
+    };
+
+    expect(
+      centerAgentSelectLocalAgentInstallationBodySchema.safeParse(request)
+        .success
+    ).toBe(false);
+    expect(
+      centerAgentSelectLocalAgentInstallationBodySchema.safeParse({
+        ...request,
+        confirmed: true,
+      }).success
+    ).toBe(true);
   });
 
   it("keeps teammate Computer reads on the strict team-safe projection", () => {

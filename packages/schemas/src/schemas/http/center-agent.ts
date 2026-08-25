@@ -47,7 +47,13 @@ import {
   connectorConnectionScopeSchema,
   connectorServiceSchema,
 } from "./connector-connections";
-import { setCurrentAgentProfileWorkspaceResponseSchema } from "./local-runtimes";
+import {
+  currentLocalAgentInstallationsResponseSchema,
+  requestCurrentOpenMeldToolsUpdateResponseSchema,
+  selectCurrentLocalAgentInstallationResponseSchema,
+  setCurrentAgentProfileWorkspaceResponseSchema,
+  setCurrentOpenMeldToolsMaintenanceResponseSchema,
+} from "./local-runtimes";
 import { organizationComputersResponseSchema } from "./organization-computers";
 import { ownerComputerDiagnosticsSchema } from "./owner-computer-diagnostics";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
@@ -1066,6 +1072,51 @@ export const centerAgentListComputersResponseSchema = z.strictObject({
   diagnostics: ownerComputerDiagnosticsSchema.optional(),
   organizationId: trimmedNonEmptyStringSchema,
 });
+
+export const centerAgentRequestOpenMeldToolsUpdateBodySchema = z.strictObject({
+  speakerMember: centerAgentToolSpeakerSchema,
+});
+
+export const centerAgentRequestOpenMeldToolsUpdateResponseSchema =
+  z.strictObject({
+    organizationId: trimmedNonEmptyStringSchema,
+    result: requestCurrentOpenMeldToolsUpdateResponseSchema,
+  });
+
+export const centerAgentSetOpenMeldToolsMaintenanceBodySchema = z.strictObject({
+  automaticUpdatesEnabled: z.boolean(),
+  speakerMember: centerAgentToolSpeakerSchema,
+});
+
+export const centerAgentSetOpenMeldToolsMaintenanceResponseSchema =
+  z.strictObject({
+    organizationId: trimmedNonEmptyStringSchema,
+    result: setCurrentOpenMeldToolsMaintenanceResponseSchema,
+  });
+
+export const centerAgentListLocalAgentInstallationsBodySchema = z.strictObject({
+  agentId: trimmedNonEmptyStringSchema.max(256),
+  speakerMember: centerAgentToolSpeakerSchema,
+});
+
+export const centerAgentListLocalAgentInstallationsResponseSchema =
+  currentLocalAgentInstallationsResponseSchema.extend({
+    organizationId: trimmedNonEmptyStringSchema,
+  });
+
+export const centerAgentSelectLocalAgentInstallationBodySchema = z.strictObject(
+  {
+    agentId: trimmedNonEmptyStringSchema.max(256),
+    confirmed: z.literal(true),
+    installationId: trimmedNonEmptyStringSchema.max(256),
+    speakerMember: centerAgentToolSpeakerSchema,
+  }
+);
+
+export const centerAgentSelectLocalAgentInstallationResponseSchema =
+  selectCurrentLocalAgentInstallationResponseSchema.extend({
+    organizationId: trimmedNonEmptyStringSchema,
+  });
 
 export const centerAgentReadMemberComputersBodySchema = z.strictObject({
   includeUsageLimits: z.literal("true").optional(),

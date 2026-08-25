@@ -37,6 +37,10 @@ import {
   runtimeTransportLookupRouteResponseSchema,
   runtimeTransportManageLocalAgentInstallationRequestSchema,
   runtimeTransportManageLocalAgentInstallationResponseSchema,
+  runtimeTransportOpenMeldToolsControlFramePayloadSchema,
+  runtimeTransportOpenMeldToolsControlRequestSchema,
+  runtimeTransportOpenMeldToolsControlResponseSchema,
+  runtimeTransportOpenMeldToolsControlResultFramePayloadSchema,
   runtimeTransportPreExecutionHandoffResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
   runtimeTransportRefreshLocalAgentCatalogResponseSchema,
@@ -1867,6 +1871,56 @@ describe("runtime transport schema", () => {
       runtimeTransportManageLocalAgentInstallationResponseSchema.safeParse({
         status: "accepted",
         payload,
+      }).success
+    ).toBe(true);
+  });
+
+  it("accepts OpenMeld Tools control capability, requests, and results", () => {
+    expect(
+      runtimeTransportCapabilitiesSchema.safeParse({
+        openMeldToolsControl: {
+          requestUpdate: true,
+          setAutomaticUpdates: true,
+        },
+      }).success
+    ).toBe(true);
+
+    const request = {
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      deviceId: "device-1",
+      lane: "dev-local" as const,
+      ownerUserId: "owner-1",
+      requestId: "tools-1",
+      request: {
+        operation: "request_update" as const,
+        requestSource: "web" as const,
+      },
+    };
+    expect(
+      runtimeTransportOpenMeldToolsControlRequestSchema.safeParse(request)
+        .success
+    ).toBe(true);
+    expect(
+      runtimeTransportOpenMeldToolsControlFramePayloadSchema.safeParse({
+        requestId: request.requestId,
+        request: request.request,
+      }).success
+    ).toBe(true);
+
+    const result = {
+      operation: "request_update" as const,
+      result: { currentVersion: "0.9.1", status: "current" as const },
+    };
+    expect(
+      runtimeTransportOpenMeldToolsControlResultFramePayloadSchema.safeParse({
+        requestId: request.requestId,
+        result,
+      }).success
+    ).toBe(true);
+    expect(
+      runtimeTransportOpenMeldToolsControlResponseSchema.safeParse({
+        status: "accepted",
+        result,
       }).success
     ).toBe(true);
   });

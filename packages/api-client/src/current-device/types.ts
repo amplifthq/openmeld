@@ -3,11 +3,14 @@ import type {
   CurrentLocalAgentInstallationsResponse,
   LocalRuntimesQuery,
   ObservedDeviceMetadata,
+  RequestCurrentOpenMeldToolsUpdateResponse,
   SelectCurrentLocalAgentInstallationResponse,
   SetCurrentAgentProfileWorkspaceBody,
   SetCurrentAgentProfileWorkspaceResponse,
   SetCurrentLocalAgentEnabledBody,
   SetCurrentLocalAgentEnabledResponse,
+  SetCurrentOpenMeldToolsMaintenanceBody,
+  SetCurrentOpenMeldToolsMaintenanceResponse,
   SetLocalRuntimeDisplayNameBody,
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
@@ -37,6 +40,8 @@ export type SetCurrentLocalAgentEnabledInput =
   SetCurrentLocalAgentEnabledBody & {
     agentId: string;
   };
+export type SetCurrentOpenMeldToolsMaintenanceInput =
+  SetCurrentOpenMeldToolsMaintenanceBody;
 export type SelectCurrentLocalAgentInstallationInput = {
   agentId: string;
   installationId: string;
@@ -80,6 +85,10 @@ export type CreateCurrentDeviceApi = (
   selectCurrentLocalAgentInstallation: (
     input: SelectCurrentLocalAgentInstallationInput
   ) => Promise<SelectCurrentLocalAgentInstallationResponse>;
+  requestCurrentOpenMeldToolsUpdate: () => Promise<RequestCurrentOpenMeldToolsUpdateResponse>;
+  setCurrentOpenMeldToolsMaintenance: (
+    input: SetCurrentOpenMeldToolsMaintenanceInput
+  ) => Promise<SetCurrentOpenMeldToolsMaintenanceResponse>;
   setCurrentAgentProfileWorkspace: (
     input: SetCurrentAgentProfileWorkspaceInput
   ) => Promise<SetCurrentAgentProfileWorkspaceResponse>;

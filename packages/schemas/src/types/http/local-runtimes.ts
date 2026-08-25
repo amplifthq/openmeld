@@ -40,6 +40,12 @@ type SetCurrentAgentProfileWorkspaceRouteParamsSchema =
   typeof import("../../schemas/http/local-runtimes")["setCurrentAgentProfileWorkspaceRouteParamsSchema"];
 type RefreshCurrentLocalAgentCatalogResponseSchema =
   typeof import("../../schemas/http/local-runtimes")["refreshCurrentLocalAgentCatalogResponseSchema"];
+type SetCurrentOpenMeldToolsMaintenanceBodySchema =
+  typeof import("../../schemas/http/local-runtimes")["setCurrentOpenMeldToolsMaintenanceBodySchema"];
+type SetCurrentOpenMeldToolsMaintenanceResponseSchema =
+  typeof import("../../schemas/http/local-runtimes")["setCurrentOpenMeldToolsMaintenanceResponseSchema"];
+type RequestCurrentOpenMeldToolsUpdateResponseSchema =
+  typeof import("../../schemas/http/local-runtimes")["requestCurrentOpenMeldToolsUpdateResponseSchema"];
 
 export type CurrentLocalRuntimeReplyReadinessResponse =
   z.infer<CurrentLocalRuntimeReplyReadinessResponseSchema>;
@@ -78,3 +84,9 @@ export type SetCurrentAgentProfileWorkspaceRouteParams =
   z.infer<SetCurrentAgentProfileWorkspaceRouteParamsSchema>;
 export type RefreshCurrentLocalAgentCatalogResponse =
   z.infer<RefreshCurrentLocalAgentCatalogResponseSchema>;
+export type SetCurrentOpenMeldToolsMaintenanceBody =
+  z.infer<SetCurrentOpenMeldToolsMaintenanceBodySchema>;
+export type SetCurrentOpenMeldToolsMaintenanceResponse =
+  z.infer<SetCurrentOpenMeldToolsMaintenanceResponseSchema>;
+export type RequestCurrentOpenMeldToolsUpdateResponse =
+  z.infer<RequestCurrentOpenMeldToolsUpdateResponseSchema>;

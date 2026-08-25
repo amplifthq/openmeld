@@ -125,6 +125,10 @@ describe("remote agent Flue capability inventory", () => {
     );
     expect(describedNames).toEqual(executableNames);
     expect(describedNames).toContain("openmeld_list_computers");
+    expect(describedNames).toContain("openmeld_update_openmeld_tools");
+    expect(describedNames).toContain(
+      "openmeld_select_local_agent_installation"
+    );
     expect(describedNames).toContain("openmeld_read_member_computers");
     expect(namespaceByName.get("openmeld_list_connected_apps")).toBe(
       "connected_apps"
@@ -157,6 +161,30 @@ describe("remote agent Flue capability inventory", () => {
       capabilities: expect.arrayContaining([
         expect.objectContaining({
           name: "openmeld_list_computers",
+          namespace: "agents_and_computers",
+        }),
+      ]),
+    });
+  });
+
+  it("finds the one-click OpenMeld Tools update capability from a Chinese goal", async () => {
+    const tools = await getRemoteAgentFlueTools({
+      coreWorker: {},
+      storage: await createCapabilityInventoryStorage(),
+    });
+    const searchTool = tools.find(
+      (tool) => tool.name === REMOTE_AGENT_CAPABILITY_SEARCH_TOOL_NAME
+    );
+    if (!searchTool?.run) {
+      throw new Error("Center Agent capability search is unavailable.");
+    }
+
+    await expect(
+      searchTool.run({ input: { query: "帮我更新 OpenMeld 工具" } } as never)
+    ).resolves.toMatchObject({
+      capabilities: expect.arrayContaining([
+        expect.objectContaining({
+          name: "openmeld_update_openmeld_tools",
           namespace: "agents_and_computers",
         }),
       ]),

@@ -56,6 +56,10 @@ describe("resolve local service capabilities", () => {
         removeMissingConnections: true,
         setDefaultConnection: true,
       },
+      openMeldToolsControl: {
+        requestUpdate: true,
+        setAutomaticUpdates: true,
+      },
       runtimeAdapters: [
         {
           adapterId: "codex",
@@ -122,6 +126,10 @@ describe("resolve local service capabilities", () => {
         removeConnection: true,
         removeMissingConnections: true,
         setDefaultConnection: true,
+      },
+      openMeldToolsControl: {
+        requestUpdate: true,
+        setAutomaticUpdates: true,
       },
     });
   });

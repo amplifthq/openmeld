@@ -5,7 +5,11 @@ import {
 } from "../daemon/control-plane";
 import { daemonExecutionCompatibilitySchema } from "../daemon/runtime-transport";
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
-import { localComponentUpdateProjectionSchema } from "../local-components";
+import {
+  localComponentUpdateProjectionSchema,
+  openMeldToolsMaintenanceMutationResultSchema,
+  openMeldToolsUpdateRequestResultSchema,
+} from "../local-components";
 import {
   agentProfileIdSchema,
   profileWorkingDirectorySchema,
@@ -188,6 +192,16 @@ export const currentLocalAgentInstallationsRouteParamsSchema = z.strictObject({
 export const selectCurrentLocalAgentInstallationBodySchema = z.strictObject({
   installationId: z.string().trim().min(1).max(256),
 });
+
+export const setCurrentOpenMeldToolsMaintenanceBodySchema = z.strictObject({
+  automaticUpdatesEnabled: z.boolean(),
+});
+
+export const setCurrentOpenMeldToolsMaintenanceResponseSchema =
+  openMeldToolsMaintenanceMutationResultSchema;
+
+export const requestCurrentOpenMeldToolsUpdateResponseSchema =
+  openMeldToolsUpdateRequestResultSchema;
 
 export const currentLocalAgentInstallationsResponseSchema = z.strictObject({
   agentId: z.string().trim().min(1).max(256),

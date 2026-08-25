@@ -100,6 +100,26 @@ export type RuntimeTransportManageLocalAgentInstallationResponse =
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportManageLocalAgentInstallationResponseSchema"]
   >;
 
+export type RuntimeTransportOpenMeldToolsControlRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportOpenMeldToolsControlRequestSchema"]
+  >;
+
+export type RuntimeTransportOpenMeldToolsControlResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportOpenMeldToolsControlResponseSchema"]
+  >;
+
+export type RuntimeTransportOpenMeldToolsControlFramePayload =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportOpenMeldToolsControlFramePayloadSchema"]
+  >;
+
+export type RuntimeTransportOpenMeldToolsControlResultFramePayload =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportOpenMeldToolsControlResultFramePayloadSchema"]
+  >;
+
 export type RuntimeTransportRefreshLocalAgentCatalogRequest =
   import("zod/v4").infer<
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportRefreshLocalAgentCatalogRequestSchema"]

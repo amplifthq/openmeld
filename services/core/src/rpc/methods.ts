@@ -62,6 +62,8 @@ import {
   centerAgentListComputersResponseSchema,
   centerAgentListLocalAgentConnectionCandidatesBodySchema,
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
+  centerAgentListLocalAgentInstallationsBodySchema,
+  centerAgentListLocalAgentInstallationsResponseSchema,
   centerAgentListSlackChannelsBodySchema,
   centerAgentListSpaceFilesResponseSchema,
   centerAgentListSpaceFilesRpcInputSchema,
@@ -100,10 +102,16 @@ import {
   centerAgentRememberForOrganizationResponseSchema,
   centerAgentRemoveAgentProfilesFromSpaceBodySchema,
   centerAgentRemoveAgentProfilesFromSpaceResponseSchema,
+  centerAgentRequestOpenMeldToolsUpdateBodySchema,
+  centerAgentRequestOpenMeldToolsUpdateResponseSchema,
   centerAgentSaveSpaceFileResponseSchema,
   centerAgentSaveSpaceFileRpcInputSchema,
   centerAgentSearchSlackMessagesBodySchema,
   centerAgentSearchSlackMessagesResponseSchema,
+  centerAgentSelectLocalAgentInstallationBodySchema,
+  centerAgentSelectLocalAgentInstallationResponseSchema,
+  centerAgentSetOpenMeldToolsMaintenanceBodySchema,
+  centerAgentSetOpenMeldToolsMaintenanceResponseSchema,
   centerAgentSlackWorkspaceConnectBodySchema,
   centerAgentSlackWorkspaceConnectionResponseSchema,
   centerAgentSlackWorkspaceDisconnectResponseSchema,
@@ -229,6 +237,7 @@ import {
   projectOwnerComputerLocalRuntimes,
   recordSpaceAttachmentPayloadSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
+  requestCurrentOpenMeldToolsUpdateResponseSchema,
   resolvedSpaceMemberProfileSchema,
   resolveSpaceAttachmentForDownloadPayloadSchema,
   respondToSpaceAgentInteractionInputSchema,
@@ -247,6 +256,8 @@ import {
   setCurrentLocalAgentEnabledBodySchema,
   setCurrentLocalAgentEnabledResponseSchema,
   setCurrentLocalAgentEnabledRouteParamsSchema,
+  setCurrentOpenMeldToolsMaintenanceBodySchema,
+  setCurrentOpenMeldToolsMaintenanceResponseSchema,
   setLocalRuntimeDisplayNameBodySchema,
   setOrganizationBindingAuthorizationPreferenceBodySchema,
   setOrganizationBindingAuthorizationPreferenceResponseSchema,
@@ -339,6 +350,8 @@ import type {
   CenterAgentListComputersResponse,
   CenterAgentListLocalAgentConnectionCandidatesBody,
   CenterAgentListLocalAgentConnectionCandidatesResponse,
+  CenterAgentListLocalAgentInstallationsBody,
+  CenterAgentListLocalAgentInstallationsResponse,
   CenterAgentListOpportunitiesToolRpcInput,
   CenterAgentListSlackChannelsBody,
   CenterAgentListSlackChannelsResponse,
@@ -390,11 +403,17 @@ import type {
   CenterAgentRemoteRuntimeAvailabilityReasonCode,
   CenterAgentRemoveAgentProfilesFromSpaceBody,
   CenterAgentRemoveAgentProfilesFromSpaceResponse,
+  CenterAgentRequestOpenMeldToolsUpdateBody,
+  CenterAgentRequestOpenMeldToolsUpdateResponse,
   CenterAgentRespondToOpportunityToolRpcInput,
   CenterAgentSaveSpaceFileResponse,
   CenterAgentSaveSpaceFileRpcInput,
   CenterAgentSearchSlackMessagesBody,
   CenterAgentSearchSlackMessagesResponse,
+  CenterAgentSelectLocalAgentInstallationBody,
+  CenterAgentSelectLocalAgentInstallationResponse,
+  CenterAgentSetOpenMeldToolsMaintenanceBody,
+  CenterAgentSetOpenMeldToolsMaintenanceResponse,
   CenterAgentSlackWorkspaceConnectBody,
   CenterAgentSlackWorkspaceConnectionResponse,
   CenterAgentSlackWorkspaceDisconnectResponse,
@@ -527,6 +546,7 @@ import type {
   OpenDirectMessageSpaceBody,
   OpenDirectMessageSpaceResponse,
   OpenMeldRequestContext,
+  OpenMeldToolsControlRequest,
   OrganizationComputersResponse,
   OrganizationDirectoryResponse,
   OrganizationInformationProtectionPolicyResponse,
@@ -545,6 +565,7 @@ import type {
   RecordSpaceAttachmentPayload,
   RefreshCurrentLocalAgentCatalogResponse,
   RemoveSpaceMembersResponse,
+  RequestCurrentOpenMeldToolsUpdateResponse,
   ResolvedSpaceMemberProfile,
   ResolveSpaceAttachmentForDownloadPayload,
   ResolveSpaceFileContentInput,
@@ -565,6 +586,8 @@ import type {
   SetCurrentAgentProfileWorkspaceResponse,
   SetCurrentLocalAgentEnabledBody,
   SetCurrentLocalAgentEnabledResponse,
+  SetCurrentOpenMeldToolsMaintenanceBody,
+  SetCurrentOpenMeldToolsMaintenanceResponse,
   SetLocalRuntimeDisplayNameBody,
   SetOrganizationBindingAuthorizationPreferenceBody,
   SetOrganizationBindingAuthorizationPreferenceResponse,
@@ -853,6 +876,7 @@ import {
 } from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
 import {
   acquireRuntimeTransportAgentProfileExecutionTargetMutation,
+  controlRuntimeTransportOpenMeldTools,
   isRuntimeTransportProfileWorkspaceOutcomeDefinitive,
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoutesBatch,
@@ -2378,6 +2402,15 @@ export type SelectCurrentLocalAgentInstallationInput =
     context?: CoreRpcContextInput;
   };
 
+export type RequestCurrentOpenMeldToolsUpdateInput = {
+  context?: CoreRpcContextInput;
+};
+
+export type SetCurrentOpenMeldToolsMaintenanceInput =
+  SetCurrentOpenMeldToolsMaintenanceBody & {
+    context?: CoreRpcContextInput;
+  };
+
 export type SetCurrentAgentProfileWorkspaceInput =
   SetCurrentAgentProfileWorkspaceBody & {
     agentProfileId: string;
@@ -2801,6 +2834,26 @@ export type CenterAgentListLocalAgentConnectionCandidatesInput =
 export type CenterAgentListComputersInput = CenterAgentListComputersBody & {
   context?: CoreRpcContextInput;
 };
+
+export type CenterAgentRequestOpenMeldToolsUpdateInput =
+  CenterAgentRequestOpenMeldToolsUpdateBody & {
+    context?: CoreRpcContextInput;
+  };
+
+export type CenterAgentSetOpenMeldToolsMaintenanceInput =
+  CenterAgentSetOpenMeldToolsMaintenanceBody & {
+    context?: CoreRpcContextInput;
+  };
+
+export type CenterAgentListLocalAgentInstallationsInput =
+  CenterAgentListLocalAgentInstallationsBody & {
+    context?: CoreRpcContextInput;
+  };
+
+export type CenterAgentSelectLocalAgentInstallationInput =
+  CenterAgentSelectLocalAgentInstallationBody & {
+    context?: CoreRpcContextInput;
+  };
 
 export type CenterAgentConnectAgentProfileToLocalAgentInput =
   CenterAgentConnectAgentProfileToLocalAgentBody & {
@@ -3296,6 +3349,7 @@ async function resolveCurrentLocalControlTarget(input: {
 }): Promise<{
   currentTarget: CurrentLocalControlTarget;
   lookupOwnerServiceForUser: LookupOwnerServiceForUser;
+  ownerService: Awaited<ReturnType<LookupOwnerServiceForUser>>;
 }> {
   const {
     bindingTarget,
@@ -3309,7 +3363,7 @@ async function resolveCurrentLocalControlTarget(input: {
     offlineError: input.offlineError,
     ownerService,
   });
-  return { currentTarget, lookupOwnerServiceForUser };
+  return { currentTarget, lookupOwnerServiceForUser, ownerService };
 }
 
 async function resolveCurrentLocalServiceContext(input: {
@@ -3378,6 +3432,137 @@ async function resolveCurrentLocalAgentControlTarget(input: {
     });
   }
   return { currentTarget, lookupOwnerServiceForUser };
+}
+
+async function resolveCurrentOpenMeldToolsControlTarget(input: {
+  capability: "requestUpdate" | "setAutomaticUpdates";
+  env: CoreBindings;
+  userId: string;
+}): Promise<CurrentLocalControlTarget> {
+  const { currentTarget, ownerService } =
+    await resolveCurrentLocalControlTarget({
+      env: input.env,
+      offlineError: {
+        code: "service_offline",
+        reason: "OpenMeld Service is offline.",
+        status: 503,
+      },
+      userId: input.userId,
+    });
+  const supportsControl =
+    ownerService.online &&
+    ownerService.sessions.some(
+      (session) =>
+        session.deviceId === currentTarget.deviceId &&
+        session.lane === currentTarget.runtimeLane &&
+        session.executionCompatibility.status === "compatible" &&
+        session.capabilities.openMeldToolsControl?.[input.capability] === true
+    );
+  if (!supportsControl) {
+    throw createCoreRpcHttpError({
+      code: "service_update_required",
+      reason: "Reconnect OpenMeld Service to use this action.",
+      status: 409,
+    });
+  }
+  return currentTarget;
+}
+
+function requireAcceptedOpenMeldToolsControlResult(
+  result: Awaited<ReturnType<typeof controlRuntimeTransportOpenMeldTools>>
+) {
+  if (result.status === "accepted") {
+    return result.result;
+  }
+  let reason = result.message;
+  let status = 409;
+  if (result.reasonCode.includes("timeout")) {
+    reason = "OpenMeld Service did not respond.";
+    status = 504;
+  } else if (
+    result.reasonCode.includes("not_found") ||
+    result.reasonCode.includes("offline")
+  ) {
+    reason = "OpenMeld Service is offline.";
+    status = 503;
+  }
+  throw createCoreRpcHttpError({
+    code: result.reasonCode,
+    reason,
+    status,
+  });
+}
+
+async function controlOpenMeldToolsForUser(input: {
+  env: CoreBindings;
+  request: OpenMeldToolsControlRequest;
+  userId: string;
+}) {
+  const capability =
+    input.request.operation === "request_update"
+      ? "requestUpdate"
+      : "setAutomaticUpdates";
+  const currentTarget = await resolveCurrentOpenMeldToolsControlTarget({
+    capability,
+    env: input.env,
+    userId: input.userId,
+  });
+  return requireAcceptedOpenMeldToolsControlResult(
+    await controlRuntimeTransportOpenMeldTools({
+      deviceId: currentTarget.deviceId,
+      env: input.env,
+      ownerUserId: input.userId,
+      request: input.request,
+      runtimeLane: currentTarget.runtimeLane,
+    })
+  );
+}
+
+export async function rpcRequestCurrentOpenMeldToolsUpdate(
+  env: CoreBindings,
+  input: RequestCurrentOpenMeldToolsUpdateInput
+): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {
+  const result = await controlOpenMeldToolsForUser({
+    env,
+    request: {
+      operation: "request_update",
+      requestSource: "web",
+    },
+    userId: requireAuthenticatedOwnerUserId(input.context),
+  });
+  if (result.operation !== "request_update") {
+    throw new Error("OpenMeld Service returned the wrong update result.");
+  }
+  return requestCurrentOpenMeldToolsUpdateResponseSchema.parse(result.result);
+}
+
+export async function rpcSetCurrentOpenMeldToolsMaintenance(
+  env: CoreBindings,
+  input: SetCurrentOpenMeldToolsMaintenanceInput
+): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
+  const parsed = setCurrentOpenMeldToolsMaintenanceBodySchema.safeParse({
+    automaticUpdatesEnabled: input.automaticUpdatesEnabled,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: parsed.error.issues[0]?.message ?? "Invalid update setting.",
+      status: 400,
+    });
+  }
+  const result = await controlOpenMeldToolsForUser({
+    env,
+    request: {
+      automaticUpdatesEnabled: parsed.data.automaticUpdatesEnabled,
+      operation: "set_automatic_updates",
+      requestSource: "web",
+    },
+    userId: requireAuthenticatedOwnerUserId(input.context),
+  });
+  if (result.operation !== "set_automatic_updates") {
+    throw new Error("OpenMeld Service returned the wrong update setting.");
+  }
+  return setCurrentOpenMeldToolsMaintenanceResponseSchema.parse(result.result);
 }
 
 type CurrentLocalProjectControlTarget =
@@ -3480,7 +3665,16 @@ export async function rpcGetCurrentLocalAgentInstallations(
   env: CoreBindings,
   input: GetCurrentLocalAgentInstallationsInput
 ): Promise<CurrentLocalAgentInstallationsResponse> {
-  const userId = requireAuthenticatedOwnerUserId(input.context);
+  return await getCurrentLocalAgentInstallationsForUser(env, {
+    agentId: input.agentId,
+    userId: requireAuthenticatedOwnerUserId(input.context),
+  });
+}
+
+async function getCurrentLocalAgentInstallationsForUser(
+  env: CoreBindings,
+  input: { agentId: string; userId: string }
+): Promise<CurrentLocalAgentInstallationsResponse> {
   const routeParams = currentLocalAgentInstallationsRouteParamsSchema.safeParse(
     {
       agentId: input.agentId,
@@ -3501,13 +3695,13 @@ export async function rpcGetCurrentLocalAgentInstallations(
     env,
     unsupportedCode: "local_agent_control.unsupported",
     unsupportedReason:
-      "Update OpenMeld Service before choosing a local agent installation from OpenMeld Web.",
-    userId,
+      "Update OpenMeld Service before choosing a local agent installation.",
+    userId: input.userId,
   });
   const transportResult = await manageRuntimeTransportLocalAgentInstallation({
     deviceId: currentTarget.deviceId,
     env,
-    ownerUserId: userId,
+    ownerUserId: input.userId,
     request: {
       agentId: routeParams.data.agentId,
       operation: "list",
@@ -3535,7 +3729,17 @@ export async function rpcSelectCurrentLocalAgentInstallation(
   env: CoreBindings,
   input: SelectCurrentLocalAgentInstallationInput
 ): Promise<SelectCurrentLocalAgentInstallationResponse> {
-  const userId = requireAuthenticatedOwnerUserId(input.context);
+  return await selectCurrentLocalAgentInstallationForUser(env, {
+    agentId: input.agentId,
+    installationId: input.installationId,
+    userId: requireAuthenticatedOwnerUserId(input.context),
+  });
+}
+
+async function selectCurrentLocalAgentInstallationForUser(
+  env: CoreBindings,
+  input: { agentId: string; installationId: string; userId: string }
+): Promise<SelectCurrentLocalAgentInstallationResponse> {
   const routeParams = currentLocalAgentInstallationsRouteParamsSchema.safeParse(
     {
       agentId: input.agentId,
@@ -3561,13 +3765,13 @@ export async function rpcSelectCurrentLocalAgentInstallation(
       env,
       unsupportedCode: "local_agent_control.unsupported",
       unsupportedReason:
-        "Update OpenMeld Service before choosing a local agent installation from OpenMeld Web.",
-      userId,
+        "Update OpenMeld Service before choosing a local agent installation.",
+      userId: input.userId,
     });
   const transportResult = await manageRuntimeTransportLocalAgentInstallation({
     deviceId: currentTarget.deviceId,
     env,
-    ownerUserId: userId,
+    ownerUserId: input.userId,
     request: {
       agentId: routeParams.data.agentId,
       installationId: parsedBody.data.installationId,
@@ -3581,7 +3785,7 @@ export async function rpcSelectCurrentLocalAgentInstallation(
     connectionIdentityAdoption: "safe_legacy_current",
     lookupOwnerService: lookupOwnerServiceForUser,
     store: buildCurrentDeviceTargetStore(env),
-    userId,
+    userId: input.userId,
   });
   const response: SelectCurrentLocalAgentInstallationResponse = {
     agentId: acceptedPayload.agentId,
@@ -9900,6 +10104,163 @@ export async function rpcCenterAgentListComputers(
     );
   }
   return validated.data;
+}
+
+export async function rpcCenterAgentRequestOpenMeldToolsUpdate(
+  env: CoreBindings,
+  input: CenterAgentRequestOpenMeldToolsUpdateInput
+): Promise<CenterAgentRequestOpenMeldToolsUpdateResponse> {
+  const parsed = centerAgentRequestOpenMeldToolsUpdateBodySchema.safeParse({
+    speakerMember: input.speakerMember,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: parsed.error.issues[0]?.message ?? "Invalid update request.",
+      status: 400,
+    });
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(input.context),
+      parsed.data.speakerMember,
+      {
+        code: "center_agent.computer_control_speaker_required",
+        reason: "Computer changes require a verified member.",
+      }
+    );
+  const result = await controlOpenMeldToolsForUser({
+    env,
+    request: {
+      operation: "request_update",
+      requestSource: "center_agent",
+    },
+    userId: representedHuman.userId,
+  });
+  if (result.operation !== "request_update") {
+    throw new Error("OpenMeld Service returned the wrong update result.");
+  }
+  return centerAgentRequestOpenMeldToolsUpdateResponseSchema.parse({
+    organizationId: authorization.activeOrganization.organizationId,
+    result: result.result,
+  });
+}
+
+export async function rpcCenterAgentSetOpenMeldToolsMaintenance(
+  env: CoreBindings,
+  input: CenterAgentSetOpenMeldToolsMaintenanceInput
+): Promise<CenterAgentSetOpenMeldToolsMaintenanceResponse> {
+  const parsed = centerAgentSetOpenMeldToolsMaintenanceBodySchema.safeParse({
+    automaticUpdatesEnabled: input.automaticUpdatesEnabled,
+    speakerMember: input.speakerMember,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: parsed.error.issues[0]?.message ?? "Invalid update setting.",
+      status: 400,
+    });
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(input.context),
+      parsed.data.speakerMember,
+      {
+        code: "center_agent.computer_control_speaker_required",
+        reason: "Computer changes require a verified member.",
+      }
+    );
+  const result = await controlOpenMeldToolsForUser({
+    env,
+    request: {
+      automaticUpdatesEnabled: parsed.data.automaticUpdatesEnabled,
+      operation: "set_automatic_updates",
+      requestSource: "center_agent",
+    },
+    userId: representedHuman.userId,
+  });
+  if (result.operation !== "set_automatic_updates") {
+    throw new Error("OpenMeld Service returned the wrong update setting.");
+  }
+  return centerAgentSetOpenMeldToolsMaintenanceResponseSchema.parse({
+    organizationId: authorization.activeOrganization.organizationId,
+    result: result.result,
+  });
+}
+
+export async function rpcCenterAgentListLocalAgentInstallations(
+  env: CoreBindings,
+  input: CenterAgentListLocalAgentInstallationsInput
+): Promise<CenterAgentListLocalAgentInstallationsResponse> {
+  const parsed = centerAgentListLocalAgentInstallationsBodySchema.safeParse({
+    agentId: input.agentId,
+    speakerMember: input.speakerMember,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: parsed.error.issues[0]?.message ?? "Invalid local agent.",
+      status: 400,
+    });
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(input.context),
+      parsed.data.speakerMember,
+      {
+        code: "center_agent.computer_control_speaker_required",
+        reason: "Computer changes require a verified member.",
+      }
+    );
+  const result = await getCurrentLocalAgentInstallationsForUser(env, {
+    agentId: parsed.data.agentId,
+    userId: representedHuman.userId,
+  });
+  return centerAgentListLocalAgentInstallationsResponseSchema.parse({
+    ...result,
+    organizationId: authorization.activeOrganization.organizationId,
+  });
+}
+
+export async function rpcCenterAgentSelectLocalAgentInstallation(
+  env: CoreBindings,
+  input: CenterAgentSelectLocalAgentInstallationInput
+): Promise<CenterAgentSelectLocalAgentInstallationResponse> {
+  const parsed = centerAgentSelectLocalAgentInstallationBodySchema.safeParse({
+    agentId: input.agentId,
+    confirmed: input.confirmed,
+    installationId: input.installationId,
+    speakerMember: input.speakerMember,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: parsed.error.issues[0]?.message ?? "Confirm this installation.",
+      status: 400,
+    });
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(input.context),
+      parsed.data.speakerMember,
+      {
+        code: "center_agent.computer_control_speaker_required",
+        reason: "Computer changes require a verified member.",
+      }
+    );
+  const result = await selectCurrentLocalAgentInstallationForUser(env, {
+    agentId: parsed.data.agentId,
+    installationId: parsed.data.installationId,
+    userId: representedHuman.userId,
+  });
+  return centerAgentSelectLocalAgentInstallationResponseSchema.parse({
+    ...result,
+    organizationId: authorization.activeOrganization.organizationId,
+  });
 }
 
 export async function rpcCenterAgentConnectAgentProfileToLocalAgent(
