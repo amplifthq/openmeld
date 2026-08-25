@@ -91,7 +91,12 @@ jobs:
         uses: ./.github/actions/setup-node-pnpm
 
       - name: Run Core Worker deployment preflight
+        if: inputs.deployment_mode == 'standard'
         run: pnpm run release:preflight:local -- --scope core --base HEAD
+
+      - name: Run current-stable Core recovery preflight
+        if: inputs.deployment_mode == 'current-stable-cli-projection'
+        run: pnpm run release:preflight:core-current-cli-projection
 
       - name: Capture Core bundle evidence
         run: pnpm run evidence:bundle:core

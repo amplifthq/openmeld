@@ -617,6 +617,14 @@ Gateway, or Remote Agent. The GitHub CLI release and this recovery share the
 Core deployment lock so those GitHub lanes cannot change the stable channel
 while recovery is building or deploying its projection.
 
+Its preflight verifies the Cloudflare environment contract,
+retired identifiers, and production Core Queue resources, but intentionally
+does not compare the newer checked-in local-component manifest with the older
+stable channel. That mismatch is the recovery condition. The recovery script
+instead validates the live stable version, its immutable Git tag, and its
+tagged manifest before compiling that exact projection. Ordinary Core releases
+continue to require the checked-in manifest and stable channel to match.
+
 ## Resumable Execution
 
 The guarded local executor is safe to rerun after interruption. Completion
