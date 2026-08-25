@@ -419,6 +419,11 @@ test("keeps one fast PR gate and makes exhaustive confidence manual", () => {
     localComponents.includes('- "scripts/release/release-ready-paths.mjs"')
   );
   assert.ok(localComponents.includes("run: pnpm run verify:release-ready"));
+  assert.ok(
+    !localComponents.includes(
+      "OPENMELD_AFFECTED_BASE: ${{ steps.scope.outputs.base }}"
+    )
+  );
   assert.ok(!localComponents.includes("--defer-release"));
 });
 
