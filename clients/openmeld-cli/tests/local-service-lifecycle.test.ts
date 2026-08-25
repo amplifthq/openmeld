@@ -34,6 +34,7 @@ const {
   restoreDaemonActiveBundleStateSnapshotMock,
   restoreDaemonInstallStateSnapshotMock,
   restoreDaemonRuntimeDataForReinstallMock,
+  verifyDaemonActiveBundleIntegrityMock,
   upsertDaemonServiceContractMock,
   waitForDaemonSystemServiceToStopMock,
 } = vi.hoisted(() => ({
@@ -61,6 +62,7 @@ const {
   restoreDaemonActiveBundleStateSnapshotMock: vi.fn(),
   restoreDaemonInstallStateSnapshotMock: vi.fn(),
   restoreDaemonRuntimeDataForReinstallMock: vi.fn(),
+  verifyDaemonActiveBundleIntegrityMock: vi.fn(),
   upsertDaemonServiceContractMock: vi.fn(),
   waitForDaemonSystemServiceToStopMock: vi.fn(),
 }));
@@ -132,6 +134,7 @@ vi.mock("../src/local-service/lifecycle/daemon-service-bundle", async () => {
     prepareDaemonServiceBundle: prepareDaemonServiceBundleMock,
     restoreDaemonActiveBundleStateSnapshot:
       restoreDaemonActiveBundleStateSnapshotMock,
+    verifyDaemonActiveBundleIntegrity: verifyDaemonActiveBundleIntegrityMock,
   };
 });
 
@@ -288,6 +291,7 @@ describe("local service lifecycle", () => {
     restoreDaemonRuntimeDataForReinstallMock
       .mockReset()
       .mockResolvedValue(undefined);
+    verifyDaemonActiveBundleIntegrityMock.mockReset().mockResolvedValue(true);
     upsertDaemonServiceContractMock
       .mockReset()
       .mockImplementation(async (input) =>
@@ -573,6 +577,86 @@ describe("local service lifecycle", () => {
     expect(serviceManager.uninstall).not.toHaveBeenCalled();
     expect(serviceManager.install).not.toHaveBeenCalled();
     expect(installDaemonMock).not.toHaveBeenCalled();
+  });
+
+  it("restores the verified previous binary when the replacement cannot start", async () => {
+    const previousBinaryPath = "/tmp/versions/0.3.3/openmeld";
+    const previousInventory = {
+      ...buildInitialInventory(serviceManager, {
+        installedVersion: PREVIOUS_VERSION,
+      }),
+      activeBundle: {
+        ...buildActiveBundle({
+          bundleId: "bundle-old",
+          daemonVersion: PREVIOUS_VERSION,
+        }),
+        bundleFormat: "binary_v1" as const,
+        entryScriptRelativePath: "openmeld",
+        sourceEntryScriptPath: previousBinaryPath,
+        sourcePackageRootPath: "/tmp/versions/0.3.3",
+        sourceDistRootPath: "/tmp/versions/0.3.3",
+      },
+      activeBundleSourceAvailable: null,
+      activeBundleEntryPath: previousBinaryPath,
+      runtimeCommandEntryPath: previousBinaryPath,
+      anomalies: [
+        {
+          code: "version_outdated" as const,
+          message: "OpenMeld Service is older than this CLI.",
+        },
+        {
+          code: "bundle_version_drift" as const,
+          message: "The active Service bundle is the previous version.",
+        },
+      ],
+    } satisfies DaemonServiceInventory;
+    const restoredInventory = {
+      ...previousInventory,
+      expectedVersion: PREVIOUS_VERSION,
+      anomalies: [],
+    } satisfies DaemonServiceInventory;
+    serviceManager.waitUntilRunning = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("replacement service did not start"))
+      .mockResolvedValueOnce(undefined);
+    inspectDaemonServiceInventoryMock.mockReset().mockImplementation(() => {
+      if (inspectDaemonServiceInventoryMock.mock.calls.length === 1) {
+        return Promise.resolve(previousInventory);
+      }
+      return Promise.resolve(
+        restoreDaemonInstallStateSnapshotMock.mock.calls.length > 0
+          ? restoredInventory
+          : buildFinalInventory(serviceManager)
+      );
+    });
+
+    const result = await runDaemonServiceLifecycle({
+      expectedVersion: EXPECTED_VERSION,
+      operation: "upgrade_reconcile",
+      installSource: "daemon.command.install",
+      desiredState: "background",
+      shouldStartAfterLifecycle: true,
+      forceReinstall: true,
+    });
+
+    expect(result).toMatchObject({
+      failureStage: "wait_running",
+      recoveryStatus: "restored_verified_previous_state",
+      status: "failed",
+    });
+    expect(result.inventoryAfter?.installStatus).toMatchObject({
+      installed: true,
+      state: { daemonVersion: PREVIOUS_VERSION },
+    });
+    expect(restoreDaemonInstallStateSnapshotMock).toHaveBeenCalledWith(
+      previousInventory.installStatus.state
+    );
+    expect(restoreDaemonActiveBundleStateSnapshotMock).toHaveBeenCalledWith(
+      previousInventory.activeBundle
+    );
+    expect(serviceManager.uninstall).toHaveBeenCalledTimes(2);
+    expect(serviceManager.install).toHaveBeenCalledTimes(2);
+    expect(serviceManager.waitUntilRunning).toHaveBeenCalledTimes(2);
   });
 
   it("uses the legacy stop path only when the old service does not support controlled drain", async () => {

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { cancel, confirm, isCancel } from "@clack/prompts";
 import packageJson from "../../package.json";
+import { resolveServiceUpdateUrgency } from "../command-entry-checks/service-update-urgency";
 import {
   buildNextVersionState,
   type CliBinaryReleaseInfo,
@@ -13,7 +14,6 @@ import {
   readVersionState,
   writeVersionState,
 } from "../config/version-state";
-import { runDaemonServiceFullAlignment } from "../local-service/lifecycle/daemon-service-alignment-executor";
 import {
   buildDaemonServiceTargetSpec,
   resolveDaemonServiceAlignmentDecision,
@@ -23,6 +23,7 @@ import {
   formatDaemonFailureContextText,
 } from "../local-service/lifecycle/daemon-service-evidence";
 import { inspectDaemonServiceInventory } from "../local-service/lifecycle/daemon-service-inventory";
+import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-coordinator";
 import { resolveVersionChangeDirection } from "../local-service/lifecycle/version-change-direction";
 import {
   type CliBinaryUpdatePlan,
@@ -49,7 +50,6 @@ import {
   formatNpmPackageAcquisitionFailureDiagnosis,
 } from "../runtime/npm-package-acquisition-diagnostics";
 import { createPresenter } from "../runtime/presenter/index";
-import { createDaemonServiceAlignmentProgressUi } from "../system/local-service-alignment-progress-ui";
 import {
   formatDaemonServiceDowngradeBlockedRecommendation,
   formatDaemonServiceMissingRecommendation,
@@ -62,6 +62,8 @@ const CLI_BINARY_DOWNLOAD_TIMEOUT_MS = 60_000;
 const BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND =
   "curl -fsSL 'https://openmeld.ai/setup?dist=binary' | sh";
 const INSTALL_SELF_JSON_LINE_SPLIT_RE = /\r?\n/u;
+const SERVICE_CHECK_STARTED_TEXT = "Checking OpenMeld Service";
+const SERVICE_CHECK_COMPLETED_TEXT = "OpenMeld Service check finished.";
 export const UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG = "--internal-align-service";
 
 class UpgradeOutputHandledError extends Error {
@@ -410,8 +412,8 @@ async function installAndReconcileBinaryUpgrade(input: {
     presenter: input.presenter,
     resolvedView: input.resolvedView,
     code: "upgrade.service_alignment",
-    startedText: "Making sure OpenMeld Service matches the new CLI",
-    completedText: "OpenMeld Service matches the new CLI.",
+    startedText: SERVICE_CHECK_STARTED_TEXT,
+    completedText: SERVICE_CHECK_COMPLETED_TEXT,
     run: async () =>
       await handoffUpgradeServiceAlignmentToLatestBinary({
         resolvedView: input.resolvedView,
@@ -476,8 +478,8 @@ async function installAndReconcileNpmUpgrade(input: {
     presenter: input.presenter,
     resolvedView: input.resolvedView,
     code: "upgrade.service_alignment",
-    startedText: "Making sure OpenMeld Service matches the new CLI",
-    completedText: "OpenMeld Service matches the new CLI.",
+    startedText: SERVICE_CHECK_STARTED_TEXT,
+    completedText: SERVICE_CHECK_COMPLETED_TEXT,
     run: async () =>
       await handoffUpgradeServiceAlignmentToLatestBinary({
         resolvedView: input.resolvedView,
@@ -887,82 +889,26 @@ async function runInternalUpgradeServiceAlignment(input: {
     throw new UpgradeOutputHandledError(errorMessage);
   }
 
-  const alignmentProgressUi = createDaemonServiceAlignmentProgressUi({
-    view: input.resolvedView,
-  });
-  const alignmentResult = await runDaemonServiceFullAlignment({
-    expectedVersion: input.daemonVersion,
-    intent: "upgrade_reconcile",
+  const scheduled = await scheduleDaemonServiceUpdate({
+    targetVersion: input.daemonVersion,
+    urgency: await resolveServiceUpdateUrgency(),
     ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),
-    onProgress: alignmentProgressUi.onProgress,
   });
-
-  if (alignmentResult.status === "aligned") {
-    alignmentProgressUi.complete();
-    emitUpgradeReconcileCompleted({
-      presenter: input.presenter,
-      resolvedView: input.resolvedView,
-      expectedVersion: input.daemonVersion,
+  if (input.resolvedView === "human") {
+    input.presenter.line({
+      code: "upgrade.reconcile.scheduled",
+      text: "OpenMeld will finish updating the Service in the background. You can close this Terminal.",
     });
     return;
   }
-
-  if (alignmentResult.status === "stopped_safe") {
-    alignmentProgressUi.fail();
-    emitUpgradeReconcileStoppedSafe({
-      presenter: input.presenter,
-      resolvedView: input.resolvedView,
-      expectedVersion: input.daemonVersion,
-      errorMessage: alignmentResult.errorMessage,
-      failureStage: alignmentResult.failureStage ?? null,
-      evidencePath: alignmentResult.evidencePath ?? null,
-    });
-    return;
-  }
-
-  if (alignmentResult.status === "already_aligned") {
-    alignmentProgressUi.complete();
-    emitUpgradeReconcileAlreadyCurrent({
-      presenter: input.presenter,
-      resolvedView: input.resolvedView,
-      expectedVersion: input.daemonVersion,
-    });
-    return;
-  }
-
-  alignmentProgressUi.fail();
-
-  const errorMessage =
-    alignmentResult.status === "blocked"
-      ? buildUpgradeAlignmentBlockedMessage(alignmentResult.reasonCodes)
-      : alignmentResult.errorMessage;
-  emitUpgradeReconcileFailure({
-    presenter: input.presenter,
-    resolvedView: input.resolvedView,
-    message:
-      alignmentResult.status === "blocked"
-        ? errorMessage
-        : formatUpgradeReconcileFailureMessage({
-            errorMessage,
-            backupDataPath: alignmentResult.backupDataPath,
-            failureStage: alignmentResult.failureStage ?? null,
-            evidencePath: alignmentResult.evidencePath ?? null,
-          }),
-    errorMessage,
-    backupDataPath:
-      alignmentResult.status === "failed"
-        ? alignmentResult.backupDataPath
-        : null,
-    failureStage:
-      alignmentResult.status === "failed"
-        ? (alignmentResult.failureStage ?? null)
-        : null,
-    evidencePath:
-      alignmentResult.status === "failed"
-        ? (alignmentResult.evidencePath ?? null)
-        : null,
+  input.presenter.data({
+    code: "upgrade.reconcile.scheduled",
+    payload: {
+      status: scheduled.status,
+      jobId: scheduled.job.jobId,
+      targetVersion: scheduled.job.targetVersion,
+    },
   });
-  throw new UpgradeOutputHandledError(errorMessage);
 }
 
 async function handoffUpgradeServiceAlignmentToLatestBinary(input: {
@@ -1181,17 +1127,6 @@ function buildUpgradeAlignmentBlockedMessage(
   );
 }
 
-function emitUpgradeReconcileCompleted(input: {
-  presenter: ReturnType<typeof createPresenter>;
-  resolvedView: "human" | "agent";
-  expectedVersion: string;
-}): void {
-  input.presenter.line({
-    code: "upgrade.reconcile.completed",
-    text: `OpenMeld Service reconciled to v${input.expectedVersion}.`,
-  });
-}
-
 function emitUpgradeReconcileAlreadyCurrent(input: {
   presenter: ReturnType<typeof createPresenter>;
   resolvedView: "human" | "agent";
@@ -1241,49 +1176,6 @@ function emitUpgradeReconcileFailure(input: {
       ...(input.failureStage ? { failureStage: input.failureStage } : {}),
       ...(input.evidencePath ? { evidencePath: input.evidencePath } : {}),
       command: "openmeld service repair",
-    },
-  });
-}
-
-function emitUpgradeReconcileStoppedSafe(input: {
-  presenter: ReturnType<typeof createPresenter>;
-  resolvedView: "human" | "agent";
-  expectedVersion: string;
-  errorMessage: string;
-  failureStage?:
-    | import("../local-service/lifecycle/daemon-service-evidence").DaemonServiceFailureStage
-    | null;
-  evidencePath: string | null;
-}): void {
-  const message = formatInlineOpenMeldCliCommands(
-    `OpenMeld Service reconciled to v${input.expectedVersion} and is safely stopped on the current version. OpenMeld did not roll back to older local service state. Run \`openmeld service start\` when you want to start it again.${
-      input.errorMessage.length > 0 ? ` Reason: ${input.errorMessage}.` : ""
-    }${
-      input.failureStage || input.evidencePath
-        ? ` ${formatDaemonFailureContextText({
-            failureStage: input.failureStage ?? null,
-            evidencePath: input.evidencePath,
-          })}`
-        : ""
-    }`
-  );
-  if (input.resolvedView === "human") {
-    input.presenter.line({
-      code: "upgrade.reconcile.stopped_safe",
-      text: message,
-    });
-    return;
-  }
-  input.presenter.data({
-    code: "upgrade.reconcile.stopped_safe",
-    payload: {
-      status: "stopped_safe",
-      expectedVersion: input.expectedVersion,
-      message,
-      errorMessage: input.errorMessage,
-      ...(input.failureStage ? { failureStage: input.failureStage } : {}),
-      ...(input.evidencePath ? { evidencePath: input.evidencePath } : {}),
-      command: "openmeld service start",
     },
   });
 }

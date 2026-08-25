@@ -26,4 +26,5 @@ export type * from "./runtime-reporting-health";
 export type * from "./runtime-transport";
 export type * from "./service-contract";
 export type * from "./service-recommendation";
+export type * from "./service-update-job";
 export type * from "./task-result";

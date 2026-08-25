@@ -22,6 +22,7 @@ import {
   type resolveDaemonServiceManagerForRuntimeState,
   type waitForDaemonSystemServiceToStop as waitForSystemServiceToStop,
 } from "../local-service/lifecycle/daemon-service-runtime";
+import type { uninstallDaemonServiceUpdateWorker } from "../local-service/lifecycle/daemon-service-update-worker-manager";
 import { formatInlineOpenMeldCliCommands } from "../runtime/cli-entry-command";
 import {
   SERVICE_STOP_CHECK_MS,
@@ -56,6 +57,7 @@ export type DaemonTeardownStrictDependencies = {
   stopDaemonProcess: typeof stopDaemonProcess;
   waitForSystemServiceToStop: typeof waitForSystemServiceToStop;
   uninstallDaemon: typeof uninstallDaemon;
+  uninstallServiceUpdateWorker: typeof uninstallDaemonServiceUpdateWorker;
   withRegistrationMutationLock: typeof withDaemonServiceRegistrationMutationLock;
 };
 

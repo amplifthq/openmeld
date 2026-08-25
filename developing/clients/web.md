@@ -844,9 +844,19 @@ Agent can reply.
 
 On the exact current owned Computer, each enabled reported local agent may show
 **Change installation** when the live Service advertises installation
-management. The dialog lists only locally verified choices, clearly marks the
-current choice, and updates the Service-owned local registry. It loads on
-demand, never blocks setup, and never appears for another member's Computer.
+management. The action sits beside the **Launch check** value in that local
+agent's detail rows instead of creating a separate Installation section. The
+dialog lists only locally verified choices, clearly marks the current choice,
+and updates the Service-owned local registry. It loads on demand, never blocks
+setup, and never appears for another member's Computer.
+
+A local agent that the owner turned off remains visible as a muted row. It does
+not show activation copy, repair guidance, version advice, or an attention
+status, and a problem reported only by that disabled local agent does not create
+Computer or sidebar attention. Its last reported diagnostic details may remain
+available when expanded. When an enable or disable request outlives the Web
+request budget, Web reconciles the canonical Service-backed catalog before it
+reports a failure; a transport timeout alone is not a rejected change.
 
 The current Computer detail includes **File access** after **Local agents**.
 It is an optional, account-owned control for OpenMeld-started runs on that

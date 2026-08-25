@@ -800,6 +800,21 @@ export const runDaemonServiceLoop = async (
         });
       },
       shutdownHandler: controlledShutdown.request,
+      serviceUpdateReadinessHandler: () => {
+        const unacknowledgedResultCount =
+          listDispatchResultOutboxPendingAcknowledgementKeys({
+            ledgerPaths,
+          }).length;
+        const acceptedWakeCount = inflightDispatchMetaByTaskId.size;
+        return {
+          acceptedWakeCount,
+          safeToSwitch: !hasUndrainedLocalWork({
+            inflightDispatchMetaByTaskId,
+            ledgerPaths,
+          }),
+          unacknowledgedResultCount,
+        };
+      },
       statusPayload: {
         checkedAt: nowIsoString(),
         daemonVersion: controlPlaneDaemonVersion,

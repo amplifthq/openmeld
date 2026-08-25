@@ -7,6 +7,7 @@ import type {
   OpenMeldDaemonHistoryEntry,
   OpenMeldDaemonInterruptRequestPayload,
   OpenMeldDaemonRequestAgentActivitySyncRequestPayload,
+  OpenMeldDaemonServiceUpdateReadinessPayload,
   OpenMeldDaemonSetLocalAgentEnabledRequestPayload,
   OpenMeldDaemonShutdownRequestPayload,
   OpenMeldDaemonStatusPayload,
@@ -45,6 +46,10 @@ type OpenMeldDaemonSetLocalAgentEnabledResponsePayload = Extract<
 type OpenMeldDaemonShutdownResponsePayload = Extract<
   OpenMeldDaemonControlPlaneResponse,
   { code: "service.shutdown" }
+>["payload"];
+type OpenMeldDaemonServiceUpdateReadinessResponsePayload = Extract<
+  OpenMeldDaemonControlPlaneResponse,
+  { code: "service.update_readiness" }
 >["payload"];
 
 export type OpenMeldDaemonControlPlaneContext = {
@@ -85,6 +90,9 @@ export type OpenMeldDaemonControlPlaneContext = {
   ) =>
     | OpenMeldDaemonShutdownResponsePayload
     | Promise<OpenMeldDaemonShutdownResponsePayload>;
+  serviceUpdateReadinessHandler?: () =>
+    | OpenMeldDaemonServiceUpdateReadinessPayload
+    | Promise<OpenMeldDaemonServiceUpdateReadinessPayload>;
   statusPayload: OpenMeldDaemonStatusPayload;
 };
 
@@ -166,6 +174,11 @@ export async function buildControlPlaneResponse(input: {
       return await buildShutdownControlPlaneResponse({
         context: input.context,
         payload: request.payload,
+        requestMeta,
+      });
+    case "service_update_readiness":
+      return await buildServiceUpdateReadinessControlPlaneResponse({
+        context: input.context,
         requestMeta,
       });
     default:
@@ -349,6 +362,28 @@ async function buildShutdownControlPlaneResponse(input: {
   return parseControlPlaneResponse({
     ...input.requestMeta,
     code: "service.shutdown",
+    payload,
+  });
+}
+
+async function buildServiceUpdateReadinessControlPlaneResponse(input: {
+  context: OpenMeldDaemonControlPlaneContext;
+  requestMeta: {
+    requestId?: string;
+    v: OpenMeldDaemonControlPlaneRequest["v"];
+  };
+}): Promise<OpenMeldDaemonControlPlaneResponse> {
+  const payload: OpenMeldDaemonServiceUpdateReadinessResponsePayload = input
+    .context.serviceUpdateReadinessHandler
+    ? await input.context.serviceUpdateReadinessHandler()
+    : {
+        acceptedWakeCount: 0,
+        safeToSwitch: false,
+        unacknowledgedResultCount: 0,
+      };
+  return parseControlPlaneResponse({
+    ...input.requestMeta,
+    code: "service.update_readiness",
     payload,
   });
 }

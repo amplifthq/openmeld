@@ -476,6 +476,8 @@ describe("openmeld upgrade", () => {
         });
 
         expect(confirmMock).toHaveBeenCalledTimes(1);
+        expect(stdout).toContain("OpenMeld Service check finished.");
+        expect(stdout).not.toContain("OpenMeld Service matches the new CLI.");
         expect(stdout).toContain("OpenMeld CLI upgrade completed.");
       } finally {
         process.argv[1] = originalArgvEntry ?? process.execPath;

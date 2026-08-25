@@ -14,6 +14,7 @@ import {
 } from "../command-entry-checks/cli-update-assessment";
 import { getCurrentCommandCheckState } from "../command-entry-checks/current-command-check-state";
 import { assessServerRequiredVersion } from "../command-entry-checks/server-required-version-assessment";
+import { resolveServiceUpdateUrgency } from "../command-entry-checks/service-update-urgency";
 import { getAuthSessionState } from "../config/auth-session";
 import {
   normalizeGatewayBaseUrl,
@@ -134,6 +135,8 @@ import {
 } from "../local-service/lifecycle/daemon-service-runtime";
 import { startDaemonSystemServiceWithAutoRepair } from "../local-service/lifecycle/daemon-service-start-recovery";
 import { resolveDaemonServiceStartupRecoveryDecision } from "../local-service/lifecycle/daemon-service-startup-recovery";
+import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-coordinator";
+import { uninstallDaemonServiceUpdateWorker } from "../local-service/lifecycle/daemon-service-update-worker-manager";
 import {
   captureDaemonStartFailureLogCursor,
   isDaemonStartFailureLikelyDependencyRequestFailure,
@@ -446,6 +449,8 @@ export type DaemonReinstallInternalOptions = {
   suppressAgentOverview?: boolean;
   suppressHumanResultCard?: boolean;
   suppressInstallOutput?: boolean;
+  resolveUpdateUrgency?: typeof resolveServiceUpdateUrgency;
+  scheduleServiceUpdate?: typeof scheduleDaemonServiceUpdate;
 };
 
 type DaemonInteractiveCommandResult = "completed" | "cancelled";
@@ -957,6 +962,25 @@ async function performDaemonReinstall(input: {
       };
     }
 
+    if (input.displayAction === "update") {
+      const urgency = await input.resolved.resolveUpdateUrgency({
+        ...(input.gatewayUrl ? { gatewayUrl: input.gatewayUrl } : {}),
+      });
+      const scheduled = await input.resolved.scheduleServiceUpdate({
+        targetVersion: input.resolved.daemonVersion,
+        urgency,
+        ...(input.resolved.cliScriptPath
+          ? { cliScriptPath: input.resolved.cliScriptPath }
+          : {}),
+      });
+      return {
+        ok: true,
+        result: "scheduled",
+        jobId: scheduled.job.jobId,
+        targetVersion: scheduled.job.targetVersion,
+      };
+    }
+
     const lifecycleResult = await input.resolved.withReconcileLock(async () => {
       reinstallTargetDesiredState =
         await resolveDaemonReinstallTargetDesiredState();
@@ -1354,6 +1378,8 @@ function resolveDaemonReinstallOptions(
   startRetryDelayMs: number;
   startAfterInstallMode: "default" | "always" | "never";
   forceReinstall: boolean;
+  resolveUpdateUrgency: typeof resolveServiceUpdateUrgency;
+  scheduleServiceUpdate: typeof scheduleDaemonServiceUpdate;
 } {
   const daemonVersion = options.daemonVersion ?? packageJson.version;
   return {
@@ -1375,6 +1401,10 @@ function resolveDaemonReinstallOptions(
       options.startRetryDelayMs ?? REINSTALL_START_RETRY_DELAY_MS,
     startAfterInstallMode: options.startAfterInstallMode ?? "default",
     forceReinstall: options.forceReinstall ?? false,
+    resolveUpdateUrgency:
+      options.resolveUpdateUrgency ?? resolveServiceUpdateUrgency,
+    scheduleServiceUpdate:
+      options.scheduleServiceUpdate ?? scheduleDaemonServiceUpdate,
   };
 }
 
@@ -1506,12 +1536,17 @@ async function confirmDaemonReinstall(
   }
 
   const actionTitle = formatDaemonServiceMaintenanceActionTitle(action);
+  let message = `${actionTitle} OpenMeld Service now? (graceful drain first; timeout will abort)`;
+  if (action === "update") {
+    message =
+      "Update OpenMeld Service? OpenMeld will finish the update in the background when running work is safe.";
+  } else if (force) {
+    message = `Force ${formatDaemonServiceMaintenanceActionLabel(
+      action
+    )} OpenMeld Service now? (may terminate in-flight tasks)`;
+  }
   const confirmed = await confirm({
-    message: force
-      ? `Force ${formatDaemonServiceMaintenanceActionLabel(
-          action
-        )} OpenMeld Service now? (may terminate in-flight tasks)`
-      : `${actionTitle} OpenMeld Service now? (graceful drain first; timeout will abort)`,
+    message,
     initialValue: true,
   });
   if (isCancel(confirmed) || !confirmed) {
@@ -1531,6 +1566,7 @@ const DAEMON_TEARDOWN_STRICT_DEPS: DaemonTeardownStrictDependencies = {
   stopDaemonProcess,
   waitForSystemServiceToStop,
   uninstallDaemon,
+  uninstallServiceUpdateWorker: uninstallDaemonServiceUpdateWorker,
   withRegistrationMutationLock: withDaemonServiceRegistrationMutationLock,
 };
 
@@ -1584,6 +1620,7 @@ async function runDaemonTeardownStrictWithLock(
     deps,
     reason: input.reason,
   });
+  await deps.uninstallServiceUpdateWorker();
   const legacySharedCleanup = context.legacySharedService?.present
     ? await deps.cleanupLegacySharedDaemonServiceState()
     : { removed: false };
