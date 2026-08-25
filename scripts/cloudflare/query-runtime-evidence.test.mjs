@@ -13,6 +13,14 @@ const TIMING_AGGREGATE_EVENT_RE =
   /blob1 = 'core\.openmeld\.dispatch\.queue_server_timing'/u;
 const TIMING_AGGREGATE_GROUP_RE = /GROUP BY reasonCode/u;
 const TIMING_AVG_RE = /avg\(double2\) AS avgDurationMs/u;
+const TIMING_WEIGHTED_AVG_RE =
+  /sum\(double2 \* _sample_interval\) \/ sum\(_sample_interval\) AS avgDurationMs/u;
+const TIMING_P50_RE =
+  /quantileExactWeighted\(0\.50\)\(double2, _sample_interval\) AS p50DurationMs/u;
+const TIMING_P95_RE =
+  /quantileExactWeighted\(0\.95\)\(double2, _sample_interval\) AS p95DurationMs/u;
+const TIMING_P99_RE =
+  /quantileExactWeighted\(0\.99\)\(double2, _sample_interval\) AS p99DurationMs/u;
 const CONTRACT = {
   blobs: [
     "event",
@@ -142,7 +150,11 @@ test("builds timing aggregate queries grouped by runtime evidence reason code", 
 
   assert.match(sql, TIMING_AGGREGATE_EVENT_RE);
   assert.match(sql, TIMING_AGGREGATE_GROUP_RE);
-  assert.match(sql, TIMING_AVG_RE);
+  assert.doesNotMatch(sql, TIMING_AVG_RE);
+  assert.match(sql, TIMING_WEIGHTED_AVG_RE);
+  assert.match(sql, TIMING_P50_RE);
+  assert.match(sql, TIMING_P95_RE);
+  assert.match(sql, TIMING_P99_RE);
   assert.match(sql, FORMAT_JSON_EACH_ROW_RE);
 });
 

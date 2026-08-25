@@ -129,6 +129,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
       await beginRemoteAgentToolExecutionAttempt({
         storage: input.storage,
         submissionId: input.submissionId,
+        source: "direct",
         toolInput,
         toolName: REMOTE_AGENT_CODE_MODE_TOOL_NAME,
       });
@@ -231,6 +232,7 @@ function buildCodeModeToolSet(input: {
           const result = await executeRemoteAgentToolDefinition({
             definition,
             signal: options?.abortSignal,
+            source: "code_mode",
             storage: input.storage,
             submissionId: input.submissionId,
             toolInput,

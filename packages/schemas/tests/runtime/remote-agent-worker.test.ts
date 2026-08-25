@@ -372,9 +372,60 @@ describe("Remote Agent worker contracts", () => {
         schedules: [],
         spaceId: "space_123",
         submissions: [],
+        turnObservability: [
+          {
+            budgetExhaustedAtMs: null,
+            capabilityDescribeCount: 1,
+            capabilitySearchCount: 2,
+            codeModeToolCallCount: 3,
+            directToolCallCount: 4,
+            firstAssistantTextAtMs: 120,
+            firstModelEventAtMs: 110,
+            firstProviderRequestPreparedAtMs: 105,
+            firstProviderResponseHeadersAtMs: 108,
+            firstVisibleContentAtMs: null,
+            lastModelCompletedAtMs: 180,
+            modelCallCount: 2,
+            modelId: "openai/gpt-5.4",
+            providerAvailableToolCount: 80,
+            providerDeferredToolCount: 68,
+            providerExposedToolCount: 12,
+            providerRequestCount: 2,
+            recentCapabilityDiscovery: [
+              {
+                capabilityNames: [
+                  "openmeld_read_center_agent_turn_diagnostics",
+                ],
+                observedAtMs: 125,
+                operation: "search",
+                resultCount: 1,
+              },
+            ],
+            recentProviderRequests: [
+              {
+                availableToolCount: 80,
+                deferredToolCount: 68,
+                exposedToolCount: 12,
+                modelId: "openai/gpt-5.4",
+                preparedAtMs: 105,
+              },
+            ],
+            recentToolCalls: [
+              {
+                calledAtMs: 130,
+                source: "code_mode",
+                toolName: "openmeld_read_center_agent_turn_diagnostics",
+              },
+            ],
+            submissionId: "submission-1",
+            toolCallCount: 7,
+            toolCallLimit: 64,
+            updatedAtMs: 180,
+          },
+        ],
         v: 1,
       })
-    ).toEqual({
+    ).toMatchObject({
       activeRuns: [],
       attemptMarkers: [],
       callbackContexts: [

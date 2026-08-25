@@ -39,9 +39,26 @@ export async function readRemoteAgentRuntimeDiagnosticsForDispatch(input: {
       "Remote Agent runtime diagnostics require a frozen runtime conversation identity."
     );
   }
+  return readRemoteAgentRuntimeDiagnosticsForConversation({
+    remoteAgentWorker: input.remoteAgentWorker,
+    runtimeConversationId,
+    spaceId: input.spaceId,
+  });
+}
+
+export async function readRemoteAgentRuntimeDiagnosticsForConversation(input: {
+  remoteAgentWorker: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"] | undefined;
+  runtimeConversationId: string;
+  spaceId: string;
+}): Promise<RemoteAgentWorkerRuntimeDiagnosticsResponse> {
+  if (typeof input.remoteAgentWorker?.readRuntimeDiagnostics !== "function") {
+    throw new Error(
+      "Remote Agent Worker does not expose readRuntimeDiagnostics."
+    );
+  }
   return remoteAgentWorkerRuntimeDiagnosticsResponseSchema.parse(
     await input.remoteAgentWorker.readRuntimeDiagnostics({
-      runtimeConversationId,
+      runtimeConversationId: input.runtimeConversationId,
       spaceId: input.spaceId,
     })
   );

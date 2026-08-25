@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { messageChannelConversationLocatorSchema } from "../runtime/message-channel";
+import { remoteAgentTurnRuntimeEvidenceSchema } from "../runtime/remote-agent-worker";
 
 export const CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT = 10;
 export const CENTER_AGENT_TURN_DIAGNOSTICS_MAX_LIMIT = 20;
@@ -66,6 +67,10 @@ export const centerAgentTurnDiagnosticSchema = z.strictObject({
   failureDetailTruncated: z.boolean(),
   publicationState: centerAgentTurnDiagnosticPublicationStateSchema.nullable(),
   publishedResultId: nullableIdentifierSchema,
+  runtimeEvidence: remoteAgentTurnRuntimeEvidenceSchema
+    .omit({ submissionId: true })
+    .nullable(),
+  runtimeEvidenceStatus: z.enum(["available", "not_recorded", "unavailable"]),
   status: centerAgentTurnDiagnosticStatusSchema,
   submissionId: nullableIdentifierSchema,
   submittedAtMs: nullableTimestampMsSchema,

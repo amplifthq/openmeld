@@ -17,6 +17,7 @@ import {
   type RemoteAgentFeedbackSubmissionConfig,
   type RemoteAgentMemberProfileReportComputerFiles,
 } from "../agent-core/tools";
+import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
 import { createRemoteAgentCapabilityDiscoveryDefinitions } from "./capability-discovery";
 import {
   createRemoteAgentCodeModeFlueTool,
@@ -53,7 +54,20 @@ export async function getRemoteAgentFlueTools(input: {
   ];
   const capabilityDiscoveryDefinitions =
     definitions.length > 0
-      ? createRemoteAgentCapabilityDiscoveryDefinitions(definitions)
+      ? createRemoteAgentCapabilityDiscoveryDefinitions(
+          definitions,
+          async (observation) => {
+            await recordRemoteAgentTurnObservabilityBestEffort({
+              event: {
+                ...observation,
+                observedAtMs: Date.now(),
+                type: "capability_discovery",
+              },
+              storage: input.storage,
+              submissionId: input.submissionId,
+            });
+          }
+        )
       : [];
   const directTools = [...definitions, ...capabilityDiscoveryDefinitions].map(
     (definition) =>
@@ -94,6 +108,7 @@ function toFlueTool(input: {
         value: await executeRemoteAgentToolDefinition({
           definition,
           signal,
+          source: "direct",
           storage: input.storage,
           submissionId: input.submissionId,
           toolInput: (toolInput ?? {}) as Record<string, unknown>,

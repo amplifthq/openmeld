@@ -6,8 +6,10 @@ import type {
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { registerApiProvider, registerProvider } from "@flue/runtime";
+import { getCloudflareContext } from "@flue/runtime/cloudflare";
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 import { z } from "zod/v4";
+import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
 import { REMOTE_AGENT_CONNECTOR_TOOL_NAMES } from "../agent-core/connector-tools";
 import {
   buildRemoteAgentAiGatewayHeaders,
@@ -19,11 +21,13 @@ import {
   resolveRemoteAgentOpenRouterModelId,
 } from "../agent-core/model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
+import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
 import {
   expandRemoteAgentCapabilityDependencies,
   rankRemoteAgentCapabilities,
 } from "./capability-catalog";
 import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "./capability-discovery";
+import { emitCenterAgentPerformanceMilestone } from "./center-agent-performance-observability";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
 import {
@@ -33,6 +37,7 @@ import {
   resolveRemoteAgentCompactionReserveTokens,
   resolveRemoteAgentProviderContextCapacity,
 } from "./provider-context-capacity";
+import { createRemoteAgentSqlStorage } from "./storage";
 
 const OPENROUTER_MODEL_METADATA_BASE_URL = "https://openrouter.ai/api/v1/model";
 const OPENAI_GPT_5_4_MINI_MODEL_ID = "openai/gpt-5.4-mini";
@@ -75,6 +80,7 @@ const openRouterModelMetadataResponseSchema = z.object({
 });
 
 type RemoteAgentModelEnv = {
+  OPENMELD_CENTER_AGENT_PERFORMANCE?: AnalyticsEngineDataset;
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID?: string;
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID?: string;
@@ -85,10 +91,12 @@ type RemoteAgentModelEnv = {
 };
 
 export type RemoteAgentProviderStageObservation = {
+  availableToolCount?: number;
   durationMs: number;
   inputBytes?: number;
   messageCount?: number;
   modelId: string | null;
+  observedAtMs: number;
   stage: "request_prepared" | "response_headers";
   status: "succeeded";
   statusCode?: number;
@@ -126,7 +134,9 @@ type RegisteredRemoteAgentModelCapabilities = {
   inputModalities: readonly ("image" | "text")[];
   modelId: string;
   reasoningLevel: CenterAgentModelRoute["reasoningLevel"];
-  reportStage?: (observation: RemoteAgentProviderStageObservation) => void;
+  reportStage?: (
+    observation: RemoteAgentProviderStageObservation
+  ) => Promise<void> | void;
 };
 const registeredRemoteAgentModelCapabilities = new Map<
   string,
@@ -168,7 +178,7 @@ export async function registerRemoteAgentCloudflareProvider(input: {
     inputModalities: input.modelRoute?.inputModalities ?? ["text", "image"],
     modelId,
     reasoningLevel: input.modelRoute?.reasoningLevel ?? "high",
-    reportStage: (observation) => {
+    reportStage: async (observation) => {
       if (!observation.submissionId) {
         return;
       }
@@ -183,6 +193,45 @@ export async function registerRemoteAgentCloudflareProvider(input: {
         statusCode: observation.statusCode,
         toolCount: observation.toolCount,
       });
+      const cloudflare = getCloudflareContext();
+      const storage = createRemoteAgentSqlStorage(cloudflare.storage.sql);
+      await recordRemoteAgentTurnObservabilityBestEffort({
+        event:
+          observation.stage === "request_prepared"
+            ? {
+                availableToolCount: observation.availableToolCount ?? 0,
+                exposedToolCount: observation.toolCount ?? 0,
+                modelId: observation.modelId,
+                observedAtMs: observation.observedAtMs,
+                type: "provider_request_prepared",
+              }
+            : {
+                modelId: observation.modelId,
+                observedAtMs: observation.observedAtMs,
+                type: "provider_response_headers",
+              },
+        storage,
+        submissionId: observation.submissionId,
+      });
+      const context = await readRemoteAgentCallbackContext(
+        storage,
+        observation.submissionId
+      );
+      if (context) {
+        emitCenterAgentPerformanceMilestone(input.env, {
+          availableToolCount: observation.availableToolCount,
+          context,
+          exposedToolCount: observation.toolCount,
+          milestone:
+            observation.stage === "request_prepared"
+              ? "provider_request_prepared"
+              : "provider_response_headers",
+          modelId: observation.modelId,
+          observedAtMs: observation.observedAtMs,
+          stageDurationMs: observation.durationMs,
+          statusCode: observation.statusCode,
+        });
+      }
     },
   });
   const metadata = buildRemoteAgentGatewayMetadata({
@@ -671,7 +720,9 @@ function registerRemoteAgentModelCapabilitiesApi(): void {
 
 export function withRemoteAgentProviderObservabilityAndSessionAffinity(
   options: StreamOptions | undefined,
-  reportStage?: (observation: RemoteAgentProviderStageObservation) => void,
+  reportStage?: (
+    observation: RemoteAgentProviderStageObservation
+  ) => Promise<void> | void,
   contextCapacity?: RemoteAgentProviderContextCapacity
 ): StreamOptions {
   const sessionId = options?.sessionId;
@@ -741,11 +792,13 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
         submissionId,
         toolCount,
       });
-      reportRemoteAgentProviderStage(reportStage, {
+      await reportRemoteAgentProviderStage(reportStage, {
+        availableToolCount: originalToolCount,
         durationMs,
         inputBytes: measurement.inputBytes,
         messageCount,
         modelId: model?.id ?? null,
+        observedAtMs: Date.now(),
         stage: "request_prepared",
         status: "succeeded",
         submissionId,
@@ -764,9 +817,10 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
           status: response.status,
           submissionId,
         });
-        reportRemoteAgentProviderStage(reportStage, {
+        await reportRemoteAgentProviderStage(reportStage, {
           durationMs,
           modelId: model?.id ?? null,
+          observedAtMs: Date.now(),
           stage: "response_headers",
           status: "succeeded",
           statusCode: response.status,
@@ -926,14 +980,16 @@ function isRemoteAgentCodeModeProviderTool(tool: unknown): boolean {
   );
 }
 
-function reportRemoteAgentProviderStage(
+async function reportRemoteAgentProviderStage(
   reportStage:
-    | ((observation: RemoteAgentProviderStageObservation) => void)
+    | ((
+        observation: RemoteAgentProviderStageObservation
+      ) => Promise<void> | void)
     | undefined,
   observation: RemoteAgentProviderStageObservation
-): void {
+): Promise<void> {
   try {
-    reportStage?.(observation);
+    await reportStage?.(observation);
   } catch (error) {
     console.error("[remote_agent.provider.stage_reporting_failed]", {
       errorName: error instanceof Error ? error.name : "UnknownError",

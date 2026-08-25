@@ -1,6 +1,10 @@
 import { remoteAgentWorkerRuntimeDiagnosticsResponseSchema } from "@openmeld/schemas";
 import type { RemoteAgentWorkerRuntimeDiagnosticsResponse } from "@openmeld/schemas/types";
 import { REMOTE_AGENT_CALLBACK_CONTEXT_KEY_PREFIX } from "../agent-core/callback-context";
+import {
+  projectStoredRemoteAgentTurnObservability,
+  REMOTE_AGENT_TURN_OBSERVABILITY_KEY_PREFIX,
+} from "../agent-core/turn-observability";
 
 const RUNTIME_DIAGNOSTIC_ROW_LIMIT = 50;
 
@@ -18,6 +22,7 @@ export async function readRemoteAgentRuntimeDiagnostics(input: {
   spaceId: string;
   sql: SqlStorage;
 }): Promise<RemoteAgentWorkerRuntimeDiagnosticsResponse> {
+  const nowMs = input.nowMs ?? Date.now();
   const submissions = input.sql
     .exec(
       `
@@ -187,17 +192,43 @@ export async function readRemoteAgentRuntimeDiagnostics(input: {
         updatedAtMs: requiredNumber(row.updated_at_ms),
       };
     });
+  const turnObservability = input.sql
+    .exec(
+      `
+        SELECT key, value_json
+        FROM openmeld_remote_agent_adapter_kv AS turn_observability
+        WHERE key >= ? AND key < ?
+        ORDER BY updated_at_ms DESC
+        LIMIT ${RUNTIME_DIAGNOSTIC_ROW_LIMIT}
+      `,
+      REMOTE_AGENT_TURN_OBSERVABILITY_KEY_PREFIX,
+      `${REMOTE_AGENT_TURN_OBSERVABILITY_KEY_PREFIX}\uffff`
+    )
+    .toArray()
+    .flatMap((row) => {
+      const key = requiredString(row.key);
+      const submissionId = decodeURIComponent(
+        key.slice(REMOTE_AGENT_TURN_OBSERVABILITY_KEY_PREFIX.length)
+      );
+      const evidence = projectStoredRemoteAgentTurnObservability({
+        nowMs,
+        submissionId,
+        value: JSON.parse(requiredString(row.value_json)),
+      });
+      return evidence ? [evidence] : [];
+    });
 
   return remoteAgentWorkerRuntimeDiagnosticsResponseSchema.parse({
     activeRuns,
     attemptMarkers,
     callbackContexts,
-    collectedAt: new Date(input.nowMs ?? Date.now()).toISOString(),
+    collectedAt: new Date(nowMs).toISOString(),
     durableObjectAlarmAtMs: await input.getAlarmAtMs(),
     fibers,
     schedules,
     spaceId: input.spaceId,
     submissions,
+    turnObservability,
     v: 1,
   });
 }

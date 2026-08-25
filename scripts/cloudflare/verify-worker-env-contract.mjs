@@ -19,6 +19,12 @@ const OPENCONNECTOR_GOOGLE_ACTION_PATTERN =
 const OBSERVABILITY_ANALYTICS_BINDING = "OPENMELD_OBSERVABILITY";
 const OBSERVABILITY_ANALYTICS_DATASET = "openmeld_runtime_evidence";
 const OBSERVABILITY_ANALYTICS_PROD_DATASET = "openmeld_runtime_evidence_prod";
+const CENTER_AGENT_PERFORMANCE_ANALYTICS_BINDING =
+  "OPENMELD_CENTER_AGENT_PERFORMANCE";
+const CENTER_AGENT_PERFORMANCE_ANALYTICS_DATASET =
+  "openmeld_center_agent_performance";
+const CENTER_AGENT_PERFORMANCE_ANALYTICS_PROD_DATASET =
+  "openmeld_center_agent_performance_prod";
 const DESKTOP_DOWNLOADS_R2_BINDING = "OPENMELD_DESKTOP_DOWNLOADS";
 const DESKTOP_DOWNLOADS_R2_BUCKET = "openmeld-desktop-downloads-prod";
 const SPACE_ATTACHMENTS_R2_BINDING = "OPENMELD_SPACE_ATTACHMENTS";
@@ -266,6 +272,7 @@ const workerPackages = [
       "FLUE_REGISTRY",
       "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
       "OPENMELD_CORE_WORKER",
+      "OPENMELD_CENTER_AGENT_PERFORMANCE",
       "OPENMELD_FEEDBACK_SUBMIT_BASE_URL",
       "OPENMELD_OBSERVABILITY",
       "OPENMELD_OFFICIAL_FEEDBACK_INBOX_KEY",
@@ -277,6 +284,15 @@ const workerPackages = [
       "OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID",
     ],
     forbiddenGeneratedBindings: D1_BINDING_NAMES,
+    expectedAdditionalAnalyticsBindings: ({ environment }) => [
+      {
+        binding: CENTER_AGENT_PERFORMANCE_ANALYTICS_BINDING,
+        dataset:
+          environment === "prod"
+            ? CENTER_AGENT_PERFORMANCE_ANALYTICS_PROD_DATASET
+            : CENTER_AGENT_PERFORMANCE_ANALYTICS_DATASET,
+      },
+    ],
     expectedD1Bindings: () => [],
     expectedR2Bindings: ({ environment }) => [
       {
@@ -741,6 +757,22 @@ function verifyObservabilityPolicy(workerPackage, workerConfig) {
       runtimeEvidenceBinding?.dataset === expectedDataset,
       `${workerPackage.name} ${label} ${OBSERVABILITY_ANALYTICS_BINDING}.dataset must be ${expectedDataset}.`
     );
+
+    for (const expectedBinding of workerPackage.expectedAdditionalAnalyticsBindings?.(
+      {
+        environment: expectedWorkerEnvironment,
+      }
+    ) ?? []) {
+      const configured = analyticsBindings.get(expectedBinding.binding);
+      ensure(
+        Boolean(configured),
+        `${workerPackage.name} ${label} must declare ${expectedBinding.binding}.`
+      );
+      ensure(
+        configured?.dataset === expectedBinding.dataset,
+        `${workerPackage.name} ${label} ${expectedBinding.binding}.dataset must be ${expectedBinding.dataset}.`
+      );
+    }
 
     ensure(
       value?.vars?.[WORKER_ENVIRONMENT_VAR] === expectedWorkerEnvironment,

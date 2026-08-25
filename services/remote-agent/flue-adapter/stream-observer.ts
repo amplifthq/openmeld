@@ -19,7 +19,9 @@ import {
   completeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
 } from "../agent-core/execution-state";
+import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
 import { normalizeFluePromptUsage } from "../agent-core/usage";
+import { emitCenterAgentPerformanceMilestone } from "./center-agent-performance-observability";
 import {
   classifyRemoteAgentTurnFailure,
   emitRemoteAgentCloudflareRuntimeEvidence,
@@ -128,6 +130,22 @@ async function handleCenterAgentToolPart(input: {
   if (!context) {
     return;
   }
+  const observation = await recordRemoteAgentTurnObservabilityBestEffort({
+    event: {
+      assistantText: false,
+      observedAtMs: input.toolPart.observedAtMs,
+      type: "model_event",
+    },
+    storage,
+    submissionId: input.toolPart.submissionId,
+  });
+  if (observation?.firstModelEventRecorded) {
+    emitCenterAgentPerformanceMilestone(env, {
+      context,
+      milestone: "first_model_event",
+      observedAtMs: input.toolPart.observedAtMs,
+    });
+  }
   await markRemoteAgentExecutionProgress({
     identity: buildRemoteAgentExecutionIdentity(context),
     nowMs: input.toolPart.observedAtMs,
@@ -165,6 +183,15 @@ async function handleCenterAgentToolPart(input: {
       part,
       storage,
     });
+    if (result.status === "published") {
+      await recordFirstVisibleCenterAgentContent({
+        context,
+        env,
+        observedAtMs: Date.now(),
+        storage,
+        submissionId: input.toolPart.submissionId,
+      });
+    }
     logRemoteAgentStreamResult({
       context,
       env,
@@ -232,6 +259,32 @@ async function handleCenterAgentStreamDelta(input: {
   if (!context) {
     return;
   }
+  const observation = await recordRemoteAgentTurnObservabilityBestEffort({
+    event: {
+      assistantText: input.streamDelta.kind === "text",
+      observedAtMs: input.streamDelta.observedAtMs,
+      type: "model_event",
+    },
+    storage,
+    submissionId: input.streamDelta.submissionId,
+  });
+  if (observation?.firstModelEventRecorded) {
+    emitCenterAgentPerformanceMilestone(env, {
+      context,
+      milestone: "first_model_event",
+      observedAtMs: input.streamDelta.observedAtMs,
+    });
+  }
+  if (
+    input.streamDelta.kind === "text" &&
+    observation?.firstAssistantTextRecorded
+  ) {
+    emitCenterAgentPerformanceMilestone(env, {
+      context,
+      milestone: "first_assistant_text",
+      observedAtMs: input.streamDelta.observedAtMs,
+    });
+  }
   await markRemoteAgentExecutionProgress({
     identity: buildRemoteAgentExecutionIdentity(context),
     nowMs: input.streamDelta.observedAtMs,
@@ -254,6 +307,15 @@ async function handleCenterAgentStreamDelta(input: {
       observedAtMs: input.streamDelta.observedAtMs,
       storage,
     });
+    if (result.status === "published") {
+      await recordFirstVisibleCenterAgentContent({
+        context,
+        env,
+        observedAtMs: Date.now(),
+        storage,
+        submissionId: input.streamDelta.submissionId,
+      });
+    }
     logRemoteAgentStreamResult({
       context,
       env,
@@ -284,12 +346,52 @@ async function handleCenterAgentPromptCompletion(input: {
   const submissionId = resolveRemoteAgentObservationSubmissionId(
     input.event.submissionId
   );
+  const completedAtMs = parseObservationTimestamp(input.event.timestamp);
+  const hasAssistantText = extractAssistantText(input.event).trim().length > 0;
+  const modelEventObservation =
+    await recordRemoteAgentTurnObservabilityBestEffort({
+      event: {
+        assistantText: hasAssistantText,
+        observedAtMs: completedAtMs,
+        type: "model_event",
+      },
+      storage,
+      submissionId,
+    });
+  await recordRemoteAgentTurnObservabilityBestEffort({
+    event: { observedAtMs: completedAtMs, type: "model_completed" },
+    storage,
+    submissionId,
+  });
   await input.conversationCompactionObserver.drain(submissionId);
   const callbackContext = await waitForRemoteAgentCallbackContext({
     storage,
     submissionId,
     waitMs: REMOTE_AGENT_CALLBACK_CONTEXT_WAIT_MS,
   });
+  if (callbackContext) {
+    if (modelEventObservation?.firstModelEventRecorded) {
+      emitCenterAgentPerformanceMilestone(env, {
+        context: callbackContext,
+        milestone: "first_model_event",
+        observedAtMs: completedAtMs,
+      });
+    }
+    if (hasAssistantText && modelEventObservation?.firstAssistantTextRecorded) {
+      emitCenterAgentPerformanceMilestone(env, {
+        context: callbackContext,
+        milestone: "first_assistant_text",
+        observedAtMs: completedAtMs,
+      });
+    }
+    emitCenterAgentPerformanceMilestone(env, {
+      context: callbackContext,
+      milestone: "model_completed",
+      observedAtMs: completedAtMs,
+      stageDurationMs: input.event.durationMs,
+      status: input.event.isError ? "failed" : "succeeded",
+    });
+  }
   const executionIdentity = callbackContext
     ? buildRemoteAgentExecutionIdentity(callbackContext)
     : null;
@@ -378,6 +480,27 @@ async function handleCenterAgentPromptCompletion(input: {
     } else {
       await cleanup;
     }
+  }
+}
+
+async function recordFirstVisibleCenterAgentContent(input: {
+  context: RemoteAgentCallbackContext;
+  env: RemoteAgentObservationDependencies["env"];
+  observedAtMs: number;
+  storage: RemoteAgentStorage;
+  submissionId: string;
+}): Promise<void> {
+  const observation = await recordRemoteAgentTurnObservabilityBestEffort({
+    event: { observedAtMs: input.observedAtMs, type: "visible_content" },
+    storage: input.storage,
+    submissionId: input.submissionId,
+  });
+  if (observation?.firstVisibleContentRecorded) {
+    emitCenterAgentPerformanceMilestone(input.env, {
+      context: input.context,
+      milestone: "first_visible_content",
+      observedAtMs: input.observedAtMs,
+    });
   }
 }
 
@@ -531,18 +654,18 @@ async function flushRemoteAgentStream(input: {
     return;
   }
   try {
-    const observedAtMs = Date.parse(input.event.timestamp);
+    const observedAtMs = parseObservationTimestamp(input.event.timestamp);
     const result = await input.streamPublisher.flush({
       context,
       coreWorker: input.coreWorker,
-      observedAtMs: Number.isFinite(observedAtMs) ? observedAtMs : Date.now(),
+      observedAtMs,
       storage: input.storage,
     });
     logRemoteAgentStreamResult({
       context,
       env: input.env,
       eventIndex: input.event.eventIndex,
-      observedAtMs: Number.isFinite(observedAtMs) ? observedAtMs : Date.now(),
+      observedAtMs,
       phase: "flush",
       result,
       submissionId: input.submissionId,
@@ -652,7 +775,7 @@ function logRemoteAgentStreamResult(input: {
         category: "stream",
         clientMessageId: input.context.sourceClientMessageId,
         dispatchId: input.context.dispatchId,
-        durationMs: Math.max(0, Date.now() - input.observedAtMs),
+        durationMs: Math.max(0, Date.now() - input.context.submissionCreatedAt),
         operation: `first_content_${input.result.contentKind}`,
         requestId: input.submissionId,
         spaceId: input.context.spaceId,
@@ -670,6 +793,11 @@ function logRemoteAgentStreamResult(input: {
     streamId: input.result.streamId,
     submissionId: input.submissionId,
   });
+}
+
+function parseObservationTimestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
 function logRemoteAgentStreamFailure(input: {

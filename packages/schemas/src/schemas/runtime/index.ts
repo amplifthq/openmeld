@@ -158,6 +158,7 @@ export {
   remoteAgentStreamDeltaCallbackBodySchema,
   remoteAgentStreamDeltaCallbackResponseSchema,
   remoteAgentStreamPartCallbackBodySchema,
+  remoteAgentTurnRuntimeEvidenceSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerAdmissionRejectionCodeSchema,
   remoteAgentWorkerAuthorContextSchema,

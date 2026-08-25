@@ -2743,6 +2743,8 @@ export function projectRemoteAgentNativeDeliveryTurnDiagnostic(
       delivery.conversationKind === "message_channel"
         ? delivery.providerPublicationResultId
         : delivery.publishedSignalId,
+    runtimeEvidence: null,
+    runtimeEvidenceStatus: "not_recorded",
     status: delivery.status,
     submissionId: delivery.submissionId,
     submittedAtMs: delivery.submittedAtMs,
@@ -2841,11 +2843,11 @@ function isSameNativeDeliveryConversation(
   );
 }
 
-export async function listRemoteAgentNativeDeliveryTurnDiagnostics(input: {
+export async function listRemoteAgentNativeDeliveryTurnDiagnosticRecords(input: {
   currentDelivery: RemoteAgentNativeDeliveryRecord;
   db: D1Database;
   limit: number;
-}): Promise<CenterAgentTurnDiagnostic[]> {
+}): Promise<RemoteAgentNativeDeliveryRecord[]> {
   const limit = Math.max(1, Math.min(20, Math.trunc(input.limit)));
   const current = input.currentDelivery;
   const where: string[] = [
@@ -2931,11 +2933,20 @@ export async function listRemoteAgentNativeDeliveryTurnDiagnostics(input: {
     .bind(...bindings, limit)
     .all<RemoteAgentNativeDeliveryRow>();
 
-  return rows.results.map((row) =>
-    projectRemoteAgentNativeDeliveryTurnDiagnostic(
-      mapNativeDeliveryRow(row),
-      current
-    )
+  return rows.results.map(mapNativeDeliveryRow);
+}
+
+export async function listRemoteAgentNativeDeliveryTurnDiagnostics(input: {
+  currentDelivery: RemoteAgentNativeDeliveryRecord;
+  db: D1Database;
+  limit: number;
+}): Promise<CenterAgentTurnDiagnostic[]> {
+  return (await listRemoteAgentNativeDeliveryTurnDiagnosticRecords(input)).map(
+    (delivery) =>
+      projectRemoteAgentNativeDeliveryTurnDiagnostic(
+        delivery,
+        input.currentDelivery
+      )
   );
 }
 

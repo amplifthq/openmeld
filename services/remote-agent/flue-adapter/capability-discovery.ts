@@ -52,7 +52,12 @@ const capabilityDescribeInputSchema = strictObject({
 });
 
 export function createRemoteAgentCapabilityDiscoveryDefinitions(
-  definitions: RemoteAgentToolDefinition[]
+  definitions: RemoteAgentToolDefinition[],
+  observe?: (input: {
+    capabilityNames: string[];
+    operation: "describe" | "search";
+    resultCount: number;
+  }) => Promise<void>
 ): RemoteAgentToolDefinition[] {
   const byName = new Map(
     definitions.map((definition) => [definition.name, definition])
@@ -61,7 +66,7 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
     {
       description:
         "Search the current Center Agent capability catalog by goal. Returns a small ranked list grouped by stable namespace; call openmeld_describe_capabilities for the model-visible input schema before using an unfamiliar capability through Code Mode. A match proves that the capability exists in this turn, not that the current requester is authorized or that execution will succeed; trust the capability's structured result for those facts.",
-      execute: (input) => {
+      execute: async (input) => {
         const query = String(input.query ?? "").trim();
         const limit =
           typeof input.limit === "number"
@@ -69,7 +74,7 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
             : CAPABILITY_SEARCH_DEFAULT_LIMIT;
         const matches = rankRemoteAgentCapabilities(definitions, query);
         const visible = matches.slice(0, limit);
-        return Promise.resolve({
+        const result = {
           capabilities: visible.map(({ capability, namespace }) => ({
             description: summarizeCapabilityDescription(capability.description),
             name: capability.name,
@@ -77,7 +82,13 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
           })),
           matchingCount: matches.length,
           truncated: matches.length > visible.length,
+        };
+        await observe?.({
+          capabilityNames: result.capabilities.map(({ name }) => name),
+          operation: "search",
+          resultCount: result.capabilities.length,
         });
+        return result;
       },
       input: capabilitySearchInputSchema,
       name: REMOTE_AGENT_CAPABILITY_SEARCH_TOOL_NAME,
@@ -86,7 +97,7 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
     {
       description:
         "Load the descriptions and model-visible JSON input schemas for up to eight capability names returned by openmeld_search_capabilities. Runtime validation and capability-owned authorization remain authoritative. The loaded definitions remain in this conversation, while the underlying executable catalog stays fixed for the turn.",
-      execute: (input) => {
+      execute: async (input) => {
         const names = [
           ...new Set(
             Array.isArray(input.names)
@@ -112,10 +123,16 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
               ]
             : [];
         });
-        return Promise.resolve({
+        const result = {
           capabilities,
           unknownNames: names.filter((name) => !byName.has(name)),
+        };
+        await observe?.({
+          capabilityNames: capabilities.map(({ name }) => name),
+          operation: "describe",
+          resultCount: capabilities.length,
         });
+        return result;
       },
       input: capabilityDescribeInputSchema,
       name: REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME,

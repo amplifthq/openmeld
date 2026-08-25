@@ -1926,6 +1926,25 @@ or use this tool from a Routine. If the bounded history does not contain the
 turn, the Center Agent says that exact diagnostics are unavailable rather than
 guessing.
 
+The same read includes exact bounded runtime evidence when the Remote Agent
+retained it for that submission: provider and model milestones, first visible
+assistant content, model and tool counts, capability discovery results, tool
+call provenance, and per-attempt tool-budget exhaustion. Core reads the frozen
+runtime generation for each bounded history item, rather than assuming all
+recent Slack or Message Channel turns still live in the current generation.
+These are structured
+execution facts, not classifications of model prose. The model must distinguish
+an older turn with no retained evidence (`not_recorded`) from a failed read of
+the exact runtime conversation (`unavailable`) and must not fill either gap by
+searching the answer for keywords.
+
+Aggregate Center Agent latency is emitted separately to Analytics Engine with
+exact trigger source and model dimensions. That sampled projection supports
+weighted p50, p95, and p99 performance analysis; it is not the source of truth
+for any one reported message. Prompt text, reply text, model reasoning, tool
+arguments, and tool results are excluded from both the exact turn evidence and
+the aggregate projection.
+
 **Tier-2 vetting bar** (the implementer applies this to each built-in and
 reports the enabled/disabled inventory for Felix's review — the standard
 is the deliverable, not a pre-baked list):
