@@ -1,0 +1,84 @@
+{
+  "v": 1,
+  "cases": [
+    {
+      "id": "diagnose-slack-turn-zh",
+      "language": "zh-CN",
+      "prompt": "深入仔细调查这条 Slack 消息为什么连续失败两次，把根因锤死。",
+      "expected": {
+        "mustCallAny": ["openmeld_read_center_agent_turn_diagnostics"],
+        "toolPolicy": "required"
+      }
+    },
+    {
+      "id": "diagnose-slack-turn-en-paraphrase",
+      "language": "en-US",
+      "prompt": "Why did the Center Agent fail twice in this Slack thread? Verify the actual runtime cause.",
+      "expected": {
+        "mustCallAny": ["openmeld_read_center_agent_turn_diagnostics"],
+        "toolPolicy": "required"
+      }
+    },
+    {
+      "id": "list-current-collaboration-zh",
+      "language": "zh-CN",
+      "prompt": "我现在在 OpenMeld 下面和你有哪些合作和任务在进行？",
+      "expected": {
+        "mustCallAny": [
+          "openmeld_list_agent_tasks",
+          "openmeld_read_center_agent_activity"
+        ],
+        "toolPolicy": "required"
+      }
+    },
+    {
+      "id": "slack-send-explicit",
+      "language": "en-US",
+      "prompt": "Send the confirmed launch note to the existing Slack thread.",
+      "expected": {
+        "mustCallAny": ["openmeld_post_slack_channel_message"],
+        "toolPolicy": "required"
+      }
+    },
+    {
+      "id": "conceptual-agent-design-no-tool",
+      "language": "en-US",
+      "prompt": "Explain the difference between tool discovery and tool execution in an agent harness.",
+      "expected": {
+        "mustCallAny": [],
+        "toolPolicy": "forbidden"
+      }
+    },
+    {
+      "id": "conceptual-agent-design-no-tool-zh",
+      "language": "zh-CN",
+      "prompt": "只用大白话解释 Agent 为什么不能靠答案关键词判断是否完成，不要调查当前系统。",
+      "expected": {
+        "mustCallAny": [],
+        "toolPolicy": "forbidden"
+      }
+    },
+    {
+      "id": "multi-tool-member-computer",
+      "language": "en-US",
+      "prompt": "Find Felix in the organization and verify whether his OpenMeld Service is online.",
+      "expected": {
+        "mustCallAny": [
+          "openmeld_read_organization_directory",
+          "openmeld_read_member_openmeld_service_status"
+        ],
+        "toolPolicy": "required"
+      }
+    },
+    {
+      "id": "tool-budget-must-continue",
+      "language": "en-US",
+      "prompt": "Finish the implementation and tests. Do not stop until the task is complete.",
+      "expected": {
+        "mustCallAny": [],
+        "mustNotFinishAtToolBudget": true,
+        "toolPolicy": "optional"
+      }
+    }
+  ]
+}

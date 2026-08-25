@@ -135,6 +135,7 @@
     "ops:remote-agent-slack": "node scripts/ops/remote-agent-slack-bindings.mjs",
     "ops:cf:tail": "node scripts/cloudflare/tail-runtime-evidence.mjs",
     "ops:cf:query": "node scripts/cloudflare/query-runtime-evidence.mjs",
+    "eval:center-agent-tool-choice": "node --test scripts/evals/center-agent-tool-choice.test.mjs",
     "cf-typegen": "turbo run cf-typegen",
     "check": "pnpm install && pnpm sherif && biome check --no-errors-on-unmatched ./ && pnpm run verify:cloudflare:env-contract && pnpm run verify:runtime-token-contract && pnpm run verify:theme-background && turbo run check",
     "sherif": "sherif",
