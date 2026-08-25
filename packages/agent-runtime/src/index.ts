@@ -19,6 +19,10 @@ export {
   shouldExpandAgentControllerInterface,
 } from "./agent-controller-interface-display";
 export {
+  type AgentControllerModelCompatibility,
+  resolveAgentControllerModelCompatibility,
+} from "./agent-controller-model-compatibility";
+export {
   type AgentControllerPermissionModeDisplayMetadata,
   type AgentControllerPermissionModeOption,
   type AgentControllerPermissionModeTone,

@@ -52,6 +52,7 @@ import type { useLocalAgentRecoveryController } from "#/components/agents/use-lo
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
+import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
 import {
 	resolveRememberedAgentProfileCreationDefaults,
 	setAgentProfileCreationDefaults,
@@ -117,7 +118,10 @@ import {
 	AgentProfileSessionChoice,
 	type AgentProfileSessionMode,
 } from "./agent-profile-session-choice";
-import { CreateProfileForm } from "./create-profile-form";
+import {
+	type AgentProfileModelCompatibilityContext,
+	CreateProfileForm,
+} from "./create-profile-form";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 import { isOpenCodeAgentId } from "./open-code-permissions-field";
 import { RequestedAgentProjectField } from "./requested-agent-project-field";
@@ -509,6 +513,13 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 	const selectedTeammateBinding = teammateBindingOptions.find(
 		(option) => option.choice.value === agentBindingValue
 	);
+	const modelCompatibilityContext = resolveCreateModelCompatibilityContext({
+		bindingTarget,
+		boundAgentId,
+		orgSlug,
+		ownerMode,
+		selectedTeammateBinding,
+	});
 	const { availableLocalAgentIds, isResolvingLocalAgents } =
 		resolveAvailableLocalAgents({
 			organizationComputersPending: organizationComputersQuery.isPending,
@@ -846,6 +857,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			ownerMode === "self" ? localFolderPickerDeviceId : null,
 		lockLocalAgentSelection: Boolean(sessionPreset),
 		modelCatalog,
+		modelCompatibilityContext,
 		onChangeAgentBindingValue: (value: string) => {
 			setAgentBindingValue(value);
 			const nextAgentId =
@@ -2183,6 +2195,8 @@ type TeammateBindingOption = {
 	agentControllerRef: string;
 	agentId: string;
 	choice: AgentProfileBindingChoice;
+	installedVersion: string | null;
+	reportedModelIds: readonly string[] | null;
 	targetComputerId: string;
 };
 
@@ -2216,6 +2230,11 @@ function resolveTeammateBindingOptions(input: {
 					label,
 					value: `${computer.computerId}:${controller.ref}`,
 				},
+				installedVersion: localAgent.details?.version ?? null,
+				reportedModelIds:
+					localAgent.details?.models.flatMap((model) =>
+						model.id ? [model.id] : []
+					) ?? null,
 				targetComputerId: computer.computerId,
 			});
 		}
@@ -2241,6 +2260,8 @@ function resolveTeammateBindingOptions(input: {
 					label: input.sessionPreset.localAgentName,
 					value,
 				},
+				installedVersion: null,
+				reportedModelIds: null,
 				targetComputerId: input.sessionPreset.computerId,
 			});
 		}
@@ -2250,6 +2271,53 @@ function resolveTeammateBindingOptions(input: {
 			`${right.choice.label}:${right.choice.description}`
 		)
 	);
+}
+
+function resolveCreateModelCompatibilityContext(input: {
+	bindingTarget: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>;
+	boundAgentId: string;
+	orgSlug: string | null | undefined;
+	ownerMode: AgentProfileOwnerMode;
+	selectedTeammateBinding: TeammateBindingOption | undefined;
+}): AgentProfileModelCompatibilityContext | null {
+	if (!input.boundAgentId) {
+		return null;
+	}
+	if (input.ownerMode === "teammate") {
+		const option = input.selectedTeammateBinding;
+		if (!option) {
+			return null;
+		}
+		return {
+			agentControllerId: option.agentId,
+			controllerDisplayName: formatLocalAgentDisplayName(option.agentId),
+			installedVersion: option.installedVersion,
+			managePath: input.orgSlug
+				? buildOrganizationComputerPath({
+						deviceId: option.targetComputerId,
+						orgSlug: input.orgSlug,
+					})
+				: null,
+			reportedModelIds: option.reportedModelIds,
+		};
+	}
+	const agentControllerRef = buildBuiltinAgentControllerRef(input.boundAgentId);
+	const snapshot = input.bindingTarget?.capabilities.find(
+		(capability) => capability.agentControllerRef === agentControllerRef
+	)?.agentControllerInterface;
+	return {
+		agentControllerId: input.boundAgentId,
+		controllerDisplayName: formatLocalAgentDisplayName(input.boundAgentId),
+		installedVersion: snapshot?.version ?? null,
+		managePath:
+			input.orgSlug && input.bindingTarget
+				? buildOrganizationComputerPath({
+						deviceId: input.bindingTarget.deviceId,
+						orgSlug: input.orgSlug,
+					})
+				: null,
+		reportedModelIds: snapshot?.models.map((model) => model.id) ?? null,
+	};
 }
 
 function createdAgentRequestMessage(

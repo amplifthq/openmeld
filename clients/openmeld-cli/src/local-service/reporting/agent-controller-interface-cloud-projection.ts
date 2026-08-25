@@ -34,7 +34,7 @@ export function projectAgentControllerInterfaceForCloud(
       status: snapshot.launch.status,
     },
     message: null,
-    models: [],
+    models: snapshot.models.map((model) => ({ ...model })),
     nativeInterface: snapshot.nativeInterface,
     schemaVersion: snapshot.schemaVersion,
     skills: [],
