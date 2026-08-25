@@ -15,6 +15,17 @@ change a failure.
 
 Evidence: pr:238, commit:b5261e72a3ef5752c246105a517b419b91fb1dc6, workflow:32799908682
 
+### See which local agent installation OpenMeld uses
+
+Improved · computers · local-agents
+
+Computer details now name the exact local agent installation OpenMeld uses and
+show provider limits in compact circular cards. Choosing another installation
+requires confirmation, stays readable on smaller screens, and no longer shows
+a timeout when the computer completed the change.
+
+Evidence: pr:244, commit:04a7f925b140d0e38d11cc33a9b79c10240fd9aa, workflow:32803874709
+
 ## August 24, 2026
 
 ### Keep Codex permissions stable during background checks
