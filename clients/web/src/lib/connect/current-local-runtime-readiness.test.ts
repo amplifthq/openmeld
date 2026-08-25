@@ -211,8 +211,8 @@ describe("mapCurrentLocalRuntimeReplyReadinessQueryState", () => {
 				readiness: retryableControllerCheckReadiness,
 			})
 		).toMatchObject({
-			reason: "status_unavailable",
-			tone: "muted",
+			reason: "agent_check_failed",
+			tone: "warning",
 		});
 		const mappedReadiness = mapCurrentLocalRuntimeReplyReadinessQueryState({
 			isFetching: false,
