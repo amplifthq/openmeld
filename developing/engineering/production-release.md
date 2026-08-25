@@ -398,8 +398,10 @@ because routes, domains, and schedules are also outside the Version payload.
 `pnpm run evidence:startup:core` captures a local CPU profile and summarizes
 active, garbage-collection, and idle time. Use it to locate expensive global
 initialization and compare two revisions on the same machine. It is diagnostic
-evidence only: Cloudflare hardware differs, and the local number must never be
-used as a substitute for the zero-traffic Cloudflare admission result.
+evidence only: Cloudflare hardware differs, and a local profiler failure must
+not block the guarded release or substitute for the zero-traffic Cloudflare
+admission result. The release workflow preserves the raw profile before parsing
+it so malformed alpha-profiler output remains diagnosable.
 
 The workflow preserves these files for diagnosis:
 
