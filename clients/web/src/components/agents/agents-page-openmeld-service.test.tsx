@@ -257,6 +257,38 @@ describe("OpenMeldServiceCard", () => {
 		expect(toastSuccessMock).toHaveBeenCalledWith("Update started.");
 	});
 
+	it("keeps Update available when a local agent also needs repair", () => {
+		const readiness = buildCurrentLocalRuntimeReplyReadiness({
+			maintenance: {
+				automaticUpdatesEnabled: false,
+				status: "ready",
+			},
+			service: {
+				installedVersion: "0.7.99",
+				latestVersion: "0.8.0",
+				reasonCodes: ["service.update_available"],
+				requiredVersion: null,
+				status: "update_available",
+				updatePolicy: "available",
+				wakeBlocked: false,
+			},
+		});
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: {
+				...readiness,
+				canReplyFromThisComputer: false,
+				message: "Set up local agents on this computer.",
+				nextAction: "run_setup",
+				primaryBlocker: "agent_controller_report_not_ready",
+				status: "blocked",
+			},
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
+	});
+
 	it("shows the saved automatic update setting and operation state", async () => {
 		setCurrentOpenMeldToolsMaintenanceMock.mockResolvedValueOnce({
 			automaticUpdatesEnabled: false,

@@ -839,10 +839,10 @@ function resolveOpenMeldToolsServiceBoundaryDisplay(
 function resolveOpenMeldToolsUpdateDisplay(
 	input: CurrentLocalRuntimeServiceDisplayInput
 ): CurrentLocalRuntimeServiceDisplay | null {
-	if (input.computerSummaryStatus?.reason !== "openmeld_tools_update") {
-		return null;
-	}
-	const hasRequiredToolsUpdate = input.computerSummaryStatus.tone === "danger";
+	const hasRequiredToolsUpdate =
+		isOpenMeldToolsComponentUpdateRequired(input.serviceUpdate) ||
+		isOpenMeldToolsComponentUpdateRequired(input.skillsUpdate) ||
+		isOpenMeldToolsComponentUpdateRequired(input.cliUpdate);
 	const hasServiceOrSkillsUpdate =
 		isOpenMeldToolsComponentUpdateActionable(input.serviceUpdate) ||
 		isOpenMeldToolsComponentUpdateActionable(input.skillsUpdate);
@@ -870,7 +870,7 @@ function resolveOpenMeldToolsUpdateDisplay(
 		statusLabel: hasRequiredToolsUpdate
 			? "OpenMeld Tools need an update"
 			: "OpenMeld Tools update available",
-		tone: input.computerSummaryStatus.tone,
+		tone: hasRequiredToolsUpdate ? "danger" : "warning",
 	};
 }
 
