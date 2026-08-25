@@ -57,6 +57,15 @@ const TEAM_SAFE_DETAILS = {
 } as const;
 
 const TEAM_SAFE_OPENMELD_TOOLS = {
+  updateOperation: {
+    operationId: "update-1",
+    phase: "waiting_for_work",
+    requestSource: "automatic",
+    requestedAt: "2026-08-18T05:00:00.000Z",
+    targetVersion: "0.3.66",
+    updatedAt: "2026-08-18T05:01:00.000Z",
+    urgency: "available",
+  },
   cli: {
     installedPackageVersion: "0.3.66",
     latestPackageVersion: "0.3.66",

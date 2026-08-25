@@ -1,7 +1,11 @@
 import { z } from "zod/v4";
+import {
+  openMeldToolsUpdateOperationPhaseSchema,
+  openMeldToolsUpdateRequestSourceSchema,
+} from "../local-components";
 
 export const OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA =
-  "openmeld-daemon-service-update-job-v1" as const;
+  "openmeld-daemon-service-update-job-v2" as const;
 
 export const daemonServiceUpdatePreparedBundleSchema = z.strictObject({
   v: z.literal(2),
@@ -19,17 +23,34 @@ export const daemonServiceUpdatePreparedBundleSchema = z.strictObject({
   updatedAt: z.iso.datetime({ offset: true }),
 });
 
-export const daemonServiceUpdateJobSchema = z.strictObject({
-  v: z.literal(1),
-  schema: z.literal(OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA),
+const daemonServiceUpdateJobBodySchema = z.strictObject({
   attempts: z.number().int().nonnegative(),
   desiredState: z.enum(["background", "stopped"]),
   errorMessage: z.string().min(1).nullable(),
   jobId: z.string().min(1),
   preparedBundle: daemonServiceUpdatePreparedBundleSchema,
   requestedAt: z.iso.datetime({ offset: true }),
-  status: z.enum(["scheduled", "running", "completed", "failed"]),
   targetVersion: z.string().min(1),
   updatedAt: z.iso.datetime({ offset: true }),
   urgency: z.enum(["available", "required"]),
 });
+
+export const daemonServiceUpdateJobV1Schema =
+  daemonServiceUpdateJobBodySchema.extend({
+    v: z.literal(1),
+    schema: z.literal("openmeld-daemon-service-update-job-v1"),
+    status: z.enum(["scheduled", "running", "completed", "failed"]),
+  });
+
+export const daemonServiceUpdateJobSchema =
+  daemonServiceUpdateJobBodySchema.extend({
+    v: z.literal(2),
+    schema: z.literal(OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA),
+    phase: openMeldToolsUpdateOperationPhaseSchema,
+    requestSource: openMeldToolsUpdateRequestSourceSchema,
+  });
+
+export const storedDaemonServiceUpdateJobSchema = z.discriminatedUnion("v", [
+  daemonServiceUpdateJobV1Schema,
+  daemonServiceUpdateJobSchema,
+]);

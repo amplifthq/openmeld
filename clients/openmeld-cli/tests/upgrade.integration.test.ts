@@ -23,6 +23,7 @@ const {
   isCancelMock,
   resolveDaemonServiceAlignmentDecisionMock,
   runDaemonServiceFullAlignmentMock,
+  scheduleDaemonServiceUpdateMock,
 } = vi.hoisted(() => ({
   canUseInteractivePromptsMock: vi.fn(),
   confirmMock: vi.fn(),
@@ -30,6 +31,7 @@ const {
   isCancelMock: vi.fn((value: unknown) => value === "__cancel__"),
   resolveDaemonServiceAlignmentDecisionMock: vi.fn(),
   runDaemonServiceFullAlignmentMock: vi.fn(),
+  scheduleDaemonServiceUpdateMock: vi.fn(),
 }));
 
 vi.mock("node:child_process", async () => {
@@ -93,6 +95,14 @@ vi.mock(
   }
 );
 
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-update-coordinator",
+  () => ({
+    scheduleDaemonServiceUpdate: (...args: unknown[]) =>
+      scheduleDaemonServiceUpdateMock(...args),
+  })
+);
+
 describe("openmeld upgrade", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -117,6 +127,13 @@ describe("openmeld upgrade", () => {
       restoredBackground: false,
       backupDataPath: null,
       errorMessage: null,
+    });
+    scheduleDaemonServiceUpdateMock.mockReset().mockResolvedValue({
+      status: "scheduled",
+      job: {
+        jobId: "update-1",
+        targetVersion: packageJson.version,
+      },
     });
   });
 
@@ -686,25 +703,13 @@ describe("openmeld upgrade", () => {
     });
   });
 
-  it("runs full alignment in the hidden internal alignment mode for dirty services", async () => {
+  it("schedules dirty Service alignment in the background", async () => {
     await withTempHome(async (home) => {
       await seedVersionState(home);
       resolveDaemonServiceAlignmentDecisionMock.mockReturnValueOnce({
         status: "needs_full_alignment",
         reasonCodes: ["bundle_strategy_legacy"],
       });
-      runDaemonServiceFullAlignmentMock.mockResolvedValueOnce({
-        status: "aligned",
-        targetVersion: packageJson.version,
-        inventoryBefore: {},
-        inventoryAfter: {},
-        reasonCodes: [],
-        completedSteps: [],
-        restoredBackground: false,
-        backupDataPath: null,
-        errorMessage: null,
-      });
-
       const { stdout } = await withCapturedStdio(async () => {
         await runUpgrade({
           view: "agent",
@@ -712,13 +717,14 @@ describe("openmeld upgrade", () => {
         });
       });
 
-      expect(runDaemonServiceFullAlignmentMock).toHaveBeenCalledWith(
+      expect(scheduleDaemonServiceUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          expectedVersion: packageJson.version,
-          intent: "upgrade_reconcile",
+          targetVersion: packageJson.version,
+          urgency: "available",
         })
       );
-      expect(stdout).toContain('"code":"upgrade.reconcile.completed"');
+      expect(runDaemonServiceFullAlignmentMock).not.toHaveBeenCalled();
+      expect(stdout).toContain('"code":"upgrade.reconcile.scheduled"');
     });
   });
 
@@ -726,19 +732,8 @@ describe("openmeld upgrade", () => {
     await withTempHome(async (home) => {
       await seedVersionState(home);
       resolveDaemonServiceAlignmentDecisionMock.mockReturnValueOnce({
-        status: "needs_full_alignment",
-        reasonCodes: ["bundle_strategy_legacy"],
-      });
-      runDaemonServiceFullAlignmentMock.mockResolvedValueOnce({
         status: "blocked",
-        targetVersion: packageJson.version,
-        inventoryBefore: {},
-        inventoryAfter: {},
         reasonCodes: ["duplicate_ownership_uncertain"],
-        completedSteps: [],
-        restoredBackground: false,
-        backupDataPath: null,
-        errorMessage: null,
       });
 
       const { stdout } = await withCapturedStdio(async () => {
@@ -751,41 +746,35 @@ describe("openmeld upgrade", () => {
       });
 
       expect(stdout).toContain('"code":"upgrade.reconcile.failed"');
+      expect(scheduleDaemonServiceUpdateMock).not.toHaveBeenCalled();
     });
   });
 
-  it("preserves backupDataPath in hidden internal alignment failure output", async () => {
+  it("reports when the same background Service update is already scheduled", async () => {
     await withTempHome(async (home) => {
       await seedVersionState(home);
       resolveDaemonServiceAlignmentDecisionMock.mockReturnValueOnce({
         status: "needs_full_alignment",
         reasonCodes: ["bundle_strategy_legacy"],
       });
-      runDaemonServiceFullAlignmentMock.mockResolvedValueOnce({
-        status: "failed",
-        targetVersion: packageJson.version,
-        inventoryBefore: {},
-        inventoryAfter: null,
-        reasonCodes: [],
-        completedSteps: [],
-        restoredBackground: false,
-        backupDataPath: "/tmp/openmeld-runtime-backup",
-        errorMessage: "runtime restore failed",
+      scheduleDaemonServiceUpdateMock.mockResolvedValueOnce({
+        status: "already_scheduled",
+        job: {
+          jobId: "update-existing",
+          targetVersion: packageJson.version,
+        },
       });
 
       const { stdout } = await withCapturedStdio(async () => {
-        await expect(
-          runUpgrade({
-            view: "agent",
-            internalAlignService: true,
-          })
-        ).rejects.toThrow("runtime restore failed");
+        await runUpgrade({
+          view: "agent",
+          internalAlignService: true,
+        });
       });
 
-      expect(stdout).toContain('"code":"upgrade.reconcile.failed"');
-      expect(stdout).toContain(
-        '"backupDataPath":"/tmp/openmeld-runtime-backup"'
-      );
+      expect(stdout).toContain('"status":"already_scheduled"');
+      expect(stdout).toContain('"jobId":"update-existing"');
+      expect(runDaemonServiceFullAlignmentMock).not.toHaveBeenCalled();
     });
   });
 });

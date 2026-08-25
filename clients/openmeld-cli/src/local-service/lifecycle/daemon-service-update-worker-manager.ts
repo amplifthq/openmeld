@@ -15,7 +15,7 @@ import { assertSafePublishedProductionServiceRegistrationMutation } from "../../
 import { resolveDaemonBundleEntryPathFromState } from "./daemon-service-bundle";
 import { buildDaemonSystemServiceCommandSpec } from "./daemon-service-command-spec";
 import { resolveDaemonServiceManager } from "./daemon-service-manager";
-import type { DaemonServiceUpdateJob } from "./daemon-service-update-coordinator";
+import type { DaemonServiceUpdateJob } from "./daemon-service-update-state";
 
 const UPDATE_WORKER_RESTART_BACKOFF_SECONDS = 30;
 const WINDOWS_SERVICE_ALREADY_RUNNING_PATTERN = /already running|1056/i;
