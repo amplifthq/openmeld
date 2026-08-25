@@ -256,42 +256,50 @@ external canonical source: it carries exact provider ids and a permalink that
 the shared schema restricts to HTTPS `slack.com` hosts. Core resolves that link
 through Slack `chat.getPermalink`; clients never construct or accept a
 recipient-authored external URL.
-An Agent Interaction target carries the stable source Space signal when known,
-so resolved interaction history remains navigable after transient interaction
-state is retired. Readers remain compatible with older targets that do not yet
-contain that additive locator. Existing resolved targets may be migrated to the
-already-supported Space target shape; open interactions retain their interaction
-target.
+An Agent Interaction target carries the stable source Space signal when known
+and an exact nullable Space thread root for every new RuntimeCoordinator
+projection, so resolved interaction history remains navigable and clients can
+identify the exact visible source conversation. A string identifies one thread;
+explicit null identifies the main timeline; an absent field means legacy
+unknown context and must not be interpreted as main. Readers remain compatible
+with older targets that do not yet contain either additive locator. Existing
+resolved targets may be migrated to the already-supported Space target shape;
+open interactions retain their interaction target.
 
-The additive Agent Interaction signal locator rolls out consumer first: deploy
-Web before Core begins emitting it. The historical-data migration rewrites only
-resolved items to the existing Space target shape, so it remains readable by
-old and new strict consumers during the Database-to-Core deployment window.
+The additive Agent Interaction thread locator rolls out receiver first: deploy
+Web, then Gateway, before Core begins emitting it. Source-target version `4`
+identifies a thread-aware client. Gateway removes the additive thread locator
+for version `3` clients, while preserving the remaining Agent Interaction
+target; missing or older version headers continue through the existing legacy
+target projection. The historical-data migration rewrites only resolved items
+to the existing Space target shape, so it remains readable by old and new
+strict consumers during the Database-to-Core deployment window.
 
-The additive Slack Message Channel target uses the
-`inbox-message-channel-receiver-first` release profile. The persisted-row reader
+Additive strict Inbox source-target changes use the
+`inbox-source-target-receiver-first` release profile. The persisted-row reader
 inventory is: Core parses `source_target_json` into the shared Inbox item and
 validates the RPC response; Gateway validates that response again; and the Web
 API client validates it before rendering. Inbox access, count, Space-summary,
 document-reconciliation, and urgent-email SQL either inspect only a known target
 kind or do not select source-target JSON, so they do not introduce another
-strict runtime reader. Remote Agent does not read Inbox rows. Core is both the
-first strict reader and the only writer of this new target.
+strict runtime reader. Remote Agent does not read Inbox rows. Core is both a
+strict reader and the only writer of these targets.
 
 Deploy Web and verify it, then deploy Gateway and verify it, and only then deploy
-Core so it may emit `message_channel`. The guarded release planner adds all three
-scopes automatically and rejects an explicit scope that omits any one of them.
-New receivers continue to accept every older target before the writer changes;
-after Core changes, every deployed strict receiver accepts both old and new
-rows. An already-loaded older Web tab is a separate mixed-version reader: it
-omits `x-openmeld-inbox-source-target-version: 2`, so Gateway first validates
-the current Core response and then projects each `message_channel` target to
-the prior `{ kind: "center_agent" }` navigation contract in list, direct-item,
-and read-mutation responses. The current Web API client sends version `2` on
-all three operations, through the Web proxy allowlist, and receives the exact
-target. This keeps older tabs' complete list, counts, pagination, direct links,
-and mutations compatible until a normal reload installs exact Slack
-navigation; it never rewrites the durable row or weakens the canonical schema.
+Core so it may emit a new source-target discriminator or field. The guarded
+release planner recognizes both Message Channel and RuntimeCoordinator Agent
+Interaction writers, adds all three scopes automatically, and rejects an
+explicit scope that omits any one of them. New receivers continue to accept
+every older target before the writer changes; after Core changes, every deployed
+strict receiver accepts both old and new rows. An already-loaded Web tab is a
+separate mixed-version reader: source-target version `4` receives the complete
+current target, version `3` receives Agent Interaction targets without the
+thread locator, and missing or older versions retain the legacy projection.
+That legacy projection maps unsupported `message_channel` and Agent Profile
+creation targets to `{ kind: "center_agent" }`. Gateway applies the projection
+after validating Core's current response for list, direct-item, and read-mutation
+operations. The projection never rewrites the durable row or weakens the
+canonical schema.
 Core keeps the durable Slack terminal-delivery ledger as the repair owner when
 permalink resolution or Inbox projection fails. The same bounded repair detects
 legacy Slack rows whose source identity still points to the former

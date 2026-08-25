@@ -644,6 +644,11 @@ type RuntimeCoordinatorInteractionInboxRepairRecord = {
   sourceSignalId?: string;
   spaceId: string;
   targetProfileName: string;
+  /**
+   * Explicit null means the Space main timeline. Undefined identifies a
+   * persisted v1 repair written before thread-aware Inbox targets.
+   */
+  threadRootSignalId?: string | null;
   updatedAtMs: number;
   v: 1;
 };
@@ -12020,6 +12025,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         input.commandState.sanitizedDeliveryRequest.payload
           .targetProfileMentionLabel ??
         "Agent",
+      threadRootSignalId:
+        input.commandState.sanitizedDeliveryRequest.payload.threadContext
+          ?.rootSignalId ?? null,
       updatedAtMs: input.nowMs,
       v: 1,
     });
@@ -12051,6 +12059,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         input.commandState.sanitizedDeliveryRequest.payload
           .targetProfileMentionLabel ??
         "Agent",
+      threadRootSignalId:
+        input.commandState.sanitizedDeliveryRequest.payload.threadContext
+          ?.rootSignalId ?? null,
       updatedAtMs: input.resolvedAtMs,
       v: 1,
     });
@@ -12092,6 +12103,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           spaceId: record.spaceId,
           spaceIndexDb,
           targetProfileName: record.targetProfileName,
+          threadRootSignalId: record.threadRootSignalId,
         });
       } else {
         await resolveRuntimeCoordinatorInteractionInboxItem({

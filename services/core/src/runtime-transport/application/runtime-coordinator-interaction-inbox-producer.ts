@@ -26,6 +26,11 @@ type RuntimeCoordinatorInteractionInboxSource = {
   sourceSignalId: string;
   spaceId: string;
   targetProfileName: string;
+  /**
+   * Explicit null means the Space main timeline. Undefined is reserved for
+   * repair records written before the thread locator was projected.
+   */
+  threadRootSignalId?: string | null;
 };
 
 export async function projectRuntimeCoordinatorInteractionInboxItem(
@@ -81,6 +86,9 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
         runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
         sourceSignalId: input.sourceSignalId,
         spaceId: input.spaceId,
+        ...(input.threadRootSignalId === undefined
+          ? {}
+          : { threadRootSignalId: input.threadRootSignalId }),
       },
       title: presentation.title,
     },

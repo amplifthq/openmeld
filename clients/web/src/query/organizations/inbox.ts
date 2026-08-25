@@ -77,6 +77,16 @@ export function inboxItemQueryOptions(input: {
 	});
 }
 
+export function inboxBrowserNotificationRecoveryItemQueryOptions(input: {
+	itemId: string;
+	organizationId: string;
+}) {
+	return queryOptions<GetInboxItemResponse, InboxFailure>({
+		...inboxItemQueryOptions(input),
+		staleTime: 0,
+	});
+}
+
 export function inboxItemsInfiniteQueryOptions(input: {
 	enabled?: boolean;
 	organizationId: string;

@@ -23,6 +23,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         spaceId: "space_one",
         spaceIndexDb: harness.db,
         targetProfileName: "Codex Agent",
+        threadRootSignalId: "thread_root_one",
       });
       await projectRuntimeCoordinatorInteractionInboxItem({
         inboxDb: harness.db,
@@ -34,6 +35,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         spaceId: "space_one",
         spaceIndexDb: harness.db,
         targetProfileName: "Codex Agent",
+        threadRootSignalId: "thread_root_one",
       });
 
       const inbox = createInboxService({ db: harness.db });
@@ -59,6 +61,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
               runtimeCoordinatorExecutionId: "runtime_execution_one",
               sourceSignalId: "signal_one",
               spaceId: "space_one",
+              threadRootSignalId: "thread_root_one",
             },
             title: "Approval required",
           },

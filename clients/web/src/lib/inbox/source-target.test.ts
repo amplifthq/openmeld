@@ -1,6 +1,9 @@
 import type { InboxItem, InboxSourceTarget } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { buildInboxItemSourceNavigation } from "./source-target";
+import {
+	buildInboxItemSourceNavigation,
+	isInboxItemSourceLocation,
+} from "./source-target";
 
 describe("buildInboxItemSourceNavigation", () => {
 	it("preserves the exact Space signal and thread target", () => {
@@ -29,11 +32,12 @@ describe("buildInboxItemSourceNavigation", () => {
 					runtimeCoordinatorExecutionId: "execution-123",
 					sourceSignalId: "signal-123",
 					spaceId: "space-123",
+					threadRootSignalId: "root-signal-123",
 				}),
 				orgSlug: "amplift",
 			})
 		).toEqual({
-			href: "/o/amplift/spaces/space-123?focusInteractionId=interaction-123&focusSignalId=signal-123",
+			href: "/o/amplift/spaces/space-123?focusInteractionId=interaction-123&focusSignalId=signal-123&focusThreadRootSignalId=root-signal-123",
 			openInNewTab: false,
 		});
 	});
@@ -111,6 +115,165 @@ describe("buildInboxItemSourceNavigation", () => {
 				orgSlug: "amplift",
 			})
 		).toEqual({ href: expectedPath, openInNewTab: false });
+	});
+});
+
+describe("isInboxItemSourceLocation", () => {
+	it("suppresses a Space thread item only while that exact thread is visible", () => {
+		const item = createInboxItem({
+			kind: "space",
+			signalId: "signal-123",
+			spaceId: "space-123",
+			threadRootSignalId: "root-signal-123",
+		});
+		const baseInput = {
+			item,
+			orgSlug: "amplift",
+			pathname: "/o/amplift/spaces/space-123",
+		};
+
+		expect(
+			isInboxItemSourceLocation({
+				...baseInput,
+				visibleConversation: {
+					kind: "space",
+					spaceId: "space-123",
+					threadRootSignalId: "root-signal-123",
+				},
+			})
+		).toBe(true);
+		expect(
+			isInboxItemSourceLocation({
+				...baseInput,
+				visibleConversation: {
+					kind: "space",
+					spaceId: "space-123",
+					threadRootSignalId: "another-root-signal",
+				},
+			})
+		).toBe(false);
+	});
+
+	it("does not suppress Space messages while Files or Graph is visible", () => {
+		const item = createInboxItem({
+			kind: "space",
+			signalId: "signal-123",
+			spaceId: "space-123",
+		});
+
+		expect(
+			isInboxItemSourceLocation({
+				item,
+				orgSlug: "amplift",
+				pathname: "/o/amplift/spaces/space-123",
+				visibleConversation: null,
+			})
+		).toBe(false);
+	});
+
+	it("recognizes the exact Direct Message conversation from rendered state", () => {
+		const item = createInboxItem({
+			kind: "space",
+			signalId: "signal-123",
+			spaceId: "direct-message-123",
+		});
+
+		expect(
+			isInboxItemSourceLocation({
+				item,
+				orgSlug: "amplift",
+				pathname: "/o/amplift/direct-messages/direct-message-123",
+				visibleConversation: {
+					kind: "space",
+					spaceId: "direct-message-123",
+					threadRootSignalId: null,
+				},
+			})
+		).toBe(true);
+	});
+
+	it("suppresses an Agent Interaction only in its exact thread", () => {
+		const item = createInboxItem({
+			interactionId: "interaction-123",
+			kind: "agent_interaction",
+			runtimeCoordinatorExecutionId: "execution-123",
+			sourceSignalId: "signal-123",
+			spaceId: "space-123",
+			threadRootSignalId: "root-signal-123",
+		});
+		const baseInput = {
+			item,
+			orgSlug: "amplift",
+			pathname: "/o/amplift/spaces/space-123",
+		};
+
+		expect(
+			isInboxItemSourceLocation({
+				...baseInput,
+				visibleConversation: {
+					kind: "space",
+					spaceId: "space-123",
+					threadRootSignalId: "root-signal-123",
+				},
+			})
+		).toBe(true);
+		expect(
+			isInboxItemSourceLocation({
+				...baseInput,
+				visibleConversation: {
+					kind: "space",
+					spaceId: "space-123",
+					threadRootSignalId: null,
+				},
+			})
+		).toBe(false);
+	});
+
+	it("suppresses a main-timeline Agent Interaction only on the main timeline", () => {
+		const item = createInboxItem({
+			interactionId: "interaction-123",
+			kind: "agent_interaction",
+			runtimeCoordinatorExecutionId: "execution-123",
+			sourceSignalId: "signal-123",
+			spaceId: "space-123",
+			threadRootSignalId: null,
+		});
+
+		expect(
+			isInboxItemSourceLocation({
+				item,
+				orgSlug: "amplift",
+				pathname: "/o/amplift/spaces/space-123",
+				visibleConversation: {
+					kind: "space",
+					spaceId: "space-123",
+					threadRootSignalId: null,
+				},
+			})
+		).toBe(true);
+	});
+
+	it("keeps alerts for legacy Agent Interactions without exact thread facts", () => {
+		const item = createInboxItem({
+			interactionId: "interaction-123",
+			kind: "agent_interaction",
+			runtimeCoordinatorExecutionId: "execution-123",
+			sourceSignalId: "signal-123",
+			spaceId: "space-123",
+		});
+
+		expect(
+			isInboxItemSourceLocation({
+				item,
+				orgSlug: "amplift",
+				pathname: "/o/amplift/spaces/space-123",
+				visibleConversation: {
+					kind: "space",
+					spaceId: "space-123",
+					threadRootSignalId: null,
+				},
+			})
+		).toBe(false);
 	});
 });
 

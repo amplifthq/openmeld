@@ -10,6 +10,12 @@ import {
 	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
 
+export type InboxVisibleConversation = {
+	kind: "space";
+	spaceId: string;
+	threadRootSignalId: string | null;
+};
+
 export function buildInboxItemSourceNavigation(input: {
 	item: InboxItem;
 	orgSlug: string;
@@ -43,6 +49,7 @@ export function buildInboxItemSourceNavigation(input: {
 					search: {
 						focusInteractionId: target.interactionId,
 						focusSignalId: target.sourceSignalId,
+						focusThreadRootSignalId: target.threadRootSignalId ?? undefined,
 					},
 					spaceId: target.spaceId,
 				}),
@@ -100,6 +107,78 @@ function resolveSettingsTargetPath(input: {
 		default:
 			return assertNever(input.section);
 	}
+}
+
+/**
+ * Whether the current app surface is the exact source conversation for the
+ * item. Space pages need the rendered view and active thread because Messages,
+ * Files, Graph, the main timeline, and every thread share one pathname.
+ * External targets (for example message_channel permalinks) never match.
+ */
+export function isInboxItemSourceLocation(input: {
+	item: InboxItem;
+	orgSlug: string;
+	pathname: string | null;
+	visibleConversation: InboxVisibleConversation | null;
+}): boolean {
+	const target = input.item.sourceTarget;
+	if (target.kind === "space") {
+		return (
+			input.visibleConversation?.kind === "space" &&
+			input.visibleConversation.spaceId === target.spaceId &&
+			input.visibleConversation.threadRootSignalId ===
+				(target.threadRootSignalId ?? null)
+		);
+	}
+	if (target.kind === "agent_interaction") {
+		// Missing means this durable item predates the exact thread locator. Do
+		// not guess that it came from the main timeline and hide its alert.
+		if (target.threadRootSignalId === undefined) {
+			return false;
+		}
+		return (
+			input.visibleConversation?.kind === "space" &&
+			input.visibleConversation.spaceId === target.spaceId &&
+			input.visibleConversation.threadRootSignalId === target.threadRootSignalId
+		);
+	}
+	if (!input.pathname) {
+		return false;
+	}
+	let sourceHref: string;
+	try {
+		sourceHref = buildInboxItemSourceNavigation({
+			item: input.item,
+			orgSlug: input.orgSlug,
+		}).href;
+	} catch (error) {
+		console.warn("[openmeld.web.inbox.source_location_resolution_failed]", {
+			error: error instanceof Error ? error.name : typeof error,
+			itemId: input.item.id,
+			organizationId: input.item.organizationId,
+			targetKind: String(input.item.sourceTarget.kind),
+		});
+		return false;
+	}
+	const sourcePathname = sourceHref.split("?", 1)[0] ?? sourceHref;
+	return (
+		normalizeSourcePathname(sourcePathname) ===
+		normalizeSourcePathname(input.pathname)
+	);
+}
+
+const TRAILING_SLASHES_PATTERN = /\/+$/;
+
+function normalizeSourcePathname(pathname: string): string {
+	let normalized = pathname;
+	try {
+		normalized = decodeURI(normalized);
+	} catch {
+		// Compare the raw value when the path is not valid percent-encoded text.
+	}
+	return normalized.length > 1
+		? normalized.replace(TRAILING_SLASHES_PATTERN, "")
+		: normalized;
 }
 
 function assertNever(value: never): never {

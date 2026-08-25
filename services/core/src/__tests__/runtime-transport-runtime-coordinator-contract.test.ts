@@ -1586,6 +1586,10 @@ const buildDeliverRequest = (
       profileName: string;
       previewText: string;
     };
+    threadContext?: {
+      rootSignalId: string;
+      threadId: string;
+    };
   } = {}
 ) => ({
   v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1630,6 +1634,9 @@ const buildDeliverRequest = (
     taskId: "task-1",
     ...(overrides.replyToSnapshot
       ? { replyToSnapshot: overrides.replyToSnapshot }
+      : {}),
+    ...(overrides.threadContext
+      ? { threadContext: overrides.threadContext }
       : {}),
   },
 });
@@ -1904,6 +1911,10 @@ const issueDeliveryToken = async (input: {
   sentFrames: unknown[];
   socket: WebSocket;
   state: RuntimeTransportMutableState;
+  threadContext?: {
+    rootSignalId: string;
+    threadId: string;
+  };
 }): Promise<RuntimeCoordinatorExecutionTokenEnvelope> => {
   configureCompatibleRoute({
     socket: input.socket,
@@ -1918,11 +1929,14 @@ const issueDeliveryToken = async (input: {
   ).handleDeliverDispatchRequest(
     new Request("https://runtime-transport.test/deliver-dispatch", {
       body: JSON.stringify(
-        buildDeliverRequest(
-          input.replyToSnapshot
+        buildDeliverRequest({
+          ...(input.replyToSnapshot
             ? { replyToSnapshot: input.replyToSnapshot }
-            : {}
-        )
+            : {}),
+          ...(input.threadContext
+            ? { threadContext: input.threadContext }
+            : {}),
+        })
       ),
       method: "POST",
     })
@@ -6564,6 +6578,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
       sentFrames,
       socket,
       state,
+      threadContext: {
+        rootSignalId: "thread-root-1",
+        threadId: "thr_00000000-0000-4000-8000-000000000001",
+      },
     });
     enableLocalAgentInteraction(state);
 
@@ -6599,6 +6617,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       sourceSignalId: "signal-1",
       spaceId: HEX_SPACE_ID,
+      threadRootSignalId: "thread-root-1",
     });
 
     const respondResponse = await fetchRuntimeTransportJson(
@@ -6748,6 +6767,74 @@ describe("runtime transport runtime coordinator transport contract", () => {
           response: null,
         },
       });
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it("finishes a legacy open repair after its legacy Inbox item was already written", async () => {
+    const nowMs = 1_700_000_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
+        createHarness();
+      const executionToken = await issueDeliveryToken({
+        hub,
+        sentFrames,
+        socket,
+        state,
+      });
+      enableLocalAgentInteraction(state);
+      await (
+        hub as unknown as {
+          handleDispatchInteractionRequestFrame: (
+            webSocket: WebSocket,
+            payload: unknown
+          ) => Promise<void>;
+        }
+      ).handleDispatchInteractionRequestFrame(
+        socket,
+        buildInteractionRequest(executionToken)
+      );
+
+      const inboxRow = [...recordingD1.interactionInboxRows.values()][0];
+      if (!inboxRow) {
+        throw new Error("Expected the interaction Inbox item.");
+      }
+      const { threadRootSignalId: _threadRootSignalId, ...legacySourceTarget } =
+        JSON.parse(String(inboxRow.source_target_json)) as Record<
+          string,
+          unknown
+        >;
+      inboxRow.source_target_json = JSON.stringify(legacySourceTarget);
+
+      const repairStorageKey = `runtime-coordinator:interaction-inbox-repair:${RUNTIME_COORDINATOR_EXECUTION_ID}`;
+      storageRecords.set(repairStorageKey, {
+        attemptCount: 1,
+        desiredStatus: "open",
+        interaction: {
+          interactionId: "interaction-1",
+          kind: "permission",
+          requestedAtMs: nowMs,
+        },
+        nextAttemptAtMs: nowMs,
+        ownerUserId: "owner-1",
+        resolvedAtMs: null,
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        sourceSignalId: "signal-1",
+        spaceId: HEX_SPACE_ID,
+        targetProfileName: "Codex Agent",
+        updatedAtMs: nowMs,
+        v: 1,
+      });
+
+      dateNow.mockReturnValue(nowMs + 1000);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+
+      expect(storageRecords.has(repairStorageKey)).toBe(false);
+      expect(JSON.parse(String(inboxRow.source_target_json))).toEqual(
+        legacySourceTarget
+      );
     } finally {
       dateNow.mockRestore();
     }
