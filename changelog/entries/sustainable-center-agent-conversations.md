@@ -6,8 +6,9 @@ areas: ["center-agent", "conversations"]
 audiences: ["members"]
 ---
 
-Center Agent now checks the complete model request against the selected
-controller model's actual capacity before sending it. When an older
-conversation has grown too large, Center Agent compacts its existing history
-and retries the message once instead of repeatedly sending the same oversized
-request or requiring the member to start over.
+Center Agent now adapts long-conversation recovery to the selected controller
+model. When older stored history is already too large for that model, OpenMeld
+carries a bounded continuity context into a fresh internal generation and
+continues the same message. The complete provider request is checked again
+before sending, so members can keep using the same Space or direct message
+instead of starting over.

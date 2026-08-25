@@ -1146,9 +1146,12 @@ after tools, routing, affinity, history, and current-turn context are composed.
 It derives the input budget from the frozen route's context window and output
 reserve. An oversized input raises the same typed context-limit outcome that
 Flue already uses to compact the canonical conversation and retry once; the
-retry is admitted only after the newly compiled input fits. Equivalent bounded
-materializers for remaining file and App/tool families are still required
-before this context-admission contract is complete.
+retry is admitted only after the newly compiled input fits. This final check is
+the provider-request authority. The earlier canonical-history guard below is a
+deliberately simple safety projection used only to avoid replaying a generation
+that is already unlikely to fit. Equivalent bounded materializers for
+remaining file and App/tool families are still required before this
+context-admission contract is complete.
 
 ### Conversation compaction and runtime rollover
 
@@ -1185,9 +1188,17 @@ idempotency receipt. A
 finalized retry returns its original ACK without replay; a claimed retry keeps
 its existing recovery path. The footprint boundary applies only when no
 matching receipt exists, so it cannot replace an already-admitted execution
-with a false rejection. At 8 MiB the version-4 worker request emits a bounded
-soft-limit rejection so Core can roll the same logical Center Agent
-conversation to a fresh internal runtime generation before expensive replay.
+with a false rejection. For a version-4 request, the pre-replay rollover
+boundary is the smaller of 8 MiB and 85% of the frozen controller model's
+usable input-token budget converted with the shared four-bytes-per-token
+projection. The usable budget already excludes the model-specific output and
+compaction reserve. The remaining 15% covers the current turn, system prompt,
+tools, and differences between canonical storage and provider tokenization.
+This aggregate guard is intentionally not a second tokenizer or transcript
+owner; the final provider-payload check remains authoritative. Reaching the
+boundary emits a bounded soft-limit rejection so Core can roll the same logical
+Center Agent conversation to a fresh internal runtime generation before
+expensive replay.
 Core advances the active generation atomically, derives its deterministic
 runtime route, materializes a bounded and source-attributed continuity context
 from currently authorized product facts, persists the exact replacement
@@ -1222,10 +1233,12 @@ authorized source conversation. Cross-surface continuity comes from verified
 member and Center Agent identity, Core-owned memory policy, current
 environment, and explicitly attributed authorized context, not from copying
 private raw transcripts between surfaces.
-These deliberately conservative thresholds leave
-headroom below the 128 MiB isolate limit for replay amplification, prompt and
-tool materialization, and provider payloads; they are a safety boundary, not a
-claim that 12 MiB of serialized history alone consumes 128 MiB.
+The fixed 8 MiB upper boundary and 12 MiB hard boundary leave headroom below
+the 128 MiB isolate limit for replay amplification, prompt and tool
+materialization, and provider payloads. They are infrastructure safety
+boundaries, not a claim that 12 MiB of serialized history alone consumes 128
+MiB. Smaller controller models may roll earlier through the model-adaptive
+boundary above.
 
 OpenMeld observes Flue's real `compaction_start` and successful `compaction`
 events. A successful event updates the submission's existing durable callback
