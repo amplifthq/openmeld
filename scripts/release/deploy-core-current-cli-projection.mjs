@@ -6,6 +6,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { localComponentsReleaseManifestSchema } from "../../packages/schemas/src/schemas/local-components.ts";
+import { runCoreStartupAdmission } from "../cloudflare/core-startup-admission.mjs";
 
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
@@ -162,6 +163,13 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
           ["rev-parse", "--verify", `refs/tags/${tagInput.tagName}^{commit}`],
           { cwd, encoding: "utf8" }
         )),
+    readHeadSha:
+      input.adapters?.readHeadSha ??
+      (() =>
+        execFileSync(resolveCommandBinary("git"), ["rev-parse", "HEAD"], {
+          cwd,
+          encoding: "utf8",
+        }).trim()),
     readTagFile:
       input.adapters?.readTagFile ??
       ((tagInput) =>
@@ -173,6 +181,8 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     runCommand:
       input.adapters?.runCommand ??
       ((commandInput) => runReadOnlyCommand({ ...commandInput, cwd, env })),
+    runStartupAdmission:
+      input.adapters?.runStartupAdmission ?? runCoreStartupAdmission,
     runStep:
       input.adapters?.runStep ?? ((step) => runStep({ ...step, cwd, env })),
     verifyAlignment: input.adapters?.verifyAlignment,
@@ -200,6 +210,23 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     command: "pnpm",
     label: "Build Core receiver dependencies",
   });
+  if (!input.dryRun) {
+    const headSha = adapters.readHeadSha();
+    if (input.releaseSha !== headSha) {
+      throw new Error(
+        `Core receiver deploy release SHA ${String(input.releaseSha)} does not match checked-out HEAD ${headSha}`
+      );
+    }
+    await adapters.runStartupAdmission({
+      cwd,
+      defines: [
+        `${RELEASE_MANIFEST_DEFINE}:${JSON.stringify(JSON.stringify(target.releaseManifest))}`,
+      ],
+      env,
+      releaseSha: input.releaseSha,
+      tag: target.expectedCoreTag,
+    });
+  }
   const step = buildCoreCurrentCliProjectionDeployStepSpec({
     dryRun: input.dryRun,
     expectedCoreTag: target.expectedCoreTag,
@@ -325,23 +352,36 @@ function resolveCommandBinary(command) {
   return command;
 }
 
+function parseArguments(argumentsList) {
+  const options = { dryRun: false, releaseSha: undefined };
+  for (let index = 0; index < argumentsList.length; index += 1) {
+    const argument = argumentsList[index];
+    const value = argumentsList[index + 1];
+    if (argument === "--dry-run") {
+      options.dryRun = true;
+    } else if (argument === "--release-sha") {
+      if (!(value && !value.startsWith("--"))) {
+        throw new Error("--release-sha requires a value");
+      }
+      options.releaseSha = value;
+      index += 1;
+    } else {
+      throw new Error(`Unknown argument: ${String(argument)}`);
+    }
+  }
+  return options;
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  const args = process.argv.slice(2);
-  const unknownArgs = args.filter((arg) => arg !== "--dry-run");
-  if (unknownArgs.length > 0) {
-    process.stderr.write(`Unknown argument(s): ${unknownArgs.join(", ")}\n`);
+  deployCoreWithCurrentCliProjection(
+    parseArguments(process.argv.slice(2))
+  ).catch((error) => {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`
+    );
     process.exitCode = 1;
-  } else {
-    deployCoreWithCurrentCliProjection({
-      dryRun: args.includes("--dry-run"),
-    }).catch((error) => {
-      process.stderr.write(
-        `${error instanceof Error ? error.message : String(error)}\n`
-      );
-      process.exitCode = 1;
-    });
-  }
+  });
 }

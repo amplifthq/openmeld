@@ -1117,7 +1117,7 @@ const workflowExpectations = [
   },
   {
     workflowPath: ".github/workflows/deploy-core-worker.yml",
-    expectedSnippet: "pnpm -C services/core run sync:config:prod",
+    expectedSnippet: "node scripts/release/deploy-core-worker.mjs",
   },
   {
     workflowPath: ".github/workflows/deploy-remote-agent-worker.yml",

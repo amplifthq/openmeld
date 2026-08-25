@@ -96,17 +96,24 @@ jobs:
       - name: Capture Core bundle evidence
         run: pnpm run evidence:bundle:core
 
+      - name: Capture local Core startup evidence
+        run: pnpm run evidence:startup:core
+
       - name: Fetch immutable CLI release tags
         if: inputs.deployment_mode == 'current-stable-cli-projection'
         run: git fetch --tags
 
-      - name: Deploy Core Worker
+      - name: Admit and deploy the standard Core Worker
         if: inputs.deployment_mode == 'standard'
-        run: pnpm -C services/core run sync:config:prod
+        run: >-
+          node scripts/release/deploy-core-worker.mjs
+          --release-sha "${{ inputs.release_sha || github.sha }}"
 
       - name: Recover Core with the current stable CLI projection
         if: inputs.deployment_mode == 'current-stable-cli-projection'
-        run: node scripts/release/deploy-core-current-cli-projection.mjs
+        run: >-
+          node scripts/release/deploy-core-current-cli-projection.mjs
+          --release-sha "${{ inputs.release_sha || github.sha }}"
 
       - name: Verify Core deployment is visible
         run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
@@ -120,11 +127,31 @@ jobs:
           path: dev-tmp/core-bundle-evidence.json
           retention-days: 30
 
+      - name: Preserve Core startup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-startup-evidence-${{ inputs.release_sha || github.sha }}
+          if-no-files-found: warn
+          path: |
+            dev-tmp/core-startup-evidence.json
+            dev-tmp/core-startup-admission.json
+          retention-days: 30
+
+      - name: Preserve the local Core startup profile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-startup-profile-${{ inputs.release_sha || github.sha }}
+          if-no-files-found: warn
+          path: dev-tmp/core-startup.cpuprofile
+          retention-days: 14
+
       - name: Preserve a failed Core startup profile
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: core-startup-profile-${{ inputs.release_sha || github.sha }}
+          name: core-failed-deploy-startup-profile-${{ inputs.release_sha || github.sha }}
           if-no-files-found: ignore
           path: services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
           retention-days: 14

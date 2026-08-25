@@ -15,6 +15,9 @@ const CURRENT_MANIFEST = JSON.parse(
 const TAG_MANIFEST_VERSION = CURRENT_MANIFEST.components.cli.packageVersion;
 const PUBLISHED_VERSION = incrementPatch(TAG_MANIFEST_VERSION);
 const TAG_COMMIT_SHA = "a".repeat(40);
+const CORE_RELEASE_SHA = "b".repeat(40);
+const RELEASE_MANIFEST_DEFINE_RE =
+  /^OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON:/u;
 const VERSION_MISMATCH_RE = new RegExp(
   `declares CLI ${escapeRegExp(TAG_MANIFEST_VERSION)}, but the production channel is ${escapeRegExp(PUBLISHED_VERSION)}`,
   "u"
@@ -215,13 +218,21 @@ test("reads channel truth before running the guarded Core receiver deploy", asyn
         events.push("read-tag-commit");
         return TAG_COMMIT_SHA;
       },
+      readHeadSha: () => CORE_RELEASE_SHA,
       runStep: (step) => {
         events.push(step.label);
+      },
+      runStartupAdmission: (input) => {
+        events.push(`admit-startup:${input.releaseSha}`);
+        assert.equal(input.tag, EXPECTED_CORE_TAG);
+        assert.equal(input.defines.length, 1);
+        assert.match(input.defines[0], RELEASE_MANIFEST_DEFINE_RE);
       },
       verifyAlignment: ({ expectedCoreTag }) => {
         events.push(`verify-alignment:${expectedCoreTag}`);
       },
     },
+    releaseSha: CORE_RELEASE_SHA,
     write: () => undefined,
   });
 
@@ -230,6 +241,7 @@ test("reads channel truth before running the guarded Core receiver deploy", asyn
     "read-tag-commit",
     "read-tag",
     "Build Core receiver dependencies",
+    `admit-startup:${CORE_RELEASE_SHA}`,
     "Deploy Core with the current published CLI projection",
     "Verify Core deployment is visible",
     `verify-alignment:${EXPECTED_CORE_TAG}`,

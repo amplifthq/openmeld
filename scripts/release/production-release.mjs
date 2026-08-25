@@ -418,6 +418,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   for (const scope of orderedScopes) {
     appendProductionDeployScopeSteps({
       deployOrderProfile,
+      releaseSha: input.releaseSha,
       scope,
       selected,
       steps,
@@ -488,7 +489,10 @@ function appendProductionDeployScopeSteps(input) {
       if (input.deployOrderProfile !== "default-auth-receiver-first") {
         input.steps.push(
           {
-            args: ["scripts/release/deploy-core-current-cli-projection.mjs"],
+            args: [
+              "scripts/release/deploy-core-current-cli-projection.mjs",
+              ...(input.releaseSha ? ["--release-sha", input.releaseSha] : []),
+            ],
             command: "node",
             label: "Deploy Core with the current published CLI projection",
             workerDeploymentArgs: [
@@ -507,9 +511,20 @@ function appendProductionDeployScopeSteps(input) {
       return;
     }
     input.steps.push(
-      packageDeployStep("@openmeld/core", "Deploy Core Worker", {
-        args: ["--config", "services/core/wrangler.jsonc", "--env", "prod"],
-      }),
+      {
+        args: [
+          "scripts/release/deploy-core-worker.mjs",
+          ...(input.releaseSha ? ["--release-sha", input.releaseSha] : []),
+        ],
+        command: "node",
+        label: "Deploy Core Worker",
+        workerDeploymentArgs: [
+          "--config",
+          "services/core/wrangler.jsonc",
+          "--env",
+          "prod",
+        ],
+      },
       workerDeploymentHealthStep({
         args: ["--config", "services/core/wrangler.jsonc", "--env", "prod"],
         label: "Verify Core deployment is visible",
@@ -670,16 +685,20 @@ export function buildProductionReleasePlan(input) {
   const scopes =
     requested ??
     resolveAutomaticReleaseScopes({ affectedPackages, changedPaths });
+  const sourceSha = input.sourceSha ?? readHeadSha();
   return {
     affectedPackages,
     base: input.base,
     changedPaths,
     coreProjectionFromCli: scopes.includes("cli"),
     deployOrderProfile: resolveProductionDeployOrderProfile(changedPaths),
-    deploySteps: buildProductionDeployStepSpecs(scopes, { changedPaths }),
+    deploySteps: buildProductionDeployStepSpecs(scopes, {
+      changedPaths,
+      releaseSha: sourceSha,
+    }),
     preflightSteps: buildProductionPreflightStepSpecs({ changedPaths, scopes }),
     scopes,
-    sourceSha: input.sourceSha ?? readHeadSha(),
+    sourceSha,
     verifySteps: buildProductionVerifyStepSpecs({ changedPaths, scopes }),
   };
 }
