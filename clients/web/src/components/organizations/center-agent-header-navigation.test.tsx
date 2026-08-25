@@ -79,13 +79,13 @@ describe("CenterAgentHeaderTabs", () => {
 		fireEvent.click(screen.getByRole("tab", { name: "Files" }));
 
 		expect(navigateSpy).toHaveBeenCalledWith({
-			to: "/o/acme/center-agent/chat?view=files",
+			to: "/o/acme?view=files",
 		});
 
 		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
 
 		expect(navigateSpy).toHaveBeenLastCalledWith({
-			to: "/o/acme/center-agent/chat",
+			to: "/o/acme",
 		});
 	});
 });

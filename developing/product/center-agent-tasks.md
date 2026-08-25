@@ -660,12 +660,6 @@ state, complete work, transfer authority, or reorder execution. Failed and
 stopped Tasks appear in Finished with explicit outcome badges. Narrow viewports
 may present the same three groups as a segmented list without changing meaning.
 
-Organization Home may show a bounded Task preview. Its attention state and
-action-required rows come from the canonical status-filtered Task list, not
-from scanning only the first page of the general recency list. Home must not
-present a paginated subset as an exact total; when complete count coverage is
-not available, it names **Needs action** without a numeric claim.
-
 ### Conversation-first Task detail
 
 The canonical route is `/o/{orgSlug}/center-agent/tasks/{taskId}`. Task detail

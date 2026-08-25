@@ -53,7 +53,7 @@ describe("buildInboxItemSourceNavigation", () => {
 				orgSlug: "amplift",
 			})
 		).toEqual({
-			href: "/o/amplift/center-agent/chat?focusSignalId=signal-123",
+			href: "/o/amplift?focusSignalId=signal-123",
 			openInNewTab: false,
 		});
 	});
@@ -95,7 +95,7 @@ describe("buildInboxItemSourceNavigation", () => {
 			{ documentId: "document-123", kind: "organization_document" } as const,
 			"/o/amplift/documents/document-123",
 		],
-		[{ kind: "center_agent" } as const, "/o/amplift/center-agent/chat"],
+		[{ kind: "center_agent" } as const, "/o/amplift"],
 		[
 			{ kind: "settings", section: "channels" } as const,
 			"/o/amplift/center-agent/channels",

@@ -159,7 +159,6 @@ const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = [
 	"Home",
-	"Center Agent",
 	"Spaces",
 	"Direct Messages",
 	"People",
@@ -314,11 +313,11 @@ describe("AppOuterRail", () => {
 	it("uses a compact type scale and grouped spacing in the full rail", () => {
 		renderRail({ tier: "full", width: "13.75rem" });
 
-		const centerAgentLink = screen.getByRole("link", {
-			name: "Center Agent",
+		const homeLink = screen.getByRole("link", {
+			name: "Home",
 		});
-		expect(centerAgentLink.className).toContain("h-7");
-		expect(centerAgentLink.className).toContain("text-[13px]");
+		expect(homeLink.className).toContain("h-7");
+		expect(homeLink.className).toContain("text-[13px]");
 
 		const groups = screen
 			.getByTestId("app-outer-rail")
@@ -332,7 +331,7 @@ describe("AppOuterRail", () => {
 	it("warms the Center Agent conversation from primary navigation intent", () => {
 		renderRail();
 
-		fireEvent.pointerEnter(screen.getByRole("link", { name: "Center Agent" }));
+		fireEvent.pointerEnter(screen.getByRole("link", { name: "Home" }));
 
 		expect(prefetchCenterAgentConversationMock).toHaveBeenCalledOnce();
 	});
@@ -390,7 +389,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier: "full", width: "9rem" });
 
 		for (const label of [
-			"Center Agent",
+			"Home",
 			"Spaces",
 			"Direct Messages",
 			"People",
@@ -683,8 +682,11 @@ describe("AppOuterRail", () => {
 
 		expect(workTrigger.getAttribute("aria-expanded")).toBe("false");
 		expect(
-			within(railContent).getByRole("link", { name: "Center Agent" })
+			within(railContent).getByRole("link", { name: "Home" })
 		).toBeTruthy();
+		expect(
+			within(railContent).queryByRole("link", { name: "Center Agent" })
+		).toBeNull();
 		expect(
 			within(railContent).queryByRole("link", { name: "Spaces" })
 		).toBeNull();
@@ -708,7 +710,8 @@ describe("AppOuterRail", () => {
 			width: "9rem",
 		});
 
-		expect(screen.getByRole("link", { name: "Center Agent" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Home" })).toBeTruthy();
+		expect(screen.queryByRole("link", { name: "Center Agent" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Direct Messages" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
@@ -755,7 +758,7 @@ describe("AppOuterRail", () => {
 		"collapsed",
 		"compact",
 		"full",
-	] as const)("shows an accessible amber Center Agent unread dot in the %s tier", async (tier) => {
+	] as const)("shows Center Agent unread replies on Home in the %s tier", async (tier) => {
 		centerAgentUnreadCount = 2;
 		rememberClientSidebarState("outer", {
 			tier,
@@ -764,7 +767,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier });
 
 		const link = await screen.findByRole("link", {
-			name: "Center Agent, 2 unread replies",
+			name: "Home, 2 unread replies",
 		});
 		const indicator = link.querySelector(
 			'[data-app-rail-status-indicator="center-agent-unread"]'
@@ -1593,19 +1596,17 @@ describe("AppOuterRail", () => {
 
 	it("derives direct, back, and forward selection from route matches", () => {
 		routerLocation = {
-			pathname: "/o/acme/center-agent/chat",
+			pathname: "/o/acme",
 			searchStr: "",
 		};
-		appShellSection = "centerAgent";
+		appShellSection = "home";
 
 		const rendered = renderRail();
 
-		const centerAgentLink = screen.getByRole("link", {
-			name: "Center Agent",
-		});
+		const homeLink = screen.getByRole("link", { name: "Home" });
 		const spacesLink = screen.getByRole("link", { name: "Spaces" });
 
-		expect(centerAgentLink.getAttribute("aria-current")).toBe("page");
+		expect(homeLink.getAttribute("aria-current")).toBe("page");
 		expect(spacesLink.getAttribute("aria-current")).toBeNull();
 		expect(
 			spacesLink.className.split(CLASS_NAME_SEGMENT_SEPARATOR_PATTERN)
@@ -1618,17 +1619,17 @@ describe("AppOuterRail", () => {
 		appShellSection = "space";
 		rendered.rerender(buildRailElement());
 
-		expect(centerAgentLink.getAttribute("aria-current")).toBeNull();
+		expect(homeLink.getAttribute("aria-current")).toBeNull();
 		expect(spacesLink.getAttribute("aria-current")).toBe("page");
 
 		routerLocation = {
-			pathname: "/o/acme/center-agent/chat",
+			pathname: "/o/acme/center-agent/skills",
 			searchStr: "",
 		};
 		appShellSection = "centerAgent";
 		rendered.rerender(buildRailElement());
 
-		expect(centerAgentLink.getAttribute("aria-current")).toBe("page");
+		expect(homeLink.getAttribute("aria-current")).toBe("page");
 		expect(spacesLink.getAttribute("aria-current")).toBeNull();
 	});
 

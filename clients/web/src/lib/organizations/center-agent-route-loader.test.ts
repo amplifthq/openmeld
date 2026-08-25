@@ -7,7 +7,7 @@ import {
 import { resolveOrganizationScope } from "#/lib/organizations/organization-scope";
 import { listStartProfiles } from "#/lib/profiles/existing-profiles";
 import { organizationScopeQueryKeys } from "#/query/organizations/organization-scope";
-import { Route } from "../../routes/o/$orgSlug/_center-agent/center-agent.chat";
+import { Route } from "../../routes/o/$orgSlug/_center-agent/index";
 import {
 	loadCenterAgentRouteData,
 	readCachedCenterAgentDirectMessageRouteData,
@@ -99,13 +99,13 @@ describe("loadCenterAgentRouteData", () => {
 		const first = await loadCenterAgentRouteData({
 			organizationSlug: "acme",
 			queryClient,
-			routeFamily: "/o/acme/center-agent/chat",
+			routeFamily: "/o/acme",
 			shouldOpenDirectMessage: true,
 		});
 		const second = await loadCenterAgentRouteData({
 			organizationSlug: "acme",
 			queryClient,
-			routeFamily: "/o/acme/center-agent/chat",
+			routeFamily: "/o/acme",
 			shouldOpenDirectMessage: true,
 		});
 
@@ -135,7 +135,7 @@ describe("loadCenterAgentRouteData", () => {
 		const result = await loadCenterAgentRouteData({
 			organizationSlug: "acme",
 			queryClient: createQueryClient(),
-			routeFamily: "/o/acme/center-agent/chat",
+			routeFamily: "/o/acme",
 			shouldOpenDirectMessage: true,
 		});
 
@@ -176,7 +176,7 @@ describe("loadCenterAgentRouteData", () => {
 		const result = await loadCenterAgentRouteData({
 			organizationSlug: "acme",
 			queryClient,
-			routeFamily: "/o/acme/center-agent/chat",
+			routeFamily: "/o/acme",
 			shouldOpenDirectMessage: true,
 		});
 
@@ -200,7 +200,7 @@ describe("loadCenterAgentRouteData", () => {
 		const result = await loadCenterAgentRouteData({
 			organizationSlug: "acme",
 			queryClient,
-			routeFamily: "/o/acme/center-agent/chat",
+			routeFamily: "/o/acme",
 			shouldOpenDirectMessage: true,
 		});
 
@@ -224,7 +224,7 @@ describe("loadCenterAgentRouteData", () => {
 		const result = await loadCenterAgentRouteData({
 			organizationSlug: "acme",
 			queryClient: createQueryClient(),
-			routeFamily: "/o/acme/center-agent/chat",
+			routeFamily: "/o/acme",
 			shouldOpenDirectMessage: true,
 		});
 

@@ -33,7 +33,7 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 ## 1. Goal and current owner
 
 Current Web uses the fixed
-**Home / Center Agent / Spaces / Direct Messages / People / Agents / Computers / Projects / Documents / Agent Activity**
+**Home / Spaces / Direct Messages / People / Agents / Computers / Projects / Documents / Agent Activity**
 product rail, with **Settings** as a separated utility and **Inbox** in the
 bottom-right global control area, and
 the **Personal / current Organization name** Settings groups defined in
@@ -44,7 +44,7 @@ Graph / Files / Tasks / Routines / Skills / Apps** live in its header, while
 One shell and one Settings framework let Web and the Electron GUI reuse shared
 pieces without forcing two clients to keep an obsolete route map. Current Web:
 
-- keeps **Home / Center Agent / Spaces / Direct Messages / People / Agents /
+- keeps **Home / Spaces / Direct Messages / People / Agents /
   Computers / Projects / Documents / Agent Activity** as the fixed product
   destinations, separates Settings as a utility, and opens Inbox from the app
   canvas's global control area;
@@ -220,7 +220,7 @@ The Web shell is a stable two-layer composition built from the shared
   contains the optional inner contextual sidebar, required content region, and
   optional right drawer as one visual unit.
 
-- **Outer app rail** — always reachable on Home, Center Agent, Spaces, Direct
+- **Outer app rail** — always reachable on Home, Spaces, Direct
   Messages, People, Agents, Computers, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
   is the first destination; the remaining fixed destinations are grouped under
@@ -299,14 +299,15 @@ cross-page header until it is explicitly moved into this shell.
 
 ### Center Agent owns an independent route layout
 
-`/o/{orgSlug}/center-agent` is nested under a pathless Center Agent layout
-branch, not the Spaces layout family. Its resolved layout is outer app rail +
-the Chat / Skills inner sidebar + routed Center Agent content. The Organization
-index renders Home at `/o/{orgSlug}` after access is resolved; explicit Center
-Agent routes remain in this independent branch, which owns its zero-delay
-interactive pending UI. Outer-rail selection comes from the deepest route
-match, so direct entry, Organization switches, and browser history cannot paint
-a different destination first.
+The pathless Center Agent layout branch owns both canonical Home at
+`/o/{orgSlug}` and the explicit `/o/{orgSlug}/center-agent/*` capability routes.
+Home renders the canonical Center Agent conversation directly. The outer rail
+therefore exposes one **Home** destination rather than separate Home and Center
+Agent entries; Center Agent capability routes also keep Home selected. The
+branch owns its header navigation and pending UI without a secondary sidebar.
+Outer-rail selection comes from the deepest route match, so direct entry,
+Organization switches, and browser history cannot paint a different
+destination first.
 
 ### Space adopts the same shell
 
