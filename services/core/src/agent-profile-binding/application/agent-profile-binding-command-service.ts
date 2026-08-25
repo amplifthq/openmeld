@@ -134,6 +134,20 @@ export type AgentProfileBindingWriteResult =
       status: "rejected";
     };
 
+export type AgentProfileBindingSettingsWriteResult =
+  | {
+      binding: AgentProfileBindingCommandRecord;
+      status: "unchanged" | "updated";
+    }
+  | {
+      binding: AgentProfileBindingCommandRecord;
+      status: "conflict";
+    }
+  | {
+      binding: null;
+      status: "missing";
+    };
+
 export type AgentProfileBindingCommandStore = {
   readPrimaryBinding: (input: {
     agentProfileId: string;
@@ -158,25 +172,25 @@ export type AgentProfileBindingCommandStore = {
     agentControllerPermissionModePatch: AgentProfileBindingAgentControllerPermissionModePatch;
     owner: AgentProfileBindingOwner;
     updatedAtMs: number;
-  }) => Promise<AgentProfileBindingCommandRecord | null>;
+  }) => Promise<AgentProfileBindingSettingsWriteResult>;
   updatePrimaryBindingAgentControllerCollaborationMode: (input: {
     agentProfileId: string;
     agentControllerCollaborationModePatch: AgentProfileBindingAgentControllerCollaborationModePatch;
     owner: AgentProfileBindingOwner;
     updatedAtMs: number;
-  }) => Promise<AgentProfileBindingCommandRecord | null>;
+  }) => Promise<AgentProfileBindingSettingsWriteResult>;
   updatePrimaryBindingModelSelection: (input: {
     agentProfileId: string;
     modelSelectionPatch: AgentProfileBindingModelSelectionPatch;
     owner: AgentProfileBindingOwner;
     updatedAtMs: number;
-  }) => Promise<AgentProfileBindingCommandRecord | null>;
+  }) => Promise<AgentProfileBindingSettingsWriteResult>;
   updatePrimaryBindingOpenCodePermission: (input: {
     agentProfileId: string;
     openCodePermissionPatch: AgentProfileBindingOpenCodePermissionPatch;
     owner: AgentProfileBindingOwner;
     updatedAtMs: number;
-  }) => Promise<AgentProfileBindingCommandRecord | null>;
+  }) => Promise<AgentProfileBindingSettingsWriteResult>;
 };
 
 export type RuntimeAgentControllerReportReadStore = {
@@ -498,7 +512,7 @@ export async function updatePrimaryAgentProfileBindingAgentControllerPermissionM
     ]);
   }
 
-  const binding =
+  const writeResult =
     await input.bindingStore.updatePrimaryBindingAgentControllerPermissionMode({
       agentProfileId: input.agentProfileId,
       agentControllerPermissionModePatch:
@@ -506,17 +520,7 @@ export async function updatePrimaryAgentProfileBindingAgentControllerPermissionM
       owner: input.profileOwnerValidation.owner,
       updatedAtMs: input.nowMs,
     });
-  if (!binding) {
-    return rejectWith(["agent_profile_binding.primary_missing"]);
-  }
-
-  return {
-    binding,
-    outcome: "reused",
-    reasonCodes: ["agent_profile_binding.command_eligible"],
-    routable: true,
-    status: "accepted",
-  };
+  return resolveSettingsWriteCommandResult(writeResult);
 }
 
 export async function updatePrimaryAgentProfileBindingAgentControllerCollaborationMode(input: {
@@ -563,7 +567,7 @@ export async function updatePrimaryAgentProfileBindingAgentControllerCollaborati
     ]);
   }
 
-  const binding =
+  const writeResult =
     await input.bindingStore.updatePrimaryBindingAgentControllerCollaborationMode(
       {
         agentProfileId: input.agentProfileId,
@@ -573,17 +577,7 @@ export async function updatePrimaryAgentProfileBindingAgentControllerCollaborati
         updatedAtMs: input.nowMs,
       }
     );
-  if (!binding) {
-    return rejectWith(["agent_profile_binding.primary_missing"]);
-  }
-
-  return {
-    binding,
-    outcome: "reused",
-    reasonCodes: ["agent_profile_binding.command_eligible"],
-    routable: true,
-    status: "accepted",
-  };
+  return resolveSettingsWriteCommandResult(writeResult);
 }
 
 export async function updatePrimaryAgentProfileBindingModelSelection(input: {
@@ -629,23 +623,14 @@ export async function updatePrimaryAgentProfileBindingModelSelection(input: {
     return rejectWith(["agent_profile_binding.model_selection_invalid"]);
   }
 
-  const binding = await input.bindingStore.updatePrimaryBindingModelSelection({
-    agentProfileId: input.agentProfileId,
-    modelSelectionPatch,
-    owner: input.profileOwnerValidation.owner,
-    updatedAtMs: input.nowMs,
-  });
-  if (!binding) {
-    return rejectWith(["agent_profile_binding.primary_missing"]);
-  }
-
-  return {
-    binding,
-    outcome: "reused",
-    reasonCodes: ["agent_profile_binding.command_eligible"],
-    routable: true,
-    status: "accepted",
-  };
+  const writeResult =
+    await input.bindingStore.updatePrimaryBindingModelSelection({
+      agentProfileId: input.agentProfileId,
+      modelSelectionPatch,
+      owner: input.profileOwnerValidation.owner,
+      updatedAtMs: input.nowMs,
+    });
+  return resolveSettingsWriteCommandResult(writeResult);
 }
 
 export async function updatePrimaryAgentProfileBindingOpenCodePermission(input: {
@@ -691,19 +676,27 @@ export async function updatePrimaryAgentProfileBindingOpenCodePermission(input: 
     ]);
   }
 
-  const binding =
+  const writeResult =
     await input.bindingStore.updatePrimaryBindingOpenCodePermission({
       agentProfileId: input.agentProfileId,
       openCodePermissionPatch: openCodePermissionPatch.patch,
       owner: input.profileOwnerValidation.owner,
       updatedAtMs: input.nowMs,
     });
-  if (!binding) {
+  return resolveSettingsWriteCommandResult(writeResult);
+}
+
+function resolveSettingsWriteCommandResult(
+  result: AgentProfileBindingSettingsWriteResult
+): AgentProfileBindingCommandResult {
+  if (result.status === "missing") {
     return rejectWith(["agent_profile_binding.primary_missing"]);
   }
-
+  if (result.status === "conflict") {
+    return rejectWith(["agent_profile_binding.settings_conflict"]);
+  }
   return {
-    binding,
+    binding: result.binding,
     outcome: "reused",
     reasonCodes: ["agent_profile_binding.command_eligible"],
     routable: true,

@@ -333,6 +333,15 @@ retry when a settings write wins the race. Reconnecting must never overwrite a
 newer permission, model, reasoning, collaboration, conversation, or OpenCode
 permission choice.
 
+An explicit settings edit is successful only when the fresh Binding projection
+contains the requested value. A changed value must be fenced by both the
+Binding id and `configurationRevision` that the writer read, and the D1 update
+must change that row. If a Service reconnect or another settings edit replaces
+that write target, Core returns a settings conflict instead of accepting the
+new Binding's unchanged value. Web clients also compare an accepted response
+with the requested permission, collaboration, model/reasoning, or OpenCode
+permission before showing “Settings saved.”
+
 The Agent Profile's authoritative `ownerUserId` is also the Binding owner and
 RuntimeCoordinator shard owner. An Organization admin may authorize or manage
 that Binding, but the admin remains the action and audit actor and must not

@@ -11,6 +11,7 @@ import type {
   AgentProfileBindingCommandStore,
   AgentProfileBindingModelSelectionPatch,
   AgentProfileBindingOpenCodePermissionPatch,
+  AgentProfileBindingSettingsWriteResult,
 } from "../../application/agent-profile-binding-command-service";
 import type { AgentProfileBindingLookupStore } from "../../application/agent-profile-binding-lookup-service";
 
@@ -1160,14 +1161,14 @@ export async function updatePrimaryAgentProfileBindingAgentControllerPermissionM
   db: D1Database;
   owner: AgentProfileBindingOwner;
   updatedAtMs: number;
-}): Promise<AgentProfileBindingRecord | null> {
+}): Promise<AgentProfileBindingSettingsWriteResult> {
   const current = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.agentProfileId,
     db: input.db,
     owner: input.owner,
   });
   if (!current) {
-    return null;
+    return { binding: null, status: "missing" };
   }
   if (
     agentControllerPermissionModeEqual(
@@ -1175,16 +1176,26 @@ export async function updatePrimaryAgentProfileBindingAgentControllerPermissionM
       input.agentControllerPermissionModePatch
     )
   ) {
-    return current;
+    return { binding: current, status: "unchanged" };
   }
-  return await updatePrimaryAgentProfileBindingAgentControllerPermissionMode({
-    agentProfileId: input.agentProfileId,
-    agentControllerPermissionMode:
-      input.agentControllerPermissionModePatch.agentControllerPermissionMode,
-    bindingId: current.bindingId,
-    db: input.db,
-    owner: input.owner,
-    updatedAtMs: input.updatedAtMs,
+  const attempt =
+    await updatePrimaryAgentProfileBindingAgentControllerPermissionMode({
+      agentProfileId: input.agentProfileId,
+      agentControllerPermissionMode:
+        input.agentControllerPermissionModePatch.agentControllerPermissionMode,
+      bindingId: current.bindingId,
+      db: input.db,
+      expectedConfigurationRevision: current.configurationRevision,
+      owner: input.owner,
+      updatedAtMs: input.updatedAtMs,
+    });
+  return resolveAgentProfileBindingSettingsWriteResult({
+    attempt,
+    matches: (binding) =>
+      agentControllerPermissionModeEqual(
+        binding,
+        input.agentControllerPermissionModePatch
+      ),
   });
 }
 
@@ -1194,14 +1205,14 @@ export async function updatePrimaryAgentProfileBindingAgentControllerCollaborati
   db: D1Database;
   owner: AgentProfileBindingOwner;
   updatedAtMs: number;
-}): Promise<AgentProfileBindingRecord | null> {
+}): Promise<AgentProfileBindingSettingsWriteResult> {
   const current = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.agentProfileId,
     db: input.db,
     owner: input.owner,
   });
   if (!current) {
-    return null;
+    return { binding: null, status: "missing" };
   }
   if (
     agentControllerCollaborationModeEqual(
@@ -1209,20 +1220,28 @@ export async function updatePrimaryAgentProfileBindingAgentControllerCollaborati
       input.agentControllerCollaborationModePatch
     )
   ) {
-    return current;
+    return { binding: current, status: "unchanged" };
   }
-  return await updatePrimaryAgentProfileBindingAgentControllerCollaborationMode(
-    {
+  const attempt =
+    await updatePrimaryAgentProfileBindingAgentControllerCollaborationMode({
       agentProfileId: input.agentProfileId,
       agentControllerCollaborationMode:
         input.agentControllerCollaborationModePatch
           .agentControllerCollaborationMode,
       bindingId: current.bindingId,
       db: input.db,
+      expectedConfigurationRevision: current.configurationRevision,
       owner: input.owner,
       updatedAtMs: input.updatedAtMs,
-    }
-  );
+    });
+  return resolveAgentProfileBindingSettingsWriteResult({
+    attempt,
+    matches: (binding) =>
+      agentControllerCollaborationModeEqual(
+        binding,
+        input.agentControllerCollaborationModePatch
+      ),
+  });
 }
 
 export async function updatePrimaryAgentProfileBindingModelSelectionRecord(input: {
@@ -1231,26 +1250,32 @@ export async function updatePrimaryAgentProfileBindingModelSelectionRecord(input
   modelSelectionPatch: AgentProfileBindingModelSelectionPatch;
   owner: AgentProfileBindingOwner;
   updatedAtMs: number;
-}): Promise<AgentProfileBindingRecord | null> {
+}): Promise<AgentProfileBindingSettingsWriteResult> {
   const current = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.agentProfileId,
     db: input.db,
     owner: input.owner,
   });
   if (!current) {
-    return null;
+    return { binding: null, status: "missing" };
   }
   if (modelSelectionEqual(current, input.modelSelectionPatch)) {
-    return current;
+    return { binding: current, status: "unchanged" };
   }
-  return await updatePrimaryAgentProfileBindingModelSelection({
+  const attempt = await updatePrimaryAgentProfileBindingModelSelection({
     agentProfileId: input.agentProfileId,
     bindingId: current.bindingId,
     db: input.db,
+    expectedConfigurationRevision: current.configurationRevision,
     modelId: input.modelSelectionPatch.modelId,
     owner: input.owner,
     reasoningLevel: input.modelSelectionPatch.reasoningLevel,
     updatedAtMs: input.updatedAtMs,
+  });
+  return resolveAgentProfileBindingSettingsWriteResult({
+    attempt,
+    matches: (binding) =>
+      modelSelectionEqual(binding, input.modelSelectionPatch),
   });
 }
 
@@ -1337,25 +1362,31 @@ export async function updatePrimaryAgentProfileBindingOpenCodePermissionRecord(i
   openCodePermissionPatch: AgentProfileBindingOpenCodePermissionPatch;
   owner: AgentProfileBindingOwner;
   updatedAtMs: number;
-}): Promise<AgentProfileBindingRecord | null> {
+}): Promise<AgentProfileBindingSettingsWriteResult> {
   const current = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.agentProfileId,
     db: input.db,
     owner: input.owner,
   });
   if (!current) {
-    return null;
+    return { binding: null, status: "missing" };
   }
   if (openCodePermissionEqual(current, input.openCodePermissionPatch)) {
-    return current;
+    return { binding: current, status: "unchanged" };
   }
-  return await updatePrimaryAgentProfileBindingOpenCodePermission({
+  const attempt = await updatePrimaryAgentProfileBindingOpenCodePermission({
     agentProfileId: input.agentProfileId,
     bindingId: current.bindingId,
     db: input.db,
+    expectedConfigurationRevision: current.configurationRevision,
     openCodePermission: input.openCodePermissionPatch.openCodePermission,
     owner: input.owner,
     updatedAtMs: input.updatedAtMs,
+  });
+  return resolveAgentProfileBindingSettingsWriteResult({
+    attempt,
+    matches: (binding) =>
+      openCodePermissionEqual(binding, input.openCodePermissionPatch),
   });
 }
 
@@ -1386,10 +1417,11 @@ async function maybeUpdatePrimaryAgentProfileBindingMetadata(input: {
             .agentControllerCollaborationMode,
         bindingId: current.bindingId,
         db: input.db,
+        expectedConfigurationRevision: current.configurationRevision,
         owner: input.record.owner,
         updatedAtMs: input.record.updatedAtMs,
       });
-    current = updated ?? current;
+    current = updated.binding ?? current;
     changed = true;
   }
 
@@ -1408,10 +1440,11 @@ async function maybeUpdatePrimaryAgentProfileBindingMetadata(input: {
             .agentControllerPermissionMode,
         bindingId: current.bindingId,
         db: input.db,
+        expectedConfigurationRevision: current.configurationRevision,
         owner: input.record.owner,
         updatedAtMs: input.record.updatedAtMs,
       });
-    current = updated ?? current;
+    current = updated.binding ?? current;
     changed = true;
   }
 
@@ -1423,12 +1456,13 @@ async function maybeUpdatePrimaryAgentProfileBindingMetadata(input: {
       agentProfileId: input.record.agentProfileId,
       bindingId: current.bindingId,
       db: input.db,
+      expectedConfigurationRevision: current.configurationRevision,
       modelId: input.modelSelectionPatch.modelId,
       owner: input.record.owner,
       reasoningLevel: input.modelSelectionPatch.reasoningLevel,
       updatedAtMs: input.record.updatedAtMs,
     });
-    current = updated ?? current;
+    current = updated.binding ?? current;
     changed = true;
   }
 
@@ -1440,15 +1474,37 @@ async function maybeUpdatePrimaryAgentProfileBindingMetadata(input: {
       agentProfileId: input.record.agentProfileId,
       bindingId: current.bindingId,
       db: input.db,
+      expectedConfigurationRevision: current.configurationRevision,
       openCodePermission: input.openCodePermissionPatch.openCodePermission,
       owner: input.record.owner,
       updatedAtMs: input.record.updatedAtMs,
     });
-    current = updated ?? current;
+    current = updated.binding ?? current;
     changed = true;
   }
 
   return changed ? current : null;
+}
+
+type AgentProfileBindingSettingsWriteAttempt = {
+  binding: AgentProfileBindingRecord | null;
+  changed: boolean;
+};
+
+function resolveAgentProfileBindingSettingsWriteResult(input: {
+  attempt: AgentProfileBindingSettingsWriteAttempt;
+  matches: (binding: AgentProfileBindingRecord) => boolean;
+}): AgentProfileBindingSettingsWriteResult {
+  if (!input.attempt.binding) {
+    return { binding: null, status: "missing" };
+  }
+  if (!input.matches(input.attempt.binding)) {
+    return { binding: input.attempt.binding, status: "conflict" };
+  }
+  return {
+    binding: input.attempt.binding,
+    status: input.attempt.changed ? "updated" : "unchanged",
+  };
 }
 
 async function updatePrimaryAgentProfileBindingAgentControllerPermissionMode(input: {
@@ -1456,10 +1512,11 @@ async function updatePrimaryAgentProfileBindingAgentControllerPermissionMode(inp
   agentControllerPermissionMode: string;
   bindingId: string;
   db: D1Database;
+  expectedConfigurationRevision: number;
   owner: AgentProfileBindingOwner;
   updatedAtMs: number;
-}): Promise<AgentProfileBindingRecord | null> {
-  await input.db
+}): Promise<AgentProfileBindingSettingsWriteAttempt> {
+  const result = await input.db
     .prepare(
       `
         UPDATE openMeldDaemon_agent_profile_bindings
@@ -1472,6 +1529,7 @@ async function updatePrimaryAgentProfileBindingAgentControllerPermissionMode(inp
           AND agent_profile_id = ?
           AND binding_id = ?
           AND binding_state = 'enabled_primary'
+          AND configuration_revision = ?
       `
     )
     .bind(
@@ -1480,15 +1538,19 @@ async function updatePrimaryAgentProfileBindingAgentControllerPermissionMode(inp
       input.owner.kind,
       input.owner.id,
       input.agentProfileId,
-      input.bindingId
+      input.bindingId,
+      input.expectedConfigurationRevision
     )
     .run();
 
-  return await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.agentProfileId,
-    db: input.db,
-    owner: input.owner,
-  });
+  return {
+    binding: await readPrimaryAgentProfileBindingRecord({
+      agentProfileId: input.agentProfileId,
+      db: input.db,
+      owner: input.owner,
+    }),
+    changed: result.meta.changes === 1,
+  };
 }
 
 async function updatePrimaryAgentProfileBindingAgentControllerCollaborationMode(input: {
@@ -1496,10 +1558,11 @@ async function updatePrimaryAgentProfileBindingAgentControllerCollaborationMode(
   agentControllerCollaborationMode: string;
   bindingId: string;
   db: D1Database;
+  expectedConfigurationRevision: number;
   owner: AgentProfileBindingOwner;
   updatedAtMs: number;
-}): Promise<AgentProfileBindingRecord | null> {
-  await input.db
+}): Promise<AgentProfileBindingSettingsWriteAttempt> {
+  const result = await input.db
     .prepare(
       `
         UPDATE openMeldDaemon_agent_profile_bindings
@@ -1512,6 +1575,7 @@ async function updatePrimaryAgentProfileBindingAgentControllerCollaborationMode(
           AND agent_profile_id = ?
           AND binding_id = ?
           AND binding_state = 'enabled_primary'
+          AND configuration_revision = ?
       `
     )
     .bind(
@@ -1520,27 +1584,32 @@ async function updatePrimaryAgentProfileBindingAgentControllerCollaborationMode(
       input.owner.kind,
       input.owner.id,
       input.agentProfileId,
-      input.bindingId
+      input.bindingId,
+      input.expectedConfigurationRevision
     )
     .run();
 
-  return await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.agentProfileId,
-    db: input.db,
-    owner: input.owner,
-  });
+  return {
+    binding: await readPrimaryAgentProfileBindingRecord({
+      agentProfileId: input.agentProfileId,
+      db: input.db,
+      owner: input.owner,
+    }),
+    changed: result.meta.changes === 1,
+  };
 }
 
 async function updatePrimaryAgentProfileBindingModelSelection(input: {
   agentProfileId: string;
   bindingId: string;
   db: D1Database;
+  expectedConfigurationRevision: number;
   modelId: string | null;
   owner: AgentProfileBindingOwner;
   reasoningLevel: string | null;
   updatedAtMs: number;
-}): Promise<AgentProfileBindingRecord | null> {
-  await input.db
+}): Promise<AgentProfileBindingSettingsWriteAttempt> {
+  const result = await input.db
     .prepare(
       `
         UPDATE openMeldDaemon_agent_profile_bindings
@@ -1554,6 +1623,7 @@ async function updatePrimaryAgentProfileBindingModelSelection(input: {
           AND agent_profile_id = ?
           AND binding_id = ?
           AND binding_state = 'enabled_primary'
+          AND configuration_revision = ?
       `
     )
     .bind(
@@ -1563,26 +1633,31 @@ async function updatePrimaryAgentProfileBindingModelSelection(input: {
       input.owner.kind,
       input.owner.id,
       input.agentProfileId,
-      input.bindingId
+      input.bindingId,
+      input.expectedConfigurationRevision
     )
     .run();
 
-  return await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.agentProfileId,
-    db: input.db,
-    owner: input.owner,
-  });
+  return {
+    binding: await readPrimaryAgentProfileBindingRecord({
+      agentProfileId: input.agentProfileId,
+      db: input.db,
+      owner: input.owner,
+    }),
+    changed: result.meta.changes === 1,
+  };
 }
 
 async function updatePrimaryAgentProfileBindingOpenCodePermission(input: {
   agentProfileId: string;
   bindingId: string;
   db: D1Database;
+  expectedConfigurationRevision: number;
   openCodePermission: OpenCodePermissionConfig | null;
   owner: AgentProfileBindingOwner;
   updatedAtMs: number;
-}): Promise<AgentProfileBindingRecord | null> {
-  await input.db
+}): Promise<AgentProfileBindingSettingsWriteAttempt> {
+  const result = await input.db
     .prepare(
       `
         UPDATE openMeldDaemon_agent_profile_bindings
@@ -1595,6 +1670,7 @@ async function updatePrimaryAgentProfileBindingOpenCodePermission(input: {
           AND agent_profile_id = ?
           AND binding_id = ?
           AND binding_state = 'enabled_primary'
+          AND configuration_revision = ?
       `
     )
     .bind(
@@ -1603,15 +1679,19 @@ async function updatePrimaryAgentProfileBindingOpenCodePermission(input: {
       input.owner.kind,
       input.owner.id,
       input.agentProfileId,
-      input.bindingId
+      input.bindingId,
+      input.expectedConfigurationRevision
     )
     .run();
 
-  return await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.agentProfileId,
-    db: input.db,
-    owner: input.owner,
-  });
+  return {
+    binding: await readPrimaryAgentProfileBindingRecord({
+      agentProfileId: input.agentProfileId,
+      db: input.db,
+      owner: input.owner,
+    }),
+    changed: result.meta.changes === 1,
+  };
 }
 
 function mapAgentProfileBindingRow(
