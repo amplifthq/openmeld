@@ -341,12 +341,17 @@ does not resolve them.
 The in-product Inbox is always available and cannot be disabled. Phase 1 has
 two optional delivery channels:
 
-- **Browser notifications** are off until the member enables them in this
-  browser and grants browser permission. The switch is global for all Spaces
-  and Direct Messages and is reachable from Settings -> Personal ->
-  Notifications and from any Space Info. Phase 1 delivers newly observed
-  unread items that are urgent, open action-required, or directly addressed to
-  the member: references of that member, replies intended for them (a
+- **Browser notifications** are browser-local and become enabled when the
+  browser grants permission unless the member has explicitly turned them off
+  in this browser. When permission is still undecided, OpenMeld shows one
+  concise introduction after Account Setup Studio and waits for the member to
+  choose **Enable notifications** before requesting native browser permission.
+  **Not now** dismisses that introduction for this member in this browser; it
+  never grants, denies, or changes browser permission. The switch remains
+  global for all Spaces and Direct Messages and is reachable from Settings ->
+  Personal -> Notifications and from any Space Info. Phase 1 delivers newly
+  observed unread items that are urgent, open action-required, or directly
+  addressed to the member: references of that member, replies intended for them (a
   successful Wake reaches its requester through its final reply item), their
   system-owned Wake endings addressed to that requester (visible failure,
   stopped, `stay_silent`, policy-blocked action, or explicit final status), and
@@ -371,7 +376,11 @@ two optional delivery channels:
   so a late failure from a previous member or Organization cannot block its
   retries. A queued delivery uses a fresh recipient-authorized Core item read,
   then rechecks the committed member, Organization, item eligibility, and
-  visible conversation immediately before creating the notification. A failed
+  visible conversation immediately before creating the notification. Clicking
+  the notification opens that refreshed item's canonical source target -- the
+  exact Space message or thread, Agent interaction, Center Agent conversation
+  or Task, Organization document, setting, or connected-channel message --
+  instead of routing through Inbox. A failed
   revalidation remains pending and retryable. Unmounting the authenticated
   listener invalidates that context, so a delivery waiting on a browser lock
   cannot publish content from the previous account. Browser delivery never

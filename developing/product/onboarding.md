@@ -323,6 +323,12 @@ completion and starts at Workspace selection; it does not reset any product
 data. `?restart=1` provides the same deterministic presentation reset for local
 development and smoke.
 
+The browser-notification introduction is a separate, browser-local capability
+prompt, not a Setup Studio step or readiness fact. Web may present it only
+after the entry gate admits the normal app shell. Rendering it never requests
+native permission; the member's explicit **Enable notifications** gesture owns
+that request, and **Not now** remains non-blocking.
+
 ### Layout and interaction
 
 Setup Studio is full-screen and split into two areas on desktop:
@@ -928,27 +934,31 @@ manual verification):
 16. A user joins a Space on a computer without OpenMeld Service. Membership
     succeeds and remains visibly distinct from the non-blocking computer setup
     action; nothing presents the joined state as a failure.
-17. The same account opens a second computer. Organization and Space membership
+17. Browser notification permission remains outside Setup Studio. The
+    introduction appears only after the normal app shell is admitted, does not
+    request native permission before an explicit user gesture, and never blocks
+    product entry.
+18. The same account opens a second computer. Organization and Space membership
     remain intact while contextual guidance independently offers setup for that
     computer.
-18. `bring_agents` opens the existing Members panel and its Add members surface.
+19. `bring_agents` opens the existing Members panel and its Add members surface.
     No parallel agent selector exists in onboarding.
-19. The centralized Connect page and Center Agent Direct Message render the
+20. The centralized Connect page and Center Agent Direct Message render the
     same setup command and live timeline owner. The page stays a page; the
     Direct Message stays inline; both reach the same verified completion state.
-20. A human-only Space can dismiss all setup guidance to reach a clean
+21. A human-only Space can dismiss all setup guidance to reach a clean
     conversation and recall it during the same session.
-21. Completed `bring_agents` copy states membership only. If the Members drawer
+22. Completed `bring_agents` copy states membership only. If the Members drawer
     reports an agent Offline, no onboarding surface claims that agent can be
     woken.
-22. An ordinary Space or external Message Channel routes computer setup to the
+23. An ordinary Space or external Message Channel routes computer setup to the
     Connect page. Only the first-party Center Agent Direct Message hosts the
     shared workflow inline. Computers remains the fleet management home.
-23. Setup Studio and contextual Web onboarding follow the shared interface-shape
+24. Setup Studio and contextual Web onboarding follow the shared interface-shape
     token. Setup Studio cards, inputs, buttons, demo frames, icon containers,
     and contextual-banner controls use semantic radius utilities so Rounded uses
     the configured radius and Square resolves to `0px`. The contextual banner's
     progressive-blur overlay and borderless action rows are not card surfaces;
     tiny semantic status dots remain circular.
-24. For a fixed planner fact fixture, the in-Space renderer, `openmeld setup`
+25. For a fixed planner fact fixture, the in-Space renderer, `openmeld setup`
     human output, and agent-view decision ids remain the same ordered list.

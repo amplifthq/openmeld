@@ -50,6 +50,9 @@ const DISABLED_VALUE = "disabled";
 const BADGE_PATH = "/favicon-32x32.png";
 const ICON_PATH = "/apple-touch-icon.png";
 const PREFERENCE_CHANGE_EVENT = "openmeld:inbox-browser-notifications-changed";
+const PROMPT_DISMISSED_VALUE = "dismissed";
+const PROMPT_DISMISSED_KEY_PREFIX =
+	"openmeld.inbox.browser-notifications.prompt-dismissed";
 const DELIVERED_ITEM_IDS_KEY =
 	"openmeld.inbox.browser-notifications.delivered-item-ids";
 const PENDING_ITEM_KEY_PREFIX =
@@ -60,11 +63,56 @@ export function readInboxBrowserNotificationSettings(input: {
 	userId: string;
 }): InboxBrowserNotificationSettings {
 	const permission = readInboxBrowserNotificationPermission();
+	const preference = readInboxBrowserPreference(input);
 	return {
-		enabled:
-			permission === "granted" && readInboxBrowserPreference(input) === true,
+		enabled: permission === "granted" && preference !== false,
 		permission,
 	};
+}
+
+export function readInboxBrowserNotificationPromptDismissed(input: {
+	userId: string;
+}): boolean {
+	if (typeof window === "undefined") {
+		return false;
+	}
+	try {
+		return (
+			window.localStorage.getItem(
+				buildInboxBrowserNotificationPromptKey(input)
+			) === PROMPT_DISMISSED_VALUE
+		);
+	} catch (error) {
+		console.warn(
+			"[openmeld.web.inbox.browser_notification_prompt_read_failed]",
+			{
+				error: error instanceof Error ? error.message : String(error),
+			}
+		);
+		return false;
+	}
+}
+
+export function dismissInboxBrowserNotificationPrompt(input: {
+	userId: string;
+}): void {
+	if (typeof window === "undefined") {
+		return;
+	}
+	try {
+		window.localStorage.setItem(
+			buildInboxBrowserNotificationPromptKey(input),
+			PROMPT_DISMISSED_VALUE
+		);
+		window.dispatchEvent(new Event(PREFERENCE_CHANGE_EVENT));
+	} catch (error) {
+		console.warn(
+			"[openmeld.web.inbox.browser_notification_prompt_write_failed]",
+			{
+				error: error instanceof Error ? error.message : String(error),
+			}
+		);
+	}
 }
 
 export async function enableInboxBrowserNotifications(input: {
@@ -261,7 +309,8 @@ export function subscribeInboxBrowserNotificationSettings(
 	}
 	const handleStorage = (event: StorageEvent) => {
 		if (
-			event.key?.startsWith("openmeld.inbox.browser-notifications.enabled:")
+			event.key?.startsWith("openmeld.inbox.browser-notifications.enabled:") ||
+			event.key?.startsWith(`${PROMPT_DISMISSED_KEY_PREFIX}:`)
 		) {
 			onChange();
 		}
@@ -475,4 +524,14 @@ function buildInboxBrowserPreferenceKey(userId: string): string {
 		throw new Error("Inbox browser notifications require a user id.");
 	}
 	return `openmeld.inbox.browser-notifications.enabled:${normalizedUserId}`;
+}
+
+function buildInboxBrowserNotificationPromptKey(input: {
+	userId: string;
+}): string {
+	const normalizedUserId = input.userId.trim();
+	if (!normalizedUserId) {
+		throw new Error("Inbox browser notifications require a user id.");
+	}
+	return `${PROMPT_DISMISSED_KEY_PREFIX}:${normalizedUserId}`;
 }

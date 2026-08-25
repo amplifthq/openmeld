@@ -86,15 +86,20 @@ vi.mock("#/lib/inbox/browser-notifications", () => ({
 	},
 }));
 
-vi.mock("#/lib/inbox/source-target", () => ({
-	isInboxItemSourceLocation: (input: {
-		item: InboxItem;
-		pathname: string | null;
-	}) =>
-		input.pathname?.includes(
-			(input.item.sourceTarget as { spaceId?: string }).spaceId ?? "\u0000"
-		),
-}));
+vi.mock("#/lib/inbox/source-target", async (importOriginal) => {
+	const original =
+		await importOriginal<typeof import("#/lib/inbox/source-target")>();
+	return {
+		...original,
+		isInboxItemSourceLocation: (input: {
+			item: InboxItem;
+			pathname: string | null;
+		}) =>
+			input.pathname?.includes(
+				(input.item.sourceTarget as { spaceId?: string }).spaceId ?? "\u0000"
+			),
+	};
+});
 
 vi.mock("#/lib/organizations/inbox", () => ({
 	getCurrentInboxItem: getCurrentInboxItemMock,
@@ -189,7 +194,7 @@ describe("InboxBrowserNotificationListener", () => {
 		expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				item: newItem,
-				sourcePath: "/o/amplift/inbox?item=new-item",
+				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
 			})
 		);
 	});

@@ -3,6 +3,7 @@ import { Outlet, useMatches } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
 import { InboxBrowserNotificationListener } from "#/components/inbox/inbox-browser-notification-listener";
+import { InboxBrowserNotificationPrompt } from "#/components/inbox/inbox-browser-notification-prompt";
 import { InboxVisibleConversationProvider } from "#/components/inbox/inbox-visible-conversation";
 import { OnboardingEntryGate } from "#/components/onboarding/onboarding-entry-gate";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
@@ -52,6 +53,9 @@ export function AppShell(input: {
 							organizations={input.organizationScope.organizations}
 							storageScope={input.storageScope}
 						>
+							<InboxBrowserNotificationPrompt
+								userId={input.organizationScope.currentUserId}
+							/>
 							<AppShellScaffold currentSection={currentSection} />
 						</OnboardingEntryGate>
 					</InboxVisibleConversationProvider>

@@ -619,17 +619,25 @@ give one clear next action when one exists.
 The Phase 1 client refreshes the Core snapshot with bounded foreground polling
 and refetches when the window regains focus. Polling is only a refresh trigger;
 the Core snapshot remains the source of truth. Browser notifications are
-created only from newly observed Inbox items after the
-member enables them in **Settings -> Personal -> Notifications** and the
-browser grants permission. They do not consume, mark, or store unread state.
+created only from newly observed Inbox items after the browser grants
+permission and while the member has not explicitly turned them off in that
+browser. They do not consume, mark, or store unread state. Clicking one opens
+the canonical source target for that item directly; Web does not insert Inbox
+as an intermediate destination.
 
 ### Notification settings
 
 **Settings -> Personal -> Notifications** owns phase 1 delivery preferences:
 
 - **Browser notifications** reflects permission in the current browser and
-  explains when the browser has blocked the permission. Enabling it requests
-  permission only from that user gesture.
+  explains when the browser has blocked the permission. If permission is still
+  undecided after Account Setup Studio, Web presents one browser-local
+  introduction that explains the benefit. Only the member's **Enable
+  notifications** gesture requests native permission; rendering the app never
+  opens the browser permission prompt. An existing browser grant defaults this
+  setting on unless the member has explicitly turned it off. **Not now** only
+  dismisses the introduction for that member in that browser, and Settings and
+  Space Info remain the durable discovery and control surfaces.
 - **Email for urgent items** is a durable account preference, enabled by
   default, and may be disabled without hiding Inbox items.
 

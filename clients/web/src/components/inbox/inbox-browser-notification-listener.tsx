@@ -24,9 +24,11 @@ import {
 	showInboxBrowserNotification,
 	subscribeInboxBrowserNotificationSettings,
 } from "#/lib/inbox/browser-notifications";
-import { isInboxItemSourceLocation } from "#/lib/inbox/source-target";
+import {
+	buildInboxItemSourceNavigation,
+	isInboxItemSourceLocation,
+} from "#/lib/inbox/source-target";
 import { getCurrentInboxItem } from "#/lib/organizations/inbox";
-import { buildOrganizationInboxItemPath } from "#/lib/organizations/organization-routes";
 import {
 	inboxBrowserNotificationRecoveryItemQueryOptions,
 	inboxItemsInfiniteQueryOptions,
@@ -511,10 +513,10 @@ function processInboxBrowserNotificationItems(input: {
 					retryAttempt: input.deliveryAttempt,
 					userId: input.userId,
 				}),
-			sourcePath: buildOrganizationInboxItemPath({
-				itemId: item.id,
+			sourcePath: buildInboxItemSourceNavigation({
+				item,
 				orgSlug: input.organizationSlug,
-			}),
+			}).href,
 			viewingSourceSession: isInboxItemSourceLocation({
 				item,
 				orgSlug: input.organizationSlug,

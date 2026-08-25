@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearInboxBrowserNotificationItemPending,
 	disableInboxBrowserNotifications,
+	dismissInboxBrowserNotificationPrompt,
 	enableInboxBrowserNotifications,
 	isInboxBrowserNotificationEligible,
 	markInboxBrowserNotificationItemPending,
+	readInboxBrowserNotificationPromptDismissed,
 	readInboxBrowserNotificationSettings,
 	readPendingInboxBrowserNotificationItemIds,
 	showInboxBrowserNotification,
@@ -14,6 +16,7 @@ import {
 
 const USER_ID = "11111111-1111-1111-1111-111111111111";
 const PREFERENCE_KEY = `openmeld.inbox.browser-notifications.enabled:${USER_ID}`;
+const PROMPT_DISMISSED_KEY = `openmeld.inbox.browser-notifications.prompt-dismissed:${USER_ID}`;
 
 describe("Inbox browser notifications", () => {
 	let notificationConstructorMock: ReturnType<typeof vi.fn>;
@@ -65,6 +68,33 @@ describe("Inbox browser notifications", () => {
 
 		expect(settings).toEqual({ enabled: false, permission: "default" });
 		expect(window.localStorage.getItem(PREFERENCE_KEY)).toBeNull();
+	});
+
+	it("defaults notifications on after the browser has already granted permission", () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+
+		expect(readInboxBrowserNotificationSettings({ userId: USER_ID })).toEqual({
+			enabled: true,
+			permission: "granted",
+		});
+		expect(window.localStorage.getItem(PREFERENCE_KEY)).toBeNull();
+	});
+
+	it("remembers when this browser's notification introduction is dismissed", () => {
+		expect(
+			readInboxBrowserNotificationPromptDismissed({ userId: USER_ID })
+		).toBe(false);
+
+		dismissInboxBrowserNotificationPrompt({ userId: USER_ID });
+
+		expect(
+			readInboxBrowserNotificationPromptDismissed({ userId: USER_ID })
+		).toBe(true);
+		expect(window.localStorage.getItem(PROMPT_DISMISSED_KEY)).toBe("dismissed");
 	});
 
 	it("surfaces a local preference write failure", async () => {

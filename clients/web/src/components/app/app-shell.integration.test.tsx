@@ -60,6 +60,7 @@ vi.mock("@tanstack/react-router", () => ({
 		<a href={to}>{children}</a>
 	),
 	Outlet: () => <div>outlet</div>,
+	useLocation: () => ({ pathname: useRouterStateMock() }),
 	useNavigate: () => useNavigateMock,
 	useMatches: (input?: {
 		select?: (
