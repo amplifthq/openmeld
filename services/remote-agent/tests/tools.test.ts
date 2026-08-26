@@ -4746,6 +4746,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).resolves.toEqual(response);
     expect(centerAgentCreateAgentProfileCreationRequest).toHaveBeenCalledWith({
       configuration: {
+        agentControllerCollaborationMode: null,
         agentControllerPermissionMode: null,
         agentControllerRef: "builtin:codex",
         authorizeForOrganization: true,
@@ -5954,16 +5955,32 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         candidateId,
+        configuration: {
+          agentControllerCollaborationMode:
+            runtimeSettings.agentControllerCollaborationMode,
+          agentControllerPermissionMode:
+            runtimeSettings.agentControllerPermissionMode,
+          defaultProjectId: "project-1",
+          modelId: runtimeSettings.modelId,
+          openCodePermission: runtimeSettings.openCodePermission,
+          reasoningLevel: runtimeSettings.reasoningLevel,
+        },
         onBehalfOf,
         profileName: "Codex Agent",
         spaceId: SPACE_ID,
-        ...runtimeSettings,
       },
       input: {
+        agentControllerCollaborationMode:
+          runtimeSettings.agentControllerCollaborationMode,
+        agentControllerPermissionMode:
+          runtimeSettings.agentControllerPermissionMode,
         candidateId,
+        defaultProjectId: "project-1",
+        modelId: runtimeSettings.modelId,
+        openCodePermission: runtimeSettings.openCodePermission,
         profileName: "Codex Agent",
+        reasoningLevel: runtimeSettings.reasoningLevel,
         spaceId: SPACE_ID,
-        ...runtimeSettings,
       },
       response: createConfiguredAgentProfileResponse(),
       rpcName: "centerAgentCreateConfiguredAgentProfile",

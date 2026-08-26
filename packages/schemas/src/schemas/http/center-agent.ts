@@ -39,6 +39,7 @@ import {
   agentProfileBindingAgentControllerCollaborationModeSchema,
   agentProfileBindingAgentControllerPermissionModeSchema,
   agentProfileBindingOpenCodePermissionSchema,
+  agentProfileCreationPreferenceSelectionSchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
   listAgentProfileCreationDefaultsResponseSchema,
 } from "./agent-profile-binding";
@@ -1222,6 +1223,7 @@ export const centerAgentCreateConfiguredAgentProfileBodySchema = z
     agentControllerPermissionMode:
       agentProfileBindingAgentControllerPermissionModeSchema.optional(),
     candidateId: trimmedNonEmptyStringSchema,
+    configuration: agentProfileCreationPreferenceSelectionSchema.optional(),
     modelId: trimmedNonEmptyStringSchema.optional(),
     onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
     openCodePermission: agentProfileBindingOpenCodePermissionSchema.optional(),

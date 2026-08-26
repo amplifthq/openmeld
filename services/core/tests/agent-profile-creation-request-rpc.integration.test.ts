@@ -161,6 +161,7 @@ describe("Agent Profile creation request RPC", () => {
 
     const created = await rpcCreateAgentProfileCreationRequest(bindings, {
       configuration: {
+        agentControllerCollaborationMode: null,
         agentControllerPermissionMode: null,
         agentControllerRef: "builtin:codex",
         authorizeForOrganization: true,
@@ -200,6 +201,7 @@ describe("Agent Profile creation request RPC", () => {
 
     const created = await rpcCreateAgentProfileCreationRequest(bindings, {
       configuration: {
+        agentControllerCollaborationMode: null,
         agentControllerPermissionMode: null,
         agentControllerRef: "builtin:codex",
         authorizeForOrganization: true,
@@ -237,6 +239,7 @@ describe("Agent Profile creation request RPC", () => {
     await expect(
       rpcCreateAgentProfileCreationRequest(bindings, {
         configuration: {
+          agentControllerCollaborationMode: null,
           agentControllerPermissionMode: null,
           agentControllerRef: "builtin:codex",
           authorizeForOrganization: true,

@@ -221,9 +221,13 @@ function requireCreationDefaultsModelForReasoning(
   }
 }
 
+export const agentProfileCreationPreferenceSelectionSchema = z
+  .strictObject(agentProfileCreationDefaultsFields)
+  .superRefine(requireCreationDefaultsModelForReasoning);
+
 export const setAgentProfileCreationDefaultsBodySchema = z
   .strictObject({
-    ...agentProfileCreationDefaultsFields,
+    ...agentProfileCreationPreferenceSelectionSchema.shape,
     agentControllerCollaborationMode: agentControllerCollaborationModeSchema
       .nullable()
       .optional(),

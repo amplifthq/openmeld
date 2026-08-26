@@ -702,6 +702,7 @@ import {
   type AgentProfileBindingLookupResult,
   lookupPrimaryAgentProfileBinding,
 } from "../agent-profile-binding/application/agent-profile-binding-lookup-service";
+import { rememberAgentProfileCreationDefaults } from "../agent-profile-binding/application/agent-profile-creation-defaults-service";
 import { readLocalRuntimeExpectedRoutes } from "../agent-profile-binding/application/local-runtime-expected-routes-service";
 import { applyAcceptedBindingAuthorizationPolicies } from "../agent-profile-binding/application/organization-binding-authorization-policy-service";
 import {
@@ -720,7 +721,6 @@ import {
   type AgentProfileCreationDefaultsRecord,
   listAgentProfileCreationDefaultsRecords,
   readAgentProfileCreationDefaultsRecord,
-  upsertAgentProfileCreationDefaultsRecord,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-creation-defaults-repo";
 import {
   deleteOrganizationBindingAuthorizationRecord,
@@ -947,7 +947,6 @@ import {
   buildCanonicalLocalProjectDiscoveryRequest,
   createLocalProjectControlRpc,
 } from "../projects/local-project-control-rpc";
-import { readProjectRecord } from "../projects/project-repository";
 import { prepareExpectedHumanProjectRequest } from "../projects/project-request-preparation";
 import {
   rpcArchiveProject as archiveProject,
@@ -5429,28 +5428,16 @@ export async function rpcSetAgentProfileCreationDefaults(
     organizationId,
   });
   const db = requireAgentProfileBindingDb(env);
-  if (body.data.defaultProjectId) {
-    const project = await readProjectRecord({
-      db,
-      organizationId,
-      projectId: body.data.defaultProjectId,
-    });
-    if (!project || project.archivedAtMs !== null) {
-      throw createCoreRpcHttpError({
-        code: "invalid_project",
-        reason: "The selected Project is not active in this Organization.",
-        status: 400,
-      });
-    }
-  }
-  const preference = await upsertAgentProfileCreationDefaultsRecord({
-    ...body.data,
-    agentControllerCollaborationMode:
-      body.data.agentControllerCollaborationMode ?? null,
+  const preference = await rememberAgentProfileCreationDefaults({
     agentControllerRef,
     db,
     nowMs: Date.now(),
     organizationId,
+    selection: {
+      ...body.data,
+      agentControllerCollaborationMode:
+        body.data.agentControllerCollaborationMode ?? null,
+    },
     userId: membership.userId,
   });
 
@@ -10476,6 +10463,7 @@ export async function rpcCenterAgentCreateConfiguredAgentProfile(
     agentControllerCollaborationMode: input.agentControllerCollaborationMode,
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     candidateId: input.candidateId,
+    configuration: input.configuration,
     modelId: input.modelId,
     ...(input.onBehalfOf === undefined ? {} : { onBehalfOf: input.onBehalfOf }),
     openCodePermission: input.openCodePermission,
@@ -10494,8 +10482,28 @@ export async function rpcCenterAgentCreateConfiguredAgentProfile(
       code: "invalid_payload",
     });
   }
+  const representedMember = parsed.data.onBehalfOf
+    ? await resolveCenterAgentAuditAttribution({
+        authorization,
+        onBehalfOfProfileId: parsed.data.onBehalfOf.profileId,
+      })
+    : null;
+  const representedUserId = representedMember?.onBehalfOf?.userId ?? null;
+  const representedContext = representedUserId
+    ? {
+        ...authorization.context,
+        actorContext: {
+          ...authorization.context.actorContext,
+          callerPrincipalId: representedUserId,
+          ownerUserId: representedUserId,
+        },
+      }
+    : null;
   const response = await createConfiguredAgentProfileOperation({
-    deps: buildCenterAgentProductOperationDeps(env, authorization),
+    deps: buildCenterAgentProductOperationDeps(env, authorization, {
+      representedContext,
+      representedUserId,
+    }),
     request: parsed.data,
   });
   const validated =
@@ -10512,10 +10520,16 @@ function buildCenterAgentProductOperationDeps(
   env: CoreBindings,
   authorization: Awaited<
     ReturnType<typeof requireCurrentDesignatedCenterAgentCaller>
-  >
+  >,
+  preferenceOwner?: {
+    representedContext: OpenMeldRequestContext | null;
+    representedUserId: string | null;
+  }
 ): CenterAgentProductOperationDeps {
   const context = authorization.context;
   const organizationId = authorization.activeOrganization.organizationId;
+  const representedContext = preferenceOwner?.representedContext ?? null;
+  const representedUserId = preferenceOwner?.representedUserId ?? null;
   return {
     addAgentProfileToSpace: async ({ agentProfileId, onBehalfOf, spaceId }) => {
       await rpcCenterAgentAddAgentProfilesToSpace(env, {
@@ -10599,6 +10613,38 @@ function buildCenterAgentProductOperationDeps(
         organizationId,
       });
     },
+    ...(representedUserId
+      ? {
+          rememberAgentProfileCreationDefaults: async ({
+            agentControllerRef,
+            configuration,
+          }) => {
+            await rememberAgentProfileCreationDefaults({
+              agentControllerRef,
+              db: requireAgentProfileBindingDb(env),
+              nowMs: Date.now(),
+              organizationId,
+              selection: configuration,
+              userId: representedUserId,
+            });
+          },
+        }
+      : {}),
+    ...(representedContext
+      ? {
+          setAgentProfileDefaultProject: async ({
+            agentProfileId,
+            defaultProjectId,
+          }) => {
+            await rpcUpdateAgentProfileDefaultProject(env, {
+              agentProfileId,
+              context: representedContext,
+              defaultProjectId,
+              expectedOrganizationId: organizationId,
+            });
+          },
+        }
+      : {}),
     setAgentProfileWorkspace: async ({
       agentProfileId,
       workspaceMode,

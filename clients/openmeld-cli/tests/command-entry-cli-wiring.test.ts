@@ -578,6 +578,10 @@ describe("command entry CLI wiring", () => {
       "high",
       "--agent-controller-permission-mode",
       "approve-for-me",
+      "--agent-controller-collaboration-mode",
+      "codex:plan",
+      "--open-code-permission",
+      '{"edit":"allow"}',
       "--space",
       "space-1",
       "--source",
@@ -592,12 +596,14 @@ describe("command entry CLI wiring", () => {
     expect(runMocks.runProfileCreationRequestCreate).toHaveBeenCalledOnce();
     expect(runMocks.runProfileCreationRequestCreate).toHaveBeenCalledWith({
       agentController: "builtin:codex",
+      agentControllerCollaborationMode: "codex:plan",
       agentControllerPermissionModeInput: "approve-for-me",
       authorizeForOrganization: false,
       confirmDangerousAgentControllerPermissionMode: false,
       defaultProjectId: "project-1",
       idempotencyKey: "request-key-2",
       modelId: "gpt-5.5",
+      openCodePermissionInput: '{"edit":"allow"}',
       nativeSessionId: undefined,
       organization: "amplift",
       profileName: "Review Agent",
@@ -609,6 +615,35 @@ describe("command entry CLI wiring", () => {
       targetOwner: "user-2",
       view: "agent",
     });
+  });
+
+  it("uses the same creation request contract for the current user's advanced choices", async () => {
+    await runCli([
+      "profiles",
+      "create",
+      "Planning Agent",
+      "--kind",
+      "agent",
+      "--agent-controller",
+      "builtin:codex",
+      "--computer",
+      "computer-1",
+      "--project",
+      "project-1",
+      "--agent-controller-collaboration-mode",
+      "codex:plan",
+    ]);
+
+    expect(runMocks.runProfileCreationRequestCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentController: "builtin:codex",
+        agentControllerCollaborationMode: "codex:plan",
+        defaultProjectId: "project-1",
+        profileName: "Planning Agent",
+        targetComputerId: "computer-1",
+        targetOwner: "self",
+      })
+    );
   });
 
   it("maps Agent Profile creation approval preferences to the request runner", async () => {

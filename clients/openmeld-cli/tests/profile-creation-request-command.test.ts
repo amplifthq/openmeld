@@ -67,6 +67,7 @@ const CREATED_REQUEST = {
   actorProfileId: "profile-requester",
   completedAt: null,
   configuration: {
+    agentControllerCollaborationMode: null,
     agentControllerPermissionMode: null,
     agentControllerRef: null,
     authorizeForOrganization: true,
@@ -145,10 +146,12 @@ describe("Agent Profile creation request CLI", () => {
   it("passes the teammate Computer and Binding choices through the shared request", async () => {
     await runProfileCreationRequestCreate({
       agentController: "builtin:codex",
+      agentControllerCollaborationMode: "codex:plan",
       agentControllerPermissionModeInput: "approve-for-me",
       defaultProjectId: "project-1",
       idempotencyKey: "configured-request-key",
       modelId: "gpt-5.5",
+      openCodePermissionInput: '{"edit":"allow","bash":"ask"}',
       profileName: "Configured Agent",
       reasoningLevel: "high",
       targetComputerId: "computer-2",
@@ -158,12 +161,13 @@ describe("Agent Profile creation request CLI", () => {
 
     expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledWith({
       configuration: {
+        agentControllerCollaborationMode: "codex:plan",
         agentControllerPermissionMode: "codex:approveForMe",
         agentControllerRef: "builtin:codex",
         authorizeForOrganization: true,
         defaultProjectId: "project-1",
         modelId: "gpt-5.5",
-        openCodePermission: null,
+        openCodePermission: { bash: "ask", edit: "allow" },
         reasoningLevel: "high",
         targetComputerId: "computer-2",
       },

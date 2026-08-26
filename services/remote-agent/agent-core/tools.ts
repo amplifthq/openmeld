@@ -4545,18 +4545,17 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_create_configured_agent_profile",
       description:
-        "Create a complete OpenMeld Agent Profile setup in one operation: create the profile, enable it, connect it to a selected local agent candidate, apply runtime settings including Codex collaboration mode, add it to a Space, and return whether it can reply now. Use this when the user asks for a new working Agent Profile.",
+        "Create a complete OpenMeld Agent Profile setup in one operation: create the profile, enable it, connect it to a selected local agent candidate, apply the concrete model, reasoning, permissions, collaboration, OpenCode, and Default Project choices, add it to a Space, and return whether it can reply now. Read the member's saved creation defaults and Organization Projects first, then use AI judgment to keep or change each concrete choice for the task. Pass a Project ID, never a private local path; the member's local OpenMeld Service resolves that Project's connected folder.",
       input: object({
         agentControllerCollaborationMode: collaborationModeSchema,
         agentControllerPermissionMode: permissionModeSchema,
         candidateId: nonEmptyStringSchema,
+        defaultProjectId: optionalNonEmptyStringSchema,
         modelId: optionalNonEmptyStringSchema,
         openCodePermission: openCodePermissionSchema,
         profileName: nonEmptyStringSchema,
         reasoningLevel: optionalNonEmptyStringSchema,
         spaceId: nonEmptyStringSchema,
-        workspaceMode: workspaceModeSchema,
-        workspacePath: optionalNonEmptyStringSchema,
       }),
       execute: async (payload) => {
         const toolContext = await buildRepresentedMemberAttributionToolContext({
@@ -4570,7 +4569,19 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         );
         return centerAgentCreateConfiguredAgentProfileResponseSchema.parse(
           await rpc({
-            ...payload,
+            candidateId: payload.candidateId,
+            configuration: {
+              agentControllerCollaborationMode:
+                payload.agentControllerCollaborationMode ?? null,
+              agentControllerPermissionMode:
+                payload.agentControllerPermissionMode ?? null,
+              defaultProjectId: payload.defaultProjectId ?? null,
+              modelId: payload.modelId ?? null,
+              openCodePermission: payload.openCodePermission ?? null,
+              reasoningLevel: payload.reasoningLevel ?? null,
+            },
+            profileName: payload.profileName,
+            spaceId: payload.spaceId,
             ...toolContext,
           })
         );
