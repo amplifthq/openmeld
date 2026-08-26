@@ -168,7 +168,10 @@ describe("Remote Agent Slack search tool", () => {
     });
     await expect(
       executeTool(tools, "openmeld_post_slack_channel_message", {
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "The release is ready.",
         threadPermalink: response.messages[0]?.permalink,
       })

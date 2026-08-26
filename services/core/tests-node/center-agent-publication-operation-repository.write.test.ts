@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   beginCenterAgentPublicationOperation,
   buildCenterAgentPublicationRequestSignature,
+  CENTER_AGENT_PUBLICATION_DEFAULT_OPERATION_KEY,
   completeCenterAgentPublicationOperation,
   failCenterAgentPublicationOperation,
 } from "../src/center-agent/center-agent-publication-operation-repository";
@@ -207,6 +208,7 @@ async function publicationInput(db: D1Database) {
     destinationId: "C_RELEASE",
     destinationKind: "slack_channel" as const,
     nowMs: 1001,
+    operationKey: CENTER_AGENT_PUBLICATION_DEFAULT_OPERATION_KEY,
     representedUserId: "user-a",
     requestSignature: await buildCenterAgentPublicationRequestSignature({
       representedUserId: "user-a",

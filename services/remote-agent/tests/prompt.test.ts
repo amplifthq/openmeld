@@ -679,6 +679,15 @@ describe("remote agent system prompt", () => {
       "Ordinary replies to a Slack mention must stay in the originating thread"
     );
     expect(prompt).toContain(
+      "When one request requires multiple external writes, execute them in the user's requested or dependency order and await each result before starting the next write."
+    );
+    expect(prompt).toContain(
+      "give each distinct message one stable operationId, and reuse that ID only to retry the exact unchanged message."
+    );
+    expect(prompt).toContain(
+      "a completed earlier message and a failed or unknown later message are a partial outcome"
+    );
+    expect(prompt).toContain(
       "never wrap clickable links, Slack mentions, channel references, or action-looking text in inline code or fenced code blocks."
     );
     expect(prompt).toContain(
