@@ -6,6 +6,7 @@ import {
 import type { AgentProfileCreationConfiguration } from "@openmeld/schemas/types";
 import { resolveAgentControllerPermissionModeInput } from "../profile/controller-permission-mode-input";
 import {
+  type ProfileCreationRequestCommandContext,
   type ProfileCreationRequestCommonCommandInput,
   resolveProfileCreationRequestCommandContext,
 } from "./context";
@@ -39,6 +40,7 @@ export type ProfileCreationRequestCreateInput =
     nativeSessionId?: string;
     profileName?: string;
     reasoningLevel?: string;
+    reuseSavedDefaultProject?: boolean;
     requestedSpaceId?: string;
     sessionStrategy?: string;
     source?: string;
@@ -63,7 +65,11 @@ export async function runProfileCreationRequestCreate(
       callerUserId: context.callerUserId,
       value: input.targetOwner,
     });
-    const configuration = await resolveRequestConfiguration(input);
+    const configuration = await resolveRequestConfiguration({
+      context,
+      input,
+      targetOwnerUserId,
+    });
     const response = await context.api.createAgentProfileCreationRequest({
       configuration,
       idempotencyKey:
@@ -90,9 +96,12 @@ export async function runProfileCreationRequestCreate(
   }
 }
 
-async function resolveRequestConfiguration(
-  input: ProfileCreationRequestCreateInput
-): Promise<AgentProfileCreationConfiguration> {
+async function resolveRequestConfiguration(options: {
+  context: ProfileCreationRequestCommandContext;
+  input: ProfileCreationRequestCreateInput;
+  targetOwnerUserId: string;
+}): Promise<AgentProfileCreationConfiguration> {
+  const { context, input, targetOwnerUserId } = options;
   const agentControllerRef = normalizeOptionalText(input.agentController);
   const targetComputerId = normalizeOptionalText(input.targetComputerId);
   if (Boolean(agentControllerRef) !== Boolean(targetComputerId)) {
@@ -117,7 +126,12 @@ async function resolveRequestConfiguration(
       permissionMode.agentControllerPermissionMode ?? null,
     agentControllerRef: agentControllerRef ?? null,
     authorizeForOrganization: input.authorizeForOrganization !== false,
-    defaultProjectId: normalizeOptionalText(input.defaultProjectId) ?? null,
+    defaultProjectId: await resolveRequestDefaultProjectId({
+      agentControllerRef,
+      context,
+      input,
+      targetOwnerUserId,
+    }),
     modelId: normalizeOptionalText(input.modelId) ?? null,
     openCodePermission: parseOpenCodePermissionInput(
       input.openCodePermissionInput
@@ -125,6 +139,31 @@ async function resolveRequestConfiguration(
     reasoningLevel: normalizeOptionalText(input.reasoningLevel) ?? null,
     targetComputerId: targetComputerId ?? null,
   });
+}
+
+async function resolveRequestDefaultProjectId(options: {
+  agentControllerRef: string | undefined;
+  context: ProfileCreationRequestCommandContext;
+  input: ProfileCreationRequestCreateInput;
+  targetOwnerUserId: string;
+}): Promise<string | null> {
+  const { agentControllerRef, context, input, targetOwnerUserId } = options;
+  const explicitProjectId = normalizeOptionalText(input.defaultProjectId);
+  if (explicitProjectId) {
+    return explicitProjectId;
+  }
+  if (
+    input.reuseSavedDefaultProject === false ||
+    !agentControllerRef ||
+    targetOwnerUserId !== context.callerUserId
+  ) {
+    return null;
+  }
+  const defaults = await context.api.getAgentProfileCreationDefaults({
+    agentControllerRef,
+    organizationId: context.organization.id,
+  });
+  return defaults.defaultProjectId;
 }
 
 function parseOpenCodePermissionInput(value: string | undefined): unknown {
