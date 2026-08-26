@@ -23,6 +23,28 @@
       "body": "Browser notification setup now disappears completely after permission is\ngranted, “Not now” is selected, or the new close button is used, so members can\nimmediately continue setup or use the page underneath it."
     },
     {
+      "id": "accurate-dispatch-completion-times",
+      "title": "Keep Center Agent completion times accurate",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "diagnostics",
+        "performance"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-26",
+      "evidence": [
+        "pr:333",
+        "commit:634fd463fff620b54d42ccceab92be65fdab971e",
+        "worker-version:928e7144-6168-4785-9076-f16a1ade7a0d",
+        "center-agent-dispatch:84093d46-8a78-4d87-921f-6e28dfa9e239"
+      ],
+      "body": "Center Agent diagnostics now keep the time a task first completed when a final\nconfirmation is safely replayed. Repeated confirmations no longer make a\ncompleted task look slower than it was."
+    },
+    {
       "id": "reliable-space-actions-with-strict-permissions",
       "title": "Let Agents reply without a shell approval prompt",
       "kind": "fixed",
