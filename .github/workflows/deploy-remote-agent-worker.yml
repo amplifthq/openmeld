@@ -32,6 +32,14 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
+      - name: Refresh current main with step-scoped read authentication
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
       - name: Require production target and main first-parent release SHA
         shell: bash
         env:
@@ -44,7 +52,6 @@ jobs:
             echo "::error::Unsupported deploy environment. Only production is allowed."
             exit 1
           fi
-          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
           node scripts/release/require-mainline-release-sha.mjs \
             "$RELEASE_SHA" refs/remotes/origin/main
 
@@ -55,6 +62,7 @@ jobs:
     timeout-minutes: 20
     concurrency:
       group: deploy-remote-agent-worker-production
+      queue: max
       cancel-in-progress: false
     environment: production
     defaults:

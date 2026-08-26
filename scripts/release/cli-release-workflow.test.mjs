@@ -18,6 +18,7 @@ const APPLE_SECRET_NAMES = [
   "APPLE_TEAM_ID",
 ];
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
+const GITHUB_TOKEN_EXPRESSION = `${GITHUB_EXPRESSION_PREFIX} github.token }}`;
 const RELEASE_TAG_PUSH = ['git push origin "refs/tags/v$', '{version}"'].join(
   ""
 );
@@ -55,7 +56,11 @@ test("keeps the signed and notarized CLI publisher fail closed", () => {
     cliJobSource.includes("id-token") || source.includes("id-token: write")
   );
   assert.ok(cliJobSource.includes("npm install --global npm@11.18.0"));
-  assert.ok(cliJobSource.includes("pnpm run release:cli --with-binary"));
+  assert.ok(
+    cliJobSource.includes(
+      "node ../release-control/scripts/release/hosted-cli-release.mjs ."
+    )
+  );
   assert.ok(
     cliJobSource.includes(
       "normal|resume-after-binary-upload|resume-after-npm-publish"
@@ -114,6 +119,28 @@ test("injects production credentials only into the steps that consume them", () 
   assert.ok(publishStep.includes("secrets.CLOUDFLARE_API_TOKEN"));
 });
 
+test("keeps private-repository tag auth inside trusted control and away from release commands", () => {
+  const workflow = readRepoFile(".github/workflows/cli-release.yml");
+  const hostedRelease = readRepoFile("scripts/release/hosted-cli-release.mjs");
+  const releaseEngine = readRepoFile("scripts/release/release-cli.mjs");
+
+  assert.ok(
+    workflow.includes(
+      `OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: ${GITHUB_TOKEN_EXPRESSION}`
+    )
+  );
+  assert.ok(hostedRelease.includes("createTrustedGitEnvironment"));
+  assert.ok(hostedRelease.includes("localGitEnvironment"));
+  assert.ok(hostedRelease.includes("authenticatedGitEnvironment"));
+  assert.ok(
+    hostedRelease.includes(
+      'Reflect.deleteProperty(process.env, "OPENMELD_TRUSTED_GIT_GITHUB_TOKEN")'
+    )
+  );
+  assert.ok(hostedRelease.includes("env: releaseEnvironment"));
+  assert.ok(releaseEngine.includes('"push",\n        "--no-verify"'));
+});
+
 test("shares CLI and Core production leases with the local release lane", () => {
   const source = readRepoFile(".github/workflows/cli-release.yml");
 
@@ -129,10 +156,15 @@ test("shares CLI and Core production leases with the local release lane", () => 
     )?.length,
     4
   );
-  assert.equal(
-    source.match(/github_token: \$\{\{ github\.token \}\}/gu)?.length,
-    4
-  );
+  for (const leaseStep of source
+    .split("uses: ./release-control/.github/actions/production-scope-lease")
+    .slice(1)) {
+    assert.ok(
+      leaseStep
+        .split("\n\n")[0]
+        ?.includes(`github_token: ${GITHUB_TOKEN_EXPRESSION}`)
+    );
+  }
   assert.equal(
     source.match(/working_directory: release-source/gu)?.length >= 4,
     true
@@ -178,8 +210,11 @@ test("validates current main first-parent membership before publication", () => 
       "release_sha must be an exact 40-character lowercase commit SHA"
     )
   );
+  assert.ok(releaseSource.includes("operation: fetch-main"));
   assert.ok(
-    releaseSource.includes("git fetch --no-tags origin refs/heads/main")
+    releaseSource.includes(
+      "uses: ./release-control/.github/actions/trusted-git-network"
+    )
   );
   assert.ok(mainlineValidation >= 0);
   assert.ok(publish > mainlineValidation);

@@ -32,10 +32,13 @@ const UNPINNED_ULTRACITE_COMMAND = /ultracite (?:check|fix)/u;
 const LOCAL_CORE_STARTUP_DIAGNOSTIC =
   /- name: Capture local Core startup evidence\n\s+continue-on-error: true\n\s+run: pnpm run evidence:startup:core/u;
 const PRODUCTION_CONCURRENCY_PATTERN =
-  /concurrency:\n\s+group: deploy-[a-z-]+-production\n\s+cancel-in-progress: false/u;
+  /concurrency:\n\s+group: deploy-[a-z-]+-production\n\s+queue: max\n\s+cancel-in-progress: false/u;
 const PNPM_BINARY = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const PRODUCTION_LEASE_ACTION =
   "uses: ./release-control/.github/actions/production-scope-lease";
+const BARE_MAIN_FETCH_PATTERN = /git fetch --no-tags origin refs\/heads\/main/u;
+const BARE_TAG_FETCH_PATTERN = /run: git fetch --tags/u;
+const UNTRUSTED_ACTION_GIT_PROBE_PATTERN = /git -C/u;
 
 const readProductionLeaseSteps = (workflow) =>
   workflow
@@ -324,11 +327,14 @@ test("pins Final Candidate to the current PR head and base in both lanes", () =>
     readRepoFile("scripts/ci/final-candidate-state.mjs"),
   ].join("\n");
   const policy = readRepoFile("scripts/ci/final-candidate-policy.mjs");
+  const trustedGit = readRepoFile("scripts/ci/trusted-git-network.mjs");
 
   assert.ok(candidate.includes("fetch-depth: 0"));
   assert.ok(candidate.includes('--repository "$CANDIDATE_REPOSITORY"'));
   assert.ok(candidate.includes('--pr "$CANDIDATE_PR_NUMBER"'));
-  assert.ok(engine.includes("refs/heads/main:refs/remotes/origin/main"));
+  assert.ok(trustedGit.includes("refs/heads/main:refs/remotes/origin/main"));
+  assert.ok(trustedGit.includes("protocol.ext.allow"));
+  assert.ok(trustedGit.includes("core.hooksPath"));
   assert.ok(engine.includes("assertCandidateSnapshot(state.snapshot)"));
   assert.ok(engine.includes("assertCandidateSnapshot(finalState.snapshot)"));
   assert.ok(engine.includes("publishCommitStatus"));
@@ -378,6 +384,7 @@ test("serializes each production scope without canceling a running deploy", () =
     ?.split("\n  web:")[0];
 
   assert.ok(databaseJob?.includes("group: release-production-database"));
+  assert.ok(databaseJob?.includes("queue: max"));
   assert.ok(databaseJob?.includes("cancel-in-progress: false"));
   for (const [scope, workflowPath] of COMPONENT_WORKFLOWS) {
     const workflow = readRepoFile(workflowPath);
@@ -388,6 +395,59 @@ test("serializes each production scope without canceling a running deploy", () =
     );
   }
   assert.ok(!dispatcher.includes("\nconcurrency:"));
+});
+
+test("retains every queued production release instead of replacing an older pending run", () => {
+  for (const workflowPath of globSync(".github/workflows/*.yml", {
+    cwd: REPO_ROOT,
+  })) {
+    const workflow = readRepoFile(workflowPath);
+    const nonCancelingGroups =
+      workflow.match(/cancel-in-progress: false/gu) ?? [];
+    if (nonCancelingGroups.length === 0) {
+      continue;
+    }
+    assert.equal(
+      workflow.match(/queue: max/gu)?.length,
+      nonCancelingGroups.length,
+      `${workflowPath} must retain every non-canceling production queue`
+    );
+  }
+});
+
+test("uses step-scoped private-repository authentication for every trusted release fetch", () => {
+  const trustedAction = readRepoFile(
+    ".github/actions/trusted-git-network/action.yml"
+  );
+  const validatorWorkflows = [
+    ".github/workflows/release-on-main.yml",
+    ".github/workflows/recover-core-cli-projection.yml",
+    ...COMPONENT_WORKFLOWS.map(([, workflowPath]) => workflowPath),
+  ];
+
+  assert.ok(trustedAction.includes("OPENMELD_TRUSTED_GIT_GITHUB_TOKEN"));
+  assert.ok(trustedAction.includes("trusted-git-network.mjs"));
+  for (const workflowPath of validatorWorkflows) {
+    const workflow = readRepoFile(workflowPath);
+    assert.ok(
+      workflow.includes(
+        "uses: ./release-control/.github/actions/trusted-git-network"
+      ),
+      `${workflowPath} must use trusted private-repository fetch auth`
+    );
+    assert.ok(workflow.includes("operation: fetch-main"));
+    assert.ok(workflow.includes("persist-credentials: false"));
+    assert.doesNotMatch(workflow, BARE_MAIN_FETCH_PATTERN);
+  }
+
+  for (const workflowPath of [
+    ".github/workflows/cli-release.yml",
+    ".github/workflows/deploy-core-worker.yml",
+  ]) {
+    const workflow = readRepoFile(workflowPath);
+    assert.ok(workflow.includes("operation: fetch-tags"));
+    assert.doesNotMatch(workflow, BARE_TAG_FETCH_PATTERN);
+  }
 });
 
 test("uses one atomic shared lease across local and hosted releases", () => {
@@ -409,6 +469,7 @@ test("uses one atomic shared lease across local and hosted releases", () => {
   assert.ok(leaseAction.includes('" release \\'));
   assert.ok(leaseAction.includes("OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN"));
   assert.ok(leaseAction.includes('--cwd "$LEASE_REPOSITORY_ROOT"'));
+  assert.doesNotMatch(leaseAction, UNTRUSTED_ACTION_GIT_PROBE_PATTERN);
   assert.ok(leaseEngine.includes("--force-with-lease="));
   assert.ok(leaseEngine.includes("context.ref"));
   assert.ok(leaseEngine.includes("expectedLeaseSha"));

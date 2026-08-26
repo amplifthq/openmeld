@@ -13,6 +13,10 @@ import {
   productionScopeLeaseRecoverySchema,
   productionScopeLeaseSchema,
 } from "../../packages/schemas/src/schemas/release/production-scope-lease.ts";
+import {
+  buildTrustedGitHubRepositoryUrl,
+  createTrustedGitEnvironment,
+} from "../ci/trusted-git-network.mjs";
 
 const DEFAULT_TTL_SECONDS = 4 * 60 * 60;
 const MAX_TTL_SECONDS = 24 * 60 * 60;
@@ -34,12 +38,13 @@ export function acquireProductionScopeLease(input) {
     context,
     [
       "push",
+      "--no-verify",
       "--porcelain",
       `--force-with-lease=${context.ref}:`,
       context.remote,
       `${leaseSha}:${context.ref}`,
     ],
-    { allowFailure: true }
+    { allowFailure: true, authenticate: true }
   );
   if (push.status !== 0) {
     const winner = readProductionScopeLease(context);
@@ -104,12 +109,13 @@ export function releaseProductionScopeLease(input) {
     context,
     [
       "push",
+      "--no-verify",
       "--porcelain",
       `--force-with-lease=${context.ref}:${leaseSha}`,
       context.remote,
       `:${context.ref}`,
     ],
-    { allowFailure: true }
+    { allowFailure: true, authenticate: true }
   );
   if (push.status !== 0) {
     const winner = readProductionScopeLease(context);
@@ -164,6 +170,7 @@ export function recoverExpiredProductionScopeLease(input) {
     context,
     [
       "push",
+      "--no-verify",
       "--porcelain",
       "--atomic",
       `--force-with-lease=${context.ref}:${expectedLeaseSha}`,
@@ -172,7 +179,7 @@ export function recoverExpiredProductionScopeLease(input) {
       `:${context.ref}`,
       `${recoverySha}:${recoveryRef}`,
     ],
-    { allowFailure: true }
+    { allowFailure: true, authenticate: true }
   );
   if (push.status !== 0) {
     throw new Error(
@@ -228,12 +235,14 @@ function resolveContext(input, requirements = {}) {
       `Production scope lease TTL must be ${String(MIN_TTL_SECONDS)} to ${String(MAX_TTL_SECONDS)} seconds.`
     );
   }
+  const environment = input.environment ?? process.env;
   const context = {
     cwd: path.resolve(input.cwd ?? process.cwd()),
+    environment,
     now: input.now ? new Date(input.now) : new Date(),
     owner,
     ref: `refs/heads/openmeld-production-leases/${scope}`,
-    remote: input.remote ?? "origin",
+    remote: input.remote ?? resolveHostedLeaseRemote(environment) ?? "origin",
     scope,
     sourceSha,
     ttlSeconds,
@@ -284,7 +293,7 @@ function createLeaseCommit(context, metadata) {
       cwd: context.cwd,
       encoding: "utf8",
       env: {
-        ...createProductionScopeLeaseGitEnvironment(process.env),
+        ...createProductionScopeLeaseGitEnvironment(context.environment),
         GIT_AUTHOR_DATE: metadata.startedAt,
         GIT_AUTHOR_EMAIL: "production-lease@openmeld.local",
         GIT_AUTHOR_NAME: "OpenMeld Production Lease",
@@ -317,7 +326,7 @@ function createRecoveryCommit(context, current, metadata) {
       cwd: context.cwd,
       encoding: "utf8",
       env: {
-        ...createProductionScopeLeaseGitEnvironment(process.env),
+        ...createProductionScopeLeaseGitEnvironment(context.environment),
         GIT_AUTHOR_DATE: metadata.recoveredAt,
         GIT_AUTHOR_EMAIL: "production-lease@openmeld.local",
         GIT_AUTHOR_NAME: "OpenMeld Production Lease Recovery",
@@ -341,7 +350,7 @@ function readProductionScopeLease(context) {
   const result = runGit(
     context,
     ["ls-remote", "--refs", context.remote, context.ref],
-    { allowFailure: true }
+    { allowFailure: true, authenticate: true }
   );
   if (result.status !== 0) {
     throw new Error(
@@ -356,13 +365,11 @@ function readProductionScopeLease(context) {
     "remote lease",
     line.split(WHITESPACE_PATTERN)[0]
   );
-  runGit(context, [
-    "fetch",
-    "--quiet",
-    "--no-tags",
-    context.remote,
-    context.ref,
-  ]);
+  runGit(
+    context,
+    ["fetch", "--quiet", "--no-tags", context.remote, context.ref],
+    { authenticate: true }
+  );
   const message = runGit(context, [
     "show",
     "-s",
@@ -391,7 +398,7 @@ function readProductionScopeLeaseRecovery(context, leaseSha) {
   const result = runGit(
     context,
     ["ls-remote", "--refs", context.remote, recoveryRef],
-    { allowFailure: true }
+    { allowFailure: true, authenticate: true }
   );
   if (result.status !== 0) {
     throw new Error(
@@ -406,13 +413,11 @@ function readProductionScopeLeaseRecovery(context, leaseSha) {
     "remote recovery",
     line.split(WHITESPACE_PATTERN)[0]
   );
-  runGit(context, [
-    "fetch",
-    "--quiet",
-    "--no-tags",
-    context.remote,
-    recoveryRef,
-  ]);
+  runGit(
+    context,
+    ["fetch", "--quiet", "--no-tags", context.remote, recoveryRef],
+    { authenticate: true }
+  );
   const parentSha = requireExactSha(
     "recovered lease parent",
     runGit(context, ["rev-parse", `${recoverySha}^`]).stdout.trim()
@@ -458,7 +463,9 @@ function runGit(context, args, options = {}) {
   const result = spawnSync("git", args, {
     cwd: context.cwd,
     encoding: "utf8",
-    env: createProductionScopeLeaseGitEnvironment(process.env),
+    env: createProductionScopeLeaseGitEnvironment(context.environment, {
+      authenticate: options.authenticate ?? false,
+    }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   if (!(options.allowFailure || (!result.error && result.status === 0))) {
@@ -473,41 +480,43 @@ function runGit(context, args, options = {}) {
   };
 }
 
-export function createProductionScopeLeaseGitEnvironment(environment) {
-  const {
-    OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: serverUrl,
-    OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: token,
-    ...gitEnvironment
-  } = environment;
-  if (!(token || serverUrl)) {
-    return gitEnvironment;
-  }
-  if (!(token && serverUrl)) {
+export function createProductionScopeLeaseGitEnvironment(
+  environment,
+  options = {}
+) {
+  const serverUrl = environment.OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL;
+  const token = environment.OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN;
+  const hostedAuthenticationConfigured = Boolean(token || serverUrl);
+  if (
+    options.authenticate &&
+    hostedAuthenticationConfigured &&
+    !(token && serverUrl)
+  ) {
     throw new Error(
       "Hosted production lease authentication requires both token and GitHub server URL."
     );
   }
-  const server = new URL(serverUrl);
-  if (server.protocol !== "https:" || server.username || server.password) {
+  return createTrustedGitEnvironment(environment, {
+    authenticate:
+      (options.authenticate ?? false) && hostedAuthenticationConfigured,
+    preserveCredentialConfig: !hostedAuthenticationConfigured,
+    serverUrl,
+    token,
+  });
+}
+
+function resolveHostedLeaseRemote(environment) {
+  const repository = environment.OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY;
+  const serverUrl = environment.OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL;
+  if (!(repository || serverUrl)) {
+    return null;
+  }
+  if (!(repository && serverUrl)) {
     throw new Error(
-      "Hosted production lease authentication requires a clean HTTPS GitHub server URL."
+      "Hosted production lease remote requires GitHub server URL and repository identity."
     );
   }
-  const existingCount = Number(gitEnvironment.GIT_CONFIG_COUNT ?? 0);
-  if (!Number.isSafeInteger(existingCount) || existingCount < 0) {
-    throw new Error(
-      "Hosted production lease authentication found invalid Git config state."
-    );
-  }
-  const basicCredential = Buffer.from(`x-access-token:${token}`).toString(
-    "base64"
-  );
-  gitEnvironment.GIT_CONFIG_COUNT = String(existingCount + 1);
-  gitEnvironment[`GIT_CONFIG_KEY_${String(existingCount)}`] =
-    `http.${server.origin}/.extraheader`;
-  gitEnvironment[`GIT_CONFIG_VALUE_${String(existingCount)}`] =
-    `AUTHORIZATION: basic ${basicCredential}`;
-  return gitEnvironment;
+  return buildTrustedGitHubRepositoryUrl({ repository, serverUrl });
 }
 
 function renderHeldLease(lease, now) {
@@ -566,7 +575,7 @@ function printAcquirePlan(context, metadata, leaseSha) {
       `Expiry: ${metadata.expiresAt}`,
       `Shared ref: ${context.ref}`,
       `Candidate lease SHA: ${leaseSha}`,
-      `Atomic command: git push --force-with-lease=${context.ref}: ${context.remote} ${leaseSha}:${context.ref}`,
+      `Atomic command: git push --no-verify --force-with-lease=${context.ref}: ${context.remote} ${leaseSha}:${context.ref}`,
       "",
     ].join("\n")
   );

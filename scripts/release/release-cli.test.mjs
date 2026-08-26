@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { gzipSync } from "node:zlib";
+
+import { createTrustedGitEnvironment } from "../ci/trusted-git-network.mjs";
 
 import {
   assertChannelReadyForVersionOnlyRelease,
@@ -320,6 +322,63 @@ test("publishes the immutable release tag to origin and stays idempotent", async
       )
     ).stdout.trim();
     assert.equal(remoteTag, head);
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("trusted private-repository tag publication bypasses source hooks and keeps raw auth out of Git", async () => {
+  const { git, repoRoot } = await createReleaseRepo("0.7.96");
+  const marker = join(repoRoot, "pre-push-read-token.log");
+  const hook = join(repoRoot, ".git", "hooks", "pre-push");
+  const token = "fixture-write-token-not-real";
+  try {
+    await configureTestOrigin({ git, repoRoot });
+    await writeFile(
+      hook,
+      `#!/usr/bin/env bash\nprintf '%s\\n' "\${GIT_CONFIG_VALUE_3:-missing}" > ${JSON.stringify(marker)}\nexit 97\n`
+    );
+    await chmod(hook, 0o755);
+    const sourceSha = (await git("rev-parse", "HEAD")).stdout.trim();
+    const gitEnvironment = createTrustedGitEnvironment(
+      {
+        ...process.env,
+        OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: token,
+      },
+      {
+        authenticate: true,
+        serverUrl: "https://github.com",
+        token,
+      }
+    );
+    const localGitEnvironment = createTrustedGitEnvironment(process.env);
+    assert.equal(gitEnvironment.OPENMELD_TRUSTED_GIT_GITHUB_TOKEN, undefined);
+
+    assert.deepEqual(
+      publishCliReleaseTag({
+        cwd: repoRoot,
+        gitEnvironment,
+        localGitEnvironment,
+        remoteUrl: join(repoRoot, ".git", "test-origin.git"),
+        sourceSha,
+      }),
+      { created: true, published: true, tagName: "v0.7.96" }
+    );
+    assert.equal(
+      existsSync(marker),
+      false,
+      "historical pre-push hooks must never see the authenticated push"
+    );
+    assert.deepEqual(
+      publishCliReleaseTag({
+        cwd: repoRoot,
+        gitEnvironment,
+        localGitEnvironment,
+        remoteUrl: join(repoRoot, ".git", "test-origin.git"),
+        sourceSha,
+      }),
+      { created: false, published: true, tagName: "v0.7.96" }
+    );
   } finally {
     await rm(repoRoot, { force: true, recursive: true });
   }

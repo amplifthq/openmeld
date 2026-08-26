@@ -38,6 +38,7 @@ import {
 } from "./final-candidate-state.mjs";
 
 const pnpmBinary = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const GIT_CONFIG_ENV_PATTERN = /^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/u;
 const TRUSTED_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -473,8 +474,16 @@ function runCandidateCommand(command, selectedCheck, context) {
     "GH_ENTERPRISE_TOKEN",
     "GH_TOKEN",
     "GITHUB_TOKEN",
+    "OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL",
+    "OPENMELD_TRUSTED_GIT_GITHUB_TOKEN",
+    "OPENMELD_TRUSTED_GIT_LOCAL_REMOTE_URL",
   ]) {
     delete commandEnvironment[credentialName];
+  }
+  for (const variableName of Object.keys(commandEnvironment)) {
+    if (GIT_CONFIG_ENV_PATTERN.test(variableName)) {
+      delete commandEnvironment[variableName];
+    }
   }
   const result = spawnSync(binary, args, {
     cwd:

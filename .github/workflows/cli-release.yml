@@ -25,6 +25,7 @@ on:
 
 concurrency:
   group: cli-production-release
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -45,6 +46,7 @@ jobs:
     timeout-minutes: 45
     concurrency:
       group: deploy-core-worker-production
+      queue: max
       cancel-in-progress: false
     environment: production
     env:
@@ -72,12 +74,19 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
+      - name: Refresh current main with step-scoped read authentication
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
       - name: Require release SHA from current main first-parent history
         shell: bash
         working-directory: release-control
         run: |
           set -euo pipefail
-          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
           if ! validation_error="$(node scripts/release/require-mainline-release-sha.mjs \
             "$RELEASE_SHA" refs/remotes/origin/main 2>&1)"; then
             echo "::error::$validation_error"
@@ -122,8 +131,12 @@ jobs:
           working_directory: release-source
 
       - name: Fetch release tags
-        run: git fetch --tags --force
-        working-directory: release-source
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-tags
+          repository: ${{ github.repository }}
+          working_directory: release-source
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -156,6 +169,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL: ${{ github.server_url }}
+          OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: ${{ github.token }}
           # npm Trusted Publishing authenticates private repositories through OIDC,
           # but npm cannot write public Sigstore provenance for a private source repo.
           NPM_CONFIG_PROVENANCE: "false"
@@ -163,7 +178,7 @@ jobs:
           set -euo pipefail
           case "$RELEASE_PATH" in
             normal|resume-after-binary-upload|resume-after-npm-publish)
-              pnpm run release:cli --with-binary
+              node ../release-control/scripts/release/hosted-cli-release.mjs .
               ;;
             *)
               echo "::error::Unknown release path: $RELEASE_PATH"

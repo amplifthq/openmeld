@@ -37,6 +37,14 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
+      - name: Refresh current main with step-scoped read authentication
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
       - name: Require production target, deployment mode, and main first-parent release SHA
         shell: bash
         env:
@@ -57,7 +65,6 @@ jobs:
               exit 1
               ;;
           esac
-          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
           node scripts/release/require-mainline-release-sha.mjs \
             "$RELEASE_SHA" refs/remotes/origin/main
 
@@ -68,6 +75,7 @@ jobs:
     timeout-minutes: 25
     concurrency:
       group: deploy-core-worker-production
+      queue: max
       cancel-in-progress: false
     environment: production
     defaults:
@@ -128,7 +136,12 @@ jobs:
 
       - name: Fetch immutable CLI release tags
         if: inputs.deployment_mode == 'current-stable-cli-projection'
-        run: git fetch --tags
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-tags
+          repository: ${{ github.repository }}
+          working_directory: release-source
 
       - name: Admit and deploy the standard Core Worker
         if: inputs.deployment_mode == 'standard'

@@ -537,6 +537,7 @@ function runCandidateFixture(fixture, options = {}) {
         GITHUB_TOKEN: "write-capable-token-must-not-reach-checks",
         PATH: `${fixture.binPath}${path.delimiter}${process.env.PATH}`,
         OPENMELD_CANDIDATE_SANDBOX_PROFILE: options.sandboxProfile ?? "",
+        OPENMELD_TRUSTED_GIT_LOCAL_REMOTE_URL: fixture.remotePath,
         TEST_ATTACK_EVIDENCE_PATH: options.attackEvidencePath ?? "",
         TEST_ATTACK_TRUSTED_PATH: options.attackTrustedPath ?? "",
         TEST_ADVANCE_MAIN_DURING_CHECK: options.advanceMainDuringCheck
@@ -591,6 +592,7 @@ function runRequestFixture(fixture) {
       env: {
         ...isolatedGitEnvironment(process.env),
         PATH: `${fixture.binPath}${path.delimiter}${process.env.PATH}`,
+        OPENMELD_TRUSTED_GIT_LOCAL_REMOTE_URL: fixture.remotePath,
         TEST_BASE_SHA: fixture.baseSha,
         TEST_GH_FAILURE_OPERATION_ATTEMPTS: "",
         TEST_GH_FAILURE_OPERATIONS: "",

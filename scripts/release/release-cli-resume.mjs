@@ -40,11 +40,13 @@ export async function runResumableCliRelease(input) {
     publishCliReleaseTag:
       input.adapters?.publishCliReleaseTag ??
       input.release.publishCliReleaseTag,
+    readRemoteTagCommit:
+      input.adapters?.readRemoteTagCommit ?? readRemoteTagCommit,
   };
 
   input.release.assertCleanWorktree({ cwd });
   const target = resolveCliReleaseTarget({ cwd });
-  const tag = probeReleaseTagStage({ cwd, target });
+  const tag = probeReleaseTagStage({ adapters, cwd, target });
   if (tag.action === "FAIL") {
     printStageDecision("Release tag", tag, write);
     throw new Error(tag.reason);
@@ -399,7 +401,9 @@ function probeReleaseTagStage(input) {
       ...localTagProbe,
     });
   }
-  const remoteTagProbe = readRemoteTagCommit({
+  const remoteTagProbe = (
+    input.adapters?.readRemoteTagCommit ?? readRemoteTagCommit
+  )({
     cwd: input.cwd,
     tagName: input.target.tagName,
   });
@@ -507,11 +511,18 @@ function readLocalTagCommit(input) {
   return { localTagSha: resolved.stdout.trim() };
 }
 
-function readRemoteTagCommit(input) {
+export function readRemoteTagCommit(input) {
   const tagRef = `refs/tags/${input.tagName}`;
   const resolved = runGitProbe({
-    args: ["ls-remote", "--tags", "origin", tagRef, `${tagRef}^{}`],
+    args: [
+      "ls-remote",
+      "--tags",
+      input.remoteUrl ?? "origin",
+      tagRef,
+      `${tagRef}^{}`,
+    ],
     cwd: input.cwd,
+    env: input.gitEnvironment,
   });
   if (resolved.error || resolved.status !== 0) {
     return {
@@ -619,6 +630,7 @@ function runGitProbe(input) {
   const result = spawnSync(gitBinary(), input.args, {
     cwd: input.cwd,
     encoding: "utf8",
+    env: input.env,
     maxBuffer: 1024 * 1024,
     timeout: COMPLETION_PROBE_TIMEOUT_MS,
   });

@@ -164,13 +164,21 @@ The workflow:
   permissions, no secrets, and checks out the exact untrusted head explicitly;
 - does not run on PR open, reopen, synchronize, ready-for-review, or ordinary
   push events;
+- gives unrelated or draft label events unique ignored concurrency groups, so
+  they publish no Final Candidate status and cannot cancel a legitimate
+  standard or full request for the same pull request;
 - checks out trusted control and the exact PR head into separate roots with
   checkout credentials disabled, then creates the unprivileged operating-system
   user and locks the trusted and evidence roots before pnpm parses any
   candidate-owned configuration;
-- installs candidate dependencies through that isolated user with lifecycle
-  scripts disabled and candidate-owned home, cache, store, modules, and virtual
-  store paths;
+- keeps candidate Git metadata outside the candidate-writable root and makes
+  the in-root `.git` pointer read-only, so package configuration and selected
+  commands cannot replace trusted refs, objects, or Git configuration;
+- installs candidate dependencies through that isolated user with all scripts
+  disabled first, then rebuilds only the dependency packages approved by the
+  trusted current-main `allowBuilds` policy. Candidate root lifecycle scripts
+  remain disabled, while required native packages still build in the isolated
+  candidate-owned home, cache, store, modules, and virtual-store paths;
 - runs selected candidate commands as a separate unprivileged operating-system
   user that can write the candidate root but cannot write the trusted control
   root or the private evidence root;
@@ -306,11 +314,13 @@ commands, and recovery mechanics. This document owns the lifecycle contract:
    tag, and Core projection gates.
 5. Every release uses an explicit 40-character first-parent `main` SHA and an
    explicit selected scope. Later `main` commits belong to another release.
-6. Each production component owns a stable concurrency group with
-   `cancel-in-progress: false` and the same Git-backed shared scope lease used
-   by local fallback. The atomic remote ref records scope, owner, source SHA,
-   start, and expiry. Different component groups may proceed in parallel when
-   the release plan proves mixed-version compatibility.
+6. Each production component owns a stable concurrency group with `queue: max`
+   and `cancel-in-progress: false`, plus the same Git-backed shared scope lease
+   used by local fallback. The queue retains up to GitHub's supported maximum
+   instead of replacing an earlier waiting release. The atomic remote ref
+   records scope, owner, source SHA, start, and expiry. Different component
+   groups may proceed in parallel when the release plan proves mixed-version
+   compatibility.
 7. Never cancel a running production deploy to prefer a newer candidate. A
    not-yet-started same-scope run may be canceled only when evidence proves a
    later queued SHA safely supersedes it, no required intermediate migration or

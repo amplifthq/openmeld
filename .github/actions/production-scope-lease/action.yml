@@ -51,13 +51,14 @@ runs:
         LEASE_SHA: ${{ inputs.lease_sha }}
         LEASE_WORKING_DIRECTORY: ${{ inputs.working_directory }}
         OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: ${{ github.server_url }}
+        OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY: ${{ github.repository }}
         OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: ${{ inputs.github_token }}
         RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
       run: |
         set -euo pipefail
         LEASE_REPOSITORY_ROOT="$GITHUB_WORKSPACE/$LEASE_WORKING_DIRECTORY"
-        if [ "$(git -C "$LEASE_REPOSITORY_ROOT" rev-parse --show-toplevel)" != "$LEASE_REPOSITORY_ROOT" ]; then
-          echo "::error::Production lease working_directory is not an exact repository root: $LEASE_REPOSITORY_ROOT"
+        if [ ! -d "$LEASE_REPOSITORY_ROOT" ] || [ ! -e "$LEASE_REPOSITORY_ROOT/.git" ]; then
+          echo "::error::Production lease working_directory is not a repository checkout: $LEASE_REPOSITORY_ROOT"
           exit 1
         fi
         case "$LEASE_OPERATION" in

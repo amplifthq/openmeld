@@ -538,12 +538,14 @@ keeps same-SHA recovery working when the release source predates a newer lease
 action or control schema, without running release controls from historical
 product code or silently changing the product SHA.
 
-The trusted lease action receives a step-scoped GitHub token and an explicit
-`release-source` repository root. It injects HTTPS authentication only into its
-own fetch and compare-and-swap Git processes, never persists credentials in Git
-configuration, and does not expose that token to product build, deploy, health,
-or smoke commands. This also makes the lease independent of the workflow's
-workspace-root working directory.
+Trusted current-main controls receive step-scoped GitHub tokens and explicit
+repository roots. They inject HTTPS authentication only into the exact fetch,
+lease compare-and-swap, or immutable tag network process; disable source Git
+hooks and unsafe protocol helpers; and never persist credentials in Git
+configuration. Product build, signing, deploy, health, and smoke commands do
+not receive those Git credentials. This also makes private-repository main/tag
+refresh and the shared lease independent of persisted checkout credentials or
+the workflow's workspace-root working directory.
 
 ```sh
 release_sha="$(git rev-parse origin/main)"
@@ -566,12 +568,14 @@ and performs a lightweight health check. It does not rerun candidate checks,
 unit tests, or integration tests.
 
 Every component workflow owns a stable production concurrency group with
-`cancel-in-progress: false` and acquires the same Git-backed scope lease used by
-the local lane. GitHub concurrency serializes hosted queues; the shared lease
-extends that invariant to local-to-local and local-to-hosted races. Two releases
-of the same component serialize and a running deploy is never canceled.
-Unrelated component groups remain able to run in parallel. Do not add
-workflow-wide concurrency that serializes the whole fleet.
+`queue: max` and `cancel-in-progress: false`, and acquires the same Git-backed
+scope lease used by the local lane. `queue: max` retains up to GitHub's supported
+maximum of 100 waiting runs instead of replacing an earlier pending release.
+GitHub concurrency serializes the hosted queue; the shared lease extends that
+invariant to local-to-local and local-to-hosted races. Two releases of the same
+component serialize and a running deploy is never canceled. Unrelated component
+groups remain able to run in parallel. Do not add workflow-wide concurrency
+that serializes the whole fleet.
 
 The system does not automatically coalesce queued same-scope releases because
 it cannot infer whether an intermediate migration, receiver-first stage, or

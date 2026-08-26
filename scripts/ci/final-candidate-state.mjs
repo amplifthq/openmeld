@@ -3,6 +3,11 @@ import process from "node:process";
 
 import { githubPullRequestCandidateFactsSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import { FINAL_CANDIDATE_STATUS_CONTEXT } from "./final-candidate-policy.mjs";
+import {
+  createTrustedGitEnvironment,
+  fetchTrustedGitHubMain,
+  fetchTrustedLocalMain,
+} from "./trusted-git-network.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const GITHUB_REPOSITORY_PATTERN = /^[^/\s]+\/[^/\s]+$/u;
@@ -11,7 +16,7 @@ const gitBinary = process.platform === "win32" ? "git.exe" : "git";
 
 export function resolveCandidateState(input) {
   const cwd = input.cwd ?? process.cwd();
-  fetchCurrentMain(cwd);
+  fetchCurrentMain(cwd, input.repository);
   const pullRequest = readPullRequest(
     input.repository,
     input.pullRequestNumber
@@ -34,7 +39,7 @@ export function resolveCandidateState(input) {
   const ancestry = spawnSync(
     gitBinary,
     ["merge-base", "--is-ancestor", expectedBaseSha, expectedHeadSha],
-    { cwd, encoding: "utf8" }
+    { cwd, encoding: "utf8", env: trustedLocalGitEnvironment() }
   );
   if (!(ancestry.status === 0 || ancestry.status === 1)) {
     throw new Error(
@@ -157,7 +162,7 @@ export function resolveCommit(value, cwd = process.cwd()) {
   return execFileSync(
     gitBinary,
     ["rev-parse", "--verify", `${value}^{commit}`],
-    { cwd, encoding: "utf8" }
+    { cwd, encoding: "utf8", env: trustedLocalGitEnvironment() }
   ).trim();
 }
 
@@ -165,6 +170,7 @@ export function resolveObject(value, cwd = process.cwd()) {
   return execFileSync(gitBinary, ["rev-parse", "--verify", value], {
     cwd,
     encoding: "utf8",
+    env: trustedLocalGitEnvironment(),
   }).trim();
 }
 
@@ -172,6 +178,7 @@ export function resolveBranchName(cwd = process.cwd()) {
   const result = spawnSync(gitBinary, ["symbolic-ref", "--short", "HEAD"], {
     cwd,
     encoding: "utf8",
+    env: trustedLocalGitEnvironment(),
   });
   return result.status === 0 ? result.stdout.trim() : "detached-head";
 }
@@ -180,7 +187,7 @@ export function resolveChangedPaths(baseSha, headSha, cwd = process.cwd()) {
   return execFileSync(
     gitBinary,
     ["diff", "--name-only", "--no-renames", `${baseSha}...${headSha}`, "--"],
-    { cwd, encoding: "utf8" }
+    { cwd, encoding: "utf8", env: trustedLocalGitEnvironment() }
   )
     .split(LINE_SPLIT_PATTERN)
     .filter(Boolean)
@@ -191,29 +198,36 @@ export function resolveDirtyPaths(cwd = process.cwd()) {
   return execFileSync(
     gitBinary,
     ["status", "--porcelain=v1", "--untracked-files=all"],
-    { cwd, encoding: "utf8" }
+    { cwd, encoding: "utf8", env: trustedLocalGitEnvironment() }
   )
     .split(LINE_SPLIT_PATTERN)
     .filter(Boolean)
     .map((line) => line.slice(3));
 }
 
-function fetchCurrentMain(cwd) {
-  const result = spawnSync(
-    gitBinary,
-    [
-      "fetch",
-      "--no-tags",
-      "origin",
-      "refs/heads/main:refs/remotes/origin/main",
-    ],
-    { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
-  );
-  if (result.status !== 0) {
-    throw new Error(
-      `Final Candidate could not refresh origin/main: ${result.stderr.trim()}`
-    );
+function fetchCurrentMain(cwd, repository) {
+  const localRemoteUrl =
+    process.env.OPENMELD_TRUSTED_GIT_LOCAL_REMOTE_URL?.trim();
+  if (localRemoteUrl) {
+    fetchTrustedLocalMain({ cwd, remoteUrl: localRemoteUrl });
+    return;
   }
+  const token =
+    process.env.OPENMELD_TRUSTED_GIT_GITHUB_TOKEN?.trim() ||
+    runGh(["auth", "token"]).trim();
+  fetchTrustedGitHubMain({
+    cwd,
+    repository,
+    serverUrl:
+      process.env.OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL ??
+      process.env.GITHUB_SERVER_URL ??
+      "https://github.com",
+    token,
+  });
+}
+
+function trustedLocalGitEnvironment() {
+  return createTrustedGitEnvironment(process.env);
 }
 
 function readPullRequest(repository, pullRequestNumber) {

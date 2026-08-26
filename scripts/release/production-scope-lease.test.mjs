@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -16,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   acquireProductionScopeLease,
+  createProductionScopeLeaseGitEnvironment,
   inspectProductionScopeLease,
   inspectProductionScopeLeaseRecovery,
   recoverExpiredProductionScopeLease,
@@ -196,7 +198,7 @@ test("uses the explicit release-source checkout and ephemeral HTTPS auth in an A
       [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
-        `printf "%s|%s|%s|%s|%s\\n" "$PWD" "$*" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_KEY_0:-}" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_VALUE_0:-}" "${SHELL_PARAMETER_PREFIX}{OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN:-absent}" >> "$FAKE_GIT_LOG"`,
+        `printf "%s|%s|%s|%s|%s|%s|%s\\n" "$PWD" "$*" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_KEY_0:-}" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_VALUE_0:-}" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_KEY_3:-}" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_VALUE_3:-}" "${SHELL_PARAMETER_PREFIX}{OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN:-absent}" >> "$FAKE_GIT_LOG"`,
         `case "\${1:-}" in`,
         `  commit-tree) printf '%s\\n' '${leaseSha}' ;;`,
         "  *) ;;",
@@ -226,6 +228,7 @@ test("uses the explicit release-source checkout and ephemeral HTTPS auth in an A
         env: {
           ...isolatedGitEnvironment(process.env),
           FAKE_GIT_LOG: log,
+          OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY: "amplifthq/openmeld",
           OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: "https://github.com",
           OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: token,
           PATH: `${bin}${path.delimiter}${process.env.PATH}`,
@@ -237,18 +240,90 @@ test("uses the explicit release-source checkout and ephemeral HTTPS auth in an A
     const records = readFileSync(log, "utf8").trim().split("\n");
     assert.ok(records.some((record) => record.includes("|push ")));
     for (const record of records) {
-      const [cwd, , configKey, configValue, rawToken] = record.split("|");
+      const [cwd, command, hooksKey, hooksValue, authKey, authValue, rawToken] =
+        record.split("|");
       assert.equal(cwd, realpathSync(releaseSource));
-      assert.equal(configKey, "http.https://github.com/.extraheader");
-      assert.equal(
-        configValue,
-        `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
-      );
       assert.equal(rawToken, "absent");
+      assert.equal(hooksKey, "core.hooksPath");
+      assert.equal(hooksValue, "/dev/null");
+      const authenticatedNetworkOperation = ["fetch", "ls-remote", "push"].some(
+        (operation) => command.startsWith(operation)
+      );
+      if (authenticatedNetworkOperation) {
+        assert.equal(authKey, "http.https://github.com/.extraheader");
+        assert.equal(
+          authValue,
+          `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
+        );
+      } else {
+        assert.equal(authKey, "");
+        assert.equal(authValue, "");
+      }
+      if (command.startsWith("push")) {
+        assert.ok(command.includes("--no-verify"));
+      }
     }
   } finally {
     rmSync(root, { force: true, recursive: true });
   }
+});
+
+test("coordination-ref pushes bypass historical release-source hooks", () => {
+  const fixture = createLeaseFixture();
+  const marker = path.join(fixture.agentA, "hook-read-current-token.log");
+  const hook = path.join(fixture.agentA, ".git", "hooks", "pre-push");
+  try {
+    writeFileSync(
+      hook,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        `printf '%s\\n' "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_VALUE_0:-missing}" > ${JSON.stringify(marker)}`,
+        "exit 97",
+        "",
+      ].join("\n")
+    );
+    chmodSync(hook, 0o755);
+    const environment = {
+      ...process.env,
+      OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: "https://github.com",
+      OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: "fixture-token-not-a-real-secret",
+    };
+
+    const lease = acquireProductionScopeLease({
+      cwd: fixture.agentA,
+      environment,
+      now: "2026-08-26T00:00:00.000Z",
+      owner: "github:actions:test",
+      remote: "origin",
+      scope: "web",
+      sourceSha: fixture.sourceSha,
+    });
+    assert.equal(existsSync(marker), false);
+    releaseProductionScopeLease({
+      cwd: fixture.agentA,
+      environment,
+      leaseSha: lease.leaseSha,
+      remote: "origin",
+      scope: "web",
+    });
+    assert.equal(existsSync(marker), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("local leases keep the workstation credential helper without accepting hosted tokens", () => {
+  const environment = createProductionScopeLeaseGitEnvironment({
+    ...process.env,
+    OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: "",
+  });
+
+  assert.equal(environment.GIT_CONFIG_GLOBAL, undefined);
+  assert.equal(environment.GIT_CONFIG_NOSYSTEM, undefined);
+  assert.equal(environment.OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN, undefined);
+  assert.equal(environment.GIT_CONFIG_KEY_0, "core.hooksPath");
+  assert.equal(environment.GIT_CONFIG_VALUE_0, "/dev/null");
 });
 
 function createLeaseFixture() {

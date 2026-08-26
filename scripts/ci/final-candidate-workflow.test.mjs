@@ -38,6 +38,11 @@ const RETIRED_MANDATORY_REVIEW_LANGUAGE = [
   /different coding agent/iu,
   /review remains required/iu,
 ];
+const FINAL_CANDIDATE_EVENT_GUARD = [
+  "github.event.pull_request.draft == false &&",
+  "(github.event.label.name == 'final-candidate' ||",
+  " github.event.label.name == 'final-candidate-full')",
+].join("\n      ");
 
 test("keeps delivery review support optional and actor-neutral", () => {
   for (const relativePath of DELIVERY_ROUTER_PATHS) {
@@ -74,6 +79,11 @@ test("isolates status writers from the candidate command credentials", () => {
   const isolationSetup = readRepoFile(
     "scripts/ci/prepare-isolated-candidate.sh"
   );
+  const candidateRunner = readRepoFile("scripts/ci/final-candidate.mjs");
+  const dependencyInstall = readRepoFile(
+    "scripts/ci/install-isolated-candidate-dependencies.sh"
+  );
+  const trustedGit = readRepoFile("scripts/ci/trusted-git-network.mjs");
   const candidateJob = readJob(workflow, "candidate", "publish_final");
   const pendingJob = readJob(workflow, "publish_pending", "candidate");
   const finalJob = readJob(workflow, "publish_final", null);
@@ -109,8 +119,23 @@ test("isolates status writers from the candidate command credentials", () => {
     )
   );
   assert.ok(candidateJob.includes("--ignore-scripts"));
+  assert.ok(dependencyInstall.includes(" rebuild \\".trimEnd()));
+  assert.ok(dependencyInstall.includes("resolve-approved-native-builds.mjs"));
   assert.ok(isolationSetup.includes("useradd"));
+  assert.ok(isolationSetup.includes('mv "$OPENMELD_CANDIDATE_ROOT/.git"'));
+  assert.ok(isolationSetup.includes('chmod 1770 "$OPENMELD_CANDIDATE_ROOT"'));
+  assert.ok(
+    isolationSetup.includes('chmod 0440 "$OPENMELD_CANDIDATE_ROOT/.git"')
+  );
+  assert.ok(
+    !isolationSetup.includes('chmod -R g+rwX "$OPENMELD_CANDIDATE_ROOT"')
+  );
   assert.ok(candidateJob.includes("openmeld-candidate"));
+  assert.ok(candidateJob.includes("OPENMELD_CANDIDATE_GIT_DIR:"));
+  assert.ok(candidateJob.includes("OPENMELD_TRUSTED_GIT_GITHUB_TOKEN:"));
+  assert.ok(candidateRunner.includes("OPENMELD_TRUSTED_GIT_GITHUB_TOKEN"));
+  assert.ok(trustedGit.includes("buildTrustedGitHubRepositoryUrl"));
+  assert.ok(trustedGit.includes("protocol.ext.allow"));
   assert.ok(
     candidateJob.includes(
       '--command-wrapper "$GITHUB_WORKSPACE/trusted-control/scripts/ci/run-isolated-candidate-command.sh"'
@@ -190,10 +215,76 @@ test("always finalizes an exact head after pending publication starts", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
   const finalJob = readJob(workflow, "publish_final", null);
 
-  assert.ok(finalJob.includes("\n    if: always()\n"));
+  assert.ok(finalJob.includes("\n    if: >-\n      always() &&\n"));
+  assert.ok(finalJob.includes(FINAL_CANDIDATE_EVENT_GUARD));
   assert.ok(!finalJob.includes("needs.publish_pending.result == 'success'"));
   assert.ok(finalJob.includes("CANDIDATE_HEAD_SHA:"));
   assert.ok(finalJob.includes("Publish fail-safe final status"));
+});
+
+test("an unrelated label schedules no Final Candidate status writer", () => {
+  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const pendingJob = readJob(workflow, "publish_pending", "candidate");
+  const finalJob = readJob(workflow, "publish_final", null);
+
+  assert.ok(
+    pendingJob.includes(`if: >-\n      ${FINAL_CANDIDATE_EVENT_GUARD}`)
+  );
+  assert.ok(
+    finalJob.includes(
+      `if: >-\n      always() &&\n      ${FINAL_CANDIDATE_EVENT_GUARD}`
+    )
+  );
+  assert.equal(Object.values(FINAL_CANDIDATE_LABELS).includes("bug"), false);
+});
+
+test("an unrelated label cannot cancel a running Final Candidate", () => {
+  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const concurrencyBlock = workflow
+    .split("\nconcurrency:\n")[1]
+    ?.split("\njobs:\n")[0];
+
+  assert.ok(
+    concurrencyBlock?.includes("github.event.pull_request.draft == false")
+  );
+  assert.ok(
+    concurrencyBlock?.includes("github.event.label.name == 'final-candidate'")
+  );
+  assert.ok(
+    concurrencyBlock?.includes(
+      "github.event.label.name == 'final-candidate-full'"
+    )
+  );
+  assert.ok(
+    concurrencyBlock?.includes(
+      "format('final-candidate-{0}', github.event.pull_request.number)"
+    )
+  );
+  assert.ok(
+    concurrencyBlock?.includes(
+      "format('ignored-final-candidate-label-{0}', github.run_id)"
+    )
+  );
+  assert.ok(!concurrencyBlock?.includes("queue: max"));
+
+  const groupFor = ({ draft = false, label, runId }) =>
+    !draft && Object.values(FINAL_CANDIDATE_LABELS).includes(label)
+      ? "final-candidate-325"
+      : `ignored-final-candidate-label-${runId}`;
+  const legitimateGroup = groupFor({
+    label: "final-candidate",
+    runId: "100",
+  });
+  const unrelatedGroup = groupFor({ label: "bug", runId: "101" });
+  assert.equal(
+    legitimateGroup,
+    groupFor({ label: "final-candidate-full", runId: "102" })
+  );
+  assert.notEqual(legitimateGroup, unrelatedGroup);
+  assert.notEqual(
+    legitimateGroup,
+    groupFor({ draft: true, label: "final-candidate", runId: "103" })
+  );
 });
 
 test("turns a post-pending output failure into an exact failure status", () => {

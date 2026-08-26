@@ -146,11 +146,16 @@ export function buildPreTagCliReleaseStepSpecs(input = {}) {
 export function tagCliRelease(input = {}) {
   const cwd = input.cwd ?? process.cwd();
   const tagName = resolveCliReleaseTagName({ cwd });
-  const existing = readTagCommit({ cwd, tagName });
+  const existing = readTagCommit({
+    cwd,
+    gitEnvironment: input.gitEnvironment,
+    tagName,
+  });
   if (existing) {
     const head = execFileSync(gitBinary(), ["rev-parse", "HEAD"], {
       cwd,
       encoding: "utf8",
+      env: input.gitEnvironment,
     }).trim();
     if (existing === head) {
       return { created: false, tagName };
@@ -162,7 +167,7 @@ export function tagCliRelease(input = {}) {
   execFileSync(
     gitBinary(),
     ["tag", "-a", tagName, "-m", `Release OpenMeld CLI ${tagName.slice(1)}`],
-    { cwd, encoding: "utf8" }
+    { cwd, encoding: "utf8", env: input.gitEnvironment }
   );
   return { created: true, tagName };
 }
@@ -174,13 +179,37 @@ export function tagCliRelease(input = {}) {
  */
 export function publishCliReleaseTag(input = {}) {
   const cwd = input.cwd ?? process.cwd();
-  const local = tagCliRelease({ cwd });
+  const localGitEnvironment = input.localGitEnvironment ?? input.gitEnvironment;
+  const local = tagCliRelease({
+    cwd,
+    gitEnvironment: localGitEnvironment,
+  });
   const tagRef = `refs/tags/${local.tagName}`;
+  const headSha = execFileSync(gitBinary(), ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+    env: localGitEnvironment,
+  }).trim();
+  if (input.sourceSha && headSha !== input.sourceSha) {
+    throw new Error(
+      `Trusted CLI tag publication expected ${input.sourceSha}, found ${headSha}.`
+    );
+  }
   try {
-    execFileSync(gitBinary(), ["push", "origin", `${tagRef}:${tagRef}`], {
-      cwd,
-      encoding: "utf8",
-    });
+    execFileSync(
+      gitBinary(),
+      [
+        "push",
+        "--no-verify",
+        input.remoteUrl ?? "origin",
+        `${tagRef}:${tagRef}`,
+      ],
+      {
+        cwd,
+        encoding: "utf8",
+        env: input.gitEnvironment,
+      }
+    );
   } catch (error) {
     throw new Error(
       `Failed to publish immutable release tag ${local.tagName} to origin. The local tag remains safe to reuse on the next release attempt.`,
@@ -195,7 +224,11 @@ function readTagCommit(input) {
     return execFileSync(
       gitBinary(),
       ["rev-parse", "--verify", `refs/tags/${input.tagName}^{commit}`],
-      { cwd: input.cwd, encoding: "utf8" }
+      {
+        cwd: input.cwd,
+        encoding: "utf8",
+        env: input.gitEnvironment,
+      }
     ).trim();
   } catch {
     return null;

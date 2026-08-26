@@ -6,7 +6,14 @@ on:
     types: [labeled]
 
 concurrency:
-  group: final-candidate-${{ github.event.pull_request.number }}
+  group: >-
+    ${{
+      github.event.pull_request.draft == false &&
+      (github.event.label.name == 'final-candidate' ||
+       github.event.label.name == 'final-candidate-full') &&
+      format('final-candidate-{0}', github.event.pull_request.number) ||
+      format('ignored-final-candidate-label-{0}', github.run_id)
+    }}
   cancel-in-progress: true
 
 jobs:
@@ -132,6 +139,7 @@ jobs:
       - name: Prepare isolated candidate dependency install
         env:
           OPENMELD_CANDIDATE_HOME: ${{ runner.temp }}/final-candidate-home
+          OPENMELD_CANDIDATE_GIT_DIR: ${{ runner.temp }}/final-candidate-git
           OPENMELD_CANDIDATE_ROOT: ${{ github.workspace }}/untrusted-candidate
           OPENMELD_CANDIDATE_USER: openmeld-candidate
           OPENMELD_FINAL_CANDIDATE_EVIDENCE_ROOT: ${{ runner.temp }}/final-candidate-control
@@ -154,9 +162,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OPENMELD_AFFECTED_BASE: ${{ env.CANDIDATE_BASE_SHA }}
           OPENMELD_CANDIDATE_HOME: ${{ runner.temp }}/final-candidate-home
+          OPENMELD_CANDIDATE_GIT_DIR: ${{ runner.temp }}/final-candidate-git
           OPENMELD_CANDIDATE_ROOT: ${{ github.workspace }}/untrusted-candidate
           OPENMELD_CANDIDATE_USER: openmeld-candidate
           OPENMELD_TRUSTED_CONTROL_ROOT: ${{ github.workspace }}/trusted-control
+          OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL: ${{ github.server_url }}
+          OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -192,7 +203,11 @@ jobs:
     needs:
       - publish_pending
       - candidate
-    if: always()
+    if: >-
+      always() &&
+      github.event.pull_request.draft == false &&
+      (github.event.label.name == 'final-candidate' ||
+       github.event.label.name == 'final-candidate-full')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     permissions:

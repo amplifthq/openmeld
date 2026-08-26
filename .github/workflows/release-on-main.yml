@@ -52,6 +52,14 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
+      - name: Refresh current main with step-scoped read authentication
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
       - name: Require release SHA from main first-parent history
         shell: bash
         env:
@@ -59,7 +67,6 @@ jobs:
         working-directory: release-control
         run: |
           set -euo pipefail
-          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
           if ! validation_error="$(node scripts/release/require-mainline-release-sha.mjs \
             "$RELEASE_SHA" refs/remotes/origin/main 2>&1)"; then
             echo "::error::$validation_error"
@@ -79,6 +86,7 @@ jobs:
     timeout-minutes: 20
     concurrency:
       group: release-production-database
+      queue: max
       cancel-in-progress: false
     environment: production
     env:
