@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-26T03:40:33.245Z",
+  "updatedAt": "2026-08-26T04:57:44.771Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.108",
+      "packageVersion": "0.3.109",
       "updatePolicy": "available",
-      "reason": "Keep Agent Profile creation choices consistent across Web, Center Agent, and CLI."
+      "reason": "Keep Space replies reliable under strict Local Agent permissions and prevent incompatible model launches."
     },
     "service": {
-      "bundleHash": "502e2878e5778173f1ef3b902ddd62e50b867489b8308d194c0caa3f4c1c7872",
-      "bundleVersion": "0.3.108",
+      "bundleHash": "35c84baa2f9048ba89f764425d21480045ddb44eea71864b22043c0c7f84620a",
+      "bundleVersion": "0.3.109",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Keep Agent Profile creation choices consistent across Web, Center Agent, and CLI."
+      "reason": "Keep Space replies reliable under strict Local Agent permissions and prevent incompatible model launches."
     },
     "skills": {
       "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Keep Agent Profile creation choices consistent across Web, Center Agent, and CLI."
+      "reason": "Keep Space replies reliable under strict Local Agent permissions and prevent incompatible model launches."
     }
   }
 }
