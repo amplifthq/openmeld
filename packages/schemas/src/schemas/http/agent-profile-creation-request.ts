@@ -126,7 +126,6 @@ export const DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION = {
   agentControllerRef: null,
   authorizeForOrganization: true,
   defaultProjectId: null,
-  localAgentConnectionCandidateId: null,
   modelId: null,
   openCodePermission: null,
   reasoningLevel: null,
