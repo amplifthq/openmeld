@@ -43,12 +43,7 @@ function collectControlPaths(trustedRoot, candidateRoot) {
 function listTrackedControls(root) {
   return execFileSync(
     "git",
-    [
-      "ls-files",
-      "--",
-      ":(glob)**/package.json",
-      ":(glob)**/turbo.json",
-    ],
+    ["ls-files", "--", ":(glob)**/package.json", ":(glob)**/turbo.json"],
     { cwd: root, encoding: "utf8" }
   )
     .split(LINE_SPLIT_PATTERN)

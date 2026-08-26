@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { verifyTrustedCandidateEntrypoints } from "./verify-trusted-candidate-entrypoints.mjs";
+
+const SELF_REWRITE_PATTERN =
+  /cannot let the candidate rewrite its own test-control entrypoints/u;
 
 test("rejects a candidate that rewrites the package script used to validate itself", () => {
   const fixture = createFixture();
@@ -21,7 +24,7 @@ test("rejects a candidate that rewrites the package script used to validate itse
           paths: ["package.json"],
           trustedRoot: fixture.trustedRoot,
         }),
-      /cannot let the candidate rewrite its own test-control entrypoints/u
+      SELF_REWRITE_PATTERN
     );
   } finally {
     fixture.cleanup();

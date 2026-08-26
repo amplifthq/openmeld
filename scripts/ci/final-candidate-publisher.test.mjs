@@ -8,6 +8,10 @@ import { assertEvidenceMatchesExecution } from "./final-candidate-publisher.mjs"
 const BASE_SHA = "1".repeat(40);
 const HEAD_SHA = "2".repeat(40);
 const TREE_SHA = "3".repeat(40);
+const EMPTY_EVIDENCE_PATTERN =
+  /requires at least one selected check|one result for every selected check/u;
+const TRUSTED_PLAN_MISMATCH_PATTERN =
+  /does not match the plan recomputed by trusted current main/u;
 const trustedPlan = createFinalCandidatePlan({
   baseSha: BASE_SHA,
   branchName: "codex/malicious-candidate",
@@ -34,7 +38,7 @@ test("schema-valid-looking empty success evidence cannot publish green", () => {
 
   assert.throws(
     () => assertEvidenceMatchesExecution(createInput(evidence)),
-    /requires at least one selected check|one result for every selected check/u
+    EMPTY_EVIDENCE_PATTERN
   );
 });
 
@@ -44,7 +48,7 @@ test("omitted or rewritten selected checks cannot publish green", () => {
   omitted.results = omitted.results.slice(0, -1);
   assert.throws(
     () => assertEvidenceMatchesExecution(createInput(omitted)),
-    /does not match the plan recomputed by trusted current main/u
+    TRUSTED_PLAN_MISMATCH_PATTERN
   );
 
   const rewritten = createEvidence();
@@ -58,7 +62,7 @@ test("omitted or rewritten selected checks cannot publish green", () => {
   };
   assert.throws(
     () => assertEvidenceMatchesExecution(createInput(rewritten)),
-    /does not match the plan recomputed by trusted current main/u
+    TRUSTED_PLAN_MISMATCH_PATTERN
   );
 });
 
