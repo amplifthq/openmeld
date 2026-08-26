@@ -237,7 +237,8 @@ future destination must define equally explicit provider outcome semantics
 before sharing this ledger contract.
 
 The unique scope binds the Organization, designated Center Agent, resolved
-provider destination, and a Core-verified source identity. For Slack, the
+provider destination, a Core-verified source identity, and one normalized
+operation key. For Slack, the
 destination id is the resolved channel id for a top-level publication or the
 resolved channel id plus exact root message timestamp for a thread publication;
 both retain destination kind `slack_channel`. A current
@@ -247,10 +248,14 @@ deliveries. A Routine turn
 becomes the Run id verified against native delivery, and an Organization
 document becomes its id plus a revision digest of the approved title, kind, and
 content. The model can select the current turn or an exact document, but it
-cannot supply the internal execution or Run identity. The request signature
-also binds the represented user and final message text without storing that
-text. Reusing one source revision for changed text or representation fails
-closed.
+cannot supply the internal execution or Run identity. An interactive
+current-turn message may supply one bounded stable `operationId`; Core scopes
+it under the verified execution as the operation key. Different IDs represent
+distinct ordered effects, while reuse of one ID is reserved for an exact retry.
+Older callers, Routine Runs, approved documents, and file publications use the
+source-owned `source` operation key. The request signature also binds the
+represented user and final message text without storing that text. Reusing one
+operation key for changed content or representation fails closed.
 
 The first caller receives a bounded `pending` claim lease before provider
 publication. A `completed` row stores only the bounded shared response needed

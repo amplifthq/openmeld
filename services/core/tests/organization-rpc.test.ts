@@ -4604,7 +4604,7 @@ describe("organization Core RPC", () => {
     expect(spaceStub.rpcPostSignal).toHaveBeenCalledTimes(1);
   });
 
-  it("posts an audited top-level Slack channel message", async () => {
+  it("posts ordered Slack messages with independent retry identities", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
@@ -4624,6 +4624,7 @@ describe("organization Core RPC", () => {
         },
       ],
     });
+    let postedMessageCount = 0;
     const slackFetch = vi.fn<typeof fetch>((request) => {
       const pathname = new URL(String(request)).pathname;
       if (pathname === "/api/conversations.list") {
@@ -4644,11 +4645,12 @@ describe("organization Core RPC", () => {
         );
       }
       if (pathname === "/api/chat.postMessage") {
-        expect(db.centerAgentAuditRows).toEqual([
-          expect.objectContaining({ action: "post_slack_channel_message" }),
-        ]);
+        postedMessageCount += 1;
         return Promise.resolve(
-          Response.json({ ok: true, ts: "1710000000.001" })
+          Response.json({
+            ok: true,
+            ts: `1710000000.00${postedMessageCount}`,
+          })
         );
       }
       throw new Error(`Unexpected Slack API request: ${pathname}`);
@@ -4669,6 +4671,12 @@ describe("organization Core RPC", () => {
       "See `[Open Space](https://openmeld.ai/o/amplift/spaces/space_123)`.",
       "Notify `<@U123456>`.",
     ].join("\n");
+    const publicationSource = (operationId: string) =>
+      ({
+        executionId: "remote_agent_submission_release",
+        kind: "remote_agent_execution",
+        operationId,
+      }) as const;
 
     await expect(
       rpcCenterAgentPostSlackChannelMessage(env, {
@@ -4687,10 +4695,7 @@ describe("organization Core RPC", () => {
       rpcCenterAgentPostSlackChannelMessage(env, {
         channelName: "#Release",
         context,
-        publicationSource: {
-          executionId: "remote_agent_submission_release",
-          kind: "remote_agent_execution",
-        },
+        publicationSource: publicationSource("release-message-1"),
         speakerMember: { memberId: "member-a", userId: "user-a" },
         text: slackChannelMessageText,
       })
@@ -4731,10 +4736,7 @@ describe("organization Core RPC", () => {
       rpcCenterAgentPostSlackChannelMessage(env, {
         channelName: "#Release",
         context,
-        publicationSource: {
-          executionId: "remote_agent_submission_release",
-          kind: "remote_agent_execution",
-        },
+        publicationSource: publicationSource("release-message-1"),
         speakerMember: { memberId: "member-a", userId: "user-a" },
         text: slackChannelMessageText,
       })
@@ -4745,16 +4747,24 @@ describe("organization Core RPC", () => {
       rpcCenterAgentPostSlackChannelMessage(env, {
         channelName: "#Release",
         context,
-        publicationSource: {
-          executionId: "remote_agent_submission_release",
-          kind: "remote_agent_execution",
-        },
+        publicationSource: publicationSource("release-message-1"),
         speakerMember: { memberId: "member-a", userId: "user-a" },
         text: "Changed release text.",
       })
     ).rejects.toMatchObject({
       code: "center_agent.publication_conflict",
       status: 409,
+    });
+    await expect(
+      rpcCenterAgentPostSlackChannelMessage(env, {
+        channelName: "#Release",
+        context,
+        publicationSource: publicationSource("release-message-2"),
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+        text: "Changed release text.",
+      })
+    ).resolves.toMatchObject({
+      messageTs: "1710000000.002",
     });
     await expect(
       rpcCenterAgentPostSlackChannelMessage(env, {
@@ -4776,17 +4786,19 @@ describe("organization Core RPC", () => {
         ([request]) =>
           new URL(String(request)).pathname === "/api/chat.postMessage"
       )
-    ).toHaveLength(1);
-    expect(db.centerAgentAuditRows).toEqual([
-      expect.objectContaining({
-        action: "post_slack_channel_message",
-        actorProfileId: AGENT_PROFILE_ID,
-        onBehalfOfProfileId: HUMAN_PROFILE_ID,
-        organizationId: "org-a",
-        resourceId: "C123",
-        resourceType: "slack_channel",
-      }),
-    ]);
+    ).toHaveLength(2);
+    expect(db.centerAgentAuditRows).toEqual(
+      Array.from({ length: 2 }, () =>
+        expect.objectContaining({
+          action: "post_slack_channel_message",
+          actorProfileId: AGENT_PROFILE_ID,
+          onBehalfOfProfileId: HUMAN_PROFILE_ID,
+          organizationId: "org-a",
+          resourceId: "C123",
+          resourceType: "slack_channel",
+        })
+      )
+    );
 
     const memberContext = buildContext({
       activeOrganizationId: "org-a",
@@ -4801,9 +4813,9 @@ describe("organization Core RPC", () => {
         context: memberContext,
       })
     ).resolves.toMatchObject({
-      entries: [
-        expect.objectContaining({ action: "post_slack_channel_message" }),
-      ],
+      entries: Array.from({ length: 2 }, () =>
+        expect.objectContaining({ action: "post_slack_channel_message" })
+      ),
       organizationId: "org-a",
     });
   });
@@ -10983,6 +10995,7 @@ type CenterAgentPublicationOperationTestRow = {
   destination_kind: "slack_channel" | "slack_file";
   id: string;
   organization_id: string;
+  operation_key: string;
   represented_user_id: string;
   request_signature: string;
   response_json: string | null;
@@ -11387,25 +11400,27 @@ function createOrganizationRpcDb(input: {
                   row.source_kind === String(args[4] ?? "") &&
                   row.source_id === String(args[5] ?? "") &&
                   row.source_revision === String(args[6] ?? "") &&
-                  row.destination_kind === String(args[7] ?? "") &&
-                  row.destination_id === String(args[8] ?? "")
+                  row.operation_key === String(args[7] ?? "") &&
+                  row.destination_kind === String(args[8] ?? "") &&
+                  row.destination_id === String(args[9] ?? "")
               );
               if (existing) {
                 return createD1RunResult(0);
               }
               centerAgentPublicationRows.push({
                 actor_profile_id: String(args[2] ?? ""),
-                claim_expires_at_ms: Number(args[11] ?? 0),
-                claim_id: String(args[10] ?? ""),
-                created_at_ms: Number(args[12] ?? 0),
-                destination_id: String(args[8] ?? ""),
-                destination_kind: String(args[7] ?? "") as
+                claim_expires_at_ms: Number(args[12] ?? 0),
+                claim_id: String(args[11] ?? ""),
+                created_at_ms: Number(args[13] ?? 0),
+                destination_id: String(args[9] ?? ""),
+                destination_kind: String(args[8] ?? "") as
                   | "slack_channel"
                   | "slack_file",
                 id: String(args[0] ?? ""),
                 organization_id: String(args[1] ?? ""),
+                operation_key: String(args[7] ?? ""),
                 represented_user_id: String(args[3] ?? ""),
-                request_signature: String(args[9] ?? ""),
+                request_signature: String(args[10] ?? ""),
                 response_json: null,
                 source_id: String(args[5] ?? ""),
                 source_kind: String(args[4] ?? "") as
@@ -11414,7 +11429,7 @@ function createOrganizationRpcDb(input: {
                   | "routine_run",
                 source_revision: String(args[6] ?? ""),
                 status: "pending",
-                updated_at_ms: Number(args[13] ?? 0),
+                updated_at_ms: Number(args[14] ?? 0),
               });
               return createD1RunResult(1);
             }
@@ -12077,8 +12092,9 @@ function resolveFirstRow(input: {
           row.source_kind === String(input.args[2] ?? "") &&
           row.source_id === String(input.args[3] ?? "") &&
           row.source_revision === String(input.args[4] ?? "") &&
-          row.destination_kind === String(input.args[5] ?? "") &&
-          row.destination_id === String(input.args[6] ?? "")
+          row.operation_key === String(input.args[5] ?? "") &&
+          row.destination_kind === String(input.args[6] ?? "") &&
+          row.destination_id === String(input.args[7] ?? "")
       ) ?? null
     );
   }
