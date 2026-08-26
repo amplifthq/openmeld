@@ -114,20 +114,45 @@ test("injects production credentials only into the steps that consume them", () 
   assert.ok(publishStep.includes("secrets.CLOUDFLARE_API_TOKEN"));
 });
 
-test("uses the exact release SHA for CLI publication and recovery", () => {
+test("shares CLI and Core production leases with the local release lane", () => {
   const source = readRepoFile(".github/workflows/cli-release.yml");
-  const exactRef = `ref: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sha || github.sha }}`;
-  assert.ok(
-    (source.match(new RegExp(exactRef.replace(/[${}]/gu, "\\$&"), "gu"))
-      ?.length ?? 0) >= 1
+
+  assert.ok(source.includes("Acquire shared CLI publication lease"));
+  assert.ok(source.includes("Acquire shared Core projection lease"));
+  assert.ok(source.includes("Release shared Core projection lease"));
+  assert.ok(source.includes("Release shared CLI publication lease"));
+  assert.ok(source.includes("scope: cli"));
+  assert.ok(source.includes("scope: core"));
+  assert.equal(
+    source.match(/uses: \.\/\.github\/actions\/production-scope-lease/gu)
+      ?.length,
+    4
   );
 });
 
-test("validates main and release SHA before publication", () => {
+test("uses the exact release SHA for CLI publication and recovery", () => {
+  const source = readRepoFile(".github/workflows/cli-release.yml");
+  assert.ok(
+    source.includes(
+      `RELEASE_SHA: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sha || github.sha }}`
+    )
+  );
+  assert.ok(
+    source.includes(`ref: ${GITHUB_EXPRESSION_PREFIX} env.RELEASE_SHA }}`)
+  );
+});
+
+test("validates current main first-parent membership before publication", () => {
   const source = readRepoFile(".github/workflows/cli-release.yml");
 
   const releaseStart = source.indexOf("  cli_release:");
   const releaseSource = source.slice(releaseStart);
+  const mainlineValidation = releaseSource.indexOf(
+    "node scripts/release/require-mainline-release-sha.mjs"
+  );
+  const publish = releaseSource.indexOf(
+    "Publish signed and notarized CLI, binary channel, npm package, tag, and Core"
+  );
   assert.ok(
     releaseSource.includes(`if [ "\${GITHUB_REF}" != "refs/heads/main" ]`)
   );
@@ -136,6 +161,11 @@ test("validates main and release SHA before publication", () => {
       "release_sha must be an exact 40-character lowercase commit SHA"
     )
   );
+  assert.ok(
+    releaseSource.includes("git fetch --no-tags origin refs/heads/main")
+  );
+  assert.ok(mainlineValidation >= 0);
+  assert.ok(publish > mainlineValidation);
 });
 
 test("keeps the Remote Agent release check on the repository-pinned formatter", () => {

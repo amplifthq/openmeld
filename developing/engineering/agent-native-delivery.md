@@ -80,13 +80,19 @@ The Final Candidate engine prints and records:
 - every selected check, reason, and exact command;
 - every skipped check and reason;
 - command duration and pass/fail result;
+- a bounded, redacted stdout/stderr tail and the original spawn error for a
+  failed command;
 - execution mode (`remote` or `local`);
-- overall conclusion and error context.
+- candidate conclusion, error context, and any status/comment publication
+  failure as separate facts.
 
-The JSON evidence schema is versioned. Reuse is allowed only when the evidence
-is successful and all three identity fields still match. A reviewer must reject
-evidence for another SHA, another base, another tree, an unresolved candidate,
-or a dirty worktree.
+`packages/schemas/src/schemas/ci/final-candidate.ts` is the canonical Zod v4
+contract for JSON evidence and the GitHub PR facts it consumes. Producers,
+artifact consumers, local comments, and the hosted publisher runtime-parse that
+contract. Reuse is allowed only when candidate validation succeeded,
+publication has no recorded failure, and all three identity fields still match.
+A reviewer must reject evidence for another SHA, another base, another tree, an
+unresolved candidate, a dirty worktree, or incomplete shared publication.
 
 The shared required status context is:
 
@@ -128,27 +134,43 @@ Before requesting a candidate:
 
 ## Normal Remote Final Candidate
 
-The normal cross-machine path is one GitHub-hosted job requested by label:
+The normal cross-machine path is one explicit GitHub-hosted request:
 
 ```sh
 pnpm candidate request -- --pr <number>
 ```
 
 The command first validates the local head against the live PR and current
-`main`, prints the complete plan, then resets and adds the `final-candidate`
-label. The label event starts `.github/workflows/final-candidate.yml`.
+`main`, prints the complete plan, then resets the two candidate request labels
+and adds `final-candidate`. `pnpm candidate request -- --pr <number> --full`
+instead adds `final-candidate-full`. The label is the immutable confidence
+input: the hosted runner executes standard for the first label and full for the
+second, so a plan cannot promise full while the workflow runs standard.
 
 The workflow:
 
+- uses `pull_request_target` only to load the workflow and publisher code from
+  trusted current `main`; the candidate job still receives read-only
+  permissions, no secrets, and checks out the exact untrusted head explicitly;
 - does not run on PR open, reopen, synchronize, ready-for-review, or ordinary
   push events;
 - checks out the exact PR head rather than an implicit branch tip;
-- uses one Linux job and one dependency installation;
+- separates the read-only candidate runner from small pending/final publisher
+  jobs;
 - calls the same candidate engine as the local fallback;
 - validates live PR head, live PR base, current remote `main`, ancestry, and
   worktree cleanliness before and after checks;
 - publishes `OpenMeld Final Candidate` on the exact head;
 - preserves the JSON evidence and a readable job summary.
+
+The runner job has read-only repository and PR permissions. Its selected check
+subprocesses receive no `GH_TOKEN`, `GITHUB_TOKEN`, or status-write credential.
+Only publisher jobs receive `statuses: write`; before publishing they re-read
+the live PR, current `main`, exact tree, candidate job result, confidence, and
+schema-validated evidence. The final publisher executes only the publisher and
+schema implementation from the exact already-trusted current base SHA, never
+code from the candidate head. GitHub event strings enter shell steps through
+quoted environment variables, never direct expression interpolation.
 
 A later push has a different head SHA and therefore has no valid status. A later
 `main` commit makes the branch out of date; sync it and request a new candidate.
@@ -236,8 +258,10 @@ commands, and recovery mechanics. This document owns the lifecycle contract:
 5. Every release uses an explicit 40-character first-parent `main` SHA and a
    reviewed scope. Later `main` commits belong to another release.
 6. Each production component owns a stable concurrency group with
-   `cancel-in-progress: false`. Different component groups may proceed in
-   parallel when the release plan proves mixed-version compatibility.
+   `cancel-in-progress: false` and the same Git-backed shared scope lease used
+   by local fallback. The atomic remote ref records scope, owner, source SHA,
+   start, and expiry. Different component groups may proceed in parallel when
+   the release plan proves mixed-version compatibility.
 7. Never cancel a running production deploy to prefer a newer candidate. A
    not-yet-started same-scope run may be canceled only after the agent proves a
    later queued SHA safely supersedes it, no required intermediate migration or
@@ -245,7 +269,8 @@ commands, and recovery mechanics. This document owns the lifecycle contract:
 8. When Actions is unavailable, use the guarded local release lane from a clean,
    dedicated worktree at the approved `main` SHA. The local lane runs the same
    scope planner, preflight, deploy, health, and release evidence boundaries; it
-   is a formal fallback, not an emergency bypass.
+   is a formal fallback, not an emergency bypass. It must acquire the same
+   shared scope lease as hosted release before the first production mutation.
 
 ## Health And Real-User Smoke
 
@@ -282,6 +307,11 @@ Do not collapse those lines into “deployed successfully.”
   status or invent a success comment.
 - Hosted release unavailable: use the guarded local lane at the same approved
   `main` SHA. Do not call raw deploy or publish commands.
+- Scope lease held: inspect the printed owner, source, start, and expiry. Wait
+  while active. After expiry, recover only the exact lease SHA with a recorded
+  reason after proving its owner stopped; then rerun the guarded release. A
+  stale owner cannot delete a newer lease because acquisition, release, and
+  recovery all use Git compare-and-swap.
 - Release failure: preserve completed immutable stages, component logs, and the
   original source SHA. Follow the component recovery rules in
   `production-release.md`; never restart with a different commit silently.

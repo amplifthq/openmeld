@@ -15,6 +15,11 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const FINAL_CANDIDATE_SCRIPT = path.join(SCRIPT_DIR, "final-candidate.mjs");
+const GITHUB_PULL_REQUEST_FIXTURE = path.join(
+  SCRIPT_DIR,
+  "fixtures",
+  "github-pull-request-325.json"
+);
 const REPOSITORY_LOCAL_GIT_ENV_VARS = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
@@ -40,6 +45,13 @@ const FAILURE_STATUS_PATTERN = /state=failure/u;
 const MAIN_ADVANCED_PATTERN = /Main advanced/u;
 const PENDING_STATUS_PATTERN = /state=pending/u;
 const SUCCESS_STATUS_PATTERN = /state=success/u;
+const TOKEN_ABSENCE_PATTERN = /GH_TOKEN=absent GITHUB_TOKEN=absent/u;
+const BEHAVIOR_FAILURE_PATTERN = /behavior failed/u;
+const SECRET_VALUE_PATTERN = /super-secret/u;
+const CANDIDATE_VALIDATION_FAILURE_PATTERN = /Candidate validation failed/u;
+const EVIDENCE_PUBLICATION_FAILURE_PATTERN = /Evidence publication failed/u;
+const EXIT_CODE_SEVEN_PATTERN = /exit code 7/u;
+const ORIGINAL_SELECTED_CHECK_PATTERN = /original selected-check/u;
 
 test("the local fallback publishes shared success for one exact candidate", () => {
   const fixture = createCandidateFixture();
@@ -68,17 +80,58 @@ test("the local fallback publishes shared success for one exact candidate", () =
 test("a selected command failure publishes failure and blocks the candidate", () => {
   const fixture = createCandidateFixture();
   try {
-    const result = runCandidateFixture(fixture, { pnpmExitCode: 9 });
+    const result = runCandidateFixture(fixture, {
+      pnpmExitCode: 9,
+      pnpmStderr: "behavior failed with token=super-secret-value\n",
+    });
 
     assert.equal(result.status, 1);
     assert.match(result.stderr, DOCUMENTATION_CHECK_PATTERN);
     const evidence = JSON.parse(readFileSync(fixture.evidencePath, "utf8"));
     assert.equal(evidence.conclusion, "failure");
     assert.equal(evidence.results.at(-1).status, "failed");
+    assert.equal(evidence.results.at(-1).exitCode, 9);
+    assert.match(evidence.results.at(-1).stderrTail, BEHAVIOR_FAILURE_PATTERN);
+    assert.doesNotMatch(
+      evidence.results.at(-1).stderrTail,
+      SECRET_VALUE_PATTERN
+    );
+    assert.match(
+      readFileSync(fixture.candidateEnvironmentLogPath, "utf8"),
+      TOKEN_ABSENCE_PATTERN
+    );
     const ghLog = readFileSync(fixture.ghLogPath, "utf8");
     assert.match(ghLog, PENDING_STATUS_PATTERN);
     assert.match(ghLog, FAILURE_STATUS_PATTERN);
     assert.doesNotMatch(ghLog, SUCCESS_STATUS_PATTERN);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("publication failures preserve the original check failure and remain blocking", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const result = runCandidateFixture(fixture, {
+      ghPublicationFailure: true,
+      pnpmExitCode: 7,
+      pnpmStderr: "original selected-check failure\n",
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, CANDIDATE_VALIDATION_FAILURE_PATTERN);
+    assert.match(result.stderr, EVIDENCE_PUBLICATION_FAILURE_PATTERN);
+    const evidence = JSON.parse(readFileSync(fixture.evidencePath, "utf8"));
+    assert.equal(evidence.conclusion, "failure");
+    assert.match(evidence.error, EXIT_CODE_SEVEN_PATTERN);
+    assert.match(
+      evidence.results.at(-1).stderrTail,
+      ORIGINAL_SELECTED_CHECK_PATTERN
+    );
+    assert.deepEqual(
+      evidence.publicationErrors.map((entry) => entry.operation),
+      ["pending-status", "pull-request-comment", "final-status"]
+    );
   } finally {
     fixture.cleanup();
   }
@@ -101,6 +154,30 @@ test("current main drift rejects stale green before checks run", () => {
   }
 });
 
+test("main drift during a selected command is rejected by the post-check reread", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const result = runCandidateFixture(fixture, {
+      advanceMainDuringCheck: true,
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, MAIN_ADVANCED_PATTERN);
+    const evidence = JSON.parse(readFileSync(fixture.evidencePath, "utf8"));
+    assert.equal(evidence.conclusion, "failure");
+    assert.deepEqual(
+      evidence.results.map((entry) => entry.status),
+      ["passed", "passed"]
+    );
+    assert.notEqual(
+      fixture.git(fixture.repositoryPath, "rev-parse", "origin/main"),
+      fixture.baseSha
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 function createCandidateFixture() {
   const root = mkdtempSync(path.join(tmpdir(), "openmeld-final-candidate-"));
   const remotePath = path.join(root, "remote.git");
@@ -108,11 +185,13 @@ function createCandidateFixture() {
   const binPath = path.join(root, "bin");
   const ghLogPath = path.join(root, "gh.log");
   const pnpmLogPath = path.join(root, "pnpm.log");
+  const candidateEnvironmentLogPath = path.join(root, "candidate-env.log");
   const evidencePath = path.join(root, "evidence.json");
   mkdirSync(repositoryPath);
   mkdirSync(binPath);
   writeFileSync(ghLogPath, "");
   writeFileSync(pnpmLogPath, "");
+  writeFileSync(candidateEnvironmentLogPath, "");
   const gitEnvironment = isolatedGitEnvironment(process.env);
   const git = (cwd, ...args) =>
     execFileSync("git", args, {
@@ -144,20 +223,22 @@ function createCandidateFixture() {
   writeExecutable(
     path.join(binPath, "gh"),
     `#!/usr/bin/env node
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(process.env.TEST_GH_LOG, args.join(" ") + "\\n");
 const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
+if (process.env.TEST_GH_PUBLICATION_FAILURE === "1" && (endpoint.includes("/statuses/") || endpoint.endsWith("/comments"))) {
+  process.stderr.write("simulated GitHub publication failure\\n");
+  process.exit(17);
+}
 if (endpoint.endsWith("/pulls/1")) {
-  process.stdout.write(JSON.stringify({
-    base: { ref: "main", sha: process.env.TEST_BASE_SHA },
-    draft: false,
-    head: { ref: "codex/candidate", sha: process.env.TEST_HEAD_SHA },
-    html_url: "https://github.com/amplifthq/openmeld/pull/1",
-    labels: [],
-    number: 1,
-    state: "open"
-  }));
+  const captured = JSON.parse(readFileSync(process.env.TEST_GITHUB_PULL_REQUEST_FIXTURE, "utf8")).response;
+  captured.base.sha = process.env.TEST_BASE_SHA;
+  captured.head.ref = "codex/candidate";
+  captured.head.sha = process.env.TEST_HEAD_SHA;
+  captured.html_url = "https://github.com/amplifthq/openmeld/pull/1";
+  captured.number = 1;
+  process.stdout.write(JSON.stringify(captured));
 } else if (endpoint.endsWith("/comments")) {
   process.stdout.write(JSON.stringify({ html_url: "https://github.com/amplifthq/openmeld/pull/1#issuecomment-1" }));
 } else {
@@ -168,8 +249,25 @@ if (endpoint.endsWith("/pulls/1")) {
   writeExecutable(
     path.join(binPath, "pnpm"),
     `#!/usr/bin/env node
-import { appendFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import path from "node:path";
 appendFileSync(process.env.TEST_PNPM_LOG, process.argv.slice(2).join(" ") + "\\n");
+appendFileSync(process.env.TEST_CANDIDATE_ENV_LOG, "GH_TOKEN=" + (process.env.GH_TOKEN ? "present" : "absent") + " GITHUB_TOKEN=" + (process.env.GITHUB_TOKEN ? "present" : "absent") + "\\n");
+if (process.env.TEST_ADVANCE_MAIN_DURING_CHECK === "1" && !existsSync(process.env.TEST_MAIN_DRIFT_MARKER)) {
+  const maintainer = process.env.TEST_MAINTAINER_PATH;
+  execFileSync("git", ["clone", "--quiet", process.env.TEST_REMOTE_PATH, maintainer]);
+  execFileSync("git", ["config", "user.email", "main-drift@test.openmeld.ai"], { cwd: maintainer });
+  execFileSync("git", ["config", "user.name", "OpenMeld Main Drift Test"], { cwd: maintainer });
+  writeFileSync(path.join(maintainer, "during-check.md"), "main changed during candidate\\n");
+  execFileSync("git", ["add", "during-check.md"], { cwd: maintainer });
+  execFileSync("git", ["commit", "--quiet", "-m", "advance main during check"], { cwd: maintainer });
+  execFileSync("git", ["push", "--quiet", "origin", "main"], { cwd: maintainer });
+  writeFileSync(process.env.TEST_MAIN_DRIFT_MARKER, "advanced\\n");
+}
+if (process.env.TEST_PNPM_STDERR) {
+  process.stderr.write(process.env.TEST_PNPM_STDERR);
+}
 process.exit(Number(process.env.TEST_PNPM_EXIT_CODE ?? "0"));
 `
   );
@@ -177,6 +275,7 @@ process.exit(Number(process.env.TEST_PNPM_EXIT_CODE ?? "0"));
   return {
     baseSha,
     binPath,
+    candidateEnvironmentLogPath,
     cleanup: () => rmSync(root, { force: true, recursive: true }),
     evidencePath,
     ghLogPath,
@@ -216,12 +315,27 @@ function runCandidateFixture(fixture, options = {}) {
       encoding: "utf8",
       env: {
         ...isolatedGitEnvironment(process.env),
+        GH_TOKEN: "write-capable-token-must-not-reach-checks",
+        GITHUB_TOKEN: "write-capable-token-must-not-reach-checks",
         PATH: `${fixture.binPath}${path.delimiter}${process.env.PATH}`,
+        TEST_ADVANCE_MAIN_DURING_CHECK: options.advanceMainDuringCheck
+          ? "1"
+          : "0",
         TEST_BASE_SHA: fixture.baseSha,
+        TEST_CANDIDATE_ENV_LOG: fixture.candidateEnvironmentLogPath,
+        TEST_GH_PUBLICATION_FAILURE: options.ghPublicationFailure ? "1" : "0",
         TEST_GH_LOG: fixture.ghLogPath,
+        TEST_GITHUB_PULL_REQUEST_FIXTURE: GITHUB_PULL_REQUEST_FIXTURE,
         TEST_HEAD_SHA: fixture.headSha,
+        TEST_MAIN_DRIFT_MARKER: path.join(fixture.root, "main-drift.marker"),
+        TEST_MAINTAINER_PATH: path.join(
+          fixture.root,
+          "during-check-maintainer"
+        ),
         TEST_PNPM_EXIT_CODE: String(options.pnpmExitCode ?? 0),
         TEST_PNPM_LOG: fixture.pnpmLogPath,
+        TEST_PNPM_STDERR: options.pnpmStderr ?? "",
+        TEST_REMOTE_PATH: fixture.remotePath,
       },
     }
   );

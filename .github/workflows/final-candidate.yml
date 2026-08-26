@@ -1,13 +1,8 @@
 name: OpenMeld Final Candidate
 run-name: Final Candidate PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }}
 
-permissions:
-  contents: read
-  pull-requests: read
-  statuses: write
-
 on:
-  pull_request:
+  pull_request_target:
     types: [labeled]
 
 concurrency:
@@ -15,40 +10,190 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  publish_pending:
+    name: Publish Exact Pending Candidate
+    if: >-
+      github.event.pull_request.draft == false &&
+      (github.event.label.name == 'final-candidate' ||
+       github.event.label.name == 'final-candidate-full')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    env:
+      CANDIDATE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      CANDIDATE_CONFIDENCE: ${{ github.event.label.name == 'final-candidate-full' && 'full' || 'standard' }}
+      CANDIDATE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      CANDIDATE_PR_NUMBER: ${{ github.event.pull_request.number }}
+      CANDIDATE_REPOSITORY: ${{ github.repository }}
+      CANDIDATE_RUN_ID: ${{ github.run_id }}
+      CANDIDATE_SERVER_URL: ${{ github.server_url }}
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      candidate_tree: ${{ steps.publish_pending.outputs.candidate_tree }}
+    steps:
+      - name: Verify live identity and publish pending
+        id: publish_pending
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "$CANDIDATE_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             ! [[ "$CANDIDATE_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             ! [[ "$CANDIDATE_PR_NUMBER" =~ ^[1-9][0-9]*$ ]] ||
+             ! [[ "$CANDIDATE_REPOSITORY" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+            echo "::error::Final Candidate event is missing exact repository, PR, head, or base identity."
+            exit 1
+          fi
+          case "$CANDIDATE_CONFIDENCE" in
+            standard|full) ;;
+            *)
+              echo "::error::Unknown Final Candidate confidence: $CANDIDATE_CONFIDENCE"
+              exit 1
+              ;;
+          esac
+
+          pull_request_json="$(gh api "repos/$CANDIDATE_REPOSITORY/pulls/$CANDIDATE_PR_NUMBER")"
+          live_head="$(jq -r '.head.sha' <<<"$pull_request_json")"
+          live_base="$(jq -r '.base.sha' <<<"$pull_request_json")"
+          live_main="$(gh api "repos/$CANDIDATE_REPOSITORY/commits/main" --jq '.sha')"
+          candidate_tree="$(gh api "repos/$CANDIDATE_REPOSITORY/git/commits/$CANDIDATE_HEAD_SHA" --jq '.tree.sha')"
+          if [ "$live_head" != "$CANDIDATE_HEAD_SHA" ] ||
+             [ "$live_base" != "$CANDIDATE_BASE_SHA" ] ||
+             [ "$live_main" != "$CANDIDATE_BASE_SHA" ] ||
+             ! [[ "$candidate_tree" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Final Candidate identity drifted before pending publication."
+            exit 1
+          fi
+
+          target_url="$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID"
+          gh api --method POST \
+            "repos/$CANDIDATE_REPOSITORY/statuses/$CANDIDATE_HEAD_SHA" \
+            -f state=pending \
+            -f context='OpenMeld Final Candidate' \
+            -f description="Running $CANDIDATE_CONFIDENCE Final Candidate" \
+            -f target_url="$target_url"
+          echo "candidate_tree=$candidate_tree" >> "$GITHUB_OUTPUT"
+
   candidate:
     name: Final Candidate Runner
-    if: github.event.label.name == 'final-candidate' && github.event.pull_request.draft == false
+    needs: publish_pending
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      CANDIDATE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref }}
+      CANDIDATE_CONFIDENCE: ${{ github.event.label.name == 'final-candidate-full' && 'full' || 'standard' }}
+      CANDIDATE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      CANDIDATE_PR_NUMBER: ${{ github.event.pull_request.number }}
+      CANDIDATE_REPOSITORY: ${{ github.repository }}
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.CANDIDATE_HEAD_SHA }}
 
       - name: Setup repository toolchain
         uses: ./.github/actions/setup-node-pnpm
 
-      - name: Validate the exact final candidate
+      - name: Validate the exact final candidate without write credentials
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          pnpm candidate run --
-          --mode remote
-          --publish-status
-          --repository "${{ github.repository }}"
-          --pr "${{ github.event.pull_request.number }}"
-          --branch "${{ github.head_ref }}"
-          --head "${{ github.event.pull_request.head.sha }}"
-          --base "${{ github.event.pull_request.base.sha }}"
-          --evidence "$RUNNER_TEMP/final-candidate-evidence.json"
+        shell: bash
+        run: |
+          set -euo pipefail
+          confidence_args=()
+          if [ "$CANDIDATE_CONFIDENCE" = "full" ]; then
+            confidence_args+=(--full)
+          fi
+          pnpm candidate run -- \
+            --mode remote \
+            --repository "$CANDIDATE_REPOSITORY" \
+            --pr "$CANDIDATE_PR_NUMBER" \
+            --branch "$CANDIDATE_BRANCH" \
+            --head "$CANDIDATE_HEAD_SHA" \
+            --base "$CANDIDATE_BASE_SHA" \
+            --evidence "$RUNNER_TEMP/final-candidate-evidence.json" \
+            "${confidence_args[@]}"
 
       - name: Preserve exact candidate evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: final-candidate-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          name: final-candidate-evidence
           if-no-files-found: error
           path: ${{ runner.temp }}/final-candidate-evidence.json
           retention-days: 14
+
+  publish_final:
+    name: Publish Validated Final Candidate Result
+    needs:
+      - publish_pending
+      - candidate
+    if: always() && needs.publish_pending.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    env:
+      CANDIDATE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      CANDIDATE_CONFIDENCE: ${{ github.event.label.name == 'final-candidate-full' && 'full' || 'standard' }}
+      CANDIDATE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      CANDIDATE_JOB_RESULT: ${{ needs.candidate.result }}
+      CANDIDATE_PR_NUMBER: ${{ github.event.pull_request.number }}
+      CANDIDATE_REPOSITORY: ${{ github.repository }}
+      CANDIDATE_RUN_ID: ${{ github.run_id }}
+      CANDIDATE_SERVER_URL: ${{ github.server_url }}
+      CANDIDATE_TREE_SHA: ${{ needs.publish_pending.outputs.candidate_tree }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout trusted publisher from the exact current base
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ env.CANDIDATE_BASE_SHA }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Install the shared evidence parser only
+        run: pnpm install --frozen-lockfile --filter @openmeld/schemas
+
+      - name: Download candidate evidence
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with:
+          name: final-candidate-evidence
+          path: ${{ runner.temp }}/final-candidate
+
+      - name: Validate live evidence and publish one final status
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_url="$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID"
+          node scripts/ci/final-candidate-publisher.mjs \
+            --repository "$CANDIDATE_REPOSITORY" \
+            --pr "$CANDIDATE_PR_NUMBER" \
+            --head "$CANDIDATE_HEAD_SHA" \
+            --base "$CANDIDATE_BASE_SHA" \
+            --tree "$CANDIDATE_TREE_SHA" \
+            --confidence "$CANDIDATE_CONFIDENCE" \
+            --job-result "$CANDIDATE_JOB_RESULT" \
+            --evidence "$RUNNER_TEMP/final-candidate/final-candidate-evidence.json" \
+            --target-url "$target_url"

@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
+
 import {
   assertCandidateSnapshot,
   createFinalCandidatePlan,
   evidenceMatchesCandidate,
   executeCandidateChecks,
-  FINAL_CANDIDATE_EVIDENCE_VERSION,
 } from "./final-candidate-policy.mjs";
 
 const BASE_SHA = "1".repeat(40);
@@ -126,6 +127,38 @@ test("delivery infrastructure runs its behavior contracts without an empty Turbo
   assert.ok(plan.riskTags.includes("delivery-infrastructure"));
 });
 
+test("a scripts and Web mixed diff keeps affected checks and unit tests", () => {
+  const plan = createPlan([
+    "scripts/ci/final-candidate.mjs",
+    "clients/web/src/app.tsx",
+  ]);
+
+  assert.deepEqual(checkIds(plan), [
+    "diff-integrity",
+    "repository-code-quality",
+    "repository-contracts",
+    "affected-checks-and-unit-tests",
+  ]);
+});
+
+test("a package manifest and product mixed diff keeps affected checks and unit tests", () => {
+  const plan = createPlan(["package.json", "services/core/src/index.ts"]);
+
+  assert.ok(checkIds(plan).includes("affected-checks-and-unit-tests"));
+  assert.ok(checkIds(plan).includes("affected-integration-tests"));
+});
+
+test("a pure delivery infrastructure diff skips only the empty affected lane", () => {
+  const plan = createPlan(["package.json", "scripts/ci/final-candidate.mjs"]);
+
+  assert.ok(!checkIds(plan).includes("affected-checks-and-unit-tests"));
+  assert.ok(
+    plan.skippedChecks.some(
+      (entry) => entry.id === "affected-checks-and-unit-tests"
+    )
+  );
+});
+
 test("an explicitly stronger plan replaces affected lanes with full confidence", () => {
   const plan = createPlan(["clients/web/src/app.tsx"], {
     confidence: "full",
@@ -198,7 +231,12 @@ test("a real command failure blocks the candidate and stops later checks", () =>
       },
       runCommand: (command) => {
         executed.push(command[0]);
-        return { status: command[0] === "fails" ? 7 : 0 };
+        return {
+          spawnError: null,
+          status: command[0] === "fails" ? 7 : 0,
+          stderrTail: command[0] === "fails" ? "real failure\n" : "",
+          stdoutTail: "",
+        };
       },
     }
   );
@@ -210,14 +248,53 @@ test("a real command failure blocks the candidate and stops later checks", () =>
     result.results.map((check) => check.status),
     ["passed", "failed"]
   );
+  assert.equal(result.results.at(-1).exitCode, 7);
+  assert.equal(result.results.at(-1).stderrTail, "real failure\n");
+});
+
+test("a command spawn error is preserved as the failed check cause", () => {
+  let clock = 0;
+  const result = executeCandidateChecks(
+    [{ command: ["missing-command"], id: "spawn", reason: "spawn" }],
+    {
+      now: () => {
+        clock += 5;
+        return clock;
+      },
+      runCommand: () => {
+        throw new Error("spawn ENOENT");
+      },
+    }
+  );
+
+  assert.equal(result.conclusion, "failure");
+  assert.equal(result.results[0].status, "failed");
+  assert.equal(result.results[0].exitCode, null);
+  assert.equal(result.results[0].spawnError, "spawn ENOENT");
+  assert.equal(result.results[0].durationMs, 5);
 });
 
 test("evidence is reusable only for the same successful head, base, and tree", () => {
   const evidence = {
     baseSha: BASE_SHA,
+    branchName: "codex/example",
+    changedPaths: ["clients/web/src/app.tsx"],
     conclusion: "success",
+    confidence: "standard",
+    error: null,
+    finishedAt: "2026-08-26T00:00:01.000Z",
     headSha: HEAD_SHA,
+    mode: "local",
+    publicationErrors: [],
+    pullRequestNumber: 1,
+    pullRequestUrl: "https://github.com/amplifthq/openmeld/pull/1",
+    repository: "amplifthq/openmeld",
+    results: [],
+    riskTags: ["executable"],
     schemaVersion: FINAL_CANDIDATE_EVIDENCE_VERSION,
+    selectedChecks: [],
+    skippedChecks: [],
+    startedAt: "2026-08-26T00:00:00.000Z",
     treeSha: TREE_SHA,
   };
 
@@ -248,6 +325,22 @@ test("evidence is reusable only for the same successful head, base, and tree", (
   assert.equal(
     evidenceMatchesCandidate(
       { ...evidence, conclusion: "failure" },
+      { baseSha: BASE_SHA, headSha: HEAD_SHA, treeSha: TREE_SHA }
+    ),
+    false
+  );
+  assert.equal(
+    evidenceMatchesCandidate(
+      {
+        ...evidence,
+        publicationErrors: [
+          {
+            message: "status API unavailable",
+            occurredAt: "2026-08-26T00:00:02.000Z",
+            operation: "final-status",
+          },
+        ],
+      },
       { baseSha: BASE_SHA, headSha: HEAD_SHA, treeSha: TREE_SHA }
     ),
     false

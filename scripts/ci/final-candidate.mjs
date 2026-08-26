@@ -3,6 +3,7 @@
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import {
   appendWorkflowSummary,
   printPlan,
@@ -17,9 +18,9 @@ import {
   assertCandidateSnapshot,
   createFinalCandidatePlan,
   executeCandidateChecks,
-  FINAL_CANDIDATE_EVIDENCE_VERSION,
-  FINAL_CANDIDATE_LABEL,
+  FINAL_CANDIDATE_LABELS,
   formatCommand,
+  resolveFinalCandidateLabel,
 } from "./final-candidate-policy.mjs";
 import {
   publishCommitStatus,
@@ -102,16 +103,20 @@ function requestRemoteCandidate(options) {
   });
   printPlan(plan, []);
 
-  const labels = state.pullRequest.labels.map((label) => label.name);
-  if (labels.includes(FINAL_CANDIDATE_LABEL)) {
+  const requestedLabel = resolveFinalCandidateLabel(options.confidence);
+  const labels = new Set(state.pullRequest.labels.map((label) => label.name));
+  for (const label of Object.values(FINAL_CANDIDATE_LABELS)) {
+    if (!labels.has(label)) {
+      continue;
+    }
     runGh([
       "api",
       "--method",
       "DELETE",
-      `repos/${repository}/issues/${pullRequestNumber}/labels/${FINAL_CANDIDATE_LABEL}`,
+      `repos/${repository}/issues/${pullRequestNumber}/labels/${label}`,
     ]);
     process.stdout.write(
-      `Reset label ${FINAL_CANDIDATE_LABEL} so this explicit request creates a new run.\n`
+      `Reset label ${label} so this explicit request creates one unambiguous ${options.confidence} run.\n`
     );
   }
   runGhJson(
@@ -123,7 +128,7 @@ function requestRemoteCandidate(options) {
       "--input",
       "-",
     ],
-    { labels: [FINAL_CANDIDATE_LABEL] }
+    { labels: [requestedLabel] }
   );
   process.stdout.write(
     [
@@ -131,6 +136,8 @@ function requestRemoteCandidate(options) {
       `PR: ${state.pullRequest.html_url}`,
       `Head: ${state.snapshot.expectedHeadSha}`,
       `Base: ${state.snapshot.expectedBaseSha}`,
+      `Confidence: ${options.confidence}`,
+      `Request label: ${requestedLabel}`,
       "No check result exists yet. Follow the workflow run and require its exact commit status before merge.",
       "",
     ].join("\n")
@@ -144,6 +151,7 @@ function runCandidate(options) {
 
   try {
     prepareCandidateRun(context);
+    publishPendingEvidence(context);
     evidence = executePreparedCandidate(context);
   } catch (error) {
     originalError = error;
@@ -154,14 +162,19 @@ function runCandidate(options) {
     options.evidence,
     evidence.headSha ?? options.head
   );
+  evidence.publicationErrors = [...context.publicationErrors];
   writeEvidence(evidencePath, evidence);
-  const summary = renderEvidenceSummary(evidence, evidencePath);
-  process.stdout.write(`${summary}\n`);
-  appendWorkflowSummary(summary);
-  publishFinalEvidence(context, evidence, summary);
+  const initialSummary = renderEvidenceSummary(evidence, evidencePath);
+  publishFinalEvidence(context, evidence, initialSummary);
 
-  if (originalError) {
-    throw originalError;
+  evidence.publicationErrors = [...context.publicationErrors];
+  writeEvidence(evidencePath, evidence);
+  const finalSummary = renderEvidenceSummary(evidence, evidencePath);
+  process.stdout.write(`${finalSummary}\n`);
+  appendWorkflowSummary(finalSummary);
+
+  if (originalError || context.publicationErrors.length > 0) {
+    throw createFinalRunError(originalError, context.publicationErrors);
   }
 }
 
@@ -177,7 +190,9 @@ function createRunContext(options) {
   return {
     mode,
     options,
+    execution: null,
     plan: null,
+    publicationErrors: [],
     publishStatus: options.publishStatus ?? false,
     pullRequestNumber,
     repository,
@@ -212,7 +227,13 @@ function prepareCandidateRun(context) {
     context.repository,
     context.state.pullRequest.html_url
   );
-  if (context.publishStatus) {
+}
+
+function publishPendingEvidence(context) {
+  if (!context.publishStatus) {
+    return;
+  }
+  try {
     publishCommitStatus({
       description: `Running ${summarizeRisk(context.plan.riskTags)} @ ${shortSha(context.plan.headSha)} on ${shortSha(context.plan.baseSha)}`,
       headSha: context.plan.headSha,
@@ -220,6 +241,8 @@ function prepareCandidateRun(context) {
       state: "pending",
       targetUrl: context.targetUrl,
     });
+  } catch (error) {
+    recordPublicationError(context, "pending-status", error);
   }
 }
 
@@ -228,9 +251,10 @@ function executePreparedCandidate(context) {
     now: () => Date.now(),
     runCommand: runCandidateCommand,
   });
+  context.execution = execution;
   if (execution.conclusion !== "success") {
     throw new CandidateCheckError(
-      `Final Candidate failed at ${execution.failedCheckId}.`,
+      describeExecutionFailure(execution),
       execution
     );
   }
@@ -264,7 +288,11 @@ function createFailureEvidence(context, error) {
   const execution =
     error instanceof CandidateCheckError
       ? error.execution
-      : { conclusion: "failure", failedCheckId: null, results: [] };
+      : (context.execution ?? {
+          conclusion: "failure",
+          failedCheckId: null,
+          results: [],
+        });
   return {
     baseSha:
       context.state?.snapshot.expectedBaseSha ?? context.options.base ?? null,
@@ -272,12 +300,16 @@ function createFailureEvidence(context, error) {
     changedPaths: context.plan?.changedPaths ?? [],
     conclusion: "failure",
     confidence: context.plan?.confidence ?? context.options.confidence,
-    error: error instanceof Error ? error.message : String(error),
+    error: sanitizeEvidenceText(
+      error instanceof Error ? error.message : String(error)
+    ),
     finishedAt: new Date().toISOString(),
     headSha:
       context.state?.snapshot.expectedHeadSha ?? context.options.head ?? null,
     mode: context.mode,
+    publicationErrors: [...context.publicationErrors],
     pullRequestNumber: context.pullRequestNumber,
+    pullRequestUrl: context.state?.pullRequest.html_url ?? null,
     repository: context.repository,
     results: execution.results,
     riskTags: context.plan?.riskTags ?? [],
@@ -294,24 +326,36 @@ function publishFinalEvidence(context, evidence, summary) {
     return;
   }
   if (context.mode === "local") {
-    const comment = publishPullRequestComment({
-      body: summary,
-      pullRequestNumber: context.pullRequestNumber,
-      repository: context.repository,
-    });
-    context.targetUrl = comment.html_url;
+    try {
+      const comment = publishPullRequestComment({
+        body: summary,
+        pullRequestNumber: context.pullRequestNumber,
+        repository: context.repository,
+      });
+      context.targetUrl = comment.html_url;
+    } catch (error) {
+      recordPublicationError(context, "pull-request-comment", error);
+    }
   }
-  publishCommitStatus({
-    description: describeFinalStatus(evidence),
-    headSha: evidence.headSha,
-    repository: context.repository,
-    state: evidence.conclusion,
-    targetUrl: context.targetUrl,
-  });
+  try {
+    publishCommitStatus({
+      description: describeFinalStatus(evidence, context.publicationErrors),
+      headSha: evidence.headSha,
+      repository: context.repository,
+      state:
+        evidence.conclusion === "success" &&
+        context.publicationErrors.length === 0
+          ? "success"
+          : "failure",
+      targetUrl: context.targetUrl,
+    });
+  } catch (error) {
+    recordPublicationError(context, "final-status", error);
+  }
 }
 
-function describeFinalStatus(evidence) {
-  if (evidence.conclusion === "success") {
+function describeFinalStatus(evidence, publicationErrors) {
+  if (evidence.conclusion === "success" && publicationErrors.length === 0) {
     return `Passed ${summarizeRisk(evidence.riskTags)} @ ${shortSha(evidence.headSha)} on ${shortSha(evidence.baseSha)}`;
   }
   return `Failed @ ${shortSha(evidence.headSha)} on ${shortSha(evidence.baseSha)}; inspect evidence`;
@@ -324,9 +368,11 @@ function createEvidence(input) {
     changedPaths: input.plan.changedPaths,
     conclusion: input.conclusion,
     confidence: input.plan.confidence,
+    error: null,
     finishedAt: input.finishedAt.toISOString(),
     headSha: input.plan.headSha,
     mode: input.mode,
+    publicationErrors: [],
     pullRequestNumber: input.pullRequest.number,
     pullRequestUrl: input.pullRequest.html_url,
     repository: input.repository,
@@ -344,14 +390,38 @@ function runCandidateCommand(command) {
   process.stdout.write(`\n$ ${formatCommand(command)}\n`);
   const [binary, ...args] = command;
   const resolvedBinary = binary === "pnpm" ? pnpmBinary : binary;
+  const commandEnvironment = { ...process.env };
+  for (const credentialName of [
+    "GH_ENTERPRISE_TOKEN",
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+  ]) {
+    delete commandEnvironment[credentialName];
+  }
   const result = spawnSync(resolvedBinary, args, {
     cwd: process.cwd(),
-    stdio: "inherit",
+    encoding: "utf8",
+    env: commandEnvironment,
+    maxBuffer: 1024 * 1024 * 20,
+    stdio: ["inherit", "pipe", "pipe"],
   });
-  if (result.error) {
-    throw result.error;
+  const stdout = sanitizeCommandOutput(result.stdout);
+  const stderr = sanitizeCommandOutput(result.stderr);
+  if (stdout) {
+    process.stdout.write(stdout);
   }
-  return { status: result.status ?? 1 };
+  if (stderr) {
+    process.stderr.write(stderr);
+  }
+  const failed = Boolean(result.error) || result.status !== 0;
+  return {
+    spawnError: result.error
+      ? sanitizeCommandOutput(result.error.message).trim()
+      : null,
+    status: result.error ? null : (result.status ?? 1),
+    stderrTail: failed ? tail(stderr) : "",
+    stdoutTail: failed ? tail(stdout) : "",
+  };
 }
 
 function parseOptions(args) {
@@ -422,9 +492,73 @@ Request the normal GitHub-hosted gate once the committed branch contains current
 Run the same gate locally and publish shared evidence when Actions is unavailable:
   pnpm candidate:local -- --pr <number>
 
-Add --full to plan, request, or run for full local checks, unit tests, and integration tests.
+Add --full to plan, request, or run. A hosted request uses the distinct final-candidate-full label and executes full repository checks; a standard request never does.
 Every run prints the exact head, base, tree, changed paths, selected commands, reasons, skips, durations, and result.
 `);
+}
+
+function recordPublicationError(context, operation, error) {
+  const publicationError = {
+    message: sanitizeEvidenceText(
+      error instanceof Error ? error.message : String(error)
+    ),
+    occurredAt: new Date().toISOString(),
+    operation,
+  };
+  context.publicationErrors.push(publicationError);
+  process.stderr.write(
+    `Final Candidate publication failed (${operation}): ${publicationError.message}\n`
+  );
+}
+
+function createFinalRunError(originalError, publicationErrors) {
+  const messages = [];
+  if (originalError) {
+    messages.push(
+      `Candidate validation failed: ${originalError instanceof Error ? originalError.message : String(originalError)}`
+    );
+  }
+  for (const publicationError of publicationErrors) {
+    messages.push(
+      `Evidence publication failed (${publicationError.operation}): ${publicationError.message}`
+    );
+  }
+  return new Error(messages.join("\n"));
+}
+
+function describeExecutionFailure(execution) {
+  const failed = execution.results.find(
+    (result) => result.id === execution.failedCheckId
+  );
+  if (!failed) {
+    return `Final Candidate failed at ${execution.failedCheckId ?? "an unresolved check"}.`;
+  }
+  const cause = failed.spawnError
+    ? `spawn error: ${failed.spawnError}`
+    : `exit code ${String(failed.exitCode)}`;
+  return `Final Candidate failed at ${failed.id} (${formatCommand(failed.command)}; ${cause}).`;
+}
+
+function sanitizeCommandOutput(value) {
+  return String(value ?? "")
+    .replaceAll(String.fromCharCode(27), "")
+    .replaceAll(
+      /\b(?:gh[opusr]_|github_pat_|npm_)[A-Za-z0-9_-]+\b/giu,
+      "[REDACTED_TOKEN]"
+    )
+    .replaceAll(/\bBearer\s+[^\s]+/giu, "Bearer [REDACTED]")
+    .replaceAll(
+      /((?:token|secret|password|authorization|cookie|private[_-]?key)[A-Za-z0-9_-]*\s*[=:]\s*)[^\s]+/giu,
+      "$1[REDACTED]"
+    );
+}
+
+function tail(value) {
+  return value.length <= 8192 ? value : value.slice(-8192);
+}
+
+function sanitizeEvidenceText(value) {
+  return tail(sanitizeCommandOutput(value)).trim() || "Unknown failure.";
 }
 
 class CandidateCheckError extends Error {

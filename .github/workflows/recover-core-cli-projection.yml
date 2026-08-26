@@ -2,7 +2,7 @@ name: Recover Core CLI Projection
 run-name: Recover Core CLI Projection @ ${{ inputs.release_sha }}
 
 permissions:
-  contents: read
+  contents: write
 
 on:
   workflow_dispatch:

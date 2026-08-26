@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import process from "node:process";
 
+import { githubPullRequestCandidateFactsSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import { FINAL_CANDIDATE_STATUS_CONTEXT } from "./final-candidate-policy.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
@@ -215,21 +216,15 @@ function fetchCurrentMain() {
 }
 
 function readPullRequest(repository, pullRequestNumber) {
-  const pullRequest = runGhJson([
+  const response = runGhJson([
     "api",
     `repos/${repository}/pulls/${pullRequestNumber}`,
   ]);
-  if (
-    !(
-      pullRequest?.base?.ref &&
-      pullRequest.base.sha &&
-      pullRequest?.head?.ref &&
-      pullRequest.head.sha &&
-      pullRequest.html_url &&
-      Array.isArray(pullRequest.labels)
-    )
-  ) {
-    throw new Error("GitHub returned incomplete pull request candidate facts.");
+  const parsed = githubPullRequestCandidateFactsSchema.safeParse(response);
+  if (!parsed.success) {
+    throw new Error(
+      `GitHub returned invalid pull request candidate facts: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "response"}: ${issue.message}`).join("; ")}`
+    );
   }
-  return pullRequest;
+  return parsed.data;
 }

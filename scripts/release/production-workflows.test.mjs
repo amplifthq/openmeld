@@ -19,10 +19,6 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const readRepoFile = (relativePath) =>
   readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
-const FINAL_CANDIDATE_BASE_EXPRESSION = `${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.base.sha }}`;
-const FINAL_CANDIDATE_HEAD_EXPRESSION = `${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.head.sha }}`;
-const FINAL_CANDIDATE_NUMBER_EXPRESSION = `${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.number }}`;
-const GITHUB_REPOSITORY_EXPRESSION = `${GITHUB_EXPRESSION_PREFIX} github.repository }}`;
 const RELEASE_SHA_CHECKOUT = `ref: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sha || github.sha }}`;
 const PINNED_SCOPED_RELEASE_SHA = `${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
 const SCOPED_RELEASE_SHA_INPUT =
@@ -257,7 +253,7 @@ test("deploys the Auth receiver before Web in coordinated GitHub releases", () =
   );
 });
 
-test("runs one explicit Final Candidate job and keeps exhaustive confidence manual", () => {
+test("runs one explicit Final Candidate request with isolated runner and publishers", () => {
   const candidate = readRepoFile(".github/workflows/final-candidate.yml");
   const deepConfidence = readRepoFile(".github/workflows/deep-confidence.yml");
   const rootPackage = JSON.parse(readRepoFile("package.json"));
@@ -269,16 +265,20 @@ test("runs one explicit Final Candidate job and keeps exhaustive confidence manu
   assert.ok(!candidate.includes("opened"));
   assert.ok(!candidate.includes("ready_for_review"));
   assert.ok(!candidate.includes("workflow_dispatch"));
-  assert.equal(candidate.match(/^ {4}runs-on: ubuntu-latest$/gmu)?.length, 1);
+  assert.equal(candidate.match(/^ {4}runs-on: ubuntu-latest$/gmu)?.length, 3);
+  assert.ok(candidate.includes("github.event.label.name == 'final-candidate'"));
+  assert.ok(
+    candidate.includes("github.event.label.name == 'final-candidate-full'")
+  );
   assert.ok(
     candidate.includes(
-      "if: github.event.label.name == 'final-candidate' && github.event.pull_request.draft == false"
+      `ref: ${GITHUB_EXPRESSION_PREFIX} env.CANDIDATE_HEAD_SHA }}`
     )
   );
-  assert.ok(candidate.includes(`ref: ${FINAL_CANDIDATE_HEAD_EXPRESSION}`));
-  assert.ok(candidate.includes(`--head "${FINAL_CANDIDATE_HEAD_EXPRESSION}"`));
-  assert.ok(candidate.includes(`--base "${FINAL_CANDIDATE_BASE_EXPRESSION}"`));
-  assert.ok(candidate.includes("--publish-status"));
+  assert.ok(candidate.includes('--head "$CANDIDATE_HEAD_SHA"'));
+  assert.ok(candidate.includes('--base "$CANDIDATE_BASE_SHA"'));
+  assert.ok(!candidate.includes("--publish-status"));
+  assert.ok(candidate.includes("statuses: write"));
   assert.ok(candidate.includes("if: always()"));
   assert.ok(candidate.includes("actions/upload-artifact@v4"));
   assert.equal(
@@ -314,15 +314,14 @@ test("pins Final Candidate to the current PR head and base in both lanes", () =>
   const candidate = readRepoFile(".github/workflows/final-candidate.yml");
   const engine = [
     readRepoFile("scripts/ci/final-candidate.mjs"),
+    readRepoFile("scripts/ci/final-candidate-publisher.mjs"),
     readRepoFile("scripts/ci/final-candidate-state.mjs"),
   ].join("\n");
   const policy = readRepoFile("scripts/ci/final-candidate-policy.mjs");
 
   assert.ok(candidate.includes("fetch-depth: 0"));
-  assert.ok(
-    candidate.includes(`--repository "${GITHUB_REPOSITORY_EXPRESSION}"`)
-  );
-  assert.ok(candidate.includes(`--pr "${FINAL_CANDIDATE_NUMBER_EXPRESSION}"`));
+  assert.ok(candidate.includes('--repository "$CANDIDATE_REPOSITORY"'));
+  assert.ok(candidate.includes('--pr "$CANDIDATE_PR_NUMBER"'));
   assert.ok(engine.includes("refs/heads/main:refs/remotes/origin/main"));
   assert.ok(engine.includes("assertCandidateSnapshot(state.snapshot)"));
   assert.ok(engine.includes("assertCandidateSnapshot(finalState.snapshot)"));
@@ -383,6 +382,43 @@ test("serializes each production scope without canceling a running deploy", () =
     );
   }
   assert.ok(!dispatcher.includes("\nconcurrency:"));
+});
+
+test("uses one atomic shared lease across local and hosted releases", () => {
+  const leaseAction = readRepoFile(
+    ".github/actions/production-scope-lease/action.yml"
+  );
+  const leaseEngine = readRepoFile(
+    "scripts/release/production-scope-lease.mjs"
+  );
+  const localRelease = readRepoFile("scripts/release/production-release.mjs");
+  const dispatcher = readRepoFile(".github/workflows/release-on-main.yml");
+
+  assert.ok(leaseAction.includes("production-scope-lease.mjs acquire"));
+  assert.ok(leaseAction.includes("production-scope-lease.mjs release"));
+  assert.ok(leaseEngine.includes("--force-with-lease="));
+  assert.ok(leaseEngine.includes("context.ref"));
+  assert.ok(leaseEngine.includes("expectedLeaseSha"));
+  assert.ok(localRelease.includes("executeWithProductionScopeLeases"));
+  assert.ok(localRelease.includes("assertProductionReleaseSource"));
+  assert.ok(dispatcher.includes("Acquire shared Database release lease"));
+  assert.ok(dispatcher.includes("Release shared Database release lease"));
+  assert.ok(dispatcher.includes("scope: db"));
+  assert.ok(dispatcher.includes("contents: write"));
+
+  for (const [scope, workflowPath] of COMPONENT_WORKFLOWS) {
+    const workflow = readRepoFile(workflowPath);
+    assert.ok(
+      workflow.includes("uses: ./.github/actions/production-scope-lease"),
+      `${scope} must use the cross-machine lease`
+    );
+    assert.ok(
+      workflow.includes(`scope: ${scope}`),
+      `${scope} must name the same local and hosted scope`
+    );
+    assert.ok(workflow.includes("contents: write"));
+    assert.ok(workflow.includes("if: always()"));
+  }
 });
 
 test("runs the production database exactly once through its shared entrypoint", () => {

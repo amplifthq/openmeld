@@ -47,6 +47,9 @@ jobs:
       group: deploy-core-worker-production
       cancel-in-progress: false
     environment: production
+    env:
+      RELEASE_PATH: ${{ inputs.release_path }}
+      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
     steps:
       - name: Validate immutable release inputs
         shell: bash
@@ -56,9 +59,25 @@ jobs:
             echo "::error::CLI releases must run from main. Current ref: ${GITHUB_REF}"
             exit 1
           fi
-          release_sha="${{ inputs.release_sha }}"
-          if [ -n "$release_sha" ] && ! [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]; then
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::release_sha must be an exact 40-character lowercase commit SHA."
+            exit 1
+          fi
+
+      - name: Checkout current main history for source validation
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Require release SHA from current main first-parent history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          if ! validation_error="$(node scripts/release/require-mainline-release-sha.mjs \
+            "$RELEASE_SHA" refs/remotes/origin/main 2>&1)"; then
+            echo "::error::$validation_error"
             exit 1
           fi
 
@@ -67,10 +86,28 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: ${{ inputs.release_sha || github.sha }}
+          ref: ${{ env.RELEASE_SHA }}
 
       - name: Setup repository toolchain
         uses: ./.github/actions/setup-node-pnpm
+
+      - name: Acquire shared CLI publication lease
+        id: cli_scope_lease
+        uses: ./.github/actions/production-scope-lease
+        with:
+          operation: acquire
+          owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          scope: cli
+          source_sha: ${{ env.RELEASE_SHA }}
+
+      - name: Acquire shared Core projection lease
+        id: core_scope_lease
+        uses: ./.github/actions/production-scope-lease
+        with:
+          operation: acquire
+          owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          scope: core
+          source_sha: ${{ env.RELEASE_SHA }}
 
       - name: Fetch release tags
         run: git fetch --tags --force
@@ -109,12 +146,12 @@ jobs:
           NPM_CONFIG_PROVENANCE: "false"
         run: |
           set -euo pipefail
-          case "${{ inputs.release_path }}" in
+          case "$RELEASE_PATH" in
             normal|resume-after-binary-upload|resume-after-npm-publish)
               pnpm run release:cli --with-binary
               ;;
             *)
-              echo "::error::Unknown release path: ${{ inputs.release_path }}"
+              echo "::error::Unknown release path: $RELEASE_PATH"
               exit 1
               ;;
           esac
@@ -123,7 +160,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: core-startup-profile-${{ inputs.release_sha || github.sha }}
+          name: core-startup-profile-${{ env.RELEASE_SHA }}
           if-no-files-found: ignore
           path: services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
           retention-days: 14
@@ -133,3 +170,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
+
+      - name: Release shared Core projection lease
+        if: always() && steps.core_scope_lease.outputs.lease_sha != ''
+        uses: ./.github/actions/production-scope-lease
+        with:
+          lease_sha: ${{ steps.core_scope_lease.outputs.lease_sha }}
+          operation: release
+          scope: core
+
+      - name: Release shared CLI publication lease
+        if: always() && steps.cli_scope_lease.outputs.lease_sha != ''
+        uses: ./.github/actions/production-scope-lease
+        with:
+          lease_sha: ${{ steps.cli_scope_lease.outputs.lease_sha }}
+          operation: release
+          scope: cli

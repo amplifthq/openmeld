@@ -1,7 +1,13 @@
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
+import { finalCandidateEvidenceSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import { formatCommand } from "./final-candidate-policy.mjs";
 
 export function printPlan(plan, dirtyPaths) {
@@ -46,7 +52,8 @@ export function renderEvidenceSummary(evidence, evidencePath) {
   return [
     "## OpenMeld Final Candidate Evidence",
     "",
-    `- Conclusion: **${evidence.conclusion}**`,
+    `- Candidate validation: **${evidence.conclusion}**`,
+    `- Evidence publication: **${evidence.publicationErrors.length === 0 ? "complete" : "failed"}**`,
     `- Mode: \`${evidence.mode}\``,
     `- Head: \`${evidence.headSha ?? "unresolved"}\``,
     `- Base: \`${evidence.baseSha ?? "unresolved"}\``,
@@ -62,10 +69,15 @@ export function renderEvidenceSummary(evidence, evidencePath) {
     "### Checks",
     "",
     ...(evidence.results?.length > 0
-      ? evidence.results.map(
-          (result) =>
-            `- **${result.status}** \`${formatCommand(result.command)}\` (${formatDuration(result.durationMs)}) — ${result.reason}`
-        )
+      ? evidence.results.flatMap((result) => [
+          `- **${result.status}** \`${formatCommand(result.command)}\` (${formatDuration(result.durationMs)}) — ${result.reason}`,
+          ...(result.exitCode === null
+            ? []
+            : [`  Exit code: \`${String(result.exitCode)}\``]),
+          ...(result.spawnError ? [`  Spawn error: ${result.spawnError}`] : []),
+          ...renderOutputTail("stderr", result.stderrTail),
+          ...renderOutputTail("stdout", result.stdoutTail),
+        ])
       : ["- No check completed."]),
     "",
     "### Skipped",
@@ -75,12 +87,34 @@ export function renderEvidenceSummary(evidence, evidencePath) {
           (skippedCheck) => `- \`${skippedCheck.id}\` — ${skippedCheck.reason}`
         )
       : ["- None recorded."]),
+    "",
+    "### Publication",
+    "",
+    ...(evidence.publicationErrors.length > 0
+      ? evidence.publicationErrors.map(
+          (publicationError) =>
+            `- **failed** \`${publicationError.operation}\` at ${publicationError.occurredAt}: ${publicationError.message}`
+        )
+      : [
+          "- Pending/final shared evidence publication completed or was not requested.",
+        ]),
   ].join("\n");
 }
 
 export function writeEvidence(evidencePath, evidence) {
+  const parsedEvidence = finalCandidateEvidenceSchema.parse(evidence);
   mkdirSync(path.dirname(evidencePath), { recursive: true });
-  writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+  writeFileSync(
+    evidencePath,
+    `${JSON.stringify(parsedEvidence, null, 2)}\n`,
+    "utf8"
+  );
+}
+
+export function readEvidence(evidencePath) {
+  return finalCandidateEvidenceSchema.parse(
+    JSON.parse(readFileSync(evidencePath, "utf8"))
+  );
 }
 
 export function appendWorkflowSummary(summary) {
@@ -123,4 +157,11 @@ function formatDuration(durationMs) {
     return `${durationMs} ms`;
   }
   return `${(durationMs / 1000).toFixed(1)} s`;
+}
+
+function renderOutputTail(stream, value) {
+  if (!value) {
+    return [];
+  }
+  return [`  ${stream} tail:`, "", "```text", value, "```"];
 }

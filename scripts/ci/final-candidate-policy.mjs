@@ -1,7 +1,11 @@
+import { finalCandidateEvidenceSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import { isReleaseReadyPath } from "../release/release-ready-paths.mjs";
 
-export const FINAL_CANDIDATE_EVIDENCE_VERSION = 1;
-export const FINAL_CANDIDATE_LABEL = "final-candidate";
+export const FINAL_CANDIDATE_LABELS = Object.freeze({
+  full: "final-candidate-full",
+  standard: "final-candidate",
+});
+export const FINAL_CANDIDATE_LABEL = FINAL_CANDIDATE_LABELS.standard;
 export const FINAL_CANDIDATE_STATUS_CONTEXT = "OpenMeld Final Candidate";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
@@ -43,7 +47,12 @@ export function createFinalCandidatePlan(input) {
     changedPaths,
     confidence,
     databaseChange: changedPaths.some(isDatabasePath),
-    deliveryInfrastructure: changedPaths.some(isDeliveryInfrastructurePath),
+    deliveryInfrastructureChange: changedPaths.some(
+      isDeliveryInfrastructurePath
+    ),
+    deliveryInfrastructureOnly:
+      changedPaths.length > 0 &&
+      changedPaths.every(isDeliveryInfrastructurePath),
     docsOnly:
       changedPaths.length > 0 && changedPaths.every(isDocumentationPath),
     headSha: input.headSha,
@@ -115,7 +124,7 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
     return;
   }
 
-  if (context.deliveryInfrastructure) {
+  if (context.deliveryInfrastructureChange) {
     selectedChecks.push(
       check(
         "repository-code-quality",
@@ -133,7 +142,7 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
     check(
       "repository-contracts",
       ["pnpm", "run", "verify:pre-push:checks"],
-      context.deliveryInfrastructure
+      context.deliveryInfrastructureChange
         ? "CI, release, dependency, or repository control files changed."
         : "Executable source changed, so repository-wide static contracts remain relevant."
     )
@@ -148,7 +157,7 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
     );
     return;
   }
-  if (context.deliveryInfrastructure && !context.boundaryChange) {
+  if (context.deliveryInfrastructureOnly) {
     skippedChecks.push(
       skipped(
         "affected-checks-and-unit-tests",
@@ -251,7 +260,9 @@ function selectReleaseReadyCheck(context, selectedChecks, skippedChecks) {
 function resolveRiskTags(context) {
   return [
     ...(context.docsOnly ? ["documentation"] : ["executable"]),
-    ...(context.deliveryInfrastructure ? ["delivery-infrastructure"] : []),
+    ...(context.deliveryInfrastructureChange
+      ? ["delivery-infrastructure"]
+      : []),
     ...(context.boundaryChange ? ["cross-boundary"] : []),
     ...(context.databaseChange ? ["database"] : []),
     ...(context.releaseReadyPaths.length > 0 ? ["local-components"] : []),
@@ -324,17 +335,34 @@ export function executeCandidateChecks(checks, dependencies) {
   const results = [];
   for (const selectedCheck of checks) {
     const startedAt = dependencies.now();
-    const result = dependencies.runCommand(selectedCheck.command);
+    let result;
+    try {
+      result = dependencies.runCommand(selectedCheck.command);
+    } catch (error) {
+      result = {
+        spawnError: String(
+          error instanceof Error ? error.message : error
+        ).slice(-8192),
+        status: null,
+        stderrTail: "",
+        stdoutTail: "",
+      };
+    }
     const finishedAt = dependencies.now();
+    const passed = result.status === 0 && !result.spawnError;
     const checkResult = {
       command: selectedCheck.command,
       durationMs: Math.max(0, finishedAt - startedAt),
+      exitCode: Number.isInteger(result.status) ? result.status : null,
       id: selectedCheck.id,
       reason: selectedCheck.reason,
-      status: result.status === 0 ? "passed" : "failed",
+      spawnError: result.spawnError ?? null,
+      status: passed ? "passed" : "failed",
+      stderrTail: result.stderrTail ?? "",
+      stdoutTail: result.stdoutTail ?? "",
     };
     results.push(checkResult);
-    if (result.status !== 0) {
+    if (!passed) {
       return {
         conclusion: "failure",
         failedCheckId: selectedCheck.id,
@@ -346,13 +374,26 @@ export function executeCandidateChecks(checks, dependencies) {
 }
 
 export function evidenceMatchesCandidate(evidence, candidate) {
+  const parsedEvidence = finalCandidateEvidenceSchema.safeParse(evidence);
+  if (!parsedEvidence.success) {
+    return false;
+  }
+  const value = parsedEvidence.data;
   return (
-    evidence?.schemaVersion === FINAL_CANDIDATE_EVIDENCE_VERSION &&
-    evidence?.conclusion === "success" &&
-    evidence?.headSha === candidate.headSha &&
-    evidence?.baseSha === candidate.baseSha &&
-    evidence?.treeSha === candidate.treeSha
+    value.conclusion === "success" &&
+    value.publicationErrors.length === 0 &&
+    value.headSha === candidate.headSha &&
+    value.baseSha === candidate.baseSha &&
+    value.treeSha === candidate.treeSha
   );
+}
+
+export function resolveFinalCandidateLabel(confidence) {
+  const label = FINAL_CANDIDATE_LABELS[confidence];
+  if (!label) {
+    throw new Error(`Unknown final-candidate confidence: ${confidence}`);
+  }
+  return label;
 }
 
 export function formatCommand(command) {

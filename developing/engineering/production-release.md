@@ -306,10 +306,37 @@ pnpm run release:deploy:local -- --scope web
 ```
 
 `git status --short` must print nothing. The deploy command records the source
-SHA, runs the cheap deployment preflight, checks that the worktree and SHA stay
-unchanged, deploys in safe order, and runs the selected component health check
-before moving on. It does not repeat package checks, unit tests, or integration
-tests that already established confidence in the commit.
+SHA, refreshes current `origin/main`, rejects any source outside its first-parent
+chain, runs the cheap deployment preflight, checks that the worktree and SHA
+stay unchanged, acquires each selected shared production scope lease in stable
+order, deploys in safe order, and runs the selected component health check
+before moving on. It releases held scopes in reverse order even when deployment
+fails. It does not repeat package checks, unit tests, or integration tests that
+already established confidence in the commit.
+
+The shared lease is a Git compare-and-swap ref under
+`refs/heads/openmeld-production-leases/<scope>`. Its canonical metadata records
+owner, exact release source, scope, start, and expiry. Local and GitHub releases
+use the same ref, so two workstations and a workstation plus hosted release
+cannot overlap in one scope. Inspect without mutation:
+
+```sh
+pnpm release:lease inspect -- --scope web
+```
+
+An active lease fails closed. Expiry does not delete it automatically. After
+proving the reported owner stopped, recover only its exact lease SHA and record
+why, then rerun the guarded release:
+
+```sh
+pnpm release:lease recover -- \
+  --scope web \
+  --lease-sha <expired-lease-sha> \
+  --reason "Verified the owning release stopped before deployment completed."
+```
+
+Recovery and release use `force-with-lease`; a stale process cannot delete a
+newer owner's lease. A malformed lease fails closed for explicit inspection.
 
 Use the verify-only command when you need a complete scoped go/no-go result or
 handoff before deployment. The later deploy intentionally does not repeat it:
@@ -507,10 +534,12 @@ and performs a lightweight health check. It does not rerun candidate checks,
 unit tests, or integration tests.
 
 Every component workflow owns a stable production concurrency group with
-`cancel-in-progress: false`. Two releases of the same component serialize and
-a running deploy is never canceled. Unrelated component groups remain able to
-run in parallel. Do not add workflow-wide concurrency that serializes the whole
-fleet.
+`cancel-in-progress: false` and acquires the same Git-backed scope lease used by
+the local lane. GitHub concurrency serializes hosted queues; the shared lease
+extends that invariant to local-to-local and local-to-hosted races. Two releases
+of the same component serialize and a running deploy is never canceled.
+Unrelated component groups remain able to run in parallel. Do not add
+workflow-wide concurrency that serializes the whole fleet.
 
 The system does not automatically coalesce queued same-scope releases because
 it cannot infer whether an intermediate migration, receiver-first stage, or

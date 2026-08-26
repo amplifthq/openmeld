@@ -568,6 +568,25 @@ diagnostics, and shared external error contracts.
 Shared types must derive from schemas, usually through `z.infer`. Do not create
 a separate hand-written shared type that can drift from the runtime schema.
 
+### Delivery Evidence And Production Lease Contracts
+
+`packages/schemas/src/schemas/ci/final-candidate.ts` owns the strict versioned
+Final Candidate evidence exchanged between the local runner, hosted runner,
+workflow artifact, PR comment renderer, and status publisher. The contract
+keeps candidate validation and evidence-publication failures separate, bounds
+recorded command output, and makes head, base, and tree identity mandatory for
+success. It also owns the runtime projection of GitHub's pull-request candidate
+facts; the repository fixture is captured from the GitHub REST API rather than
+shaped from runner assumptions.
+
+`packages/schemas/src/schemas/release/production-scope-lease.ts` owns the
+strict metadata stored in the cross-machine Git scope lease. The schema defines
+scope, owner, exact source SHA, start, expiry, and lease identity. It does not
+authorize a release: the guarded release entrypoint still owns source
+validation, scope planning, credentials, deployment, health, and recovery. The
+end-to-end lifecycle and reuse rules remain solely in
+`developing/engineering/agent-native-delivery.md`.
+
 ### Prepare Diagnostics Lifecycle Journal Contract
 
 `prepareStepDiagnosticsLifecycleEventTypeSchema` is the strict shared allowlist

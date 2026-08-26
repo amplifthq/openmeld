@@ -2,7 +2,7 @@ name: 🛡️ Deploy Auth Worker
 run-name: Deploy Auth Worker @ ${{ inputs.release_sha || github.sha }}
 
 permissions:
-  contents: read
+  contents: write
 
 on:
   workflow_dispatch:
@@ -71,6 +71,15 @@ jobs:
       - name: Setup repository toolchain
         uses: ./.github/actions/setup-node-pnpm
 
+      - name: Acquire shared Auth release lease
+        id: scope_lease
+        uses: ./.github/actions/production-scope-lease
+        with:
+          operation: acquire
+          owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          scope: auth
+          source_sha: ${{ inputs.release_sha || github.sha }}
+
       - name: Run Auth Worker deployment preflight
         run: pnpm run release:preflight:local -- --scope auth --base HEAD
 
@@ -91,3 +100,11 @@ jobs:
           if-no-files-found: warn
           path: dev-tmp/auth-bundle-evidence.json
           retention-days: 30
+
+      - name: Release shared Auth release lease
+        if: always() && steps.scope_lease.outputs.lease_sha != ''
+        uses: ./.github/actions/production-scope-lease
+        with:
+          lease_sha: ${{ steps.scope_lease.outputs.lease_sha }}
+          operation: release
+          scope: auth

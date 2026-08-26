@@ -5,13 +5,17 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-
+import {
+  acquireProductionScopeLease,
+  releaseProductionScopeLease,
+} from "./production-scope-lease.mjs";
 import {
   isCliReleasePath,
   isServiceReleasePath,
   isSkillsReleasePath,
 } from "./release-ready-paths.mjs";
 import { readCurrentWorkerVersionIds } from "./release-stage-probes.mjs";
+import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 
 const DEFAULT_BASE_REF = "origin/main";
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
@@ -856,6 +860,59 @@ function assertSourceStillMatches(sourceSha) {
   }
 }
 
+export function resolveProductionLeaseScopes(scopes) {
+  return sortScopes([...scopes, ...(scopes.includes("cli") ? ["core"] : [])]);
+}
+
+export function executeWithProductionScopeLeases(input) {
+  const acquire =
+    input.adapters?.acquireProductionScopeLease ?? acquireProductionScopeLease;
+  const release =
+    input.adapters?.releaseProductionScopeLease ?? releaseProductionScopeLease;
+  const leases = [];
+  let executionResult;
+  let originalError = null;
+  try {
+    for (const scope of resolveProductionLeaseScopes(input.scopes)) {
+      leases.push(
+        acquire({
+          owner: input.owner,
+          scope,
+          sourceSha: input.sourceSha,
+        })
+      );
+    }
+    executionResult = input.execute();
+  } catch (error) {
+    originalError = error;
+  }
+  const releaseErrors = [];
+  for (const lease of leases.toReversed()) {
+    try {
+      release({
+        leaseSha: lease.leaseSha,
+        scope: lease.metadata.scope,
+      });
+    } catch (error) {
+      releaseErrors.push(
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+  if (originalError || releaseErrors.length > 0) {
+    throw combineReleaseErrors(originalError, releaseErrors);
+  }
+  return executionResult;
+}
+
+export function assertProductionReleaseSource(input) {
+  return requireMainlineReleaseSha({
+    cwd: input.cwd,
+    mainRef: input.mainRef ?? "refs/remotes/origin/main",
+    releaseSha: input.sourceSha,
+  });
+}
+
 function runStep(step) {
   process.stdout.write(`\n[production-release] ${step.label}\n`);
   const result = spawnSync(resolveCommandBinary(step.command), step.args, {
@@ -1003,6 +1060,8 @@ function main(argv) {
   }
 
   assertCleanWorktree();
+  refreshCurrentMain();
+  assertProductionReleaseSource({ sourceSha: plan.sourceSha });
   const preparationSteps =
     options.command === "verify" ? plan.verifySteps : plan.preflightSteps;
   for (const step of preparationSteps) {
@@ -1012,10 +1071,47 @@ function main(argv) {
   if (options.command === "verify" || options.command === "preflight") {
     return;
   }
-  executeProductionDeploySteps({
-    afterStep: () => assertSourceStillMatches(plan.sourceSha),
-    steps: plan.deploySteps,
+  executeWithProductionScopeLeases({
+    execute: () =>
+      executeProductionDeploySteps({
+        afterStep: () => assertSourceStillMatches(plan.sourceSha),
+        steps: plan.deploySteps,
+      }),
+    owner: `local:${process.env.USER ?? "unknown"}:${String(process.pid)}`,
+    scopes: plan.scopes,
+    sourceSha: plan.sourceSha,
   });
+}
+
+function refreshCurrentMain() {
+  const result = spawnSync(
+    resolveCommandBinary("git"),
+    [
+      "fetch",
+      "--no-tags",
+      "origin",
+      "refs/heads/main:refs/remotes/origin/main",
+    ],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+  );
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `Local production release could not refresh current main: ${result.error?.message ?? result.stderr.trim()}`
+    );
+  }
+}
+
+function combineReleaseErrors(originalError, releaseErrors) {
+  const lines = [];
+  if (originalError) {
+    lines.push(
+      `Production release failed: ${originalError instanceof Error ? originalError.message : String(originalError)}`
+    );
+  }
+  for (const releaseError of releaseErrors) {
+    lines.push(`Production lease release failed: ${releaseError.message}`);
+  }
+  return new Error(lines.join("\n"));
 }
 
 function coreCliChannelCompatibilityStep() {
