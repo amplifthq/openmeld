@@ -48,9 +48,15 @@ export function useAccountSpaceIndicators(input: {
 		() => new Set(usableActiveWakeSummaryItems.map((item) => item.spaceId)),
 		[usableActiveWakeSummaryItems]
 	);
+	const activeWakeSummaryBySpaceId = useMemo(
+		() =>
+			new Map(usableActiveWakeSummaryItems.map((item) => [item.spaceId, item])),
+		[usableActiveWakeSummaryItems]
+	);
 
 	return {
 		activeWakeSpaceIds,
+		activeWakeSummaryBySpaceId,
 		unreadBySpaceId,
 	};
 }

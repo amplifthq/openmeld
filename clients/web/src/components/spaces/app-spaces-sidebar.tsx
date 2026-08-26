@@ -1,5 +1,9 @@
 "use client";
 
+import type {
+	AccountSpaceActiveWakeSummaryItem,
+	WakeProgressItem,
+} from "@openmeld/schemas/types";
 import {
 	hasVisibleActiveWakeProgress,
 	mergeWakeProgressItems,
@@ -22,7 +26,7 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
 	type AppContextualNavGroup,
@@ -66,10 +70,23 @@ import {
 	useSpaceConversationIntentPrefetch,
 } from "./use-space-conversation-intent-prefetch";
 
-const SIDEBAR_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+const SIDEBAR_TIME_FORMAT_OPTIONS = {
 	day: "numeric",
 	month: "short",
+} as const;
+const UTC_SIDEBAR_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	...SIDEBAR_TIME_FORMAT_OPTIONS,
+	timeZone: "UTC",
 });
+const BROWSER_SIDEBAR_TIME_ZONE =
+	typeof window === "undefined"
+		? "UTC"
+		: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const BROWSER_SIDEBAR_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	...SIDEBAR_TIME_FORMAT_OPTIONS,
+	timeZone: BROWSER_SIDEBAR_TIME_ZONE,
+});
+const LEADING_MENTION_MARKER_PATTERN = /^@+/;
 
 const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
 	pinnedItems: [],
@@ -80,6 +97,18 @@ const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
 const DELETED_SPACE_NOTICE_STORAGE_KEY = "openmeld:deleted-space-notices-shown";
 const SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME =
 	"pointer-events-none absolute top-1 right-1 z-10 inline-flex size-7 items-center justify-center transition-transform duration-150 ease-out group-focus-within/space-row:translate-x-3 group-focus-within/space-row:-translate-y-3 group-hover/space-row:translate-x-3 group-hover/space-row:-translate-y-3 motion-reduce:transition-none";
+
+function subscribeToBrowserEnvironment() {
+	return () => undefined;
+}
+
+function getBrowserEnvironmentSnapshot(): true {
+	return true;
+}
+
+function getServerEnvironmentSnapshot(): false {
+	return false;
+}
 
 function readShownDeletedSpaceNotices(): Set<string> {
 	if (typeof window === "undefined") {
@@ -123,6 +152,13 @@ export function AppSpacesSidebar(input: {
 	const orgSlug = currentOrganization.slug;
 	const browseSpacesActive =
 		input.browseSpacesActive ?? input.currentSpaceId.length === 0;
+	const sidebarTimeFormatter = useSyncExternalStore(
+		subscribeToBrowserEnvironment,
+		getBrowserEnvironmentSnapshot,
+		getServerEnvironmentSnapshot
+	)
+		? BROWSER_SIDEBAR_TIME_FORMATTER
+		: UTC_SIDEBAR_TIME_FORMATTER;
 	const routeIntentPrefetch = useRouteIntentPrefetch();
 	const prefetchSpaceConversation = useSpaceConversationIntentPrefetch();
 	const spacesQuery = useQuery(
@@ -132,12 +168,14 @@ export function AppSpacesSidebar(input: {
 			scope: "account",
 		})
 	);
-	const { activeWakeSpaceIds: ambientActiveWakeSpaceIds, unreadBySpaceId } =
-		useAccountSpaceIndicators({
-			enabled: input.currentProfileId.trim().length > 0,
-			organizationId: currentOrganizationId,
-			profileId: input.currentProfileId,
-		});
+	const {
+		activeWakeSummaryBySpaceId: ambientActiveWakeSummaryBySpaceId,
+		unreadBySpaceId,
+	} = useAccountSpaceIndicators({
+		enabled: input.currentProfileId.trim().length > 0,
+		organizationId: currentOrganizationId,
+		profileId: input.currentProfileId,
+	});
 	const currentSpaceWakeProgressPresentationQuery = useQuery(
 		spaceWakeProgressPresentationQueryOptions({
 			openMeldProfileId: input.currentProfileId,
@@ -153,9 +191,9 @@ export function AppSpacesSidebar(input: {
 	);
 	const currentSpaceWakeProgressVisibleProjection =
 		useSpaceWakeProgressVisibleProjection();
-	const activeWakeSpaceIds = new Set(
-		Array.from(ambientActiveWakeSpaceIds).filter(
-			(spaceId) => spaceId !== input.currentSpaceId
+	const activeWakeSummaryBySpaceId = new Map(
+		Array.from(ambientActiveWakeSummaryBySpaceId).filter(
+			([spaceId]) => spaceId !== input.currentSpaceId
 		)
 	);
 	const currentSpaceWakeProgressItems =
@@ -171,7 +209,16 @@ export function AppSpacesSidebar(input: {
 			items: currentSpaceWakeProgressItems,
 		})
 	) {
-		activeWakeSpaceIds.add(input.currentSpaceId);
+		activeWakeSummaryBySpaceId.set(
+			input.currentSpaceId,
+			buildCurrentSpaceActiveWakeSummary({
+				fallbackSummary: ambientActiveWakeSummaryBySpaceId.get(
+					input.currentSpaceId
+				),
+				items: currentSpaceWakeProgressItems,
+				spaceId: input.currentSpaceId,
+			})
+		);
 	}
 	const pinMutation = useAccountSpacePinMutation({
 		currentProfileId: input.currentProfileId,
@@ -202,12 +249,13 @@ export function AppSpacesSidebar(input: {
 		navigationLabel: string;
 	}) => (
 		<SidebarSpacesList
-			activeWakeSpaceIds={activeWakeSpaceIds}
+			activeWakeSummaryBySpaceId={activeWakeSummaryBySpaceId}
 			currentSpaceId={input.currentSpaceId}
 			isError={listInput.isError ?? false}
 			isPending={listInput.isPending ?? false}
 			isPinPending={() => pinMutation.arePinActionsPending}
 			items={listInput.items}
+			lastJoinedAtFormatter={sidebarTimeFormatter}
 			navigationLabel={listInput.navigationLabel}
 			onOpenSpace={openSpace}
 			onRetry={() => {
@@ -325,12 +373,16 @@ function NewSpaceButton(input: { onClick: () => void }) {
 }
 
 function SidebarSpacesList(input: {
-	activeWakeSpaceIds: ReadonlySet<string>;
+	activeWakeSummaryBySpaceId: ReadonlyMap<
+		string,
+		AccountSpaceActiveWakeSummaryItem
+	>;
 	currentSpaceId: string;
 	isError: boolean;
 	isPending: boolean;
 	isPinPending: (item: AccountSpaceItem) => boolean;
 	items: readonly AccountSpaceItem[];
+	lastJoinedAtFormatter: Intl.DateTimeFormat;
 	navigationLabel: string;
 	onOpenSpace: (routePath: string) => void;
 	onRetry: () => void;
@@ -392,12 +444,15 @@ function SidebarSpacesList(input: {
 				const unread = input.unreadBySpaceId.get(item.spaceId);
 				return (
 					<SpaceSidebarMenuItem
-						hasActiveWake={input.activeWakeSpaceIds.has(item.spaceId)}
+						activeWakeSummary={input.activeWakeSummaryBySpaceId.get(
+							item.spaceId
+						)}
 						index={index}
 						isActive={isActive}
 						isPinPending={input.isPinPending(item)}
 						item={item}
 						key={item.spaceId}
+						lastJoinedAtFormatter={input.lastJoinedAtFormatter}
 						onOpenSpace={input.onOpenSpace}
 						onTogglePinned={input.onTogglePinned}
 						openMeldProfileId={input.openMeldProfileId}
@@ -413,11 +468,12 @@ function SidebarSpacesList(input: {
 }
 
 function SpaceSidebarMenuItem(input: {
-	hasActiveWake: boolean;
+	activeWakeSummary?: AccountSpaceActiveWakeSummaryItem;
 	index: number;
 	isActive: boolean;
 	isPinPending: boolean;
 	item: AccountSpaceItem;
+	lastJoinedAtFormatter: Intl.DateTimeFormat;
 	onOpenSpace: (routePath: string) => void;
 	onTogglePinned: (item: AccountSpaceItem) => void;
 	prefetchSpaceConversation: SpaceConversationIntentPrefetch;
@@ -427,7 +483,10 @@ function SpaceSidebarMenuItem(input: {
 	openMeldProfileId: string;
 }) {
 	const isPinned = input.item.pinnedAt !== null;
-	const hasActiveWake = input.hasActiveWake;
+	const hasActiveWake = input.activeWakeSummary !== undefined;
+	const workingStatusLabel = input.activeWakeSummary
+		? resolveSpaceWorkingStatusLabel(input.activeWakeSummary)
+		: null;
 	const pinLabel = isPinned
 		? `Unpin ${input.item.spaceName}`
 		: `Pin ${input.item.spaceName}`;
@@ -527,7 +586,10 @@ function SpaceSidebarMenuItem(input: {
 											className="@[13rem]/space-item:inline-flex hidden shrink-0 text-muted-foreground text-xs opacity-100 transition-opacity group-focus-within/space-row:opacity-0 group-hover/space-row:opacity-0"
 											data-slot="space-sidebar-date"
 										>
-											{formatLastJoinedAt(input.item.lastJoinedAt)}
+											{formatLastJoinedAt(
+												input.item.lastJoinedAt,
+												input.lastJoinedAtFormatter
+											)}
 										</span>
 									) : null}
 								</div>
@@ -589,28 +651,133 @@ function SpaceSidebarMenuItem(input: {
 					</TooltipContent>
 				</Tooltip>
 
-				{trailingStatus === "working" ? (
-					<span
-						aria-hidden="true"
-						className={cn(
-							SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME,
-							"group-focus-within/space-row:scale-[0.625] group-hover/space-row:scale-[0.625]"
-						)}
-						data-space-active-wake-orb="true"
-					>
-						<SpaceAgentOrb />
-					</span>
+				{trailingStatus === "working" && workingStatusLabel ? (
+					<Tooltip>
+						<TooltipTrigger
+							delay={0}
+							render={
+								<button
+									aria-label={`${workingStatusLabel}. Open ${input.item.spaceName}`}
+									className={cn(
+										SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME,
+										"pointer-events-auto rounded-full outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring group-focus-within/space-row:scale-[0.625] group-hover/space-row:scale-[0.625]"
+									)}
+									data-space-active-wake-orb="true"
+									onClick={() => input.onOpenSpace(input.routePath)}
+									type="button"
+								>
+									<SpaceAgentOrb />
+								</button>
+							}
+						/>
+						<TooltipContent side="right">{workingStatusLabel}</TooltipContent>
+					</Tooltip>
 				) : null}
 			</div>
 		</FluidNavMenuItem>
 	);
 }
 
-function formatLastJoinedAt(value: string): string {
+function buildCurrentSpaceActiveWakeSummary(input: {
+	fallbackSummary?: AccountSpaceActiveWakeSummaryItem;
+	items: readonly WakeProgressItem[];
+	spaceId: string;
+}): AccountSpaceActiveWakeSummaryItem {
+	const fallbackNamesByProfileId = new Map(
+		(input.fallbackSummary?.activeTargets ?? []).map((target) => [
+			target.profileId,
+			target.profileName,
+		])
+	);
+	const targetsByProfileId = new Map<
+		string,
+		{ activeWakeCount: number; profileName: string | null }
+	>();
+	for (const item of input.items) {
+		if (item.terminal) {
+			continue;
+		}
+		const current = targetsByProfileId.get(item.targetProfileId);
+		targetsByProfileId.set(item.targetProfileId, {
+			activeWakeCount: (current?.activeWakeCount ?? 0) + 1,
+			profileName:
+				current?.profileName ??
+				fallbackNamesByProfileId.get(item.targetProfileId) ??
+				normalizeWorkingTargetLabel(item.targetLabel) ??
+				null,
+		});
+	}
+	const activeTargets = Array.from(
+		targetsByProfileId,
+		([profileId, target]) => ({ profileId, ...target })
+	);
+	return {
+		activeTargets,
+		activeWakeCount: activeTargets.reduce(
+			(total, target) => total + target.activeWakeCount,
+			0
+		),
+		spaceId: input.spaceId,
+	};
+}
+
+function resolveSpaceWorkingStatusLabel(
+	summary: AccountSpaceActiveWakeSummaryItem
+): string {
+	const activeTargets = summary.activeTargets ?? [];
+	if (activeTargets.length > 0) {
+		const namedTargets = activeTargets.filter(
+			(target): target is typeof target & { profileName: string } =>
+				target.profileName !== null
+		);
+		const unknownTargetCount = activeTargets.length - namedTargets.length;
+		const targetLabels = namedTargets.map((target) => target.profileName);
+		if (unknownTargetCount === 1) {
+			targetLabels.push("another agent");
+		} else if (unknownTargetCount > 1) {
+			targetLabels.push(`${String(unknownTargetCount)} other agents`);
+		}
+		return capitalizeStatusFragment(
+			`${formatEnglishList(targetLabels)} ${activeTargets.length === 1 ? "is" : "are"} working`
+		);
+	}
+	return summary.activeWakeCount === 1
+		? "An agent is working"
+		: `${String(summary.activeWakeCount)} Wakes are active`;
+}
+
+function formatEnglishList(values: readonly string[]): string {
+	if (values.length <= 1) {
+		return values[0] ?? "";
+	}
+	if (values.length === 2) {
+		return `${values[0]} and ${values[1]}`;
+	}
+	return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+function capitalizeStatusFragment(value: string): string {
+	return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+}
+
+function normalizeWorkingTargetLabel(value: string): string | null {
+	const normalized = value
+		.trim()
+		.replace(LEADING_MENTION_MARKER_PATTERN, "")
+		.trim();
+	return normalized.length > 0 && !normalized.startsWith("agt_")
+		? normalized
+		: null;
+}
+
+function formatLastJoinedAt(
+	value: string,
+	formatter: Intl.DateTimeFormat
+): string {
 	const timestamp = Date.parse(value);
 	if (!Number.isFinite(timestamp)) {
 		return "";
 	}
 
-	return SIDEBAR_TIME_FORMATTER.format(timestamp);
+	return formatter.format(timestamp);
 }

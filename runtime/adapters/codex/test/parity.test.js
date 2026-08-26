@@ -135,6 +135,14 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    return;",
       "  }",
       "  if (message.method === 'thread/resume') {",
+      "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_RESUME_NO_ROLLOUT === '1') {",
+      "      write({ jsonrpc: '2.0', id: message.id, error: { code: -32600, message: 'no rollout found for thread id ' + message.params.threadId } });",
+      "      return;",
+      "    }",
+      "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_EPHEMERAL_RESUME === '1' && message.params.threadId === 'thread-fork-1') {",
+      "      write({ jsonrpc: '2.0', id: message.id, error: { code: -32600, message: 'no rollout found for thread id thread-fork-1' } });",
+      "      return;",
+      "    }",
       "    const hangingResumeAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_RESUME_ATTEMPTS ?? '0');",
       "    if (startupAttempt <= hangingResumeAttempts) return;",
       "    const model = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_OMIT_THREAD_MODEL === '1' ? {} : { model: 'gpt-5' };",
@@ -2184,6 +2192,7 @@ test("invokeCodexAppServerTransport isolates structured-action repair from the s
       codexWorkdir: dispatchDir,
       env: {
         OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_EPHEMERAL_RESUME: "1",
       },
       executionMode: "repair",
       prompt: "repair the structured Space action",
@@ -2194,9 +2203,6 @@ test("invokeCodexAppServerTransport isolates structured-action repair from the s
     const forkParams = messages.find(
       (message) => message.method === "thread/fork"
     ).params;
-    const resumeParams = messages.find(
-      (message) => message.method === "thread/resume"
-    ).params;
     const turnParams = messages.find(
       (message) => message.method === "turn/start"
     ).params;
@@ -2204,11 +2210,48 @@ test("invokeCodexAppServerTransport isolates structured-action repair from the s
     assert.equal(result.threadId, "thread-existing-repair-policy");
     assert.equal(forkParams.threadId, "thread-existing-repair-policy");
     assert.equal(forkParams.ephemeral, true);
-    assert.equal(resumeParams.threadId, "thread-fork-1");
-    assert.equal(resumeParams.approvalPolicy, "untrusted");
-    assert.equal(resumeParams.sandbox, "read-only");
+    assert.equal(forkParams.cwd, dispatchDir);
+    assert.equal(forkParams.approvalPolicy, "untrusted");
+    assert.equal(forkParams.sandbox, "read-only");
+    assert.equal(
+      messages.some((message) => message.method === "thread/resume"),
+      false
+    );
     assert.equal(turnParams.threadId, "thread-fork-1");
     assert.equal(turnParams.approvalPolicy, "untrusted");
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("invokeCodexAppServerTransport reports a missing rollout as missing context", async () => {
+  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-no-rollout-"));
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-app-no-rollout-dir-")
+  );
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    await assert.rejects(
+      invokeCodexAppServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_RESUME_NO_ROLLOUT: "1",
+        },
+        prompt: "resume missing context",
+        taskId: "task-app-server-no-rollout",
+        threadId: "thread-missing-rollout",
+      }),
+      (error) =>
+        error?.code === "context_not_found" && error?.errorType === "config"
+    );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });

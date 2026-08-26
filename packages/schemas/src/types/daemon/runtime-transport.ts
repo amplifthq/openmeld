@@ -419,6 +419,16 @@ export type RuntimeTransportRuntimeCoordinatorWakeStopResponse =
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportRuntimeCoordinatorWakeStopResponseSchema"]
   >;
 
+export type RuntimeTransportDeletedAgentProfileWakeCancellationRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema"]
+  >;
+
+export type RuntimeTransportDeletedAgentProfileWakeCancellationResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportDeletedAgentProfileWakeCancellationResponseSchema"]
+  >;
+
 export type RuntimeTransportRuntimeCoordinatorHeadPreAgentStopReasonCode =
   import("zod/v4").infer<
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportRuntimeCoordinatorHeadPreAgentStopReasonCodeSchema"]

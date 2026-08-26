@@ -1199,7 +1199,9 @@ no selector it returns the active Wake summary for the Space. With
 `--client-message <id>` it returns the progress associated with that authored
 message, optionally narrowed by `--target-profile <id>`. Agent View emits the
 stable `mode`, `pollState`, active and terminal counts, validated query, and
-validated progress items. A valid read exits zero even when `pollState` is
+validated progress items. While a deleted Agent's accepted Wake is still
+stopping, its progress item uses the Space's frozen membership name instead of
+degrading to the removed Profile id. A valid read exits zero even when `pollState` is
 `idle` or `not_observed`; transport, permission, and projection failures exit
 one with a structured error. This command does not replace `space result`,
 which reads archived results, or `service trace`, which diagnoses the execution
@@ -1349,6 +1351,12 @@ head-waiting reason, hard deadline, wait target, and recovery action before it
 considers historical attempt errors. An older Core may return the legacy
 subset; the CLI must still parse that response and report only the evidence it
 contains.
+
+An authoritative pre-result RuntimeCoordinator status such as `running` or
+`completed_local` also takes precedence over the generic absence-of-final-message
+`projection_pending` diagnostic. The latter explains why no final message can
+yet be linked; it must not relabel active execution as final publication work or
+tell the operator that the target Computer is offline.
 
 In Agent View, `--details` requests the bounded Remote Agent runtime diagnostic
 projection when the selected dispatch used the hosted Center Agent. The caller

@@ -14,6 +14,8 @@ import {
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
+  runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema,
+  runtimeTransportDeletedAgentProfileWakeCancellationResponseSchema,
   runtimeTransportDisconnectRatesResponseSchema,
   runtimeTransportForkAgentSessionRequestSchema,
   runtimeTransportForkAgentSessionResultSchema,
@@ -67,6 +69,7 @@ import type {
   RuntimeTransportAgentProfileExecutionStateResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
+  RuntimeTransportDeletedAgentProfileWakeCancellationResponse,
   RuntimeTransportDisconnectRatesResponse,
   RuntimeTransportForkAgentSessionResult,
   RuntimeTransportLookupOwnerServiceResponse,
@@ -83,6 +86,62 @@ import { type CoreBindings, localStateDb } from "../../../lib/bindings";
 import { readForgottenDeviceRecord } from "../../../start/infrastructure/d1/forgotten-device-repo";
 import { callRuntimeTransportApi } from "./runtime-transport-api-client";
 import { resolveRuntimeTransportOwnerShard } from "./runtime-transport-shard";
+
+export const cancelRuntimeTransportDeletedAgentProfileWakes = async (input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  targetProfileId: string;
+}): Promise<RuntimeTransportDeletedAgentProfileWakeCancellationResponse> => {
+  const parsedRequest =
+    runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema.safeParse({
+      ownerUserId: input.ownerUserId,
+      targetProfileId: input.targetProfileId,
+    });
+  if (!parsedRequest.success) {
+    return {
+      executionStopOutcomes: [],
+      headStopOutcomes: [],
+      status: "unavailable",
+      targetProfileId: input.targetProfileId,
+    };
+  }
+  try {
+    const shard = resolveRuntimeTransportOwnerShard(
+      input.env,
+      input.ownerUserId
+    );
+    const parsedResponse =
+      runtimeTransportDeletedAgentProfileWakeCancellationResponseSchema.safeParse(
+        await shard.rpcCancelDeletedAgentProfileWakes(parsedRequest.data)
+      );
+    if (parsedResponse.success) {
+      return parsedResponse.data;
+    }
+    console.warn(
+      "[core.runtime_coordinator.deleted_profile_wake_cancellation_response_invalid]",
+      {
+        error: parsedResponse.error.message,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+      }
+    );
+  } catch (error) {
+    console.warn(
+      "[core.runtime_coordinator.deleted_profile_wake_cancellation_failed]",
+      {
+        error: error instanceof Error ? error.message : String(error),
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+      }
+    );
+  }
+  return {
+    executionStopOutcomes: [],
+    headStopOutcomes: [],
+    status: "unavailable",
+    targetProfileId: input.targetProfileId,
+  };
+};
 
 export const acquireRuntimeTransportAgentProfileExecutionTargetMutation =
   async (input: {

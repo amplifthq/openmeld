@@ -516,6 +516,8 @@ export {
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
   runtimeTransportBaseCapabilitiesSchema,
   runtimeTransportCapabilitiesSchema,
+  runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema,
+  runtimeTransportDeletedAgentProfileWakeCancellationResponseSchema,
   runtimeTransportDeliverDispatchPayloadSchema,
   runtimeTransportDeliverDispatchRequestSchema,
   runtimeTransportDeliverDispatchResponseSchema,
@@ -721,6 +723,7 @@ export {
   accountSpaceActiveWakeSummaryQuerySchema,
   accountSpaceActiveWakeSummaryResponseSchema,
   accountSpaceActiveWakeSummaryRpcInputSchema,
+  accountSpaceActiveWakeTargetSchema,
 } from "./http/account-space-active-wake";
 export {
   accountSpaceIndexItemSchema,

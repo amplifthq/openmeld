@@ -618,52 +618,75 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
 // chunk spaceIds + ACTIVE_WAKE_PROGRESS_STATUSES + freshAfterMs.
 const ACTIVE_COUNT_SPACE_ID_CHUNK_SIZE = 80;
 
-export const countActiveRuntimeCoordinatorExecutionsBySpaceIds = async (input: {
-  db: D1Database;
-  freshAfterMs: number;
-  spaceIds: readonly string[];
-}): Promise<Map<string, number>> => {
-  const counts = new Map<string, number>();
-  const statusPlaceholders = ACTIVE_WAKE_PROGRESS_STATUSES.map(() => "?").join(
-    ", "
-  );
-  for (
-    let offset = 0;
-    offset < input.spaceIds.length;
-    offset += ACTIVE_COUNT_SPACE_ID_CHUNK_SIZE
-  ) {
-    const chunk = input.spaceIds.slice(
-      offset,
-      offset + ACTIVE_COUNT_SPACE_ID_CHUNK_SIZE
-    );
-    const spacePlaceholders = chunk.map(() => "?").join(", ");
-    const rows = await input.db
-      .prepare(
-        `
-          SELECT space_id, COUNT(*) AS active_count
+export type ActiveRuntimeCoordinatorExecutionTargetCount = {
+  activeWakeCount: number;
+  spaceId: string;
+  targetProfileId: string;
+};
+
+export const listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds =
+  async (input: {
+    db: D1Database;
+    freshAfterMs: number;
+    spaceIds: readonly string[];
+  }): Promise<ActiveRuntimeCoordinatorExecutionTargetCount[]> => {
+    const targets: ActiveRuntimeCoordinatorExecutionTargetCount[] = [];
+    const statusPlaceholders = ACTIVE_WAKE_PROGRESS_STATUSES.map(
+      () => "?"
+    ).join(", ");
+    for (
+      let offset = 0;
+      offset < input.spaceIds.length;
+      offset += ACTIVE_COUNT_SPACE_ID_CHUNK_SIZE
+    ) {
+      const chunk = input.spaceIds.slice(
+        offset,
+        offset + ACTIVE_COUNT_SPACE_ID_CHUNK_SIZE
+      );
+      const spacePlaceholders = chunk.map(() => "?").join(", ");
+      const rows = await input.db
+        .prepare(
+          `
+          SELECT space_id, target_profile_id, COUNT(*) AS active_count
           FROM openMeldDaemon_runtime_coordinator_executions
           WHERE space_id IN (${spacePlaceholders})
             AND status IN (${statusPlaceholders})
             AND updated_at_ms >= ?
-          GROUP BY space_id
+          GROUP BY space_id, target_profile_id
         `
-      )
-      .bind(...chunk, ...ACTIVE_WAKE_PROGRESS_STATUSES, input.freshAfterMs)
-      .all<{ active_count?: unknown; space_id?: unknown }>();
-    for (const row of rows.results ?? []) {
-      const spaceId = typeof row.space_id === "string" ? row.space_id : "";
-      const activeCount =
-        typeof row.active_count === "number" &&
-        Number.isFinite(row.active_count)
-          ? Math.trunc(row.active_count)
-          : 0;
-      if (spaceId.length > 0 && activeCount > 0) {
-        counts.set(spaceId, (counts.get(spaceId) ?? 0) + activeCount);
+        )
+        .bind(...chunk, ...ACTIVE_WAKE_PROGRESS_STATUSES, input.freshAfterMs)
+        .all<{
+          active_count?: unknown;
+          space_id?: unknown;
+          target_profile_id?: unknown;
+        }>();
+      for (const row of rows.results ?? []) {
+        const spaceId = typeof row.space_id === "string" ? row.space_id : "";
+        const targetProfileId =
+          typeof row.target_profile_id === "string"
+            ? row.target_profile_id
+            : "";
+        const activeCount =
+          typeof row.active_count === "number" &&
+          Number.isFinite(row.active_count)
+            ? Math.trunc(row.active_count)
+            : 0;
+        if (
+          spaceId.length > 0 &&
+          targetProfileId.length > 0 &&
+          activeCount > 0
+        ) {
+          targets.push({
+            activeWakeCount: activeCount,
+            spaceId,
+            targetProfileId,
+          });
+        }
       }
     }
-  }
-  return counts;
-};
+    return targets;
+  };
 
 export const readRuntimeCoordinatorExecutionProjectionById = async (input: {
   db: D1Database;

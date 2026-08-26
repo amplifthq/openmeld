@@ -145,6 +145,7 @@ import {
   handleLocalControlPlaneCancel,
   handleLocalControlPlaneInterrupt,
 } from "./local-control-handlers";
+import { createDaemonLocalExecutionSlots } from "./local-execution-slots";
 import { runDaemonSocketSession } from "./run-socket-session";
 import { createStopAwareDelay } from "./stop-aware-delay";
 
@@ -571,6 +572,12 @@ export const runDaemonServiceLoop = async (
     input.heartbeatIntervalMs
   );
   const dispatchLimits = await getConfiguredDaemonDispatchLimits();
+  // A WebSocket is replaceable transport. Active controller ownership is a
+  // process-lifetime invariant and must survive that transport reconnect.
+  const localExecutionSlots = createDaemonLocalExecutionSlots({
+    limits: dispatchLimits,
+    presenter: input.presenter,
+  });
   const ledgerPaths = buildLedgerPaths(runtimePaths.ledgerRootPath);
   const mode = resolveDaemonRunMode(input.mode);
   const now = nowIsoString();
@@ -1064,7 +1071,6 @@ export const runDaemonServiceLoop = async (
             ),
             currentSocketRef,
             daemonSessionId,
-            dispatchLimits,
             deviceId,
             serviceContractGeneration: daemonServiceContract?.generation ?? 0,
             foregroundActive: mode === "foreground",
@@ -1077,6 +1083,7 @@ export const runDaemonServiceLoop = async (
             ledgerPaths,
             loadRouteCatalog: routeCatalogLoader.load,
             localAdapterContainer,
+            localExecutionSlots,
             onRuntimeReportingAuthenticationFailure: async (failure) => {
               await requestRuntimeReportingAuthenticationRecovery({
                 expectedSocket: ws,

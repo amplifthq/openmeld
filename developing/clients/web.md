@@ -459,6 +459,17 @@ account-summary refresh, a missing browser request anchor, or expiry clears ambi
 indicators, while the open Space remains aligned with its current conversation
 evidence; Web must not keep an old orb visible merely because TanStack Query
 retains its last successful account-summary data.
+When the active-Wake summary includes target attribution, the existing Working
+orb's tooltip and accessible label name the frozen target Agent Profile, for
+example `Clico Codex is working`. The Space row itself keeps its compact visual
+and generic `agent working` accessibility state; it does not add an always-
+visible Agent name. Web may use that same frozen summary name to replace a raw
+Profile id in the open Space's detailed progress projection, but it must not let
+ambient summary lifecycle override the open Space's newer terminal truth.
+Multiple active Wakes use an aggregate count. A missing additive target
+projection falls back to `An agent is working`, and a raw `agt_...` identifier
+is never user-facing copy. This live indicator remains distinct from a
+persisted reply's historical **Work summary**.
 Opening a route alone does not clear the indicator. The shared Space message
 view writes the same Core-owned per-Space monotonic read-through watermark only
 after the document is visible and the member remains at the latest message for

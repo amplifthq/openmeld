@@ -646,6 +646,25 @@ next action. It does not own readiness truth, discover truth by itself,
 orchestrate setup, manage OpenMeld Service, decide execution truth, decide final Wake
 outcome, or place Space replies.
 
+Deleting an Agent Profile retires both its teammate identity and its remaining
+execution connection. It is not complete when Auth removes only the Profile
+row. The same identity transaction records an Auth-owned durable cleanup item;
+the immediate path and the scheduled retry path then ask the Profile owner's
+RuntimeCoordinator shard to stop matching accepted, waiting, and in-flight
+Wakes. Space membership removal and the exact owner/Profile Binding transition
+are separate lifecycle consequences: Core disables the Binding so no future
+execution route survives the deleted identity, while Space removes the member
+only after cancellation is accepted or RuntimeCoordinator proves that no
+matching Wake is active. Auth removes the cleanup item only when Core confirms
+the whole lifecycle. A partial or unavailable consequence stays retryable; it
+must not leave a removed Agent presented as indefinitely working.
+
+Deletion cleanup is a lifecycle operation, not an ordinary owner edit. It uses
+the authoritative owner and deleted Profile identity from the deletion event
+and therefore must not revalidate the already deleted Profile row through the
+user-command Binding path. The cleanup remains exact-owner, exact-Profile, and
+fail-closed so it cannot disable a different member's Binding.
+
 Local agent selection may prepare or update the execution connection, but it
 must not merge identity and infrastructure. The Agent Profile remains the AI
 teammate identity. The selected local controller or capability remains local

@@ -59,6 +59,7 @@ const DISPATCH_HINT_ELIGIBLE_ERROR_CODES = new Set([
   "schema.invalid.runtime_response",
   "runtime.reply.metadata_missing.agent_controller_ref",
   "context.rebuild_failed",
+  "context_not_found",
   ...DISPATCH_TARGET_PROFILE_IDENTITY_RETRYABLE_ERROR_CODES,
   ...DISPATCH_TARGET_PROFILE_IDENTITY_NON_RETRYABLE_ERROR_CODES,
 ]);
@@ -258,6 +259,8 @@ const resolveKnownDispatchFailureHintText = (input: {
       return `${input.targetProfileLabel} returned an invalid reply. Check OpenMeld runtime logs on the target device and retry.`;
     case "context.rebuild_failed":
       return `${input.targetProfileLabel} failed to rebuild conversation context. Restart OpenMeld on the target device and retry.`;
+    case "context_not_found":
+      return `${input.targetProfileLabel} could not reopen its saved local conversation. This was not a model-provider or network failure. Wake the agent again to start a fresh local conversation.`;
     case "provider.process_terminated":
       return `${input.targetProfileLabel}'s local provider process was stopped before it returned a reply. This does not mean the selected model is unavailable. Check OpenMeld runtime logs on the target device before trying again.`;
     case "provider_exit_error":
@@ -323,6 +326,8 @@ const resolveKnownDispatchFailureActivityText = (input: {
     case "provider.process_terminated":
     case "provider_exit_error":
       return `${activityTargetLabel} couldn't finish replying`;
+    case "context_not_found":
+      return `${activityTargetLabel} couldn't reopen its local conversation`;
     case "dispatch.target_profile_identity.auth_rpc_unavailable":
     case "dispatch.target_profile_identity.auth_rpc_failed":
       return `Couldn't reach OpenMeld auth for ${activityTargetLabel} right now`;

@@ -20,6 +20,9 @@ export const reconcileDeletedAgentProfileSpaceOutcomeSchema = z.strictObject({
 
 export const reconcileDeletedAgentProfileResponseSchema = z.strictObject({
   bindingDisabled: z.boolean(),
+  // Optional only for rolling-deploy compatibility. New Core workers always
+  // return this; Auth keeps the durable outbox item until it observes true.
+  complete: z.boolean().optional(),
   profileId: z.string().min(1),
   spaces: z.array(reconcileDeletedAgentProfileSpaceOutcomeSchema),
 });

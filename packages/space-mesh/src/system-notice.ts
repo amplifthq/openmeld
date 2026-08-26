@@ -6,6 +6,7 @@ const FALLBACK_TARGET_AGENT_NAME = "This agent";
 // "stopped_before_execution" refines wake_stopped. A variant that does not
 // match the given noticeType is ignored.
 export type SystemNoticeTextVariant =
+  | "agent_profile_deleted"
   | "delivery_expired"
   | "local_runtime_lost"
   | "progress_stale"
@@ -47,19 +48,33 @@ export function buildSystemNoticeText(input: {
         ? `${actorName} couldn't reply: ${reason}`
         : `${actorName} couldn't reply.`;
     }
-    case "wake_stopped": {
-      if (input.variant === "stopped_before_execution") {
-        return normalizedActorName
-          ? `Wake was stopped for ${normalizedActorName} before it reached the agent.`
-          : "Wake was stopped before it reached the agent.";
-      }
-      return normalizedActorName
-        ? `Wake was stopped for ${normalizedActorName}.`
-        : "Wake was stopped.";
-    }
+    case "wake_stopped":
+      return buildWakeStoppedNoticeText({
+        actorName: normalizedActorName,
+        variant: input.variant,
+      });
     default:
       return assertUnexpectedNoticeType(input.noticeType);
   }
+}
+
+function buildWakeStoppedNoticeText(input: {
+  actorName: string | null;
+  variant?: SystemNoticeTextVariant;
+}): string {
+  if (input.variant === "agent_profile_deleted") {
+    return input.actorName
+      ? `Wake was stopped for ${input.actorName} because its Agent Profile was deleted.`
+      : "Wake was stopped because the Agent Profile was deleted.";
+  }
+  if (input.variant === "stopped_before_execution") {
+    return input.actorName
+      ? `Wake was stopped for ${input.actorName} before it reached the agent.`
+      : "Wake was stopped before it reached the agent.";
+  }
+  return input.actorName
+    ? `Wake was stopped for ${input.actorName}.`
+    : "Wake was stopped.";
 }
 
 function normalizeOptionalText(

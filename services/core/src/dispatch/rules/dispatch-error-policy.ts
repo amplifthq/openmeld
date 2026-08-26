@@ -92,6 +92,7 @@ const NON_RETRYABLE_DISPATCH_ERROR_CODES = new Set([
   "runtime.reply.empty_output",
   "runtime.reply.metadata_missing.agent_controller_ref",
   "context.rebuild_failed",
+  "context_not_found",
   "config.invalid",
   "schema.invalid",
   "schema.invalid.runtime_response",

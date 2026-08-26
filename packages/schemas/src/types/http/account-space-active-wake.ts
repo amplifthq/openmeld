@@ -2,6 +2,8 @@ import type { z } from "zod/v4";
 
 type AccountSpaceActiveWakeSummaryItemSchema =
   typeof import("../../schemas/http/account-space-active-wake")["accountSpaceActiveWakeSummaryItemSchema"];
+type AccountSpaceActiveWakeTargetSchema =
+  typeof import("../../schemas/http/account-space-active-wake")["accountSpaceActiveWakeTargetSchema"];
 type AccountSpaceActiveWakeSummaryQuerySchema =
   typeof import("../../schemas/http/account-space-active-wake")["accountSpaceActiveWakeSummaryQuerySchema"];
 type AccountSpaceActiveWakeSummaryResponseSchema =
@@ -11,6 +13,8 @@ type AccountSpaceActiveWakeSummaryRpcInputSchema =
 
 export type AccountSpaceActiveWakeSummaryItem =
   z.infer<AccountSpaceActiveWakeSummaryItemSchema>;
+export type AccountSpaceActiveWakeTarget =
+  z.infer<AccountSpaceActiveWakeTargetSchema>;
 export type AccountSpaceActiveWakeSummaryQuery =
   z.infer<AccountSpaceActiveWakeSummaryQuerySchema>;
 export type AccountSpaceActiveWakeSummaryResponse =

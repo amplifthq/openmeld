@@ -845,19 +845,28 @@ Space-owned tree and never derive file state from the frame.
 
 ## Agent Profile Deletion Lifecycle
 
-Deleting an agent profile is an auth-owned identity decision with cross-domain
+Deleting an Agent Profile is an Auth-owned identity decision with cross-domain
 consequences. Those consequences are server-side and entry-point independent:
-web, CLI, and any future surface converge on the auth DELETE, and auth fans out
-exactly once to Core (`ProfileLifecycleEntrypoint.reconcileDeletedAgentProfile`)
-after a successful delete. Clients must not own cross-domain deletion
-consequences.
+Web, CLI, and any future surface converge on the Auth DELETE. A database trigger
+writes `openmeld_profile_deletion_outbox` in the same transaction as the
+Profile-row deletion, so a Worker crash or an unavailable Core binding cannot
+lose the lifecycle work. Auth attempts Core
+(`ProfileLifecycleEntrypoint.reconcileDeletedAgentProfile`) immediately and its
+existing 15-minute scheduled handler retries due items with bounded backoff.
+Clients must not own cross-domain deletion consequences.
 
-The fan-out resolves the affected Spaces from the `space_index_memberships`
-projection (Space-truth membership, including owner-added members — the
-auth-owned join history does not cover that path), removes the member from
-each Space DO, disables the primary Binding, and posts a system notice in each
-affected Space so the removal is visible instead of silent. The projection is
-still a projection, so fan-out coverage stays best-effort by design.
+Core asks RuntimeCoordinator to stop every matching accepted, waiting, or
+in-flight Wake, disables the exact owner/Profile primary Binding, resolves the
+affected Spaces from the `space_index_memberships` projection (Space-truth
+membership, including owner-added members), removes the member from each Space
+DO, and posts a system notice so the removal is visible instead of silent. Its
+response reports `complete: true` only when cancellation, Binding cleanup,
+Space discovery, bounded pagination, and every attempted Space consequence are
+confirmed. Missing storage, a partial cancellation, a truncated discovery page,
+or a failed Space call keeps the Auth outbox item. The migration also seeds the
+outbox from any enabled Binding whose Agent Profile was already missing, so the
+durable path repairs pre-existing deletion residue instead of protecting only
+future deletes.
 
 `openmeld_profile_space_history` is a visit/recency record for the start surface,
 not membership truth: it has no rows for owner-added members who never opened

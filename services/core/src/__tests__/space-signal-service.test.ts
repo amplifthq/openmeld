@@ -811,10 +811,36 @@ function createWakeProgressSourceSignal(input: {
   };
 }
 
+type ActiveWakeProgressMemberRow = {
+  added_at: number;
+  added_by_display_name_snapshot: string | null;
+  added_by_owner_user_id: string | null;
+  added_by_profile_id: string | null;
+  controller_ref_snapshot: string | null;
+  created_at: number;
+  first_entered_at: number | null;
+  last_entered_at: number | null;
+  member_source: string;
+  owner_name_snapshot: string | null;
+  owner_user_id_snapshot: string | null;
+  profile_id: string;
+  profile_kind_snapshot: string;
+  profile_name_snapshot: string;
+  removal_reason: string | null;
+  removed_at: number | null;
+  removed_by_owner_user_id: string | null;
+  removed_by_profile_id: string | null;
+  space_id: string;
+  status: string;
+  updated_at: number;
+};
+
 function createActiveWakeProgressSql(input: {
+  memberRows?: readonly ActiveWakeProgressMemberRow[];
   outboxRows: readonly ReturnType<typeof createWakeProgressOutboxRecord>[];
   sourceSignals?: readonly Extract<SignalEnvelope, { type: "signal.text" }>[];
 }): SqlStorage {
+  const memberRows = input.memberRows ?? [];
   const { outboxRows } = input;
   const sourceSignals = input.sourceSignals ?? [];
   const sqlExec = vi.fn((query: string, ...params: unknown[]) => {
@@ -840,7 +866,12 @@ function createActiveWakeProgressSql(input: {
       };
     }
     if (query.includes("FROM space_members")) {
-      return { toArray: () => [] };
+      return {
+        toArray: () =>
+          query.includes("WHERE status = ?")
+            ? memberRows.filter((row) => row.status === String(params[0]))
+            : memberRows,
+      };
     }
     if (query.includes("FROM space_signals")) {
       if (query.includes("WHERE id = ?")) {
@@ -1165,6 +1196,7 @@ async function readActiveWakeProgressForTest(input: {
   includeTiming?: boolean;
   includeWakeStopEligibility?: boolean;
   lookupRows?: readonly WakeProgressExecutionRow[];
+  memberRows?: readonly ActiveWakeProgressMemberRow[];
   outboxRows: readonly ReturnType<typeof createWakeProgressOutboxRecord>[];
   readSpaceWakeProgress?: (input: {
     clientMessageId?: string | null;
@@ -1218,6 +1250,7 @@ async function readActiveWakeProgressForTest(input: {
       value: {
         storage: {
           sql: createActiveWakeProgressSql({
+            memberRows: input.memberRows,
             outboxRows: input.outboxRows,
             sourceSignals: input.sourceSignals,
           }),
@@ -4651,6 +4684,57 @@ describe("space signal service", () => {
         startedAtMs: Date.UTC(2026, 2, 4, 0, 1, 0),
         targetProfileId: "agent-summary-1",
         terminal: false,
+      }),
+    ]);
+  });
+
+  it("keeps a removed Agent Profile's frozen name on its still-active Wake", async () => {
+    const targetProfileId = "agt_418831cf-a76d-4073-b606-de76b2f315ce";
+    const response = await readActiveWakeProgressForTest({
+      executionRows: [
+        {
+          createdAtMs: Date.UTC(2026, 7, 25, 9, 42, 22),
+          dispatchId: "dispatch-deleted-agent-1",
+          executionStatus: "running",
+          sourceClientMessageId: "client-message-deleted-agent-1",
+          sourceEventId: "signal-deleted-agent-1",
+          targetProfileId,
+          updatedAtMs: Date.UTC(2026, 7, 25, 15, 25, 3),
+        },
+      ],
+      memberRows: [
+        {
+          added_at: Date.UTC(2026, 7, 24, 0, 0, 0),
+          added_by_display_name_snapshot: "Jiaqi",
+          added_by_owner_user_id: "owner-jiaqi",
+          added_by_profile_id: "human-jiaqi",
+          controller_ref_snapshot: "builtin:codex",
+          created_at: Date.UTC(2026, 7, 24, 0, 0, 0),
+          first_entered_at: null,
+          last_entered_at: null,
+          member_source: "joined_directly",
+          owner_name_snapshot: "Jiaqi",
+          owner_user_id_snapshot: "owner-jiaqi",
+          profile_id: targetProfileId,
+          profile_kind_snapshot: "agent",
+          profile_name_snapshot: "Clico Codex",
+          removal_reason: "profile_deleted",
+          removed_at: Date.UTC(2026, 7, 25, 13, 35, 58),
+          removed_by_owner_user_id: "owner-jiaqi",
+          removed_by_profile_id: "human-jiaqi",
+          space_id: "space-1",
+          status: "removed",
+          updated_at: Date.UTC(2026, 7, 25, 13, 35, 58),
+        },
+      ],
+      outboxRows: [],
+    });
+
+    expect(response.items).toEqual([
+      expect.objectContaining({
+        message: "@Clico Codex is working on this computer...",
+        targetLabel: "@Clico Codex",
+        targetProfileId,
       }),
     ]);
   });
