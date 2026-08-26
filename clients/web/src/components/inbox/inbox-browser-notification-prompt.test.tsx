@@ -74,6 +74,9 @@ describe("InboxBrowserNotificationPrompt", () => {
 					name: "Stay on top of important work",
 				})
 			).toBeNull();
+			expect(
+				document.querySelector('[data-slot="alert-dialog-portal"]')
+			).toBeNull();
 		});
 		expect(
 			window.localStorage.getItem(
