@@ -299,9 +299,10 @@ function isChatGptBundledCodex(commandPath: string): boolean {
 function resolveCodexControlProbeTimeoutMs(
   timeoutMs: number | null | undefined
 ): number {
-  return typeof timeoutMs === "number"
-    ? timeoutMs
-    : CODEX_CONTROL_PROBE_TIMEOUT_MS;
+  if (typeof timeoutMs === "number") {
+    return timeoutMs;
+  }
+  return resolveCodexTimeoutMs() ?? CODEX_CONTROL_PROBE_TIMEOUT_MS;
 }
 
 function toErrorMessage(error: unknown): string {

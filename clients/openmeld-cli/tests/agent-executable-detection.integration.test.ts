@@ -93,7 +93,7 @@ describe("built-in agent executable detection", () => {
         await writeExecutableCommand({
           binDir,
           commandName: TEST_CODEX_COMMAND,
-          script: "#!/bin/sh\nsleep 2\n",
+          script: unresponsiveCodexSource(),
         });
 
         const startedAt = Date.now();
@@ -196,6 +196,16 @@ function fakeCodexSource(version: string): string {
     '    index = buffer.indexOf("\\n");',
     "  }",
     "});",
+    "",
+  ].join("\n");
+}
+
+function unresponsiveCodexSource(): string {
+  return [
+    `#!${process.execPath}`,
+    'if (process.argv[2] === "--version") { console.log("codex-cli 1.0.0"); process.exit(0); }',
+    "process.stdin.resume();",
+    "setInterval(() => undefined, 1_000);",
     "",
   ].join("\n");
 }
