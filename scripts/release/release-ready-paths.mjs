@@ -56,11 +56,7 @@ export function isSkillsReleasePath(path) {
 
 export function isServiceReleasePath(path) {
   const normalized = normalizeRepoPath(path);
-  if (
-    ENGINEERING_ONLY_SCHEMA_PATH_PREFIXES.some((prefix) =>
-      normalized.startsWith(prefix)
-    )
-  ) {
+  if (isEngineeringOnlySchemaPath(normalized)) {
     return false;
   }
   return (
@@ -71,6 +67,13 @@ export function isServiceReleasePath(path) {
     SERVICE_RELEASE_PATH_PREFIXES.some((prefix) =>
       normalized.startsWith(prefix)
     )
+  );
+}
+
+export function isEngineeringOnlySchemaPath(path) {
+  const normalized = normalizeRepoPath(path);
+  return ENGINEERING_ONLY_SCHEMA_PATH_PREFIXES.some((prefix) =>
+    normalized.startsWith(prefix)
   );
 }
 

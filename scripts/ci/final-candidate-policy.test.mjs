@@ -99,6 +99,33 @@ test("adds integration, database, and deferred release gates for a shared schema
   ]);
 });
 
+test("keeps engineering-only schemas out of product integration and release gates", () => {
+  const plan = createPlan([
+    "packages/schemas/src/schemas/ci/final-candidate.ts",
+    "packages/schemas/src/schemas/release/production-scope-lease.ts",
+  ]);
+
+  assert.deepEqual(checkIds(plan), [
+    "diff-integrity",
+    "repository-contracts",
+    "affected-checks-and-unit-tests",
+  ]);
+  assert.ok(!plan.riskTags.includes("cross-boundary"));
+  assert.ok(!plan.riskTags.includes("local-components"));
+});
+
+test("a mixed engineering and runtime schema diff keeps integration and release gates", () => {
+  const plan = createPlan([
+    "packages/schemas/src/schemas/ci/final-candidate.ts",
+    "packages/schemas/src/schemas/runtime/agent-task-coordination.ts",
+  ]);
+
+  assert.ok(checkIds(plan).includes("affected-integration-tests"));
+  assert.ok(checkIds(plan).includes("local-components-release-ready"));
+  assert.ok(plan.riskTags.includes("cross-boundary"));
+  assert.ok(plan.riskTags.includes("local-components"));
+});
+
 test("uses strict release-ready verification only on an exact versioned release branch", () => {
   const plan = createPlan(
     ["clients/openmeld-cli/package.json", "release/local-components.json"],

@@ -1,5 +1,8 @@
 import { finalCandidateEvidenceSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
-import { isReleaseReadyPath } from "../release/release-ready-paths.mjs";
+import {
+  isEngineeringOnlySchemaPath,
+  isReleaseReadyPath,
+} from "../release/release-ready-paths.mjs";
 
 export const FINAL_CANDIDATE_LABELS = Object.freeze({
   full: "final-candidate-full",
@@ -468,7 +471,10 @@ function isRepositoryControlPath(path) {
 }
 
 function isBoundaryPath(path) {
-  return BOUNDARY_PREFIXES.some((prefix) => path.startsWith(prefix));
+  return (
+    !isEngineeringOnlySchemaPath(path) &&
+    BOUNDARY_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
 }
 
 function isDatabasePath(path) {
