@@ -223,6 +223,29 @@ export function buildAnchoredSpaceOutcomeNoticesBySourceSignalId(
 	return noticesBySourceSignalId;
 }
 
+export function resolveSpaceConversationFocusSignalId(input: {
+	signalId?: string;
+	timelineItems: readonly SpaceTimelineItem[];
+}): string | undefined {
+	if (!input.signalId) {
+		return undefined;
+	}
+
+	const targetItem = input.timelineItems.find(
+		(item) => item.id === input.signalId
+	);
+	if (!targetItem) {
+		return input.signalId;
+	}
+
+	return (
+		resolveAnchoredOutcomeNoticeSourceSignalId({
+			item: targetItem,
+			loadedSignalIds: new Set(input.timelineItems.map((item) => item.id)),
+		}) ?? input.signalId
+	);
+}
+
 function resolveAnchoredOutcomeNoticeSourceSignalId(input: {
 	item: SpaceTimelineItem;
 	loadedSignalIds: ReadonlySet<string>;

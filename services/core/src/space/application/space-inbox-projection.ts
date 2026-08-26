@@ -88,7 +88,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
       normalizeText(input.threadRootAuthorUserId) === recipientUserId;
     candidates.push(
       inboxSourceCandidateSchema.parse({
-        attention: isTerminalWakeFailure ? "action_required" : "update",
+        attention: "update",
         contextLabel: spaceLabel,
         importance: isTerminalWakeFailure ? "urgent" : "normal",
         kind,

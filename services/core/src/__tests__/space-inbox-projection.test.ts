@@ -218,7 +218,7 @@ describe("Space Inbox projection", () => {
     ).toBeNull();
   });
 
-  it("delivers a terminal Wake failure as urgent action only to the exact requester", () => {
+  it("delivers a terminal Wake failure as an urgent update only to the exact requester", () => {
     const signal = systemNoticeSignal({
       noticeType: "terminal_failure",
       text: "The Wake could not finish.",
@@ -237,7 +237,7 @@ describe("Space Inbox projection", () => {
 
     expect(record?.candidates).toEqual([
       expect.objectContaining({
-        attention: "action_required",
+        attention: "update",
         importance: "urgent",
         kind: "wake_outcome",
         preview: "The Wake could not finish.",
@@ -421,6 +421,59 @@ describe("Space Inbox projection", () => {
     expect(
       statements.some((statement) => statement.includes("status = 'completed'"))
     ).toBe(true);
+  });
+
+  it("normalizes a legacy terminal-failure action from the durable outbox before delivery", async () => {
+    const record: SpaceInboxProjectionOutboxRecord = {
+      attemptCount: 0,
+      candidates: [
+        {
+          ...candidate("user-1"),
+          attention: "action_required",
+          importance: "urgent",
+          kind: "wake_outcome",
+        },
+      ],
+      completedAtMs: null,
+      createdAtMs: 1000,
+      lastErrorCode: null,
+      nextRetryAtMs: null,
+      projectionId: "signal-1",
+      signalId: "signal-1",
+      spaceId: "space-1",
+      status: "pending",
+      updatedAtMs: 1000,
+    };
+    const sql = {
+      exec() {
+        return { rowsWritten: 1, toArray: () => [] };
+      },
+    } as unknown as SqlStorage;
+    const ensureItem = vi.fn().mockResolvedValue({
+      deliveryId: "delivery-1",
+      itemId: "item-1",
+    });
+
+    await expect(
+      attemptSpaceInboxProjectionOutboxRecord({
+        db: {} as D1Database,
+        ensureItem,
+        isRecipientEligible: vi.fn().mockResolvedValue(true),
+        nowMs: 2000,
+        record,
+        sql,
+      })
+    ).resolves.toMatchObject({ status: "completed" });
+
+    expect(ensureItem).toHaveBeenCalledWith({
+      candidate: expect.objectContaining({
+        attention: "update",
+        importance: "urgent",
+        kind: "wake_outcome",
+      }),
+      db: {},
+      nowMs: 2000,
+    });
   });
 
   it("normalizes an eligible Center Agent reply before writing the Inbox item", async () => {

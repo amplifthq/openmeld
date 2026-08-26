@@ -63,6 +63,7 @@ import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity"
 import {
 	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
 	buildSpaceConversationEntries,
+	resolveSpaceConversationFocusSignalId,
 	type SpaceConversationBubbleRun,
 	type SpaceConversationEntry,
 } from "#/lib/spaces/presentation";
@@ -801,11 +802,15 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		input.isLoadingEarlierHistory,
 		input.onLoadEarlierHistory,
 	]);
-	const initialMainFocusSignalId = resolveInitialMainFocusSignalId({
+	const requestedInitialMainFocusSignalId = resolveInitialMainFocusSignalId({
 		ephemeralActivityItems: input.ephemeralActivityItems,
 		initialFocusInteractionId: input.initialFocusInteractionId,
 		initialFocusSignalId: input.initialFocusSignalId,
 		presentedWakeProgressItems: input.presentedWakeProgressItems,
+	});
+	const initialMainFocusSignalId = resolveSpaceConversationFocusSignalId({
+		signalId: requestedInitialMainFocusSignalId,
+		timelineItems: mainTimelineItems,
 	});
 	const initialFocusThread = input.initialFocusThreadRootSignalId
 		? threadsByRootSignalId.get(input.initialFocusThreadRootSignalId)

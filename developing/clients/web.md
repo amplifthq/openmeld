@@ -578,6 +578,12 @@ Core item by ID, places it in the canonical **All** view when it is outside the
 currently loaded list, focuses it, and marks it read once. It never searches a
 bounded number of list pages or treats list depth as item availability.
 
+When a Space terminal-failure Signal is visually anchored under its Wake source
+message, `focusSignalId` resolves that presentation anchor and focuses the source
+message row that contains the failure outcome. Web must not report the loaded
+failure Signal as an unavailable linked message merely because it is suppressed
+from the duplicate root timeline position.
+
 Unread treatment includes a text or semantic marker and must not rely on color
 alone. Urgent and action-required semantics remain separate in copy and icons.
 A resolved action remains in **Updates** as history but does not keep the active
