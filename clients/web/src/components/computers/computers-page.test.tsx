@@ -893,14 +893,14 @@ describe("ComputersPage", () => {
 			"computer-picker-card-device-current"
 		);
 		const setupLabel = within(currentComputerCard).getByText(
-			"Local agents need repair"
+			"Local agents need setup"
 		);
-		expect(setupLabel.className).toContain("text-destructive");
+		expect(setupLabel.className).toContain("text-amber");
 		expect(
 			within(currentComputerCard).getByTestId(
 				"computer-status-dot-device-current"
 			).className
-		).toContain("bg-destructive");
+		).toContain("bg-amber");
 		expect(
 			within(currentComputerCard).queryByText(
 				"OpenMeld Service is not connected"
@@ -931,7 +931,7 @@ describe("ComputersPage", () => {
 			within(currentComputerCard).queryByText("Checking local agents")
 		).toBeNull();
 		expect(
-			within(currentComputerCard).queryByText("Local agents need repair")
+			within(currentComputerCard).queryByText("Local agents need setup")
 		).toBeNull();
 		expect(
 			within(currentComputerCard).getByText("Couldn't check").className
