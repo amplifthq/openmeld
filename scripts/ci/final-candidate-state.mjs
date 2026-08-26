@@ -10,12 +10,13 @@ const LINE_SPLIT_PATTERN = /\r?\n/u;
 const gitBinary = process.platform === "win32" ? "git.exe" : "git";
 
 export function resolveCandidateState(input) {
-  fetchCurrentMain();
+  const cwd = input.cwd ?? process.cwd();
+  fetchCurrentMain(cwd);
   const pullRequest = readPullRequest(
     input.repository,
     input.pullRequestNumber
   );
-  const actualHeadSha = resolveCommit("HEAD");
+  const actualHeadSha = resolveCommit("HEAD", cwd);
   const expectedHeadSha = input.expectedHeadSha ?? actualHeadSha;
   const expectedBaseSha = input.expectedBaseSha ?? pullRequest.base.sha;
   if (!EXACT_SHA_PATTERN.test(expectedHeadSha)) {
@@ -28,12 +29,12 @@ export function resolveCandidateState(input) {
       "Final Candidate requires --base to resolve to an exact SHA."
     );
   }
-  resolveCommit(expectedBaseSha);
-  resolveCommit(expectedHeadSha);
+  resolveCommit(expectedBaseSha, cwd);
+  resolveCommit(expectedHeadSha, cwd);
   const ancestry = spawnSync(
     gitBinary,
     ["merge-base", "--is-ancestor", expectedBaseSha, expectedHeadSha],
-    { cwd: process.cwd(), encoding: "utf8" }
+    { cwd, encoding: "utf8" }
   );
   if (!(ancestry.status === 0 || ancestry.status === 1)) {
     throw new Error(
@@ -45,8 +46,8 @@ export function resolveCandidateState(input) {
     snapshot: {
       actualHeadSha,
       baseIsAncestorOfHead: ancestry.status === 0,
-      currentMainSha: resolveCommit("refs/remotes/origin/main"),
-      dirtyPaths: resolveDirtyPaths(),
+      currentMainSha: resolveCommit("refs/remotes/origin/main", cwd),
+      dirtyPaths: resolveDirtyPaths(cwd),
       expectedBaseSha,
       expectedHeadSha,
       pullRequestBaseRef: pullRequest.base.ref,
@@ -54,7 +55,7 @@ export function resolveCandidateState(input) {
       pullRequestDraft: pullRequest.draft,
       pullRequestHeadSha: pullRequest.head.sha,
       pullRequestState: pullRequest.state,
-      treeSha: resolveObject(`${expectedHeadSha}^{tree}`),
+      treeSha: resolveObject(`${expectedHeadSha}^{tree}`, cwd),
     },
   };
 }
@@ -152,52 +153,52 @@ export function resolveRepository(requestedRepository) {
   return repository;
 }
 
-export function resolveCommit(value) {
+export function resolveCommit(value, cwd = process.cwd()) {
   return execFileSync(
     gitBinary,
     ["rev-parse", "--verify", `${value}^{commit}`],
-    { cwd: process.cwd(), encoding: "utf8" }
+    { cwd, encoding: "utf8" }
   ).trim();
 }
 
-export function resolveObject(value) {
+export function resolveObject(value, cwd = process.cwd()) {
   return execFileSync(gitBinary, ["rev-parse", "--verify", value], {
-    cwd: process.cwd(),
+    cwd,
     encoding: "utf8",
   }).trim();
 }
 
-export function resolveBranchName() {
+export function resolveBranchName(cwd = process.cwd()) {
   const result = spawnSync(gitBinary, ["symbolic-ref", "--short", "HEAD"], {
-    cwd: process.cwd(),
+    cwd,
     encoding: "utf8",
   });
   return result.status === 0 ? result.stdout.trim() : "detached-head";
 }
 
-export function resolveChangedPaths(baseSha, headSha) {
+export function resolveChangedPaths(baseSha, headSha, cwd = process.cwd()) {
   return execFileSync(
     gitBinary,
     ["diff", "--name-only", "--no-renames", `${baseSha}...${headSha}`, "--"],
-    { cwd: process.cwd(), encoding: "utf8" }
+    { cwd, encoding: "utf8" }
   )
     .split(LINE_SPLIT_PATTERN)
     .filter(Boolean)
     .toSorted();
 }
 
-export function resolveDirtyPaths() {
+export function resolveDirtyPaths(cwd = process.cwd()) {
   return execFileSync(
     gitBinary,
     ["status", "--porcelain=v1", "--untracked-files=all"],
-    { cwd: process.cwd(), encoding: "utf8" }
+    { cwd, encoding: "utf8" }
   )
     .split(LINE_SPLIT_PATTERN)
     .filter(Boolean)
     .map((line) => line.slice(3));
 }
 
-function fetchCurrentMain() {
+function fetchCurrentMain(cwd) {
   const result = spawnSync(
     gitBinary,
     [
@@ -206,7 +207,7 @@ function fetchCurrentMain() {
       "origin",
       "refs/heads/main:refs/remotes/origin/main",
     ],
-    { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
   );
   if (result.status !== 0) {
     throw new Error(

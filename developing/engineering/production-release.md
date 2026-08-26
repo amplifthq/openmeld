@@ -336,7 +336,19 @@ pnpm release:lease recover -- \
 ```
 
 Recovery and release use `force-with-lease`; a stale process cannot delete a
-newer owner's lease. A malformed lease fails closed for explicit inspection.
+newer owner's lease. Recovery atomically writes a durable record under
+`refs/heads/openmeld-production-lease-recoveries/<scope>/<lease-sha>` before the
+active ref disappears. Inspect that cross-machine record later with:
+
+```sh
+pnpm release:lease inspect-recovery -- \
+  --scope web \
+  --lease-sha <recovered-lease-sha>
+```
+
+The record preserves the previous owner, source, start, expiry, recovery
+reason, recovery actor, recovery time, and exact recovery commit. A malformed
+lease or recovery record fails closed for explicit inspection.
 
 Use the verify-only command when you need a complete scoped go/no-go result or
 handoff before deployment. The later deploy intentionally does not repeat it:
@@ -543,9 +555,9 @@ workflow-wide concurrency that serializes the whole fleet.
 
 The system does not automatically coalesce queued same-scope releases because
 it cannot infer whether an intermediate migration, receiver-first stage, or
-immutable publication is required. An agent may cancel only a not-yet-started
-run after proving that a later queued SHA safely supersedes it and recording
-that decision. Never cancel a running production job.
+immutable publication is required. A not-yet-started run may be canceled only
+when recorded evidence proves that a later queued SHA safely supersedes it.
+Never cancel a running production job.
 
 ## Production Database Release
 

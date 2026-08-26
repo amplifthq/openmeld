@@ -2,6 +2,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -905,6 +906,18 @@ export function executeWithProductionScopeLeases(input) {
   return executionResult;
 }
 
+export function resolveLocalReleaseOwner(input = {}) {
+  const user = String(input.user ?? process.env.USER ?? "unknown").trim();
+  const hostname = String(input.hostname ?? os.hostname()).trim();
+  const pid = Number(input.pid ?? process.pid);
+  if (!(user && hostname && Number.isInteger(pid) && pid > 0)) {
+    throw new Error(
+      "Local production release owner requires a user, hostname, and positive process id."
+    );
+  }
+  return `local:${user}@${hostname}:${String(pid)}`;
+}
+
 export function assertProductionReleaseSource(input) {
   return requireMainlineReleaseSha({
     cwd: input.cwd,
@@ -1077,7 +1090,7 @@ function main(argv) {
         afterStep: () => assertSourceStillMatches(plan.sourceSha),
         steps: plan.deploySteps,
       }),
-    owner: `local:${process.env.USER ?? "unknown"}:${String(process.pid)}`,
+    owner: resolveLocalReleaseOwner(),
     scopes: plan.scopes,
     sourceSha: plan.sourceSha,
   });

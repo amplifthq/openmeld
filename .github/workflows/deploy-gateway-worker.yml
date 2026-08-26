@@ -1,24 +1,10 @@
 name: 🚪 Deploy Gateway Worker
-run-name: Deploy Gateway Worker @ ${{ inputs.release_sha || github.sha }}
+run-name: Deploy Gateway Worker @ ${{ inputs.release_sha }}
 
 permissions:
   contents: write
 
 on:
-  workflow_dispatch:
-    inputs:
-      deploy_environment:
-        description: "Deployment environment"
-        required: true
-        type: choice
-        default: production
-        options:
-          - production
-      release_sha:
-        description: "Optional exact main commit to deploy"
-        required: false
-        type: string
-        default: ""
   workflow_call:
     inputs:
       deploy_environment:
@@ -28,13 +14,40 @@ on:
         default: production
       release_sha:
         description: "Exact main commit to deploy"
-        required: false
+        required: true
         type: string
-        default: ""
 
 jobs:
+  validate_release_source:
+    name: Validate Immutable Main Release Source
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted current main validation code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Require production target and main first-parent release SHA
+        shell: bash
+        env:
+          DEPLOY_ENVIRONMENT: ${{ inputs.deploy_environment }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_ENVIRONMENT" != "production" ]; then
+            echo "::error::Unsupported deploy environment. Only production is allowed."
+            exit 1
+          fi
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          node scripts/release/require-mainline-release-sha.mjs \
+            "$RELEASE_SHA" refs/remotes/origin/main
+
   deploy:
     name: 🚪 Deploy Gateway Worker
+    needs: validate_release_source
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
@@ -45,24 +58,11 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
-      - name: Validate production target
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${{ inputs.deploy_environment || 'production' }}" != "production" ]; then
-            echo "::error::Unsupported deploy environment. Only production is allowed."
-            exit 1
-          fi
-          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
-            echo "::error::Production deploys must run from main. Current ref: ${GITHUB_REF}"
-            exit 1
-          fi
-
       - name: Checkout release commit
         uses: actions/checkout@v5
         with:
           fetch-depth: 2
-          ref: ${{ inputs.release_sha || github.sha }}
+          ref: ${{ inputs.release_sha }}
 
       - name: Setup repository toolchain
         uses: ./.github/actions/setup-node-pnpm
@@ -74,7 +74,7 @@ jobs:
           operation: acquire
           owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           scope: gateway
-          source_sha: ${{ inputs.release_sha || github.sha }}
+          source_sha: ${{ inputs.release_sha }}
 
       - name: Run Gateway Worker deployment preflight
         run: pnpm run release:preflight:local -- --scope gateway --base HEAD

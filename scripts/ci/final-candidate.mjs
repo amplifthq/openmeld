@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import {
   appendWorkflowSummary,
@@ -37,6 +38,11 @@ import {
 } from "./final-candidate-state.mjs";
 
 const pnpmBinary = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const TRUSTED_REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  ".."
+);
 
 function run() {
   const [command = "help", ...args] = process.argv.slice(2);
@@ -61,13 +67,17 @@ function run() {
 }
 
 function runPlan(options) {
-  const headSha = resolveCommit(options.head ?? "HEAD");
-  const baseSha = resolveCommit(options.base ?? "origin/main");
-  const treeSha = resolveObject(`${headSha}^{tree}`);
-  const branchName = options.branch ?? resolveBranchName();
-  const dirtyPaths = resolveDirtyPaths();
+  const candidateRoot = path.resolve(options.candidateRoot ?? process.cwd());
+  const headSha = resolveCommit(options.head ?? "HEAD", candidateRoot);
+  const baseSha = resolveCommit(options.base ?? "origin/main", candidateRoot);
+  const treeSha = resolveObject(`${headSha}^{tree}`, candidateRoot);
+  const branchName = options.branch ?? resolveBranchName(candidateRoot);
+  const dirtyPaths = resolveDirtyPaths(candidateRoot);
   const changedPaths = [
-    ...new Set([...resolveChangedPaths(baseSha, headSha), ...dirtyPaths]),
+    ...new Set([
+      ...resolveChangedPaths(baseSha, headSha, candidateRoot),
+      ...dirtyPaths,
+    ]),
   ].toSorted();
   const plan = createFinalCandidatePlan({
     baseSha,
@@ -75,6 +85,8 @@ function runPlan(options) {
     changedPaths,
     confidence: options.confidence,
     headSha,
+    mode: options.mode,
+    planSourceSha: options.planSourceSha,
     treeSha,
   });
   printPlan(plan, dirtyPaths);
@@ -83,7 +95,9 @@ function runPlan(options) {
 function requestRemoteCandidate(options) {
   const pullRequestNumber = requirePullRequestNumber(options.pr);
   const repository = resolveRepository(options.repository);
+  const candidateRoot = path.resolve(options.candidateRoot ?? process.cwd());
   const state = resolveCandidateState({
+    cwd: candidateRoot,
     expectedBaseSha: options.base,
     expectedHeadSha: options.head,
     pullRequestNumber,
@@ -95,10 +109,13 @@ function requestRemoteCandidate(options) {
     branchName: options.branch ?? state.pullRequest.head.ref,
     changedPaths: resolveChangedPaths(
       state.snapshot.expectedBaseSha,
-      state.snapshot.expectedHeadSha
+      state.snapshot.expectedHeadSha,
+      candidateRoot
     ),
     confidence: options.confidence,
     headSha: state.snapshot.expectedHeadSha,
+    mode: "local",
+    planSourceSha: state.snapshot.expectedHeadSha,
     treeSha: state.snapshot.treeSha,
   });
   printPlan(plan, []);
@@ -164,8 +181,7 @@ function runCandidate(options) {
   );
   evidence.publicationErrors = [...context.publicationErrors];
   writeEvidence(evidencePath, evidence);
-  const initialSummary = renderEvidenceSummary(evidence, evidencePath);
-  publishFinalEvidence(context, evidence, initialSummary);
+  publishFinalEvidence(context, evidence, evidencePath);
 
   evidence.publicationErrors = [...context.publicationErrors];
   writeEvidence(evidencePath, evidence);
@@ -188,6 +204,7 @@ function createRunContext(options) {
     );
   }
   return {
+    candidateRoot: path.resolve(options.candidateRoot ?? process.cwd()),
     mode,
     options,
     execution: null,
@@ -199,11 +216,13 @@ function createRunContext(options) {
     startedAt: new Date(),
     state: null,
     targetUrl: null,
+    trustedRoot: TRUSTED_REPO_ROOT,
   };
 }
 
 function prepareCandidateRun(context) {
   context.state = resolveCandidateState({
+    cwd: context.candidateRoot,
     expectedBaseSha: context.options.base,
     expectedHeadSha: context.options.head,
     pullRequestNumber: context.pullRequestNumber,
@@ -215,10 +234,17 @@ function prepareCandidateRun(context) {
     branchName: context.options.branch ?? context.state.pullRequest.head.ref,
     changedPaths: resolveChangedPaths(
       context.state.snapshot.expectedBaseSha,
-      context.state.snapshot.expectedHeadSha
+      context.state.snapshot.expectedHeadSha,
+      context.candidateRoot
     ),
     confidence: context.options.confidence,
     headSha: context.state.snapshot.expectedHeadSha,
+    mode: context.mode,
+    planSourceSha:
+      context.options.planSourceSha ??
+      (context.mode === "remote"
+        ? context.state.snapshot.expectedBaseSha
+        : context.state.snapshot.expectedHeadSha),
     treeSha: context.state.snapshot.treeSha,
   });
   printPlan(context.plan, []);
@@ -249,7 +275,8 @@ function publishPendingEvidence(context) {
 function executePreparedCandidate(context) {
   const execution = executeCandidateChecks(context.plan.selectedChecks, {
     now: () => Date.now(),
-    runCommand: runCandidateCommand,
+    runCommand: (command, selectedCheck) =>
+      runCandidateCommand(command, selectedCheck, context),
   });
   context.execution = execution;
   if (execution.conclusion !== "success") {
@@ -260,6 +287,7 @@ function executePreparedCandidate(context) {
   }
 
   const finalState = resolveCandidateState({
+    cwd: context.candidateRoot,
     expectedBaseSha: context.plan.baseSha,
     expectedHeadSha: context.plan.headSha,
     pullRequestNumber: context.pullRequestNumber,
@@ -277,6 +305,8 @@ function executePreparedCandidate(context) {
     execution,
     finishedAt: new Date(),
     mode: context.mode,
+    planSourceSha:
+      context.plan?.planSourceSha ?? context.options.planSourceSha ?? null,
     plan: context.plan,
     pullRequest: context.state.pullRequest,
     repository: context.repository,
@@ -307,6 +337,8 @@ function createFailureEvidence(context, error) {
     headSha:
       context.state?.snapshot.expectedHeadSha ?? context.options.head ?? null,
     mode: context.mode,
+    planSourceSha:
+      context.plan?.planSourceSha ?? context.options.planSourceSha ?? null,
     publicationErrors: [...context.publicationErrors],
     pullRequestNumber: context.pullRequestNumber,
     pullRequestUrl: context.state?.pullRequest.html_url ?? null,
@@ -321,22 +353,11 @@ function createFailureEvidence(context, error) {
   };
 }
 
-function publishFinalEvidence(context, evidence, summary) {
+function publishFinalEvidence(context, evidence, evidencePath) {
   if (!context.publishStatus) {
     return;
   }
-  if (context.mode === "local") {
-    try {
-      const comment = publishPullRequestComment({
-        body: summary,
-        pullRequestNumber: context.pullRequestNumber,
-        repository: context.repository,
-      });
-      context.targetUrl = comment.html_url;
-    } catch (error) {
-      recordPublicationError(context, "pull-request-comment", error);
-    }
-  }
+  let finalStatusPublished = false;
   try {
     publishCommitStatus({
       description: describeFinalStatus(evidence, context.publicationErrors),
@@ -349,8 +370,37 @@ function publishFinalEvidence(context, evidence, summary) {
           : "failure",
       targetUrl: context.targetUrl,
     });
+    finalStatusPublished = true;
   } catch (error) {
     recordPublicationError(context, "final-status", error);
+  }
+  evidence.publicationErrors = [...context.publicationErrors];
+
+  if (context.mode !== "local") {
+    return;
+  }
+  try {
+    publishPullRequestComment({
+      body: renderEvidenceSummary(evidence, evidencePath),
+      pullRequestNumber: context.pullRequestNumber,
+      repository: context.repository,
+    });
+  } catch (error) {
+    recordPublicationError(context, "pull-request-comment", error);
+    evidence.publicationErrors = [...context.publicationErrors];
+    if (finalStatusPublished) {
+      try {
+        publishCommitStatus({
+          description: describeFinalStatus(evidence, context.publicationErrors),
+          headSha: evidence.headSha,
+          repository: context.repository,
+          state: "failure",
+          targetUrl: context.targetUrl,
+        });
+      } catch (statusError) {
+        recordPublicationError(context, "final-status", statusError);
+      }
+    }
   }
 }
 
@@ -372,6 +422,7 @@ function createEvidence(input) {
     finishedAt: input.finishedAt.toISOString(),
     headSha: input.plan.headSha,
     mode: input.mode,
+    planSourceSha: input.plan.planSourceSha,
     publicationErrors: [],
     pullRequestNumber: input.pullRequest.number,
     pullRequestUrl: input.pullRequest.html_url,
@@ -386,9 +437,23 @@ function createEvidence(input) {
   };
 }
 
-function runCandidateCommand(command) {
-  process.stdout.write(`\n$ ${formatCommand(command)}\n`);
-  const [binary, ...args] = command;
+function runCandidateCommand(command, selectedCheck, context) {
+  const executionCommand =
+    selectedCheck.id === "trusted-control-entrypoints"
+      ? [
+          process.execPath,
+          path.join(
+            context.trustedRoot,
+            "scripts/ci/verify-trusted-candidate-entrypoints.mjs"
+          ),
+          "--trusted-root",
+          context.trustedRoot,
+          "--candidate-root",
+          context.candidateRoot,
+        ]
+      : command;
+  process.stdout.write(`\n$ ${formatCommand(executionCommand)}\n`);
+  const [binary, ...args] = executionCommand;
   const resolvedBinary = binary === "pnpm" ? pnpmBinary : binary;
   const commandEnvironment = { ...process.env };
   for (const credentialName of [
@@ -399,7 +464,10 @@ function runCandidateCommand(command) {
     delete commandEnvironment[credentialName];
   }
   const result = spawnSync(resolvedBinary, args, {
-    cwd: process.cwd(),
+    cwd:
+      selectedCheck.id === "trusted-control-entrypoints"
+        ? context.trustedRoot
+        : context.candidateRoot,
     encoding: "utf8",
     env: commandEnvironment,
     maxBuffer: 1024 * 1024 * 20,
@@ -453,11 +521,13 @@ function parseOptions(args) {
     }
     index += 1;
     const optionName = {
+      candidate_root: "candidateRoot",
       evidence: "evidence",
       base: "base",
       branch: "branch",
       head: "head",
       mode: "mode",
+      plan_source: "planSourceSha",
       pr: "pr",
       repo: "repository",
       repository: "repository",

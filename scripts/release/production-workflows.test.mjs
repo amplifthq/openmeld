@@ -19,7 +19,7 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const readRepoFile = (relativePath) =>
   readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
-const RELEASE_SHA_CHECKOUT = `ref: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sha || github.sha }}`;
+const RELEASE_SHA_CHECKOUT = `ref: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
 const PINNED_SCOPED_RELEASE_SHA = `${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
 const SCOPED_RELEASE_SHA_INPUT =
   /release_sha:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/u;
@@ -628,6 +628,32 @@ test("pins every component deploy to one SHA, runs preflight, and checks health"
   }
 });
 
+test("component workflows reject side-branch release sources before production code or secrets", () => {
+  for (const [, workflowPath] of COMPONENT_WORKFLOWS) {
+    const source = readRepoFile(workflowPath);
+    const validationJob = source
+      .split("\n  validate_release_source:")[1]
+      ?.split("\n  deploy:")[0];
+    const deployJob = source.split("\n  deploy:")[1];
+
+    assert.ok(!source.includes("workflow_dispatch:"), workflowPath);
+    assert.match(source, SCOPED_RELEASE_SHA_INPUT, workflowPath);
+    assert.ok(validationJob?.includes("permissions:\n      contents: read"));
+    assert.ok(validationJob?.includes("ref: main"));
+    assert.ok(
+      validationJob?.includes("require-mainline-release-sha.mjs"),
+      workflowPath
+    );
+    assert.ok(!validationJob?.includes("environment: production"));
+    assert.ok(!validationJob?.includes("secrets."));
+    assert.ok(!validationJob?.includes(RELEASE_SHA_CHECKOUT));
+    assert.ok(deployJob?.includes("needs: validate_release_source"));
+    assert.ok(deployJob?.includes("environment: production"));
+    assert.ok(deployJob?.includes(RELEASE_SHA_CHECKOUT));
+    assert.ok(!source.includes("inputs.release_sha || github.sha"));
+  }
+});
+
 test("shows the exact release SHA in recoverable workflow run titles", () => {
   const scopedRelease = readRepoFile(".github/workflows/release-on-main.yml");
   assert.ok(
@@ -638,8 +664,7 @@ test("shows the exact release SHA in recoverable workflow run titles", () => {
   for (const [, workflowPath] of COMPONENT_WORKFLOWS) {
     const source = readRepoFile(workflowPath);
     assert.ok(
-      source.includes("run-name:") &&
-        source.includes("inputs.release_sha || github.sha"),
+      source.includes("run-name:") && source.includes("inputs.release_sha"),
       `${workflowPath} must expose its exact release SHA`
     );
   }

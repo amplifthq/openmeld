@@ -187,7 +187,7 @@ test("keeps the Remote Agent release check on the repository-pinned formatter", 
 
 test("gives every Web release build an explicit CI heap budget", () => {
   const source = readRepoFile(".github/workflows/deploy-web.yml");
-  const jobStart = source.indexOf("jobs:\n  deploy:");
+  const jobStart = source.indexOf("\n  deploy:");
   const stepsStart = source.indexOf("    steps:", jobStart);
 
   assert.notEqual(jobStart, -1, "missing Web deploy job");

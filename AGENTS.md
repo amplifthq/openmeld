@@ -78,7 +78,7 @@ Use these owner documents:
 | Desktop GUI thin local control surface, tray/status/setup, GUI-to-CLI contract, desktop release component | `developing/clients/desktop.md` |
 | Desktop preview download page, R2 artifact binding, and production Web download/update routes | `developing/clients/desktop.md`, `developing/clients/web.md`, `developing/engineering/development-workflow.md` |
 | CLI binary release, R2 manifest, Web download route, and setup `dist=` distribution switch | `developing/engineering/cli-binary-release.md`, `developing/clients/cli.md`, `developing/clients/web.md` |
-| Agent-native development, Final Candidate validation, Actions-unavailable fallback, independent agent review, merge, release concurrency, health, smoke, evidence, and failure recovery | `developing/engineering/agent-native-delivery.md` |
+| Agent-native development, Final Candidate validation, Actions-unavailable fallback, optional review support, merge, release concurrency, health, smoke, evidence, and failure recovery | `developing/engineering/agent-native-delivery.md` |
 | Production release lane selection, scoped local/GitHub deploys, D1 production sequencing, CLI rollout choice, health checks, and release reporting | `developing/engineering/production-release.md` |
 | OpenMeld Changelog authoring, publication, historical backfill, generated projections, and GitHub release-note handoff | `developing/engineering/changelog.md`, then `.agents/skills/openmeld-changelog/SKILL.md` |
 | Environment variables, Doppler local development, secret ownership, contributor onboarding, and production secret readiness | `developing/engineering/environment-and-secrets.md` |

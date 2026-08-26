@@ -1,6 +1,6 @@
 import * as z from "zod/v4";
 
-export const FINAL_CANDIDATE_EVIDENCE_VERSION = 1 as const;
+export const FINAL_CANDIDATE_EVIDENCE_VERSION = 2 as const;
 export const FINAL_CANDIDATE_CONFIDENCE_VALUES = ["standard", "full"] as const;
 
 const exactGitShaSchema = z.string().regex(/^[0-9a-f]{40}$/u);
@@ -52,6 +52,7 @@ export const finalCandidateEvidenceSchema = z
     finishedAt: z.iso.datetime(),
     headSha: nullableExactGitShaSchema,
     mode: z.enum(["local", "remote"]),
+    planSourceSha: nullableExactGitShaSchema,
     publicationErrors: z.array(finalCandidatePublicationErrorSchema).max(10),
     pullRequestNumber: z.number().int().positive(),
     pullRequestUrl: z.url().nullable(),
@@ -74,6 +75,7 @@ export const finalCandidateEvidenceSchema = z
     for (const [field, value] of [
       ["baseSha", evidence.baseSha],
       ["headSha", evidence.headSha],
+      ["planSourceSha", evidence.planSourceSha],
       ["treeSha", evidence.treeSha],
     ] as const) {
       if (!value) {
@@ -98,6 +100,48 @@ export const finalCandidateEvidenceSchema = z
         message:
           "Successful Final Candidate evidence cannot contain a failed check.",
         path: ["results"],
+      });
+    }
+    if (evidence.selectedChecks.length === 0) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Successful Final Candidate evidence requires at least one selected check.",
+        path: ["selectedChecks"],
+      });
+    }
+    if (evidence.results.length !== evidence.selectedChecks.length) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Successful Final Candidate evidence requires one result for every selected check.",
+        path: ["results"],
+      });
+    }
+    for (const [index, selectedCheck] of evidence.selectedChecks.entries()) {
+      const result = evidence.results[index];
+      if (
+        !result ||
+        result.id !== selectedCheck.id ||
+        result.reason !== selectedCheck.reason ||
+        JSON.stringify(result.command) !== JSON.stringify(selectedCheck.command)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Successful Final Candidate evidence results must exactly match the selected plan in order.",
+          path: ["results", index],
+        });
+      }
+    }
+    const expectedPlanSource =
+      evidence.mode === "remote" ? evidence.baseSha : evidence.headSha;
+    if (evidence.planSourceSha !== expectedPlanSource) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Successful Final Candidate evidence must identify the code that owned its plan.",
+        path: ["planSourceSha"],
       });
     }
   });

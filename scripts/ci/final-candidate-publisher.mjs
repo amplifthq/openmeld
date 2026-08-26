@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync } from "node:fs";
+import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
@@ -12,12 +13,14 @@ import {
 } from "./final-candidate-output.mjs";
 import {
   assertCandidateSnapshot,
+  createFinalCandidatePlan,
   evidenceMatchesCandidate,
   FINAL_CANDIDATE_STATUS_CONTEXT,
 } from "./final-candidate-policy.mjs";
 import {
   publishCommitStatus,
   resolveCandidateState,
+  resolveChangedPaths,
 } from "./final-candidate-state.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
@@ -35,6 +38,8 @@ function run() {
   const candidateJobResult = requireJobResult(options.jobResult);
   const confidence = requireConfidence(options.confidence);
   const targetUrl = requireTargetUrl(options.targetUrl);
+  const candidateRoot = path.resolve(options.candidateRoot);
+  const branchName = requireBranch(options.branch);
 
   let evidence = null;
   let validationError = null;
@@ -46,6 +51,7 @@ function run() {
     }
     evidence = readEvidence(options.evidence);
     const liveState = resolveCandidateState({
+      cwd: candidateRoot,
       expectedBaseSha: expected.baseSha,
       expectedHeadSha: expected.headSha,
       pullRequestNumber,
@@ -57,6 +63,20 @@ function run() {
         `Candidate tree drifted: expected ${expected.treeSha}, found ${liveState.snapshot.treeSha}.`
       );
     }
+    const trustedPlan = createFinalCandidatePlan({
+      baseSha: expected.baseSha,
+      branchName,
+      changedPaths: resolveChangedPaths(
+        expected.baseSha,
+        expected.headSha,
+        candidateRoot
+      ),
+      confidence,
+      headSha: expected.headSha,
+      mode: "remote",
+      planSourceSha: expected.baseSha,
+      treeSha: expected.treeSha,
+    });
     assertEvidenceMatchesExecution({
       candidateJobResult,
       confidence,
@@ -64,6 +84,7 @@ function run() {
       expected,
       pullRequestNumber,
       repository,
+      trustedPlan,
     });
   } catch (error) {
     validationError = error instanceof Error ? error : new Error(String(error));
@@ -95,7 +116,7 @@ function run() {
   }
 }
 
-function assertEvidenceMatchesExecution(input) {
+export function assertEvidenceMatchesExecution(input) {
   const parsed = finalCandidateEvidenceSchema.parse(input.evidence);
   if (input.candidateJobResult !== "success") {
     throw new Error(
@@ -117,6 +138,27 @@ function assertEvidenceMatchesExecution(input) {
     parsed.pullRequestNumber !== input.pullRequestNumber
   ) {
     throw new Error("Candidate evidence belongs to another repository or PR.");
+  }
+  for (const field of [
+    "branchName",
+    "changedPaths",
+    "planSourceSha",
+    "riskTags",
+    "selectedChecks",
+    "skippedChecks",
+  ]) {
+    if (
+      JSON.stringify(parsed[field]) !== JSON.stringify(input.trustedPlan[field])
+    ) {
+      throw new Error(
+        `Candidate evidence ${field} does not match the plan recomputed by trusted current main.`
+      );
+    }
+  }
+  if (parsed.results.length !== input.trustedPlan.selectedChecks.length) {
+    throw new Error(
+      "Candidate evidence omitted one or more checks from the trusted current-main plan."
+    );
   }
   if (!evidenceMatchesCandidate(parsed, input.expected)) {
     throw new Error(
@@ -157,6 +199,8 @@ function parseOptions(args) {
     const name = option.slice(2).replaceAll("-", "_");
     const key = {
       base: "base",
+      branch: "branch",
+      candidate_root: "candidateRoot",
       confidence: "confidence",
       evidence: "evidence",
       head: "head",
@@ -173,6 +217,8 @@ function parseOptions(args) {
   }
   for (const required of [
     "base",
+    "branch",
+    "candidateRoot",
     "confidence",
     "evidence",
     "head",
@@ -209,6 +255,14 @@ function requireRepository(value) {
     throw new Error("Final Candidate publisher requires owner/repository.");
   }
   return value;
+}
+
+function requireBranch(value) {
+  const branch = String(value ?? "").trim();
+  if (!(branch && branch.length <= 1024)) {
+    throw new Error("Final Candidate publisher requires the candidate branch.");
+  }
+  return branch;
 }
 
 function requireJobResult(value) {

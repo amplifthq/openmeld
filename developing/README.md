@@ -141,7 +141,7 @@ This directory is the durable context layer. Use these entrypoints:
   readiness boundaries
 - `developing/engineering/agent-native-delivery.md`: the single contract for
   autonomous development, Final Candidate validation, no-Actions fallback,
-  independent agent review, merge, scoped release, health, smoke, evidence,
+  optional review support, merge, scoped release, health, smoke, evidence,
   and recovery
 - `developing/engineering/`: development workflow and validation boundaries
 

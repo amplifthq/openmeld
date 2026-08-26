@@ -923,6 +923,16 @@ test("classifies release-sensitive paths narrowly", () => {
     true
   );
   assert.equal(
+    isServiceReleasePath("packages/schemas/src/schemas/ci/final-candidate.ts"),
+    false
+  );
+  assert.equal(
+    isServiceReleasePath(
+      "packages/schemas/src/schemas/release/production-scope-lease.ts"
+    ),
+    false
+  );
+  assert.equal(
     isServiceReleasePath(
       "clients/openmeld-cli/src/local-service/lifecycle/daemon-service-runtime.ts"
     ),

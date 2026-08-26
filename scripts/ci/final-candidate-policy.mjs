@@ -13,8 +13,26 @@ const SAFE_COMMAND_PART_PATTERN = /^[\w./:=@+-]+$/u;
 const VERSIONED_RELEASE_BRANCH_PATTERN =
   /^codex\/release-\d+\.\d+\.\d+-[0-9a-f]{8,40}$/iu;
 const DOCUMENT_PATH_PATTERN = /(?:^|\/)(?:AGENTS|CLAUDE|README)\.md$|\.md$/u;
-const DELIVERY_INFRASTRUCTURE_PREFIXES = [".github/", ".husky/", "scripts/"];
+const DELIVERY_INFRASTRUCTURE_PREFIXES = [".github/", ".husky/"];
 const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
+  "scripts/ci/check-candidate-code-quality.mjs",
+  "scripts/ci/check-candidate-code-quality.test.mjs",
+  "scripts/ci/fast-pr-test-plan.mjs",
+  "scripts/ci/fast-pr-test-plan.test.mjs",
+  "scripts/ci/final-candidate-output.mjs",
+  "scripts/ci/final-candidate-policy.mjs",
+  "scripts/ci/final-candidate-policy.test.mjs",
+  "scripts/ci/final-candidate-publisher.mjs",
+  "scripts/ci/final-candidate-publisher.test.mjs",
+  "scripts/ci/final-candidate-state.mjs",
+  "scripts/ci/final-candidate-workflow.test.mjs",
+  "scripts/ci/final-candidate.mjs",
+  "scripts/ci/final-candidate.test.mjs",
+  "scripts/ci/verify-trusted-candidate-entrypoints.mjs",
+  "scripts/ci/verify-trusted-candidate-entrypoints.test.mjs",
+]);
+const REPOSITORY_CONTROL_PREFIXES = [".github/", ".husky/", "scripts/"];
+const REPOSITORY_CONTROL_PATHS = new Set([
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
@@ -37,8 +55,12 @@ const check = (id, command, reason) => ({ command, id, reason });
 export function createFinalCandidatePlan(input) {
   const changedPaths = [...new Set(input.changedPaths ?? [])].toSorted();
   const confidence = input.confidence ?? "standard";
+  const mode = input.mode ?? "local";
   if (!(confidence === "standard" || confidence === "full")) {
     throw new Error(`Unknown final-candidate confidence: ${confidence}`);
+  }
+  if (!(mode === "local" || mode === "remote")) {
+    throw new Error(`Unknown final-candidate mode: ${mode}`);
   }
 
   const context = {
@@ -56,7 +78,12 @@ export function createFinalCandidatePlan(input) {
     docsOnly:
       changedPaths.length > 0 && changedPaths.every(isDocumentationPath),
     headSha: input.headSha,
+    mode,
+    planSourceSha:
+      input.planSourceSha ??
+      (mode === "remote" ? input.baseSha : input.headSha),
     releaseReadyPaths: changedPaths.filter(isReleaseReadyPath),
+    repositoryControlChange: changedPaths.some(isRepositoryControlPath),
     strictRelease: isVersionedReleaseBranch(input.branchName),
   };
   const selectedChecks = [
@@ -67,6 +94,16 @@ export function createFinalCandidatePlan(input) {
     ),
   ];
   const skippedChecks = [];
+
+  if (context.mode === "remote") {
+    selectedChecks.push(
+      check(
+        "trusted-control-entrypoints",
+        ["node", "scripts/ci/verify-trusted-candidate-entrypoints.mjs"],
+        "Hosted validation must use unchanged test-control entrypoints from trusted current main."
+      )
+    );
+  }
 
   selectPrimaryChecks(context, selectedChecks, skippedChecks);
   selectIntegrationCheck(context, selectedChecks, skippedChecks);
@@ -89,6 +126,7 @@ export function createFinalCandidatePlan(input) {
     changedPaths,
     confidence,
     headSha: input.headSha,
+    planSourceSha: context.planSourceSha,
     releaseReadyPaths: context.releaseReadyPaths,
     riskTags: resolveRiskTags(context),
     selectedChecks,
@@ -124,7 +162,7 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
     return;
   }
 
-  if (context.deliveryInfrastructureChange) {
+  if (context.repositoryControlChange) {
     selectedChecks.push(
       check(
         "repository-code-quality",
@@ -142,7 +180,7 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
     check(
       "repository-contracts",
       ["pnpm", "run", "verify:pre-push:checks"],
-      context.deliveryInfrastructureChange
+      context.repositoryControlChange
         ? "CI, release, dependency, or repository control files changed."
         : "Executable source changed, so repository-wide static contracts remain relevant."
     )
@@ -337,7 +375,7 @@ export function executeCandidateChecks(checks, dependencies) {
     const startedAt = dependencies.now();
     let result;
     try {
-      result = dependencies.runCommand(selectedCheck.command);
+      result = dependencies.runCommand(selectedCheck.command, selectedCheck);
     } catch (error) {
       result = {
         spawnError: String(
@@ -419,6 +457,13 @@ function isDeliveryInfrastructurePath(path) {
   return (
     DELIVERY_INFRASTRUCTURE_PATHS.has(path) ||
     DELIVERY_INFRASTRUCTURE_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
+}
+
+function isRepositoryControlPath(path) {
+  return (
+    REPOSITORY_CONTROL_PATHS.has(path) ||
+    REPOSITORY_CONTROL_PREFIXES.some((prefix) => path.startsWith(prefix))
   );
 }
 

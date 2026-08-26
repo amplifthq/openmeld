@@ -149,7 +149,10 @@ test("a package manifest and product mixed diff keeps affected checks and unit t
 });
 
 test("a pure delivery infrastructure diff skips only the empty affected lane", () => {
-  const plan = createPlan(["package.json", "scripts/ci/final-candidate.mjs"]);
+  const plan = createPlan([
+    ".github/workflows/final-candidate.yml",
+    "scripts/ci/final-candidate.mjs",
+  ]);
 
   assert.ok(!checkIds(plan).includes("affected-checks-and-unit-tests"));
   assert.ok(
@@ -157,6 +160,35 @@ test("a pure delivery infrastructure diff skips only the empty affected lane", (
       (entry) => entry.id === "affected-checks-and-unit-tests"
     )
   );
+});
+
+test("a product or operations script keeps affected checks and unit tests", () => {
+  const plan = createPlan(["scripts/ops/rebuild-search-index.mjs"]);
+
+  assert.ok(checkIds(plan).includes("affected-checks-and-unit-tests"));
+  assert.ok(!plan.riskTags.includes("delivery-infrastructure"));
+});
+
+test("a mixed CI and product script diff keeps affected checks and unit tests", () => {
+  const plan = createPlan([
+    ".github/workflows/final-candidate.yml",
+    "scripts/ops/rebuild-search-index.mjs",
+  ]);
+
+  assert.ok(checkIds(plan).includes("affected-checks-and-unit-tests"));
+});
+
+test("a hosted plan adds a trusted current-main entrypoint check", () => {
+  const plan = createPlan(["clients/web/src/app.tsx"], {
+    mode: "remote",
+    planSourceSha: BASE_SHA,
+  });
+
+  assert.deepEqual(checkIds(plan).slice(0, 2), [
+    "diff-integrity",
+    "trusted-control-entrypoints",
+  ]);
+  assert.equal(plan.planSourceSha, BASE_SHA);
 });
 
 test("an explicitly stronger plan replaces affected lanes with full confidence", () => {
@@ -285,14 +317,27 @@ test("evidence is reusable only for the same successful head, base, and tree", (
     finishedAt: "2026-08-26T00:00:01.000Z",
     headSha: HEAD_SHA,
     mode: "local",
+    planSourceSha: HEAD_SHA,
     publicationErrors: [],
     pullRequestNumber: 1,
     pullRequestUrl: "https://github.com/amplifthq/openmeld/pull/1",
     repository: "amplifthq/openmeld",
-    results: [],
+    results: [
+      {
+        command: ["true"],
+        durationMs: 1,
+        exitCode: 0,
+        id: "proof",
+        reason: "proof",
+        spawnError: null,
+        status: "passed",
+        stderrTail: "",
+        stdoutTail: "",
+      },
+    ],
     riskTags: ["executable"],
     schemaVersion: FINAL_CANDIDATE_EVIDENCE_VERSION,
-    selectedChecks: [],
+    selectedChecks: [{ command: ["true"], id: "proof", reason: "proof" }],
     skippedChecks: [],
     startedAt: "2026-08-26T00:00:00.000Z",
     treeSha: TREE_SHA,

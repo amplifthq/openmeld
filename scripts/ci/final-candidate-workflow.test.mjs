@@ -18,6 +18,25 @@ const GITHUB_EXPRESSION_PATTERN = /\$\{\{\s*github\./u;
 const RUN_LINE_PATTERN = /^(\s+)run:\s*(.*)$/u;
 const LEADING_WHITESPACE_PATTERN = /^\s*/u;
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
+const DELIVERY_ROUTER_PATHS = [
+  "AGENTS.md",
+  "developing/README.md",
+  "developing/engineering/agent-native-delivery.md",
+];
+const RETIRED_MANDATORY_REVIEW_LANGUAGE = [
+  /independent agent review/iu,
+  /different coding agent/iu,
+  /review remains required/iu,
+];
+
+test("keeps delivery review support optional and actor-neutral", () => {
+  for (const relativePath of DELIVERY_ROUTER_PATHS) {
+    const source = readRepoFile(relativePath);
+    for (const retiredLanguage of RETIRED_MANDATORY_REVIEW_LANGUAGE) {
+      assert.doesNotMatch(source, retiredLanguage, relativePath);
+    }
+  }
+});
 
 test("keeps every untrusted GitHub expression outside shell run blocks", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
@@ -54,8 +73,21 @@ test("isolates status writers from the candidate command credentials", () => {
   assert.ok(!candidateJob.includes("--publish-status"));
   assert.ok(pendingJob.includes("statuses: write"));
   assert.ok(finalJob.includes("statuses: write"));
-  assert.ok(!pendingJob.includes("pnpm candidate run"));
-  assert.ok(!finalJob.includes("pnpm candidate run"));
+  assert.ok(!workflow.includes("pnpm candidate run"));
+  assert.ok(
+    candidateJob.includes("Checkout trusted runner from the exact current base")
+  );
+  assert.ok(candidateJob.includes("path: candidate"));
+  assert.ok(
+    candidateJob.includes(
+      `ref: ${GITHUB_EXPRESSION_PREFIX} env.CANDIDATE_BASE_SHA }}`
+    )
+  );
+  assert.ok(candidateJob.includes("node scripts/ci/final-candidate.mjs run"));
+  assert.ok(
+    candidateJob.includes('--candidate-root "$GITHUB_WORKSPACE/candidate"')
+  );
+  assert.ok(candidateJob.includes('--plan-source "$CANDIDATE_BASE_SHA"'));
   assert.ok(finalJob.includes("final-candidate-publisher.mjs"));
   assert.ok(
     finalJob.includes("Checkout trusted publisher from the exact current base")
@@ -66,10 +98,19 @@ test("isolates status writers from the candidate command credentials", () => {
     )
   );
   assert.ok(
-    !finalJob.includes(
+    finalJob.includes(
+      "Checkout exact candidate source for trusted plan recomputation"
+    )
+  );
+  assert.ok(
+    finalJob.includes(
       `ref: ${GITHUB_EXPRESSION_PREFIX} env.CANDIDATE_HEAD_SHA }}`
     )
   );
+  assert.ok(
+    finalJob.includes('--candidate-root "$GITHUB_WORKSPACE/candidate"')
+  );
+  assert.ok(finalJob.includes('--branch "$CANDIDATE_BRANCH"'));
 });
 
 test("carries hosted standard and full confidence through distinct labels", () => {
@@ -92,6 +133,24 @@ test("carries hosted standard and full confidence through distinct labels", () =
   );
   assert.ok(workflow.includes("confidence_args+=(--full)"));
   assert.ok(workflow.includes('if [ "$CANDIDATE_CONFIDENCE" = "full" ]'));
+});
+
+test("does not execute a candidate-owned runner or package candidate script", () => {
+  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const candidateJob = readJob(workflow, "candidate", "publish_final");
+
+  assert.ok(
+    candidateJob.includes(
+      `ref: ${GITHUB_EXPRESSION_PREFIX} env.CANDIDATE_BASE_SHA }}`
+    )
+  );
+  assert.ok(candidateJob.includes("path: candidate"));
+  assert.ok(!candidateJob.includes("pnpm --dir candidate candidate"));
+  assert.ok(!candidateJob.includes("candidate/scripts/ci/final-candidate.mjs"));
+  assert.ok(
+    candidateJob.indexOf("node scripts/ci/final-candidate.mjs run") >
+      candidateJob.indexOf("Checkout exact untrusted candidate source")
+  );
 });
 
 test("parses the captured GitHub PR fixture through the vendor boundary contract", () => {

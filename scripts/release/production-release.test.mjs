@@ -17,6 +17,7 @@ import {
   expandRequestedReleaseScopes,
   parseProductionReleaseArgs,
   resolveAutomaticReleaseScopes,
+  resolveLocalReleaseOwner,
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
@@ -53,6 +54,17 @@ test("parses the local production release command", () => {
       json: false,
       scope: "web,core",
     }
+  );
+});
+
+test("identifies a local release owner across computers", () => {
+  assert.equal(
+    resolveLocalReleaseOwner({
+      hostname: "build-mac-07.local",
+      pid: 4242,
+      user: "agent-a",
+    }),
+    "local:agent-a@build-mac-07.local:4242"
   );
 });
 

@@ -27,6 +27,10 @@ const SERVICE_RELEASE_PATH_PREFIXES = [
   "packages/schemas/tests/daemon/",
   "runtime/local-service/src/",
 ];
+const ENGINEERING_ONLY_SCHEMA_PATH_PREFIXES = [
+  "packages/schemas/src/schemas/ci/",
+  "packages/schemas/src/schemas/release/",
+];
 const SERVICE_RELEASE_PATHS = new Set([
   "clients/openmeld-cli/src/commands/service.ts",
   "clients/openmeld-cli/src/system/current-daemon-version.ts",
@@ -52,6 +56,13 @@ export function isSkillsReleasePath(path) {
 
 export function isServiceReleasePath(path) {
   const normalized = normalizeRepoPath(path);
+  if (
+    ENGINEERING_ONLY_SCHEMA_PATH_PREFIXES.some((prefix) =>
+      normalized.startsWith(prefix)
+    )
+  ) {
+    return false;
+  }
   return (
     SERVICE_RELEASE_PATHS.has(normalized) ||
     EMBEDDED_RELEASE_DATA_PATHS.has(normalized) ||

@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   acquireProductionScopeLease,
   inspectProductionScopeLease,
+  inspectProductionScopeLeaseRecovery,
   recoverExpiredProductionScopeLease,
   releaseProductionScopeLease,
 } from "./production-scope-lease.mjs";
@@ -138,6 +139,23 @@ test("recovers only one explicitly identified expired lease with a reason", () =
     });
 
     assert.equal(recovery.recovered.metadata.owner, "local:expired-agent");
+    const durableRecovery = inspectProductionScopeLeaseRecovery({
+      cwd: fixture.agentA,
+      leaseSha: lease.leaseSha,
+      scope: "core",
+    });
+    assert.equal(durableRecovery.recoveredLeaseSha, lease.leaseSha);
+    assert.equal(
+      durableRecovery.metadata.reason,
+      "The owning process was verified stopped before recovery."
+    );
+    assert.equal(durableRecovery.metadata.recoveredBy.includes(":"), true);
+    assert.equal(
+      durableRecovery.metadata.recoveredLease.owner,
+      "local:expired-agent"
+    );
+    assert.equal(durableRecovery.metadata.recoveredLease.scope, "core");
+    assert.equal(durableRecovery.ref, recovery.recoveryRef);
     assert.equal(
       inspectProductionScopeLease({ cwd: fixture.agentA, scope: "core" }),
       null

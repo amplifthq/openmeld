@@ -22,21 +22,6 @@ export {
   structuredGuidePayloadSchema,
 } from "./agent-view/structured-guide";
 export {
-  FINAL_CANDIDATE_CONFIDENCE_VALUES,
-  FINAL_CANDIDATE_EVIDENCE_VERSION,
-  type FinalCandidateCheck,
-  type FinalCandidateCheckResult,
-  type FinalCandidateEvidence,
-  type FinalCandidatePublicationError,
-  finalCandidateCheckResultSchema,
-  finalCandidateCheckSchema,
-  finalCandidateConfidenceSchema,
-  finalCandidateEvidenceSchema,
-  finalCandidatePublicationErrorSchema,
-  finalCandidateSkippedCheckSchema,
-  githubPullRequestCandidateFactsSchema,
-} from "./ci/final-candidate";
-export {
   type CliVersionVerdict,
   type CliVersionVerdictKind,
   cliVersionVerdictKindSchema,
@@ -2543,14 +2528,6 @@ export {
   TARGET_WAKE_LIFECYCLE_IDENTITY_MODEL_VERSION,
   targetWakeLifecycleIdentitySchema,
 } from "./protocol/target-wake-lifecycle";
-export {
-  PRODUCTION_RELEASE_SCOPE_VALUES,
-  PRODUCTION_SCOPE_LEASE_SCHEMA_VERSION,
-  type ProductionReleaseScope,
-  type ProductionScopeLease,
-  productionReleaseScopeSchema,
-  productionScopeLeaseSchema,
-} from "./release/production-scope-lease";
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,
   agentControllerInterfaceAuthSnapshotSchema,

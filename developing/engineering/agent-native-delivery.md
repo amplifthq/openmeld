@@ -27,7 +27,8 @@ code-reading gate:
 develop locally
   -> inspect the exact candidate plan
   -> run one explicit Final Candidate gate
-  -> independent agent review of code plus evidence
+  -> inspect code and evidence as the task requires
+  -> evaluate merge readiness
   -> merge the still-current candidate
   -> release only affected production scopes
   -> component health
@@ -45,7 +46,7 @@ development push, and Actions quota is not delivery authority.
 1. Ordinary branch pushes do not run remote CI and do not repeat broad local
    validation. Agents may push intermediate commits freely.
 2. A Final Candidate is explicit. Request it only after the agent believes one
-   committed PR head is ready for independent review and merge.
+   committed PR head is ready for final merge evaluation.
 3. Candidate evidence identifies one exact `head SHA + base SHA + tree SHA`.
    Any change to one of those facts invalidates the evidence.
 4. Current `main` must equal the recorded base and must be an ancestor of the
@@ -91,8 +92,8 @@ contract for JSON evidence and the GitHub PR facts it consumes. Producers,
 artifact consumers, local comments, and the hosted publisher runtime-parse that
 contract. Reuse is allowed only when candidate validation succeeded,
 publication has no recorded failure, and all three identity fields still match.
-A reviewer must reject evidence for another SHA, another base, another tree, an
-unresolved candidate, a dirty worktree, or incomplete shared publication.
+Evidence is invalid for another SHA, another base, another tree, an unresolved
+candidate, a dirty worktree, or incomplete shared publication.
 
 The shared required status context is:
 
@@ -108,6 +109,10 @@ comment carries the inspectable evidence.
 
 Use focused tests while developing. Choose them as an engineer based on the
 behavior being changed; do not wait for GitHub to tell you what to run.
+The responsible agent decides how to structure its local development loop,
+focused tests, self-review, and any external review the task calls for. CI/CD
+does not prescribe those development choices; Final Candidate states only the
+technical facts required for one exact merge candidate.
 
 Inspect the candidate policy at any time:
 
@@ -193,10 +198,13 @@ The local lane requires an authenticated `gh` session with permission to read
 the PR, post its evidence comment, and create a commit status. Missing access or
 network evidence fails closed. No GitHub Actions runner is used.
 
-## Independent Agent Review And Merge
+## Review Support And Merge
 
-Zero human code reading does not mean zero review. A different coding agent
-reviews the exact PR head and must independently inspect:
+Final Candidate evidence supports review without prescribing who performs it.
+The responsible agent may use it for self-review, the user may request a
+separate coding agent, or another authorized review process may consume it.
+CI/CD requires no additional reviewer, reviewer identity, reviewer count, or
+approval record. As the task requires, merge evaluation can inspect:
 
 - the diff and affected owner documents;
 - architectural and contract risk;
@@ -205,9 +213,9 @@ reviews the exact PR head and must independently inspect:
 - whether `main` or the PR head changed after validation;
 - required release scopes and post-release smoke.
 
-The reviewer may run focused commands, `pnpm candidate plan`, `--full`, or Deep
-Confidence. It must not accept a status description without the underlying
-evidence.
+Any authorized reviewer may run focused commands, `pnpm candidate plan`,
+`--full`, or Deep Confidence. A status description without its underlying
+evidence does not prove merge readiness.
 
 Repository protection for `main` must require:
 
@@ -219,7 +227,8 @@ Repository protection for `main` must require:
 Do not pin the required context to the GitHub Actions app because the guarded
 local fallback must be able to satisfy the same status when Actions is
 unavailable. Agents with write access are trusted engineering principals; the
-evidence and independent agent review remain required.
+exact evidence remains required, while review beyond the responsible agent's
+own evaluation is required only when the task explicitly calls for it.
 
 If the repository later enables merge queue, it must first provide an equivalent
 Final Candidate check for the exact merge-group SHA. Until then, the up-to-date
@@ -255,15 +264,15 @@ commands, and recovery mechanics. This document owns the lifecycle contract:
    readiness before dispatch; the publication job still performs its mandatory
    signing, signature verification, notarization, immutable artifact, channel,
    tag, and Core projection gates.
-5. Every release uses an explicit 40-character first-parent `main` SHA and a
-   reviewed scope. Later `main` commits belong to another release.
+5. Every release uses an explicit 40-character first-parent `main` SHA and an
+   explicit selected scope. Later `main` commits belong to another release.
 6. Each production component owns a stable concurrency group with
    `cancel-in-progress: false` and the same Git-backed shared scope lease used
    by local fallback. The atomic remote ref records scope, owner, source SHA,
    start, and expiry. Different component groups may proceed in parallel when
    the release plan proves mixed-version compatibility.
 7. Never cancel a running production deploy to prefer a newer candidate. A
-   not-yet-started same-scope run may be canceled only after the agent proves a
+   not-yet-started same-scope run may be canceled only when evidence proves a
    later queued SHA safely supersedes it, no required intermediate migration or
    receiver-first step is lost, and no immutable publication depends on it.
 8. When Actions is unavailable, use the guarded local release lane from a clean,
@@ -278,11 +287,11 @@ Component automation performs the cheap health check owned by
 `production-release.md`. That proves deployment visibility or reachability for
 the selected component only.
 
-After health passes, the releasing agent runs the smallest user-accessible smoke
-that covers the changed path. Use OpenMeld Web, the published CLI, installed
-OpenMeld Service, or another real product entrypoint. Internal HTTP/RPC calls,
-database edits, worker inspection, or direct projection changes are diagnostics,
-not real-user smoke.
+Release completion evidence includes the smallest user-accessible smoke that
+covers the changed path after health passes. Use OpenMeld Web, the published
+CLI, installed OpenMeld Service, or another real product entrypoint. Internal
+HTTP/RPC calls, database edits, worker inspection, or direct projection changes
+are diagnostics, not real-user smoke.
 
 Record separately:
 

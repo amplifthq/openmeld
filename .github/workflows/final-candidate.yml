@@ -92,14 +92,40 @@ jobs:
       CANDIDATE_PR_NUMBER: ${{ github.event.pull_request.number }}
       CANDIDATE_REPOSITORY: ${{ github.repository }}
     steps:
-      - name: Checkout exact candidate head
+      - name: Checkout trusted runner from the exact current base
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ env.CANDIDATE_BASE_SHA }}
+
+      - name: Checkout exact untrusted candidate source
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: candidate
           ref: ${{ env.CANDIDATE_HEAD_SHA }}
 
-      - name: Setup repository toolchain
-        uses: ./.github/actions/setup-node-pnpm
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            candidate/pnpm-lock.yaml
+
+      - name: Install trusted parser and candidate dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile --filter @openmeld/schemas
+          pnpm --dir candidate install --frozen-lockfile
 
       - name: Validate the exact final candidate without write credentials
         env:
@@ -111,8 +137,10 @@ jobs:
           if [ "$CANDIDATE_CONFIDENCE" = "full" ]; then
             confidence_args+=(--full)
           fi
-          pnpm candidate run -- \
+          node scripts/ci/final-candidate.mjs run \
             --mode remote \
+            --candidate-root "$GITHUB_WORKSPACE/candidate" \
+            --plan-source "$CANDIDATE_BASE_SHA" \
             --repository "$CANDIDATE_REPOSITORY" \
             --pr "$CANDIDATE_PR_NUMBER" \
             --branch "$CANDIDATE_BRANCH" \
@@ -144,6 +172,7 @@ jobs:
       statuses: write
     env:
       CANDIDATE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref }}
       CANDIDATE_CONFIDENCE: ${{ github.event.label.name == 'final-candidate-full' && 'full' || 'standard' }}
       CANDIDATE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       CANDIDATE_JOB_RESULT: ${{ needs.candidate.result }}
@@ -159,6 +188,13 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ env.CANDIDATE_BASE_SHA }}
+
+      - name: Checkout exact candidate source for trusted plan recomputation
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: candidate
+          ref: ${{ env.CANDIDATE_HEAD_SHA }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -190,6 +226,8 @@ jobs:
           node scripts/ci/final-candidate-publisher.mjs \
             --repository "$CANDIDATE_REPOSITORY" \
             --pr "$CANDIDATE_PR_NUMBER" \
+            --branch "$CANDIDATE_BRANCH" \
+            --candidate-root "$GITHUB_WORKSPACE/candidate" \
             --head "$CANDIDATE_HEAD_SHA" \
             --base "$CANDIDATE_BASE_SHA" \
             --tree "$CANDIDATE_TREE_SHA" \

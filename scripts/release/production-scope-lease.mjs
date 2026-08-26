@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 
 import {
   productionReleaseScopeSchema,
+  productionScopeLeaseRecoverySchema,
   productionScopeLeaseSchema,
 } from "../../packages/schemas/src/schemas/release/production-scope-lease.ts";
 
@@ -68,6 +69,15 @@ export function inspectProductionScopeLease(input) {
   return readProductionScopeLease(context);
 }
 
+export function inspectProductionScopeLeaseRecovery(input) {
+  const context = resolveContext(input, {
+    requireOwner: false,
+    requireSource: false,
+  });
+  const leaseSha = requireExactSha("recovered lease", input.leaseSha);
+  return readProductionScopeLeaseRecovery(context, leaseSha);
+}
+
 export function releaseProductionScopeLease(input) {
   const context = resolveContext(input, {
     requireOwner: false,
@@ -119,7 +129,7 @@ export function releaseProductionScopeLease(input) {
 
 export function recoverExpiredProductionScopeLease(input) {
   const context = resolveContext(input, {
-    requireOwner: false,
+    requireOwner: true,
     requireSource: false,
   });
   const expectedLeaseSha = requireExactSha("expected lease", input.leaseSha);
@@ -146,14 +156,20 @@ export function recoverExpiredProductionScopeLease(input) {
       `Production scope lease is still active until ${current.metadata.expiresAt}; recovery is fail-closed.`
     );
   }
+  const recovery = createRecoveryMetadata(context, current, reason);
+  const recoverySha = createRecoveryCommit(context, current, recovery);
+  const recoveryRef = recoveryRefFor(context.scope, expectedLeaseSha);
   const push = runGit(
     context,
     [
       "push",
       "--porcelain",
+      "--atomic",
       `--force-with-lease=${context.ref}:${expectedLeaseSha}`,
+      `--force-with-lease=${recoveryRef}:`,
       context.remote,
       `:${context.ref}`,
+      `${recoverySha}:${recoveryRef}`,
     ],
     { allowFailure: true }
   );
@@ -172,11 +188,14 @@ export function recoverExpiredProductionScopeLease(input) {
       `Previous start: ${current.metadata.startedAt}`,
       `Previous expiry: ${current.metadata.expiresAt}`,
       `Recovery reason: ${reason}`,
+      `Recovered by: ${recovery.recoveredBy}`,
+      `Recovery SHA: ${recoverySha}`,
+      `Recovery ref: ${recoveryRef}`,
       "Next: rerun the guarded production release so it atomically acquires a fresh lease.",
       "",
     ].join("\n")
   );
-  return { reason, recovered: current };
+  return { reason, recovered: current, recovery, recoveryRef, recoverySha };
 }
 
 function resolveContext(input, requirements = {}) {
@@ -243,6 +262,19 @@ function createLeaseMetadata(context) {
   });
 }
 
+function createRecoveryMetadata(context, current, reason) {
+  return productionScopeLeaseRecoverySchema.parse({
+    kind: "openmeld-production-scope-lease-recovery",
+    reason,
+    recoveredAt: context.now.toISOString(),
+    recoveredBy: context.owner,
+    recoveredLease: current.metadata,
+    recoveredLeaseSha: current.leaseSha,
+    recoveryId: randomUUID(),
+    schemaVersion: 1,
+  });
+}
+
 function createLeaseCommit(context, metadata) {
   const result = spawnSync(
     "git",
@@ -269,6 +301,39 @@ function createLeaseCommit(context, metadata) {
     );
   }
   return requireExactSha("created lease", result.stdout.trim());
+}
+
+function createRecoveryCommit(context, current, metadata) {
+  const result = spawnSync(
+    "git",
+    [
+      "commit-tree",
+      `${current.metadata.sourceSha}^{tree}`,
+      "-p",
+      current.leaseSha,
+    ],
+    {
+      cwd: context.cwd,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_DATE: metadata.recoveredAt,
+        GIT_AUTHOR_EMAIL: "production-lease@openmeld.local",
+        GIT_AUTHOR_NAME: "OpenMeld Production Lease Recovery",
+        GIT_COMMITTER_DATE: metadata.recoveredAt,
+        GIT_COMMITTER_EMAIL: "production-lease@openmeld.local",
+        GIT_COMMITTER_NAME: "OpenMeld Production Lease Recovery",
+      },
+      input: `${JSON.stringify(metadata)}\n`,
+      stdio: ["pipe", "pipe", "pipe"],
+    }
+  );
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `Could not create production scope lease recovery commit: ${result.error?.message ?? result.stderr.trim()}`
+    );
+  }
+  return requireExactSha("created recovery", result.stdout.trim());
 }
 
 function readProductionScopeLease(context) {
@@ -320,6 +385,74 @@ function readProductionScopeLease(context) {
   return { leaseSha, metadata: parsed.data, ref: context.ref };
 }
 
+function readProductionScopeLeaseRecovery(context, leaseSha) {
+  const recoveryRef = recoveryRefFor(context.scope, leaseSha);
+  const result = runGit(
+    context,
+    ["ls-remote", "--refs", context.remote, recoveryRef],
+    { allowFailure: true }
+  );
+  if (result.status !== 0) {
+    throw new Error(
+      `Could not read shared production scope lease recovery: ${redactGitOutput(result.stderr)}`
+    );
+  }
+  const line = result.stdout.trim();
+  if (!line) {
+    return null;
+  }
+  const recoverySha = requireExactSha(
+    "remote recovery",
+    line.split(WHITESPACE_PATTERN)[0]
+  );
+  runGit(context, [
+    "fetch",
+    "--quiet",
+    "--no-tags",
+    context.remote,
+    recoveryRef,
+  ]);
+  const parentSha = requireExactSha(
+    "recovered lease parent",
+    runGit(context, ["rev-parse", `${recoverySha}^`]).stdout.trim()
+  );
+  const message = runGit(context, [
+    "show",
+    "-s",
+    "--format=%B",
+    recoverySha,
+  ]).stdout.trim();
+  let decoded;
+  try {
+    decoded = JSON.parse(message);
+  } catch {
+    throw new Error(
+      `Shared production scope lease recovery ${recoverySha} has malformed metadata; fail closed and inspect ${recoveryRef}.`
+    );
+  }
+  const parsed = productionScopeLeaseRecoverySchema.safeParse(decoded);
+  if (
+    !parsed.success ||
+    parsed.data.recoveredLease.scope !== context.scope ||
+    parsed.data.recoveredLeaseSha !== leaseSha ||
+    parentSha !== leaseSha
+  ) {
+    throw new Error(
+      `Shared production scope lease recovery ${recoverySha} violates the canonical metadata contract; fail closed and inspect ${recoveryRef}.`
+    );
+  }
+  return {
+    metadata: parsed.data,
+    recoveredLeaseSha: leaseSha,
+    recoverySha,
+    ref: recoveryRef,
+  };
+}
+
+function recoveryRefFor(scope, leaseSha) {
+  return `refs/heads/openmeld-production-lease-recoveries/${scope}/${leaseSha}`;
+}
+
 function runGit(context, args, options = {}) {
   const result = spawnSync("git", args, {
     cwd: context.cwd,
@@ -365,6 +498,24 @@ function renderLease(state, lease) {
   ].join("\n");
 }
 
+function renderRecovery(recovery) {
+  return [
+    "Production scope lease recovery FOUND",
+    `Scope: ${recovery.metadata.recoveredLease.scope}`,
+    `Recovered lease: ${recovery.recoveredLeaseSha}`,
+    `Previous owner: ${recovery.metadata.recoveredLease.owner}`,
+    `Previous source: ${recovery.metadata.recoveredLease.sourceSha}`,
+    `Previous start: ${recovery.metadata.recoveredLease.startedAt}`,
+    `Previous expiry: ${recovery.metadata.recoveredLease.expiresAt}`,
+    `Recovery reason: ${recovery.metadata.reason}`,
+    `Recovered by: ${recovery.metadata.recoveredBy}`,
+    `Recovered at: ${recovery.metadata.recoveredAt}`,
+    `Recovery SHA: ${recovery.recoverySha}`,
+    `Recovery ref: ${recovery.ref}`,
+    "",
+  ].join("\n");
+}
+
 function printAcquirePlan(context, metadata, leaseSha) {
   process.stdout.write(
     [
@@ -399,9 +550,17 @@ function redactGitOutput(value) {
 
 function parseOptions(argv) {
   const [command, ...args] = argv;
-  if (!new Set(["acquire", "inspect", "recover", "release"]).has(command)) {
+  if (
+    !new Set([
+      "acquire",
+      "inspect",
+      "inspect-recovery",
+      "recover",
+      "release",
+    ]).has(command)
+  ) {
     throw new Error(
-      "Production scope lease command must be acquire, inspect, recover, or release."
+      "Production scope lease command must be acquire, inspect, inspect-recovery, recover, or release."
     );
   }
   const options = { command };
@@ -452,6 +611,15 @@ function main(argv) {
       lease
         ? renderLease("HELD", lease)
         : `Production scope lease is free.\nScope: ${options.scope}\n`
+    );
+    return;
+  }
+  if (options.command === "inspect-recovery") {
+    const recovery = inspectProductionScopeLeaseRecovery(options);
+    process.stdout.write(
+      recovery
+        ? renderRecovery(recovery)
+        : `Production scope lease recovery was not found.\nScope: ${options.scope}\nRecovered lease: ${options.leaseSha}\n`
     );
     return;
   }

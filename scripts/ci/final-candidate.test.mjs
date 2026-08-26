@@ -52,6 +52,7 @@ const CANDIDATE_VALIDATION_FAILURE_PATTERN = /Candidate validation failed/u;
 const EVIDENCE_PUBLICATION_FAILURE_PATTERN = /Evidence publication failed/u;
 const EXIT_CODE_SEVEN_PATTERN = /exit code 7/u;
 const ORIGINAL_SELECTED_CHECK_PATTERN = /original selected-check/u;
+const FINAL_STATUS_OPERATION_PATTERN = /`final-status`/u;
 
 test("the local fallback publishes shared success for one exact candidate", () => {
   const fixture = createCandidateFixture();
@@ -130,7 +131,33 @@ test("publication failures preserve the original check failure and remain blocki
     );
     assert.deepEqual(
       evidence.publicationErrors.map((entry) => entry.operation),
-      ["pending-status", "pull-request-comment", "final-status"]
+      ["pending-status", "final-status", "pull-request-comment"]
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a final-status failure is recorded before the local evidence comment", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const result = runCandidateFixture(fixture, {
+      ghFailureOperations: ["final-status"],
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, EVIDENCE_PUBLICATION_FAILURE_PATTERN);
+    const evidence = JSON.parse(readFileSync(fixture.evidencePath, "utf8"));
+    assert.equal(evidence.conclusion, "success");
+    assert.deepEqual(
+      evidence.publicationErrors.map((entry) => entry.operation),
+      ["final-status"]
+    );
+    const ghLog = readFileSync(fixture.ghLogPath, "utf8");
+    assert.match(ghLog, COMMENT_ENDPOINT_PATTERN);
+    assert.match(ghLog, FINAL_STATUS_OPERATION_PATTERN);
+    assert.ok(
+      ghLog.indexOf("state=success") < ghLog.indexOf("issues/1/comments")
     );
   } finally {
     fixture.cleanup();
@@ -227,7 +254,19 @@ import { appendFileSync, readFileSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(process.env.TEST_GH_LOG, args.join(" ") + "\\n");
 const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
-if (process.env.TEST_GH_PUBLICATION_FAILURE === "1" && (endpoint.includes("/statuses/") || endpoint.endsWith("/comments"))) {
+const operation = endpoint.endsWith("/comments")
+  ? "pull-request-comment"
+  : endpoint.includes("/statuses/") && args.includes("state=pending")
+    ? "pending-status"
+    : endpoint.includes("/statuses/")
+      ? "final-status"
+      : "read";
+const input = args.includes("--input") ? readFileSync(0, "utf8") : "";
+if (input) {
+  appendFileSync(process.env.TEST_GH_LOG, input + "\\n");
+}
+const failedOperations = new Set((process.env.TEST_GH_FAILURE_OPERATIONS ?? "").split(",").filter(Boolean));
+if ((process.env.TEST_GH_PUBLICATION_FAILURE === "1" && (endpoint.includes("/statuses/") || endpoint.endsWith("/comments"))) || failedOperations.has(operation)) {
   process.stderr.write("simulated GitHub publication failure\\n");
   process.exit(17);
 }
@@ -324,6 +363,9 @@ function runCandidateFixture(fixture, options = {}) {
         TEST_BASE_SHA: fixture.baseSha,
         TEST_CANDIDATE_ENV_LOG: fixture.candidateEnvironmentLogPath,
         TEST_GH_PUBLICATION_FAILURE: options.ghPublicationFailure ? "1" : "0",
+        TEST_GH_FAILURE_OPERATIONS: (options.ghFailureOperations ?? []).join(
+          ","
+        ),
         TEST_GH_LOG: fixture.ghLogPath,
         TEST_GITHUB_PULL_REQUEST_FIXTURE: GITHUB_PULL_REQUEST_FIXTURE,
         TEST_HEAD_SHA: fixture.headSha,

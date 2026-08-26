@@ -581,11 +581,20 @@ shaped from runner assumptions.
 
 `packages/schemas/src/schemas/release/production-scope-lease.ts` owns the
 strict metadata stored in the cross-machine Git scope lease. The schema defines
-scope, owner, exact source SHA, start, expiry, and lease identity. It does not
-authorize a release: the guarded release entrypoint still owns source
-validation, scope planning, credentials, deployment, health, and recovery. The
-end-to-end lifecycle and reuse rules remain solely in
+scope, owner, exact source SHA, start, expiry, lease identity, and the durable
+record for an explicit expired-lease recovery. It does not authorize a release:
+the guarded release entrypoint still owns source validation, scope planning,
+credentials, deployment, health, and recovery. The end-to-end lifecycle and
+reuse rules remain solely in
 `developing/engineering/agent-native-delivery.md`.
+
+These two delivery-control schemas are engineering contracts consumed directly
+by repository tooling. They are not exported from the package-wide runtime
+schema index and are not packaged into the CLI or OpenMeld Service. Changes
+under `schemas/ci` or `schemas/release` therefore require their behavior and
+workflow contract tests, but do not by themselves create a local-component
+release. Product-facing and runtime schemas elsewhere in `packages/schemas`
+remain release-sensitive.
 
 ### Prepare Diagnostics Lifecycle Journal Contract
 

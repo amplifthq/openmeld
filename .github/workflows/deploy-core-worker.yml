@@ -1,32 +1,10 @@
 name: ⚙️ Deploy Core Worker
-run-name: Deploy Core Worker @ ${{ inputs.release_sha || github.sha }}
+run-name: Deploy Core Worker @ ${{ inputs.release_sha }}
 
 permissions:
   contents: write
 
 on:
-  workflow_dispatch:
-    inputs:
-      deploy_environment:
-        description: "Deployment environment"
-        required: true
-        type: choice
-        default: production
-        options:
-          - production
-      release_sha:
-        description: "Optional exact main commit to deploy"
-        required: false
-        type: string
-        default: ""
-      deployment_mode:
-        description: "Deploy the checked-in projection or recover the current stable CLI projection"
-        required: true
-        type: choice
-        default: standard
-        options:
-          - standard
-          - current-stable-cli-projection
   workflow_call:
     inputs:
       deploy_environment:
@@ -36,9 +14,8 @@ on:
         default: production
       release_sha:
         description: "Exact main commit to deploy"
-        required: false
+        required: true
         type: string
-        default: ""
       deployment_mode:
         description: "Core deployment mode"
         required: false
@@ -46,8 +23,44 @@ on:
         default: standard
 
 jobs:
+  validate_release_source:
+    name: Validate Immutable Main Release Source
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted current main validation code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Require production target, deployment mode, and main first-parent release SHA
+        shell: bash
+        env:
+          DEPLOY_ENVIRONMENT: ${{ inputs.deploy_environment }}
+          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_ENVIRONMENT" != "production" ]; then
+            echo "::error::Unsupported deploy environment. Only production is allowed."
+            exit 1
+          fi
+          case "$DEPLOYMENT_MODE" in
+            standard|current-stable-cli-projection) ;;
+            *)
+              echo "::error::Unsupported Core deployment mode: $DEPLOYMENT_MODE"
+              exit 1
+              ;;
+          esac
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          node scripts/release/require-mainline-release-sha.mjs \
+            "$RELEASE_SHA" refs/remotes/origin/main
+
   deploy:
     name: ⚙️ Deploy Core Worker
+    needs: validate_release_source
     runs-on: ubuntu-latest
     timeout-minutes: 25
     concurrency:
@@ -58,34 +71,12 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
-      - name: Validate production target
-        shell: bash
-        env:
-          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
-        run: |
-          set -euo pipefail
-          if [ "${{ inputs.deploy_environment || 'production' }}" != "production" ]; then
-            echo "::error::Unsupported deploy environment. Only production is allowed."
-            exit 1
-          fi
-          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
-            echo "::error::Production deploys must run from main. Current ref: ${GITHUB_REF}"
-            exit 1
-          fi
-          case "$DEPLOYMENT_MODE" in
-            standard|current-stable-cli-projection) ;;
-            *)
-              echo "::error::Unsupported Core deployment mode: $DEPLOYMENT_MODE"
-              exit 1
-              ;;
-          esac
-
       - name: Checkout release commit
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: ${{ inputs.release_sha || github.sha }}
+          ref: ${{ inputs.release_sha }}
 
       - name: Setup repository toolchain
         uses: ./.github/actions/setup-node-pnpm
@@ -97,7 +88,7 @@ jobs:
           operation: acquire
           owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           scope: core
-          source_sha: ${{ inputs.release_sha || github.sha }}
+          source_sha: ${{ inputs.release_sha }}
 
       - name: Run Core Worker deployment preflight
         if: inputs.deployment_mode == 'standard'
@@ -122,13 +113,13 @@ jobs:
         if: inputs.deployment_mode == 'standard'
         run: >-
           node scripts/release/deploy-core-worker.mjs
-          --release-sha "${{ inputs.release_sha || github.sha }}"
+          --release-sha "${{ inputs.release_sha }}"
 
       - name: Recover Core with the current stable CLI projection
         if: inputs.deployment_mode == 'current-stable-cli-projection'
         run: >-
           node scripts/release/deploy-core-current-cli-projection.mjs
-          --release-sha "${{ inputs.release_sha || github.sha }}"
+          --release-sha "${{ inputs.release_sha }}"
 
       - name: Verify Core deployment is visible
         run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
@@ -137,7 +128,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: core-bundle-evidence-${{ inputs.release_sha || github.sha }}
+          name: core-bundle-evidence-${{ inputs.release_sha }}
           if-no-files-found: warn
           path: dev-tmp/core-bundle-evidence.json
           retention-days: 30
@@ -146,7 +137,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: core-startup-evidence-${{ inputs.release_sha || github.sha }}
+          name: core-startup-evidence-${{ inputs.release_sha }}
           if-no-files-found: warn
           path: |
             dev-tmp/core-startup-evidence.json
@@ -157,7 +148,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: core-startup-profile-${{ inputs.release_sha || github.sha }}
+          name: core-startup-profile-${{ inputs.release_sha }}
           if-no-files-found: warn
           path: dev-tmp/core-startup.cpuprofile
           retention-days: 14
@@ -166,7 +157,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: core-failed-deploy-startup-profile-${{ inputs.release_sha || github.sha }}
+          name: core-failed-deploy-startup-profile-${{ inputs.release_sha }}
           if-no-files-found: ignore
           path: services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
           retention-days: 14
