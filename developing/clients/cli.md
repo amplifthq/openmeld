@@ -401,6 +401,14 @@ same Binding and Default Project owners, and successful setup updates the same
 remembered creation defaults. The legacy current-computer shortcut remains
 available for backward-compatible local-only creation.
 
+For a self-owned configured Agent, an explicit `--project <project-id>` wins.
+When `--project` is omitted, the CLI reads the current member's saved Default
+Project for the selected Agent Controller from the same Core-owned creation
+defaults used by Web and Center Agent creation. `--no-default-project` is the
+explicit choice to let OpenMeld choose the working folder instead. A
+teammate-owned request does not read the requester's saved Default Project as
+if it belonged to the teammate.
+
 The executor completes new-Session identity creation, exact native Resume, and
 provider-native Fork after Agent Activity and the local Binding path verify the
 selected Session. The CLI must never replace either existing-Session strategy
