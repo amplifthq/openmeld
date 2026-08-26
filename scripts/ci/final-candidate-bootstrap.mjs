@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -89,7 +89,10 @@ function run() {
     ];
     const result = spawnSync(
       process.execPath,
-      [path.join(controlRoot, CONTROL_ENTRYPOINT), ...forwardedArguments],
+      [
+        realpathSync(path.join(controlRoot, CONTROL_ENTRYPOINT)),
+        ...forwardedArguments,
+      ],
       {
         cwd: candidateRoot,
         encoding: "utf8",

@@ -151,7 +151,13 @@ function writeControl(root, marker) {
   mkdirSync(controlDirectory, { recursive: true });
   writeFileSync(
     path.join(controlDirectory, "final-candidate.mjs"),
-    `process.stdout.write(${JSON.stringify(`${marker} `)} + process.argv.slice(2).join(" ") + "\\n");\n`
+    [
+      'import { pathToFileURL } from "node:url";',
+      "if (import.meta.url === pathToFileURL(process.argv[1]).href) {",
+      `  process.stdout.write(${JSON.stringify(`${marker} `)} + process.argv.slice(2).join(" ") + "\\n");`,
+      "}",
+      "",
+    ].join("\n")
   );
 }
 
