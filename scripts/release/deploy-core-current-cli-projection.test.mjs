@@ -242,6 +242,7 @@ test("reads channel truth before running the guarded Core receiver deploy", asyn
     "read-tag-commit",
     "read-tag",
     "Build Core receiver dependencies",
+    "Verify Core Worker bundle module graph",
     `admit-startup:${CORE_RELEASE_SHA}`,
     "Deploy the startup-admitted Core version",
     "Synchronize Core triggers",
