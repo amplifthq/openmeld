@@ -1,3 +1,4 @@
+import { CODEX_UPGRADE_REQUIRED_REASON } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
   resolveDetailedPublicAgentFailureReason,
@@ -75,9 +76,7 @@ describe("agent failure reason", () => {
       resolveDetailedPublicAgentFailureReason(
         'config.invalid: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-5.5\' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}}'
       )
-    ).toBe(
-      "Codex on this device is too old for the current model. Upgrade Codex on this device, then try again."
-    );
+    ).toBe(CODEX_UPGRADE_REQUIRED_REASON);
   });
 
   it("falls back to public error-code mapping when no detailed message exists", () => {
@@ -185,9 +184,7 @@ describe("agent failure reason", () => {
         errorCode: "controller.client.upgrade_required",
         errorMessage: null,
       })
-    ).toBe(
-      "Codex on this device is too old for the current model. Upgrade Codex on this device, then try again."
-    );
+    ).toBe(CODEX_UPGRADE_REQUIRED_REASON);
   });
 
   it("explains organization Wake-access denial precisely instead of falling back to a generic reason", () => {
