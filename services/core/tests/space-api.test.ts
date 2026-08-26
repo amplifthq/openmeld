@@ -12,10 +12,14 @@ import {
   parseEnvelope,
 } from "@openmeld/protocol";
 import {
+  AGENT_REPLY_FINAL_PURPOSE,
   listSignalsQuerySchema,
   MAX_SPACE_NAME_LENGTH,
   postSpaceWakeStopResponseSchema,
+  REMOTE_AGENT_FAILURE_PURPOSE,
   readListSignalsQueryRawValues,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
 } from "@openmeld/schemas/schemas";
 import {
@@ -28,6 +32,7 @@ import { writeDispatchResult } from "../src/dispatch/application/dispatch-result
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   markRemoteAgentNativeDeliveryAck,
+  markRemoteAgentPreAdmissionFailurePublished,
   readRemoteAgentNativeDeliveryBySubmissionId,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
@@ -46,6 +51,7 @@ import {
   createDispatchOutboxRecord,
   insertDispatchOutboxRecord,
   markDispatchOutboxCancelled,
+  markDispatchOutboxHandedOff,
 } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import { Space } from "../src/space/transport/do/space";
 import { waitForJsonMessage } from "./test-support/ws-stream";
@@ -7882,6 +7888,364 @@ describe("OpenMeld Core", () => {
           signal.data.text === "This late reply must not appear."
       )
     ).toBe(false);
+  });
+
+  it("requires Remote Agent authority before persisting and claiming a failure outcome", async () => {
+    const spaceId = await createSpace({
+      name: `rpc-remote-agent-failure-authority-${Date.now()}`,
+    });
+    const sourceResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          type: "signal.text",
+          data: { text: "Please answer this request." },
+        }),
+      }
+    );
+    expect(sourceResponse.status).toBe(200);
+    const sourceSignal = parseEnvelope(await sourceResponse.json());
+    if (!isTextSignalEnvelope(sourceSignal)) {
+      throw new Error("Expected a source text signal");
+    }
+
+    const targetProfileId = "agt_88888888-8888-4888-8888-888888888888";
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const dispatchRecord = await runInDurableObject(
+      stub,
+      (_instance, state) => {
+        const record = createDispatchOutboxRecord({
+          bindingEnabled: true,
+          bindingState: "bound",
+          dispatchPolicy: "mention_only",
+          nowMs: Date.now(),
+          ruleId: "wake_explicit_activation",
+          ruleReason: "Explicit Wake target",
+          ruleSource: "registry",
+          senderProfileId: DEFAULT_HUMAN_PROFILE_ID,
+          sourceEventId: sourceSignal.id,
+          sourceSignalSnapshot: {
+            profileId: DEFAULT_HUMAN_PROFILE_ID,
+            profileKind: "human",
+            text: "Please answer this request.",
+          },
+          spaceId,
+          targetProfileId,
+        });
+        insertDispatchOutboxRecord(state.storage.sql, record);
+        markDispatchOutboxHandedOff(state.storage.sql, {
+          dispatchId: record.dispatchId,
+          handedOffAtMs: Date.now(),
+        });
+        return record;
+      }
+    );
+    const dispatchContext = createRpcContext({
+      requestId: "rpc-remote-agent-failure-authority",
+      profileId: targetProfileId,
+      profileKind: "agent",
+      profileName: "Center Agent",
+      ownerUserId: "remote-agent-owner",
+    });
+    const baseFailureInput = {
+      authoringPolicy: "system_emitted" as const,
+      messageEnvelope: {
+        activationTargets: [],
+        referenceTargets: [],
+        replyToSignalId: sourceSignal.id,
+        text: "Center Agent could not complete this request.",
+      },
+      meta: {
+        clientMessageId: "sub-remote-agent-failure-authority",
+        dispatchId: dispatchRecord.dispatchId,
+        errorCode: "remote_agent.turn_not_completed",
+        purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+        targetProfileId,
+      },
+      profile: {
+        kind: "agent" as const,
+        owner: "remote-agent-owner",
+        profileId: targetProfileId,
+        profileName: "Center Agent",
+      },
+      spaceAccess: createDispatchContinuationSpaceAccessContext({
+        dispatchId: dispatchRecord.dispatchId,
+        requestContext: dispatchContext,
+        sourceSignalId: sourceSignal.id,
+        spaceId,
+        targetProfileId,
+      }),
+      spaceId,
+      text: "Center Agent could not complete this request.",
+    };
+
+    const rejected = await stub.rpcPostSignal(baseFailureInput).then(
+      () => null,
+      (error: unknown) => error
+    );
+    expect(rejected).toBeInstanceOf(Error);
+    expect((rejected as Error).message).toContain("HTTP 403");
+    expect((rejected as Error).message).toContain(
+      '"code":"space.final_outcome_owner_required"'
+    );
+
+    const published = await stub.rpcPostSignal({
+      ...baseFailureInput,
+      finalOutcomeAuthority: "remote_agent_native_delivery",
+    });
+    expect(published).toMatchObject({
+      type: "signal.text",
+      data: {
+        meta: {
+          dispatchId: dispatchRecord.dispatchId,
+          errorCode: "remote_agent.turn_not_completed",
+          purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+          targetProfileId,
+        },
+      },
+    });
+    await expect(
+      stub.rpcReadFinalReplyClaimOutcome({
+        dispatchId: dispatchRecord.dispatchId,
+        profileId: targetProfileId,
+        spaceId,
+      })
+    ).resolves.toEqual({
+      outcome: "failure",
+      signalId: published.id,
+    });
+
+    const lateSuccess = await stub.rpcPostSignal({
+      ...baseFailureInput,
+      finalOutcomeAuthority: "remote_agent_native_delivery",
+      messageEnvelope: {
+        ...baseFailureInput.messageEnvelope,
+        text: "This late success must not replace the failure.",
+      },
+      meta: {
+        clientMessageId: "sub-remote-agent-late-success",
+        dispatchId: dispatchRecord.dispatchId,
+        purpose: AGENT_REPLY_FINAL_PURPOSE,
+        targetProfileId,
+      },
+      text: "This late success must not replace the failure.",
+    });
+    await expect(
+      stub.rpcReadFinalReplyClaimOutcome({
+        dispatchId: dispatchRecord.dispatchId,
+        profileId: targetProfileId,
+        spaceId,
+      })
+    ).resolves.toEqual({
+      outcome: "failure",
+      signalId: published.id,
+    });
+    await expect(
+      stub.rpcListSignals({ context: dispatchContext, spaceId })
+    ).resolves.toMatchObject({
+      signals: expect.not.arrayContaining([
+        expect.objectContaining({ id: lateSuccess.id }),
+      ]),
+    });
+
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        `
+          DELETE FROM space_final_reply_claims
+          WHERE dispatch_id = ?
+            AND profile_id = ?
+        `,
+        dispatchRecord.dispatchId,
+        targetProfileId
+      );
+    });
+    await expect(
+      stub.rpcReadFinalReplyClaimOutcome({
+        dispatchId: dispatchRecord.dispatchId,
+        profileId: targetProfileId,
+        spaceId,
+      })
+    ).resolves.toEqual({ outcome: null, signalId: null });
+
+    const clientMessageId = "client-remote-agent-failure-authority";
+    const attemptId = `attempt-${randomUUID()}`;
+    const nowMs = Date.now();
+    await env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO openMeldDaemon_dispatch_ledger (
+          idempotency_key,
+          dispatch_id,
+          space_id,
+          source_event_id,
+          source_client_message_id,
+          dispatch_owner_kind,
+          dispatch_owner_id,
+          target_profile_id,
+          status,
+          first_seen_at_ms,
+          last_attempt_at_ms,
+          attempt_count,
+          latest_attempt_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    )
+      .bind(
+        dispatchRecord.idempotencyKey,
+        dispatchRecord.dispatchId,
+        spaceId,
+        sourceSignal.id,
+        clientMessageId,
+        "owner_account",
+        "remote-agent-owner",
+        targetProfileId,
+        "failed_terminal",
+        nowMs - 2000,
+        nowMs - 1000,
+        1,
+        attemptId
+      )
+      .run();
+    await env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO openMeldDaemon_dispatch_attempts (
+          attempt_id,
+          dispatch_id,
+          idempotency_key,
+          attempt_no,
+          status,
+          task_id,
+          target_profile_id,
+          created_at_ms,
+          started_at_ms,
+          finished_at_ms,
+          error_code,
+          error_message
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    )
+      .bind(
+        attemptId,
+        dispatchRecord.dispatchId,
+        dispatchRecord.idempotencyKey,
+        1,
+        "failed_terminal",
+        `task-${randomUUID()}`,
+        targetProfileId,
+        nowMs - 2000,
+        nowMs - 1000,
+        nowMs,
+        "remote_agent.turn_not_completed",
+        "Remote Agent turn did not complete."
+      )
+      .run();
+    await upsertRemoteAgentNativeDeliveryRecord({
+      attemptId,
+      bindingId: `binding-${randomUUID()}`,
+      db: env.OPENMELD_DB,
+      dispatchId: dispatchRecord.dispatchId,
+      failureCode: "remote_agent.turn_not_completed",
+      idempotencyKey: dispatchRecord.idempotencyKey,
+      nowMs,
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      profileId: targetProfileId,
+      sourceClientMessageId: clientMessageId,
+      spaceId,
+      status: "failed",
+      triggerMessageId: sourceSignal.id,
+    });
+    await expect(
+      markRemoteAgentPreAdmissionFailurePublished({
+        db: env.OPENMELD_DB,
+        failureCode: "remote_agent.turn_not_completed",
+        idempotencyKey: dispatchRecord.idempotencyKey,
+        nowMs: nowMs + 1,
+        publishedSignalId: published.id,
+      })
+    ).resolves.toMatchObject({ publishedSignalId: published.id });
+
+    const traceResponse = await fetchSpaceDoWithOpenMeldAuth(
+      {
+        path: `/dispatches/${dispatchRecord.dispatchId}/trace`,
+        spaceId,
+      },
+      {
+        headers: {
+          [SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER]: String(
+            SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+          ),
+        },
+      }
+    );
+    expect(traceResponse.status).toBe(200);
+    await expect(traceResponse.json()).resolves.toMatchObject({
+      query: { dispatchId: dispatchRecord.dispatchId, spaceId },
+      trace: {
+        dispatch: { status: "failed_terminal" },
+        finalVisibleMessage: {
+          dispatchId: dispatchRecord.dispatchId,
+          factSource: "space_signal_by_published_signal_id",
+          reasonCode: "remote_agent.turn_not_completed",
+          signalId: published.id,
+          signalType: "signal.text",
+          targetProfileId,
+        },
+        finalVisibleMessageLinkage: {
+          candidateSignalIds: [published.id],
+          claimSignalId: null,
+          selectedSignalId: published.id,
+          sourceFact: "published_signal_candidate",
+          status: "matched_published_signal",
+        },
+        finalVisibleOutcome: {
+          delivered: true,
+          publicationKind: "failure_notice",
+          reasonCode: "remote_agent.turn_not_completed",
+          signalId: published.id,
+          status: "visible_failure",
+        },
+        nativeDelivery: { status: "failed" },
+      },
+    });
+
+    const wakeProgressResponse = await fetchSpaceDoWithOpenMeldAuth({
+      path: `/wake-progress?clientMessageId=${encodeURIComponent(clientMessageId)}&targetProfileId=${encodeURIComponent(targetProfileId)}`,
+      spaceId,
+    });
+    expect(wakeProgressResponse.status).toBe(200);
+    await expect(wakeProgressResponse.json()).resolves.toEqual({
+      query: {
+        clientMessageId,
+        spaceId,
+        targetProfileId,
+      },
+      items: [
+        expect.objectContaining({
+          clientMessageId,
+          dispatchId: dispatchRecord.dispatchId,
+          failureReasonCode: "remote_agent.turn_not_completed",
+          phase: "failed",
+          sourceSignalId: sourceSignal.id,
+          targetProfileId,
+          terminal: true,
+        }),
+      ],
+    });
+
+    const historyResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=20`
+    );
+    expect(historyResponse.status).toBe(200);
+    const history = (await historyResponse.json()) as {
+      signals?: SignalEnvelope[];
+    };
+    expect(
+      history.signals?.filter((signal) => signal.id === published.id)
+    ).toHaveLength(1);
   });
 
   it("returns one signal for concurrent idempotent direct RPC writes", async () => {

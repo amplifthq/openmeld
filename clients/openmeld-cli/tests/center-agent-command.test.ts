@@ -1,4 +1,5 @@
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
+import type { WakeProgressItem } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCenterAgentAsk } from "../src/center-agent/ask-command";
 import {
@@ -167,6 +168,58 @@ describe("center-agent commands", () => {
         pathname: "/v1/organizations/current/center-agent/dm-space",
       })
     );
+  });
+
+  it("returns a terminal Center Agent failure without waiting for the ask timeout", async () => {
+    const calls = mockCenterAgentFetch({
+      wakeProgressItem: {
+        clientMessageId: "client-message-from-request",
+        dispatchId: "dispatch-center-agent-ask-1",
+        failureReasonCode: "remote_agent.turn_not_completed",
+        message: "Center Agent could not complete this request.",
+        phase: "failed",
+        sourceSignalId: "signal-center-agent-ask-1",
+        targetLabel: "Atlas",
+        targetProfileId: CENTER_AGENT_PROFILE_ID,
+        terminal: true,
+        updatedAtMs: 2,
+      },
+    });
+
+    await withTempHome(async () => {
+      await writeSignedInSession();
+
+      const result = await runCommandAndCapture(() =>
+        runCenterAgentAsk({
+          text: "What is 37 plus 58?",
+          timeoutSeconds: 300,
+          view: "agent",
+        })
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(
+        parseJsonLine(result.stdout, "remote_agent.turn_not_completed")?.payload
+      ).toMatchObject({
+        error: {
+          code: "remote_agent.turn_not_completed",
+          message: "Center Agent could not complete this request.",
+        },
+        interaction: {
+          dispatchId: "dispatch-center-agent-ask-1",
+          phase: "failed",
+        },
+        status: "error",
+      });
+    });
+
+    expect(
+      calls.filter(
+        (call) =>
+          call.pathname ===
+          `/v1/spaces/${CENTER_AGENT_DM_SPACE_ID}/wake-progress`
+      )
+    ).toHaveLength(1);
   });
 
   it("targets an explicit Organization without changing the active Organization used by the next request", async () => {
@@ -1217,6 +1270,7 @@ function mockCenterAgentFetch(input?: {
   signalReadError?: Error;
   updateOperatingStateResponse?: Response;
   signalPostErrors?: Error[];
+  wakeProgressItem?: WakeProgressItem;
   wakeProgressError?: Error;
 }): FetchCall[] {
   const calls: FetchCall[] = [];
@@ -1507,7 +1561,7 @@ function mockCenterAgentFetch(input?: {
         const clientMessageId = parsedUrl.searchParams.get("clientMessageId");
         return jsonResponse({
           items: [
-            {
+            input?.wakeProgressItem ?? {
               clientMessageId,
               dispatchId: "dispatch-center-agent-ask-1",
               failureReasonCode: null,

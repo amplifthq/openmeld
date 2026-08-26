@@ -1,5 +1,8 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
-import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
+import {
+  AGENT_REPLY_FINAL_PURPOSE,
+  REMOTE_AGENT_FAILURE_PURPOSE,
+} from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
   resolveFinalVisibleMessageTraceReadResult,
@@ -56,6 +59,50 @@ describe("dispatch final visible message trace", () => {
       noticeType: "terminal_failure",
       statusType: null,
       createdAt: "2023-11-14T22:13:20.000Z",
+    });
+  });
+
+  it("projects a published Remote Agent failure text as the final visible failure", () => {
+    const signal = {
+      ...BASE_SIGNAL,
+      id: "sig-remote-agent-failure-1",
+      type: "signal.text",
+      profile: {
+        kind: "agent",
+        profileId: TARGET_PROFILE_ID,
+        profileName: "Center Agent",
+      },
+      data: {
+        text: "Center Agent could not complete this request.",
+        meta: {
+          dispatchId: "dispatch-1",
+          errorCode: "remote_agent.turn_not_completed",
+          purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+          targetProfileId: TARGET_PROFILE_ID,
+        },
+      },
+    } satisfies SignalEnvelope;
+
+    const result = resolveFinalVisibleMessageTraceReadResult({
+      dispatchId: "dispatch-1",
+      publishedSignalIdCandidates: [signal.id],
+      readFinalReplyClaimSignalId: () => null,
+      readRawSignalById: (signalId) =>
+        signalId === signal.id ? JSON.stringify(signal) : null,
+      targetProfileId: TARGET_PROFILE_ID,
+    });
+
+    expect(result.finalVisibleMessage).toMatchObject({
+      factSource: "space_signal_by_published_signal_id",
+      signalId: signal.id,
+      signalType: "signal.text",
+      dispatchId: "dispatch-1",
+      targetProfileId: TARGET_PROFILE_ID,
+      reasonCode: "remote_agent.turn_not_completed",
+    });
+    expect(result.finalVisibleMessageLinkage).toMatchObject({
+      status: "matched_published_signal",
+      selectedSignalId: signal.id,
     });
   });
 
