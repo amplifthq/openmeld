@@ -102,7 +102,7 @@ function createFixture(input) {
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
 
-  git(root, "init", "--bare", "--quiet", remotePath);
+  git(root, "init", "--bare", "--quiet", "--initial-branch=main", remotePath);
   git(repositoryPath, "init", "--initial-branch=main", "--quiet");
   git(repositoryPath, "config", "user.email", "bootstrap@test.openmeld.ai");
   git(repositoryPath, "config", "user.name", "OpenMeld Bootstrap Test");
