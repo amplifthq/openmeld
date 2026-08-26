@@ -4,6 +4,7 @@ title: Keep offline and sign-in states quiet on Computers
 kind: improved
 areas: ["computers", "local-agents", "web"]
 audiences: ["members"]
+evidence: ["pr:337"]
 ---
 
 Computer offline, local agent signed out, and local agent setup states no
