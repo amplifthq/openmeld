@@ -4,6 +4,7 @@ title: Match local agent updates to the install you selected
 kind: fixed
 areas: ["cli", "openmeld-service", "computers"]
 audiences: ["members"]
+evidence: ["pr:336"]
 ---
 
 Computers now check each local agent's selected install against that install's
