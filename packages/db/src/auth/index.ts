@@ -49,6 +49,7 @@ export {
   organizationJoinLinks,
   organizationJoinLinksRelations,
 } from "./organization-join-link.schema.ts";
+export { openMeldProfileDeletionOutbox } from "./profile-deletion-outbox.schema.ts";
 export type {
   OpenMeldProfileSpaceCreatorKind,
   OpenMeldProfileSpaceHistoryStatus,

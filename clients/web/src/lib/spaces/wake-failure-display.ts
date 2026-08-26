@@ -8,6 +8,7 @@ export type WakeFailureDisplay =
 	| {
 			actionTarget:
 				| "agents"
+				| "computer"
 				| "cursor_account"
 				| "org_wake_access"
 				| "prepare_setup";

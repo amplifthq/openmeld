@@ -1,3 +1,4 @@
+import { CODEX_UPGRADE_REQUIRED_REASON } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
   buildDispatchingActivityText,
@@ -237,6 +238,23 @@ describe("resolveDispatchFailureHintText", () => {
     ).toBe("@reviewer couldn't finish replying");
   });
 
+  it("explains missing local conversation context without blaming the provider or network", () => {
+    expect(
+      resolveDispatchFailureHintText({
+        errorCode: "context_not_found",
+        targetProfileLabel: 'Agent "reviewer"',
+      })
+    ).toBe(
+      'Agent "reviewer" could not reopen its saved local conversation. This was not a model-provider or network failure. Wake the agent again to start a fresh local conversation.'
+    );
+    expect(
+      resolveDispatchFailureActivityText({
+        errorCode: "context_not_found",
+        targetProfileLabel: "reviewer",
+      })
+    ).toBe("@reviewer couldn't reopen its local conversation");
+  });
+
   it("explains Codex upgrade-required failures in plain language", () => {
     expect(
       resolveDispatchFailureHintText({
@@ -245,9 +263,7 @@ describe("resolveDispatchFailureHintText", () => {
           "controller.client.upgrade_required: The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
         targetProfileLabel: 'Agent "ops-bot"',
       })
-    ).toBe(
-      "Codex on this device is too old for the current model. Upgrade Codex on this device, then try again."
-    );
+    ).toBe(CODEX_UPGRADE_REQUIRED_REASON);
 
     expect(
       resolveDispatchFailureActivityText({

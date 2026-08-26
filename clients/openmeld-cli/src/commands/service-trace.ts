@@ -771,6 +771,16 @@ const TRACE_GUIDANCE_SUPPRESSED_RUNTIME_COORDINATOR_STATUSES = new Set([
   "reply_published",
 ]);
 
+const TRACE_PRE_RESULT_RUNTIME_COORDINATOR_STATUSES = new Set([
+  "created",
+  "delivery_pending",
+  "delivery_accepted",
+  "cancellation_requested",
+  "accepted_local",
+  "running",
+  "completed_local",
+]);
+
 const TRACE_GUIDANCE_SUPPRESSED_HEAD_STATUSES = new Set([
   "accepted",
   "execution_linked",
@@ -2552,6 +2562,25 @@ function buildAgentTraceCompactSummary(input: {
       reasonCode:
         finalVisibleOutcome.publicationErrorCode ??
         finalVisibleOutcome.reasonCode,
+      visibleOutcome: finalVisibleOutcome.status,
+    };
+  }
+
+  const runtimeCoordinatorExecutionStatus =
+    trace.runtimeCoordinatorExecution?.status ?? null;
+  if (
+    finalVisibleOutcome.status === "not_applicable" &&
+    runtimeCoordinatorExecutionStatus &&
+    TRACE_PRE_RESULT_RUNTIME_COORDINATOR_STATUSES.has(
+      runtimeCoordinatorExecutionStatus
+    )
+  ) {
+    return {
+      ...nativeDeliveryEvidence,
+      currentState: runtimeCoordinatorExecutionStatus,
+      delivered: false,
+      nextAction: resolveAgentTraceNextAction(trace),
+      reasonCode: resolveTraceRootCause(trace),
       visibleOutcome: finalVisibleOutcome.status,
     };
   }

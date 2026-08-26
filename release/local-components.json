@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-26T03:40:33.245Z",
+  "updatedAt": "2026-08-26T09:29:22.667Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.108",
+      "packageVersion": "0.3.112",
       "updatePolicy": "available",
-      "reason": "Keep Agent Profile creation choices consistent across Web, Center Agent, and CLI."
+      "reason": "A newer local component is available, but current Wake work can continue."
     },
     "service": {
-      "bundleHash": "502e2878e5778173f1ef3b902ddd62e50b867489b8308d194c0caa3f4c1c7872",
-      "bundleVersion": "0.3.108",
+      "bundleHash": "042d00d162b2868d4856bf162f42770a45abb30a4b0f27798f7dc6057ae20ab8",
+      "bundleVersion": "0.3.112",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Keep Agent Profile creation choices consistent across Web, Center Agent, and CLI."
+      "reason": "A newer local component is available, but current Wake work can continue."
     },
     "skills": {
       "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Keep Agent Profile creation choices consistent across Web, Center Agent, and CLI."
+      "reason": "Keep Space replies working after OpenMeld Service upgrades."
     }
   }
 }

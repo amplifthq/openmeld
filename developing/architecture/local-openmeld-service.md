@@ -49,6 +49,14 @@ the bound `agentControllerConversationId` when present, otherwise the target
 Agent Profile for an unbound first run. Controller counts may still be logged as
 diagnostics, but they are not the scheduling authority.
 
+The service runner owns one local-execution-slot registry for its process
+lifetime and injects that same registry into every replacement Runtime
+Transport socket session. A WebSocket reconnect must not create a second empty
+registry while an earlier socket's provider turn is still running; otherwise a
+new Wake can bypass the local execution lane and collide with the same Agent
+Controller conversation. Process restart may create a new registry because
+RuntimeCoordinator separately reconciles the lost process owner.
+
 It does not own the product outcome by itself. A running service is useful
 evidence, but the product question is whether the intended Agent Profile can
 reply in the intended Space through the intended local execution path.
@@ -185,6 +193,15 @@ ACI-owned local evidence may include:
 - clear local repair guidance when the controller is missing, ambiguous, old, or
   not authenticated
 
+The controller-provided model inventory is compatibility evidence for that exact
+selected installation and authenticated account. ACI preserves its bounded model
+IDs and display names in the cloud projection so owned and team-safe Computer
+reads can prevent a known-incompatible Profile selection. This does not expose
+provider account identity, paths, arguments, commands, skills, or raw diagnostics.
+Missing inventory is unknown evidence, not proof that every catalog model works
+or that none do. Version advisory remains a separate maintenance check; an
+advisory lookup failure must not erase an otherwise proven incompatibility.
+
 The selected launch contract remains the install and update identity. When an
 Agent Controller is bundled inside a host application, ACI must treat that host
 application as the update owner. It must not compare the bundled runtime with a
@@ -276,6 +293,15 @@ turn's `system` field. OpenClaw Gateway supplies them through
 complete prompt because those surfaces do not expose an equivalent supported
 instruction channel.
 
+For a supported controller, the Service may inject an ephemeral first-party
+Space Action tool configuration into the controller process for the active
+dispatch. That configuration is not written into user settings. It exposes only
+the allowed `reply`, `status`, and `stay_silent` operations, forwards the active
+dispatch identity, and fails closed when the action context is absent, expired,
+or mismatched. Fresh and resumed controller conversations use the same tool
+boundary. Controllers without that proven structured-tool surface continue to
+use the exact dispatch-scoped CLI fallback.
+
 Codex resume may use the smaller per-turn input only when the `thread/resume`
 response proves that `thread.threadSource` matches the exact current
 instruction-epoch marker. A legacy thread, an epoch mismatch, or missing source
@@ -295,6 +321,15 @@ window, the adapter starts one fresh thread and delivers the complete current
 instruction plan exactly once. The resulting context delta replaces the
 inaccessible provider conversation transparently; a person must never be asked
 to create a new Task or Space to repair it.
+
+A Codex reply-repair turn uses one ephemeral fork of the canonical controller
+conversation and keeps the canonical conversation id as continuity truth. The
+fork request carries the selected model, controller-native permission policy,
+sandbox, and working directory. The fork response is already a live in-session
+thread; OpenMeld starts the repair turn on that response directly and must not
+send `thread/resume`, because an ephemeral thread intentionally has no durable
+rollout to load. A missing canonical source rollout remains an explicit context
+failure rather than a provider or network failure.
 
 Control-operation deadlines are risk-specific. Metadata-only resume and
 collaboration-mode lookup keep a short bound so inaccessible history rolls over
@@ -1500,7 +1535,10 @@ timestamps. The Service includes this projection in its normal local-component
 capability report; Core, Web, CLI, and Center Agent must read that projection
 instead of inferring progress from connectivity, component versions, or their
 own request lifetime. Local paths, commands, and raw error text remain local.
-Completed operation phases remain visible for at most 24 hours.
+Completed operation phases remain visible for at most 24 hours. Core must omit
+an older `updated` phase when current component evidence already shows another
+actionable update. A completed historical operation must never contradict the
+current update action.
 Because runtime capability payloads are strict, rollout deploys the accepting
 Schemas and Core before publishing a Service that emits `updateOperation`.
 New Core accepts older Services that omit it; rollback removes the new local
@@ -1513,10 +1551,12 @@ becomes the projection owner as soon as the handoff exists. A computer with no
 saved preference enables automatic OpenMeld Tools updates; an invalid preference
 fails closed and reports maintenance attention. Automatic requests obey that
 preference, while an explicit user request still runs when automation is off.
-The published Service checks the cached release channel on a low-frequency
-schedule, resumes a saved attempt immediately after restart, and never waits for
-the downloader when the Service itself must stop. Dev and canary lanes do not
-check or install the published channel.
+The published Service checks the release channel every hour, bypassing the
+normal CLI command cache for this maintenance check. An explicit update request
+also refreshes the release channel before deciding that the computer is current.
+The Service resumes a saved attempt immediately after restart and never waits
+for the downloader when the Service itself must stop. Dev and canary lanes do
+not check or install the published channel.
 
 Web and the Center Agent do not execute update commands. They send one strict
 owner-scoped control request through Core and Runtime Transport to the current

@@ -377,6 +377,11 @@ export type RuntimeCoordinatorRunCommandState = {
   runtimeCoordinatorExecutionId: string;
   sanitizedDeliveryRequest: RuntimeTransportDeliverDispatchRequest;
   sourceClientMessageId: string | null;
+  /**
+   * Optional for command states written before Wake Stop reasons were retained.
+   * This is user-safe Stop context, not the technical terminal reason code.
+   */
+  stopReason?: string | null;
   targetProfileId: string;
   updatedAtMs: number;
 };
@@ -592,6 +597,8 @@ export type RuntimeCoordinatorHeadLifecycleRecord = {
     | "publication_intent_ready"
     | "stopped_before_execution"
     | "waiting";
+  /** User-safe Stop context retained separately from technical reason codes. */
+  stopReason?: string | null;
   targetWakeLifecycleIdentity: TargetWakeLifecycleIdentity;
   targetWakeLifecycleId: string;
   targetDisplay?: RuntimeCoordinatorHeadTargetDisplay;
@@ -1430,6 +1437,7 @@ export const isRuntimeCoordinatorRunCommandState = (
     typeof record.targetProfileId !== "string" ||
     typeof record.updatedAtMs !== "number" ||
     !isOptionalNullableNonNegativeNumber(record.lastWatchdogCheckAtMs) ||
+    !isOptionalNullableString(record.stopReason) ||
     !isRuntimeCoordinatorRunLocalProgressState(record.localProgress) ||
     !record.lastDeliveryProvenance ||
     typeof record.lastDeliveryProvenance !== "object" ||
@@ -1548,6 +1556,11 @@ export const isOptionalNullableNonNegativeNumber = (
   value: unknown
 ): value is number | null | undefined =>
   value === undefined || isNullableNonNegativeNumber(value);
+
+const isOptionalNullableString = (
+  value: unknown
+): value is string | null | undefined =>
+  value === undefined || value === null || typeof value === "string";
 
 export const buildRuntimeCoordinatorRunCommandStateFromLifecycle = (input: {
   commandState: RuntimeCoordinatorRunCommandState;
@@ -2323,6 +2336,7 @@ export const isRuntimeCoordinatorHeadLifecycleRecord = (
       record.status === "waiting") &&
     (record.runtimeCoordinatorExecutionId === null ||
       typeof record.runtimeCoordinatorExecutionId === "string") &&
+    isOptionalNullableString(record.stopReason) &&
     targetWakeLifecycleIdentityMatchesRecord(record.targetWakeLifecycleIdentity)
   );
 };

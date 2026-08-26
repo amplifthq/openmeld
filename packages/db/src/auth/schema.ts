@@ -8,6 +8,7 @@ import {
   organizationJoinLinks,
   organizationJoinLinksRelations,
 } from "./organization-join-link.schema.ts";
+import { openMeldProfileDeletionOutbox } from "./profile-deletion-outbox.schema.ts";
 import {
   openMeldProfileSpaceHistory,
   openMeldProfileSpaceHistoryRelations,
@@ -23,6 +24,7 @@ export const schema = {
   openMeldProfilesRelations,
   openMeldProfileSpaceHistory,
   openMeldProfileSpaceHistoryRelations,
+  openMeldProfileDeletionOutbox,
   openMeldSpaceDeletionTombstones,
   openMeldWaitlistEmails,
 } as const;

@@ -751,6 +751,12 @@ describe("local service runner dual-write", () => {
     ).toHaveLength(1);
     expect(connectWebSocketMock).toHaveBeenCalledTimes(2);
     expect(runDaemonSocketSessionMock).toHaveBeenCalledTimes(2);
+    const firstExecutionSlots =
+      runDaemonSocketSessionMock.mock.calls[0]?.[0]?.localExecutionSlots;
+    const replacementExecutionSlots =
+      runDaemonSocketSessionMock.mock.calls[1]?.[0]?.localExecutionSlots;
+    expect(firstExecutionSlots).toBeDefined();
+    expect(replacementExecutionSlots).toBe(firstExecutionSlots);
     expect(close).not.toHaveBeenCalledWith(1000, "shutdown");
   });
 

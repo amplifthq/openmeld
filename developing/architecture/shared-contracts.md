@@ -751,7 +751,8 @@ display/platform/last-seen metadata, coarse per-computer Service state, and
 bounded local-agent availability. Its optional local-agent `details` object is
 a sanitized projection of canonical Agent Controller Interface evidence and
 permits controller state, native interface, installed version and update
-status, launch status and install count, model display names, native capability
+status, launch status and install count, model display names and optional exact
+model IDs, native capability
 flags, check status and timestamps, and sanitized provider Usage Limits. Each
 Usage Limit contains only its stable key, label, 0–100 used percentage when
 known, reset time when known, observation time, and status. Controller accounts, executable or
@@ -2472,7 +2473,11 @@ retains only bounded parsed target selectors for the current submission and
 converts `current_turn` to the system-owned submission id, or to the trusted Run
 id from a Routine envelope. It never accepts a model-authored internal execution
 id, Run id, arbitrary publication id, raw thread timestamp, or invented thread
-target.
+target. A current-turn message supplies one bounded stable `operationId`;
+Remote Agent carries it only under the system-owned execution source. Distinct
+messages in one task use distinct IDs, while an exact retry reuses the same ID.
+Routine Run and approved-document publications keep one source-owned operation
+and do not use the model-authored ID to widen that source.
 
 Core validates a Remote Agent execution against the current request context, a
 Routine Run against its native-delivery row, and an Organization document
@@ -2483,7 +2488,7 @@ Core resolves the supplied permalink through the connected Slack workspace,
 rejects a workspace or channel mismatch, and freezes the provider-confirmed
 channel id plus canonical root message timestamp before publication. It then
 derives the document revision from the approved artifact. The ledger scope
-binds that source to the
+binds that source and normalized operation key to the
 Organization, designated Center Agent, and resolved Slack destination. A
 top-level destination is the channel id; an exact thread destination is the
 channel id plus root message timestamp. The request signature binds the
@@ -2495,15 +2500,21 @@ may retry the same source revision.
 The top-level Core request keeps `publicationSource` rollout-optional only so an
 already-running older Remote Agent can call a newly deployed Core. Omission
 uses the legacy direct path and must not be emitted by the current tool. The
-thread receiver is receiver-first: deploy Core before Remote Agent. Old Remote
+current execution source keeps `operationId` receiver-optional during rollout;
+an older caller maps to the source-owned `source` key and preserves the former
+one-message-per-source-and-destination behavior. Apply D1 migration
+`0145_calm_tarot` first; it backfills that key and expands the unique
+scope without changing existing rows' meaning. Then deploy Core before Remote
+Agent. Old Remote
 Agent may still call its legacy `channelName` plus `threadTs` request and
 continues sending top-level publications to new Core; new Remote Agent sends
-the permalink request, which old Core rejects before any Slack write. Rollback
-removes the Remote Agent caller before the Core receiver. The legacy receiver
+the permalink and operation-id request, which old Core rejects before any Slack
+write. Rollback removes the Remote Agent caller before the Core receiver and
+retains the additive migration. The legacy receiver
 shape is rollout compatibility only and must not return to the model-visible
-tool. Migration
-`0067_damp_mariko_yashida` still owns the existing ledger; no database migration
-or response-shape change is required.
+tool. Migration `0067_damp_mariko_yashida` still owns the original ledger;
+`0145_calm_tarot` owns ordered per-operation publication identity. No
+response-shape change is required.
 
 ### Slack File Publication Contracts
 
@@ -3905,16 +3916,26 @@ reinterpret them into a second setup-or-retry decision.
 The shared schema supports both the rich local snapshot and its cloud-bound
 projection, but runtime reporting must construct the cloud projection through
 one shared allowlist. The cloud projection clears local command paths and launch
-arguments, authentication type, controller-provided model and skill inventories,
-and free-text local messages. It preserves only the controller identity, coarse
-authentication status, optional provider email or bounded account label, static
-capabilities, native interface, version/update evidence, launch status/count,
-bounded check evidence, Usage Limits, and stable readiness fields needed by Core and
-owner-facing clients. Provider account evidence is allowed only because the
+arguments, authentication type, controller-provided skill inventory, and
+free-text local messages. It preserves the bounded controller-provided model IDs
+and display names as installation compatibility evidence, plus controller
+identity, coarse authentication status, optional provider email or bounded
+account label, static capabilities, native interface, version/update evidence,
+launch status/count, bounded check evidence, Usage Limits, and stable readiness
+fields needed by Core and owner-facing clients. Provider account evidence is
+allowed only because the
 authenticated owner-only `listLocalRuntimes` surface needs to identify which
 local account OpenMeld will use; it must not flow into Organization computer
 directories or another member's read model. Do not make every schema field
 cloud-visible merely because a local adapter can populate it.
+
+The optional Organization Computer model ID is additive. Deploy Web and Gateway
+receivers before the Core producer, then publish the CLI and Service producer.
+Older Services report an empty model list and new Web treats that as unknown, so
+neither mixed-version direction disables a model without evidence. Rollback
+removes the CLI and Service producer first, then the Core producer, Gateway, and
+Web. Runtime Transport, Wake, Space action, diagnostics, and Binding contracts
+do not change.
 
 The Usage Limit allowlist never includes credentials, provider account identity,
 subscription or payment state, balances, monetary values, history, or raw

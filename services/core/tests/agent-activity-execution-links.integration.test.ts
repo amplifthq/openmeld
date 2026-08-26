@@ -24,6 +24,12 @@ afterEach(async () => {
         "DELETE FROM openMeldDaemon_agent_profile_bindings WHERE binding_id = ?"
       ).bind(graph.bindingId),
       env.OPENMELD_DB.prepare(
+        "DELETE FROM openmeld_profiles WHERE profile_id = ?"
+      ).bind(graph.agentProfileId),
+      env.OPENMELD_DB.prepare("DELETE FROM users WHERE id = ?").bind(
+        graph.memberUserId
+      ),
+      env.OPENMELD_DB.prepare(
         "DELETE FROM openMeldDaemon_runtime_registry_records WHERE openmeld_service_runtime_id = ?"
       ).bind(graph.runtimeId),
       env.OPENMELD_DB.prepare(
@@ -178,7 +184,6 @@ describe("Agent Activity execution links", () => {
 
 type Graph = ReturnType<typeof ids> & {
   controllerRef: string;
-  memberUserId: string;
   provider: "claude-code" | "cursor" | "opencode";
 };
 
@@ -202,13 +207,19 @@ async function seedGraph(input: {
   const graph: Graph = {
     ...ids(suffix),
     controllerRef: input.controllerRef ?? "builtin:claude-code",
-    memberUserId: `user_${suffix}`,
     provider: input.sessionProvider ?? "claude-code",
   };
   await env.OPENMELD_DB.prepare(
     "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Execution Link Org', ?, 1)"
   )
     .bind(graph.organizationId, `execution-link-${suffix}`)
+    .run();
+  await env.OPENMELD_DB.prepare(
+    `INSERT INTO users (
+      id, name, email, email_verified, created_at, updated_at
+    ) VALUES (?, 'Execution Link Owner', ?, 1, 1, 1)`
+  )
+    .bind(graph.memberUserId, `execution-link-${suffix}@example.com`)
     .run();
   await env.OPENMELD_DB.prepare(
     `INSERT INTO space_index_spaces (
@@ -232,6 +243,21 @@ async function seedGraph(input: {
       graph.runtimeId,
       input.runtimeOwnerId ?? graph.memberUserId,
       input.runtimeDeviceId ?? graph.deviceId
+    )
+    .run();
+  await env.OPENMELD_DB.prepare(
+    `INSERT INTO openmeld_profiles (
+      profile_id, profile_name, profile_handle, profile_kind, is_default,
+      status, organization_id, owner_user_id, created_by_user_id, source,
+      created_at, updated_at
+    ) VALUES (?, 'Execution Link Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 1, 1)`
+  )
+    .bind(
+      graph.agentProfileId,
+      `execution-link-${suffix}`,
+      graph.organizationId,
+      graph.memberUserId,
+      graph.memberUserId
     )
     .run();
   await env.OPENMELD_DB.prepare(
@@ -383,12 +409,13 @@ async function readLink(executionId: string) {
 
 function ids(suffix: string) {
   return {
-    agentProfileId: `agent_${suffix}`,
+    agentProfileId: `agt_${suffix}`,
     bindingId: `binding_${suffix}`,
     conversationId: `conversation_${suffix}`,
     deviceId: `device_${suffix}`,
     dispatchId: `dispatch_${suffix}`,
     executionId: `execution_${suffix}`,
+    memberUserId: `user_${suffix}`,
     organizationId: `org_execution_link_${suffix}`,
     projectId: `project_${suffix}`,
     runtimeId: `runtime_${suffix}`,

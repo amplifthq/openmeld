@@ -1526,7 +1526,10 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_post_slack_channel_message", {
         channelName: "all-amplift",
         mentionSlackUserIds: ["U_MORGAN"],
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "Please confirm the release status.",
       })
     ).resolves.toEqual(slackChannelMessageResponse());
@@ -1544,6 +1547,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       publicationSource: {
         executionId: ACK.submissionId,
         kind: "remote_agent_execution",
+        operationId: "slack-message-1",
       },
       text: "<@U_MORGAN> Please confirm the release status.",
     });
@@ -1642,7 +1646,10 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_post_slack_channel_message", {
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "Here is the proposed next step.",
         threadPermalink,
       })
@@ -1656,6 +1663,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       publicationSource: {
         executionId: ACK.submissionId,
         kind: "remote_agent_execution",
+        operationId: "slack-message-1",
       },
       speakerMember: {
         memberId: "member_123",
@@ -1679,7 +1687,10 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_post_slack_channel_message", {
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "Here is the proposed next step.",
         threadPermalink:
           "https://openmeld.slack.com/archives/C123/p1786979718343639",
@@ -1702,7 +1713,10 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     expect(
       safeParse(tool?.input as never, {
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "Missing destination.",
       }).success
     ).toBe(false);
@@ -1710,6 +1724,16 @@ describe("remote agent OpenMeld tool catalog", () => {
       safeParse(tool?.input as never, {
         channelName: "release",
         publicationSource: { kind: "current_turn" },
+        text: "Missing operation identity.",
+      }).success
+    ).toBe(false);
+    expect(
+      safeParse(tool?.input as never, {
+        channelName: "release",
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "Ambiguous destination.",
         threadPermalink:
           "https://openmeld.slack.com/archives/C123/p1786979718343639",
@@ -1738,7 +1762,10 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_post_slack_channel_message", {
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "Here is the proposed next step.",
         threadPermalink,
       })
@@ -1760,7 +1787,10 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(interactiveTools, "openmeld_post_slack_channel_message", {
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "Here is the proposed next step.",
         threadPermalink: "not-a-slack-permalink",
       })
@@ -1792,7 +1822,10 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
     await expect(
       executeTool(routineTools, "openmeld_post_slack_channel_message", {
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "Here is the Routine report.",
         threadPermalink:
           "https://openmeld.slack.com/archives/C123/p1786979718343639",
@@ -1818,7 +1851,10 @@ describe("remote agent OpenMeld tool catalog", () => {
     await expect(
       executeTool(tools, "openmeld_post_slack_channel_message", {
         channelName: "all-amplift",
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "Today's learning journal.",
       })
     ).resolves.toEqual(slackChannelMessageResponse());
@@ -1847,7 +1883,10 @@ describe("remote agent OpenMeld tool catalog", () => {
     await expect(
       executeTool(tools, "openmeld_post_slack_channel_message", {
         channelName: "reply",
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "I found an opportunity for the Reply team.",
       })
     ).resolves.toMatchObject({
@@ -1876,7 +1915,10 @@ describe("remote agent OpenMeld tool catalog", () => {
     await expect(
       executeTool(tools, "openmeld_post_slack_channel_message", {
         channelName: "reply",
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "What I learned: the release checklist needs one owner.",
       })
     ).resolves.toEqual(slackChannelMessageResponse());
@@ -1924,7 +1966,10 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_post_slack_channel_message", {
         channelName: "all-amplift",
         mentionSlackUserIds: ["U_GUESSED"],
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "Please confirm the release status.",
       })
     ).rejects.toThrow(
@@ -1944,7 +1989,10 @@ describe("remote agent OpenMeld tool catalog", () => {
     await expect(
       executeTool(tools, "openmeld_post_slack_channel_message", {
         channelName: "all-amplift",
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "@Piper @Ming Yoo @Monica Please confirm the release status.",
       })
     ).rejects.toThrow(
@@ -2913,6 +2961,9 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
     expect(descriptions.get("openmeld_post_slack_channel_message")).toContain(
       "pass only the exact threadPermalink from the user's request or Slack evidence returned in this turn"
+    );
+    expect(descriptions.get("openmeld_post_slack_channel_message")).toContain(
+      "give each distinct message one stable operationId"
     );
     expect(descriptions.get("openmeld_read_dispatch_history")).toContain(
       "historical dispatch evidence"
@@ -4635,7 +4686,10 @@ describe("remote agent OpenMeld tool catalog", () => {
     await expect(
       executeTool(tools, "openmeld_post_slack_channel_message", {
         channelName: "release",
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "The release is ready.",
       })
     ).rejects.toThrow(
@@ -5865,13 +5919,17 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         publicationSource: {
           executionId: ACK.submissionId,
           kind: "remote_agent_execution",
+          operationId: "slack-message-1",
         },
         speakerMember: { memberId: "member_123", userId: "user_1" },
         text: "The release is ready.",
       },
       input: {
         channelName: "#release",
-        publicationSource: { kind: "current_turn" },
+        publicationSource: {
+          kind: "current_turn",
+          operationId: "slack-message-1",
+        },
         text: "The release is ready.",
       },
       response: postSlackChannelMessageResponse(),

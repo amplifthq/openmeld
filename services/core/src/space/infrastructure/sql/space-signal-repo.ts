@@ -1,8 +1,6 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
-import {
-  AGENT_REPLY_FINAL_PURPOSE,
-  parseOptionalClientMessageId,
-} from "@openmeld/schemas";
+import { parseOptionalClientMessageId } from "@openmeld/schemas";
+import { isFinalOutcomeTextPurpose } from "../../rules/dispatch/space-final-outcome";
 
 const SIGNAL_STORAGE_KEY_DELIMITER = "|";
 const MAX_DATE_TIMESTAMP_MS = 8_640_000_000_000_000;
@@ -887,7 +885,7 @@ function resolveFinalReplyClaim(
   }
   const meta = resolveSignalTextMeta(signal);
   const purpose = normalizeOptionalString(meta?.purpose);
-  if (purpose !== AGENT_REPLY_FINAL_PURPOSE) {
+  if (!isFinalOutcomeTextPurpose(purpose)) {
     return null;
   }
   const dispatchId = normalizeOptionalString(meta?.dispatchId);

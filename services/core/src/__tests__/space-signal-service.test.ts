@@ -2,6 +2,7 @@ import type { SignalEnvelope, SignalTextReplyTo } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
   projectTargetWakeLifecycleIdentity,
+  REMOTE_AGENT_FAILURE_PURPOSE,
   RUNTIME_COORDINATOR_FAILURE_PUBLICATION_COMMAND_MODEL_VERSION,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE,
@@ -810,10 +811,36 @@ function createWakeProgressSourceSignal(input: {
   };
 }
 
+type ActiveWakeProgressMemberRow = {
+  added_at: number;
+  added_by_display_name_snapshot: string | null;
+  added_by_owner_user_id: string | null;
+  added_by_profile_id: string | null;
+  controller_ref_snapshot: string | null;
+  created_at: number;
+  first_entered_at: number | null;
+  last_entered_at: number | null;
+  member_source: string;
+  owner_name_snapshot: string | null;
+  owner_user_id_snapshot: string | null;
+  profile_id: string;
+  profile_kind_snapshot: string;
+  profile_name_snapshot: string;
+  removal_reason: string | null;
+  removed_at: number | null;
+  removed_by_owner_user_id: string | null;
+  removed_by_profile_id: string | null;
+  space_id: string;
+  status: string;
+  updated_at: number;
+};
+
 function createActiveWakeProgressSql(input: {
+  memberRows?: readonly ActiveWakeProgressMemberRow[];
   outboxRows: readonly ReturnType<typeof createWakeProgressOutboxRecord>[];
   sourceSignals?: readonly Extract<SignalEnvelope, { type: "signal.text" }>[];
 }): SqlStorage {
+  const memberRows = input.memberRows ?? [];
   const { outboxRows } = input;
   const sourceSignals = input.sourceSignals ?? [];
   const sqlExec = vi.fn((query: string, ...params: unknown[]) => {
@@ -839,7 +866,12 @@ function createActiveWakeProgressSql(input: {
       };
     }
     if (query.includes("FROM space_members")) {
-      return { toArray: () => [] };
+      return {
+        toArray: () =>
+          query.includes("WHERE status = ?")
+            ? memberRows.filter((row) => row.status === String(params[0]))
+            : memberRows,
+      };
     }
     if (query.includes("FROM space_signals")) {
       if (query.includes("WHERE id = ?")) {
@@ -1164,6 +1196,7 @@ async function readActiveWakeProgressForTest(input: {
   includeTiming?: boolean;
   includeWakeStopEligibility?: boolean;
   lookupRows?: readonly WakeProgressExecutionRow[];
+  memberRows?: readonly ActiveWakeProgressMemberRow[];
   outboxRows: readonly ReturnType<typeof createWakeProgressOutboxRecord>[];
   readSpaceWakeProgress?: (input: {
     clientMessageId?: string | null;
@@ -1217,6 +1250,7 @@ async function readActiveWakeProgressForTest(input: {
       value: {
         storage: {
           sql: createActiveWakeProgressSql({
+            memberRows: input.memberRows,
             outboxRows: input.outboxRows,
             sourceSignals: input.sourceSignals,
           }),
@@ -2670,6 +2704,100 @@ describe("space signal service", () => {
         ...finalReplySignal,
         id: "sig-target-a-final-reply-retry-1",
         ts: finalReplySignal.ts + 2,
+      })
+    ).toEqual({
+      duplicateFinalReplyBlocked: true,
+      persistedSignal: false,
+    });
+  });
+
+  it("claims a Remote Agent failure text as the single final Wake outcome", async () => {
+    const { sql } = createFinalOutcomeSql();
+    const dispatchId = "dispatch-remote-agent-failure-1";
+    const targetProfileId = "agt_11111111-1111-4111-8111-111111111111";
+    const failureSignal = {
+      v: 1,
+      id: "sig-remote-agent-failure-1",
+      spaceId: "space-1",
+      ts: Date.UTC(2026, 7, 26, 3, 1, 25),
+      profile: {
+        kind: "agent",
+        profileId: targetProfileId,
+        profileName: "Center Agent",
+      },
+      type: "signal.text",
+      data: {
+        text: "Center Agent could not complete this request.",
+        meta: {
+          dispatchId,
+          errorCode: "remote_agent.turn_not_completed",
+          purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+          targetProfileId,
+        },
+      },
+    } satisfies SignalEnvelope;
+
+    expect(insertSignalRecord(sql, failureSignal)).toEqual({
+      duplicateFinalReplyBlocked: false,
+      persistedSignal: true,
+    });
+    expect(
+      readFinalReplyClaimSignalId(sql, {
+        dispatchId,
+        profileId: targetProfileId,
+      })
+    ).toBe(failureSignal.id);
+    const space = Object.create(Space.prototype) as {
+      ctx: { storage: { sql: SqlStorage } };
+      durableObjectId: string;
+      rpcReadFinalReplyClaimOutcome(input: {
+        dispatchId: string;
+        profileId: string;
+        spaceId: string;
+      }): Promise<{
+        outcome: "failure" | "stopped" | "success" | "unknown" | null;
+        signalId: string | null;
+      }>;
+      spaceId: string;
+    };
+    Object.defineProperties(space, {
+      ctx: { value: { storage: { sql } } },
+      durableObjectId: { value: failureSignal.spaceId },
+      spaceId: { value: failureSignal.spaceId, writable: true },
+    });
+    await expect(
+      space.rpcReadFinalReplyClaimOutcome({
+        dispatchId,
+        profileId: targetProfileId,
+        spaceId: failureSignal.spaceId,
+      })
+    ).resolves.toEqual({
+      outcome: "failure",
+      signalId: failureSignal.id,
+    });
+    expect(
+      insertSignalRecord(sql, {
+        ...failureSignal,
+        id: "sig-remote-agent-failure-duplicate-1",
+        ts: failureSignal.ts + 1,
+      })
+    ).toEqual({
+      duplicateFinalReplyBlocked: true,
+      persistedSignal: false,
+    });
+    expect(
+      insertSignalRecord(sql, {
+        ...failureSignal,
+        id: "sig-late-success-after-remote-agent-failure-1",
+        ts: failureSignal.ts + 2,
+        data: {
+          ...failureSignal.data,
+          text: "Late success must not replace the failure.",
+          meta: {
+            ...failureSignal.data.meta,
+            purpose: AGENT_REPLY_FINAL_PURPOSE,
+          },
+        },
       })
     ).toEqual({
       duplicateFinalReplyBlocked: true,
@@ -4560,6 +4688,57 @@ describe("space signal service", () => {
     ]);
   });
 
+  it("keeps a removed Agent Profile's frozen name on its still-active Wake", async () => {
+    const targetProfileId = "agt_418831cf-a76d-4073-b606-de76b2f315ce";
+    const response = await readActiveWakeProgressForTest({
+      executionRows: [
+        {
+          createdAtMs: Date.UTC(2026, 7, 25, 9, 42, 22),
+          dispatchId: "dispatch-deleted-agent-1",
+          executionStatus: "running",
+          sourceClientMessageId: "client-message-deleted-agent-1",
+          sourceEventId: "signal-deleted-agent-1",
+          targetProfileId,
+          updatedAtMs: Date.UTC(2026, 7, 25, 15, 25, 3),
+        },
+      ],
+      memberRows: [
+        {
+          added_at: Date.UTC(2026, 7, 24, 0, 0, 0),
+          added_by_display_name_snapshot: "Jiaqi",
+          added_by_owner_user_id: "owner-jiaqi",
+          added_by_profile_id: "human-jiaqi",
+          controller_ref_snapshot: "builtin:codex",
+          created_at: Date.UTC(2026, 7, 24, 0, 0, 0),
+          first_entered_at: null,
+          last_entered_at: null,
+          member_source: "joined_directly",
+          owner_name_snapshot: "Jiaqi",
+          owner_user_id_snapshot: "owner-jiaqi",
+          profile_id: targetProfileId,
+          profile_kind_snapshot: "agent",
+          profile_name_snapshot: "Clico Codex",
+          removal_reason: "profile_deleted",
+          removed_at: Date.UTC(2026, 7, 25, 13, 35, 58),
+          removed_by_owner_user_id: "owner-jiaqi",
+          removed_by_profile_id: "human-jiaqi",
+          space_id: "space-1",
+          status: "removed",
+          updated_at: Date.UTC(2026, 7, 25, 13, 35, 58),
+        },
+      ],
+      outboxRows: [],
+    });
+
+    expect(response.items).toEqual([
+      expect.objectContaining({
+        message: "@Clico Codex is working on this computer...",
+        targetLabel: "@Clico Codex",
+        targetProfileId,
+      }),
+    ]);
+  });
+
   it("omits active Wake timing unless the caller opts in", async () => {
     const response = await readActiveWakeProgressForTest({
       executionRows: [
@@ -5210,6 +5389,62 @@ describe("space signal service", () => {
       message: "@Codex Agent replied.",
       terminal: true,
     });
+  });
+
+  it("returns terminal failed Wake progress for a visible Remote Agent failure text", async () => {
+    const item = await buildWakeProgressItemFromLookupTrace(
+      {
+        ...createWakeProgressReplyProducedTrace({
+          finalVisibleMessage: {
+            createdAt: "2026-08-26T03:01:25.000Z",
+            dispatchId: "dispatch-head-progress-1",
+            factSource: "space_signal_by_published_signal_id",
+            noticeType: null,
+            profileId: "agt_33333333-3333-4333-8333-333333333333",
+            profileKind: "agent",
+            profileName: "Center Agent",
+            reasonCode: "remote_agent.turn_not_completed",
+            signalId: "sig-remote-agent-failure-1",
+            signalType: "signal.text",
+            statusType: null,
+            targetProfileId: "agt_33333333-3333-4333-8333-333333333333",
+            text: "Center Agent could not complete this request.",
+          },
+          replySignal: {
+            createdAt: "2026-08-26T03:01:25.000Z",
+            factSource: "space_signal_by_published_signal_id",
+            profileId: "agt_33333333-3333-4333-8333-333333333333",
+            profileKind: "agent",
+            profileName: "Center Agent",
+            signalId: "sig-remote-agent-failure-1",
+            text: "Center Agent could not complete this request.",
+          },
+        }),
+        dispatch: {
+          ...createWakeProgressReplyProducedTrace({}).dispatch,
+          status: "failed_terminal",
+        },
+        latestAttempt: {
+          ...createWakeProgressReplyProducedTrace({}).latestAttempt,
+          errorCode: "remote_agent.turn_not_completed",
+          errorMessage: "Remote Agent turn did not complete.",
+          status: "failed_terminal",
+        },
+      } as SpaceDispatchTraceSnapshot,
+      [],
+      {
+        latestAttemptErrorCode: "remote_agent.turn_not_completed",
+        latestAttemptStatus: "failed_terminal",
+        status: "failed_terminal",
+      }
+    );
+
+    expect(item).toMatchObject({
+      failureReasonCode: "remote_agent.turn_not_completed",
+      phase: "failed",
+      terminal: true,
+    });
+    expect(item.message).not.toContain("Posting");
   });
 
   it("keeps publication retrying visible as publishing progress", async () => {

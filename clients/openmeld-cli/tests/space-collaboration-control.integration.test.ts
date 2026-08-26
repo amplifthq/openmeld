@@ -18,6 +18,7 @@ import {
   SELECTED_WAKE_PROGRESS_FIXTURE,
   SELECTED_WAKE_PROGRESS_WITHOUT_ELIGIBILITY_FIXTURE,
   SELF_SERVE_SPACE_JOIN_FIXTURE,
+  TERMINAL_FAILURE_WAKE_PROGRESS_FIXTURE,
   TERMINAL_WAKE_PROGRESS_FIXTURE,
   WAKE_STOP_CANCELLED_FIXTURE,
   WAKE_STOP_NOT_STOPPABLE_FIXTURE,
@@ -245,6 +246,50 @@ describe("Space collaboration control commands", () => {
       expect(url.searchParams.get("targetProfileId")).toBe(
         COLLABORATION_CONTROL_AGENT_PROFILE_ID
       );
+    });
+  });
+
+  it("returns a hosted failure as terminal instead of active polling progress", async () => {
+    await withTempHome(async () => {
+      await initializeProfile();
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify(TERMINAL_FAILURE_WAKE_PROGRESS_FIXTURE), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      );
+
+      const { plainStdout } = await withCapturedStdio(async () => {
+        await runSpaceWakeProgress({
+          entryChecksHandled: true,
+          profile: PROFILE.openMeldProfileId,
+          baseUrl: "http://localhost",
+          space: COLLABORATION_CONTROL_SPACE_ID,
+          clientMessageId: "client-message-terminal-failure",
+          targetProfileId: COLLABORATION_CONTROL_AGENT_PROFILE_ID,
+          view: "agent",
+        });
+      });
+
+      expect(JSON.parse(plainStdout.trim())).toMatchObject({
+        type: "result",
+        code: "space.wake_progress",
+        payload: {
+          mode: "client_message",
+          pollState: "terminal",
+          activeCount: 0,
+          terminalCount: 1,
+          query: TERMINAL_FAILURE_WAKE_PROGRESS_FIXTURE.query,
+          items: [
+            expect.objectContaining({
+              dispatchId: "dispatch-terminal-failure",
+              failureReasonCode: "remote_agent.turn_not_completed",
+              phase: "failed",
+              terminal: true,
+            }),
+          ],
+        },
+      });
     });
   });
 

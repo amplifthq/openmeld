@@ -393,6 +393,15 @@ persistent rule. Cursor Run Everything keeps its native one-time automatic
 allow behavior rather than pausing for an approval that the selected mode
 already resolved.
 
+A dispatch-scoped first-party OpenMeld Space Action is not a general controller
+command approval. OpenMeld may make its own `reply`, `status`, and `stay_silent`
+tools approval-free because they can write only one validated proposal for the
+current dispatch and still require RuntimeCoordinator publication. OpenMeld
+must not extend that exception to shell strings, arbitrary `openmeld` commands,
+filesystem access, network access, or another dispatch. `Ask for approval`
+therefore remains authoritative for ordinary Codex actions without blocking the
+Agent's chosen Space outcome.
+
 Only the Binding owner may see request details or answer. Other authenticated
 Space members may see that the Agent Profile is waiting for its owner, but not
 the command, path, plan, question, options, or response. Refreshing the browser
@@ -637,6 +646,25 @@ next action. It does not own readiness truth, discover truth by itself,
 orchestrate setup, manage OpenMeld Service, decide execution truth, decide final Wake
 outcome, or place Space replies.
 
+Deleting an Agent Profile retires both its teammate identity and its remaining
+execution connection. It is not complete when Auth removes only the Profile
+row. The same identity transaction records an Auth-owned durable cleanup item;
+the immediate path and the scheduled retry path then ask the Profile owner's
+RuntimeCoordinator shard to stop matching accepted, waiting, and in-flight
+Wakes. Space membership removal and the exact owner/Profile Binding transition
+are separate lifecycle consequences: Core disables the Binding so no future
+execution route survives the deleted identity, while Space removes the member
+only after cancellation is accepted or RuntimeCoordinator proves that no
+matching Wake is active. Auth removes the cleanup item only when Core confirms
+the whole lifecycle. A partial or unavailable consequence stays retryable; it
+must not leave a removed Agent presented as indefinitely working.
+
+Deletion cleanup is a lifecycle operation, not an ordinary owner edit. It uses
+the authoritative owner and deleted Profile identity from the deletion event
+and therefore must not revalidate the already deleted Profile row through the
+user-command Binding path. The cleanup remains exact-owner, exact-Profile, and
+fail-closed so it cannot disable a different member's Binding.
+
 Local agent selection may prepare or update the execution connection, but it
 must not merge identity and infrastructure. The Agent Profile remains the AI
 teammate identity. The selected local controller or capability remains local
@@ -655,6 +683,11 @@ and observer views must not receive them. Agent Profile settings may show the
 friendly controller name and Computer currently providing its runtime, followed
 by **Manage on Computer**. Installation selection remains exclusively on that
 Computer; Agent Profile settings must not add a second installation selector.
+Create and edit surfaces use that Computer's current Agent Controller Interface
+model inventory, or a valid catalog version floor when inventory is unavailable,
+to prevent a known-incompatible model selection. Unknown evidence remains
+selectable. A saved selection that later becomes incompatible stays visible and
+must offer the exact Computer as the recovery path; it is never silently replaced.
 The computer display name is the one bounded exception: a current Organization
 member may see it in the read-only Organization Computers directory. That
 exception grants no local diagnostics or computer-management authority.

@@ -45,6 +45,21 @@ export function SpaceAgentRecoveryActionControl(input: {
 	if (plan.kind === "review_computer") {
 		return null;
 	}
+	if (plan.primaryActionId === "manage_local_agent") {
+		return (
+			<Link
+				className={cn(
+					buttonVariants({ size: "xs", variant: "outline" }),
+					"mt-1 text-foreground",
+					input.className
+				)}
+				to={buildOrganizationComputersPath(orgSlug)}
+			>
+				<WrenchIcon aria-hidden="true" data-icon="inline-start" />
+				{input.actionLabel ?? plan.primaryActionLabel}
+			</Link>
+		);
+	}
 
 	const actionLabel = input.actionLabel ?? plan.primaryActionLabel;
 

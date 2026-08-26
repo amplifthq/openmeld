@@ -15,6 +15,7 @@ import {
   CENTER_AGENT_PROJECT_LIST_MAX_LIMIT,
   CENTER_AGENT_PROJECT_OPERATION_ID_MAX_CHARS,
   CENTER_AGENT_PROJECT_QUERY_MAX_CHARS,
+  CENTER_AGENT_PUBLICATION_OPERATION_ID_MAX_CHARS,
   CENTER_AGENT_ROUTINE_AUTHORIZED_ACTIONS,
   CENTER_AGENT_ROUTINE_CRON_EXPRESSION_MAX_CHARS,
   CENTER_AGENT_ROUTINE_INSTRUCTIONS_MAX_CHARS,
@@ -713,6 +714,12 @@ const slackTeammateInvitationToolInputSchema = strictObject({
 const slackChannelMessagePublicationSourceToolInputSchema = union([
   strictObject({
     kind: literal("current_turn"),
+    operationId: pipe(
+      string(),
+      trim(),
+      minLength(1),
+      maxLength(CENTER_AGENT_PUBLICATION_OPERATION_ID_MAX_CHARS)
+    ),
   }),
   strictObject({
     documentId: pipe(string(), trim(), minLength(1), maxLength(256)),
@@ -3679,7 +3686,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_post_slack_channel_message",
       description:
-        "Post a top-level message in a named Slack channel connected to the current Organization, or reply to one exact existing thread. For a top-level message, pass channelName. For a thread reply, pass only the exact threadPermalink from the user's request or Slack evidence returned in this turn; never invent or reconstruct it. Thread replies require publicationSource current_turn. Organization document and Routine publications remain top-level. Use only when the user explicitly asks to publish there; ordinary Slack replies belong in the originating thread. Set publicationSource to current_turn for a one-off message produced by this task. When publishing an approved Organization document, set publicationSource to organization_document with the exact documentId so one document revision cannot be posted twice to the same channel. To notify people, first call openmeld_read_slack_workspace_directory, then pass its exact slackUserId values through mentionSlackUserIds. Never type @Display Name or raw <@USER_ID> tokens into text. Write ordinary Markdown. Do not put clickable links, Slack mentions, or channel references inside inline code or fenced code blocks.",
+        "Post a top-level message in a named Slack channel connected to the current Organization, or reply to one exact existing thread. For a top-level message, pass channelName. For a thread reply, pass only the exact threadPermalink from the user's request or Slack evidence returned in this turn; never invent or reconstruct it. Thread replies require publicationSource current_turn. Organization document and Routine publications remain top-level. Use only when the user explicitly asks to publish there; ordinary Slack replies belong in the originating thread. For current_turn, give each distinct message one stable operationId and reuse that exact ID only when retrying the unchanged message. When publishing an approved Organization document, set publicationSource to organization_document with the exact documentId so one document revision cannot be posted twice to the same channel. To notify people, first call openmeld_read_slack_workspace_directory, then pass its exact slackUserId values through mentionSlackUserIds. Never type @Display Name or raw <@USER_ID> tokens into text. Write ordinary Markdown. Do not put clickable links, Slack mentions, or channel references inside inline code or fenced code blocks.",
       input: slackChannelMessageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -5554,13 +5561,17 @@ async function buildAnonymousCompatibleOrganizationReadToolContext(input: {
 
 function resolveSlackChannelPublicationSource(input: {
   publicationSource:
-    | { kind: "current_turn" }
+    | { kind: "current_turn"; operationId: string }
     | { documentId: string; kind: "organization_document" };
   submissionId: string;
   turnEnvelope: RemoteAgentTurnEnvelope | null | undefined;
 }):
   | { documentId: string; kind: "organization_document" }
-  | { executionId: string; kind: "remote_agent_execution" }
+  | {
+      executionId: string;
+      kind: "remote_agent_execution";
+      operationId: string;
+    }
   | { kind: "routine_run"; runId: string } {
   if (input.publicationSource.kind === "organization_document") {
     return input.publicationSource;
@@ -5574,6 +5585,7 @@ function resolveSlackChannelPublicationSource(input: {
   return {
     executionId: input.submissionId,
     kind: "remote_agent_execution",
+    operationId: input.publicationSource.operationId,
   };
 }
 

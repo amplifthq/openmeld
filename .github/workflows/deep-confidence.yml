@@ -54,13 +54,13 @@ jobs:
         run: ${{ matrix.check.command }}
 
   workers-integration:
-    name: Deep Confidence / Workers Integration ${{ matrix.shard }}/4
+    name: Deep Confidence / Workers Integration ${{ matrix.shard }}/8
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -73,9 +73,9 @@ jobs:
       - name: Build Core Worker integration dependencies
         run: pnpm exec turbo run build --filter=@openmeld/core^...
 
-      - name: Run Workers Integration ${{ matrix.shard }}/4
+      - name: Run Workers Integration ${{ matrix.shard }}/8
         working-directory: services/core
-        run: pnpm exec vitest run --config vitest.config.ts --shard=${{ matrix.shard }}/4
+        run: pnpm exec vitest run --config vitest.config.ts --shard=${{ matrix.shard }}/8
 
   cli-integration:
     name: Deep Confidence / CLI Integration Tests ${{ matrix.shard }}/10

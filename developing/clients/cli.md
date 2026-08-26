@@ -869,12 +869,23 @@ unsent. Thread replies use the same message file contract.
 
 ### OpenMeld Space Action Commands
 
-`openmeld space action ...` is the canonical agent-facing operation surface for a
-Wake dispatch final outcome. In static docs, `<DISPATCH_ACTION_CLI>` means the
-exact Space Action command prefix printed in the current Wake dispatch prompt:
+An Agent chooses exactly one dispatch-scoped OpenMeld Space Action as a Wake's
+final outcome. A supported controller receives first-party `reply`, `status`,
+and `stay_silent` tools for text, status, and silent outcomes. Those tools are
+scoped to the current dispatch, record through the same action writer as the
+CLI, and do not require approval for an arbitrary shell command. They do not
+weaken the Agent Profile's controller-native filesystem, network, or general
+command permissions.
+
+`openmeld space action ...` remains the fallback, attachment, diagnostic, and
+backward-compatible operation surface. In static docs,
+`<DISPATCH_ACTION_CLI>` means the exact Space Action command prefix printed in
+the current Wake dispatch prompt:
 
 ```text
 <DISPATCH_ACTION_CLI> space action reply "message"
+<DISPATCH_ACTION_CLI> space action reply --message-file <path>
+printf '%s' "message" | <DISPATCH_ACTION_CLI> space action reply --message-file -
 <DISPATCH_ACTION_CLI> space action reply --file <path> "message"
 <DISPATCH_ACTION_CLI> space action wake "@Agent Name" "summary and request"
 <DISPATCH_ACTION_CLI> space action reply --wake "@Agent Name" "message"
@@ -885,9 +896,10 @@ exact Space Action command prefix printed in the current Wake dispatch prompt:
 ```
 
 The current dispatch prompt should present one primary final action before any
-optional action forms. Optional handoff, Reference, status, silent, target,
-help, or fallback examples must not sit at the same priority as the primary
-final action for a normal Wake.
+optional action forms. It tells the Agent to use the first-party Space Action
+tool when available and presents the exact CLI command only as fallback.
+Optional handoff, Reference, status, silent, target, help, or fallback examples
+must not sit at the same priority as the primary final action for a normal Wake.
 
 Agents must keep the final action aligned to the current source. If the answer
 uses other Space messages, private context, memory, or tool results, the visible
@@ -903,14 +915,15 @@ explicit fallback when the provided facts, exact thread, and anchored window are
 insufficient. Truncated source summaries carry an explicit `[truncated]`
 marker.
 
-These commands are dispatch-scoped. Write actions require the active
+Both tool and CLI writes are dispatch-scoped. Write actions require the active
 dispatch-owned runtime context and must fail closed without it. The command
 shown to the agent inside a Wake is not a hard-coded production `openmeld` command.
 OpenMeld resolves the active lane (`openmeld`, `openmeld-dev`, or `openmeld-canary`), injects a
 per-dispatch CLI shim ahead of `PATH`, and binds that shim to the current
-dispatch ID, target Agent Profile, and Space Action context. Agents should run
-the exact `space action` command printed in the dispatch prompt and must not
-rewrite it to `npx`. Outside a Wake dispatch, help must use the
+dispatch ID, target Agent Profile, and Space Action context. When the first-party
+tool is unavailable, Agents should run the exact fallback `space action`
+command printed in the dispatch prompt and must not rewrite it to `npx`.
+Outside a Wake dispatch, help must use the
 `<DISPATCH_ACTION_CLI>` placeholder instead of presenting a guessed runnable
 command. `targets` requires the current dispatch target snapshot.
 
@@ -920,12 +933,22 @@ It is not the preferred visible entry for dispatch-owned Space Actions because
 the action must record against the active Wake context. If a runtime needs a
 package-backed implementation, OpenMeld may hide that behind the injected shim.
 
-The CLI action command records one local action record for the current dispatch
-attempt. It must not publish a Space message directly and must not bypass
+The first-party tool and CLI action command share one local action writer and
+record one local action record for the current dispatch attempt. Neither may
+publish a Space message directly or bypass
 RuntimeCoordinator or Agent Transport Space Action Delivery. The daemon accepts
 only this dispatch-scoped record or another typed runtime action; it never parses
-model-authored answer text into a Space action. A valid CLI action is reported
-with `spaceActionProvenance: "cli_action"`.
+model-authored answer text into a Space action. The existing diagnostic
+provenance value for this shared local record path remains
+`spaceActionProvenance: "cli_action"`; it is a compatibility label, not proof
+that the Agent used a shell command.
+
+`reply --message-file <path>` reads the reply body as UTF-8; `--message-file -`
+reads it from stdin. This input is distinct from repeatable `--file <path>`,
+which shares an attachment. A reply must use either positional message text or
+`--message-file`, never both. The message-file path preserves real line breaks
+and literal backslashes as separate content; it must not decode literal `\n`
+sequences or reinterpret shell metacharacters.
 The command result must describe that record as an unpublished proposal for the
 current Wake. It must not say `Posted to Space` or otherwise claim publication;
 only RuntimeCoordinator finalization followed by Space acceptance can make that
@@ -1176,7 +1199,9 @@ no selector it returns the active Wake summary for the Space. With
 `--client-message <id>` it returns the progress associated with that authored
 message, optionally narrowed by `--target-profile <id>`. Agent View emits the
 stable `mode`, `pollState`, active and terminal counts, validated query, and
-validated progress items. A valid read exits zero even when `pollState` is
+validated progress items. While a deleted Agent's accepted Wake is still
+stopping, its progress item uses the Space's frozen membership name instead of
+degrading to the removed Profile id. A valid read exits zero even when `pollState` is
 `idle` or `not_observed`; transport, permission, and projection failures exit
 one with a structured error. This command does not replace `space result`,
 which reads archived results, or `service trace`, which diagnoses the execution
@@ -1326,6 +1351,12 @@ head-waiting reason, hard deadline, wait target, and recovery action before it
 considers historical attempt errors. An older Core may return the legacy
 subset; the CLI must still parse that response and report only the evidence it
 contains.
+
+An authoritative pre-result RuntimeCoordinator status such as `running` or
+`completed_local` also takes precedence over the generic absence-of-final-message
+`projection_pending` diagnostic. The latter explains why no final message can
+yet be linked; it must not relabel active execution as final publication work or
+tell the operator that the target Computer is offline.
 
 In Agent View, `--details` requests the bounded Remote Agent runtime diagnostic
 projection when the selected dispatch used the hosted Center Agent. The caller

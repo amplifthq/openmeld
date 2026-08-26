@@ -159,6 +159,79 @@ describe("space dispatch read repo", () => {
     ).not.toContain("openMeldDaemon_agent_profile_bindings");
   });
 
+  it("locates a historical hosted failure through the native-delivery publication signal", async () => {
+    const readFinalVisibleMessageTrace = vi.fn().mockReturnValue({
+      finalVisibleMessage: {
+        createdAt: "2026-08-26T03:01:25.000Z",
+        dispatchId: "dispatch-1",
+        factSource: "space_signal_by_published_signal_id",
+        noticeType: null,
+        profileId: "agt-target-1",
+        profileKind: "agent",
+        profileName: "Center Agent",
+        reasonCode: "remote_agent.turn_not_completed",
+        signalId: "sig-hosted-failure-1",
+        signalType: "signal.text",
+        statusType: null,
+        targetProfileId: "agt-target-1",
+        text: "Center Agent could not complete this request.",
+      },
+      finalVisibleMessageLinkage: {
+        candidateSignalIds: ["sig-hosted-failure-1"],
+        claimSignalId: null,
+        reasonCode: "final_visible_message.matched_published_signal",
+        selectedSignalId: "sig-hosted-failure-1",
+        sourceFact: "published_signal_candidate",
+        status: "matched_published_signal",
+      },
+    });
+
+    const result = await readSpaceDispatchTrace({
+      db: createTraceDb({
+        nativeDeliveryRow: {
+          bindingId: "binding-hosted-1",
+          bindingUpdatedAtMs: 1_700_000_002_100,
+          conversationKind: "space",
+          createdAtMs: 1_700_000_002_000,
+          deliveryId: "delivery-hosted-1",
+          dispatchId: "dispatch-1",
+          idempotencyKey: "idem-1",
+          organizationId: "org-1",
+          profileId: "agt-target-1",
+          publishedSignalId: "sig-hosted-failure-1",
+          spaceId: "space-1",
+          status: "failed",
+          storedAgentControllerRef: "hosted:center-agent",
+          storedAgentControllerRefStatus: "canonical",
+          submissionId: "submission-hosted-1",
+          updatedAtMs: 1_700_000_003_000,
+        },
+        resultInboxRowPatch: {
+          publishedSignalId: null,
+        },
+        resultRow: null,
+      }),
+      dispatchId: "dispatch-1",
+      readFinalVisibleMessageTrace,
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      spaceId: "space-1",
+    });
+
+    expect(readFinalVisibleMessageTrace).toHaveBeenCalledWith({
+      dispatchId: "dispatch-1",
+      publishedSignalIdCandidates: ["sig-hosted-failure-1"],
+      targetProfileId: "agt-target-1",
+    });
+    expect(result.trace?.nativeDelivery).toMatchObject({ status: "failed" });
+    expect(result.trace?.finalVisibleOutcome).toMatchObject({
+      delivered: true,
+      publicationKind: "failure_notice",
+      reasonCode: "remote_agent.turn_not_completed",
+      signalId: "sig-hosted-failure-1",
+      status: "visible_failure",
+    });
+  });
+
   it("qualifies joined ledger status reads through the shared repo", async () => {
     let capturedQuery = "";
     const db = {

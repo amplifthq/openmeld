@@ -235,6 +235,38 @@ describe("assessCliUpdate", () => {
     });
   });
 
+  it("refreshes a fresh cache when an update action needs the current release", async () => {
+    await withTempHome(async () => {
+      const checkedAt = new Date().toISOString();
+      await writeVersionState({
+        v: 1,
+        last_version: packageJson.version,
+        latest_version: packageJson.version,
+        last_checked_at: checkedAt,
+        dismissed_version: null,
+        required_floor: null,
+        updated_at: checkedAt,
+      });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(npmLatestResponse({ version: "9.9.9" }));
+      vi.stubGlobal("fetch", fetchMock);
+      resetVersionCheckCacheForTests();
+
+      const assessment = await assessCliUpdate({
+        environmentTarget: PROD_TARGET,
+        forceRefresh: true,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(assessment).toMatchObject({
+        checked: true,
+        latestVersion: "9.9.9",
+        updateAvailable: true,
+      });
+    });
+  });
+
   it("refreshes a fresh cached update when the cached floor is malformed", async () => {
     await withTempHome(async () => {
       const checkedAt = new Date().toISOString();

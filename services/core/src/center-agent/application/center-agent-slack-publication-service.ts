@@ -27,6 +27,7 @@ import {
   beginCenterAgentPublicationOperation,
   buildCenterAgentPublicationRequestSignature,
   buildCenterAgentPublicationSourceRevision,
+  CENTER_AGENT_PUBLICATION_DEFAULT_OPERATION_KEY,
   type CenterAgentPublicationSource,
   completeCenterAgentPublicationOperation,
   failCenterAgentPublicationOperation,
@@ -93,6 +94,11 @@ export async function executeCenterAgentSlackPublication(input: {
     destinationKind: "slack_channel",
     nowMs: Date.now(),
     organizationId: input.authorization.activeOrganization.organizationId,
+    operationKey:
+      input.publicationSource.kind === "remote_agent_execution"
+        ? (input.publicationSource.operationId ??
+          CENTER_AGENT_PUBLICATION_DEFAULT_OPERATION_KEY)
+        : CENTER_AGENT_PUBLICATION_DEFAULT_OPERATION_KEY,
     representedUserId: input.representedHuman.userId,
     requestSignature,
     source,
@@ -223,6 +229,7 @@ export async function executeCenterAgentSlackFilePublication(input: {
     destinationKind: "slack_file",
     nowMs: Date.now(),
     organizationId: input.authorization.activeOrganization.organizationId,
+    operationKey: CENTER_AGENT_PUBLICATION_DEFAULT_OPERATION_KEY,
     representedUserId: input.representedHuman.userId,
     requestSignature,
     source,

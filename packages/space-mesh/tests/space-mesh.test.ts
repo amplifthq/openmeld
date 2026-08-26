@@ -197,18 +197,18 @@ describe("space-mesh", () => {
       })
     ).toEqual({
       actionGuidanceLines: [
-        "Use the dispatch-scoped Space Action reply command for normal public replies, greetings, answers, and discussion.",
-        "Use the dispatch-scoped Space Action silent command only when you intentionally do not want OpenMeld to publish a public reply.",
+        "Use the dispatch-scoped Space Action reply for normal public replies, greetings, answers, and discussion.",
+        "Use the dispatch-scoped Space Action stay_silent action only when you intentionally do not want OpenMeld to publish a public reply.",
       ],
       actionRequirementLine:
-        "Final outcome: call exactly one dispatch-scoped OpenMeld Space Action CLI command. Your answer text never selects or substitutes for that action.",
+        "Final outcome: record exactly one dispatch-scoped OpenMeld Space Action. Use the OpenMeld Space Action tool when available and the CLI only as fallback. Your answer text never selects or substitutes for that action.",
       allowedActions: ["post_message", "stay_silent"],
       allowsRawReplyWithoutAction: false,
       howThisSpaceWorks:
         "OpenMeld is an external collaboration layer, not your private scratchpad. Work normally in your local context, then publish only the public outcome this Space needs with one OpenMeld Space Action.",
       publicationMode: "collaboration",
       repairRequirementLine:
-        "Preserve the user's intent and call exactly one dispatch-scoped OpenMeld Space Action CLI command. Do not print an action as JSON or prose.",
+        "Preserve the user's intent and record exactly one dispatch-scoped OpenMeld Space Action. Do not print an action as JSON or prose.",
       requiresExplicitPublicAction: true,
     });
   });
@@ -223,7 +223,7 @@ describe("space-mesh", () => {
       actionGuidanceLines: [
         'Use post_status only for final-safe outcomes: done, blocked, needs_input, or handoff. Do not use "working" or "ready" because post_status closes the Wake.',
         "Keep post_status text at 120 characters or fewer. Use post_message for answers, discussion, or anything longer.",
-        "Use the dispatch-scoped Space Action silent command only when you intentionally do not want OpenMeld to publish a public reply.",
+        "Use the dispatch-scoped Space Action stay_silent action only when you intentionally do not want OpenMeld to publish a public reply.",
       ],
       actionRequirementLine:
         "Raw reply is allowed. Use OpenMeld Space Action only when you need a controlled visible outcome.",
@@ -233,7 +233,7 @@ describe("space-mesh", () => {
         "This Space uses transparent context sharing: OpenMeld may share your raw reply directly. Use OpenMeld Space Action when you need a controlled visible outcome.",
       publicationMode: "raw_context_sharing",
       repairRequirementLine:
-        "Return the plain raw reply, or call one dispatch-scoped OpenMeld Space Action CLI command for a controlled visible outcome. Answer text never becomes an action.",
+        "Return the plain raw reply, or record one dispatch-scoped OpenMeld Space Action for a controlled visible outcome. Use the OpenMeld Space Action tool when available and the CLI only as fallback. Answer text never becomes an action.",
       requiresExplicitPublicAction: false,
     });
   });
@@ -414,6 +414,22 @@ describe("space-mesh", () => {
         variant: "stopped_before_execution",
       })
     ).toBe("Wake was stopped before it reached the agent.");
+    expect(
+      buildSystemNoticeText({
+        actorName: "Codex Agent",
+        noticeType: "wake_stopped",
+        variant: "agent_profile_deleted",
+      })
+    ).toBe(
+      "Wake was stopped for Codex Agent because its Agent Profile was deleted."
+    );
+    expect(
+      buildSystemNoticeText({
+        actorName: null,
+        noticeType: "wake_stopped",
+        variant: "agent_profile_deleted",
+      })
+    ).toBe("Wake was stopped because the Agent Profile was deleted.");
     expect(
       buildSystemNoticeText({
         actorName: null,

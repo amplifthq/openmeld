@@ -2,6 +2,73 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "nonblocking-browser-notification-prompt",
+      "title": "Keep browser notification setup out of the way",
+      "kind": "fixed",
+      "areas": [
+        "inbox",
+        "notifications",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-26",
+      "evidence": [
+        "pr:301",
+        "pr:298",
+        "commit:c7edbf065f3405a12cf1801322761fc72bd20314",
+        "commit:c2bd412b72928fe97dad262e280044d2c3f915fb"
+      ],
+      "body": "Browser notification setup now disappears completely after permission is\ngranted, “Not now” is selected, or the new close button is used, so members can\nimmediately continue setup or use the page underneath it."
+    },
+    {
+      "id": "reliable-space-actions-with-strict-permissions",
+      "title": "Let Agents reply without a shell approval prompt",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "agent-profiles",
+        "local-agents"
+      ],
+      "audiences": [
+        "members",
+        "agents"
+      ],
+      "publishedAt": "2026-08-26",
+      "release": "v0.3.111",
+      "evidence": [
+        "pr:284",
+        "pr:288",
+        "pr:310",
+        "commit:5bc5c6e8",
+        "npm:openmeld@0.3.111"
+      ],
+      "body": "Agents can now choose and record a Space reply, final status, or silent outcome\nthrough a dispatch-scoped OpenMeld tool without asking the member to approve an\nOpenMeld shell command. This does not relax the Agent Profile's normal Codex\npermissions. Multi-paragraph replies also preserve real line breaks, literal\n`\\n` text, quotes, backslashes, emoji, and shell-like characters without\nrewriting the message. The dispatch-scoped CLI remains available as a fallback\nand for replies with attachments."
+    },
+    {
+      "id": "prevent-incompatible-local-agent-models",
+      "title": "Prevent incompatible Local Agent model choices",
+      "kind": "fixed",
+      "areas": [
+        "agent-profiles",
+        "local-agents",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-26",
+      "release": "v0.3.111",
+      "evidence": [
+        "pr:292",
+        "pr:301",
+        "commit:5bc5c6e8",
+        "npm:openmeld@0.3.111"
+      ],
+      "body": "When a selected Local Agent installation clearly cannot run a model, OpenMeld\nnow disables that model while an Agent Profile is created or edited. The dialog\nexplains why and links directly to the Computer where the member can update or\nchange the installation. Missing compatibility information does not block the\nmember or make OpenMeld guess. Existing Agents that hit the same problem during\na Wake now get the same direct Computer recovery path."
+    },
+    {
       "id": "reliable-inbox-browser-notifications",
       "title": "Get browser alerts for important Inbox updates",
       "kind": "new",

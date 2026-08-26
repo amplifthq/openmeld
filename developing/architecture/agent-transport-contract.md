@@ -292,6 +292,16 @@ Important execution rules:
   controller cancel. Outbox redrive, queue consumers, head accept, delivery
   preparation, token issuance, and late local result handling must all fail
   closed against that guard.
+- Deleting an Agent Profile is an execution-lifecycle event. The authoritative
+  deletion fanout asks that Profile owner's RuntimeCoordinator shard to stop
+  every matching unlinked accepted or waiting Wake head and every matching
+  in-flight execution. Historical result-received executions are not active
+  cancellation targets. Core disables the exact owner/Profile Binding so no new route
+  survives the deleted identity. Space removes the Agent member only after
+  cancellation is accepted or the shard proves no matching Wake is active. An
+  incomplete cancellation keeps retry evidence in the Space
+  membership-liveness alarm instead of leaving a removed Agent with an
+  indefinitely active Wake presentation.
 - Space access authority must stay structured across the Wake path. When Core,
   Space, dispatch, or RuntimeCoordinator code carries a `SpaceAccessContext`, it
   must preserve the access actor kind through internal RPC and direct Durable
@@ -807,10 +817,13 @@ Runtime results use the Space action contract:
 - Protected Spaces use the same password-aware publication path for previews,
   hints, and final replies.
 - Dispatch-owned local runtimes record their final outcome through the
-  dispatch-scoped `openmeld space action ...` tool record. Model-authored answer
-  text never creates or substitutes for a Space action, even when it looks like
-  JSON, a tool call, or a former protocol marker. If the tool cannot record a
-  valid action, the Wake fails with structured diagnostic evidence.
+  dispatch-scoped OpenMeld Space Action record. Supported controllers receive
+  first-party structured action tools; the `openmeld space action ...` CLI is
+  the fallback and attachment surface. Both use the same record writer.
+  Model-authored answer text never creates or substitutes for a Space action,
+  even when it looks like JSON, a tool call, or a former protocol marker. If no
+  supported action entry point can record a valid action, the Wake fails with
+  structured diagnostic evidence.
 - A current local runtime attaches the newest relevant Space signal it observed
   to `post_message.observedThroughSignalId`. This is provider-neutral: Codex,
   Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space
@@ -849,7 +862,7 @@ proposal even if its local command reported that OpenMeld accepted it. The
 repair turn must state that distinction explicitly: only final publication
 consumes the Agent's one public reply for the Wake.
 Those turns may replace only the final Space action; they must not repeat tools,
-completed work, or external side effects. Each CLI-authored prior action is
+completed work, or external side effects. Each previously recorded action is
 preserved as superseded evidence. Missing exact-conversation identity fails
 explicitly instead of starting a fresh conversation. There is no semantic
 review-count limit: a fixed count can discard a valid result in a legitimately
@@ -1076,11 +1089,12 @@ claim read distinguishes a visible success or status from a visible Wake Stop;
 a Wake Stop remains cancellation authority and must not be reclassified as
 successful result publication.
 
-The `openmeld space action ...` CLI command is an authoring surface for the current
-dispatch result. It records a dispatch-scoped action for the daemon to merge
-before fallback structured-block parsing. It is not a Space publication API.
-The only publication path for that action remains RuntimeCoordinator
-finalization followed by Agent Transport Space Action Delivery.
+The first-party OpenMeld Space Action tools and the
+`openmeld space action ...` CLI fallback are authoring surfaces for the current
+dispatch result. They use one writer to record a dispatch-scoped action for the
+daemon. Neither is a Space publication API. The only publication path for that
+action remains RuntimeCoordinator finalization followed by Agent Transport
+Space Action Delivery.
 
 ### Local Agent Work Summary Delivery
 

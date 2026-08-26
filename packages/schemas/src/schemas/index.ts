@@ -516,6 +516,8 @@ export {
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
   runtimeTransportBaseCapabilitiesSchema,
   runtimeTransportCapabilitiesSchema,
+  runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema,
+  runtimeTransportDeletedAgentProfileWakeCancellationResponseSchema,
   runtimeTransportDeliverDispatchPayloadSchema,
   runtimeTransportDeliverDispatchRequestSchema,
   runtimeTransportDeliverDispatchResponseSchema,
@@ -721,6 +723,7 @@ export {
   accountSpaceActiveWakeSummaryQuerySchema,
   accountSpaceActiveWakeSummaryResponseSchema,
   accountSpaceActiveWakeSummaryRpcInputSchema,
+  accountSpaceActiveWakeTargetSchema,
 } from "./http/account-space-active-wake";
 export {
   accountSpaceIndexItemSchema,
@@ -927,6 +930,7 @@ export {
 export { catchupResponseSchema } from "./http/catchup-response";
 export {
   CENTER_AGENT_DELEGATION_COMPLETION_MODES,
+  CENTER_AGENT_PUBLICATION_OPERATION_ID_MAX_CHARS,
   CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS,
   CENTER_AGENT_SLACK_SEARCH_CONTEXT_MESSAGES_MAX,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,

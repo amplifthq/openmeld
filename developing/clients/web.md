@@ -459,6 +459,17 @@ account-summary refresh, a missing browser request anchor, or expiry clears ambi
 indicators, while the open Space remains aligned with its current conversation
 evidence; Web must not keep an old orb visible merely because TanStack Query
 retains its last successful account-summary data.
+When the active-Wake summary includes target attribution, the existing Working
+orb's tooltip and accessible label name the frozen target Agent Profile, for
+example `Clico Codex is working`. The Space row itself keeps its compact visual
+and generic `agent working` accessibility state; it does not add an always-
+visible Agent name. Web may use that same frozen summary name to replace a raw
+Profile id in the open Space's detailed progress projection, but it must not let
+ambient summary lifecycle override the open Space's newer terminal truth.
+Multiple active Wakes use an aggregate count. A missing additive target
+projection falls back to `An agent is working`, and a raw `agt_...` identifier
+is never user-facing copy. This live indicator remains distinct from a
+persisted reply's historical **Work summary**.
 Opening a route alone does not clear the indicator. The shared Space message
 view writes the same Core-owned per-Space monotonic read-through watermark only
 after the document is visible and the member remains at the latest message for
@@ -3314,6 +3325,17 @@ ACI read model. Web may render a status badge, detail row, and manual update
 command guidance, but it must not run Codex, Claude Code, npm, Homebrew, or any
 other local controller upgrade command from the browser.
 
+Agent Profile create and edit compare each catalog model with the selected
+Computer's reported Local Agent inventory. A model that the current inventory
+explicitly excludes is disabled with a plain explanation and an **Update or
+change {Local Agent}** link to that exact Computer. A valid catalog version floor
+may provide the same guard when inventory is unavailable. Missing, failed, or
+unrecognized evidence does not disable a model. Existing incompatible selections
+remain visible until the user chooses another model or changes the installation.
+When a Wake proves that the selected Local Agent cannot use the model, the
+failure action opens Computers directly instead of sending the user through
+generic setup or diagnostics first.
+
 Web must not maintain a second update-status source. Computers, Agent
 Profiles, the Space member panel, Space Wake banner, and Web setup handoff all
 read the Core local component update projection or a Core readiness result
@@ -3342,13 +3364,14 @@ value from the Service-owned maintenance projection. It never keeps a browser
 preference.
 
 The card renders the canonical operation phase as one short status:
-**Waiting for work to finish**, **Updating**, **Updated**, **Old version
-restored**, or **Update needs help**. Web refreshes the same Computer projection
-after a request; request completion is not update completion. An older Service
-without the control capability keeps the existing Setup guidance. Service
-connection recovery remains explicitly **Connect OpenMeld Service** or
-**Reconnect OpenMeld Service**, and the Reconnect action remains the CLI
-fallback.
+**Finishing current work**, **Updating**, **Up to date**, or **Update failed.
+Try again.** Clicking **Update** changes the action to **Updating** immediately,
+then caches the Service-returned operation and polls the same Computer
+projection until it becomes terminal. Request completion is not update
+completion. An older Service without the control capability keeps the existing
+Setup guidance. Service connection recovery remains explicitly **Connect
+OpenMeld Service** or **Reconnect OpenMeld Service**, and the Reconnect action
+remains the CLI fallback.
 
 For an `update_service` setup run, terminal completion proves only that the CLI
 flow ended. Web must keep the result in a bounded confirming state until both

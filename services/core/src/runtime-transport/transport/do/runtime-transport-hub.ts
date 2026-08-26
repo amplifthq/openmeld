@@ -49,6 +49,8 @@ import {
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
+  runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema,
+  runtimeTransportDeletedAgentProfileWakeCancellationResponseSchema,
   runtimeTransportDeliverDispatchRequestSchema,
   runtimeTransportDeliverDispatchResponseSchema,
   runtimeTransportDisconnectRatesResponseSchema,
@@ -161,6 +163,8 @@ import type {
   RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationRequest,
+  RuntimeTransportDeletedAgentProfileWakeCancellationRequest,
+  RuntimeTransportDeletedAgentProfileWakeCancellationResponse,
   RuntimeTransportDeliverDispatchRequest,
   RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDispatchInteractionDeliveredRequest,
@@ -281,6 +285,10 @@ import {
   validateDaemonDispatchRuntimeEvidence,
   validateDaemonDispatchToolActivityIdentity,
 } from "../../application/daemon-runtime-evidence";
+import {
+  cancelDeletedAgentProfileWakesWithPorts,
+  DELETED_AGENT_PROFILE_WAKE_STOP_REASON,
+} from "../../application/deleted-agent-profile-wake-cancellation";
 import {
   buildFailedLocalAgentStreamTerminal,
   buildLocalAgentStreamId,
@@ -566,6 +574,7 @@ const RUNTIME_COORDINATOR_INTERACTION_INBOX_RETRY_DELAYS_MS = [
 ] as const;
 const RUNTIME_COORDINATOR_FINALIZATION_SERIALIZATION_WAIT_MS = 1000;
 const LOCAL_AGENT_CONTROL_SET_ENABLED_RESPONSE_TIMEOUT_MS = 5000;
+const LOCAL_AGENT_CONTROL_MANAGE_INSTALLATION_RESPONSE_TIMEOUT_MS = 30_000;
 const LOCAL_AGENT_CONTROL_REFRESH_CATALOG_RESPONSE_TIMEOUT_MS = 15_000;
 const CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS = 30_000;
 const LOCAL_FOLDER_PICKER_RESPONSE_TIMEOUT_MS = 600_000;
@@ -607,6 +616,9 @@ export type LocalAgentControlResultPayloadKind =
 export function resolveLocalAgentControlResponseTimeoutMs(
   expectedPayload: LocalAgentControlResultPayloadKind
 ): number {
+  if (expectedPayload === "manage_installation") {
+    return LOCAL_AGENT_CONTROL_MANAGE_INSTALLATION_RESPONSE_TIMEOUT_MS;
+  }
   if (expectedPayload === "refresh_catalog") {
     return LOCAL_AGENT_CONTROL_REFRESH_CATALOG_RESPONSE_TIMEOUT_MS;
   }
@@ -1248,6 +1260,36 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
     }
     return runtimeTransportAgentProfileExecutionStateResponseSchema.parse(
+      response
+    );
+  }
+
+  async rpcCancelDeletedAgentProfileWakes(
+    input: RuntimeTransportDeletedAgentProfileWakeCancellationRequest
+  ): Promise<RuntimeTransportDeletedAgentProfileWakeCancellationResponse> {
+    const parsed =
+      runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema.safeParse(
+        input
+      );
+    if (!parsed.success) {
+      throw new Error(
+        "runtime_coordinator.deleted_profile_wake_cancellation_request_invalid"
+      );
+    }
+    const response = await cancelDeletedAgentProfileWakesWithPorts({
+      request: parsed.data,
+      ports: {
+        readHeadLifecycleRecords: () =>
+          this.readRuntimeCoordinatorHeadLifecycleRecordsFromIndex(),
+        readRunCommandStates: () =>
+          this.readRuntimeCoordinatorRunCommandStatesFromIndex(),
+        stopHeadBeforeExecution: (request) =>
+          this.recordRuntimeCoordinatorHeadPreAgentStop(request),
+        stopRuntimeExecution: (request) =>
+          this.requestRuntimeCoordinatorWakeStop(request),
+      },
+    });
+    return runtimeTransportDeletedAgentProfileWakeCancellationResponseSchema.parse(
       response
     );
   }
@@ -4285,6 +4327,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           commandState,
           nowMs,
           reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+          stopReason: commandState.stopReason ?? null,
         });
       if (!stoppedNoticePublication.ok) {
         const payload = commandState.sanitizedDeliveryRequest.payload;
@@ -10376,6 +10419,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         },
         runtimeCoordinatorExecutionId: null,
         status: "stopped_before_execution",
+        stopReason: request.reason ?? null,
         targetWakeLifecycleIdentity: identity,
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
         targetDisplay: resolveRuntimeCoordinatorHeadTargetDisplay(request),
@@ -10427,9 +10471,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
 
     if (existing.status === "stopped_before_execution") {
+      const stoppedRecord = await this.retainRuntimeCoordinatorHeadStopReason({
+        nowMs,
+        reason: request.reason ?? null,
+        record: existing,
+      });
       await this.publishRuntimeCoordinatorHeadPreAgentStoppedOutcome({
         nowMs,
-        record: existing,
+        record: stoppedRecord,
       });
       return {
         ok: true,
@@ -10482,6 +10531,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       publicationRetry: undefined,
       runtimeCoordinatorExecutionId: null,
       status: "stopped_before_execution",
+      stopReason: request.reason ?? null,
       targetDisplay:
         baseRecord.targetDisplay ??
         resolveRuntimeCoordinatorHeadTargetDisplay(request),
@@ -10503,6 +10553,23 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       status: "stopped_before_execution",
       targetWakeLifecycleId: identity.targetWakeLifecycleId,
     };
+  }
+
+  private async retainRuntimeCoordinatorHeadStopReason(input: {
+    nowMs: number;
+    reason: string | null;
+    record: RuntimeCoordinatorHeadLifecycleRecord;
+  }): Promise<RuntimeCoordinatorHeadLifecycleRecord> {
+    if (input.record.stopReason || !input.reason) {
+      return input.record;
+    }
+    const record = {
+      ...input.record,
+      stopReason: input.reason,
+      updatedAtMs: input.nowMs,
+    };
+    await this.writeRuntimeCoordinatorHeadLifecycleRecord(record);
+    return record;
   }
 
   private async recordRuntimeCoordinatorHeadWaiting(
@@ -12429,27 +12496,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
 
-    let currentCommandState = commandState;
-    const pendingInteraction = commandState.pendingInteraction ?? null;
-    if (pendingInteraction && !pendingInteraction.response) {
-      currentCommandState = {
-        ...commandState,
-        lastCommandReasonCode: "runtime_coordinator.interaction_cancelled",
-        pendingInteraction: {
-          ...pendingInteraction,
-          respondedAtMs: nowMs,
-          response: { kind: "cancel" },
-        },
-        updatedAtMs: nowMs,
-      };
-      await this.writeRuntimeCoordinatorRunCommandState(currentCommandState);
-      await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
-        commandState: currentCommandState,
-        interaction: pendingInteraction.request,
-        resolvedAtMs: nowMs,
+    let currentCommandState =
+      await this.prepareRuntimeCoordinatorWakeStopCommandState({
+        commandState,
+        nowMs,
+        requestedStopReason: input.reason ?? null,
       });
-      this.tryDeliverRuntimeCoordinatorInteractionResponse(currentCommandState);
-    }
     if (projection.status !== "cancellation_requested") {
       const nextProjection =
         buildRuntimeCoordinatorExecutionRecordFromCommandState({
@@ -12508,6 +12560,46 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       status: "cancellation_requested",
       targetProfileId: input.targetProfileId,
     });
+  }
+
+  private async prepareRuntimeCoordinatorWakeStopCommandState(input: {
+    commandState: RuntimeCoordinatorRunCommandState;
+    nowMs: number;
+    requestedStopReason: string | null;
+  }): Promise<RuntimeCoordinatorRunCommandState> {
+    const stopReason =
+      input.commandState.stopReason ?? input.requestedStopReason;
+    let commandState: RuntimeCoordinatorRunCommandState = {
+      ...input.commandState,
+      stopReason,
+    };
+    let changed = input.commandState.stopReason !== stopReason;
+    const pendingInteraction = input.commandState.pendingInteraction ?? null;
+    if (pendingInteraction && !pendingInteraction.response) {
+      commandState = {
+        ...commandState,
+        lastCommandReasonCode: "runtime_coordinator.interaction_cancelled",
+        pendingInteraction: {
+          ...pendingInteraction,
+          respondedAtMs: input.nowMs,
+          response: { kind: "cancel" },
+        },
+        updatedAtMs: input.nowMs,
+      };
+      changed = true;
+    }
+    if (changed) {
+      await this.writeRuntimeCoordinatorRunCommandState(commandState);
+    }
+    if (pendingInteraction && !pendingInteraction.response) {
+      await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
+        commandState,
+        interaction: pendingInteraction.request,
+        resolvedAtMs: input.nowMs,
+      });
+      this.tryDeliverRuntimeCoordinatorInteractionResponse(commandState);
+    }
+    return commandState;
   }
 
   private async deliverRuntimeCoordinatorWakeStopControlFrame(input: {
@@ -13181,6 +13273,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     commandState: RuntimeCoordinatorRunCommandState;
     nowMs: number;
     reasonCode: string;
+    stopReason?: string | null;
   }): Promise<RuntimeCoordinatorWakeStoppedNoticePublicationResult> {
     const publicationId = buildRuntimeCoordinatorWakeStoppedNoticePublicationId(
       input.commandState.runtimeCoordinatorExecutionId
@@ -13216,6 +13309,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         payload.targetProfileName?.trim() ||
         null,
       noticeType: "wake_stopped",
+      variant:
+        input.stopReason === DELETED_AGENT_PROFILE_WAKE_STOP_REASON
+          ? "agent_profile_deleted"
+          : undefined,
     });
     let publicationRecord: RuntimeCoordinatorWakeStoppedNoticePublicationRecord;
     let publishedSignalId: string;
@@ -13237,7 +13334,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             : {}),
           dispatchId: payload.dispatchId,
           generatedBy: "openmeld",
-          reason: input.reasonCode,
+          reason: input.stopReason ?? input.reasonCode,
           reasonCode: input.reasonCode,
           ...(payload.replyToSnapshot
             ? { replyTo: payload.replyToSnapshot }
@@ -13416,7 +13513,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         actorName ||
         null,
       noticeType: "wake_stopped",
-      variant: "stopped_before_execution",
+      variant:
+        input.record.stopReason === DELETED_AGENT_PROFILE_WAKE_STOP_REASON
+          ? "agent_profile_deleted"
+          : "stopped_before_execution",
     });
 
     let publicationRecord: RuntimeCoordinatorWakeStoppedNoticePublicationRecord;
@@ -13437,7 +13537,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           ...(actorName ? { actorName } : {}),
           dispatchId: input.record.primaryDispatchId,
           generatedBy: "openmeld",
-          reason: input.reasonCode,
+          reason: input.record.stopReason ?? input.reasonCode,
           reasonCode: input.reasonCode,
           text,
         },
@@ -16138,6 +16238,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           reasonCode:
             input.payload.reasonCode ??
             RUNTIME_COORDINATOR_WAKE_STOP_LOCAL_CONTROL_ACCEPTED_REASON_CODE,
+          stopReason: commandState.stopReason ?? null,
         });
       }
       return;
@@ -16230,6 +16331,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       commandState,
       nowMs,
       reasonCode,
+      stopReason: commandState.stopReason ?? null,
     });
     if (!publication.ok) {
       const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({

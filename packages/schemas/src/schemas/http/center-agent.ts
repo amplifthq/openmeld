@@ -732,9 +732,16 @@ export const centerAgentPostSpaceMessageBodySchema = z.strictObject({
   text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
 });
 
+export const CENTER_AGENT_PUBLICATION_OPERATION_ID_MAX_CHARS = 256;
+
 const centerAgentRemoteAgentExecutionPublicationSourceSchema = z.strictObject({
   executionId: trimmedNonEmptyStringSchema.max(512),
   kind: z.literal("remote_agent_execution"),
+  // Optional only for the Core-first rollout. The current Remote Agent always
+  // supplies one stable operation id for a current-turn message publication.
+  operationId: trimmedNonEmptyStringSchema
+    .max(CENTER_AGENT_PUBLICATION_OPERATION_ID_MAX_CHARS)
+    .optional(),
 });
 
 export const centerAgentPublicationSourceSchema = z.discriminatedUnion("kind", [

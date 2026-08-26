@@ -120,6 +120,18 @@ explicit freshness; a durable `running` row by itself is insufficient. Missing,
 stale, or unavailable execution evidence must stay visible instead of being
 presented as live work.
 
+An ambient `Working` indicator identifies current Wake activity in that Space,
+not the author of an older reply or a historical **Work summary**. When Core has
+target attribution, a detail surface may name the Agent Profile that is
+working, for example `Clico Codex is working`; multiple active targets use an
+honest aggregate. The compact Space sidebar keeps its existing orb-only visual
+state and exposes that attribution from the orb tooltip instead of adding names
+to the row. Space keeps the frozen membership display name for this read model
+even after deletion removes the active member, because an accepted Wake may
+still be stopping. Clients must never expose a raw Profile id as the Agent name.
+If attribution is unavailable during a mixed-version rollout, the compatible
+fallback is `An agent is working`, not a guessed participant.
+
 ## Space Files
 
 Space Files are the shared working files of one Space. Humans, the hosted Center

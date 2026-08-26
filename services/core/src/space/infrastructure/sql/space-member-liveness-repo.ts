@@ -42,6 +42,43 @@ export function recordMemberProfileNotFoundObservation(
   );
 }
 
+export function recordConfirmedMemberProfileDeletionObservation(
+  sql: SqlStorage,
+  input: {
+    minAgeMs: number;
+    minObservations: number;
+    nowMs: number;
+    profileId: string;
+  }
+): void {
+  const firstNotFoundAtMs = Math.max(0, input.nowMs - input.minAgeMs);
+  sql.exec(
+    `
+      INSERT INTO space_member_profile_liveness (
+        profile_id,
+        first_not_found_at_ms,
+        last_not_found_at_ms,
+        observation_count
+      )
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(profile_id) DO UPDATE SET
+        first_not_found_at_ms = MIN(
+          first_not_found_at_ms,
+          excluded.first_not_found_at_ms
+        ),
+        last_not_found_at_ms = excluded.last_not_found_at_ms,
+        observation_count = MAX(
+          observation_count,
+          excluded.observation_count
+        )
+    `,
+    input.profileId,
+    firstNotFoundAtMs,
+    input.nowMs,
+    input.minObservations
+  );
+}
+
 export function clearMemberProfileLivenessEvidence(
   sql: SqlStorage,
   profileId: string

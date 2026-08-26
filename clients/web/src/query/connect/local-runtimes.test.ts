@@ -124,6 +124,34 @@ describe("boundedCurrentLocalRuntimeReplyReadinessRefetchInterval", () => {
 		).toBe(false);
 	});
 
+	it("polls while an OpenMeld Tools update is active", () => {
+		const query = buildQuery(
+			buildReadiness({
+				canReplyFromThisComputer: true,
+				localComponents: {
+					updateOperation: {
+						operationId: "update-1",
+						phase: "updating",
+						requestSource: "web",
+						requestedAt: "2026-08-26T00:00:00.000Z",
+						targetVersion: "0.8.0",
+						updatedAt: "2026-08-26T00:00:00.000Z",
+						urgency: "available",
+					},
+				} as CurrentLocalRuntimeReplyReadinessResponse["localComponents"],
+				primaryBlocker: "none",
+				status: "ready",
+			})
+		);
+
+		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
+			REFRESH_INTERVAL_MS
+		);
+		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
+			4000
+		);
+	});
+
 	it("polls while blocked with continuous exponential backoff", () => {
 		const query = buildQuery(buildReadiness());
 

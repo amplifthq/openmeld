@@ -54,9 +54,9 @@ import {
   postSpaceThreadSignalBodySchema,
   postSpaceWakeStopInputSchema,
   postSpaceWakeStopResponseSchema,
-  projectSpaceDispatchTraceFinalVisibleOutcome,
   projectTargetWakeLifecycleIdentity,
   putSpaceContractBodySchema,
+  REMOTE_AGENT_FAILURE_PURPOSE,
   RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   readListSignalsQueryRawValues,
@@ -223,6 +223,7 @@ import {
   requestRuntimeTransportRuntimeCoordinatorWakeStop,
   respondToRuntimeTransportRuntimeCoordinatorInteraction,
 } from "../../../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
+import { cancelRuntimeTransportDeletedAgentProfileWakes } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import { resolveRuntimeTransportOwnerShard } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
 import { resolveCoreOutboxCandidateTransitionContractViolation } from "../../../dispatch/rules/dispatch-health-invariant-policy";
 import { emitCoreDispatchHealthFinding } from "../../../dispatch/rules/dispatch-health-view";
@@ -521,6 +522,7 @@ import {
   clearMemberProfileLivenessEvidence,
   listDueMemberProfileLivenessEvidence,
   readNextMemberProfileLivenessAlarmAtMs,
+  recordConfirmedMemberProfileDeletionObservation,
   recordMemberProfileNotFoundObservation,
 } from "../../infrastructure/sql/space-member-liveness-repo";
 import {
@@ -595,6 +597,10 @@ import {
   buildDirectMessageDispatchReadyDecisions,
 } from "../../rules/dispatch/direct-message-dispatch";
 import { resolveDispatchContinuitySnapshotForDecision } from "../../rules/dispatch/dispatch-continuity";
+import {
+  isFinalOutcomeTextPurpose,
+  projectSpaceDispatchTraceFinalVisibleOutcome,
+} from "../../rules/dispatch/space-final-outcome";
 import {
   resolveVisibleTimelineSignalTypes,
   VISIBLE_SPACE_TIMELINE_SIGNAL_TYPES,
@@ -6816,15 +6822,21 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   async rpcReconcileDeletedAgentProfileMember(input: {
+    ownerUserId?: string;
     spaceId: string;
     profileId: string;
+    wakeCancellationConfirmed?: boolean;
   }): Promise<{
-    status: "removed" | "skipped_creator" | "noop";
+    status: "removed" | "skipped_creator" | "noop" | "deferred";
   }> {
     this.applySpaceRef(input.spaceId);
     const status = await this.reconcileDeletedAgentProfileMemberInternal({
       profileId: input.profileId,
       source: "profile_delete_fanout",
+      ownerUserId: input.ownerUserId,
+      // Missing evidence is not confirmation. Older internal callers can still
+      // use the frozen owner snapshot to perform the same exact cancellation.
+      wakeCancellationConfirmed: input.wakeCancellationConfirmed ?? false,
     });
     return { status };
   }
@@ -6893,9 +6905,11 @@ export class Space extends DurableObject<CoreBindings> {
   // Shared by the profile-deletion fan-out RPC and the membership liveness
   // alarm. Membership state changes happen only here, never on read paths.
   private async reconcileDeletedAgentProfileMemberInternal(input: {
+    ownerUserId?: string;
     profileId: string;
     source: "profile_delete_fanout" | "membership_liveness_reconcile";
-  }): Promise<"removed" | "skipped_creator" | "noop"> {
+    wakeCancellationConfirmed: boolean;
+  }): Promise<"removed" | "skipped_creator" | "noop" | "deferred"> {
     const record = readSpaceMemberRecord(this.ctx.storage.sql, input.profileId);
     const memberKind = record?.profileKindSnapshot;
     if (
@@ -6907,6 +6921,18 @@ export class Space extends DurableObject<CoreBindings> {
       // and by retried fan-outs. The snapshot is idempotent.
       await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
       return "noop";
+    }
+
+    if (memberKind === "agent" && !input.wakeCancellationConfirmed) {
+      const cancellationConfirmed =
+        await this.requireDeletedAgentProfileWakeCancellation({
+          ownerUserId: input.ownerUserId,
+          record,
+          source: input.source,
+        });
+      if (!cancellationConfirmed) {
+        return "deferred";
+      }
     }
 
     try {
@@ -6965,6 +6991,77 @@ export class Space extends DurableObject<CoreBindings> {
     return "removed";
   }
 
+  private async requireDeletedAgentProfileWakeCancellation(input: {
+    ownerUserId?: string;
+    record: SpaceMemberRecord;
+    source: "profile_delete_fanout" | "membership_liveness_reconcile";
+  }): Promise<boolean> {
+    const requestedOwnerUserId = normalizeOptionalText(input.ownerUserId);
+    const snapshotOwnerUserId = normalizeOptionalText(
+      input.record.ownerUserIdSnapshot
+    );
+    if (
+      requestedOwnerUserId &&
+      snapshotOwnerUserId &&
+      requestedOwnerUserId !== snapshotOwnerUserId
+    ) {
+      await this.deferDeletedAgentProfileMemberRemoval({
+        profileId: input.record.profileId,
+        reasonCode: "agent_profile.deleted_owner_mismatch",
+        source: input.source,
+      });
+      return false;
+    }
+    const ownerUserId = requestedOwnerUserId ?? snapshotOwnerUserId;
+    if (!ownerUserId) {
+      await this.deferDeletedAgentProfileMemberRemoval({
+        profileId: input.record.profileId,
+        reasonCode: "agent_profile.deleted_owner_missing",
+        source: input.source,
+      });
+      return false;
+    }
+    const cancellation = await cancelRuntimeTransportDeletedAgentProfileWakes({
+      env: this.bindings,
+      ownerUserId,
+      targetProfileId: input.record.profileId,
+    });
+    if (
+      cancellation.status === "inactive" ||
+      cancellation.status === "cancellation_requested"
+    ) {
+      return true;
+    }
+    await this.deferDeletedAgentProfileMemberRemoval({
+      profileId: input.record.profileId,
+      reasonCode: `agent_profile.deleted_wake_cancellation_${cancellation.status}`,
+      source: input.source,
+    });
+    return false;
+  }
+
+  private async deferDeletedAgentProfileMemberRemoval(input: {
+    profileId: string;
+    reasonCode: string;
+    source: "profile_delete_fanout" | "membership_liveness_reconcile";
+  }): Promise<void> {
+    const nowMs = Date.now();
+    recordConfirmedMemberProfileDeletionObservation(this.ctx.storage.sql, {
+      minAgeMs: MEMBER_PROFILE_LIVENESS_MIN_AGE_MS,
+      minObservations: MEMBER_PROFILE_LIVENESS_MIN_OBSERVATIONS,
+      nowMs,
+      profileId: input.profileId,
+    });
+    await this.syncSpaceBackgroundAlarm();
+    console.warn("[core.space.deleted_profile_member_removal_deferred]", {
+      event: "core.space.deleted_profile_member_removal_deferred",
+      profileId: input.profileId,
+      reasonCode: input.reasonCode,
+      source: input.source,
+      spaceId: this.spaceId,
+    });
+  }
+
   // Membership liveness alarm: removal happens only after the evidence
   // threshold is met AND a fresh authoritative re-verification still reports
   // the profile as deleted. Transient auth failures keep the evidence and
@@ -7008,10 +7105,15 @@ export class Space extends DurableObject<CoreBindings> {
         );
         continue;
       }
-      await this.reconcileDeletedAgentProfileMemberInternal({
-        profileId: evidence.profileId,
-        source: "membership_liveness_reconcile",
-      });
+      const reconcileStatus =
+        await this.reconcileDeletedAgentProfileMemberInternal({
+          profileId: evidence.profileId,
+          source: "membership_liveness_reconcile",
+          wakeCancellationConfirmed: false,
+        });
+      if (reconcileStatus === "deferred") {
+        continue;
+      }
       clearMemberProfileLivenessEvidence(
         this.ctx.storage.sql,
         evidence.profileId
@@ -14818,8 +14920,8 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId,
       });
 
-    const activeMemberByProfileId = new Map(
-      listSpaceMemberRecords(this.ctx.storage.sql, { status: "active" }).map(
+    const memberByProfileId = new Map(
+      listSpaceMemberRecords(this.ctx.storage.sql).map(
         (record) => [record.profileId, record] as const
       )
     );
@@ -14843,7 +14945,7 @@ export class Space extends DurableObject<CoreBindings> {
     const items: WakeProgressItem[] = [];
     for (const nextTargetProfileId of targetProfileIds) {
       const targetLabel = resolveWakeProgressTargetLabel({
-        activeMemberByProfileId,
+        memberByProfileId,
         outboxRecords,
         sourceSignal,
         targetProfileId: nextTargetProfileId,
@@ -14998,8 +15100,8 @@ export class Space extends DurableObject<CoreBindings> {
         (delivery) => [buildDispatchTargetKey(delivery), delivery] as const
       )
     );
-    const activeMemberByProfileId = new Map(
-      listSpaceMemberRecords(this.ctx.storage.sql, { status: "active" }).map(
+    const memberByProfileId = new Map(
+      listSpaceMemberRecords(this.ctx.storage.sql).map(
         (record) => [record.profileId, record] as const
       )
     );
@@ -15024,7 +15126,7 @@ export class Space extends DurableObject<CoreBindings> {
                 record.targetProfileId === execution.targetProfileId
             ) ?? null;
           const targetLabel = resolveWakeProgressTargetLabel({
-            activeMemberByProfileId,
+            memberByProfileId,
             outboxRecords,
             sourceSignal,
             targetProfileId: execution.targetProfileId,
@@ -15080,7 +15182,7 @@ export class Space extends DurableObject<CoreBindings> {
         sourceSignalId,
       });
       const targetLabel = resolveWakeProgressTargetLabel({
-        activeMemberByProfileId,
+        memberByProfileId,
         outboxRecords,
         sourceSignal,
         targetProfileId: outboxRecord.targetProfileId,
@@ -15115,7 +15217,7 @@ export class Space extends DurableObject<CoreBindings> {
         sourceSignalId,
       });
       const targetLabel = resolveWakeProgressTargetLabel({
-        activeMemberByProfileId,
+        memberByProfileId,
         outboxRecords,
         sourceSignal,
         targetProfileId: delivery.targetProfileId,
@@ -16322,7 +16424,11 @@ function classifyFinalReplyClaimOutcome(
   signal: SignalEnvelope
 ): "failure" | "stopped" | "success" | "unknown" {
   if (signal.type === "signal.text") {
-    return "success";
+    const purpose = normalizeOptionalText(signal.data.meta?.purpose);
+    if (purpose === REMOTE_AGENT_FAILURE_PURPOSE) {
+      return "failure";
+    }
+    return purpose === AGENT_REPLY_FINAL_PURPOSE ? "success" : "unknown";
   }
   if (signal.type !== "signal.system_notice") {
     return "unknown";
@@ -16618,7 +16724,7 @@ function projectWakeTraceSourceSignalFact(
 }
 
 function resolveWakeProgressTargetLabel(input: {
-  activeMemberByProfileId: ReadonlyMap<string, SpaceMemberRecord>;
+  memberByProfileId: ReadonlyMap<string, SpaceMemberRecord>;
   outboxRecords: readonly OpenMeldDaemonDispatchOutboxRecoveryCandidate[];
   sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null;
   targetProfileId: string;
@@ -16626,7 +16732,7 @@ function resolveWakeProgressTargetLabel(input: {
   const outboxRecord = input.outboxRecords.find(
     (record) => record.targetProfileId === input.targetProfileId
   );
-  const member = input.activeMemberByProfileId.get(input.targetProfileId);
+  const member = input.memberByProfileId.get(input.targetProfileId);
   return formatWakeProgressTargetLabel(
     normalizeOptionalText(outboxRecord?.targetProfileMentionLabel) ??
       normalizeOptionalText(outboxRecord?.targetProfileNameSnapshot) ??
@@ -17958,9 +18064,10 @@ function toFinalVisibleTextMessageTraceCandidate(
   const targetProfileId = normalizeOptionalText(signalMeta?.targetProfileId);
   const signalId = normalizeOptionalText(signal.id);
   const text = normalizeOptionalText(signalData?.text);
+  const purpose = normalizeOptionalText(signalMeta?.purpose);
   if (
-    normalizeOptionalText(signalMeta?.purpose) !== AGENT_REPLY_FINAL_PURPOSE ||
     !(
+      isFinalOutcomeTextPurpose(purpose) &&
       dispatchId &&
       targetProfileId &&
       profileId &&
@@ -17980,7 +18087,11 @@ function toFinalVisibleTextMessageTraceCandidate(
     profileKind: signal.profile?.kind ?? null,
     profileName: normalizeOptionalText(signal.profile?.profileName),
     text,
-    reasonCode: null,
+    reasonCode:
+      purpose === REMOTE_AGENT_FAILURE_PURPOSE
+        ? (normalizeOptionalText(signalMeta?.errorCode) ??
+          "remote_agent.failure_published")
+        : null,
     noticeType: null,
     statusType: null,
     createdAt: new Date(signal.ts).toISOString(),
@@ -18104,6 +18215,7 @@ function toSignalDataRecord(
 
 function toSignalMetaRecord(value: unknown): {
   dispatchId?: unknown;
+  errorCode?: unknown;
   purpose?: unknown;
   targetProfileId?: unknown;
   transient?: unknown;
@@ -18113,6 +18225,7 @@ function toSignalMetaRecord(value: unknown): {
   }
   return value as {
     dispatchId?: unknown;
+    errorCode?: unknown;
     purpose?: unknown;
     targetProfileId?: unknown;
     transient?: unknown;
@@ -19522,7 +19635,7 @@ function resolveSignalFinalReplyClaimForLog(
     const dispatchId = normalizeOptionalText(meta?.dispatchId);
     const profileId = normalizeOptionalText(meta?.targetProfileId);
     if (
-      normalizeOptionalText(meta?.purpose) === AGENT_REPLY_FINAL_PURPOSE &&
+      isFinalOutcomeTextPurpose(normalizeOptionalText(meta?.purpose)) &&
       dispatchId &&
       profileId
     ) {

@@ -1027,6 +1027,12 @@ export const runtimeTransportRuntimeCoordinatorWakeStopRequestSchema =
 export const runtimeTransportRuntimeCoordinatorWakeStopResponseSchema =
   postSpaceWakeStopResponseSchema;
 
+export const runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema =
+  z.strictObject({
+    ownerUserId: z.string().trim().min(1).max(256),
+    targetProfileId: agentProfileIdSchema,
+  });
+
 export const runtimeTransportRuntimeCoordinatorHeadPreAgentStopReasonCodeSchema =
   z.enum(["runtime_coordinator.pre_agent_stop_requested"]);
 
@@ -1069,6 +1075,23 @@ export const runtimeTransportRuntimeCoordinatorHeadPreAgentStopResponseSchema =
       targetWakeLifecycleId: z.string().min(1).max(2048),
     }),
   ]);
+
+export const runtimeTransportDeletedAgentProfileWakeCancellationResponseSchema =
+  z.strictObject({
+    executionStopOutcomes: z.array(
+      runtimeTransportRuntimeCoordinatorWakeStopResponseSchema
+    ),
+    headStopOutcomes: z.array(
+      runtimeTransportRuntimeCoordinatorHeadPreAgentStopResponseSchema
+    ),
+    status: z.enum([
+      "inactive",
+      "cancellation_requested",
+      "partially_requested",
+      "unavailable",
+    ]),
+    targetProfileId: agentProfileIdSchema,
+  });
 
 export const runtimeTransportRuntimeCoordinatorHeadAcceptActionSchema = z.enum([
   "create_execution",

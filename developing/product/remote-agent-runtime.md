@@ -197,10 +197,17 @@ use the action only when its stored structured grant explicitly contains
    model-visible source label is not sufficient authorization.
    Remote Agent and Core replace that selection with system-owned execution,
    Run, or document-revision identity before claiming the provider write. An
-   exact retry returns the first result without another Slack call; ambiguity
-   fails closed. The contract is generic and must not encode a product-level
-   rule for a Routine, date, diary, or channel. The turn's normal result still
-   returns only to the originating surface.
+   interactive current-turn message also carries one bounded stable
+   `operationId` scoped under that verified execution. Distinct IDs let one task
+   publish multiple explicitly requested messages to the same destination in
+   order; reusing an ID with changed content fails closed, and an exact retry
+   returns the first result without another Slack call. The Agent waits for each
+   publication result before starting the next one. A failed or
+   outcome-unknown publication stops dependent later publications and remains
+   an explicit partial outcome. Routine Run and approved-document publication
+   retain their single source-owned operation. The contract is generic and must
+   not encode a product-level rule for a Routine, date, diary, or channel. The
+   turn's normal result still returns only to the originating surface.
 2. **Slack is the first supported external signal.** Decided 2026-07-08 and
    landed 2026-07-09 and made queue-backed on 2026-07-15, Slack enters through
    Gateway edge signature validation. Gateway acknowledges only after the
@@ -1093,6 +1100,14 @@ paths. This is provider-payload compaction, not capability removal or a second
 tool policy. A large catalog without exactly one valid `codemode` tool fails
 fast instead of silently dropping tools. The source tool list is never mutated,
 so retries and diagnostics retain the admitted capability evidence.
+
+For a task with multiple external effects, direct calls or Code Mode await each
+write in the requested or dependency order. Each distinct write receives its
+own stable operation identity under the capability owner's contract; exact
+retries reuse that identity. The Agent never replaces an ambiguous step with a
+new identity, continues dependent work past an unknown outcome, or claims an
+all-or-nothing result across unrelated providers. When a capability owns a
+durable multi-item manifest, that batch contract replaces a model-authored loop.
 
 Every Task or Space request stays inside the ordinary Center Agent loop. The
 same frozen primary model sees the admitted requester, current request,

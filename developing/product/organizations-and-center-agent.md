@@ -204,6 +204,16 @@ It does not inspect keywords, store raw inputs or outputs, or infer that an
 effectful tool is safe to repeat. The Center Agent remains responsible for
 choosing the next useful action and finishing with the evidence it has.
 
+When one authorized task requires multiple external writes, that same answer
+owner executes them in the user's requested or dependency order and waits for
+each owning capability's structured result before starting the next dependent
+write. Every capability that accepts an `operationId` receives one stable ID
+per distinct effect; an exact retry reuses the same ID, while another effect
+uses another ID. A failed or outcome-unknown step stops dependent later writes
+and produces an explicit partial-outcome report. A capability-owned durable
+batch remains authoritative when one exists. OpenMeld does not add a second
+generic transaction engine or pretend unrelated providers can commit atomically.
+
 ## Pillar 1 — Organization (Tenancy)
 
 ### Mechanics: Vercel-style, single container type

@@ -526,10 +526,10 @@ function renderActivationIntentGate(
   return [
     "Activation intent gate:",
     "- Decide from the current Wake message and structured addressing before reading Space history or using any tool. Use one brief pass: assigned, referenced_or_candidate, or ambiguous.",
-    `- If you are only named as a candidate, example, alternative, or possible helper while another Agent owns the request, run \`${buildSpaceActionCommand(
+    `- If you are only named as a candidate, example, alternative, or possible helper while another Agent owns the request, call the Space Action \`stay_silent\` tool with reason \`activation_intent.referenced_or_candidate\`; if unavailable, run \`${buildSpaceActionCommand(
       input,
       'silent --reason "activation_intent.referenced_or_candidate"'
-    )}\` immediately and stop. Do not read history, call business tools, or publish an explanation.`,
+    )}\`. Stop before reading history, calling business tools, or publishing an explanation.`,
     "- An explicit Wake target does not by itself prove that the words assign work to you. If the message directly assigns you work, continue. When the intent remains ambiguous, honor the explicit Wake and continue; never rewrite the user's structured targets.",
   ].join("\n");
 }
@@ -676,10 +676,10 @@ function renderMandatoryCompletionSection(
 
   return [
     "Mandatory completion:",
-    "- Do not finish this Wake with a plain-text final answer. Plain prose stays local and is not a public Space reply in Collaboration mode.",
+    "- Plain text stays local; it is never a public Space reply.",
     buildMandatoryCompletionActionLine(input, publicationRequirement),
-    "- After the Space Action command succeeds, stop. OpenMeld reads that command as the public outcome.",
-    "- If the command cannot run, stop and let OpenMeld report the structured failure. Do not print JSON or prose as a substitute for the tool call.",
+    "- Stop after one action is recorded; that action is the public outcome.",
+    "- If neither path can record it, stop. Do not substitute prose or JSON.",
   ].join("\n");
 }
 
@@ -688,19 +688,19 @@ function buildMandatoryCompletionActionLine(
   publicationRequirement: ReturnType<typeof resolveSpacePublicationRequirement>
 ): string {
   if (publicationRequirement.allowedActions.includes("post_message")) {
-    return `- Normal completion: run \`${buildSpaceActionCommand(
+    return `- Normal completion: call Space Action \`reply\` with your exact public message. CLI fallback if unavailable: \`${buildSpaceActionCommand(
       input,
       'reply "your public message"'
     )}\` and wait for it to finish.`;
   }
   if (publicationRequirement.allowedActions.includes("post_status")) {
-    return `- Normal completion: run \`${buildSpaceActionCommand(
+    return `- Normal completion: call Space Action \`status\` with a final-safe status and short update. CLI fallback if unavailable: \`${buildSpaceActionCommand(
       input,
       'status done "short completion update"'
     )}\` and wait for it to finish.`;
   }
   if (publicationRequirement.allowedActions.includes("stay_silent")) {
-    return `- Normal completion: run \`${buildSpaceActionCommand(
+    return `- Normal completion: call Space Action \`stay_silent\` with your reason. CLI fallback if unavailable: \`${buildSpaceActionCommand(
       input,
       'silent --reason "reason"'
     )}\` and wait for it to finish.`;

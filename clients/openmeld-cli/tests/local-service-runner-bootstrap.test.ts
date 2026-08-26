@@ -109,13 +109,13 @@ describe("local service dispatch bootstrap prompt", () => {
       "Current Wake message:\nSummarize today's status.\n\nMandatory completion:"
     );
     expect(prompt).toContain(
-      "- Do not finish this Wake with a plain-text final answer. Plain prose stays local and is not a public Space reply in Collaboration mode."
+      "- Plain text stays local; it is never a public Space reply."
     );
     expect(prompt).toContain(
-      '- Normal completion: run `openmeld space action reply "your public message"` and wait for it to finish.'
+      '- Normal completion: call Space Action `reply` with your exact public message. CLI fallback if unavailable: `openmeld space action reply "your public message"` and wait for it to finish.'
     );
     expect(prompt).toContain(
-      "- After the Space Action command succeeds, stop. OpenMeld reads that command as the public outcome."
+      "- Stop after one action is recorded; that action is the public outcome."
     );
     expect(prompt).not.toContain("Canonical post_message block:");
     expect(prompt).not.toContain("```openmeld-space-action");
@@ -257,10 +257,10 @@ describe("local service dispatch bootstrap prompt", () => {
       prompt.slice(prompt.indexOf("Mandatory completion:"))
     ).toMatchInlineSnapshot(`
         "Mandatory completion:
-        - Do not finish this Wake with a plain-text final answer. Plain prose stays local and is not a public Space reply in Collaboration mode.
-        - Normal completion: run \`openmeld space action reply "your public message"\` and wait for it to finish.
-        - After the Space Action command succeeds, stop. OpenMeld reads that command as the public outcome.
-        - If the command cannot run, stop and let OpenMeld report the structured failure. Do not print JSON or prose as a substitute for the tool call."
+        - Plain text stays local; it is never a public Space reply.
+        - Normal completion: call Space Action \`reply\` with your exact public message. CLI fallback if unavailable: \`openmeld space action reply "your public message"\` and wait for it to finish.
+        - Stop after one action is recorded; that action is the public outcome.
+        - If neither path can record it, stop. Do not substitute prose or JSON."
       `);
   });
 
@@ -400,7 +400,7 @@ describe("local service dispatch bootstrap prompt", () => {
       "- Need more: run `openmeld-dev space board space_dev` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at https://openmeld.ai/guide.md / run `openmeld-dev prompt space`."
     );
     expect(prompt).toContain(
-      '`openmeld-dev space action reply "your public message"`'
+      'CLI fallback if unavailable: `openmeld-dev space action reply "your public message"`'
     );
     expect(prompt).not.toContain("prompt space-action --raw");
     expect(prompt).not.toContain("npx -y openmeld@latest space action");
@@ -426,7 +426,7 @@ describe("local service dispatch bootstrap prompt", () => {
       "Run `openmeld-dev service update` after the current Wake finishes."
     );
     expect(prompt).toContain(
-      '- Normal completion: run `openmeld-dev space action reply "your public message"` and wait for it to finish.'
+      '- Normal completion: call Space Action `reply` with your exact public message. CLI fallback if unavailable: `openmeld-dev space action reply "your public message"` and wait for it to finish.'
     );
   });
 
