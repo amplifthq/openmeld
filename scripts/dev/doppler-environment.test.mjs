@@ -30,7 +30,8 @@ const DOPPLER_ENVIRONMENT_SCRIPT = fileURLToPath(
 );
 const DOPPLER_INSTALL_URL = "https://docs.doppler.com/docs/install-cli";
 const DOPPLER_CLI_REQUIRED_RE = /Doppler CLI is required/u;
-const DOPPLER_CI_COMMAND_RE = /run: pnpm run verify:doppler-environment/u;
+const DOPPLER_CI_COMMAND_RE = /pnpm run verify:doppler-environment/u;
+const FINAL_CANDIDATE_COMMAND_RE = /pnpm candidate run/u;
 const RAW_DOPPLER_ENOENT_RE = /spawn doppler ENOENT/u;
 const SCOPED_GATEWAY_ENVIRONMENT_RE =
   /\{"auth":false,"gateway":true,"remoteAgent":false\}/u;
@@ -59,7 +60,7 @@ test("exposes one newcomer-friendly command set", () => {
   assert.equal(packageJson.scripts["env:run"], undefined);
 });
 
-test("runs the Doppler environment contract in pull request and main CI", () => {
+test("routes the Doppler environment contract through Final Candidate", () => {
   const packageJson = JSON.parse(
     readFileSync(new URL("../../package.json", import.meta.url), "utf8")
   );
@@ -69,16 +70,19 @@ test("runs the Doppler environment contract in pull request and main CI", () => 
     "node --test scripts/dev/doppler-environment.test.mjs scripts/dev/dev-isolated.test.mjs"
   );
 
-  for (const workflowPath of [
-    new URL("../../.github/workflows/pr-checks.yml", import.meta.url),
-    new URL("../../.github/workflows/ci-contract-guard.yml", import.meta.url),
-  ]) {
-    assert.match(
-      readFileSync(workflowPath, "utf8"),
-      DOPPLER_CI_COMMAND_RE,
-      workflowPath.pathname
-    );
-  }
+  assert.match(
+    packageJson.scripts["verify:pre-push:checks"],
+    DOPPLER_CI_COMMAND_RE
+  );
+  const workflowPath = new URL(
+    "../../.github/workflows/final-candidate.yml",
+    import.meta.url
+  );
+  assert.match(
+    readFileSync(workflowPath, "utf8"),
+    FINAL_CANDIDATE_COMMAND_RE,
+    workflowPath.pathname
+  );
 });
 
 test("links newcomers to Doppler's official CLI installation guide", () => {

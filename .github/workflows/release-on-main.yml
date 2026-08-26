@@ -1,5 +1,5 @@
 name: 🚀 Scoped Production Release
-run-name: Scoped Production Release ${{ inputs.mode }} / ${{ inputs.scope }} @ ${{ inputs.release_sha }}
+run-name: Scoped Production Release ${{ inputs.scope }} @ ${{ inputs.release_sha }}
 
 permissions:
   contents: read
@@ -7,14 +7,6 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      mode:
-        description: "Preview the plan or deploy it"
-        required: true
-        type: choice
-        default: preview
-        options:
-          - preview
-          - deploy
       release_sha:
         description: "Exact 40-character main commit SHA approved for this release"
         required: true
@@ -39,7 +31,7 @@ on:
 jobs:
   reject_non_main:
     name: Reject Non-Main Production Deploy
-    if: inputs.mode == 'deploy' && github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Require main
@@ -49,7 +41,7 @@ jobs:
 
   validate_release_source:
     name: Validate Immutable Main Release Source
-    if: inputs.mode == 'preview' || github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main history
@@ -71,28 +63,10 @@ jobs:
             exit 1
           fi
 
-  preview:
-    name: Preview Release Plan
-    needs: validate_release_source
-    if: inputs.mode == 'preview'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Show selected release
-        run: |
-          {
-            echo "## Scoped Production Release Preview"
-            echo ""
-            echo "- Commit: \`${{ inputs.release_sha }}\`"
-            echo "- Scope: \`${{ inputs.scope }}\`"
-            echo ""
-            echo "Deploy mode runs only the selected production stages. CLI publishing stays separate."
-          } >> "$GITHUB_STEP_SUMMARY"
-
   database:
     name: Release Production Database
     needs: validate_release_source
     if: >-
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'database' ||
        inputs.scope == 'database-auth' ||
@@ -141,7 +115,6 @@ jobs:
       - validate_release_source
     if: >-
       always() &&
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'web' || inputs.scope == 'cloud' || inputs.scope == 'full') &&
       needs.validate_release_source.result == 'success' &&
@@ -161,7 +134,6 @@ jobs:
       - validate_release_source
     if: >-
       always() &&
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'gateway' || inputs.scope == 'cloud' || inputs.scope == 'full') &&
       needs.validate_release_source.result == 'success' &&
@@ -180,7 +152,6 @@ jobs:
       - validate_release_source
     if: >-
       always() &&
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'auth' ||
        inputs.scope == 'database-auth' ||
@@ -204,7 +175,6 @@ jobs:
       - validate_release_source
     if: >-
       always() &&
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'core' ||
        inputs.scope == 'database-core' ||
@@ -232,7 +202,6 @@ jobs:
       - validate_release_source
     if: >-
       always() &&
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'remote-agent' || inputs.scope == 'cloud' || inputs.scope == 'full') &&
       needs.validate_release_source.result == 'success' &&

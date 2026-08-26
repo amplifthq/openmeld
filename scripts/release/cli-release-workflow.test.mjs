@@ -22,13 +22,12 @@ const RELEASE_TAG_PUSH = ['git push origin "refs/tags/v$', '{version}"'].join(
   ""
 );
 
-test("keeps the trusted GitHub release safe by default and focused on CLI and Core", () => {
+test("keeps the trusted GitHub release publication-only and focused on CLI and Core", () => {
   const source = readRepoFile(".github/workflows/cli-release.yml");
 
-  assert.ok(source.includes("      mode:"));
-  assert.ok(source.includes("        default: verify"));
-  assert.ok(source.includes("  verify:"));
-  assert.ok(source.includes("pnpm run verify:release-ready"));
+  assert.ok(!source.includes("      mode:"));
+  assert.ok(!source.includes("  verify:"));
+  assert.ok(!source.includes("pnpm run verify:release-ready"));
   assert.ok(!source.includes("      rollout:"));
   assert.ok(!source.includes("      bootstrap_routines:"));
   assert.ok(!source.includes("  database:"));
@@ -40,11 +39,9 @@ test("keeps the trusted GitHub release safe by default and focused on CLI and Co
   assert.ok(!source.includes("  release_ready:"));
   assert.ok(source.includes("  reject_non_main:"));
   assert.ok(source.includes("  cli_release:"));
-  assert.ok(
-    source.includes(
-      "if: github.ref == 'refs/heads/main' && inputs.mode == 'release'"
-    )
-  );
+  assert.ok(source.includes("if: github.ref == 'refs/heads/main'"));
+  assert.ok(source.includes("group: cli-production-release"));
+  assert.equal(source.match(/cancel-in-progress: false/gu)?.length, 2);
 });
 
 test("keeps the signed and notarized CLI publisher fail closed", () => {

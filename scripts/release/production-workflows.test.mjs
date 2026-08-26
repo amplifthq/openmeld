@@ -19,6 +19,10 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const readRepoFile = (relativePath) =>
   readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
+const FINAL_CANDIDATE_BASE_EXPRESSION = `${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.base.sha }}`;
+const FINAL_CANDIDATE_HEAD_EXPRESSION = `${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.head.sha }}`;
+const FINAL_CANDIDATE_NUMBER_EXPRESSION = `${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.number }}`;
+const GITHUB_REPOSITORY_EXPRESSION = `${GITHUB_EXPRESSION_PREFIX} github.repository }}`;
 const RELEASE_SHA_CHECKOUT = `ref: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sha || github.sha }}`;
 const PINNED_SCOPED_RELEASE_SHA = `${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
 const SCOPED_RELEASE_SHA_INPUT =
@@ -26,10 +30,11 @@ const SCOPED_RELEASE_SHA_INPUT =
 const MAINLINE_RELEASE_ERROR_PATTERN =
   /release_sha must identify a commit on the main first-parent chain/u;
 const YAML_JOB_BOUNDARY = /\n {2}[a-z_]+:/u;
-const SHELL_GITHUB_SHA = ["$", "{GITHUB_SHA}"].join("");
 const UNPINNED_ULTRACITE_COMMAND = /ultracite (?:check|fix)/u;
 const LOCAL_CORE_STARTUP_DIAGNOSTIC =
   /- name: Capture local Core startup evidence\n\s+continue-on-error: true\n\s+run: pnpm run evidence:startup:core/u;
+const PRODUCTION_CONCURRENCY_PATTERN =
+  /concurrency:\n\s+group: deploy-[a-z-]+-production\n\s+cancel-in-progress: false/u;
 const PNPM_BINARY = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 const COMPONENT_WORKFLOWS = [
@@ -71,7 +76,7 @@ const PACKAGE_MANIFEST_PATTERNS = [
   "services/*/package.json",
 ];
 
-test("keeps the manual production dispatcher scoped by default", () => {
+test("keeps the manual production dispatcher deploy-only and scoped by default", () => {
   const source = readRepoFile(".github/workflows/release-on-main.yml");
 
   assert.ok(source.includes("default: web"));
@@ -89,19 +94,14 @@ test("keeps the manual production dispatcher scoped by default", () => {
   ]) {
     assert.ok(source.includes(`          - ${scope}`));
   }
-  assert.ok(!source.includes("Deploy Auth Worker when target is selected"));
-  assert.ok(!source.includes("Deploy Core Worker when target is selected"));
+  assert.ok(!source.includes("      mode:"));
+  assert.ok(!source.includes("  preview:"));
   assert.ok(!source.includes("release_ready:"));
   assert.ok(!source.includes("  select:"));
   assert.ok(!source.includes("  guard:"));
   assert.ok(!source.includes("  summary:"));
-  assert.ok(source.includes("  preview:"));
   assert.ok(source.includes("  reject_non_main:"));
-  assert.ok(
-    source.includes(
-      "inputs.mode == 'deploy' && github.ref != 'refs/heads/main'"
-    )
-  );
+  assert.ok(source.includes("if: github.ref != 'refs/heads/main'"));
   assert.ok(
     (source.match(/github\.ref == 'refs\/heads\/main'/gu)?.length ?? 0) >= 6
   );
@@ -139,12 +139,8 @@ test("pins a scoped production release to one explicit main commit", () => {
   assert.ok(
     !source.includes(`release_sha: ${GITHUB_EXPRESSION_PREFIX} github.sha }}`)
   );
-  assert.ok(!source.includes(`- Commit: \`${SHELL_GITHUB_SHA}\``));
-  const previewJob = source.split("\n  preview:")[1]?.split("\n  database:")[0];
-  assert.ok(previewJob?.includes(PINNED_SCOPED_RELEASE_SHA));
 
   for (const jobName of [
-    "preview",
     "database",
     "auth",
     "web",
@@ -261,186 +257,132 @@ test("deploys the Auth receiver before Web in coordinated GitHub releases", () =
   );
 });
 
-test("keeps one fast PR gate and makes exhaustive confidence manual", () => {
-  const prChecks = readRepoFile(".github/workflows/pr-checks.yml");
+test("runs one explicit Final Candidate job and keeps exhaustive confidence manual", () => {
+  const candidate = readRepoFile(".github/workflows/final-candidate.yml");
   const deepConfidence = readRepoFile(".github/workflows/deep-confidence.yml");
   const rootPackage = JSON.parse(readRepoFile("package.json"));
-  const ciContractGuard = readRepoFile(
-    ".github/workflows/ci-contract-guard.yml"
-  );
-  const localComponents = readRepoFile(
-    ".github/workflows/local-components-manifest.yml"
-  );
-  const planSetup = readRepoFile(
-    ".github/actions/setup-fast-pr-plan/action.yml"
-  );
-  const planJob = prChecks.split("\n  plan:")[1]?.split("\n  static:")[0];
-  const checkJob = prChecks
-    .split("\n  check:")[1]
-    ?.split("\n  unit-test-shards:")[0];
+  const hook = readRepoFile(".husky/pre-push");
 
-  assert.equal(prChecks.match(/^ {4}name: Fast PR$/gmu)?.length, 1);
-  assert.ok(prChecks.includes("  plan:"));
-  assert.ok(prChecks.includes("    name: Fast PR / Plan"));
-  assert.ok(prChecks.includes("  static:"));
-  assert.ok(prChecks.includes("    name: Fast PR / Static"));
-  assert.ok(prChecks.includes("pnpm run verify:changelog"));
-  assert.ok(prChecks.includes("  check:"));
-  assert.ok(prChecks.includes("    name: Fast PR / Checks"));
-  assert.ok(checkJob);
-  assert.ok(checkJob.includes("NODE_OPTIONS: --max-old-space-size=4096"));
-  assert.ok(prChecks.includes("  unit-test-shards:"));
-  assert.equal(prChecks.match(/^ {4}needs: plan$/gmu)?.length, 2);
+  assert.ok(candidate.includes("name: OpenMeld Final Candidate"));
+  assert.ok(candidate.includes("types: [labeled]"));
+  assert.ok(!candidate.includes("synchronize"));
+  assert.ok(!candidate.includes("opened"));
+  assert.ok(!candidate.includes("ready_for_review"));
+  assert.ok(!candidate.includes("workflow_dispatch"));
+  assert.equal(candidate.match(/^ {4}runs-on: ubuntu-latest$/gmu)?.length, 1);
   assert.ok(
-    prChecks.includes(
-      `    name: Fast PR / Unit Tests / ${GITHUB_EXPRESSION_PREFIX} matrix.name }}`
+    candidate.includes(
+      "if: github.event.label.name == 'final-candidate' && github.event.pull_request.draft == false"
     )
   );
-  assert.ok(prChecks.includes("  remaining-unit-tests:"));
-  assert.ok(prChecks.includes("    name: Fast PR / Unit Tests / Remaining"));
-  assert.ok(prChecks.includes("  gate:"));
-  assert.ok(
-    prChecks.includes(
-      "    needs: [plan, static, check, unit-test-shards, remaining-unit-tests]"
-    )
-  );
-  assert.ok(
-    prChecks.includes(
-      "if: always() && github.event.pull_request.draft == false"
-    )
-  );
-  assert.ok(prChecks.includes("ready_for_review"));
-  assert.ok(prChecks.includes("converted_to_draft"));
-  assert.equal(prChecks.match(/timeout-minutes: 20/gmu)?.length, 4);
-  assert.ok(!prChecks.includes("timeout-minutes: 45"));
-  assert.ok(
-    prChecks.includes(`--shard=${GITHUB_EXPRESSION_PREFIX} matrix.shard }}`)
-  );
-  assert.ok(prChecks.includes("--exclude-package=openmeld-web"));
-  assert.ok(prChecks.includes("--exclude-package=openmeld"));
-  assert.ok(prChecks.includes("--exclude-package=@openmeld/core"));
-  assert.ok(prChecks.includes("--exclude-package=@openmeld/gateway"));
-  assert.ok(
-    prChecks.includes(
-      "--exclude-package=@openmeld/gateway test -- --concurrency=1 --output-logs=errors-only"
-    )
+  assert.ok(candidate.includes(`ref: ${FINAL_CANDIDATE_HEAD_EXPRESSION}`));
+  assert.ok(candidate.includes(`--head "${FINAL_CANDIDATE_HEAD_EXPRESSION}"`));
+  assert.ok(candidate.includes(`--base "${FINAL_CANDIDATE_BASE_EXPRESSION}"`));
+  assert.ok(candidate.includes("--publish-status"));
+  assert.ok(candidate.includes("if: always()"));
+  assert.ok(candidate.includes("actions/upload-artifact@v4"));
+  assert.equal(
+    rootPackage.scripts.candidate,
+    "node scripts/ci/final-candidate.mjs"
   );
   assert.equal(
-    prChecks.match(/uses: \.\/\.github\/actions\/cache-fast-pr-turbo/gmu)
-      ?.length,
-    3
+    rootPackage.scripts["candidate:local"],
+    "node scripts/ci/final-candidate.mjs run --mode local --publish-status"
   );
-  assert.ok(prChecks.includes("cache-suffix: checks"));
-  assert.ok(
-    prChecks.includes(
-      `cache-suffix: unit-${GITHUB_EXPRESSION_PREFIX} matrix.cacheKey }}`
-    )
-  );
-  assert.ok(prChecks.includes("cache-suffix: remaining-unit-tests"));
-  assert.ok(prChecks.includes("--output-logs=errors-only"));
-  assert.ok(prChecks.includes("--reporter=dot"));
-  assert.ok(prChecks.includes("--silent=passed-only"));
-  assert.ok(prChecks.includes("pnpm run verify:release-workflows"));
   assert.ok(
     rootPackage.scripts["verify:release-workflows"].includes(
-      "scripts/release/verify-release-ready.test.mjs"
+      "scripts/ci/final-candidate-policy.test.mjs"
     )
   );
-  assert.ok(
-    prChecks.includes(
-      `pnpm run verify:release-ready -- --defer-release --base ${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.base.sha }}`
-    )
-  );
-  assert.ok(prChecks.includes("Resolve release verification mode"));
-  assert.ok(
-    prChecks.includes(
-      'node scripts/release/release-branch-policy.mjs "$PR_HEAD_REF" "$PR_BASE_SHA"'
-    )
-  );
-  assert.ok(
-    prChecks.includes("if: steps.release-mode.outputs.mode == 'strict'")
-  );
-  assert.ok(
-    prChecks.includes("if: steps.release-mode.outputs.mode == 'deferred'")
-  );
-  assert.ok(
-    prChecks.includes(
-      "node scripts/dev/turbo-affected.mjs --changed-only check -- --concurrency=2"
-    )
-  );
-  assert.ok(prChecks.includes("node scripts/ci/fast-pr-test-plan.mjs"));
-  assert.ok(planJob);
-  assert.ok(planJob.includes("uses: ./.github/actions/setup-fast-pr-plan"));
-  assert.ok(!planJob.includes("uses: ./.github/actions/setup-node-pnpm"));
-  assert.ok(planJob.includes("OPENMELD_TURBO_DLX_PACKAGE: turbo@2.9.6"));
-  assert.ok(planSetup.includes("pnpm/action-setup@v6"));
-  assert.ok(planSetup.includes('node-version: "24"'));
-  assert.ok(planSetup.includes("package-manager-cache: false"));
-  assert.ok(!planSetup.includes("cache: pnpm"));
-  assert.ok(!planSetup.includes("pnpm install"));
-  assert.ok(!prChecks.includes("pnpm run verify:pr"));
-  assert.equal(
-    rootPackage.scripts["verify:pr"],
-    "node scripts/dev/turbo-affected.mjs --changed-only check test -- --concurrency=2"
-  );
-  assert.equal(
-    rootPackage.scripts["verify:pr:full"],
-    "node scripts/dev/turbo-affected.mjs check test test:integration -- --concurrency=2"
-  );
+  assert.ok(!hook.includes("verify:pre-push:checks"));
+  for (const retiredPath of [
+    ".github/workflows/pr-checks.yml",
+    ".github/workflows/ci-contract-guard.yml",
+    ".github/workflows/local-components-manifest.yml",
+    ".github/actions/setup-fast-pr-plan/action.yml",
+    ".github/actions/cache-fast-pr-turbo/action.yml",
+    "scripts/ci/fast-pr-test-plan.mjs",
+    "scripts/ci/fast-pr-test-plan.test.mjs",
+  ]) {
+    assert.ok(!existsSync(path.join(REPO_ROOT, retiredPath)), retiredPath);
+  }
   assert.ok(!deepConfidence.includes("schedule:"));
   assert.ok(deepConfidence.includes("workflow_dispatch:"));
-  assert.ok(ciContractGuard.includes("name: CI Contract Guard"));
-  assert.ok(ciContractGuard.includes('      - ".github/workflows/**"'));
-  assert.ok(
-    ciContractGuard.includes('      - "scripts/dev/turbo-affected.mjs"')
-  );
-  assert.ok(ciContractGuard.includes('      - "scripts/release/**"'));
-  assert.ok(ciContractGuard.includes("pnpm run verify:release-workflows"));
-  assert.ok(!ciContractGuard.includes("pnpm run verify:pr"));
-  assert.ok(!ciContractGuard.includes("pnpm run verify:release-ready"));
-  assert.ok(
-    !existsSync(path.join(REPO_ROOT, ".github/workflows/main-confidence.yml"))
-  );
-  assert.ok(
-    !existsSync(
-      path.join(REPO_ROOT, ".github/workflows/core-test-layout-guard.yml")
-    )
-  );
-  assert.ok(localComponents.includes("    paths:"));
-  assert.ok(
-    localComponents.includes(
-      '- ".github/workflows/local-components-manifest.yml"'
-    )
-  );
-  assert.ok(localComponents.includes('- "release/local-components.json"'));
-  assert.ok(localComponents.includes('- "runtime/local-service/src/**"'));
-  assert.ok(
-    localComponents.includes('- "scripts/ci/select-release-ready-paths.mjs"')
-  );
-  assert.ok(
-    localComponents.includes('- "scripts/release/release-ready-paths.mjs"')
-  );
-  assert.ok(localComponents.includes("run: pnpm run verify:release-ready"));
-  assert.ok(
-    !localComponents.includes(
-      "OPENMELD_AFFECTED_BASE: ${{ steps.scope.outputs.base }}"
-    )
-  );
-  assert.ok(!localComponents.includes("--defer-release"));
 });
 
-test("uses the pull request's exact base commit for every affected Fast PR gate", () => {
-  const prChecks = readRepoFile(".github/workflows/pr-checks.yml");
-  const exactBase = `${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.base.sha }}`;
+test("pins Final Candidate to the current PR head and base in both lanes", () => {
+  const candidate = readRepoFile(".github/workflows/final-candidate.yml");
+  const engine = [
+    readRepoFile("scripts/ci/final-candidate.mjs"),
+    readRepoFile("scripts/ci/final-candidate-state.mjs"),
+  ].join("\n");
+  const policy = readRepoFile("scripts/ci/final-candidate-policy.mjs");
 
-  assert.equal(prChecks.match(/fetch-depth: 0/gu)?.length, 4);
-  assert.equal(
-    prChecks.split(`OPENMELD_AFFECTED_BASE: ${exactBase}`).length - 1,
-    3
+  assert.ok(candidate.includes("fetch-depth: 0"));
+  assert.ok(
+    candidate.includes(`--repository "${GITHUB_REPOSITORY_EXPRESSION}"`)
   );
-  assert.ok(prChecks.includes(`--base ${exactBase}`));
-  assert.ok(!prChecks.includes("git fetch origin main --depth=1"));
-  assert.ok(!prChecks.includes("OPENMELD_AFFECTED_BASE: origin/main"));
+  assert.ok(candidate.includes(`--pr "${FINAL_CANDIDATE_NUMBER_EXPRESSION}"`));
+  assert.ok(engine.includes("refs/heads/main:refs/remotes/origin/main"));
+  assert.ok(engine.includes("assertCandidateSnapshot(state.snapshot)"));
+  assert.ok(engine.includes("assertCandidateSnapshot(finalState.snapshot)"));
+  assert.ok(engine.includes("publishCommitStatus"));
+  assert.ok(engine.includes("publishPullRequestComment"));
+  assert.ok(policy.includes("Candidate head drifted"));
+  assert.ok(policy.includes("Pull request base drifted"));
+  assert.ok(policy.includes("Main advanced"));
+  assert.ok(policy.includes("does not contain current main"));
+  assert.ok(policy.includes("evidenceMatchesCandidate"));
+});
+
+test("routes every agent to one delivery contract without duplicating it", () => {
+  const agents = readRepoFile("AGENTS.md");
+  const developingIndex = readRepoFile("developing/README.md");
+  const delivery = readRepoFile(
+    "developing/engineering/agent-native-delivery.md"
+  );
+  const development = readRepoFile(
+    "developing/engineering/development-workflow.md"
+  );
+  const release = readRepoFile("developing/engineering/production-release.md");
+
+  for (const router of [agents, developingIndex, development, release]) {
+    assert.ok(router.includes("agent-native-delivery.md"));
+  }
+  assert.ok(
+    delivery.includes(
+      "Source of truth: This file owns the end-to-end agent-native delivery contract"
+    )
+  );
+  assert.ok(delivery.includes("OpenMeld Final Candidate"));
+  assert.ok(delivery.includes("pnpm candidate:local -- --pr <number>"));
+  assert.ok(delivery.includes("cancel-in-progress: false"));
+  assert.ok(delivery.includes("Health And Real-User Smoke"));
+  assert.ok(
+    development.includes("section owns only the lower-level test commands")
+  );
+  assert.ok(
+    release.includes("used to invent a second merge or evidence contract")
+  );
+});
+
+test("serializes each production scope without canceling a running deploy", () => {
+  const dispatcher = readRepoFile(".github/workflows/release-on-main.yml");
+  const databaseJob = dispatcher
+    .split("\n  database:")[1]
+    ?.split("\n  web:")[0];
+
+  assert.ok(databaseJob?.includes("group: release-production-database"));
+  assert.ok(databaseJob?.includes("cancel-in-progress: false"));
+  for (const [scope, workflowPath] of COMPONENT_WORKFLOWS) {
+    const workflow = readRepoFile(workflowPath);
+    assert.match(
+      workflow,
+      PRODUCTION_CONCURRENCY_PATTERN,
+      `${scope} must serialize without canceling an active production release`
+    );
+  }
+  assert.ok(!dispatcher.includes("\nconcurrency:"));
 });
 
 test("runs the production database exactly once through its shared entrypoint", () => {
@@ -529,9 +471,7 @@ test("keeps Deep Confidence setup and sharding intentional", () => {
       `name: Deep Confidence / Workers Integration ${GITHUB_EXPRESSION_PREFIX} matrix.shard }}/8`
     )
   );
-  assert.ok(
-    workersIntegrationJob.includes("shard: [1, 2, 3, 4, 5, 6, 7, 8]")
-  );
+  assert.ok(workersIntegrationJob.includes("shard: [1, 2, 3, 4, 5, 6, 7, 8]"));
   assert.ok(
     workersIntegrationJob.includes(
       `run: pnpm exec vitest run --config vitest.config.ts --shard=${GITHUB_EXPRESSION_PREFIX} matrix.shard }}/8`
@@ -588,51 +528,16 @@ test("does not restore a Turbo cache when deploys no longer rerun tests", () => 
   assert.equal(turbo.tasks["test:integration"]?.cache, false);
 });
 
-test("keeps Fast PR Turbo caches isolated to one PR job and revision", () => {
-  const action = readRepoFile(".github/actions/cache-fast-pr-turbo/action.yml");
-  const turbo = JSON.parse(readRepoFile("turbo.json"));
-
-  assert.ok(action.includes("uses: actions/cache@v6"));
-  assert.ok(action.includes("path: .turbo/cache"));
-  assert.ok(
-    action.includes(`${GITHUB_EXPRESSION_PREFIX} inputs.cache-suffix }}`)
-  );
-  assert.ok(action.includes(`${GITHUB_EXPRESSION_PREFIX} github.sha }}`));
-  assert.ok(
-    action.includes(
-      `${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.number }}`
-    )
-  );
-  assert.ok(action.includes("Fast PR Turbo cache requires a pull request"));
-  assert.ok(
-    action.includes(
-      `${GITHUB_EXPRESSION_PREFIX} hashFiles('pnpm-lock.yaml', 'turbo.json') }}`
-    )
-  );
-  assert.ok(!action.includes("TURBO_TOKEN"));
-  assert.ok(!action.includes("secrets."));
-  assert.equal(turbo.futureFlags?.errorsOnlyShowHash, true);
-});
-
-test("runs Web unit tests from source while preserving required dependency builds", () => {
-  const prChecks = readRepoFile(".github/workflows/pr-checks.yml");
+test("keeps Web source tests independent from removed hosted sharding machinery", () => {
   const webVitest = readRepoFile("clients/web/vitest.config.ts");
   const webTurbo = JSON.parse(readRepoFile("clients/web/turbo.json"));
   const turbo = JSON.parse(readRepoFile("turbo.json"));
 
-  assert.ok(
-    prChecks.includes(
-      `turbo run build --filter=${GITHUB_EXPRESSION_PREFIX} matrix.package }}^...`
-    )
-  );
-  assert.equal(
-    prChecks.match(/^ {8}if: matrix\.requiresDependencyBuild$/gmu)?.length,
-    2
-  );
   assert.ok(webVitest.includes('"@openmeld/db/auth"'));
   assert.ok(webVitest.includes('"@openmeld/projects"'));
   assert.deepEqual(webTurbo.tasks.test.dependsOn, ["transit"]);
   assert.deepEqual(turbo.tasks.transit.dependsOn, ["^transit"]);
+  assert.equal(turbo.futureFlags?.errorsOnlyShowHash, true);
 });
 
 test("builds the Schemas public surface before checking its self imports", () => {

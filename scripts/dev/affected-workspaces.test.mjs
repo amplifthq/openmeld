@@ -149,7 +149,7 @@ test("falls back to Turbo for lockfile-only and ordinary source changes", () => 
   );
 });
 
-test("keeps the fast PR scope to changed workspaces", () => {
+test("keeps changed-only validation scoped to changed workspaces", () => {
   assert.deepEqual(
     resolveTurboAffectedFilters({
       baseRef: "origin/main",
@@ -230,7 +230,7 @@ test("adds package exclusions to the canonical affected filters", () => {
   );
 });
 
-test("uses the installed Turbo command outside the lightweight CI planner", () => {
+test("uses the installed Turbo command by default", () => {
   assert.deepEqual(
     resolveTurboCommandArgs({
       turboRunArgs: ["run", "test", "--dry=json"],
@@ -239,7 +239,7 @@ test("uses the installed Turbo command outside the lightweight CI planner", () =
   );
 });
 
-test("uses only an exact Turbo package in the lightweight CI planner", () => {
+test("uses only an exact Turbo package when an override is requested", () => {
   assert.deepEqual(
     resolveTurboCommandArgs({
       dlxPackage: "turbo@2.9.6",

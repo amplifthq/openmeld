@@ -78,6 +78,7 @@ Use these owner documents:
 | Desktop GUI thin local control surface, tray/status/setup, GUI-to-CLI contract, desktop release component | `developing/clients/desktop.md` |
 | Desktop preview download page, R2 artifact binding, and production Web download/update routes | `developing/clients/desktop.md`, `developing/clients/web.md`, `developing/engineering/development-workflow.md` |
 | CLI binary release, R2 manifest, Web download route, and setup `dist=` distribution switch | `developing/engineering/cli-binary-release.md`, `developing/clients/cli.md`, `developing/clients/web.md` |
+| Agent-native development, Final Candidate validation, Actions-unavailable fallback, independent agent review, merge, release concurrency, health, smoke, evidence, and failure recovery | `developing/engineering/agent-native-delivery.md` |
 | Production release lane selection, scoped local/GitHub deploys, D1 production sequencing, CLI rollout choice, health checks, and release reporting | `developing/engineering/production-release.md` |
 | OpenMeld Changelog authoring, publication, historical backfill, generated projections, and GitHub release-note handoff | `developing/engineering/changelog.md`, then `.agents/skills/openmeld-changelog/SKILL.md` |
 | Environment variables, Doppler local development, secret ownership, contributor onboarding, and production secret readiness | `developing/engineering/environment-and-secrets.md` |
@@ -175,6 +176,9 @@ change must leave those signals cleaner and less ambiguous.
 
 - Before starting a task, re-read the user goal and choose the scoped owner docs
   that apply.
+- Before requesting final validation, merging, or releasing, follow the complete
+  lifecycle in `developing/engineering/agent-native-delivery.md`. Do not infer a
+  second delivery process from workflow YAML, tool output, or old task history.
 - Before declaring a user-, operator-, integrator-, or contributor-visible
   change done, decide whether it needs an OpenMeld Changelog entry and, when it
   does, follow `.agents/skills/openmeld-changelog/SKILL.md`.
@@ -226,6 +230,10 @@ change must leave those signals cleaner and less ambiguous.
     carrier files, OpenMeld-managed skills, daemon schemas, or
     `release/local-components.json`
   - `pnpm run verify:pre-push` or `pnpm run verify:pr` for broader gates
+- Inspect the exact committed candidate with `pnpm candidate plan -- --base
+  origin/main`. Request the one normal hosted gate with `pnpm candidate request
+  -- --pr <number>`, or use `pnpm candidate:local -- --pr <number>` when Actions
+  is unavailable. Both lanes use the same policy and exact-SHA evidence.
 - If affected scripts need a base ref, fetch it or set `OPENMELD_AFFECTED_BASE`.
 - `pnpm run verify:release-ready` is the single release-readiness command for
   local components. It builds the packaged OpenMeld CLI, verifies

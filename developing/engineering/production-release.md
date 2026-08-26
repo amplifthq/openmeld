@@ -2,16 +2,23 @@
 
 ## Agent Context
 
-- Purpose: Define how to choose, run, verify, and report OpenMeld production
-  releases without turning every change into a fleet rollout.
+- Purpose: Define component-specific planning, ordering, commands, gates, and
+  recovery for OpenMeld production releases without turning every change into
+  a fleet rollout.
 - Read this when: You are planning or executing a local production deploy, a
   GitHub production deploy, a production D1 migration, or a CLI publish.
 - Update this when: Release scopes, workflow inputs, production ordering,
   database gates, CLI publication, health checks, or release evidence changes.
 - Do not use this for: Feature-specific smoke steps, local development lanes,
   database ownership, or CLI binary implementation details.
-- Source of truth: This file owns production release lane selection, scoped
-  release entrypoints, database release ordering, and operator evidence.
+- Source of truth: This file owns production release scopes, implementation
+  entrypoints, component ordering, and component evidence. The end-to-end
+  candidate, merge, release, health, smoke, and recovery lifecycle is owned by
+  `agent-native-delivery.md`.
+
+Follow `developing/engineering/agent-native-delivery.md` first. This document
+supplies the scoped release mechanics inside that lifecycle and must not be
+used to invent a second merge or evidence contract.
 
 ## The Default Rule
 
@@ -63,7 +70,7 @@ the selected ref, and fails closed while push checks for that ref are red or
 still running. It does not dispatch a workflow, deploy a component, or edit a
 release file. Its `Deployment state` describes deployment history, not permission
 to release. `Source validation` reports exact-SHA push evidence when present and
-otherwise tells the operator to confirm `Fast PR` or equivalent evidence. Use
+otherwise tells the operator to confirm exact Final Candidate evidence. Use
 `--json` for automation.
 
 The resolved source SHA is the cutoff for that release. Commits that reach
@@ -425,8 +432,12 @@ and [Gradual deployments](https://developers.cloudflare.com/workers/configuratio
 
 ## GitHub Scoped Release
 
-Use `.github/workflows/release-on-main.yml` (`Scoped Production Release`) for
-Worker and database releases from an immutable `main` commit.
+Use `.github/workflows/release-on-main.yml` (`Scoped Production Release`)
+for Worker and database releases from an immutable `main` commit. GitHub is
+the normal cross-machine lane because it owns centralized credentials,
+observable logs, immutable checkout, and per-component production locks.
+Actions-unavailable fallback and the lifecycle around this command are owned by
+`agent-native-delivery.md`.
 
 Available scopes are:
 
@@ -454,47 +465,58 @@ full
 For a Center Agent bridge release that includes Context Scope Plan, first run
 the `remote-agent` scope from the approved commit and verify it succeeds. Then
 run the remaining required database/cloud scopes, and publish CLI only after
-those receivers are healthy. The ordinary `cloud` and `full` DAGs retain their
-default order because other contracts require Core receivers before Remote
-Agent callers; the early standalone Remote Agent release is the explicit
+those receivers are healthy. The ordinary `cloud` and `full` DAGs retain
+their default order because other contracts require Core receivers before
+Remote Agent callers; the early standalone Remote Agent release is the explicit
 receiver-first stage for this mixed-direction contract.
 
-`preview` only resolves and reports the selected scope. It is useful for a new
-or coordinated rollout, but an obvious single-component release may run
-`deploy` directly. Every dispatch requires the exact 40-character `main`
-commit approved for the release. The workflow validates that immutable
-`release_sha` against the first-parent history of `main` and uses it for every
-selected component. A merged pull request's side-branch head is an ancestor of
-`main`, but it is not an approved `main` release source and is rejected. Later
-commits merged into `main` belong to a later release. `--ref main` selects the
-trusted workflow definition, while `release_sha` selects the code being
-released. Deploy mode is restricted to `main`.
+The hosted workflow is deploy-only. Inspect the complete plan locally before
+dispatch:
 
-For example, capture the approved commit once and use that exact value for a
-Web release even if `main` advances afterward:
+```sh
+git fetch origin main --tags
+pnpm run release:plan -- --base origin/main --scope web
+```
 
-```bash
+Every dispatch requires the exact 40-character `main` commit approved for the
+release. The workflow validates `release_sha` against the first-parent history
+of current `main` and uses it for every selected component. A merged pull
+request's side-branch head is an ancestor of `main`, but it is not an approved
+`main` release source and is rejected. Later commits merged into `main`
+belong to a later release. `--ref main` selects the trusted workflow
+definition; `release_sha` selects the code being released.
+
+```sh
 release_sha="$(git rev-parse origin/main)"
 gh workflow run release-on-main.yml \
   --ref main \
-  --field mode=deploy \
   --field scope=web \
   --field release_sha="$release_sha"
 ```
 
-When `release:status` reports that the captured commit is ready, confirm its
-`Fast PR` or equivalent scoped validation evidence and dispatch the selected
-release with that exact SHA. One small source-validation job verifies the SHA
-shape and its membership in the first-parent history of `main` before any
-selected production job can enter its Environment. A non-`main` deploy runs one
-rejection job and never enters the production component jobs or Environment.
+When `release:status` reports that the captured commit is ready, confirm the
+exact Final Candidate evidence and dispatch only the selected release scope.
+One small source-validation job verifies the SHA shape and first-parent
+membership before any selected production job can enter its Environment. A
+non-`main` dispatch runs one rejection job and never enters production jobs or
+the Environment.
 
 Each component workflow checks out the captured release SHA, installs through
 the cached pnpm setup, runs only the cheap deployment preflight, deploys once,
-and performs a lightweight health check. It does not rerun package checks, unit
-tests, or integration tests. Per-component concurrency locks serialize two
-releases of the same component without blocking unrelated components. Database
-and CLI publication retain their own production locks.
+and performs a lightweight health check. It does not rerun candidate checks,
+unit tests, or integration tests.
+
+Every component workflow owns a stable production concurrency group with
+`cancel-in-progress: false`. Two releases of the same component serialize and
+a running deploy is never canceled. Unrelated component groups remain able to
+run in parallel. Do not add workflow-wide concurrency that serializes the whole
+fleet.
+
+The system does not automatically coalesce queued same-scope releases because
+it cannot infer whether an intermediate migration, receiver-first stage, or
+immutable publication is required. An agent may cancel only a not-yet-started
+run after proving that a later queued SHA safely supersedes it and recording
+that decision. Never cancel a running production job.
 
 ## Production Database Release
 

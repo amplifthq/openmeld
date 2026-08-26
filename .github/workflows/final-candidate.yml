@@ -1,0 +1,54 @@
+name: OpenMeld Final Candidate
+run-name: Final Candidate PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }}
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+on:
+  pull_request:
+    types: [labeled]
+
+concurrency:
+  group: final-candidate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  candidate:
+    name: Final Candidate Runner
+    if: github.event.label.name == 'final-candidate' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup repository toolchain
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Validate the exact final candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          pnpm candidate run --
+          --mode remote
+          --publish-status
+          --repository "${{ github.repository }}"
+          --pr "${{ github.event.pull_request.number }}"
+          --branch "${{ github.head_ref }}"
+          --head "${{ github.event.pull_request.head.sha }}"
+          --base "${{ github.event.pull_request.base.sha }}"
+          --evidence "$RUNNER_TEMP/final-candidate-evidence.json"
+
+      - name: Preserve exact candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-candidate-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/final-candidate-evidence.json
+          retention-days: 14

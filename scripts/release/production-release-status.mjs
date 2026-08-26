@@ -308,7 +308,7 @@ function resolveReleaseState(blockers, pendingScopes) {
 
 function describeSourceValidation(pushChecks, pushCheckBlockers) {
   if (pushChecks.length === 0) {
-    return "no push check evidence; confirm Fast PR or equivalent";
+    return "no push check evidence; confirm exact Final Candidate evidence";
   }
   if (pushCheckBlockers.length === 0) {
     return "recorded push checks passed";

@@ -57,7 +57,7 @@ export function resolvePrePushReleaseMode(input) {
   if (nonDeletionUpdates.length === 0) {
     return "skip";
   }
-  return "deferred";
+  return "skip";
 }
 
 export function assertPushedObjectsMatchHead(input, dependencies = {}) {
@@ -191,7 +191,7 @@ function run() {
   const mode = resolvePrePushReleaseMode(pushUpdates);
   if (mode === "skip") {
     process.stdout.write(
-      "Release-ready pre-push gate skipped: this push only deletes remote refs.\n"
+      "Pre-push validation skipped for an ordinary development update. Run `pnpm candidate plan`, then request or publish one Final Candidate when the PR is ready.\n"
     );
     return;
   }
@@ -200,8 +200,7 @@ function run() {
 
   const releaseBranchName =
     resolvePushedVersionedReleaseBranchName(pushUpdates);
-  const baseSha =
-    mode === "deferred" || releaseBranchName ? resolveExactBaseSha() : null;
+  const baseSha = releaseBranchName ? resolveExactBaseSha() : null;
   if (releaseBranchName) {
     assertCurrentVersionedReleaseBranch({
       baseSha,
@@ -210,14 +209,9 @@ function run() {
   }
 
   const args = ["run", "verify:release-ready"];
-  if (mode === "deferred") {
-    args.push("--", "--defer-release", "--base", baseSha);
-    process.stdout.write(
-      `Pre-push release mode: deferred feature verification against ${baseSha}.\n`
-    );
-  } else {
-    process.stdout.write("Pre-push release mode: strict.\n");
-  }
+  process.stdout.write(
+    "Pre-push release mode: strict protected release update.\n"
+  );
   const result = spawnSync(
     process.platform === "win32" ? "pnpm.cmd" : "pnpm",
     args,
