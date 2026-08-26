@@ -221,6 +221,7 @@ describe("Space Inbox projection", () => {
   it("delivers a terminal Wake failure as an urgent update only to the exact requester", () => {
     const signal = systemNoticeSignal({
       noticeType: "terminal_failure",
+      replyToSignalId: "signal-wake-source",
       text: "The Wake could not finish.",
     });
     const record = buildSpaceInboxProjectionOutboxRecord({
@@ -244,7 +245,7 @@ describe("Space Inbox projection", () => {
         recipientUserId: "user-requester",
         sourceTarget: {
           kind: "space",
-          signalId: "signal-1",
+          signalId: "signal-wake-source",
           spaceId: "space-1",
         },
         title: "Agent couldn't finish in Operations",
@@ -470,6 +471,10 @@ describe("Space Inbox projection", () => {
         attention: "update",
         importance: "urgent",
         kind: "wake_outcome",
+        sourceTarget: {
+          kind: "space",
+          spaceId: "space-1",
+        },
       }),
       db: {},
       nowMs: 2000,
@@ -857,6 +862,7 @@ function systemNoticeSignal(input: {
     | "stay_silent"
     | "terminal_failure"
     | "wake_stopped";
+  replyToSignalId?: string;
   text: string;
 }): SignalEnvelope {
   return {
@@ -865,6 +871,17 @@ function systemNoticeSignal(input: {
       dispatchId: "dispatch-1",
       generatedBy: "openmeld",
       noticeType: input.noticeType,
+      ...(input.replyToSignalId
+        ? {
+            replyTo: {
+              profileId: "profile-requester",
+              profileKind: "human" as const,
+              profileName: "Requester",
+              previewText: "Wake request",
+              signalId: input.replyToSignalId,
+            },
+          }
+        : {}),
       text: input.text,
     },
     id: "signal-1",

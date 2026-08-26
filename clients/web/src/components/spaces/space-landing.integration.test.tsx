@@ -13211,7 +13211,7 @@ describe("SpaceLanding", () => {
 		expect(document.activeElement).toBe(target);
 	});
 
-	it("opens an anchored Wake failure at the source message that presents its outcome", () => {
+	it("opens a terminal Wake failure Inbox target at the source message that presents its outcome", () => {
 		const sourceSignal = createTextSignal({
 			id: "sig-failed-wake-source",
 			text: "@Runner(wake) check the deployment.",
@@ -13242,7 +13242,7 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding({ initialFocusSignalId: failureSignal.id });
+		renderSpaceLanding({ initialFocusSignalId: sourceSignal.id });
 
 		const source = document.querySelector(
 			`[data-signal-id="${sourceSignal.id}"]`

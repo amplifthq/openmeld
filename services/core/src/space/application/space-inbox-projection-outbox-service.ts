@@ -111,7 +111,19 @@ function normalizeSpaceInboxProjectionCandidate(
     candidate.kind === "wake_outcome" &&
     candidate.attention === "action_required"
   ) {
-    return { ...candidate, attention: "update" };
+    const sourceTarget =
+      candidate.sourceTarget.kind === "space"
+        ? {
+            kind: "space" as const,
+            spaceId: candidate.sourceTarget.spaceId,
+            ...(candidate.sourceTarget.threadRootSignalId
+              ? {
+                  threadRootSignalId: candidate.sourceTarget.threadRootSignalId,
+                }
+              : {}),
+          }
+        : candidate.sourceTarget;
+    return { ...candidate, attention: "update", sourceTarget };
   }
   return candidate;
 }

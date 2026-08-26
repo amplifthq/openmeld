@@ -163,8 +163,10 @@ The first release creates items for these explicit user-visible events:
    public Space action is a visible failure, never a synthetic completion. A
    terminal failure is an urgent update whose preview carries the bounded
    public failure reason; it does not become an unresolved action merely because
-   retry and diagnostics are available. Other Wake endings remain ordinary
-   updates.
+   retry and diagnostics are available. When that failure is presented under
+   the original Wake message, the Space producer targets that source Signal
+   directly instead of exposing the suppressed failure Signal as a second
+   navigation truth. Other Wake endings remain ordinary updates.
 5. A linked member's Center Agent work started through a Message Channel when
    the result or intervention request is available in OpenMeld.
 6. A Center Agent Task that requests the recipient's action, produces a final

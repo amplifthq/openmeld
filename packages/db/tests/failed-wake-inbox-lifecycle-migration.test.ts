@@ -26,6 +26,7 @@ describe("failed Wake Inbox lifecycle migration", () => {
           attention text NOT NULL,
           importance text NOT NULL,
           source_kind text NOT NULL,
+          source_target_json text NOT NULL,
           resolution_status text NOT NULL,
           read_at_ms integer,
           resolved_at_ms integer,
@@ -36,9 +37,9 @@ describe("failed Wake Inbox lifecycle migration", () => {
           )
         );
         INSERT INTO inbox_items VALUES
-          ('legacy-failure', 'wake_outcome', 'action_required', 'urgent', 'space_signal', 'open', 1500, NULL),
-          ('ordinary-wake-update', 'wake_outcome', 'update', 'normal', 'space_signal', 'not_applicable', NULL, NULL),
-          ('task-action', 'center_agent_task', 'action_required', 'urgent', 'center_agent_task_event', 'open', NULL, NULL);
+          ('legacy-failure', 'wake_outcome', 'action_required', 'urgent', 'space_signal', '{"kind":"space","spaceId":"space-1","signalId":"failure-signal"}', 'open', 1500, NULL),
+          ('ordinary-wake-update', 'wake_outcome', 'update', 'normal', 'space_signal', '{"kind":"space","spaceId":"space-1","signalId":"update-signal"}', 'not_applicable', NULL, NULL),
+          ('task-action', 'center_agent_task', 'action_required', 'urgent', 'center_agent_task_event', '{"kind":"center_agent_task","taskId":"task-1"}', 'open', NULL, NULL);
       `);
 
       for (const statement of splitMigrationStatements(
@@ -50,7 +51,7 @@ describe("failed Wake Inbox lifecycle migration", () => {
       expect(
         database
           .prepare(
-            "SELECT id, attention, importance, resolution_status, read_at_ms FROM inbox_items ORDER BY id"
+            "SELECT id, attention, importance, source_target_json, resolution_status, read_at_ms FROM inbox_items ORDER BY id"
           )
           .all()
       ).toEqual([
@@ -60,6 +61,7 @@ describe("failed Wake Inbox lifecycle migration", () => {
           importance: "urgent",
           read_at_ms: 1500,
           resolution_status: "not_applicable",
+          source_target_json: '{"kind":"space","spaceId":"space-1"}',
         },
         {
           attention: "update",
@@ -67,6 +69,8 @@ describe("failed Wake Inbox lifecycle migration", () => {
           importance: "normal",
           read_at_ms: null,
           resolution_status: "not_applicable",
+          source_target_json:
+            '{"kind":"space","spaceId":"space-1","signalId":"update-signal"}',
         },
         {
           attention: "action_required",
@@ -74,6 +78,7 @@ describe("failed Wake Inbox lifecycle migration", () => {
           importance: "urgent",
           read_at_ms: null,
           resolution_status: "open",
+          source_target_json: '{"kind":"center_agent_task","taskId":"task-1"}',
         },
       ]);
       expect(

@@ -71,6 +71,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   const isTerminalWakeFailure =
     signal.type === "signal.system_notice" &&
     signal.data.noticeType === "terminal_failure";
+  const focusSignalId = resolveSpaceInboxFocusSignalId(signal);
   const memberRecordsByUserId = groupRecipientMemberRecords({
     activeMemberRecords: input.activeMemberRecords,
     allowedRecipientUserIds: audience.allowedRecipientUserIds,
@@ -100,7 +101,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
         sourceKind: "space_signal",
         sourceTarget: {
           kind: "space",
-          signalId: signal.id,
+          signalId: focusSignalId,
           spaceId: signal.spaceId,
           ...(input.signalContext?.threadContext?.rootSignalId
             ? {
@@ -137,6 +138,22 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
     status: "pending",
     updatedAtMs: input.nowMs,
   };
+}
+
+function resolveSpaceInboxFocusSignalId(
+  signal: Extract<
+    SignalEnvelope,
+    { type: "signal.status" | "signal.system_notice" | "signal.text" }
+  >
+): string {
+  if (
+    signal.type === "signal.system_notice" &&
+    (signal.data.noticeType === "terminal_failure" ||
+      signal.data.noticeType === "wake_stopped")
+  ) {
+    return normalizeText(signal.data.replyTo?.signalId) ?? signal.id;
+  }
+  return signal.id;
 }
 
 function groupRecipientMemberRecords(input: {
