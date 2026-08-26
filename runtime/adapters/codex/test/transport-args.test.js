@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildCodexExecArgs } from "../dist/transport/codex-cli-transport.js";
+import { buildCodexSpaceActionMcpGlobalArgs } from "../dist/transport/codex-space-action-mcp-config.js";
 
 const DANGEROUS_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox";
 
@@ -244,6 +245,45 @@ describe("Codex CLI transport args", () => {
         "thread-1",
         "-",
       ]
+    );
+  });
+});
+
+describe("Codex Space Action MCP config", () => {
+  it("adds one required, approval-free dispatch tool server", () => {
+    assert.deepEqual(
+      buildCodexSpaceActionMcpGlobalArgs({
+        OPENMELD_SPACE_ACTION_CONTEXT_PATH:
+          "/tmp/openmeld dispatch/context.json",
+        OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
+      }),
+      [
+        "-c",
+        'mcp_servers.openmeld_internal_dispatch_space_action.command="openmeld-dev"',
+        "-c",
+        'mcp_servers.openmeld_internal_dispatch_space_action.args=["space","action","tool-server"]',
+        "-c",
+        'mcp_servers.openmeld_internal_dispatch_space_action.env_vars=["OPENMELD_SPACE_ACTION_CONTEXT_PATH","OPENMELD_DISPATCH_RUNTIME_MODE","OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID","OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID","OPENMELD_USER_FACING_CLI_COMMAND","OPENMELD_ENV_PRESET"]',
+        "-c",
+        "mcp_servers.openmeld_internal_dispatch_space_action.enabled=true",
+        "-c",
+        "mcp_servers.openmeld_internal_dispatch_space_action.required=true",
+        "-c",
+        'mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=["reply","status","stay_silent"]',
+        "-c",
+        "mcp_servers.openmeld_internal_dispatch_space_action.disabled_tools=[]",
+        "-c",
+        'mcp_servers.openmeld_internal_dispatch_space_action.default_tools_approval_mode="approve"',
+      ]
+    );
+  });
+
+  it("does not add the tool server outside an active Space dispatch", () => {
+    assert.deepEqual(
+      buildCodexSpaceActionMcpGlobalArgs({
+        OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
+      }),
+      []
     );
   });
 });

@@ -125,7 +125,7 @@ export function buildAgentReplyReconsiderationPrompt(input: {
     "Keep the user's full request as the goal. Reconsider only the final Space action in light of these newer messages.",
     "Replace the proposal when a distinct, useful contribution is still possible. Avoid duplicating work or a conclusion another Agent has already posted.",
     "Choose stay_silent only when no distinct, useful, non-duplicative contribution remains.",
-    "Call exactly one dispatch-scoped OpenMeld Space Action CLI command for the final action. Answer text never becomes an action.",
+    "Call exactly one dispatch-scoped OpenMeld Space Action tool for the final action. Use the CLI only if the tool is unavailable. Answer text never becomes an action.",
     `Previous proposed action: ${JSON.stringify(input.action)}`,
     `Newer Space messages: ${JSON.stringify(updates)}`,
   ].join("\n");

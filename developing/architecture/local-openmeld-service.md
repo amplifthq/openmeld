@@ -276,6 +276,15 @@ turn's `system` field. OpenClaw Gateway supplies them through
 complete prompt because those surfaces do not expose an equivalent supported
 instruction channel.
 
+For a supported controller, the Service may inject an ephemeral first-party
+Space Action tool configuration into the controller process for the active
+dispatch. That configuration is not written into user settings. It exposes only
+the allowed `reply`, `status`, and `stay_silent` operations, forwards the active
+dispatch identity, and fails closed when the action context is absent, expired,
+or mismatched. Fresh and resumed controller conversations use the same tool
+boundary. Controllers without that proven structured-tool surface continue to
+use the exact dispatch-scoped CLI fallback.
+
 Codex resume may use the smaller per-turn input only when the `thread/resume`
 response proves that `thread.threadSource` matches the exact current
 instruction-epoch marker. A legacy thread, an epoch mismatch, or missing source

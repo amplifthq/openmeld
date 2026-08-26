@@ -146,6 +146,9 @@ describe("dispatch Agent reply observation", () => {
     expect(prompt).toContain(
       "only when no distinct, useful, non-duplicative contribution remains"
     );
+    expect(prompt).toContain(
+      "Call exactly one dispatch-scoped OpenMeld Space Action tool for the final action. Use the CLI only if the tool is unavailable."
+    );
     expect(prompt).toContain('"signalId":"signal-agent-reply"');
     expect(prompt).not.toContain("Codex");
     expect(prompt).not.toContain("Cursor");

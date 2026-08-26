@@ -393,6 +393,15 @@ persistent rule. Cursor Run Everything keeps its native one-time automatic
 allow behavior rather than pausing for an approval that the selected mode
 already resolved.
 
+A dispatch-scoped first-party OpenMeld Space Action is not a general controller
+command approval. OpenMeld may make its own `reply`, `status`, and `stay_silent`
+tools approval-free because they can write only one validated proposal for the
+current dispatch and still require RuntimeCoordinator publication. OpenMeld
+must not extend that exception to shell strings, arbitrary `openmeld` commands,
+filesystem access, network access, or another dispatch. `Ask for approval`
+therefore remains authoritative for ordinary Codex actions without blocking the
+Agent's chosen Space outcome.
+
 Only the Binding owner may see request details or answer. Other authenticated
 Space members may see that the Agent Profile is waiting for its owner, but not
 the command, path, plan, question, options, or response. Refreshing the browser

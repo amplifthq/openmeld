@@ -49,13 +49,19 @@ export function runSpaceActionReply(input: {
   wakeTargets?: readonly string[];
 }): void | Promise<void> {
   const text = resolveReplyMessageText(input);
-  return recordDispatchSpaceReply({
+  const result = recordDispatchSpaceReply({
     filePaths: input.filePaths,
     messagePartCount: input.messageParts.length,
     referenceTargets: input.referenceTargets,
     text,
     wakeTargets: input.wakeTargets,
   });
+  if (result instanceof Promise) {
+    return result.then((record) => {
+      emitActionRecorded(record);
+    });
+  }
+  emitActionRecorded(result);
 }
 
 export function recordDispatchSpaceReply(input: {
@@ -64,7 +70,7 @@ export function recordDispatchSpaceReply(input: {
   referenceTargets?: readonly string[];
   text: string;
   wakeTargets?: readonly string[];
-}): void | Promise<void> {
+}): DispatchSpaceActionRecord | Promise<DispatchSpaceActionRecord> {
   // OPENMELD_SETUP_TO_WAKE_PATH: HIGHEST_FACT dispatch-scoped-space-action
   // Every local-agent transport records the same dispatch-scoped Space Action;
   // no transport may invent an ad hoc publication payload.
@@ -91,14 +97,13 @@ export function recordDispatchSpaceReply(input: {
   });
   const filePaths = input.filePaths ?? [];
   if (filePaths.length === 0) {
-    writeSpaceActionReplyRecord({
+    return writeSpaceActionReplyRecord({
       context,
       files: [],
       targetIds,
       text,
       timing,
     });
-    return;
   }
   return uploadAndRecordSpaceActionReply({
     context,
@@ -138,12 +143,12 @@ async function uploadAndRecordSpaceActionReply(input: {
   targetIds: { activationTargets: string[]; referenceTargets: string[] };
   text: string;
   timing: ReturnType<typeof createSpaceActionReplyTiming>;
-}): Promise<void> {
+}): Promise<DispatchSpaceActionRecord> {
   const files = await uploadSpaceActionReplyFiles({
     context: input.context,
     filePaths: input.filePaths,
   });
-  writeSpaceActionReplyRecord({ ...input, files });
+  return writeSpaceActionReplyRecord({ ...input, files });
 }
 
 function writeSpaceActionReplyRecord(input: {
@@ -152,7 +157,7 @@ function writeSpaceActionReplyRecord(input: {
   targetIds: { activationTargets: string[]; referenceTargets: string[] };
   text: string;
   timing: ReturnType<typeof createSpaceActionReplyTiming>;
-}): void {
+}): DispatchSpaceActionRecord {
   const action: OpenMeldSpaceEgressAction = {
     type: "post_message",
     ...(input.files.length > 0 ? { files: [...input.files] } : {}),
@@ -176,6 +181,7 @@ function writeSpaceActionReplyRecord(input: {
   input.timing.emit("done", input.context, {
     actionType: record.action.type,
   });
+  return record;
 }
 
 async function uploadSpaceActionReplyFiles(input: {
@@ -234,22 +240,40 @@ export function runSpaceActionStatus(input: {
   status: string;
   textParts: readonly string[];
 }): void {
+  const record = recordDispatchSpaceStatus({
+    status: input.status,
+    text: normalizeRequiredJoinedText(
+      input.textParts,
+      "Status text is required."
+    ),
+  });
+  emitActionRecorded(record);
+}
+
+export function recordDispatchSpaceStatus(input: {
+  status: string;
+  text: string;
+}): DispatchSpaceActionRecord {
   const context = readDispatchSpaceActionContextFromEnv();
   assertAllowedAction(context, "post_status");
   const status = normalizeStatus(input.status);
-  const text = normalizeRequiredJoinedText(
-    input.textParts,
-    "Status text is required."
-  );
+  const text = normalizeRequiredText(input.text, "Status text is required.");
   const action: OpenMeldSpaceEgressAction = {
     type: "post_status",
     status,
     text,
   };
-  recordAction({ action, command: "status", context });
+  return recordAction({ action, command: "status", context });
 }
 
 export function runSpaceActionSilent(input: { reason?: string | null }): void {
+  const record = recordDispatchSpaceSilent(input);
+  emitActionRecorded(record);
+}
+
+export function recordDispatchSpaceSilent(input: {
+  reason?: string | null;
+}): DispatchSpaceActionRecord {
   const context = readDispatchSpaceActionContextFromEnv();
   assertAllowedAction(context, "stay_silent");
   const reason = normalizeRequiredText(
@@ -260,7 +284,7 @@ export function runSpaceActionSilent(input: { reason?: string | null }): void {
     type: "stay_silent",
     reason,
   };
-  recordAction({ action, command: "silent", context });
+  return recordAction({ action, command: "silent", context });
 }
 
 export function runSpaceActionTargets(): void {
@@ -385,11 +409,13 @@ function recordAction(input: {
   // OPENMELD_SETUP_TO_WAKE_PATH: HIGHEST_FACT action-record
   // The action record is local output for the active dispatch; final visibility
   // still belongs to RuntimeCoordinator finalization and Space publication.
-  const record = writeDispatchSpaceActionRecord(input);
+  return writeDispatchSpaceActionRecord(input);
+}
+
+function emitActionRecorded(record: DispatchSpaceActionRecord): void {
   outLine(
     `Action recorded: OpenMeld saved this unpublished Space action proposal (${record.action.type}) for the current Wake.`
   );
-  return record;
 }
 
 type SpaceActionReplyTimingPhase =

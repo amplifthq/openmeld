@@ -24,15 +24,15 @@ export type SpacePublicationRequirement = {
 const COLLABORATION_HOW_THIS_SPACE_WORKS =
   "OpenMeld is an external collaboration layer, not your private scratchpad. Work normally in your local context, then publish only the public outcome this Space needs with one OpenMeld Space Action.";
 const COLLABORATION_ACTION_REQUIREMENT =
-  "Final outcome: call exactly one dispatch-scoped OpenMeld Space Action CLI command. Your answer text never selects or substitutes for that action.";
+  "Final outcome: record exactly one dispatch-scoped OpenMeld Space Action. Use the OpenMeld Space Action tool when available and the CLI only as fallback. Your answer text never selects or substitutes for that action.";
 const COLLABORATION_REPAIR_REQUIREMENT =
-  "Preserve the user's intent and call exactly one dispatch-scoped OpenMeld Space Action CLI command. Do not print an action as JSON or prose.";
+  "Preserve the user's intent and record exactly one dispatch-scoped OpenMeld Space Action. Do not print an action as JSON or prose.";
 const RAW_CONTEXT_SHARING_HOW_THIS_SPACE_WORKS =
   "This Space uses transparent context sharing: OpenMeld may share your raw reply directly. Use OpenMeld Space Action when you need a controlled visible outcome.";
 const RAW_CONTEXT_SHARING_ACTION_REQUIREMENT =
   "Raw reply is allowed. Use OpenMeld Space Action only when you need a controlled visible outcome.";
 const RAW_CONTEXT_SHARING_REPAIR_REQUIREMENT =
-  "Return the plain raw reply, or call one dispatch-scoped OpenMeld Space Action CLI command for a controlled visible outcome. Answer text never becomes an action.";
+  "Return the plain raw reply, or record one dispatch-scoped OpenMeld Space Action for a controlled visible outcome. Use the OpenMeld Space Action tool when available and the CLI only as fallback. Answer text never becomes an action.";
 
 function buildActionGuidanceLines(input: {
   allowedActions: SpaceContract["allowedActions"];
@@ -43,7 +43,7 @@ function buildActionGuidanceLines(input: {
     switch (allowedAction) {
       case "post_message":
         lines.push(
-          "Use the dispatch-scoped Space Action reply command for normal public replies, greetings, answers, and discussion."
+          "Use the dispatch-scoped Space Action reply for normal public replies, greetings, answers, and discussion."
         );
         break;
       case "post_status":
@@ -56,7 +56,7 @@ function buildActionGuidanceLines(input: {
         break;
       case "stay_silent":
         lines.push(
-          "Use the dispatch-scoped Space Action silent command only when you intentionally do not want OpenMeld to publish a public reply."
+          "Use the dispatch-scoped Space Action stay_silent action only when you intentionally do not want OpenMeld to publish a public reply."
         );
         break;
       default:
