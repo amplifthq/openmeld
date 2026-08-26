@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,6 +27,7 @@ const WRAPPER_SCRIPT = "run-isolated-candidate-command.sh";
 const CANDIDATE_INSTALL_DENIED_PATTERN = /candidate install denied/u;
 const GIT_POINTER_GROUP_DENIED_PATTERN =
   /chgrp: changing group of .*\/\.git.*Operation not permitted/u;
+const PNPM_EXECUTION_DENIED_PATTERN = /env: .*pnpm.*Permission denied/u;
 const TEMPLATE_EXPRESSION_PREFIX = "$";
 
 test(
@@ -37,6 +39,44 @@ test(
       const prepare = run(fixture, PREPARE_SCRIPT);
       assert.doesNotMatch(prepare.stderr, GIT_POINTER_GROUP_DENIED_PATTERN);
       assert.equal(prepare.status, 0, prepare.stderr);
+    } finally {
+      fixture.cleanup();
+    }
+  }
+);
+
+test(
+  "Linux candidate install does not execute pnpm from the private runner home",
+  { skip: !supportsHostedNonRootLinuxIsolation() },
+  () => {
+    const fixture = createLinuxInstallFixture();
+    try {
+      const privateRunnerRoot = path.join(fixture.root, "runner-private");
+      const privateRunnerBin = path.join(privateRunnerRoot, "bin");
+      const privatePnpmRoot = path.join(privateRunnerRoot, "pnpm-package");
+      const privatePnpmBin = path.join(privatePnpmRoot, "bin");
+      const privatePnpm = path.join(privateRunnerBin, "pnpm");
+      mkdirSync(privateRunnerBin, { recursive: true });
+      mkdirSync(privatePnpmBin, { recursive: true });
+      writeFileSync(
+        path.join(privatePnpmRoot, "package.json"),
+        '{"name":"pnpm","private":true}\n'
+      );
+      const privatePnpmTarget = path.join(privatePnpmBin, "pnpm.cjs");
+      writeFileSync(
+        privatePnpmTarget,
+        "#!/usr/bin/env node\nprocess.exit(0);\n"
+      );
+      chmodSync(privatePnpmTarget, 0o555);
+      symlinkSync("../pnpm-package/bin/pnpm.cjs", privatePnpm);
+      chmodSync(privateRunnerRoot, 0o700);
+      fixture.environment.PATH = `${privateRunnerBin}:${fixture.environment.PATH}`;
+
+      const prepare = run(fixture, PREPARE_SCRIPT);
+      assert.equal(prepare.status, 0, prepare.stderr);
+      const install = run(fixture, INSTALL_SCRIPT);
+      assert.doesNotMatch(install.stderr, PNPM_EXECUTION_DENIED_PATTERN);
+      assert.equal(install.status, 0, install.stderr);
     } finally {
       fixture.cleanup();
     }
