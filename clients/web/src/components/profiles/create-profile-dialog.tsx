@@ -2401,7 +2401,9 @@ function createdAgentRequestMessage(
 ): string {
 	switch (request.status) {
 		case "completed":
-			return "Agent created for your teammate.";
+			return request.requesterUserId === request.targetOwnerUserId
+				? "Agent created."
+				: "Agent created for your teammate.";
 		case "declined":
 			return "This teammate doesn't allow Agent creation requests.";
 		case "failed":

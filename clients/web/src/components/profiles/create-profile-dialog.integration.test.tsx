@@ -72,12 +72,13 @@ const readOrganizationComputersMock = vi.hoisted(() => vi.fn());
 const readCurrentAgentActivitySessionsMock = vi.hoisted(() => vi.fn());
 const createAgentProfileCreationRequestMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
+const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
 
 vi.mock("sonner", () => ({
 	toast: {
 		error: toastErrorMock,
-		success: vi.fn(),
+		success: toastSuccessMock,
 		warning: toastWarningMock,
 	},
 }));
@@ -723,6 +724,7 @@ describe("CreateProfileDialog", () => {
 				userId: "user-123",
 			}));
 		toastErrorMock.mockReset();
+		toastSuccessMock.mockReset();
 		toastWarningMock.mockReset();
 	});
 
@@ -1537,6 +1539,9 @@ describe("CreateProfileDialog", () => {
 		});
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 		expect(addMembersMock).not.toHaveBeenCalled();
+		await waitFor(() => {
+			expect(toastSuccessMock).toHaveBeenCalledWith("Agent created.");
+		});
 	});
 
 	it("turns two same-tick form submits into one Agent Profile creation", async () => {
