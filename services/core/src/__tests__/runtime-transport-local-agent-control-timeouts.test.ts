@@ -11,4 +11,10 @@ describe("resolveLocalAgentControlResponseTimeoutMs", () => {
       15_000
     );
   });
+
+  it("lets installation discovery finish its bounded controller checks", () => {
+    expect(
+      resolveLocalAgentControlResponseTimeoutMs("manage_installation")
+    ).toBe(30_000);
+  });
 });
