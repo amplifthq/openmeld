@@ -26,10 +26,8 @@ import type { LocalServiceDemand } from "../local-service/lifecycle/local-servic
 import { resolveLocalServiceDemand } from "../local-service/lifecycle/local-service-demand";
 import type { DeviceRuntimeStateSyncResult } from "../local-service/reporting/device-runtime-state-sync";
 import { syncDeviceRuntimeStateProjection } from "../local-service/reporting/device-runtime-state-sync";
-import {
-  type ProfileWorkspaceRuntimeResolution,
-  resolveProfileWorkspaceRuntime,
-} from "../profile-workspace/runtime-resolution";
+import type { EffectiveProfileWorkingFolderRuntimeResolution } from "../profile-workspace/effective-runtime-resolution";
+import { resolveProfileWorkspaceRuntime } from "../profile-workspace/runtime-resolution";
 import {
   isOpenClawLocalDiagnosticsFailure,
   type OpenClawLocalDiagnostics,
@@ -117,7 +115,7 @@ type ResolveDeviceReplyReadinessInput = {
   localDemand?: LocalServiceDemand | null;
   ownerUserId?: string | null;
   profile?: OpenMeldProfile | null;
-  profileWorkspaceRuntimeResolution?: ProfileWorkspaceRuntimeResolution | null;
+  profileWorkspaceRuntimeResolution?: EffectiveProfileWorkingFolderRuntimeResolution | null;
   runtimeProjection?: DeviceRuntimeStateSyncResult | null;
   runtimeStatus?: DaemonServiceRuntimeStatus | null;
   runtimeWorkdir?: string;
@@ -131,7 +129,7 @@ type ResolveAgentReplyReadinessInput = {
   openClawLocalDiagnostics?: OpenClawLocalDiagnosticsState | null;
   primaryAgentControllerReport?: AgentProfilePrimaryAgentControllerReport | null;
   profile: OpenMeldProfile;
-  profileWorkspaceRuntimeResolution?: ProfileWorkspaceRuntimeResolution | null;
+  profileWorkspaceRuntimeResolution?: EffectiveProfileWorkingFolderRuntimeResolution | null;
 };
 
 type AgentPrimaryRuntimeContext = {
@@ -547,7 +545,7 @@ function resolveReplyReadinessRuntimeContext(
 function resolveDeviceReplyReadinessFromProfileWorkspace(input: {
   localDemand: LocalServiceDemand | null;
   profile: OpenMeldProfile | null;
-  profileWorkspaceRuntimeResolution: ProfileWorkspaceRuntimeResolution | null;
+  profileWorkspaceRuntimeResolution: EffectiveProfileWorkingFolderRuntimeResolution | null;
 }): DeviceReplyReadinessStatus | null {
   if (
     input.profile?.profileKind !== "agent" ||
@@ -568,7 +566,7 @@ function resolveDeviceReplyReadinessFromProfileWorkspace(input: {
 }
 
 function resolveBlockingWorkspaceReasonCode(input: {
-  profileWorkspaceRuntimeResolution: ProfileWorkspaceRuntimeResolution | null;
+  profileWorkspaceRuntimeResolution: EffectiveProfileWorkingFolderRuntimeResolution | null;
   reasonCodes: readonly ReplyReadinessReasonCode[];
 }): "workspace.invalid" | "workspace.missing" | null {
   if (input.reasonCodes.includes("workspace.missing")) {

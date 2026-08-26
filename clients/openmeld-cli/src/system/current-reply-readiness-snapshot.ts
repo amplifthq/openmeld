@@ -28,7 +28,7 @@ import { resolveLocalServiceDemand } from "../local-service/lifecycle/local-serv
 import type { DeviceRuntimeStateSyncResult } from "../local-service/reporting/device-runtime-state-sync";
 import { syncDeviceRuntimeStateProjection } from "../local-service/reporting/device-runtime-state-sync";
 import { readDaemonRouteCatalogCache } from "../local-service/state/route-catalog-cache";
-import { resolveProfileWorkspaceRuntime } from "../profile-workspace/runtime-resolution";
+import { resolveEffectiveProfileWorkingFolderRuntime } from "../profile-workspace/effective-runtime-resolution";
 import type {
   OpenClawDiagnosticsMode,
   OpenClawLocalDiagnosticsState,
@@ -76,7 +76,7 @@ export type CurrentReplyReadinessSnapshot = {
   agentReplyReadiness: AgentReplyReadinessStatus | null;
   openClawLocalDiagnostics: OpenClawLocalDiagnosticsState | null;
   profileWorkspaceRuntimeResolution: ReturnType<
-    typeof resolveProfileWorkspaceRuntime
+    typeof resolveEffectiveProfileWorkingFolderRuntime
   > extends Promise<infer TValue>
     ? TValue | null
     : never;
@@ -424,7 +424,8 @@ function resolveProfileWorkspaceRuntimeForSnapshot(
   if (profile?.profileKind !== "agent") {
     return Promise.resolve(null);
   }
-  return resolveProfileWorkspaceRuntime({
+  return resolveEffectiveProfileWorkingFolderRuntime({
+    defaultProjectId: profile.defaultProjectId,
     openMeldProfileId: profile.openMeldProfileId,
     mode: "inspect",
   });
