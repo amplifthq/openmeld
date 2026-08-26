@@ -121,6 +121,8 @@ Each request freezes these product facts:
 - Session strategy: `new`, `resume`, or `fork`
 - the exact provider-native Session ID for `resume` or `fork`
 - the selected Computer and Agent Controller, when known
+- the exact local-agent connection candidate ID when the Center Agent selected
+  one from the current candidate projection
 - the requested Binding settings, Default Project, and Organization Wake access
 - an optional intended Space
 - one requester-scoped idempotency key
@@ -165,6 +167,13 @@ cannot run the executor twice or overwrite a newer outcome. If approval remains
 unclaimed for 30 minutes, or a claimed attempt has no terminal result for that
 long, Core changes the durable request to an explicit retryable failure. Retry
 makes a new fenced attempt instead of leaving the request permanently stuck.
+
+Before Auth creates the Agent Profile identity, Core revalidates the selected
+local-agent candidate against the target member's current Computer projection.
+If that exact candidate is missing, stale, or not connectable, the request fails
+with no `createdAgentProfileId`. Web, CLI, Local Agents, and the Center Agent do
+not create the Auth Profile first and then discover that the selected Computer
+cannot be used.
 
 Approval authorizes the request's complete frozen creation intent. Core still
 uses the existing owner contracts for each operation: Auth creates the Agent
@@ -525,6 +534,11 @@ defaultProjectId
 -> default Local Project Connection on this computer
 -> working folder
 ```
+
+Local execution, readiness, diagnostics, and CLI Profile presentation consume
+this same effective working-folder resolution. They must not independently
+re-resolve a Profile workspace and report an OpenMeld-managed folder while
+dispatch is using the Default Project connection.
 
 If the Project has no usable default connection on that computer, Wake fails
 explicitly. The resolver must not choose another worktree, another Project, or

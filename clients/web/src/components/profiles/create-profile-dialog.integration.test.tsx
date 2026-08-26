@@ -1,3 +1,7 @@
+import type {
+	AgentProfileCreationRequest,
+	CreateAgentProfileCreationRequestResponse,
+} from "@openmeld/schemas/types";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import {
 	act,
@@ -36,6 +40,9 @@ const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld
 const DEFAULT_GPT_55_MODEL_PATTERN = /Use controller default \(GPT-5.5\)/;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a human profile to this account before bringing profiles into this Space.";
+type WebCreateAgentProfileCreationRequestInput = Parameters<
+	typeof import("#/lib/profiles/agent-profile-creation-requests").createAgentProfileCreationRequest
+>[0];
 
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const getProfileCapabilitiesMock = vi.hoisted(() => vi.fn());
@@ -492,6 +499,42 @@ function buildProjectFixture() {
 	};
 }
 
+function buildAgentProfileCreationRequestResult(
+	requestInput: WebCreateAgentProfileCreationRequestInput,
+	overrides: Partial<AgentProfileCreationRequest> = {}
+): CreateAgentProfileCreationRequestResponse {
+	const isSelfOwned = requestInput.targetOwnerUserId === "user-123";
+	const status = overrides.status ?? (isSelfOwned ? "completed" : "pending");
+	const isCompleted = status === "completed";
+	return {
+		replayed: false,
+		request: {
+			actorProfileId: FELIX_ID,
+			completedAt: isCompleted ? "2026-08-20T00:00:05.000Z" : null,
+			configuration: requestInput.configuration,
+			createdAgentProfileId: isCompleted ? NEW_AGENT_ID : null,
+			createdAt: "2026-08-20T00:00:00.000Z",
+			decidedAt: status === "pending" ? null : "2026-08-20T00:00:01.000Z",
+			failureMessage: null,
+			id: isSelfOwned ? "apcr-self" : "apcr-teammate",
+			nativeSessionId: requestInput.nativeSessionId ?? null,
+			organizationId: requestInput.organizationId,
+			profileName: requestInput.profileName,
+			requestedSpaceId: requestInput.requestedSpaceId ?? null,
+			requesterUserId: "user-123",
+			sessionStrategy: requestInput.sessionStrategy ?? "new",
+			source: "web",
+			status,
+			statusReason: isCompleted ? "profile_created" : "approval_required",
+			targetOwnerUserId: requestInput.targetOwnerUserId,
+			updatedAt: isCompleted
+				? "2026-08-20T00:00:05.000Z"
+				: "2026-08-20T00:00:00.000Z",
+			...overrides,
+		},
+	};
+}
+
 function renderCreateProfileDialog(
 	overrides: Partial<ComponentProps<typeof CreateProfileDialog>> = {}
 ) {
@@ -654,39 +697,11 @@ describe("CreateProfileDialog", () => {
 			organization: { id: "organization-123", name: "Acme" },
 			sessions: [],
 		});
-		createAgentProfileCreationRequestMock.mockReset().mockResolvedValue({
-			replayed: false,
-			request: {
-				actorProfileId: FELIX_ID,
-				completedAt: null,
-				configuration: {
-					agentControllerPermissionMode: "codex:askForApproval",
-					agentControllerRef: "builtin:codex",
-					authorizeForOrganization: true,
-					defaultProjectId: "project-1",
-					modelId: "gpt-5.4-mini",
-					openCodePermission: null,
-					reasoningLevel: "high",
-					targetComputerId: "device-ashley",
-				},
-				createdAgentProfileId: null,
-				createdAt: "2026-08-20T00:00:00.000Z",
-				decidedAt: null,
-				failureMessage: null,
-				id: "apcr-teammate",
-				nativeSessionId: null,
-				organizationId: "organization-123",
-				profileName: "Release Agent",
-				requestedSpaceId: null,
-				requesterUserId: "user-123",
-				sessionStrategy: "new",
-				source: "web",
-				status: "pending",
-				statusReason: "approval_required",
-				targetOwnerUserId: "user-ashley",
-				updatedAt: "2026-08-20T00:00:00.000Z",
-			},
-		});
+		createAgentProfileCreationRequestMock
+			.mockReset()
+			.mockImplementation(async (requestInput) =>
+				buildAgentProfileCreationRequestResult(requestInput)
+			);
 		getAgentProfileCreationDefaultsMock
 			.mockReset()
 			.mockImplementation(async ({ agentControllerRef, organizationId }) => ({
@@ -796,42 +811,27 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(submitButton);
 
 		await waitFor(() => {
-			expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
 				expect.objectContaining({
-					agentControllerConversationId: "native-codex-thread-1",
-					deviceId: "device-session",
-					runtimeLane: "canary",
-					sessionInventorySelection: expect.objectContaining({
-						computerId: "computer-session",
+					configuration: expect.objectContaining({
+						agentControllerRef: "builtin:codex",
+						defaultProjectId: "project-1",
+						targetComputerId: "device-session",
 					}),
+					nativeSessionId: "native-codex-thread-1",
+					sessionStrategy: "resume",
+					targetOwnerUserId: "user-123",
 				})
 			);
 		});
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 	});
 
-	it("uses a fresh creation key after stale Resume cleanup", async () => {
+	it("leaves Auth untouched when a Session Resume request is rejected", async () => {
 		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
-		ensureRuntimeBindingMock
-			.mockResolvedValueOnce({
-				agentControllerRef: "builtin:codex",
-				reason: "binding_rejected",
-				reasonCodes: ["agent_profile_binding.session_resume_unavailable"],
-				routable: false,
-				status: "rejected",
-			})
-			.mockResolvedValueOnce({
-				agentControllerRef: "builtin:codex",
-				deviceId: "device-session",
-				lane: "canary",
-				outcome: "created",
-				reasonCodes: ["agent_profile_binding.command_eligible"],
-				routable: true,
-				openMeldServiceRuntimeId: {
-					source: "runtime_registry_authority",
-					value: "runtime-123",
-				},
-				status: "accepted",
-			});
+		createAgentProfileCreationRequestMock.mockRejectedValue(
+			new Error("This Session is no longer available on that computer.")
+		);
 		renderCreateProfileDialog({
 			agentActivitySessionPreset: {
 				agentControllerRef: "builtin:codex",
@@ -858,23 +858,15 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(submitButton);
 
 		await waitFor(() => {
-			expect(deleteStartAgentProfileMock).toHaveBeenCalledWith({
-				data: NEW_AGENT_ID,
-			});
-			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+			expect(
+				screen.getByText(
+					"This Session is no longer available on that computer."
+				)
+			).toBeTruthy();
 		});
-		const firstKey =
-			createStartAgentProfileMock.mock.calls[0]?.[0].data.idempotencyKey;
-		fireEvent.click(submitButton);
-
-		await waitFor(() => {
-			expect(createStartAgentProfileMock).toHaveBeenCalledTimes(2);
-		});
-		const secondKey =
-			createStartAgentProfileMock.mock.calls[1]?.[0].data.idempotencyKey;
-		expect(firstKey).toEqual(expect.any(String));
-		expect(secondKey).toEqual(expect.any(String));
-		expect(secondKey).not.toBe(firstKey);
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
+		expect(deleteStartAgentProfileMock).not.toHaveBeenCalled();
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 	});
 
 	afterEach(() => {
@@ -1234,7 +1226,7 @@ describe("CreateProfileDialog", () => {
 				sessionStrategy: "fork",
 				source: "web",
 				status: "completed",
-				statusReason: "created",
+				statusReason: "profile_created",
 				targetOwnerUserId: "user-123",
 				updatedAt: "2026-08-20T00:00:05.000Z",
 			},
@@ -1519,7 +1511,7 @@ describe("CreateProfileDialog", () => {
 		).toBeTruthy();
 	});
 
-	it("creates an agent profile with Choose later and joins no Space", async () => {
+	it("creates a self-owned Agent through the shared creation request", async () => {
 		renderCreateProfileDialog();
 
 		await fillProfileForm({
@@ -1528,30 +1520,36 @@ describe("CreateProfileDialog", () => {
 		});
 
 		await waitFor(() => {
-			expect(createStartAgentProfileMock).toHaveBeenCalledWith({
-				data: {
-					creatorProfileId: FELIX_ID,
-					idempotencyKey: expect.any(String),
-					organizationId: "organization-123",
-					profileName: "Research Agent",
-				},
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith({
+				configuration: expect.objectContaining({
+					agentControllerRef: null,
+					defaultProjectId: null,
+					targetComputerId: null,
+				}),
+				idempotencyKey: expect.any(String),
+				nativeSessionId: null,
+				organizationId: "organization-123",
+				profileName: "Research Agent",
+				requestedSpaceId: null,
+				sessionStrategy: "new",
+				targetOwnerUserId: "user-123",
 			});
 		});
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 		expect(addMembersMock).not.toHaveBeenCalled();
-		await waitFor(() => {
-			expect(refreshAllMock).toHaveBeenCalled();
-		});
 	});
 
 	it("turns two same-tick form submits into one Agent Profile creation", async () => {
-		const pendingCreates: Array<
-			(profile: ReturnType<typeof buildAgentProfileFixture>) => void
-		> = [];
-		createStartAgentProfileMock.mockImplementation(
-			() =>
-				new Promise((resolve) => {
-					pendingCreates.push(resolve);
-				})
+		const defaultCreateRequest =
+			createAgentProfileCreationRequestMock.getMockImplementation();
+		let releaseCreateRequest: (() => void) | undefined;
+		createAgentProfileCreationRequestMock.mockImplementation(
+			async (...args) => {
+				await new Promise<void>((resolve) => {
+					releaseCreateRequest = resolve;
+				});
+				return await defaultCreateRequest?.(...args);
+			}
 		);
 		renderCreateProfileDialog();
 
@@ -1583,26 +1581,33 @@ describe("CreateProfileDialog", () => {
 		});
 
 		await waitFor(() => {
-			expect(createStartAgentProfileMock).toHaveBeenCalled();
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalled();
 		});
-		expect(createStartAgentProfileMock).toHaveBeenCalledTimes(1);
+		expect(createAgentProfileCreationRequestMock).toHaveBeenCalledTimes(1);
 		const creatingButton = screen.getByRole("button", {
 			name: CREATING_PROFILE_BUTTON_PATTERN,
 		}) as HTMLButtonElement;
 		expect(creatingButton.disabled).toBe(true);
 		expect(creatingButton.getAttribute("aria-busy")).toBe("true");
-		for (const resolveCreate of pendingCreates) {
-			resolveCreate(buildAgentProfileFixture());
-		}
+		releaseCreateRequest?.();
 		await waitFor(() => {
-			expect(refreshAllMock).toHaveBeenCalled();
+			expect(
+				screen.queryByRole("button", {
+					name: CREATING_PROFILE_BUTTON_PATTERN,
+				})
+			).toBeNull();
 		});
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 	});
 
 	it("reuses the creation idempotency key when the same Agent Profile intent is retried", async () => {
-		createStartAgentProfileMock
-			.mockRejectedValueOnce(new Error("Auth is temporarily unavailable."))
-			.mockResolvedValueOnce(buildAgentProfileFixture());
+		const defaultCreateRequest =
+			createAgentProfileCreationRequestMock.getMockImplementation();
+		createAgentProfileCreationRequestMock
+			.mockRejectedValueOnce(new Error("Core is temporarily unavailable."))
+			.mockImplementationOnce(async (...args) =>
+				defaultCreateRequest?.(...args)
+			);
 		renderCreateProfileDialog();
 
 		await fillProfileForm({
@@ -1610,7 +1615,7 @@ describe("CreateProfileDialog", () => {
 			name: "Research Agent",
 		});
 
-		await screen.findByText("Auth is temporarily unavailable.");
+		await screen.findByText("Core is temporarily unavailable.");
 		const submitButton = screen.getByRole("button", {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
 		}) as HTMLButtonElement;
@@ -1620,17 +1625,17 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(submitButton);
 
 		await waitFor(() => {
-			expect(createStartAgentProfileMock).toHaveBeenCalledTimes(2);
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledTimes(2);
 		});
 		const firstIdempotencyKey =
-			createStartAgentProfileMock.mock.calls[0]?.[0].data.idempotencyKey;
+			createAgentProfileCreationRequestMock.mock.calls[0]?.[0].idempotencyKey;
 		const secondIdempotencyKey =
-			createStartAgentProfileMock.mock.calls[1]?.[0].data.idempotencyKey;
+			createAgentProfileCreationRequestMock.mock.calls[1]?.[0].idempotencyKey;
 		expect(firstIdempotencyKey).toEqual(expect.any(String));
 		expect(secondIdempotencyKey).toBe(firstIdempotencyKey);
 	});
 
-	it("joins the new profile into the Space as the acting human and refreshes the members panel", async () => {
+	it("asks Core to create and join the Agent before refreshing the members panel", async () => {
 		const onAfterJoin = vi.fn().mockResolvedValue(undefined);
 		renderCreateProfileDialog({
 			onAfterJoin,
@@ -1644,27 +1649,9 @@ describe("CreateProfileDialog", () => {
 		});
 
 		await waitFor(() => {
-			expect(createStartAgentProfileMock).toHaveBeenCalled();
-		});
-		await waitFor(() => {
-			expect(addMembersMock).toHaveBeenCalledWith({
-				spaceId: "space-123",
-				memberProfileIds: [NEW_AGENT_ID],
-				requestContext: expect.objectContaining({
-					actorContext: expect.objectContaining({
-						openMeldProfileId: FELIX_ID,
-					}),
-				}),
-			});
-		});
-		await waitFor(() => {
-			expect(recordProfileSpaceHistoryMock).toHaveBeenCalledWith({
-				spaceId: "space-123",
-				spaceName: "Design Room",
-				profileIds: [NEW_AGENT_ID],
-				creatorProfileId: FELIX_ID,
-				creatorKind: "human",
-			});
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({ requestedSpaceId: "space-123" })
+			);
 		});
 		await waitFor(() => {
 			expect(onAfterJoin).toHaveBeenCalledWith(
@@ -1674,18 +1661,25 @@ describe("CreateProfileDialog", () => {
 				})
 			);
 		});
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
+		expect(addMembersMock).not.toHaveBeenCalled();
+		expect(recordProfileSpaceHistoryMock).not.toHaveBeenCalled();
 	});
 
-	it("keeps the created Agent in the Space when local Binding setup fails", async () => {
-		ensureRuntimeBindingMock.mockResolvedValue({
-			reasonCodes: ["agent_profile_binding.runtime_unavailable"],
-			status: "retry_required",
-		});
-		const onAfterJoin = vi.fn().mockResolvedValue(undefined);
-		const onProfileCreated = vi.fn();
+	it("reports Core's partial result without repeating local Binding or Space writes", async () => {
+		createAgentProfileCreationRequestMock.mockImplementation(
+			async (requestInput) =>
+				buildAgentProfileCreationRequestResult(requestInput, {
+					createdAgentProfileId: NEW_AGENT_ID,
+					failureMessage:
+						"The Agent was created, but its local connection needs attention.",
+					status: "failed",
+					statusReason: "profile_creation_failed",
+				})
+		);
+		const onAgentRequestCreated = vi.fn();
 		const { onOpenChange } = renderCreateProfileDialog({
-			onAfterJoin,
-			onProfileCreated,
+			onAgentRequestCreated,
 			organizationId: "organization-123",
 			recovery: buildFakeRecovery([
 				buildCatalogEntry({
@@ -1710,40 +1704,34 @@ describe("CreateProfileDialog", () => {
 		);
 
 		await waitFor(() => {
-			expect(addMembersMock).toHaveBeenCalledWith({
-				spaceId: "space-123",
-				memberProfileIds: [NEW_AGENT_ID],
-				requestContext: expect.objectContaining({
-					actorContext: expect.objectContaining({
-						openMeldProfileId: FELIX_ID,
-					}),
-				}),
-			});
-		});
-		await waitFor(() => {
-			expect(onProfileCreated).toHaveBeenCalledWith(
-				expect.objectContaining({ openMeldProfileId: NEW_AGENT_ID })
+			expect(onAgentRequestCreated).toHaveBeenCalledWith(
+				expect.objectContaining({
+					createdAgentProfileId: NEW_AGENT_ID,
+					status: "failed",
+					statusReason: "profile_creation_failed",
+				})
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
-			expect(toastWarningMock).toHaveBeenCalledWith(
-				expect.stringContaining(
-					"was created and added to Design Room, but local setup isn't complete"
-				)
-			);
 		});
-		expect(addMembersMock.mock.invocationCallOrder[0]).toBeLessThan(
-			ensureRuntimeBindingMock.mock.invocationCallOrder[0] ?? 0
-		);
-		expect(createStartAgentProfileMock).toHaveBeenCalledTimes(1);
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
+		expect(addMembersMock).not.toHaveBeenCalled();
 	});
 
-	it("reports a created profile as partial success when Space membership fails", async () => {
-		addMembersMock.mockRejectedValue(
-			new Error("Space membership is unavailable.")
+	it("reports Core's Space membership failure without retrying the write in Web", async () => {
+		createAgentProfileCreationRequestMock.mockImplementation(
+			async (requestInput) =>
+				buildAgentProfileCreationRequestResult(requestInput, {
+					createdAgentProfileId: NEW_AGENT_ID,
+					failureMessage:
+						"The Agent was created, but it could not be added to the Space.",
+					status: "failed",
+					statusReason: "profile_creation_failed",
+				})
 		);
-		const onProfileCreated = vi.fn();
+		const onAgentRequestCreated = vi.fn();
 		const { onOpenChange } = renderCreateProfileDialog({
-			onProfileCreated,
+			onAgentRequestCreated,
 			organizationId: "organization-123",
 			spaceContext: { spaceId: "space-123", spaceName: "Design Room" },
 		});
@@ -1754,27 +1742,24 @@ describe("CreateProfileDialog", () => {
 		});
 
 		await waitFor(() => {
-			expect(addMembersMock).toHaveBeenCalledTimes(1);
-			expect(onProfileCreated).toHaveBeenCalledWith(
-				expect.objectContaining({ openMeldProfileId: NEW_AGENT_ID })
+			expect(onAgentRequestCreated).toHaveBeenCalledWith(
+				expect.objectContaining({
+					createdAgentProfileId: NEW_AGENT_ID,
+					status: "failed",
+					statusReason: "profile_creation_failed",
+				})
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
-			expect(toastErrorMock).toHaveBeenCalledWith(
-				expect.stringContaining(
-					"was created, but OpenMeld couldn't add it to Design Room"
-				)
-			);
-			expect(toastErrorMock).toHaveBeenCalledWith(
-				expect.stringContaining(
-					"Add the existing profile from the Members panel"
-				)
-			);
 		});
-		expect(createStartAgentProfileMock).toHaveBeenCalledTimes(1);
+		expect(addMembersMock).not.toHaveBeenCalled();
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 	});
 
-	it("does not create an orphan agent when the account has no human profile in a Space", async () => {
+	it("does not create an Agent directly when Core rejects a missing acting profile", async () => {
 		listStartProfilesMock.mockReset().mockResolvedValue([]);
+		createAgentProfileCreationRequestMock.mockRejectedValue(
+			new Error(SPACE_JOIN_REQUIRES_HUMAN_MESSAGE)
+		);
 		renderCreateProfileDialog({
 			organizationId: "organization-123",
 			spaceContext: { spaceId: "space-123", spaceName: "Design Room" },
@@ -1848,7 +1833,7 @@ describe("CreateProfileDialog", () => {
 		expect(screen.queryByText("Adel")).toBeNull();
 	});
 
-	it("prepares a managed workspace for an unbound Agent when the current Service supports it", async () => {
+	it("lets Core prepare the managed workspace for an unbound Agent", async () => {
 		renderCreateProfileDialog({
 			recovery: buildFakeRecovery([
 				buildCatalogEntry({
@@ -1865,12 +1850,17 @@ describe("CreateProfileDialog", () => {
 		});
 
 		await waitFor(() => {
-			expect(setCurrentAgentProfileWorkspaceMock).toHaveBeenCalledWith({
-				agentProfileId: NEW_AGENT_ID,
-				workspaceMode: "openmeld_managed",
-			});
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						agentControllerRef: null,
+						targetComputerId: null,
+					}),
+				})
+			);
 		});
 		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
+		expect(setCurrentAgentProfileWorkspaceMock).not.toHaveBeenCalled();
 	});
 
 	it("creates an unbound Agent without contacting a historical Service for workspace setup", async () => {
@@ -1893,9 +1883,10 @@ describe("CreateProfileDialog", () => {
 		});
 
 		await waitFor(() => {
-			expect(createStartAgentProfileMock).toHaveBeenCalled();
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalled();
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 		expect(setCurrentAgentProfileWorkspaceMock).not.toHaveBeenCalled();
 	});
@@ -1989,21 +1980,24 @@ describe("CreateProfileDialog", () => {
 		);
 
 		await waitFor(() => {
-			expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
 				expect.objectContaining({
-					agentProfileId: NEW_AGENT_ID,
-					agentControllerCollaborationMode: "codex:plan",
-					agentControllerPermissionMode: "codex:approveForMe",
-					agentControllerRef: "builtin:codex",
-					modelId: "gpt-5.4-mini",
-					reasoningLevel: "medium",
+					configuration: expect.objectContaining({
+						agentControllerCollaborationMode: "codex:plan",
+						agentControllerPermissionMode: "codex:approveForMe",
+						agentControllerRef: "builtin:codex",
+						modelId: "gpt-5.4-mini",
+						reasoningLevel: "medium",
+					}),
 				})
 			);
 		});
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 	});
 
 	it("authorizes a bound Agent Profile for the current organization when created from Directory", async () => {
 		const { queryClient } = renderCreateProfileDialog({
+			organizationId: "org-123",
 			organizationAuthorizationContext: {
 				organizationId: "org-123",
 				organizationName: "Acme",
@@ -2037,13 +2031,18 @@ describe("CreateProfileDialog", () => {
 		);
 
 		await waitFor(() => {
-			expect(
-				bulkAuthorizeAgentProfileBindingsForOrganizationMock
-			).toHaveBeenCalledWith({
-				agentProfileIds: [NEW_AGENT_ID],
-				organizationId: "org-123",
-			});
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						authorizeForOrganization: true,
+					}),
+					organizationId: "org-123",
+				})
+			);
 		});
+		expect(
+			bulkAuthorizeAgentProfileBindingsForOrganizationMock
+		).not.toHaveBeenCalled();
 		expect(
 			setOrganizationBindingAuthorizationPreferenceMock
 		).not.toHaveBeenCalled();
@@ -2057,6 +2056,7 @@ describe("CreateProfileDialog", () => {
 
 	it("can enable future organization authorization while authorizing the new Agent Profile", async () => {
 		renderCreateProfileDialog({
+			organizationId: "org-123",
 			organizationAuthorizationContext: {
 				organizationId: "org-123",
 				organizationName: "Acme",
@@ -2089,13 +2089,18 @@ describe("CreateProfileDialog", () => {
 		);
 
 		await waitFor(() => {
-			expect(
-				bulkAuthorizeAgentProfileBindingsForOrganizationMock
-			).toHaveBeenCalledWith({
-				agentProfileIds: [NEW_AGENT_ID],
-				organizationId: "org-123",
-			});
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						authorizeForOrganization: true,
+					}),
+					organizationId: "org-123",
+				})
+			);
 		});
+		expect(
+			bulkAuthorizeAgentProfileBindingsForOrganizationMock
+		).not.toHaveBeenCalled();
 		await waitFor(() => {
 			expect(
 				setOrganizationBindingAuthorizationPreferenceMock
@@ -2111,6 +2116,7 @@ describe("CreateProfileDialog", () => {
 			autoAuthorizeAgentProfileBindings: true,
 		});
 		renderCreateProfileDialog({
+			organizationId: "org-123",
 			organizationAuthorizationContext: {
 				organizationId: "org-123",
 				organizationName: "Acme",
@@ -2149,13 +2155,18 @@ describe("CreateProfileDialog", () => {
 		);
 
 		await waitFor(() => {
-			expect(
-				bulkAuthorizeAgentProfileBindingsForOrganizationMock
-			).toHaveBeenCalledWith({
-				agentProfileIds: [NEW_AGENT_ID],
-				organizationId: "org-123",
-			});
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						authorizeForOrganization: true,
+					}),
+					organizationId: "org-123",
+				})
+			);
 		});
+		expect(
+			bulkAuthorizeAgentProfileBindingsForOrganizationMock
+		).not.toHaveBeenCalled();
 	});
 
 	it("uses the managed Project folder when a bound agent is created without a custom folder", async () => {
@@ -2189,11 +2200,13 @@ describe("CreateProfileDialog", () => {
 		);
 
 		await waitFor(() => {
-			expect(setCurrentAgentProfileWorkspaceMock).toHaveBeenCalledWith({
-				agentProfileId: NEW_AGENT_ID,
-				workspaceMode: "openmeld_managed",
-			});
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({ defaultProjectId: null }),
+				})
+			);
 		});
+		expect(setCurrentAgentProfileWorkspaceMock).not.toHaveBeenCalled();
 	});
 
 	it("saves a custom Project folder when a bound agent is created with an absolute folder path", async () => {
@@ -2289,31 +2302,19 @@ describe("CreateProfileDialog", () => {
 		);
 
 		await waitFor(() => {
-			expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
 				expect.objectContaining({
-					agentProfileId: NEW_AGENT_ID,
-					agentControllerRef: "builtin:opencode",
-					modelId: "opencode/deepseek-v4-flash-free",
-					openCodePermission: {
-						bash: "deny",
-						edit: "ask",
-					},
-					reasoningLevel: "max",
+					configuration: expect.objectContaining({
+						agentControllerRef: "builtin:opencode",
+						modelId: "opencode/deepseek-v4-flash-free",
+						openCodePermission: { bash: "deny", edit: "ask" },
+						reasoningLevel: "max",
+					}),
 				})
 			);
 		});
-		await waitFor(() => {
-			expect(setAgentProfileCreationDefaultsMock).toHaveBeenCalledWith({
-				agentControllerCollaborationMode: null,
-				agentControllerPermissionMode: null,
-				agentControllerRef: "builtin:opencode",
-				defaultProjectId: null,
-				modelId: "opencode/deepseek-v4-flash-free",
-				openCodePermission: { bash: "deny", edit: "ask" },
-				organizationId: "organization-123",
-				reasoningLevel: "max",
-			});
-		});
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
+		expect(setAgentProfileCreationDefaultsMock).not.toHaveBeenCalled();
 	});
 
 	it("restores creation choices per Local Agent without leaking them when the Agent changes", async () => {
@@ -2425,14 +2426,16 @@ describe("CreateProfileDialog", () => {
 		);
 
 		await waitFor(() => {
-			expect(ensureRuntimeBindingMock).toHaveBeenCalled();
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						agentControllerPermissionMode: null,
+						agentControllerRef: "builtin:openclaw",
+					}),
+				})
+			);
 		});
-		expect(ensureRuntimeBindingMock.mock.calls[0]?.[0]).toMatchObject({
-			agentControllerRef: "builtin:openclaw",
-		});
-		expect(ensureRuntimeBindingMock.mock.calls[0]?.[0]).not.toHaveProperty(
-			"agentControllerPermissionMode"
-		);
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 	});
 
 	it("resets Agent Controller Permission Mode when the selected local controller changes", async () => {
@@ -2613,12 +2616,15 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(submitButton);
 
 		await waitFor(() => {
-			expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
 				expect.objectContaining({
-					agentControllerPermissionMode: "codex:fullAccess",
-					agentControllerRef: "builtin:codex",
+					configuration: expect.objectContaining({
+						agentControllerPermissionMode: "codex:fullAccess",
+						agentControllerRef: "builtin:codex",
+					}),
 				})
 			);
 		});
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 	});
 });

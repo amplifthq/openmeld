@@ -257,7 +257,7 @@ async function bindNewAgentProfileToLocalAgent(input: {
 	}
 }
 
-async function configureNewAgentProfileWorkspace(input: {
+export async function configureNewAgentProfileWorkspace(input: {
 	agentProfileId: string;
 	bindingEstablished: boolean;
 	projectFolderPath: string | null;
