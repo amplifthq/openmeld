@@ -4851,6 +4851,22 @@ describe("organization Core RPC", () => {
           })
         );
       }
+      if (pathname === "/api/conversations.info") {
+        expect(new URL(String(request)).searchParams.get("channel")).toBe(
+          "C123"
+        );
+        return Promise.resolve(
+          Response.json({
+            channel: {
+              id: "C123",
+              is_member: true,
+              is_private: false,
+              name: "ok8-okok",
+            },
+            ok: true,
+          })
+        );
+      }
       if (pathname === "/api/conversations.list") {
         return Promise.resolve(
           Response.json({
@@ -5012,6 +5028,20 @@ describe("organization Core RPC", () => {
     const completedUploads: unknown[] = [];
     const slackFetch = vi.fn<typeof fetch>((request, init) => {
       const url = new URL(String(request));
+      if (url.pathname === "/api/conversations.info") {
+        expect(url.searchParams.get("channel")).toBe("C123");
+        return Promise.resolve(
+          Response.json({
+            channel: {
+              id: "C123",
+              is_member: true,
+              is_private: false,
+              name: "ok8-okok",
+            },
+            ok: true,
+          })
+        );
+      }
       if (url.pathname === "/api/conversations.list") {
         return Promise.resolve(
           Response.json({
