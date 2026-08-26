@@ -86,10 +86,14 @@ function resolveReplyReadinessBackoffMs(pollCount: number): number {
 function resolveReplyReadinessEvidenceKey(
 	readiness: CurrentLocalRuntimeReplyReadinessResponse
 ): string {
+	const updateOperation = readiness.localComponents?.updateOperation;
 	return [
 		readiness.status,
 		String(readiness.canReplyFromThisComputer),
 		readiness.primaryBlocker,
+		updateOperation?.operationId ?? "no_update",
+		updateOperation?.phase ?? "idle",
+		updateOperation?.updatedAt ?? "",
 	].join("|");
 }
 
@@ -210,5 +214,11 @@ function shouldRefreshCurrentLocalRuntimeReplyReadiness(
 	if (!readiness) {
 		return false;
 	}
-	return !readiness.canReplyFromThisComputer || readiness.status === "checking";
+	const updatePhase = readiness.localComponents?.updateOperation?.phase;
+	return (
+		!readiness.canReplyFromThisComputer ||
+		readiness.status === "checking" ||
+		updatePhase === "updating" ||
+		updatePhase === "waiting_for_work"
+	);
 }

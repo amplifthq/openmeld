@@ -76,6 +76,7 @@ import {
 } from "#/lib/openmeld-tools-update";
 import { useCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
+import { startQueryKeys } from "#/query/query-keys";
 import { resolveAgentsPageFocusedSurfaceClassName } from "./agents-page-agent-profile-helpers";
 import { formatComputerReplyReadinessDescription } from "./agents-page-computer";
 import {
@@ -214,6 +215,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	const orgSlug = useCurrentOrganizationSlug();
 	const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 	const [isUpdatingTools, setIsUpdatingTools] = useState(false);
+	const [updateRequestFailed, setUpdateRequestFailed] = useState(false);
 	const [isSavingAutomaticUpdates, setIsSavingAutomaticUpdates] =
 		useState(false);
 	const [isServiceHighlighted, setIsServiceHighlighted] = useState(false);
@@ -279,22 +281,40 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 		await input.recovery.refreshAll();
 	};
 	const updateOpenMeldTools = async () => {
+		setUpdateRequestFailed(false);
 		setIsUpdatingTools(true);
 		try {
 			const result = await requestCurrentOpenMeldToolsUpdate();
 			if (result.status === "current") {
-				toast.success("OpenMeld Tools are up to date.");
+				toast.success("Up to date.");
+				await refreshServiceStatus();
 			} else if (
 				result.status === "started" ||
 				result.status === "already_running"
 			) {
-				toast.success("Update started.");
+				input.queryClient.setQueryData<CurrentLocalRuntimeReplyReadinessResponse>(
+					startQueryKeys.currentLocalRuntimeReplyReadiness(
+						input.recovery.storageScope
+					),
+					(current) =>
+						current
+							? {
+									...current,
+									localComponents: {
+										...current.localComponents,
+										updateOperation: result.operation,
+									},
+								}
+							: current
+				);
 			} else {
-				toast.error("Update not started.");
+				setUpdateRequestFailed(true);
+				toast.error("Update failed.");
 			}
-			await refreshServiceStatus();
 		} catch (error) {
-			toast.error(formatMutationError(error, "Update failed."));
+			console.error("OpenMeld Tools update request failed.", error);
+			setUpdateRequestFailed(true);
+			toast.error("Update failed.");
 		} finally {
 			setIsUpdatingTools(false);
 		}
@@ -384,6 +404,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 				serviceUpdatePath={serviceUpdatePath}
 				setupCompleteRefreshPending={input.setupCompleteRefreshPending}
 				setupPath={setupPath}
+				updateRequestFailed={updateRequestFailed}
 			/>
 		);
 	}
@@ -620,6 +641,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 	serviceUpdatePath: string;
 	setupPath: string;
 	setupCompleteRefreshPending: boolean;
+	updateRequestFailed: boolean;
 }) {
 	const hasCurrentServiceObservation =
 		input.currentLocalRuntimeReplyReadiness !== null;
@@ -631,6 +653,11 @@ function CurrentLocalRuntimeServiceFacts(input: {
 	const localComponents =
 		input.currentLocalRuntimeReplyReadiness?.localComponents ?? null;
 	const maintenance = localComponents?.maintenance ?? null;
+	const updateOperation = localComponents?.updateOperation ?? null;
+	const updateIsActive =
+		input.isUpdatingTools ||
+		updateOperation?.phase === "updating" ||
+		updateOperation?.phase === "waiting_for_work";
 	const serviceUpdate = localComponents?.service ?? null;
 	const cliUpdate = resolveOpenMeldToolsCliUpdate(localComponents);
 	const skillsUpdate = resolveOpenMeldToolsSkillsUpdate(localComponents);
@@ -681,9 +708,9 @@ function CurrentLocalRuntimeServiceFacts(input: {
 	const primaryAction =
 		maintenance && display.primaryAction?.label === UPDATE_OPENMELD_TOOLS_LABEL
 			? {
-					disabled: input.isUpdatingTools,
+					disabled: updateIsActive,
 					kind: "managed" as const,
-					label: input.isUpdatingTools ? "Starting..." : "Update",
+					label: updateIsActive ? "Updating" : "Update",
 					onClick: input.onUpdateOpenMeldTools,
 				}
 			: display.primaryAction;
@@ -735,7 +762,9 @@ function CurrentLocalRuntimeServiceFacts(input: {
 					automaticUpdatesEnabled={maintenance.automaticUpdatesEnabled}
 					disabled={input.isSavingAutomaticUpdates}
 					onAutomaticUpdatesChange={input.onAutomaticUpdatesChange}
-					operation={localComponents?.updateOperation ?? null}
+					operation={updateOperation}
+					requestFailed={input.updateRequestFailed && updateOperation === null}
+					requesting={input.isUpdatingTools}
 				/>
 			) : null}
 
@@ -1220,15 +1249,16 @@ function OpenMeldToolsMaintenanceControls(input: {
 	operation:
 		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
 		| null;
+	requestFailed: boolean;
+	requesting: boolean;
 }) {
+	const updateStatus = resolveOpenMeldToolsUpdateStatus(input);
 	return (
 		<div className="flex flex-col gap-3 border-border/60 border-t py-4 sm:flex-row sm:items-center sm:justify-between">
 			<div className="min-w-0">
 				<p className="font-medium text-sm">Keep OpenMeld Tools up to date</p>
-				{input.operation ? (
-					<p className="mt-1 text-muted-foreground text-xs">
-						{formatOpenMeldToolsUpdatePhase(input.operation.phase)}
-					</p>
+				{updateStatus ? (
+					<p className="mt-1 text-muted-foreground text-xs">{updateStatus}</p>
 				) : null}
 			</div>
 			<Switch
@@ -1245,6 +1275,24 @@ function OpenMeldToolsMaintenanceControls(input: {
 	);
 }
 
+function resolveOpenMeldToolsUpdateStatus(input: {
+	operation:
+		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
+		| null;
+	requestFailed: boolean;
+	requesting: boolean;
+}): string | null {
+	if (input.requestFailed) {
+		return "Update failed. Try again.";
+	}
+	if (input.requesting) {
+		return "Updating";
+	}
+	return input.operation
+		? formatOpenMeldToolsUpdatePhase(input.operation.phase)
+		: null;
+}
+
 function formatOpenMeldToolsUpdatePhase(
 	phase: NonNullable<
 		CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
@@ -1252,15 +1300,15 @@ function formatOpenMeldToolsUpdatePhase(
 ): string {
 	switch (phase) {
 		case "waiting_for_work":
-			return "Waiting for work to finish";
+			return "Finishing current work";
 		case "updating":
 			return "Updating";
 		case "updated":
-			return "Updated";
+			return "Up to date";
 		case "restored":
-			return "Old version restored";
+			return "Update failed. Try again.";
 		case "needs_help":
-			return "Update needs help";
+			return "Update failed. Try again.";
 		default: {
 			const exhaustive: never = phase;
 			return exhaustive;

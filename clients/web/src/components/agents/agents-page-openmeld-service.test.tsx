@@ -23,6 +23,7 @@ const copyCliEntryCommandMock = vi.hoisted(() => vi.fn());
 const refreshSharedCachesMock = vi.hoisted(() => vi.fn());
 const requestCurrentOpenMeldToolsUpdateMock = vi.hoisted(() => vi.fn());
 const setCurrentOpenMeldToolsMaintenanceMock = vi.hoisted(() => vi.fn());
+const setQueryDataMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 
@@ -87,12 +88,15 @@ const SERVICE_UPDATE_REQUIRED_REPLY_READINESS: ComputerReplyReadiness = {
 	status: "needs_repair",
 };
 
-const queryClientStub = {} as QueryClient;
+const queryClientStub = {
+	setQueryData: setQueryDataMock,
+} as unknown as QueryClient;
 
 describe("OpenMeldServiceCard", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
+		vi.restoreAllMocks();
 		refreshSharedCachesMock.mockResolvedValue(undefined);
 	});
 
@@ -215,7 +219,7 @@ describe("OpenMeldServiceCard", () => {
 	});
 
 	it("updates OpenMeld Tools without sending the user to Terminal", async () => {
-		requestCurrentOpenMeldToolsUpdateMock.mockResolvedValueOnce({
+		const result = {
 			operation: {
 				operationId: "update-1",
 				phase: "updating",
@@ -226,7 +230,56 @@ describe("OpenMeldServiceCard", () => {
 				urgency: "available",
 			},
 			status: "started",
+		} as const;
+		let finishRequest!: (value: typeof result) => void;
+		requestCurrentOpenMeldToolsUpdateMock.mockReturnValueOnce(
+			new Promise((resolve) => {
+				finishRequest = resolve;
+			})
+		);
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
 		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Update" }));
+		expect(
+			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+		expect(screen.getAllByText("Updating")).toHaveLength(2);
+
+		finishRequest(result);
+
+		await waitFor(() => {
+			expect(setQueryDataMock).toHaveBeenCalledTimes(1);
+		});
+		expect(toastSuccessMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps a failed update visible and lets the user try again", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		requestCurrentOpenMeldToolsUpdateMock.mockRejectedValueOnce(
+			new Error("request failed")
+		);
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
 				{
@@ -251,10 +304,16 @@ describe("OpenMeldServiceCard", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Update" }));
 
 		await waitFor(() => {
-			expect(requestCurrentOpenMeldToolsUpdateMock).toHaveBeenCalledTimes(1);
+			expect(screen.getByText("Update failed. Try again.")).toBeTruthy();
 		});
-		expect(screen.queryByRole("link", { name: "Update" })).toBeNull();
-		expect(toastSuccessMock).toHaveBeenCalledWith("Update started.");
+		expect(
+			(screen.getByRole("button", { name: "Update" }) as HTMLButtonElement)
+				.disabled
+		).toBe(false);
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			"OpenMeld Tools update request failed.",
+			expect.any(Error)
+		);
 	});
 
 	it("keeps Update available when a local agent also needs repair", () => {
@@ -319,7 +378,7 @@ describe("OpenMeldServiceCard", () => {
 			name: "Keep OpenMeld Tools up to date",
 		});
 		expect(toggle.getAttribute("aria-checked")).toBe("true");
-		expect(screen.getByText("Waiting for work to finish")).toBeTruthy();
+		expect(screen.getByText("Finishing current work")).toBeTruthy();
 		fireEvent.click(toggle);
 
 		await waitFor(() => {

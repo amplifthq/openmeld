@@ -57,6 +57,24 @@ describe("local component update projection", () => {
     });
   });
 
+  it("does not show an old completed update when a newer update is available", () => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-06-04T00:00:00.000Z",
+      localComponentsStatus: createLocalComponentsStatus({
+        includeCompletedUpdateOperation: true,
+        serviceBundleHash: "c".repeat(64),
+      }),
+      releaseManifest: createReleaseManifest({
+        serviceUpdatePolicy: "available",
+      }),
+      serviceConnected: true,
+      serviceVersion: "0.7.27",
+    });
+
+    expect(projection.service.status).toBe("update_available");
+    expect(projection.updateOperation).toBeUndefined();
+  });
+
   it("passes the computer's automatic update setting through unchanged", () => {
     const projection = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
@@ -518,6 +536,7 @@ function createReleaseManifest(input: {
 function createLocalComponentsStatus(input: {
   automaticUpdatesEnabled?: boolean;
   cliPackageVersion?: string;
+  includeCompletedUpdateOperation?: boolean;
   includeUpdateOperation?: boolean;
   serviceBundleHash?: string | null;
   skillsBundleHash?: string | null;
@@ -550,6 +569,19 @@ function createLocalComponentsStatus(input: {
             requestedAt: "2026-06-04T00:00:00.000Z",
             targetVersion: "0.7.28",
             updatedAt: "2026-06-04T00:01:00.000Z",
+            urgency: "available" as const,
+          },
+        }
+      : {}),
+    ...(input.includeCompletedUpdateOperation
+      ? {
+          updateOperation: {
+            operationId: "update-complete-1",
+            phase: "updated" as const,
+            requestSource: "web" as const,
+            requestedAt: "2026-06-03T23:58:00.000Z",
+            targetVersion: "0.7.27",
+            updatedAt: "2026-06-04T00:00:00.000Z",
             urgency: "available" as const,
           },
         }
