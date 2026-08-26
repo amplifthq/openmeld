@@ -121,6 +121,23 @@ describe("dispatch-owned runtime env", () => {
     expect(openMeldShim).not.toContain("process.argv");
   });
 
+  it("targets the managed CLI when a background binary Service creates a shim", () => {
+    const openMeldHome = mkdtempSync(`${tmpdir()}/dispatch-owned-runtime-`);
+    tempDirs.push(openMeldHome);
+    const shimDir = ensureDispatchOwnedRuntimeCliShims({
+      distribution: "binary",
+      env: {
+        OPENMELD_HOME: openMeldHome,
+      },
+    });
+
+    const openMeldShim = readFileSync(`${shimDir}/openmeld`, "utf8");
+    expect(openMeldShim).toContain(
+      `exec '${join(openMeldHome, "bin", "openmeld")}' "$@"`
+    );
+    expect(openMeldShim).not.toContain(`exec '${process.execPath}' "$@"`);
+  });
+
   it("embeds dispatch identity and context into dispatch-scoped shims", () => {
     const openMeldHome = mkdtempSync(`${tmpdir()}/dispatch-owned-runtime-`);
     tempDirs.push(openMeldHome);
