@@ -154,7 +154,7 @@ describe("Runtime Agent Controller reporting submission", () => {
       status: "ready",
     },
     message: null,
-    models: [],
+    models: [{ id: "gpt-5.5", displayName: "GPT-5.5" }],
     nativeInterface: "codex-app-server",
     schemaVersion: 1,
     skills: [],

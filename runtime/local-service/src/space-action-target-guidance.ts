@@ -4,7 +4,7 @@ export const SPACE_ACTION_CONTEXT_GUIDANCE_LINES = [
 ] as const;
 
 export const SPACE_ACTION_TARGET_GUIDANCE_LINES = [
-  "Use OpenMeld Space Action CLI target flags such as --wake and --reference.",
+  "Use OpenMeld Space Action target fields such as wakeTargets and referenceTargets. With the CLI fallback, use --wake and --reference.",
   "Any @name text in the body is only prose in the agent path; it does not define OpenMeld targets.",
   "activationTargets is only for waking another Agent Profile in this Space.",
   "activationTargets must reference an active Agent Profile member in this Space.",

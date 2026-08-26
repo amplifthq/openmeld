@@ -1,5 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { SpaceMemberDirectorySendTargetEntry } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -23,6 +25,7 @@ import {
   runSpaceActionTargets,
   runSpaceActionWake,
 } from "../src/space/action-command";
+import { createSpaceActionMcpServer } from "../src/space/action-mcp-server";
 
 const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const AGENT_PROFILE_ID_TWO = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -99,6 +102,35 @@ describe("OpenMeld Space Action command", () => {
         text: "Implementation is done.",
       },
     });
+  });
+
+  it("records message-file text without changing newlines or backslashes", async () => {
+    const context = createTestContext([]);
+    const messageFilePath = `${tempDirs.at(-1)}/reply.txt`;
+    const message =
+      'First line\nLiteral \\n stays literal.\n`code` "$HOME" $(whoami) 😀';
+    writeFileSync(messageFilePath, message, "utf8");
+
+    await runSpaceActionReply({
+      messageFilePath,
+      messageParts: [],
+    });
+
+    expect(readLoadedActionRecord(context).action).toMatchObject({
+      type: "post_message",
+      messageEnvelope: { text: message },
+    });
+  });
+
+  it("rejects ambiguous reply message sources", () => {
+    createTestContext([]);
+
+    expect(() =>
+      runSpaceActionReply({
+        messageFilePath: "reply.txt",
+        messageParts: ["Inline reply."],
+      })
+    ).toThrow("Choose either a reply message or --message-file, not both.");
   });
 
   it("rejects removed CC syntax in action message text", () => {
@@ -490,6 +522,82 @@ describe("OpenMeld Space Action command", () => {
         [OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV]: "agt_other",
       })
     ).toThrow("target profile does not match the active dispatch runtime");
+  });
+});
+
+describe("OpenMeld Space Action MCP server", () => {
+  it("records the exact structured reply without writing CLI text to stdout", async () => {
+    const context = createTestContext([]);
+    const stdoutChunks: string[] = [];
+    vi.restoreAllMocks();
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdoutChunks.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "openmeld-test", version: "1.0.0" });
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const message =
+        'First line\nLiteral \\n stays literal.\n`code` "$HOME" $(whoami) 😀';
+      const result = await client.callTool({
+        name: "reply",
+        arguments: { message },
+      });
+
+      expect(result.isError).not.toBe(true);
+      expect(JSON.stringify(result.content)).toContain(
+        "unpublished Space action proposal"
+      );
+      expect(JSON.stringify(result.content)).not.toContain(
+        "will publish the accepted action"
+      );
+      expect(readLoadedActionRecord(context).action).toMatchObject({
+        type: "post_message",
+        messageEnvelope: { text: message },
+      });
+      expect(stdoutChunks.join("")).toBe("");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("fails the second final tool call for the same Wake", async () => {
+    createTestContext([]);
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "openmeld-test", version: "1.0.0" });
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const first = await client.callTool({
+        name: "stay_silent",
+        arguments: { reason: "No public reply is needed." },
+      });
+      const second = await client.callTool({
+        name: "status",
+        arguments: { status: "done", text: "Done." },
+      });
+
+      expect(first.isError).not.toBe(true);
+      expect(second.isError).toBe(true);
+      expect(JSON.stringify(second.content)).toContain("already been recorded");
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });
 

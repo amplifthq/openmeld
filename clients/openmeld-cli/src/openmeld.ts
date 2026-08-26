@@ -308,6 +308,7 @@ import {
   runSpaceActionTargets,
   runSpaceActionWake,
 } from "./space/action-command";
+import { runSpaceActionMcpServer } from "./space/action-mcp-server";
 import { runSpaceAddMe } from "./space/add-me-command";
 import { runSpaceBoard } from "./space/board-command";
 import {
@@ -2741,7 +2742,11 @@ const spaceActionCmd = spaceCmd
 spaceActionCmd
   .command("reply")
   .description("Record a final Space reply for the current dispatch.")
-  .argument("<message...>", "Reply message")
+  .argument("[message...]", "Reply message")
+  .option(
+    "--message-file <path>",
+    "Read the UTF-8 reply message from a file; use - for stdin"
+  )
   .option(
     "--wake <target>",
     "Wake another Agent Profile with this reply",
@@ -2763,6 +2768,8 @@ spaceActionCmd
   .action(async (messageParts, opts) => {
     await runSpaceActionReply({
       filePaths: Array.isArray(opts.file) ? opts.file : [],
+      messageFilePath:
+        typeof opts.messageFile === "string" ? opts.messageFile : undefined,
       messageParts: Array.isArray(messageParts) ? messageParts : [],
       wakeTargets: Array.isArray(opts.wake) ? opts.wake : [],
       referenceTargets: Array.isArray(opts.reference) ? opts.reference : [],
@@ -5192,10 +5199,23 @@ async function main() {
     return;
   }
   const argv = process.argv.map((arg) => (arg === "--h" ? "--help" : arg));
+  if (isDispatchSpaceActionToolServerArgv(argv)) {
+    await runSpaceActionMcpServer();
+    return;
+  }
   if (await delegateToManagedCliIfAuthoritative(argv)) {
     return;
   }
   await runLocalCli(argv);
+}
+
+function isDispatchSpaceActionToolServerArgv(argv: readonly string[]): boolean {
+  return (
+    argv.length === 5 &&
+    argv[2] === "space" &&
+    argv[3] === "action" &&
+    argv[4] === "tool-server"
+  );
 }
 
 async function runLocalCli(argv: string[]): Promise<void> {

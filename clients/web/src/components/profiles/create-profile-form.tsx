@@ -4,6 +4,7 @@ import {
 	getAgentControllerPermissionModeDisplayMetadata,
 	listAgentControllerCollaborationModeOptions,
 	listAgentControllerPermissionModeOptions,
+	resolveAgentControllerModelCompatibility,
 } from "@openmeld/agent-runtime";
 import type {
 	AgentControllerCollaborationMode,
@@ -59,6 +60,14 @@ const PROFILE_KIND_TABS = [
 }[];
 const REASONING_LEVEL_SPLIT_PATTERN = /[-_]/u;
 
+export type AgentProfileModelCompatibilityContext = {
+	agentControllerId: string;
+	controllerDisplayName: string;
+	installedVersion: string | null;
+	managePath: string | null;
+	reportedModelIds: readonly string[] | null;
+};
+
 // Presentational, route-free Create Profile form. All state lives in the
 // parent dialog; this component only renders an available kind choice, the
 // name input, the agent binding radio, and the recoverable error block. It
@@ -85,6 +94,7 @@ export function CreateProfileForm(input: {
 	allowProfileKindSelection?: boolean;
 	lockLocalAgentSelection?: boolean;
 	modelCatalog: ModelCatalog | null;
+	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
 	localFolderPickerDeviceId: string | null;
 	organizationWakeAccessSlot?: ReactNode;
 	projectSelectionBlockReason?: string | null;
@@ -250,6 +260,7 @@ function AgentProfileFields(input: {
 					agentId={form.boundAgentId}
 					disabled={form.isSubmitting}
 					modelCatalog={form.modelCatalog}
+					modelCompatibilityContext={form.modelCompatibilityContext}
 					modelId={form.boundModelId}
 					onChangeModelId={form.onChangeBoundModelId}
 					onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
@@ -431,10 +442,13 @@ function resolveCreateProfileSubmitBlockReason(input: {
 	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
 	boundAgentControllerPermissionModeConfirmed: boolean;
 	boundAgentId: string;
+	boundModelId: string;
 	isResolvingAccount: boolean;
 	profileKind: NewProfileKind | null;
 	profileName: string;
 	projectSelectionBlockReason?: string | null;
+	modelCatalog: ModelCatalog | null;
+	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
 }): string | null {
 	if (input.profileKind === null) {
 		return input.additionalHumanProfileCreationEnabled
@@ -452,6 +466,16 @@ function resolveCreateProfileSubmitBlockReason(input: {
 	}
 	if (input.projectSelectionBlockReason) {
 		return input.projectSelectionBlockReason;
+	}
+	if (
+		resolveSelectedModelCompatibility({
+			agentId: input.boundAgentId,
+			modelCatalog: input.modelCatalog,
+			modelCompatibilityContext: input.modelCompatibilityContext,
+			modelId: input.boundModelId,
+		})?.knownIncompatible
+	) {
+		return `Choose a model available in ${input.modelCompatibilityContext?.controllerDisplayName ?? "this local agent"} on this computer.`;
 	}
 	if (requiresUnconfirmedAgentControllerPermissionMode(input)) {
 		return "Confirm this permissions mode before creating the profile.";
@@ -572,6 +596,7 @@ export function AgentProfileModelSelectionFields(input: {
 	disabled: boolean;
 	modelCatalog: ModelCatalog | null;
 	modelId: string;
+	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
 	onChangeModelId: (modelId: string) => void;
 	onChangeReasoningLevel: (reasoningLevel: string) => void;
 	reasoningLevel: string;
@@ -580,6 +605,10 @@ export function AgentProfileModelSelectionFields(input: {
 	const reasoningSelectId = useId();
 	const controller =
 		input.modelCatalog?.agentControllers[input.agentId] ?? null;
+	const modelCompatibilityContext =
+		input.modelCompatibilityContext?.agentControllerId === input.agentId
+			? input.modelCompatibilityContext
+			: null;
 	const availableModels =
 		controller?.models.filter((model) => !model.unavailable) ?? [];
 	const defaultModel = availableModels.find(
@@ -606,6 +635,12 @@ export function AgentProfileModelSelectionFields(input: {
 		reasoningLevel: input.reasoningLevel,
 		selectedModel,
 	});
+	const selectedCompatibility = resolveSelectedModelCompatibility({
+		agentId: input.agentId,
+		modelCatalog: input.modelCatalog,
+		modelCompatibilityContext,
+		modelId: input.modelId,
+	});
 
 	if (!controller || availableModels.length === 0) {
 		return null;
@@ -628,7 +663,17 @@ export function AgentProfileModelSelectionFields(input: {
 						placeholder="Use controller default"
 					/>
 					<SelectContent className="max-h-64">
-						<SelectItem index={0} value="">
+						<SelectItem
+							disabled={
+								resolveModelCompatibility({
+									controller,
+									context: modelCompatibilityContext,
+									modelId: controller.defaultModelId,
+								}).knownIncompatible
+							}
+							index={0}
+							value=""
+						>
 							{formatDefaultModelSelectionLabel(defaultModel)}
 						</SelectItem>
 						{currentUnavailableModel ? (
@@ -636,17 +681,18 @@ export function AgentProfileModelSelectionFields(input: {
 								{formatUnavailableModelOptionLabel(currentUnavailableModel)}
 							</SelectItem>
 						) : null}
-						{availableModels.map((model, index) => (
-							<SelectItem
-								index={index + (currentUnavailableModel ? 2 : 1)}
-								key={model.id}
-								value={model.id}
-							>
-								{formatModelOptionLabel(model, controller.defaultModelId)}
-							</SelectItem>
-						))}
+						{renderCompatibleModelOptions({
+							controller,
+							context: modelCompatibilityContext,
+							models: availableModels,
+							startIndex: currentUnavailableModel ? 2 : 1,
+						})}
 					</SelectContent>
 				</Select>
+				<ModelCompatibilityNotice
+					compatibility={selectedCompatibility}
+					context={modelCompatibilityContext}
+				/>
 				{supportsIndependentReasoning ? null : (
 					<p className="text-muted-foreground text-xs">
 						{input.agentId === "cursor"
@@ -744,6 +790,136 @@ function formatModelOptionLabel(
 
 function formatUnavailableModelOptionLabel(model: ModelCatalogModel): string {
 	return `${model.displayName} (unavailable)`;
+}
+
+type ResolvedModelCompatibility = {
+	knownIncompatible: boolean;
+	message: string | null;
+	status:
+		| "catalog_unavailable"
+		| "not_offered"
+		| "requires_newer_controller"
+		| "supported"
+		| "unknown";
+};
+
+function resolveSelectedModelCompatibility(input: {
+	agentId: string;
+	modelCatalog: ModelCatalog | null;
+	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
+	modelId: string;
+}): ResolvedModelCompatibility | null {
+	const controller = input.modelCatalog?.agentControllers[input.agentId];
+	if (!controller) {
+		return null;
+	}
+	return resolveModelCompatibility({
+		controller,
+		context:
+			input.modelCompatibilityContext?.agentControllerId === input.agentId
+				? input.modelCompatibilityContext
+				: null,
+		modelId: input.modelId || controller.defaultModelId,
+	});
+}
+
+function resolveModelCompatibility(input: {
+	controller: NonNullable<ModelCatalog["agentControllers"][string]>;
+	context?: AgentProfileModelCompatibilityContext | null;
+	modelId: string;
+}): ResolvedModelCompatibility {
+	const model = input.controller.models.find(
+		(candidate) => candidate.id === input.modelId
+	);
+	const compatibility = resolveAgentControllerModelCompatibility({
+		controller: input.controller,
+		installedVersion: input.context?.installedVersion ?? null,
+		modelId: input.modelId,
+		reportedModelIds: input.context?.reportedModelIds ?? null,
+	});
+	if (compatibility.status === "not_offered") {
+		return {
+			knownIncompatible: true,
+			message: `${model?.displayName ?? input.modelId} isn't available in ${input.context?.controllerDisplayName ?? "this local agent"} on this computer. Choose another model or update or change the installation.`,
+			status: compatibility.status,
+		};
+	}
+	if (compatibility.status === "requires_newer_controller") {
+		return {
+			knownIncompatible: true,
+			message: `${model?.displayName ?? input.modelId} requires ${input.context?.controllerDisplayName ?? "this local agent"} ${compatibility.minimumVersion} or later. This computer has ${compatibility.currentVersion}. Choose another model or update or change the installation.`,
+			status: compatibility.status,
+		};
+	}
+	return {
+		knownIncompatible: compatibility.status === "catalog_unavailable",
+		message: null,
+		status: compatibility.status,
+	};
+}
+
+function formatCompatibleModelOptionLabel(input: {
+	compatibility: ResolvedModelCompatibility;
+	defaultModelId: string;
+	model: ModelCatalogModel;
+}): string {
+	const label = formatModelOptionLabel(input.model, input.defaultModelId);
+	return input.compatibility.knownIncompatible
+		? `${label} (not available on this computer)`
+		: label;
+}
+
+function renderCompatibleModelOptions(input: {
+	controller: NonNullable<ModelCatalog["agentControllers"][string]>;
+	context: AgentProfileModelCompatibilityContext | null;
+	models: readonly ModelCatalogModel[];
+	startIndex: number;
+}) {
+	return input.models.map((model, index) => {
+		const compatibility = resolveModelCompatibility({
+			controller: input.controller,
+			context: input.context,
+			modelId: model.id,
+		});
+		return (
+			<SelectItem
+				disabled={compatibility.knownIncompatible}
+				index={index + input.startIndex}
+				key={model.id}
+				value={model.id}
+			>
+				{formatCompatibleModelOptionLabel({
+					compatibility,
+					defaultModelId: input.controller.defaultModelId,
+					model,
+				})}
+			</SelectItem>
+		);
+	});
+}
+
+function ModelCompatibilityNotice(input: {
+	compatibility: ResolvedModelCompatibility | null;
+	context: AgentProfileModelCompatibilityContext | null;
+}) {
+	if (!input.compatibility?.knownIncompatible) {
+		return null;
+	}
+	return (
+		<div className="grid justify-items-start gap-2">
+			<p className="text-destructive text-xs leading-5">
+				{input.compatibility.message}
+			</p>
+			{input.context?.managePath ? (
+				<Link
+					className={buttonVariants({ size: "sm", variant: "outline" })}
+					to={input.context.managePath}
+				>
+					Update or change {input.context.controllerDisplayName}
+				</Link>
+			) : null}
+		</div>
+	);
 }
 
 function formatDefaultReasoningSelectionLabel(): string {
