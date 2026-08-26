@@ -10,6 +10,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@openmeld/ui/components/alert-dialog";
+import { XIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import {
 	dismissInboxBrowserNotificationPrompt,
@@ -65,6 +66,16 @@ export function InboxBrowserNotificationPrompt(input: { userId: string }) {
 			open={open}
 		>
 			<AlertDialogContent>
+				<AlertDialogCancel
+					className="absolute top-2 right-2"
+					disabled={isPending}
+					onClick={dismiss}
+					size="icon-sm"
+					variant="ghost"
+				>
+					<XIcon aria-hidden="true" />
+					<span className="sr-only">Close notification setup</span>
+				</AlertDialogCancel>
 				<AlertDialogHeader>
 					<AlertDialogTitle>Stay on top of important work</AlertDialogTitle>
 					<AlertDialogDescription>
@@ -79,7 +90,9 @@ export function InboxBrowserNotificationPrompt(input: { userId: string }) {
 					</p>
 				) : null}
 				<AlertDialogFooter>
-					<AlertDialogCancel disabled={isPending}>Not now</AlertDialogCancel>
+					<AlertDialogCancel disabled={isPending} onClick={dismiss}>
+						Not now
+					</AlertDialogCancel>
 					<AlertDialogAction
 						disabled={isPending}
 						onClick={(event) => {

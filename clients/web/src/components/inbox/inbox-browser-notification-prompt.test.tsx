@@ -12,14 +12,25 @@ import { InboxBrowserNotificationPrompt } from "./inbox-browser-notification-pro
 const USER_ID = "user-123";
 
 describe("InboxBrowserNotificationPrompt", () => {
+	let notificationPermissionRef: { value: NotificationPermission };
+	let notificationPermissionStatus: TestPermissionStatus;
+	let permissionsQueryMock: ReturnType<typeof vi.fn>;
 	let requestPermissionMock: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
 		window.localStorage.clear();
 		requestPermissionMock = vi.fn().mockResolvedValue("granted");
-		installNotificationMock({
+		notificationPermissionRef = installNotificationMock({
 			permission: "default",
 			requestPermissionMock,
+		});
+		notificationPermissionStatus = new TestPermissionStatus("prompt");
+		permissionsQueryMock = vi
+			.fn()
+			.mockResolvedValue(notificationPermissionStatus);
+		Object.defineProperty(navigator, "permissions", {
+			configurable: true,
+			value: { query: permissionsQueryMock },
 		});
 	});
 
@@ -28,6 +39,35 @@ describe("InboxBrowserNotificationPrompt", () => {
 		window.localStorage.clear();
 		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
+	});
+
+	it("closes when browser permission is granted outside the dialog", async () => {
+		render(<InboxBrowserNotificationPrompt userId={USER_ID} />);
+
+		expect(
+			await screen.findByRole("heading", {
+				name: "Stay on top of important work",
+			})
+		).toBeTruthy();
+		await waitFor(() => {
+			expect(permissionsQueryMock).toHaveBeenCalledWith({
+				name: "notifications",
+			});
+		});
+
+		notificationPermissionRef.value = "granted";
+		notificationPermissionStatus.setState("granted");
+
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("heading", {
+					name: "Stay on top of important work",
+				})
+			).toBeNull();
+			expect(
+				document.querySelector('[data-slot="alert-dialog-portal"]')
+			).toBeNull();
+		});
 	});
 
 	it("explains the value before a user gesture requests browser permission", async () => {
@@ -96,6 +136,34 @@ describe("InboxBrowserNotificationPrompt", () => {
 		expect(requestPermissionMock).not.toHaveBeenCalled();
 	});
 
+	it("offers an explicit close button that remembers dismissal", async () => {
+		render(<InboxBrowserNotificationPrompt userId={USER_ID} />);
+		await screen.findByRole("heading", {
+			name: "Stay on top of important work",
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Close notification setup" })
+		);
+
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("heading", {
+					name: "Stay on top of important work",
+				})
+			).toBeNull();
+			expect(
+				document.querySelector('[data-slot="alert-dialog-portal"]')
+			).toBeNull();
+		});
+		expect(
+			window.localStorage.getItem(
+				`openmeld.inbox.browser-notifications.prompt-dismissed:${USER_ID}`
+			)
+		).toBe("dismissed");
+		expect(requestPermissionMock).not.toHaveBeenCalled();
+	});
+
 	it("does not interrupt users whose browser permission is already decided", () => {
 		installNotificationMock({
 			permission: "granted",
@@ -142,4 +210,19 @@ function installNotificationMock(input: {
 		value: TestNotification,
 	});
 	vi.stubGlobal("Notification", TestNotification);
+	return permissionRef;
+}
+
+class TestPermissionStatus extends EventTarget {
+	state: PermissionState;
+
+	constructor(state: PermissionState) {
+		super();
+		this.state = state;
+	}
+
+	setState(state: PermissionState) {
+		this.state = state;
+		this.dispatchEvent(new Event("change"));
+	}
 }
