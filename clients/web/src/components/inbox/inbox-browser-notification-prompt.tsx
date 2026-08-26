@@ -51,6 +51,9 @@ export function InboxBrowserNotificationPrompt(input: { userId: string }) {
 		dismissInboxBrowserNotificationPrompt({ userId: input.userId });
 		setPromptState({ dismissed: true, userId: input.userId });
 	};
+	if (!open) {
+		return null;
+	}
 
 	return (
 		<AlertDialog
