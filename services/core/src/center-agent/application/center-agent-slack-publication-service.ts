@@ -28,6 +28,7 @@ import {
   buildCenterAgentPublicationRequestSignature,
   buildCenterAgentPublicationSourceRevision,
   CENTER_AGENT_PUBLICATION_DEFAULT_OPERATION_KEY,
+  type CenterAgentPublicationOperationRecord,
   type CenterAgentPublicationSource,
   completeCenterAgentPublicationOperation,
   failCenterAgentPublicationOperation,
@@ -40,6 +41,12 @@ type PublicationSource = NonNullable<
 >;
 type SlackFilePublicationSource =
   CenterAgentPostSlackFileBody["publicationSource"];
+type CenterAgentPublicationFailurePhase =
+  | "complete_operation"
+  | "prepare_message"
+  | "publish_file"
+  | "publish_message"
+  | "record_audit";
 
 export async function executeCenterAgentSlackPublication(input: {
   authorization: CurrentDesignatedCenterAgentAuthorization;
@@ -55,6 +62,7 @@ export async function executeCenterAgentSlackPublication(input: {
     ? `${input.target.channelId}:${input.threadTs}`
     : input.target.channelId;
   if (!input.publicationSource) {
+    const presentation = await buildSlackFinalReplyPresentation(input.text);
     const attribution = await writeCenterAgentAuditEntry({
       action: "post_slack_channel_message",
       authorization: input.authorization,
@@ -63,7 +71,7 @@ export async function executeCenterAgentSlackPublication(input: {
       sourceNativeDeliveryId: input.sourceNativeDeliveryId,
     });
     const publication = await postSlackChannelMessage({
-      ...(await buildSlackFinalReplyPresentation(input.text)),
+      ...presentation,
       botToken: input.botToken,
       target: input.target,
       ...(input.threadTs ? { threadTs: input.threadTs } : {}),
@@ -128,6 +136,24 @@ export async function executeCenterAgentSlackPublication(input: {
   if (!claimId) {
     throw new Error("Claimed Center Agent publication has no claim id.");
   }
+
+  let presentation: Awaited<
+    ReturnType<typeof buildSlackFinalReplyPresentation>
+  >;
+  try {
+    presentation = await buildSlackFinalReplyPresentation(input.text);
+  } catch (error) {
+    await recordCenterAgentPublicationFailure({
+      claimId,
+      db: input.authorization.db,
+      error,
+      operation: claim.operation,
+      phase: "prepare_message",
+      publicationOutcome: "not_published",
+    });
+    throw error;
+  }
+
   const attribution = await writeCenterAgentAuditEntry({
     action: "post_slack_channel_message",
     authorization: input.authorization,
@@ -139,7 +165,8 @@ export async function executeCenterAgentSlackPublication(input: {
       claimId,
       db: input.authorization.db,
       error,
-      operationId: claim.operation.id,
+      operation: claim.operation,
+      phase: "record_audit",
       publicationOutcome: "not_published",
     });
     throw error;
@@ -148,7 +175,7 @@ export async function executeCenterAgentSlackPublication(input: {
   let publication: Awaited<ReturnType<typeof postSlackChannelMessage>>;
   try {
     publication = await postSlackChannelMessage({
-      ...(await buildSlackFinalReplyPresentation(input.text)),
+      ...presentation,
       botToken: input.botToken,
       target: input.target,
       ...(input.threadTs ? { threadTs: input.threadTs } : {}),
@@ -158,7 +185,8 @@ export async function executeCenterAgentSlackPublication(input: {
       claimId,
       db: input.authorization.db,
       error,
-      operationId: claim.operation.id,
+      operation: claim.operation,
+      phase: "publish_message",
     });
     throw error;
   }
@@ -183,7 +211,8 @@ export async function executeCenterAgentSlackPublication(input: {
       claimId,
       db: input.authorization.db,
       error,
-      operationId: claim.operation.id,
+      operation: claim.operation,
+      phase: "complete_operation",
       publicationOutcome: "outcome_unknown",
     });
     throw error;
@@ -270,7 +299,8 @@ export async function executeCenterAgentSlackFilePublication(input: {
       claimId,
       db: input.authorization.db,
       error,
-      operationId: claim.operation.id,
+      operation: claim.operation,
+      phase: "record_audit",
       publicationOutcome: "not_published",
     });
     throw error;
@@ -291,7 +321,8 @@ export async function executeCenterAgentSlackFilePublication(input: {
       claimId,
       db: input.authorization.db,
       error,
-      operationId: claim.operation.id,
+      operation: claim.operation,
+      phase: "publish_file",
     });
     throw error;
   }
@@ -321,7 +352,8 @@ export async function executeCenterAgentSlackFilePublication(input: {
       claimId,
       db: input.authorization.db,
       error,
-      operationId: claim.operation.id,
+      operation: claim.operation,
+      phase: "complete_operation",
       publicationOutcome: "outcome_unknown",
     });
     throw error;
@@ -511,7 +543,8 @@ async function recordCenterAgentPublicationFailure(input: {
   claimId: string;
   db: D1Database;
   error: unknown;
-  operationId: string;
+  operation: CenterAgentPublicationOperationRecord;
+  phase: CenterAgentPublicationFailurePhase;
   publicationOutcome?: "not_published" | "outcome_unknown";
 }): Promise<void> {
   const outcome =
@@ -520,12 +553,31 @@ async function recordCenterAgentPublicationFailure(input: {
     input.error.publicationOutcome === "not_published"
       ? "not_published"
       : "outcome_unknown");
+  console.error("[core.center_agent.publication_failed]", {
+    destinationId: input.operation.destinationId,
+    destinationKind: input.operation.destinationKind,
+    errorCode:
+      input.error instanceof SlackMessagePublicationError
+        ? input.error.errorCode
+        : null,
+    errorMessage:
+      input.error instanceof Error ? input.error.message : String(input.error),
+    errorName:
+      input.error instanceof Error ? input.error.name : typeof input.error,
+    operationId: input.operation.id,
+    operationKey: input.operation.operationKey,
+    organizationId: input.operation.organizationId,
+    outcome,
+    phase: input.phase,
+    sourceId: input.operation.source.sourceId,
+    sourceKind: input.operation.source.kind,
+  });
   try {
     await failCenterAgentPublicationOperation({
       claimId: input.claimId,
       db: input.db,
       nowMs: Date.now(),
-      operationId: input.operationId,
+      operationId: input.operation.id,
       outcome: outcome === "not_published" ? "failed" : "outcome_unknown",
     });
   } catch (transitionError) {
