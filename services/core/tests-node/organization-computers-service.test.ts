@@ -1,5 +1,6 @@
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import { readModelCatalog } from "../src/config/model-catalog";
 import { listOrganizationComputers } from "../src/organizations/organization-computers-service";
 
 describe("Organization Computers service", () => {
@@ -37,6 +38,7 @@ describe("Organization Computers service", () => {
         liveSessions: [],
       }),
       memberUserIds: ["user-1"],
+      modelCatalog: readModelCatalog(),
       organizationId: "organization-1",
     } satisfies Parameters<typeof listOrganizationComputers>[0];
 
@@ -53,6 +55,10 @@ describe("Organization Computers service", () => {
     expect(response.computers[0]?.localAgents[0]).toMatchObject({
       agentControllerRef: "builtin:codex",
       details: {
+        models: [
+          { displayName: "GPT-5.5", id: "gpt-5.5" },
+          { displayName: "Private model" },
+        ],
         usageLimits: [
           {
             key: "codex:primary",
@@ -108,7 +114,10 @@ function sensitiveSnapshot(): AgentControllerInterfaceSnapshot {
       status: "ready",
     },
     message: "prepaidBalance is private",
-    models: [{ displayName: "GPT-5.5", id: "private-plan" }],
+    models: [
+      { displayName: "GPT-5.5", id: "gpt-5.5" },
+      { displayName: "Private model", id: "private-plan" },
+    ],
     nativeInterface: "codex-app-server",
     schemaVersion: 1,
     skills: [{ id: "private-company-skill" }],

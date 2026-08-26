@@ -1,6 +1,7 @@
 import { projectOrganizationComputerLocalAgentDetails } from "@openmeld/schemas";
 import type {
   DaemonExecutionCompatibility,
+  ModelCatalog,
   OrganizationComputerRecord,
   OrganizationComputersResponse,
 } from "@openmeld/schemas/types";
@@ -26,8 +27,11 @@ export async function listOrganizationComputers(input: {
     liveSessions: readonly OrganizationComputerLiveSession[] | null;
   }>;
   memberUserIds: readonly string[];
+  modelCatalog: ModelCatalog;
   organizationId: string;
 }): Promise<OrganizationComputersResponse> {
+  const publicModelIdsByAgentControllerRef =
+    buildPublicModelIdsByAgentControllerRef(input.modelCatalog);
   const computersByMember: OrganizationComputerRecord[][] = new Array(
     input.memberUserIds.length
   );
@@ -47,6 +51,7 @@ export async function listOrganizationComputers(input: {
         ...inventory,
         includeUsageLimits: input.includeUsageLimits === true,
         ownerUserId: userId,
+        publicModelIdsByAgentControllerRef,
       });
     }
   };
@@ -76,6 +81,7 @@ function projectMemberComputers(input: {
   liveSessions: readonly OrganizationComputerLiveSession[] | null;
   includeUsageLimits: boolean;
   ownerUserId: string;
+  publicModelIdsByAgentControllerRef: ReadonlyMap<string, ReadonlySet<string>>;
 }): OrganizationComputerRecord[] {
   const targetsByDeviceId = new Map<
     string,
@@ -100,7 +106,8 @@ function projectMemberComputers(input: {
       lastSeenAtMs: device.lastObservedAtMs,
       localAgents: projectTeamSafeLocalAgents(
         targetsByDeviceId.get(device.deviceId) ?? [],
-        input.includeUsageLimits
+        input.includeUsageLimits,
+        input.publicModelIdsByAgentControllerRef
       ),
       ...(openMeldTools ? { openMeldTools } : {}),
       osVersion: device.osVersion,
@@ -141,7 +148,8 @@ function resolveComputerOpenMeldTools(input: {
 
 function projectTeamSafeLocalAgents(
   targets: readonly OwnedDeviceExecutionTargetRecord[],
-  includeUsageLimits: boolean
+  includeUsageLimits: boolean,
+  publicModelIdsByAgentControllerRef: ReadonlyMap<string, ReadonlySet<string>>
 ): OrganizationComputerRecord["localAgents"] {
   const byRef = new Map<
     string,
@@ -153,7 +161,8 @@ function projectTeamSafeLocalAgents(
     }
     const details = projectTeamSafeLocalAgentDetails(
       target,
-      includeUsageLimits
+      includeUsageLimits,
+      publicModelIdsByAgentControllerRef
     );
     const candidate: OrganizationComputerRecord["localAgents"][number] = {
       agentControllerRef: target.agentControllerRef,
@@ -173,7 +182,8 @@ function projectTeamSafeLocalAgents(
 
 function projectTeamSafeLocalAgentDetails(
   target: OwnedDeviceExecutionTargetRecord,
-  includeUsageLimits: boolean
+  includeUsageLimits: boolean,
+  publicModelIdsByAgentControllerRef: ReadonlyMap<string, ReadonlySet<string>>
 ): NonNullable<
   OrganizationComputerRecord["localAgents"][number]["details"]
 > | null {
@@ -184,12 +194,34 @@ function projectTeamSafeLocalAgentDetails(
   ) {
     return null;
   }
-  const details = projectOrganizationComputerLocalAgentDetails(snapshot);
+  const publicModelIds =
+    publicModelIdsByAgentControllerRef.get(target.agentControllerRef) ??
+    new Set<string>();
+  const details = {
+    ...projectOrganizationComputerLocalAgentDetails(snapshot),
+    models: snapshot.models.map((model) => ({
+      displayName: model.displayName,
+      ...(publicModelIds.has(model.id) ? { id: model.id } : {}),
+    })),
+  };
   if (includeUsageLimits) {
     return details;
   }
   const { usageLimits: _usageLimits, ...legacyDetails } = details;
   return legacyDetails;
+}
+
+function buildPublicModelIdsByAgentControllerRef(
+  modelCatalog: ModelCatalog
+): ReadonlyMap<string, ReadonlySet<string>> {
+  return new Map(
+    Object.entries(modelCatalog.agentControllers).map(
+      ([agentControllerId, controller]) => [
+        `builtin:${agentControllerId}`,
+        new Set(controller.models.map((model) => model.id)),
+      ]
+    )
+  );
 }
 
 function compareLocalAgentEvidence(
