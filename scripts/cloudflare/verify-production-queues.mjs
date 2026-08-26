@@ -1,10 +1,14 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseJsoncObject } from "../../packages/db/src/tooling/parse-jsonc.ts";
 
-const repoRoot = path.resolve(import.meta.dirname, "../..");
+const repoRoot = path.resolve(
+  process.env.OPENMELD_VERIFICATION_ROOT ??
+    path.resolve(import.meta.dirname, "../..")
+);
 const QUEUE_NOT_FOUND_PATTERN = /Queue(?: "[^"]+")? does not exist/u;
 
 export function collectProductionQueueNames(configInputs) {

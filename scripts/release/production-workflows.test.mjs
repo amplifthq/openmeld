@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   globSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -19,18 +20,33 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const readRepoFile = (relativePath) =>
   readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
-const RELEASE_SHA_CHECKOUT = `ref: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sha || github.sha }}`;
+const GITHUB_TOKEN_INPUT = `github_token: ${GITHUB_EXPRESSION_PREFIX} github.token }}`;
+const RELEASE_SHA_CHECKOUT = `ref: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
 const PINNED_SCOPED_RELEASE_SHA = `${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
 const SCOPED_RELEASE_SHA_INPUT =
   /release_sha:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/u;
 const MAINLINE_RELEASE_ERROR_PATTERN =
   /release_sha must identify a commit on the main first-parent chain/u;
 const YAML_JOB_BOUNDARY = /\n {2}[a-z_]+:/u;
-const SHELL_GITHUB_SHA = ["$", "{GITHUB_SHA}"].join("");
 const UNPINNED_ULTRACITE_COMMAND = /ultracite (?:check|fix)/u;
 const LOCAL_CORE_STARTUP_DIAGNOSTIC =
   /- name: Capture local Core startup evidence\n\s+continue-on-error: true\n\s+run: pnpm run evidence:startup:core/u;
+const PRODUCTION_CONCURRENCY_PATTERN =
+  /concurrency:\n\s+group: deploy-[a-z-]+-production\n\s+queue: max\n\s+cancel-in-progress: false/u;
 const PNPM_BINARY = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const PRODUCTION_LEASE_ACTION =
+  "uses: ./release-control/.github/actions/production-scope-lease";
+const BARE_MAIN_FETCH_PATTERN = /git fetch --no-tags origin refs\/heads\/main/u;
+const BARE_TAG_FETCH_PATTERN = /run: git fetch --tags/u;
+const UNTRUSTED_ACTION_GIT_PROBE_PATTERN = /git -C/u;
+
+const readProductionLeaseSteps = (workflow) =>
+  workflow
+    .split(PRODUCTION_LEASE_ACTION)
+    .slice(1)
+    .map(
+      (remainder) => `${PRODUCTION_LEASE_ACTION}${remainder.split("\n\n")[0]}`
+    );
 
 const COMPONENT_WORKFLOWS = [
   ["auth", ".github/workflows/deploy-auth-worker.yml", "/health"],
@@ -71,7 +87,7 @@ const PACKAGE_MANIFEST_PATTERNS = [
   "services/*/package.json",
 ];
 
-test("keeps the manual production dispatcher scoped by default", () => {
+test("keeps the manual production dispatcher deploy-only and scoped by default", () => {
   const source = readRepoFile(".github/workflows/release-on-main.yml");
 
   assert.ok(source.includes("default: web"));
@@ -89,19 +105,14 @@ test("keeps the manual production dispatcher scoped by default", () => {
   ]) {
     assert.ok(source.includes(`          - ${scope}`));
   }
-  assert.ok(!source.includes("Deploy Auth Worker when target is selected"));
-  assert.ok(!source.includes("Deploy Core Worker when target is selected"));
+  assert.ok(!source.includes("      mode:"));
+  assert.ok(!source.includes("  preview:"));
   assert.ok(!source.includes("release_ready:"));
   assert.ok(!source.includes("  select:"));
   assert.ok(!source.includes("  guard:"));
   assert.ok(!source.includes("  summary:"));
-  assert.ok(source.includes("  preview:"));
   assert.ok(source.includes("  reject_non_main:"));
-  assert.ok(
-    source.includes(
-      "inputs.mode == 'deploy' && github.ref != 'refs/heads/main'"
-    )
-  );
+  assert.ok(source.includes("if: github.ref != 'refs/heads/main'"));
   assert.ok(
     (source.match(/github\.ref == 'refs\/heads\/main'/gu)?.length ?? 0) >= 6
   );
@@ -139,12 +150,8 @@ test("pins a scoped production release to one explicit main commit", () => {
   assert.ok(
     !source.includes(`release_sha: ${GITHUB_EXPRESSION_PREFIX} github.sha }}`)
   );
-  assert.ok(!source.includes(`- Commit: \`${SHELL_GITHUB_SHA}\``));
-  const previewJob = source.split("\n  preview:")[1]?.split("\n  database:")[0];
-  assert.ok(previewJob?.includes(PINNED_SCOPED_RELEASE_SHA));
 
   for (const jobName of [
-    "preview",
     "database",
     "auth",
     "web",
@@ -261,186 +268,270 @@ test("deploys the Auth receiver before Web in coordinated GitHub releases", () =
   );
 });
 
-test("keeps one fast PR gate and makes exhaustive confidence manual", () => {
-  const prChecks = readRepoFile(".github/workflows/pr-checks.yml");
+test("runs one explicit Final Candidate request with separate runner and publishers", () => {
+  const candidate = readRepoFile(".github/workflows/final-candidate.yml");
   const deepConfidence = readRepoFile(".github/workflows/deep-confidence.yml");
   const rootPackage = JSON.parse(readRepoFile("package.json"));
-  const ciContractGuard = readRepoFile(
-    ".github/workflows/ci-contract-guard.yml"
-  );
-  const localComponents = readRepoFile(
-    ".github/workflows/local-components-manifest.yml"
-  );
-  const planSetup = readRepoFile(
-    ".github/actions/setup-fast-pr-plan/action.yml"
-  );
-  const planJob = prChecks.split("\n  plan:")[1]?.split("\n  static:")[0];
-  const checkJob = prChecks
-    .split("\n  check:")[1]
-    ?.split("\n  unit-test-shards:")[0];
+  const hook = readRepoFile(".husky/pre-push");
 
-  assert.equal(prChecks.match(/^ {4}name: Fast PR$/gmu)?.length, 1);
-  assert.ok(prChecks.includes("  plan:"));
-  assert.ok(prChecks.includes("    name: Fast PR / Plan"));
-  assert.ok(prChecks.includes("  static:"));
-  assert.ok(prChecks.includes("    name: Fast PR / Static"));
-  assert.ok(prChecks.includes("pnpm run verify:changelog"));
-  assert.ok(prChecks.includes("  check:"));
-  assert.ok(prChecks.includes("    name: Fast PR / Checks"));
-  assert.ok(checkJob);
-  assert.ok(checkJob.includes("NODE_OPTIONS: --max-old-space-size=4096"));
-  assert.ok(prChecks.includes("  unit-test-shards:"));
-  assert.equal(prChecks.match(/^ {4}needs: plan$/gmu)?.length, 2);
+  assert.ok(candidate.includes("name: OpenMeld Final Candidate"));
+  assert.ok(candidate.includes("types: [labeled]"));
+  assert.ok(!candidate.includes("synchronize"));
+  assert.ok(!candidate.includes("opened"));
+  assert.ok(!candidate.includes("ready_for_review"));
+  assert.ok(!candidate.includes("workflow_dispatch"));
+  assert.equal(candidate.match(/^ {4}runs-on: ubuntu-latest$/gmu)?.length, 3);
+  assert.ok(candidate.includes("github.event.label.name == 'final-candidate'"));
   assert.ok(
-    prChecks.includes(
-      `    name: Fast PR / Unit Tests / ${GITHUB_EXPRESSION_PREFIX} matrix.name }}`
+    candidate.includes("github.event.label.name == 'final-candidate-full'")
+  );
+  assert.ok(
+    candidate.includes(
+      `ref: ${GITHUB_EXPRESSION_PREFIX} env.CANDIDATE_HEAD_SHA }}`
     )
   );
-  assert.ok(prChecks.includes("  remaining-unit-tests:"));
-  assert.ok(prChecks.includes("    name: Fast PR / Unit Tests / Remaining"));
-  assert.ok(prChecks.includes("  gate:"));
-  assert.ok(
-    prChecks.includes(
-      "    needs: [plan, static, check, unit-test-shards, remaining-unit-tests]"
-    )
-  );
-  assert.ok(
-    prChecks.includes(
-      "if: always() && github.event.pull_request.draft == false"
-    )
-  );
-  assert.ok(prChecks.includes("ready_for_review"));
-  assert.ok(prChecks.includes("converted_to_draft"));
-  assert.equal(prChecks.match(/timeout-minutes: 20/gmu)?.length, 4);
-  assert.ok(!prChecks.includes("timeout-minutes: 45"));
-  assert.ok(
-    prChecks.includes(`--shard=${GITHUB_EXPRESSION_PREFIX} matrix.shard }}`)
-  );
-  assert.ok(prChecks.includes("--exclude-package=openmeld-web"));
-  assert.ok(prChecks.includes("--exclude-package=openmeld"));
-  assert.ok(prChecks.includes("--exclude-package=@openmeld/core"));
-  assert.ok(prChecks.includes("--exclude-package=@openmeld/gateway"));
-  assert.ok(
-    prChecks.includes(
-      "--exclude-package=@openmeld/gateway test -- --concurrency=1 --output-logs=errors-only"
-    )
-  );
-  assert.equal(
-    prChecks.match(/uses: \.\/\.github\/actions\/cache-fast-pr-turbo/gmu)
-      ?.length,
-    3
-  );
-  assert.ok(prChecks.includes("cache-suffix: checks"));
-  assert.ok(
-    prChecks.includes(
-      `cache-suffix: unit-${GITHUB_EXPRESSION_PREFIX} matrix.cacheKey }}`
-    )
-  );
-  assert.ok(prChecks.includes("cache-suffix: remaining-unit-tests"));
-  assert.ok(prChecks.includes("--output-logs=errors-only"));
-  assert.ok(prChecks.includes("--reporter=dot"));
-  assert.ok(prChecks.includes("--silent=passed-only"));
-  assert.ok(prChecks.includes("pnpm run verify:release-workflows"));
+  assert.ok(candidate.includes('--head "$CANDIDATE_HEAD_SHA"'));
+  assert.ok(candidate.includes('--base "$CANDIDATE_BASE_SHA"'));
+  assert.ok(!candidate.includes("--publish-status"));
+  assert.ok(candidate.includes("statuses: write"));
+  assert.ok(candidate.includes("if: always()"));
+  assert.ok(candidate.includes("actions/upload-artifact@v4"));
+  assert.equal(rootPackage.scripts.candidate, undefined);
+  assert.equal(rootPackage.scripts["candidate:local"], undefined);
   assert.ok(
     rootPackage.scripts["verify:release-workflows"].includes(
-      "scripts/release/verify-release-ready.test.mjs"
+      "scripts/ci/final-candidate-policy.test.mjs"
     )
   );
-  assert.ok(
-    prChecks.includes(
-      `pnpm run verify:release-ready -- --defer-release --base ${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.base.sha }}`
-    )
-  );
-  assert.ok(prChecks.includes("Resolve release verification mode"));
-  assert.ok(
-    prChecks.includes(
-      'node scripts/release/release-branch-policy.mjs "$PR_HEAD_REF" "$PR_BASE_SHA"'
-    )
-  );
-  assert.ok(
-    prChecks.includes("if: steps.release-mode.outputs.mode == 'strict'")
-  );
-  assert.ok(
-    prChecks.includes("if: steps.release-mode.outputs.mode == 'deferred'")
-  );
-  assert.ok(
-    prChecks.includes(
-      "node scripts/dev/turbo-affected.mjs --changed-only check -- --concurrency=2"
-    )
-  );
-  assert.ok(prChecks.includes("node scripts/ci/fast-pr-test-plan.mjs"));
-  assert.ok(planJob);
-  assert.ok(planJob.includes("uses: ./.github/actions/setup-fast-pr-plan"));
-  assert.ok(!planJob.includes("uses: ./.github/actions/setup-node-pnpm"));
-  assert.ok(planJob.includes("OPENMELD_TURBO_DLX_PACKAGE: turbo@2.9.6"));
-  assert.ok(planSetup.includes("pnpm/action-setup@v6"));
-  assert.ok(planSetup.includes('node-version: "24"'));
-  assert.ok(planSetup.includes("package-manager-cache: false"));
-  assert.ok(!planSetup.includes("cache: pnpm"));
-  assert.ok(!planSetup.includes("pnpm install"));
-  assert.ok(!prChecks.includes("pnpm run verify:pr"));
-  assert.equal(
-    rootPackage.scripts["verify:pr"],
-    "node scripts/dev/turbo-affected.mjs --changed-only check test -- --concurrency=2"
-  );
-  assert.equal(
-    rootPackage.scripts["verify:pr:full"],
-    "node scripts/dev/turbo-affected.mjs check test test:integration -- --concurrency=2"
-  );
+  assert.ok(!hook.includes("verify:pre-push:checks"));
+  for (const retiredPath of [
+    ".github/workflows/pr-checks.yml",
+    ".github/workflows/ci-contract-guard.yml",
+    ".github/workflows/local-components-manifest.yml",
+    ".github/actions/setup-fast-pr-plan/action.yml",
+    ".github/actions/cache-fast-pr-turbo/action.yml",
+    "scripts/ci/fast-pr-test-plan.mjs",
+    "scripts/ci/fast-pr-test-plan.test.mjs",
+  ]) {
+    assert.ok(!existsSync(path.join(REPO_ROOT, retiredPath)), retiredPath);
+  }
   assert.ok(!deepConfidence.includes("schedule:"));
   assert.ok(deepConfidence.includes("workflow_dispatch:"));
-  assert.ok(ciContractGuard.includes("name: CI Contract Guard"));
-  assert.ok(ciContractGuard.includes('      - ".github/workflows/**"'));
-  assert.ok(
-    ciContractGuard.includes('      - "scripts/dev/turbo-affected.mjs"')
-  );
-  assert.ok(ciContractGuard.includes('      - "scripts/release/**"'));
-  assert.ok(ciContractGuard.includes("pnpm run verify:release-workflows"));
-  assert.ok(!ciContractGuard.includes("pnpm run verify:pr"));
-  assert.ok(!ciContractGuard.includes("pnpm run verify:release-ready"));
-  assert.ok(
-    !existsSync(path.join(REPO_ROOT, ".github/workflows/main-confidence.yml"))
-  );
-  assert.ok(
-    !existsSync(
-      path.join(REPO_ROOT, ".github/workflows/core-test-layout-guard.yml")
-    )
-  );
-  assert.ok(localComponents.includes("    paths:"));
-  assert.ok(
-    localComponents.includes(
-      '- ".github/workflows/local-components-manifest.yml"'
-    )
-  );
-  assert.ok(localComponents.includes('- "release/local-components.json"'));
-  assert.ok(localComponents.includes('- "runtime/local-service/src/**"'));
-  assert.ok(
-    localComponents.includes('- "scripts/ci/select-release-ready-paths.mjs"')
-  );
-  assert.ok(
-    localComponents.includes('- "scripts/release/release-ready-paths.mjs"')
-  );
-  assert.ok(localComponents.includes("run: pnpm run verify:release-ready"));
-  assert.ok(
-    !localComponents.includes(
-      "OPENMELD_AFFECTED_BASE: ${{ steps.scope.outputs.base }}"
-    )
-  );
-  assert.ok(!localComponents.includes("--defer-release"));
 });
 
-test("uses the pull request's exact base commit for every affected Fast PR gate", () => {
-  const prChecks = readRepoFile(".github/workflows/pr-checks.yml");
-  const exactBase = `${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.base.sha }}`;
+test("pins Final Candidate to the current PR head and base in both lanes", () => {
+  const candidate = readRepoFile(".github/workflows/final-candidate.yml");
+  const engine = [
+    readRepoFile("scripts/ci/final-candidate.mjs"),
+    readRepoFile("scripts/ci/final-candidate-publisher.mjs"),
+    readRepoFile("scripts/ci/final-candidate-state.mjs"),
+  ].join("\n");
+  const policy = readRepoFile("scripts/ci/final-candidate-policy.mjs");
+  const trustedGit = readRepoFile("scripts/ci/trusted-git-network.mjs");
 
-  assert.equal(prChecks.match(/fetch-depth: 0/gu)?.length, 4);
-  assert.equal(
-    prChecks.split(`OPENMELD_AFFECTED_BASE: ${exactBase}`).length - 1,
-    3
+  assert.ok(candidate.includes("fetch-depth: 0"));
+  assert.ok(candidate.includes('--repository "$CANDIDATE_REPOSITORY"'));
+  assert.ok(candidate.includes('--pr "$CANDIDATE_PR_NUMBER"'));
+  assert.ok(trustedGit.includes("refs/heads/main:refs/remotes/origin/main"));
+  assert.ok(trustedGit.includes("protocol.ext.allow"));
+  assert.ok(trustedGit.includes("core.hooksPath"));
+  assert.ok(engine.includes("assertCandidateSnapshot(state.snapshot)"));
+  assert.ok(engine.includes("assertCandidateSnapshot(finalState.snapshot)"));
+  assert.ok(engine.includes("publishCommitStatus"));
+  assert.ok(engine.includes("publishPullRequestComment"));
+  assert.ok(policy.includes("Candidate head drifted"));
+  assert.ok(policy.includes("Pull request base drifted"));
+  assert.ok(policy.includes("Main advanced"));
+  assert.ok(policy.includes("does not contain current main"));
+  assert.ok(policy.includes("evidenceMatchesCandidate"));
+});
+
+test("routes every agent to one delivery contract without duplicating it", () => {
+  const agents = readRepoFile("AGENTS.md");
+  const developingIndex = readRepoFile("developing/README.md");
+  const delivery = readRepoFile(
+    "developing/engineering/agent-native-delivery.md"
   );
-  assert.ok(prChecks.includes(`--base ${exactBase}`));
-  assert.ok(!prChecks.includes("git fetch origin main --depth=1"));
-  assert.ok(!prChecks.includes("OPENMELD_AFFECTED_BASE: origin/main"));
+  const development = readRepoFile(
+    "developing/engineering/development-workflow.md"
+  );
+  const release = readRepoFile("developing/engineering/production-release.md");
+
+  for (const router of [agents, developingIndex, development, release]) {
+    assert.ok(router.includes("agent-native-delivery.md"));
+  }
+  assert.ok(
+    delivery.includes(
+      "Source of truth: This file owns the end-to-end agent-native delivery contract"
+    )
+  );
+  assert.ok(delivery.includes("OpenMeld Final Candidate"));
+  assert.ok(delivery.includes("trusted-final-candidate.sh"));
+  assert.ok(delivery.includes("cancel-in-progress: false"));
+  assert.ok(delivery.includes("Health And Real-User Smoke"));
+  assert.ok(
+    development.includes("section owns only the lower-level test commands")
+  );
+  assert.ok(
+    release.includes("used to invent a second merge or evidence contract")
+  );
+});
+
+test("serializes each production scope without canceling a running deploy", () => {
+  const dispatcher = readRepoFile(".github/workflows/release-on-main.yml");
+  const databaseJob = dispatcher
+    .split("\n  database:")[1]
+    ?.split("\n  web:")[0];
+
+  assert.ok(databaseJob?.includes("group: release-production-database"));
+  assert.ok(databaseJob?.includes("queue: max"));
+  assert.ok(databaseJob?.includes("cancel-in-progress: false"));
+  for (const [scope, workflowPath] of COMPONENT_WORKFLOWS) {
+    const workflow = readRepoFile(workflowPath);
+    assert.match(
+      workflow,
+      PRODUCTION_CONCURRENCY_PATTERN,
+      `${scope} must serialize without canceling an active production release`
+    );
+  }
+  assert.ok(!dispatcher.includes("\nconcurrency:"));
+});
+
+test("retains every queued production release instead of replacing an older pending run", () => {
+  for (const workflowPath of globSync(".github/workflows/*.yml", {
+    cwd: REPO_ROOT,
+  })) {
+    const workflow = readRepoFile(workflowPath);
+    const nonCancelingGroups =
+      workflow.match(/cancel-in-progress: false/gu) ?? [];
+    if (nonCancelingGroups.length === 0) {
+      continue;
+    }
+    assert.equal(
+      workflow.match(/queue: max/gu)?.length,
+      nonCancelingGroups.length,
+      `${workflowPath} must retain every non-canceling production queue`
+    );
+  }
+});
+
+test("uses step-scoped private-repository authentication for every trusted release fetch", () => {
+  const trustedAction = readRepoFile(
+    ".github/actions/trusted-git-network/action.yml"
+  );
+  const validatorWorkflows = [
+    ".github/workflows/release-on-main.yml",
+    ".github/workflows/recover-core-cli-projection.yml",
+    ...COMPONENT_WORKFLOWS.map(([, workflowPath]) => workflowPath),
+  ];
+
+  assert.ok(trustedAction.includes("OPENMELD_TRUSTED_GIT_GITHUB_TOKEN"));
+  assert.ok(trustedAction.includes("trusted-git-network.mjs"));
+  for (const workflowPath of validatorWorkflows) {
+    const workflow = readRepoFile(workflowPath);
+    assert.ok(
+      workflow.includes(
+        "uses: ./release-control/.github/actions/trusted-git-network"
+      ),
+      `${workflowPath} must use trusted private-repository fetch auth`
+    );
+    assert.ok(workflow.includes("operation: fetch-main"));
+    assert.ok(workflow.includes("persist-credentials: false"));
+    assert.doesNotMatch(workflow, BARE_MAIN_FETCH_PATTERN);
+  }
+
+  for (const workflowPath of [
+    ".github/workflows/cli-release.yml",
+    ".github/workflows/deploy-core-worker.yml",
+  ]) {
+    const workflow = readRepoFile(workflowPath);
+    assert.ok(workflow.includes("operation: fetch-tags"));
+    assert.doesNotMatch(workflow, BARE_TAG_FETCH_PATTERN);
+  }
+});
+
+test("uses one atomic shared lease across local and hosted releases", () => {
+  const leaseAction = readRepoFile(
+    ".github/actions/production-scope-lease/action.yml"
+  );
+  const leaseEngine = readRepoFile(
+    "scripts/release/production-scope-lease.mjs"
+  );
+  const localRelease = readRepoFile("scripts/release/production-release.mjs");
+  const dispatcher = readRepoFile(".github/workflows/release-on-main.yml");
+
+  assert.ok(
+    leaseAction.includes(
+      "$LEASE_CONTROL_ROOT/scripts/release/production-scope-lease.mjs"
+    )
+  );
+  assert.ok(leaseAction.includes('" acquire \\'));
+  assert.ok(leaseAction.includes('" release \\'));
+  assert.ok(leaseAction.includes("OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN"));
+  assert.ok(leaseAction.includes('--cwd "$LEASE_REPOSITORY_ROOT"'));
+  assert.doesNotMatch(leaseAction, UNTRUSTED_ACTION_GIT_PROBE_PATTERN);
+  assert.ok(leaseEngine.includes("--force-with-lease="));
+  assert.ok(leaseEngine.includes("context.ref"));
+  assert.ok(leaseEngine.includes("expectedLeaseSha"));
+  assert.ok(localRelease.includes("executeWithProductionScopeLeases"));
+  assert.ok(localRelease.includes("assertProductionReleaseSource"));
+  assert.ok(dispatcher.includes("Acquire shared Database release lease"));
+  assert.ok(dispatcher.includes("Release shared Database release lease"));
+  assert.ok(dispatcher.includes("scope: db"));
+  assert.ok(dispatcher.includes("contents: write"));
+  const databaseLeaseSteps = readProductionLeaseSteps(dispatcher);
+  assert.equal(databaseLeaseSteps.length, 2);
+  for (const leaseStep of databaseLeaseSteps) {
+    assert.ok(leaseStep.includes(GITHUB_TOKEN_INPUT));
+    assert.ok(leaseStep.includes("working_directory: release-source"));
+  }
+
+  for (const [scope, workflowPath] of COMPONENT_WORKFLOWS) {
+    const workflow = readRepoFile(workflowPath);
+    const leaseSteps = readProductionLeaseSteps(workflow);
+    assert.equal(
+      leaseSteps.length,
+      2,
+      `${scope} must acquire and release its lease`
+    );
+    const separation = inspectSeparatedReleaseControl(workflow);
+    assert.equal(
+      separation.controlPrecedesRelease,
+      true,
+      `${workflowPath} must checkout trusted control before release source`
+    );
+    assert.equal(
+      separation.pinsWorkflowSha,
+      true,
+      `${workflowPath} must pin control to the workflow SHA`
+    );
+    assert.equal(
+      separation.disablesCredentials,
+      true,
+      `${workflowPath} must not persist checkout credentials`
+    );
+    assert.equal(
+      separation.usesReleaseSource,
+      true,
+      `${workflowPath} must run product commands from the exact release source`
+    );
+    assert.ok(
+      workflow.includes(`scope: ${scope}`),
+      `${scope} must name the same local and hosted scope`
+    );
+    assert.ok(workflow.includes("contents: write"));
+    assert.ok(workflow.includes("if: always()"));
+    for (const leaseStep of leaseSteps) {
+      assert.ok(
+        leaseStep.includes(GITHUB_TOKEN_INPUT),
+        `${scope} must expose GitHub authentication only to its lease action`
+      );
+      assert.ok(
+        leaseStep.includes("working_directory: release-source"),
+        `${scope} must run its lease mutation in the release-source repository`
+      );
+    }
+  }
 });
 
 test("runs the production database exactly once through its shared entrypoint", () => {
@@ -449,8 +540,19 @@ test("runs the production database exactly once through its shared entrypoint", 
     ".github/actions/shared-db-gate/action.yml"
   );
 
-  assert.ok(dispatcher.includes("uses: ./.github/actions/shared-db-gate"));
-  assert.equal(databaseAction.match(/pnpm run db:release:prod/gu)?.length, 1);
+  assert.ok(
+    dispatcher.includes(
+      "uses: ./release-control/.github/actions/shared-db-gate"
+    )
+  );
+  const separation = inspectSeparatedReleaseControl(dispatcher);
+  assert.equal(separation.controlPrecedesRelease, true);
+  assert.equal(separation.pinsWorkflowSha, true);
+  assert.equal(separation.disablesCredentials, true);
+  assert.equal(separation.usesReleaseSource, true);
+  assert.ok(dispatcher.includes(GITHUB_TOKEN_INPUT));
+  assert.ok(dispatcher.includes("working_directory: release-source"));
+  assert.equal(databaseAction.match(/run db:release:prod/gu)?.length, 1);
   assert.ok(!databaseAction.includes("pnpm db:check"));
   assert.ok(!databaseAction.includes("pnpm db:migrate:prod"));
   assert.ok(!databaseAction.includes("pnpm db:optimize:prod"));
@@ -484,16 +586,107 @@ test("uses one cached repository setup in current release jobs", () => {
 
   assert.ok(setupAction.includes("pnpm/action-setup@v6"));
   assert.ok(setupAction.includes("cache: pnpm"));
-  assert.ok(setupAction.includes("pnpm install --frozen-lockfile"));
+  assert.ok(
+    setupAction.includes(
+      'pnpm --dir "$SETUP_WORKING_DIRECTORY" install --frozen-lockfile'
+    )
+  );
   for (const [, workflowPath] of COMPONENT_WORKFLOWS) {
     const source = readRepoFile(workflowPath);
     assert.equal(
-      source.match(/uses: \.\/\.github\/actions\/setup-node-pnpm/gu)?.length,
+      source.match(
+        /uses: \.\/release-control\/\.github\/actions\/setup-node-pnpm/gu
+      )?.length,
       1,
       `${workflowPath} must use the cached setup once`
     );
   }
 });
+
+test("historical mainline release source remains usable after control actions are added", () => {
+  const repositoryPath = mkdtempSync(
+    path.join(tmpdir(), "openmeld-historical-release-control-")
+  );
+  const isolatedGitEnvironment = createIsolatedGitEnvironment();
+  const runGit = (...args) =>
+    execFileSync("git", args, {
+      cwd: repositoryPath,
+      encoding: "utf8",
+      env: isolatedGitEnvironment,
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  try {
+    runGit("init", "--initial-branch=main");
+    runGit("config", "user.email", "release-control@test.openmeld.ai");
+    runGit("config", "user.name", "OpenMeld Release Control Test");
+    writeFileSync(
+      path.join(repositoryPath, "product.txt"),
+      "historical source\n"
+    );
+    runGit("add", "product.txt");
+    runGit("commit", "-m", "historical release source");
+    const historicalReleaseSha = runGit("rev-parse", "HEAD");
+
+    const leaseActionPath = path.join(
+      repositoryPath,
+      ".github",
+      "actions",
+      "production-scope-lease"
+    );
+    mkdirSync(leaseActionPath, { recursive: true });
+    writeFileSync(
+      path.join(leaseActionPath, "action.yml"),
+      "name: trusted lease control\n"
+    );
+    runGit("add", ".github/actions/production-scope-lease/action.yml");
+    runGit("commit", "-m", "add trusted release control");
+    const controlSha = runGit("rev-parse", "HEAD");
+
+    const controlRoot = path.join(repositoryPath, "control");
+    const releaseRoot = path.join(repositoryPath, "release-source");
+    runGit("worktree", "add", "--detach", controlRoot, controlSha);
+    runGit("worktree", "add", "--detach", releaseRoot, historicalReleaseSha);
+
+    assert.ok(
+      existsSync(
+        path.join(
+          controlRoot,
+          ".github/actions/production-scope-lease/action.yml"
+        )
+      )
+    );
+    assert.ok(
+      !existsSync(
+        path.join(
+          releaseRoot,
+          ".github/actions/production-scope-lease/action.yml"
+        )
+      )
+    );
+    assert.equal(
+      readFileSync(path.join(releaseRoot, "product.txt"), "utf8"),
+      "historical source\n"
+    );
+  } finally {
+    rmSync(repositoryPath, { force: true, recursive: true });
+  }
+});
+
+function inspectSeparatedReleaseControl(workflow) {
+  const controlCheckout = workflow.indexOf("path: release-control");
+  const releaseCheckout = workflow.indexOf("path: release-source");
+  return {
+    controlPrecedesRelease:
+      controlCheckout >= 0 && releaseCheckout > controlCheckout,
+    disablesCredentials: workflow.includes("persist-credentials: false"),
+    pinsWorkflowSha: workflow.includes(
+      `ref: ${GITHUB_EXPRESSION_PREFIX} github.sha }}`
+    ),
+    usesReleaseSource:
+      workflow.includes("working-directory: release-source") ||
+      workflow.includes("working_directory: release-source"),
+  };
+}
 
 test("keeps Deep Confidence setup and sharding intentional", () => {
   const workflow = readRepoFile(".github/workflows/deep-confidence.yml");
@@ -529,9 +722,7 @@ test("keeps Deep Confidence setup and sharding intentional", () => {
       `name: Deep Confidence / Workers Integration ${GITHUB_EXPRESSION_PREFIX} matrix.shard }}/8`
     )
   );
-  assert.ok(
-    workersIntegrationJob.includes("shard: [1, 2, 3, 4, 5, 6, 7, 8]")
-  );
+  assert.ok(workersIntegrationJob.includes("shard: [1, 2, 3, 4, 5, 6, 7, 8]"));
   assert.ok(
     workersIntegrationJob.includes(
       `run: pnpm exec vitest run --config vitest.config.ts --shard=${GITHUB_EXPRESSION_PREFIX} matrix.shard }}/8`
@@ -588,51 +779,16 @@ test("does not restore a Turbo cache when deploys no longer rerun tests", () => 
   assert.equal(turbo.tasks["test:integration"]?.cache, false);
 });
 
-test("keeps Fast PR Turbo caches isolated to one PR job and revision", () => {
-  const action = readRepoFile(".github/actions/cache-fast-pr-turbo/action.yml");
-  const turbo = JSON.parse(readRepoFile("turbo.json"));
-
-  assert.ok(action.includes("uses: actions/cache@v6"));
-  assert.ok(action.includes("path: .turbo/cache"));
-  assert.ok(
-    action.includes(`${GITHUB_EXPRESSION_PREFIX} inputs.cache-suffix }}`)
-  );
-  assert.ok(action.includes(`${GITHUB_EXPRESSION_PREFIX} github.sha }}`));
-  assert.ok(
-    action.includes(
-      `${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.number }}`
-    )
-  );
-  assert.ok(action.includes("Fast PR Turbo cache requires a pull request"));
-  assert.ok(
-    action.includes(
-      `${GITHUB_EXPRESSION_PREFIX} hashFiles('pnpm-lock.yaml', 'turbo.json') }}`
-    )
-  );
-  assert.ok(!action.includes("TURBO_TOKEN"));
-  assert.ok(!action.includes("secrets."));
-  assert.equal(turbo.futureFlags?.errorsOnlyShowHash, true);
-});
-
-test("runs Web unit tests from source while preserving required dependency builds", () => {
-  const prChecks = readRepoFile(".github/workflows/pr-checks.yml");
+test("keeps Web source tests independent from removed hosted sharding machinery", () => {
   const webVitest = readRepoFile("clients/web/vitest.config.ts");
   const webTurbo = JSON.parse(readRepoFile("clients/web/turbo.json"));
   const turbo = JSON.parse(readRepoFile("turbo.json"));
 
-  assert.ok(
-    prChecks.includes(
-      `turbo run build --filter=${GITHUB_EXPRESSION_PREFIX} matrix.package }}^...`
-    )
-  );
-  assert.equal(
-    prChecks.match(/^ {8}if: matrix\.requiresDependencyBuild$/gmu)?.length,
-    2
-  );
   assert.ok(webVitest.includes('"@openmeld/db/auth"'));
   assert.ok(webVitest.includes('"@openmeld/projects"'));
   assert.deepEqual(webTurbo.tasks.test.dependsOn, ["transit"]);
   assert.deepEqual(turbo.tasks.transit.dependsOn, ["^transit"]);
+  assert.equal(turbo.futureFlags?.errorsOnlyShowHash, true);
 });
 
 test("builds the Schemas public surface before checking its self imports", () => {
@@ -673,10 +829,14 @@ test("pins every component deploy to one SHA, runs preflight, and checks health"
     );
     assert.ok(
       source.includes(
-        `pnpm run release:preflight:local -- --scope ${scope} --base HEAD`
+        "node ../release-control/scripts/release/hosted-production-preflight.mjs"
       ),
-      `${workflowPath} must run scoped deployment preflight`
+      `${workflowPath} must run current-main preflight control`
     );
+    assert.ok(source.includes(`--scope ${scope}`));
+    assert.ok(source.includes('--release-source "$PWD"'));
+    assert.ok(source.includes('--release-sha "$RELEASE_SHA"'));
+    assert.ok(!source.includes("pnpm run release:preflight:local"));
     assert.ok(!source.includes("pnpm run release:verify:local"));
     assert.ok(
       source.includes(healthEvidence),
@@ -684,6 +844,54 @@ test("pins every component deploy to one SHA, runs preflight, and checks health"
     );
     assert.ok(!source.includes("shared-db-gate"));
     assert.ok(!source.includes("run_db_gate"));
+  }
+});
+
+test("exposes one guarded local CLI publication entry and keeps the publisher internal", () => {
+  const rootPackage = JSON.parse(readRepoFile("package.json"));
+  const cliPackage = JSON.parse(
+    readRepoFile("clients/openmeld-cli/package.json")
+  );
+  const localControl = readRepoFile("scripts/release/production-release.mjs");
+  const internalPublisher = readRepoFile("scripts/release/release-cli.mjs");
+  const hostedControl = readRepoFile("scripts/release/hosted-cli-release.mjs");
+
+  assert.equal(rootPackage.scripts["release:cli"], undefined);
+  assert.equal(
+    cliPackage.scripts.deploy,
+    "pnpm -C ../.. run release:deploy:local -- --scope cli"
+  );
+  assert.ok(localControl.includes('from "./release-cli.mjs"'));
+  assert.ok(localControl.includes("publishCliRelease"));
+  assert.ok(hostedControl.includes("runCliRelease"));
+  assert.ok(!internalPublisher.includes("pathToFileURL(process.argv[1])"));
+});
+
+test("component workflows reject side-branch release sources before production code or secrets", () => {
+  for (const [, workflowPath] of COMPONENT_WORKFLOWS) {
+    const source = readRepoFile(workflowPath);
+    const validationJob = source
+      .split("\n  validate_release_source:")[1]
+      ?.split("\n  deploy:")[0];
+    const deployJob = source.split("\n  deploy:")[1];
+
+    assert.ok(!source.includes("workflow_dispatch:"), workflowPath);
+    assert.match(source, SCOPED_RELEASE_SHA_INPUT, workflowPath);
+    assert.ok(validationJob?.includes("permissions:\n      contents: read"));
+    assert.ok(
+      validationJob?.includes(`ref: ${GITHUB_EXPRESSION_PREFIX} github.sha }}`)
+    );
+    assert.ok(
+      validationJob?.includes("require-mainline-release-sha.mjs"),
+      workflowPath
+    );
+    assert.ok(!validationJob?.includes("environment: production"));
+    assert.ok(!validationJob?.includes("secrets."));
+    assert.ok(!validationJob?.includes(RELEASE_SHA_CHECKOUT));
+    assert.ok(deployJob?.includes("needs: validate_release_source"));
+    assert.ok(deployJob?.includes("environment: production"));
+    assert.ok(deployJob?.includes(RELEASE_SHA_CHECKOUT));
+    assert.ok(!source.includes("inputs.release_sha || github.sha"));
   }
 });
 
@@ -697,8 +905,7 @@ test("shows the exact release SHA in recoverable workflow run titles", () => {
   for (const [, workflowPath] of COMPONENT_WORKFLOWS) {
     const source = readRepoFile(workflowPath);
     assert.ok(
-      source.includes("run-name:") &&
-        source.includes("inputs.release_sha || github.sha"),
+      source.includes("run-name:") && source.includes("inputs.release_sha"),
       `${workflowPath} must expose its exact release SHA`
     );
   }
@@ -731,7 +938,7 @@ test("routes stable CLI projection recovery through the guarded Core workflow", 
   assert.ok(core.includes("pnpm run evidence:startup:core"));
   assert.match(core, LOCAL_CORE_STARTUP_DIAGNOSTIC);
   assert.ok(core.includes("deploy-core-worker.mjs"));
-  assert.ok(core.includes("release:preflight:core-current-cli-projection"));
+  assert.ok(core.includes("--current-stable-cli-projection"));
   assert.ok(core.includes("core-startup-evidence-"));
   assert.ok(core.includes("core-startup-profile-"));
   assert.ok(

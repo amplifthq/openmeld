@@ -1,34 +1,66 @@
 import { spawnSync } from "node:child_process";
+import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/u;
-const [releaseSha, mainRef = "refs/remotes/origin/main"] =
-  process.argv.slice(2);
+const LINE_SPLIT_PATTERN = /\r?\n/u;
 
-if (!(releaseSha && FULL_SHA_PATTERN.test(releaseSha))) {
-  process.stderr.write(
-    "release_sha must be an exact 40-character lowercase commit SHA.\n"
+export function requireMainlineReleaseSha(input) {
+  const releaseSha = input.releaseSha;
+  const mainRef = input.mainRef ?? "refs/remotes/origin/main";
+  const cwd = input.cwd ?? process.cwd();
+  if (!(releaseSha && FULL_SHA_PATTERN.test(releaseSha))) {
+    throw new Error(
+      "release_sha must be an exact 40-character lowercase commit SHA."
+    );
+  }
+
+  const commit = spawnSync(
+    "git",
+    ["cat-file", "-e", `${releaseSha}^{commit}`],
+    {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }
   );
-  process.exit(1);
+  const mainline = spawnSync("git", ["rev-list", "--first-parent", mainRef], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const releaseIsOnMainline =
+    mainline.status === 0 &&
+    mainline.stdout
+      .split(LINE_SPLIT_PATTERN)
+      .some((commitSha) => commitSha === releaseSha);
+
+  if (!(commit.status === 0 && releaseIsOnMainline)) {
+    const diagnostics = [commit.stderr.trim(), mainline.stderr.trim()].filter(
+      Boolean
+    );
+    throw new Error(
+      [
+        "release_sha must identify a commit on the main first-parent chain.",
+        ...diagnostics,
+      ].join("\n")
+    );
+  }
+  return { mainRef, releaseSha };
 }
 
-const gitSucceeds = (...args) =>
-  spawnSync("git", args, { stdio: "ignore" }).status === 0;
+function main(argv) {
+  const [releaseSha, mainRef = "refs/remotes/origin/main"] = argv;
+  requireMainlineReleaseSha({ mainRef, releaseSha });
+}
 
-const mainline = spawnSync("git", ["rev-list", "--first-parent", mainRef], {
-  encoding: "utf8",
-});
-const releaseIsOnMainline =
-  mainline.status === 0 &&
-  mainline.stdout.split(/\r?\n/u).some((commitSha) => commitSha === releaseSha);
-
-if (
-  !(
-    gitSucceeds("cat-file", "-e", `${releaseSha}^{commit}`) &&
-    releaseIsOnMainline
-  )
-) {
-  process.stderr.write(
-    "release_sha must identify a commit on the main first-parent chain.\n"
-  );
-  process.exit(1);
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    main(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`
+    );
+    process.exitCode = 1;
+  }
 }

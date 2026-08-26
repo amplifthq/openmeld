@@ -56,6 +56,7 @@ import {
   requestCenterAgentTaskStop,
   transitionCenterAgentTaskAttempt,
 } from "../src/center-agent-tasks/infrastructure/d1/center-agent-task-repo";
+import { listRecentDispatchLedgerEntriesForSpace } from "../src/dispatch/infrastructure/d1/dispatch-ledger-d1";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as runtimeCoordinatorClient from "../src/dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 import {
@@ -5214,6 +5215,74 @@ describe("Remote Agent native delivery callback service", () => {
         attemptStatus: "succeeded",
         dispatchStatus: "succeeded",
       });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps the first terminal timestamp when a completed Space callback replays", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    try {
+      seedWaitingNativeDeliveryDispatch(harness, {
+        idempotencyKey: "space_1:dispatch_1",
+      });
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "space_1:dispatch_1",
+        submissionId: "sub_terminal_replay",
+        spaceId: SPACE_ID,
+      });
+      const env = buildEnv(harness.db, {
+        postSignalId: "signal_terminal_replay",
+      });
+      const callback = {
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding_1",
+        dispatchId: "dispatch_1",
+        idempotencyKey: "space_1:dispatch_1",
+        organizationId: "org_1",
+        spaceId: SPACE_ID,
+        submissionId: "sub_terminal_replay",
+        text: "Done.",
+        triggerMessageId: "signal_1",
+      };
+
+      await expect(
+        completeRemoteAgentNativeDelivery(env, callback, {
+          messageChannelNowMs: () => 2000,
+        })
+      ).resolves.toEqual({
+        publishedSignalId: "signal_terminal_replay",
+        status: "accepted",
+      });
+      await expect(
+        completeRemoteAgentNativeDelivery(env, callback, {
+          messageChannelNowMs: () => 5000,
+        })
+      ).resolves.toEqual({
+        publishedSignalId: "signal_terminal_replay",
+        reasonCode: "remote_agent.callback_completed_submission",
+        status: "duplicate_rejected",
+      });
+
+      await expect(
+        listRecentDispatchLedgerEntriesForSpace({
+          db: harness.db,
+          dispatchId: "dispatch_1",
+          limit: 1,
+          spaceId: SPACE_ID,
+        })
+      ).resolves.toMatchObject([
+        {
+          lastAttemptAtMs: 5000,
+          latestAttempt: {
+            finishedAtMs: 2000,
+            status: "succeeded",
+          },
+          status: "succeeded",
+        },
+      ]);
     } finally {
       harness.close();
     }

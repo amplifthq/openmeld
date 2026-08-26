@@ -1,5 +1,5 @@
 name: 📦 CLI Release
-run-name: CLI Release ${{ inputs.mode }} @ ${{ inputs.release_sha || github.sha }}
+run-name: CLI Release @ ${{ inputs.release_sha || github.sha }}
 
 permissions:
   contents: write
@@ -8,14 +8,6 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      mode:
-        description: "Verify safely by default or publish the release"
-        required: true
-        type: choice
-        default: verify
-        options:
-          - verify
-          - release
       release_sha:
         description: "Optional exact commit to release or recover; leave empty for the dispatched main SHA"
         required: false
@@ -33,6 +25,7 @@ on:
 
 concurrency:
   group: cli-production-release
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -46,37 +39,19 @@ jobs:
           echo "::error::CLI releases must run from main. Current ref: ${GITHUB_REF}"
           exit 1
 
-  verify:
-    name: Verify CLI Release Readiness
-    if: github.ref == 'refs/heads/main' && inputs.mode == 'verify'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout release commit
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-          ref: ${{ inputs.release_sha || github.sha }}
-
-      - name: Setup repository toolchain
-        uses: ./.github/actions/setup-node-pnpm
-
-      - name: Fetch release tags
-        run: git fetch --tags --force
-
-      - name: Verify release-ready local components
-        run: pnpm run verify:release-ready
-
   cli_release:
     name: Publish CLI And Release Core
-    if: github.ref == 'refs/heads/main' && inputs.mode == 'release'
+    if: github.ref == 'refs/heads/main'
     runs-on: macos-15
     timeout-minutes: 45
     concurrency:
       group: deploy-core-worker-production
+      queue: max
       cancel-in-progress: false
     environment: production
+    env:
+      RELEASE_PATH: ${{ inputs.release_path }}
+      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
     steps:
       - name: Validate immutable release inputs
         shell: bash
@@ -86,9 +61,35 @@ jobs:
             echo "::error::CLI releases must run from main. Current ref: ${GITHUB_REF}"
             exit 1
           fi
-          release_sha="${{ inputs.release_sha }}"
-          if [ -n "$release_sha" ] && ! [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]; then
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::release_sha must be an exact 40-character lowercase commit SHA."
+            exit 1
+          fi
+
+      - name: Checkout current main history for source validation
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Refresh current main with step-scoped read authentication
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
+      - name: Require release SHA from current main first-parent history
+        shell: bash
+        working-directory: release-control
+        run: |
+          set -euo pipefail
+          if ! validation_error="$(node scripts/release/require-mainline-release-sha.mjs \
+            "$RELEASE_SHA" refs/remotes/origin/main 2>&1)"; then
+            echo "::error::$validation_error"
             exit 1
           fi
 
@@ -97,13 +98,45 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: ${{ inputs.release_sha || github.sha }}
+          path: release-source
+          persist-credentials: false
+          ref: ${{ env.RELEASE_SHA }}
 
       - name: Setup repository toolchain
-        uses: ./.github/actions/setup-node-pnpm
+        uses: ./release-control/.github/actions/setup-node-pnpm
+        with:
+          control_directory: release-control
+          working_directory: release-source
+
+      - name: Acquire shared CLI publication lease
+        id: cli_scope_lease
+        uses: ./release-control/.github/actions/production-scope-lease
+        with:
+          github_token: ${{ github.token }}
+          operation: acquire
+          owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          scope: cli
+          source_sha: ${{ env.RELEASE_SHA }}
+          working_directory: release-source
+
+      - name: Acquire shared Core projection lease
+        id: core_scope_lease
+        uses: ./release-control/.github/actions/production-scope-lease
+        with:
+          github_token: ${{ github.token }}
+          operation: acquire
+          owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          scope: core
+          source_sha: ${{ env.RELEASE_SHA }}
+          working_directory: release-source
 
       - name: Fetch release tags
-        run: git fetch --tags --force
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-tags
+          repository: ${{ github.repository }}
+          working_directory: release-source
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -117,11 +150,13 @@ jobs:
 
       - name: Build Core release dependencies
         run: pnpm turbo run build --filter=@openmeld/core...
+        working-directory: release-source
 
       - name: Configure release tag identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        working-directory: release-source
 
       - name: Publish signed and notarized CLI, binary channel, npm package, tag, and Core
         shell: bash
@@ -134,28 +169,31 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL: ${{ github.server_url }}
+          OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: ${{ github.token }}
           # npm Trusted Publishing authenticates private repositories through OIDC,
           # but npm cannot write public Sigstore provenance for a private source repo.
           NPM_CONFIG_PROVENANCE: "false"
         run: |
           set -euo pipefail
-          case "${{ inputs.release_path }}" in
+          case "$RELEASE_PATH" in
             normal|resume-after-binary-upload|resume-after-npm-publish)
-              pnpm run release:cli --with-binary
+              node ../release-control/scripts/release/hosted-cli-release.mjs .
               ;;
             *)
-              echo "::error::Unknown release path: ${{ inputs.release_path }}"
+              echo "::error::Unknown release path: $RELEASE_PATH"
               exit 1
               ;;
           esac
+        working-directory: release-source
 
       - name: Preserve a failed Core startup profile
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: core-startup-profile-${{ inputs.release_sha || github.sha }}
+          name: core-startup-profile-${{ env.RELEASE_SHA }}
           if-no-files-found: ignore
-          path: services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
+          path: release-source/services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
           retention-days: 14
 
       - name: Verify Core deployment is visible
@@ -163,3 +201,24 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
+        working-directory: release-source
+
+      - name: Release shared Core projection lease
+        if: always() && steps.core_scope_lease.outputs.lease_sha != ''
+        uses: ./release-control/.github/actions/production-scope-lease
+        with:
+          github_token: ${{ github.token }}
+          lease_sha: ${{ steps.core_scope_lease.outputs.lease_sha }}
+          operation: release
+          scope: core
+          working_directory: release-source
+
+      - name: Release shared CLI publication lease
+        if: always() && steps.cli_scope_lease.outputs.lease_sha != ''
+        uses: ./release-control/.github/actions/production-scope-lease
+        with:
+          github_token: ${{ github.token }}
+          lease_sha: ${{ steps.cli_scope_lease.outputs.lease_sha }}
+          operation: release
+          scope: cli
+          working_directory: release-source

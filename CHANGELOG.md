@@ -14,6 +14,16 @@ immediately continue setup or use the page underneath it.
 
 Evidence: pr:301, pr:298, commit:c7edbf065f3405a12cf1801322761fc72bd20314, commit:c2bd412b72928fe97dad262e280044d2c3f915fb
 
+### Keep Center Agent completion times accurate
+
+Fixed · center-agent · diagnostics · performance
+
+Center Agent diagnostics now keep the time a task first completed when a final
+confirmation is safely replayed. Repeated confirmations no longer make a
+completed task look slower than it was.
+
+Evidence: pr:333, commit:634fd463fff620b54d42ccceab92be65fdab971e, worker-version:928e7144-6168-4785-9076-f16a1ade7a0d, center-agent-dispatch:84093d46-8a78-4d87-921f-6e28dfa9e239
+
 ### Let Agents reply without a shell approval prompt
 
 Fixed · v0.3.111 · spaces · agent-profiles · local-agents
@@ -40,6 +50,17 @@ member or make OpenMeld guess. Existing Agents that hit the same problem during
 a Wake now get the same direct Computer recovery path.
 
 Evidence: pr:292, pr:301, commit:5bc5c6e8, npm:openmeld@0.3.111
+
+### Send and safely retry Center Agent Slack messages
+
+Fixed · v0.3.115 · center-agent · channels
+
+Center Agent can send formatted Slack messages again and retry the same message
+when OpenMeld fails while preparing it, before anything reaches Slack.
+Genuinely uncertain Slack delivery outcomes remain safely blocked so a retry
+cannot create a duplicate.
+
+Evidence: pr:326, pr:328, pr:330, pr:331, commit:363fffefc2f47b0e7e17eea3475cf6790170009a, tag:v0.3.115, workflow:32977014291, worker-version:b1c2ace5-51db-4cdc-a9bb-99837894b2a8, slack-message:1787753142.488589
 
 ## August 25, 2026
 

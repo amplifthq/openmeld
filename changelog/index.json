@@ -23,6 +23,28 @@
       "body": "Browser notification setup now disappears completely after permission is\ngranted, “Not now” is selected, or the new close button is used, so members can\nimmediately continue setup or use the page underneath it."
     },
     {
+      "id": "accurate-dispatch-completion-times",
+      "title": "Keep Center Agent completion times accurate",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "diagnostics",
+        "performance"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-26",
+      "evidence": [
+        "pr:333",
+        "commit:634fd463fff620b54d42ccceab92be65fdab971e",
+        "worker-version:928e7144-6168-4785-9076-f16a1ade7a0d",
+        "center-agent-dispatch:84093d46-8a78-4d87-921f-6e28dfa9e239"
+      ],
+      "body": "Center Agent diagnostics now keep the time a task first completed when a final\nconfirmation is safely replayed. Repeated confirmations no longer make a\ncompleted task look slower than it was."
+    },
+    {
       "id": "reliable-space-actions-with-strict-permissions",
       "title": "Let Agents reply without a shell approval prompt",
       "kind": "fixed",
@@ -67,6 +89,32 @@
         "npm:openmeld@0.3.111"
       ],
       "body": "When a selected Local Agent installation clearly cannot run a model, OpenMeld\nnow disables that model while an Agent Profile is created or edited. The dialog\nexplains why and links directly to the Computer where the member can update or\nchange the installation. Missing compatibility information does not block the\nmember or make OpenMeld guess. Existing Agents that hit the same problem during\na Wake now get the same direct Computer recovery path."
+    },
+    {
+      "id": "retry-center-agent-slack-preparation-failures",
+      "title": "Send and safely retry Center Agent Slack messages",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "channels"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-26",
+      "release": "v0.3.115",
+      "evidence": [
+        "pr:326",
+        "pr:328",
+        "pr:330",
+        "pr:331",
+        "commit:363fffefc2f47b0e7e17eea3475cf6790170009a",
+        "tag:v0.3.115",
+        "workflow:32977014291",
+        "worker-version:b1c2ace5-51db-4cdc-a9bb-99837894b2a8",
+        "slack-message:1787753142.488589"
+      ],
+      "body": "Center Agent can send formatted Slack messages again and retry the same message\nwhen OpenMeld fails while preparing it, before anything reaches Slack.\nGenuinely uncertain Slack delivery outcomes remain safely blocked so a retry\ncannot create a duplicate."
     },
     {
       "id": "reliable-inbox-browser-notifications",

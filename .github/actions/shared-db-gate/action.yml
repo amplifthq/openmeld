@@ -1,11 +1,18 @@
 name: Release production database
 description: Generate committed database artifacts, migrate OPENMELD_DB, verify its physical contract, and optimize planner statistics once.
 
+inputs:
+  working_directory:
+    description: Exact release-source checkout
+    required: false
+    default: "."
+
 runs:
   using: composite
   steps:
     - name: Release production database
       shell: bash
       env:
+        DB_RELEASE_WORKING_DIRECTORY: ${{ inputs.working_directory }}
         OPENMELD_DB_EXECUTION_MODE: prod
-      run: pnpm run db:release:prod
+      run: pnpm --dir "$DB_RELEASE_WORKING_DIRECTORY" run db:release:prod

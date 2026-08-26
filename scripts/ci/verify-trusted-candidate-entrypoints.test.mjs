@@ -1,0 +1,113 @@
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import { verifyTrustedCandidateEntrypoints } from "./verify-trusted-candidate-entrypoints.mjs";
+
+const SELF_REWRITE_PATTERN =
+  /cannot let the candidate rewrite its own test-control entrypoints/u;
+
+test("rejects a candidate that rewrites the package script used to validate itself", () => {
+  const fixture = createFixture();
+  try {
+    writeManifest(fixture.candidateRoot, {
+      candidate: "node scripts/ci/forged-runner.mjs",
+      "verify:pr": "true",
+    });
+
+    assert.throws(
+      () =>
+        verifyTrustedCandidateEntrypoints({
+          candidateRoot: fixture.candidateRoot,
+          paths: ["package.json"],
+          trustedRoot: fixture.trustedRoot,
+        }),
+      SELF_REWRITE_PATTERN
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("rejects a candidate that rewrites the trusted Final Candidate runner", () => {
+  const fixture = createFixture();
+  try {
+    const trustedRunner = path.join(
+      fixture.trustedRoot,
+      "scripts",
+      "ci",
+      "final-candidate.mjs"
+    );
+    const candidateRunner = path.join(
+      fixture.candidateRoot,
+      "scripts",
+      "ci",
+      "final-candidate.mjs"
+    );
+    mkdirSync(path.dirname(trustedRunner), { recursive: true });
+    mkdirSync(path.dirname(candidateRunner), { recursive: true });
+    writeFileSync(trustedRunner, "runTrusted();\n");
+    writeFileSync(candidateRunner, "publishForgedGreen();\n");
+
+    assert.throws(
+      () =>
+        verifyTrustedCandidateEntrypoints({
+          candidateRoot: fixture.candidateRoot,
+          paths: ["scripts/ci/final-candidate.mjs"],
+          trustedRoot: fixture.trustedRoot,
+        }),
+      SELF_REWRITE_PATTERN
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("accepts product source changes when validation entrypoints are unchanged", () => {
+  const fixture = createFixture();
+  try {
+    const result = verifyTrustedCandidateEntrypoints({
+      candidateRoot: fixture.candidateRoot,
+      paths: ["package.json", "turbo.json", "pnpm-workspace.yaml"],
+      trustedRoot: fixture.trustedRoot,
+    });
+
+    assert.deepEqual(result.checkedPaths, [
+      "package.json",
+      "turbo.json",
+      "pnpm-workspace.yaml",
+    ]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+function createFixture() {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-trusted-candidate-"));
+  const trustedRoot = path.join(root, "trusted");
+  const candidateRoot = path.join(root, "candidate");
+  mkdirSync(trustedRoot);
+  mkdirSync(candidateRoot);
+  for (const repoRoot of [trustedRoot, candidateRoot]) {
+    writeManifest(repoRoot, {
+      candidate: "node scripts/ci/final-candidate.mjs",
+      "verify:pr": "node scripts/dev/turbo-affected.mjs check test",
+    });
+    writeFileSync(path.join(repoRoot, "turbo.json"), '{"tasks":{}}\n');
+    writeFileSync(path.join(repoRoot, "pnpm-workspace.yaml"), "packages: []\n");
+  }
+  return {
+    candidateRoot,
+    cleanup: () => rmSync(root, { force: true, recursive: true }),
+    trustedRoot,
+  };
+}
+
+function writeManifest(root, scripts) {
+  writeFileSync(
+    path.join(root, "package.json"),
+    `${JSON.stringify({ packageManager: "pnpm@10.30.0", scripts })}\n`
+  );
+}

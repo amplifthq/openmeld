@@ -208,17 +208,17 @@ describe("local machine CLI error output", () => {
     await emitCliError({
       argv: ["setup"],
       effectiveView: "human",
-      code: "prepare.verify_setup.failed",
+      code: "prepare.report_runtime.failed",
       message:
-        "OpenMeld couldn't check your setup. Try again. Last network error: fetch failed. Support code: verify_setup.readiness_unreachable.",
+        "OpenMeld couldn't report this computer. Try again. Last network error: fetch failed. Support code: runtime.reporting.write_failed.",
     });
 
     const humanOutput = stderr.join("");
     expect(humanOutput).toContain(
-      "What happened: OpenMeld couldn't check your setup."
+      "What happened: OpenMeld couldn't report this computer."
     );
     expect(humanOutput).toContain("Next: Try again.");
     expect(humanOutput).not.toContain("fetch failed");
-    expect(humanOutput).not.toContain("verify_setup.readiness_unreachable");
+    expect(humanOutput).not.toContain("runtime.reporting.write_failed");
   });
 });

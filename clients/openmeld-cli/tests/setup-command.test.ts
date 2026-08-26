@@ -18,6 +18,7 @@ const {
   runSkillsEnsureMock,
   runStartLocalAgentsEnableMock,
   runLocalStateAlignmentMock,
+  assertSelectedAgentControllerReportSubmissionsAcceptedMock,
   writePrepareSessionSetupBootstrapResultMock,
   writeInstalledLocalComponentsSnapshotMock,
   acquireLockMock,
@@ -42,6 +43,7 @@ const {
   runSkillsEnsureMock: vi.fn(),
   runStartLocalAgentsEnableMock: vi.fn(),
   runLocalStateAlignmentMock: vi.fn(),
+  assertSelectedAgentControllerReportSubmissionsAcceptedMock: vi.fn(),
   writePrepareSessionSetupBootstrapResultMock: vi.fn(),
   writeInstalledLocalComponentsSnapshotMock: vi.fn(),
   acquireLockMock: vi.fn(),
@@ -117,8 +119,8 @@ vi.mock("../src/local-service/state/route-catalog-sync-notifier", () => ({
 vi.mock(
   "../src/local-service/reporting/selected-agent-controller-reporting",
   () => ({
-    assertSelectedAgentControllerReadinessReady: vi.fn(),
-    assertSelectedAgentControllerReportsAccepted: vi.fn(),
+    assertSelectedAgentControllerReportSubmissionsAccepted:
+      assertSelectedAgentControllerReportSubmissionsAcceptedMock,
     resolveSelectedAgentControllerReadiness:
       resolveSelectedAgentControllerReadinessMock,
     submitSelectedAgentControllerReports:
@@ -574,6 +576,79 @@ describe("setup command", () => {
         ([event]) => (event as { code?: string }).code === "setup.complete"
       )
     ).toBe(true);
+  });
+
+  it("completes Web setup when an unauthenticated local agent report was accepted", async () => {
+    runSetupLocalAgentConnectionMock.mockResolvedValue({
+      status: "completed",
+      setupSessionSnapshot: {
+        selectedLocalAgentIds: ["claude-code"],
+      },
+    });
+    collectStartLocalReadinessMock.mockResolvedValue({
+      agents: {
+        candidates: [{ agentId: "claude-code", selectable: true }],
+      },
+    });
+    submitSelectedAgentControllerReportsMock.mockResolvedValue([
+      {
+        agentId: "claude-code",
+        agentControllerRef: "builtin:claude-code",
+        localParticipationState: "needs_agent_prepare",
+        reasonCodes: ["provider_account.access_required"],
+        runtimeReportSubmission: {
+          agentControllerReportStatus: "accepted",
+          openMeldServiceRuntimeId: "runtime-session",
+          status: "submitted",
+        },
+      },
+    ]);
+    const { runSetup } = await import("../src/commands/setup");
+
+    await expect(
+      runSetup({
+        startSession: "preptok_web",
+        ott: "ott_web",
+        view: "agent",
+      })
+    ).resolves.toBeUndefined();
+
+    expect(
+      assertSelectedAgentControllerReportSubmissionsAcceptedMock
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      presenter.data.mock.calls.some(
+        ([event]) => (event as { code?: string }).code === "setup.complete"
+      )
+    ).toBe(true);
+  });
+
+  it("completes standard setup when an unauthenticated local agent report was accepted", async () => {
+    collectStartLocalReadinessMock.mockResolvedValue({
+      agents: {
+        candidates: [{ agentId: "claude-code", selectable: true }],
+      },
+    });
+    submitSelectedAgentControllerReportsMock.mockResolvedValue([
+      {
+        agentId: "claude-code",
+        agentControllerRef: "builtin:claude-code",
+        localParticipationState: "needs_agent_prepare",
+        reasonCodes: ["provider_account.access_required"],
+        runtimeReportSubmission: {
+          agentControllerReportStatus: "accepted",
+          openMeldServiceRuntimeId: "runtime-session",
+          status: "submitted",
+        },
+      },
+    ]);
+    const { runSetup } = await import("../src/commands/setup");
+
+    await expect(runSetup({ view: "agent" })).resolves.toBeUndefined();
+
+    expect(
+      assertSelectedAgentControllerReportSubmissionsAcceptedMock
+    ).toHaveBeenCalledTimes(1);
   });
 
   it("emits setup.plan before setup.complete for the standard agent setup path", async () => {

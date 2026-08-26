@@ -1,24 +1,10 @@
 name: 🛡️ Deploy Auth Worker
-run-name: Deploy Auth Worker @ ${{ inputs.release_sha || github.sha }}
+run-name: Deploy Auth Worker @ ${{ inputs.release_sha }}
 
 permissions:
-  contents: read
+  contents: write
 
 on:
-  workflow_dispatch:
-    inputs:
-      deploy_environment:
-        description: "Deployment environment"
-        required: true
-        type: choice
-        default: production
-        options:
-          - production
-      release_sha:
-        description: "Optional exact main commit to deploy"
-        required: false
-        type: string
-        default: ""
   workflow_call:
     inputs:
       deploy_environment:
@@ -28,19 +14,60 @@ on:
         default: production
       release_sha:
         description: "Exact main commit to deploy"
-        required: false
+        required: true
         type: string
-        default: ""
 
 jobs:
+  validate_release_source:
+    name: Validate Immutable Main Release Source
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted current main validation code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Refresh current main with step-scoped read authentication
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
+      - name: Require production target and main first-parent release SHA
+        shell: bash
+        env:
+          DEPLOY_ENVIRONMENT: ${{ inputs.deploy_environment }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        working-directory: release-control
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_ENVIRONMENT" != "production" ]; then
+            echo "::error::Unsupported deploy environment. Only production is allowed."
+            exit 1
+          fi
+          node scripts/release/require-mainline-release-sha.mjs \
+            "$RELEASE_SHA" refs/remotes/origin/main
+
   deploy:
     name: 🛡️ Deploy Auth Worker
+    needs: validate_release_source
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
       group: deploy-auth-worker-production
+      queue: max
       cancel-in-progress: false
     environment: production
+    defaults:
+      run:
+        working-directory: release-source
     env:
       BETTER_AUTH_OPENMELD_SECRET: ci_codegen_only_secret_please_do_not_use_1234567890
       AUTH_WORKER_NODE_ENV: development
@@ -49,30 +76,48 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
-      - name: Validate production target
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${{ inputs.deploy_environment || 'production' }}" != "production" ]; then
-            echo "::error::Unsupported deploy environment. Only production is allowed."
-            exit 1
-          fi
-          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
-            echo "::error::Production deploys must run from main. Current ref: ${GITHUB_REF}"
-            exit 1
-          fi
+      - name: Checkout trusted release control
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          path: release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
 
       - name: Checkout release commit
         uses: actions/checkout@v5
         with:
           fetch-depth: 2
-          ref: ${{ inputs.release_sha || github.sha }}
+          path: release-source
+          persist-credentials: false
+          ref: ${{ inputs.release_sha }}
 
       - name: Setup repository toolchain
-        uses: ./.github/actions/setup-node-pnpm
+        uses: ./release-control/.github/actions/setup-node-pnpm
+        with:
+          control_directory: release-control
+          working_directory: release-source
+
+      - name: Acquire shared Auth release lease
+        id: scope_lease
+        uses: ./release-control/.github/actions/production-scope-lease
+        with:
+          github_token: ${{ github.token }}
+          operation: acquire
+          owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          scope: auth
+          source_sha: ${{ inputs.release_sha }}
+          working_directory: release-source
 
       - name: Run Auth Worker deployment preflight
-        run: pnpm run release:preflight:local -- --scope auth --base HEAD
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          node ../release-control/scripts/release/hosted-production-preflight.mjs \
+            --release-source "$PWD" \
+            --release-sha "$RELEASE_SHA" \
+            --scope auth
 
       - name: Capture Auth bundle evidence
         run: pnpm run evidence:bundle:auth
@@ -87,7 +132,17 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: auth-bundle-evidence-${{ inputs.release_sha || github.sha }}
+          name: auth-bundle-evidence-${{ inputs.release_sha }}
           if-no-files-found: warn
-          path: dev-tmp/auth-bundle-evidence.json
+          path: release-source/dev-tmp/auth-bundle-evidence.json
           retention-days: 30
+
+      - name: Release shared Auth release lease
+        if: always() && steps.scope_lease.outputs.lease_sha != ''
+        uses: ./release-control/.github/actions/production-scope-lease
+        with:
+          github_token: ${{ github.token }}
+          lease_sha: ${{ steps.scope_lease.outputs.lease_sha }}
+          operation: release
+          scope: auth
+          working_directory: release-source

@@ -1,0 +1,40 @@
+name: Trusted GitHub Git network operation
+description: Performs one explicit authenticated Git fetch from trusted control without persisting credentials.
+
+inputs:
+  operation:
+    description: fetch-main or fetch-tags
+    required: true
+  repository:
+    description: GitHub owner/name repository identity
+    required: true
+  github_token:
+    description: Step-scoped GitHub token used only by the trusted Git child
+    required: true
+  working_directory:
+    description: Checkout whose Git objects or refs should be refreshed
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Run trusted GitHub Git network operation
+      shell: bash
+      env:
+        OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL: ${{ github.server_url }}
+        OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: ${{ inputs.github_token }}
+        TRUSTED_GIT_OPERATION: ${{ inputs.operation }}
+        TRUSTED_GIT_REPOSITORY: ${{ inputs.repository }}
+        TRUSTED_GIT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+      run: |
+        set -euo pipefail
+        TRUSTED_GIT_CONTROL_ROOT="$GITHUB_ACTION_PATH/../../.."
+        TRUSTED_GIT_REPOSITORY_ROOT="$GITHUB_WORKSPACE/$TRUSTED_GIT_WORKING_DIRECTORY"
+        if [ ! -d "$TRUSTED_GIT_REPOSITORY_ROOT" ] || [ ! -e "$TRUSTED_GIT_REPOSITORY_ROOT/.git" ]; then
+          echo "::error::Trusted Git working_directory is not a repository checkout: $TRUSTED_GIT_REPOSITORY_ROOT"
+          exit 1
+        fi
+        node "$TRUSTED_GIT_CONTROL_ROOT/scripts/ci/trusted-git-network.mjs" \
+          "$TRUSTED_GIT_OPERATION" \
+          --cwd "$TRUSTED_GIT_REPOSITORY_ROOT" \
+          --repository "$TRUSTED_GIT_REPOSITORY"

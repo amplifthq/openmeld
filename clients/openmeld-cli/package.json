@@ -1,7 +1,7 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "openmeld",
-  "version": "0.3.114",
+  "version": "0.3.117",
   "openMeldReleaseDate": "2026-08-26",
   "description": "OpenMeld CLI - https://openmeld.ai",
   "license": "MIT",
@@ -25,7 +25,7 @@
   "scripts": {
     "build": "tsdown && node scripts/build-macos-keychain-addon.mjs --copy-npm",
     "prepack": "pnpm -C ../.. run verify:release-ready -- --force && pnpm run verify:pack-readme",
-    "deploy": "pnpm -C ../.. run release:cli",
+    "deploy": "pnpm -C ../.. run release:deploy:local -- --scope cli",
     "publish:npm": "npm publish",
     "prepublishOnly": "pnpm run verify:pack-readme",
     "verify:pack-readme": "node scripts/verify-npm-pack-readme.mjs",
@@ -85,6 +85,6 @@
   },
   "openmeld": {
     "releaseLine": "openmeld-greenfield-2026-07",
-    "minRequiredCliVersion": "0.3.110"
+    "minRequiredCliVersion": "0.3.117"
   }
 }

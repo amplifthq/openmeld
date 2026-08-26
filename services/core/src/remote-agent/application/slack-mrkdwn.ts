@@ -1,3 +1,5 @@
+import { loadSlackMarkdownRuntime } from "../../lazy-runtime-modules";
+
 const BLOCKQUOTE_PREFIX_PATTERN = /^((?: {0,3}>[ \t]?)+)(.*)$/;
 const INDENTED_CODE_LINE_PATTERN = /^(?: {4}|\t)/;
 const MARKDOWN_CLOSING_FENCE_PATTERN = /^ {0,3}(?:`{3,}|~{3,})[ \t]*$/;
@@ -27,9 +29,7 @@ type MarkdownFence = {
 };
 
 export async function toSlackMrkdwn(markdown: string): Promise<string> {
-  const { slackifyMarkdown } = await import(
-    "../../generated-runtime/slackify-markdown.mjs"
-  );
+  const { slackifyMarkdown } = await loadSlackMarkdownRuntime();
   return slackifyMarkdown(
     normalizeMarkdownForSlack(normalizeSlackPresentationMarkdown(markdown))
   ).trimEnd();

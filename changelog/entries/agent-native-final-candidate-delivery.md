@@ -1,0 +1,18 @@
+---
+id: agent-native-final-candidate-delivery
+title: Validate one final candidate without blocking every push
+kind: improved
+areas: ["engineering", "delivery", "github"]
+audiences: ["contributors", "operators"]
+---
+
+Coding agents can now iterate and push freely, then request one exact,
+risk-based Final Candidate check when a pull request is ready. The same
+inspectable validation and shared evidence work locally when GitHub Actions is
+unavailable. Trusted current-main control remains separate from untrusted
+candidate code before package configuration or validation can run, and an
+explicit recorded bootstrap covers intentional delivery control changes.
+Production releases remain scoped and available through either the hosted or
+guarded local lane. Both release lanes use the same authenticated cross-machine
+component lease, while historical release sources use current trusted release
+controls so exact-SHA recovery remains available.

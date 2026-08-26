@@ -17,13 +17,13 @@ const BLOCKED_STATE_REGEX = /Deployment state: blocked/u;
 const READY_STATE_REGEX = /Deployment state: ready/u;
 const FULL_PENDING_SCOPES_REGEX =
   /Pending scopes: db, web, gateway, auth, cli, core, remote-agent/u;
-const MANIFEST_FAILURE_REGEX = /Local Components Manifest: failure/u;
+const PUSH_GUARD_FAILURE_REGEX = /Historical Push Guard: failure/u;
 const FULL_RELEASE_RECOMMENDATION_REGEX =
   /CLI Release: run CLI release directly; Scoped Production Release separate runs: database, then web, then gateway, then auth, then remote-agent/u;
 const DATABASE_RELEASE_RECOMMENDATION_REGEX =
   /Scoped Production Release: database/u;
 const EXTERNAL_VALIDATION_REGEX =
-  /Source validation: no push check evidence; confirm Fast PR or equivalent/u;
+  /Source validation: no push check evidence; confirm exact Final Candidate evidence/u;
 const RECORDED_VALIDATION_REGEX =
   /Source validation: recorded push checks passed/u;
 
@@ -170,7 +170,7 @@ test("reports pending full release scopes and fails closed on a red push check",
           event: "push",
           status: "completed",
           url: "https://github.com/amplifthq/openmeld/actions/runs/29475487257",
-          workflowName: "Local Components Manifest",
+          workflowName: "Historical Push Guard",
         },
       ],
     }),
@@ -183,7 +183,7 @@ test("reports pending full release scopes and fails closed on a red push check",
   assert.equal(exitCode, 1);
   assert.match(output, BLOCKED_STATE_REGEX);
   assert.match(output, FULL_PENDING_SCOPES_REGEX);
-  assert.match(output, MANIFEST_FAILURE_REGEX);
+  assert.match(output, PUSH_GUARD_FAILURE_REGEX);
   assert.match(output, FULL_RELEASE_RECOMMENDATION_REGEX);
 });
 
@@ -197,7 +197,7 @@ test("reports a remote full release as ready when push checks are green", async 
           event: "push",
           status: "completed",
           url: "https://github.com/amplifthq/openmeld/actions/runs/29475487258",
-          workflowName: "Local Components Manifest",
+          workflowName: "Historical Push Guard",
         },
       ],
     }),

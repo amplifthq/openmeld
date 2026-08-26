@@ -30,6 +30,7 @@ import {
 } from "./local-components.mjs";
 import {
   isCliReleasePath,
+  isEngineeringOnlySchemaPath,
   isServiceReleasePath,
   isSkillsReleasePath,
 } from "./release-ready-paths.mjs";
@@ -851,6 +852,18 @@ test("verification allows a Service bundle hash change with a version bump", () 
 
 test("classifies release-sensitive paths narrowly", () => {
   assert.equal(
+    isEngineeringOnlySchemaPath(
+      "packages/schemas/src/schemas/ci/final-candidate.ts"
+    ),
+    true
+  );
+  assert.equal(
+    isEngineeringOnlySchemaPath(
+      "packages/schemas/src/schemas/runtime/agent-task-coordination.ts"
+    ),
+    false
+  );
+  assert.equal(
     isCliReleasePath("clients/openmeld-cli/src/space/send.ts"),
     true
   );
@@ -921,6 +934,16 @@ test("classifies release-sensitive paths narrowly", () => {
       "packages/schemas/src/schemas/http/organization-documents.ts"
     ),
     true
+  );
+  assert.equal(
+    isServiceReleasePath("packages/schemas/src/schemas/ci/final-candidate.ts"),
+    false
+  );
+  assert.equal(
+    isServiceReleasePath(
+      "packages/schemas/src/schemas/release/production-scope-lease.ts"
+    ),
+    false
   );
   assert.equal(
     isServiceReleasePath(

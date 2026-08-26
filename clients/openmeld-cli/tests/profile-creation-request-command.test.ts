@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   api: {
     createAgentProfileCreationRequest: vi.fn(),
+    getAgentProfileCreationDefaults: vi.fn(),
     listAgentProfileCreationRequests: vi.fn(),
   },
   presenterData: vi.fn(),
@@ -98,6 +99,18 @@ const CREATED_REQUEST = {
 describe("Agent Profile creation request CLI", () => {
   beforeEach(() => {
     mocks.api.createAgentProfileCreationRequest.mockReset();
+    mocks.api.getAgentProfileCreationDefaults.mockReset().mockResolvedValue({
+      agentControllerCollaborationMode: null,
+      agentControllerPermissionMode: null,
+      agentControllerRef: "builtin:codex",
+      defaultProjectId: "project-saved",
+      modelId: "gpt-5.5",
+      openCodePermission: null,
+      organizationId: "org-1",
+      reasoningLevel: "high",
+      updatedAt: "2026-08-20T09:00:00.000Z",
+      userId: "user-1",
+    });
     mocks.presenterData.mockReset();
     mocks.api.createAgentProfileCreationRequest.mockResolvedValue({
       replayed: false,
@@ -159,6 +172,7 @@ describe("Agent Profile creation request CLI", () => {
       view: "agent",
     });
 
+    expect(mocks.api.getAgentProfileCreationDefaults).not.toHaveBeenCalled();
     expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledWith({
       configuration: {
         agentControllerCollaborationMode: "codex:plan",
@@ -180,6 +194,71 @@ describe("Agent Profile creation request CLI", () => {
       source: "cli",
       targetOwnerUserId: "user-2",
     });
+  });
+
+  it("reuses the current user's saved Default Project when the CLI omits --project", async () => {
+    await runProfileCreationRequestCreate({
+      agentController: "builtin:codex",
+      idempotencyKey: "saved-project-request-key",
+      profileName: "Project Agent",
+      targetComputerId: "computer-1",
+      targetOwner: "self",
+      view: "agent",
+    });
+
+    expect(mocks.api.getAgentProfileCreationDefaults).toHaveBeenCalledWith({
+      agentControllerRef: "builtin:codex",
+      organizationId: "org-1",
+    });
+    expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: expect.objectContaining({
+          defaultProjectId: "project-saved",
+        }),
+      })
+    );
+  });
+
+  it("keeps an explicitly selected Project instead of reading the saved default", async () => {
+    await runProfileCreationRequestCreate({
+      agentController: "builtin:codex",
+      defaultProjectId: "project-explicit",
+      idempotencyKey: "explicit-project-request-key",
+      profileName: "Explicit Project Agent",
+      targetComputerId: "computer-1",
+      targetOwner: "self",
+      view: "agent",
+    });
+
+    expect(mocks.api.getAgentProfileCreationDefaults).not.toHaveBeenCalled();
+    expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: expect.objectContaining({
+          defaultProjectId: "project-explicit",
+        }),
+      })
+    );
+  });
+
+  it("lets the current user explicitly choose an OpenMeld-managed workspace", async () => {
+    await runProfileCreationRequestCreate({
+      agentController: "builtin:codex",
+      idempotencyKey: "managed-workspace-request-key",
+      profileName: "Managed Workspace Agent",
+      reuseSavedDefaultProject: false,
+      targetComputerId: "computer-1",
+      targetOwner: "self",
+      view: "agent",
+    });
+
+    expect(mocks.api.getAgentProfileCreationDefaults).not.toHaveBeenCalled();
+    expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: expect.objectContaining({
+          defaultProjectId: null,
+        }),
+      })
+    );
   });
 
   it("fails before mutation when a new-session request includes a native Session ID", async () => {

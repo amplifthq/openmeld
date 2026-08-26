@@ -241,7 +241,7 @@ describe("selected Agent Controller reporting", () => {
     });
   });
 
-  it("fails closed when selected controller ACI proves the provider account is not signed in", async () => {
+  it("reports when selected controller ACI proves the provider account is not signed in", async () => {
     const agentControllerInterface = agentControllerInterfaceSnapshot({
       authStatus: "unauthenticated",
       status: "error",
@@ -255,10 +255,7 @@ describe("selected Agent Controller reporting", () => {
         },
       ],
     });
-    const {
-      assertSelectedAgentControllerReportsAccepted,
-      submitSelectedAgentControllerReports,
-    } = await import(
+    const { submitSelectedAgentControllerReports } = await import(
       "../src/local-service/reporting/selected-agent-controller-reporting"
     );
 
@@ -292,9 +289,6 @@ describe("selected Agent Controller reporting", () => {
         ],
       }),
     ]);
-    expect(() => assertSelectedAgentControllerReportsAccepted(result)).toThrow(
-      "OpenMeld could not connect selected agents to OpenMeld for codex because this local controller is not signed in on this computer. Sign in to codex, then retry this Web setup command. Support code: provider_account.access_required."
-    );
   });
 
   it("lets Prepare continue after a non-ready controller report is durably accepted", async () => {
@@ -336,11 +330,8 @@ describe("selected Agent Controller reporting", () => {
     ).not.toThrow();
   });
 
-  it("fails closed when a selected local capability is not ready even if the report write is accepted", async () => {
-    const {
-      assertSelectedAgentControllerReportsAccepted,
-      submitSelectedAgentControllerReports,
-    } = await import(
+  it("reports a selected local capability that still needs preparation", async () => {
+    const { submitSelectedAgentControllerReports } = await import(
       "../src/local-service/reporting/selected-agent-controller-reporting"
     );
     const candidate = READY_READINESS.agents.candidates[0];
@@ -376,16 +367,10 @@ describe("selected Agent Controller reporting", () => {
         }),
       }),
     ]);
-    expect(() => assertSelectedAgentControllerReportsAccepted(result)).toThrow(
-      "OpenMeld could not connect selected agents to OpenMeld for codex. Support code: local_agent_preparation.not_enabled."
-    );
   });
 
   it("preserves install choice required as the selected local agent reason", async () => {
-    const {
-      assertSelectedAgentControllerReportsAccepted,
-      submitSelectedAgentControllerReports,
-    } = await import(
+    const { submitSelectedAgentControllerReports } = await import(
       "../src/local-service/reporting/selected-agent-controller-reporting"
     );
     const candidate = READY_READINESS.agents.candidates[0];
@@ -419,15 +404,11 @@ describe("selected Agent Controller reporting", () => {
         reasonCodes: ["controller.launch.choice_required"],
       }),
     ]);
-    expect(() => assertSelectedAgentControllerReportsAccepted(result)).toThrow(
-      "OpenMeld found more than one codex install on this computer. Run `openmeld agents enable --agent codex` in an interactive Terminal and choose one install. If this Terminal cannot prompt, run `openmeld agents enable --agent codex --install <install-id>` with one of the install IDs shown by that enable command, then return to OpenMeld Web setup."
-    );
   });
 
   it("gives repair commands when OpenMeld Service is not running", async () => {
     const {
       assertSelectedAgentControllerReportSubmissionsAccepted,
-      assertSelectedAgentControllerReportsAccepted,
       submitSelectedAgentControllerReports,
     } = await import(
       "../src/local-service/reporting/selected-agent-controller-reporting"
@@ -452,9 +433,6 @@ describe("selected Agent Controller reporting", () => {
       localAgentIds: ["codex"],
     });
 
-    expect(() => assertSelectedAgentControllerReportsAccepted(result)).toThrow(
-      "OpenMeld could not connect selected agents to OpenMeld for codex because OpenMeld Service is not running. Run `openmeld service status` to inspect it, then `openmeld service start` to start it and retry this Web setup command."
-    );
     expect(() =>
       assertSelectedAgentControllerReportSubmissionsAccepted(result)
     ).toThrow(
@@ -463,12 +441,13 @@ describe("selected Agent Controller reporting", () => {
   });
 
   it("fails closed when Runtime reporting cannot return authority runtime evidence", async () => {
-    const { assertSelectedAgentControllerReportsAccepted } = await import(
-      "../src/local-service/reporting/selected-agent-controller-reporting"
-    );
+    const { assertSelectedAgentControllerReportSubmissionsAccepted } =
+      await import(
+        "../src/local-service/reporting/selected-agent-controller-reporting"
+      );
 
     expect(() =>
-      assertSelectedAgentControllerReportsAccepted([
+      assertSelectedAgentControllerReportSubmissionsAccepted([
         {
           agentId: "codex",
           agentControllerRef: "builtin:codex",
@@ -489,12 +468,13 @@ describe("selected Agent Controller reporting", () => {
   });
 
   it("explains forgotten computers without hiding the support code", async () => {
-    const { assertSelectedAgentControllerReportsAccepted } = await import(
-      "../src/local-service/reporting/selected-agent-controller-reporting"
-    );
+    const { assertSelectedAgentControllerReportSubmissionsAccepted } =
+      await import(
+        "../src/local-service/reporting/selected-agent-controller-reporting"
+      );
 
     expect(() =>
-      assertSelectedAgentControllerReportsAccepted([
+      assertSelectedAgentControllerReportSubmissionsAccepted([
         {
           agentId: "codex",
           agentControllerRef: "builtin:codex",

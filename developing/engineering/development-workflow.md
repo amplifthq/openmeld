@@ -3,7 +3,7 @@
 ## Agent Context
 
 - Purpose: Define durable OpenMeld engineering workflow rules for parallel-agent
-  ownership, local development, validation, lane safety, smoke evidence,
+  ownership, local development, test selection, lane safety,
   database workflow entry points, cross-version rollout discipline, and handoff
   expectations.
 - Read this when: You are coordinating parallel agent work, continuing an
@@ -12,12 +12,14 @@
   real-user smoke evidence, changing a versioned local file, using Fresh Web
   Start, or changing workflow commands.
 - Update this when: Parallel-agent ownership, unattended execution discipline,
-  development lanes, validation gates, test isolation, smoke standards,
+  development lanes, test isolation, local validation commands,
   database workflow entry points, or handoff evidence requirements change.
 - Do not use this for: Product semantics, architecture ownership, client
   responsibility boundaries, daemon internals, command tutorials, release
   checklists, or raw command-output archives.
-- Source of truth: This file owns OpenMeld engineering workflow boundaries.
+- Source of truth: This file owns local engineering workflow boundaries. The
+  end-to-end candidate, merge, release, health, smoke, evidence, and recovery
+  lifecycle is owned by `agent-native-delivery.md`.
 
 ## Boundary
 
@@ -88,18 +90,22 @@ the correct owner document. Do not migrate raw logs or long historical notes.
   approved lane into the merge queue immediately instead of allowing its shared
   registries and migration base to drift.
 
-### Release Pipeline
+### Delivery Pipeline
 
-- A release has two stages: run `pnpm run release:preflight` for the aggregate
-  read-only readiness report, then use the guarded execution entrypoint selected
-  by `developing/engineering/production-release.md`. The aggregate command does
-  not replace the scope-specific `release:preflight:local` deployment gate.
+- Follow `developing/engineering/agent-native-delivery.md` from final-candidate
+  validation through merge, release, health, smoke, and evidence. This document
+  owns the local lanes and test-selection details used inside that lifecycle.
+- A release has two implementation stages: run `pnpm run release:preflight` for
+  the aggregate read-only readiness report, then use the guarded execution
+  entrypoint selected by `developing/engineering/production-release.md`. The
+  aggregate command does not replace the scope-specific
+  `release:preflight:local` deployment gate.
 - Hotfixes use the same pipeline. Speed comes from exposing every prerequisite
   in one preflight, not from skipping a gate.
-- `main` is PR-only. Release branches pass Fast PR and merge through a PR before
-  their approved `main` commit becomes a release source. The preflight reports
-  this repository policy; it does not claim to verify GitHub branch-protection
-  settings.
+- `main` is PR-only. Release branches pass the exact Final Candidate contract
+  and merge through a PR before their approved `main` commit becomes a release
+  source. The preflight reports this repository policy; it does not claim to
+  verify GitHub Ruleset settings.
 - For a coordinated release that includes migrations, local components, and
   dependent Workers, the single order is migration, CLI/Service channel,
   scoped Worker verify/deploy, then real-user smoke. Release only what changed:
@@ -454,92 +460,68 @@ package boundaries. Run integration suites only for the boundaries they prove.
 `test:full` and manually dispatched Deep Confidence are exhaustive diagnostics,
 not the default closeout step for every change.
 
-### Gate Commands
+### Validation Commands
+
+The Final Candidate, merge, release, health, smoke, evidence, and fallback
+contract is owned by `developing/engineering/agent-native-delivery.md`. This
+section owns only the lower-level test commands that its transparent planner
+selects.
 
 Canonical command families:
 
-- focused package tests and checks for narrow changes
-- `pnpm check`
-- `pnpm build` when build output or package surfaces change
-- affected checks: `check:affected`, `test:affected`,
-  `test:integration:affected`
-- release-style gates: `verify:pre-push`, `verify:pr`
+- focused package tests and checks for narrow changes;
+- `pnpm check`;
+- `pnpm build` when build output or package surfaces change;
+- affected checks: `check:affected`, `test:affected`, and
+  `test:integration:affected`;
+- repository gates: `verify:pre-push:checks`, `verify:release-ready`,
+  `verify:pr`, and `verify:pr:full`.
 
-`verify:pre-push` is intentionally limited to dependency consistency, static
-workflow and environment contracts, retired identifiers, and local-component
-release readiness. Affected workspace checks, unit tests, and their dependency
-builds belong to `Fast PR` and must not be added to the hook.
+`verify:pre-push:checks` covers dependency consistency, static workflow and
+environment contracts, Changelog and documentation contracts, formatting
+support contracts, and retired identifiers. It does not replace workspace type
+checks, unit tests, integration tests, or release-ready verification.
 
-`Fast PR` is the stable pull-request gate. A short planning job starts beside
-static contracts and affected workspace checks. As soon as planning finishes,
-affected unit tests fan out without waiting for the static lane, then one
-required `Fast PR` aggregate status verifies every lane. Static contracts
-include dependency rules, Cloudflare environment contracts, retired
-identifiers, documentation and release workflow contracts, and local-component
-release readiness against `origin/main`.
+`verify:pr` runs changed-workspace checks and unit tests. The Final Candidate
+policy keeps this lane for executable changes because unit tests have
+independent defect-finding value. It does not run for a documentation-only or
+delivery-infrastructure-only candidate when the scoped contract suite proves
+that diff directly.
 
-One planner reads Turbo's affected test graph before scheduling unit work. It
-installs only the pinned Node.js and pnpm toolchain, then runs the repository's
-exact Turbo version without restoring the full dependency cache or installing
-workspace dependencies. Web uses three Vitest shards; CLI, the Core Node
-boundary suite, and Gateway each use two. A heavy suite is scheduled only when
-that package has an affected `test` task. All remaining affected workspace
-tests stay in one Turbo lane. Turbo
-still builds the upstream workspace dependencies required by those tasks, but
-Web unit tests resolve their workspace dependencies from source and use a
-dependency-graph transit task for cache invalidation instead of materializing
-compiled package output. The required gate does not automatically retest every
-downstream consumer. Package checks or tests that intentionally import their
-own built public surface must declare that package build explicitly, so a cold
-runner cannot race typechecking against output generation.
-Each substantive job has a 20-minute window; the aggregate job only verifies
-the upstream results.
+`test:integration:affected` is selected when a shared package, service,
+runtime, or persistence boundary changes. `db:check` is added for database
+owner paths. Local-component paths select strict release-ready verification on
+an exact versioned release branch and deferred base-aware verification on an
+ordinary feature branch. These selections are implemented and behavior-tested
+in `scripts/ci/final-candidate-policy.mjs`; do not copy the path policy into
+another workflow or document.
 
-Fast PR jobs cache only `.turbo/cache`, with keys isolated by toolchain
-configuration, job or shard, and revision. GitHub scopes pull-request caches to
-that PR's merge ref, so the cache accelerates retries and later revisions of the
-same PR without becoming release evidence or a cross-PR trust channel. Deploy
-workflows do not restore this cache. Successful Turbo tasks use error-only logs
-with hash-level progress, while failed tasks retain their complete logs; direct
-Vitest shards use the dot reporter and suppress console output from passing
-tests.
+`verify:pr:full` is explicit stronger local confidence. Manually dispatched
+Deep Confidence remains the exhaustive diagnostic lane for risk that warrants
+broad Worker, CLI, or runtime integration coverage. Neither is a default paid
+gate.
 
-Use `verify:pr:full` when a change crosses shared package boundaries and needs
-checks, unit tests, and integration tests across changed workspaces and their
-downstream dependents. It is explicit confidence evidence, not the default
-required gate. A lockfile change still uses the dependent-aware path when its
-owner cannot be proven. The only explicit narrow lockfile path is a checked-in
-dependency patch whose lockfile diff changes only that patch's generated
-hashes, plus changes inside its consuming workspace; the affected runner then
-selects that workspace and its dependents.
+Inspect the exact plan with:
 
-Draft pull requests do not start `Fast PR`; marking one ready for review starts
-the gate, and converting it back to draft cancels the in-flight run. Post-merge
-CI keeps the local-component manifest guard plus a narrow CI Contract Guard.
-Both use workflow-level path filters so ordinary product pushes do not start a
-runner. The CI Contract Guard runs only when CI or release infrastructure
-changes and repeats only its cheap static contracts, never affected workspace
-tests or release-ready builds. The local-component guard's in-job push-base
-selector remains defense in depth, and manual dispatch uses current-facts
-verification. Deploy, CLI release, and package publication paths remain forced
-release-ready gates where the owning release invariant requires them. Do not
-add a broad `main` confidence workflow that repeats PR checks after every merge.
+```sh
+git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
+```
 
-Deep Confidence is manual and runs Core Worker integration tests in
-deterministic Vitest file shards. Each matrix job must invoke exactly one direct
-Vitest shard; do not call the package's internally sharded integration script
-and append a second `--shard` flag. Each shard owns a fresh `workerd` process
-because the Core pool intentionally uses shared storage and one Worker within a shard; combining
-the full suite into one process accumulates heap across test files and can turn
-passing behavior into an infrastructure-only OOM. Keep CLI shards coarse enough
-that checkout, dependency installation, and setup do not dominate useful test
-work.
+Run any printed command independently to diagnose it. Add `--full` only when
+the agent judges the broader confidence worth the time. The plan must state
+what it selected, what it skipped, and why.
 
-If affected scripts need a base ref, fetch it or set `OPENMELD_AFFECTED_BASE`
-explicitly. Do not ignore a missing-base result.
+The Git pre-push hook does not repeat candidate checks for ordinary development
+branches. It retains strict release-ready enforcement for direct `main`, tags,
+and exact versioned release branches. The authoritative final candidate is
+explicit and runs once through the normal hosted lane or guarded local fallback.
+
+If affected scripts need a base ref, fetch it or set
+`OPENMELD_AFFECTED_BASE` explicitly. Do not ignore a missing-base result.
 
 When a package-level script needs repo-root Turbo behavior from another working
-directory, use the repo-root form with `pnpm -C <repo-root> exec turbo ...`.
+directory, use the repo-root form with
+`pnpm -C <repo-root> exec turbo ...`.
 
 ## User-Operable Validation
 
@@ -1325,7 +1307,7 @@ actually publishes the integrated feature:
 2. run the base-aware `pnpm release:local-components stamp ...` command with an
    explicit policy; it rebuilds the packaged CLI and verifies what it writes;
 3. run `pnpm run verify:release-ready`; and
-4. publish through `pnpm run release:cli --with-binary` so the package,
+4. publish through `pnpm run release:deploy:local -- --scope cli` so the package,
    binary channel, tag, manifest projection, and production Core come from the
    same commit.
 
@@ -1446,10 +1428,11 @@ publishes from `main`. Do not bump the CLI version or commit a release manifest
 re-stamp from a feature branch: perform both in the clean release worktree, or
 the repository records release state that never reached users.
 
-PR CI and ordinary non-`main` branch pushes enforce that rule with the explicit
-`verify:release-ready -- --defer-release --base <exact-base-sha>` mode. Deferred
-verification still rebuilds the packaged CLI and Service facts and runs the
-release-tool tests. It requires the CLI version and
+Final Candidate enforces that rule with the explicit
+`verify:release-ready -- --defer-release --base <exact-base-sha>` mode on an
+ordinary feature branch. Ordinary development pushes do not repeat this build.
+Deferred verification still rebuilds the packaged CLI and Service facts and
+runs the release-tool tests. It requires the CLI version and
 `release/local-components.json` to remain identical to the base, then reports
 source and hash changes as pending work for the final clean-`main` release. It
 does not treat the base manifest hash as release truth for changed feature
@@ -1464,29 +1447,21 @@ base package and manifest already declare that same release version, a restamp
 after later local-component changes may change only
 `release/local-components.json`; publication preflight must still confirm that
 version is unpublished. That explicit, release-only branch shape selects strict
-release-ready verification in both pre-push and PR CI, so the stamped manifest
-can pass Fast PR before merging to PR-only `main`. The shared release branch
+release-ready verification in both pre-push and Final Candidate, so the stamped
+manifest can pass the exact candidate gate before merging to PR-only `main`.
+The shared release branch
 policy script owns this classification; ordinary feature branches remain
 deferred and cannot carry a release stamp, while a malformed or mixed-scope
 release branch fails closed.
 
-The pre-push hook chooses deferred mode only when every pushed destination is an
-ordinary non-`main` branch. It parses Git's pushed-ref lines; a push that
-includes `refs/heads/main`, a versioned release branch, a tag, malformed input,
-or no input stays strict. Ordinary PR CI passes the pull request's exact base
-SHA explicitly, while versioned release PRs run the same strict gate used by
-main. Because local verification uses the checked-out worktree, the hook rejects
-any non-deletion pushed object that does not resolve to the checked-out `HEAD`
-commit and rejects uncommitted changes to release-relevant paths,
-`.husky/pre-push`, the root `package.json`, or any file under
-`scripts/release/`. This ensures the verifier builds and reads the exact
-release-sensitive tree using the exact gate logic being pushed while allowing
-unrelated worktree changes. Main post-merge guards, release preflight, publish,
-Core deploy, and every actual release path remain strict.
-During a deliberately batched merge sequence, temporary commits on `main` may
-therefore show the strict local-component guard red until the approved clean
-release worktree stamps the combined source. The final release commit must
-restore that guard to green; main is never auto-deferred.
+The pre-push hook skips ordinary non-`main` development updates. It parses Git's
+pushed-ref lines and remains strict when a push includes `refs/heads/main`, a
+versioned release branch, a tag, malformed input, or no input. A strict push
+requires every non-deletion object to resolve to checked-out `HEAD` and rejects
+uncommitted release-relevant or gate-control paths. Final Candidate passes the
+pull request's exact base SHA and chooses deferred or strict release readiness
+from the branch contract. Release preflight, publish, Core deploy, and every
+actual release path remain strict.
 
 For an advisory local update that should show as available without blocking
 Wake:
@@ -1499,7 +1474,7 @@ Verify the tracked manifest against a freshly rebuilt package, Service bundle,
 skill bundle, and changed paths with the release-ready gate. The base resolves
 in this order: an explicit `--base`, then `OPENMELD_AFFECTED_BASE` when set, then
 the most recent `v*` release tag reachable from HEAD (created locally and
-published to `origin` automatically by `pnpm run release:cli`; it marks the last
+published to `origin` automatically by the guarded CLI release; it marks the last
 actually-published state), and only then `origin/main` as the pre-tagging
 fallback. Do not treat `origin/main` as the published baseline — in a
 batched-push workflow it can lag arbitrarily far behind the last npm publish:
