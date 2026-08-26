@@ -1,5 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -17,6 +26,7 @@ const readRepoFile = (relativePath) =>
 const GITHUB_EXPRESSION_PATTERN = /\$\{\{\s*github\./u;
 const RUN_LINE_PATTERN = /^(\s+)run:\s*(.*)$/u;
 const LEADING_WHITESPACE_PATTERN = /^\s*/u;
+const TEN_SPACE_PREFIX_PATTERN = /^ {10}/u;
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
 const DELIVERY_ROUTER_PATHS = [
   "AGENTS.md",
@@ -61,6 +71,9 @@ test("keeps every untrusted GitHub expression outside shell run blocks", () => {
 
 test("isolates status writers from the candidate command credentials", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const isolationSetup = readRepoFile(
+    "scripts/ci/prepare-isolated-candidate.sh"
+  );
   const candidateJob = readJob(workflow, "candidate", "publish_final");
   const pendingJob = readJob(workflow, "publish_pending", "candidate");
   const finalJob = readJob(workflow, "publish_final", null);
@@ -96,7 +109,7 @@ test("isolates status writers from the candidate command credentials", () => {
     )
   );
   assert.ok(candidateJob.includes("--ignore-scripts"));
-  assert.ok(candidateJob.includes("useradd"));
+  assert.ok(isolationSetup.includes("useradd"));
   assert.ok(candidateJob.includes("openmeld-candidate"));
   assert.ok(
     candidateJob.includes(
@@ -144,6 +157,109 @@ test("isolates status writers from the candidate command credentials", () => {
   assert.ok(finalizer.includes("gh api --method POST"));
   assert.ok(!finalizer.includes("actions/checkout"));
   assert.ok(!finalizer.includes("pnpm"));
+});
+
+test("establishes the Linux write boundary before reading candidate pnpm config", () => {
+  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const candidateJob = readJob(workflow, "candidate", "publish_final");
+  const trustedInstall = candidateJob.indexOf(
+    "Install trusted evidence parser"
+  );
+  const isolation = candidateJob.indexOf(
+    "Prepare isolated candidate dependency install"
+  );
+  const candidateInstall = candidateJob.indexOf(
+    "Install untrusted candidate dependencies in isolation"
+  );
+
+  assert.ok(trustedInstall >= 0);
+  assert.ok(isolation > trustedInstall);
+  assert.ok(candidateInstall > isolation);
+  assert.doesNotMatch(
+    candidateJob.slice(0, isolation),
+    /pnpm --dir untrusted-candidate/gu
+  );
+  assert.ok(
+    candidateJob
+      .slice(candidateInstall)
+      .includes("install-isolated-candidate-dependencies.sh")
+  );
+});
+
+test("always finalizes an exact head after pending publication starts", () => {
+  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const finalJob = readJob(workflow, "publish_final", null);
+
+  assert.ok(finalJob.includes("\n    if: always()\n"));
+  assert.ok(!finalJob.includes("needs.publish_pending.result == 'success'"));
+  assert.ok(finalJob.includes("CANDIDATE_HEAD_SHA:"));
+  assert.ok(finalJob.includes("Publish fail-safe final status"));
+});
+
+test("turns a post-pending output failure into an exact failure status", () => {
+  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-pending-finalizer-"));
+  const bin = path.join(root, "bin");
+  const log = path.join(root, "gh.log");
+  mkdirSync(bin);
+  try {
+    const headSha = "a".repeat(40);
+    const baseSha = "b".repeat(40);
+    const treeSha = "c".repeat(40);
+    const fakeGh = path.join(bin, "gh");
+    writeFileSync(
+      fakeGh,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'if [[ " $* " == *" --method POST "* ]]; then',
+        '  printf "%s\\n" "$*" >> "$FAKE_GH_LOG"',
+        "  exit 0",
+        "fi",
+        `case "\${2:-}" in`,
+        `  repos/example/openmeld/pulls/325) printf '%s\\n' '{"head":{"sha":"${headSha}"},"base":{"sha":"${baseSha}"}}' ;;`,
+        `  repos/example/openmeld/commits/main) printf '%s\\n' '${baseSha}' ;;`,
+        `  repos/example/openmeld/git/commits/${headSha}) printf '%s\\n' '${treeSha}' ;;`,
+        "  *) exit 1 ;;",
+        "esac",
+        "",
+      ].join("\n")
+    );
+    chmodSync(fakeGh, 0o755);
+    const environment = {
+      ...process.env,
+      CANDIDATE_BASE_SHA: baseSha,
+      CANDIDATE_CONFIDENCE: "standard",
+      CANDIDATE_HEAD_SHA: headSha,
+      CANDIDATE_PR_NUMBER: "325",
+      CANDIDATE_REPOSITORY: "example/openmeld",
+      CANDIDATE_RUN_ID: "123",
+      CANDIDATE_SERVER_URL: "https://github.com",
+      FAKE_GH_LOG: log,
+      GITHUB_OUTPUT: root,
+      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+    };
+    const pending = spawnSync(
+      "bash",
+      ["-c", readStepRun(workflow, "Verify live identity and publish pending")],
+      { encoding: "utf8", env: environment }
+    );
+
+    assert.notEqual(pending.status, 0);
+    assert.ok(readFileSync(log, "utf8").includes("state=pending"));
+
+    const finalizer = spawnSync(
+      "bash",
+      ["-c", readStepRun(workflow, "Publish fail-safe final status")],
+      { encoding: "utf8", env: environment }
+    );
+    assert.equal(finalizer.status, 0, finalizer.stderr);
+    const publications = readFileSync(log, "utf8").trim().split("\n");
+    assert.ok(publications.at(-1)?.includes("state=failure"));
+    assert.ok(!publications.at(-1)?.includes("state=success"));
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
 });
 
 test("carries hosted standard and full confidence through distinct labels", () => {
@@ -216,6 +332,24 @@ function readJob(workflow, name, nextName) {
     throw new Error(`missing ${nextName} job boundary`);
   }
   return workflow.slice(start, end);
+}
+
+function readStepRun(workflow, stepName) {
+  const stepStart = workflow.indexOf(`      - name: ${stepName}`);
+  if (stepStart === -1) {
+    throw new Error(`missing workflow step: ${stepName}`);
+  }
+  const runStart = workflow.indexOf("        run: |\n", stepStart);
+  if (runStart === -1) {
+    throw new Error(`missing run block: ${stepName}`);
+  }
+  const contentStart = runStart + "        run: |\n".length;
+  const nextStep = workflow.indexOf("\n      - name:", contentStart);
+  return workflow
+    .slice(contentStart, nextStep === -1 ? undefined : nextStep)
+    .split("\n")
+    .map((line) => line.replace(TEN_SPACE_PREFIX_PATTERN, ""))
+    .join("\n");
 }
 
 function extractRunBlocks(workflow) {

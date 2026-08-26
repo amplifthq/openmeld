@@ -573,16 +573,16 @@ function printHelp() {
   process.stdout.write(`OpenMeld Final Candidate
 
 Plan the exact candidate without running checks:
-  pnpm candidate plan -- --base origin/main
+  git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 
 Request the normal GitHub-hosted gate once the committed branch contains current main:
-  pnpm candidate request -- --pr <number>
+  git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- request --pr <number>
 
 Run the same gate locally and publish shared evidence when Actions is unavailable:
-  pnpm candidate:local -- --pr <number>
+  git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- local --pr <number>
 
 Add --full to plan, request, or run. A hosted request uses the distinct final-candidate-full label and executes full repository checks; a standard request never does.
-Normal local runs are bootstrapped from exact current main. Delivery-control changes require an explicit exact --bootstrap-control-sha and --bootstrap-reason through the top-level candidate command.
+The first hop and normal local runs come from exact current main. Delivery-control changes require a reviewed control SHA plus explicit exact --bootstrap-control-sha and --bootstrap-reason through the trusted Git-object entrypoint.
 Every run prints the exact head, base, tree, changed paths, selected commands, reasons, skips, durations, and result.
 `);
 }

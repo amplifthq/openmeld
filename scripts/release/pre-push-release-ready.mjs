@@ -191,7 +191,7 @@ function run() {
   const mode = resolvePrePushReleaseMode(pushUpdates);
   if (mode === "skip") {
     process.stdout.write(
-      "Pre-push validation skipped for an ordinary development update. Run `pnpm candidate plan`, then request or publish one Final Candidate when the PR is ready.\n"
+      "Pre-push validation skipped for an ordinary development update. Use the trusted current-main Final Candidate entrypoint when the PR is ready.\n"
     );
     return;
   }

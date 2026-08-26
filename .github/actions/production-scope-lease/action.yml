@@ -3,7 +3,7 @@ description: Atomically acquires or releases one cross-machine production scope 
 
 inputs:
   operation:
-    description: acquire or release
+    description: acquire, release, or recover
     required: true
   scope:
     description: Canonical production scope
@@ -20,6 +20,16 @@ inputs:
     description: Exact acquired lease SHA for atomic release
     required: false
     default: ""
+  reason:
+    description: Durable reason for explicit expired-lease recovery
+    required: false
+    default: ""
+  github_token:
+    description: Step-scoped GitHub token used only by trusted lease Git operations
+    required: true
+  working_directory:
+    description: Release-source checkout containing the exact source commit and origin
+    required: true
 
 outputs:
   lease_sha:
@@ -36,14 +46,24 @@ runs:
         LEASE_OPERATION: ${{ inputs.operation }}
         LEASE_CONTROL_ROOT: ${{ github.action_path }}/../../..
         LEASE_OWNER: ${{ inputs.owner }}
+        LEASE_REASON: ${{ inputs.reason }}
         LEASE_SCOPE: ${{ inputs.scope }}
         LEASE_SHA: ${{ inputs.lease_sha }}
+        LEASE_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: ${{ github.server_url }}
+        OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: ${{ inputs.github_token }}
         RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
       run: |
         set -euo pipefail
+        LEASE_REPOSITORY_ROOT="$GITHUB_WORKSPACE/$LEASE_WORKING_DIRECTORY"
+        if [ "$(git -C "$LEASE_REPOSITORY_ROOT" rev-parse --show-toplevel)" != "$LEASE_REPOSITORY_ROOT" ]; then
+          echo "::error::Production lease working_directory is not an exact repository root: $LEASE_REPOSITORY_ROOT"
+          exit 1
+        fi
         case "$LEASE_OPERATION" in
           acquire)
             node "$LEASE_CONTROL_ROOT/scripts/release/production-scope-lease.mjs" acquire \
+              --cwd "$LEASE_REPOSITORY_ROOT" \
               --scope "$LEASE_SCOPE" \
               --source-sha "$RELEASE_SOURCE_SHA" \
               --owner "$LEASE_OWNER" \
@@ -51,8 +71,17 @@ runs:
             ;;
           release)
             node "$LEASE_CONTROL_ROOT/scripts/release/production-scope-lease.mjs" release \
+              --cwd "$LEASE_REPOSITORY_ROOT" \
               --scope "$LEASE_SCOPE" \
               --lease-sha "$LEASE_SHA"
+            ;;
+          recover)
+            node "$LEASE_CONTROL_ROOT/scripts/release/production-scope-lease.mjs" recover \
+              --cwd "$LEASE_REPOSITORY_ROOT" \
+              --scope "$LEASE_SCOPE" \
+              --lease-sha "$LEASE_SHA" \
+              --owner "$LEASE_OWNER" \
+              --reason "$LEASE_REASON"
             ;;
           *)
             echo "::error::Unknown production scope lease operation: $LEASE_OPERATION"

@@ -504,7 +504,7 @@ gate.
 Inspect the exact plan with:
 
 ```sh
-pnpm candidate plan -- --base origin/main
+git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 ```
 
 Run any printed command independently to diagnose it. Add `--full` only when

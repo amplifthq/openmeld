@@ -35,7 +35,12 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/final-candidate-workflow.test.mjs",
   "scripts/ci/final-candidate.mjs",
   "scripts/ci/final-candidate.test.mjs",
+  "scripts/ci/install-isolated-candidate-dependencies.sh",
+  "scripts/ci/install-isolated-candidate-dependencies.test.mjs",
+  "scripts/ci/prepare-isolated-candidate.sh",
   "scripts/ci/run-isolated-candidate-command.sh",
+  "scripts/ci/trusted-final-candidate-entrypoint.test.mjs",
+  "scripts/ci/trusted-final-candidate.sh",
   "scripts/ci/verify-trusted-candidate-entrypoints.mjs",
   "scripts/ci/verify-trusted-candidate-entrypoints.test.mjs",
 ]);

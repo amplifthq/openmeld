@@ -103,19 +103,23 @@ jobs:
         id: cli_scope_lease
         uses: ./release-control/.github/actions/production-scope-lease
         with:
+          github_token: ${{ github.token }}
           operation: acquire
           owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           scope: cli
           source_sha: ${{ env.RELEASE_SHA }}
+          working_directory: release-source
 
       - name: Acquire shared Core projection lease
         id: core_scope_lease
         uses: ./release-control/.github/actions/production-scope-lease
         with:
+          github_token: ${{ github.token }}
           operation: acquire
           owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           scope: core
           source_sha: ${{ env.RELEASE_SHA }}
+          working_directory: release-source
 
       - name: Fetch release tags
         run: git fetch --tags --force
@@ -188,14 +192,18 @@ jobs:
         if: always() && steps.core_scope_lease.outputs.lease_sha != ''
         uses: ./release-control/.github/actions/production-scope-lease
         with:
+          github_token: ${{ github.token }}
           lease_sha: ${{ steps.core_scope_lease.outputs.lease_sha }}
           operation: release
           scope: core
+          working_directory: release-source
 
       - name: Release shared CLI publication lease
         if: always() && steps.cli_scope_lease.outputs.lease_sha != ''
         uses: ./release-control/.github/actions/production-scope-lease
         with:
+          github_token: ${{ github.token }}
           lease_sha: ${{ steps.cli_scope_lease.outputs.lease_sha }}
           operation: release
           scope: cli
+          working_directory: release-source

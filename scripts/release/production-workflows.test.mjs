@@ -20,6 +20,7 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const readRepoFile = (relativePath) =>
   readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
+const GITHUB_TOKEN_INPUT = `github_token: ${GITHUB_EXPRESSION_PREFIX} github.token }}`;
 const RELEASE_SHA_CHECKOUT = `ref: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
 const PINNED_SCOPED_RELEASE_SHA = `${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
 const SCOPED_RELEASE_SHA_INPUT =
@@ -33,6 +34,16 @@ const LOCAL_CORE_STARTUP_DIAGNOSTIC =
 const PRODUCTION_CONCURRENCY_PATTERN =
   /concurrency:\n\s+group: deploy-[a-z-]+-production\n\s+cancel-in-progress: false/u;
 const PNPM_BINARY = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const PRODUCTION_LEASE_ACTION =
+  "uses: ./release-control/.github/actions/production-scope-lease";
+
+const readProductionLeaseSteps = (workflow) =>
+  workflow
+    .split(PRODUCTION_LEASE_ACTION)
+    .slice(1)
+    .map(
+      (remainder) => `${PRODUCTION_LEASE_ACTION}${remainder.split("\n\n")[0]}`
+    );
 
 const COMPONENT_WORKFLOWS = [
   ["auth", ".github/workflows/deploy-auth-worker.yml", "/health"],
@@ -282,14 +293,8 @@ test("runs one explicit Final Candidate request with isolated runner and publish
   assert.ok(candidate.includes("statuses: write"));
   assert.ok(candidate.includes("if: always()"));
   assert.ok(candidate.includes("actions/upload-artifact@v4"));
-  assert.equal(
-    rootPackage.scripts.candidate,
-    "node scripts/ci/final-candidate-bootstrap.mjs"
-  );
-  assert.equal(
-    rootPackage.scripts["candidate:local"],
-    "node scripts/ci/final-candidate-bootstrap.mjs run --mode local --publish-status"
-  );
+  assert.equal(rootPackage.scripts.candidate, undefined);
+  assert.equal(rootPackage.scripts["candidate:local"], undefined);
   assert.ok(
     rootPackage.scripts["verify:release-workflows"].includes(
       "scripts/ci/final-candidate-policy.test.mjs"
@@ -355,7 +360,7 @@ test("routes every agent to one delivery contract without duplicating it", () =>
     )
   );
   assert.ok(delivery.includes("OpenMeld Final Candidate"));
-  assert.ok(delivery.includes("pnpm candidate:local -- --pr <number>"));
+  assert.ok(delivery.includes("trusted-final-candidate.sh"));
   assert.ok(delivery.includes("cancel-in-progress: false"));
   assert.ok(delivery.includes("Health And Real-User Smoke"));
   assert.ok(
@@ -402,6 +407,8 @@ test("uses one atomic shared lease across local and hosted releases", () => {
   );
   assert.ok(leaseAction.includes('" acquire \\'));
   assert.ok(leaseAction.includes('" release \\'));
+  assert.ok(leaseAction.includes("OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN"));
+  assert.ok(leaseAction.includes('--cwd "$LEASE_REPOSITORY_ROOT"'));
   assert.ok(leaseEngine.includes("--force-with-lease="));
   assert.ok(leaseEngine.includes("context.ref"));
   assert.ok(leaseEngine.includes("expectedLeaseSha"));
@@ -411,14 +418,20 @@ test("uses one atomic shared lease across local and hosted releases", () => {
   assert.ok(dispatcher.includes("Release shared Database release lease"));
   assert.ok(dispatcher.includes("scope: db"));
   assert.ok(dispatcher.includes("contents: write"));
+  const databaseLeaseSteps = readProductionLeaseSteps(dispatcher);
+  assert.equal(databaseLeaseSteps.length, 2);
+  for (const leaseStep of databaseLeaseSteps) {
+    assert.ok(leaseStep.includes(GITHUB_TOKEN_INPUT));
+    assert.ok(leaseStep.includes("working_directory: release-source"));
+  }
 
   for (const [scope, workflowPath] of COMPONENT_WORKFLOWS) {
     const workflow = readRepoFile(workflowPath);
-    assert.ok(
-      workflow.includes(
-        "uses: ./release-control/.github/actions/production-scope-lease"
-      ),
-      `${scope} must use the cross-machine lease`
+    const leaseSteps = readProductionLeaseSteps(workflow);
+    assert.equal(
+      leaseSteps.length,
+      2,
+      `${scope} must acquire and release its lease`
     );
     const separation = inspectSeparatedReleaseControl(workflow);
     assert.equal(
@@ -447,6 +460,16 @@ test("uses one atomic shared lease across local and hosted releases", () => {
     );
     assert.ok(workflow.includes("contents: write"));
     assert.ok(workflow.includes("if: always()"));
+    for (const leaseStep of leaseSteps) {
+      assert.ok(
+        leaseStep.includes(GITHUB_TOKEN_INPUT),
+        `${scope} must expose GitHub authentication only to its lease action`
+      );
+      assert.ok(
+        leaseStep.includes("working_directory: release-source"),
+        `${scope} must run its lease mutation in the release-source repository`
+      );
+    }
   }
 });
 
@@ -466,6 +489,8 @@ test("runs the production database exactly once through its shared entrypoint", 
   assert.equal(separation.pinsWorkflowSha, true);
   assert.equal(separation.disablesCredentials, true);
   assert.equal(separation.usesReleaseSource, true);
+  assert.ok(dispatcher.includes(GITHUB_TOKEN_INPUT));
+  assert.ok(dispatcher.includes("working_directory: release-source"));
   assert.equal(databaseAction.match(/run db:release:prod/gu)?.length, 1);
   assert.ok(!databaseAction.includes("pnpm db:check"));
   assert.ok(!databaseAction.includes("pnpm db:migrate:prod"));

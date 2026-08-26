@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   acquireProductionScopeLease,
@@ -18,6 +27,10 @@ const AGENT_A_PATTERN = /local:agent-a/u;
 const EXPIRY_FACT_PATTERN = /Expires:/u;
 const STALE_RELEASE_PATTERN = /Refusing to release stale lease/u;
 const ACTIVE_LEASE_PATTERN = /still active/u;
+const SHELL_PARAMETER_PREFIX = "$";
+const SCRIPT_PATH = fileURLToPath(
+  new URL("./production-scope-lease.mjs", import.meta.url)
+);
 
 test("serializes one production scope across clones while unrelated scopes proceed", () => {
   const fixture = createLeaseFixture();
@@ -162,6 +175,79 @@ test("recovers only one explicitly identified expired lease with a reason", () =
     );
   } finally {
     fixture.cleanup();
+  }
+});
+
+test("uses the explicit release-source checkout and ephemeral HTTPS auth in an Actions workspace", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-actions-lease-auth-"));
+  const workspace = path.join(root, "workspace");
+  const releaseSource = path.join(workspace, "release-source");
+  const bin = path.join(root, "bin");
+  const log = path.join(root, "git.log");
+  const sourceSha = "b".repeat(40);
+  const leaseSha = "a".repeat(40);
+  const token = "fixture-token-not-a-real-secret";
+  try {
+    mkdirSync(releaseSource, { recursive: true });
+    mkdirSync(bin);
+    const fakeGit = path.join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        `printf "%s|%s|%s|%s|%s\\n" "$PWD" "$*" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_KEY_0:-}" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_VALUE_0:-}" "${SHELL_PARAMETER_PREFIX}{OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN:-absent}" >> "$FAKE_GIT_LOG"`,
+        `case "\${1:-}" in`,
+        `  commit-tree) printf '%s\\n' '${leaseSha}' ;;`,
+        "  *) ;;",
+        "esac",
+        "",
+      ].join("\n")
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        SCRIPT_PATH,
+        "acquire",
+        "--scope",
+        "web",
+        "--source-sha",
+        sourceSha,
+        "--owner",
+        "github:actions:test",
+        "--cwd",
+        "release-source",
+      ],
+      {
+        cwd: workspace,
+        encoding: "utf8",
+        env: {
+          ...isolatedGitEnvironment(process.env),
+          FAKE_GIT_LOG: log,
+          OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: "https://github.com",
+          OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: token,
+          PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        },
+      }
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const records = readFileSync(log, "utf8").trim().split("\n");
+    assert.ok(records.some((record) => record.includes("|push ")));
+    for (const record of records) {
+      const [cwd, , configKey, configValue, rawToken] = record.split("|");
+      assert.equal(cwd, realpathSync(releaseSource));
+      assert.equal(configKey, "http.https://github.com/.extraheader");
+      assert.equal(
+        configValue,
+        `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
+      );
+      assert.equal(rawToken, "absent");
+    }
+  } finally {
+    rmSync(root, { force: true, recursive: true });
   }
 });
 

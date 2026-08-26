@@ -124,10 +124,12 @@ jobs:
         id: scope_lease
         uses: ./release-control/.github/actions/production-scope-lease
         with:
+          github_token: ${{ github.token }}
           operation: acquire
           owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           scope: db
           source_sha: ${{ inputs.release_sha }}
+          working_directory: release-source
 
       - name: Generate, migrate, verify, and optimize production database
         uses: ./release-control/.github/actions/shared-db-gate
@@ -138,9 +140,11 @@ jobs:
         if: always() && steps.scope_lease.outputs.lease_sha != ''
         uses: ./release-control/.github/actions/production-scope-lease
         with:
+          github_token: ${{ github.token }}
           lease_sha: ${{ steps.scope_lease.outputs.lease_sha }}
           operation: release
           scope: db
+          working_directory: release-source
 
   web:
     name: Release Web

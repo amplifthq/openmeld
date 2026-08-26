@@ -230,10 +230,10 @@ change must leave those signals cleaner and less ambiguous.
     carrier files, OpenMeld-managed skills, daemon schemas, or
     `release/local-components.json`
   - `pnpm run verify:pre-push` or `pnpm run verify:pr` for broader gates
-- Inspect the exact committed candidate with `pnpm candidate plan -- --base
-  origin/main`. Request the one normal hosted gate with `pnpm candidate request
-  -- --pr <number>`, or use `pnpm candidate:local -- --pr <number>` when Actions
-  is unavailable. Both lanes use the same policy and exact-SHA evidence.
+- Use the trusted current-main Final Candidate entrypoint from
+  `developing/engineering/agent-native-delivery.md` for planning, the one normal
+  hosted request, or the Actions-unavailable local fallback. Never start the
+  guarded control plane through candidate-owned package scripts.
 - If affected scripts need a base ref, fetch it or set `OPENMELD_AFFECTED_BASE`.
 - `pnpm run verify:release-ready` is the single release-readiness command for
   local components. It builds the packaged OpenMeld CLI, verifies

@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
@@ -228,7 +229,7 @@ function resolveContext(input, requirements = {}) {
     );
   }
   const context = {
-    cwd: input.cwd ?? process.cwd(),
+    cwd: path.resolve(input.cwd ?? process.cwd()),
     now: input.now ? new Date(input.now) : new Date(),
     owner,
     ref: `refs/heads/openmeld-production-leases/${scope}`,
@@ -283,7 +284,7 @@ function createLeaseCommit(context, metadata) {
       cwd: context.cwd,
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...createProductionScopeLeaseGitEnvironment(process.env),
         GIT_AUTHOR_DATE: metadata.startedAt,
         GIT_AUTHOR_EMAIL: "production-lease@openmeld.local",
         GIT_AUTHOR_NAME: "OpenMeld Production Lease",
@@ -316,7 +317,7 @@ function createRecoveryCommit(context, current, metadata) {
       cwd: context.cwd,
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...createProductionScopeLeaseGitEnvironment(process.env),
         GIT_AUTHOR_DATE: metadata.recoveredAt,
         GIT_AUTHOR_EMAIL: "production-lease@openmeld.local",
         GIT_AUTHOR_NAME: "OpenMeld Production Lease Recovery",
@@ -457,6 +458,7 @@ function runGit(context, args, options = {}) {
   const result = spawnSync("git", args, {
     cwd: context.cwd,
     encoding: "utf8",
+    env: createProductionScopeLeaseGitEnvironment(process.env),
     stdio: ["ignore", "pipe", "pipe"],
   });
   if (!(options.allowFailure || (!result.error && result.status === 0))) {
@@ -469,6 +471,43 @@ function runGit(context, args, options = {}) {
     stderr: String(result.stderr ?? ""),
     stdout: String(result.stdout ?? ""),
   };
+}
+
+export function createProductionScopeLeaseGitEnvironment(environment) {
+  const {
+    OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: serverUrl,
+    OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: token,
+    ...gitEnvironment
+  } = environment;
+  if (!(token || serverUrl)) {
+    return gitEnvironment;
+  }
+  if (!(token && serverUrl)) {
+    throw new Error(
+      "Hosted production lease authentication requires both token and GitHub server URL."
+    );
+  }
+  const server = new URL(serverUrl);
+  if (server.protocol !== "https:" || server.username || server.password) {
+    throw new Error(
+      "Hosted production lease authentication requires a clean HTTPS GitHub server URL."
+    );
+  }
+  const existingCount = Number(gitEnvironment.GIT_CONFIG_COUNT ?? 0);
+  if (!Number.isSafeInteger(existingCount) || existingCount < 0) {
+    throw new Error(
+      "Hosted production lease authentication found invalid Git config state."
+    );
+  }
+  const basicCredential = Buffer.from(`x-access-token:${token}`).toString(
+    "base64"
+  );
+  gitEnvironment.GIT_CONFIG_COUNT = String(existingCount + 1);
+  gitEnvironment[`GIT_CONFIG_KEY_${String(existingCount)}`] =
+    `http.${server.origin}/.extraheader`;
+  gitEnvironment[`GIT_CONFIG_VALUE_${String(existingCount)}`] =
+    `AUTHORIZATION: basic ${basicCredential}`;
+  return gitEnvironment;
 }
 
 function renderHeldLease(lease, now) {
@@ -580,6 +619,7 @@ function parseOptions(argv) {
     const name = option.slice(2).replaceAll("-", "_");
     const key = {
       github_output: "githubOutput",
+      cwd: "cwd",
       lease_sha: "leaseSha",
       owner: "owner",
       reason: "reason",

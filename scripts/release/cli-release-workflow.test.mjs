@@ -129,6 +129,14 @@ test("shares CLI and Core production leases with the local release lane", () => 
     )?.length,
     4
   );
+  assert.equal(
+    source.match(/github_token: \$\{\{ github\.token \}\}/gu)?.length,
+    4
+  );
+  assert.equal(
+    source.match(/working_directory: release-source/gu)?.length >= 4,
+    true
+  );
 });
 
 test("uses the exact release SHA for CLI publication and recovery", () => {

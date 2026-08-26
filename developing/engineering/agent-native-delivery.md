@@ -117,11 +117,13 @@ technical facts required for one exact merge candidate.
 Inspect the candidate policy at any time:
 
 ```sh
-pnpm candidate plan
+git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 ```
 
-The bootstrap fetches current `main` and runs its detached control copy, so the
-candidate does not choose the policy that validates it. Planning is read-only.
+The first shell program comes from the cached trusted `origin/main` Git object;
+it fetches live `main` before loading a detached current-main bootstrap and
+control copy. No candidate-owned package script or bootstrap runs before that
+boundary. Planning is read-only.
 It shows uncommitted paths and the commands a committed candidate would select.
 Run any listed lower-level command directly when a failure needs isolation. Add
 `--full` when the risk or uncertainty justifies repository-wide checks, unit
@@ -143,16 +145,17 @@ Before requesting a candidate:
 The normal cross-machine path is one explicit GitHub-hosted request:
 
 ```sh
-pnpm candidate request -- --pr <number>
+git show origin/main:scripts/ci/trusted-final-candidate.sh | \
+  bash -s -- request --pr <number>
 ```
 
-The command first validates the local head against the live PR and current
+The trusted command first validates the local head against the live PR and current
 `main`, then prints the authoritative hosted plan from that exact trusted base
 with execution mode `remote`. It resets the two candidate request labels and
-adds `final-candidate`. `pnpm candidate request -- --pr <number> --full` instead
-adds `final-candidate-full`. The label is the immutable confidence input: the
-hosted runner executes standard for the first label and full for the second, so
-a plan cannot promise full while the workflow runs standard.
+adds `final-candidate`. Add `--full` to the command to request
+`final-candidate-full`. The label is the immutable confidence input: the hosted
+runner executes standard for the first label and full for the second, so a plan
+cannot promise full while the workflow runs standard.
 
 The workflow:
 
@@ -162,8 +165,12 @@ The workflow:
 - does not run on PR open, reopen, synchronize, ready-for-review, or ordinary
   push events;
 - checks out trusted control and the exact PR head into separate roots with
-  checkout credentials disabled, and installs candidate dependencies with
-  lifecycle scripts disabled;
+  checkout credentials disabled, then creates the unprivileged operating-system
+  user and locks the trusted and evidence roots before pnpm parses any
+  candidate-owned configuration;
+- installs candidate dependencies through that isolated user with lifecycle
+  scripts disabled and candidate-owned home, cache, store, modules, and virtual
+  store paths;
 - runs selected candidate commands as a separate unprivileged operating-system
   user that can write the candidate root but cannot write the trusted control
   root or the private evidence root;
@@ -183,9 +190,10 @@ schema-validated evidence. The final publisher executes only the publisher and
 schema implementation from the exact already-trusted current base SHA, never
 code from the candidate head. GitHub event strings enter shell steps through
 quoted environment variables, never direct expression interpolation. If the
-publisher checkout, setup, install, artifact download, or validator fails after
-pending publication, a checkout-independent fail-safe finalizer publishes
-failure for the same exact head instead of leaving a permanent pending status.
+pending job, publisher checkout, setup, install, artifact download, or validator
+fails after pending publication, a checkout-independent fail-safe finalizer
+publishes failure for the same exact head instead of leaving a permanent
+pending status.
 
 A later push has a different head SHA and therefore has no valid status. A later
 `main` commit makes the branch out of date; sync it and request a new candidate.
@@ -196,7 +204,8 @@ Actions quota, runner outage, or a repository billing block must not prevent
 validation, merge, or release. Run the same engine locally:
 
 ```sh
-pnpm candidate:local -- --pr <number>
+git show origin/main:scripts/ci/trusted-final-candidate.sh | \
+  bash -s -- local --pr <number>
 ```
 
 This is not a manual claim of success. The command fetches live `main`, reads the
@@ -218,7 +227,8 @@ intentional control-plane change itself must be validated, use the explicit,
 local-only bootstrap after inspecting the exact control diff:
 
 ```sh
-pnpm candidate:local -- --pr <number> \
+git show <reviewed-control-sha>:scripts/ci/trusted-final-candidate.sh | \
+  bash -s -- local --pr <number> \
   --bootstrap-control-sha <exact-candidate-head> \
   --bootstrap-reason "<why current-main control cannot own this run>"
 ```
@@ -243,7 +253,7 @@ approval record. As the task requires, merge evaluation can inspect:
 - whether `main` or the PR head changed after validation;
 - required release scopes and post-release smoke.
 
-Any authorized reviewer may run focused commands, `pnpm candidate plan`,
+Any authorized reviewer may run focused commands, the trusted plan command,
 `--full`, or Deep Confidence. A status description without its underlying
 evidence does not prove merge readiness.
 
@@ -342,8 +352,8 @@ Do not collapse those lines into “deployed successfully.”
 - Candidate check failure: keep its command and error, fix the cause, commit a
   new head, sync current `main`, and create a new candidate.
 - Candidate state drift: do not reuse green checks. Sync the branch and rerun.
-- Actions unavailable: use `pnpm candidate:local`; do not weaken the required
-  status or invent a success comment.
+- Actions unavailable: use the trusted current-main local command; do not
+  weaken the required status or invent a success comment.
 - Hosted release unavailable: use the guarded local lane at the same approved
   `main` SHA. Do not call raw deploy or publish commands.
 - Scope lease held: inspect the printed owner, source, start, and expiry. Wait

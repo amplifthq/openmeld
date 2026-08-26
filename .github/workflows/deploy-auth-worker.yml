@@ -94,10 +94,12 @@ jobs:
         id: scope_lease
         uses: ./release-control/.github/actions/production-scope-lease
         with:
+          github_token: ${{ github.token }}
           operation: acquire
           owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           scope: auth
           source_sha: ${{ inputs.release_sha }}
+          working_directory: release-source
 
       - name: Run Auth Worker deployment preflight
         run: pnpm run release:preflight:local -- --scope auth --base HEAD
@@ -124,6 +126,8 @@ jobs:
         if: always() && steps.scope_lease.outputs.lease_sha != ''
         uses: ./release-control/.github/actions/production-scope-lease
         with:
+          github_token: ${{ github.token }}
           lease_sha: ${{ steps.scope_lease.outputs.lease_sha }}
           operation: release
           scope: auth
+          working_directory: release-source

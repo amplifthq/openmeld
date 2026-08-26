@@ -538,6 +538,13 @@ keeps same-SHA recovery working when the release source predates a newer lease
 action or control schema, without running release controls from historical
 product code or silently changing the product SHA.
 
+The trusted lease action receives a step-scoped GitHub token and an explicit
+`release-source` repository root. It injects HTTPS authentication only into its
+own fetch and compare-and-swap Git processes, never persists credentials in Git
+configuration, and does not expose that token to product build, deploy, health,
+or smoke commands. This also makes the lease independent of the workflow's
+workspace-root working directory.
+
 ```sh
 release_sha="$(git rev-parse origin/main)"
 gh workflow run release-on-main.yml \
