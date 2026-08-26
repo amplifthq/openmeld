@@ -258,15 +258,23 @@ represented user and final message text without storing that text. Reusing one
 operation key for changed content or representation fails closed.
 
 The first caller receives a bounded `pending` claim lease before provider
-publication. A `completed` row stores only the bounded shared response needed
-to replay the exact result without another provider call. A
-provider-confirmed non-publication records `failed` and may reclaim the same
-source. A transport-ambiguous provider outcome or a failure after provider
-success records `outcome_unknown` and must not be automatically reposted. An
-expired `pending` claim also closes to `outcome_unknown`; expiry never proves
-that the provider write did not happen. Claim-fenced completion prevents a
-stale caller from overwriting a newer retry. The action audit is written only
-by a new claim holder, so an exact completed replay does not create a second
+publication. All local message presentation must finish before the action audit
+and before the provider publisher begins; the provider publisher accepts the
+prepared presentation and must not hide another fallible presentation step
+inside the ambiguous write boundary. A local preparation failure therefore
+records `failed`, creates no action audit, and may reclaim the same source. A
+`completed` row stores only the bounded shared response needed to replay the
+exact result without another provider call. A provider-confirmed
+non-publication records `failed` and may reclaim the same source. A
+transport-ambiguous provider outcome or a failure after provider success records
+`outcome_unknown` and must not be automatically reposted. An expired `pending`
+claim also closes to `outcome_unknown`; expiry never proves that the provider
+write did not happen. Claim-fenced completion prevents a stale caller from
+overwriting a newer retry. Failure telemetry records the operation identity,
+destination identity, source identity, phase, bounded error identity, and
+classified outcome without message text or credentials. The action audit is
+written only by a new claim holder after local presentation succeeds, so a
+preparation failure or exact completed replay does not create a misleading
 audit row.
 
 ## Connector Connection Data Boundary
