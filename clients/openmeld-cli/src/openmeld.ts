@@ -2741,7 +2741,11 @@ const spaceActionCmd = spaceCmd
 spaceActionCmd
   .command("reply")
   .description("Record a final Space reply for the current dispatch.")
-  .argument("<message...>", "Reply message")
+  .argument("[message...]", "Reply message")
+  .option(
+    "--message-file <path>",
+    "Read the UTF-8 reply message from a file; use - for stdin"
+  )
   .option(
     "--wake <target>",
     "Wake another Agent Profile with this reply",
@@ -2763,6 +2767,8 @@ spaceActionCmd
   .action(async (messageParts, opts) => {
     await runSpaceActionReply({
       filePaths: Array.isArray(opts.file) ? opts.file : [],
+      messageFilePath:
+        typeof opts.messageFile === "string" ? opts.messageFile : undefined,
       messageParts: Array.isArray(messageParts) ? messageParts : [],
       wakeTargets: Array.isArray(opts.wake) ? opts.wake : [],
       referenceTargets: Array.isArray(opts.reference) ? opts.reference : [],

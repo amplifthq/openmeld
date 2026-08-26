@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import type {
   OpenMeldSpaceEgressAction,
@@ -42,26 +43,41 @@ const SPACE_ACTION_REPLY_TIMING_EVENT = "openmeld.space_action.reply_timing";
 
 export function runSpaceActionReply(input: {
   filePaths?: readonly string[];
+  messageFilePath?: string;
   messageParts: readonly string[];
   referenceTargets?: readonly string[];
   wakeTargets?: readonly string[];
 }): void | Promise<void> {
+  const text = resolveReplyMessageText(input);
+  return recordDispatchSpaceReply({
+    filePaths: input.filePaths,
+    messagePartCount: input.messageParts.length,
+    referenceTargets: input.referenceTargets,
+    text,
+    wakeTargets: input.wakeTargets,
+  });
+}
+
+export function recordDispatchSpaceReply(input: {
+  filePaths?: readonly string[];
+  messagePartCount?: number;
+  referenceTargets?: readonly string[];
+  text: string;
+  wakeTargets?: readonly string[];
+}): void | Promise<void> {
   // OPENMELD_SETUP_TO_WAKE_PATH: HIGHEST_FACT dispatch-scoped-space-action
-  // Local agents speak to Spaces through the dispatch-scoped Space Action CLI,
-  // never by inventing ad hoc publication payloads.
+  // Every local-agent transport records the same dispatch-scoped Space Action;
+  // no transport may invent an ad hoc publication payload.
   const timing = createSpaceActionReplyTiming();
   timing.emit("command_start", undefined, {
-    messagePartCount: input.messageParts.length,
+    messagePartCount: input.messagePartCount ?? 0,
     referenceTargetCount: input.referenceTargets?.length ?? 0,
     wakeTargetCount: input.wakeTargets?.length ?? 0,
   });
   const context = readDispatchSpaceActionContextFromEnv();
   timing.emit("context_ready", context);
   assertAllowedAction(context, "post_message");
-  const text = normalizeRequiredJoinedText(
-    input.messageParts,
-    "Reply message is required."
-  );
+  const text = normalizeRequiredText(input.text, "Reply message is required.");
   assertNoRemovedCcSpaceAddressingSyntax(text);
   const targetIds = resolveMessageEnvelopeTargetIds({
     context,
@@ -75,7 +91,7 @@ export function runSpaceActionReply(input: {
   });
   const filePaths = input.filePaths ?? [];
   if (filePaths.length === 0) {
-    recordSpaceActionReply({
+    writeSpaceActionReplyRecord({
       context,
       files: [],
       targetIds,
@@ -93,6 +109,29 @@ export function runSpaceActionReply(input: {
   });
 }
 
+function resolveReplyMessageText(input: {
+  messageFilePath?: string;
+  messageParts: readonly string[];
+}): string {
+  const hasInlineMessage = input.messageParts.length > 0;
+  const messageFilePath = input.messageFilePath?.trim();
+  if (hasInlineMessage && messageFilePath) {
+    throw new Error(
+      "Choose either a reply message or --message-file, not both."
+    );
+  }
+  if (!messageFilePath) {
+    return normalizeRequiredJoinedText(
+      input.messageParts,
+      "Reply message is required."
+    );
+  }
+  const message = readFileSync(messageFilePath === "-" ? 0 : messageFilePath, {
+    encoding: "utf8",
+  });
+  return normalizeRequiredText(message, "Reply message is required.");
+}
+
 async function uploadAndRecordSpaceActionReply(input: {
   context: DispatchSpaceActionContext;
   filePaths: readonly string[];
@@ -104,10 +143,10 @@ async function uploadAndRecordSpaceActionReply(input: {
     context: input.context,
     filePaths: input.filePaths,
   });
-  recordSpaceActionReply({ ...input, files });
+  writeSpaceActionReplyRecord({ ...input, files });
 }
 
-function recordSpaceActionReply(input: {
+function writeSpaceActionReplyRecord(input: {
   context: DispatchSpaceActionContext;
   files: Awaited<ReturnType<typeof uploadSpaceActionReplyFiles>>;
   targetIds: { activationTargets: string[]; referenceTargets: string[] };
