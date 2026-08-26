@@ -73,6 +73,7 @@ export const organizationComputerLocalAgentDetailsSchema = z.strictObject({
     .array(
       z.strictObject({
         displayName: z.string().trim().min(1).max(256),
+        id: BOUNDED_ID_SCHEMA.optional(),
       })
     )
     .max(256),
@@ -110,6 +111,7 @@ export function projectOrganizationComputerLocalAgentDetails(
     },
     models: snapshot.models.map((model) => ({
       displayName: model.displayName,
+      id: model.id,
     })),
     nativeInterface: snapshot.nativeInterface,
     status: snapshot.status,

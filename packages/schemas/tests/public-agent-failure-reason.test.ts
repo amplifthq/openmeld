@@ -853,10 +853,6 @@ describe("public agent failure reason mapping", () => {
 
   it.each([
     [
-      "controller.client.upgrade_required",
-      "Codex on this device is too old for the current model. Upgrade Codex on this device, then try again.",
-    ],
-    [
       "controller.runtime.missing",
       "This local agent is not available on this device. Connect a local agent, then try again.",
     ],
@@ -875,6 +871,28 @@ describe("public agent failure reason mapping", () => {
       recoveryTarget: "prepare_setup",
     });
     expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(body);
+  });
+
+  it("routes an incompatible Codex version directly to Local Agent management", () => {
+    const body =
+      "Codex on this computer can't use the selected model. Update Codex or choose another Codex installation, then try again.";
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: "controller.client.upgrade_required",
+        targetLabel: "Runner",
+      })
+    ).toEqual({
+      body,
+      kind: "local_agent_prepare",
+      primaryActionId: "manage_local_agent",
+      primaryActionLabel: "Update or change local agent",
+      recoveryTarget: "computer",
+    });
+    expect(
+      resolveMappedPublicAgentFailureReason(
+        "controller.client.upgrade_required"
+      )
+    ).toBe(body);
   });
 
   it.each([

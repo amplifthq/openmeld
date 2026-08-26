@@ -19,6 +19,7 @@ import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
 	GetAgentProfilePrimaryBindingResponse,
+	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
 	ModelCatalog,
 	OrganizationBindingAuthorizationProfile,
@@ -100,7 +101,10 @@ import {
 } from "#/components/directory/directory-card-grid";
 import { shouldShowAgentProfileProjectSettings } from "#/components/profiles/agent-profile-project-settings";
 import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
-import { AgentProfileModelSelectionFields } from "#/components/profiles/create-profile-form";
+import {
+	type AgentProfileModelCompatibilityContext,
+	AgentProfileModelSelectionFields,
+} from "#/components/profiles/create-profile-form";
 import {
 	formatOpenCodePermissionJson,
 	isOpenCodeAgentControllerRef,
@@ -1563,6 +1567,18 @@ function AgentProfileDirectoryRow(input: {
 				profile.openMeldProfileId
 			) ?? [])
 		: [];
+	const primaryBinding =
+		controller.primaryBindingByProfileId.get(profile.openMeldProfileId) ?? null;
+	const modelCompatibilityContext =
+		resolveAgentProfileModelCompatibilityContext({
+			agentControllerRef:
+				primaryBinding?.executionTarget?.agentControllerRef ?? null,
+			controllerChangeOptions: controller.controllerChangeOptions,
+			localRuntimes:
+				input.cardInput.recovery.localRuntimesQuery.data?.localRuntimes ?? [],
+			orgSlug: controller.currentOrganization.slug,
+			readiness,
+		});
 
 	return (
 		<AgentProfileExecutionReadinessRow
@@ -1580,6 +1596,7 @@ function AgentProfileDirectoryRow(input: {
 			}
 			localAgentCatalogEntries={controller.localAgentCatalogEntries}
 			modelCatalog={controller.modelCatalog}
+			modelCompatibilityContext={modelCompatibilityContext}
 			onCheckAgain={async () => {
 				await controller.handleCheckProfileAgain(profile);
 			}}
@@ -1669,10 +1686,7 @@ function AgentProfileDirectoryRow(input: {
 					profile.openMeldProfileId
 				),
 			}}
-			primaryBinding={
-				controller.primaryBindingByProfileId.get(profile.openMeldProfileId) ??
-				null
-			}
+			primaryBinding={primaryBinding}
 			profile={profile}
 			readiness={readiness}
 			repairActions={
@@ -1733,6 +1747,51 @@ function AgentProfileDirectoryRow(input: {
 			}
 		/>
 	);
+}
+
+function resolveAgentProfileModelCompatibilityContext(input: {
+	agentControllerRef: string | null;
+	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
+	localRuntimes: readonly LocalRuntimeComputer[];
+	orgSlug: string;
+	readiness: GetAgentExecutionReadinessResponse | null;
+}): AgentProfileModelCompatibilityContext | null {
+	const controller = input.agentControllerRef
+		? parseAgentControllerRef(input.agentControllerRef)
+		: null;
+	if (
+		controller?.kind !== "builtin" ||
+		!input.readiness?.routeDeviceId ||
+		!input.readiness.routeLane
+	) {
+		return null;
+	}
+	const target = input.localRuntimes
+		.flatMap((computer) => computer.executionTargets)
+		.find(
+			(candidate) =>
+				candidate.deviceId === input.readiness?.routeDeviceId &&
+				candidate.runtimeLane === input.readiness.routeLane
+		);
+	const snapshot = target?.capabilities.find(
+		(capability) => capability.agentControllerRef === controller.ref
+	)?.agentControllerInterface;
+	if (!snapshot) {
+		return null;
+	}
+	return {
+		agentControllerId: controller.id,
+		controllerDisplayName:
+			input.controllerChangeOptions.find(
+				(option) => option.agentControllerRef === controller.ref
+			)?.label ?? snapshot.displayName,
+		installedVersion: snapshot.version,
+		managePath: buildOrganizationComputerPath({
+			deviceId: input.readiness.routeDeviceId,
+			orgSlug: input.orgSlug,
+		}),
+		reportedModelIds: snapshot.models.map((model) => model.id),
+	};
 }
 
 type AgentProfileOwnerGroup = {
@@ -1899,6 +1958,7 @@ type AgentProfileExecutionReadinessRowProps = {
 	errorMessage: string | null;
 	localAgentCatalogEntries: readonly DeviceAgentCatalogEntry[];
 	modelCatalog: ModelCatalog | null;
+	modelCompatibilityContext: AgentProfileModelCompatibilityContext | null;
 	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
 	onControllerChange: (
 		update: AgentProfileControllerChangeUpdate
@@ -2166,6 +2226,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 				modelCatalog: input.row.modelCatalog,
 			})}
 			modelCatalog={input.row.modelCatalog}
+			modelCompatibilityContext={input.row.modelCompatibilityContext}
 			onControllerChange={input.row.onControllerChange}
 			onControllerCollaborationModeUpdate={
 				input.row.onControllerCollaborationModeUpdate
@@ -2858,6 +2919,7 @@ function AgentProfileRowMoreMenu(input: {
 	details: ProfileDetailsSnapshot;
 	editState: AgentProfileEditState | null;
 	modelCatalog: ModelCatalog | null;
+	modelCompatibilityContext: AgentProfileModelCompatibilityContext | null;
 	onControllerChange: (
 		update: AgentProfileControllerChangeUpdate
 	) => Promise<void>;
@@ -3056,6 +3118,7 @@ function AgentProfileRowMoreMenu(input: {
 				editState={input.editState}
 				isPending={isProfileEditPending}
 				modelCatalog={input.modelCatalog}
+				modelCompatibilityContext={input.modelCompatibilityContext}
 				onControllerChange={input.onControllerChange}
 				onControllerCollaborationModeUpdate={
 					input.onControllerCollaborationModeUpdate
@@ -3158,6 +3221,7 @@ export function AgentProfileEditDialog(input: {
 	isPending: boolean;
 	loadErrorMessage?: string | null;
 	modelCatalog: ModelCatalog | null;
+	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
 	onControllerChange: (
 		update: AgentProfileControllerChangeUpdate
 	) => Promise<void>;
@@ -3318,6 +3382,7 @@ function AgentProfileEditDialogContent(
 						draftKey={draftKey}
 						editState={input.editState}
 						modelCatalog={input.modelCatalog}
+						modelCompatibilityContext={input.modelCompatibilityContext}
 						modelSelection={modelSelection}
 						onDraftChange={setDraft}
 						openCodePermission={openCodePermission}
@@ -3385,6 +3450,7 @@ function AgentProfileEditDialogFields(input: {
 	draftKey: string;
 	editState: AgentProfileEditState | null;
 	modelCatalog: ModelCatalog | null;
+	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
 	modelSelection: AgentProfileModelSelectionEditState | null;
 	onDraftChange: (draft: AgentProfileEditDraft) => void;
 	openCodePermission: AgentProfileOpenCodePermissionEditState | null;
@@ -3449,6 +3515,7 @@ function AgentProfileEditDialogFields(input: {
 						disabled={input.disabled}
 						draftKey={input.draftKey}
 						modelCatalog={input.modelCatalog}
+						modelCompatibilityContext={input.modelCompatibilityContext}
 						modelSelection={input.modelSelection}
 						onDraftChange={input.onDraftChange}
 					/>
@@ -3906,6 +3973,7 @@ function AgentProfileModelSelectionEditSection(input: {
 	disabled: boolean;
 	draftKey: string;
 	modelCatalog: ModelCatalog | null;
+	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
 	modelSelection: AgentProfileModelSelectionEditState | null;
 	onDraftChange: (draft: AgentProfileEditDraft) => void;
 }) {
@@ -3919,6 +3987,7 @@ function AgentProfileModelSelectionEditSection(input: {
 			agentId={modelSelection.agentControllerId}
 			disabled={input.disabled}
 			modelCatalog={input.modelCatalog}
+			modelCompatibilityContext={input.modelCompatibilityContext}
 			modelId={input.activeDraft.selectedModelId}
 			onChangeModelId={(modelId) => {
 				const nextReasoningLevel =

@@ -54,9 +54,9 @@ becomes a first-class, user-selectable property of an Agent Profile.
 | In scope (Phase 1) | Out of scope (Phase 1) |
 |---|---|
 | Per-Agent-Profile model selection, editable anytime from Web and CLI | OpenClaw model management (OpenClaw stays a usable controller; its model is left to the user's own OpenClaw global config) |
-| Five controllers: **Codex**, **Claude Code**, **Grok Build**, **Cursor**, and **OpenCode** | Enforcing per-model CLI version floors (schema field reserved, not enforced) |
+| Five controllers: **Codex**, **Claude Code**, **Grok Build**, **Cursor**, and **OpenCode** | Automatically updating a Local Agent installation from Web |
 | Reasoning-effort selection where the vendor exposes a separate per-call control (Claude Code, Codex, OpenCode, and Grok Build; Cursor ACP does not) | Any "is this model the latest" indicator or UI |
-| Exact provider model IDs, including an explicitly cataloged provider-managed selector when that is the provider's stable ID | Per-device model-support tracking/display |
+| Exact provider model IDs, including an explicitly cataloged provider-managed selector when that is the provider's stable ID | Treating a failed or missing capability check as proof that a model is unsupported |
 | One maintainable **default model per agent controller** (doubles as the runtime fallback) | A deploy-free DB override layer for the catalog |
 | A core-served vendor-model catalog (repo-authored, core-deployed) | Adding fields to `registry.json` or to the dispatch queue wire schema |
 | A framework-agnostic selection module reused by Web, CLI, and future Desktop | Full create-profile flow unification (kind/name, CLI-only transport/response-policy, per-client candidate sourcing, `agentId`-vs-`agentControllerRef` modeling) — tracked as a separate follow-on refactor |
@@ -106,6 +106,15 @@ becomes a first-class, user-selectable property of an Agent Profile.
     The catalog stays dynamic, so shared request schemas remain bounded strings
     rather than catalog-derived enums. An omitted selection continues to use the
     default-model path.
+12. **A catalog claim is not proof that one installation can run a model.**
+    Profile create and edit compare the selected Computer's current ACI model
+    inventory with the catalog. When that inventory uses catalog IDs, it is the
+    authoritative compatibility evidence. Otherwise, a valid installed version
+    may be compared with a catalog `minCliVersion`. Missing, failed, malformed,
+    or unrelated evidence remains unknown and must not disable a model. A known
+    incompatibility disables that choice and offers the exact Computer as the
+    place to update or change the Local Agent installation. OpenMeld never
+    silently changes the user's selected model.
 
 ---
 
@@ -239,11 +248,11 @@ Sources: the
 and [CLI reference](https://code.claude.com/docs/en/cli-reference).
 
 This update adds Opus 5 as an available pinned model but keeps
-`claude-opus-4-8` as the controller default. `minCliVersion` is not enforced in
-Phase 1, so changing the default would send Opus 5 to every unset Agent Profile,
-including computers still running Claude Code older than `2.1.219`. Move the
-default only after version-floor enforcement or another explicit compatibility
-decision makes that rollout safe.
+`claude-opus-4-8` as the controller default. Current clients enforce a valid
+`minCliVersion` only when live model inventory cannot provide stronger evidence.
+Older clients may still send the default to an older Claude Code installation,
+so move the default only after the compatibility guard has completed its client
+rollout or another explicit compatibility decision makes that rollout safe.
 
 ### 5.5 Hosted Center Agent catalog
 

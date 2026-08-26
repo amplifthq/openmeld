@@ -859,7 +859,11 @@ function planAgentProfilePreparationRecovery(input: {
   return {
     body: copy.body,
     kind: "prepare_agent_profile",
-    ...createPrimaryAction("connect_local_agent"),
+    ...createPrimaryAction(
+      input.reasonCode === "controller.client.upgrade_required"
+        ? "manage_local_agent"
+        : "connect_local_agent"
+    ),
     profileId: input.member.profileId,
     profileName: input.profileName,
     recoveryReasonCode: input.reasonCode,

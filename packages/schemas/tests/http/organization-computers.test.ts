@@ -26,7 +26,7 @@ const TEAM_SAFE_DETAILS = {
     installChoiceCount: 2,
     status: "ready",
   },
-  models: [{ displayName: "Claude Sonnet" }],
+  models: [{ displayName: "Claude Sonnet", id: "claude-sonnet" }],
   nativeInterface: "claude-cli",
   status: "ready",
   usageLimits: [
@@ -152,6 +152,43 @@ describe("Organization Computers contracts", () => {
         version: "1.0.0",
       }).conversationCapabilities?.fork
     ).toBe(expectedForkCapability);
+  });
+
+  it("projects model identifiers needed to prevent incompatible teammate selections", () => {
+    expect(
+      projectOrganizationComputerLocalAgentDetails({
+        agentControllerRef: "builtin:codex",
+        auth: { status: "authenticated" },
+        capabilities: TEAM_SAFE_DETAILS.capabilities,
+        checkedAt: "2026-08-18T05:00:00.000Z",
+        controllerId: "codex",
+        displayName: "Codex",
+        launch: {
+          argsPrefix: [],
+          commandPath: "/usr/local/bin/codex",
+          installChoiceCount: 1,
+          status: "ready",
+        },
+        message: null,
+        models: [{ displayName: "GPT-5.6 Sol", id: "gpt-5.6-sol" }],
+        nativeInterface: "codex-app-server",
+        schemaVersion: 1,
+        skills: [],
+        status: "ready",
+        version: "0.149.1",
+      }).models
+    ).toEqual([{ displayName: "GPT-5.6 Sol", id: "gpt-5.6-sol" }]);
+  });
+
+  it("continues to accept older team projections without model identifiers", () => {
+    expect(
+      organizationComputersResponseSchema.safeParse(
+        responseWithDetails({
+          ...TEAM_SAFE_DETAILS,
+          models: [{ displayName: "Claude Sonnet" }],
+        })
+      ).success
+    ).toBe(true);
   });
 
   it("accepts useful team-safe local-agent operational details", () => {

@@ -33,6 +33,7 @@ const AUTO_AUTHORIZE_NEW_AGENT_PROFILES_IN_ACME_PATTERN =
 	/Automatically authorize my new Agents in Acme/;
 const BORDER_CLASS_PATTERN = /\bborder\b/;
 const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld/;
+const DEFAULT_GPT_55_MODEL_PATTERN = /Use controller default \(GPT-5.5\)/;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a human profile to this account before bringing profiles into this Space.";
 
@@ -318,6 +319,7 @@ type DialogRecovery = ComponentProps<typeof CreateProfileDialog>["recovery"];
 function buildFakeRecovery(
 	catalogEntries: readonly unknown[] = [],
 	input: {
+		agentControllerInterface?: unknown;
 		fetchStatus?: "fetching" | "idle" | "paused";
 		setProfileWorkspaceSupported?: boolean;
 	} = {}
@@ -350,6 +352,18 @@ function buildFakeRecovery(
 									isCurrent: false,
 									executionTargets: [
 										{
+											capabilities: input.agentControllerInterface
+												? [
+														{
+															agentControllerInterface:
+																input.agentControllerInterface,
+															agentControllerRef: "builtin:codex",
+															enabled: true,
+															reasonCodes: [],
+															status: "ready",
+														},
+													]
+												: [],
 											deviceId: "device-123",
 											isCurrent: false,
 											localAgentControl: {
@@ -1295,6 +1309,139 @@ describe("CreateProfileDialog", () => {
 		expect(
 			screen.getByRole("radio", { name: CHOOSE_LATER_PATTERN })
 		).toBeTruthy();
+	});
+
+	it("blocks a model the selected Codex installation does not offer", async () => {
+		renderCreateProfileDialog({
+			orgSlug: "acme",
+			recovery: buildFakeRecovery(
+				[
+					buildCatalogEntry({
+						agentId: "codex",
+						launchStatus: "ready",
+						selectable: true,
+					}),
+				],
+				{
+					agentControllerInterface: {
+						agentControllerRef: "builtin:codex",
+						models: [{ displayName: "GPT-5.4 Mini", id: "gpt-5.4-mini" }],
+						version: "0.142.5",
+					},
+				}
+			),
+		});
+
+		await selectAgentProfileKind();
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Research Agent" },
+		});
+		fireEvent.click(await screen.findByRole("radio", { name: "Codex" }));
+
+		expect(
+			await screen.findByText(
+				"GPT-5.5 isn't available in Codex on this computer. Choose another model or update or change the installation."
+			)
+		).toBeTruthy();
+		const submitButton = screen.getByRole("button", {
+			name: CREATE_PROFILE_BUTTON_PATTERN,
+		}) as HTMLButtonElement;
+		expect(submitButton.disabled).toBe(true);
+		expect(
+			screen.getByText("Choose a model available in Codex on this computer.")
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("button", { name: "Update or change Codex" })
+				.getAttribute("data-to")
+		).toBe("/o/acme/computers/device-123");
+
+		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+		expect(
+			screen
+				.getByRole("option", {
+					name: DEFAULT_GPT_55_MODEL_PATTERN,
+				})
+				.hasAttribute("data-disabled")
+		).toBe(true);
+		fireEvent.click(screen.getByRole("option", { name: "GPT-5.4 Mini" }));
+
+		await waitFor(() => {
+			expect(submitButton.disabled).toBe(false);
+		});
+		expect(
+			screen.queryByText("Choose a model available in Codex on this computer.")
+		).toBeNull();
+	});
+
+	it("blocks a model the selected teammate Codex installation does not offer", async () => {
+		readOrganizationComputersMock.mockResolvedValue({
+			computers: [
+				{
+					computerId: "device-ashley",
+					deviceDisplayName: "Ashley's Mac Studio",
+					deviceType: "desktop",
+					lastSeenAtMs: 1_775_952_000_000,
+					localAgents: [
+						{
+							agentControllerRef: "builtin:codex",
+							details: {
+								capabilities: {
+									approvals: true,
+									cancel: true,
+									interrupt: true,
+									modelSelection: true,
+									nativeEventStream: true,
+									permissionModes: true,
+									structuredUserInput: true,
+								},
+								checkedAt: "2026-08-20T00:00:00.000Z",
+								launch: { installChoiceCount: 1, status: "ready" },
+								models: [{ displayName: "GPT-5.4 Mini", id: "gpt-5.4-mini" }],
+								nativeInterface: "codex-app-server",
+								status: "ready",
+								version: "0.142.5",
+							},
+							enabled: true,
+							status: "ready",
+						},
+					],
+					osVersion: "25.5.0",
+					ownerUserId: "user-ashley",
+					platformFamily: "macOS",
+					serviceState: "connected",
+				},
+			],
+			generatedAt: "2026-08-20T00:00:00.000Z",
+			organizationId: "organization-123",
+		});
+		renderCreateProfileDialog({
+			allowTeammateRequests: true,
+			currentUserId: "user-123",
+			orgSlug: "acme",
+		});
+
+		await selectAgentProfileKind();
+		const teammateOwnerChoice = screen.getByRole("radio", {
+			name: "A teammate",
+		});
+		await waitFor(() => {
+			expect(teammateOwnerChoice.getAttribute("aria-disabled")).toBeNull();
+		});
+		fireEvent.click(teammateOwnerChoice);
+		await screen.findByRole("combobox", { name: "Agent owner" });
+		fireEvent.click(await screen.findByRole("radio", { name: "Codex" }));
+
+		expect(
+			await screen.findByText(
+				"GPT-5.5 isn't available in Codex on this computer. Choose another model or update or change the installation."
+			)
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("button", { name: "Update or change Codex" })
+				.getAttribute("data-to")
+		).toBe("/o/acme/computers/device-ashley");
 	});
 
 	it("explains why Create profile is disabled until a profile kind is chosen", async () => {

@@ -68,7 +68,7 @@ describe("Agent Controller Interface cloud projection", () => {
         status: "ready",
       },
       message: null,
-      models: [],
+      models: [{ displayName: "GPT-5.4", id: "openai/gpt-5.4" }],
       skills: [],
     });
   });

@@ -185,6 +185,15 @@ ACI-owned local evidence may include:
 - clear local repair guidance when the controller is missing, ambiguous, old, or
   not authenticated
 
+The controller-provided model inventory is compatibility evidence for that exact
+selected installation and authenticated account. ACI preserves its bounded model
+IDs and display names in the cloud projection so owned and team-safe Computer
+reads can prevent a known-incompatible Profile selection. This does not expose
+provider account identity, paths, arguments, commands, skills, or raw diagnostics.
+Missing inventory is unknown evidence, not proof that every catalog model works
+or that none do. Version advisory remains a separate maintenance check; an
+advisory lookup failure must not erase an otherwise proven incompatibility.
+
 The selected launch contract remains the install and update identity. When an
 Agent Controller is bundled inside a host application, ACI must treat that host
 application as the update owner. It must not compare the bundled runtime with a

@@ -965,6 +965,86 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBe("/o/amplift/computers/device-fangyuan");
 	});
 
+	it("shows an in-place repair action for a saved model Codex no longer offers", () => {
+		const primaryBinding = createPrimaryBindingResponse(
+			"codex:askForApproval",
+			"builtin:codex",
+			{ modelId: "gpt-5.4", reasoningLevel: "medium" }
+		).binding as GetAgentProfilePrimaryBindingResponse["binding"];
+		const modelCatalog: ModelCatalog = {
+			agentControllers: {
+				codex: {
+					defaultModelId: "gpt-5.5",
+					models: [
+						{
+							displayName: "GPT-5.5",
+							id: "gpt-5.5",
+							minCliVersion: null,
+							supportedReasoningLevels: ["low", "medium", "high"],
+							unavailable: false,
+						},
+						{
+							displayName: "GPT-5.4",
+							id: "gpt-5.4",
+							minCliVersion: null,
+							supportedReasoningLevels: ["low", "medium", "high"],
+							unavailable: false,
+						},
+					],
+				},
+			},
+			schemaVersion: 1,
+			updatedAt: "2026-06-18T00:00:00.000Z",
+		};
+
+		render(
+			<AgentProfileEditDialog
+				controllerChangeOptions={[]}
+				editState={resolveAgentProfileEditState({
+					binding: primaryBinding,
+					modelCatalog,
+				})}
+				isPending={false}
+				modelCatalog={modelCatalog}
+				modelCompatibilityContext={{
+					agentControllerId: "codex",
+					controllerDisplayName: "Codex",
+					installedVersion: "0.142.5",
+					managePath: "/o/amplift/computers/device-monica",
+					reportedModelIds: ["gpt-5.5"],
+				}}
+				onControllerChange={() => Promise.resolve()}
+				onControllerCollaborationModeUpdate={() => Promise.resolve()}
+				onControllerPermissionModeUpdate={() => Promise.resolve()}
+				onModelSelectionUpdate={() => Promise.resolve()}
+				onOpenChange={() => undefined}
+				onOpenCodePermissionUpdate={() => Promise.resolve()}
+				onRenameProfile={() => Promise.resolve()}
+				open={true}
+				profileName="Research Agent"
+			/>
+		);
+
+		expect(
+			screen.getByText(
+				"GPT-5.4 isn't available in Codex on this computer. Choose another model or update or change the installation."
+			)
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("link", { name: "Update or change Codex" })
+				.getAttribute("href")
+		).toBe("/o/amplift/computers/device-monica");
+		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+		expect(
+			screen
+				.getByRole("option", {
+					name: "GPT-5.4 (not available on this computer)",
+				})
+				.hasAttribute("data-disabled")
+		).toBe(true);
+	});
+
 	it("locks only the controller while an Agent is working", () => {
 		const primaryBinding = createPrimaryBindingResponse(
 			"codex:askForApproval",

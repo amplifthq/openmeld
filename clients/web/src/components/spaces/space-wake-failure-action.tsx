@@ -71,6 +71,9 @@ function resolveWakeFailureActionHref(input: {
 			input.prepareSetupHref ?? buildOrganizationComputersPath(input.orgSlug)
 		);
 	}
+	if (input.actionTarget === "computer") {
+		return buildOrganizationComputersPath(input.orgSlug);
+	}
 	if (input.actionTarget === "org_wake_access") {
 		return buildOrganizationWakeAccessPath(input.orgSlug);
 	}

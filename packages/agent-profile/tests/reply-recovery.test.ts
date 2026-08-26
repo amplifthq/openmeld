@@ -747,13 +747,15 @@ describe("planAgentProfileReplyRecovery", () => {
   it.each([
     [
       "controller.client.upgrade_required",
-      "Codex on this device is too old for the current model. Upgrade Codex on this device, then try again.",
+      "Codex on this computer can't use the selected model. Update Codex or choose another Codex installation, then try again.",
+      "Update or change local agent",
     ],
     [
       "controller.runtime.missing",
       "This local agent is not available on this device. Connect a local agent, then try again.",
+      "Connect local agent",
     ],
-  ] as const)("uses shared recovery copy for readiness-impact reason %s", (reasonCode, copy) => {
+  ] as const)("uses shared recovery copy for readiness-impact reason %s", (reasonCode, copy, actionLabel) => {
     const plan = planAgentProfileReplyRecovery({
       member: createSpaceMemberAgentSnapshot({
         agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
@@ -786,7 +788,7 @@ describe("planAgentProfileReplyRecovery", () => {
     expect(plan).toMatchObject({
       body: copy,
       kind: "prepare_agent_profile",
-      primaryActionLabel: "Connect local agent",
+      primaryActionLabel: actionLabel,
       recoveryReasonCode: reasonCode,
       secondaryLabel: copy,
       title: copy,
