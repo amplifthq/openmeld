@@ -130,6 +130,11 @@ but only the Agent Interaction response path can approve or reject it. When a
 source is resolved, its producer updates the Inbox projection; Inbox never
 resolves the source itself.
 
+A producer may use `action_required` only when the source defines the exact open
+condition and a source-owned path that emits its resolution. The mere presence
+of retry, repair, or diagnostics controls does not turn a terminal update into
+unfinished source work.
+
 **Dismiss** removes an item from that recipient's Inbox views and counts without
 approving, rejecting, discarding, or otherwise changing the source work. Core
 records Dismiss in `clearedAt`; the item row is not hard-deleted. The retained
@@ -156,8 +161,12 @@ The first release creates items for these explicit user-visible events:
    explicit final status. A successful final reply uses the Agent reply item
    instead of a duplicate success item. An accepted result without a valid
    public Space action is a visible failure, never a synthetic completion. A
-   terminal failure is an urgent action item whose preview carries the bounded
-   public failure reason; other Wake endings remain ordinary updates.
+   terminal failure is an urgent update whose preview carries the bounded
+   public failure reason; it does not become an unresolved action merely because
+   retry and diagnostics are available. When that failure is presented under
+   the original Wake message, the Space producer targets that source Signal
+   directly instead of exposing the suppressed failure Signal as a second
+   navigation truth. Other Wake endings remain ordinary updates.
 5. A linked member's Center Agent work started through a Message Channel when
    the result or intervention request is available in OpenMeld.
 6. A Center Agent Task that requests the recipient's action, produces a final
