@@ -51,11 +51,14 @@ export function isCliUpdateCheckApplicable(
  *
  * Reads a fresh local cache first (24h TTL) so machine-mode (`--json`) commands
  * do not pay a network probe on every invocation; only a cold/stale cache hits
- * the registry. Any network or parse failure resolves to "no signal" so the
+ * the registry. Background maintenance and explicit update actions can bypass
+ * that cache with `forceRefresh` so a known release is never hidden by an older
+ * command check. Any network or parse failure resolves to "no signal" so the
  * caller fails open and never locks a user out over a flaky registry.
  */
 export async function assessCliUpdate(input: {
   environmentTarget: OpenMeldEnvironmentTarget;
+  forceRefresh?: boolean;
 }): Promise<CliUpdateAssessment> {
   const currentVersion = packageJson.version;
   const unchecked: CliUpdateAssessment = {
@@ -70,7 +73,10 @@ export async function assessCliUpdate(input: {
     return unchecked;
   }
 
-  const info = await resolveLatestPackageInfo(currentVersion).catch(() => null);
+  const info = await resolveLatestPackageInfo({
+    currentVersion,
+    forceRefresh: input.forceRefresh === true,
+  }).catch(() => null);
   if (!info?.version) {
     // Fail-open: we tried, but have no authoritative signal.
     return { ...unchecked, checked: true };
@@ -96,15 +102,18 @@ export async function assessCliUpdate(input: {
   };
 }
 
-async function resolveLatestPackageInfo(
-  currentVersion: string
-): Promise<PackageLatestInfo> {
-  const cached = await readFreshCachedInfo(currentVersion);
+async function resolveLatestPackageInfo(input: {
+  currentVersion: string;
+  forceRefresh: boolean;
+}): Promise<PackageLatestInfo> {
+  const cached = input.forceRefresh
+    ? null
+    : await readFreshCachedInfo(input.currentVersion);
   if (cached) {
     return cached;
   }
   const info = await fetchLatestPackageInfo(OPENMELD_PACKAGE_NAME);
-  await persistInfo({ currentVersion, info });
+  await persistInfo({ currentVersion: input.currentVersion, info });
   return info;
 }
 

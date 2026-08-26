@@ -516,6 +516,7 @@ function buildProjection(input: {
   updateOperation: OpenMeldToolsUpdateOperation | null;
 }): LocalComponentUpdateProjection {
   const setupAction = resolveProjectionSetupAction(input);
+  const updateOperation = resolveVisibleUpdateOperation(input);
   return {
     schemaVersion: LOCAL_COMPONENTS_SCHEMA_VERSION,
     generatedAt: input.generatedAt,
@@ -525,13 +526,28 @@ function buildProjection(input: {
     humanSetupCommand: HUMAN_SETUP_COMMAND,
     agentSetupCommand: AGENT_SETUP_COMMAND,
     ...(input.maintenance ? { maintenance: input.maintenance } : {}),
-    ...(input.updateOperation
-      ? { updateOperation: input.updateOperation }
-      : {}),
+    ...(updateOperation ? { updateOperation } : {}),
     cli: input.cli,
     service: input.service,
     skills: input.skills,
   };
+}
+
+function resolveVisibleUpdateOperation(input: {
+  cli: LocalCliComponentUpdateProjection;
+  service: LocalServiceComponentUpdateProjection;
+  skills: LocalSkillsComponentUpdateProjection;
+  updateOperation: OpenMeldToolsUpdateOperation | null;
+}): OpenMeldToolsUpdateOperation | null {
+  if (input.updateOperation?.phase !== "updated") {
+    return input.updateOperation;
+  }
+  const newerUpdateIsActionable = [input.cli, input.service, input.skills].some(
+    (component) =>
+      component.status === "update_available" ||
+      component.status === "update_required"
+  );
+  return newerUpdateIsActionable ? null : input.updateOperation;
 }
 
 function resolveProjectionSetupAction(input: {

@@ -1535,7 +1535,10 @@ timestamps. The Service includes this projection in its normal local-component
 capability report; Core, Web, CLI, and Center Agent must read that projection
 instead of inferring progress from connectivity, component versions, or their
 own request lifetime. Local paths, commands, and raw error text remain local.
-Completed operation phases remain visible for at most 24 hours.
+Completed operation phases remain visible for at most 24 hours. Core must omit
+an older `updated` phase when current component evidence already shows another
+actionable update. A completed historical operation must never contradict the
+current update action.
 Because runtime capability payloads are strict, rollout deploys the accepting
 Schemas and Core before publishing a Service that emits `updateOperation`.
 New Core accepts older Services that omit it; rollback removes the new local
@@ -1548,10 +1551,12 @@ becomes the projection owner as soon as the handoff exists. A computer with no
 saved preference enables automatic OpenMeld Tools updates; an invalid preference
 fails closed and reports maintenance attention. Automatic requests obey that
 preference, while an explicit user request still runs when automation is off.
-The published Service checks the cached release channel on a low-frequency
-schedule, resumes a saved attempt immediately after restart, and never waits for
-the downloader when the Service itself must stop. Dev and canary lanes do not
-check or install the published channel.
+The published Service checks the release channel every hour, bypassing the
+normal CLI command cache for this maintenance check. An explicit update request
+also refreshes the release channel before deciding that the computer is current.
+The Service resumes a saved attempt immediately after restart and never waits
+for the downloader when the Service itself must stop. Dev and canary lanes do
+not check or install the published channel.
 
 Web and the Center Agent do not execute update commands. They send one strict
 owner-scoped control request through Core and Runtime Transport to the current
