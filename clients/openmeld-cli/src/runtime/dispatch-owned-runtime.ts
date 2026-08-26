@@ -9,6 +9,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { daemonRuntimeRootPath } from "../config/daemon-state";
 import {
   type OpenMeldPathResolutionInput,
+  openMeldManagedBinaryPath,
   resolveOpenMeldEnvPreset,
 } from "../config/paths";
 import {
@@ -128,7 +129,10 @@ export function ensureDispatchOwnedRuntimeCliShims(input?: {
   const distribution = input?.distribution ?? resolveOpenMeldDistribution();
   const cliEntryPath =
     distribution === "binary"
-      ? resolveDispatchOwnedRuntimeBinaryCliEntryPath(input?.cliEntryPath)
+      ? resolveDispatchOwnedRuntimeBinaryCliEntryPath({
+          cliEntryPath: input?.cliEntryPath,
+          env: input?.env,
+        })
       : resolveDispatchOwnedRuntimeCliEntryPath(input?.cliEntryPath);
   const shimDir = resolveDispatchOwnedRuntimeCliShimDir({
     env: input?.env,
@@ -224,12 +228,16 @@ function resolveDispatchOwnedRuntimeCliEntryPath(
   return resolve(normalizedCliEntryPath);
 }
 
-function resolveDispatchOwnedRuntimeBinaryCliEntryPath(
-  cliEntryPath?: string
-): string {
+function resolveDispatchOwnedRuntimeBinaryCliEntryPath(input: {
+  cliEntryPath?: string;
+  env?: Record<string, string | undefined>;
+}): string {
+  // A background Service may keep running from an executable path that an
+  // upgrade later replaces with a launcher. The lane-owned managed CLI is the
+  // stable command authority for new Space Action subprocesses.
   const normalizedCliEntryPath =
-    normalizeOptionalText(cliEntryPath) ??
-    normalizeOptionalText(process.execPath) ??
+    normalizeOptionalText(input.cliEntryPath) ??
+    normalizeOptionalText(openMeldManagedBinaryPath({ env: input.env })) ??
     null;
   if (!normalizedCliEntryPath) {
     throw new Error(
