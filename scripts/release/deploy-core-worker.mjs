@@ -6,7 +6,10 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-import { runCoreStartupAdmission } from "../cloudflare/core-startup-admission.mjs";
+import {
+  buildCoreBundleEvidenceStepSpec,
+  runCoreStartupAdmission,
+} from "../cloudflare/core-startup-admission.mjs";
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
 
 const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
@@ -47,6 +50,7 @@ export function deployCoreWorker(input = {}) {
     command: "pnpm",
     label: "Build Core receiver dependencies",
   });
+  adapters.runStep(buildCoreBundleEvidenceStepSpec());
   const evidence = adapters.runStartupAdmission({
     cwd,
     env,

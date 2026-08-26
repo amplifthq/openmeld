@@ -1,3 +1,5 @@
+import { loadRoutineScheduleRuntime } from "../lazy-runtime-modules";
+
 type RoutineScheduleModule = typeof import("@openmeld/routine-schedule");
 
 let routineScheduleModulePromise: Promise<RoutineScheduleModule> | null = null;
@@ -10,8 +12,6 @@ let routineScheduleModulePromise: Promise<RoutineScheduleModule> | null = null;
  * Core Worker isolate startup while preserving the same canonical engine.
  */
 export function loadRoutineSchedule(): Promise<RoutineScheduleModule> {
-  routineScheduleModulePromise ??= import(
-    "../generated-runtime/routine-schedule.mjs"
-  );
+  routineScheduleModulePromise ??= loadRoutineScheduleRuntime();
   return routineScheduleModulePromise;
 }

@@ -20,6 +20,14 @@ const WRANGLER_STARTUP_TIME_PATTERN = /Worker Startup Time:\s*([\d.]+)\s*ms/u;
 
 export const CORE_STARTUP_PERFORMANCE_TARGET_MS = 500;
 
+export function buildCoreBundleEvidenceStepSpec() {
+  return {
+    args: ["run", "evidence:bundle:core"],
+    command: "pnpm",
+    label: "Verify Core Worker bundle module graph",
+  };
+}
+
 // TODO(system optimization): evaluate splitting Core initialization by stable
 // business domain, or by a reviewed Service Binding boundary, after the current
 // reliability work. Keep every public RPC contract and receiver-first rollout

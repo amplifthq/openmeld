@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  buildCoreBundleEvidenceStepSpec,
   buildCoreStartupAdmissionStepSpec,
   CORE_STARTUP_PERFORMANCE_TARGET_MS,
   createCoreStartupAdmissionEvidence,
@@ -21,6 +22,14 @@ Worker Version ID: 603c2f42-8eb6-48aa-b3be-bae44e6c61d2
 `;
 const MISSING_STARTUP_TIME_RE = /did not report Worker Startup Time/u;
 const MISSING_VERSION_UPLOAD_RE = /did not record a version-upload event/u;
+
+test("verifies the final Core bundle module graph before startup admission", () => {
+  assert.deepEqual(buildCoreBundleEvidenceStepSpec(), {
+    args: ["run", "evidence:bundle:core"],
+    command: "pnpm",
+    label: "Verify Core Worker bundle module graph",
+  });
+});
 
 const CAPTURED_WRANGLER_OUTPUT_FILE = [
   JSON.stringify({

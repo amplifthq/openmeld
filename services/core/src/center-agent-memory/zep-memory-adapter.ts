@@ -1,6 +1,7 @@
 import type { Zep } from "@getzep/zep-cloud";
 import { messageChannelProviderSchema } from "@openmeld/schemas";
 import type { MessageChannelProvider } from "@openmeld/schemas/types";
+import { loadZepRuntime } from "../lazy-runtime-modules";
 import type {
   CenterAgentMemoryAdapter,
   CenterAgentMemoryCaptureMethod,
@@ -80,7 +81,7 @@ export function createZepCenterAgentMemoryAdapter(input: {
   const logger = input.logger ?? console;
   let clientPromise: Promise<ZepClientLike> | null = null;
   const getClient = (): Promise<ZepClientLike> => {
-    clientPromise ??= import("../generated-runtime/zep-cloud.mjs").then(
+    clientPromise ??= loadZepRuntime().then(
       ({ ZepClient }) =>
         new ZepClient({ apiKey: input.apiKey }) as unknown as ZepClientLike
     );

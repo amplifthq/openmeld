@@ -374,17 +374,21 @@ this build step from the shared configuration; the generated modules are never
 checked in or reused as stale release input.
 
 1. Build Core's workspace dependencies from the exact checked-out release SHA.
-2. Upload the production Core source and compile-time definitions as a new
+2. Build the final Wrangler upload bundle and fail closed unless every relative
+   ES module import resolves to a file inside that uploaded module graph. An
+   attached additional module is not valid release evidence when the bundled
+   entrypoint imports it through a different path.
+3. Upload the production Core source and compile-time definitions as a new
    Cloudflare Worker Version with zero production traffic.
-3. Read Cloudflare's actual `Worker Startup Time` and the structured
+4. Read Cloudflare's actual `Worker Startup Time` and the structured
    `version-upload` result. Missing or malformed evidence fails closed.
-4. Compare the measurement with OpenMeld's `500 ms` performance target. A
+5. Compare the measurement with OpenMeld's `500 ms` performance target. A
    higher value produces durable warning evidence but does not reject a version
    that Cloudflare accepted within its platform limit.
-5. Deploy that exact accepted Version to 100 percent production traffic without
+6. Deploy that exact accepted Version to 100 percent production traffic without
    rebuilding it. This prevents a second startup validation of equivalent code
    from producing a different result.
-6. Synchronize routes, domains, and Cron Triggers through `wrangler triggers
+7. Synchronize routes, domains, and Cron Triggers through `wrangler triggers
    deploy` after the Version is active.
 
 The uploaded Version owns the code, bindings, migrations, compatibility

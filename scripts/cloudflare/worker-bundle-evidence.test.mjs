@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   createWorkerBundleEvidence,
+  findUnresolvedWorkerModuleImports,
   parseWranglerUploadMetrics,
   summarizeMetafileInputs,
 } from "./worker-bundle-evidence.mjs";
@@ -89,4 +93,35 @@ test("creates bounded machine-readable release evidence", () => {
   });
   assert.deepEqual(evidence.forbiddenInputs, []);
   assert.match(evidence.generatedAt, ISO_DATE_PREFIX_PATTERN);
+});
+
+test("rejects relative Worker imports that do not resolve inside the uploaded module graph", () => {
+  const bundleDirectory = mkdtempSync(
+    path.join(tmpdir(), "openmeld-worker-module-graph-")
+  );
+  try {
+    mkdirSync(path.join(bundleDirectory, "generated-runtime"));
+    writeFileSync(
+      path.join(bundleDirectory, "generated-runtime/runtime.mjs"),
+      "export const value = 1;\n"
+    );
+    writeFileSync(
+      path.join(bundleDirectory, "index.js"),
+      [
+        'export const loadValid = () => import("./generated-runtime/runtime.mjs");',
+        'export const loadMissing = () => import("../generated-runtime/runtime.mjs");',
+        "",
+      ].join("\n")
+    );
+
+    assert.deepEqual(findUnresolvedWorkerModuleImports(bundleDirectory), [
+      {
+        importer: "index.js",
+        resolvedPath: "../generated-runtime/runtime.mjs",
+        specifier: "../generated-runtime/runtime.mjs",
+      },
+    ]);
+  } finally {
+    rmSync(bundleDirectory, { force: true, recursive: true });
+  }
 });

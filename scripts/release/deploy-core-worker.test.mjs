@@ -26,6 +26,7 @@ test("deploys the exact admitted Core version without rebuilding it", () => {
 
   assert.deepEqual(events, [
     "Build Core receiver dependencies",
+    "Verify Core Worker bundle module graph",
     `admit:${RELEASE_SHA}`,
     "Deploy the startup-admitted Core version",
     "Synchronize Core triggers",
