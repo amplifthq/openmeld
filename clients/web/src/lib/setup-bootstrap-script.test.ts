@@ -102,7 +102,7 @@ describe("setup-bootstrap-script", () => {
 		expect(script).not.toContain(
 			"run_openmeld repair local-state --data-only --view human"
 		);
-		expect(script).toContain('run_openmeld "$@" || die');
+		expect(script).toContain('run_openmeld "$@" || exit $?');
 		expect(script).not.toContain("emit_setup_complete");
 		expect(script).toContain(
 			"Replace it with OpenMeld CLI v$OPENMELD_SETUP_LATEST_VERSION for future openmeld commands?"
@@ -752,7 +752,9 @@ describe("setup-bootstrap-script", () => {
 					"OpenMeld could not download the latest CLI because npm is trying to use a local proxy that is not reachable."
 				);
 				expect(result.stdout).toContain("npm config get https-proxy");
-				expect(result.stdout).toContain("OpenMeld setup could not continue.");
+				expect(result.stdout).not.toContain(
+					"OpenMeld setup could not continue."
+				);
 				expect(readFileSync(callsPath, "utf8")).toBe(
 					[
 						"-y openmeld@latest setup --start-session preptok_demo --ott ott_demo --view agent",
@@ -808,8 +810,10 @@ describe("setup-bootstrap-script", () => {
 					}
 				);
 
-				expect(result.status).toBe(1);
-				expect(result.stdout).toContain("OpenMeld setup could not continue.");
+				expect(result.status).toBe(23);
+				expect(result.stdout).not.toContain(
+					"OpenMeld setup could not continue."
+				);
 				// The acquisition probe succeeds, so no npm download diagnosis or
 				// replayed npm output is shown.
 				expect(result.stdout).not.toContain(
@@ -1395,12 +1399,12 @@ describe("setup-bootstrap-script", () => {
 					}
 				);
 
-				expect(result.status).toBe(1);
+				expect(result.status).toBe(23);
 				expect(result.stdout).toContain("Starting OpenMeld...");
-				expect(result.stdout).toContain("OpenMeld setup could not continue.");
-				expect(result.stdout).toContain(
-					"OpenMeld could not set up this computer. Fix the error above, then copy a fresh setup command from OpenMeld Web and run setup again."
+				expect(result.stdout).not.toContain(
+					"OpenMeld setup could not continue."
 				);
+				expect(result.stdout).not.toContain("copy a fresh setup command");
 				expect(readFileSync(callsPath, "utf8")).toBe(
 					"setup --start-session preptok_demo --ott ott_demo --view human\n"
 				);

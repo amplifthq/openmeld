@@ -779,7 +779,7 @@ fi
 resolve_interactive_stdin_source
 
 say ${shellSingleQuote(setupCopy.cliBootstrapRunStatus)}
-run_openmeld "$@" || die "OpenMeld could not set up this computer. Fix the error above, then copy a fresh setup command from OpenMeld Web and run setup again."
+run_openmeld "$@" || exit $?
 if [ "$OPENMELD_SETUP_DISTRIBUTION" = "npm" ]; then
   maybe_queue_old_global_openmeld_update_after_setup
   maybe_run_global_openmeld_update_after_setup

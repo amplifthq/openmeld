@@ -115,28 +115,6 @@ export async function submitSelectedAgentControllerReports(input: {
   });
 }
 
-export function assertSelectedAgentControllerReportsAccepted(
-  results: readonly SelectedAgentControllerReportResult[]
-): void {
-  const failed = results.find(
-    (result) =>
-      result.localParticipationState !== "ready" ||
-      !isSelectedAgentControllerReportSubmissionAccepted(result)
-  );
-  if (!failed) {
-    return;
-  }
-
-  const reasonCode =
-    failed.reasonCodes[0] ??
-    failed.runtimeReportSubmission.reasonCodes[0] ??
-    failed.runtimeReportSubmission.reason ??
-    "runtime.reporting.unavailable";
-  throw new Error(
-    formatSelectedAgentControllerReportFailure(failed.agentId, reasonCode)
-  );
-}
-
 export function assertSelectedAgentControllerReportSubmissionsAccepted(
   results: readonly SelectedAgentControllerReportResult[]
 ): void {
@@ -182,23 +160,6 @@ function isSelectedAgentControllerReportSubmissionAccepted(
     result.runtimeReportSubmission.status === "submitted" &&
     result.runtimeReportSubmission.agentControllerReportStatus === "accepted" &&
     Boolean(result.runtimeReportSubmission.openMeldServiceRuntimeId)
-  );
-}
-
-export function assertSelectedAgentControllerReadinessReady(
-  decisions: readonly SelectedAgentControllerReadinessDecision[]
-): void {
-  const failed = decisions.find(
-    (decision) => decision.localParticipationState !== "ready"
-  );
-  if (!failed) {
-    return;
-  }
-  throw new Error(
-    formatSelectedAgentControllerReportFailure(
-      failed.agentId,
-      failed.reasonCodes[0] ?? "runtime.reporting.unavailable"
-    )
   );
 }
 
