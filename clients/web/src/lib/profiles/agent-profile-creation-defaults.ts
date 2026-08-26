@@ -1,10 +1,14 @@
-import { resolveAgentControllerPermissionModeForController } from "@openmeld/agent-runtime";
+import {
+	resolveAgentControllerPermissionModeForController,
+	resolveNativeAgentControllerCollaborationModeForController,
+} from "@openmeld/agent-runtime";
 import {
 	createOrganizationApi,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
 import { canonicalizeBuiltinAgentControllerRef } from "@openmeld/schemas";
 import type {
+	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
 	GetAgentProfileCreationDefaultsResponse,
@@ -30,6 +34,7 @@ export async function getAgentProfileCreationDefaults(input: {
 }
 
 export async function setAgentProfileCreationDefaults(input: {
+	agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	agentControllerPermissionMode: AgentControllerPermissionMode | null;
 	agentControllerRef: string;
 	defaultProjectId: string | null;
@@ -55,6 +60,7 @@ export function resolveRememberedAgentProfileCreationDefaults(input: {
 	modelCatalog: ModelCatalog | null;
 	projects: readonly Project[];
 }): {
+	agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	agentControllerPermissionMode: AgentControllerPermissionMode;
 	defaultProjectId: string | null;
 	modelId: string | null;
@@ -87,6 +93,12 @@ export function resolveRememberedAgentProfileCreationDefaults(input: {
 		: null;
 
 	return {
+		agentControllerCollaborationMode: defaultsMatchController
+			? (resolveNativeAgentControllerCollaborationModeForController(
+					input.defaults.agentControllerCollaborationMode,
+					{ agentControllerRef: expectedAgentControllerRef }
+				) ?? null)
+			: null,
 		agentControllerPermissionMode:
 			resolveAgentControllerPermissionModeForController(
 				defaultsMatchController

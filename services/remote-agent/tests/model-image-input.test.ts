@@ -552,17 +552,25 @@ describe("Remote Agent model reasoning", () => {
     {
       prerequisites: [
         {
+          description: "Read the represented member's Organization directory.",
+          name: "openmeld_read_organization_directory",
+        },
+        {
+          description: "Read saved Agent Profile creation defaults.",
+          name: "openmeld_read_agent_profile_creation_defaults",
+        },
+        {
           description: "List exact local agent connection candidates.",
           name: "openmeld_list_local_agent_connection_candidates",
         },
         {
-          description: "List exact Organization Spaces.",
-          name: "openmeld_list_spaces",
+          description: "List the current Organization's Projects.",
+          name: "openmeld_list_projects",
         },
       ],
-      query: "openmeld_create_configured_agent_profile",
-      targetDescription: "Create one complete working Agent Profile.",
-      targetName: "openmeld_create_configured_agent_profile",
+      query: "openmeld_create_agent_profile_request",
+      targetDescription: "Create one working Agent Profile request.",
+      targetName: "openmeld_create_agent_profile_request",
     },
   ])("loads exact prerequisites before $targetName", async ({
     prerequisites,

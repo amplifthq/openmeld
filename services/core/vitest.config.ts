@@ -3,6 +3,9 @@ import {
   defineWorkersConfig,
   readD1Migrations,
 } from "@cloudflare/vitest-pool-workers/config";
+import { buildLazyRuntimeModules } from "./scripts/build-lazy-runtime-modules.mjs";
+
+await buildLazyRuntimeModules();
 
 export default defineWorkersConfig(async () => {
   const migrations = await readD1Migrations(

@@ -3,27 +3,27 @@ import { describe, expect, it } from "vitest";
 import { buildSlackFinalReplyPresentation } from "../src/remote-agent/application/slack-final-reply-presentation";
 
 describe("Slack final reply presentation", () => {
-  it("keeps one canonical Navigation Action clickable in the block and fallback", () => {
+  it("keeps one canonical Navigation Action clickable in the block and fallback", async () => {
     const action = buildOpenMeldNavigationAction({
       organizationWebUrl: "https://openmeld.ai/o/amplift",
       target: { kind: "organization_app", service: "github" },
     });
     const markdown = `GitHub is not ready. [${action.label}](${action.url}) and try again.`;
 
-    expect(buildSlackFinalReplyPresentation(markdown)).toEqual({
+    expect(await buildSlackFinalReplyPresentation(markdown)).toEqual({
       blocks: [{ text: markdown, type: "markdown" }],
       text: `GitHub is not ready. <${action.url}|${action.label}> and try again.`,
     });
   });
 
-  it("renders a trusted Navigation Action as a native Slack button", () => {
+  it("renders a trusted Navigation Action as a native Slack button", async () => {
     const action = buildOpenMeldNavigationAction({
       organizationWebUrl: "https://openmeld.ai/o/amplift",
       target: { kind: "project", projectId: "project_123" },
     });
 
     expect(
-      buildSlackFinalReplyPresentation("Project created.", action)
+      await buildSlackFinalReplyPresentation("Project created.", action)
     ).toEqual({
       blocks: [
         { text: "Project created.", type: "markdown" },
@@ -48,9 +48,9 @@ describe("Slack final reply presentation", () => {
     });
   });
 
-  it("removes untrusted internal Navigation Action embeds from Slack replies", () => {
+  it("removes untrusted internal Navigation Action embeds from Slack replies", async () => {
     const connectedComputerId = "019690bc-6f82-4ee0-9975-7360491fea69";
-    const presentation = buildSlackFinalReplyPresentation(
+    const presentation = await buildSlackFinalReplyPresentation(
       [
         "Your computer needs to reconnect.",
         `<openmeld_navigation_action_embed kind="computer_setup" mode="reconnect" connected_computer_id="${connectedComputerId}" />`,
@@ -69,8 +69,8 @@ describe("Slack final reply presentation", () => {
     expect(JSON.stringify(presentation)).not.toContain(connectedComputerId);
   });
 
-  it("fails closed when an internal Navigation Action embed is the whole reply", () => {
-    const presentation = buildSlackFinalReplyPresentation(
+  it("fails closed when an internal Navigation Action embed is the whole reply", async () => {
+    const presentation = await buildSlackFinalReplyPresentation(
       "&lt;openmeld_navigation_action_embed kind=&quot;computer_setup&quot; /&gt;"
     );
 
@@ -85,13 +85,13 @@ describe("Slack final reply presentation", () => {
     });
   });
 
-  it("keeps the Navigation Action in a truncated Slack fallback", () => {
+  it("keeps the Navigation Action in a truncated Slack fallback", async () => {
     const action = buildOpenMeldNavigationAction({
       organizationWebUrl: "https://openmeld.ai/o/amplift",
       target: { kind: "project", projectId: "project_123" },
     });
 
-    const presentation = buildSlackFinalReplyPresentation(
+    const presentation = await buildSlackFinalReplyPresentation(
       "a".repeat(50_000),
       action
     );
@@ -111,13 +111,13 @@ describe("Slack final reply presentation", () => {
     });
   });
 
-  it("keeps a Unicode action reply within Slack's markdown block limit", () => {
+  it("keeps a Unicode action reply within Slack's markdown block limit", async () => {
     const action = buildOpenMeldNavigationAction({
       organizationWebUrl: "https://openmeld.ai/o/amplift",
       target: { kind: "project", projectId: "project_123" },
     });
 
-    const presentation = buildSlackFinalReplyPresentation(
+    const presentation = await buildSlackFinalReplyPresentation(
       "😀".repeat(12_000),
       action
     );
@@ -132,18 +132,18 @@ describe("Slack final reply presentation", () => {
     expect(bodyBlock.text).toContain("OpenMeld shortened this reply");
   });
 
-  it("leaves standard Markdown tables for Slack to render", () => {
+  it("leaves standard Markdown tables for Slack to render", async () => {
     const markdown = `| Repository | Open issues |
 | --- | --- |
 | amplifthq/openmeld | 0 |`;
 
-    expect(buildSlackFinalReplyPresentation(markdown)).toMatchObject({
+    expect(await buildSlackFinalReplyPresentation(markdown)).toMatchObject({
       blocks: [{ text: markdown, type: "markdown" }],
     });
   });
 
-  it("renders ordinary Markdown as a Slack markdown block with mrkdwn fallback", () => {
-    const presentation = buildSlackFinalReplyPresentation(
+  it("renders ordinary Markdown as a Slack markdown block with mrkdwn fallback", async () => {
+    const presentation = await buildSlackFinalReplyPresentation(
       "**Ready**\n\nSee [OpenMeld](https://openmeld.ai)."
     );
 
@@ -157,8 +157,8 @@ describe("Slack final reply presentation", () => {
     expect(presentation.text).toContain("See <https://openmeld.ai|OpenMeld>.");
   });
 
-  it("repairs clickable Slack content that the agent accidentally wrapped as code", () => {
-    const presentation = buildSlackFinalReplyPresentation(
+  it("repairs clickable Slack content that the agent accidentally wrapped as code", async () => {
+    const presentation = await buildSlackFinalReplyPresentation(
       [
         "`<https://github.com/amplifthq/reply/pull/154|#154 fix P0 · 3 files · +5/-3>`",
         "```text",
@@ -187,34 +187,36 @@ describe("Slack final reply presentation", () => {
     );
   });
 
-  it("uses a markdown block at Slack's documented 12,000-character limit", () => {
+  it("uses a markdown block at Slack's documented 12,000-character limit", async () => {
     const markdown = "a".repeat(12_000);
 
-    expect(buildSlackFinalReplyPresentation(markdown)).toEqual({
+    expect(await buildSlackFinalReplyPresentation(markdown)).toEqual({
       blocks: [{ text: markdown, type: "markdown" }],
       text: markdown,
     });
   });
 
-  it("uses text-only presentation above Slack's markdown block limit", () => {
+  it("uses text-only presentation above Slack's markdown block limit", async () => {
     const markdown = `**${"a".repeat(12_000)}**`;
-    const presentation = buildSlackFinalReplyPresentation(markdown);
+    const presentation = await buildSlackFinalReplyPresentation(markdown);
 
     expect(presentation).toEqual({
       text: expect.stringContaining("a".repeat(12_000)),
     });
   });
 
-  it("falls back conservatively when Unicode needs multiple UTF-16 code units", () => {
+  it("falls back conservatively when Unicode needs multiple UTF-16 code units", async () => {
     const markdown = `${"a".repeat(11_999)}😀`;
 
-    expect(buildSlackFinalReplyPresentation(markdown)).toEqual({
+    expect(await buildSlackFinalReplyPresentation(markdown)).toEqual({
       text: markdown,
     });
   });
 
-  it("shortens over-limit Slack text explicitly instead of silently overflowing", () => {
-    const presentation = buildSlackFinalReplyPresentation("a".repeat(40_100));
+  it("shortens over-limit Slack text explicitly instead of silently overflowing", async () => {
+    const presentation = await buildSlackFinalReplyPresentation(
+      "a".repeat(40_100)
+    );
 
     expect(presentation.blocks).toBeUndefined();
     expect(Array.from(presentation.text)).toHaveLength(40_000);

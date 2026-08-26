@@ -16,6 +16,7 @@ describe("remembered Agent Profile creation defaults", () => {
 				projects: [project()],
 			})
 		).toEqual({
+			agentControllerCollaborationMode: "codex:plan",
 			agentControllerPermissionMode: "codex:fullAccess",
 			defaultProjectId: "project-1",
 			modelId: "gpt-5.6-sol",
@@ -33,6 +34,7 @@ describe("remembered Agent Profile creation defaults", () => {
 				projects: [project()],
 			})
 		).toEqual({
+			agentControllerCollaborationMode: null,
 			agentControllerPermissionMode: "claude-code:default",
 			defaultProjectId: null,
 			modelId: null,
@@ -44,6 +46,7 @@ describe("remembered Agent Profile creation defaults", () => {
 
 function defaults(): GetAgentProfileCreationDefaultsResponse {
 	return {
+		agentControllerCollaborationMode: "codex:plan",
 		agentControllerPermissionMode: "codex:fullAccess",
 		agentControllerRef: "builtin:codex",
 		defaultProjectId: "project-1",

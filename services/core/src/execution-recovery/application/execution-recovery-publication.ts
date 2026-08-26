@@ -152,7 +152,7 @@ async function publishSlackExecutionRecovery(input: {
     };
   }
   const published = await postSlackThreadMessage({
-    ...buildSlackFinalReplyPresentation(input.text),
+    ...(await buildSlackFinalReplyPresentation(input.text)),
     botToken,
     channelId: input.destination.conversationId,
     metadata,

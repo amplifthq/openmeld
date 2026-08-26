@@ -68,6 +68,10 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_post_space_message", "space.message.post"],
   ["openmeld_prepare_remove_project", "project.remove.prepare"],
   ["openmeld_read_agent_activity", "agent.activity.read"],
+  [
+    "openmeld_read_agent_profile_creation_defaults",
+    "agent_profile.settings.read",
+  ],
   ["openmeld_list_agent_activity_sessions", "agent.activity.read"],
   ["openmeld_read_changelog", "documentation.read"],
   ["openmeld_list_opportunities", "center_agent.activity.read"],

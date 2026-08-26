@@ -362,6 +362,17 @@ the temporary current-CLI projection used by receiver-first releases, and the
 final Core projection in a CLI release. The guard performs these steps in
 order:
 
+Core's Wrangler build emits request-only dependencies as generated additional
+ES modules. The memory adapter imports the Zep module only when it first needs
+Zep, and the Routine scheduler imports the calendar module only when it
+evaluates a schedule. The GitHub Skill importer imports the YAML parser only
+after it has downloaded a `SKILL.md` file that needs frontmatter parsing. Slack
+publication imports its Markdown converter only when it prepares a message.
+Those dependencies are not parsed or evaluated in Core's startup path. All
+Wrangler evidence, version-upload, development, and deployment commands run
+this build step from the shared configuration; the generated modules are never
+checked in or reused as stale release input.
+
 1. Build Core's workspace dependencies from the exact checked-out release SHA.
 2. Upload the production Core source and compile-time definitions as a new
    Cloudflare Worker Version with zero production traffic.
@@ -387,8 +398,10 @@ because routes, domains, and schedules are also outside the Version payload.
 `pnpm run evidence:startup:core` captures a local CPU profile and summarizes
 active, garbage-collection, and idle time. Use it to locate expensive global
 initialization and compare two revisions on the same machine. It is diagnostic
-evidence only: Cloudflare hardware differs, and the local number must never be
-used as a substitute for the zero-traffic Cloudflare admission result.
+evidence only: Cloudflare hardware differs, and a local profiler failure must
+not block the guarded release or substitute for the zero-traffic Cloudflare
+admission result. The release workflow preserves the raw profile before parsing
+it so malformed alpha-profiler output remains diagnosable.
 
 The workflow preserves these files for diagnosis:
 

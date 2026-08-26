@@ -2,9 +2,11 @@
 
 import {
 	getAgentControllerPermissionModeDisplayMetadata,
+	listAgentControllerCollaborationModeOptions,
 	listAgentControllerPermissionModeOptions,
 } from "@openmeld/agent-runtime";
 import type {
+	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
 	ModelCatalog,
@@ -70,6 +72,7 @@ export function CreateProfileForm(input: {
 	agentSessionSlot?: ReactNode;
 	availableLocalAgentIds: readonly string[];
 	boundAgentId: string;
+	boundAgentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
 	boundAgentControllerPermissionModeConfirmed: boolean;
 	boundModelId: string;
@@ -91,6 +94,9 @@ export function CreateProfileForm(input: {
 	profileName: string;
 	recoveryActionHref: string;
 	onChangeBoundAgentId: (agentId: string) => void;
+	onChangeBoundAgentControllerCollaborationMode: (
+		agentControllerCollaborationMode: AgentControllerCollaborationMode
+	) => void;
 	onChangeAgentBindingValue?: (value: string) => void;
 	onChangeBoundAgentControllerPermissionMode: (
 		agentControllerPermissionMode: AgentControllerPermissionMode
@@ -251,6 +257,14 @@ function AgentProfileFields(input: {
 				/>
 			) : null}
 			{form.boundAgentId ? (
+				<AgentControllerCollaborationModeFields
+					agentId={form.boundAgentId}
+					disabled={form.isSubmitting}
+					onChange={form.onChangeBoundAgentControllerCollaborationMode}
+					value={form.boundAgentControllerCollaborationMode}
+				/>
+			) : null}
+			{form.boundAgentId ? (
 				<AgentControllerPermissionModeFields
 					agentId={form.boundAgentId}
 					confirmed={form.boundAgentControllerPermissionModeConfirmed}
@@ -275,6 +289,53 @@ function AgentProfileFields(input: {
 				</p>
 			</div>
 		</>
+	);
+}
+
+function AgentControllerCollaborationModeFields(input: {
+	agentId: string;
+	disabled: boolean;
+	onChange: (mode: AgentControllerCollaborationMode) => void;
+	value: AgentControllerCollaborationMode | null;
+}) {
+	const selectId = useId();
+	const options = listAgentControllerCollaborationModeOptions({
+		agentControllerRef: buildBuiltinAgentControllerRef(input.agentId),
+	});
+	const selectedOption =
+		options.find((option) => option.value === input.value) ?? options[0];
+	if (!selectedOption) {
+		return null;
+	}
+	return (
+		<div className="grid min-w-0 gap-2">
+			<Label htmlFor={selectId}>Codex collaboration mode</Label>
+			<Select
+				disabled={input.disabled || options.length <= 1}
+				onValueChange={(value) => {
+					input.onChange(value as AgentControllerCollaborationMode);
+				}}
+				value={selectedOption.value}
+			>
+				<SelectTrigger
+					aria-label="Codex collaboration mode"
+					className="h-10 w-full px-3 text-sm"
+					displayValue={selectedOption.label}
+					id={selectId}
+					placeholder="Codex collaboration mode"
+				/>
+				<SelectContent>
+					{options.map((option, index) => (
+						<SelectItem index={index} key={option.value} value={option.value}>
+							{option.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+			<p className="text-muted-foreground text-xs leading-5">
+				{selectedOption.description}
+			</p>
+		</div>
 	);
 }
 

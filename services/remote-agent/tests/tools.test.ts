@@ -87,6 +87,51 @@ type ToolPayloadScenario = {
 };
 
 describe("remote agent OpenMeld tool catalog", () => {
+  it("reads the represented member's complete Agent Profile creation defaults", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const centerAgentListAgentProfileCreationDefaults = vi.fn(async () => ({
+      defaults: [
+        {
+          agentControllerCollaborationMode: "codex:plan" as const,
+          agentControllerPermissionMode: "codex:approveForMe" as const,
+          agentControllerRef: "builtin:codex",
+          defaultProjectId: "project-1",
+          modelId: "gpt-5.6-sol",
+          openCodePermission: null,
+          organizationId: "org_123",
+          reasoningLevel: "high",
+          updatedAt: "2026-08-26T01:00:00.000Z",
+          userId: "user_1",
+        },
+      ],
+      organizationId: "org_123",
+      userId: "user_1",
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentListAgentProfileCreationDefaults },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_read_agent_profile_creation_defaults", {})
+    ).resolves.toMatchObject({
+      defaults: [
+        {
+          agentControllerCollaborationMode: "codex:plan",
+          agentControllerRef: "builtin:codex",
+          defaultProjectId: "project-1",
+          modelId: "gpt-5.6-sol",
+          reasoningLevel: "high",
+        },
+      ],
+    });
+    expect(centerAgentListAgentProfileCreationDefaults).toHaveBeenCalledWith({
+      context: expect.any(Object),
+      onBehalfOf: { profileId: request.author.profileId },
+    });
+  });
+
   it("keeps Agent Activity hidden until its independent caller fence is enabled", () => {
     const disabled = buildRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {},
@@ -2813,7 +2858,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
-  it("keeps advanced create/add paths narrowed in model-visible descriptions", () => {
+  it("keeps one model-visible creation path for new working Agent Profiles", () => {
     const descriptions = new Map(
       getRemoteAgentOpenMeldToolDefinitions({
         coreWorker: {},
@@ -2822,11 +2867,17 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
 
     expect(descriptions.get("openmeld_enable_agent_profile")).toContain(
-      "prefer openmeld_create_configured_agent_profile"
+      "use openmeld_create_agent_profile_request"
     );
     expect(descriptions.get("openmeld_add_agent_profiles_to_space")).toContain(
-      "prefer openmeld_create_configured_agent_profile"
+      "use openmeld_create_agent_profile_request"
     );
+    expect(descriptions.get("openmeld_create_agent_profile_request")).toContain(
+      "single creation entry point"
+    );
+    expect(
+      descriptions.get("openmeld_create_configured_agent_profile")
+    ).toContain("Compatibility only");
     expect(descriptions.get("openmeld_add_members_to_space")).toContain(
       "active members of the current Organization"
     );
@@ -4658,6 +4709,17 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_create_agent_profile_request", {
+        configuration: {
+          agentControllerCollaborationMode: "codex:default",
+          agentControllerPermissionMode: "codex:askForApproval",
+          defaultProjectId: "project-1",
+          modelId: "gpt-5.6-terra",
+          reasoningLevel: "medium",
+        },
+        connectionSelection: {
+          agentControllerRef: "builtin:codex",
+          computerId: "computer-1",
+        },
         profileName: "Review Agent",
         requestedSpaceId: SPACE_ID,
         sessionStrategy: "new",
@@ -4665,6 +4727,17 @@ describe("remote agent OpenMeld tool catalog", () => {
       })
     ).resolves.toEqual(response);
     expect(centerAgentCreateAgentProfileCreationRequest).toHaveBeenCalledWith({
+      configuration: {
+        agentControllerCollaborationMode: "codex:default",
+        agentControllerPermissionMode: "codex:askForApproval",
+        agentControllerRef: "builtin:codex",
+        authorizeForOrganization: true,
+        defaultProjectId: "project-1",
+        modelId: "gpt-5.6-terra",
+        openCodePermission: null,
+        reasoningLevel: "medium",
+        targetComputerId: "computer-1",
+      },
       onBehalfOf: { profileId: request.author.profileId },
       profileName: "Review Agent",
       requestedSpaceId: SPACE_ID,
@@ -4688,6 +4761,13 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_create_agent_profile_request", {
+        configuration: {
+          agentControllerCollaborationMode: "codex:plan",
+          agentControllerPermissionMode: "codex:approveForMe",
+          defaultProjectId: "project-1",
+          modelId: "gpt-5.6-sol",
+          reasoningLevel: "high",
+        },
         profileName: "Forked Reviewer",
         sessionSelection: {
           agentControllerRef: "builtin:codex",
@@ -4701,13 +4781,14 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).resolves.toEqual(response);
     expect(centerAgentCreateAgentProfileCreationRequest).toHaveBeenCalledWith({
       configuration: {
-        agentControllerPermissionMode: null,
+        agentControllerCollaborationMode: "codex:plan",
+        agentControllerPermissionMode: "codex:approveForMe",
         agentControllerRef: "builtin:codex",
         authorizeForOrganization: true,
         defaultProjectId: "project-1",
-        modelId: null,
+        modelId: "gpt-5.6-sol",
         openCodePermission: null,
-        reasoningLevel: null,
+        reasoningLevel: "high",
         targetComputerId: "computer-1",
       },
       context: expect.any(Object),
@@ -4763,6 +4844,37 @@ describe("remote agent OpenMeld tool catalog", () => {
       })
     ).rejects.toThrow(
       "A new Session request must not include an existing Session selection."
+    );
+    expect(centerAgentCreateAgentProfileCreationRequest).not.toHaveBeenCalled();
+  });
+
+  it("rejects a new-session connection selection for Resume or Fork", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const centerAgentCreateAgentProfileCreationRequest = vi.fn();
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        connectionSelection: {
+          agentControllerRef: "builtin:codex",
+          computerId: "computer-1",
+        },
+        profileName: "Forked Reviewer",
+        sessionSelection: {
+          agentControllerRef: "builtin:codex",
+          computerId: "computer-1",
+          nativeSessionId: "native-session-1",
+          projectId: "project-1",
+        },
+        sessionStrategy: "fork",
+        targetOwnerUserId: "user-2",
+      })
+    ).rejects.toThrow(
+      "Resume and Fork must use the Computer and local agent from sessionSelection."
     );
     expect(centerAgentCreateAgentProfileCreationRequest).not.toHaveBeenCalled();
   });
@@ -5909,16 +6021,32 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         candidateId,
+        configuration: {
+          agentControllerCollaborationMode:
+            runtimeSettings.agentControllerCollaborationMode,
+          agentControllerPermissionMode:
+            runtimeSettings.agentControllerPermissionMode,
+          defaultProjectId: "project-1",
+          modelId: runtimeSettings.modelId,
+          openCodePermission: runtimeSettings.openCodePermission,
+          reasoningLevel: runtimeSettings.reasoningLevel,
+        },
         onBehalfOf,
         profileName: "Codex Agent",
         spaceId: SPACE_ID,
-        ...runtimeSettings,
       },
       input: {
+        agentControllerCollaborationMode:
+          runtimeSettings.agentControllerCollaborationMode,
+        agentControllerPermissionMode:
+          runtimeSettings.agentControllerPermissionMode,
         candidateId,
+        defaultProjectId: "project-1",
+        modelId: runtimeSettings.modelId,
+        openCodePermission: runtimeSettings.openCodePermission,
         profileName: "Codex Agent",
+        reasoningLevel: runtimeSettings.reasoningLevel,
         spaceId: SPACE_ID,
-        ...runtimeSettings,
       },
       response: createConfiguredAgentProfileResponse(),
       rpcName: "centerAgentCreateConfiguredAgentProfile",

@@ -1029,6 +1029,14 @@ async function resolveDaemonDependencyPackageRoot(input: {
   const resolver = createRequire(
     join(input.resolverPackageRootPath, "package.json")
   );
+  const dependencyPackageRootPath =
+    await resolveDaemonDependencyPackageRootFromManifest({
+      dependencyName: input.dependencyName,
+      resolver,
+    });
+  if (dependencyPackageRootPath) {
+    return dependencyPackageRootPath;
+  }
   try {
     const dependencyEntryPath = await realpath(
       resolver.resolve(input.dependencyName)
@@ -1050,6 +1058,23 @@ async function resolveDaemonDependencyPackageRoot(input: {
       throw new Error(
         `OpenMeld could not find runtime dependency ${input.dependencyName} for background service bundling from ${input.resolverPackageRootPath}. Run \`pnpm install\` and retry.`
       );
+    }
+    throw error;
+  }
+}
+
+async function resolveDaemonDependencyPackageRootFromManifest(input: {
+  dependencyName: string;
+  resolver: NodeJS.Require;
+}): Promise<string | null> {
+  try {
+    const dependencyManifestPath = await realpath(
+      input.resolver.resolve(`${input.dependencyName}/package.json`)
+    );
+    return dirname(dependencyManifestPath);
+  } catch (error) {
+    if (isPackageEntryResolutionError(error)) {
+      return null;
     }
     throw error;
   }
