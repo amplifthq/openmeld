@@ -14,6 +14,16 @@ immediately continue setup or use the page underneath it.
 
 Evidence: pr:301, pr:298, commit:c7edbf065f3405a12cf1801322761fc72bd20314, commit:c2bd412b72928fe97dad262e280044d2c3f915fb
 
+### Keep Center Agent completion times accurate
+
+Fixed · center-agent · diagnostics · performance
+
+Center Agent diagnostics now keep the time a task first completed when a final
+confirmation is safely replayed. Repeated confirmations no longer make a
+completed task look slower than it was.
+
+Evidence: pr:333, commit:634fd463fff620b54d42ccceab92be65fdab971e, worker-version:928e7144-6168-4785-9076-f16a1ade7a0d, center-agent-dispatch:84093d46-8a78-4d87-921f-6e28dfa9e239
+
 ### Let Agents reply without a shell approval prompt
 
 Fixed · v0.3.111 · spaces · agent-profiles · local-agents
