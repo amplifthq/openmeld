@@ -258,7 +258,7 @@ function createEntrypointFixture() {
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
 
-  git(root, "init", "--bare", "--quiet", remotePath);
+  git(root, "init", "--bare", "--quiet", "--initial-branch=main", remotePath);
   git(repositoryPath, "init", "--initial-branch=main", "--quiet");
   git(repositoryPath, "config", "user.email", "entrypoint@test.openmeld.ai");
   git(repositoryPath, "config", "user.name", "OpenMeld Entrypoint Test");
@@ -328,7 +328,7 @@ function createInitialBootstrapFixture() {
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
 
-  git(root, "init", "--bare", "--quiet", remotePath);
+  git(root, "init", "--bare", "--quiet", "--initial-branch=main", remotePath);
   git(repositoryPath, "init", "--initial-branch=main", "--quiet");
   git(
     repositoryPath,
