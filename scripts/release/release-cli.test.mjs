@@ -103,6 +103,10 @@ async function createReleaseRepo(version) {
       { cwd: repoRoot }
     );
   await git("init");
+  // Persist identity so git subprocesses spawned by the release script itself
+  // (tag creation, pushes) can commit on runners without a global gitconfig.
+  await git("config", "user.name", "t");
+  await git("config", "user.email", "t@example.com");
   await mkdir(join(repoRoot, "clients/openmeld-cli"), { recursive: true });
   await writeFile(
     join(repoRoot, "clients/openmeld-cli/package.json"),
@@ -115,7 +119,7 @@ async function createReleaseRepo(version) {
 
 async function configureTestOrigin(input) {
   const remoteRoot = join(input.repoRoot, ".git", "test-origin.git");
-  await input.git("init", "--bare", remoteRoot);
+  await input.git("init", "--bare", "--initial-branch=main", remoteRoot);
   await input.git("remote", "add", "origin", remoteRoot);
   await input.git("push", "origin", "HEAD:refs/heads/main");
 }
