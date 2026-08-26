@@ -8,7 +8,6 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,25 +51,26 @@ test(
     const fixture = createLinuxInstallFixture();
     try {
       const privateRunnerRoot = path.join(fixture.root, "runner-private");
-      const privateRunnerBin = path.join(privateRunnerRoot, "bin");
-      const privatePnpmRoot = path.join(privateRunnerRoot, "pnpm-package");
-      const privatePnpmBin = path.join(privatePnpmRoot, "bin");
+      const privatePnpmHome = path.join(
+        privateRunnerRoot,
+        "node_modules",
+        ".bin"
+      );
+      const privateRunnerBin = path.join(privatePnpmHome, "bin");
       const privatePnpm = path.join(privateRunnerBin, "pnpm");
       mkdirSync(privateRunnerBin, { recursive: true });
-      mkdirSync(privatePnpmBin, { recursive: true });
       writeFileSync(
-        path.join(privatePnpmRoot, "package.json"),
-        '{"name":"pnpm","private":true}\n'
+        path.join(privateRunnerRoot, "package.json"),
+        '{"private":true}\n'
       );
-      const privatePnpmTarget = path.join(privatePnpmBin, "pnpm.cjs");
       writeFileSync(
-        privatePnpmTarget,
-        "#!/usr/bin/env node\nprocess.exit(0);\n"
+        privatePnpm,
+        '#!/usr/bin/env node\nif (process.argv[2] === "--version") process.stdout.write("10.30.0\\n");\n'
       );
-      chmodSync(privatePnpmTarget, 0o555);
-      symlinkSync("../pnpm-package/bin/pnpm.cjs", privatePnpm);
+      chmodSync(privatePnpm, 0o555);
       chmodSync(privateRunnerRoot, 0o700);
       fixture.environment.PATH = `${privateRunnerBin}:${fixture.environment.PATH}`;
+      fixture.environment.PNPM_HOME = privatePnpmHome;
 
       const prepare = run(fixture, PREPARE_SCRIPT);
       assert.equal(prepare.status, 0, prepare.stderr);
@@ -340,6 +340,10 @@ function createLinuxInstallFixture() {
   writeFileSync(
     path.join(trustedRoot, "pnpm-workspace.yaml"),
     "allowBuilds:\n  fixture-dependency: true\n"
+  );
+  writeFileSync(
+    path.join(trustedRoot, "package.json"),
+    '{"packageManager":"pnpm@10.30.0","private":true}\n'
   );
   const dependencyRoot = path.join(candidateRoot, "dependency");
   mkdirSync(dependencyRoot);
