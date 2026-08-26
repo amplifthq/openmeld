@@ -32,7 +32,7 @@ const DOPPLER_INSTALL_URL = "https://docs.doppler.com/docs/install-cli";
 const DOPPLER_CLI_REQUIRED_RE = /Doppler CLI is required/u;
 const DOPPLER_CI_COMMAND_RE = /pnpm run verify:doppler-environment/u;
 const TRUSTED_FINAL_CANDIDATE_COMMAND_RE =
-  /node scripts\/ci\/final-candidate\.mjs run/u;
+  /node trusted-control\/scripts\/ci\/final-candidate\.mjs run/u;
 const RAW_DOPPLER_ENOENT_RE = /spawn doppler ENOENT/u;
 const SCOPED_GATEWAY_ENVIRONMENT_RE =
   /\{"auth":false,"gateway":true,"remoteAgent":false\}/u;
