@@ -1,11 +1,12 @@
 import type { WorkspaceClient } from "@cloudflare/computer";
 import { createSandboxSessionEnv } from "@flue/runtime";
 import type { CenterAgentOrganizationDocumentsComputerSnapshotResponse } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
 } from "../agent-core/callback-context";
+import { createAgentComputerWorkspaceAccess } from "../flue-adapter/agent-computer-workspace-access";
 import { buildAgentComputerName } from "../flue-adapter/computer-identity";
 import {
   AgentComputerSandboxApi,
@@ -37,10 +38,26 @@ vi.mock("@cloudflare/computer", () => ({
 const MISSING_COMPUTER_BINDING_RE = /requires the AGENT_COMPUTER binding/u;
 const EMPTY_PROFILE_ID_RE = /non-empty agent profile id/u;
 
-function createWorkspaceFake() {
-  const files = new Map<string, string>();
-  const modes = new Map<string, number>();
-  const directories = new Set<string>(["/"]);
+beforeEach(() => {
+  cloudflareComputerMock.getWorkspace.mockReset();
+});
+
+type WorkspaceFakeState = {
+  directories: Set<string>;
+  files: Map<string, string>;
+  modes: Map<string, number>;
+};
+
+function createWorkspaceFake(
+  state: WorkspaceFakeState = {
+    directories: new Set<string>(["/"]),
+    files: new Map<string, string>(),
+    modes: new Map<string, number>(),
+  }
+) {
+  const { directories, files, modes } = state;
+  const dispose = vi.fn();
+  const execHandleDispose = vi.fn();
   const fs = {
     chmod: vi.fn((path: string, mode: number) => {
       if (!(files.has(path) || directories.has(path))) {
@@ -132,7 +149,7 @@ function createWorkspaceFake() {
   const runtime = {
     exec: vi.fn(() =>
       Promise.resolve({
-        [Symbol.dispose]: vi.fn(),
+        [Symbol.dispose]: execHandleDispose,
         result: () =>
           Promise.resolve({
             exitCode: 0,
@@ -148,9 +165,15 @@ function createWorkspaceFake() {
   };
   return {
     directories,
+    dispose,
+    execHandleDispose,
     files,
     modes,
-    workspace: { fs, runtime } as unknown as WorkspaceClient,
+    workspace: {
+      [Symbol.dispose]: dispose,
+      fs,
+      runtime,
+    } as unknown as WorkspaceClient,
   };
 }
 
@@ -238,6 +261,42 @@ describe("Agent computer identity", () => {
   });
 });
 
+describe("Agent computer Workspace RPC lifecycle", () => {
+  it("disposes a cancelled client and reacquires the same durable identity for continuation", async () => {
+    const cancelledWorkspace = createWorkspaceFake();
+    const continuationWorkspace = createWorkspaceFake();
+    cloudflareComputerMock.getWorkspace
+      .mockResolvedValueOnce(cancelledWorkspace.workspace)
+      .mockResolvedValueOnce(continuationWorkspace.workspace);
+    const durableComputerId = { name: "agent-computer:agt_test" };
+    const namespace = {
+      get: vi.fn(() => ({})),
+      idFromName: vi.fn(() => durableComputerId),
+    };
+    const access = createAgentComputerWorkspaceAccess({
+      computerId: durableComputerId as unknown as DurableObjectId,
+      namespace: namespace as unknown as Parameters<
+        typeof createAgentComputerWorkspaceAccess
+      >[0]["namespace"],
+    });
+    const controller = new AbortController();
+    const stopReason = new Error("Stop requested");
+    controller.abort(stopReason);
+
+    await expect(
+      access.withWorkspace(() => Promise.reject(controller.signal.reason))
+    ).rejects.toBe(stopReason);
+    await expect(
+      access.withWorkspace(() => Promise.resolve("continued"))
+    ).resolves.toBe("continued");
+
+    expect(namespace.get).toHaveBeenNthCalledWith(1, durableComputerId);
+    expect(namespace.get).toHaveBeenNthCalledWith(2, durableComputerId);
+    expect(cancelledWorkspace.dispose).toHaveBeenCalledOnce();
+    expect(continuationWorkspace.dispose).toHaveBeenCalledOnce();
+  });
+});
+
 describe("Agent computer layout", () => {
   it("creates the base layout and the Space working directory", async () => {
     const { directories, workspace } = createWorkspaceFake();
@@ -300,6 +359,123 @@ describe("Agent computer layout", () => {
 });
 
 describe("Organization Documents computer scope", () => {
+  it("reacquires the same durable computer and idempotently finishes a disconnected projection", async () => {
+    const oldProjectionPath = `${ORGANIZATION_DOCUMENTS_COMPUTER_ROOT}/stale.md`;
+    const state = {
+      directories: new Set<string>(["/", ORGANIZATION_DOCUMENTS_COMPUTER_ROOT]),
+      files: new Map<string, string>([[oldProjectionPath, "# Stale\n"]]),
+      modes: new Map<string, number>(),
+    };
+    const firstWorkspace = createWorkspaceFake(state);
+    const replacementWorkspace = createWorkspaceFake(state);
+    const disconnected = new Error(
+      "Connection closed: this Durable Object instance is no longer active. Reconnect or retry the request."
+    );
+    const firstRm = (
+      firstWorkspace.workspace.fs as unknown as {
+        rm: ReturnType<typeof vi.fn>;
+      }
+    ).rm;
+    firstRm.mockImplementationOnce((path: string) => {
+      for (const file of state.files.keys()) {
+        if (file === path || file.startsWith(`${path}/`)) {
+          state.files.delete(file);
+        }
+      }
+      for (const directory of state.directories) {
+        if (directory === path || directory.startsWith(`${path}/`)) {
+          state.directories.delete(directory);
+        }
+      }
+      return Promise.reject(disconnected);
+    });
+    cloudflareComputerMock.getWorkspace
+      .mockResolvedValueOnce(firstWorkspace.workspace)
+      .mockResolvedValueOnce(replacementWorkspace.workspace);
+    const durableComputerId = { name: "agent-computer:agt_test" };
+    const namespace = {
+      get: vi.fn(() => ({})),
+      idFromName: vi.fn(() => durableComputerId),
+    };
+    const centerAgentOrganizationDocumentsComputerSnapshot = vi.fn(() =>
+      Promise.resolve(organizationDocumentsSnapshot())
+    );
+
+    const capability = await createRemoteAgentComputerCapability({
+      context: createComputerContext(),
+      coreWorker: {
+        centerAgentOrganizationDocumentsComputerSnapshot,
+      },
+      env: { AGENT_COMPUTER: namespace },
+      materializeOrganizationDocuments: true,
+    });
+
+    expect(namespace.idFromName).toHaveBeenCalledOnce();
+    expect(namespace.get).toHaveBeenCalledTimes(2);
+    expect(namespace.get).toHaveBeenNthCalledWith(1, durableComputerId);
+    expect(namespace.get).toHaveBeenNthCalledWith(2, durableComputerId);
+    expect(cloudflareComputerMock.getWorkspace).toHaveBeenCalledTimes(2);
+    expect(
+      centerAgentOrganizationDocumentsComputerSnapshot
+    ).toHaveBeenCalledOnce();
+    expect(firstWorkspace.dispose).toHaveBeenCalledOnce();
+    expect(replacementWorkspace.dispose).toHaveBeenCalledOnce();
+    expect(state.files.has(oldProjectionPath)).toBe(false);
+    expect(
+      state.files.has(
+        `${ORGANIZATION_DOCUMENTS_COMPUTER_ROOT}/Private-Launch-Plan--doc_private.md`
+      )
+    ).toBe(true);
+    expect(
+      ORGANIZATION_DOCUMENT_COMPUTER_TOOL_NAMES.every((toolName) =>
+        capability.definitions.some(
+          (definition) => definition.name === toolName
+        )
+      )
+    ).toBe(true);
+  });
+
+  it("uses a fresh disposable workspace client for later Computer operations", async () => {
+    const materializationWorkspace = createWorkspaceFake();
+    const toolWorkspace = createWorkspaceFake();
+    cloudflareComputerMock.getWorkspace
+      .mockResolvedValueOnce(materializationWorkspace.workspace)
+      .mockResolvedValueOnce(toolWorkspace.workspace);
+    const namespace = {
+      get: vi.fn(() => ({})),
+      idFromName: vi.fn(() => ({})),
+    };
+    const capability = await createRemoteAgentComputerCapability({
+      context: createComputerContext(),
+      coreWorker: {
+        centerAgentOrganizationDocumentsComputerSnapshot: vi.fn(() =>
+          Promise.resolve(organizationDocumentsSnapshot())
+        ),
+      },
+      env: { AGENT_COMPUTER: namespace },
+      materializeOrganizationDocuments: true,
+    });
+    const grep = capability.definitions.find(
+      (definition) => definition.name === "grep"
+    );
+    if (!grep) {
+      throw new Error("grep tool missing");
+    }
+
+    await grep.execute({ pattern: "launch" }, undefined);
+
+    expect(cloudflareComputerMock.getWorkspace).toHaveBeenCalledTimes(2);
+    expect(materializationWorkspace.dispose).toHaveBeenCalledOnce();
+    expect(toolWorkspace.dispose).toHaveBeenCalledOnce();
+    expect(
+      (
+        toolWorkspace.workspace.fs as unknown as {
+          grep: ReturnType<typeof vi.fn>;
+        }
+      ).grep
+    ).toHaveBeenCalledOnce();
+  });
+
   it("clears an earlier projection when the current turn cannot materialize documents", async () => {
     const {
       allowedInput,
@@ -361,7 +537,7 @@ describe("Organization Documents computer scope", () => {
     const rm = (
       fixture.workspace.fs as unknown as { rm: ReturnType<typeof vi.fn> }
     ).rm;
-    rm.mockRejectedValueOnce(new Error("Computer storage unavailable"));
+    rm.mockRejectedValue(new Error("Computer storage unavailable"));
 
     await expect(
       createRemoteAgentComputerCapability({
@@ -372,6 +548,7 @@ describe("Organization Documents computer scope", () => {
     expect(
       centerAgentOrganizationDocumentsComputerSnapshot
     ).not.toHaveBeenCalled();
+    expect(fixture.dispose).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -431,7 +608,7 @@ describe("AgentComputerSandboxApi", () => {
   });
 
   it("runs bash on the worker-shell backend with a bounded timeout", async () => {
-    const { workspace } = createWorkspaceFake();
+    const { execHandleDispose, workspace } = createWorkspaceFake();
     const api = new AgentComputerSandboxApi(workspace);
 
     const result = await api.exec("echo hello", {
@@ -448,6 +625,7 @@ describe("AgentComputerSandboxApi", () => {
       env: undefined,
       timeoutMs: 120_000,
     });
+    expect(execHandleDispose).toHaveBeenCalledOnce();
   });
 
   it("routes exec to the container backend when the caller selects it", async () => {
@@ -493,8 +671,9 @@ describe("AgentComputerSandboxApi", () => {
       resolveResult = resolve;
     });
     const kill = vi.fn(() => Promise.resolve());
+    const dispose = vi.fn();
     runtimeExec.mockResolvedValueOnce({
-      [Symbol.dispose]: vi.fn(),
+      [Symbol.dispose]: dispose,
       kill,
       result: () => resultPromise,
     });
@@ -520,6 +699,7 @@ describe("AgentComputerSandboxApi", () => {
 
     await stopped;
     expect(kill).toHaveBeenCalledWith("SIGTERM");
+    expect(dispose).toHaveBeenCalledOnce();
   });
 });
 

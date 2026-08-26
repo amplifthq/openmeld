@@ -1455,6 +1455,24 @@ surface adopts official features where they are free**:
     working directory and return through the Core-owned draft or explicitly
     authorized direct-save contracts; Computer files never become a second
     approved-content writer.
+    The AgentComputer Durable Object identity stays fixed for the Agent Profile,
+    but a `WorkspaceClient` is an RPC lease, not durable turn state. Remote Agent
+    acquires and disposes one client for each materialization attempt and later
+    Computer operation; an exec handle is disposed before its parent client on
+    success, failure, or cancellation. If that RPC connection disappears while
+    the pre-model layout or Organization Documents projection is being built,
+    Remote Agent reacquires the same AgentComputer identity and restarts the
+    complete deterministic materialization from the already-read Core snapshot.
+    It does not match error prose or create another Computer. If immediate
+    rematerialization still fails before Flue records input application, the
+    durable submission may be requeued and claimed by a replacement instance
+    within its existing attempt budget. Input application closes that replay
+    boundary, so model, tool, and external side effects are never repeated by
+    this recovery path. If the durable submission instead settles with an
+    error while its callback is still pending, the existing callback sweep
+    reconciles that structured Flue failure through the ordinary Core callback
+    path. A settled success without a Flue error remains available to the
+    normal stream observer and cannot be converted into failure by this sweep.
     A Local Agent never receives an implicit mount of this private hosted
     filesystem. A Center Agent may explicitly copy at most three regular text
     files from the current working directory into one Wake, with 32,000 bytes

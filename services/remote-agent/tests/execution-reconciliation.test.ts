@@ -8,11 +8,102 @@ import {
   initializeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
 } from "../agent-core/execution-state";
-import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
+import {
+  reconcileRemoteAgentExecution,
+  reconcileSettledRemoteAgentExecutionFailures,
+} from "../flue-adapter/execution-reconciliation";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 describe("remote agent execution reconciliation", () => {
+  it("turns a settled pre-model failure into a Core callback without waiting for Core polling", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const failedSubmissionId = "submission_sandbox_materialization_failed";
+    const successfulSubmissionId = "submission_success_callback_in_flight";
+    for (const submissionId of [failedSubmissionId, successfulSubmissionId]) {
+      await initializeRemoteAgentExecutionState({
+        acceptedAtMs: TEST_NOW_MS,
+        identity: {
+          idempotencyKey: request.idempotencyKey,
+          organizationId: request.organizationId,
+          spaceId: request.spaceId,
+          submissionId,
+          v: 1,
+        },
+        storage,
+      });
+      await putRemoteAgentCallbackContext(
+        storage,
+        createRemoteAgentCallbackContext({
+          ack: {
+            accepted: true,
+            createdAt: TEST_NOW_MS,
+            idempotencyKey: request.idempotencyKey,
+            status: "pending",
+            submissionId,
+          },
+          nowMs: TEST_NOW_MS,
+          request,
+        })
+      );
+    }
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_materialization_failure",
+      status: "accepted" as const,
+    }));
+    const readSubmission = vi.fn(async (submissionId: string) =>
+      submissionId === failedSubmissionId
+        ? {
+            error:
+              "Connection closed: this Durable Object instance is no longer active.",
+            status: "settled" as const,
+          }
+        : { status: "settled" as const }
+    );
+
+    await expect(
+      reconcileSettledRemoteAgentExecutionFailures({
+        coreWorker: { completeRemoteAgentSubmission },
+        nowMs: () => TEST_NOW_MS + 5000,
+        readSubmission,
+        storage,
+      })
+    ).resolves.toEqual({ reconciled: 1 });
+    await expect(
+      reconcileSettledRemoteAgentExecutionFailures({
+        coreWorker: { completeRemoteAgentSubmission },
+        nowMs: () => TEST_NOW_MS + 10_000,
+        readSubmission,
+        storage,
+      })
+    ).resolves.toEqual({ reconciled: 0 });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.turn_not_completed",
+        status: "failed",
+        submissionId: failedSubmissionId,
+      })
+    );
+    await expect(
+      readRemoteAgentCallbackContext(storage, failedSubmissionId)
+    ).resolves.toMatchObject({
+      callbackAttempts: 1,
+      callbackStatus: "failed",
+      terminalFailureFact: {
+        code: "remote_agent.turn_not_completed",
+      },
+    });
+    await expect(
+      readRemoteAgentCallbackContext(storage, successfulSubmissionId)
+    ).resolves.toMatchObject({
+      callbackAttempts: 0,
+      callbackStatus: "pending",
+    });
+  });
+
   it("publishes one visible failure after Flue exhausts an interrupted submission", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const request = createSubmitTurnRequest();

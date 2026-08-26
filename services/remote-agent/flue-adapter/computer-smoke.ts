@@ -26,7 +26,7 @@ export async function runAgentComputerSmoke(input: {
   const stub = namespace.get(
     namespace.idFromName(buildAgentComputerName(input.agentProfileId))
   );
-  const workspace = await getWorkspace(
+  using workspace = await getWorkspace(
     stub as unknown as Parameters<typeof getWorkspace>[0]
   );
   const { workingDirectory } = await ensureAgentComputerLayout(workspace, {
@@ -39,7 +39,7 @@ export async function runAgentComputerSmoke(input: {
   const readBack = await workspace.fs.readFile(smokeFile, "utf8");
   const grepMatches = await workspace.fs.grep("computer smoke", smokeFile);
 
-  const handle = await workspace.runtime.exec(`cat ${smokeFile}`, {
+  using handle = await workspace.runtime.exec(`cat ${smokeFile}`, {
     backend: AGENT_COMPUTER_SHELL_BACKEND_ID,
     cwd: workingDirectory,
     encoding: "utf8",
@@ -52,7 +52,7 @@ export async function runAgentComputerSmoke(input: {
     // Same file world through the second engine: python3 in the
     // computerd container must read the file the DO just wrote, and a
     // container-side write must be visible back on the durable fs.
-    const containerHandle = await workspace.runtime.exec(
+    using containerHandle = await workspace.runtime.exec(
       `python3 -c "print(open('${smokeFile}').read().strip().upper())" && echo container-was-here > ${workingDirectory}/container-echo.txt`,
       {
         backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,

@@ -4,6 +4,7 @@ import type {
 } from "@openmeld/schemas/types";
 import {
   handleRemoteAgentChatResponse,
+  listRemoteAgentCallbackContexts,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
 } from "../agent-core/callback-context";
@@ -19,6 +20,50 @@ export type FlueSubmissionLifecycle = {
 
 const RESULT_UNAVAILABLE_ERROR =
   "The agent runtime settled without preserving a callback result.";
+
+export async function reconcileSettledRemoteAgentExecutionFailures(input: {
+  coreWorker?: RemoteAgentCoreWorkerBinding;
+  nowMs?: () => number;
+  readSubmission: (
+    submissionId: string
+  ) => Promise<FlueSubmissionLifecycle | null>;
+  storage: RemoteAgentStorage;
+}): Promise<{ reconciled: number }> {
+  const pendingContexts = await listRemoteAgentCallbackContexts(input.storage, [
+    "pending",
+  ]);
+  let reconciled = 0;
+  for (const context of pendingContexts) {
+    const submission = await input.readSubmission(context.submissionId);
+    // A successful submission can briefly settle before its stream observer
+    // finishes the Core callback. Only Flue's durable error fact proves that a
+    // pending callback has a terminal failure to reconcile.
+    if (submission?.status !== "settled" || !submission.error) {
+      continue;
+    }
+    const result = await reconcileRemoteAgentExecution({
+      coreWorker: input.coreWorker,
+      identity: {
+        idempotencyKey: context.idempotencyKey,
+        organizationId: context.organizationId,
+        spaceId: context.spaceId,
+        submissionId: context.submissionId,
+        v: 1,
+      },
+      nowMs: input.nowMs,
+      readSubmission: async () => submission,
+      storage: input.storage,
+    });
+    if (
+      result.status === "found" &&
+      (result.execution.status === "failed" ||
+        result.execution.status === "aborted")
+    ) {
+      reconciled += 1;
+    }
+  }
+  return { reconciled };
+}
 
 export async function reconcileRemoteAgentExecution(input: {
   coreWorker?: RemoteAgentCoreWorkerBinding;

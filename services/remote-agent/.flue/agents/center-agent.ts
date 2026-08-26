@@ -71,6 +71,7 @@ import {
 import {
   type FlueSubmissionLifecycle,
   reconcileRemoteAgentExecution,
+  reconcileSettledRemoteAgentExecutionFailures,
 } from "../../flue-adapter/execution-reconciliation";
 import { registerRemoteAgentCloudflareProvider } from "../../flue-adapter/model";
 import { resolveCurrentOrganizationDocumentPromptContext } from "../../flue-adapter/organization-document-prompt-context";
@@ -484,6 +485,13 @@ export const cloudflare = extend({
 
       async retryRemoteAgentCallbacks(): Promise<void> {
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
+        const readSubmission = requireFlueSubmissionReader(this);
+        await reconcileSettledRemoteAgentExecutionFailures({
+          coreWorker: this.env
+            .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
+          readSubmission,
+          storage,
+        });
         await redeliverRemoteAgentCallbacksAndScheduleNextRetry({
           coreWorker: this.env
             .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
@@ -504,18 +512,7 @@ export const cloudflare = extend({
       async reconcileExecution(input: RemoteAgentWorkerExecutionQuery) {
         const request = remoteAgentWorkerExecutionQuerySchema.parse(input);
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
-        const readSubmission = (
-          this as typeof this & {
-            __unsafe_readSubmission(
-              submissionId: string
-            ): Promise<FlueSubmissionLifecycle | null>;
-          }
-        ).__unsafe_readSubmission;
-        if (typeof readSubmission !== "function") {
-          throw new Error(
-            "Flue does not expose lightweight submission reconciliation."
-          );
-        }
+        const readSubmission = requireFlueSubmissionReader(this);
         const reconciled = await reconcileRemoteAgentExecution({
           coreWorker: this.env
             .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
@@ -590,4 +587,22 @@ function requireRemoteAgentDurableObjectName(name: string | undefined): string {
     throw new Error("Remote Agent Durable Object identity is unavailable.");
   }
   return name;
+}
+
+function requireFlueSubmissionReader(
+  instance: object
+): (submissionId: string) => Promise<FlueSubmissionLifecycle | null> {
+  const readSubmission = (
+    instance as {
+      __unsafe_readSubmission?: (
+        submissionId: string
+      ) => Promise<FlueSubmissionLifecycle | null>;
+    }
+  ).__unsafe_readSubmission;
+  if (typeof readSubmission !== "function") {
+    throw new Error(
+      "Flue does not expose lightweight submission reconciliation."
+    );
+  }
+  return readSubmission.bind(instance);
 }

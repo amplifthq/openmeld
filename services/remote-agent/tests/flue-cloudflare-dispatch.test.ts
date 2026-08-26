@@ -5,12 +5,26 @@ import { pathToFileURL } from "node:url";
 import {
   type AgentExecutionStore,
   type AgentSubmission,
+  type AgentSubmissionStore,
   createCloudflareAgentRuntime,
   type FlueContextInternal,
   InMemoryAttachmentStore,
   InMemoryConversationStreamStore,
+  type SubmissionAttemptRef,
+  type SubmissionDurability,
 } from "@flue/runtime/internal";
 import { describe, expect, it, vi } from "vitest";
+
+function ownsRunningAttempt(
+  submission: AgentSubmission,
+  attempt: SubmissionAttemptRef
+): boolean {
+  return (
+    submission.status === "running" &&
+    submission.submissionId === attempt.submissionId &&
+    submission.attemptId === attempt.attemptId
+  );
+}
 
 describe("Flue Cloudflare dispatch patch", () => {
   it("settles an exhausted interrupted submission without initializing the agent", async () => {
@@ -297,6 +311,248 @@ describe("Flue Cloudflare dispatch patch", () => {
       releaseOldFiber?.();
       await interruptedWake;
     }
+  });
+
+  it("lets a replacement instance reclaim a failed attempt before input is applied", async () => {
+    const submissionId = "submission-reclaimed-before-input-application";
+    const durableObjectId = "durable-object-center-agent-pre-input-recovery";
+    const input = {
+      acceptedAt: "2026-08-26T03:24:37.710Z",
+      agent: "center-agent",
+      dispatchId: submissionId,
+      id: "space-pre-input-recovery",
+      input: { message: "Read the current OpenMeld Tasks." },
+      kind: "dispatch" as const,
+      submissionId,
+    };
+    const createQueuedSubmission = (maxRetry = 10): AgentSubmission => ({
+      acceptedAt: Date.parse(input.acceptedAt),
+      attemptCount: 0,
+      canonicalReadyAt: Date.parse(input.acceptedAt),
+      input,
+      kind: "dispatch",
+      leaseExpiresAt: 0,
+      maxRetry,
+      sequence: 1,
+      sessionKey: "agent:space-pre-input-recovery:default:default",
+      status: "queued",
+      submissionId,
+      timeoutAt: 0,
+    });
+    let submission = createQueuedSubmission();
+    const completeSubmission = vi.fn((attempt: SubmissionAttemptRef) => {
+      if (!ownsRunningAttempt(submission, attempt)) {
+        return Promise.resolve(false);
+      }
+      submission = {
+        ...submission,
+        leaseExpiresAt: 0,
+        status: "settled",
+      };
+      return Promise.resolve(true);
+    });
+    const failSubmission = vi.fn(
+      (attempt: SubmissionAttemptRef, error: unknown) => {
+        if (!ownsRunningAttempt(submission, attempt)) {
+          return Promise.resolve(false);
+        }
+        submission = {
+          ...submission,
+          error: error instanceof Error ? error.message : String(error),
+          leaseExpiresAt: 0,
+          status: "settled",
+        };
+        return Promise.resolve(true);
+      }
+    );
+    const requeueSubmissionBeforeInputApplied = vi.fn(
+      (attempt: SubmissionAttemptRef) => {
+        if (
+          !ownsRunningAttempt(submission, attempt) ||
+          submission.inputAppliedAt !== undefined
+        ) {
+          return Promise.resolve(false);
+        }
+        submission = {
+          ...submission,
+          attemptId: undefined,
+          leaseExpiresAt: 0,
+          ownerId: undefined,
+          recoveryRequestedAt: undefined,
+          startedAt: undefined,
+          status: "queued",
+        };
+        return Promise.resolve(true);
+      }
+    );
+    const submissions = {
+      claimSubmission: (
+        claim: Parameters<AgentSubmissionStore["claimSubmission"]>[0]
+      ) => {
+        if (
+          submission.status !== "queued" ||
+          submission.submissionId !== claim.submissionId
+        ) {
+          return Promise.resolve(null);
+        }
+        submission = {
+          ...submission,
+          attemptCount: submission.attemptCount + 1,
+          attemptId: claim.attemptId,
+          leaseExpiresAt: claim.leaseExpiresAt,
+          ownerId: claim.ownerId,
+          startedAt: Date.now(),
+          status: "running",
+        };
+        return Promise.resolve(submission);
+      },
+      completeSubmission,
+      deleteAttemptMarker: () => Promise.resolve(),
+      failSubmission,
+      getSubmission: (requestedSubmissionId: string) =>
+        Promise.resolve(
+          requestedSubmissionId === submission.submissionId ? submission : null
+        ),
+      hasUnsettledSubmissions: () =>
+        Promise.resolve(submission.status !== "settled"),
+      insertAttemptMarker: () => Promise.resolve(),
+      listAttemptMarkers: () => Promise.resolve([]),
+      listPendingSubmissionSettlements: () => Promise.resolve([]),
+      listRunnableSubmissions: () =>
+        Promise.resolve(submission.status === "queued" ? [submission] : []),
+      listRunningSubmissions: () =>
+        Promise.resolve(submission.status === "running" ? [submission] : []),
+      listUnreadySubmissions: () => Promise.resolve([]),
+      markSubmissionInputApplied: (
+        attempt: SubmissionAttemptRef,
+        durability?: SubmissionDurability
+      ) => {
+        if (!ownsRunningAttempt(submission, attempt)) {
+          return Promise.resolve(false);
+        }
+        submission = {
+          ...submission,
+          inputAppliedAt: Date.now(),
+          maxRetry: durability?.maxRetry ?? submission.maxRetry,
+          timeoutAt: durability?.timeoutAt ?? submission.timeoutAt,
+        };
+        return Promise.resolve(true);
+      },
+      requeueSubmissionBeforeInputApplied,
+    };
+    const prepared = {
+      agentName: "center-agent",
+      attachmentStore: new InMemoryAttachmentStore(),
+      conversationStreamStore: new InMemoryConversationStreamStore(),
+      executionStore: { submissions } as unknown as AgentExecutionStore,
+    };
+    let processInputCalls = 0;
+    let modelExecutionCalls = 0;
+    const processBehaviors: Array<
+      "fail_after_input" | "fail_before_input" | "succeed"
+    > = ["fail_before_input", "succeed"];
+    const runtime = createCloudflareAgentRuntime({
+      agents: [{ definition: {} as never, name: "center-agent" }],
+      createContext: () =>
+        ({
+          initializeRootHarness: async () => ({
+            session: async () => ({
+              processSubmissionInput: (
+                _submissionInput: unknown,
+                options: {
+                  onInputApplied?: (
+                    durability?: SubmissionDurability
+                  ) => Promise<void>;
+                }
+              ) => {
+                processInputCalls += 1;
+                const behavior = processBehaviors.shift();
+                let result: Promise<{ text: string }>;
+                if (behavior === "fail_before_input") {
+                  result = Promise.reject(
+                    new Error(
+                      "Connection closed before this instance applied the input."
+                    )
+                  );
+                } else {
+                  result = (async () => {
+                    await options.onInputApplied?.({
+                      maxRetry: 10,
+                      timeoutAt: 0,
+                    });
+                    modelExecutionCalls += 1;
+                    if (behavior === "fail_after_input") {
+                      throw new Error(
+                        "Execution failed after input application."
+                      );
+                    }
+                    return { text: "Recovered exactly once." };
+                  })();
+                }
+                result.catch(() => undefined);
+                return Object.assign(result, { abort: vi.fn() });
+              },
+            }),
+          }),
+        }) as unknown as FlueContextInternal,
+      runWithInstanceContext: (_instance, _agentName, callback) => callback(),
+    });
+    const createInstance = () => ({
+      __unsafe_ensureInitialized: () => Promise.resolve(),
+      ctx: {
+        id: { toString: () => durableObjectId },
+        storage: {},
+      },
+      env: {},
+      name: "space-pre-input-recovery",
+      runFiber: async (
+        _name: string,
+        callback: (ctx: { stash(snapshot: unknown): void }) => Promise<void>
+      ) => await callback({ stash: () => undefined }),
+      schedule: () => Promise.resolve(),
+    });
+
+    const interruptedInstance = createInstance();
+    runtime.attach(interruptedInstance, prepared);
+    await runtime.wakeSubmissions(interruptedInstance);
+
+    expect(requeueSubmissionBeforeInputApplied).toHaveBeenCalledOnce();
+    expect(submission.status).toBe("queued");
+    expect(submission.inputAppliedAt).toBeUndefined();
+    expect(failSubmission).not.toHaveBeenCalled();
+    expect(modelExecutionCalls).toBe(0);
+
+    const replacementInstance = createInstance();
+    runtime.attach(replacementInstance, prepared);
+    await runtime.wakeSubmissions(replacementInstance);
+
+    expect(processInputCalls).toBe(2);
+    expect(modelExecutionCalls).toBe(1);
+    expect(completeSubmission).toHaveBeenCalledOnce();
+    expect(failSubmission).not.toHaveBeenCalled();
+    expect(submission.status).toBe("settled");
+
+    submission = createQueuedSubmission(1);
+    processBehaviors.push("fail_before_input");
+    const exhaustedInstance = createInstance();
+    runtime.attach(exhaustedInstance, prepared);
+    await runtime.wakeSubmissions(exhaustedInstance);
+
+    expect(requeueSubmissionBeforeInputApplied).toHaveBeenCalledOnce();
+    expect(failSubmission).toHaveBeenCalledOnce();
+    expect(modelExecutionCalls).toBe(1);
+    expect(submission.status).toBe("settled");
+
+    submission = createQueuedSubmission();
+    processBehaviors.push("fail_after_input");
+    const postInputFailureInstance = createInstance();
+    runtime.attach(postInputFailureInstance, prepared);
+    await runtime.wakeSubmissions(postInputFailureInstance);
+
+    expect(requeueSubmissionBeforeInputApplied).toHaveBeenCalledTimes(2);
+    expect(failSubmission).toHaveBeenCalledTimes(2);
+    expect(modelExecutionCalls).toBe(2);
+    expect(submission.status).toBe("settled");
   });
 
   it("keeps model reconciliation out of Durable Object startup", async () => {
