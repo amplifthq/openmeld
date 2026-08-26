@@ -16,7 +16,9 @@ import {
 } from "@openmeld/schemas";
 import { createSpaceMemberAgentExecutionReadiness } from "@openmeld/schemas/testing";
 import type {
+	AgentProfileCreationRequest,
 	AuthProfileView,
+	CreateAgentProfileCreationRequestResponse,
 	GetSpaceStatusResponse,
 	OrganizationDirectoryResponse,
 	SignalEnvelope,
@@ -54,6 +56,10 @@ import {
 	useSpaceWakeProgressVisibleProjection,
 } from "./space-wake-progress-visible-projection";
 import { SPACE_WAKE_STATUS_AUTO_REFRESH_ATTEMPTS } from "./space-wake-status-refresh";
+
+type WebCreateAgentProfileCreationRequestInput = Parameters<
+	typeof import("#/lib/profiles/agent-profile-creation-requests").createAgentProfileCreationRequest
+>[0];
 
 type SpaceMemberAgentAgentWakeAvailability = NonNullable<
 	SpaceMemberAgentSnapshot["agentWakeAvailability"]
@@ -114,7 +120,7 @@ const {
 	useNavigateMock,
 	useLocalAgentRecoveryControllerMock,
 	listStartProfilesMock,
-	createStartAgentProfileMock,
+	createAgentProfileCreationRequestMock,
 	createStartHumanProfileMock,
 	notifyAgentExecutionReadinessRefreshMock,
 	toastMock,
@@ -134,7 +140,7 @@ const {
 	upsertProfileSpaceHistoryMock: vi.fn(),
 	useLocalAgentRecoveryControllerMock: vi.fn(),
 	listStartProfilesMock: vi.fn(),
-	createStartAgentProfileMock: vi.fn(),
+	createAgentProfileCreationRequestMock: vi.fn(),
 	createStartHumanProfileMock: vi.fn(),
 	notifyAgentExecutionReadinessRefreshMock: vi.fn(),
 	useAccountAvatarMock: vi.fn(),
@@ -344,11 +350,21 @@ vi.mock("#/lib/profiles/existing-profiles", () => ({
 	listStartProfiles: () => listStartProfilesMock(),
 }));
 
-vi.mock("#/lib/profiles/create-agent-profile", () => ({
-	createStartAgentProfile: (
-		...args: Parameters<typeof createStartAgentProfileMock>
-	) => createStartAgentProfileMock(...args),
-}));
+vi.mock(
+	"#/lib/profiles/agent-profile-creation-requests",
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("#/lib/profiles/agent-profile-creation-requests")
+			>();
+		return {
+			...actual,
+			createAgentProfileCreationRequest: (
+				...args: Parameters<typeof createAgentProfileCreationRequestMock>
+			) => createAgentProfileCreationRequestMock(...args),
+		};
+	}
+);
 
 vi.mock("#/lib/profiles/create-human-profile", () => ({
 	createStartHumanProfile: (
@@ -696,14 +712,11 @@ describe("SpaceLanding", () => {
 				profileName: "Mira",
 			}),
 		]);
-		createStartAgentProfileMock.mockReset().mockResolvedValue(
-			createLandingAccountProfile({
-				openMeldProfileId: SECOND_AGENT_PROFILE_ID,
-				ownerUserId: "user-mira",
-				profileKind: "agent",
-				profileName: "Scout",
-			})
-		);
+		createAgentProfileCreationRequestMock
+			.mockReset()
+			.mockImplementation(async (requestInput) =>
+				buildCompletedAgentProfileCreationRequest(requestInput)
+			);
 		createStartHumanProfileMock.mockReset().mockResolvedValue(
 			createLandingAccountProfile({
 				openMeldProfileId: "22222222-2222-4222-8222-222222222222",
@@ -1420,7 +1433,7 @@ describe("SpaceLanding", () => {
 		}
 	});
 
-	it("keeps refreshing a newly created Space agent until members show current readiness", async () => {
+	it("keeps refreshing a newly created Space agent without repeating the Core membership write", async () => {
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
 		const statusRefetchMock = vi.fn().mockResolvedValue(undefined);
 		const newAgentOfflineSnapshot = createMembersSnapshot({
@@ -1558,23 +1571,21 @@ describe("SpaceLanding", () => {
 				.getAttribute("aria-expanded")
 		).toBe("false");
 		expect(membersRefetchMock).toHaveBeenCalledTimes(2);
-		expect(createStartAgentProfileMock).toHaveBeenCalledWith({
-			data: {
-				creatorProfileId: DEFAULT_SPACE_PROFILE_ID,
+		expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				configuration: expect.objectContaining({
+					agentControllerRef: null,
+					defaultProjectId: null,
+					targetComputerId: null,
+				}),
 				idempotencyKey: expect.any(String),
 				organizationId: "org-acme",
 				profileName: "Scout",
-			},
-		});
-		expect(addMembersMock).toHaveBeenCalledWith({
-			memberProfileIds: [SECOND_AGENT_PROFILE_ID],
-			requestContext: expect.objectContaining({
-				actorContext: expect.objectContaining({
-					openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
-				}),
-			}),
-			spaceId: "space-123",
-		});
+				requestedSpaceId: "space-123",
+				targetOwnerUserId: "user-mira",
+			})
+		);
+		expect(addMembersMock).not.toHaveBeenCalled();
 		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 			agentProfileIds: [SECOND_AGENT_PROFILE_ID],
 		});
@@ -16030,6 +16041,33 @@ function resolveOrganizationAuthorizationPreferenceQueryResult(
 				},
 			})
 		: null;
+}
+
+function buildCompletedAgentProfileCreationRequest(
+	requestInput: WebCreateAgentProfileCreationRequestInput
+): CreateAgentProfileCreationRequestResponse {
+	const request: AgentProfileCreationRequest = {
+		actorProfileId: DEFAULT_SPACE_PROFILE_ID,
+		completedAt: "2026-08-20T00:00:05.000Z",
+		configuration: requestInput.configuration,
+		createdAgentProfileId: SECOND_AGENT_PROFILE_ID,
+		createdAt: "2026-08-20T00:00:00.000Z",
+		decidedAt: "2026-08-20T00:00:01.000Z",
+		failureMessage: null,
+		id: "apcr-space-agent",
+		nativeSessionId: requestInput.nativeSessionId ?? null,
+		organizationId: requestInput.organizationId,
+		profileName: requestInput.profileName,
+		requestedSpaceId: requestInput.requestedSpaceId ?? null,
+		requesterUserId: "user-mira",
+		sessionStrategy: requestInput.sessionStrategy ?? "new",
+		source: "web",
+		status: "completed",
+		statusReason: "profile_created",
+		targetOwnerUserId: requestInput.targetOwnerUserId,
+		updatedAt: "2026-08-20T00:00:05.000Z",
+	};
+	return { replayed: false, request };
 }
 
 function createLandingAccountProfile(
