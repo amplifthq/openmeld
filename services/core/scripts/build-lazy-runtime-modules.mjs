@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import {
+  existsSync,
   mkdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   statSync,
@@ -70,18 +72,27 @@ async function buildLazyRuntimeModule(input) {
   const output = result.outputFiles[0].contents;
   await input.verify(output);
 
-  mkdirSync(OUTPUT_DIRECTORY, { recursive: true });
-  const temporaryOutputPath = `${input.outputPath}.${String(process.pid)}.tmp`;
+  const changed = writeOutputIfChanged(input.outputPath, output);
+
+  console.log(
+    `[core-build] ${changed ? "Generated" : "Reused"} lazy ${input.displayName} runtime module (${String(statSync(input.outputPath).size)} bytes)`
+  );
+}
+
+export function writeOutputIfChanged(outputPath, output) {
+  if (existsSync(outputPath) && readFileSync(outputPath).equals(output)) {
+    return false;
+  }
+
+  mkdirSync(path.dirname(outputPath), { recursive: true });
+  const temporaryOutputPath = `${outputPath}.${String(process.pid)}.tmp`;
   try {
     writeFileSync(temporaryOutputPath, output);
-    renameSync(temporaryOutputPath, input.outputPath);
+    renameSync(temporaryOutputPath, outputPath);
   } finally {
     rmSync(temporaryOutputPath, { force: true });
   }
-
-  console.log(
-    `[core-build] Generated lazy ${input.displayName} runtime module (${String(statSync(input.outputPath).size)} bytes)`
-  );
+  return true;
 }
 
 async function verifyZepRuntimeModule(output) {

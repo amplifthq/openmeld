@@ -6,6 +6,35 @@ import {
 } from "../src/profile-workspace/presentation";
 
 describe("profile workspace presentation", () => {
+  it("shows the Default Project folder as the current working folder", () => {
+    const projectFolder = "/Users/felix/Desktop/work/openmeld";
+    const presentation = buildProfileWorkspacePresentation({
+      configPath: null,
+      configuredWorkspacePath: projectFolder,
+      defaultProjectBindingGeneration: "binding-project-openmeld",
+      defaultProjectId: "project-openmeld",
+      effectiveRuntimeWorkingDirectory: projectFolder,
+      runtimeContext: {
+        providerRuntimeWorkingDirectory: projectFolder,
+      },
+      status: "ready",
+      workingFolderSource: "default_project",
+      workspaceMode: null,
+    });
+
+    expect(presentation).toMatchObject({
+      configuredWorkspace: projectFolder,
+      effectiveRuntimeWorkingDirectory: projectFolder,
+      status: "default_project",
+      workspace: "Default Project",
+      workspaceSource: "Default Project",
+    });
+    expect(buildProfileWorkspaceRows(presentation)).toContainEqual({
+      label: "Current Working Folder",
+      value: projectFolder,
+    });
+  });
+
   it("renders OpenMeld-managed workspace facts with one vocabulary", () => {
     const workspacePath = accountProfileWorkspacePath(
       {

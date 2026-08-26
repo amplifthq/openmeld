@@ -12,6 +12,7 @@ import {
   readProfileLocalMetaForAccount,
 } from "../src/config/profile-local-meta";
 import { resolveDispatchRuntimeContext } from "../src/local-service/execution/dispatch-runtime-preparation";
+import { resolveEffectiveProfileWorkingFolderRuntime } from "../src/profile-workspace/effective-runtime-resolution";
 import { withTempHome } from "./helpers/fs";
 
 const FALLBACK_ACCOUNT = {
@@ -246,6 +247,20 @@ describe("profile local meta", () => {
         })
       ).resolves.toEqual({
         providerRuntimeWorkingDirectory: connection.repositoryPath,
+      });
+      await expect(
+        resolveEffectiveProfileWorkingFolderRuntime({
+          defaultProjectId: "project-available",
+          mode: "inspect",
+          openMeldProfileId: "agt-project-available",
+        })
+      ).resolves.toMatchObject({
+        configuredWorkspacePath: connection.repositoryPath,
+        defaultProjectId: "project-available",
+        effectiveRuntimeWorkingDirectory: connection.repositoryPath,
+        status: "ready",
+        workingFolderSource: "default_project",
+        workspaceMode: null,
       });
     });
   });

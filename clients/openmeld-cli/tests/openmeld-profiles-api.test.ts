@@ -3,6 +3,7 @@ import { setAuthSession } from "../src/config/auth-session";
 import {
   createOpenMeldHumanProfile,
   getOpenMeldProfileCapabilities,
+  listOpenMeldProfiles,
   primeOpenMeldProfilesSessionCache,
   resetOpenMeldProfilesSessionCacheForTests,
 } from "../src/config/openmeld-profiles-api";
@@ -39,6 +40,40 @@ describe("OpenMeld Profiles API capability", () => {
         ok: true,
         additionalHumanProfileCreationEnabled: false,
       });
+    });
+  });
+
+  it("preserves an Agent Profile Default Project from Auth", async () => {
+    await withAuthenticatedTempHome(async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonResponse({
+            ok: true,
+            profiles: [
+              {
+                createdAt: "2026-08-20T00:00:00.000Z",
+                defaultProjectId: "project-1",
+                openMeldProfileId: "agt_profile_1",
+                ownerUserId: "user-1",
+                profileHandle: "research-agent",
+                profileKind: "agent",
+                profileName: "Research Agent",
+                source: "web_create",
+                status: "active",
+                updatedAt: "2026-08-20T00:00:00.000Z",
+              },
+            ],
+          })
+        )
+      );
+
+      await expect(listOpenMeldProfiles()).resolves.toEqual([
+        expect.objectContaining({
+          defaultProjectId: "project-1",
+          openMeldProfileId: "agt_profile_1",
+        }),
+      ]);
     });
   });
 

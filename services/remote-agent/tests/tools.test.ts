@@ -4771,8 +4771,7 @@ describe("remote agent OpenMeld tool catalog", () => {
           reasoningLevel: "medium",
         },
         connectionSelection: {
-          agentControllerRef: "builtin:codex",
-          computerId: "computer-1",
+          candidateId: "candidate-1",
         },
         profileName: "Review Agent",
         requestedSpaceId: SPACE_ID,
@@ -4784,14 +4783,13 @@ describe("remote agent OpenMeld tool catalog", () => {
       configuration: {
         agentControllerCollaborationMode: "codex:default",
         agentControllerPermissionMode: "codex:askForApproval",
-        agentControllerRef: "builtin:codex",
         authorizeForOrganization: true,
         defaultProjectId: "project-1",
         modelId: "gpt-5.6-terra",
         openCodePermission: null,
         reasoningLevel: "medium",
-        targetComputerId: "computer-1",
       },
+      localAgentConnectionCandidateId: "candidate-1",
       onBehalfOf: { profileId: request.author.profileId },
       profileName: "Review Agent",
       requestedSpaceId: SPACE_ID,
@@ -4914,8 +4912,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     await expect(
       executeTool(tools, "openmeld_create_agent_profile_request", {
         connectionSelection: {
-          agentControllerRef: "builtin:codex",
-          computerId: "computer-1",
+          candidateId: "candidate-1",
         },
         profileName: "Forked Reviewer",
         sessionSelection: {
