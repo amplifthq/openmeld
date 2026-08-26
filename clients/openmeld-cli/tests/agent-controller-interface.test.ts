@@ -21,6 +21,7 @@ import {
   resetAgentControllerInterfaceKeeperForTests,
   resolveAgentControllerCommandFingerprint,
 } from "../src/local-service/inventory/agent-controller-interface-keeper";
+import { GROK_STABLE_VERSION_URL } from "./fixtures/homebrew-latest-versions";
 import { OPENCLAW_MODELS_STATUS_MISSING_AUTH_RESPONSE } from "./fixtures/openclaw-models-status";
 import {
   OPENCODE_NPM_LATEST_RESPONSE,
@@ -50,7 +51,16 @@ vi.mock(
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(() => Response.json(OPENCODE_NPM_LATEST_RESPONSE))
+    vi.fn((input: string | URL | Request) => {
+      const url = String(input);
+      if (url === OPENCODE_NPM_LATEST_URL) {
+        return Promise.resolve(Response.json(OPENCODE_NPM_LATEST_RESPONSE));
+      }
+      if (url === GROK_STABLE_VERSION_URL) {
+        return Promise.resolve(new Response("1.0.5\n"));
+      }
+      throw new Error(`Unexpected version lookup: ${url}`);
+    })
   );
 });
 
@@ -349,8 +359,8 @@ describe("agent controller interface inventory", () => {
         version: "1.0.3",
         versionAdvisory: {
           currentVersion: "1.0.3",
-          latestVersion: null,
-          status: "unknown",
+          latestVersion: "1.0.5",
+          status: "behind_latest",
           updateCommand: "grok update",
         },
       });
@@ -561,7 +571,7 @@ describe("agent controller interface inventory", () => {
           currentVersion: "1.17.11",
           latestVersion: "1.17.18",
           status: "behind_latest",
-          updateCommand: "opencode upgrade",
+          updateCommand: "npm install -g opencode-ai@latest",
         },
       });
       expect(createOpencodeClientMock).toHaveBeenCalledWith({
@@ -672,7 +682,7 @@ describe("agent controller interface inventory", () => {
         latestVersion: "1.17.18",
         message: null,
         status: "current",
-        updateCommand: "opencode upgrade",
+        updateCommand: "npm install -g opencode-ai@latest",
       });
     } finally {
       await rm(home, { force: true, recursive: true });

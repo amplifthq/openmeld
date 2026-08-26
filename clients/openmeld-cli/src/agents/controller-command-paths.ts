@@ -66,6 +66,17 @@ export function isGrokBuildNativeCommandPath(commandPath: string): boolean {
   const normalized = normalizeControllerCommandPath(commandPath);
   return (
     normalized.endsWith("/.grok/bin/grok") ||
-    normalized.endsWith("/.grok/bin/grok.exe")
+    normalized.endsWith("/.grok/bin/grok.exe") ||
+    normalized.endsWith("/.local/bin/grok") ||
+    normalized.endsWith("/.local/bin/grok.exe") ||
+    normalized.includes("/.grok/downloads/")
+  );
+}
+
+export function isOpenCodeNativeCommandPath(commandPath: string): boolean {
+  const normalized = normalizeControllerCommandPath(commandPath);
+  return (
+    normalized.includes("/.opencode/bin/") &&
+    (normalized.endsWith("/opencode") || normalized.endsWith("/opencode.exe"))
   );
 }

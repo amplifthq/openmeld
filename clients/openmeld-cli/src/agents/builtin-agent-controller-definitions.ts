@@ -38,6 +38,7 @@ import {
   isClaudeNativeCommandPath,
   isCursorNativeCommandPath,
   isGrokBuildNativeCommandPath,
+  isOpenCodeNativeCommandPath,
 } from "./controller-command-paths";
 
 export type BuiltinControllerInstallResolver = {
@@ -57,6 +58,19 @@ export type BuiltinControllerInstallResolver = {
   }) => Promise<LaunchContractVerificationResult>;
 };
 
+export type ControllerVersionLatestSpec =
+  | { kind: "github-release"; repository: string }
+  | { kind: "homebrew" }
+  | { kind: "http-json"; url: string }
+  | { kind: "http-text"; url: string }
+  | { kind: "npm" };
+
+export type BuiltinAgentControllerOfficialChannel = {
+  latest: ControllerVersionLatestSpec;
+  matchesPath: (commandPath: string) => boolean;
+  updateCommand: string | null;
+};
+
 export type BuiltinAgentControllerVersionMaintenanceDefinition = {
   homebrewPackage?: {
     kind: "cask" | "formula";
@@ -64,8 +78,7 @@ export type BuiltinAgentControllerVersionMaintenanceDefinition = {
   };
   hostApplicationPath?: (commandPath: string) => boolean;
   npmPackageName?: string;
-  officialUpdateCommand?: string;
-  officialUpdatePath: (commandPath: string) => boolean;
+  officialChannels?: readonly BuiltinAgentControllerOfficialChannel[];
 };
 
 export type BuiltinAgentControllerDefinition = {
@@ -117,8 +130,13 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "claude-code" },
       npmPackageName: "@anthropic-ai/claude-code",
-      officialUpdateCommand: "claude update",
-      officialUpdatePath: isClaudeNativeCommandPath,
+      officialChannels: [
+        {
+          latest: { kind: "npm" } satisfies ControllerVersionLatestSpec,
+          matchesPath: isClaudeNativeCommandPath,
+          updateCommand: "claude update",
+        },
+      ],
     },
   },
   {
@@ -143,7 +161,6 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       homebrewPackage: { kind: "cask", name: "codex" },
       hostApplicationPath: isCodexHostApplicationCommandPath,
       npmPackageName: "@openai/codex",
-      officialUpdatePath: () => false,
     },
   },
   {
@@ -179,8 +196,13 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     usageLimitSupport: "unsupported",
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "cursor-cli" },
-      officialUpdateCommand: "cursor-agent update",
-      officialUpdatePath: isCursorNativeCommandPath,
+      officialChannels: [
+        {
+          latest: { kind: "homebrew" } satisfies ControllerVersionLatestSpec,
+          matchesPath: isCursorNativeCommandPath,
+          updateCommand: "cursor-agent update",
+        },
+      ],
     },
   },
   {
@@ -203,8 +225,16 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     nativeInterface: "acp",
     usageLimitSupport: "native",
     versionMaintenance: {
-      officialUpdateCommand: "grok update",
-      officialUpdatePath: isGrokBuildNativeCommandPath,
+      officialChannels: [
+        {
+          latest: {
+            kind: "http-text",
+            url: "https://x.ai/cli/stable",
+          } satisfies ControllerVersionLatestSpec,
+          matchesPath: isGrokBuildNativeCommandPath,
+          updateCommand: "grok update",
+        },
+      ],
     },
   },
   {
@@ -229,8 +259,16 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     versionMaintenance: {
       homebrewPackage: { kind: "formula", name: "opencode" },
       npmPackageName: "opencode-ai",
-      officialUpdateCommand: "opencode upgrade",
-      officialUpdatePath: () => true,
+      officialChannels: [
+        {
+          latest: {
+            kind: "github-release",
+            repository: "anomalyco/opencode",
+          } satisfies ControllerVersionLatestSpec,
+          matchesPath: isOpenCodeNativeCommandPath,
+          updateCommand: "opencode upgrade",
+        },
+      ],
     },
   },
 ] satisfies readonly BuiltinAgentControllerDefinition[];

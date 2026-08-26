@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
   type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
@@ -15,6 +17,7 @@ export async function resolveInstalledClaudeCodeLaunchCandidates(
   input?: InstalledLaunchCandidatesOptions
 ): Promise<InstalledLaunchCandidatesResolution> {
   const installedCandidates = await resolveInstalledNodeScriptLaunchCandidates({
+    additionalCommandDirectories: resolveClaudeCodeCommandDirectories(),
     commandName: DEFAULT_CLAUDE_CODE_COMMAND,
     configuredCommand: normalizeOptionalText(
       process.env.OPENMELD_DAEMON_RUNTIME_CLAUDE_CODE_BIN
@@ -49,6 +52,7 @@ export async function resolveInstalledClaudeCodeLaunchCandidates(
 
 export async function resolveInstalledClaudeCodeLaunchContract() {
   return await resolveInstalledNodeScriptLaunchContract({
+    additionalCommandDirectories: resolveClaudeCodeCommandDirectories(),
     commandName: DEFAULT_CLAUDE_CODE_COMMAND,
     configuredCommand: normalizeOptionalText(
       process.env.OPENMELD_DAEMON_RUNTIME_CLAUDE_CODE_BIN
@@ -85,6 +89,12 @@ export function resolveClaudeCodeTimeoutMs(): number | null {
     return null;
   }
   return parsed;
+}
+
+function resolveClaudeCodeCommandDirectories(): string[] {
+  return [
+    join(normalizeOptionalText(process.env.HOME) ?? homedir(), ".local", "bin"),
+  ];
 }
 
 function normalizeOptionalText(value: unknown): string | null {

@@ -26,17 +26,13 @@ import type {
 } from "@openmeld/schemas/types";
 import {
   type BuiltinAgentControllerUsageLimitSupport,
-  type BuiltinAgentControllerVersionMaintenanceDefinition,
   EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
   resolveBuiltinAgentControllerDefinition,
 } from "../../agents/builtin-agent-controller-definitions";
 import {
-  hasPathSeparator,
-  isBunGlobalCommandPath,
-  isHomebrewCommandPath,
-  isNpmGlobalCommandPath,
-  isPnpmGlobalCommandPath,
-} from "../../agents/controller-command-paths";
+  fetchLatestControllerVersion,
+  resolveControllerVersionChannel,
+} from "../../agents/controller-version-channel";
 import type { AgentTargetState } from "../../agents/registry";
 import { warnDaemonEvent } from "../core/logger";
 import {
@@ -55,45 +51,11 @@ import { resolveLaunchContractCommandPath } from "./runtime-provider-usage-limit
 
 const PROBE_TIMEOUT_MS = 8000;
 const CODEX_AUX_INVENTORY_GRACE_MS = 2500;
-const LATEST_VERSION_TIMEOUT_MS = 4000;
-const LATEST_VERSION_CACHE_TTL_MS = 60 * 60 * 1000;
-const FAILED_LATEST_VERSION_CACHE_TTL_MS = 5 * 60 * 1000;
 const PROBE_OUTPUT_LIMIT = 32_000;
 const CODEX_USER_AGENT_VERSION_RE = /\/([^\s]+)/u;
 const CLI_SEMVER_RE = /\b(\d+\.\d+\.\d+(?:[-+][^\s]+)?)\b/u;
 const SEMVER_CORE_RE = /^v?(\d+)\.(\d+)\.(\d+)/u;
 const WHITESPACE_RE = /\s+/u;
-
-type LatestVersionFetchFailureDiagnostic = {
-  attempt: 1 | 2;
-  errorMessage: string | null;
-  errorName: string | null;
-  reason: "http_error" | "invalid_response" | "request_error" | "timeout";
-  statusCode: number | null;
-  url: string;
-};
-
-type LatestVersionLookupResult = {
-  failureDiagnostics: readonly LatestVersionFetchFailureDiagnostic[];
-  version: string | null;
-};
-
-const latestControllerVersionCache = new Map<
-  string,
-  { expiresAtMs: number; version: string | null }
->();
-
-type ControllerVersionBaseline =
-  | {
-      kind: "homebrew";
-      package: NonNullable<
-        BuiltinAgentControllerVersionMaintenanceDefinition["homebrewPackage"]
-      >;
-    }
-  | {
-      kind: "npm";
-      packageName: string;
-    };
 
 // "fresh" always runs the controller probe and reports its real outcome; it is
 // the default for user-driven paths (setup, prepare, explicit checks).
@@ -451,11 +413,12 @@ async function resolveControllerVersionAdvisory(input: {
   ) {
     return undefined;
   }
-  const updateCommand = resolveControllerUpdateCommand({
+  const channel = await resolveControllerVersionChannel({
     commandPath,
     commandPaths,
     definition,
   });
+  const updateCommand = channel?.updateCommand ?? null;
   if (!input.currentVersion) {
     return {
       checkedAt: input.checkedAt,
@@ -466,10 +429,20 @@ async function resolveControllerVersionAdvisory(input: {
       updateCommand,
     };
   }
+  if (!channel) {
+    return {
+      checkedAt: input.checkedAt,
+      currentVersion: input.currentVersion,
+      latestVersion: null,
+      message: "OpenMeld could not check the latest controller version.",
+      status: "unknown",
+      updateCommand,
+    };
+  }
 
-  const latestVersion = await resolveLatestControllerVersion(
-    resolveControllerVersionBaseline({ commandPaths, definition })
-  );
+  const lookupResult = await fetchLatestControllerVersion(channel);
+  recordLatestVersionFailureDiagnostics(lookupResult);
+  const latestVersion = lookupResult.version;
   if (!latestVersion) {
     return {
       checkedAt: input.checkedAt,
@@ -517,118 +490,8 @@ async function resolveControllerVersionAdvisory(input: {
   };
 }
 
-function resolveControllerUpdateCommand(input: {
-  commandPath: string;
-  commandPaths: readonly string[];
-  definition: BuiltinAgentControllerVersionMaintenanceDefinition;
-}): string | null {
-  if (
-    input.definition.officialUpdateCommand &&
-    input.commandPaths.some(input.definition.officialUpdatePath)
-  ) {
-    return input.definition.officialUpdateCommand;
-  }
-  if (input.commandPaths.some(isBunGlobalCommandPath)) {
-    return input.definition.npmPackageName
-      ? `bun i -g ${input.definition.npmPackageName}@latest`
-      : null;
-  }
-  if (input.commandPaths.some(isPnpmGlobalCommandPath)) {
-    return input.definition.npmPackageName
-      ? `pnpm add -g ${input.definition.npmPackageName}@latest`
-      : null;
-  }
-  if (input.commandPaths.some(isNpmGlobalCommandPath)) {
-    return input.definition.npmPackageName
-      ? `npm install -g ${input.definition.npmPackageName}@latest`
-      : null;
-  }
-  if (
-    input.definition.homebrewPackage &&
-    input.commandPaths.some(isHomebrewCommandPath)
-  ) {
-    const caskFlag =
-      input.definition.homebrewPackage.kind === "cask" ? " --cask" : "";
-    return `brew upgrade${caskFlag} ${input.definition.homebrewPackage.name}`;
-  }
-  if (!hasPathSeparator(input.commandPath)) {
-    return input.definition.npmPackageName
-      ? `npm install -g ${input.definition.npmPackageName}@latest`
-      : null;
-  }
-  return null;
-}
-
-function resolveControllerVersionBaseline(input: {
-  commandPaths: readonly string[];
-  definition: BuiltinAgentControllerVersionMaintenanceDefinition;
-}): ControllerVersionBaseline | null {
-  if (
-    input.commandPaths.some(isBunGlobalCommandPath) ||
-    input.commandPaths.some(isPnpmGlobalCommandPath) ||
-    input.commandPaths.some(isNpmGlobalCommandPath)
-  ) {
-    if (input.definition.npmPackageName) {
-      return {
-        kind: "npm",
-        packageName: input.definition.npmPackageName,
-      };
-    }
-    if (input.definition.homebrewPackage) {
-      return {
-        kind: "homebrew",
-        package: input.definition.homebrewPackage,
-      };
-    }
-    return null;
-  }
-  if (input.commandPaths.some(isHomebrewCommandPath)) {
-    return input.definition.homebrewPackage
-      ? { kind: "homebrew", package: input.definition.homebrewPackage }
-      : null;
-  }
-  if (input.definition.npmPackageName) {
-    return { kind: "npm", packageName: input.definition.npmPackageName };
-  }
-  return input.definition.homebrewPackage
-    ? { kind: "homebrew", package: input.definition.homebrewPackage }
-    : null;
-}
-
-async function resolveLatestControllerVersion(
-  baseline: ControllerVersionBaseline | null
-): Promise<string | null> {
-  if (!baseline) {
-    return null;
-  }
-  const cacheKey =
-    baseline.kind === "npm"
-      ? `npm:${baseline.packageName}`
-      : `brew-${baseline.package.kind}:${baseline.package.name}`;
-  const nowMs = Date.now();
-  const cached = latestControllerVersionCache.get(cacheKey);
-  if (cached && cached.expiresAtMs > nowMs) {
-    return cached.version;
-  }
-
-  const lookupResult =
-    baseline.kind === "npm"
-      ? await fetchLatestNpmVersion(baseline.packageName)
-      : await fetchLatestHomebrewVersion(baseline.package);
-  recordLatestVersionFailureDiagnostics(lookupResult);
-  latestControllerVersionCache.set(cacheKey, {
-    expiresAtMs:
-      nowMs +
-      (lookupResult.version
-        ? LATEST_VERSION_CACHE_TTL_MS
-        : FAILED_LATEST_VERSION_CACHE_TTL_MS),
-    version: lookupResult.version,
-  });
-  return lookupResult.version;
-}
-
 function recordLatestVersionFailureDiagnostics(
-  lookupResult: LatestVersionLookupResult
+  lookupResult: Awaited<ReturnType<typeof fetchLatestControllerVersion>>
 ): void {
   for (const diagnostic of lookupResult.failureDiagnostics) {
     warnDaemonEvent(
@@ -643,114 +506,6 @@ function recordLatestVersionFailureDiagnostics(
         url: diagnostic.url,
       }
     );
-  }
-}
-
-function fetchLatestHomebrewVersion(
-  homebrewPackage: NonNullable<
-    BuiltinAgentControllerVersionMaintenanceDefinition["homebrewPackage"]
-  >
-): Promise<LatestVersionLookupResult> {
-  return fetchLatestVersion({
-    resolveVersion: (payload) =>
-      homebrewPackage.kind === "cask"
-        ? normalizeOptionalText(payload?.version)
-        : normalizeOptionalText(toRecord(payload?.versions)?.stable),
-    url: `https://formulae.brew.sh/api/${homebrewPackage.kind}/${encodeURIComponent(homebrewPackage.name)}.json`,
-  });
-}
-
-function fetchLatestNpmVersion(
-  npmPackageName: string
-): Promise<LatestVersionLookupResult> {
-  return fetchLatestVersion({
-    resolveVersion: (payload) => normalizeOptionalText(payload?.version),
-    url: `https://registry.npmjs.org/${encodeURIComponent(npmPackageName)}/latest`,
-  });
-}
-
-async function fetchLatestVersion(input: {
-  resolveVersion: (payload: Record<string, unknown> | null) => string | null;
-  url: string;
-}): Promise<LatestVersionLookupResult> {
-  const failureDiagnostics: LatestVersionFetchFailureDiagnostic[] = [];
-  for (const attempt of [1, 2] as const) {
-    const attemptResult = await fetchLatestVersionAttempt({
-      ...input,
-      attempt,
-    });
-    if (attemptResult.ok) {
-      return {
-        failureDiagnostics,
-        version: attemptResult.version,
-      };
-    }
-    failureDiagnostics.push(attemptResult.failureDiagnostic);
-  }
-  return { failureDiagnostics, version: null };
-}
-
-async function fetchLatestVersionAttempt(input: {
-  attempt: 1 | 2;
-  resolveVersion: (payload: Record<string, unknown> | null) => string | null;
-  url: string;
-}): Promise<
-  | { failureDiagnostic: LatestVersionFetchFailureDiagnostic; ok: false }
-  | { ok: true; version: string }
-> {
-  const abortController = new AbortController();
-  const timeout = setTimeout(() => {
-    abortController.abort();
-  }, LATEST_VERSION_TIMEOUT_MS);
-  try {
-    const response = await fetch(input.url, {
-      headers: { accept: "application/json" },
-      signal: abortController.signal,
-    });
-    if (!response.ok) {
-      return {
-        failureDiagnostic: {
-          attempt: input.attempt,
-          errorMessage: null,
-          errorName: null,
-          reason: "http_error",
-          statusCode: response.status,
-          url: input.url,
-        },
-        ok: false,
-      };
-    }
-    const payload = toRecord(await response.json());
-    const version = input.resolveVersion(payload);
-    if (!version) {
-      return {
-        failureDiagnostic: {
-          attempt: input.attempt,
-          errorMessage: null,
-          errorName: null,
-          reason: "invalid_response",
-          statusCode: response.status,
-          url: input.url,
-        },
-        ok: false,
-      };
-    }
-    return { ok: true, version };
-  } catch (error) {
-    const errorName = error instanceof Error ? error.name : null;
-    return {
-      failureDiagnostic: {
-        attempt: input.attempt,
-        errorMessage: error instanceof Error ? error.message : String(error),
-        errorName,
-        reason: errorName === "AbortError" ? "timeout" : "request_error",
-        statusCode: null,
-        url: input.url,
-      },
-      ok: false,
-    };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

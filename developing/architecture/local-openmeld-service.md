@@ -208,6 +208,14 @@ application as the update owner. It must not compare the bundled runtime with a
 standalone CLI package's release channel or offer that CLI package's update
 command. If the host application does not expose a stable update-status
 contract, ACI omits the version advisory instead of guessing across sources.
+
+The same identity rule applies to standalone installs. Latest version and the
+update command must come from the selected install's channel: that controller's
+official native updater, npm/pnpm/bun, or the Homebrew formula actually
+installed, including its tap. ACI must not compare a third-party tap install
+with Homebrew core, and must not advertise a generic updater whose latest
+source is a different package.
+
 When an
 official controller package adds a thin launcher around a packaged native
 runtime, an ACI adapter may execute that native runtime directly only after it
