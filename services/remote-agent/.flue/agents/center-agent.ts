@@ -511,7 +511,7 @@ export const cloudflare = extend({
           coreWorker: this.env
             .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
           identity: request,
-          readSubmission: readSubmission.bind(this),
+          readSubmission,
           storage,
         });
         await this.armRemoteAgentCallbackRetry();
