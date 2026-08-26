@@ -101,6 +101,29 @@ export const TERMINAL_WAKE_PROGRESS_FIXTURE = {
   ],
 } as const satisfies GetSpaceWakeProgressResponse;
 
+/** Captured from Core's hosted failure trace-to-Wake-progress boundary. */
+export const TERMINAL_FAILURE_WAKE_PROGRESS_FIXTURE = {
+  query: {
+    spaceId: COLLABORATION_CONTROL_SPACE_ID,
+    clientMessageId: "client-message-terminal-failure",
+    targetProfileId: COLLABORATION_CONTROL_AGENT_PROFILE_ID,
+  },
+  items: [
+    {
+      clientMessageId: "client-message-terminal-failure",
+      sourceSignalId: "sig-source-terminal-failure",
+      dispatchId: "dispatch-terminal-failure",
+      targetProfileId: COLLABORATION_CONTROL_AGENT_PROFILE_ID,
+      targetLabel: "@builder",
+      phase: "failed",
+      failureReasonCode: "remote_agent.turn_not_completed",
+      message: "@builder could not complete this Wake.",
+      updatedAtMs: 1_805_000_001_000,
+      terminal: true,
+    },
+  ],
+} as const satisfies GetSpaceWakeProgressResponse;
+
 /** Captured from packages/api-client/tests/space-api.test.ts. */
 export const WAKE_STOP_REQUESTED_FIXTURE = {
   ok: true,

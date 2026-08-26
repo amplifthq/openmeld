@@ -60,6 +60,10 @@ type DispatchTraceLatestAttemptRecord = NonNullable<
 type DispatchTraceNativeDeliveryRecord = NonNullable<
   SpaceDispatchTraceSnapshot["nativeDelivery"]
 >;
+type HostedNativeDeliveryTraceRead = {
+  publishedSignalId: string | null;
+  record: DispatchTraceNativeDeliveryRecord;
+};
 type DispatchTraceExecutionIdentityRecord = NonNullable<
   SpaceDispatchTraceSnapshot["executionIdentity"]
 >;
@@ -287,11 +291,12 @@ export const readSpaceDispatchTrace = async (input: {
     attemptId: dispatch.latestAttemptId,
     db: input.db,
   });
-  const nativeDelivery = await readHostedNativeDeliveryTrace({
+  const nativeDeliveryRead = await readHostedNativeDeliveryTrace({
     db: input.db,
     dispatch,
     spaceId: input.spaceId,
   });
+  const nativeDelivery = nativeDeliveryRead?.record ?? null;
   const runtimeCoordinatorExecution = nativeDelivery
     ? null
     : await readRuntimeCoordinatorExecutionTrace({
@@ -376,13 +381,15 @@ export const readSpaceDispatchTrace = async (input: {
   const finalVisibleMessageTrace =
     (await input.readFinalVisibleMessageTrace?.({
       dispatchId: normalizedDispatchId,
-      publishedSignalIdCandidates:
+      publishedSignalIdCandidates: prependFinalVisibleSignalCandidate(
+        nativeDeliveryRead,
         listSpaceDispatchTraceFinalVisibleSignalCandidates({
           result,
           resultInbox,
           runtimeCoordinatorEvents,
           runtimeCoordinatorHeadLifecycle,
-        }),
+        })
+      ),
       targetProfileId: dispatch.targetProfileId,
     })) ?? null;
   const finalVisibleMessage =
@@ -1180,7 +1187,7 @@ const readHostedNativeDeliveryTrace = async (input: {
   db?: D1Database | null;
   dispatch: DispatchTraceDispatchRecord;
   spaceId: string;
-}): Promise<DispatchTraceNativeDeliveryRecord | null> => {
+}): Promise<HostedNativeDeliveryTraceRead | null> => {
   if (!(input.db && typeof input.db.prepare === "function")) {
     return null;
   }
@@ -1197,6 +1204,7 @@ const readHostedNativeDeliveryTrace = async (input: {
           deliveries.controller_binding_updated_at_ms AS bindingUpdatedAtMs,
           deliveries.status,
           deliveries.submission_id AS submissionId,
+          deliveries.published_signal_id AS publishedSignalId,
           deliveries.conversation_kind AS conversationKind,
           deliveries.organization_id AS organizationId,
           deliveries.space_id AS spaceId,
@@ -1226,6 +1234,7 @@ const readHostedNativeDeliveryTrace = async (input: {
       idempotencyKey?: unknown;
       organizationId?: unknown;
       profileId?: unknown;
+      publishedSignalId?: unknown;
       spaceId?: unknown;
       status?: unknown;
       storedAgentControllerRef?: unknown;
@@ -1277,32 +1286,45 @@ const readHostedNativeDeliveryTrace = async (input: {
       : "missing";
 
   return {
-    bindingId,
-    controllerNormalization: {
-      bindingUpdatedAt: toNullableIsoDateTime(row.bindingUpdatedAtMs),
-      canonicalAgentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+    publishedSignalId: normalizeOptionalText(row.publishedSignalId),
+    record: {
+      bindingId,
+      controllerNormalization: {
+        bindingUpdatedAt: toNullableIsoDateTime(row.bindingUpdatedAtMs),
+        canonicalAgentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        factSource: "remote_agent_native_delivery_ledger",
+        reasonCode: "hosted_runtime_family_controller_canonicalized",
+        storedAgentControllerRef,
+        storedAgentControllerRefStatus,
+      },
+      createdAt: toIsoDateTime(row.createdAtMs),
+      deliveryId,
+      destination: {
+        conversationKind,
+        organizationId,
+        spaceId,
+        targetProfileId: profileId,
+      },
+      dispatchId,
       factSource: "remote_agent_native_delivery_ledger",
-      reasonCode: "hosted_runtime_family_controller_canonicalized",
-      storedAgentControllerRef,
-      storedAgentControllerRefStatus,
+      idempotencyKey,
+      runtimeFamily: "hosted_center_agent",
+      status,
+      submissionId: normalizeOptionalText(row.submissionId),
+      updatedAt: toIsoDateTime(row.updatedAtMs),
     },
-    createdAt: toIsoDateTime(row.createdAtMs),
-    deliveryId,
-    destination: {
-      conversationKind,
-      organizationId,
-      spaceId,
-      targetProfileId: profileId,
-    },
-    dispatchId,
-    factSource: "remote_agent_native_delivery_ledger",
-    idempotencyKey,
-    runtimeFamily: "hosted_center_agent",
-    status,
-    submissionId: normalizeOptionalText(row.submissionId),
-    updatedAt: toIsoDateTime(row.updatedAtMs),
   };
 };
+
+function prependFinalVisibleSignalCandidate(
+  nativeDeliveryRead: HostedNativeDeliveryTraceRead | null,
+  rest: readonly string[]
+): string[] {
+  const first = nativeDeliveryRead?.publishedSignalId;
+  return first
+    ? [first, ...rest.filter((candidate) => candidate !== first)]
+    : [...rest];
+}
 
 function toNativeDeliveryConversationKind(
   value: unknown
