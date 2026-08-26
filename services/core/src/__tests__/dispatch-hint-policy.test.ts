@@ -1,3 +1,4 @@
+import { CODEX_UPGRADE_REQUIRED_REASON } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
   buildDispatchingActivityText,
@@ -245,9 +246,7 @@ describe("resolveDispatchFailureHintText", () => {
           "controller.client.upgrade_required: The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
         targetProfileLabel: 'Agent "ops-bot"',
       })
-    ).toBe(
-      "Codex on this device is too old for the current model. Upgrade Codex on this device, then try again."
-    );
+    ).toBe(CODEX_UPGRADE_REQUIRED_REASON);
 
     expect(
       resolveDispatchFailureActivityText({
