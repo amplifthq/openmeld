@@ -28,6 +28,8 @@ import * as runtimeTransportClient from "../src/dispatch/infrastructure/runtime-
 import type { CoreBindings } from "../src/lib/bindings";
 // biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM export used by the RPC orchestration module.
 import * as organizationComputersService from "../src/organizations/organization-computers-service";
+// biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM export used by the Slack publication service.
+import * as slackFinalReplyPresentation from "../src/remote-agent/application/slack-final-reply-presentation";
 import { encryptSlackSearchAuthorization } from "../src/remote-agent/application/slack-search-authorization";
 import {
   rpcAddCenterAgentToSpace,
@@ -4818,6 +4820,141 @@ describe("organization Core RPC", () => {
       ),
       organizationId: "org-a",
     });
+  });
+
+  it("distinguishes a retryable preparation failure from an ambiguous Slack outcome", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      slackWorkspaceBindings: [
+        {
+          createdAtMs: TEST_NOW_MS,
+          organizationId: "org-a",
+          slackTeamId: "T123",
+          updatedAtMs: TEST_NOW_MS,
+        },
+      ],
+    });
+    let closeNextSlackRequest = false;
+    const slackFetch = vi.fn<typeof fetch>((request) => {
+      const pathname = new URL(String(request)).pathname;
+      if (pathname === "/api/conversations.list") {
+        return Promise.resolve(
+          Response.json({
+            channels: [
+              {
+                id: "C123",
+                is_archived: false,
+                is_member: true,
+                is_private: false,
+                name: "release",
+              },
+            ],
+            ok: true,
+            response_metadata: { next_cursor: "" },
+          })
+        );
+      }
+      if (pathname === "/api/chat.postMessage") {
+        if (closeNextSlackRequest) {
+          closeNextSlackRequest = false;
+          return Promise.reject(new Error("socket closed"));
+        }
+        return Promise.resolve(
+          Response.json({ ok: true, ts: "1710000000.001" })
+        );
+      }
+      throw new Error(`Unexpected Slack API request: ${pathname}`);
+    });
+    vi.stubGlobal("fetch", slackFetch);
+    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      agentControllerConversationId: "remote_agent_submission_release",
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent",
+      userId: "user-a",
+    });
+    const request = {
+      channelName: "#Release",
+      context,
+      publicationSource: {
+        executionId: "remote_agent_submission_release",
+        kind: "remote_agent_execution" as const,
+        operationId: "release-message-preparation-retry",
+      },
+      speakerMember: { memberId: "member-a", userId: "user-a" },
+      text: "Retry this exact message after local preparation recovers.",
+    };
+
+    vi.spyOn(
+      slackFinalReplyPresentation,
+      "buildSlackFinalReplyPresentation"
+    ).mockRejectedValueOnce(
+      new Error("Slack presentation runtime was temporarily unavailable.")
+    );
+
+    await expect(
+      rpcCenterAgentPostSlackChannelMessage(env, request)
+    ).rejects.toThrow(
+      "Slack presentation runtime was temporarily unavailable."
+    );
+    expect(
+      slackFetch.mock.calls.filter(
+        ([requestUrl]) =>
+          new URL(String(requestUrl)).pathname === "/api/chat.postMessage"
+      )
+    ).toHaveLength(0);
+    expect(db.centerAgentAuditRows).toHaveLength(0);
+
+    await expect(
+      rpcCenterAgentPostSlackChannelMessage(env, request)
+    ).resolves.toMatchObject({
+      messageTs: "1710000000.001",
+    });
+    expect(
+      slackFetch.mock.calls.filter(
+        ([requestUrl]) =>
+          new URL(String(requestUrl)).pathname === "/api/chat.postMessage"
+      )
+    ).toHaveLength(1);
+    expect(db.centerAgentAuditRows).toHaveLength(1);
+
+    closeNextSlackRequest = true;
+    const ambiguousRequest = {
+      ...request,
+      publicationSource: {
+        ...request.publicationSource,
+        operationId: "release-message-ambiguous-outcome",
+      },
+      text: "Do not retry this message after an ambiguous provider outcome.",
+    };
+    await expect(
+      rpcCenterAgentPostSlackChannelMessage(env, ambiguousRequest)
+    ).rejects.toMatchObject({
+      publicationOutcome: "unknown",
+    });
+    await expect(
+      rpcCenterAgentPostSlackChannelMessage(env, ambiguousRequest)
+    ).rejects.toMatchObject({
+      code: "center_agent.publication_outcome_unknown",
+      status: 409,
+    });
+    expect(
+      slackFetch.mock.calls.filter(
+        ([requestUrl]) =>
+          new URL(String(requestUrl)).pathname === "/api/chat.postMessage"
+      )
+    ).toHaveLength(2);
+    expect(db.centerAgentAuditRows).toHaveLength(2);
   });
 
   it("posts and deduplicates an exact Slack thread separately from the channel", async () => {
