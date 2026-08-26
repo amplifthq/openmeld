@@ -497,6 +497,18 @@ then deploy Web. Old Web continues to work against new Auth. New Web must not
 precede Auth because old Auth rejects the new strict request field. Rollback
 removes the Web sender first and leaves the nullable Auth column in place.
 
+`packages/schemas/src/schemas/http/agent-profile-binding.ts` owns
+`AgentProfileCreationPreferenceSelection`, the shared cross-client selection
+for Default Project, model, reasoning effort, Agent Controller Permission Mode,
+Agent Controller Collaboration Mode, and controller-specific permissions.
+Web, CLI, Local Agent, and Center Agent creation reuse that selection rather
+than defining surface-specific subsets. The Agent Profile Creation Request adds
+only execution targeting and Organization Wake authorization; Core remains the
+single preference writer and reuses the existing Binding and Default Project
+owners. Stored requests written before Collaboration Mode parse that additive
+field as `null`; new writers always send the explicit field. The model-visible
+Center Agent input carries a cloud Project ID and never a local path.
+
 Auth also owns the shared `resolveOrganizationAccountIdentity` RPC projection
 used by Slack and generic Message Channel ingress, identity-link previews, and
 source-bound continuations. Its strict result keeps Organization identity,

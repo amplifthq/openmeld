@@ -1,4 +1,5 @@
 import type {
+  AgentProfileCreationPreferenceSelection,
   CenterAgentCheckAgentProfileReadinessResponse,
   CenterAgentComputerSetupOption,
   CenterAgentConnectAgentProfileToLocalAgentBody,
@@ -54,6 +55,14 @@ export type CenterAgentProductOperationDeps = {
     settings: RuntimeSettingsInput;
   }): Promise<EnsureAgentProfilePrimaryBindingResponse>;
   listLocalAgentConnectionCandidates(): Promise<CenterAgentListLocalAgentConnectionCandidatesResponse>;
+  rememberAgentProfileCreationDefaults?(input: {
+    agentControllerRef: string;
+    configuration: AgentProfileCreationPreferenceSelection;
+  }): Promise<void>;
+  setAgentProfileDefaultProject?(input: {
+    agentProfileId: string;
+    defaultProjectId: string;
+  }): Promise<void>;
   setAgentProfileWorkspace?(input: {
     agentProfileId: string;
     workspaceMode: NonNullable<
@@ -577,6 +586,7 @@ export async function createConfiguredAgentProfileOperation(input: {
   request: CenterAgentCreateConfiguredAgentProfileBody;
 }): Promise<CenterAgentCreateConfiguredAgentProfileResponse> {
   const steps: OperationStep[] = [];
+  const configuration = resolveConfiguredAgentProfileSelection(input.request);
   const plannedStepNames = configuredAgentProfileStepPlan(input.request);
   const candidates = await listConfiguredAgentProfileCandidates(input.deps);
   let created: CenterAgentCreateAgentProfileResponse;
@@ -633,7 +643,7 @@ export async function createConfiguredAgentProfileOperation(input: {
     request: {
       agentProfileId,
       candidateId: input.request.candidateId,
-      ...pickRuntimeSettings(input.request),
+      ...toRuntimeSettings(configuration),
     },
   });
   steps.push(...connection.steps);
@@ -658,6 +668,24 @@ export async function createConfiguredAgentProfileOperation(input: {
     });
   } catch (error) {
     steps.push(failedStep("authorize_agent_profile_for_organization", error));
+    return blockedConfiguredAgentProfileResponse({
+      agentProfileId,
+      connection,
+      organizationId: candidates.organizationId,
+      plannedStepNames,
+      profile: created.profile,
+      spaceId: input.request.spaceId,
+      steps,
+    });
+  }
+
+  const defaultProjectResult = await setConfiguredAgentProfileDefaultProject({
+    agentProfileId,
+    defaultProjectId: configuration.defaultProjectId,
+    setAgentProfileDefaultProject: input.deps.setAgentProfileDefaultProject,
+    steps,
+  });
+  if (defaultProjectResult.status === "failed") {
     return blockedConfiguredAgentProfileResponse({
       agentProfileId,
       connection,
@@ -745,6 +773,14 @@ export async function createConfiguredAgentProfileOperation(input: {
     message: readiness.summary,
   });
 
+  await rememberConfiguredAgentProfileCreationDefaults({
+    agentControllerRef: connection.candidate?.agentControllerRef,
+    agentProfileId,
+    configuration,
+    rememberAgentProfileCreationDefaults:
+      input.deps.rememberAgentProfileCreationDefaults,
+  });
+
   return {
     agentProfileId,
     canReply: readiness.canReply,
@@ -761,6 +797,70 @@ export async function createConfiguredAgentProfileOperation(input: {
     steps,
     ...(workspace === undefined ? {} : { workspace }),
   };
+}
+
+async function setConfiguredAgentProfileDefaultProject(input: {
+  agentProfileId: string;
+  defaultProjectId: string | null;
+  setAgentProfileDefaultProject?: CenterAgentProductOperationDeps["setAgentProfileDefaultProject"];
+  steps: OperationStep[];
+}): Promise<{ status: "completed" | "failed" }> {
+  if (!input.defaultProjectId) {
+    return { status: "completed" };
+  }
+  if (!input.setAgentProfileDefaultProject) {
+    input.steps.push({
+      message: "Default Project setup is unavailable.",
+      name: "update_agent_profile_runtime_settings",
+      nextAction: "Retry after OpenMeld finishes updating.",
+      status: "failed",
+    });
+    return { status: "failed" };
+  }
+  try {
+    await input.setAgentProfileDefaultProject({
+      agentProfileId: input.agentProfileId,
+      defaultProjectId: input.defaultProjectId,
+    });
+  } catch (error) {
+    input.steps.push(
+      failedStep("update_agent_profile_runtime_settings", error)
+    );
+    return { status: "failed" };
+  }
+  input.steps.push({
+    message: "Default Project was set through OpenMeld Projects.",
+    name: "update_agent_profile_runtime_settings",
+    status: "completed",
+  });
+  return { status: "completed" };
+}
+
+async function rememberConfiguredAgentProfileCreationDefaults(input: {
+  agentControllerRef: string | undefined;
+  agentProfileId: string;
+  configuration: AgentProfileCreationPreferenceSelection;
+  rememberAgentProfileCreationDefaults?: CenterAgentProductOperationDeps["rememberAgentProfileCreationDefaults"];
+}): Promise<void> {
+  if (
+    !(input.agentControllerRef && input.rememberAgentProfileCreationDefaults)
+  ) {
+    return;
+  }
+  await input
+    .rememberAgentProfileCreationDefaults({
+      agentControllerRef: input.agentControllerRef,
+      configuration: input.configuration,
+    })
+    .catch((error) => {
+      console.error(
+        "[core.center_agent.agent_profile_creation_defaults_write_failed]",
+        {
+          agentProfileId: input.agentProfileId,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+    });
 }
 
 async function listConfiguredAgentProfileCandidates(
@@ -797,12 +897,58 @@ function configuredAgentProfileStepPlan(
     "select_local_agent_connection_candidate",
     "connect_agent_profile_to_local_agent",
     "authorize_agent_profile_for_organization",
+    ...(resolveConfiguredAgentProfileSelection(request).defaultProjectId
+      ? (["update_agent_profile_runtime_settings"] as const)
+      : []),
     ...(request.workspaceMode === undefined
       ? []
       : (["update_agent_profile_workspace"] as const)),
     "add_agent_profile_to_space",
     "check_agent_profile_readiness",
   ];
+}
+
+function resolveConfiguredAgentProfileSelection(
+  request: CenterAgentCreateConfiguredAgentProfileBody
+): AgentProfileCreationPreferenceSelection {
+  return (
+    request.configuration ?? {
+      agentControllerCollaborationMode:
+        request.agentControllerCollaborationMode ?? null,
+      agentControllerPermissionMode:
+        request.agentControllerPermissionMode ?? null,
+      defaultProjectId: null,
+      modelId: request.modelId ?? null,
+      openCodePermission: request.openCodePermission ?? null,
+      reasoningLevel: request.reasoningLevel ?? null,
+    }
+  );
+}
+
+function toRuntimeSettings(
+  selection: AgentProfileCreationPreferenceSelection
+): RuntimeSettingsInput {
+  return {
+    ...(selection.agentControllerCollaborationMode
+      ? {
+          agentControllerCollaborationMode:
+            selection.agentControllerCollaborationMode,
+        }
+      : {}),
+    ...(selection.agentControllerPermissionMode
+      ? {
+          agentControllerPermissionMode:
+            selection.agentControllerPermissionMode,
+        }
+      : {}),
+    ...(selection.modelId ? { modelId: selection.modelId } : {}),
+    ...(selection.openCodePermission
+      ? { openCodePermission: selection.openCodePermission }
+      : {}),
+    ...(selection.reasoningLevel
+      ? { reasoningLevel: selection.reasoningLevel }
+      : {}),
+  };
 }
 
 function blockedConfiguredAgentProfileResponse(input: {

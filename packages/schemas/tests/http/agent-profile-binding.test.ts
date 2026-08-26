@@ -11,6 +11,7 @@ import {
   getAgentProfileCreationDefaultsResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
   getOrganizationBindingAuthorizationPreferenceResponseSchema,
+  listAgentProfileCreationDefaultsResponseSchema,
   listOrganizationBindingAuthorizationProfilesResponseSchema,
   saveOrganizationWakeAccessChoiceBodySchema,
   saveOrganizationWakeAccessChoiceResponseSchema,
@@ -46,6 +47,7 @@ describe("agent profile binding http schemas", () => {
   it("keeps remembered creation defaults scoped to one Local Agent", () => {
     expect(
       setAgentProfileCreationDefaultsBodySchema.parse({
+        agentControllerCollaborationMode: "codex:plan",
         agentControllerPermissionMode: "codex:fullAccess",
         defaultProjectId: "project-1",
         modelId: "gpt-5.6-sol",
@@ -53,6 +55,7 @@ describe("agent profile binding http schemas", () => {
         reasoningLevel: "max",
       })
     ).toEqual({
+      agentControllerCollaborationMode: "codex:plan",
       agentControllerPermissionMode: "codex:fullAccess",
       defaultProjectId: "project-1",
       modelId: "gpt-5.6-sol",
@@ -61,6 +64,7 @@ describe("agent profile binding http schemas", () => {
     });
     expect(
       getAgentProfileCreationDefaultsResponseSchema.parse({
+        agentControllerCollaborationMode: "codex:plan",
         agentControllerPermissionMode: "codex:fullAccess",
         agentControllerRef: "builtin:codex",
         defaultProjectId: "project-1",
@@ -72,12 +76,14 @@ describe("agent profile binding http schemas", () => {
         userId: "user-1",
       })
     ).toMatchObject({
+      agentControllerCollaborationMode: "codex:plan",
       agentControllerRef: "builtin:codex",
       defaultProjectId: "project-1",
       modelId: "gpt-5.6-sol",
     });
     expect(() =>
       setAgentProfileCreationDefaultsBodySchema.parse({
+        agentControllerCollaborationMode: null,
         agentControllerPermissionMode: null,
         defaultProjectId: null,
         modelId: null,
@@ -85,6 +91,48 @@ describe("agent profile binding http schemas", () => {
         reasoningLevel: "max",
       })
     ).toThrow(REASONING_REQUIRES_MODEL_PATTERN);
+  });
+
+  it("lists every remembered Local Agent setup for one user in one Organization", () => {
+    expect(
+      listAgentProfileCreationDefaultsResponseSchema.parse({
+        defaults: [
+          {
+            agentControllerCollaborationMode: "codex:plan",
+            agentControllerPermissionMode: "codex:approveForMe",
+            agentControllerRef: "builtin:codex",
+            defaultProjectId: "project-1",
+            modelId: "gpt-5.6-sol",
+            openCodePermission: null,
+            organizationId: "org-1",
+            reasoningLevel: "high",
+            updatedAt: "2026-08-26T01:00:00.000Z",
+            userId: "user-1",
+          },
+          {
+            agentControllerCollaborationMode: null,
+            agentControllerPermissionMode: null,
+            agentControllerRef: "builtin:opencode",
+            defaultProjectId: null,
+            modelId: "anthropic/claude-sonnet-4-5",
+            openCodePermission: { edit: "allow" },
+            organizationId: "org-1",
+            reasoningLevel: "high",
+            updatedAt: "2026-08-25T01:00:00.000Z",
+            userId: "user-1",
+          },
+        ],
+        organizationId: "org-1",
+        userId: "user-1",
+      })
+    ).toMatchObject({
+      defaults: [
+        { agentControllerRef: "builtin:codex" },
+        { agentControllerRef: "builtin:opencode" },
+      ],
+      organizationId: "org-1",
+      userId: "user-1",
+    });
   });
 
   it("accepts read/write Binding payloads without caller-provided owner identity", () => {

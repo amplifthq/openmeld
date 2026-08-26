@@ -45,6 +45,7 @@ build
 dist
 .flue-vite/
 .flue-vite.wrangler.jsonc
+services/core/src/generated-runtime/*.mjs
 *.tgz
 
 

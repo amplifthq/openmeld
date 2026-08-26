@@ -1,11 +1,24 @@
 import assert from "node:assert/strict";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
-import { createWorkerStartupEvidence } from "./worker-startup-evidence.mjs";
+import {
+  createWorkerStartupEvidence,
+  writeWorkerStartupEvidence,
+} from "./worker-startup-evidence.mjs";
 
 const INCOMPLETE_PROFILE_RE =
   /samples and timeDeltas must have the same non-zero length/u;
 const INCONSISTENT_TIMING_RE = /inconsistent startup timing/u;
+const INVALID_TIME_DELTA_RE = /invalid time delta/u;
 
 test("summarizes sampled, active, idle, and garbage-collection startup time", () => {
   const evidence = createWorkerStartupEvidence({
@@ -63,4 +76,39 @@ test("fails closed when the CPU profile is incomplete", () => {
       }),
     INCONSISTENT_TIMING_RE
   );
+});
+
+test("preserves the raw CPU profile before rejecting invalid timing", () => {
+  const directory = mkdtempSync(
+    path.join(tmpdir(), "openmeld-startup-evidence-test-")
+  );
+  const profileSourcePath = path.join(directory, "source.cpuprofile");
+  const profileOutput = path.join(directory, "saved.cpuprofile");
+  const output = path.join(directory, "evidence.json");
+  const profile = {
+    endTime: 10,
+    nodes: [{ callFrame: { functionName: "initialize" }, id: 1 }],
+    samples: [1],
+    startTime: 0,
+    timeDeltas: [-1],
+  };
+  const serializedProfile = `${JSON.stringify(profile)}\n`;
+  writeFileSync(profileSourcePath, serializedProfile);
+
+  try {
+    assert.throws(
+      () =>
+        writeWorkerStartupEvidence({
+          output,
+          profileOutput,
+          profileSourcePath,
+          worker: "core",
+        }),
+      INVALID_TIME_DELTA_RE
+    );
+    assert.equal(readFileSync(profileOutput, "utf8"), serializedProfile);
+    assert.equal(existsSync(output), false);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
 });

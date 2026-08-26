@@ -116,6 +116,7 @@ function makeEnv(input?: {
       status: "blocked",
     })),
     getAgentProfileCreationDefaults: vi.fn(async () => ({
+      agentControllerCollaborationMode: "codex:plan",
       agentControllerPermissionMode: "codex:approveForMe",
       agentControllerRef: "builtin:codex",
       defaultProjectId: "project-1",
@@ -127,6 +128,7 @@ function makeEnv(input?: {
       userId: "owner-1",
     })),
     setAgentProfileCreationDefaults: vi.fn(async () => ({
+      agentControllerCollaborationMode: "codex:plan",
       agentControllerPermissionMode: "codex:approveForMe",
       agentControllerRef: "builtin:codex",
       defaultProjectId: "project-1",
@@ -352,6 +354,7 @@ describe("agent profile binding routes", () => {
     const writeResponse = await app.fetch(
       new Request(url, {
         body: JSON.stringify({
+          agentControllerCollaborationMode: "codex:plan",
           agentControllerPermissionMode: "codex:approveForMe",
           defaultProjectId: "project-1",
           modelId: "gpt-5.4-mini",

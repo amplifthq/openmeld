@@ -22,6 +22,10 @@ type CenterAgentCheckAgentProfileReadinessBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentCheckAgentProfileReadinessBodySchema"];
 type CenterAgentCheckAgentProfileReadinessResponseSchema =
   typeof import("../../schemas/http/center-agent")["centerAgentCheckAgentProfileReadinessResponseSchema"];
+type CenterAgentListAgentProfileCreationDefaultsBodySchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentListAgentProfileCreationDefaultsBodySchema"];
+type CenterAgentListAgentProfileCreationDefaultsResponseSchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentListAgentProfileCreationDefaultsResponseSchema"];
 type CenterAgentConnectAgentProfileToLocalAgentBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentConnectAgentProfileToLocalAgentBodySchema"];
 type CenterAgentConnectAgentProfileToLocalAgentResponseSchema =
@@ -238,6 +242,10 @@ export type CenterAgentCheckAgentProfileReadinessBody =
   z.infer<CenterAgentCheckAgentProfileReadinessBodySchema>;
 export type CenterAgentCheckAgentProfileReadinessResponse =
   z.infer<CenterAgentCheckAgentProfileReadinessResponseSchema>;
+export type CenterAgentListAgentProfileCreationDefaultsBody =
+  z.infer<CenterAgentListAgentProfileCreationDefaultsBodySchema>;
+export type CenterAgentListAgentProfileCreationDefaultsResponse =
+  z.infer<CenterAgentListAgentProfileCreationDefaultsResponseSchema>;
 export type CenterAgentConnectAgentProfileToLocalAgentBody =
   z.infer<CenterAgentConnectAgentProfileToLocalAgentBodySchema>;
 export type CenterAgentConnectAgentProfileToLocalAgentResponse =

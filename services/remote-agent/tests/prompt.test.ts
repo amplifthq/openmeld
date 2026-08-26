@@ -990,4 +990,16 @@ describe("remote agent system prompt", () => {
       "A Slack channel, Slack thread, or current Slack conversation is not a Routine target"
     );
   });
+
+  it("uses the shared Agent Profile creation request for every creation surface", () => {
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "use openmeld_create_agent_profile_request as the single creation entry point"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Omit requestedSpaceId when the task does not need a Space"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).not.toContain(
+      "Then use openmeld_create_configured_agent_profile"
+    );
+  });
 });

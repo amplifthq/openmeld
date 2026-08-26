@@ -43,6 +43,7 @@ import {
   centerAgentInstallOrganizationSkillRpcInputSchema,
   centerAgentInviteSlackTeammatesRpcInputSchema,
   centerAgentInviteSlackTeammatesRpcResponseSchema,
+  centerAgentListAgentProfileCreationDefaultsResponseSchema,
   centerAgentListAgentTasksResponseSchema,
   centerAgentListComputersResponseSchema,
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
@@ -103,7 +104,6 @@ import {
   createAgentProfileCreationRequestResponseSchema,
   createCenterAgentRoutineResponseSchema,
   createCenterAgentTaskResponseSchema,
-  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   deleteCenterAgentRoutineResponseSchema,
   executeExecutionRecoveryBodySchema,
   executeExecutionRecoveryResponseSchema,
@@ -178,6 +178,7 @@ import {
   boolean,
   check,
   description,
+  type InferOutput,
   integer,
   literal,
   maxLength,
@@ -392,11 +393,6 @@ const agentProfileRequestSessionSelectionInputSchema = strictObject({
   computerId: trimmedNonEmptyStringSchema,
   nativeSessionId: trimmedNonEmptyStringSchema,
   projectId: trimmedNonEmptyStringSchema,
-});
-const createAgentProfileRequestToolInputSchema = strictObject({
-  ...createAgentProfileRequestCommonInputEntries,
-  sessionSelection: optional(agentProfileRequestSessionSelectionInputSchema),
-  sessionStrategy: picklist(["new", "resume", "fork"]),
 });
 const manageAgentProfileRequestToolInputSchema = strictObject({
   action: picklist(["approve", "decline", "cancel", "retry"]),
@@ -767,6 +763,134 @@ const permissionModeSchema = optional(
     "codex:customConfig",
   ])
 );
+const agentProfileCreationConfigurationToolInputSchema = strictObject({
+  agentControllerCollaborationMode: collaborationModeSchema,
+  agentControllerPermissionMode: permissionModeSchema,
+  defaultProjectId: optionalNonEmptyStringSchema,
+  modelId: optionalNonEmptyStringSchema,
+  openCodePermission: openCodePermissionSchema,
+  reasoningLevel: optionalNonEmptyStringSchema,
+});
+const agentProfileCreationConnectionSelectionToolInputSchema = strictObject({
+  agentControllerRef: trimmedNonEmptyStringSchema,
+  computerId: trimmedNonEmptyStringSchema,
+});
+const createAgentProfileRequestToolInputSchema = strictObject({
+  ...createAgentProfileRequestCommonInputEntries,
+  configuration: optional(agentProfileCreationConfigurationToolInputSchema),
+  connectionSelection: optional(
+    agentProfileCreationConnectionSelectionToolInputSchema
+  ),
+  sessionSelection: optional(agentProfileRequestSessionSelectionInputSchema),
+  sessionStrategy: picklist(["new", "resume", "fork"]),
+});
+type CreateAgentProfileRequestToolInput = InferOutput<
+  typeof createAgentProfileRequestToolInputSchema
+>;
+
+function resolveCenterAgentProfileCreationRequestInput(
+  input: CreateAgentProfileRequestToolInput
+) {
+  const selectedConfiguration = resolveAgentProfileCreationSelection(input);
+  if (input.sessionStrategy === "new") {
+    return resolveNewAgentProfileCreationRequestInput({
+      input,
+      selectedConfiguration,
+    });
+  }
+  return resolveExistingSessionAgentProfileCreationRequestInput({
+    input,
+    selectedConfiguration,
+  });
+}
+
+function resolveNewAgentProfileCreationRequestInput(input: {
+  input: CreateAgentProfileRequestToolInput;
+  selectedConfiguration: ReturnType<
+    typeof resolveAgentProfileCreationSelection
+  >;
+}) {
+  if (input.input.sessionSelection !== undefined) {
+    throw new Error(
+      "A new Session request must not include an existing Session selection."
+    );
+  }
+  const {
+    configuration: requestedConfiguration,
+    connectionSelection,
+    sessionSelection: _sessionSelection,
+    ...newSessionInput
+  } = input.input;
+  if (!(requestedConfiguration || connectionSelection)) {
+    return newSessionInput;
+  }
+  return {
+    ...newSessionInput,
+    configuration: {
+      ...input.selectedConfiguration,
+      agentControllerRef: connectionSelection?.agentControllerRef ?? null,
+      targetComputerId: connectionSelection?.computerId ?? null,
+    },
+  };
+}
+
+function resolveExistingSessionAgentProfileCreationRequestInput(input: {
+  input: CreateAgentProfileRequestToolInput;
+  selectedConfiguration: ReturnType<
+    typeof resolveAgentProfileCreationSelection
+  >;
+}) {
+  if (input.input.connectionSelection !== undefined) {
+    throw new Error(
+      "Resume and Fork must use the Computer and local agent from sessionSelection."
+    );
+  }
+  const sessionSelection = input.input.sessionSelection;
+  if (!sessionSelection) {
+    throw new Error(
+      "Resume and Fork require one complete Session selection from Agent Activity."
+    );
+  }
+  if (
+    input.input.configuration?.defaultProjectId !== undefined &&
+    input.input.configuration.defaultProjectId !== sessionSelection.projectId
+  ) {
+    throw new Error(
+      "Resume and Fork must use the Project from sessionSelection."
+    );
+  }
+  return {
+    configuration: {
+      ...input.selectedConfiguration,
+      agentControllerRef: sessionSelection.agentControllerRef,
+      defaultProjectId: sessionSelection.projectId,
+      targetComputerId: sessionSelection.computerId,
+    },
+    nativeSessionId: sessionSelection.nativeSessionId,
+    profileName: input.input.profileName,
+    ...(input.input.requestedSpaceId === undefined
+      ? {}
+      : { requestedSpaceId: input.input.requestedSpaceId }),
+    sessionStrategy: input.input.sessionStrategy,
+    targetOwnerUserId: input.input.targetOwnerUserId,
+  };
+}
+
+function resolveAgentProfileCreationSelection(
+  input: CreateAgentProfileRequestToolInput
+) {
+  return {
+    agentControllerCollaborationMode:
+      input.configuration?.agentControllerCollaborationMode ?? null,
+    agentControllerPermissionMode:
+      input.configuration?.agentControllerPermissionMode ?? null,
+    authorizeForOrganization: true,
+    defaultProjectId: input.configuration?.defaultProjectId ?? null,
+    modelId: input.configuration?.modelId ?? null,
+    openCodePermission: input.configuration?.openCodePermission ?? null,
+    reasoningLevel: input.configuration?.reasoningLevel ?? null,
+  };
+}
 const workspaceModeSchema = optional(picklist(["openmeld_managed", "custom"]));
 const feedbackCategorySchema = picklist(FEEDBACK_ISSUE_CATEGORIES);
 const feedbackIssueStatusSchema = picklist(FEEDBACK_ISSUE_STATUSES);
@@ -1217,6 +1341,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_resume_controller_conversation",
   "openmeld_retry_as_new_execution",
   "openmeld_create_space",
+  "openmeld_read_agent_profile_creation_defaults",
   "openmeld_create_agent_profile_request",
   "openmeld_list_agent_profile_creation_requests",
   "openmeld_manage_agent_profile_creation_request",
@@ -1271,6 +1396,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_get_organization_invite_link",
   "openmeld_list_spaces",
   "openmeld_list_projects",
+  "openmeld_read_agent_profile_creation_defaults",
   "openmeld_read_agent_activity",
   "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
@@ -4078,9 +4204,29 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
+      name: "openmeld_read_agent_profile_creation_defaults",
+      description:
+        "Read the represented member's saved Agent Profile creation settings for every local agent controller. These are the member's own most recently used Project, model, reasoning effort, permission mode, collaboration mode, and OpenCode permission choices. Use them as concrete preferences when preparing a new local Agent Profile, while still choosing settings that can handle the actual task. Local folder paths are never returned; use the saved defaultProjectId with OpenMeld's existing Project and local Project connection flow.",
+      input: object({}),
+      execute: async () => {
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_agent_profile_creation_defaults",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentListAgentProfileCreationDefaults,
+          "centerAgentListAgentProfileCreationDefaults"
+        );
+        return centerAgentListAgentProfileCreationDefaultsResponseSchema.parse(
+          await rpc(toolContext)
+        );
+      },
+    }),
+    toolDefinition({
       name: "openmeld_create_agent_profile_request",
       description:
-        'Create one auditable Agent Profile request for the represented member or a teammate in the current Organization. Use openmeld_read_organization_directory first and pass the exact target member user ID. New-session requests may complete immediately or follow the target owner\'s approval preference. For Resume or Fork, first call openmeld_list_agent_activity_sessions and copy nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row into sessionSelection. Preserve every value unchanged. A Session with bindingState "unbound" is valid and expected for Fork; Fork requires canFork, while Resume requires canResume and an unbound Session. requestedSpaceId records the intended collaboration Space but does not grant membership. Use this request tool instead of openmeld_create_agent_profile when the target owner is another teammate.',
+        'The single creation entry point for a new working Agent Profile, whether it is owned by the represented member or a teammate. Use openmeld_read_organization_directory first and pass the exact target member user ID. For a new local Agent, read saved creation defaults, list Projects and local agent connection candidates, put the concrete Project, model, reasoning, permission, collaboration, and OpenCode choices in configuration, and copy agentControllerRef and computerId from one exact candidate into connectionSelection. New-session requests may complete immediately or follow the target owner\'s approval preference. For Resume or Fork, first call openmeld_list_agent_activity_sessions and copy nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row into sessionSelection. Preserve every value unchanged. A Session with bindingState "unbound" is valid and expected for Fork; Fork requires canFork, while Resume requires canResume and an unbound Session. Omit requestedSpaceId when no Space is needed; when present, successful setup adds the Agent to that Space through the normal membership mutation. Do not assemble a new Agent Profile through the primitive create, enable, connect, workspace, or Project tools.',
       input: createAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(
@@ -4096,39 +4242,8 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           input.coreWorker.centerAgentCreateAgentProfileCreationRequest,
           "centerAgentCreateAgentProfileCreationRequest"
         );
-        const coreRequestInput = (() => {
-          if (requestInput.sessionStrategy === "new") {
-            if (requestInput.sessionSelection !== undefined) {
-              throw new Error(
-                "A new Session request must not include an existing Session selection."
-              );
-            }
-            const { sessionSelection: _sessionSelection, ...newSessionInput } =
-              requestInput;
-            return newSessionInput;
-          }
-          const sessionSelection = requestInput.sessionSelection;
-          if (!sessionSelection) {
-            throw new Error(
-              "Resume and Fork require one complete Session selection from Agent Activity."
-            );
-          }
-          return {
-            configuration: {
-              ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
-              agentControllerRef: sessionSelection.agentControllerRef,
-              defaultProjectId: sessionSelection.projectId,
-              targetComputerId: sessionSelection.computerId,
-            },
-            nativeSessionId: sessionSelection.nativeSessionId,
-            profileName: requestInput.profileName,
-            ...(requestInput.requestedSpaceId === undefined
-              ? {}
-              : { requestedSpaceId: requestInput.requestedSpaceId }),
-            sessionStrategy: requestInput.sessionStrategy,
-            targetOwnerUserId: requestInput.targetOwnerUserId,
-          };
-        })();
+        const coreRequestInput =
+          resolveCenterAgentProfileCreationRequestInput(requestInput);
         return createAgentProfileCreationRequestResponseSchema.parse(
           await rpc({ ...coreRequestInput, ...toolContext })
         );
@@ -4225,7 +4340,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_create_agent_profile",
       description:
-        "Create an OpenMeld Agent Profile record owned by the represented member without connecting it to a local agent or adding it to a Space. Never use this to create for another teammate; use openmeld_create_agent_profile_request so their approval preference is enforced. Advanced self-owned path only: for a new working Agent Profile, prefer openmeld_create_configured_agent_profile.",
+        "Create only an unconfigured OpenMeld Agent Profile identity owned by the represented member. This is a compatibility and recovery primitive for an existing advanced flow. For every new working Agent Profile, use openmeld_create_agent_profile_request so creation, connection, settings, Project, optional Space membership, approval, attribution, and remembered defaults stay in one Core-owned flow.",
       input: object({
         profileName: nonEmptyStringSchema,
       }),
@@ -4250,7 +4365,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_enable_agent_profile",
       description:
-        "Enable an existing OpenMeld Agent Profile in the current Organization. Advanced path only: when creating a new working Agent Profile, prefer openmeld_create_configured_agent_profile.",
+        "Enable an existing OpenMeld Agent Profile in the current Organization. This is an existing-profile repair or management action. For a new working Agent Profile, use openmeld_create_agent_profile_request instead of assembling creation steps manually.",
       input: object({
         agentProfileId: nonEmptyStringSchema,
       }),
@@ -4439,7 +4554,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_connect_agent_profile_to_local_agent",
       description:
-        "Connect an existing OpenMeld Agent Profile to a selected local agent candidate. Use a candidateId from openmeld_list_local_agent_connection_candidates. This writes the Agent Profile Binding, applies optional runtime settings including Codex collaboration mode, refreshes routing through Core, and returns whether the profile can reply now.",
+        "Connect an existing OpenMeld Agent Profile to a selected local agent candidate. Use a candidateId from openmeld_list_local_agent_connection_candidates. This writes the Agent Profile Binding, applies optional runtime settings including Codex collaboration mode, refreshes routing through Core, and returns whether the profile can reply now. For a new working Agent Profile, use openmeld_create_agent_profile_request instead of assembling creation steps manually.",
       input: object({
         agentControllerCollaborationMode: collaborationModeSchema,
         agentControllerPermissionMode: permissionModeSchema,
@@ -4522,18 +4637,17 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_create_configured_agent_profile",
       description:
-        "Create a complete OpenMeld Agent Profile setup in one operation: create the profile, enable it, connect it to a selected local agent candidate, apply runtime settings including Codex collaboration mode, add it to a Space, and return whether it can reply now. Use this when the user asks for a new working Agent Profile.",
+        "Compatibility only for an older self-owned create-and-add-to-Space flow. Do not use it for new Agent Profile creation when openmeld_create_agent_profile_request is available; the request tool is the shared Web, CLI, Local Agent, and Center Agent creation contract and also supports creating without a Space.",
       input: object({
         agentControllerCollaborationMode: collaborationModeSchema,
         agentControllerPermissionMode: permissionModeSchema,
         candidateId: nonEmptyStringSchema,
+        defaultProjectId: optionalNonEmptyStringSchema,
         modelId: optionalNonEmptyStringSchema,
         openCodePermission: openCodePermissionSchema,
         profileName: nonEmptyStringSchema,
         reasoningLevel: optionalNonEmptyStringSchema,
         spaceId: nonEmptyStringSchema,
-        workspaceMode: workspaceModeSchema,
-        workspacePath: optionalNonEmptyStringSchema,
       }),
       execute: async (payload) => {
         const toolContext = await buildRepresentedMemberAttributionToolContext({
@@ -4547,7 +4661,19 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         );
         return centerAgentCreateConfiguredAgentProfileResponseSchema.parse(
           await rpc({
-            ...payload,
+            candidateId: payload.candidateId,
+            configuration: {
+              agentControllerCollaborationMode:
+                payload.agentControllerCollaborationMode ?? null,
+              agentControllerPermissionMode:
+                payload.agentControllerPermissionMode ?? null,
+              defaultProjectId: payload.defaultProjectId ?? null,
+              modelId: payload.modelId ?? null,
+              openCodePermission: payload.openCodePermission ?? null,
+              reasoningLevel: payload.reasoningLevel ?? null,
+            },
+            profileName: payload.profileName,
+            spaceId: payload.spaceId,
             ...toolContext,
           })
         );
@@ -4591,7 +4717,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_add_agent_profiles_to_space",
       description:
-        "Add existing OpenMeld Agent Profiles to a Space in the current Organization. Advanced path only: when creating a new working Agent Profile, prefer openmeld_create_configured_agent_profile.",
+        "Add existing OpenMeld Agent Profiles to a Space in the current Organization. For a new working Agent Profile that should join a Space, use openmeld_create_agent_profile_request with requestedSpaceId instead of assembling creation and membership steps manually.",
       input: object({
         agentProfileIds: pipe(
           array(nonEmptyStringSchema),

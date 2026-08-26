@@ -30,12 +30,16 @@ type AgentProfileBindingSessionInventorySelectionSchema =
   typeof import("../../schemas/http/agent-profile-binding")["agentProfileBindingSessionInventorySelectionSchema"];
 type AgentProfileCreationDefaultsSchema =
   typeof import("../../schemas/http/agent-profile-binding")["agentProfileCreationDefaultsSchema"];
+type AgentProfileCreationPreferenceSelectionSchema =
+  typeof import("../../schemas/http/agent-profile-binding")["agentProfileCreationPreferenceSelectionSchema"];
 type GetAgentProfileCreationDefaultsResponseSchema =
   typeof import("../../schemas/http/agent-profile-binding")["getAgentProfileCreationDefaultsResponseSchema"];
 type SetAgentProfileCreationDefaultsBodySchema =
   typeof import("../../schemas/http/agent-profile-binding")["setAgentProfileCreationDefaultsBodySchema"];
 type SetAgentProfileCreationDefaultsResponseSchema =
   typeof import("../../schemas/http/agent-profile-binding")["setAgentProfileCreationDefaultsResponseSchema"];
+type ListAgentProfileCreationDefaultsResponseSchema =
+  typeof import("../../schemas/http/agent-profile-binding")["listAgentProfileCreationDefaultsResponseSchema"];
 type EnsureAgentProfilePrimaryBindingBodySchema =
   typeof import("../../schemas/http/agent-profile-binding")["ensureAgentProfilePrimaryBindingBodySchema"];
 type EnsureAgentProfilePrimaryBindingResponseSchema =
@@ -124,12 +128,16 @@ export type AgentProfileBindingWriteMode =
   z.infer<AgentProfileBindingWriteModeSchema>;
 export type AgentProfileCreationDefaults =
   z.infer<AgentProfileCreationDefaultsSchema>;
+export type AgentProfileCreationPreferenceSelection =
+  z.infer<AgentProfileCreationPreferenceSelectionSchema>;
 export type GetAgentProfileCreationDefaultsResponse =
   z.infer<GetAgentProfileCreationDefaultsResponseSchema>;
 export type SetAgentProfileCreationDefaultsBody =
   z.infer<SetAgentProfileCreationDefaultsBodySchema>;
 export type SetAgentProfileCreationDefaultsResponse =
   z.infer<SetAgentProfileCreationDefaultsResponseSchema>;
+export type ListAgentProfileCreationDefaultsResponse =
+  z.infer<ListAgentProfileCreationDefaultsResponseSchema>;
 export type EnsureAgentProfilePrimaryBindingBody =
   z.infer<EnsureAgentProfilePrimaryBindingBodySchema>;
 export type AgentProfileBindingSessionInventorySelection =

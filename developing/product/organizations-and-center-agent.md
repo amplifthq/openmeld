@@ -1078,15 +1078,23 @@ metadata or shows raw provider ids. BYOK is not part of this release.
   Setting Default Project is limited to that member's local Agent Profiles.
   Role-scoped actions use the represented member's current server-side role;
   they are not autonomous Center Agent privileges.
-- Direct configured Agent Profile creation is limited to a Profile owned by the
-  represented member. When the represented member asks for a Profile owned by
-  another Organization member, the Center Agent submits an Agent Profile
-  Creation Request through Core with the represented member as requester and
-  the designated Center Agent Profile as actor. The target member's separate
-  new-Session or existing-Session policy decides whether it is rejected,
-  approved automatically, or sent to Inbox for a decision. Center Agent tools
-  list and manage the same requests as Web and CLI; they do not implement a
-  parallel approval path.
+- The Center Agent uses the same Core-owned Agent Profile Creation Request for
+  the represented member and for another Organization member. A self request
+  may complete immediately; a request for another member follows that target
+  member's separate new-Session or existing-Session policy and may be rejected,
+  approved automatically, or sent to Inbox for a decision. The represented
+  member remains the requester and the designated Center Agent Profile remains
+  the actor. Center Agent, Web, CLI, and Local Agents do not implement parallel
+  creation, setup, approval, or preference-write paths.
+- Before creating a local Agent Profile, the Center Agent reads the represented
+  member's Core-owned Agent Profile creation defaults. The read returns the
+  member's exact controller-specific Project, model, reasoning, permission,
+  collaboration, and controller-specific permission choices. It never returns
+  a local folder path and does not decide what configuration the task needs;
+  the Center Agent remains responsible for that judgment. The Center Agent
+  submits its final concrete selection through the same creation request. An
+  optional Space is part of that request; omitting it creates no Space and adds
+  no membership.
 - The audited Organization Directory read is the shared People identity surface
   for Web, Center Agent, and local agents using the signed-in member's CLI
   authority. It includes current members, Human and Agent Profiles, roles, and

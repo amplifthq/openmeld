@@ -5,11 +5,13 @@ import {
 	listAgentControllerPermissionModeOptions,
 	parseAgentControllerRef,
 	resolveAgentControllerPermissionModeForController,
+	resolveNativeAgentControllerCollaborationModeForController,
 } from "@openmeld/agent-runtime";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { formatAgentRecoveryActionLabel } from "@openmeld/schemas";
 import type {
 	AgentActivityInventorySession,
+	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
 	AgentProfileBindingSessionInventorySelection,
@@ -152,6 +154,7 @@ export type CreateProfileAgentActivitySessionPreset = {
 type CreateProfileDialogFormState = {
 	agentBindingValue: string;
 	authorizeForOrganization: boolean;
+	boundAgentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
 	boundAgentControllerPermissionModeConfirmed: boolean;
 	boundAgentId: string;
@@ -202,6 +205,7 @@ function createInitialCreateProfileDialogFormState(input: {
 				? `${input.initialSessionPreset.computerId}:${input.initialSessionPreset.agentControllerRef}`
 				: "",
 		authorizeForOrganization: true,
+		boundAgentControllerCollaborationMode: null,
 		boundAgentControllerPermissionMode:
 			DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
 		boundAgentControllerPermissionModeConfirmed: false,
@@ -243,6 +247,9 @@ function createProfileDialogFormSetters(
 	return {
 		setAgentBindingValue: setField("agentBindingValue"),
 		setAuthorizeForOrganization: setField("authorizeForOrganization"),
+		setBoundAgentControllerCollaborationMode: setField(
+			"boundAgentControllerCollaborationMode"
+		),
 		setBoundAgentControllerPermissionMode: setField(
 			"boundAgentControllerPermissionMode"
 		),
@@ -338,6 +345,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 	const {
 		agentBindingValue,
 		authorizeForOrganization,
+		boundAgentControllerCollaborationMode,
 		boundAgentControllerPermissionMode,
 		boundAgentControllerPermissionModeConfirmed,
 		boundAgentId,
@@ -360,6 +368,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 	const {
 		setAgentBindingValue,
 		setAuthorizeForOrganization,
+		setBoundAgentControllerCollaborationMode,
 		setBoundAgentControllerPermissionMode,
 		setBoundAgentControllerPermissionModeConfirmed,
 		setBoundAgentId,
@@ -568,6 +577,9 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		creationDefaultsEditedRef,
 		modelCatalog,
 		onApply: (remembered) => {
+			setBoundAgentControllerCollaborationMode(
+				remembered.agentControllerCollaborationMode
+			);
 			setBoundAgentControllerPermissionMode(
 				remembered.agentControllerPermissionMode
 			);
@@ -610,6 +622,11 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		mutationFn: (submission: { idempotencyKey: string }) =>
 			submitProfileCreation({
 				agentControllerConversationId,
+				agentControllerCollaborationMode:
+					resolveCreateAgentControllerCollaborationMode({
+						boundAgentControllerCollaborationMode,
+						boundAgentId,
+					}),
 				agentControllerPermissionMode:
 					resolveCreateAgentControllerPermissionMode({
 						boundAgentControllerPermissionMode,
@@ -741,6 +758,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 					setSessionPreset(undefined);
 					setAgentBindingValue("");
 					setBoundAgentId("");
+					setBoundAgentControllerCollaborationMode(null);
 					setBoundAgentControllerPermissionMode(
 						DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE
 					);
@@ -760,7 +778,13 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 					setTargetOwnerUserId(userId);
 					setAgentBindingValue("");
 					setBoundAgentId("");
+					setBoundAgentControllerCollaborationMode(null);
+					setBoundAgentControllerPermissionMode(
+						DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE
+					);
+					setBoundAgentControllerPermissionModeConfirmed(false);
 					setBoundModelId("");
+					setBoundOpenCodePermission(null);
 					setBoundReasoningLevel("");
 					setSelectedProjectId("");
 					setErrorState(null);
@@ -787,6 +811,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 				sessionPreset,
 				setAgentBindingValue,
 				setBoundAgentId,
+				setBoundAgentControllerCollaborationMode,
 				setBoundModelId,
 				setBoundOpenCodePermission,
 				setBoundReasoningLevel,
@@ -805,6 +830,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 				session,
 				mode,
 				setAgentBindingValue,
+				setBoundAgentControllerCollaborationMode,
 				setBoundAgentControllerPermissionMode,
 				setBoundAgentControllerPermissionModeConfirmed,
 				setBoundAgentId,
@@ -843,6 +869,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		agentSessionSlot: sessionChoice,
 		allowProfileKindSelection: !initialSessionPreset,
 		availableLocalAgentIds,
+		boundAgentControllerCollaborationMode,
 		boundAgentControllerPermissionMode,
 		boundAgentControllerPermissionModeConfirmed,
 		boundAgentId,
@@ -869,6 +896,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			appliedCreationDefaultsKeyRef.current = null;
 			creationDefaultsEditedRef.current = false;
 			setBoundAgentId(nextAgentId);
+			setBoundAgentControllerCollaborationMode(null);
 			setBoundAgentControllerPermissionMode(
 				DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE
 			);
@@ -880,6 +908,13 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			setSelectedProjectId("");
 			setSelectedProjectBindingGeneration(null);
 			setProjectWorkspaceFallback(ownerMode === "self" ? "managed" : null);
+			setErrorState(null);
+		},
+		onChangeBoundAgentControllerCollaborationMode: (
+			nextCollaborationMode: AgentControllerCollaborationMode
+		) => {
+			creationDefaultsEditedRef.current = true;
+			setBoundAgentControllerCollaborationMode(nextCollaborationMode);
 			setErrorState(null);
 		},
 		onChangeBoundAgentControllerPermissionMode: (
@@ -902,6 +937,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			appliedCreationDefaultsKeyRef.current = null;
 			creationDefaultsEditedRef.current = false;
 			setBoundAgentId(nextAgentId);
+			setBoundAgentControllerCollaborationMode(null);
 			setBoundAgentControllerPermissionMode(
 				DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE
 			);
@@ -950,6 +986,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 				nextProfileKind,
 				onClearAgentFields: () => {
 					setBoundAgentId("");
+					setBoundAgentControllerCollaborationMode(null);
 					setBoundAgentControllerPermissionMode(
 						DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE
 					);
@@ -973,6 +1010,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 				fingerprint: buildCreationFingerprint({
 					agentBindingValue,
 					authorizeForOrganization,
+					boundAgentControllerCollaborationMode,
 					boundAgentControllerPermissionMode,
 					boundAgentId,
 					boundModelId,
@@ -1126,6 +1164,9 @@ function handleAgentProfileSessionModeChange(input: {
 	sessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
 	setAgentBindingValue: (value: string) => void;
 	setBoundAgentId: (value: string) => void;
+	setBoundAgentControllerCollaborationMode: (
+		mode: AgentControllerCollaborationMode | null
+	) => void;
 	setBoundModelId: (value: string) => void;
 	setBoundOpenCodePermission: (
 		value: AgentProfileBindingOpenCodePermission | null
@@ -1154,6 +1195,7 @@ function handleAgentProfileSessionModeChange(input: {
 	input.setSessionPreset(undefined);
 	input.setAgentBindingValue("");
 	input.setBoundAgentId("");
+	input.setBoundAgentControllerCollaborationMode(null);
 	input.setBoundModelId("");
 	input.setBoundOpenCodePermission(null);
 	input.setBoundReasoningLevel("");
@@ -1172,6 +1214,9 @@ function applyAgentProfileSessionSelection(input: {
 	session: AgentActivityInventorySession;
 	mode: Exclude<AgentProfileSessionMode, "new">;
 	setAgentBindingValue: (value: string) => void;
+	setBoundAgentControllerCollaborationMode: (
+		mode: AgentControllerCollaborationMode | null
+	) => void;
 	setBoundAgentControllerPermissionMode: (
 		mode: AgentControllerPermissionMode
 	) => void;
@@ -1208,6 +1253,7 @@ function applyAgentProfileSessionSelection(input: {
 		})
 	);
 	input.setBoundAgentId(agentId ?? "");
+	input.setBoundAgentControllerCollaborationMode(null);
 	input.setBoundAgentControllerPermissionMode(
 		DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE
 	);
@@ -1256,6 +1302,7 @@ function resolveAgentProfileSubmitBlockReason(input: {
 
 type CreateProfileSubmissionInput = {
 	agentControllerConversationId: string | null;
+	agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	agentControllerPermissionMode: AgentControllerPermissionMode | null;
 	agentControllerRef: string;
 	authorizeForOrganization: boolean;
@@ -1419,6 +1466,7 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 	const result = await createAgentProfileCreationRequest({
 		configuration: {
+			agentControllerCollaborationMode: input.agentControllerCollaborationMode,
 			agentControllerPermissionMode: input.agentControllerPermissionMode,
 			agentControllerRef:
 				input.ownerMode === "self"
@@ -1465,6 +1513,12 @@ async function createOwnProfile(input: CreateProfileSubmissionInput) {
 	});
 	const creationOutcome = await createProfileWithFollowUps({
 		agentControllerConversationId: input.agentControllerConversationId,
+		...(input.agentControllerCollaborationMode
+			? {
+					agentControllerCollaborationMode:
+						input.agentControllerCollaborationMode,
+				}
+			: {}),
 		...(input.agentControllerPermissionMode
 			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 			: {}),
@@ -1496,6 +1550,8 @@ async function createOwnProfile(input: CreateProfileSubmissionInput) {
 	const [creationDefaultsUpdateFailed, organizationAuthorization] =
 		await Promise.all([
 			rememberSuccessfulAgentProfileCreationDefaults({
+				agentControllerCollaborationMode:
+					input.agentControllerCollaborationMode,
 				agentControllerPermissionMode: input.agentControllerPermissionMode,
 				agentControllerRef: input.agentControllerRef,
 				boundAgentId: input.boundAgentId,
@@ -1934,6 +1990,7 @@ function handleProfileKindSelection(input: {
 function buildCreationFingerprint(input: {
 	agentBindingValue: string;
 	authorizeForOrganization: boolean;
+	boundAgentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
 	boundAgentId: string;
 	boundModelId: string;
@@ -1957,6 +2014,7 @@ function buildCreationFingerprint(input: {
 		input.profileName.trim(),
 		input.agentBindingValue,
 		input.boundAgentId,
+		input.boundAgentControllerCollaborationMode,
 		input.boundAgentControllerPermissionMode,
 		input.boundModelId,
 		input.boundOpenCodePermission,
@@ -2381,6 +2439,23 @@ function resolveCreateAgentControllerPermissionMode(input: {
 	);
 }
 
+function resolveCreateAgentControllerCollaborationMode(input: {
+	boundAgentControllerCollaborationMode: AgentControllerCollaborationMode | null;
+	boundAgentId: string;
+}): AgentControllerCollaborationMode | null {
+	if (!input.boundAgentId) {
+		return null;
+	}
+	return (
+		resolveNativeAgentControllerCollaborationModeForController(
+			input.boundAgentControllerCollaborationMode,
+			{
+				agentControllerRef: buildBuiltinAgentControllerRef(input.boundAgentId),
+			}
+		) ?? null
+	);
+}
+
 function resolveSelectedDefaultProjectId(input: {
 	selectedProjectBindingGeneration: string | null;
 	selectedProjectId: string;
@@ -2391,6 +2466,7 @@ function resolveSelectedDefaultProjectId(input: {
 }
 
 async function rememberSuccessfulAgentProfileCreationDefaults(input: {
+	agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	agentControllerPermissionMode: AgentControllerPermissionMode | null;
 	agentControllerRef: string;
 	boundAgentId: string;
@@ -2410,6 +2486,7 @@ async function rememberSuccessfulAgentProfileCreationDefaults(input: {
 	}
 	try {
 		const defaults = await setAgentProfileCreationDefaults({
+			agentControllerCollaborationMode: input.agentControllerCollaborationMode,
 			agentControllerPermissionMode: input.agentControllerPermissionMode,
 			agentControllerRef: input.agentControllerRef,
 			defaultProjectId: input.defaultProjectId,

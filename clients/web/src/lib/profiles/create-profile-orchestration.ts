@@ -1,5 +1,6 @@
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
+	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
 	AgentProfileBindingSessionInventorySelection,
@@ -60,6 +61,7 @@ export class SessionProfileCreationRolledBackError extends Error {
 // is removed before the error escapes.
 export async function createProfileWithFollowUps(input: {
 	agentControllerConversationId?: string | null;
+	agentControllerCollaborationMode?: AgentControllerCollaborationMode;
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	boundAgentId: string;
 	currentServiceCanSetProfileWorkspace: boolean;
@@ -103,6 +105,12 @@ export async function createProfileWithFollowUps(input: {
 		await setupNewAgentProfileLocalState({
 			agentControllerConversationId:
 				input.agentControllerConversationId ?? null,
+			...(input.agentControllerCollaborationMode
+				? {
+						agentControllerCollaborationMode:
+							input.agentControllerCollaborationMode,
+					}
+				: {}),
 			...(input.agentControllerPermissionMode
 				? {
 						agentControllerPermissionMode: input.agentControllerPermissionMode,

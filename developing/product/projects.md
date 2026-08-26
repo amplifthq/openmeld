@@ -572,6 +572,14 @@ and edit cloud Projects, set Default Project for the represented member's local
 Agent Profiles, and remove a Project only through the explicit two-turn
 confirmation contract below. Local paths never enter Center Agent context.
 
+Configured Agent Profile creation selects one existing Project by its cloud
+Project ID and reuses the same represented-member Default Project mutation.
+The selected computer then resolves that Project through its own Local Project
+Connection. Center Agent creation does not introduce a second Project object,
+folder preference, path lookup, or local connection writer; when no Project is
+selected, the existing OpenMeld-managed working-folder behavior remains the
+explicit choice.
+
 ## Center Agent Project Management
 
 The hosted Center Agent exposes one bounded cloud Project tool family:

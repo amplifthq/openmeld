@@ -2,6 +2,19 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "openmeld-core",
   "main": "src/index.ts",
+  // Keep request-only dependencies out of Core's startup module. Their existing
+  // lazy boundaries load these additional modules only when the feature runs.
+  "base_dir": "src",
+  "find_additional_modules": true,
+  "rules": [
+    {
+      "type": "ESModule",
+      "globs": ["**/generated-runtime/*.mjs"]
+    }
+  ],
+  "build": {
+    "command": "pnpm --filter @openmeld/core run build:lazy-runtime-modules"
+  },
   "workers_dev": false,
   // Production endpoint is intentionally internal-only. Calls should come via
   // Gateway OPENMELD_CORE_WORKER service binding, not direct HTTP access.
