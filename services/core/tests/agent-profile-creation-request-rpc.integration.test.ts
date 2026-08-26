@@ -7,8 +7,72 @@ import {
   rpcListAgentProfileCreationRequests,
 } from "../src/agent-profile-creation-request/agent-profile-creation-request-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
+// biome-ignore lint/performance/noNamespaceImport: Vitest needs the module object to replace this dependency at the RPC boundary.
+import * as currentDeviceTargetService from "../src/start/application/current-device-target-service";
 
 describe("Agent Profile creation request RPC", () => {
+  it("does not create an Agent Profile when the selected local agent is no longer available", async () => {
+    const fixture = await seedFixture();
+    const createAgentProfileInOrganizationMock = vi.fn().mockResolvedValue({
+      ok: true,
+      profile: {
+        openMeldProfileId: "agt_22222222-2222-4222-8222-222222222222",
+      },
+    });
+    const listLocalRuntimes = vi
+      .spyOn(currentDeviceTargetService, "listLocalRuntimesUseCase")
+      .mockResolvedValue({
+        currentConnectedComputerId: null,
+        currentDeviceId: null,
+        currentRuntimeLane: null,
+        legacyDeviceEvidence: [],
+        localRuntimes: [],
+      });
+    const bindings = {
+      OPENMELD_AUTH_WORKER: {
+        createAgentProfileInOrganization: createAgentProfileInOrganizationMock,
+      },
+      OPENMELD_DB: env.OPENMELD_DB,
+    } as unknown as CoreBindings;
+
+    try {
+      const result = await rpcCreateAgentProfileCreationRequest(bindings, {
+        configuration: {
+          agentControllerCollaborationMode: null,
+          agentControllerPermissionMode: null,
+          agentControllerRef: "builtin:codex",
+          authorizeForOrganization: true,
+          defaultProjectId: null,
+          modelId: null,
+          openCodePermission: null,
+          reasoningLevel: null,
+          targetComputerId: "device-that-disconnected",
+        },
+        context: contextFor(
+          fixture.requesterUserId,
+          fixture.requesterProfileId
+        ),
+        idempotencyKey: `stale-local-agent-${fixture.suffix}`,
+        organizationId: fixture.organizationId,
+        profileName: "Release Reviewer",
+        sessionStrategy: "new",
+        source: "web",
+        targetOwnerUserId: fixture.requesterUserId,
+      });
+
+      expect(result.request).toMatchObject({
+        createdAgentProfileId: null,
+        failureMessage:
+          "The selected local agent is no longer available on that Computer.",
+        status: "failed",
+      });
+      expect(createAgentProfileInOrganizationMock).not.toHaveBeenCalled();
+      expect(listLocalRuntimes).toHaveBeenCalled();
+    } finally {
+      listLocalRuntimes.mockRestore();
+    }
+  });
+
   it("uses the represented member as requester and the Center Agent as actor", async () => {
     const fixture = await seedFixture();
     const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;

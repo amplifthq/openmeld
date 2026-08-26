@@ -1,8 +1,7 @@
 import type { OpenClawGatewayVisibility } from "@openmeld/local-service";
 import { providerDispatchRuntimeContextSchema } from "@openmeld/schemas";
 import type { ProviderDispatchRuntimeContext } from "@openmeld/schemas/types";
-import { listProjectConnectionsWithStatus } from "../../agent-activity/project-bindings";
-import { resolveProfileWorkspaceRuntime } from "../../profile-workspace/runtime-resolution";
+import { resolveEffectiveProfileWorkingFolderRuntime } from "../../profile-workspace/effective-runtime-resolution";
 import {
   type ProviderRuntimePreparationDetails,
   prepareProviderRuntime,
@@ -20,10 +19,8 @@ export async function resolveDispatchRuntimeContext(input: {
   defaultProjectId?: string | null;
   openMeldProfileId: string;
 }): Promise<ProviderDispatchRuntimeContext> {
-  if (input.defaultProjectId) {
-    return await resolveDefaultProjectRuntimeContext(input.defaultProjectId);
-  }
-  const resolution = await resolveProfileWorkspaceRuntime({
+  const resolution = await resolveEffectiveProfileWorkingFolderRuntime({
+    defaultProjectId: input.defaultProjectId,
     openMeldProfileId: input.openMeldProfileId,
     mode: "dispatch",
   });
@@ -31,6 +28,30 @@ export async function resolveDispatchRuntimeContext(input: {
     return resolution.runtimeContext;
   }
   if (resolution.status === "missing") {
+    if (
+      "workingFolderSource" in resolution &&
+      resolution.workingFolderSource === "default_project" &&
+      resolution.defaultProjectId
+    ) {
+      const folderMissing =
+        resolution.defaultProjectFailureReason === "folder_missing";
+      throw new DaemonServiceRunError({
+        code: folderMissing
+          ? "project.local_connection.folder_missing"
+          : "project.local_connection.missing",
+        message: folderMissing
+          ? "project.local_connection.folder_missing"
+          : "project.local_connection.missing",
+        projectFailureContext: {
+          ...(resolution.defaultProjectBindingGeneration
+            ? {
+                bindingGeneration: resolution.defaultProjectBindingGeneration,
+              }
+            : {}),
+          projectId: resolution.defaultProjectId,
+        },
+      });
+    }
     throw new DaemonServiceRunError({
       code: "profile.workspace.missing",
       message: `profile.workspace.missing: ${resolution.reasonText}`,
@@ -39,36 +60,6 @@ export async function resolveDispatchRuntimeContext(input: {
   throw new DaemonServiceRunError({
     code: "profile.workspace.invalid",
     message: `profile.workspace.invalid: ${resolution.reasonText}`,
-  });
-}
-
-async function resolveDefaultProjectRuntimeContext(
-  projectId: string
-): Promise<ProviderDispatchRuntimeContext> {
-  const connections = await listProjectConnectionsWithStatus({});
-  const defaultConnection = connections.find(
-    (connection) => connection.projectId === projectId && connection.isDefault
-  );
-  if (!defaultConnection) {
-    throw new DaemonServiceRunError({
-      code: "project.local_connection.missing",
-      message: "project.local_connection.missing",
-      projectFailureContext: { projectId },
-    });
-  }
-  if (defaultConnection.status === "missing") {
-    throw new DaemonServiceRunError({
-      code: "project.local_connection.folder_missing",
-      message: "project.local_connection.folder_missing",
-      projectFailureContext: {
-        bindingGeneration: defaultConnection.bindingGeneration,
-        projectId,
-      },
-    });
-  }
-  return parseDispatchRuntimeContextOrThrow({
-    providerRuntimeWorkingDirectory: defaultConnection.repositoryPath,
-    source: `Default Project ${projectId}`,
   });
 }
 

@@ -51,17 +51,28 @@ const completeAgentProfileCreationConfigurationSchema =
     .safeExtend({
       agentControllerRef: agentControllerRefSchema.nullable(),
       authorizeForOrganization: z.boolean(),
+      localAgentConnectionCandidateId: identifierSchema.nullable().optional(),
       targetComputerId: identifierSchema.nullable(),
     })
     .superRefine((configuration, context) => {
       const hasController = configuration.agentControllerRef !== null;
       const hasComputer = configuration.targetComputerId !== null;
+      const hasCandidate =
+        configuration.localAgentConnectionCandidateId != null;
       if (hasController !== hasComputer) {
         context.addIssue({
           code: "custom",
           message:
             "agentControllerRef and targetComputerId must be provided together.",
           path: hasController ? ["targetComputerId"] : ["agentControllerRef"],
+        });
+      }
+      if (hasCandidate && !(hasController && hasComputer)) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "localAgentConnectionCandidateId requires an Agent Controller and Computer.",
+          path: ["localAgentConnectionCandidateId"],
         });
       }
       if (
@@ -98,15 +109,15 @@ export const agentProfileCreationConfigurationSchema = z.preprocess(
 );
 
 function addMissingAgentControllerCollaborationMode(value: unknown): unknown {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value) ||
-    Object.hasOwn(value, "agentControllerCollaborationMode")
-  ) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return value;
   }
-  return { ...value, agentControllerCollaborationMode: null };
+  return {
+    ...value,
+    ...(Object.hasOwn(value, "agentControllerCollaborationMode")
+      ? {}
+      : { agentControllerCollaborationMode: null }),
+  };
 }
 
 export const DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION = {

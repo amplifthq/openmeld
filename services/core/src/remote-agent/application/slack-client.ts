@@ -1075,6 +1075,7 @@ export async function postSlackChannelMessageByName(input: {
   const publication = await postSlackChannelMessage({
     ...input,
     target,
+    text: await toSlackMrkdwn(input.text),
   });
   return {
     channelId: target.channelId,
@@ -1193,7 +1194,7 @@ export async function postSlackChannelMessage(input: {
     channelId: input.target.channelId,
     fetchImpl: input.fetchImpl,
     signal: input.signal,
-    text: await toSlackMrkdwn(input.text),
+    text: input.text,
     ...(input.threadTs ? { threadTs: input.threadTs } : {}),
   });
   return {

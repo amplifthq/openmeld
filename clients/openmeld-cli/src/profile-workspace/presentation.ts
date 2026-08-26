@@ -1,4 +1,4 @@
-import type { ProfileWorkspaceRuntimeResolution } from "./runtime-resolution";
+import type { EffectiveProfileWorkingFolderRuntimeResolution } from "./effective-runtime-resolution";
 
 export type ProfileWorkspacePresentation =
   | {
@@ -8,9 +8,9 @@ export type ProfileWorkspacePresentation =
       effectiveRuntimeWorkingDirectoryDisplay: string;
       reasonCode: null;
       reasonText: null;
-      status: "openmeld_managed" | "custom";
-      workspace: "OpenMeld-managed" | "Custom";
-      workspaceSource: "OpenMeld-managed" | "Custom";
+      status: "openmeld_managed" | "custom" | "default_project";
+      workspace: "OpenMeld-managed" | "Custom" | "Default Project";
+      workspaceSource: "OpenMeld-managed" | "Custom" | "Default Project";
     }
   | {
       configuredWorkspace: string | null;
@@ -30,12 +30,33 @@ type WorkspaceRow = {
 };
 
 export function buildProfileWorkspacePresentation(
-  resolution: ProfileWorkspaceRuntimeResolution | null
+  resolution: EffectiveProfileWorkingFolderRuntimeResolution | null
 ): ProfileWorkspacePresentation | null {
   if (!resolution) {
     return null;
   }
   if (resolution.status === "ready") {
+    if (
+      "workingFolderSource" in resolution &&
+      resolution.workingFolderSource === "default_project"
+    ) {
+      return {
+        configuredWorkspace: resolution.configuredWorkspacePath,
+        configuredWorkspaceDisplay: resolution.configuredWorkspacePath,
+        effectiveRuntimeWorkingDirectory:
+          resolution.effectiveRuntimeWorkingDirectory,
+        effectiveRuntimeWorkingDirectoryDisplay:
+          resolution.effectiveRuntimeWorkingDirectory,
+        reasonCode: null,
+        reasonText: null,
+        status: "default_project",
+        workspace: "Default Project",
+        workspaceSource: "Default Project",
+      };
+    }
+    if (resolution.workspaceMode === null) {
+      throw new Error("Default Project working folder source is missing.");
+    }
     const label =
       resolution.workspaceMode === "openmeld_managed"
         ? "OpenMeld-managed"
