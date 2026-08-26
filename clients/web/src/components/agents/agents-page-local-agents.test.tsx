@@ -1173,7 +1173,7 @@ describe("LocalAgentsCard", () => {
 		});
 
 		const row = screen.getByTestId("settings-local-agent-row-codex");
-		expect(within(row).getByText("Sign in required")).toBeTruthy();
+		expect(within(row).getByText("Not signed in")).toBeTruthy();
 		expect(
 			within(row).getAllByText(
 				"Codex CLI is installed, but this computer is not signed in to Codex."
