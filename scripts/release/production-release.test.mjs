@@ -1,17 +1,23 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
+  assertProductionReleaseSource,
   buildCoreCurrentCliProjectionPreflightStepSpecs,
   buildProductionDeployStepSpecs,
   buildProductionPreflightStepSpecs,
   buildProductionReleasePlan,
   buildProductionVerifyStepSpecs,
   executeProductionDeploySteps,
+  executeWithProductionScopeLeases,
   expandRequestedReleaseScopes,
   parseProductionReleaseArgs,
   resolveAutomaticReleaseScopes,
+  resolveLocalReleaseOwner,
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
@@ -21,6 +27,7 @@ const COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE = /requires the Remote Agent scope/u;
 const INBOX_SCOPE_ERROR_RE = /requires the Web, Gateway, and Core scopes/u;
 const LOCAL_SERVICE_CORE_SCOPE_ERROR_RE =
   /requires the Core scope before publishing CLI\/Service/u;
+const LOCAL_MAINLINE_RELEASE_ERROR_PATTERN = /main first-parent chain/u;
 const WRANGLER_RELEASE_STATE = JSON.parse(
   readFileSync(
     new URL(
@@ -47,6 +54,17 @@ test("parses the local production release command", () => {
       json: false,
       scope: "web,core",
     }
+  );
+});
+
+test("identifies a local release owner across computers", () => {
+  assert.equal(
+    resolveLocalReleaseOwner({
+      hostname: "build-mac-07.local",
+      pid: 4242,
+      user: "agent-a",
+    }),
+    "local:agent-a@build-mac-07.local:4242"
   );
 });
 
@@ -91,6 +109,136 @@ test("plans against an explicit immutable remote source", () => {
   });
 
   assert.equal(plan.sourceSha, REMOTE_SOURCE_SHA);
+});
+
+test("local production release accepts only current main first-parent sources", () => {
+  const repositoryPath = mkdtempSync(
+    path.join(tmpdir(), "openmeld-local-release-mainline-")
+  );
+  const git = (...args) =>
+    execFileSync("git", args, {
+      cwd: repositoryPath,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  const commit = (fileName, contents, message) => {
+    writeFileSync(path.join(repositoryPath, fileName), contents);
+    git("add", fileName);
+    git("commit", "--quiet", "-m", message);
+    return git("rev-parse", "HEAD");
+  };
+
+  try {
+    git("init", "--initial-branch=main", "--quiet");
+    git("config", "user.email", "local-release@test.openmeld.ai");
+    git("config", "user.name", "OpenMeld Local Release Test");
+    commit("base.txt", "base\n", "base");
+    git("checkout", "--quiet", "-b", "side");
+    const sideBranchSha = commit("side.txt", "side\n", "side branch");
+    git("checkout", "--quiet", "main");
+    const firstParentSha = commit("main.txt", "main\n", "main update");
+    git("merge", "--no-ff", "--quiet", "side", "-m", "merge side");
+    const mergeSha = git("rev-parse", "HEAD");
+
+    assert.doesNotThrow(() =>
+      assertProductionReleaseSource({
+        cwd: repositoryPath,
+        mainRef: "main",
+        sourceSha: firstParentSha,
+      })
+    );
+    assert.doesNotThrow(() =>
+      assertProductionReleaseSource({
+        cwd: repositoryPath,
+        mainRef: "main",
+        sourceSha: mergeSha,
+      })
+    );
+    assert.throws(
+      () =>
+        assertProductionReleaseSource({
+          cwd: repositoryPath,
+          mainRef: "main",
+          sourceSha: sideBranchSha,
+        }),
+      LOCAL_MAINLINE_RELEASE_ERROR_PATTERN
+    );
+  } finally {
+    rmSync(repositoryPath, { force: true, recursive: true });
+  }
+});
+
+test("local deploy holds shared CLI and Core leases and releases in reverse order", async () => {
+  const operations = [];
+  const result = await executeWithProductionScopeLeases({
+    adapters: {
+      acquireProductionScopeLease: ({ scope, sourceSha }) => {
+        operations.push(`acquire:${scope}:${sourceSha}`);
+        return {
+          leaseSha: scope.padEnd(40, "0").slice(0, 40),
+          metadata: { scope },
+        };
+      },
+      releaseProductionScopeLease: ({ scope }) => {
+        operations.push(`release:${scope}`);
+      },
+    },
+    execute: () => {
+      operations.push("deploy");
+      return "released";
+    },
+    owner: "local:test",
+    scopes: ["cli"],
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(result, "released");
+  assert.deepEqual(operations, [
+    `acquire:cli:${REMOTE_SOURCE_SHA}`,
+    `acquire:core:${REMOTE_SOURCE_SHA}`,
+    "deploy",
+    "release:core",
+    "release:cli",
+  ]);
+});
+
+test("the guarded local lane invokes the internal CLI publisher while both leases are held", async () => {
+  const operations = [];
+  await executeWithProductionScopeLeases({
+    adapters: {
+      acquireProductionScopeLease: ({ scope }) => {
+        operations.push(`acquire:${scope}`);
+        return {
+          leaseSha: scope.padEnd(40, "0").slice(0, 40),
+          metadata: { scope },
+        };
+      },
+      releaseProductionScopeLease: ({ scope }) => {
+        operations.push(`release:${scope}`);
+      },
+    },
+    execute: async () => {
+      await executeProductionDeploySteps({
+        adapters: {
+          publishCliRelease: () => {
+            operations.push("publish-cli");
+          },
+        },
+        steps: buildProductionDeployStepSpecs(["cli"]).slice(0, 1),
+      });
+    },
+    owner: "local:test",
+    scopes: ["cli"],
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.deepEqual(operations, [
+    "acquire:cli",
+    "acquire:core",
+    "publish-cli",
+    "release:core",
+    "release:cli",
+  ]);
 });
 
 test("derives deploy scopes from affected deployable packages", () => {
@@ -354,11 +502,8 @@ test("lets CLI release own its required Core projection", () => {
     ]
   );
   assert.deepEqual(
-    steps.map((step) => step.args),
-    [
-      ["run", "release:cli", "--with-binary"],
-      ["run", "release:cli", "--with-binary"],
-    ]
+    steps.map((step) => step.internalOperation),
+    ["publish-cli", "publish-cli"]
   );
 });
 
@@ -670,10 +815,10 @@ test("deploys Core's strict worker-response reader before PR 194's Remote Agent 
   );
 });
 
-test("prints the current production Worker version before a harmless redeploy", () => {
+test("prints the current production Worker version before a harmless redeploy", async () => {
   const sideEffects = [];
   const output = [];
-  executeProductionDeploySteps({
+  await executeProductionDeploySteps({
     adapters: {
       runCommand: () => ({
         status: 0,

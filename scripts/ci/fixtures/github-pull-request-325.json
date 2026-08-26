@@ -1,0 +1,33 @@
+{
+  "fixture": {
+    "apiVersion": "2022-11-28",
+    "capturedOn": "2026-08-26",
+    "command": "gh api repos/amplifthq/openmeld/pulls/325 --jq '{url:.url,html_url:.html_url,number:.number,state:.state,draft:.draft,labels:.labels,head:{label:.head.label,ref:.head.ref,sha:.head.sha,repo:{full_name:.head.repo.full_name}},base:{label:.base.label,ref:.base.ref,sha:.base.sha,repo:{full_name:.base.repo.full_name}}}'",
+    "source": "GitHub REST API GET /repos/amplifthq/openmeld/pulls/325",
+    "transformation": "The jq projection preserves the complete candidate-fact objects consumed by the Final Candidate boundary and omits unrelated PR presentation fields. Values are otherwise unchanged."
+  },
+  "response": {
+    "base": {
+      "label": "amplifthq:main",
+      "ref": "main",
+      "repo": {
+        "full_name": "amplifthq/openmeld"
+      },
+      "sha": "946cb4af850a552e6b1e3e58ebcaff40631aa5f5"
+    },
+    "draft": false,
+    "head": {
+      "label": "amplifthq:codex/agent-native-delivery-20260826",
+      "ref": "codex/agent-native-delivery-20260826",
+      "repo": {
+        "full_name": "amplifthq/openmeld"
+      },
+      "sha": "b4c8819026349936938570cfed4ff2272ae5464a"
+    },
+    "html_url": "https://github.com/amplifthq/openmeld/pull/325",
+    "labels": [],
+    "number": 325,
+    "state": "open",
+    "url": "https://api.github.com/repos/amplifthq/openmeld/pulls/325"
+  }
+}

@@ -2,16 +2,22 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-
+import {
+  acquireProductionScopeLease,
+  releaseProductionScopeLease,
+} from "./production-scope-lease.mjs";
+import { runCliRelease } from "./release-cli.mjs";
 import {
   isCliReleasePath,
   isServiceReleasePath,
   isSkillsReleasePath,
 } from "./release-ready-paths.mjs";
 import { readCurrentWorkerVersionIds } from "./release-stage-probes.mjs";
+import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 
 const DEFAULT_BASE_REF = "origin/main";
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
@@ -396,6 +402,10 @@ function productionQueueVerificationStep(scope) {
       `services/${scope}/wrangler.jsonc`,
     ],
     command: "pnpm",
+    controlArgs: [`services/${scope}/wrangler.jsonc`],
+    controlCommand: "node",
+    controlNodeArgs: ["--experimental-strip-types"],
+    controlPath: "scripts/cloudflare/verify-production-queues.mjs",
     label: `Verify production ${scope === "core" ? "Core" : "Gateway"} Queue resources`,
   };
 }
@@ -405,11 +415,19 @@ function buildCommonReleaseStepSpecs(changedPaths) {
     {
       args: ["run", "verify:cloudflare:env-contract"],
       command: "pnpm",
+      controlArgs: [],
+      controlCommand: "node",
+      controlNodeArgs: ["--experimental-strip-types"],
+      controlPath: "scripts/cloudflare/verify-worker-env-contract.mjs",
       label: "Verify Cloudflare environment contracts",
     },
     {
       args: ["scripts/ci/check-retired-identifiers.sh"],
       command: "bash",
+      controlArgs: [],
+      controlCommand: "bash",
+      controlNodeArgs: [],
+      controlPath: "scripts/ci/check-retired-identifiers.sh",
       label: "Check retired identifiers",
     },
   ];
@@ -444,8 +462,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   }
   if (selected.has("cli")) {
     steps.push({
-      args: ["run", "release:cli", "--with-binary"],
-      command: "pnpm",
+      internalOperation: "publish-cli",
       label: "Verify final R2/npm/Core alignment",
     });
   }
@@ -463,8 +480,7 @@ function appendProductionDeployScopeSteps(input) {
   }
   if (input.scope === "cli") {
     input.steps.push({
-      args: ["run", "release:cli", "--with-binary"],
-      command: "pnpm",
+      internalOperation: "publish-cli",
       label: "Publish CLI and deploy its Core release projection",
     });
     return;
@@ -856,6 +872,71 @@ function assertSourceStillMatches(sourceSha) {
   }
 }
 
+export function resolveProductionLeaseScopes(scopes) {
+  return sortScopes([...scopes, ...(scopes.includes("cli") ? ["core"] : [])]);
+}
+
+export async function executeWithProductionScopeLeases(input) {
+  const acquire =
+    input.adapters?.acquireProductionScopeLease ?? acquireProductionScopeLease;
+  const release =
+    input.adapters?.releaseProductionScopeLease ?? releaseProductionScopeLease;
+  const leases = [];
+  let executionResult;
+  let originalError = null;
+  try {
+    for (const scope of resolveProductionLeaseScopes(input.scopes)) {
+      leases.push(
+        acquire({
+          owner: input.owner,
+          scope,
+          sourceSha: input.sourceSha,
+        })
+      );
+    }
+    executionResult = await input.execute();
+  } catch (error) {
+    originalError = error;
+  }
+  const releaseErrors = [];
+  for (const lease of leases.toReversed()) {
+    try {
+      release({
+        leaseSha: lease.leaseSha,
+        scope: lease.metadata.scope,
+      });
+    } catch (error) {
+      releaseErrors.push(
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+  if (originalError || releaseErrors.length > 0) {
+    throw combineReleaseErrors(originalError, releaseErrors);
+  }
+  return executionResult;
+}
+
+export function resolveLocalReleaseOwner(input = {}) {
+  const user = String(input.user ?? process.env.USER ?? "unknown").trim();
+  const hostname = String(input.hostname ?? os.hostname()).trim();
+  const pid = Number(input.pid ?? process.pid);
+  if (!(user && hostname && Number.isInteger(pid) && pid > 0)) {
+    throw new Error(
+      "Local production release owner requires a user, hostname, and positive process id."
+    );
+  }
+  return `local:${user}@${hostname}:${String(pid)}`;
+}
+
+export function assertProductionReleaseSource(input) {
+  return requireMainlineReleaseSha({
+    cwd: input.cwd,
+    mainRef: input.mainRef ?? "refs/remotes/origin/main",
+    releaseSha: input.sourceSha,
+  });
+}
+
 function runStep(step) {
   process.stdout.write(`\n[production-release] ${step.label}\n`);
   const result = spawnSync(resolveCommandBinary(step.command), step.args, {
@@ -872,13 +953,23 @@ function runStep(step) {
   }
 }
 
-export function executeProductionDeploySteps(input) {
+export async function executeProductionDeploySteps(input) {
   const adapters = {
+    publishCliRelease: input.adapters?.publishCliRelease ?? runCliRelease,
     runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
     runStep: input.adapters?.runStep ?? runStep,
   };
   const write = input.write ?? ((value) => process.stdout.write(value));
   for (const step of input.steps) {
+    if (step.internalOperation === "publish-cli") {
+      await adapters.publishCliRelease({
+        cwd: input.cwd ?? process.cwd(),
+        env: input.env ?? process.env,
+        withBinary: true,
+      });
+      input.afterStep?.(step);
+      continue;
+    }
     if (step.workerDeploymentArgs) {
       const result = adapters.runCommand({
         args: [
@@ -989,7 +1080,7 @@ function printPlan(plan, json) {
   process.stdout.write(`${lines.join("\n")}\n`);
 }
 
-function main(argv) {
+async function main(argv) {
   const options = parseProductionReleaseArgs(argv);
   const plan = buildProductionReleasePlan(options);
   printPlan(plan, options.json);
@@ -1003,6 +1094,8 @@ function main(argv) {
   }
 
   assertCleanWorktree();
+  refreshCurrentMain();
+  assertProductionReleaseSource({ sourceSha: plan.sourceSha });
   const preparationSteps =
     options.command === "verify" ? plan.verifySteps : plan.preflightSteps;
   for (const step of preparationSteps) {
@@ -1012,10 +1105,47 @@ function main(argv) {
   if (options.command === "verify" || options.command === "preflight") {
     return;
   }
-  executeProductionDeploySteps({
-    afterStep: () => assertSourceStillMatches(plan.sourceSha),
-    steps: plan.deploySteps,
+  await executeWithProductionScopeLeases({
+    execute: () =>
+      executeProductionDeploySteps({
+        afterStep: () => assertSourceStillMatches(plan.sourceSha),
+        steps: plan.deploySteps,
+      }),
+    owner: resolveLocalReleaseOwner(),
+    scopes: plan.scopes,
+    sourceSha: plan.sourceSha,
   });
+}
+
+function refreshCurrentMain() {
+  const result = spawnSync(
+    resolveCommandBinary("git"),
+    [
+      "fetch",
+      "--no-tags",
+      "origin",
+      "refs/heads/main:refs/remotes/origin/main",
+    ],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+  );
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `Local production release could not refresh current main: ${result.error?.message ?? result.stderr.trim()}`
+    );
+  }
+}
+
+function combineReleaseErrors(originalError, releaseErrors) {
+  const lines = [];
+  if (originalError) {
+    lines.push(
+      `Production release failed: ${originalError instanceof Error ? originalError.message : String(originalError)}`
+    );
+  }
+  for (const releaseError of releaseErrors) {
+    lines.push(`Production lease release failed: ${releaseError.message}`);
+  }
+  return new Error(lines.join("\n"));
 }
 
 function coreCliChannelCompatibilityStep() {
@@ -1183,7 +1313,7 @@ function resolveCommandBinary(command) {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    main(process.argv.slice(2));
+    await main(process.argv.slice(2));
   } catch (error) {
     process.stderr.write(
       `${error instanceof Error ? error.message : String(error)}\n`

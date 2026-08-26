@@ -167,7 +167,7 @@ current timestamp, so identical source produces byte-identical output.
 
 `pnpm changelog:check` validates every source entry and fails when a generated
 file is missing, stale, or unexpected. `pnpm verify:changelog` also runs the
-behavior tests and is part of Fast PR.
+behavior tests and is selected by Final Candidate when the Changelog changes.
 
 Generated files are read models. Edit the entry and rebuild instead of editing
 a projection by hand.

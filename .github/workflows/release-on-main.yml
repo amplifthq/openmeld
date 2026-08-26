@@ -1,20 +1,12 @@
 name: 🚀 Scoped Production Release
-run-name: Scoped Production Release ${{ inputs.mode }} / ${{ inputs.scope }} @ ${{ inputs.release_sha }}
+run-name: Scoped Production Release ${{ inputs.scope }} @ ${{ inputs.release_sha }}
 
 permissions:
-  contents: read
+  contents: write
 
 on:
   workflow_dispatch:
     inputs:
-      mode:
-        description: "Preview the plan or deploy it"
-        required: true
-        type: choice
-        default: preview
-        options:
-          - preview
-          - deploy
       release_sha:
         description: "Exact 40-character main commit SHA approved for this release"
         required: true
@@ -39,7 +31,7 @@ on:
 jobs:
   reject_non_main:
     name: Reject Non-Main Production Deploy
-    if: inputs.mode == 'deploy' && github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Require main
@@ -49,50 +41,42 @@ jobs:
 
   validate_release_source:
     name: Validate Immutable Main Release Source
-    if: inputs.mode == 'preview' || github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main history
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          path: release-control
+          persist-credentials: false
           ref: ${{ github.sha }}
+
+      - name: Refresh current main with step-scoped read authentication
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
 
       - name: Require release SHA from main first-parent history
         shell: bash
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
+        working-directory: release-control
         run: |
           set -euo pipefail
-          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
           if ! validation_error="$(node scripts/release/require-mainline-release-sha.mjs \
             "$RELEASE_SHA" refs/remotes/origin/main 2>&1)"; then
             echo "::error::$validation_error"
             exit 1
           fi
 
-  preview:
-    name: Preview Release Plan
-    needs: validate_release_source
-    if: inputs.mode == 'preview'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Show selected release
-        run: |
-          {
-            echo "## Scoped Production Release Preview"
-            echo ""
-            echo "- Commit: \`${{ inputs.release_sha }}\`"
-            echo "- Scope: \`${{ inputs.scope }}\`"
-            echo ""
-            echo "Deploy mode runs only the selected production stages. CLI publishing stays separate."
-          } >> "$GITHUB_STEP_SUMMARY"
-
   database:
     name: Release Production Database
     needs: validate_release_source
     if: >-
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'database' ||
        inputs.scope == 'database-auth' ||
@@ -102,6 +86,7 @@ jobs:
     timeout-minutes: 20
     concurrency:
       group: release-production-database
+      queue: max
       cancel-in-progress: false
     environment: production
     env:
@@ -121,17 +106,53 @@ jobs:
             exit 1
           fi
 
+      - name: Checkout trusted release control
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          path: release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
       - name: Checkout release commit
         uses: actions/checkout@v5
         with:
           fetch-depth: 2
+          path: release-source
+          persist-credentials: false
           ref: ${{ inputs.release_sha }}
 
       - name: Setup repository toolchain
-        uses: ./.github/actions/setup-node-pnpm
+        uses: ./release-control/.github/actions/setup-node-pnpm
+        with:
+          control_directory: release-control
+          working_directory: release-source
+
+      - name: Acquire shared Database release lease
+        id: scope_lease
+        uses: ./release-control/.github/actions/production-scope-lease
+        with:
+          github_token: ${{ github.token }}
+          operation: acquire
+          owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          scope: db
+          source_sha: ${{ inputs.release_sha }}
+          working_directory: release-source
 
       - name: Generate, migrate, verify, and optimize production database
-        uses: ./.github/actions/shared-db-gate
+        uses: ./release-control/.github/actions/shared-db-gate
+        with:
+          working_directory: release-source
+
+      - name: Release shared Database release lease
+        if: always() && steps.scope_lease.outputs.lease_sha != ''
+        uses: ./release-control/.github/actions/production-scope-lease
+        with:
+          github_token: ${{ github.token }}
+          lease_sha: ${{ steps.scope_lease.outputs.lease_sha }}
+          operation: release
+          scope: db
+          working_directory: release-source
 
   web:
     name: Release Web
@@ -141,7 +162,6 @@ jobs:
       - validate_release_source
     if: >-
       always() &&
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'web' || inputs.scope == 'cloud' || inputs.scope == 'full') &&
       needs.validate_release_source.result == 'success' &&
@@ -161,7 +181,6 @@ jobs:
       - validate_release_source
     if: >-
       always() &&
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'gateway' || inputs.scope == 'cloud' || inputs.scope == 'full') &&
       needs.validate_release_source.result == 'success' &&
@@ -180,7 +199,6 @@ jobs:
       - validate_release_source
     if: >-
       always() &&
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'auth' ||
        inputs.scope == 'database-auth' ||
@@ -204,7 +222,6 @@ jobs:
       - validate_release_source
     if: >-
       always() &&
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'core' ||
        inputs.scope == 'database-core' ||
@@ -232,7 +249,6 @@ jobs:
       - validate_release_source
     if: >-
       always() &&
-      inputs.mode == 'deploy' &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'remote-agent' || inputs.scope == 'cloud' || inputs.scope == 'full') &&
       needs.validate_release_source.result == 'success' &&

@@ -2,16 +2,23 @@
 
 ## Agent Context
 
-- Purpose: Define how to choose, run, verify, and report OpenMeld production
-  releases without turning every change into a fleet rollout.
+- Purpose: Define component-specific planning, ordering, commands, gates, and
+  recovery for OpenMeld production releases without turning every change into
+  a fleet rollout.
 - Read this when: You are planning or executing a local production deploy, a
   GitHub production deploy, a production D1 migration, or a CLI publish.
 - Update this when: Release scopes, workflow inputs, production ordering,
   database gates, CLI publication, health checks, or release evidence changes.
 - Do not use this for: Feature-specific smoke steps, local development lanes,
   database ownership, or CLI binary implementation details.
-- Source of truth: This file owns production release lane selection, scoped
-  release entrypoints, database release ordering, and operator evidence.
+- Source of truth: This file owns production release scopes, implementation
+  entrypoints, component ordering, and component evidence. The end-to-end
+  candidate, merge, release, health, smoke, and recovery lifecycle is owned by
+  `agent-native-delivery.md`.
+
+Follow `developing/engineering/agent-native-delivery.md` first. This document
+supplies the scoped release mechanics inside that lifecycle and must not be
+used to invent a second merge or evidence contract.
 
 ## The Default Rule
 
@@ -63,7 +70,7 @@ the selected ref, and fails closed while push checks for that ref are red or
 still running. It does not dispatch a workflow, deploy a component, or edit a
 release file. Its `Deployment state` describes deployment history, not permission
 to release. `Source validation` reports exact-SHA push evidence when present and
-otherwise tells the operator to confirm `Fast PR` or equivalent evidence. Use
+otherwise tells the operator to confirm exact Final Candidate evidence. Use
 `--json` for automation.
 
 The resolved source SHA is the cutoff for that release. Commits that reach
@@ -299,10 +306,49 @@ pnpm run release:deploy:local -- --scope web
 ```
 
 `git status --short` must print nothing. The deploy command records the source
-SHA, runs the cheap deployment preflight, checks that the worktree and SHA stay
-unchanged, deploys in safe order, and runs the selected component health check
-before moving on. It does not repeat package checks, unit tests, or integration
-tests that already established confidence in the commit.
+SHA, refreshes current `origin/main`, rejects any source outside its first-parent
+chain, runs the cheap deployment preflight, checks that the worktree and SHA
+stay unchanged, acquires each selected shared production scope lease in stable
+order, deploys in safe order, and runs the selected component health check
+before moving on. It releases held scopes in reverse order even when deployment
+fails. It does not repeat package checks, unit tests, or integration tests that
+already established confidence in the commit.
+
+The shared lease is a Git compare-and-swap ref under
+`refs/heads/openmeld-production-leases/<scope>`. Its canonical metadata records
+owner, exact release source, scope, start, and expiry. Local and GitHub releases
+use the same ref, so two workstations and a workstation plus hosted release
+cannot overlap in one scope. Inspect without mutation:
+
+```sh
+pnpm release:lease inspect -- --scope web
+```
+
+An active lease fails closed. Expiry does not delete it automatically. After
+proving the reported owner stopped, recover only its exact lease SHA and record
+why, then rerun the guarded release:
+
+```sh
+pnpm release:lease recover -- \
+  --scope web \
+  --lease-sha <expired-lease-sha> \
+  --reason "Verified the owning release stopped before deployment completed."
+```
+
+Recovery and release use `force-with-lease`; a stale process cannot delete a
+newer owner's lease. Recovery atomically writes a durable record under
+`refs/heads/openmeld-production-lease-recoveries/<scope>/<lease-sha>` before the
+active ref disappears. Inspect that cross-machine record later with:
+
+```sh
+pnpm release:lease inspect-recovery -- \
+  --scope web \
+  --lease-sha <recovered-lease-sha>
+```
+
+The record preserves the previous owner, source, start, expiry, recovery
+reason, recovery actor, recovery time, and exact recovery commit. A malformed
+lease or recovery record fails closed for explicit inspection.
 
 Use the verify-only command when you need a complete scoped go/no-go result or
 handoff before deployment. The later deploy intentionally does not repeat it:
@@ -429,8 +475,12 @@ and [Gradual deployments](https://developers.cloudflare.com/workers/configuratio
 
 ## GitHub Scoped Release
 
-Use `.github/workflows/release-on-main.yml` (`Scoped Production Release`) for
-Worker and database releases from an immutable `main` commit.
+Use `.github/workflows/release-on-main.yml` (`Scoped Production Release`)
+for Worker and database releases from an immutable `main` commit. GitHub is
+the normal cross-machine lane because it owns centralized credentials,
+observable logs, immutable checkout, and per-component production locks.
+Actions-unavailable fallback and the lifecycle around this command are owned by
+`agent-native-delivery.md`.
 
 Available scopes are:
 
@@ -458,47 +508,88 @@ full
 For a Center Agent bridge release that includes Context Scope Plan, first run
 the `remote-agent` scope from the approved commit and verify it succeeds. Then
 run the remaining required database/cloud scopes, and publish CLI only after
-those receivers are healthy. The ordinary `cloud` and `full` DAGs retain their
-default order because other contracts require Core receivers before Remote
-Agent callers; the early standalone Remote Agent release is the explicit
+those receivers are healthy. The ordinary `cloud` and `full` DAGs retain
+their default order because other contracts require Core receivers before
+Remote Agent callers; the early standalone Remote Agent release is the explicit
 receiver-first stage for this mixed-direction contract.
 
-`preview` only resolves and reports the selected scope. It is useful for a new
-or coordinated rollout, but an obvious single-component release may run
-`deploy` directly. Every dispatch requires the exact 40-character `main`
-commit approved for the release. The workflow validates that immutable
-`release_sha` against the first-parent history of `main` and uses it for every
-selected component. A merged pull request's side-branch head is an ancestor of
-`main`, but it is not an approved `main` release source and is rejected. Later
-commits merged into `main` belong to a later release. `--ref main` selects the
-trusted workflow definition, while `release_sha` selects the code being
-released. Deploy mode is restricted to `main`.
+The hosted workflow is deploy-only. Inspect the complete plan locally before
+dispatch:
 
-For example, capture the approved commit once and use that exact value for a
-Web release even if `main` advances afterward:
+```sh
+git fetch origin main --tags
+pnpm run release:plan -- --base origin/main --scope web
+```
 
-```bash
+Every dispatch requires the exact 40-character `main` commit approved for the
+release. The workflow validates `release_sha` against the first-parent history
+of current `main` and uses it for every selected component. A merged pull
+request's side-branch head is an ancestor of `main`, but it is not an approved
+`main` release source and is rejected. Later commits merged into `main`
+belong to a later release. `--ref main` selects the trusted workflow
+definition; `release_sha` selects the code being released.
+
+The workflow keeps those two sources separate. `release-control` is checked out
+from the trusted workflow/current-main SHA and owns mainline validation, setup,
+the shared scope lease, and other release controls. `release-source` is checked
+out at the exact approved `release_sha` and owns only the product build and
+deployment. Both checkouts disable persisted Git credentials. This separation
+keeps same-SHA recovery working when the release source predates a newer lease
+action or control schema, without running release controls from historical
+product code or silently changing the product SHA.
+
+Trusted current-main controls receive step-scoped GitHub tokens and explicit
+repository roots. They inject HTTPS authentication only into the exact fetch,
+lease compare-and-swap, or immutable tag network process; disable source Git
+hooks and unsafe protocol helpers; remove inherited Git trace and curl-debug
+settings; force Git credential redaction; and never persist credentials in Git
+configuration. Product build, signing, deploy, health, and smoke commands do
+not receive those Git credentials. This also makes private-repository main/tag
+refresh and the shared lease independent of persisted checkout credentials or
+the workflow's workspace-root working directory.
+
+Hosted Worker preflight follows the same control/source split. The current-main
+`release-control` checkout runs `hosted-production-preflight.mjs` and passes the
+exact historical `release-source` root and SHA as data. Current control scripts
+inspect that product root and run their commands there; they never load a
+preflight entry from the historical package manifest. Product build and deploy
+still run only from the exact `release-source` checkout.
+
+```sh
 release_sha="$(git rev-parse origin/main)"
 gh workflow run release-on-main.yml \
   --ref main \
-  --field mode=deploy \
   --field scope=web \
   --field release_sha="$release_sha"
 ```
 
-When `release:status` reports that the captured commit is ready, confirm its
-`Fast PR` or equivalent scoped validation evidence and dispatch the selected
-release with that exact SHA. One small source-validation job verifies the SHA
-shape and its membership in the first-parent history of `main` before any
-selected production job can enter its Environment. A non-`main` deploy runs one
-rejection job and never enters the production component jobs or Environment.
+When `release:status` reports that the captured commit is ready, confirm the
+exact Final Candidate evidence and dispatch only the selected release scope.
+One small source-validation job verifies the SHA shape and first-parent
+membership before any selected production job can enter its Environment. A
+non-`main` dispatch runs one rejection job and never enters production jobs or
+the Environment.
 
 Each component workflow checks out the captured release SHA, installs through
 the cached pnpm setup, runs only the cheap deployment preflight, deploys once,
-and performs a lightweight health check. It does not rerun package checks, unit
-tests, or integration tests. Per-component concurrency locks serialize two
-releases of the same component without blocking unrelated components. Database
-and CLI publication retain their own production locks.
+and performs a lightweight health check. It does not rerun candidate checks,
+unit tests, or integration tests.
+
+Every component workflow owns a stable production concurrency group with
+`queue: max` and `cancel-in-progress: false`, and acquires the same Git-backed
+scope lease used by the local lane. `queue: max` retains up to GitHub's supported
+maximum of 100 waiting runs instead of replacing an earlier pending release.
+GitHub concurrency serializes the hosted queue; the shared lease extends that
+invariant to local-to-local and local-to-hosted races. Two releases of the same
+component serialize and a running deploy is never canceled. Unrelated component
+groups remain able to run in parallel. Do not add workflow-wide concurrency
+that serializes the whole fleet.
+
+The system does not automatically coalesce queued same-scope releases because
+it cannot infer whether an intermediate migration, receiver-first stage, or
+immutable publication is required. A not-yet-started run may be canceled only
+when recorded evidence proves that a later queued SHA safely supersedes it.
+Never cancel a running production job.
 
 ## Production Database Release
 
@@ -580,11 +671,12 @@ version, a later restamp may change only the manifest. Ordinary feature branches
 must keep both release files unchanged, which the pre-push gate enforces through
 deferred-release verification against the PR base.
 
-At publication time, `pnpm run release:cli --next --with-binary` rechecks the
-same npm/R2 decision and requires it to match the committed package and manifest;
-it never edits the clean release worktree. Use the canonical command without a
-version selector when resuming a partially completed immutable release, because
-the resumable executor already reads its target from the committed package.
+At publication time, `pnpm run release:deploy:local -- --scope cli` rechecks the
+committed package and manifest through the guarded local production lane. It
+requires the exact clean source to remain on current `main`, acquires both the
+shared CLI and Core leases, and never edits the release worktree. The resumable
+internal publisher reads its target from the committed package, so recovery uses
+the same guarded command without a second public publisher entry.
 
 For GitHub, use `.github/workflows/cli-release.yml`:
 
@@ -614,7 +706,8 @@ Recovery inputs remain available for workflow compatibility, but they all run
 the same resumable release command at the exact original `release_sha`:
 
 - `normal`, `resume-after-binary-upload`, and `resume-after-npm-publish` all
-  invoke `pnpm run release:cli --with-binary`.
+  invoke the same internal resumable publisher from trusted current-main
+  release control.
 - The executor probes each immutable stage and skips completed work instead of
   relying on a human-authored exclusion list.
 - Always provide the original `release_sha`; a release tag or Core projection

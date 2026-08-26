@@ -77,15 +77,14 @@ export function parseReleaseReadyArgs(argv) {
 /**
  * The channel-sync check (see cli-channel-sync.mjs) requires live network
  * access to https://openmeld.ai and only matters right before an actual Core
- * deploy. verify-release-ready.mjs runs far more broadly than that: PR CI
- * (pr-checks.yml), every main push (local-components-manifest.yml), the
- * local pre-push git hook (verify:pre-push / verify:pre-push:full), and the
- * OpenMeld CLI package's `prepack` npm lifecycle hook (which also fires for
- * the desktop:canary dev lane) all call this script unconditionally. None of
- * those should depend on production network reachability or fail because of
- * unrelated production channel drift, so the check defaults OFF and is
- * opted into explicitly by `deploy:core:local-components` (root
- * package.json) via OPENMELD_RELEASE_CHANNEL_SYNC_CHECK=1.
+ * deploy. verify-release-ready.mjs also runs in Final Candidate, strict
+ * protected release pushes, explicit local verification, and the OpenMeld CLI
+ * package's `prepack` npm lifecycle hook (which also fires for the
+ * desktop:canary dev lane). None of those should depend on production network
+ * reachability or fail because of unrelated production channel drift, so the
+ * check defaults OFF and is opted into explicitly by
+ * `deploy:core:local-components` (root package.json) via
+ * OPENMELD_RELEASE_CHANNEL_SYNC_CHECK=1.
  */
 export function resolveChannelSyncCheckEnabled(input) {
   const env = input.env ?? {};

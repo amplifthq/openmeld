@@ -25,7 +25,7 @@
   "scripts": {
     "build": "tsdown && node scripts/build-macos-keychain-addon.mjs --copy-npm",
     "prepack": "pnpm -C ../.. run verify:release-ready -- --force && pnpm run verify:pack-readme",
-    "deploy": "pnpm -C ../.. run release:cli",
+    "deploy": "pnpm -C ../.. run release:deploy:local -- --scope cli",
     "publish:npm": "npm publish",
     "prepublishOnly": "pnpm run verify:pack-readme",
     "verify:pack-readme": "node scripts/verify-npm-pack-readme.mjs",

@@ -139,6 +139,10 @@ This directory is the durable context layer. Use these entrypoints:
 - `developing/engineering/environment-and-secrets.md`: Doppler project/config
   ownership, shared local environment commands, secret safety, and production
   readiness boundaries
+- `developing/engineering/agent-native-delivery.md`: the single contract for
+  autonomous development, Final Candidate validation, no-Actions fallback,
+  optional review support, merge, scoped release, health, smoke, evidence,
+  and recovery
 - `developing/engineering/`: development workflow and validation boundaries
 
 Legacy reference files have been distilled into `developing/` owners and

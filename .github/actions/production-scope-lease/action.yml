@@ -1,0 +1,91 @@
+name: Production scope lease
+description: Atomically acquires or releases one cross-machine production scope lease.
+
+inputs:
+  operation:
+    description: acquire, release, or recover
+    required: true
+  scope:
+    description: Canonical production scope
+    required: true
+  source_sha:
+    description: Exact main source SHA for acquisition
+    required: false
+    default: ""
+  owner:
+    description: Observable release owner identity
+    required: false
+    default: ""
+  lease_sha:
+    description: Exact acquired lease SHA for atomic release
+    required: false
+    default: ""
+  reason:
+    description: Durable reason for explicit expired-lease recovery
+    required: false
+    default: ""
+  github_token:
+    description: Step-scoped GitHub token used only by trusted lease Git operations
+    required: true
+  working_directory:
+    description: Release-source checkout containing the exact source commit and origin
+    required: true
+
+outputs:
+  lease_sha:
+    description: Exact lease commit acquired by this action
+    value: ${{ steps.lease.outputs.lease_sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Apply production scope lease operation
+      id: lease
+      shell: bash
+      env:
+        LEASE_OPERATION: ${{ inputs.operation }}
+        LEASE_CONTROL_ROOT: ${{ github.action_path }}/../../..
+        LEASE_OWNER: ${{ inputs.owner }}
+        LEASE_REASON: ${{ inputs.reason }}
+        LEASE_SCOPE: ${{ inputs.scope }}
+        LEASE_SHA: ${{ inputs.lease_sha }}
+        LEASE_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: ${{ github.server_url }}
+        OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY: ${{ github.repository }}
+        OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: ${{ inputs.github_token }}
+        RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+      run: |
+        set -euo pipefail
+        LEASE_REPOSITORY_ROOT="$GITHUB_WORKSPACE/$LEASE_WORKING_DIRECTORY"
+        if [ ! -d "$LEASE_REPOSITORY_ROOT" ] || [ ! -e "$LEASE_REPOSITORY_ROOT/.git" ]; then
+          echo "::error::Production lease working_directory is not a repository checkout: $LEASE_REPOSITORY_ROOT"
+          exit 1
+        fi
+        case "$LEASE_OPERATION" in
+          acquire)
+            node "$LEASE_CONTROL_ROOT/scripts/release/production-scope-lease.mjs" acquire \
+              --cwd "$LEASE_REPOSITORY_ROOT" \
+              --scope "$LEASE_SCOPE" \
+              --source-sha "$RELEASE_SOURCE_SHA" \
+              --owner "$LEASE_OWNER" \
+              --github-output "$GITHUB_OUTPUT"
+            ;;
+          release)
+            node "$LEASE_CONTROL_ROOT/scripts/release/production-scope-lease.mjs" release \
+              --cwd "$LEASE_REPOSITORY_ROOT" \
+              --scope "$LEASE_SCOPE" \
+              --lease-sha "$LEASE_SHA"
+            ;;
+          recover)
+            node "$LEASE_CONTROL_ROOT/scripts/release/production-scope-lease.mjs" recover \
+              --cwd "$LEASE_REPOSITORY_ROOT" \
+              --scope "$LEASE_SCOPE" \
+              --lease-sha "$LEASE_SHA" \
+              --owner "$LEASE_OWNER" \
+              --reason "$LEASE_REASON"
+            ;;
+          *)
+            echo "::error::Unknown production scope lease operation: $LEASE_OPERATION"
+            exit 1
+            ;;
+        esac

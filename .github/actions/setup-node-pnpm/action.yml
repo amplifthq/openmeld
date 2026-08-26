@@ -1,6 +1,16 @@
 name: Setup Node.js and pnpm
 description: Install the repository-pinned Node.js and pnpm toolchain with the shared pnpm store cache.
 
+inputs:
+  control_directory:
+    description: Optional trusted control checkout that needs only the canonical schema parser
+    required: false
+    default: ""
+  working_directory:
+    description: Repository checkout whose lockfile and dependencies are authoritative
+    required: false
+    default: "."
+
 runs:
   using: composite
   steps:
@@ -15,7 +25,19 @@ runs:
       with:
         node-version: "24"
         cache: pnpm
+        cache-dependency-path: ${{ inputs.working_directory }}/pnpm-lock.yaml
 
     - name: Install dependencies
       shell: bash
-      run: pnpm install --frozen-lockfile
+      env:
+        SETUP_CONTROL_DIRECTORY: ${{ inputs.control_directory }}
+        SETUP_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+      run: |
+        set -euo pipefail
+        pnpm --dir "$SETUP_WORKING_DIRECTORY" install --frozen-lockfile
+        if [ -n "$SETUP_CONTROL_DIRECTORY" ]; then
+          pnpm --dir "$SETUP_CONTROL_DIRECTORY" install \
+            --frozen-lockfile \
+            --filter @openmeld/schemas \
+            --ignore-scripts
+        fi
