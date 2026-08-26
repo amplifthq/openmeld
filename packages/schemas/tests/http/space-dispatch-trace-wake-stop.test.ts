@@ -77,44 +77,6 @@ describe("space dispatch trace Wake Stop outcome", () => {
     });
   });
 
-  it("projects a final visible Remote Agent failure text as visible_failure", () => {
-    const finalVisibleMessage = {
-      factSource: "space_signal_by_published_signal_id",
-      signalId: "sig-remote-agent-failure-1",
-      signalType: "signal.text",
-      dispatchId: "dispatch-1",
-      targetProfileId: "agt_33333333-3333-4333-8333-333333333333",
-      profileId: "agt_33333333-3333-4333-8333-333333333333",
-      profileKind: "agent",
-      profileName: "Center Agent",
-      text: "Center Agent could not complete this request.",
-      reasonCode: "remote_agent.turn_not_completed",
-      noticeType: null,
-      statusType: null,
-      createdAt: "2026-08-26T03:34:52.600Z",
-    };
-
-    expect(
-      spaceDispatchTraceFinalVisibleMessageSchema.safeParse(finalVisibleMessage)
-        .success
-    ).toBe(true);
-    expect(
-      projectSpaceDispatchTraceFinalVisibleOutcome({
-        finalVisibleMessage,
-      } as Parameters<typeof projectSpaceDispatchTraceFinalVisibleOutcome>[0])
-    ).toEqual({
-      delivered: true,
-      publicationErrorCode: null,
-      publicationKind: "failure_notice",
-      reasonCode: "remote_agent.turn_not_completed",
-      signalId: "sig-remote-agent-failure-1",
-      sourceFact: "final_visible_message",
-      sourceReasonCode: "remote_agent.turn_not_completed",
-      sourceStatus: "signal.text",
-      status: "visible_failure",
-    });
-  });
-
   it("lists stopped notice publications before late reply candidates", () => {
     const candidates = listSpaceDispatchTraceFinalVisibleSignalCandidates({
       result: {

@@ -1,8 +1,6 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
-import {
-  isFinalOutcomeTextPurpose,
-  parseOptionalClientMessageId,
-} from "@openmeld/schemas";
+import { parseOptionalClientMessageId } from "@openmeld/schemas";
+import { isFinalOutcomeTextPurpose } from "../../rules/dispatch/space-final-outcome";
 
 const SIGNAL_STORAGE_KEY_DELIMITER = "|";
 const MAX_DATE_TIMESTAMP_MS = 8_640_000_000_000_000;
