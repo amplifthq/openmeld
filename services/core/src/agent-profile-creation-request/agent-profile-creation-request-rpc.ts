@@ -2,6 +2,7 @@ import {
   agentProfileCreationRequestMutationResponseSchema,
   createAgentProfileCreationRequestBodySchema,
   createAgentProfileCreationRequestResponseSchema,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   daemonServiceLaneSchema,
   decideAgentProfileCreationRequestBodySchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
@@ -92,6 +93,7 @@ export type SetAgentProfileCreationApprovalPreferenceRpcInput =
 export type CenterAgentCreateAgentProfileCreationRequestRpcInput = {
   configuration?: AgentProfileCreationConfiguration;
   context?: OpenMeldRequestContext;
+  localAgentConnectionCandidateId?: string | null;
   nativeSessionId?: string | null;
   onBehalfOf: CenterAgentOnBehalfOfInput;
   profileName: string;
@@ -133,11 +135,20 @@ export async function rpcCenterAgentCreateAgentProfileCreationRequest(
     env,
     onBehalfOf: input.onBehalfOf,
   });
+  const configuration =
+    await resolveCenterAgentProfileCreationRequestConfiguration({
+      configuration: input.configuration,
+      env,
+      localAgentConnectionCandidateId:
+        input.localAgentConnectionCandidateId ?? null,
+      organizationId: prepared.organizationId,
+      targetOwnerUserId: input.targetOwnerUserId,
+    });
   return await rpcCreateAgentProfileCreationRequest(env, {
-    configuration: input.configuration,
+    configuration,
     context: prepared.context,
     idempotencyKey: await buildCenterAgentCreationRequestIdempotencyKey({
-      configuration: input.configuration,
+      configuration,
       context: prepared.context,
       nativeSessionId: input.nativeSessionId ?? null,
       profileName: input.profileName,
@@ -152,6 +163,55 @@ export async function rpcCenterAgentCreateAgentProfileCreationRequest(
     source: "center_agent",
     targetOwnerUserId: input.targetOwnerUserId,
   });
+}
+
+async function resolveCenterAgentProfileCreationRequestConfiguration(input: {
+  configuration: AgentProfileCreationConfiguration | undefined;
+  env: CoreBindings;
+  localAgentConnectionCandidateId: string | null;
+  organizationId: string;
+  targetOwnerUserId: string;
+}): Promise<AgentProfileCreationConfiguration | undefined> {
+  if (!input.localAgentConnectionCandidateId) {
+    return input.configuration;
+  }
+  const targetContext = await buildMemberHumanContext({
+    env: input.env,
+    organizationId: input.organizationId,
+    requestId: `center-agent:resolve-local-agent:${crypto.randomUUID()}`,
+    userId: input.targetOwnerUserId,
+  });
+  const localRuntimes = await rpcListLocalRuntimes(input.env, {
+    connectionIdentityAdoption: "safe_legacy_current",
+    context: targetContext,
+  });
+  const candidate = projectCenterAgentLocalAgentConnectionCandidates({
+    localRuntimes,
+    organizationId: input.organizationId,
+  }).candidates.find(
+    (item) => item.candidateId === input.localAgentConnectionCandidateId
+  );
+  if (!candidate) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_creation_request.local_agent_unavailable",
+      reason:
+        "The selected local agent is no longer available on that Computer.",
+      status: 409,
+    });
+  }
+  if (!candidate.connectable) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_creation_request.local_agent_not_ready",
+      reason: `${candidate.agentDisplayName} on ${candidate.deviceDisplayName} is not ready to connect.`,
+      status: 409,
+    });
+  }
+  return {
+    ...(input.configuration ?? DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION),
+    agentControllerRef: candidate.agentControllerRef,
+    localAgentConnectionCandidateId: candidate.candidateId,
+    targetComputerId: candidate.deviceId,
+  };
 }
 
 export async function rpcCenterAgentListAgentProfileCreationRequests(
@@ -530,6 +590,10 @@ async function createRequestedAgentProfile(
   env: CoreBindings,
   request: AgentProfileCreationRequestRecord
 ): Promise<string> {
+  const localAgentConnection = await prepareRequestedLocalAgentConnection({
+    env,
+    request,
+  });
   const authWorker = env.OPENMELD_AUTH_WORKER;
   if (!authWorker?.createAgentProfileInOrganization) {
     throw new Error("Auth Agent Profile creation RPC is unavailable.");
@@ -554,6 +618,7 @@ async function createRequestedAgentProfile(
     await completeRequestedAgentProfileSetup({
       agentProfileId,
       env,
+      localAgentConnection,
       request,
     });
   } catch (cause) {
@@ -568,6 +633,9 @@ async function createRequestedAgentProfile(
 async function completeRequestedAgentProfileSetup(input: {
   agentProfileId: string;
   env: CoreBindings;
+  localAgentConnection: Awaited<
+    ReturnType<typeof prepareRequestedLocalAgentConnection>
+  >;
   request: AgentProfileCreationRequestRecord;
 }): Promise<void> {
   if (input.request.requestedSpaceId) {
@@ -578,9 +646,11 @@ async function completeRequestedAgentProfileSetup(input: {
   }
 
   const agentControllerRef = input.request.configuration.agentControllerRef;
-  const targetComputerId = input.request.configuration.targetComputerId;
-  if (agentControllerRef && targetComputerId) {
-    await connectRequestedAgentProfile(input);
+  if (input.localAgentConnection && agentControllerRef) {
+    await connectRequestedAgentProfile({
+      ...input,
+      localAgentConnection: input.localAgentConnection,
+    });
     const configuration = input.request.configuration;
     await rememberAgentProfileCreationDefaults({
       agentControllerRef,
@@ -634,53 +704,16 @@ async function addRequestedAgentProfileToSpace(input: {
 async function connectRequestedAgentProfile(input: {
   agentProfileId: string;
   env: CoreBindings;
+  localAgentConnection: NonNullable<
+    Awaited<ReturnType<typeof prepareRequestedLocalAgentConnection>>
+  >;
   request: AgentProfileCreationRequestRecord;
 }): Promise<void> {
   const configuration = input.request.configuration;
-  const sessionExecutionSelection =
-    input.request.sessionStrategy === "new"
-      ? null
-      : await requireRequestedSessionSelection({
-          configuration,
-          db: requireDb(input.env),
-          nativeSessionId: input.request.nativeSessionId,
-          organizationId: input.request.organizationId,
-          ownerUserId: input.request.targetOwnerUserId,
-          sessionStrategy: input.request.sessionStrategy,
-        });
+  const { candidate, sessionExecutionSelection, targetContext } =
+    input.localAgentConnection;
   const sessionInventorySelection =
     sessionExecutionSelection?.selection ?? null;
-  const targetContext = await buildMemberHumanContext({
-    env: input.env,
-    organizationId: input.request.organizationId,
-    requestId: `agent-profile-creation-request:${input.request.id}:target`,
-    userId: input.request.targetOwnerUserId,
-  });
-  const localRuntimes = await rpcListLocalRuntimes(input.env, {
-    connectionIdentityAdoption: "safe_legacy_current",
-    context: targetContext,
-  });
-  const candidates = projectCenterAgentLocalAgentConnectionCandidates({
-    localRuntimes,
-    organizationId: input.request.organizationId,
-  });
-  const candidate = candidates.candidates.find(
-    (item) =>
-      item.deviceId ===
-        (sessionExecutionSelection?.runtimeDeviceId ??
-          configuration.targetComputerId) &&
-      item.agentControllerRef === configuration.agentControllerRef
-  );
-  if (!candidate) {
-    throw new Error(
-      "The selected local agent is no longer available on that Computer."
-    );
-  }
-  if (!candidate.connectable) {
-    throw new Error(
-      `${candidate.agentDisplayName} on ${candidate.deviceDisplayName} is not ready to connect.`
-    );
-  }
   const agentControllerConversationId =
     input.request.sessionStrategy === "fork" && sessionInventorySelection
       ? await forkRequestedAgentSession({
@@ -760,6 +793,63 @@ async function connectRequestedAgentProfile(input: {
         }
       : {}),
   });
+}
+
+async function prepareRequestedLocalAgentConnection(input: {
+  env: CoreBindings;
+  request: AgentProfileCreationRequestRecord;
+}) {
+  const configuration = input.request.configuration;
+  if (!(configuration.agentControllerRef && configuration.targetComputerId)) {
+    return null;
+  }
+  const sessionExecutionSelection =
+    input.request.sessionStrategy === "new"
+      ? null
+      : await requireRequestedSessionSelection({
+          configuration,
+          db: requireDb(input.env),
+          nativeSessionId: input.request.nativeSessionId,
+          organizationId: input.request.organizationId,
+          ownerUserId: input.request.targetOwnerUserId,
+          sessionStrategy: input.request.sessionStrategy,
+        });
+  const targetContext = await buildMemberHumanContext({
+    env: input.env,
+    organizationId: input.request.organizationId,
+    requestId: `agent-profile-creation-request:${input.request.id}:target`,
+    userId: input.request.targetOwnerUserId,
+  });
+  const localRuntimes = await rpcListLocalRuntimes(input.env, {
+    connectionIdentityAdoption: "safe_legacy_current",
+    context: targetContext,
+  });
+  const candidates = projectCenterAgentLocalAgentConnectionCandidates({
+    localRuntimes,
+    organizationId: input.request.organizationId,
+  });
+  const candidate = candidates.candidates.find((item) => {
+    if (configuration.localAgentConnectionCandidateId) {
+      return item.candidateId === configuration.localAgentConnectionCandidateId;
+    }
+    return (
+      item.deviceId ===
+        (sessionExecutionSelection?.runtimeDeviceId ??
+          configuration.targetComputerId) &&
+      item.agentControllerRef === configuration.agentControllerRef
+    );
+  });
+  if (!candidate) {
+    throw new Error(
+      "The selected local agent is no longer available on that Computer."
+    );
+  }
+  if (!candidate.connectable) {
+    throw new Error(
+      `${candidate.agentDisplayName} on ${candidate.deviceDisplayName} is not ready to connect.`
+    );
+  }
+  return { candidate, sessionExecutionSelection, targetContext };
 }
 
 async function forkRequestedAgentSession(input: {

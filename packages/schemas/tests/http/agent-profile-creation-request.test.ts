@@ -16,4 +16,23 @@ describe("Agent Profile creation request HTTP schemas", () => {
       })
     ).toMatchObject({ agentControllerCollaborationMode: null });
   });
+
+  it("keeps legacy unbound requests valid when no candidate ID is present", () => {
+    expect(
+      agentProfileCreationConfigurationSchema.parse({
+        agentControllerPermissionMode: null,
+        agentControllerRef: null,
+        authorizeForOrganization: true,
+        defaultProjectId: null,
+        modelId: null,
+        openCodePermission: null,
+        reasoningLevel: null,
+        targetComputerId: null,
+      })
+    ).toMatchObject({
+      agentControllerCollaborationMode: null,
+      agentControllerRef: null,
+      targetComputerId: null,
+    });
+  });
 });

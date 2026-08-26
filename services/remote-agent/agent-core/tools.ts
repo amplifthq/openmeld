@@ -779,8 +779,7 @@ const agentProfileCreationConfigurationToolInputSchema = strictObject({
   reasoningLevel: optionalNonEmptyStringSchema,
 });
 const agentProfileCreationConnectionSelectionToolInputSchema = strictObject({
-  agentControllerRef: trimmedNonEmptyStringSchema,
-  computerId: trimmedNonEmptyStringSchema,
+  candidateId: trimmedNonEmptyStringSchema,
 });
 const createAgentProfileRequestToolInputSchema = strictObject({
   ...createAgentProfileRequestCommonInputEntries,
@@ -835,9 +834,10 @@ function resolveNewAgentProfileCreationRequestInput(input: {
     ...newSessionInput,
     configuration: {
       ...input.selectedConfiguration,
-      agentControllerRef: connectionSelection?.agentControllerRef ?? null,
-      targetComputerId: connectionSelection?.computerId ?? null,
     },
+    ...(connectionSelection
+      ? { localAgentConnectionCandidateId: connectionSelection.candidateId }
+      : {}),
   };
 }
 
@@ -4233,7 +4233,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_create_agent_profile_request",
       description:
-        'The single creation entry point for a new working Agent Profile, whether it is owned by the represented member or a teammate. Use openmeld_read_organization_directory first and pass the exact target member user ID. For a new local Agent, read saved creation defaults, list Projects and local agent connection candidates, put the concrete Project, model, reasoning, permission, collaboration, and OpenCode choices in configuration, and copy agentControllerRef and computerId from one exact candidate into connectionSelection. New-session requests may complete immediately or follow the target owner\'s approval preference. For Resume or Fork, first call openmeld_list_agent_activity_sessions and copy nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row into sessionSelection. Preserve every value unchanged. A Session with bindingState "unbound" is valid and expected for Fork; Fork requires canFork, while Resume requires canResume and an unbound Session. Omit requestedSpaceId when no Space is needed; when present, successful setup adds the Agent to that Space through the normal membership mutation. Do not assemble a new Agent Profile through the primitive create, enable, connect, workspace, or Project tools.',
+        'The single creation entry point for a new working Agent Profile, whether it is owned by the represented member or a teammate. Use openmeld_read_organization_directory first and pass the exact target member user ID. For a new local Agent, read saved creation defaults, list Projects and local agent connection candidates, put the concrete Project, model, reasoning, permission, collaboration, and OpenCode choices in configuration, and copy one exact candidateId into connectionSelection. New-session requests may complete immediately or follow the target owner\'s approval preference. For Resume or Fork, first call openmeld_list_agent_activity_sessions and copy nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row into sessionSelection. Preserve every value unchanged. A Session with bindingState "unbound" is valid and expected for Fork; Fork requires canFork, while Resume requires canResume and an unbound Session. Omit requestedSpaceId when no Space is needed; when present, successful setup adds the Agent to that Space through the normal membership mutation. Do not assemble a new Agent Profile through the primitive create, enable, connect, workspace, or Project tools.',
       input: createAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(
