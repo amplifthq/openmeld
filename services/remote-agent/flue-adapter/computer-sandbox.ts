@@ -1,4 +1,4 @@
-import { getWorkspace, type WorkspaceClient } from "@cloudflare/computer";
+import type { WorkspaceClient } from "@cloudflare/computer";
 import {
   createSandboxSessionEnv,
   type FileStat,
@@ -13,19 +13,21 @@ import type {
 import { callCoreRpc } from "../agent-core/core-rpc";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
-import { createAgentComputerFileHandoff } from "./computer-file-handoff";
+import {
+  type AgentComputerNamespace,
+  type AgentComputerWorkspaceAccess,
+  createAgentComputerWorkspaceAccess,
+  createFixedAgentComputerWorkspaceAccess,
+  createReacquiringAgentComputerFileHandoff,
+  createReacquiringMemberProfileReportFileStore,
+  createReacquiringOrganizationDocumentWorkingCopyStore,
+  materializeAgentComputerWorkspace,
+} from "./agent-computer-workspace-access";
+import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
 import { buildAgentComputerName } from "./computer-identity";
-import {
-  AGENT_COMPUTER_SHELL_BACKEND_ID,
-  ensureAgentComputerLayout,
-} from "./computer-workspace";
-import { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
-import {
-  clearOrganizationDocumentsComputerProjection,
-  materializeOrganizationDocumentsComputerProjection,
-} from "./organization-document-computer-projection";
+import { AGENT_COMPUTER_SHELL_BACKEND_ID } from "./computer-workspace";
+import type { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import { getOrganizationDocumentComputerToolDefinitions } from "./organization-document-computer-tools";
-import { createOrganizationDocumentComputerWorkingCopyStore } from "./organization-document-computer-working-copies";
 import {
   getRemoteAgentSandboxToolDefinitions,
   type RemoteAgentComputerSearch,
@@ -37,11 +39,6 @@ const TRAILING_SLASHES_PATTERN = /\/+$/u;
 
 type ComputerObservabilityEnv = {
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;
-};
-
-type AgentComputerNamespace = {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
 };
 
 export function isRemoteAgentComputerEnabled(env: {
@@ -78,39 +75,34 @@ export async function createRemoteAgentComputerCapability(input: {
   sandbox: SandboxFactory;
 }> {
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
-  const stub = namespace.get(
-    namespace.idFromName(buildAgentComputerName(input.context.agentProfileId))
-  );
-  const workspace = await getWorkspace(
-    stub as unknown as Parameters<typeof getWorkspace>[0]
-  );
-  const { workingDirectory } = await ensureAgentComputerLayout(workspace, {
-    conversationId: input.context.conversationId ?? null,
-    routineId: resolveComputerRoutineId(input.context),
-    spaceId: input.context.spaceId ?? null,
+  const workspaceAccess = createAgentComputerWorkspaceAccess({
+    computerId: namespace.idFromName(
+      buildAgentComputerName(input.context.agentProfileId)
+    ),
+    namespace,
   });
-  const documents = input.materializeOrganizationDocuments
-    ? await materializeOrganizationDocumentsComputerProjection(
-        workspace,
-        await callCoreRpc(
-          input.coreWorker,
-          "centerAgentOrganizationDocumentsComputerSnapshot",
-          {
-            context: buildRemoteAgentCoreContext(
-              input.context,
-              `remote-agent-computer-documents:${input.context.submissionId}`
-            ),
-          },
-          (binding, rpcInput) =>
-            binding.centerAgentOrganizationDocumentsComputerSnapshot?.(rpcInput)
-        )
+  const organizationDocumentsSnapshot = input.materializeOrganizationDocuments
+    ? await callCoreRpc(
+        input.coreWorker,
+        "centerAgentOrganizationDocumentsComputerSnapshot",
+        {
+          context: buildRemoteAgentCoreContext(
+            input.context,
+            `remote-agent-computer-documents:${input.context.submissionId}`
+          ),
+        },
+        (binding, rpcInput) =>
+          binding.centerAgentOrganizationDocumentsComputerSnapshot?.(rpcInput)
       )
     : null;
-  if (!documents) {
-    await clearOrganizationDocumentsComputerProjection(workspace);
-  }
+  const { documents, workingDirectory } =
+    await materializeAgentComputerWorkspace({
+      context: input.context,
+      organizationDocumentsSnapshot,
+      workspaceAccess,
+    });
   const api = instrumentRemoteAgentComputerSandboxApi({
-    api: new AgentComputerSandboxApi(workspace),
+    api: new AgentComputerSandboxApi(workspaceAccess),
     context: input.context,
     env: input.env,
   });
@@ -119,10 +111,10 @@ export async function createRemoteAgentComputerCapability(input: {
     ? getOrganizationDocumentComputerToolDefinitions({
         context: input.context,
         coreWorker: input.coreWorker,
-        workingCopies: createOrganizationDocumentComputerWorkingCopyStore({
+        workingCopies: createReacquiringOrganizationDocumentWorkingCopyStore({
           projection: documents.projection,
+          workspaceAccess,
           workingDirectory,
-          workspace,
         }),
       })
     : [];
@@ -130,18 +122,18 @@ export async function createRemoteAgentComputerCapability(input: {
     definitions: [
       ...getRemoteAgentSandboxToolDefinitions({
         computerExec: (command, options) => api.exec(command, options),
-        computerSearch: buildComputerSearch(workspace),
+        computerSearch: buildComputerSearch(workspaceAccess),
         env: sessionEnv,
         workingDirectory,
       }),
       ...organizationDocumentDefinitions,
     ],
-    fileHandoff: createAgentComputerFileHandoff({
+    fileHandoff: createReacquiringAgentComputerFileHandoff({
+      workspaceAccess,
       workingDirectory,
-      workspace,
     }),
-    memberProfileReportFiles: createMemberProfileReportComputerFileStore({
-      workspace,
+    memberProfileReportFiles: createReacquiringMemberProfileReportFileStore({
+      workspaceAccess,
     }),
     sandbox: {
       createSessionEnv: () => Promise.resolve(sessionEnv),
@@ -150,97 +142,110 @@ export async function createRemoteAgentComputerCapability(input: {
   };
 }
 
-function resolveComputerRoutineId(
-  context: RemoteAgentCallbackContext
-): string | null {
-  return context.turnEnvelope?.trigger.source === "routine"
-    ? context.turnEnvelope.trigger.routineId
-    : null;
-}
-
 /** Adapt the computer workspace onto Flue's SandboxApi contract. */
 export class AgentComputerSandboxApi implements SandboxApi {
-  private readonly workspace: WorkspaceClient;
+  private readonly workspaceAccess: AgentComputerWorkspaceAccess;
 
-  constructor(workspace: WorkspaceClient) {
-    this.workspace = workspace;
+  constructor(
+    workspaceOrAccess: WorkspaceClient | AgentComputerWorkspaceAccess
+  ) {
+    this.workspaceAccess =
+      "withWorkspace" in workspaceOrAccess
+        ? workspaceOrAccess
+        : createFixedAgentComputerWorkspaceAccess(workspaceOrAccess);
   }
 
   async readFile(path: string): Promise<string> {
-    return await this.workspace.fs.readFile(path, "utf8");
+    return await this.workspaceAccess.withWorkspace(
+      async (workspace) => await workspace.fs.readFile(path, "utf8")
+    );
   }
 
   async readFileBuffer(path: string): Promise<Uint8Array> {
-    const stream = await this.workspace.fs.readFile(path);
-    const chunks: Uint8Array[] = [];
-    const reader = stream.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
+    return await this.workspaceAccess.withWorkspace(async (workspace) => {
+      const stream = await workspace.fs.readFile(path);
+      const chunks: Uint8Array[] = [];
+      const reader = stream.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        chunks.push(value);
       }
-      chunks.push(value);
-    }
-    const total = chunks.reduce((size, chunk) => size + chunk.byteLength, 0);
-    const merged = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      merged.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return merged;
+      const total = chunks.reduce((size, chunk) => size + chunk.byteLength, 0);
+      const merged = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        merged.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return merged;
+    });
   }
 
   async writeFile(path: string, content: string | Uint8Array): Promise<void> {
-    const parent = parentDirectory(path);
-    if (parent) {
-      await this.workspace.fs.mkdir(parent, { recursive: true });
-    }
-    await this.workspace.fs.writeFile(path, content);
+    await this.workspaceAccess.withWorkspace(async (workspace) => {
+      const parent = parentDirectory(path);
+      if (parent) {
+        await workspace.fs.mkdir(parent, { recursive: true });
+      }
+      await workspace.fs.writeFile(path, content);
+    });
   }
 
   async stat(path: string): Promise<FileStat> {
-    const result = await this.workspace.fs.stat(path);
-    return {
-      isDirectory: result.isDirectory,
-      isFile: result.isFile,
-      isSymbolicLink: result.isSymbolicLink,
-      mtime: new Date(result.mtime),
-      size: result.size,
-    };
+    return await this.workspaceAccess.withWorkspace(async (workspace) => {
+      const result = await workspace.fs.stat(path);
+      return {
+        isDirectory: result.isDirectory,
+        isFile: result.isFile,
+        isSymbolicLink: result.isSymbolicLink,
+        mtime: new Date(result.mtime),
+        size: result.size,
+      };
+    });
   }
 
   async readdir(path: string): Promise<string[]> {
-    const entries = await this.workspace.fs.readdir(path);
-    return entries.map((entry) => entry.name);
+    return await this.workspaceAccess.withWorkspace(async (workspace) => {
+      const entries = await workspace.fs.readdir(path);
+      return entries.map((entry) => entry.name);
+    });
   }
 
   async exists(path: string): Promise<boolean> {
-    try {
-      await this.workspace.fs.stat(path);
-      return true;
-    } catch (error) {
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        error.code === "ENOENT"
-      ) {
-        return false;
+    return await this.workspaceAccess.withWorkspace(async (workspace) => {
+      try {
+        await workspace.fs.stat(path);
+        return true;
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "ENOENT"
+        ) {
+          return false;
+        }
+        throw error;
       }
-      throw error;
-    }
+    });
   }
 
   async mkdir(path: string, options?: { recursive?: boolean }): Promise<void> {
-    await this.workspace.fs.mkdir(path, options);
+    await this.workspaceAccess.withWorkspace(
+      async (workspace) => await workspace.fs.mkdir(path, options)
+    );
   }
 
   async rm(
     path: string,
     options?: { force?: boolean; recursive?: boolean }
   ): Promise<void> {
-    await this.workspace.fs.rm(path, options);
+    await this.workspaceAccess.withWorkspace(
+      async (workspace) => await workspace.fs.rm(path, options)
+    );
   }
 
   async exec(
@@ -254,64 +259,69 @@ export class AgentComputerSandboxApi implements SandboxApi {
     }
   ): Promise<ShellResult> {
     options?.signal?.throwIfAborted();
-    const handle = await this.workspace.runtime.exec(command, {
-      backend: options?.backend ?? AGENT_COMPUTER_SHELL_BACKEND_ID,
-      cwd: options?.cwd,
-      encoding: "utf8",
-      env: options?.env,
-      timeoutMs: options?.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS,
-    });
-    const signal = options?.signal;
-    let onAbort: (() => void) | undefined;
-    try {
-      const resultPromise = handle.result();
-      const abortPromise = signal
-        ? new Promise<never>((_resolve, reject) => {
-            onAbort = () => {
-              const stopReason = signal.reason;
-              handle.kill("SIGTERM").then(
-                () => reject(stopReason),
-                (killError: unknown) =>
-                  reject(
-                    new AggregateError(
-                      [stopReason, killError],
-                      "Computer command could not be stopped."
+    return await this.workspaceAccess.withWorkspace(async (workspace) => {
+      const handle = await workspace.runtime.exec(command, {
+        backend: options?.backend ?? AGENT_COMPUTER_SHELL_BACKEND_ID,
+        cwd: options?.cwd,
+        encoding: "utf8",
+        env: options?.env,
+        timeoutMs: options?.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS,
+      });
+      const signal = options?.signal;
+      let onAbort: (() => void) | undefined;
+      try {
+        const resultPromise = handle.result();
+        const abortPromise = signal
+          ? new Promise<never>((_resolve, reject) => {
+              onAbort = () => {
+                const stopReason = signal.reason;
+                handle.kill("SIGTERM").then(
+                  () => reject(stopReason),
+                  (killError: unknown) =>
+                    reject(
+                      new AggregateError(
+                        [stopReason, killError],
+                        "Computer command could not be stopped."
+                      )
                     )
-                  )
-              );
-            };
-            if (signal.aborted) {
-              onAbort();
-            } else {
-              signal.addEventListener("abort", onAbort, { once: true });
-            }
-          })
-        : null;
-      const result = abortPromise
-        ? await Promise.race([resultPromise, abortPromise])
-        : await resultPromise;
-      if (signal?.aborted && abortPromise) {
-        await abortPromise;
+                );
+              };
+              if (signal.aborted) {
+                onAbort();
+              } else {
+                signal.addEventListener("abort", onAbort, { once: true });
+              }
+            })
+          : null;
+        const result = abortPromise
+          ? await Promise.race([resultPromise, abortPromise])
+          : await resultPromise;
+        if (signal?.aborted && abortPromise) {
+          await abortPromise;
+        }
+        return {
+          exitCode: result.exitCode,
+          stderr: asUtf8Text(result.stderr),
+          stdout: asUtf8Text(result.stdout),
+        };
+      } finally {
+        if (onAbort) {
+          signal?.removeEventListener("abort", onAbort);
+        }
+        handle[Symbol.dispose]();
       }
-      return {
-        exitCode: result.exitCode,
-        stderr: asUtf8Text(result.stderr),
-        stdout: asUtf8Text(result.stdout),
-      };
-    } finally {
-      if (onAbort) {
-        signal?.removeEventListener("abort", onAbort);
-      }
-      handle[Symbol.dispose]();
-    }
+    });
   }
 }
 
 function buildComputerSearch(
-  workspace: WorkspaceClient
+  workspaceAccess: AgentComputerWorkspaceAccess
 ): RemoteAgentComputerSearch {
   return {
-    grep: (pattern, path, options) => workspace.fs.grep(pattern, path, options),
+    grep: (pattern, path, options) =>
+      workspaceAccess.withWorkspace(
+        async (workspace) => await workspace.fs.grep(pattern, path, options)
+      ),
   };
 }
 

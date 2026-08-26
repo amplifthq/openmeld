@@ -363,7 +363,7 @@ index d05220033fe9d56662329e478c7ebc7db283f3ba..7f0c156c8de93c9bddb842132f0f67cb
 -export { registerExecutionInterceptor as $, admitDetachedWorkflow as A, generateSessionAffinityKey as B, getActiveConversationPath as C, renderSignalMessage as D, toolResultEntryId as E, handleWorkflowRequest as F, DEFAULT_READ_LIMIT as G, generateWorkflowRunId as H, invokeDirectAttached as I, agentStreamPath as J, MAX_READ_LIMIT as K, invokeWorkflowAttached as L, assertWorkflowDefinition as M, failRecoveredRun as N, toolResultOutput as O, handleAgentRequest as P, interceptExecution as Q, generateConversationId as R, createReducedInstanceState as S, toolOutcomeKey as T, defineWorkflow as U, generateTurnId as V, assertProductEventV3 as W, parseOffset as X, formatOffset as Y, runStreamPath as Z, isContextOverflow as _, getLatestCompletedAssistantEntry as a, resolveAgentProfile as at, emptyUsage as b, projectConversationModelContextEntries as c, runActionWithParsedInput as ct, findTrailingPartialToolBatch as d, assertResolvedAgentProfile as et, isRetryableModelError as f, deriveCompactionDefaults as g, compact as h, getAssistantText as i, extendAgentProfile as it, assertAgentDispatchAdmissionInput as j, toolResultText as k, projectConversationUi as l, calculateContextTokens as m, classifyConversationSubmission as n, defineAgent as nt, getLatestConversationCompaction as o, defineAction as ot, DEFAULT_COMPACTION_SETTINGS as p, SqliteEventStreamStore as q, getActiveConversationPathSince as r, defineAgentProfile as rt, projectConversationModelContext as s, parseActionInput as st, aggregateConversationUsageSince as t, createAgent as tt, countConsecutiveRetryableModelErrors as u, prepareCompaction as v, reduceConversationRecords as w, fromProviderUsage as x, shouldCompact as y, generateOperationId as z };
 +export { registerExecutionInterceptor as $, admitDetachedWorkflow as A, generateSessionAffinityKey as B, getActiveConversationPath as C, renderSignalMessage as D, toolResultEntryId as E, handleWorkflowRequest as F, DEFAULT_READ_LIMIT as G, generateWorkflowRunId as H, invokeDirectAttached as I, agentStreamPath as J, MAX_READ_LIMIT as K, invokeWorkflowAttached as L, assertWorkflowDefinition as M, failRecoveredRun as N, toolResultOutput as O, handleAgentRequest as P, interceptExecution as Q, generateConversationId as R, createReducedInstanceState as S, toolOutcomeKey as T, defineWorkflow as U, generateTurnId as V, assertProductEventV3 as W, parseOffset as X, formatOffset as Y, runStreamPath as Z, isContextOverflow as _, getLatestCompletedAssistantEntry as a, resolveAgentProfile as at, emptyUsage as b, buildCanonicalActionEvidence, projectConversationModelContextEntries as c, compact, runActionWithParsedInput as ct, findTrailingPartialToolBatch as d, assertResolvedAgentProfile as et, isRetryableModelError as f, deriveCompactionDefaults as g, compact as h, getAssistantText as i, extendAgentProfile as it, assertAgentDispatchAdmissionInput as j, toolResultText as k, projectConversationUi as l, calculateContextTokens as m, classifyConversationSubmission as n, defineAgent as nt, getLatestConversationCompaction as o, defineAction as ot, DEFAULT_COMPACTION_SETTINGS as p, SqliteEventStreamStore as q, getActiveConversationPathSince as r, defineAgentProfile as rt, projectConversationModelContext as s, parseActionInput as st, aggregateConversationUsageSince as t, createAgent as tt, countConsecutiveRetryableModelErrors as u, prepareCompaction as v, reduceConversationRecords as w, fromProviderUsage as x, shouldCompact as y, generateOperationId as z };
 diff --git a/dist/conversation-stream-store-Bitz7UoW.mjs b/dist/conversation-stream-store-Bitz7UoW.mjs
-index 94032552cc83d3596ae6e53bd46ec6c9c9749b01..a787d35b0d00677050567875dcdab11153fffb30 100644
+index 94032552cc83d3596ae6e53bd46ec6c9c9749b01..c4e1ca341061b9ba7ba97b567daf3dee5b999ffd 100644
 --- a/dist/conversation-stream-store-Bitz7UoW.mjs
 +++ b/dist/conversation-stream-store-Bitz7UoW.mjs
 @@ -1,6 +1,6 @@
@@ -403,22 +403,19 @@ index 94032552cc83d3596ae6e53bd46ec6c9c9749b01..a787d35b0d00677050567875dcdab111
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -3119,6 +3121,14 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -3119,6 +3121,11 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	const { input } = submission;
  	const attempt = submissionAttemptRef(submission);
  	if (!attempt) return { disposition: "stale" };
-+	if (submission.attemptCount >= submission.maxRetry) return failInterruptedSubmission(submissions, submission, attempt, agent, "exhausted_retry_budget", submission.inputAppliedAt === void 0 ? new SubmissionInterruptedError({
++	if (submission.inputAppliedAt === void 0 && submission.attemptCount >= submission.maxRetry) return failInterruptedSubmission(submissions, submission, attempt, agent, "exhausted_retry_budget", new SubmissionInterruptedError({
 +		phase: "retry_exhausted_before_input",
-+		attemptCount: submission.attemptCount,
-+		maxAttempts: submission.maxRetry
-+	}) : new SubmissionRetryExhaustedError({
 +		attemptCount: submission.attemptCount,
 +		maxAttempts: submission.maxRetry
 +	}), createContext, void 0, conversationWriter, false);
  	const dispatchId = agentSubmissionDispatchId(input);
  	const ctx = createContext(dispatchId);
  	if (submission.kind === "direct") ctx.setSubmissionId?.(submission.submissionId);
-@@ -3147,14 +3157,6 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -3147,14 +3154,6 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  			error: new SubmissionAbortedError()
  		};
  	}
@@ -433,7 +430,7 @@ index 94032552cc83d3596ae6e53bd46ec6c9c9749b01..a787d35b0d00677050567875dcdab111
  	if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) return failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", new SubmissionTimeoutError(), createContext, void 0, conversationWriter);
  	if (submission.inputAppliedAt === void 0 && state !== "absent") {
  		const replacement = await submissions.replaceSubmissionAttempt(attempt, crypto.randomUUID(), lease);
-@@ -3177,7 +3179,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -3177,7 +3176,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	if (state === "continuable" || state === "uncertain") {
  		const replacement = await submissions.replaceSubmissionAttempt(attempt, crypto.randomUUID(), lease);
  		if (!replacement?.attemptId) return { disposition: "stale" };
@@ -442,7 +439,34 @@ index 94032552cc83d3596ae6e53bd46ec6c9c9749b01..a787d35b0d00677050567875dcdab111
  			const recoveryCtx = createContext(dispatchId);
  			if (submission.kind === "direct") recoveryCtx.setSubmissionId?.(submission.submissionId);
  			await createAgentSubmissionSessionHandler(agent, input, (s) => s.recoverInterruptedStream({
-@@ -3313,25 +3315,28 @@ async function processSubmission(opts) {
+@@ -3190,6 +3189,10 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+ 			submission: replacement
+ 		};
+ 	}
++	if (submission.attemptCount >= submission.maxRetry) return failInterruptedSubmission(submissions, submission, attempt, agent, "exhausted_retry_budget", new SubmissionRetryExhaustedError({
++		attemptCount: submission.attemptCount,
++		maxAttempts: submission.maxRetry
++	}), createContext, void 0, conversationWriter);
+ 	if (submission.inputAppliedAt === void 0) {
+ 		await submissions.requeueSubmissionBeforeInputApplied(attempt);
+ 		return { disposition: "requeued" };
+@@ -3305,6 +3308,15 @@ async function processSubmission(opts) {
+ 				if (submission.kind === "direct" && settled) observers.fail(submission.submissionId, new SubmissionAbortedError());
+ 				return;
+ 			}
++			if (submission.kind === "dispatch" && submission.attemptCount < submission.maxRetry && await submissions.requeueSubmissionBeforeInputApplied(attempt)) {
++				console.warn("[flue:submission-recovery]", {
++					agentName: input.agent,
++					attemptCount: submission.attemptCount,
++					operation: "requeue_before_input_application",
++					submissionId: submission.submissionId
++				});
++				throw error;
++			}
+ 			const settled = submission.kind === "direct" ? await settleDirectSubmission(submissions, attempt, ctx, "failed", void 0, error, opts.conversationWriter) : await submissions.failSubmission(attempt, error);
+ 			if (submission.kind === "direct" && settled) observers.fail(submission.submissionId, error);
+ 			throw error;
+@@ -3313,25 +3325,28 @@ async function processSubmission(opts) {
  		if (submission.kind === "direct" && settled) observers.complete(submission.submissionId, result);
  	} finally {
  		if (submission.kind === "direct") ctx.setEventCallback(void 0);
@@ -484,7 +508,7 @@ index 94032552cc83d3596ae6e53bd46ec6c9c9749b01..a787d35b0d00677050567875dcdab111
  	return {
  		disposition: "failed",
  		error
-@@ -3354,6 +3359,8 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -3354,6 +3369,8 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  */
  async function settleAbortedWithContext(submissions, submission, attempt, agent, ctx, conversationWriter) {
  	const error = new SubmissionAbortedError();
@@ -493,7 +517,7 @@ index 94032552cc83d3596ae6e53bd46ec6c9c9749b01..a787d35b0d00677050567875dcdab111
  	try {
  		await createAgentSubmissionSessionHandler(agent, submission.input, (s) => s.recordSubmissionTerminal({
  			submissionId: submission.submissionId,
-@@ -3364,8 +3371,7 @@ async function settleAbortedWithContext(submissions, submission, attempt, agent,
+@@ -3364,8 +3381,7 @@ async function settleAbortedWithContext(submissions, submission, attempt, agent,
  	} catch (advisoryError) {
  		console.error("[flue:submission-abort] Failed to record abort advisory for submission", submission.submissionId, advisoryError);
  	}

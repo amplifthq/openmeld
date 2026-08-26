@@ -8,6 +8,18 @@ const CENTER_AGENT_SOURCE = fileURLToPath(
 );
 
 describe("Center Agent admission concurrency", () => {
+  it("routes the callback alarm through the single reconciliation and redelivery owner", async () => {
+    const source = await readFile(CENTER_AGENT_SOURCE, "utf8");
+    const methodStart = source.indexOf("async retryRemoteAgentCallbacks()");
+    const methodEnd = source.indexOf("async readExecutionState(", methodStart);
+
+    expect(methodStart).toBeGreaterThanOrEqual(0);
+    expect(methodEnd).toBeGreaterThan(methodStart);
+    expect(source.slice(methodStart, methodEnd)).toContain(
+      "await reconcileAndRedeliverRemoteAgentCallbacks({"
+    );
+  });
+
   it("lets Flue own conversation serialization without an outer Durable Object lock", async () => {
     const source = await readFile(CENTER_AGENT_SOURCE, "utf8");
     const methodStart = source.indexOf("async submitConversationTurn(");

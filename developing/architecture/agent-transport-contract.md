@@ -248,6 +248,21 @@ Important execution rules:
   Core then rereads its native-delivery ledger. A still-active submission, a
   missing mixed-version RPC receiver, or a transport error requeues the same
   probe and cannot become an elapsed-time failure.
+- Remote Agent initialization remains recoverable from Flue's durable
+  submission only while the exact attempt still owns the row,
+  `inputAppliedAt` is absent, and the submission has attempt budget remaining.
+  An initialization exception may return that row to `queued` for the same
+  idempotent submission and a replacement Durable Object instance may claim it.
+  Once input is applied, the attempt must complete, reconcile, or fail through
+  the existing terminal path; recovery must not replay provider or tool side
+  effects. AgentComputer storage is a subordinate durable capability, not
+  execution truth: workspace RPC clients and exec handles have explicit
+  operation-scoped disposal, while a disconnected client is reacquired against
+  the same AgentComputer identity. Only deterministic pre-input materialization
+  may restart from its beginning. If recovery exhausts the attempt budget, the
+  Remote Agent callback sweep may terminalize only from Flue's durable
+  `settled` row plus its structured error fact; a merely queued, running,
+  terminalizing, or successfully settled row is not failure evidence.
 - Hosted direct-first transport is allowed only after the Space durable outbox
   write and an authoritative Core Binding preflight confirms
   `hosted_center_agent`. If that check no longer holds, or direct admission
