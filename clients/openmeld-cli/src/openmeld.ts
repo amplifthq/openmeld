@@ -4603,6 +4603,10 @@ profileCmd
   )
   .option("--project <projectId>", "Default Project for the new Agent")
   .option(
+    "--no-default-project",
+    "Let OpenMeld choose the working folder instead of reusing your saved Default Project"
+  )
+  .option(
     "--session <strategy>",
     "Session strategy for an owner request: new, resume, or fork",
     "new"
@@ -4653,6 +4657,7 @@ profileCmd
           typeof opts.owner === "string" ||
           typeof opts.computer === "string" ||
           typeof opts.project === "string" ||
+          opts.defaultProject === false ||
           typeof opts.space === "string" ||
           typeof opts.organization === "string" ||
           typeof opts.agentControllerCollaborationMode === "string" ||
@@ -4685,6 +4690,9 @@ profileCmd
             organization: opts.organization,
             profileName: targetName,
             reasoningLevel: opts.reasoningEffort,
+            ...(opts.defaultProject === false
+              ? { reuseSavedDefaultProject: false }
+              : {}),
             requestedSpaceId: opts.space,
             sessionStrategy: opts.session,
             source: opts.source,

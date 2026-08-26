@@ -646,6 +646,30 @@ describe("command entry CLI wiring", () => {
     );
   });
 
+  it("maps --no-default-project to an explicit managed-workspace choice", async () => {
+    await runCli([
+      "profiles",
+      "create",
+      "Managed Workspace Agent",
+      "--kind",
+      "agent",
+      "--agent-controller",
+      "builtin:codex",
+      "--computer",
+      "computer-1",
+      "--no-default-project",
+    ]);
+
+    expect(runMocks.runProfileCreationRequestCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultProjectId: undefined,
+        profileName: "Managed Workspace Agent",
+        reuseSavedDefaultProject: false,
+        targetOwner: "self",
+      })
+    );
+  });
+
   it("maps Agent Profile creation approval preferences to the request runner", async () => {
     await runCli([
       "profiles",
