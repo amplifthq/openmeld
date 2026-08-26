@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readModelCatalog } from "../src/config/model-catalog";
 import { listOrganizationComputers } from "../src/organizations/organization-computers-service";
 
 describe("organization computers service", () => {
@@ -71,6 +72,7 @@ describe("organization computers service", () => {
         ],
       })),
       memberUserIds: ["user-fangyuan"],
+      modelCatalog: readModelCatalog(),
       organizationId: "org-amplift",
     });
 
@@ -190,6 +192,7 @@ describe("organization computers service", () => {
         liveSessions: null,
       })),
       memberUserIds: ["user-fangyuan"],
+      modelCatalog: readModelCatalog(),
       organizationId: "org-amplift",
     });
 

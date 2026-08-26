@@ -5783,6 +5783,7 @@ async function buildOrganizationComputersResponse(input: {
       };
     },
     memberUserIds,
+    modelCatalog: readModelCatalog(),
     organizationId,
   });
   const validated = organizationComputersResponseSchema.safeParse(response);

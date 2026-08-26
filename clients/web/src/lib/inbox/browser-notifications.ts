@@ -316,11 +316,41 @@ export function subscribeInboxBrowserNotificationSettings(
 		}
 	};
 	const handleVisibilityChange = () => onChange();
+	let notificationPermissionStatus: PermissionStatus | null = null;
+	let unsubscribed = false;
+	const subscribeToNotificationPermission = () => {
+		if (!("permissions" in navigator)) {
+			return;
+		}
+		navigator.permissions
+			.query({
+				name: "notifications",
+			})
+			.then((permissionStatus) => {
+				if (unsubscribed) {
+					return;
+				}
+				notificationPermissionStatus = permissionStatus;
+				permissionStatus.addEventListener("change", onChange);
+				onChange();
+			})
+			.catch((error: unknown) => {
+				console.warn(
+					"[openmeld.web.inbox.browser_notification_permission_subscription_failed]",
+					{
+						error: error instanceof Error ? error.message : String(error),
+					}
+				);
+			});
+	};
 	window.addEventListener("storage", handleStorage);
 	window.addEventListener(PREFERENCE_CHANGE_EVENT, onChange);
 	window.addEventListener("focus", onChange);
 	document.addEventListener("visibilitychange", handleVisibilityChange);
+	subscribeToNotificationPermission();
 	return () => {
+		unsubscribed = true;
+		notificationPermissionStatus?.removeEventListener("change", onChange);
 		window.removeEventListener("storage", handleStorage);
 		window.removeEventListener(PREFERENCE_CHANGE_EVENT, onChange);
 		window.removeEventListener("focus", onChange);
