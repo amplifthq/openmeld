@@ -24,7 +24,24 @@ const PREPARE_SCRIPT = "prepare-isolated-candidate.sh";
 const RESOLVE_APPROVED_BUILDS_SCRIPT = "resolve-approved-native-builds.mjs";
 const WRAPPER_SCRIPT = "run-isolated-candidate-command.sh";
 const CANDIDATE_INSTALL_DENIED_PATTERN = /candidate install denied/u;
+const GIT_POINTER_GROUP_DENIED_PATTERN =
+  /chgrp: changing group of .*\/\.git.*Operation not permitted/u;
 const TEMPLATE_EXPRESSION_PREFIX = "$";
+
+test(
+  "Linux non-root runner can prepare the candidate Git pointer",
+  { skip: !supportsHostedNonRootLinuxIsolation() },
+  () => {
+    const fixture = createLinuxInstallFixture();
+    try {
+      const prepare = run(fixture, PREPARE_SCRIPT);
+      assert.doesNotMatch(prepare.stderr, GIT_POINTER_GROUP_DENIED_PATTERN);
+      assert.equal(prepare.status, 0, prepare.stderr);
+    } finally {
+      fixture.cleanup();
+    }
+  }
+);
 
 test(
   "Linux candidate install cannot escape through pnpm hooks or external store config",
@@ -247,6 +264,10 @@ function supportsHostedLinuxIsolation() {
     pnpmVersion.stdout.trim() === "10.30.0" &&
     spawnSync("sudo", ["-n", "true"], { stdio: "ignore" }).status === 0
   );
+}
+
+function supportsHostedNonRootLinuxIsolation() {
+  return supportsHostedLinuxIsolation() && process.getuid?.() !== 0;
 }
 
 function createLinuxInstallFixture() {
