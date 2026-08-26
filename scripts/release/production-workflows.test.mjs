@@ -524,7 +524,19 @@ test("keeps Deep Confidence setup and sharding intentional", () => {
     )
   );
   assert.ok(workersIntegrationJob);
-  assert.ok(workersIntegrationJob.includes("shard: [1, 2, 3, 4, 5, 6, 7, 8]"));
+  assert.ok(
+    workersIntegrationJob.includes(
+      `name: Deep Confidence / Workers Integration ${GITHUB_EXPRESSION_PREFIX} matrix.shard }}/8`
+    )
+  );
+  assert.ok(
+    workersIntegrationJob.includes("shard: [1, 2, 3, 4, 5, 6, 7, 8]")
+  );
+  assert.ok(
+    workersIntegrationJob.includes(
+      `run: pnpm exec vitest run --config vitest.config.ts --shard=${GITHUB_EXPRESSION_PREFIX} matrix.shard }}/8`
+    )
+  );
   assert.equal(
     corePackage.scripts["test:integration"],
     "pnpm run test:integration:shard-1 && pnpm run test:integration:shard-2 && pnpm run test:integration:shard-3 && pnpm run test:integration:shard-4 && pnpm run test:integration:shard-5 && pnpm run test:integration:shard-6 && pnpm run test:integration:shard-7 && pnpm run test:integration:shard-8"
