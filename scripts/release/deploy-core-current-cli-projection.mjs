@@ -8,7 +8,10 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { localComponentsReleaseManifestSchema } from "../../packages/schemas/src/schemas/local-components.ts";
-import { runCoreStartupAdmission } from "../cloudflare/core-startup-admission.mjs";
+import {
+  buildCoreBundleEvidenceStepSpec,
+  runCoreStartupAdmission,
+} from "../cloudflare/core-startup-admission.mjs";
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
 
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
@@ -217,6 +220,7 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     command: "pnpm",
     label: "Build Core receiver dependencies",
   });
+  adapters.runStep(buildCoreBundleEvidenceStepSpec());
   let admissionEvidence;
   if (!input.dryRun) {
     const headSha = adapters.readHeadSha();

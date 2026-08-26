@@ -8,6 +8,7 @@ import type {
   OrganizationSkillBundle,
   OrganizationSkillGitHubSource,
 } from "@openmeld/schemas/types";
+import { loadYamlRuntime } from "../lazy-runtime-modules";
 import { createCoreRpcHttpError } from "../rpc/errors";
 
 const GIT_SUFFIX_PATTERN = /\.git$/;
@@ -111,7 +112,7 @@ export async function importOrganizationSkillBundleFromGitHub(input: {
       "The selected GitHub directory does not contain SKILL.md."
     );
   }
-  const { parse: parseYaml } = await import("../generated-runtime/yaml.mjs");
+  const { parse: parseYaml } = await loadYamlRuntime();
   const parsed = parseSkillMarkdown(skillMarkdown, parseYaml);
   const bundle = organizationSkillBundleSchema.safeParse({
     files: bundleFiles,

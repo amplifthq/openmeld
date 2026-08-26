@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -17,6 +18,8 @@ const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "../..");
 const TOP_INPUT_COUNT = 20;
 const WRANGLER_UPLOAD_METRICS_PATTERN =
   /Total Upload:\s+([\d.]+)\s+(KiB|MiB)\s+\/\s+gzip:\s+([\d.]+)\s+(KiB|MiB)/u;
+const ES_MODULE_SPECIFIER_PATTERN =
+  /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)(["'])([^"']+)\1/gu;
 
 export function parseWranglerUploadMetrics(output) {
   const match = output.match(WRANGLER_UPLOAD_METRICS_PATTERN);
@@ -105,6 +108,41 @@ export function createWorkerBundleEvidence(input) {
   };
 }
 
+export function findUnresolvedWorkerModuleImports(bundleDirectory) {
+  const bundleRoot = path.resolve(bundleDirectory);
+  return listFiles(bundleRoot)
+    .filter((filePath) => filePath.endsWith(".js") || filePath.endsWith(".mjs"))
+    .flatMap((filePath) => {
+      const source = readFileSync(filePath, "utf8");
+      return [...source.matchAll(ES_MODULE_SPECIFIER_PATTERN)].flatMap(
+        (match) => {
+          const specifier = match[2];
+          if (!specifier?.startsWith(".")) {
+            return [];
+          }
+          const resolvedPath = path.resolve(path.dirname(filePath), specifier);
+          const relativeResolvedPath = toPortablePath(
+            path.relative(bundleRoot, resolvedPath)
+          );
+          const isInsideBundle =
+            relativeResolvedPath !== ".." &&
+            !relativeResolvedPath.startsWith("../") &&
+            !path.isAbsolute(relativeResolvedPath);
+          if (isInsideBundle && existsSync(resolvedPath)) {
+            return [];
+          }
+          return [
+            {
+              importer: toPortablePath(path.relative(bundleRoot, filePath)),
+              resolvedPath: relativeResolvedPath,
+              specifier,
+            },
+          ];
+        }
+      );
+    });
+}
+
 function main() {
   const options = parseArguments(process.argv.slice(2));
   const temporaryDirectory = mkdtempSync(
@@ -142,6 +180,20 @@ function main() {
     if (result.status !== 0) {
       throw new Error(
         `Wrangler bundle evidence command failed with exit code ${String(result.status)}`
+      );
+    }
+
+    const unresolvedModuleImports =
+      findUnresolvedWorkerModuleImports(bundleDirectory);
+    if (unresolvedModuleImports.length > 0) {
+      const details = unresolvedModuleImports
+        .map(
+          (entry) =>
+            `${entry.importer}: ${entry.specifier} -> ${entry.resolvedPath}`
+        )
+        .join("\n");
+      throw new Error(
+        `Worker bundle contains unresolved relative module imports:\n${details}`
       );
     }
 
@@ -246,6 +298,10 @@ function listFiles(directoryPath) {
       return entry.isDirectory() ? listFiles(childPath) : [childPath];
     }
   );
+}
+
+function toPortablePath(filePath) {
+  return filePath.split(path.sep).join("/");
 }
 
 if (pathToFileURL(process.argv[1] ?? "").href === import.meta.url) {
