@@ -6,7 +6,7 @@ const CONTROL_PATH_PATTERNS = [
   /^pnpm-workspace\.yaml$/u,
   /^turbo\.json$/u,
   /^scripts\/ci\/final-candidate(?:-[^/]*)?\.(?:mjs|test\.mjs)$/u,
-  /^scripts\/ci\/(?:install-isolated-candidate-dependencies|prepare-isolated-candidate)(?:\.test\.mjs|\.sh)$/u,
+  /^scripts\/ci\/install-isolated-candidate-dependencies(?:\.test\.mjs|\.sh)$/u,
   /^scripts\/ci\/(?:resolve-approved-native-builds|trusted-git-network)(?:\.test)?\.mjs$/u,
   /^scripts\/ci\/run-isolated-candidate-command\.sh$/u,
   /^scripts\/ci\/trusted-final-candidate\.sh$/u,

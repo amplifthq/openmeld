@@ -171,20 +171,14 @@ The workflow:
   they publish no Final Candidate status and cannot cancel a legitimate
   standard or full request for the same pull request;
 - checks out trusted control and the exact PR head into separate roots with
-  checkout credentials disabled, then creates the unprivileged operating-system
-  user and locks the trusted and evidence roots before pnpm parses any
-  candidate-owned configuration;
-- keeps candidate Git metadata outside the candidate-writable root and makes
-  the in-root `.git` pointer read-only, so package configuration and selected
-  commands cannot replace trusted refs, objects, or Git configuration;
-- installs candidate dependencies through that isolated user with all scripts
-  disabled first, then rebuilds only the dependency packages approved by the
+  checkout credentials disabled on an ephemeral GitHub-hosted runner;
+- installs candidate dependencies with lifecycle scripts and candidate-owned
+  pnpm hooks disabled, then rebuilds only dependency packages approved by the
   trusted current-main `allowBuilds` policy. Candidate root lifecycle scripts
-  remain disabled, while required native packages still build in the isolated
-  candidate-owned home, cache, store, modules, and virtual-store paths;
-- runs selected candidate commands as a separate unprivileged operating-system
-  user that can write the candidate root but cannot write the trusted control
-  root or the private evidence root;
+  remain disabled, while required native packages still build with dedicated
+  home, cache, store, modules, and virtual-store paths;
+- runs selected candidate commands through a clean environment that omits
+  GitHub credentials and Actions command-file variables;
 - separates the read-only candidate runner from small pending/final publisher
   jobs;
 - calls the same candidate engine as the local fallback;
@@ -196,10 +190,12 @@ The workflow:
 The runner job has read-only repository and PR permissions. Its selected check
 subprocesses receive no `GH_TOKEN`, `GITHUB_TOKEN`, or status-write credential.
 Only publisher jobs receive `statuses: write`; before publishing they re-read
-the live PR, current `main`, exact tree, candidate job result, confidence, and
-schema-validated evidence. The final publisher executes only the publisher and
-schema implementation from the exact already-trusted current base SHA, never
-code from the candidate head. GitHub event strings enter shell steps through
+the live PR, current `main`, exact tree, GitHub-owned candidate job result,
+confidence, and schema-validated evidence. A candidate-produced artifact cannot
+turn a failed, canceled, or skipped GitHub job green. The final publisher
+executes only the publisher and schema implementation from the exact
+already-trusted current base SHA, never code from the candidate head. GitHub
+event strings enter shell steps through
 quoted environment variables, never direct expression interpolation. If the
 pending job, publisher checkout, setup, install, artifact download, or validator
 fails after pending publication, a checkout-independent fail-safe finalizer

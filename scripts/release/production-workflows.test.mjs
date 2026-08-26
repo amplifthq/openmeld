@@ -268,7 +268,7 @@ test("deploys the Auth receiver before Web in coordinated GitHub releases", () =
   );
 });
 
-test("runs one explicit Final Candidate request with isolated runner and publishers", () => {
+test("runs one explicit Final Candidate request with separate runner and publishers", () => {
   const candidate = readRepoFile(".github/workflows/final-candidate.yml");
   const deepConfidence = readRepoFile(".github/workflows/deep-confidence.yml");
   const rootPackage = JSON.parse(readRepoFile("package.json"));
