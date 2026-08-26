@@ -17,7 +17,12 @@ export function printPlan(plan, dirtyPaths) {
       `Head: ${plan.headSha}`,
       `Base: ${plan.baseSha}`,
       `Tree: ${plan.treeSha}`,
+      `Mode: ${plan.mode}`,
+      `Control trust: ${plan.controlTrust}`,
       `Plan source: ${plan.planSourceSha}`,
+      ...(plan.bootstrapReason
+        ? [`Bootstrap reason: ${plan.bootstrapReason}`]
+        : []),
       `Branch: ${plan.branchName}`,
       `Confidence: ${plan.confidence}`,
       `Risk: ${plan.riskTags.join(", ") || "none"}`,
@@ -45,7 +50,7 @@ export function printPlan(plan, dirtyPaths) {
   );
 }
 
-export function renderEvidenceSummary(evidence, evidencePath) {
+export function renderEvidenceSummary(evidence, evidencePath, options = {}) {
   const durationMs = Math.max(
     0,
     Date.parse(evidence.finishedAt) - Date.parse(evidence.startedAt)
@@ -54,12 +59,16 @@ export function renderEvidenceSummary(evidence, evidencePath) {
     "## OpenMeld Final Candidate Evidence",
     "",
     `- Candidate validation: **${evidence.conclusion}**`,
-    `- Evidence publication: **${evidence.publicationErrors.length === 0 ? "complete" : "failed"}**`,
+    `- Evidence publication: **${resolvePublicationSummary(evidence, options)}**`,
     `- Mode: \`${evidence.mode}\``,
+    `- Control trust: \`${evidence.controlTrust}\``,
     `- Head: \`${evidence.headSha ?? "unresolved"}\``,
     `- Base: \`${evidence.baseSha ?? "unresolved"}\``,
     `- Tree: \`${evidence.treeSha ?? "unresolved"}\``,
     `- Plan source: \`${evidence.planSourceSha ?? "unresolved"}\``,
+    ...(evidence.bootstrapReason
+      ? [`- Bootstrap reason: ${evidence.bootstrapReason}`]
+      : []),
     `- Risk: ${evidence.riskTags?.join(", ") || "unresolved"}`,
     `- Duration: ${formatDuration(durationMs)}`,
     `- Evidence file: \`${evidencePath}\``,
@@ -101,6 +110,16 @@ export function renderEvidenceSummary(evidence, evidencePath) {
           "- Pending/final shared evidence publication completed or was not requested.",
         ]),
   ].join("\n");
+}
+
+function resolvePublicationSummary(evidence, options) {
+  if (evidence.publicationErrors.length > 0) {
+    return "failed";
+  }
+  if (options.finalStatusPending) {
+    return "evidence shared; exact commit status follows this comment";
+  }
+  return "complete";
 }
 
 export function writeEvidence(evidencePath, evidence) {

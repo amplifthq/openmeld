@@ -22,8 +22,10 @@ const PULL_REQUEST_HEAD_DRIFT_PATTERN = /Pull request head drifted/u;
 const createPlan = (changedPaths, overrides = {}) =>
   createFinalCandidatePlan({
     baseSha: BASE_SHA,
+    bootstrapReason: null,
     branchName: "codex/example",
     changedPaths,
+    controlTrust: "current-main",
     headSha: HEAD_SHA,
     treeSha: TREE_SHA,
     ...overrides,
@@ -107,6 +109,7 @@ test("keeps engineering-only schemas out of product integration and release gate
 
   assert.deepEqual(checkIds(plan), [
     "diff-integrity",
+    "trusted-control-entrypoints",
     "repository-contracts",
     "affected-checks-and-unit-tests",
   ]);
@@ -148,6 +151,7 @@ test("delivery infrastructure runs its behavior contracts without an empty Turbo
 
   assert.deepEqual(checkIds(plan), [
     "diff-integrity",
+    "trusted-control-entrypoints",
     "repository-code-quality",
     "repository-contracts",
   ]);
@@ -162,6 +166,7 @@ test("a scripts and Web mixed diff keeps affected checks and unit tests", () => 
 
   assert.deepEqual(checkIds(plan), [
     "diff-integrity",
+    "trusted-control-entrypoints",
     "repository-code-quality",
     "repository-contracts",
     "affected-checks-and-unit-tests",
@@ -215,6 +220,17 @@ test("a hosted plan adds a trusted current-main entrypoint check", () => {
     "diff-integrity",
     "trusted-control-entrypoints",
   ]);
+  assert.equal(plan.planSourceSha, BASE_SHA);
+});
+
+test("a local current-main plan independently rejects delivery-control drift", () => {
+  const plan = createPlan(["scripts/ci/final-candidate.mjs"], {
+    controlTrust: "current-main",
+    mode: "local",
+    planSourceSha: BASE_SHA,
+  });
+
+  assert.ok(checkIds(plan).includes("trusted-control-entrypoints"));
   assert.equal(plan.planSourceSha, BASE_SHA);
 });
 
@@ -336,15 +352,17 @@ test("a command spawn error is preserved as the failed check cause", () => {
 test("evidence is reusable only for the same successful head, base, and tree", () => {
   const evidence = {
     baseSha: BASE_SHA,
+    bootstrapReason: null,
     branchName: "codex/example",
     changedPaths: ["clients/web/src/app.tsx"],
     conclusion: "success",
     confidence: "standard",
+    controlTrust: "current-main",
     error: null,
     finishedAt: "2026-08-26T00:00:01.000Z",
     headSha: HEAD_SHA,
     mode: "local",
-    planSourceSha: HEAD_SHA,
+    planSourceSha: BASE_SHA,
     publicationErrors: [],
     pullRequestNumber: 1,
     pullRequestUrl: "https://github.com/amplifthq/openmeld/pull/1",

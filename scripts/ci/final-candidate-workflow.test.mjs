@@ -77,21 +77,39 @@ test("isolates status writers from the candidate command credentials", () => {
   assert.ok(
     candidateJob.includes("Checkout trusted runner from the exact current base")
   );
-  assert.ok(candidateJob.includes("path: candidate"));
+  assert.ok(candidateJob.includes("path: trusted-control"));
+  assert.ok(candidateJob.includes("path: untrusted-candidate"));
+  assert.equal(candidateJob.match(/persist-credentials: false/gu)?.length, 2);
   assert.ok(
     candidateJob.includes(
       `ref: ${GITHUB_EXPRESSION_PREFIX} env.CANDIDATE_BASE_SHA }}`
     )
   );
-  assert.ok(candidateJob.includes("node scripts/ci/final-candidate.mjs run"));
   assert.ok(
-    candidateJob.includes('--candidate-root "$GITHUB_WORKSPACE/candidate"')
+    candidateJob.includes(
+      "node trusted-control/scripts/ci/final-candidate.mjs run"
+    )
   );
+  assert.ok(
+    candidateJob.includes(
+      '--candidate-root "$GITHUB_WORKSPACE/untrusted-candidate"'
+    )
+  );
+  assert.ok(candidateJob.includes("--ignore-scripts"));
+  assert.ok(candidateJob.includes("useradd"));
+  assert.ok(candidateJob.includes("openmeld-candidate"));
+  assert.ok(
+    candidateJob.includes(
+      '--command-wrapper "$GITHUB_WORKSPACE/trusted-control/scripts/ci/run-isolated-candidate-command.sh"'
+    )
+  );
+  assert.ok(candidateJob.includes("$RUNNER_TEMP/final-candidate-control"));
   assert.ok(candidateJob.includes('--plan-source "$CANDIDATE_BASE_SHA"'));
   assert.ok(finalJob.includes("final-candidate-publisher.mjs"));
   assert.ok(
     finalJob.includes("Checkout trusted publisher from the exact current base")
   );
+  assert.ok(finalJob.includes("path: trusted-control"));
   assert.ok(
     finalJob.includes(
       `ref: ${GITHUB_EXPRESSION_PREFIX} env.CANDIDATE_BASE_SHA }}`
@@ -107,10 +125,25 @@ test("isolates status writers from the candidate command credentials", () => {
       `ref: ${GITHUB_EXPRESSION_PREFIX} env.CANDIDATE_HEAD_SHA }}`
     )
   );
+  assert.ok(finalJob.includes("path: untrusted-candidate"));
+  assert.equal(finalJob.match(/persist-credentials: false/gu)?.length, 2);
   assert.ok(
-    finalJob.includes('--candidate-root "$GITHUB_WORKSPACE/candidate"')
+    finalJob.includes(
+      '--candidate-root "$GITHUB_WORKSPACE/untrusted-candidate"'
+    )
   );
   assert.ok(finalJob.includes('--branch "$CANDIDATE_BRANCH"'));
+  assert.ok(finalJob.includes("id: publish_final_status"));
+  assert.ok(finalJob.includes("if: always()"));
+  assert.ok(finalJob.includes("Publish fail-safe final status"));
+  assert.ok(
+    finalJob.includes("steps.publish_final_status.outcome != 'success'")
+  );
+  const finalizerStart = finalJob.indexOf("Publish fail-safe final status");
+  const finalizer = finalJob.slice(finalizerStart);
+  assert.ok(finalizer.includes("gh api --method POST"));
+  assert.ok(!finalizer.includes("actions/checkout"));
+  assert.ok(!finalizer.includes("pnpm"));
 });
 
 test("carries hosted standard and full confidence through distinct labels", () => {
@@ -144,12 +177,14 @@ test("does not execute a candidate-owned runner or package candidate script", ()
       `ref: ${GITHUB_EXPRESSION_PREFIX} env.CANDIDATE_BASE_SHA }}`
     )
   );
-  assert.ok(candidateJob.includes("path: candidate"));
+  assert.ok(candidateJob.includes("path: untrusted-candidate"));
+  assert.ok(candidateJob.includes("path: trusted-control"));
   assert.ok(!candidateJob.includes("pnpm --dir candidate candidate"));
   assert.ok(!candidateJob.includes("candidate/scripts/ci/final-candidate.mjs"));
   assert.ok(
-    candidateJob.indexOf("node scripts/ci/final-candidate.mjs run") >
-      candidateJob.indexOf("Checkout exact untrusted candidate source")
+    candidateJob.indexOf(
+      "node trusted-control/scripts/ci/final-candidate.mjs run"
+    ) > candidateJob.indexOf("Checkout exact untrusted candidate source")
   );
 });
 

@@ -68,10 +68,13 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          path: release-control
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Require release SHA from current main first-parent history
         shell: bash
+        working-directory: release-control
         run: |
           set -euo pipefail
           git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
@@ -86,14 +89,19 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          path: release-source
+          persist-credentials: false
           ref: ${{ env.RELEASE_SHA }}
 
       - name: Setup repository toolchain
-        uses: ./.github/actions/setup-node-pnpm
+        uses: ./release-control/.github/actions/setup-node-pnpm
+        with:
+          control_directory: release-control
+          working_directory: release-source
 
       - name: Acquire shared CLI publication lease
         id: cli_scope_lease
-        uses: ./.github/actions/production-scope-lease
+        uses: ./release-control/.github/actions/production-scope-lease
         with:
           operation: acquire
           owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
@@ -102,7 +110,7 @@ jobs:
 
       - name: Acquire shared Core projection lease
         id: core_scope_lease
-        uses: ./.github/actions/production-scope-lease
+        uses: ./release-control/.github/actions/production-scope-lease
         with:
           operation: acquire
           owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
@@ -111,6 +119,7 @@ jobs:
 
       - name: Fetch release tags
         run: git fetch --tags --force
+        working-directory: release-source
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -124,11 +133,13 @@ jobs:
 
       - name: Build Core release dependencies
         run: pnpm turbo run build --filter=@openmeld/core...
+        working-directory: release-source
 
       - name: Configure release tag identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        working-directory: release-source
 
       - name: Publish signed and notarized CLI, binary channel, npm package, tag, and Core
         shell: bash
@@ -155,6 +166,7 @@ jobs:
               exit 1
               ;;
           esac
+        working-directory: release-source
 
       - name: Preserve a failed Core startup profile
         if: failure()
@@ -162,7 +174,7 @@ jobs:
         with:
           name: core-startup-profile-${{ env.RELEASE_SHA }}
           if-no-files-found: ignore
-          path: services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
+          path: release-source/services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
           retention-days: 14
 
       - name: Verify Core deployment is visible
@@ -170,10 +182,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
+        working-directory: release-source
 
       - name: Release shared Core projection lease
         if: always() && steps.core_scope_lease.outputs.lease_sha != ''
-        uses: ./.github/actions/production-scope-lease
+        uses: ./release-control/.github/actions/production-scope-lease
         with:
           lease_sha: ${{ steps.core_scope_lease.outputs.lease_sha }}
           operation: release
@@ -181,7 +194,7 @@ jobs:
 
       - name: Release shared CLI publication lease
         if: always() && steps.cli_scope_lease.outputs.lease_sha != ''
-        uses: ./.github/actions/production-scope-lease
+        uses: ./release-control/.github/actions/production-scope-lease
         with:
           lease_sha: ${{ steps.cli_scope_lease.outputs.lease_sha }}
           operation: release

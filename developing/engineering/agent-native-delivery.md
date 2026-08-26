@@ -117,14 +117,15 @@ technical facts required for one exact merge candidate.
 Inspect the candidate policy at any time:
 
 ```sh
-git fetch origin main
-pnpm candidate plan -- --base origin/main
+pnpm candidate plan
 ```
 
-Planning is read-only. It shows uncommitted paths and the commands a committed
-candidate would select. Run any listed lower-level command directly when a
-failure needs isolation. Add `--full` when the risk or uncertainty justifies
-repository-wide checks, unit tests, and integration tests.
+The bootstrap fetches current `main` and runs its detached control copy, so the
+candidate does not choose the policy that validates it. Planning is read-only.
+It shows uncommitted paths and the commands a committed candidate would select.
+Run any listed lower-level command directly when a failure needs isolation. Add
+`--full` when the risk or uncertainty justifies repository-wide checks, unit
+tests, and integration tests.
 
 Before requesting a candidate:
 
@@ -146,11 +147,12 @@ pnpm candidate request -- --pr <number>
 ```
 
 The command first validates the local head against the live PR and current
-`main`, prints the complete plan, then resets the two candidate request labels
-and adds `final-candidate`. `pnpm candidate request -- --pr <number> --full`
-instead adds `final-candidate-full`. The label is the immutable confidence
-input: the hosted runner executes standard for the first label and full for the
-second, so a plan cannot promise full while the workflow runs standard.
+`main`, then prints the authoritative hosted plan from that exact trusted base
+with execution mode `remote`. It resets the two candidate request labels and
+adds `final-candidate`. `pnpm candidate request -- --pr <number> --full` instead
+adds `final-candidate-full`. The label is the immutable confidence input: the
+hosted runner executes standard for the first label and full for the second, so
+a plan cannot promise full while the workflow runs standard.
 
 The workflow:
 
@@ -159,7 +161,12 @@ The workflow:
   permissions, no secrets, and checks out the exact untrusted head explicitly;
 - does not run on PR open, reopen, synchronize, ready-for-review, or ordinary
   push events;
-- checks out the exact PR head rather than an implicit branch tip;
+- checks out trusted control and the exact PR head into separate roots with
+  checkout credentials disabled, and installs candidate dependencies with
+  lifecycle scripts disabled;
+- runs selected candidate commands as a separate unprivileged operating-system
+  user that can write the candidate root but cannot write the trusted control
+  root or the private evidence root;
 - separates the read-only candidate runner from small pending/final publisher
   jobs;
 - calls the same candidate engine as the local fallback;
@@ -175,7 +182,10 @@ the live PR, current `main`, exact tree, candidate job result, confidence, and
 schema-validated evidence. The final publisher executes only the publisher and
 schema implementation from the exact already-trusted current base SHA, never
 code from the candidate head. GitHub event strings enter shell steps through
-quoted environment variables, never direct expression interpolation.
+quoted environment variables, never direct expression interpolation. If the
+publisher checkout, setup, install, artifact download, or validator fails after
+pending publication, a checkout-independent fail-safe finalizer publishes
+failure for the same exact head instead of leaving a permanent pending status.
 
 A later push has a different head SHA and therefore has no valid status. A later
 `main` commit makes the branch out of date; sync it and request a new candidate.
@@ -190,13 +200,33 @@ pnpm candidate:local -- --pr <number>
 ```
 
 This is not a manual claim of success. The command fetches live `main`, reads the
-live PR, enforces the same exact identity and cleanliness rules, runs the same
-risk-selected commands, checks live state again, writes local JSON evidence,
-posts a readable PR evidence comment, and publishes the same commit status.
+live PR, creates a detached control worktree from current `main`, and runs that
+trusted control against the candidate worktree. It enforces the same exact
+identity and cleanliness rules, runs the same risk-selected commands, checks
+live state again, writes local JSON evidence, posts a readable PR evidence
+comment, and publishes the same commit status. The success status is the final
+fallible publication, so an evidence-comment failure cannot leave a false green.
 
 The local lane requires an authenticated `gh` session with permission to read
 the PR, post its evidence comment, and create a commit status. Missing access or
 network evidence fails closed. No GitHub Actions runner is used.
+
+A pull request that changes the Final Candidate control plane cannot silently
+certify itself with candidate-owned policy. Current-main control rejects that
+drift. When current `main` does not yet contain the control plane, or an
+intentional control-plane change itself must be validated, use the explicit,
+local-only bootstrap after inspecting the exact control diff:
+
+```sh
+pnpm candidate:local -- --pr <number> \
+  --bootstrap-control-sha <exact-candidate-head> \
+  --bootstrap-reason "<why current-main control cannot own this run>"
+```
+
+Bootstrap requires the exact candidate head, records `explicit-bootstrap` and
+the reason in canonical evidence, and cannot request a hosted run. This is a
+visible trust escalation for the responsible agent or user to evaluate; it does
+not require another agent, reviewer identity, approval count, or hidden process.
 
 ## Review Support And Merge
 

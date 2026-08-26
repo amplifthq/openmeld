@@ -124,8 +124,9 @@ test("shares CLI and Core production leases with the local release lane", () => 
   assert.ok(source.includes("scope: cli"));
   assert.ok(source.includes("scope: core"));
   assert.equal(
-    source.match(/uses: \.\/\.github\/actions\/production-scope-lease/gu)
-      ?.length,
+    source.match(
+      /uses: \.\/release-control\/\.github\/actions\/production-scope-lease/gu
+    )?.length,
     4
   );
 });
@@ -140,6 +141,14 @@ test("uses the exact release SHA for CLI publication and recovery", () => {
   assert.ok(
     source.includes(`ref: ${GITHUB_EXPRESSION_PREFIX} env.RELEASE_SHA }}`)
   );
+  assert.ok(source.includes("path: release-control"));
+  assert.ok(source.includes("path: release-source"));
+  assert.ok(
+    source.indexOf("path: release-control") <
+      source.indexOf("path: release-source")
+  );
+  assert.ok(source.includes("working-directory: release-source"));
+  assert.equal(source.match(/persist-credentials: false/gu)?.length, 2);
 });
 
 test("validates current main first-parent membership before publication", () => {

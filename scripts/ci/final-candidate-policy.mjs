@@ -3,6 +3,7 @@ import {
   isEngineeringOnlySchemaPath,
   isReleaseReadyPath,
 } from "../release/release-ready-paths.mjs";
+import { isFinalCandidateControlPath } from "./final-candidate-control-paths.mjs";
 
 export const FINAL_CANDIDATE_LABELS = Object.freeze({
   full: "final-candidate-full",
@@ -20,9 +21,12 @@ const DELIVERY_INFRASTRUCTURE_PREFIXES = [".github/", ".husky/"];
 const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/check-candidate-code-quality.mjs",
   "scripts/ci/check-candidate-code-quality.test.mjs",
+  "scripts/ci/final-candidate-bootstrap.mjs",
+  "scripts/ci/final-candidate-bootstrap.test.mjs",
   "scripts/ci/fast-pr-test-plan.mjs",
   "scripts/ci/fast-pr-test-plan.test.mjs",
   "scripts/ci/final-candidate-output.mjs",
+  "scripts/ci/final-candidate-control-paths.mjs",
   "scripts/ci/final-candidate-policy.mjs",
   "scripts/ci/final-candidate-policy.test.mjs",
   "scripts/ci/final-candidate-publisher.mjs",
@@ -31,6 +35,7 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/final-candidate-workflow.test.mjs",
   "scripts/ci/final-candidate.mjs",
   "scripts/ci/final-candidate.test.mjs",
+  "scripts/ci/run-isolated-candidate-command.sh",
   "scripts/ci/verify-trusted-candidate-entrypoints.mjs",
   "scripts/ci/verify-trusted-candidate-entrypoints.test.mjs",
 ]);
@@ -55,22 +60,45 @@ const DATABASE_PREFIXES = ["packages/db/drizzle/", "packages/db/src/"];
 
 const check = (id, command, reason) => ({ command, id, reason });
 
-export function createFinalCandidatePlan(input) {
-  const changedPaths = [...new Set(input.changedPaths ?? [])].toSorted();
+function resolvePlanAuthority(input) {
   const confidence = input.confidence ?? "standard";
   const mode = input.mode ?? "local";
+  const controlTrust = input.controlTrust ?? "current-main";
   if (!(confidence === "standard" || confidence === "full")) {
     throw new Error(`Unknown final-candidate confidence: ${confidence}`);
   }
   if (!(mode === "local" || mode === "remote")) {
     throw new Error(`Unknown final-candidate mode: ${mode}`);
   }
+  if (
+    !(controlTrust === "current-main" || controlTrust === "explicit-bootstrap")
+  ) {
+    throw new Error(`Unknown final-candidate control trust: ${controlTrust}`);
+  }
+  if (controlTrust === "explicit-bootstrap" && mode !== "local") {
+    throw new Error("Explicit Final Candidate bootstrap is local-only.");
+  }
+  const bootstrapReason =
+    controlTrust === "explicit-bootstrap"
+      ? String(input.bootstrapReason ?? "").trim()
+      : null;
+  if (controlTrust === "explicit-bootstrap" && bootstrapReason.length < 20) {
+    throw new Error("Explicit Final Candidate bootstrap requires a reason.");
+  }
+  return { bootstrapReason, confidence, controlTrust, mode };
+}
+
+export function createFinalCandidatePlan(input) {
+  const changedPaths = [...new Set(input.changedPaths ?? [])].toSorted();
+  const { bootstrapReason, confidence, controlTrust, mode } =
+    resolvePlanAuthority(input);
 
   const context = {
     baseSha: input.baseSha,
     boundaryChange: changedPaths.some(isBoundaryPath),
     changedPaths,
     confidence,
+    controlTrust,
     databaseChange: changedPaths.some(isDatabasePath),
     deliveryInfrastructureChange: changedPaths.some(
       isDeliveryInfrastructurePath
@@ -84,7 +112,7 @@ export function createFinalCandidatePlan(input) {
     mode,
     planSourceSha:
       input.planSourceSha ??
-      (mode === "remote" ? input.baseSha : input.headSha),
+      (controlTrust === "explicit-bootstrap" ? input.headSha : input.baseSha),
     releaseReadyPaths: changedPaths.filter(isReleaseReadyPath),
     repositoryControlChange: changedPaths.some(isRepositoryControlPath),
     strictRelease: isVersionedReleaseBranch(input.branchName),
@@ -98,12 +126,16 @@ export function createFinalCandidatePlan(input) {
   ];
   const skippedChecks = [];
 
-  if (context.mode === "remote") {
+  if (
+    context.mode === "remote" ||
+    (context.controlTrust === "current-main" &&
+      changedPaths.some(isFinalCandidateControlPath))
+  ) {
     selectedChecks.push(
       check(
         "trusted-control-entrypoints",
         ["node", "scripts/ci/verify-trusted-candidate-entrypoints.mjs"],
-        "Hosted validation must use unchanged test-control entrypoints from trusted current main."
+        "Current-main validation must use unchanged test-control entrypoints unless an explicit local bootstrap is recorded."
       )
     );
   }
@@ -125,10 +157,13 @@ export function createFinalCandidatePlan(input) {
 
   return {
     baseSha: input.baseSha,
+    bootstrapReason,
     branchName: input.branchName,
     changedPaths,
     confidence,
+    controlTrust,
     headSha: input.headSha,
+    mode,
     planSourceSha: context.planSourceSha,
     releaseReadyPaths: context.releaseReadyPaths,
     riskTags: resolveRiskTags(context),

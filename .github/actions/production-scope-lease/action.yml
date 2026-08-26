@@ -34,6 +34,7 @@ runs:
       shell: bash
       env:
         LEASE_OPERATION: ${{ inputs.operation }}
+        LEASE_CONTROL_ROOT: ${{ github.action_path }}/../../..
         LEASE_OWNER: ${{ inputs.owner }}
         LEASE_SCOPE: ${{ inputs.scope }}
         LEASE_SHA: ${{ inputs.lease_sha }}
@@ -42,14 +43,14 @@ runs:
         set -euo pipefail
         case "$LEASE_OPERATION" in
           acquire)
-            node scripts/release/production-scope-lease.mjs acquire \
+            node "$LEASE_CONTROL_ROOT/scripts/release/production-scope-lease.mjs" acquire \
               --scope "$LEASE_SCOPE" \
               --source-sha "$RELEASE_SOURCE_SHA" \
               --owner "$LEASE_OWNER" \
               --github-output "$GITHUB_OUTPUT"
             ;;
           release)
-            node scripts/release/production-scope-lease.mjs release \
+            node "$LEASE_CONTROL_ROOT/scripts/release/production-scope-lease.mjs" release \
               --scope "$LEASE_SCOPE" \
               --lease-sha "$LEASE_SHA"
             ;;

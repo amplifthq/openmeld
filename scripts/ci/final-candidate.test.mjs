@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,16 +47,150 @@ const COMMENT_ENDPOINT_PATTERN = /issues\/1\/comments/u;
 const DOCUMENTATION_CHECK_PATTERN = /documentation-contracts/u;
 const FAILURE_STATUS_PATTERN = /state=failure/u;
 const MAIN_ADVANCED_PATTERN = /Main advanced/u;
+const REMOTE_MODE_PATTERN = /Mode: remote/u;
 const PENDING_STATUS_PATTERN = /state=pending/u;
+const SANDBOX_DENIED_PATTERN = /sandbox denied/u;
 const SUCCESS_STATUS_PATTERN = /state=success/u;
 const TOKEN_ABSENCE_PATTERN = /GH_TOKEN=absent GITHUB_TOKEN=absent/u;
+const TRUSTED_CONTROL_CHECK_PATTERN = /trusted-control-entrypoints/u;
 const BEHAVIOR_FAILURE_PATTERN = /behavior failed/u;
 const SECRET_VALUE_PATTERN = /super-secret/u;
 const CANDIDATE_VALIDATION_FAILURE_PATTERN = /Candidate validation failed/u;
 const EVIDENCE_PUBLICATION_FAILURE_PATTERN = /Evidence publication failed/u;
 const EXIT_CODE_SEVEN_PATTERN = /exit code 7/u;
 const ORIGINAL_SELECTED_CHECK_PATTERN = /original selected-check/u;
-const FINAL_STATUS_OPERATION_PATTERN = /`final-status`/u;
+
+test(
+  "an isolated selected command cannot rewrite trusted control or evidence",
+  {
+    skip: process.platform !== "darwin" || !existsSync("/usr/bin/sandbox-exec"),
+  },
+  () => {
+    const fixture = createCandidateFixture();
+    try {
+      const requestedTrustedRoot = path.join(fixture.root, "trusted-control");
+      mkdirSync(path.join(requestedTrustedRoot, "scripts", "release"), {
+        recursive: true,
+      });
+      const trustedRoot = realpathSync(requestedTrustedRoot);
+      const canonicalEvidencePath = path.join(
+        realpathSync(fixture.root),
+        "evidence.json"
+      );
+      mkdirSync(
+        path.join(trustedRoot, "packages", "schemas", "src", "schemas"),
+        {
+          recursive: true,
+        }
+      );
+      cpSync(path.join(SCRIPT_DIR), path.join(trustedRoot, "scripts", "ci"), {
+        recursive: true,
+      });
+      cpSync(
+        path.join(SCRIPT_DIR, "..", "release", "release-ready-paths.mjs"),
+        path.join(trustedRoot, "scripts", "release", "release-ready-paths.mjs")
+      );
+      cpSync(
+        path.join(
+          SCRIPT_DIR,
+          "..",
+          "..",
+          "packages",
+          "schemas",
+          "src",
+          "schemas",
+          "ci"
+        ),
+        path.join(trustedRoot, "packages", "schemas", "src", "schemas", "ci"),
+        { recursive: true }
+      );
+      symlinkSync(
+        path.join(SCRIPT_DIR, "..", "..", "node_modules"),
+        path.join(trustedRoot, "node_modules")
+      );
+      symlinkSync(
+        path.join(
+          SCRIPT_DIR,
+          "..",
+          "..",
+          "packages",
+          "schemas",
+          "node_modules"
+        ),
+        path.join(trustedRoot, "packages", "schemas", "node_modules")
+      );
+      const trustedRunner = path.join(
+        trustedRoot,
+        "scripts",
+        "ci",
+        "final-candidate.mjs"
+      );
+      const originalTrustedRunner = readFileSync(trustedRunner, "utf8");
+      const sandboxProfile = path.join(fixture.root, "candidate.sb");
+      writeFileSync(
+        sandboxProfile,
+        [
+          "(version 1)",
+          "(allow default)",
+          `(deny file-write* (subpath ${JSON.stringify(trustedRoot)}))`,
+          `(deny file-write* (literal ${JSON.stringify(canonicalEvidencePath)}))`,
+          "",
+        ].join("\n")
+      );
+
+      const result = runCandidateFixture(fixture, {
+        attackEvidencePath: canonicalEvidencePath,
+        attackTrustedPath: trustedRunner,
+        commandWrapper: path.join(
+          trustedRoot,
+          "scripts",
+          "ci",
+          "run-isolated-candidate-command.sh"
+        ),
+        finalCandidateScript: trustedRunner,
+        sandboxProfile,
+      });
+
+      assert.equal(result.status, 1);
+      assert.equal(readFileSync(trustedRunner, "utf8"), originalTrustedRunner);
+      assert.ok(
+        existsSync(fixture.evidencePath),
+        `${result.stderr}\n${result.stdout}`
+      );
+      const evidence = JSON.parse(readFileSync(fixture.evidencePath, "utf8"));
+      assert.equal(evidence.conclusion, "failure");
+      assert.equal(evidence.results.at(-1).exitCode, 23);
+      assert.match(evidence.results.at(-1).stderrTail, SANDBOX_DENIED_PATTERN);
+      assert.doesNotMatch(
+        readFileSync(fixture.ghLogPath, "utf8"),
+        SUCCESS_STATUS_PATTERN
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  }
+);
+
+test("a hosted request prints the authoritative remote plan from current main", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const result = runRequestFixture(fixture);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, REMOTE_MODE_PATTERN);
+    assert.match(
+      result.stdout,
+      new RegExp(`Plan source: ${fixture.baseSha}`, "u")
+    );
+    assert.match(result.stdout, TRUSTED_CONTROL_CHECK_PATTERN);
+    assert.doesNotMatch(
+      result.stdout,
+      new RegExp(`Plan source: ${fixture.headSha}`, "u")
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
 
 test("the local fallback publishes shared success for one exact candidate", () => {
   const fixture = createCandidateFixture();
@@ -64,6 +202,9 @@ test("the local fallback publishes shared success for one exact candidate", () =
     assert.equal(evidence.conclusion, "success");
     assert.equal(evidence.headSha, fixture.headSha);
     assert.equal(evidence.baseSha, fixture.baseSha);
+    assert.equal(evidence.controlTrust, "current-main");
+    assert.equal(evidence.planSourceSha, fixture.baseSha);
+    assert.equal(evidence.bootstrapReason, null);
     assert.deepEqual(
       evidence.results.map((entry) => entry.status),
       ["passed", "passed"]
@@ -131,34 +272,50 @@ test("publication failures preserve the original check failure and remain blocki
     );
     assert.deepEqual(
       evidence.publicationErrors.map((entry) => entry.operation),
-      ["pending-status", "final-status", "pull-request-comment"]
+      [
+        "pending-status",
+        "pull-request-comment",
+        "final-status",
+        "pull-request-comment",
+      ]
     );
   } finally {
     fixture.cleanup();
   }
 });
 
-test("a final-status failure is recorded before the local evidence comment", () => {
+test("local success status is the last fallible publication", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const result = runCandidateFixture(fixture);
+
+    assert.equal(result.status, 0, result.stderr);
+    const evidence = JSON.parse(readFileSync(fixture.evidencePath, "utf8"));
+    assert.equal(evidence.conclusion, "success");
+    assert.deepEqual(evidence.publicationErrors, []);
+    const ghLog = readFileSync(fixture.ghLogPath, "utf8");
+    assert.match(ghLog, COMMENT_ENDPOINT_PATTERN);
+    assert.ok(
+      ghLog.indexOf("issues/1/comments") < ghLog.indexOf("state=success")
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a failed evidence comment and failed compensation cannot leave green", () => {
   const fixture = createCandidateFixture();
   try {
     const result = runCandidateFixture(fixture, {
-      ghFailureOperations: ["final-status"],
+      ghFailureOperations: ["pull-request-comment"],
+      ghFailureOperationAttempts: ["final-status:2"],
     });
 
     assert.equal(result.status, 1);
     assert.match(result.stderr, EVIDENCE_PUBLICATION_FAILURE_PATTERN);
-    const evidence = JSON.parse(readFileSync(fixture.evidencePath, "utf8"));
-    assert.equal(evidence.conclusion, "success");
-    assert.deepEqual(
-      evidence.publicationErrors.map((entry) => entry.operation),
-      ["final-status"]
-    );
     const ghLog = readFileSync(fixture.ghLogPath, "utf8");
-    assert.match(ghLog, COMMENT_ENDPOINT_PATTERN);
-    assert.match(ghLog, FINAL_STATUS_OPERATION_PATTERN);
-    assert.ok(
-      ghLog.indexOf("state=success") < ghLog.indexOf("issues/1/comments")
-    );
+    assert.doesNotMatch(ghLog, SUCCESS_STATUS_PATTERN);
+    assert.match(ghLog, FAILURE_STATUS_PATTERN);
   } finally {
     fixture.cleanup();
   }
@@ -211,12 +368,14 @@ function createCandidateFixture() {
   const repositoryPath = path.join(root, "repository");
   const binPath = path.join(root, "bin");
   const ghLogPath = path.join(root, "gh.log");
+  const ghOperationCountsPath = path.join(root, "gh-operation-counts.json");
   const pnpmLogPath = path.join(root, "pnpm.log");
   const candidateEnvironmentLogPath = path.join(root, "candidate-env.log");
   const evidencePath = path.join(root, "evidence.json");
   mkdirSync(repositoryPath);
   mkdirSync(binPath);
   writeFileSync(ghLogPath, "");
+  writeFileSync(ghOperationCountsPath, "{}");
   writeFileSync(pnpmLogPath, "");
   writeFileSync(candidateEnvironmentLogPath, "");
   const gitEnvironment = isolatedGitEnvironment(process.env);
@@ -250,7 +409,7 @@ function createCandidateFixture() {
   writeExecutable(
     path.join(binPath, "gh"),
     `#!/usr/bin/env node
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(process.env.TEST_GH_LOG, args.join(" ") + "\\n");
 const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
@@ -266,7 +425,11 @@ if (input) {
   appendFileSync(process.env.TEST_GH_LOG, input + "\\n");
 }
 const failedOperations = new Set((process.env.TEST_GH_FAILURE_OPERATIONS ?? "").split(",").filter(Boolean));
-if ((process.env.TEST_GH_PUBLICATION_FAILURE === "1" && (endpoint.includes("/statuses/") || endpoint.endsWith("/comments"))) || failedOperations.has(operation)) {
+const operationCounts = JSON.parse(readFileSync(process.env.TEST_GH_OPERATION_COUNTS, "utf8"));
+operationCounts[operation] = (operationCounts[operation] ?? 0) + 1;
+writeFileSync(process.env.TEST_GH_OPERATION_COUNTS, JSON.stringify(operationCounts));
+const failedOperationAttempts = new Set((process.env.TEST_GH_FAILURE_OPERATION_ATTEMPTS ?? "").split(",").filter(Boolean));
+if ((process.env.TEST_GH_PUBLICATION_FAILURE === "1" && (endpoint.includes("/statuses/") || endpoint.endsWith("/comments"))) || failedOperations.has(operation) || failedOperationAttempts.has(operation + ":" + operationCounts[operation])) {
   process.stderr.write("simulated GitHub publication failure\\n");
   process.exit(17);
 }
@@ -307,6 +470,18 @@ if (process.env.TEST_ADVANCE_MAIN_DURING_CHECK === "1" && !existsSync(process.en
 if (process.env.TEST_PNPM_STDERR) {
   process.stderr.write(process.env.TEST_PNPM_STDERR);
 }
+if (process.env.TEST_ATTACK_TRUSTED_PATH && process.env.TEST_ATTACK_EVIDENCE_PATH) {
+  let deniedWrites = 0;
+  for (const target of [process.env.TEST_ATTACK_TRUSTED_PATH, process.env.TEST_ATTACK_EVIDENCE_PATH]) {
+    try {
+      writeFileSync(target, "forged green evidence\\n");
+    } catch (error) {
+      deniedWrites += 1;
+      process.stderr.write("sandbox denied " + target + ": " + error.message + "\\n");
+    }
+  }
+  process.exit(deniedWrites === 2 ? 23 : 0);
+}
 process.exit(Number(process.env.TEST_PNPM_EXIT_CODE ?? "0"));
 `
   );
@@ -318,6 +493,7 @@ process.exit(Number(process.env.TEST_PNPM_EXIT_CODE ?? "0"));
     cleanup: () => rmSync(root, { force: true, recursive: true }),
     evidencePath,
     ghLogPath,
+    ghOperationCountsPath,
     git,
     gitEnvironment,
     headSha,
@@ -332,7 +508,7 @@ function runCandidateFixture(fixture, options = {}) {
   return spawnSync(
     process.execPath,
     [
-      FINAL_CANDIDATE_SCRIPT,
+      options.finalCandidateScript ?? FINAL_CANDIDATE_SCRIPT,
       "run",
       "--",
       "--mode",
@@ -348,6 +524,9 @@ function runCandidateFixture(fixture, options = {}) {
       fixture.baseSha,
       "--evidence",
       fixture.evidencePath,
+      ...(options.commandWrapper
+        ? ["--command-wrapper", options.commandWrapper]
+        : []),
     ],
     {
       cwd: fixture.repositoryPath,
@@ -357,6 +536,9 @@ function runCandidateFixture(fixture, options = {}) {
         GH_TOKEN: "write-capable-token-must-not-reach-checks",
         GITHUB_TOKEN: "write-capable-token-must-not-reach-checks",
         PATH: `${fixture.binPath}${path.delimiter}${process.env.PATH}`,
+        OPENMELD_CANDIDATE_SANDBOX_PROFILE: options.sandboxProfile ?? "",
+        TEST_ATTACK_EVIDENCE_PATH: options.attackEvidencePath ?? "",
+        TEST_ATTACK_TRUSTED_PATH: options.attackTrustedPath ?? "",
         TEST_ADVANCE_MAIN_DURING_CHECK: options.advanceMainDuringCheck
           ? "1"
           : "0",
@@ -366,7 +548,11 @@ function runCandidateFixture(fixture, options = {}) {
         TEST_GH_FAILURE_OPERATIONS: (options.ghFailureOperations ?? []).join(
           ","
         ),
+        TEST_GH_FAILURE_OPERATION_ATTEMPTS: (
+          options.ghFailureOperationAttempts ?? []
+        ).join(","),
         TEST_GH_LOG: fixture.ghLogPath,
+        TEST_GH_OPERATION_COUNTS: fixture.ghOperationCountsPath,
         TEST_GITHUB_PULL_REQUEST_FIXTURE: GITHUB_PULL_REQUEST_FIXTURE,
         TEST_HEAD_SHA: fixture.headSha,
         TEST_MAIN_DRIFT_MARKER: path.join(fixture.root, "main-drift.marker"),
@@ -378,6 +564,41 @@ function runCandidateFixture(fixture, options = {}) {
         TEST_PNPM_LOG: fixture.pnpmLogPath,
         TEST_PNPM_STDERR: options.pnpmStderr ?? "",
         TEST_REMOTE_PATH: fixture.remotePath,
+      },
+    }
+  );
+}
+
+function runRequestFixture(fixture) {
+  return spawnSync(
+    process.execPath,
+    [
+      FINAL_CANDIDATE_SCRIPT,
+      "request",
+      "--",
+      "--repository",
+      "amplifthq/openmeld",
+      "--pr",
+      "1",
+      "--head",
+      fixture.headSha,
+      "--base",
+      fixture.baseSha,
+    ],
+    {
+      cwd: fixture.repositoryPath,
+      encoding: "utf8",
+      env: {
+        ...isolatedGitEnvironment(process.env),
+        PATH: `${fixture.binPath}${path.delimiter}${process.env.PATH}`,
+        TEST_BASE_SHA: fixture.baseSha,
+        TEST_GH_FAILURE_OPERATION_ATTEMPTS: "",
+        TEST_GH_FAILURE_OPERATIONS: "",
+        TEST_GH_LOG: fixture.ghLogPath,
+        TEST_GH_OPERATION_COUNTS: fixture.ghOperationCountsPath,
+        TEST_GH_PUBLICATION_FAILURE: "0",
+        TEST_GITHUB_PULL_REQUEST_FIXTURE: GITHUB_PULL_REQUEST_FIXTURE,
+        TEST_HEAD_SHA: fixture.headSha,
       },
     }
   );

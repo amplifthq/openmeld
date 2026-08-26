@@ -48,12 +48,15 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          path: release-control
+          persist-credentials: false
           ref: ${{ github.sha }}
 
       - name: Require release SHA from main first-parent history
         shell: bash
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
+        working-directory: release-control
         run: |
           set -euo pipefail
           git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
@@ -95,18 +98,31 @@ jobs:
             exit 1
           fi
 
+      - name: Checkout trusted release control
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          path: release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
       - name: Checkout release commit
         uses: actions/checkout@v5
         with:
           fetch-depth: 2
+          path: release-source
+          persist-credentials: false
           ref: ${{ inputs.release_sha }}
 
       - name: Setup repository toolchain
-        uses: ./.github/actions/setup-node-pnpm
+        uses: ./release-control/.github/actions/setup-node-pnpm
+        with:
+          control_directory: release-control
+          working_directory: release-source
 
       - name: Acquire shared Database release lease
         id: scope_lease
-        uses: ./.github/actions/production-scope-lease
+        uses: ./release-control/.github/actions/production-scope-lease
         with:
           operation: acquire
           owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
@@ -114,11 +130,13 @@ jobs:
           source_sha: ${{ inputs.release_sha }}
 
       - name: Generate, migrate, verify, and optimize production database
-        uses: ./.github/actions/shared-db-gate
+        uses: ./release-control/.github/actions/shared-db-gate
+        with:
+          working_directory: release-source
 
       - name: Release shared Database release lease
         if: always() && steps.scope_lease.outputs.lease_sha != ''
-        uses: ./.github/actions/production-scope-lease
+        uses: ./release-control/.github/actions/production-scope-lease
         with:
           lease_sha: ${{ steps.scope_lease.outputs.lease_sha }}
           operation: release

@@ -529,6 +529,15 @@ request's side-branch head is an ancestor of `main`, but it is not an approved
 belong to a later release. `--ref main` selects the trusted workflow
 definition; `release_sha` selects the code being released.
 
+The workflow keeps those two sources separate. `release-control` is checked out
+from the trusted workflow/current-main SHA and owns mainline validation, setup,
+the shared scope lease, and other release controls. `release-source` is checked
+out at the exact approved `release_sha` and owns only the product build and
+deployment. Both checkouts disable persisted Git credentials. This separation
+keeps same-SHA recovery working when the release source predates a newer lease
+action or control schema, without running release controls from historical
+product code or silently changing the product SHA.
+
 ```sh
 release_sha="$(git rev-parse origin/main)"
 gh workflow run release-on-main.yml \

@@ -70,6 +70,7 @@ function createInput(evidence) {
   return {
     candidateJobResult: "success",
     confidence: "standard",
+    controlTrust: "current-main",
     evidence,
     expected: {
       baseSha: BASE_SHA,
@@ -85,10 +86,12 @@ function createInput(evidence) {
 function createEvidence() {
   return {
     baseSha: BASE_SHA,
+    bootstrapReason: null,
     branchName: trustedPlan.branchName,
     changedPaths: trustedPlan.changedPaths,
     conclusion: "success",
     confidence: "standard",
+    controlTrust: "current-main",
     error: null,
     finishedAt: "2026-08-26T00:00:01.000Z",
     headSha: HEAD_SHA,

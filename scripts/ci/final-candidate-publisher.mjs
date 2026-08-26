@@ -65,6 +65,7 @@ function run() {
     }
     const trustedPlan = createFinalCandidatePlan({
       baseSha: expected.baseSha,
+      bootstrapReason: null,
       branchName,
       changedPaths: resolveChangedPaths(
         expected.baseSha,
@@ -72,6 +73,7 @@ function run() {
         candidateRoot
       ),
       confidence,
+      controlTrust: "current-main",
       headSha: expected.headSha,
       mode: "remote",
       planSourceSha: expected.baseSha,
@@ -141,7 +143,9 @@ export function assertEvidenceMatchesExecution(input) {
   }
   for (const field of [
     "branchName",
+    "bootstrapReason",
     "changedPaths",
+    "controlTrust",
     "planSourceSha",
     "riskTags",
     "selectedChecks",

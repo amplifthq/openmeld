@@ -1,7 +1,11 @@
 import * as z from "zod/v4";
 
-export const FINAL_CANDIDATE_EVIDENCE_VERSION = 2 as const;
+export const FINAL_CANDIDATE_EVIDENCE_VERSION = 3 as const;
 export const FINAL_CANDIDATE_CONFIDENCE_VALUES = ["standard", "full"] as const;
+export const FINAL_CANDIDATE_CONTROL_TRUST_VALUES = [
+  "current-main",
+  "explicit-bootstrap",
+] as const;
 
 const exactGitShaSchema = z.string().regex(/^[0-9a-f]{40}$/u);
 const nullableExactGitShaSchema = exactGitShaSchema.nullable();
@@ -10,6 +14,9 @@ const commandSchema = z.array(z.string().min(1).max(4096)).min(1).max(64);
 
 export const finalCandidateConfidenceSchema = z.enum(
   FINAL_CANDIDATE_CONFIDENCE_VALUES
+);
+export const finalCandidateControlTrustSchema = z.enum(
+  FINAL_CANDIDATE_CONTROL_TRUST_VALUES
 );
 
 export const finalCandidateCheckSchema = z.strictObject({
@@ -44,10 +51,12 @@ export const finalCandidatePublicationErrorSchema = z.strictObject({
 export const finalCandidateEvidenceSchema = z
   .strictObject({
     baseSha: nullableExactGitShaSchema,
+    bootstrapReason: boundedTextSchema.nullable(),
     branchName: z.string().min(1).max(1024).nullable(),
     changedPaths: z.array(z.string().min(1).max(4096)).max(20_000),
     conclusion: z.enum(["success", "failure"]),
     confidence: finalCandidateConfidenceSchema,
+    controlTrust: finalCandidateControlTrustSchema,
     error: boundedTextSchema.nullable(),
     finishedAt: z.iso.datetime(),
     headSha: nullableExactGitShaSchema,
@@ -134,14 +143,47 @@ export const finalCandidateEvidenceSchema = z
         });
       }
     }
+    if (
+      evidence.controlTrust === "explicit-bootstrap" &&
+      evidence.mode !== "local"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Explicit Final Candidate bootstrap is local-only.",
+        path: ["controlTrust"],
+      });
+    }
     const expectedPlanSource =
-      evidence.mode === "remote" ? evidence.baseSha : evidence.headSha;
+      evidence.controlTrust === "explicit-bootstrap"
+        ? evidence.headSha
+        : evidence.baseSha;
     if (evidence.planSourceSha !== expectedPlanSource) {
       context.addIssue({
         code: "custom",
         message:
           "Successful Final Candidate evidence must identify the code that owned its plan.",
         path: ["planSourceSha"],
+      });
+    }
+    if (
+      evidence.controlTrust === "explicit-bootstrap" &&
+      !evidence.bootstrapReason
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Explicit Final Candidate bootstrap requires a reason.",
+        path: ["bootstrapReason"],
+      });
+    }
+    if (
+      evidence.controlTrust === "current-main" &&
+      evidence.bootstrapReason !== null
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Current-main Final Candidate evidence cannot claim bootstrap.",
+        path: ["bootstrapReason"],
       });
     }
   });

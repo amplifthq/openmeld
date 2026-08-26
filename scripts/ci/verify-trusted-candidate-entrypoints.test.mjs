@@ -31,6 +31,40 @@ test("rejects a candidate that rewrites the package script used to validate itse
   }
 });
 
+test("rejects a candidate that rewrites the trusted Final Candidate runner", () => {
+  const fixture = createFixture();
+  try {
+    const trustedRunner = path.join(
+      fixture.trustedRoot,
+      "scripts",
+      "ci",
+      "final-candidate.mjs"
+    );
+    const candidateRunner = path.join(
+      fixture.candidateRoot,
+      "scripts",
+      "ci",
+      "final-candidate.mjs"
+    );
+    mkdirSync(path.dirname(trustedRunner), { recursive: true });
+    mkdirSync(path.dirname(candidateRunner), { recursive: true });
+    writeFileSync(trustedRunner, "runTrusted();\n");
+    writeFileSync(candidateRunner, "publishForgedGreen();\n");
+
+    assert.throws(
+      () =>
+        verifyTrustedCandidateEntrypoints({
+          candidateRoot: fixture.candidateRoot,
+          paths: ["scripts/ci/final-candidate.mjs"],
+          trustedRoot: fixture.trustedRoot,
+        }),
+      SELF_REWRITE_PATTERN
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("accepts product source changes when validation entrypoints are unchanged", () => {
   const fixture = createFixture();
   try {

@@ -96,13 +96,16 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          path: trusted-control
+          persist-credentials: false
           ref: ${{ env.CANDIDATE_BASE_SHA }}
 
       - name: Checkout exact untrusted candidate source
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          path: candidate
+          path: untrusted-candidate
+          persist-credentials: false
           ref: ${{ env.CANDIDATE_HEAD_SHA }}
 
       - name: Setup pnpm
@@ -117,19 +120,35 @@ jobs:
           node-version: "24"
           cache: pnpm
           cache-dependency-path: |
-            pnpm-lock.yaml
-            candidate/pnpm-lock.yaml
+            trusted-control/pnpm-lock.yaml
+            untrusted-candidate/pnpm-lock.yaml
 
       - name: Install trusted parser and candidate dependencies
         shell: bash
         run: |
           set -euo pipefail
-          pnpm install --frozen-lockfile --filter @openmeld/schemas
-          pnpm --dir candidate install --frozen-lockfile
+          pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --ignore-scripts
+          pnpm --dir untrusted-candidate install --frozen-lockfile --ignore-scripts
+
+      - name: Isolate untrusted candidate writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo useradd --create-home --shell /usr/sbin/nologin openmeld-candidate
+          sudo chgrp -R openmeld-candidate "$GITHUB_WORKSPACE/untrusted-candidate"
+          sudo chmod -R g+rwX "$GITHUB_WORKSPACE/untrusted-candidate"
+          chmod -R go-w "$GITHUB_WORKSPACE/trusted-control"
+          install -d -m 0700 "$RUNNER_TEMP/final-candidate-control"
+          sudo install -d -o openmeld-candidate -g openmeld-candidate \
+            "$RUNNER_TEMP/final-candidate-home"
 
       - name: Validate the exact final candidate without write credentials
         env:
           GH_TOKEN: ${{ github.token }}
+          OPENMELD_AFFECTED_BASE: ${{ env.CANDIDATE_BASE_SHA }}
+          OPENMELD_CANDIDATE_HOME: ${{ runner.temp }}/final-candidate-home
+          OPENMELD_CANDIDATE_ROOT: ${{ github.workspace }}/untrusted-candidate
+          OPENMELD_CANDIDATE_USER: openmeld-candidate
         shell: bash
         run: |
           set -euo pipefail
@@ -137,16 +156,18 @@ jobs:
           if [ "$CANDIDATE_CONFIDENCE" = "full" ]; then
             confidence_args+=(--full)
           fi
-          node scripts/ci/final-candidate.mjs run \
+          node trusted-control/scripts/ci/final-candidate.mjs run \
             --mode remote \
-            --candidate-root "$GITHUB_WORKSPACE/candidate" \
+            --candidate-root "$GITHUB_WORKSPACE/untrusted-candidate" \
+            --command-wrapper "$GITHUB_WORKSPACE/trusted-control/scripts/ci/run-isolated-candidate-command.sh" \
+            --control-trust current-main \
             --plan-source "$CANDIDATE_BASE_SHA" \
             --repository "$CANDIDATE_REPOSITORY" \
             --pr "$CANDIDATE_PR_NUMBER" \
             --branch "$CANDIDATE_BRANCH" \
             --head "$CANDIDATE_HEAD_SHA" \
             --base "$CANDIDATE_BASE_SHA" \
-            --evidence "$RUNNER_TEMP/final-candidate-evidence.json" \
+            --evidence "$RUNNER_TEMP/final-candidate-control/final-candidate-evidence.json" \
             "${confidence_args[@]}"
 
       - name: Preserve exact candidate evidence
@@ -155,7 +176,7 @@ jobs:
         with:
           name: final-candidate-evidence
           if-no-files-found: error
-          path: ${{ runner.temp }}/final-candidate-evidence.json
+          path: ${{ runner.temp }}/final-candidate-control/final-candidate-evidence.json
           retention-days: 14
 
   publish_final:
@@ -187,13 +208,16 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          path: trusted-control
+          persist-credentials: false
           ref: ${{ env.CANDIDATE_BASE_SHA }}
 
       - name: Checkout exact candidate source for trusted plan recomputation
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          path: candidate
+          path: untrusted-candidate
+          persist-credentials: false
           ref: ${{ env.CANDIDATE_HEAD_SHA }}
 
       - name: Setup pnpm
@@ -207,9 +231,10 @@ jobs:
         with:
           node-version: "24"
           cache: pnpm
+          cache-dependency-path: trusted-control/pnpm-lock.yaml
 
       - name: Install the shared evidence parser only
-        run: pnpm install --frozen-lockfile --filter @openmeld/schemas
+        run: pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --ignore-scripts
 
       - name: Download candidate evidence
         continue-on-error: true
@@ -219,15 +244,17 @@ jobs:
           path: ${{ runner.temp }}/final-candidate
 
       - name: Validate live evidence and publish one final status
+        id: publish_final_status
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
           target_url="$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID"
-          node scripts/ci/final-candidate-publisher.mjs \
+          node trusted-control/scripts/ci/final-candidate-publisher.mjs \
             --repository "$CANDIDATE_REPOSITORY" \
             --pr "$CANDIDATE_PR_NUMBER" \
             --branch "$CANDIDATE_BRANCH" \
-            --candidate-root "$GITHUB_WORKSPACE/candidate" \
+            --candidate-root "$GITHUB_WORKSPACE/untrusted-candidate" \
             --head "$CANDIDATE_HEAD_SHA" \
             --base "$CANDIDATE_BASE_SHA" \
             --tree "$CANDIDATE_TREE_SHA" \
@@ -235,3 +262,22 @@ jobs:
             --job-result "$CANDIDATE_JOB_RESULT" \
             --evidence "$RUNNER_TEMP/final-candidate/final-candidate-evidence.json" \
             --target-url "$target_url"
+
+      - name: Publish fail-safe final status
+        if: always() && steps.publish_final_status.outcome != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "$CANDIDATE_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             ! [[ "$CANDIDATE_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             ! [[ "$CANDIDATE_REPOSITORY" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+            echo "::error::Cannot publish fail-safe Final Candidate failure without exact identity."
+            exit 1
+          fi
+          target_url="$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID"
+          gh api --method POST \
+            "repos/$CANDIDATE_REPOSITORY/statuses/$CANDIDATE_HEAD_SHA" \
+            -f state=failure \
+            -f context='OpenMeld Final Candidate' \
+            -f description="Final Candidate publisher failed @ ${CANDIDATE_HEAD_SHA:0:12} on ${CANDIDATE_BASE_SHA:0:12}" \
+            -f target_url="$target_url"

@@ -6,6 +6,8 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
+import { isFinalCandidateControlPath } from "./final-candidate-control-paths.mjs";
+
 const LINE_SPLIT_PATTERN = /\r?\n/u;
 
 export function verifyTrustedCandidateEntrypoints(input) {
@@ -41,13 +43,16 @@ function collectControlPaths(trustedRoot, candidateRoot) {
 }
 
 function listTrackedControls(root) {
-  return execFileSync(
-    "git",
-    ["ls-files", "--", ":(glob)**/package.json", ":(glob)**/turbo.json"],
-    { cwd: root, encoding: "utf8" }
-  )
+  return execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
     .split(LINE_SPLIT_PATTERN)
-    .filter(Boolean);
+    .filter(
+      (relativePath) =>
+        relativePath.endsWith("/package.json") ||
+        relativePath === "package.json" ||
+        relativePath.endsWith("/turbo.json") ||
+        relativePath === "turbo.json" ||
+        isFinalCandidateControlPath(relativePath)
+    );
 }
 
 function controlProjection(root, relativePath) {

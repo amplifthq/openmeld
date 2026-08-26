@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   globSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -283,11 +284,11 @@ test("runs one explicit Final Candidate request with isolated runner and publish
   assert.ok(candidate.includes("actions/upload-artifact@v4"));
   assert.equal(
     rootPackage.scripts.candidate,
-    "node scripts/ci/final-candidate.mjs"
+    "node scripts/ci/final-candidate-bootstrap.mjs"
   );
   assert.equal(
     rootPackage.scripts["candidate:local"],
-    "node scripts/ci/final-candidate.mjs run --mode local --publish-status"
+    "node scripts/ci/final-candidate-bootstrap.mjs run --mode local --publish-status"
   );
   assert.ok(
     rootPackage.scripts["verify:release-workflows"].includes(
@@ -394,8 +395,13 @@ test("uses one atomic shared lease across local and hosted releases", () => {
   const localRelease = readRepoFile("scripts/release/production-release.mjs");
   const dispatcher = readRepoFile(".github/workflows/release-on-main.yml");
 
-  assert.ok(leaseAction.includes("production-scope-lease.mjs acquire"));
-  assert.ok(leaseAction.includes("production-scope-lease.mjs release"));
+  assert.ok(
+    leaseAction.includes(
+      "$LEASE_CONTROL_ROOT/scripts/release/production-scope-lease.mjs"
+    )
+  );
+  assert.ok(leaseAction.includes('" acquire \\'));
+  assert.ok(leaseAction.includes('" release \\'));
   assert.ok(leaseEngine.includes("--force-with-lease="));
   assert.ok(leaseEngine.includes("context.ref"));
   assert.ok(leaseEngine.includes("expectedLeaseSha"));
@@ -409,8 +415,31 @@ test("uses one atomic shared lease across local and hosted releases", () => {
   for (const [scope, workflowPath] of COMPONENT_WORKFLOWS) {
     const workflow = readRepoFile(workflowPath);
     assert.ok(
-      workflow.includes("uses: ./.github/actions/production-scope-lease"),
+      workflow.includes(
+        "uses: ./release-control/.github/actions/production-scope-lease"
+      ),
       `${scope} must use the cross-machine lease`
+    );
+    const separation = inspectSeparatedReleaseControl(workflow);
+    assert.equal(
+      separation.controlPrecedesRelease,
+      true,
+      `${workflowPath} must checkout trusted control before release source`
+    );
+    assert.equal(
+      separation.pinsWorkflowSha,
+      true,
+      `${workflowPath} must pin control to the workflow SHA`
+    );
+    assert.equal(
+      separation.disablesCredentials,
+      true,
+      `${workflowPath} must not persist checkout credentials`
+    );
+    assert.equal(
+      separation.usesReleaseSource,
+      true,
+      `${workflowPath} must run product commands from the exact release source`
     );
     assert.ok(
       workflow.includes(`scope: ${scope}`),
@@ -427,8 +456,17 @@ test("runs the production database exactly once through its shared entrypoint", 
     ".github/actions/shared-db-gate/action.yml"
   );
 
-  assert.ok(dispatcher.includes("uses: ./.github/actions/shared-db-gate"));
-  assert.equal(databaseAction.match(/pnpm run db:release:prod/gu)?.length, 1);
+  assert.ok(
+    dispatcher.includes(
+      "uses: ./release-control/.github/actions/shared-db-gate"
+    )
+  );
+  const separation = inspectSeparatedReleaseControl(dispatcher);
+  assert.equal(separation.controlPrecedesRelease, true);
+  assert.equal(separation.pinsWorkflowSha, true);
+  assert.equal(separation.disablesCredentials, true);
+  assert.equal(separation.usesReleaseSource, true);
+  assert.equal(databaseAction.match(/run db:release:prod/gu)?.length, 1);
   assert.ok(!databaseAction.includes("pnpm db:check"));
   assert.ok(!databaseAction.includes("pnpm db:migrate:prod"));
   assert.ok(!databaseAction.includes("pnpm db:optimize:prod"));
@@ -462,16 +500,107 @@ test("uses one cached repository setup in current release jobs", () => {
 
   assert.ok(setupAction.includes("pnpm/action-setup@v6"));
   assert.ok(setupAction.includes("cache: pnpm"));
-  assert.ok(setupAction.includes("pnpm install --frozen-lockfile"));
+  assert.ok(
+    setupAction.includes(
+      'pnpm --dir "$SETUP_WORKING_DIRECTORY" install --frozen-lockfile'
+    )
+  );
   for (const [, workflowPath] of COMPONENT_WORKFLOWS) {
     const source = readRepoFile(workflowPath);
     assert.equal(
-      source.match(/uses: \.\/\.github\/actions\/setup-node-pnpm/gu)?.length,
+      source.match(
+        /uses: \.\/release-control\/\.github\/actions\/setup-node-pnpm/gu
+      )?.length,
       1,
       `${workflowPath} must use the cached setup once`
     );
   }
 });
+
+test("historical mainline release source remains usable after control actions are added", () => {
+  const repositoryPath = mkdtempSync(
+    path.join(tmpdir(), "openmeld-historical-release-control-")
+  );
+  const isolatedGitEnvironment = createIsolatedGitEnvironment();
+  const runGit = (...args) =>
+    execFileSync("git", args, {
+      cwd: repositoryPath,
+      encoding: "utf8",
+      env: isolatedGitEnvironment,
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  try {
+    runGit("init", "--initial-branch=main");
+    runGit("config", "user.email", "release-control@test.openmeld.ai");
+    runGit("config", "user.name", "OpenMeld Release Control Test");
+    writeFileSync(
+      path.join(repositoryPath, "product.txt"),
+      "historical source\n"
+    );
+    runGit("add", "product.txt");
+    runGit("commit", "-m", "historical release source");
+    const historicalReleaseSha = runGit("rev-parse", "HEAD");
+
+    const leaseActionPath = path.join(
+      repositoryPath,
+      ".github",
+      "actions",
+      "production-scope-lease"
+    );
+    mkdirSync(leaseActionPath, { recursive: true });
+    writeFileSync(
+      path.join(leaseActionPath, "action.yml"),
+      "name: trusted lease control\n"
+    );
+    runGit("add", ".github/actions/production-scope-lease/action.yml");
+    runGit("commit", "-m", "add trusted release control");
+    const controlSha = runGit("rev-parse", "HEAD");
+
+    const controlRoot = path.join(repositoryPath, "control");
+    const releaseRoot = path.join(repositoryPath, "release-source");
+    runGit("worktree", "add", "--detach", controlRoot, controlSha);
+    runGit("worktree", "add", "--detach", releaseRoot, historicalReleaseSha);
+
+    assert.ok(
+      existsSync(
+        path.join(
+          controlRoot,
+          ".github/actions/production-scope-lease/action.yml"
+        )
+      )
+    );
+    assert.ok(
+      !existsSync(
+        path.join(
+          releaseRoot,
+          ".github/actions/production-scope-lease/action.yml"
+        )
+      )
+    );
+    assert.equal(
+      readFileSync(path.join(releaseRoot, "product.txt"), "utf8"),
+      "historical source\n"
+    );
+  } finally {
+    rmSync(repositoryPath, { force: true, recursive: true });
+  }
+});
+
+function inspectSeparatedReleaseControl(workflow) {
+  const controlCheckout = workflow.indexOf("path: release-control");
+  const releaseCheckout = workflow.indexOf("path: release-source");
+  return {
+    controlPrecedesRelease:
+      controlCheckout >= 0 && releaseCheckout > controlCheckout,
+    disablesCredentials: workflow.includes("persist-credentials: false"),
+    pinsWorkflowSha: workflow.includes(
+      `ref: ${GITHUB_EXPRESSION_PREFIX} github.sha }}`
+    ),
+    usesReleaseSource:
+      workflow.includes("working-directory: release-source") ||
+      workflow.includes("working_directory: release-source"),
+  };
+}
 
 test("keeps Deep Confidence setup and sharding intentional", () => {
   const workflow = readRepoFile(".github/workflows/deep-confidence.yml");
@@ -639,7 +768,9 @@ test("component workflows reject side-branch release sources before production c
     assert.ok(!source.includes("workflow_dispatch:"), workflowPath);
     assert.match(source, SCOPED_RELEASE_SHA_INPUT, workflowPath);
     assert.ok(validationJob?.includes("permissions:\n      contents: read"));
-    assert.ok(validationJob?.includes("ref: main"));
+    assert.ok(
+      validationJob?.includes(`ref: ${GITHUB_EXPRESSION_PREFIX} github.sha }}`)
+    );
     assert.ok(
       validationJob?.includes("require-mainline-release-sha.mjs"),
       workflowPath

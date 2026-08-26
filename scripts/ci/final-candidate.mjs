@@ -81,9 +81,11 @@ function runPlan(options) {
   ].toSorted();
   const plan = createFinalCandidatePlan({
     baseSha,
+    bootstrapReason: options.bootstrapReason,
     branchName,
     changedPaths,
     confidence: options.confidence,
+    controlTrust: options.controlTrust,
     headSha,
     mode: options.mode,
     planSourceSha: options.planSourceSha,
@@ -106,6 +108,7 @@ function requestRemoteCandidate(options) {
   assertCandidateSnapshot(state.snapshot);
   const plan = createFinalCandidatePlan({
     baseSha: state.snapshot.expectedBaseSha,
+    bootstrapReason: null,
     branchName: options.branch ?? state.pullRequest.head.ref,
     changedPaths: resolveChangedPaths(
       state.snapshot.expectedBaseSha,
@@ -113,9 +116,10 @@ function requestRemoteCandidate(options) {
       candidateRoot
     ),
     confidence: options.confidence,
+    controlTrust: "current-main",
     headSha: state.snapshot.expectedHeadSha,
-    mode: "local",
-    planSourceSha: state.snapshot.expectedHeadSha,
+    mode: "remote",
+    planSourceSha: state.snapshot.expectedBaseSha,
     treeSha: state.snapshot.treeSha,
   });
   printPlan(plan, []);
@@ -231,6 +235,7 @@ function prepareCandidateRun(context) {
   assertCandidateSnapshot(context.state.snapshot);
   context.plan = createFinalCandidatePlan({
     baseSha: context.state.snapshot.expectedBaseSha,
+    bootstrapReason: context.options.bootstrapReason,
     branchName: context.options.branch ?? context.state.pullRequest.head.ref,
     changedPaths: resolveChangedPaths(
       context.state.snapshot.expectedBaseSha,
@@ -238,13 +243,10 @@ function prepareCandidateRun(context) {
       context.candidateRoot
     ),
     confidence: context.options.confidence,
+    controlTrust: context.options.controlTrust,
     headSha: context.state.snapshot.expectedHeadSha,
     mode: context.mode,
-    planSourceSha:
-      context.options.planSourceSha ??
-      (context.mode === "remote"
-        ? context.state.snapshot.expectedBaseSha
-        : context.state.snapshot.expectedHeadSha),
+    planSourceSha: context.options.planSourceSha,
     treeSha: context.state.snapshot.treeSha,
   });
   printPlan(context.plan, []);
@@ -326,10 +328,12 @@ function createFailureEvidence(context, error) {
   return {
     baseSha:
       context.state?.snapshot.expectedBaseSha ?? context.options.base ?? null,
+    bootstrapReason: context.plan?.bootstrapReason ?? null,
     branchName: context.plan?.branchName ?? context.options.branch ?? null,
     changedPaths: context.plan?.changedPaths ?? [],
     conclusion: "failure",
     confidence: context.plan?.confidence ?? context.options.confidence,
+    controlTrust: context.plan?.controlTrust ?? context.options.controlTrust,
     error: sanitizeEvidenceText(
       error instanceof Error ? error.message : String(error)
     ),
@@ -357,7 +361,21 @@ function publishFinalEvidence(context, evidence, evidencePath) {
   if (!context.publishStatus) {
     return;
   }
-  let finalStatusPublished = false;
+  if (context.mode === "local") {
+    try {
+      publishPullRequestComment({
+        body: renderEvidenceSummary(evidence, evidencePath, {
+          finalStatusPending: true,
+        }),
+        pullRequestNumber: context.pullRequestNumber,
+        repository: context.repository,
+      });
+    } catch (error) {
+      recordPublicationError(context, "pull-request-comment", error);
+    }
+    evidence.publicationErrors = [...context.publicationErrors];
+  }
+
   try {
     publishCommitStatus({
       description: describeFinalStatus(evidence, context.publicationErrors),
@@ -370,35 +388,18 @@ function publishFinalEvidence(context, evidence, evidencePath) {
           : "failure",
       targetUrl: context.targetUrl,
     });
-    finalStatusPublished = true;
   } catch (error) {
     recordPublicationError(context, "final-status", error);
-  }
-  evidence.publicationErrors = [...context.publicationErrors];
-
-  if (context.mode !== "local") {
-    return;
-  }
-  try {
-    publishPullRequestComment({
-      body: renderEvidenceSummary(evidence, evidencePath),
-      pullRequestNumber: context.pullRequestNumber,
-      repository: context.repository,
-    });
-  } catch (error) {
-    recordPublicationError(context, "pull-request-comment", error);
     evidence.publicationErrors = [...context.publicationErrors];
-    if (finalStatusPublished) {
+    if (context.mode === "local") {
       try {
-        publishCommitStatus({
-          description: describeFinalStatus(evidence, context.publicationErrors),
-          headSha: evidence.headSha,
+        publishPullRequestComment({
+          body: renderEvidenceSummary(evidence, evidencePath),
+          pullRequestNumber: context.pullRequestNumber,
           repository: context.repository,
-          state: "failure",
-          targetUrl: context.targetUrl,
         });
-      } catch (statusError) {
-        recordPublicationError(context, "final-status", statusError);
+      } catch (commentError) {
+        recordPublicationError(context, "pull-request-comment", commentError);
       }
     }
   }
@@ -414,10 +415,12 @@ function describeFinalStatus(evidence, publicationErrors) {
 function createEvidence(input) {
   return {
     baseSha: input.plan.baseSha,
+    bootstrapReason: input.plan.bootstrapReason,
     branchName: input.plan.branchName,
     changedPaths: input.plan.changedPaths,
     conclusion: input.conclusion,
     confidence: input.plan.confidence,
+    controlTrust: input.plan.controlTrust,
     error: null,
     finishedAt: input.finishedAt.toISOString(),
     headSha: input.plan.headSha,
@@ -438,7 +441,7 @@ function createEvidence(input) {
 }
 
 function runCandidateCommand(command, selectedCheck, context) {
-  const executionCommand =
+  const trustedExecutionCommand =
     selectedCheck.id === "trusted-control-entrypoints"
       ? [
           process.execPath,
@@ -452,9 +455,19 @@ function runCandidateCommand(command, selectedCheck, context) {
           context.candidateRoot,
         ]
       : command;
+  const [trustedBinary, ...trustedArgs] = trustedExecutionCommand;
+  const resolvedBinary = trustedBinary === "pnpm" ? pnpmBinary : trustedBinary;
+  const executionCommand =
+    selectedCheck.id !== "trusted-control-entrypoints" &&
+    context.options.commandWrapper
+      ? [
+          path.resolve(context.options.commandWrapper),
+          resolvedBinary,
+          ...trustedArgs,
+        ]
+      : [resolvedBinary, ...trustedArgs];
   process.stdout.write(`\n$ ${formatCommand(executionCommand)}\n`);
   const [binary, ...args] = executionCommand;
-  const resolvedBinary = binary === "pnpm" ? pnpmBinary : binary;
   const commandEnvironment = { ...process.env };
   for (const credentialName of [
     "GH_ENTERPRISE_TOKEN",
@@ -463,7 +476,7 @@ function runCandidateCommand(command, selectedCheck, context) {
   ]) {
     delete commandEnvironment[credentialName];
   }
-  const result = spawnSync(resolvedBinary, args, {
+  const result = spawnSync(binary, args, {
     cwd:
       selectedCheck.id === "trusted-control-entrypoints"
         ? context.trustedRoot
@@ -493,7 +506,10 @@ function runCandidateCommand(command, selectedCheck, context) {
 }
 
 function parseOptions(args) {
-  const options = { confidence: "standard" };
+  const options = {
+    confidence: "standard",
+    controlTrust: "current-main",
+  };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--") {
@@ -524,7 +540,10 @@ function parseOptions(args) {
       candidate_root: "candidateRoot",
       evidence: "evidence",
       base: "base",
+      bootstrap_reason: "bootstrapReason",
       branch: "branch",
+      command_wrapper: "commandWrapper",
+      control_trust: "controlTrust",
       head: "head",
       mode: "mode",
       plan_source: "planSourceSha",
@@ -563,6 +582,7 @@ Run the same gate locally and publish shared evidence when Actions is unavailabl
   pnpm candidate:local -- --pr <number>
 
 Add --full to plan, request, or run. A hosted request uses the distinct final-candidate-full label and executes full repository checks; a standard request never does.
+Normal local runs are bootstrapped from exact current main. Delivery-control changes require an explicit exact --bootstrap-control-sha and --bootstrap-reason through the top-level candidate command.
 Every run prints the exact head, base, tree, changed paths, selected commands, reasons, skips, durations, and result.
 `);
 }
