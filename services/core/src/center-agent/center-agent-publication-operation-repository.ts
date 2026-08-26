@@ -29,6 +29,7 @@ export type CenterAgentPublicationOperationRecord = {
   destinationKind: CenterAgentPublicationDestinationKind;
   id: string;
   organizationId: string;
+  operationKey: string;
   representedUserId: string;
   requestSignature: string;
   responseJson: string | null;
@@ -55,6 +56,7 @@ type CenterAgentPublicationOperationRow = {
   destination_kind: CenterAgentPublicationDestinationKind;
   id: string;
   organization_id: string;
+  operation_key: string;
   represented_user_id: string;
   request_signature: string;
   response_json: string | null;
@@ -72,12 +74,14 @@ type BeginCenterAgentPublicationOperationInput = {
   destinationKind: CenterAgentPublicationDestinationKind;
   nowMs: number;
   organizationId: string;
+  operationKey: string;
   representedUserId: string;
   requestSignature: string;
   source: CenterAgentPublicationSource;
 };
 
 export const CENTER_AGENT_PUBLICATION_CLAIM_LEASE_MS = 5 * 60_000;
+export const CENTER_AGENT_PUBLICATION_DEFAULT_OPERATION_KEY = "source";
 
 export async function buildCenterAgentPublicationRequestSignature(
   value: unknown
@@ -109,6 +113,7 @@ export async function beginCenterAgentPublicationOperation(
           source_kind,
           source_id,
           source_revision,
+          operation_key,
           destination_kind,
           destination_id,
           request_signature,
@@ -118,7 +123,7 @@ export async function beginCenterAgentPublicationOperation(
           claim_expires_at_ms,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, ?, ?)
       `
     )
     .bind(
@@ -129,6 +134,7 @@ export async function beginCenterAgentPublicationOperation(
       input.source.kind,
       input.source.sourceId,
       input.source.sourceRevision,
+      input.operationKey,
       input.destinationKind,
       input.destinationId,
       input.requestSignature,
@@ -358,6 +364,7 @@ async function requireCenterAgentPublicationOperation(input: {
     actorProfileId: string;
     destinationId: string;
     destinationKind: CenterAgentPublicationDestinationKind;
+    operationKey: string;
     organizationId: string;
     source: CenterAgentPublicationSource;
   };
@@ -372,6 +379,7 @@ async function requireCenterAgentPublicationOperation(input: {
           AND source_kind = ?
           AND source_id = ?
           AND source_revision = ?
+          AND operation_key = ?
           AND destination_kind = ?
           AND destination_id = ?
         LIMIT 1
@@ -383,6 +391,7 @@ async function requireCenterAgentPublicationOperation(input: {
       input.input.source.kind,
       input.input.source.sourceId,
       input.input.source.sourceRevision,
+      input.input.operationKey,
       input.input.destinationKind,
       input.input.destinationId
     )
@@ -407,7 +416,7 @@ function assertSamePublicationRequest(
     return;
   }
   throw publicationConflict(
-    "This publication source was already used for different content or a different represented member."
+    "This publication operation was already used for different content or a different represented member."
   );
 }
 
@@ -424,6 +433,7 @@ function mapOperation(
     destinationKind: row.destination_kind,
     id: row.id,
     organizationId: row.organization_id,
+    operationKey: row.operation_key,
     representedUserId: row.represented_user_id,
     requestSignature: row.request_signature,
     responseJson: row.response_json,

@@ -26,6 +26,7 @@ export const centerAgentPublicationOperations = sqliteTable(
     sourceKind: text("source_kind").notNull(),
     sourceId: text("source_id").notNull(),
     sourceRevision: text("source_revision").notNull(),
+    operationKey: text("operation_key").notNull().default("source"),
     destinationKind: text("destination_kind").notNull(),
     destinationId: text("destination_id").notNull(),
     requestSignature: text("request_signature").notNull(),
@@ -43,6 +44,7 @@ export const centerAgentPublicationOperations = sqliteTable(
       table.sourceKind,
       table.sourceId,
       table.sourceRevision,
+      table.operationKey,
       table.destinationKind,
       table.destinationId
     ),
@@ -66,6 +68,10 @@ export const centerAgentPublicationOperations = sqliteTable(
       "center_agent_publication_operations_source_revision_shape_check",
       sql`length("source_revision") = 64
         and "source_revision" not glob '*[^0-9a-f]*'`
+    ),
+    check(
+      "center_agent_publication_operations_operation_key_non_empty_check",
+      sql`length(trim("operation_key")) > 0`
     ),
     check(
       "center_agent_publication_operations_destination_kind_check",

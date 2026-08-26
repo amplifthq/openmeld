@@ -57,6 +57,19 @@ describe("Center Agent Slack channel message contracts", () => {
     }
 
     expect(
+      centerAgentPostSlackChannelMessageBodySchema.parse({
+        ...base,
+        publicationSource: {
+          executionId: "remote_agent_submission_123",
+          kind: "remote_agent_execution",
+          operationId: "notify-release-owner",
+        },
+      })
+    ).toMatchObject({
+      publicationSource: { operationId: "notify-release-owner" },
+    });
+
+    expect(
       centerAgentPostSlackChannelMessageBodySchema.safeParse({
         ...base,
         publicationSource: {
