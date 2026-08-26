@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
   type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
@@ -15,6 +17,7 @@ export async function resolveInstalledOpenCodeLaunchCandidates(
   input?: InstalledLaunchCandidatesOptions
 ): Promise<InstalledLaunchCandidatesResolution> {
   const installedCandidates = await resolveInstalledNodeScriptLaunchCandidates({
+    additionalCommandDirectories: resolveOpenCodeCommandDirectories(),
     commandName: DEFAULT_OPENCODE_COMMAND,
     configuredCommand: normalizeOptionalText(
       process.env.OPENMELD_DAEMON_RUNTIME_OPENCODE_BIN
@@ -49,6 +52,7 @@ export async function resolveInstalledOpenCodeLaunchCandidates(
 
 export async function resolveInstalledOpenCodeLaunchContract() {
   return await resolveInstalledNodeScriptLaunchContract({
+    additionalCommandDirectories: resolveOpenCodeCommandDirectories(),
     commandName: DEFAULT_OPENCODE_COMMAND,
     configuredCommand: normalizeOptionalText(
       process.env.OPENMELD_DAEMON_RUNTIME_OPENCODE_BIN
@@ -85,6 +89,16 @@ export function resolveOpenCodeTimeoutMs(): number | null {
     return null;
   }
   return parsed;
+}
+
+function resolveOpenCodeCommandDirectories(): string[] {
+  return [
+    join(
+      normalizeOptionalText(process.env.HOME) ?? homedir(),
+      ".opencode",
+      "bin"
+    ),
+  ];
 }
 
 function normalizeOptionalText(value: unknown): string | null {

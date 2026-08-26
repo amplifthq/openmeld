@@ -15,10 +15,17 @@ import { createDefaultRuntimeAgentControllerSettings } from "../src/config/runti
 import {
   CLAUDE_CODE_HOMEBREW_CASK_RESPONSE,
   CLAUDE_CODE_HOMEBREW_CASK_URL,
+  CURSOR_HOMEBREW_CASK_URL,
+  GROK_STABLE_VERSION_URL,
+  OPENCODE_GITHUB_RELEASES_URL,
   OPENCODE_HOMEBREW_FORMULA_RESPONSE,
   OPENCODE_HOMEBREW_FORMULA_URL,
+  OPENCODE_TAP_FORMULA_SOURCE,
+  OPENCODE_TAP_FORMULA_URL,
 } from "./fixtures/homebrew-latest-versions";
 import {
+  CLAUDE_CODE_NPM_LATEST_RESPONSE,
+  CLAUDE_CODE_NPM_LATEST_URL,
   OPENCODE_NPM_LATEST_RESPONSE,
   OPENCODE_NPM_LATEST_URL,
 } from "./fixtures/opencode-npm-latest";
@@ -115,10 +122,19 @@ describe("agent controller version advisory", () => {
         "cursor-agent"
       );
       await writeCursorExecutable(binPath);
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => Response.json({ version: "2026.08.04-aaa8809" }))
-      );
+      const fetchMock = vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url === CURSOR_HOMEBREW_CASK_URL) {
+          return Promise.resolve(
+            Response.json({
+              token: "cursor-cli",
+              version: "2026.08.04-aaa8809",
+            })
+          );
+        }
+        throw new Error(`Unexpected version lookup: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
 
       const { resolveAgentControllerInterfaceSnapshot } = await import(
         "../src/local-service/inventory/agent-controller-interface"
@@ -150,10 +166,12 @@ describe("agent controller version advisory", () => {
     {
       commandPathSegments: [".bun", "bin", "opencode"],
       installMedium: "bun",
+      updateCommand: "bun i -g opencode-ai@latest",
     },
     {
       commandPathSegments: [".local", "share", "pnpm", "opencode"],
       installMedium: "pnpm",
+      updateCommand: "pnpm add -g opencode-ai@latest",
     },
     {
       commandPathSegments: [
@@ -164,9 +182,11 @@ describe("agent controller version advisory", () => {
         "opencode",
       ],
       installMedium: "npm",
+      updateCommand: "npm install -g opencode-ai@latest",
     },
   ])("keeps the npm baseline for a $installMedium path when realpath also looks like Homebrew", async ({
     commandPathSegments,
+    updateCommand,
   }) => {
     const home = await mkdtemp(
       join(tmpdir(), "openmeld-aci-package-manager-priority-")
@@ -213,6 +233,7 @@ describe("agent controller version advisory", () => {
         currentVersion: "1.17.18",
         latestVersion: "1.17.18",
         status: "current",
+        updateCommand,
       });
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledWith(OPENCODE_NPM_LATEST_URL, {
@@ -325,7 +346,7 @@ describe("agent controller version advisory", () => {
         latestVersion: "1.17.15",
         message: null,
         status: "current",
-        updateCommand: "opencode upgrade",
+        updateCommand: "brew upgrade opencode",
       });
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledWith(OPENCODE_HOMEBREW_FORMULA_URL, {
@@ -336,6 +357,147 @@ describe("agent controller version advisory", () => {
         OPENCODE_NPM_LATEST_URL,
         expect.anything()
       );
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
+  it("uses the installed Homebrew tap formula instead of Homebrew core", async () => {
+    const home = await mkdtemp(
+      join(tmpdir(), "openmeld-aci-brew-tap-opencode-")
+    );
+    try {
+      const cellarBinPath = join(
+        home,
+        "opt",
+        "homebrew",
+        "cellar",
+        "opencode",
+        "1.18.18",
+        "bin",
+        "opencode"
+      );
+      const commandPath = join(home, "opt", "homebrew", "bin", "opencode");
+      await writeOpenCodeExecutable(cellarBinPath, "1.18.18");
+      await writeHomebrewReceipt(
+        join(cellarBinPath, "..", ".."),
+        "anomalyco/tap"
+      );
+      await mkdir(join(home, "opt", "homebrew", "bin"), { recursive: true });
+      await symlink(cellarBinPath, commandPath);
+
+      const fetchMock = vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url === OPENCODE_TAP_FORMULA_URL) {
+          return Promise.resolve(new Response(OPENCODE_TAP_FORMULA_SOURCE));
+        }
+        if (
+          url === OPENCODE_HOMEBREW_FORMULA_URL ||
+          url === OPENCODE_NPM_LATEST_URL
+        ) {
+          throw new Error(`Unexpected version lookup: ${url}`);
+        }
+        throw new Error(`Unexpected version lookup: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { resolveAgentControllerInterfaceSnapshot } = await import(
+        "../src/local-service/inventory/agent-controller-interface"
+      );
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:opencode",
+        state: createAgentTargetState("opencode", "OpenCode", commandPath),
+      });
+
+      expect(snapshot.versionAdvisory).toMatchObject({
+        currentVersion: "1.18.18",
+        latestVersion: "1.18.22",
+        status: "behind_latest",
+        updateCommand: "brew upgrade anomalyco/tap/opencode",
+      });
+      expect(fetchMock).toHaveBeenCalledWith(OPENCODE_TAP_FORMULA_URL, {
+        headers: { accept: "text/plain" },
+        signal: expect.any(AbortSignal),
+      });
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
+  it("uses GitHub releases for a native OpenCode install", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-native-opencode-"));
+    try {
+      const commandPath = join(home, ".opencode", "bin", "opencode");
+      await writeOpenCodeExecutable(commandPath, "1.18.18");
+      const fetchMock = vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url === OPENCODE_GITHUB_RELEASES_URL) {
+          return Promise.resolve(
+            Response.json({ tag_name: "v1.18.22", name: "v1.18.22" })
+          );
+        }
+        throw new Error(`Unexpected version lookup: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { resolveAgentControllerInterfaceSnapshot } = await import(
+        "../src/local-service/inventory/agent-controller-interface"
+      );
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:opencode",
+        state: createAgentTargetState("opencode", "OpenCode", commandPath),
+      });
+
+      expect(snapshot.versionAdvisory).toMatchObject({
+        currentVersion: "1.18.18",
+        latestVersion: "1.18.22",
+        status: "behind_latest",
+        updateCommand: "opencode upgrade",
+      });
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
+  it("uses Grok's official channel pointer for a native Grok Build install", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-native-grok-"));
+    try {
+      const commandPath = join(home, ".grok", "bin", "grok");
+      await mkdir(join(commandPath, ".."), { recursive: true });
+      await writeFile(
+        commandPath,
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "--no-auto-update" ] && [ "$2" = "version" ]; then echo "grok 1.0.4"; exit 0; fi',
+          'if [ "$1" = "version" ]; then echo "grok 1.0.4"; exit 0; fi',
+          "exit 1",
+          "",
+        ].join("\n"),
+        "utf8"
+      );
+      await chmod(commandPath, 0o755);
+      const fetchMock = vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url === GROK_STABLE_VERSION_URL) {
+          return Promise.resolve(new Response("1.0.5\n"));
+        }
+        throw new Error(`Unexpected version lookup: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { resolveAgentControllerInterfaceSnapshot } = await import(
+        "../src/local-service/inventory/agent-controller-interface"
+      );
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:grok-build",
+        state: createAgentTargetState("grok-build", "Grok Build", commandPath),
+      });
+
+      expect(snapshot.versionAdvisory).toMatchObject({
+        latestVersion: "1.0.5",
+        status: "behind_latest",
+        updateCommand: "grok update",
+      });
     } finally {
       await rm(home, { force: true, recursive: true });
     }
@@ -374,6 +536,11 @@ describe("agent controller version advisory", () => {
 
       const fetchMock = vi.fn((input: string | URL | Request) => {
         const url = String(input);
+        if (url === CLAUDE_CODE_NPM_LATEST_URL) {
+          return Promise.resolve(
+            Response.json(CLAUDE_CODE_NPM_LATEST_RESPONSE)
+          );
+        }
         if (url === CLAUDE_CODE_HOMEBREW_CASK_URL) {
           return Promise.resolve(
             Response.json(CLAUDE_CODE_HOMEBREW_CASK_RESPONSE)
@@ -415,7 +582,7 @@ describe("agent controller version advisory", () => {
         status: "behind_latest",
         updateCommand: "brew upgrade --cask claude-code",
       });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     } finally {
       await rm(home, { force: true, recursive: true });
     }
@@ -773,8 +940,19 @@ async function writeCodexExecutable(
   await chmod(binPath, 0o755);
 }
 
+async function writeHomebrewReceipt(
+  installDir: string,
+  tap: string
+): Promise<void> {
+  await writeFile(
+    join(installDir, "INSTALL_RECEIPT.json"),
+    JSON.stringify({ source: { tap } }),
+    "utf8"
+  );
+}
+
 function createAgentTargetState(
-  agentId: "claude-code" | "codex" | "cursor" | "opencode",
+  agentId: "claude-code" | "codex" | "cursor" | "grok-build" | "opencode",
   displayName: string,
   binPath: string
 ): AgentTargetState & { targetKind: "builtin" } {

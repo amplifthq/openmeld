@@ -68,13 +68,18 @@ describe("builtin agent controller definitions", () => {
     });
     expect(openCodeDefinition?.versionMaintenance).toMatchObject({
       npmPackageName: "opencode-ai",
-      officialUpdateCommand: "opencode upgrade",
+      homebrewPackage: { kind: "formula", name: "opencode" },
     });
     expect(
-      openCodeDefinition?.versionMaintenance?.officialUpdatePath(
-        "/usr/local/bin/opencode"
+      openCodeDefinition?.versionMaintenance?.officialChannels?.[0]?.matchesPath(
+        "/Users/felix/.opencode/bin/opencode"
       )
     ).toBe(true);
+    expect(
+      openCodeDefinition?.versionMaintenance?.officialChannels?.[0]?.matchesPath(
+        "/usr/local/bin/opencode"
+      )
+    ).toBe(false);
   });
 
   it("declares native and unsupported usage limit providers explicitly", () => {

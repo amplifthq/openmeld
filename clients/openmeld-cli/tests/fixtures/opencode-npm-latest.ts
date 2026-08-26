@@ -2,6 +2,14 @@
 export const OPENCODE_NPM_LATEST_URL =
   "https://registry.npmjs.org/opencode-ai/latest";
 
+export const CLAUDE_CODE_NPM_LATEST_URL =
+  "https://registry.npmjs.org/%40anthropic-ai%2Fclaude-code/latest";
+
+export const CLAUDE_CODE_NPM_LATEST_RESPONSE = {
+  name: "@anthropic-ai/claude-code",
+  version: "2.1.197",
+} as const;
+
 export const OPENCODE_NPM_LATEST_RESPONSE = {
   name: "opencode-ai",
   version: "1.17.18",
