@@ -101,6 +101,9 @@ describe("OpenMeld Tools update coordinator", () => {
     });
 
     await coordinator.waitForIdle();
+    expect(dependencies.assessUpdate).toHaveBeenCalledWith({
+      forceRefresh: true,
+    });
     expect(dependencies.runUpgrade).toHaveBeenCalledTimes(1);
     expect(dependencies.state.lastAttempt?.operation).toMatchObject({
       phase: "updated",
@@ -206,6 +209,9 @@ describe("OpenMeld Tools update coordinator", () => {
       currentVersion: "0.3.104",
       status: "current",
     });
+    expect(dependencies.assessUpdate).toHaveBeenCalledWith({
+      forceRefresh: true,
+    });
     expect(dependencies.persistAttempt).not.toHaveBeenCalled();
     expect(dependencies.runUpgrade).not.toHaveBeenCalled();
   });
@@ -225,6 +231,33 @@ describe("OpenMeld Tools update coordinator", () => {
       expect(resumePendingUpdate).toHaveBeenCalledTimes(1);
     });
     await stop();
+  });
+
+  it("checks for new releases every hour", async () => {
+    vi.useFakeTimers();
+    const requestUpdate = vi.fn(async () => ({ status: "disabled" as const }));
+    const stop = startOpenMeldToolsAutomaticUpdateLoop({
+      coordinator: {
+        requestUpdate,
+        resumePendingUpdate: vi.fn(async () => false),
+        waitForIdle: vi.fn(),
+      },
+      initialDelayMs: 0,
+    });
+
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(requestUpdate).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 - 1);
+      expect(requestUpdate).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(requestUpdate).toHaveBeenCalledTimes(2);
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
   });
 
   it("does not keep Service shutdown waiting for an update process", () => {

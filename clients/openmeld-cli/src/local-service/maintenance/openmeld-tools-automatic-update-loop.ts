@@ -1,7 +1,7 @@
 import type { OpenMeldToolsUpdateCoordinator } from "./openmeld-tools-update-coordinator";
 
 const INITIAL_AUTOMATIC_UPDATE_DELAY_MS = 2 * 60 * 1000;
-const AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
 export function startOpenMeldToolsAutomaticUpdateLoop(input: {
   coordinator: OpenMeldToolsUpdateCoordinator;

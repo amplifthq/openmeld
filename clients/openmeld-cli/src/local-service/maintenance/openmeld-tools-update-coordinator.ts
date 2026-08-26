@@ -30,7 +30,9 @@ import {
 } from "./openmeld-tools-upgrade-process";
 
 type OpenMeldToolsUpdateCoordinatorDependencies = {
-  assessUpdate: () => Promise<CliUpdateAssessment>;
+  assessUpdate: (input: {
+    forceRefresh: boolean;
+  }) => Promise<CliUpdateAssessment>;
   completeAttempt: (attempt: OpenMeldToolsUpdateAttempt) => Promise<void>;
   createOperationId: () => string;
   discardPendingAttempt: () => Promise<void>;
@@ -137,7 +139,7 @@ export function createOpenMeldToolsUpdateCoordinator(
       };
     }
 
-    const assessment = await deps.assessUpdate();
+    const assessment = await deps.assessUpdate({ forceRefresh: true });
     if (!(assessment.checked && assessment.latestVersion)) {
       return { status: "unavailable" };
     }
@@ -245,6 +247,7 @@ function resolveDependencies(
       (async () =>
         await assessCliUpdate({
           environmentTarget: await resolveOpenMeldEnvironmentTarget(),
+          forceRefresh: true,
         })),
     completeAttempt:
       overrides.completeAttempt ?? completeOpenMeldToolsUpdateAttempt,
