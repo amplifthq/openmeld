@@ -21,7 +21,6 @@ const SHA = "1".repeat(40);
 const REMOTE_SHA = "2".repeat(40);
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const HOOK_READS_PUSH_UPDATES = /push_updates=\$\(cat\)/u;
-const HOOK_RUNS_SHARED_CHECKS = /verify:pre-push:checks/u;
 const HOOK_RUNS_RELEASE_SELECTOR = /pre-push-release-ready\.mjs/u;
 const PUSHED_OBJECT_MISMATCH_PATTERN = /does not match the checked-out HEAD/u;
 const PACKAGE_VERSION_MISMATCH_PATTERN = /package version/u;
@@ -53,12 +52,12 @@ test("a push whose destination includes main selects strict release verification
   );
 });
 
-test("only non-main branch destinations select deferred feature verification", () => {
+test("ordinary non-main branch destinations do not block iterative pushes", () => {
   assert.equal(
     resolvePrePushReleaseMode(
       `refs/heads/feature ${SHA} refs/heads/feature ${REMOTE_SHA}\n`
     ),
-    "deferred"
+    "skip"
   );
   assert.equal(
     resolvePrePushReleaseMode(
@@ -79,7 +78,7 @@ test("an explicit versioned release branch selects strict release verification",
     resolvePrePushReleaseMode(
       `refs/heads/codex/release-not-a-version ${SHA} refs/heads/codex/release-not-a-version ${REMOTE_SHA}\n`
     ),
-    "deferred"
+    "skip"
   );
 });
 
@@ -348,10 +347,10 @@ function isolatedGitTestEnvironment(env) {
   return isolated;
 }
 
-test("the Git hook preserves pushed-ref input for the release-mode selector", () => {
+test("the Git hook preserves pushed-ref input without repeating candidate checks", () => {
   const hook = readFileSync(join(REPO_ROOT, ".husky/pre-push"), "utf8");
 
   assert.match(hook, HOOK_READS_PUSH_UPDATES);
-  assert.match(hook, HOOK_RUNS_SHARED_CHECKS);
   assert.match(hook, HOOK_RUNS_RELEASE_SELECTOR);
+  assert.ok(!hook.includes("verify:pre-push:checks"));
 });

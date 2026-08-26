@@ -81,6 +81,16 @@ test("detects paths that require the release-ready gate", () => {
     true
   );
   assert.equal(
+    isReleaseReadyPath("packages/schemas/src/schemas/ci/final-candidate.ts"),
+    false
+  );
+  assert.equal(
+    isReleaseReadyPath(
+      "packages/schemas/src/schemas/release/production-scope-lease.ts"
+    ),
+    false
+  );
+  assert.equal(
     isReleaseReadyPath("runtime/adapters/core/src/launch-contract.ts"),
     true
   );

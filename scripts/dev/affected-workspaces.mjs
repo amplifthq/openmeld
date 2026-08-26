@@ -64,7 +64,7 @@ export function resolveTurboCommandArgs({ dlxPackage, turboRunArgs }) {
   }
   if (!EXACT_TURBO_PACKAGE_REGEX.test(dlxPackage)) {
     throw new Error(
-      `The lightweight CI planner requires an exact Turbo version, received "${dlxPackage}".`
+      `Affected validation requires an exact Turbo version, received "${dlxPackage}".`
     );
   }
   return ["dlx", dlxPackage, ...turboRunArgs];

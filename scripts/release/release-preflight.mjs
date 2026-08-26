@@ -75,7 +75,7 @@ function buildCheckSpecs() {
     {
       id: "branch-policy",
       label: "Branch policy",
-      fix: "Land the release branch through a PR with Fast PR; never push main directly.",
+      fix: "Land the release branch through a PR with exact Final Candidate evidence; never push main directly.",
       run: checkBranchPolicy,
     },
     {
@@ -199,7 +199,7 @@ function checkBranchPolicy() {
   return {
     status: "PASS",
     detail:
-      "Repository policy is PR-only main with Fast PR; this is a static reminder, not a GitHub branch-protection API check.",
+      "Repository policy is PR-only main with exact Final Candidate evidence; this is a static reminder, not a GitHub Ruleset API check.",
   };
 }
 

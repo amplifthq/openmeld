@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import process from "node:process";
 import { AUTH_DB_MIGRATIONS_PATH } from "../../packages/db/src/auth/fact-metadata.ts";
 import {
   SHARED_DB_BINDING_NAME,
@@ -11,7 +12,10 @@ import { ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMIT } from "../../services/auth/sr
 import { FEEDBACK_SUBMIT_RATE_LIMITS } from "../../services/gateway/src/feedback/feedback-submit-rate-limiter.ts";
 import { SPACE_PASSWORD_RATE_LIMIT } from "../../services/gateway/src/lib/space-password-rate-limiter.ts";
 
-const repoRoot = path.resolve(import.meta.dirname, "../..");
+const repoRoot = path.resolve(
+  process.env.OPENMELD_VERIFICATION_ROOT ??
+    path.resolve(import.meta.dirname, "../..")
+);
 const DEV_VAR_KEY_PATTERN = /^([A-Z0-9_]+)=/u;
 const CONFIG_ENV_LABEL_PREFIX_PATTERN = /^env\./u;
 const OPENCONNECTOR_GOOGLE_ACTION_PATTERN =

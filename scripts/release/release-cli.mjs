@@ -4,7 +4,6 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
 import {
   fetchCliChannelManifest,
   isEnvFlagEnabled,
@@ -146,11 +145,16 @@ export function buildPreTagCliReleaseStepSpecs(input = {}) {
 export function tagCliRelease(input = {}) {
   const cwd = input.cwd ?? process.cwd();
   const tagName = resolveCliReleaseTagName({ cwd });
-  const existing = readTagCommit({ cwd, tagName });
+  const existing = readTagCommit({
+    cwd,
+    gitEnvironment: input.gitEnvironment,
+    tagName,
+  });
   if (existing) {
     const head = execFileSync(gitBinary(), ["rev-parse", "HEAD"], {
       cwd,
       encoding: "utf8",
+      env: input.gitEnvironment,
     }).trim();
     if (existing === head) {
       return { created: false, tagName };
@@ -162,7 +166,7 @@ export function tagCliRelease(input = {}) {
   execFileSync(
     gitBinary(),
     ["tag", "-a", tagName, "-m", `Release OpenMeld CLI ${tagName.slice(1)}`],
-    { cwd, encoding: "utf8" }
+    { cwd, encoding: "utf8", env: input.gitEnvironment }
   );
   return { created: true, tagName };
 }
@@ -174,13 +178,37 @@ export function tagCliRelease(input = {}) {
  */
 export function publishCliReleaseTag(input = {}) {
   const cwd = input.cwd ?? process.cwd();
-  const local = tagCliRelease({ cwd });
+  const localGitEnvironment = input.localGitEnvironment ?? input.gitEnvironment;
+  const local = tagCliRelease({
+    cwd,
+    gitEnvironment: localGitEnvironment,
+  });
   const tagRef = `refs/tags/${local.tagName}`;
+  const headSha = execFileSync(gitBinary(), ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+    env: localGitEnvironment,
+  }).trim();
+  if (input.sourceSha && headSha !== input.sourceSha) {
+    throw new Error(
+      `Trusted CLI tag publication expected ${input.sourceSha}, found ${headSha}.`
+    );
+  }
   try {
-    execFileSync(gitBinary(), ["push", "origin", `${tagRef}:${tagRef}`], {
-      cwd,
-      encoding: "utf8",
-    });
+    execFileSync(
+      gitBinary(),
+      [
+        "push",
+        "--no-verify",
+        input.remoteUrl ?? "origin",
+        `${tagRef}:${tagRef}`,
+      ],
+      {
+        cwd,
+        encoding: "utf8",
+        env: input.gitEnvironment,
+      }
+    );
   } catch (error) {
     throw new Error(
       `Failed to publish immutable release tag ${local.tagName} to origin. The local tag remains safe to reuse on the next release attempt.`,
@@ -195,7 +223,11 @@ function readTagCommit(input) {
     return execFileSync(
       gitBinary(),
       ["rev-parse", "--verify", `refs/tags/${input.tagName}^{commit}`],
-      { cwd: input.cwd, encoding: "utf8" }
+      {
+        cwd: input.cwd,
+        encoding: "utf8",
+        env: input.gitEnvironment,
+      }
     ).trim();
   } catch {
     return null;
@@ -303,7 +335,7 @@ export async function assertChannelReadyForVersionOnlyRelease(input = {}) {
     throw new Error(
       [
         `CLI release refused: the production CLI manifest is missing channels.stable.version, so it is not possible to confirm releasing ${declaredVersion} without --with-binary is safe.`,
-        "Next: inspect all channel blockers with `pnpm run release:preflight`, or rerun the complete release with `pnpm run release:cli --with-binary`.",
+        "Next: inspect all channel blockers with `pnpm run release:preflight`, or rerun the guarded CLI release with `pnpm run release:deploy:local -- --scope cli`.",
       ].join("\n")
     );
   }
@@ -355,7 +387,7 @@ function formatChannelPreflightBehindError(input) {
     "",
     "Fix — choose one:",
     "  1. Rerun with --with-binary so this release builds and uploads the binary first:",
-    "     pnpm run release:cli --with-binary",
+    "     pnpm run release:deploy:local -- --scope cli",
     "  2. Or upload the binary separately first, then rerun this release:",
     "     pnpm exec node scripts/release/upload-cli-binary.mjs",
   ].join("\n");
@@ -367,7 +399,7 @@ function formatChannelPreflightNetworkFailure(input) {
     `Fetching the production CLI manifest failed: ${input.error instanceof Error ? input.error.message : String(input.error)}`,
     "",
     "Failing closed: without confirming the channel already has this version, releasing without --with-binary risks the 2026-07-10 half-release incident (Core announces a version with no matching CLI binary).",
-    "Next: restore network access and run `pnpm run release:preflight`, or rerun the complete release with `pnpm run release:cli --with-binary`.",
+    "Next: restore network access and run `pnpm run release:preflight`, or rerun the guarded CLI release with `pnpm run release:deploy:local -- --scope cli`.",
   ].join("\n");
 }
 
@@ -404,13 +436,4 @@ function resolveCommandBinary(command) {
     default:
       return command;
   }
-}
-
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  runCliRelease(parseCliReleaseArgs(process.argv.slice(2))).catch((error) => {
-    process.stderr.write(
-      `${error instanceof Error ? error.message : String(error)}\n`
-    );
-    process.exitCode = 1;
-  });
 }

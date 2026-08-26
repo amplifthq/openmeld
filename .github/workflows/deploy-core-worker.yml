@@ -1,32 +1,10 @@
 name: ⚙️ Deploy Core Worker
-run-name: Deploy Core Worker @ ${{ inputs.release_sha || github.sha }}
+run-name: Deploy Core Worker @ ${{ inputs.release_sha }}
 
 permissions:
-  contents: read
+  contents: write
 
 on:
-  workflow_dispatch:
-    inputs:
-      deploy_environment:
-        description: "Deployment environment"
-        required: true
-        type: choice
-        default: production
-        options:
-          - production
-      release_sha:
-        description: "Optional exact main commit to deploy"
-        required: false
-        type: string
-        default: ""
-      deployment_mode:
-        description: "Deploy the checked-in projection or recover the current stable CLI projection"
-        required: true
-        type: choice
-        default: standard
-        options:
-          - standard
-          - current-stable-cli-projection
   workflow_call:
     inputs:
       deploy_environment:
@@ -36,9 +14,8 @@ on:
         default: production
       release_sha:
         description: "Exact main commit to deploy"
-        required: false
+        required: true
         type: string
-        default: ""
       deployment_mode:
         description: "Core deployment mode"
         required: false
@@ -46,30 +23,39 @@ on:
         default: standard
 
 jobs:
-  deploy:
-    name: ⚙️ Deploy Core Worker
+  validate_release_source:
+    name: Validate Immutable Main Release Source
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    concurrency:
-      group: deploy-core-worker-production
-      cancel-in-progress: false
-    environment: production
-    env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    permissions:
+      contents: read
     steps:
-      - name: Validate production target
+      - name: Checkout trusted current main validation code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Refresh current main with step-scoped read authentication
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
+      - name: Require production target, deployment mode, and main first-parent release SHA
         shell: bash
         env:
+          DEPLOY_ENVIRONMENT: ${{ inputs.deploy_environment }}
           DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        working-directory: release-control
         run: |
           set -euo pipefail
-          if [ "${{ inputs.deploy_environment || 'production' }}" != "production" ]; then
+          if [ "$DEPLOY_ENVIRONMENT" != "production" ]; then
             echo "::error::Unsupported deploy environment. Only production is allowed."
-            exit 1
-          fi
-          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
-            echo "::error::Production deploys must run from main. Current ref: ${GITHUB_REF}"
             exit 1
           fi
           case "$DEPLOYMENT_MODE" in
@@ -79,24 +65,82 @@ jobs:
               exit 1
               ;;
           esac
+          node scripts/release/require-mainline-release-sha.mjs \
+            "$RELEASE_SHA" refs/remotes/origin/main
+
+  deploy:
+    name: ⚙️ Deploy Core Worker
+    needs: validate_release_source
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: deploy-core-worker-production
+      queue: max
+      cancel-in-progress: false
+    environment: production
+    defaults:
+      run:
+        working-directory: release-source
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Checkout trusted release control
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          path: release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
 
       - name: Checkout release commit
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: ${{ inputs.release_sha || github.sha }}
+          path: release-source
+          persist-credentials: false
+          ref: ${{ inputs.release_sha }}
 
       - name: Setup repository toolchain
-        uses: ./.github/actions/setup-node-pnpm
+        uses: ./release-control/.github/actions/setup-node-pnpm
+        with:
+          control_directory: release-control
+          working_directory: release-source
+
+      - name: Acquire shared Core release lease
+        id: scope_lease
+        uses: ./release-control/.github/actions/production-scope-lease
+        with:
+          github_token: ${{ github.token }}
+          operation: acquire
+          owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          scope: core
+          source_sha: ${{ inputs.release_sha }}
+          working_directory: release-source
 
       - name: Run Core Worker deployment preflight
         if: inputs.deployment_mode == 'standard'
-        run: pnpm run release:preflight:local -- --scope core --base HEAD
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          node ../release-control/scripts/release/hosted-production-preflight.mjs \
+            --release-source "$PWD" \
+            --release-sha "$RELEASE_SHA" \
+            --scope core
 
       - name: Run current-stable Core recovery preflight
         if: inputs.deployment_mode == 'current-stable-cli-projection'
-        run: pnpm run release:preflight:core-current-cli-projection
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          node ../release-control/scripts/release/hosted-production-preflight.mjs \
+            --release-source "$PWD" \
+            --release-sha "$RELEASE_SHA" \
+            --scope core \
+            --current-stable-cli-projection
 
       - name: Capture Core bundle evidence
         run: pnpm run evidence:bundle:core
@@ -107,19 +151,24 @@ jobs:
 
       - name: Fetch immutable CLI release tags
         if: inputs.deployment_mode == 'current-stable-cli-projection'
-        run: git fetch --tags
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-tags
+          repository: ${{ github.repository }}
+          working_directory: release-source
 
       - name: Admit and deploy the standard Core Worker
         if: inputs.deployment_mode == 'standard'
         run: >-
           node scripts/release/deploy-core-worker.mjs
-          --release-sha "${{ inputs.release_sha || github.sha }}"
+          --release-sha "${{ inputs.release_sha }}"
 
       - name: Recover Core with the current stable CLI projection
         if: inputs.deployment_mode == 'current-stable-cli-projection'
         run: >-
           node scripts/release/deploy-core-current-cli-projection.mjs
-          --release-sha "${{ inputs.release_sha || github.sha }}"
+          --release-sha "${{ inputs.release_sha }}"
 
       - name: Verify Core deployment is visible
         run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
@@ -128,36 +177,46 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: core-bundle-evidence-${{ inputs.release_sha || github.sha }}
+          name: core-bundle-evidence-${{ inputs.release_sha }}
           if-no-files-found: warn
-          path: dev-tmp/core-bundle-evidence.json
+          path: release-source/dev-tmp/core-bundle-evidence.json
           retention-days: 30
 
       - name: Preserve Core startup evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: core-startup-evidence-${{ inputs.release_sha || github.sha }}
+          name: core-startup-evidence-${{ inputs.release_sha }}
           if-no-files-found: warn
           path: |
-            dev-tmp/core-startup-evidence.json
-            dev-tmp/core-startup-admission.json
+            release-source/dev-tmp/core-startup-evidence.json
+            release-source/dev-tmp/core-startup-admission.json
           retention-days: 30
 
       - name: Preserve the local Core startup profile
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: core-startup-profile-${{ inputs.release_sha || github.sha }}
+          name: core-startup-profile-${{ inputs.release_sha }}
           if-no-files-found: warn
-          path: dev-tmp/core-startup.cpuprofile
+          path: release-source/dev-tmp/core-startup.cpuprofile
           retention-days: 14
 
       - name: Preserve a failed Core startup profile
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: core-failed-deploy-startup-profile-${{ inputs.release_sha || github.sha }}
+          name: core-failed-deploy-startup-profile-${{ inputs.release_sha }}
           if-no-files-found: ignore
-          path: services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
+          path: release-source/services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
           retention-days: 14
+
+      - name: Release shared Core release lease
+        if: always() && steps.scope_lease.outputs.lease_sha != ''
+        uses: ./release-control/.github/actions/production-scope-lease
+        with:
+          github_token: ${{ github.token }}
+          lease_sha: ${{ steps.scope_lease.outputs.lease_sha }}
+          operation: release
+          scope: core
+          working_directory: release-source

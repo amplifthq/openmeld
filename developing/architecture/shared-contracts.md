@@ -568,6 +568,34 @@ diagnostics, and shared external error contracts.
 Shared types must derive from schemas, usually through `z.infer`. Do not create
 a separate hand-written shared type that can drift from the runtime schema.
 
+### Delivery Evidence And Production Lease Contracts
+
+`packages/schemas/src/schemas/ci/final-candidate.ts` owns the strict versioned
+Final Candidate evidence exchanged between the local runner, hosted runner,
+workflow artifact, PR comment renderer, and status publisher. The contract
+keeps candidate validation and evidence-publication failures separate, bounds
+recorded command output, and makes head, base, and tree identity mandatory for
+success. It also owns the runtime projection of GitHub's pull-request candidate
+facts; the repository fixture is captured from the GitHub REST API rather than
+shaped from runner assumptions.
+
+`packages/schemas/src/schemas/release/production-scope-lease.ts` owns the
+strict metadata stored in the cross-machine Git scope lease. The schema defines
+scope, owner, exact source SHA, start, expiry, lease identity, and the durable
+record for an explicit expired-lease recovery. It does not authorize a release:
+the guarded release entrypoint still owns source validation, scope planning,
+credentials, deployment, health, and recovery. The end-to-end lifecycle and
+reuse rules remain solely in
+`developing/engineering/agent-native-delivery.md`.
+
+These two delivery-control schemas are engineering contracts consumed directly
+by repository tooling. They are not exported from the package-wide runtime
+schema index and are not packaged into the CLI or OpenMeld Service. Changes
+under `schemas/ci` or `schemas/release` therefore require their behavior and
+workflow contract tests, but do not by themselves create a local-component
+release. Product-facing and runtime schemas elsewhere in `packages/schemas`
+remain release-sensitive.
+
 ### Prepare Diagnostics Lifecycle Journal Contract
 
 `prepareStepDiagnosticsLifecycleEventTypeSchema` is the strict shared allowlist
@@ -4158,7 +4186,7 @@ Service projection `required` even when the latest artifact is advisory:
   derives this floor from the manifest in the same step, so the npm field is a
   projection, not a second source of truth. The floor is monotonic inside a
   release line against the last-published baseline (the `v*` release tag
-  `release:cli` creates): a `required` release pins it to at least its own
+  created by the guarded CLI release): a `required` release pins it to at least its own
   version, a deliberate in-repo raise may ship with any release (it stays
   dormant until the next `required` release pins it higher anyway), and `verify`
   hard-rejects any regression below the baseline — dropping the floor silently
