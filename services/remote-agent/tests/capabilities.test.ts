@@ -258,6 +258,22 @@ describe("remote agent Flue capability inventory", () => {
     );
   });
 
+  it("loads one complete Agent Profile creation capability set", () => {
+    expect(
+      expandRemoteAgentCapabilityDependencies(
+        new Set(["openmeld_create_agent_profile_request"])
+      )
+    ).toEqual(
+      new Set([
+        "openmeld_create_agent_profile_request",
+        "openmeld_read_organization_directory",
+        "openmeld_read_agent_profile_creation_defaults",
+        "openmeld_list_local_agent_connection_candidates",
+        "openmeld_list_projects",
+      ])
+    );
+  });
+
   it("exposes structured Space Reference input on the direct Wake tool", async () => {
     const request = createSubmitTurnRequest();
     const storage = new InMemoryDurableObjectStorage();
@@ -373,6 +389,30 @@ describe("remote agent Flue capability inventory", () => {
         type: "object",
       });
     }
+
+    const createRequestTool = tools.find(
+      (candidate) => candidate.name === "openmeld_create_agent_profile_request"
+    );
+    if (!createRequestTool?.input) {
+      throw new Error("Unified Agent Profile creation input is unavailable.");
+    }
+    expect(
+      toJsonSchema(createRequestTool.input, {
+        errorMode: "ignore",
+        typeMode: "input",
+      })
+    ).toMatchObject({
+      properties: {
+        configuration: {
+          properties: {
+            agentControllerCollaborationMode: {
+              enum: ["codex:default", "codex:plan"],
+              type: "string",
+            },
+          },
+        },
+      },
+    });
   });
 
   it("records the sandbox decisions required by the W1-P1 vetting table", () => {

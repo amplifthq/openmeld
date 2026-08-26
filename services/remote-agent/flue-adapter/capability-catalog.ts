@@ -54,16 +54,20 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     dependencies: ["openmeld_list_local_agent_connection_candidates"],
     namespace: "agents_and_computers",
   },
-  openmeld_create_configured_agent_profile: {
+  openmeld_create_agent_profile_request: {
     aliases: [
       "create a working Agent Profile",
       "set up a complete Agent Profile",
+      "create a local agent",
       "创建可工作的代理配置文件",
       "完整设置代理配置文件",
+      "创建本地代理",
     ],
     dependencies: [
+      "openmeld_read_organization_directory",
+      "openmeld_read_agent_profile_creation_defaults",
       "openmeld_list_local_agent_connection_candidates",
-      "openmeld_list_spaces",
+      "openmeld_list_projects",
     ],
     namespace: "agents_and_computers",
   },
