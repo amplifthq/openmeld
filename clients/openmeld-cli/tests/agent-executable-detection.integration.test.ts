@@ -33,9 +33,8 @@ describe("built-in agent executable detection", () => {
       await withAgentDetectionEnv(async ({ binDir }) => {
         await writeExecutableCommand({
           binDir,
-          commandName: "codex",
-          script:
-            '#!/bin/sh\nif [ "$1" = "--version" ]; then echo \'codex 1.0.0\'; exit 0; fi\nexit 0\n',
+          commandName: TEST_CODEX_COMMAND,
+          script: fakeCodexSource("1.0.0"),
         });
 
         const state = await resolveAgentTargetState("codex");
@@ -93,8 +92,8 @@ describe("built-in agent executable detection", () => {
       await withAgentDetectionEnv(async ({ binDir }) => {
         await writeExecutableCommand({
           binDir,
-          commandName: "codex",
-          script: "#!/bin/sh\nsleep 2\n",
+          commandName: TEST_CODEX_COMMAND,
+          script: unresponsiveCodexSource(),
         });
 
         const startedAt = Date.now();
@@ -155,7 +154,10 @@ async function withAgentDetectionEnv<T>(
   // fixture command stays a fast test instead of falling back to
   // verifyCliLaunchContract's much longer built-in default.
   process.env.OPENMELD_DAEMON_RUNTIME_REQUEST_TIMEOUT_MS = "100";
-  Reflect.deleteProperty(process.env, "OPENMELD_DAEMON_RUNTIME_CODEX_BIN");
+  // A unique configured command keeps this fixture hermetic on developer
+  // computers that have Codex in /usr/local/bin, /opt/homebrew/bin, or an app
+  // bundle outside the deliberately reduced PATH.
+  process.env.OPENMELD_DAEMON_RUNTIME_CODEX_BIN = TEST_CODEX_COMMAND;
   Reflect.deleteProperty(
     process.env,
     "OPENMELD_DAEMON_RUNTIME_CLAUDE_CODE_BIN"
@@ -169,6 +171,43 @@ async function withAgentDetectionEnv<T>(
       restoreEnv(key, previousEnv.get(key));
     }
   }
+}
+
+const TEST_CODEX_COMMAND = "openmeld-codex-detection-fixture";
+
+function fakeCodexSource(version: string): string {
+  return [
+    `#!${process.execPath}`,
+    `if (process.argv[2] === "--version") { console.log("codex-cli ${version}"); process.exit(0); }`,
+    'process.stdin.setEncoding("utf8");',
+    'let buffer = "";',
+    'const reply = (id, result) => process.stdout.write(JSON.stringify({ id, jsonrpc: "2.0", result }) + "\\n");',
+    "const handle = (message) => {",
+    `  if (message.method === "initialize") reply(message.id, { userAgent: "codex/${version} (test)" });`,
+    '  if (message.method === "account/read") reply(message.id, { account: { email: "dev@example.com", type: "chatgpt" } });',
+    "};",
+    'process.stdin.on("data", (chunk) => {',
+    "  buffer += chunk;",
+    '  let index = buffer.indexOf("\\n");',
+    "  while (index >= 0) {",
+    "    const line = buffer.slice(0, index).trim();",
+    "    buffer = buffer.slice(index + 1);",
+    "    if (line) handle(JSON.parse(line));",
+    '    index = buffer.indexOf("\\n");',
+    "  }",
+    "});",
+    "",
+  ].join("\n");
+}
+
+function unresponsiveCodexSource(): string {
+  return [
+    `#!${process.execPath}`,
+    'if (process.argv[2] === "--version") { console.log("codex-cli 1.0.0"); process.exit(0); }',
+    "process.stdin.resume();",
+    "setInterval(() => undefined, 1_000);",
+    "",
+  ].join("\n");
 }
 
 async function writeExecutableCommand(input: {

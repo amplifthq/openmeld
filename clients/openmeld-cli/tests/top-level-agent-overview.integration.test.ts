@@ -11,9 +11,11 @@ import { MANUAL_OPENMELD_UPGRADE_COMMAND } from "../src/runtime/manual-upgrade";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 import { seedVersionState } from "./helpers/version";
 
-const { listDaemonOwnedProcessesMock } = vi.hoisted(() => ({
-  listDaemonOwnedProcessesMock: vi.fn(),
-}));
+const { listDaemonOwnedProcessesMock, runDaemonTeardownStrictMock } =
+  vi.hoisted(() => ({
+    listDaemonOwnedProcessesMock: vi.fn(),
+    runDaemonTeardownStrictMock: vi.fn(),
+  }));
 
 vi.mock(
   "../src/local-service/lifecycle/daemon-service-process-inventory",
@@ -29,9 +31,26 @@ vi.mock(
   }
 );
 
+vi.mock("../src/commands/service", async () => {
+  const actual = await vi.importActual<
+    typeof import("../src/commands/service")
+  >("../src/commands/service");
+  return {
+    ...actual,
+    runDaemonTeardownStrict: (...args: unknown[]) =>
+      runDaemonTeardownStrictMock(...args),
+  };
+});
+
 describe("top-level agent overview", () => {
   beforeEach(() => {
     listDaemonOwnedProcessesMock.mockReset().mockResolvedValue([]);
+    runDaemonTeardownStrictMock.mockReset().mockResolvedValue({
+      removed: false,
+      stopSignal: null,
+      systemServiceController: null,
+      systemServiceUninstalled: false,
+    });
   });
 
   it("emits structured helper output for root, view, and reset", async () => {
