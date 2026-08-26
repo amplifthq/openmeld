@@ -183,9 +183,18 @@ describe("auth db tooling proxies", () => {
     expect(releaseOnMainWorkflow).toContain("          - database-core");
     expect(releaseOnMainWorkflow).toContain("          - full");
     expect(releaseOnMainWorkflow).toContain(
-      "uses: ./.github/actions/shared-db-gate"
+      "uses: ./release-control/.github/actions/shared-db-gate"
     );
-    expect(sharedDbAction).toContain("run: pnpm run db:release:prod");
+    expect(releaseOnMainWorkflow).toContain(
+      "working_directory: release-source"
+    );
+    expect(sharedDbAction).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: this asserts the literal GitHub Actions expression text in the composite action.
+      "DB_RELEASE_WORKING_DIRECTORY: ${{ inputs.working_directory }}"
+    );
+    expect(sharedDbAction).toContain(
+      'run: pnpm --dir "$DB_RELEASE_WORKING_DIRECTORY" run db:release:prod'
+    );
     expect(releaseOnMainWorkflow).not.toContain("space_index_ready");
     expect(releaseOnMainWorkflow).not.toContain("deploy:space-index-ready");
 
