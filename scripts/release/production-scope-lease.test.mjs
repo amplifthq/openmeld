@@ -251,7 +251,7 @@ test("uses the explicit release-source checkout and ephemeral HTTPS auth in an A
       [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
-        `printf "%s|%s|%s|%s|%s|%s|%s\\n" "$PWD" "$*" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_KEY_0:-}" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_VALUE_0:-}" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_KEY_3:-}" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_VALUE_3:-}" "${SHELL_PARAMETER_PREFIX}{OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN:-absent}" >> "$FAKE_GIT_LOG"`,
+        `printf "%s|%s|%s|%s|%s|%s|%s\\n" "$PWD" "$*" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_KEY_0:-}" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_VALUE_0:-}" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_KEY_4:-}" "${SHELL_PARAMETER_PREFIX}{GIT_CONFIG_VALUE_4:-}" "${SHELL_PARAMETER_PREFIX}{OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN:-absent}" >> "$FAKE_GIT_LOG"`,
         `case "\${1:-}" in`,
         `  commit-tree) printf '%s\\n' '${leaseSha}' ;;`,
         "  *) ;;",
@@ -303,7 +303,10 @@ test("uses the explicit release-source checkout and ephemeral HTTPS auth in an A
         (operation) => command.startsWith(operation)
       );
       if (authenticatedNetworkOperation) {
-        assert.equal(authKey, "http.https://github.com/.extraheader");
+        assert.equal(
+          authKey,
+          "http.https://github.com/amplifthq/openmeld.git.extraheader"
+        );
         assert.equal(
           authValue,
           `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
@@ -339,6 +342,7 @@ test("coordination-ref pushes bypass historical release-source hooks", () => {
     chmodSync(hook, 0o755);
     const environment = {
       ...process.env,
+      OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY: "amplifthq/openmeld",
       OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: "https://github.com",
       OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: "fixture-token-not-a-real-secret",
     };

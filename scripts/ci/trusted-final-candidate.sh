@@ -88,6 +88,18 @@ trusted_git() {
 }
 
 readonly candidate_root="$(trusted_git rev-parse --show-toplevel)"
+readonly temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/openmeld-trusted-final-candidate.XXXXXX")"
+readonly network_root="$temporary_root/network.git"
+readonly control_root="$temporary_root/control"
+
+cleanup() {
+  if [ -d "$control_root" ]; then
+    trusted_git -C "$candidate_root" worktree remove --force "$control_root" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$temporary_root"
+}
+trap cleanup EXIT INT TERM
+
 readonly trusted_remote_url="$(trusted_git -C "$candidate_root" config --local --get remote.origin.url)"
 case "$trusted_remote_url" in
   /* | file://*) ;;
@@ -107,7 +119,10 @@ case "$trusted_remote_url" in
     exit 66
     ;;
 esac
-trusted_git -C "$candidate_root" fetch --no-tags "$trusted_remote_url" \
+trusted_git init --bare --quiet "$network_root"
+trusted_git --git-dir="$network_root" fetch --no-tags "$trusted_remote_url" \
+  refs/heads/main:refs/heads/main
+trusted_git -C "$candidate_root" fetch --no-tags "$network_root" \
   refs/heads/main:refs/remotes/origin/main
 readonly current_main="$(trusted_git -C "$candidate_root" rev-parse --verify refs/remotes/origin/main^{commit})"
 readonly candidate_head="$(trusted_git -C "$candidate_root" rev-parse --verify HEAD^{commit})"
@@ -141,17 +156,6 @@ if ! trusted_git -C "$candidate_root" cat-file -e "$current_main:$bootstrap_rela
   control_sha="$candidate_head"
   control_trust="explicit-bootstrap"
 fi
-
-readonly temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/openmeld-trusted-final-candidate.XXXXXX")"
-readonly control_root="$temporary_root/control"
-
-cleanup() {
-  if [ -d "$control_root" ]; then
-    trusted_git -C "$candidate_root" worktree remove --force "$control_root" >/dev/null 2>&1 || true
-  fi
-  rm -rf "$temporary_root"
-}
-trap cleanup EXIT INT TERM
 
 trusted_git -C "$candidate_root" worktree add --detach --quiet "$control_root" "$control_sha"
 readonly bootstrap_path="$(cd "$control_root" && pwd -P)/$bootstrap_relative_path"

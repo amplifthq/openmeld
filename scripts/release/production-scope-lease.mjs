@@ -500,6 +500,7 @@ export function createProductionScopeLeaseGitEnvironment(
     authenticate:
       (options.authenticate ?? false) && hostedAuthenticationConfigured,
     preserveCredentialConfig: !hostedAuthenticationConfigured,
+    repository: environment.OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY,
     serverUrl,
     token,
   });

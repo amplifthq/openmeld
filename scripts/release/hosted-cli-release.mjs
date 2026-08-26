@@ -41,6 +41,7 @@ async function main() {
     releaseEnvironment,
     {
       authenticate: true,
+      repository,
       serverUrl,
       token,
     }

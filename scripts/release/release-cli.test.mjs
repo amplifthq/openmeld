@@ -337,7 +337,7 @@ test("trusted private-repository tag publication bypasses source hooks and keeps
     await configureTestOrigin({ git, repoRoot });
     await writeFile(
       hook,
-      `#!/usr/bin/env bash\nprintf '%s\\n' "\${GIT_CONFIG_VALUE_3:-missing}" > ${JSON.stringify(marker)}\nexit 97\n`
+      `#!/usr/bin/env bash\nprintf '%s\\n' "\${GIT_CONFIG_VALUE_4:-missing}" > ${JSON.stringify(marker)}\nexit 97\n`
     );
     await chmod(hook, 0o755);
     const sourceSha = (await git("rev-parse", "HEAD")).stdout.trim();
@@ -348,6 +348,7 @@ test("trusted private-repository tag publication bypasses source hooks and keeps
       },
       {
         authenticate: true,
+        repository: "amplifthq/openmeld",
         serverUrl: "https://github.com",
         token,
       }

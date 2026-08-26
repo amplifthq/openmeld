@@ -55,7 +55,7 @@ test("private GitHub fetches use explicit HTTPS auth without exposing or persist
       [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
-        `printf '%s|%s|%s|%s|%s|%s|%s\\n' "$PWD" "$*" "${"$"}{GIT_CONFIG_KEY_0:-}" "${"$"}{GIT_CONFIG_VALUE_0:-}" "${"$"}{GIT_CONFIG_KEY_3:-}" "${"$"}{GIT_CONFIG_VALUE_3:-}" "${"$"}{OPENMELD_TRUSTED_GIT_GITHUB_TOKEN:-absent}" >> "$TRUSTED_GIT_LOG"`,
+        `printf '%s|%s|%s|%s|%s|%s|%s\\n' "$PWD" "$*" "${"$"}{GIT_CONFIG_KEY_0:-}" "${"$"}{GIT_CONFIG_VALUE_0:-}" "${"$"}{GIT_CONFIG_KEY_4:-}" "${"$"}{GIT_CONFIG_VALUE_4:-}" "${"$"}{OPENMELD_TRUSTED_GIT_GITHUB_TOKEN:-absent}" >> "$TRUSTED_GIT_LOG"`,
         "",
       ].join("\n")
     );
@@ -94,7 +94,10 @@ test("private GitHub fetches use explicit HTTPS auth without exposing or persist
       assert.ok(!command.includes(" origin "));
       assert.equal(hooksKey, "core.hooksPath");
       assert.equal(hooksValue, "/dev/null");
-      assert.equal(authKey, "http.https://github.com/.extraheader");
+      assert.equal(
+        authKey,
+        "http.https://github.com/amplifthq/openmeld.git.extraheader"
+      );
       assert.equal(
         authValue,
         `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
@@ -102,6 +105,65 @@ test("private GitHub fetches use explicit HTTPS auth without exposing or persist
       assert.equal(rawToken, "absent");
     }
     assert.equal(existsSync(path.join(repository, ".git", "config")), false);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("repository-local exact URL settings cannot override trusted HTTPS policy", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-trusted-git-config-"));
+  const repository = path.join(root, "release-source");
+  const token = "fixture-config-token-not-real";
+  const serverUrl = "https://github.com";
+  const repositoryUrl = `${serverUrl}/amplifthq/openmeld.git`;
+  const trustedCaInfo = path.join(root, "trusted-ca.pem");
+  try {
+    mkdirSync(repository);
+    execFileSync("git", ["init", "--quiet"], {
+      cwd: repository,
+      stdio: "ignore",
+    });
+    for (const [key, value] of [
+      [
+        `http.${repositoryUrl}.extraheader`,
+        "Authorization: bearer repo-local-attacker",
+      ],
+      [`http.${repositoryUrl}.proxy`, "http://127.0.0.1:7777"],
+      [`http.${repositoryUrl}.sslCAInfo`, "/tmp/attacker-ca.pem"],
+      [`http.${repositoryUrl}.sslCAPath`, "/tmp/attacker-ca-dir"],
+      [`http.${repositoryUrl}.sslVerify`, "false"],
+    ]) {
+      execFileSync("git", ["config", "--local", "--add", key, value], {
+        cwd: repository,
+        stdio: "ignore",
+      });
+    }
+    writeFileSync(trustedCaInfo, "fixture trusted CA\n");
+    const environment = createTrustedGitEnvironment(process.env, {
+      authenticate: true,
+      caInfoPath: trustedCaInfo,
+      repository: "amplifthq/openmeld",
+      serverUrl,
+      token,
+    });
+    const getUrlMatch = (key) =>
+      spawnSync("git", ["config", "--get-urlmatch", key, repositoryUrl], {
+        cwd: repository,
+        encoding: "utf8",
+        env: environment,
+      }).stdout.trim();
+
+    assert.equal(getUrlMatch("http.proxy"), "");
+    assert.equal(getUrlMatch("http.sslCAInfo"), trustedCaInfo);
+    const trustedCaPath = getUrlMatch("http.sslCAPath");
+    assert.notEqual(trustedCaPath, "/tmp/attacker-ca-dir");
+    assert.ok(path.isAbsolute(trustedCaPath));
+    assert.equal(existsSync(trustedCaPath), true);
+    assert.equal(getUrlMatch("http.sslVerify"), "true");
+    assert.equal(
+      getUrlMatch("http.extraheader"),
+      `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
+    );
   } finally {
     rmSync(root, { force: true, recursive: true });
   }
@@ -125,6 +187,21 @@ test("hostile parent Git tracing cannot print a trusted HTTPS credential", async
       cwd: repository,
       stdio: "ignore",
     });
+    const repositoryUrl = "https://127.0.0.1:1/amplifthq/openmeld.git";
+    for (const [key, value] of [
+      [
+        `http.${repositoryUrl}.extraheader`,
+        "Authorization: bearer repo-local-attacker",
+      ],
+      [`http.${repositoryUrl}.proxy`, "http://127.0.0.1:1"],
+      [`http.${repositoryUrl}.sslCAInfo`, "/tmp/attacker-ca.pem"],
+      [`http.${repositoryUrl}.sslVerify`, "false"],
+    ]) {
+      execFileSync("git", ["config", "--local", "--add", key, value], {
+        cwd: repository,
+        stdio: "ignore",
+      });
+    }
     execFileSync(
       "openssl",
       [
@@ -166,6 +243,35 @@ test("hostile parent Git tracing cannot print a trusted HTTPS credential", async
     const address = server.address();
     assert.ok(address && typeof address === "object");
     const serverUrl = `https://127.0.0.1:${String(address.port)}`;
+    execFileSync(
+      "git",
+      [
+        "config",
+        "--local",
+        "--add",
+        `http.${serverUrl}/amplifthq/openmeld.git.extraheader`,
+        "Authorization: bearer repo-local-attacker",
+      ],
+      { cwd: repository, stdio: "ignore" }
+    );
+    for (const [key, value] of [
+      ["proxy", "http://127.0.0.1:1"],
+      ["sslCAInfo", "/tmp/attacker-ca.pem"],
+      ["sslCAPath", "/tmp/attacker-ca-dir"],
+      ["sslVerify", "false"],
+    ]) {
+      execFileSync(
+        "git",
+        [
+          "config",
+          "--local",
+          "--add",
+          `http.${serverUrl}/amplifthq/openmeld.git.${key}`,
+          value,
+        ],
+        { cwd: repository, stdio: "ignore" }
+      );
+    }
     writeFileSync(
       trustedFetch,
       [

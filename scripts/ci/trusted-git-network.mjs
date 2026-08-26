@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { isAbsolute } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import process from "node:process";
+import { rootCertificates } from "node:tls";
 import { pathToFileURL } from "node:url";
 
 const GITHUB_REPOSITORY_PATTERN = /^[^/\s]+\/[^/\s]+$/u;
@@ -49,6 +52,9 @@ const SENSITIVE_GIT_ENV_NAMES = [
   "OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN",
   "OPENMELD_TRUSTED_GIT_GITHUB_TOKEN",
 ];
+let defaultTrustedCaDirectory;
+let defaultTrustedCaInfoPath;
+let defaultTrustedCaPath;
 
 export function createTrustedGitEnvironment(environment, input = {}) {
   const gitEnvironment = { ...environment };
@@ -87,25 +93,24 @@ export function createTrustedGitEnvironment(environment, input = {}) {
   ];
   if (input.authenticate) {
     const serverUrl = requireHttpsServerUrl(input.serverUrl);
+    const repositoryUrl = buildTrustedGitHubRepositoryUrl({
+      repository: input.repository,
+      serverUrl,
+    });
     const token = String(input.token ?? "").trim();
     if (!token) {
       throw new Error("Trusted GitHub network access requires a token.");
     }
+    const trustedCa = resolveTrustedCa(input.caInfoPath);
+    entries.push([`http.${repositoryUrl}.extraheader`, ""]);
     entries.push([
-      `http.${serverUrl}/.extraheader`,
+      `http.${repositoryUrl}.extraheader`,
       `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
     ]);
-    entries.push([`http.${serverUrl}/.proxy`, ""]);
-    entries.push([`http.${serverUrl}/.sslVerify`, "true"]);
-    if (input.caInfoPath !== undefined) {
-      const caInfoPath = String(input.caInfoPath);
-      if (!isAbsolute(caInfoPath)) {
-        throw new Error(
-          "Trusted Git CA information must use an absolute path."
-        );
-      }
-      entries.push([`http.${serverUrl}/.sslCAInfo`, caInfoPath]);
-    }
+    entries.push([`http.${repositoryUrl}.proxy`, ""]);
+    entries.push([`http.${repositoryUrl}.sslCAInfo`, trustedCa.infoPath]);
+    entries.push([`http.${repositoryUrl}.sslCAPath`, trustedCa.path]);
+    entries.push([`http.${repositoryUrl}.sslVerify`, "true"]);
   }
   gitEnvironment.GIT_CONFIG_COUNT = String(entries.length);
   for (const [index, [key, value]] of entries.entries()) {
@@ -181,6 +186,7 @@ function runGit(input) {
     env: createTrustedGitEnvironment(input.environment ?? process.env, {
       authenticate: input.authenticate,
       caInfoPath: input.caInfoPath,
+      repository: input.repository,
       serverUrl: input.serverUrl,
       token: input.token,
     }),
@@ -212,6 +218,52 @@ function requireHttpsServerUrl(value) {
     );
   }
   return url.href.replace(TRAILING_SLASH_PATTERN, "");
+}
+
+function resolveTrustedCa(value) {
+  ensureTrustedCaDirectory();
+  const infoPath = resolveTrustedCaInfoPath(value);
+  return { infoPath, path: defaultTrustedCaPath };
+}
+
+function ensureTrustedCaDirectory() {
+  if (defaultTrustedCaDirectory) {
+    return;
+  }
+  defaultTrustedCaDirectory = mkdtempSync(
+    join(tmpdir(), "openmeld-trusted-git-ca-")
+  );
+  defaultTrustedCaPath = join(defaultTrustedCaDirectory, "capath");
+  mkdirSync(defaultTrustedCaPath, { mode: 0o700 });
+  process.once("exit", () => {
+    if (defaultTrustedCaDirectory) {
+      rmSync(defaultTrustedCaDirectory, { force: true, recursive: true });
+    }
+  });
+}
+
+function resolveTrustedCaInfoPath(value) {
+  if (value !== undefined) {
+    const caInfoPath = String(value);
+    if (!isAbsolute(caInfoPath)) {
+      throw new Error("Trusted Git CA information must use an absolute path.");
+    }
+    return caInfoPath;
+  }
+  if (defaultTrustedCaInfoPath) {
+    return defaultTrustedCaInfoPath;
+  }
+  if (rootCertificates.length === 0) {
+    throw new Error("Trusted Git could not resolve a verified CA bundle.");
+  }
+  defaultTrustedCaInfoPath = join(
+    defaultTrustedCaDirectory,
+    "node-root-certificates.pem"
+  );
+  writeFileSync(defaultTrustedCaInfoPath, `${rootCertificates.join("\n")}\n`, {
+    mode: 0o600,
+  });
+  return defaultTrustedCaInfoPath;
 }
 
 function parseOptions(args) {

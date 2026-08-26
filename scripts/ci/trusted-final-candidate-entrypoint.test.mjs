@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -8,6 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -87,6 +88,115 @@ test("the guarded first-hop fetch strips Git tracing and names an explicit trust
   assert.ok(entrypoint.includes("GIT_TRACE_REDACT=1"));
   assert.ok(entrypoint.includes('fetch --no-tags "$trusted_remote_url"'));
   assert.ok(!entrypoint.includes("fetch --no-tags origin"));
+});
+
+test("the guarded first hop keeps repository-local HTTPS policy out of the network fetch", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-first-hop-config-"));
+  const repository = path.join(root, "repository");
+  const home = path.join(root, "home");
+  const certificate = path.join(root, "certificate.pem");
+  const privateKey = path.join(root, "private-key.pem");
+  let receivedAuthorization = "";
+  let requestCount = 0;
+  let server;
+  try {
+    mkdirSync(repository);
+    mkdirSync(home);
+    execFileSync("git", ["init", "--quiet"], {
+      cwd: repository,
+      stdio: "ignore",
+    });
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        privateKey,
+        "-out",
+        certificate,
+        "-subj",
+        "/CN=127.0.0.1",
+        "-addext",
+        "subjectAltName=IP:127.0.0.1",
+        "-addext",
+        "basicConstraints=critical,CA:TRUE",
+        "-days",
+        "1",
+      ],
+      { stdio: "ignore" }
+    );
+    server = createServer(
+      {
+        cert: readFileSync(certificate),
+        key: readFileSync(privateKey),
+      },
+      (request, response) => {
+        requestCount += 1;
+        receivedAuthorization = String(request.headers.authorization ?? "");
+        response.writeHead(404, { "content-type": "text/plain" });
+        response.end("fixture repository not found\n");
+      }
+    );
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const remoteUrl = `https://127.0.0.1:${String(address.port)}/amplifthq/openmeld.git`;
+    execFileSync("git", ["remote", "add", "origin", remoteUrl], {
+      cwd: repository,
+      stdio: "ignore",
+    });
+    for (const [key, value] of [
+      [
+        `http.${remoteUrl}.extraheader`,
+        "Authorization: bearer repo-local-attacker",
+      ],
+      [`http.${remoteUrl}.proxy`, "http://127.0.0.1:1"],
+      [`http.${remoteUrl}.sslCAInfo`, "/tmp/attacker-ca.pem"],
+      [`http.${remoteUrl}.sslVerify`, "false"],
+    ]) {
+      execFileSync("git", ["config", "--local", "--add", key, value], {
+        cwd: repository,
+        stdio: "ignore",
+      });
+    }
+    execFileSync(
+      "git",
+      [
+        "config",
+        "--file",
+        path.join(home, ".gitconfig"),
+        `http.${remoteUrl}.sslCAInfo`,
+        certificate,
+      ],
+      { stdio: "ignore" }
+    );
+
+    const result = await runChildWithInput(
+      "bash",
+      ["-s", "--", "plan", "--pr", "1"],
+      readFileSync(path.join(REPO_ROOT, ENTRYPOINT_PATH), "utf8"),
+      {
+        ...process.env,
+        HOME: home,
+        XDG_CONFIG_HOME: path.join(home, ".config"),
+      },
+      repository
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.ok(requestCount > 0, result.stderr);
+    assert.equal(receivedAuthorization, "");
+  } finally {
+    await new Promise((resolve) => server?.close(resolve) ?? resolve());
+    rmSync(root, { force: true, recursive: true });
+  }
 });
 
 test("an explicit inspected control object bootstraps a main that predates the gate", () => {
@@ -252,4 +362,29 @@ function createInitialBootstrapFixture() {
     git,
     repositoryPath,
   };
+}
+
+function runChildWithInput(command, args, input, environment, cwd) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: environment,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stderr = "";
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.once("error", (error) => {
+      resolve({ status: 1, stderr: `${stderr}${error.message}`, stdout });
+    });
+    child.once("exit", (status) => {
+      resolve({ status: status ?? 1, stderr, stdout });
+    });
+    child.stdin.end(input);
+  });
 }
