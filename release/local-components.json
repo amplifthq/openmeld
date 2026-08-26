@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-26T07:06:04.788Z",
+  "updatedAt": "2026-08-26T08:25:58.630Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.110",
-      "updatePolicy": "required",
-      "reason": "Keep Space replies working after OpenMeld Service upgrades."
+      "packageVersion": "0.3.111",
+      "updatePolicy": "available",
+      "reason": "A newer local component is available, but current Wake work can continue."
     },
     "service": {
-      "bundleHash": "d1413f53ff484760db37fb28a648114ed81bb60ca6d8b8c55a8d2f1afcbc4743",
-      "bundleVersion": "0.3.110",
+      "bundleHash": "11723819c672985e1476c36c38b90492dc9b4cd9bc6d136326e585bb5478a85f",
+      "bundleVersion": "0.3.111",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
-      "updatePolicy": "required",
-      "reason": "Keep Space replies working after OpenMeld Service upgrades."
+      "updatePolicy": "available",
+      "reason": "A newer local component is available, but current Wake work can continue."
     },
     "skills": {
       "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
