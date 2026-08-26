@@ -3,12 +3,14 @@ import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { initializeRemoteAgentExecutionState } from "../agent-core/execution-state";
 import {
   buildRemoteAgentPromptMessage,
   buildRemoteAgentSubmissionMetadata,
 } from "../agent-core/submission";
 import {
   createFlueCenterAgentAdmissionHost,
+  reconcileAndRedeliverRemoteAgentCallbacks,
   redeliverRemoteAgentCallbacksAndScheduleNextRetry,
   scheduleRemoteAgentCallbackRetry,
 } from "../flue-adapter/center-agent-admission";
@@ -478,6 +480,118 @@ describe("Flue Cloudflare entrypoints", () => {
       undefined,
       { idempotent: true }
     );
+  });
+
+  it("reconciles durable failures from the callback alarm before continuing ordinary redelivery", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const unreadableSubmissionId = "submission_alarm_unreadable";
+    const failedSubmissionId = "submission_alarm_failed";
+    const retryableSubmissionId = "submission_alarm_retryable";
+    for (const submissionId of [
+      unreadableSubmissionId,
+      failedSubmissionId,
+      retryableSubmissionId,
+    ]) {
+      await initializeRemoteAgentExecutionState({
+        acceptedAtMs: TEST_NOW_MS,
+        identity: {
+          idempotencyKey: request.idempotencyKey,
+          organizationId: request.organizationId,
+          spaceId: request.spaceId,
+          submissionId,
+          v: 1,
+        },
+        storage,
+      });
+      await putRemoteAgentCallbackContext(storage, {
+        ...createRemoteAgentCallbackContext({
+          ack: {
+            accepted: true,
+            createdAt: TEST_NOW_MS,
+            idempotencyKey: request.idempotencyKey,
+            status: "pending",
+            submissionId,
+          },
+          nowMs: TEST_NOW_MS,
+          request,
+        }),
+        ...(submissionId === retryableSubmissionId
+          ? {
+              callbackNextAttemptAt: new Date(TEST_NOW_MS).toISOString(),
+              callbackStatus: "retryable" as const,
+              completedText: "The original callback result.",
+            }
+          : {}),
+      });
+    }
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_alarm_callback",
+      status: "accepted" as const,
+    }));
+    const schedule = vi.fn(async () => undefined);
+    const readError = new Error("submission storage is temporarily unreadable");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        reconcileAndRedeliverRemoteAgentCallbacks({
+          coreWorker: { completeRemoteAgentSubmission },
+          nowMs: () => TEST_NOW_MS + 1000,
+          readSubmission: (submissionId) => {
+            if (submissionId === unreadableSubmissionId) {
+              return Promise.reject(readError);
+            }
+            return Promise.resolve(
+              submissionId === failedSubmissionId
+                ? {
+                    error: "Sandbox materialization failed.",
+                    status: "settled" as const,
+                  }
+                : { status: "running" as const }
+            );
+          },
+          schedule,
+          storage,
+        })
+      ).resolves.toEqual({
+        nextDueAtMs: TEST_NOW_MS + 6000,
+        processed: 1,
+        reconciled: 1,
+      });
+
+      expect(consoleError).toHaveBeenCalledWith(
+        "[remote_agent.execution.reconciliation_failed]",
+        expect.objectContaining({
+          error: readError.message,
+          submissionId: unreadableSubmissionId,
+        })
+      );
+      expect(completeRemoteAgentSubmission).toHaveBeenCalledTimes(2);
+      expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "failed",
+          submissionId: failedSubmissionId,
+        })
+      );
+      expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "completed",
+          submissionId: retryableSubmissionId,
+        })
+      );
+      expect(schedule).toHaveBeenCalledOnce();
+      expect(schedule).toHaveBeenCalledWith(
+        5,
+        "retryRemoteAgentCallbacks",
+        undefined,
+        { idempotent: true }
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("keeps the Agents SDK alarm idle when only admission receipts have expiry work", async () => {

@@ -295,6 +295,40 @@ describe("Agent computer Workspace RPC lifecycle", () => {
     expect(cancelledWorkspace.dispose).toHaveBeenCalledOnce();
     expect(continuationWorkspace.dispose).toHaveBeenCalledOnce();
   });
+
+  it("disposes both the exec handle and workspace client when command results reject", async () => {
+    const failedWorkspace = createWorkspaceFake();
+    const commandFailure = new Error("Computer command failed");
+    const runtimeExec = (
+      failedWorkspace.workspace.runtime as unknown as {
+        exec: ReturnType<typeof vi.fn>;
+      }
+    ).exec;
+    runtimeExec.mockResolvedValueOnce({
+      [Symbol.dispose]: failedWorkspace.execHandleDispose,
+      result: () => Promise.reject(commandFailure),
+    });
+    cloudflareComputerMock.getWorkspace.mockResolvedValueOnce(
+      failedWorkspace.workspace
+    );
+    const durableComputerId = { name: "agent-computer:agt_test" };
+    const workspaceAccess = createAgentComputerWorkspaceAccess({
+      computerId: durableComputerId as unknown as DurableObjectId,
+      namespace: {
+        get: vi.fn(() => ({})),
+        idFromName: vi.fn(() => durableComputerId),
+      } as unknown as Parameters<
+        typeof createAgentComputerWorkspaceAccess
+      >[0]["namespace"],
+    });
+
+    await expect(
+      new AgentComputerSandboxApi(workspaceAccess).exec("exit 1")
+    ).rejects.toBe(commandFailure);
+
+    expect(failedWorkspace.execHandleDispose).toHaveBeenCalledOnce();
+    expect(failedWorkspace.dispose).toHaveBeenCalledOnce();
+  });
 });
 
 describe("Agent computer layout", () => {

@@ -42,7 +42,7 @@ import {
   abortFlueCenterAgentSubmission,
   createFlueCenterAgentAdmissionHost,
   prepareFlueCenterAgentAdmission,
-  redeliverRemoteAgentCallbacksAndScheduleNextRetry,
+  reconcileAndRedeliverRemoteAgentCallbacks,
   scheduleRemoteAgentCallbackRetry,
 } from "../../flue-adapter/center-agent-admission";
 import { CENTER_AGENT_DURABILITY } from "../../flue-adapter/center-agent-durability";
@@ -71,7 +71,6 @@ import {
 import {
   type FlueSubmissionLifecycle,
   reconcileRemoteAgentExecution,
-  reconcileSettledRemoteAgentExecutionFailures,
 } from "../../flue-adapter/execution-reconciliation";
 import { registerRemoteAgentCloudflareProvider } from "../../flue-adapter/model";
 import { resolveCurrentOrganizationDocumentPromptContext } from "../../flue-adapter/organization-document-prompt-context";
@@ -486,15 +485,10 @@ export const cloudflare = extend({
       async retryRemoteAgentCallbacks(): Promise<void> {
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
         const readSubmission = requireFlueSubmissionReader(this);
-        await reconcileSettledRemoteAgentExecutionFailures({
+        await reconcileAndRedeliverRemoteAgentCallbacks({
           coreWorker: this.env
             .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
           readSubmission,
-          storage,
-        });
-        await redeliverRemoteAgentCallbacksAndScheduleNextRetry({
-          coreWorker: this.env
-            .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
           schedule: this.schedule.bind(this),
           storage,
         });

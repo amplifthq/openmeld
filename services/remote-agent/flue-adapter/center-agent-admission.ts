@@ -16,6 +16,10 @@ import {
   type RemoteAgentConversationFootprint,
   resolveRemoteAgentConversationFootprintAdmission,
 } from "./conversation-footprint";
+import {
+  type FlueSubmissionLifecycle,
+  reconcileSettledRemoteAgentExecutionFailures,
+} from "./execution-reconciliation";
 import type { RemoteAgentProviderContextCapacity } from "./provider-context-capacity";
 
 type FlueCenterAgentAdmissionReceipt<Result> =
@@ -256,4 +260,32 @@ export async function redeliverRemoteAgentCallbacksAndScheduleNextRetry(input: {
     });
   }
   return callbackRetry;
+}
+
+export async function reconcileAndRedeliverRemoteAgentCallbacks(input: {
+  coreWorker?: RemoteAgentCoreWorkerBinding;
+  nowMs?: () => number;
+  readSubmission: (
+    submissionId: string
+  ) => Promise<FlueSubmissionLifecycle | null>;
+  schedule: RemoteAgentCallbackRetryScheduler;
+  storage: RemoteAgentStorage;
+}): Promise<{
+  nextDueAtMs: number | null;
+  processed: number;
+  reconciled: number;
+}> {
+  const reconciliation = await reconcileSettledRemoteAgentExecutionFailures({
+    coreWorker: input.coreWorker,
+    nowMs: input.nowMs,
+    readSubmission: input.readSubmission,
+    storage: input.storage,
+  });
+  const redelivery = await redeliverRemoteAgentCallbacksAndScheduleNextRetry({
+    coreWorker: input.coreWorker,
+    nowMs: input.nowMs,
+    schedule: input.schedule,
+    storage: input.storage,
+  });
+  return { ...redelivery, reconciled: reconciliation.reconciled };
 }

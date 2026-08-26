@@ -235,4 +235,46 @@ describe("remote agent execution reconciliation", () => {
     });
     expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
   });
+
+  it("does not invent a failure for a successfully settled submission whose observer is still finishing", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId: "submission_success_observer_in_flight",
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: TEST_NOW_MS,
+      identity,
+      storage,
+    });
+    await markRemoteAgentExecutionProgress({
+      identity,
+      nowMs: TEST_NOW_MS + 500,
+      progressKind: "text_delta",
+      storage,
+    });
+    const completeRemoteAgentSubmission = vi.fn();
+
+    await expect(
+      reconcileRemoteAgentExecution({
+        coreWorker: { completeRemoteAgentSubmission },
+        identity,
+        nowMs: () => TEST_NOW_MS + 1000,
+        readSubmission: async () => ({ status: "settled" }),
+        storage,
+      })
+    ).resolves.toMatchObject({
+      execution: {
+        lastProgressAtMs: TEST_NOW_MS + 500,
+        lastProgressKind: "text_delta",
+        status: "running",
+      },
+      status: "found",
+    });
+    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+  });
 });
