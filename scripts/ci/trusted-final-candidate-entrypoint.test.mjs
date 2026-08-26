@@ -18,6 +18,9 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const ENTRYPOINT_PATH = "scripts/ci/trusted-final-candidate.sh";
 const TRUSTED_MARKER_PATTERN = /TRUSTED_BOOTSTRAP/u;
 const MALICIOUS_MARKER_PATTERN = /MALICIOUS_BOOTSTRAP/u;
+const EXPLICIT_BOOTSTRAP_PATTERN = /Control trust: explicit-bootstrap/u;
+const MISSING_BOOTSTRAP_PATTERN =
+  /Current main does not contain the trusted Final Candidate bootstrap/u;
 
 test("the guarded local first hop comes from current main, not candidate package scripts", () => {
   const fixture = createEntrypointFixture();
@@ -47,6 +50,52 @@ test("the guarded local first hop comes from current main, not candidate package
     assert.match(result.stdout, TRUSTED_MARKER_PATTERN);
     assert.doesNotMatch(result.stdout, MALICIOUS_MARKER_PATTERN);
     assert.equal(existsSync(fixture.attackLog), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("an explicit inspected control object bootstraps a main that predates the gate", () => {
+  const fixture = createInitialBootstrapFixture();
+  try {
+    const candidateHead = fixture.git(
+      fixture.repositoryPath,
+      "rev-parse",
+      "HEAD"
+    );
+    const entrypoint = fixture.git(
+      fixture.repositoryPath,
+      "show",
+      `${candidateHead}:${ENTRYPOINT_PATH}`
+    );
+    const rejected = spawnSync("bash", ["-s", "--", "plan"], {
+      cwd: fixture.repositoryPath,
+      encoding: "utf8",
+      input: entrypoint,
+    });
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, MISSING_BOOTSTRAP_PATTERN);
+
+    const bootstrapped = spawnSync(
+      "bash",
+      [
+        "-s",
+        "--",
+        "plan",
+        "--bootstrap-control-sha",
+        candidateHead,
+        "--bootstrap-reason",
+        "Current main predates the guarded Final Candidate control plane.",
+      ],
+      {
+        cwd: fixture.repositoryPath,
+        encoding: "utf8",
+        input: entrypoint,
+      }
+    );
+    assert.equal(bootstrapped.status, 0, bootstrapped.stderr);
+    assert.match(bootstrapped.stdout, EXPLICIT_BOOTSTRAP_PATTERN);
+    assert.match(bootstrapped.stdout, TRUSTED_MARKER_PATTERN);
   } finally {
     fixture.cleanup();
   }
@@ -121,4 +170,52 @@ function writeTrustedControl(repositoryPath) {
       "",
     ].join("\n")
   );
+}
+
+function createInitialBootstrapFixture() {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-initial-bootstrap-"));
+  const remotePath = path.join(root, "remote.git");
+  const repositoryPath = path.join(root, "repository");
+  mkdirSync(repositoryPath);
+  const git = (cwd, ...args) =>
+    execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+
+  git(root, "init", "--bare", "--quiet", remotePath);
+  git(repositoryPath, "init", "--initial-branch=main", "--quiet");
+  git(
+    repositoryPath,
+    "config",
+    "user.email",
+    "bootstrap-entry@test.openmeld.ai"
+  );
+  git(repositoryPath, "config", "user.name", "OpenMeld Bootstrap Entry Test");
+  writeFileSync(
+    path.join(repositoryPath, "package.json"),
+    '{"private":true}\n'
+  );
+  git(repositoryPath, "add", ".");
+  git(
+    repositoryPath,
+    "commit",
+    "--quiet",
+    "-m",
+    "seed main before final candidate"
+  );
+  git(repositoryPath, "remote", "add", "origin", remotePath);
+  git(repositoryPath, "push", "--quiet", "-u", "origin", "main");
+
+  git(repositoryPath, "checkout", "--quiet", "-b", "codex/add-final-candidate");
+  writeTrustedControl(repositoryPath);
+  git(repositoryPath, "add", ".");
+  git(repositoryPath, "commit", "--quiet", "-m", "add final candidate control");
+
+  return {
+    cleanup: () => rmSync(root, { force: true, recursive: true }),
+    git,
+    repositoryPath,
+  };
 }
