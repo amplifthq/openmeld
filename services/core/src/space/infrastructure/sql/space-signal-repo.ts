@@ -1,6 +1,6 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
-  AGENT_REPLY_FINAL_PURPOSE,
+  isFinalOutcomeTextPurpose,
   parseOptionalClientMessageId,
 } from "@openmeld/schemas";
 
@@ -887,7 +887,7 @@ function resolveFinalReplyClaim(
   }
   const meta = resolveSignalTextMeta(signal);
   const purpose = normalizeOptionalString(meta?.purpose);
-  if (purpose !== AGENT_REPLY_FINAL_PURPOSE) {
+  if (!isFinalOutcomeTextPurpose(purpose)) {
     return null;
   }
   const dispatchId = normalizeOptionalString(meta?.dispatchId);

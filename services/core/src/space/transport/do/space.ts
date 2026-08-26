@@ -42,6 +42,7 @@ import {
   getSpaceUpdatesInputSchema,
   getSpaceWakeProgressInputSchema,
   getSpaceWakeTraceWaterfallInputSchema,
+  isFinalOutcomeTextPurpose,
   listSignalsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
   MENTION_DISPATCH_ERROR_CODES,
@@ -57,6 +58,7 @@ import {
   projectSpaceDispatchTraceFinalVisibleOutcome,
   projectTargetWakeLifecycleIdentity,
   putSpaceContractBodySchema,
+  REMOTE_AGENT_FAILURE_PURPOSE,
   RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   readListSignalsQueryRawValues,
@@ -16322,7 +16324,11 @@ function classifyFinalReplyClaimOutcome(
   signal: SignalEnvelope
 ): "failure" | "stopped" | "success" | "unknown" {
   if (signal.type === "signal.text") {
-    return "success";
+    const purpose = normalizeOptionalText(signal.data.meta?.purpose);
+    if (purpose === REMOTE_AGENT_FAILURE_PURPOSE) {
+      return "failure";
+    }
+    return purpose === AGENT_REPLY_FINAL_PURPOSE ? "success" : "unknown";
   }
   if (signal.type !== "signal.system_notice") {
     return "unknown";
@@ -17958,9 +17964,10 @@ function toFinalVisibleTextMessageTraceCandidate(
   const targetProfileId = normalizeOptionalText(signalMeta?.targetProfileId);
   const signalId = normalizeOptionalText(signal.id);
   const text = normalizeOptionalText(signalData?.text);
+  const purpose = normalizeOptionalText(signalMeta?.purpose);
   if (
-    normalizeOptionalText(signalMeta?.purpose) !== AGENT_REPLY_FINAL_PURPOSE ||
     !(
+      isFinalOutcomeTextPurpose(purpose) &&
       dispatchId &&
       targetProfileId &&
       profileId &&
@@ -17980,7 +17987,11 @@ function toFinalVisibleTextMessageTraceCandidate(
     profileKind: signal.profile?.kind ?? null,
     profileName: normalizeOptionalText(signal.profile?.profileName),
     text,
-    reasonCode: null,
+    reasonCode:
+      purpose === REMOTE_AGENT_FAILURE_PURPOSE
+        ? (normalizeOptionalText(signalMeta?.errorCode) ??
+          "remote_agent.failure_published")
+        : null,
     noticeType: null,
     statusType: null,
     createdAt: new Date(signal.ts).toISOString(),
@@ -18104,6 +18115,7 @@ function toSignalDataRecord(
 
 function toSignalMetaRecord(value: unknown): {
   dispatchId?: unknown;
+  errorCode?: unknown;
   purpose?: unknown;
   targetProfileId?: unknown;
   transient?: unknown;
@@ -18113,6 +18125,7 @@ function toSignalMetaRecord(value: unknown): {
   }
   return value as {
     dispatchId?: unknown;
+    errorCode?: unknown;
     purpose?: unknown;
     targetProfileId?: unknown;
     transient?: unknown;
@@ -19522,7 +19535,7 @@ function resolveSignalFinalReplyClaimForLog(
     const dispatchId = normalizeOptionalText(meta?.dispatchId);
     const profileId = normalizeOptionalText(meta?.targetProfileId);
     if (
-      normalizeOptionalText(meta?.purpose) === AGENT_REPLY_FINAL_PURPOSE &&
+      isFinalOutcomeTextPurpose(normalizeOptionalText(meta?.purpose)) &&
       dispatchId &&
       profileId
     ) {

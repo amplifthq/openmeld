@@ -1285,7 +1285,7 @@ function resolveFinalVisibleMessageOutcome(
     return null;
   }
   const visibleStopped = isStoppedFinalVisibleSystemNotice(finalVisibleMessage);
-  const visibleFailure = isFailureFinalVisibleSystemNotice(finalVisibleMessage);
+  const visibleFailure = isFailureFinalVisibleMessage(finalVisibleMessage);
   let publicationKind: SpaceDispatchTraceFinalVisibleOutcomeValue["publicationKind"] =
     "success_reply";
   let status: SpaceDispatchTraceFinalVisibleOutcomeValue["status"] =
@@ -1325,15 +1325,17 @@ function isStoppedFinalVisibleSystemNotice(
   );
 }
 
-function isFailureFinalVisibleSystemNotice(
+function isFailureFinalVisibleMessage(
   finalVisibleMessage: NonNullable<
     SpaceDispatchTraceSnapshotValue["finalVisibleMessage"]
   >
 ): boolean {
   return (
-    finalVisibleMessage.signalType === "signal.system_notice" &&
-    (finalVisibleMessage.noticeType === "terminal_failure" ||
-      finalVisibleMessage.noticeType === "policy_blocked")
+    (finalVisibleMessage.signalType === "signal.system_notice" &&
+      (finalVisibleMessage.noticeType === "terminal_failure" ||
+        finalVisibleMessage.noticeType === "policy_blocked")) ||
+    (finalVisibleMessage.signalType === "signal.text" &&
+      finalVisibleMessage.reasonCode !== null)
   );
 }
 

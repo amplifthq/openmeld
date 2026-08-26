@@ -40,6 +40,12 @@ export const AGENT_REPLY_PREVIEW_END_PURPOSE =
   "agent_reply_preview_end" as const;
 export const AGENT_REPLY_FINAL_PURPOSE = "agent_reply_final" as const;
 export const REMOTE_AGENT_FAILURE_PURPOSE = "remote_agent_failure" as const;
+export const isFinalOutcomeTextPurpose = (
+  value: unknown
+): value is
+  | typeof AGENT_REPLY_FINAL_PURPOSE
+  | typeof REMOTE_AGENT_FAILURE_PURPOSE =>
+  value === AGENT_REPLY_FINAL_PURPOSE || value === REMOTE_AGENT_FAILURE_PURPOSE;
 export const DISPATCH_ACTIVITY_DISPATCHING_PURPOSE =
   "dispatch_activity_dispatching" as const;
 export const DISPATCH_ACTIVITY_RETRYING_PURPOSE =
