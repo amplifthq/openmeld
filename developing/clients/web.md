@@ -3364,13 +3364,14 @@ value from the Service-owned maintenance projection. It never keeps a browser
 preference.
 
 The card renders the canonical operation phase as one short status:
-**Waiting for work to finish**, **Updating**, **Updated**, **Old version
-restored**, or **Update needs help**. Web refreshes the same Computer projection
-after a request; request completion is not update completion. An older Service
-without the control capability keeps the existing Setup guidance. Service
-connection recovery remains explicitly **Connect OpenMeld Service** or
-**Reconnect OpenMeld Service**, and the Reconnect action remains the CLI
-fallback.
+**Finishing current work**, **Updating**, **Up to date**, or **Update failed.
+Try again.** Clicking **Update** changes the action to **Updating** immediately,
+then caches the Service-returned operation and polls the same Computer
+projection until it becomes terminal. Request completion is not update
+completion. An older Service without the control capability keeps the existing
+Setup guidance. Service connection recovery remains explicitly **Connect
+OpenMeld Service** or **Reconnect OpenMeld Service**, and the Reconnect action
+remains the CLI fallback.
 
 For an `update_service` setup run, terminal completion proves only that the CLI
 flow ended. Web must keep the result in a bounded confirming state until both
