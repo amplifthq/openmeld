@@ -374,6 +374,7 @@ the intent through the shared Agent Profile Creation Request capability:
 openmeld profiles create "Release Reviewer" --kind agent --owner <user-id> --computer <computer-id> --agent-controller builtin:codex --session new
 openmeld profiles create "API Debugger" --kind agent --owner self --computer <computer-id> --agent-controller builtin:codex --session resume --native-session <provider-native-id>
 openmeld profiles create "Release Investigator" --kind agent --owner self --computer <computer-id> --agent-controller builtin:codex --session fork --native-session <provider-native-id>
+openmeld profiles create "Migration Agent" --kind agent --computer <computer-id> --agent-controller builtin:codex --project <project-id> --model gpt-5.6-sol --reasoning-effort high --agent-controller-collaboration-mode plan --agent-controller-permission-mode custom-config
 openmeld profiles requests list
 openmeld profiles requests approve <request-id>
 openmeld profiles requests decline <request-id>
@@ -389,6 +390,16 @@ supports a caller-supplied stable request key for safe retries. Human View
 explains current status and next action. Agent View emits the shared strict
 request envelopes. Local Agents set source `local-agent`; ordinary terminal
 use defaults to `cli`.
+
+Supplying a Computer, Project, Space, explicit owner or Organization, or another
+request-scoped target routes both owner-self terminal use and Local Agent use
+through the shared creation request contract. On that path, model, reasoning
+effort, Agent Controller Collaboration Mode, Agent Controller Permission Mode,
+OpenCode permission JSON, and Session strategy use the same concrete selection
+fields as Web and Center Agent creation. Core applies the selection through the
+same Binding and Default Project owners, and successful setup updates the same
+remembered creation defaults. The legacy current-computer shortcut remains
+available for backward-compatible local-only creation.
 
 The executor completes new-Session identity creation, exact native Resume, and
 provider-native Fork after Agent Activity and the local Binding path verify the
@@ -413,6 +424,12 @@ and `bypass-permissions`. Codex supports `ask-for-approval`, `approve-for-me`,
 `--confirm-dangerous-agent-controller-permission-mode` in non-interactive use.
 These commands write Binding metadata only; they do not create Space
 membership, prove Wake readiness, or bypass OpenMeld Space action rules.
+
+Codex creation additionally accepts
+`--agent-controller-collaboration-mode default|plan`. OpenCode creation accepts
+`--open-code-permission` as one JSON object validated by the shared OpenCode
+permission contract. These are ordinary fields in the shared creation
+selection, not CLI-only capability.
 
 The local Service route-catalog read negotiates expected-routes
 `contractVersion=v2` to receive Codex Collaboration Mode. When an older cloud

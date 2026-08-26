@@ -1193,7 +1193,7 @@ export async function postSlackChannelMessage(input: {
     channelId: input.target.channelId,
     fetchImpl: input.fetchImpl,
     signal: input.signal,
-    text: toSlackMrkdwn(input.text),
+    text: await toSlackMrkdwn(input.text),
     ...(input.threadTs ? { threadTs: input.threadTs } : {}),
   });
   return {
@@ -1290,7 +1290,7 @@ export async function postSlackFile(input: {
             },
           ],
           ...(input.initialComment
-            ? { initial_comment: toSlackMrkdwn(input.initialComment) }
+            ? { initial_comment: await toSlackMrkdwn(input.initialComment) }
             : {}),
           ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
         }),

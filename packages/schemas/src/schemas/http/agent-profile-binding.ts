@@ -199,6 +199,8 @@ export const setOrganizationBindingAuthorizationPreferenceResponseSchema =
   organizationBindingAuthorizationPreferenceSchema;
 
 const agentProfileCreationDefaultsFields = {
+  agentControllerCollaborationMode:
+    agentControllerCollaborationModeSchema.nullable(),
   agentControllerPermissionMode: agentControllerPermissionModeSchema.nullable(),
   defaultProjectId: boundedIdentifierSchema.nullable(),
   modelId: boundedIdentifierSchema.nullable(),
@@ -219,8 +221,17 @@ function requireCreationDefaultsModelForReasoning(
   }
 }
 
-export const setAgentProfileCreationDefaultsBodySchema = z
+export const agentProfileCreationPreferenceSelectionSchema = z
   .strictObject(agentProfileCreationDefaultsFields)
+  .superRefine(requireCreationDefaultsModelForReasoning);
+
+export const setAgentProfileCreationDefaultsBodySchema = z
+  .strictObject({
+    ...agentProfileCreationPreferenceSelectionSchema.shape,
+    agentControllerCollaborationMode: agentControllerCollaborationModeSchema
+      .nullable()
+      .optional(),
+  })
   .superRefine(requireCreationDefaultsModelForReasoning);
 
 export const agentProfileCreationDefaultsSchema = z
@@ -238,6 +249,12 @@ export const getAgentProfileCreationDefaultsResponseSchema =
 
 export const setAgentProfileCreationDefaultsResponseSchema =
   agentProfileCreationDefaultsSchema;
+
+export const listAgentProfileCreationDefaultsResponseSchema = z.strictObject({
+  defaults: z.array(agentProfileCreationDefaultsSchema).max(100),
+  organizationId: boundedIdentifierSchema,
+  userId: boundedIdentifierSchema,
+});
 
 export const saveOrganizationWakeAccessChoiceBodySchema = z.strictObject({
   enableWakeAccess: z.boolean(),

@@ -1,9 +1,6 @@
 import * as z from "zod/v4";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
-import {
-  agentProfileBindingAgentControllerPermissionModeSchema,
-  agentProfileBindingOpenCodePermissionSchema,
-} from "./agent-profile-binding";
+import { agentProfileCreationPreferenceSelectionSchema } from "./agent-profile-binding";
 
 const identifierSchema = z.string().trim().min(1).max(256);
 const profileNameSchema = z.string().trim().min(1).max(80);
@@ -49,57 +46,71 @@ export const agentProfileCreationRequestStatusReasonSchema = z.enum([
   "profile_creation_failed",
 ]);
 
-export const agentProfileCreationConfigurationSchema = z
-  .strictObject({
-    agentControllerPermissionMode:
-      agentProfileBindingAgentControllerPermissionModeSchema.nullable(),
-    agentControllerRef: agentControllerRefSchema.nullable(),
-    authorizeForOrganization: z.boolean(),
-    defaultProjectId: identifierSchema.nullable(),
-    modelId: identifierSchema.nullable(),
-    openCodePermission: agentProfileBindingOpenCodePermissionSchema.nullable(),
-    reasoningLevel: identifierSchema.nullable(),
-    targetComputerId: identifierSchema.nullable(),
-  })
-  .superRefine((configuration, context) => {
-    const hasController = configuration.agentControllerRef !== null;
-    const hasComputer = configuration.targetComputerId !== null;
-    if (hasController !== hasComputer) {
-      context.addIssue({
-        code: "custom",
-        message:
-          "agentControllerRef and targetComputerId must be provided together.",
-        path: hasController ? ["targetComputerId"] : ["agentControllerRef"],
-      });
-    }
-    if (
-      configuration.reasoningLevel !== null &&
-      configuration.modelId === null
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "reasoningLevel requires modelId.",
-        path: ["reasoningLevel"],
-      });
-    }
-    if (!hasController) {
-      const controllerSetting = [
-        configuration.agentControllerPermissionMode,
-        configuration.modelId,
-        configuration.openCodePermission,
-        configuration.reasoningLevel,
-      ].find((value) => value !== null);
-      if (controllerSetting !== undefined) {
+const completeAgentProfileCreationConfigurationSchema =
+  agentProfileCreationPreferenceSelectionSchema
+    .safeExtend({
+      agentControllerRef: agentControllerRefSchema.nullable(),
+      authorizeForOrganization: z.boolean(),
+      targetComputerId: identifierSchema.nullable(),
+    })
+    .superRefine((configuration, context) => {
+      const hasController = configuration.agentControllerRef !== null;
+      const hasComputer = configuration.targetComputerId !== null;
+      if (hasController !== hasComputer) {
         context.addIssue({
           code: "custom",
-          message: "Local agent settings require an Agent Controller.",
-          path: ["agentControllerRef"],
+          message:
+            "agentControllerRef and targetComputerId must be provided together.",
+          path: hasController ? ["targetComputerId"] : ["agentControllerRef"],
         });
       }
-    }
-  });
+      if (
+        configuration.reasoningLevel !== null &&
+        configuration.modelId === null
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "reasoningLevel requires modelId.",
+          path: ["reasoningLevel"],
+        });
+      }
+      if (!hasController) {
+        const controllerSetting = [
+          configuration.agentControllerCollaborationMode,
+          configuration.agentControllerPermissionMode,
+          configuration.modelId,
+          configuration.openCodePermission,
+          configuration.reasoningLevel,
+        ].find((value) => value !== null);
+        if (controllerSetting !== undefined) {
+          context.addIssue({
+            code: "custom",
+            message: "Local agent settings require an Agent Controller.",
+            path: ["agentControllerRef"],
+          });
+        }
+      }
+    });
+
+export const agentProfileCreationConfigurationSchema = z.preprocess(
+  addMissingAgentControllerCollaborationMode,
+  completeAgentProfileCreationConfigurationSchema
+);
+
+function addMissingAgentControllerCollaborationMode(value: unknown): unknown {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    Object.hasOwn(value, "agentControllerCollaborationMode")
+  ) {
+    return value;
+  }
+  return { ...value, agentControllerCollaborationMode: null };
+}
 
 export const DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION = {
+  agentControllerCollaborationMode: null,
   agentControllerPermissionMode: null,
   agentControllerRef: null,
   authorizeForOrganization: true,

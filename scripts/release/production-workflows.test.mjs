@@ -28,6 +28,8 @@ const MAINLINE_RELEASE_ERROR_PATTERN =
 const YAML_JOB_BOUNDARY = /\n {2}[a-z_]+:/u;
 const SHELL_GITHUB_SHA = ["$", "{GITHUB_SHA}"].join("");
 const UNPINNED_ULTRACITE_COMMAND = /ultracite (?:check|fix)/u;
+const LOCAL_CORE_STARTUP_DIAGNOSTIC =
+  /- name: Capture local Core startup evidence\n\s+continue-on-error: true\n\s+run: pnpm run evidence:startup:core/u;
 const PNPM_BINARY = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 const COMPONENT_WORKFLOWS = [
@@ -715,6 +717,7 @@ test("routes stable CLI projection recovery through the guarded Core workflow", 
     core.includes("node scripts/release/deploy-core-current-cli-projection.mjs")
   );
   assert.ok(core.includes("pnpm run evidence:startup:core"));
+  assert.match(core, LOCAL_CORE_STARTUP_DIAGNOSTIC);
   assert.ok(core.includes("deploy-core-worker.mjs"));
   assert.ok(core.includes("release:preflight:core-current-cli-projection"));
   assert.ok(core.includes("core-startup-evidence-"));

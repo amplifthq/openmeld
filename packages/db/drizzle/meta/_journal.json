@@ -1002,6 +1002,13 @@
       "when": 1787649702150,
       "tag": "0142_oval_maginty",
       "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "6",
+      "when": 1787675615053,
+      "tag": "0143_romantic_pyro",
+      "breakpoints": true
     }
   ]
 }

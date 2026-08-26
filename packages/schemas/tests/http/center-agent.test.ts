@@ -563,8 +563,15 @@ describe("Center Agent HTTP schemas", () => {
     ).toBe(true);
     expect(
       centerAgentCreateConfiguredAgentProfileBodySchema.safeParse({
-        agentControllerCollaborationMode: "codex:plan",
         candidateId: "candidate-1",
+        configuration: {
+          agentControllerCollaborationMode: "codex:plan",
+          agentControllerPermissionMode: "codex:approveForMe",
+          defaultProjectId: "project-1",
+          modelId: "gpt-5.6-sol",
+          openCodePermission: null,
+          reasoningLevel: "high",
+        },
         profileName: "Planner",
         spaceId: "space-1",
       }).success

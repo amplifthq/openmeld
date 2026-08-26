@@ -8,7 +8,6 @@ import type {
   OrganizationSkillBundle,
   OrganizationSkillGitHubSource,
 } from "@openmeld/schemas/types";
-import { parse as parseYaml } from "yaml";
 import { createCoreRpcHttpError } from "../rpc/errors";
 
 const GIT_SUFFIX_PATTERN = /\.git$/;
@@ -30,6 +29,8 @@ type GitHubLocation = {
   repositoryUrl: string;
   repo: string;
 };
+
+type ParseYaml = (source: string) => unknown;
 
 export async function importOrganizationSkillBundleFromGitHub(input: {
   expectedCommitSha?: string;
@@ -110,7 +111,8 @@ export async function importOrganizationSkillBundleFromGitHub(input: {
       "The selected GitHub directory does not contain SKILL.md."
     );
   }
-  const parsed = parseSkillMarkdown(skillMarkdown);
+  const { parse: parseYaml } = await import("../generated-runtime/yaml.mjs");
+  const parsed = parseSkillMarkdown(skillMarkdown, parseYaml);
   const bundle = organizationSkillBundleSchema.safeParse({
     files: bundleFiles,
     instructions: parsed.instructions,
@@ -384,7 +386,10 @@ function githubApiHeaders(githubToken?: string): HeadersInit {
   };
 }
 
-function parseSkillMarkdown(value: string): {
+function parseSkillMarkdown(
+  value: string,
+  parseYaml: ParseYaml
+): {
   instructions: string;
   portable: OrganizationSkillBundle["portable"];
 } {

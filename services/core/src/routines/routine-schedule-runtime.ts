@@ -10,6 +10,8 @@ let routineScheduleModulePromise: Promise<RoutineScheduleModule> | null = null;
  * Core Worker isolate startup while preserving the same canonical engine.
  */
 export function loadRoutineSchedule(): Promise<RoutineScheduleModule> {
-  routineScheduleModulePromise ??= import("@openmeld/routine-schedule");
+  routineScheduleModulePromise ??= import(
+    "../generated-runtime/routine-schedule.mjs"
+  );
   return routineScheduleModulePromise;
 }

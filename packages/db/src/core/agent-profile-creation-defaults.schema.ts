@@ -21,6 +21,9 @@ export const agentProfileCreationDefaults = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     agentControllerRef: text("agent_controller_ref").notNull(),
+    agentControllerCollaborationMode: text(
+      "agent_controller_collaboration_mode"
+    ),
     defaultProjectId: text("default_project_id").references(() => projects.id, {
       onDelete: "set null",
     }),

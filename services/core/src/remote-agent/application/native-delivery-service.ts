@@ -6659,7 +6659,7 @@ async function publishRoutineSlackThreadText(input: {
     slackTeamId,
   });
   return await postSlackThreadMessage({
-    ...buildSlackFinalReplyPresentation(input.text),
+    ...(await buildSlackFinalReplyPresentation(input.text)),
     botToken,
     channelId,
     threadTs,
@@ -11664,7 +11664,7 @@ async function publishRemoteAgentSlackCallbackText(input: {
     fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
     slackTeamId,
   });
-  const presentation = buildSlackFinalReplyPresentation(
+  const presentation = await buildSlackFinalReplyPresentation(
     input.text,
     input.navigationAction
   );

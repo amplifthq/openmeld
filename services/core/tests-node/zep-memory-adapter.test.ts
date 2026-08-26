@@ -13,7 +13,7 @@ const zepMocks = vi.hoisted(() => ({
   upsertUser: vi.fn(),
 }));
 
-vi.mock("@getzep/zep-cloud", () => ({
+vi.mock("../src/generated-runtime/zep-cloud.mjs", () => ({
   ZepClient: class {
     graph = {
       add: zepMocks.addEpisode,

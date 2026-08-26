@@ -62,7 +62,7 @@ export async function executeCenterAgentSlackPublication(input: {
       sourceNativeDeliveryId: input.sourceNativeDeliveryId,
     });
     const publication = await postSlackChannelMessage({
-      ...buildSlackFinalReplyPresentation(input.text),
+      ...(await buildSlackFinalReplyPresentation(input.text)),
       botToken: input.botToken,
       target: input.target,
       ...(input.threadTs ? { threadTs: input.threadTs } : {}),
@@ -142,7 +142,7 @@ export async function executeCenterAgentSlackPublication(input: {
   let publication: Awaited<ReturnType<typeof postSlackChannelMessage>>;
   try {
     publication = await postSlackChannelMessage({
-      ...buildSlackFinalReplyPresentation(input.text),
+      ...(await buildSlackFinalReplyPresentation(input.text)),
       botToken: input.botToken,
       target: input.target,
       ...(input.threadTs ? { threadTs: input.threadTs } : {}),

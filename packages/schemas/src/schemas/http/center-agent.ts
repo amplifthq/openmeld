@@ -39,7 +39,9 @@ import {
   agentProfileBindingAgentControllerCollaborationModeSchema,
   agentProfileBindingAgentControllerPermissionModeSchema,
   agentProfileBindingOpenCodePermissionSchema,
+  agentProfileCreationPreferenceSelectionSchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
+  listAgentProfileCreationDefaultsResponseSchema,
 } from "./agent-profile-binding";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
 import {
@@ -1206,6 +1208,14 @@ export const centerAgentCheckAgentProfileReadinessBodySchema = z.strictObject({
   agentProfileId: agentProfileIdSchema,
 });
 
+export const centerAgentListAgentProfileCreationDefaultsBodySchema =
+  z.strictObject({
+    onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
+  });
+
+export const centerAgentListAgentProfileCreationDefaultsResponseSchema =
+  listAgentProfileCreationDefaultsResponseSchema;
+
 export const centerAgentCreateConfiguredAgentProfileBodySchema = z
   .strictObject({
     agentControllerCollaborationMode:
@@ -1213,6 +1223,7 @@ export const centerAgentCreateConfiguredAgentProfileBodySchema = z
     agentControllerPermissionMode:
       agentProfileBindingAgentControllerPermissionModeSchema.optional(),
     candidateId: trimmedNonEmptyStringSchema,
+    configuration: agentProfileCreationPreferenceSelectionSchema.optional(),
     modelId: trimmedNonEmptyStringSchema.optional(),
     onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
     openCodePermission: agentProfileBindingOpenCodePermissionSchema.optional(),

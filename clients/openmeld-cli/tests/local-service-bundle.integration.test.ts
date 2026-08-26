@@ -241,6 +241,63 @@ async function addEntrylessRuntimeDependency(
   );
 }
 
+async function addNodeBuiltinNamedRuntimeDependency(
+  fixture: DaemonBundleFixture
+): Promise<void> {
+  const commanderManifestPath = join(
+    fixture.packageRootPath,
+    "node_modules",
+    "commander",
+    "package.json"
+  );
+  const commanderManifest = JSON.parse(
+    await readFile(commanderManifestPath, "utf8")
+  ) as {
+    dependencies?: Record<string, string>;
+  };
+  await writeFile(
+    commanderManifestPath,
+    `${JSON.stringify(
+      {
+        ...commanderManifest,
+        dependencies: {
+          ...commanderManifest.dependencies,
+          buffer: "1.0.0",
+        },
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  const bufferRootPath = join(
+    fixture.packageRootPath,
+    "node_modules",
+    "buffer"
+  );
+  await mkdir(bufferRootPath, { recursive: true });
+  await writeFile(
+    join(bufferRootPath, "package.json"),
+    `${JSON.stringify(
+      {
+        name: "buffer",
+        version: "1.0.0",
+        type: "module",
+        main: "./index.js",
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await writeFile(
+    join(bufferRootPath, "index.js"),
+    "export const bundled = true;\n",
+    "utf8"
+  );
+}
+
 async function withCliScriptArgv<T>(
   cliScriptPath: string,
   fn: () => Promise<T>
@@ -1108,6 +1165,38 @@ describe("local service bundle", () => {
           stat(
             join(bundleRootPath, "node_modules", "entryless-child", "index.js")
           )
+        ).resolves.toBeDefined();
+      } finally {
+        await fixture?.cleanup();
+        if (previousPreset === undefined) {
+          Reflect.deleteProperty(process.env, "OPENMELD_ENV_PRESET");
+        } else {
+          process.env.OPENMELD_ENV_PRESET = previousPreset;
+        }
+      }
+    });
+  });
+
+  it("bundles packages whose names collide with Node built-in modules", async () => {
+    await withTempHome(async () => {
+      const previousPreset = process.env.OPENMELD_ENV_PRESET;
+      let fixture: DaemonBundleFixture | null = null;
+      process.env.OPENMELD_ENV_PRESET = "dev-local";
+
+      try {
+        fixture = await createDaemonBundleFixture("workspace");
+        await addNodeBuiltinNamedRuntimeDependency(fixture);
+
+        const bundleState = await prepareDaemonServiceBundle({
+          daemonVersion: "0.1.9",
+          cliScriptPath: fixture.cliScriptPath,
+        });
+        const bundleRootPath = resolveDaemonBundleRootPath(
+          bundleState.bundleId
+        );
+
+        await expect(
+          stat(join(bundleRootPath, "node_modules", "buffer", "package.json"))
         ).resolves.toBeDefined();
       } finally {
         await fixture?.cleanup();
