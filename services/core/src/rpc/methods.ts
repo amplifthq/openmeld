@@ -909,6 +909,7 @@ import {
   type CoreBindings,
   identityDb,
   localStateDb,
+  projectionsDb,
   wakeEvidenceDb,
 } from "../lib/bindings";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
@@ -1031,7 +1032,7 @@ import {
   readRemoteAgentMessageChannelIdentityLinkTokenForUser,
 } from "../remote-agent/infrastructure/d1/message-channel-identity-link-token-repo";
 import {
-  countActiveRemoteAgentNativeDeliveriesBySpaceIds,
+  listActiveRemoteAgentNativeDeliveryTargetsBySpaceIds,
   listRemoteAgentNativeDeliveryTurnDiagnosticRecords,
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByDispatchAndConversation,
@@ -1098,7 +1099,7 @@ import {
   registerRuntimeRegistryRecord,
 } from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../runtime-transport/application/current-owner-service-sessions";
-import { countActiveRuntimeCoordinatorExecutionsBySpaceIds } from "../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
+import { listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds } from "../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
 import { parseRpcErrorPayload } from "../shared/rpc/rpc-json";
 import {
   assertSpaceAccessMatchesSpace,
@@ -1134,6 +1135,7 @@ import {
   listAccountSpaceIdsFromSpaceIndex,
   listAccountSpacesFromSpaceIndex,
   listOrganizationSpacesFromSpaceIndex,
+  listSpaceIndexTargetProfileNameSnapshots,
   readCenterAgentDirectMessageProjectionCandidateByPairKey,
   readCenterAgentDirectMessageProjectionCandidateBySpaceId,
   readDirectMessageSpaceIndexCandidateBySpaceId,
@@ -16856,31 +16858,104 @@ export async function rpcListAccountSpaceActiveWakeSummary(
   }
   const freshAfterMs =
     generatedAtMs - REMOTE_AGENT_ACTIVE_EXECUTION_EVIDENCE_FRESHNESS_MS;
-  const [executionCounts, nativeDeliveryCounts] = await Promise.all([
-    countActiveRuntimeCoordinatorExecutionsBySpaceIds({
+  const [executionTargets, nativeDeliveryTargets] = await Promise.all([
+    listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds({
       db: wakeDb,
       freshAfterMs,
       spaceIds,
     }),
-    countActiveRemoteAgentNativeDeliveriesBySpaceIds({
+    listActiveRemoteAgentNativeDeliveryTargetsBySpaceIds({
       db: wakeDb,
       freshAfterMs,
       spaceIds,
     }),
   ]);
 
-  const countsBySpaceId = new Map<string, number>(executionCounts);
-  for (const [spaceId, count] of nativeDeliveryCounts) {
-    countsBySpaceId.set(spaceId, (countsBySpaceId.get(spaceId) ?? 0) + count);
+  const targetCountsBySpaceId = new Map<string, Map<string, number>>();
+  for (const target of [...executionTargets, ...nativeDeliveryTargets]) {
+    const targetCounts =
+      targetCountsBySpaceId.get(target.spaceId) ?? new Map<string, number>();
+    targetCounts.set(
+      target.targetProfileId,
+      (targetCounts.get(target.targetProfileId) ?? 0) + target.activeWakeCount
+    );
+    targetCountsBySpaceId.set(target.spaceId, targetCounts);
   }
+  const targetProfileNamesBySpaceAndId =
+    await readActiveWakeTargetProfileNameSnapshots({
+      db: projectionsDb(env),
+      targets: [...targetCountsBySpaceId].flatMap(([spaceId, targetCounts]) =>
+        [...targetCounts.keys()].map((profileId) => ({ profileId, spaceId }))
+      ),
+      viewerOwnerUserId: parsedInput.data.ownerUserId,
+    });
 
   return {
     generatedAtMs,
-    items: Array.from(countsBySpaceId, ([spaceId, activeWakeCount]) => ({
-      activeWakeCount,
-      spaceId,
-    })).sort((left, right) => left.spaceId.localeCompare(right.spaceId)),
+    items: Array.from(targetCountsBySpaceId, ([spaceId, targetCounts]) => {
+      const activeTargets = Array.from(
+        targetCounts,
+        ([profileId, activeWakeCount]) => ({
+          activeWakeCount,
+          profileId,
+          profileName:
+            targetProfileNamesBySpaceAndId.get(
+              buildActiveWakeTargetKey({ profileId, spaceId })
+            ) ?? null,
+        })
+      ).sort((left, right) =>
+        (left.profileName ?? left.profileId).localeCompare(
+          right.profileName ?? right.profileId
+        )
+      );
+      return {
+        activeTargets,
+        activeWakeCount: activeTargets.reduce(
+          (total, target) => total + target.activeWakeCount,
+          0
+        ),
+        spaceId,
+      };
+    }).sort((left, right) => left.spaceId.localeCompare(right.spaceId)),
   };
+}
+
+async function readActiveWakeTargetProfileNameSnapshots(input: {
+  db: D1Database | undefined;
+  targets: readonly { profileId: string; spaceId: string }[];
+  viewerOwnerUserId: string;
+}): Promise<Map<string, string>> {
+  const namesBySpaceAndProfileId = new Map<string, string>();
+  if (!input.db || input.targets.length === 0) {
+    return namesBySpaceAndProfileId;
+  }
+  try {
+    const snapshots = await listSpaceIndexTargetProfileNameSnapshots({
+      db: input.db,
+      targets: input.targets,
+    });
+    for (const snapshot of snapshots) {
+      namesBySpaceAndProfileId.set(
+        buildActiveWakeTargetKey(snapshot),
+        snapshot.profileName
+      );
+    }
+  } catch (error) {
+    console.warn("[core.account_spaces.active_wake_target_names_failed]", {
+      event: "core.account_spaces.active_wake_target_names_failed",
+      error: error instanceof Error ? error.message : String(error),
+      targetCount: input.targets.length,
+      viewerOwnerUserId: input.viewerOwnerUserId,
+    });
+  }
+  return namesBySpaceAndProfileId;
+}
+
+function buildActiveWakeTargetKey(input: {
+  profileId: string;
+  spaceId: string;
+}): string {
+  return `${input.spaceId}\u0000${input.profileId}`;
 }
 
 export function resolveAccountSpaceActiveWakeGatewayHost(input: {

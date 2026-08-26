@@ -33,6 +33,11 @@ a one-off cleanup took `openmeld-db` from 587 MB / 512K rows to 19 MB / ~890 row
 The 10 GB D1 cap is not in sight. Logical data ownership continues to follow
 `developing/architecture/data-and-observability.md` unchanged.
 
+`openmeld_profile_deletion_outbox` is Auth-owned identity-lifecycle recovery
+state and is currently co-located in the shared `openmeld-db`. It is not
+retained Wake evidence and must not move into a future time-decaying
+observability database.
+
 ## Groundwork Kept On Purpose
 
 These remain as harmless no-ops on the single DB and are reusable by a future

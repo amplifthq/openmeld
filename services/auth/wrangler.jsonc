@@ -4,9 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-02-18",
   "compatibility_flags": ["nodejs_compat"],
-  // Periodic Space Index overlay reconcile (physical-db-split.md D7): self-heals
-  // any dropped/failed Auth→Core overlay announcement. Per-env triggers do not
-  // inherit, so the prod block below repeats this.
+  // Periodic Auth convergence: self-heals dropped Space Index overlay writes
+  // and retries durable Profile-deletion lifecycle work. Per-env triggers do
+  // not inherit, so the prod block below repeats this.
   "triggers": {
     "crons": ["*/15 * * * *"]
   },
@@ -106,8 +106,8 @@
   ],
   "env": {
     "prod": {
-      // Per-env triggers do not inherit the top-level block; declare the
-      // overlay-reconcile cron explicitly for the prod deploy (physical-db-split.md D7).
+      // Per-env triggers do not inherit the top-level block; declare the Auth
+      // convergence cron explicitly for the prod deploy.
       "triggers": {
         "crons": ["*/15 * * * *"]
       },

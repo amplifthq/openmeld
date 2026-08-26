@@ -102,7 +102,7 @@ async function seedMember(input: {
 describe("deleted agent profile reconcile", () => {
   it("removes the deleted agent member via the fan-out RPC and posts a system notice", async () => {
     const { shard, spaceId } = createSpaceShard();
-    const profileId = "agt_reconcile_gone_1";
+    const profileId = "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc";
     await seedMember({ profileId, shard, spaceId });
 
     const outcome = await shard.rpcReconcileDeletedAgentProfileMember({
@@ -168,7 +168,7 @@ describe("deleted agent profile reconcile", () => {
 
   it("fans out through the orchestration service used by the auth entrypoint", async () => {
     const { shard, spaceId } = createSpaceShard();
-    const profileId = "agt_reconcile_gone_2";
+    const profileId = "agt_418831cf-a76d-4073-b606-de76b2f315ce";
     await seedMember({ profileId, shard, spaceId });
 
     const coreEnv = env as unknown as CoreBindings;
@@ -176,6 +176,53 @@ describe("deleted agent profile reconcile", () => {
     if (!db) {
       throw new Error("test env is missing OPENMELD_DB");
     }
+    await db
+      .prepare(
+        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES ('owner-1', 'Owner One', 'owner-one@example.com', 1, ?, ?)"
+      )
+      .bind(Date.now(), Date.now())
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO organizations (id, name, slug, created_at) VALUES ('org-1', 'Deleted Profile Org', 'deleted-profile-org', ?)"
+      )
+      .bind(Date.now())
+      .run();
+    await db
+      .prepare(
+        `
+        INSERT INTO openmeld_profiles (
+          profile_id, profile_name, profile_handle, profile_kind,
+          is_default, status, organization_id, owner_user_id, source,
+          created_at, updated_at
+        )
+        VALUES (?, 'Gone Bot', 'gone-bot', 'agent', 0, 'active',
+          'org-1', 'owner-1', 'migration', ?, ?)
+      `
+      )
+      .bind(profileId, Date.now(), Date.now())
+      .run();
+    await db
+      .prepare(
+        `
+        INSERT INTO openMeldDaemon_agent_profile_bindings (
+          binding_id, owner_kind, owner_id, agent_profile_id,
+          openmeld_service_runtime_id, agent_controller_ref,
+          binding_state, created_at_ms, updated_at_ms
+        )
+        VALUES (?, 'owner_account', ?, ?, ?, 'builtin:codex',
+          'enabled_primary', ?, ?)
+      `
+      )
+      .bind(
+        `binding-${profileId}`,
+        "owner-1",
+        profileId,
+        "runtime-1",
+        Date.now(),
+        Date.now()
+      )
+      .run();
     await db
       .prepare(
         `
@@ -197,6 +244,13 @@ describe("deleted agent profile reconcile", () => {
         `evt-reconcile-${profileId}`
       )
       .run();
+    // The Auth lifecycle fanout runs after the Profile row is gone. The old
+    // user-command cleanup revalidated this missing row and therefore left the
+    // Binding enabled forever.
+    await db
+      .prepare("DELETE FROM openmeld_profiles WHERE profile_id = ?")
+      .bind(profileId)
+      .run();
 
     // spaceIds is intentionally empty: core must resolve the affected
     // Spaces from the space-index membership projection itself.
@@ -207,13 +261,74 @@ describe("deleted agent profile reconcile", () => {
     });
 
     expect(response.profileId).toBe(profileId);
+    expect(response.complete).toBe(true);
     expect(response.spaces).toEqual([{ spaceId, status: "removed" }]);
-    expect(response.bindingDisabled).toBe(false);
+    expect(response.bindingDisabled).toBe(true);
+    await expect(
+      db
+        .prepare(
+          `
+          SELECT binding_state, reason_code
+          FROM openMeldDaemon_agent_profile_bindings
+          WHERE binding_id = ?
+        `
+        )
+        .bind(`binding-${profileId}`)
+        .first()
+    ).resolves.toMatchObject({
+      binding_state: "disabled_historical",
+      reason_code: "agent_profile_binding.profile_deleted",
+    });
+  });
+
+  it("keeps deletion reconciliation retryable when Space discovery is unavailable", async () => {
+    const response = await reconcileDeletedAgentProfile({} as CoreBindings, {
+      ownerUserId: "owner-1",
+      profileId: "33333333-3333-4333-8333-333333333333",
+      profileKind: "human",
+      spaceIds: [],
+    });
+
+    expect(response.complete).toBe(false);
+    expect(response.spaces).toEqual([]);
+  });
+
+  it("keeps the member and records retry evidence when Wake cancellation is not confirmed", async () => {
+    const { shard, spaceId } = createSpaceShard();
+    const profileId = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    await seedMember({ profileId, shard, spaceId });
+
+    await expect(
+      shard.rpcReconcileDeletedAgentProfileMember({
+        ownerUserId: "different-owner",
+        profileId,
+        spaceId,
+        wakeCancellationConfirmed: false,
+      })
+    ).resolves.toEqual({ status: "deferred" });
+
+    await runInDurableObject(shard, (_instance, state) => {
+      expect(readSpaceMemberRecord(state.storage.sql, profileId)?.status).toBe(
+        "active"
+      );
+      expect(
+        listDueMemberProfileLivenessEvidence(state.storage.sql, {
+          minAgeMs: 30 * 60_000,
+          minObservations: 2,
+          nowMs: Date.now(),
+        })
+      ).toMatchObject([
+        {
+          observationCount: 2,
+          profileId,
+        },
+      ]);
+    });
   });
 
   it("records liveness evidence on snapshot reads and removes only after the alarm re-verifies", async () => {
     const { shard, spaceId } = createSpaceShard();
-    const profileId = "agt_reconcile_gone_3";
+    const profileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     await seedMember({ profileId, shard, spaceId });
 
     const authState = { deleted: true };

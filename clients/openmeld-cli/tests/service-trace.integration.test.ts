@@ -993,6 +993,89 @@ describe("service trace command", () => {
     });
   });
 
+  it("keeps an active RuntimeCoordinator execution ahead of final projection diagnostics", async () => {
+    await withTempHome(async () => {
+      resolveRuntimeContextMock.mockResolvedValue({
+        viewMode: "agent",
+        resolvedView: "agent",
+        interactive: false,
+      });
+      resolveCurrentReplyReadinessSnapshotMock.mockResolvedValue(
+        createReplyReadinessSnapshot()
+      );
+      const traceResponse = createTraceResponse();
+      if (!traceResponse.trace) {
+        throw new Error("expected trace fixture");
+      }
+      traceResponse.correlation = {
+        ...traceResponse.correlation,
+        publishedSignalId: null,
+        replySignalId: null,
+        resultRef: null,
+        runtimeCoordinatorExecutionId: "rce-demo-running",
+      };
+      traceResponse.trace = {
+        ...traceResponse.trace,
+        result: null,
+        resultInbox: null,
+        replySignal: null,
+        finalVisibleMessage: null,
+        finalVisibleMessageLinkage: {
+          status: "projection_pending",
+          reasonCode: "final_visible_message.projection_pending",
+          sourceFact: "none",
+          candidateSignalIds: [],
+          claimSignalId: null,
+          selectedSignalId: null,
+        },
+        runtimeCoordinatorExecution: {
+          bindingId: "binding-1",
+          agentControllerRef: "builtin:codex",
+          createdAtMs: 1_762_473_599_000,
+          dispatchId: "dispatch-demo",
+          factSource: "runtime_coordinator_projection",
+          legacyPointers: {
+            attemptId: "attempt-2",
+            claimLeaseId: null,
+            connectionGeneration: 1,
+            daemonSessionId: "daemon-session-1",
+            leaseEpoch: 3,
+          },
+          modelVersion: "openmeld.runtime_coordinator.execution.v1",
+          runtimeCoordinatorExecutionId: "rce-demo-running",
+          openMeldServiceRuntimeId: {
+            source: "runtime_registry_authority",
+            value: "runtime-1",
+          },
+          sourceClientMessageId: "client-message-1",
+          spaceId: "space-demo",
+          status: "running",
+          targetProfileId: "agt-target",
+          terminalOutcome: null,
+          updatedAtMs: 1_762_473_604_000,
+        },
+      };
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runServiceTrace(
+          {
+            profile: "hum-actor",
+            space: "space-demo",
+            dispatchId: "dispatch-demo",
+            view: "agent",
+          },
+          createReadOnlyTraceDependencies(traceResponse)
+        );
+      });
+
+      expect(stdout).toContain(
+        "current_state=running reason=runtime_coordinator.running"
+      );
+      expect(stdout).not.toContain("current_state=final_projection_pending");
+      expect(stdout).not.toContain("target computer is offline");
+    });
+  });
+
   it("keeps token-backed published replies anchored to the visible reply", async () => {
     await withTempHome(async () => {
       resolveRuntimeContextMock.mockResolvedValue({

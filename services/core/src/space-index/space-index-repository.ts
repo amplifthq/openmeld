@@ -618,6 +618,81 @@ export async function listAccountSpaceIdsFromSpaceIndex(input: {
   return (rows.results ?? []).map((row) => row.space_id);
 }
 
+const TARGET_PROFILE_NAME_SNAPSHOT_CHUNK_SIZE = 40;
+
+export type SpaceIndexTargetProfileNameSnapshot = {
+  profileId: string;
+  profileName: string;
+  spaceId: string;
+};
+
+export async function listSpaceIndexTargetProfileNameSnapshots(input: {
+  db: D1Database;
+  targets: readonly { profileId: string; spaceId: string }[];
+}): Promise<SpaceIndexTargetProfileNameSnapshot[]> {
+  const uniqueTargets = [
+    ...new Map(
+      input.targets.map((target) => [buildSpaceProfileKey(target), target])
+    ).values(),
+  ];
+  const snapshots: SpaceIndexTargetProfileNameSnapshot[] = [];
+  for (
+    let offset = 0;
+    offset < uniqueTargets.length;
+    offset += TARGET_PROFILE_NAME_SNAPSHOT_CHUNK_SIZE
+  ) {
+    const chunk = uniqueTargets.slice(
+      offset,
+      offset + TARGET_PROFILE_NAME_SNAPSHOT_CHUNK_SIZE
+    );
+    if (chunk.length === 0) {
+      continue;
+    }
+    const predicates = chunk
+      .map(() => "(space_id = ? AND profile_id = ?)")
+      .join(" OR ");
+    const bindings = chunk.flatMap((target) => [
+      target.spaceId,
+      target.profileId,
+    ]);
+    // Deliberately include removed membership projections. They preserve the
+    // frozen target identity needed to explain a still-active Wake after its
+    // Agent Profile has been deleted.
+    const rows = await input.db
+      .prepare(
+        `
+          SELECT space_id, profile_id, profile_name_snapshot
+          FROM space_index_memberships
+          WHERE ${predicates}
+        `
+      )
+      .bind(...bindings)
+      .all<{
+        profile_id?: unknown;
+        profile_name_snapshot?: unknown;
+        space_id?: unknown;
+      }>();
+    for (const row of rows.results ?? []) {
+      const profileId = normalizeOptionalText(row.profile_id);
+      const profileName = normalizeOptionalText(row.profile_name_snapshot);
+      const spaceId = normalizeOptionalText(row.space_id);
+      if (profileId && profileName && spaceId) {
+        snapshots.push({ profileId, profileName, spaceId });
+      }
+    }
+  }
+  return snapshots.sort((left, right) =>
+    buildSpaceProfileKey(left).localeCompare(buildSpaceProfileKey(right))
+  );
+}
+
+function buildSpaceProfileKey(input: {
+  profileId: string;
+  spaceId: string;
+}): string {
+  return `${input.spaceId}\u0000${input.profileId}`;
+}
+
 export async function listAccountSpacesFromSpaceIndex(
   input: ListAccountSpacesFromSpaceIndexInput
 ): Promise<AccountSpaceIndexResponse> {

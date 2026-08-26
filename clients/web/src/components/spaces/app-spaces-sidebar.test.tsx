@@ -631,7 +631,7 @@ describe("AppSpacesSidebar", () => {
 		expect(pinButton.classList.contains("backdrop-blur-sm")).toBe(true);
 	});
 
-	it("keeps a non-current Space orb visible across ordinary server clock skew", async () => {
+	it("shows active Agent names only from the Working orb tooltip", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -647,7 +647,19 @@ describe("AppSpacesSidebar", () => {
 		});
 		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
 			generatedAtMs: Date.now() + 12_566,
-			items: [{ activeWakeCount: 1, spaceId: "space-alpha" }],
+			items: [
+				{
+					activeTargets: [
+						{
+							activeWakeCount: 1,
+							profileId: "agt_clico",
+							profileName: "Clico Codex",
+						},
+					],
+					activeWakeCount: 1,
+					spaceId: "space-alpha",
+				},
+			],
 		});
 
 		renderSidebar(
@@ -657,9 +669,12 @@ describe("AppSpacesSidebar", () => {
 			/>
 		);
 
-		const workingRow = (
-			await screen.findByRole("button", { name: "Alpha, agent working" })
-		).closest<HTMLElement>('[data-slot="center-truncated-text"], li, div');
+		const workingButton = await screen.findByRole("button", {
+			name: "Alpha, agent working",
+		});
+		const workingRow = workingButton.closest<HTMLElement>(
+			'[data-slot="center-truncated-text"], li, div'
+		);
 		expect(workingRow).toBeTruthy();
 		await waitFor(() => {
 			expect(
@@ -670,10 +685,19 @@ describe("AppSpacesSidebar", () => {
 			'[data-space-active-wake-orb="true"]'
 		);
 		expect(orbSlot?.querySelector("canvas")).toBeTruthy();
-		expect(orbSlot?.classList.contains("pointer-events-none")).toBe(true);
+		expect(orbSlot?.classList.contains("pointer-events-auto")).toBe(true);
 		expect(orbSlot?.classList.contains("group-hover/space-row:opacity-0")).toBe(
 			false
 		);
+		const workingStatus = screen.getByRole("button", {
+			name: "Clico Codex is working. Open Alpha",
+		});
+		expect(workingStatus).toBe(orbSlot);
+		fireEvent.pointerEnter(workingStatus);
+		fireEvent.mouseEnter(workingStatus);
+		await waitFor(() => {
+			expect(screen.getByText("Clico Codex is working")).toBeTruthy();
+		});
 		expect(
 			orbSlot?.classList.contains("group-hover/space-row:scale-[0.625]")
 		).toBe(true);
@@ -693,7 +717,55 @@ describe("AppSpacesSidebar", () => {
 		).toBe(true);
 	});
 
-	it("keeps the current Space orb aligned with the shared conversation Working state", async () => {
+	it("lists every named Agent in the Working orb tooltip", async () => {
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					spaceId: "space-alpha",
+					spaceName: "Alpha",
+				}),
+			],
+		});
+		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
+			generatedAtMs: Date.now(),
+			items: [
+				{
+					activeTargets: [
+						{
+							activeWakeCount: 1,
+							profileId: "agt_clico",
+							profileName: "Clico Codex",
+						},
+						{
+							activeWakeCount: 1,
+							profileId: "agt_felix",
+							profileName: "Felix Codex",
+						},
+					],
+					activeWakeCount: 2,
+					spaceId: "space-alpha",
+				},
+			],
+		});
+
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+
+		const workingStatus = await screen.findByRole("button", {
+			name: "Clico Codex and Felix Codex are working. Open Alpha",
+		});
+		fireEvent.pointerEnter(workingStatus);
+		fireEvent.mouseEnter(workingStatus);
+		await waitFor(() => {
+			expect(
+				screen.getByText("Clico Codex and Felix Codex are working")
+			).toBeTruthy();
+		});
+	});
+
+	it("uses the frozen target name when current Working progress only has a raw Agent id", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -704,9 +776,22 @@ describe("AppSpacesSidebar", () => {
 			],
 			spaceItems: [],
 		});
-		getAccountSpaceActiveWakeSummaryMock.mockRejectedValue(
-			new Error("account active Wake summary unavailable")
-		);
+		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
+			generatedAtMs: Date.now(),
+			items: [
+				{
+					activeTargets: [
+						{
+							activeWakeCount: 1,
+							profileId: "agt_deleted",
+							profileName: "Clico Codex",
+						},
+					],
+					activeWakeCount: 1,
+					spaceId: "space-alpha",
+				},
+			],
+		});
 		const queryClient = createSidebarQueryClient();
 		setSpaceWakeProgressPresentationItems({
 			items: [
@@ -715,8 +800,8 @@ describe("AppSpacesSidebar", () => {
 					dispatchId: "dispatch-alpha",
 					phase: "running",
 					sourceSignalId: "signal-alpha",
-					targetLabel: "Runner",
-					targetProfileId: "agent-alpha",
+					targetLabel: "@agt_deleted",
+					targetProfileId: "agt_deleted",
 					updatedAtMs: Date.now(),
 				}),
 			],
@@ -734,7 +819,14 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("button", { name: "Alpha, agent working" })
+			await screen.findByRole("button", {
+				name: "Alpha, agent working",
+			})
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "Clico Codex is working. Open Alpha",
+			})
 		).toBeTruthy();
 		expect(
 			document.querySelector('[data-space-active-wake-orb="true"]')
@@ -790,6 +882,11 @@ describe("AppSpacesSidebar", () => {
 
 		expect(
 			await screen.findByRole("button", { name: "Alpha, agent working" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "Runner is working. Open Alpha",
+			})
 		).toBeTruthy();
 	});
 

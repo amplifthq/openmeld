@@ -46,6 +46,15 @@ describe("dispatch error policy timeout/runtime classifications", () => {
     ).toBe("non_retryable");
   });
 
+  it("treats missing local conversation context as non_retryable", () => {
+    expect(
+      classifyDispatchError(
+        { code: "context_not_found" },
+        "context_not_found: no rollout found for the saved local conversation"
+      )
+    ).toBe("non_retryable");
+  });
+
   it("retries while the local service is still applying profile settings", () => {
     expect(
       classifyDispatchError(

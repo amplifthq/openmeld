@@ -75,6 +75,7 @@ vi.mock(
 import {
   createInflightTaskControlRegistry,
   createLocalAdapterContainer,
+  createLocalExecutionSlots,
   createPendingAgentInteractionRegistry,
 } from "@openmeld/local-service";
 import {
@@ -82,12 +83,29 @@ import {
   DAEMON_STREAM_KEEPALIVE_PONG,
 } from "@openmeld/protocol";
 import { RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION } from "@openmeld/schemas";
-import { runDaemonSocketSession } from "../src/local-service/carrier/run-socket-session";
+import { runDaemonSocketSession as runDaemonSocketSessionInternal } from "../src/local-service/carrier/run-socket-session";
 import { DAEMON_STREAM_KEEPALIVE_INTERVAL_MS } from "../src/local-service/core/constants";
 import type {
   CurrentDaemonSocketRef,
+  DaemonDispatchLimits,
   LedgerPaths,
 } from "../src/local-service/core/types";
+
+type RunTestDaemonSocketSessionInput = Omit<
+  Parameters<typeof runDaemonSocketSessionInternal>[0],
+  "localExecutionSlots"
+> & { dispatchLimits: DaemonDispatchLimits };
+
+function runDaemonSocketSession(
+  input: RunTestDaemonSocketSessionInput
+): Promise<void> {
+  const { dispatchLimits, ...sessionInput } = input;
+  return runDaemonSocketSessionInternal({
+    ...sessionInput,
+    localExecutionSlots: createLocalExecutionSlots({ limits: dispatchLimits }),
+  });
+}
+
 import {
   enqueueDispatchResultOutboxRecord,
   listDispatchResultOutboxPendingAcknowledgementKeys,

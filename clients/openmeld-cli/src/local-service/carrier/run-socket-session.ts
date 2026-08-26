@@ -2,9 +2,9 @@ import {
   ADAPTIVE_HEARTBEAT_JITTER_RATIO,
   applyAcceptedLeases,
   applyIntervalJitterMs,
-  createLocalExecutionSlots,
   type InflightTaskControlRegistry,
   type LocalDaemonAdapterContainer,
+  type LocalExecutionSlots,
   MAX_HEARTBEAT_INTERVAL_MS,
   MIN_HEARTBEAT_INTERVAL_MS,
   type PendingAgentInteractionRegistry,
@@ -78,7 +78,6 @@ import {
 } from "../core/logger";
 import type {
   CurrentDaemonSocketRef,
-  DaemonDispatchLimits,
   InflightDispatchMeta,
   LedgerPaths,
   MutableRouteCatalogState,
@@ -430,7 +429,6 @@ export async function runDaemonSocketSession(input: {
   contextStore: Map<string, string>;
   currentSocketRef?: CurrentDaemonSocketRef;
   daemonSessionId: string;
-  dispatchLimits: DaemonDispatchLimits;
   deviceId: string;
   serviceContractGeneration?: number;
   foregroundActive: boolean;
@@ -446,6 +444,7 @@ export async function runDaemonSocketSession(input: {
   ledgerPaths: LedgerPaths;
   loadRouteCatalog?: () => Promise<RouteCatalog>;
   localAdapterContainer: LocalDaemonAdapterContainer;
+  localExecutionSlots: LocalExecutionSlots;
   lane: string;
   ownerUserId: string;
   onRuntimeReportingAuthenticationFailure?: (
@@ -561,104 +560,7 @@ export async function runDaemonSocketSession(input: {
       deviceId: input.deviceId,
     },
   });
-  const localExecutionSlots = createLocalExecutionSlots({
-    limits: input.dispatchLimits,
-    onTaskDropped: (event) => {
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.local_execution_slot_dropped",
-        text: `local execution slot dropped pending task ${event.taskId} for ${event.targetLabel}: ${event.reason}`,
-        payload: {
-          adapterId: event.adapterId,
-          activeForLane: event.activeForLane,
-          activeGlobal: event.activeGlobal,
-          controllerKey: event.controllerKey,
-          dispatchId: event.dispatchId,
-          globalConcurrency: event.limits.globalConcurrency,
-          localExecutionLaneKey: event.localExecutionLaneKey,
-          profileId: event.profileId,
-          queueDepth: event.queueDepth,
-          localQueueStatus: event.localQueue.status,
-          localQueueWaitReason: event.localQueue.waitReason,
-          queuePosition: event.localQueue.queuePosition,
-          queueMax: event.limits.queueMax,
-          reason: event.reason,
-          spaceId: event.spaceId,
-          step: "dropped",
-          taskId: event.taskId,
-          targetLabel: event.targetLabel,
-          transportMode: event.transportMode,
-        },
-      });
-    },
-    onTaskStarted: (event) => {
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.local_execution_slot_reserved",
-        text: `local execution slot reserved task ${event.taskId} for ${event.targetLabel}`,
-        payload: {
-          adapterId: event.adapterId,
-          activeForLane: event.activeForLane,
-          activeGlobal: event.activeGlobal,
-          controllerKey: event.controllerKey,
-          dispatchId: event.dispatchId,
-          durationMs: null,
-          errorCode: null,
-          globalConcurrency: event.limits.globalConcurrency,
-          localExecutionLaneKey: event.localExecutionLaneKey,
-          profileId: event.profileId,
-          queueDepth: event.queueDepth,
-          localQueueStatus: event.localQueue.status,
-          localQueueWaitReason: event.localQueue.waitReason,
-          queuePosition: event.localQueue.queuePosition,
-          queueMax: event.limits.queueMax,
-          result: null,
-          spaceId: event.spaceId,
-          step: "started",
-          taskId: event.taskId,
-          targetLabel: event.targetLabel,
-          transportMode: event.transportMode,
-        },
-      });
-    },
-    onTaskCompleted: (event) => {
-      let completionText = `local execution slot failed task ${event.taskId} for ${event.targetLabel}`;
-      if (event.result === "success") {
-        completionText = `local execution slot completed task ${event.taskId} for ${event.targetLabel}`;
-      } else if (event.result === "partial_success") {
-        completionText = `local execution slot partially completed task ${event.taskId} for ${event.targetLabel}`;
-      }
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.local_execution_slot_completed",
-        text: completionText,
-        payload: {
-          adapterId: event.adapterId,
-          activeForLane: event.activeForLane,
-          activeGlobal: event.activeGlobal,
-          controllerKey: event.controllerKey,
-          dispatchId: event.dispatchId,
-          durationMs: event.durationMs,
-          errorCode: event.errorCode,
-          ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
-          globalConcurrency: event.limits.globalConcurrency,
-          localExecutionLaneKey: event.localExecutionLaneKey,
-          profileId: event.profileId,
-          queueDepth: event.queueDepth,
-          localQueueStatus: event.localQueue.status,
-          localQueueWaitReason: event.localQueue.waitReason,
-          queuePosition: event.localQueue.queuePosition,
-          queueMax: event.limits.queueMax,
-          result: event.result,
-          spaceId: event.spaceId,
-          step: "completed",
-          taskId: event.taskId,
-          targetLabel: event.targetLabel,
-          transportMode: event.transportMode,
-        },
-      });
-    },
-  });
+  const { localExecutionSlots } = input;
 
   const waitForClose = new Promise<void>((resolve) => {
     input.socket.onClose((code, reason) => {

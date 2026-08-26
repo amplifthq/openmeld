@@ -277,6 +277,16 @@ Important execution rules:
   controller cancel. Outbox redrive, queue consumers, head accept, delivery
   preparation, token issuance, and late local result handling must all fail
   closed against that guard.
+- Deleting an Agent Profile is an execution-lifecycle event. The authoritative
+  deletion fanout asks that Profile owner's RuntimeCoordinator shard to stop
+  every matching unlinked accepted or waiting Wake head and every matching
+  in-flight execution. Historical result-received executions are not active
+  cancellation targets. Core disables the exact owner/Profile Binding so no new route
+  survives the deleted identity. Space removes the Agent member only after
+  cancellation is accepted or the shard proves no matching Wake is active. An
+  incomplete cancellation keeps retry evidence in the Space
+  membership-liveness alarm instead of leaving a removed Agent with an
+  indefinitely active Wake presentation.
 - Space access authority must stay structured across the Wake path. When Core,
   Space, dispatch, or RuntimeCoordinator code carries a `SpaceAccessContext`, it
   must preserve the access actor kind through internal RPC and direct Durable

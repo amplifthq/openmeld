@@ -1542,6 +1542,195 @@ describe("shared drizzle migration history integrity", () => {
     expect(journalSqlFiles).toEqual(sqlFiles);
   });
 
+  it("records deleted human and agent Profiles in the durable reconcile outbox", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      applyMigrationFiles(database, listSqlMigrationFiles());
+      database.exec(`
+        INSERT INTO organizations (id, name, slug, created_at)
+        VALUES ('org-profile-delete', 'Profile Delete Org', 'profile-delete-org', 1000);
+        INSERT INTO users (
+          id, name, email, email_verified, created_at, updated_at
+        ) VALUES (
+          'owner-profile-delete',
+          'Profile Owner',
+          'profile-delete@example.com',
+          1,
+          1000,
+          1000
+        );
+        INSERT INTO openmeld_profiles (
+          profile_id,
+          profile_name,
+          profile_handle,
+          profile_kind,
+          is_default,
+          status,
+          organization_id,
+          owner_user_id,
+          source,
+          created_at,
+          updated_at
+        ) VALUES
+          (
+            'agt_11111111-1111-4111-8111-111111111111',
+            'Deleted Agent',
+            'deleted-agent',
+            'agent',
+            0,
+            'active',
+            'org-profile-delete',
+            'owner-profile-delete',
+            'migration',
+            1000,
+            1000
+          ),
+          (
+            '22222222-2222-4222-8222-222222222222',
+            'Deleted Human',
+            'deleted-human',
+            'human',
+            0,
+            'active',
+            NULL,
+            'owner-profile-delete',
+            'migration',
+            1000,
+            1000
+          );
+        DELETE FROM openmeld_profiles
+        WHERE owner_user_id = 'owner-profile-delete';
+      `);
+
+      expect(
+        database
+          .prepare(
+            `SELECT profile_id, owner_user_id, profile_kind, attempt_count
+             FROM openmeld_profile_deletion_outbox
+             ORDER BY profile_id ASC`
+          )
+          .all()
+      ).toEqual([
+        {
+          attempt_count: 0,
+          owner_user_id: "owner-profile-delete",
+          profile_id: "22222222-2222-4222-8222-222222222222",
+          profile_kind: "human",
+        },
+        {
+          attempt_count: 0,
+          owner_user_id: "owner-profile-delete",
+          profile_id: "agt_11111111-1111-4111-8111-111111111111",
+          profile_kind: "agent",
+        },
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("backfills an enabled Binding whose Agent Profile was already deleted", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const migrationFileName = listSqlMigrationFiles().find((fileName) =>
+        fs
+          .readFileSync(path.join(migrationDirectoryPath, fileName), "utf8")
+          .includes("CREATE TABLE `openmeld_profile_deletion_outbox`")
+      );
+      expect(migrationFileName).toBeDefined();
+      if (!migrationFileName) {
+        return;
+      }
+
+      applyMigrationFiles(
+        database,
+        listSqlMigrationFiles().filter(
+          (fileName) => fileName.localeCompare(migrationFileName) < 0
+        )
+      );
+      database.exec(`
+        INSERT INTO organizations (id, name, slug, created_at)
+        VALUES ('org-stale-binding', 'Stale Binding Org', 'stale-binding-org', 1000);
+        INSERT INTO users (
+          id, name, email, email_verified, created_at, updated_at
+        ) VALUES (
+          'owner-stale-binding',
+          'Stale Binding Owner',
+          'stale-binding@example.com',
+          1,
+          1000,
+          1000
+        );
+        INSERT INTO openmeld_profiles (
+          profile_id,
+          profile_name,
+          profile_handle,
+          profile_kind,
+          is_default,
+          status,
+          organization_id,
+          owner_user_id,
+          source,
+          created_at,
+          updated_at
+        ) VALUES (
+          'agt_44444444-4444-4444-8444-444444444444',
+          'Already Deleted Agent',
+          'already-deleted-agent',
+          'agent',
+          0,
+          'active',
+          'org-stale-binding',
+          'owner-stale-binding',
+          'migration',
+          1000,
+          1000
+        );
+        INSERT INTO openMeldDaemon_agent_profile_bindings (
+          binding_id,
+          owner_kind,
+          owner_id,
+          agent_profile_id,
+          openmeld_service_runtime_id,
+          agent_controller_ref,
+          binding_state,
+          created_at_ms,
+          updated_at_ms
+        ) VALUES (
+          'binding-stale-profile',
+          'owner_account',
+          'owner-stale-binding',
+          'agt_44444444-4444-4444-8444-444444444444',
+          'runtime-stale-binding',
+          'builtin:codex',
+          'enabled_primary',
+          1000,
+          1000
+        );
+        DELETE FROM openmeld_profiles
+        WHERE profile_id = 'agt_44444444-4444-4444-8444-444444444444';
+      `);
+
+      applyMigrationFiles(database, [migrationFileName]);
+
+      expect(
+        database
+          .prepare(
+            `SELECT profile_id, owner_user_id, profile_kind, attempt_count
+             FROM openmeld_profile_deletion_outbox`
+          )
+          .get()
+      ).toEqual({
+        attempt_count: 0,
+        owner_user_id: "owner-stale-binding",
+        profile_id: "agt_44444444-4444-4444-8444-444444444444",
+        profile_kind: "agent",
+      });
+    } finally {
+      database.close();
+    }
+  });
+
   it("keeps LATEST_SHARED_MIGRATION_ID aligned with the drizzle journal entry count", () => {
     const journal = readJournal();
     expect(LATEST_SHARED_MIGRATION_ID).toBe(journal.entries.length);

@@ -1325,63 +1325,67 @@ describe("shared db tooling", () => {
     DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS
   );
 
-  it("does not emit pre-apply schema mutation statements before shared db:migrate applies migrations", () => {
-    const fixture = createCanonicalSharedLocalFixture(
-      "migrate-no-preapply-sql"
-    );
-    process.env[D1_LOCAL_DB_PATH_ENV_NAME] = fixture.sqlitePath;
-    const observedSqlStatements: string[] = [];
-    let migrationApplyCallCount = 0;
-    const observedMigrationConfigs: string[] = [];
-
-    try {
-      const summary = runSharedDbMigrate({
-        mode: "dev",
-        runner: ({ args }) => {
-          const sql = args[args.indexOf("--command") + 1] ?? "";
-
-          if (args.includes("execute") && !args.includes("--json")) {
-            observedSqlStatements.push(sql);
-            return {
-              status: 0,
-              stdout: "",
-              stderr: "",
-            };
-          }
-
-          if (args.includes("migrations") && args.includes("apply")) {
-            migrationApplyCallCount += 1;
-            observedMigrationConfigs.push(
-              String(args[args.indexOf("--config") + 1] ?? "")
-            );
-            return {
-              status: 0,
-              stdout: "",
-              stderr: "",
-            };
-          }
-
-          return {
-            status: 0,
-            stdout: "",
-            stderr: "",
-          };
-        },
-      });
-
-      expect(summary.result).toBe("applied");
-      expect(migrationApplyCallCount).toBe(2);
-      expect(observedMigrationConfigs).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining("services/auth/wrangler.jsonc"),
-          expect.stringContaining("services/core/wrangler.jsonc"),
-        ])
+  it(
+    "does not emit pre-apply schema mutation statements before shared db:migrate applies migrations",
+    () => {
+      const fixture = createCanonicalSharedLocalFixture(
+        "migrate-no-preapply-sql"
       );
-      expect(observedSqlStatements).toEqual([]);
-    } finally {
-      fixture.cleanup();
-    }
-  });
+      process.env[D1_LOCAL_DB_PATH_ENV_NAME] = fixture.sqlitePath;
+      const observedSqlStatements: string[] = [];
+      let migrationApplyCallCount = 0;
+      const observedMigrationConfigs: string[] = [];
+
+      try {
+        const summary = runSharedDbMigrate({
+          mode: "dev",
+          runner: ({ args }) => {
+            const sql = args[args.indexOf("--command") + 1] ?? "";
+
+            if (args.includes("execute") && !args.includes("--json")) {
+              observedSqlStatements.push(sql);
+              return {
+                status: 0,
+                stdout: "",
+                stderr: "",
+              };
+            }
+
+            if (args.includes("migrations") && args.includes("apply")) {
+              migrationApplyCallCount += 1;
+              observedMigrationConfigs.push(
+                String(args[args.indexOf("--config") + 1] ?? "")
+              );
+              return {
+                status: 0,
+                stdout: "",
+                stderr: "",
+              };
+            }
+
+            return {
+              status: 0,
+              stdout: "",
+              stderr: "",
+            };
+          },
+        });
+
+        expect(summary.result).toBe("applied");
+        expect(migrationApplyCallCount).toBe(2);
+        expect(observedMigrationConfigs).toEqual(
+          expect.arrayContaining([
+            expect.stringContaining("services/auth/wrangler.jsonc"),
+            expect.stringContaining("services/core/wrangler.jsonc"),
+          ])
+        );
+        expect(observedSqlStatements).toEqual([]);
+      } finally {
+        fixture.cleanup();
+      }
+    },
+    DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS
+  );
 
   it(
     "returns diff_detected when shared db:verify sees Core physical schema drift",

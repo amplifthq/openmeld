@@ -1709,6 +1709,7 @@ const buildRuntimeCoordinatorHeadPreAgentStopRequest = (
     dispatchId,
     idempotencyKey: overrides.idempotencyKey ?? "wake-stop:dispatch-1",
     ownerUserId: overrides.ownerUserId ?? "owner-1",
+    ...(overrides.reason ? { reason: overrides.reason } : {}),
     targetProfileMentionLabel:
       overrides.targetProfileMentionLabel ?? "Codex Agent",
     targetProfileName: overrides.targetProfileName ?? "Codex Agent",
@@ -3932,7 +3933,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("records pre-agent Stop before execution without creating execution authority", async () => {
     const { hub, spaceFetchRequests, storageRecords } = createHarness();
-    const stopRequest = buildRuntimeCoordinatorHeadPreAgentStopRequest();
+    const stopRequest = buildRuntimeCoordinatorHeadPreAgentStopRequest({
+      reason: "The Agent Profile was deleted.",
+    });
 
     const stopResponse = await fetchRuntimeTransportJson(
       hub,
@@ -3962,6 +3965,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
       runtimeCoordinatorExecutionId: null,
       status: "stopped_before_execution",
+      stopReason: "The Agent Profile was deleted.",
       targetDisplay: {
         targetProfileMentionLabel: "Codex Agent",
         targetProfileName: "Codex Agent",
@@ -3982,9 +3986,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
           actorName: "Codex Agent",
           dispatchId: "dispatch-1",
           generatedBy: "openmeld",
-          reason: "runtime_coordinator.pre_agent_stop_requested",
+          reason: "The Agent Profile was deleted.",
           reasonCode: "runtime_coordinator.pre_agent_stop_requested",
-          text: "Wake was stopped for Codex Agent before it reached the agent.",
+          text: "Wake was stopped for Codex Agent because its Agent Profile was deleted.",
         },
       },
     });
@@ -5283,7 +5287,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
     });
     enableWakeStopControl(state);
-    await requestRuntimeCoordinatorWakeStop(hub);
+    await requestRuntimeCoordinatorWakeStop(
+      hub,
+      buildRuntimeCoordinatorWakeStopRequest({
+        reason: "The Agent Profile was deleted.",
+      })
+    );
     recordingD1.calls.length = 0;
 
     await submitWakeStopLocalControlResult({
@@ -5335,9 +5344,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
           actorName: "Codex Agent",
           dispatchId: "dispatch-1",
           generatedBy: "openmeld",
-          reason: "adapter.cancel.accepted",
+          reason: "The Agent Profile was deleted.",
           reasonCode: "adapter.cancel.accepted",
-          text: "Wake was stopped for Codex Agent.",
+          text: "Wake was stopped for Codex Agent because its Agent Profile was deleted.",
         },
       },
     });
@@ -5364,6 +5373,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(findRuntimeCoordinatorRunCommandState(storageRecords)).toMatchObject(
       {
         lastCommandReasonCode: "adapter.cancel.accepted",
+        stopReason: "The Agent Profile was deleted.",
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       }
     );

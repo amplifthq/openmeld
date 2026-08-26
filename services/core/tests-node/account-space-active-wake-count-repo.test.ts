@@ -4,11 +4,12 @@ import type {
   RuntimeCoordinatorExecutionStatus,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { countActiveRemoteAgentNativeDeliveriesBySpaceIds } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { listActiveRemoteAgentNativeDeliveryTargetsBySpaceIds } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
-  countActiveRuntimeCoordinatorExecutionsBySpaceIds,
+  listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds,
   writeRuntimeCoordinatorExecutionProjection,
 } from "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
+import { listSpaceIndexTargetProfileNameSnapshots } from "../src/space-index/space-index-repository";
 import {
   applyDrizzleMigrationForTable,
   createSqliteD1Harness,
@@ -64,12 +65,18 @@ describe("account space active wake count repos", () => {
       });
 
       await expect(
-        countActiveRuntimeCoordinatorExecutionsBySpaceIds({
+        listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds({
           db: harness.db,
           freshAfterMs: 500,
           spaceIds: ["space-1", "space-2", "space-quiet"],
         })
-      ).resolves.toEqual(new Map([["space-1", 2]]));
+      ).resolves.toEqual([
+        {
+          activeWakeCount: 2,
+          spaceId: "space-1",
+          targetProfileId: "agt_target_a",
+        },
+      ]);
     } finally {
       harness.close();
     }
@@ -183,12 +190,75 @@ describe("account space active wake count repos", () => {
       }
 
       await expect(
-        countActiveRemoteAgentNativeDeliveriesBySpaceIds({
+        listActiveRemoteAgentNativeDeliveryTargetsBySpaceIds({
           db: harness.db,
           freshAfterMs: 500,
           spaceIds: ["space-1", "space-2"],
         })
-      ).resolves.toEqual(new Map([["space-1", 2]]));
+      ).resolves.toEqual([
+        {
+          activeWakeCount: 2,
+          spaceId: "space-1",
+          targetProfileId: "agt_target_native",
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps removed Space membership names available for active Wake attribution", async () => {
+    const harness = createSqliteD1Harness();
+    applyDrizzleMigrationForTable(harness, "space_index_memberships");
+    try {
+      harness.run({
+        params: [
+          "space-1",
+          "agt_deleted",
+          "Clico Codex",
+          "owner-clico",
+          "removed",
+          1000,
+          1100,
+          1200,
+          1250,
+          "projection-1",
+        ],
+        sql: `
+          INSERT INTO space_index_memberships (
+            space_id,
+            profile_id,
+            profile_kind_snapshot,
+            profile_name_snapshot,
+            owner_user_id_snapshot,
+            status,
+            member_source,
+            added_at_ms,
+            removed_at_ms,
+            source_updated_at_ms,
+            projected_at_ms,
+            projection_event_id
+          )
+          VALUES (?, ?, 'agent', ?, ?, ?, 'member', ?, ?, ?, ?, ?)
+        `,
+      });
+
+      await expect(
+        listSpaceIndexTargetProfileNameSnapshots({
+          db: harness.db,
+          targets: [
+            { profileId: "agt_deleted", spaceId: "space-1" },
+            { profileId: "agt_deleted", spaceId: "space-1" },
+            { profileId: "agt_missing", spaceId: "space-1" },
+          ],
+        })
+      ).resolves.toEqual([
+        {
+          profileId: "agt_deleted",
+          profileName: "Clico Codex",
+          spaceId: "space-1",
+        },
+      ]);
     } finally {
       harness.close();
     }

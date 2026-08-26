@@ -29,6 +29,7 @@ export const {
   verifications,
   openMeldProfiles,
   openMeldProfilesRelations,
+  openMeldProfileDeletionOutbox,
   openMeldProfileSpaceHistory,
   openMeldProfileSpaceHistoryRelations,
   openMeldSpaceDeletionTombstones,

@@ -541,13 +541,15 @@ async function resolveDispatchThreadContext(input: {
 }): Promise<CodexAppServerThreadContext> {
   const existingThreadId = normalizeOptionalText(input.threadId);
   if (existingThreadId) {
-    const dispatchThreadId =
-      input.executionMode === "repair"
-        ? await forkEphemeralCodexRepairThread({
-            session: input.session,
-            sourceThreadId: existingThreadId,
-          })
-        : existingThreadId;
+    if (input.executionMode === "repair") {
+      return await forkEphemeralCodexRepairThread({
+        conversationPolicyParams: input.conversationPolicyParams,
+        codexWorkdir: input.codexWorkdir,
+        permissionModeParams: input.permissionModeParams,
+        session: input.session,
+        sourceThreadId: existingThreadId,
+      });
+    }
     const response = await input.session.requestControl(
       "thread/resume",
       {
@@ -557,7 +559,7 @@ async function resolveDispatchThreadContext(input: {
         ...input.permissionModeParams,
         cwd: input.codexWorkdir,
         excludeTurns: true,
-        threadId: dispatchThreadId,
+        threadId: existingThreadId,
       },
       {
         code: "context.resume_timeout",
@@ -594,12 +596,20 @@ async function resolveDispatchThreadContext(input: {
 }
 
 async function forkEphemeralCodexRepairThread(input: {
+  conversationPolicyParams: CodexAppServerConversationPolicyParams;
+  codexWorkdir: string;
+  permissionModeParams: CodexAppServerThreadPermissionModeParams;
   session: CodexAppServerSession;
   sourceThreadId: string;
-}): Promise<string> {
+}): Promise<CodexAppServerThreadContext> {
   const response = await input.session.requestControl(
     "thread/fork",
     {
+      ...(input.conversationPolicyParams.model
+        ? { model: input.conversationPolicyParams.model }
+        : {}),
+      ...input.permissionModeParams,
+      cwd: input.codexWorkdir,
       ephemeral: true,
       excludeTurns: true,
       threadId: input.sourceThreadId,
@@ -609,7 +619,10 @@ async function forkEphemeralCodexRepairThread(input: {
       operation: "thread/fork",
     }
   );
-  return readThreadIdFromResponse(response);
+  // An ephemeral thread intentionally has no on-disk rollout. It is already
+  // live in this app-server session, so resuming it would force an impossible
+  // disk lookup ("no rollout found") before the repair turn can start.
+  return readThreadContextFromResponse(response);
 }
 
 function resolveCodexTurnPrompt(input: {
@@ -2486,6 +2499,8 @@ function toJsonRpcTransportError(
     });
   }
   if (
+    lowered.includes("no rollout found") ||
+    lowered.includes("rollout not found") ||
     lowered.includes("thread not found") ||
     lowered.includes("thread not loaded") ||
     lowered.includes("no thread") ||

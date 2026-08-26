@@ -238,6 +238,23 @@ describe("resolveDispatchFailureHintText", () => {
     ).toBe("@reviewer couldn't finish replying");
   });
 
+  it("explains missing local conversation context without blaming the provider or network", () => {
+    expect(
+      resolveDispatchFailureHintText({
+        errorCode: "context_not_found",
+        targetProfileLabel: 'Agent "reviewer"',
+      })
+    ).toBe(
+      'Agent "reviewer" could not reopen its saved local conversation. This was not a model-provider or network failure. Wake the agent again to start a fresh local conversation.'
+    );
+    expect(
+      resolveDispatchFailureActivityText({
+        errorCode: "context_not_found",
+        targetProfileLabel: "reviewer",
+      })
+    ).toBe("@reviewer couldn't reopen its local conversation");
+  });
+
   it("explains Codex upgrade-required failures in plain language", () => {
     expect(
       resolveDispatchFailureHintText({
