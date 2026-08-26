@@ -48,12 +48,14 @@ export async function attemptSpaceInboxProjectionOutboxRecord(input: {
     const failures: Error[] = [];
     for (const candidate of input.record.candidates) {
       try {
-        if (!(await input.isRecipientEligible(candidate))) {
+        const compatibleCandidate =
+          normalizeSpaceInboxProjectionCandidate(candidate);
+        if (!(await input.isRecipientEligible(compatibleCandidate))) {
           continue;
         }
         const preparedCandidate = input.prepareCandidate
-          ? await input.prepareCandidate(candidate)
-          : candidate;
+          ? await input.prepareCandidate(compatibleCandidate)
+          : compatibleCandidate;
         await ensureItem({ candidate: preparedCandidate, db: input.db, nowMs });
       } catch (error) {
         failedCandidates.push(candidate);
@@ -99,6 +101,31 @@ export async function attemptSpaceInboxProjectionOutboxRecord(input: {
       status: "failed",
     };
   }
+}
+
+function normalizeSpaceInboxProjectionCandidate(
+  candidate: InboxSourceCandidate
+): InboxSourceCandidate {
+  if (
+    candidate.sourceKind === "space_signal" &&
+    candidate.kind === "wake_outcome" &&
+    candidate.attention === "action_required"
+  ) {
+    const sourceTarget =
+      candidate.sourceTarget.kind === "space"
+        ? {
+            kind: "space" as const,
+            spaceId: candidate.sourceTarget.spaceId,
+            ...(candidate.sourceTarget.threadRootSignalId
+              ? {
+                  threadRootSignalId: candidate.sourceTarget.threadRootSignalId,
+                }
+              : {}),
+          }
+        : candidate.sourceTarget;
+    return { ...candidate, attention: "update", sourceTarget };
+  }
+  return candidate;
 }
 
 class SpaceInboxRecipientProjectionError extends Error {
