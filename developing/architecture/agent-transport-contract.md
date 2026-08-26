@@ -112,6 +112,14 @@ The application-level outbox responsibility states are `pending`,
 accepted responsibility: direct RuntimeCoordinator submission for workstation
 Wake, or Queue only for the hosted recovery cases defined above. It must never
 be interpreted as proof that a workstation Wake entered Cloudflare Queue.
+For hosted native delivery, a Dispatch Ledger row alone is not durable
+admission. A native-delivery row that is still `submitted` without either its
+exact persisted worker request or a worker acknowledgement remains an
+incomplete handoff. After the bounded direct grace period, the Space outbox
+must redrive that same dispatch and attempt through hosted recovery instead of
+retiring the outbox item or creating another attempt. If the exact worker
+request is already persisted, recovery submits that frozen request directly;
+it does not rebuild mutable conversation context before replay.
 The direct path returns only after RuntimeCoordinator head acceptance and local
 delivery acceptance have completed or produced a durable retry decision. Its
 correctness must not depend on `DurableObjectState.waitUntil`, because that API
