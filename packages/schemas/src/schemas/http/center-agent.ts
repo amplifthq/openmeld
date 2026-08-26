@@ -40,6 +40,7 @@ import {
   agentProfileBindingAgentControllerPermissionModeSchema,
   agentProfileBindingOpenCodePermissionSchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
+  listAgentProfileCreationDefaultsResponseSchema,
 } from "./agent-profile-binding";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
 import {
@@ -1205,6 +1206,14 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
 export const centerAgentCheckAgentProfileReadinessBodySchema = z.strictObject({
   agentProfileId: agentProfileIdSchema,
 });
+
+export const centerAgentListAgentProfileCreationDefaultsBodySchema =
+  z.strictObject({
+    onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
+  });
+
+export const centerAgentListAgentProfileCreationDefaultsResponseSchema =
+  listAgentProfileCreationDefaultsResponseSchema;
 
 export const centerAgentCreateConfiguredAgentProfileBodySchema = z
   .strictObject({

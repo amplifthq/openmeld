@@ -67,6 +67,15 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     ],
     namespace: "agents_and_computers",
   },
+  openmeld_read_agent_profile_creation_defaults: {
+    aliases: [
+      "read Agent Profile defaults",
+      "use my usual local agent settings",
+      "读取代理配置默认值",
+      "使用我常用的本地代理设置",
+    ],
+    namespace: "agents_and_computers",
+  },
   openmeld_create_project: {
     aliases: ["create a project", "add an Organization project", "创建项目"],
     dependencies: ["openmeld_list_projects"],

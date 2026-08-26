@@ -56,6 +56,8 @@ import {
   centerAgentCreateSpaceResponseSchema,
   centerAgentEnableAgentProfileBodySchema,
   centerAgentEnableAgentProfileResponseSchema,
+  centerAgentListAgentProfileCreationDefaultsBodySchema,
+  centerAgentListAgentProfileCreationDefaultsResponseSchema,
   centerAgentListAgentTasksBodySchema,
   centerAgentListAgentTasksResponseSchema,
   centerAgentListComputersBodySchema,
@@ -310,6 +312,7 @@ import type {
   AgentActivitySessionInventoryRpcInput,
   AgentActivitySnapshotRpcInput,
   AgentActivityStatsRpcInput,
+  AgentControllerCollaborationMode,
   AgentControllerPermissionMode,
   AgentExecutionReadinessTargetRuntime,
   AgentProfileBindingOpenCodePermission,
@@ -344,6 +347,8 @@ import type {
   CenterAgentEnableAgentProfileBody,
   CenterAgentEnableAgentProfileResponse,
   CenterAgentListAgentActivitySessionsToolRpcInput,
+  CenterAgentListAgentProfileCreationDefaultsBody,
+  CenterAgentListAgentProfileCreationDefaultsResponse,
   CenterAgentListAgentTasksBody,
   CenterAgentListAgentTasksResponse,
   CenterAgentListComputersBody,
@@ -504,6 +509,7 @@ import type {
   LarkPlatformRegistrationBeginMode,
   LarkPlatformRegistrationResponse,
   LeaveSpaceResponse,
+  ListAgentProfileCreationDefaultsResponse,
   ListCenterAgentAuditJournalQuery,
   ListCenterAgentAuditJournalResponse,
   ListCurrentUserAgentProfileOrganizationWakeAccessResponse,
@@ -711,6 +717,8 @@ import {
   readPrimaryAgentProfileBindingRecord,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
+  type AgentProfileCreationDefaultsRecord,
+  listAgentProfileCreationDefaultsRecords,
   readAgentProfileCreationDefaultsRecord,
   upsertAgentProfileCreationDefaultsRecord,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-creation-defaults-repo";
@@ -2516,6 +2524,11 @@ export type GetAgentProfileCreationDefaultsInput = {
   context?: CoreRpcContextInput;
   organizationId: string;
 };
+
+export type CenterAgentListAgentProfileCreationDefaultsInput =
+  CenterAgentListAgentProfileCreationDefaultsBody & {
+    context?: CoreRpcContextInput;
+  };
 
 export type SetAgentProfileCreationDefaultsInput =
   SetAgentProfileCreationDefaultsBody & {
@@ -5369,6 +5382,8 @@ export async function rpcGetAgentProfileCreationDefaults(
   });
 
   return buildAgentProfileCreationDefaultsResponse({
+    agentControllerCollaborationMode:
+      preference?.agentControllerCollaborationMode ?? null,
     agentControllerPermissionMode:
       preference?.agentControllerPermissionMode ?? null,
     agentControllerRef,
@@ -5392,6 +5407,7 @@ export async function rpcSetAgentProfileCreationDefaults(
     input.agentControllerRef
   );
   const body = setAgentProfileCreationDefaultsBodySchema.safeParse({
+    agentControllerCollaborationMode: input.agentControllerCollaborationMode,
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     defaultProjectId: input.defaultProjectId,
     modelId: input.modelId,
@@ -5429,6 +5445,8 @@ export async function rpcSetAgentProfileCreationDefaults(
   }
   const preference = await upsertAgentProfileCreationDefaultsRecord({
     ...body.data,
+    agentControllerCollaborationMode:
+      body.data.agentControllerCollaborationMode ?? null,
     agentControllerRef,
     db,
     nowMs: Date.now(),
@@ -5438,6 +5456,60 @@ export async function rpcSetAgentProfileCreationDefaults(
 
   return buildAgentProfileCreationDefaultsResponse({
     ...preference,
+  });
+}
+
+export async function rpcCenterAgentListAgentProfileCreationDefaults(
+  env: CoreBindings,
+  input: CenterAgentListAgentProfileCreationDefaultsInput
+): Promise<CenterAgentListAgentProfileCreationDefaultsResponse> {
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: requireRpcContext(input.context),
+    env,
+  });
+  const body = centerAgentListAgentProfileCreationDefaultsBodySchema.safeParse({
+    onBehalfOf: input.onBehalfOf,
+  });
+  if (!body.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason:
+        body.error.issues[0]?.message ??
+        "invalid Agent Profile creation defaults read payload",
+      status: 400,
+    });
+  }
+  if (!body.data.onBehalfOf) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_creation_defaults.represented_member_required",
+      reason:
+        "Reading Agent Profile creation defaults requires a represented Organization member.",
+      status: 403,
+    });
+  }
+  const attribution = await resolveCenterAgentAuditAttribution({
+    authorization,
+    onBehalfOfProfileId: body.data.onBehalfOf.profileId,
+  });
+  if (!attribution.onBehalfOf?.userId) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_creation_defaults.represented_member_required",
+      reason:
+        "Reading Agent Profile creation defaults requires a represented Organization member.",
+      status: 403,
+    });
+  }
+  const organizationId = authorization.activeOrganization.organizationId;
+  const userId = attribution.onBehalfOf.userId;
+  const defaults = await listAgentProfileCreationDefaultsRecords({
+    db: requireAgentProfileBindingDb(env),
+    organizationId,
+    userId,
+  });
+  return buildListAgentProfileCreationDefaultsResponse({
+    defaults,
+    organizationId,
+    userId,
   });
 }
 
@@ -21268,6 +21340,7 @@ function requireCanonicalAgentControllerRef(value: string): string {
 }
 
 function buildAgentProfileCreationDefaultsResponse(input: {
+  agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
   agentControllerPermissionMode: AgentControllerPermissionMode | null;
   agentControllerRef: string;
   defaultProjectId: string | null;
@@ -21279,6 +21352,7 @@ function buildAgentProfileCreationDefaultsResponse(input: {
   userId: string;
 }): GetAgentProfileCreationDefaultsResponse {
   const response = {
+    agentControllerCollaborationMode: input.agentControllerCollaborationMode,
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     agentControllerRef: input.agentControllerRef,
     defaultProjectId: input.defaultProjectId,
@@ -21306,6 +21380,20 @@ function buildAgentProfileCreationDefaultsResponse(input: {
     );
   }
   return validated.data;
+}
+
+function buildListAgentProfileCreationDefaultsResponse(input: {
+  defaults: readonly AgentProfileCreationDefaultsRecord[];
+  organizationId: string;
+  userId: string;
+}): ListAgentProfileCreationDefaultsResponse {
+  return centerAgentListAgentProfileCreationDefaultsResponseSchema.parse({
+    defaults: input.defaults.map((preference) =>
+      buildAgentProfileCreationDefaultsResponse(preference)
+    ),
+    organizationId: input.organizationId,
+    userId: input.userId,
+  });
 }
 
 function buildGetAgentExecutionReadinessResponse(input: {

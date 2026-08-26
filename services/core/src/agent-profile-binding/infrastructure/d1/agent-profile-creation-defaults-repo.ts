@@ -1,13 +1,16 @@
 import {
+  agentControllerCollaborationModeSchema,
   agentControllerPermissionModeSchema,
   openCodePermissionConfigSchema,
 } from "@openmeld/schemas";
 import type {
+  AgentControllerCollaborationMode,
   AgentControllerPermissionMode,
   AgentProfileBindingOpenCodePermission,
 } from "@openmeld/schemas/types";
 
 export type AgentProfileCreationDefaultsRecord = {
+  agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
   agentControllerPermissionMode: AgentControllerPermissionMode | null;
   agentControllerRef: string;
   createdAtMs: number;
@@ -22,6 +25,7 @@ export type AgentProfileCreationDefaultsRecord = {
 };
 
 type AgentProfileCreationDefaultsRow = {
+  agent_controller_collaboration_mode: string | null;
   agent_controller_permission_mode: string | null;
   agent_controller_ref: string;
   created_at_ms: number;
@@ -49,6 +53,7 @@ export async function readAgentProfileCreationDefaultsRecord(input: {
           organization_id,
           user_id,
           agent_controller_ref,
+          agent_controller_collaboration_mode,
           default_project_id,
           model_id,
           reasoning_level,
@@ -69,7 +74,41 @@ export async function readAgentProfileCreationDefaultsRecord(input: {
   return row ? mapAgentProfileCreationDefaultsRow(row) : null;
 }
 
+export async function listAgentProfileCreationDefaultsRecords(input: {
+  db: D1Database;
+  organizationId: string;
+  userId: string;
+}): Promise<AgentProfileCreationDefaultsRecord[]> {
+  const result = await input.db
+    .prepare(
+      `
+        SELECT
+          id,
+          organization_id,
+          user_id,
+          agent_controller_ref,
+          agent_controller_collaboration_mode,
+          default_project_id,
+          model_id,
+          reasoning_level,
+          agent_controller_permission_mode,
+          open_code_permission_json,
+          created_at_ms,
+          updated_at_ms
+        FROM agent_profile_creation_defaults
+        WHERE organization_id = ?
+          AND user_id = ?
+        ORDER BY updated_at_ms DESC, agent_controller_ref ASC
+      `
+    )
+    .bind(input.organizationId, input.userId)
+    .all<AgentProfileCreationDefaultsRow>();
+
+  return (result.results ?? []).map(mapAgentProfileCreationDefaultsRow);
+}
+
 export async function upsertAgentProfileCreationDefaultsRecord(input: {
+  agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
   agentControllerPermissionMode: AgentControllerPermissionMode | null;
   agentControllerRef: string;
   db: D1Database;
@@ -89,6 +128,7 @@ export async function upsertAgentProfileCreationDefaultsRecord(input: {
           organization_id,
           user_id,
           agent_controller_ref,
+          agent_controller_collaboration_mode,
           default_project_id,
           model_id,
           reasoning_level,
@@ -97,8 +137,9 @@ export async function upsertAgentProfileCreationDefaultsRecord(input: {
           created_at_ms,
           updated_at_ms
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(organization_id, user_id, agent_controller_ref) DO UPDATE SET
+          agent_controller_collaboration_mode = excluded.agent_controller_collaboration_mode,
           default_project_id = excluded.default_project_id,
           model_id = excluded.model_id,
           reasoning_level = excluded.reasoning_level,
@@ -112,6 +153,7 @@ export async function upsertAgentProfileCreationDefaultsRecord(input: {
       input.organizationId,
       input.userId,
       input.agentControllerRef,
+      input.agentControllerCollaborationMode,
       input.defaultProjectId,
       input.modelId,
       input.reasoningLevel,
@@ -137,6 +179,12 @@ function mapAgentProfileCreationDefaultsRow(
   row: AgentProfileCreationDefaultsRow
 ): AgentProfileCreationDefaultsRecord {
   return {
+    agentControllerCollaborationMode:
+      row.agent_controller_collaboration_mode === null
+        ? null
+        : agentControllerCollaborationModeSchema.parse(
+            row.agent_controller_collaboration_mode
+          ),
     agentControllerPermissionMode:
       row.agent_controller_permission_mode === null
         ? null

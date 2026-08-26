@@ -1,0 +1,1 @@
+ALTER TABLE `agent_profile_creation_defaults` ADD `agent_controller_collaboration_mode` text;

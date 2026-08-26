@@ -41,6 +41,7 @@ import type {
   CenterAgentInstallOrganizationSkillRpcInput,
   CenterAgentInviteSlackTeammatesRpcInput,
   CenterAgentInviteSlackTeammatesRpcResponse,
+  CenterAgentListAgentProfileCreationDefaultsResponse,
   CenterAgentListAgentTasksResponse,
   CenterAgentListComputersResponse,
   CenterAgentListLocalAgentConnectionCandidatesResponse,
@@ -527,6 +528,7 @@ import {
   type CenterAgentCreateSpaceInput,
   type CenterAgentEnableAgentProfileInput,
   type CenterAgentListAgentActivitySessionsInput,
+  type CenterAgentListAgentProfileCreationDefaultsInput,
   type CenterAgentListAgentTasksInput,
   type CenterAgentListComputersInput,
   type CenterAgentListLocalAgentConnectionCandidatesInput,
@@ -730,6 +732,7 @@ import {
   rpcCenterAgentGetOrganizationDirectory,
   rpcCenterAgentGetOrganizationSpaceDirectory,
   rpcCenterAgentListAgentActivitySessions,
+  rpcCenterAgentListAgentProfileCreationDefaults,
   rpcCenterAgentListAgentTasks,
   rpcCenterAgentListComputers,
   rpcCenterAgentListLocalAgentConnectionCandidates,
@@ -2706,6 +2709,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: CenterAgentListLocalAgentConnectionCandidatesInput
   ): Promise<CenterAgentListLocalAgentConnectionCandidatesResponse> {
     return rpcCenterAgentListLocalAgentConnectionCandidates(this.env, input);
+  }
+
+  centerAgentListAgentProfileCreationDefaults(
+    input: CenterAgentListAgentProfileCreationDefaultsInput
+  ): Promise<CenterAgentListAgentProfileCreationDefaultsResponse> {
+    return rpcCenterAgentListAgentProfileCreationDefaults(this.env, input);
   }
 
   centerAgentListComputers(

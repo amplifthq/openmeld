@@ -43,6 +43,7 @@ import {
   centerAgentInstallOrganizationSkillRpcInputSchema,
   centerAgentInviteSlackTeammatesRpcInputSchema,
   centerAgentInviteSlackTeammatesRpcResponseSchema,
+  centerAgentListAgentProfileCreationDefaultsResponseSchema,
   centerAgentListAgentTasksResponseSchema,
   centerAgentListComputersResponseSchema,
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
@@ -1217,6 +1218,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_resume_controller_conversation",
   "openmeld_retry_as_new_execution",
   "openmeld_create_space",
+  "openmeld_read_agent_profile_creation_defaults",
   "openmeld_create_agent_profile_request",
   "openmeld_list_agent_profile_creation_requests",
   "openmeld_manage_agent_profile_creation_request",
@@ -1271,6 +1273,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_get_organization_invite_link",
   "openmeld_list_spaces",
   "openmeld_list_projects",
+  "openmeld_read_agent_profile_creation_defaults",
   "openmeld_read_agent_activity",
   "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
@@ -4074,6 +4077,26 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             ...(password === undefined ? {} : { password }),
             visibility,
           })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_read_agent_profile_creation_defaults",
+      description:
+        "Read the represented member's saved Agent Profile creation settings for every local agent controller. These are the member's own most recently used Project, model, reasoning effort, permission mode, collaboration mode, and OpenCode permission choices. Use them as concrete preferences when preparing a new local Agent Profile, while still choosing settings that can handle the actual task. Local folder paths are never returned; use the saved defaultProjectId with OpenMeld's existing Project and local Project connection flow.",
+      input: object({}),
+      execute: async () => {
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_agent_profile_creation_defaults",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentListAgentProfileCreationDefaults,
+          "centerAgentListAgentProfileCreationDefaults"
+        );
+        return centerAgentListAgentProfileCreationDefaultsResponseSchema.parse(
+          await rpc(toolContext)
         );
       },
     }),

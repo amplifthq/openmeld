@@ -590,6 +590,7 @@ export const createOrganizationApi: CreateOrganizationApi = (
   },
   setAgentProfileCreationDefaults: async (input) => {
     const body = setAgentProfileCreationDefaultsBodySchema.parse({
+      agentControllerCollaborationMode: input.agentControllerCollaborationMode,
       agentControllerPermissionMode: input.agentControllerPermissionMode,
       defaultProjectId: input.defaultProjectId,
       modelId: input.modelId,

@@ -318,6 +318,9 @@ export type RemoteAgentCoreWorkerBinding = {
     input: CenterAgentCreateProjectToolRpcInput
   ): Promise<CenterAgentCreateProjectToolResponse>;
   centerAgentCreateConfiguredAgentProfile?(input: unknown): Promise<unknown>;
+  centerAgentListAgentProfileCreationDefaults?(
+    input: unknown
+  ): Promise<unknown>;
   centerAgentCreateRoutine?(
     input: CenterAgentCreateRoutineToolRpcInput
   ): Promise<CreateCenterAgentRoutineResponse>;

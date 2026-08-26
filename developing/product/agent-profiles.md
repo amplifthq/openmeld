@@ -533,11 +533,14 @@ custom choice is selected.
 
 After a local Agent Profile is created and its local Binding setup succeeds,
 OpenMeld remembers that user's selected Default Project, model, reasoning
-effort, and Agent Controller Permission Mode for the same Organization and
+effort, Agent Controller Permission Mode, Agent Controller Collaboration Mode,
+and controller-specific permission settings for the same Organization and
 Agent Controller. These creation defaults are keyed by Organization, user, and
 canonical Agent Controller ref; they are not Agent Profile identity or Binding
-truth. The stored Default Project is a cloud Project id, never a local path.
-Custom and OpenMeld-chosen paths therefore save no Default Project id.
+truth. Web, CLI, Local Agents, and the Center Agent read and write this same
+Core-owned preference contract. The stored Default Project is a cloud Project
+id, never a local path. Custom and OpenMeld-chosen paths therefore save no
+Default Project id.
 
 The next creation may prefill only values that remain valid in the current
 Project list and current Agent Controller catalog. Missing or archived Projects,
@@ -546,6 +549,14 @@ fall back to current defaults rather than leaking stale configuration or a
 different Agent Controller's choices. Failed or cancelled creation does not
 replace the remembered values, and dangerous permission confirmations are
 never remembered as approved.
+
+The Center Agent can read every saved controller-specific row for the
+represented member before creating a local Agent Profile. These values are
+concrete user preferences, not a rules engine or a forced configuration: the
+Center Agent keeps them when they fit the task, changes them when the task needs
+different capability, and asks the member when an important choice remains
+uncertain. The projection contains Project ids only. Local folder paths stay in
+the Local Project Connection owned by the current OpenMeld Service.
 
 Changing Default Project or the local default connection applies only to
 future Wakes and new sessions. Product copy must say that the current session

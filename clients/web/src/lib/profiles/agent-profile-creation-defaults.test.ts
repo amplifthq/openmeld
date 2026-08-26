@@ -44,6 +44,7 @@ describe("remembered Agent Profile creation defaults", () => {
 
 function defaults(): GetAgentProfileCreationDefaultsResponse {
 	return {
+		agentControllerCollaborationMode: "codex:plan",
 		agentControllerPermissionMode: "codex:fullAccess",
 		agentControllerRef: "builtin:codex",
 		defaultProjectId: "project-1",

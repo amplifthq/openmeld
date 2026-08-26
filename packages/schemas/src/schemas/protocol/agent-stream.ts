@@ -46,6 +46,7 @@ const agentWorkActivityKeySchema = z.enum([
   "agent_profile.create",
   "agent_profile.enable",
   "agent_profile.readiness.check",
+  "agent_profile.settings.read",
   "agent_profile.settings.update",
   "build.run",
   "center_agent.activity.read",

@@ -1087,6 +1087,12 @@ metadata or shows raw provider ids. BYOK is not part of this release.
   approved automatically, or sent to Inbox for a decision. Center Agent tools
   list and manage the same requests as Web and CLI; they do not implement a
   parallel approval path.
+- Before direct configured creation, the Center Agent may read the represented
+  member's Core-owned Agent Profile creation defaults. The read returns the
+  member's exact controller-specific Project, model, reasoning, permission,
+  collaboration, and controller-specific permission choices. It never returns
+  a local folder path and does not decide what configuration the task needs;
+  the Center Agent remains responsible for that judgment.
 - The audited Organization Directory read is the shared People identity surface
   for Web, Center Agent, and local agents using the signed-in member's CLI
   authority. It includes current members, Human and Agent Profiles, roles, and
