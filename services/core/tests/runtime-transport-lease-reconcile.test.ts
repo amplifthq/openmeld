@@ -244,6 +244,60 @@ async function seedExpectedRoute(input: {
       }),
     },
   });
+  const nowMs = Date.now();
+  const organizationId = `org-route-reconciliation-${input.ownerUserId}`;
+  await env.OPENMELD_DB.prepare(
+    `
+      INSERT OR IGNORE INTO users (
+        id, name, email, email_verified, created_at, updated_at
+      )
+      VALUES (?, 'Route reconciliation owner', ?, 1, ?, ?)
+    `
+  )
+    .bind(
+      input.ownerUserId,
+      `${input.ownerUserId}@route-reconciliation.test`,
+      nowMs,
+      nowMs
+    )
+    .run();
+  await env.OPENMELD_DB.prepare(
+    `
+      INSERT OR IGNORE INTO organizations (id, name, slug, created_at)
+      VALUES (?, 'Route reconciliation organization', ?, ?)
+    `
+  )
+    .bind(organizationId, `route-reconciliation-${input.ownerUserId}`, nowMs)
+    .run();
+  await env.OPENMELD_DB.prepare(
+    `
+      INSERT INTO openmeld_profiles (
+        profile_id,
+        profile_name,
+        profile_handle,
+        profile_kind,
+        is_default,
+        status,
+        organization_id,
+        owner_user_id,
+        created_by_user_id,
+        source,
+        created_at,
+        updated_at
+      )
+      VALUES (?, 'Route reconciliation agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', ?, ?)
+    `
+  )
+    .bind(
+      input.profileId,
+      `route-reconciliation-${input.profileId}`,
+      organizationId,
+      input.ownerUserId,
+      input.ownerUserId,
+      nowMs,
+      nowMs
+    )
+    .run();
   await env.OPENMELD_DB.prepare(
     `
       INSERT INTO openMeldDaemon_agent_profile_bindings (
@@ -272,8 +326,8 @@ async function seedExpectedRoute(input: {
       input.ownerUserId,
       input.profileId,
       input.runtimeId,
-      Date.now(),
-      Date.now()
+      nowMs,
+      nowMs
     )
     .run();
 }
@@ -836,7 +890,7 @@ describe("runtime transport lease reconciliation", () => {
   it("nudges a fresh daemon session to resync when expected routes are missing from register", async () => {
     const ownerUserId = "owner-route-reconcile-register";
     const deviceId = "device-route-reconcile-register";
-    const profileId = "agt-route-reconcile-register";
+    const profileId = `agt_${crypto.randomUUID()}`;
     const shard = getRuntimeTransportShard(ownerUserId);
     await seedExpectedRoute({
       ownerUserId,
@@ -878,7 +932,7 @@ describe("runtime transport lease reconciliation", () => {
   it("does not immediately repeat route reconciliation when the expected lease is present", async () => {
     const ownerUserId = "owner-route-reconcile-present";
     const deviceId = "device-route-reconcile-present";
-    const profileId = "agt-route-reconcile-present";
+    const profileId = `agt_${crypto.randomUUID()}`;
     const shard = getRuntimeTransportShard(ownerUserId);
     await seedExpectedRoute({
       ownerUserId,
@@ -911,8 +965,8 @@ describe("runtime transport lease reconciliation", () => {
   it("narrows a scoped route-catalog change to the affected profile while still nudging the daemon", async () => {
     const ownerUserId = "owner-route-catalog-scoped";
     const deviceId = "device-route-catalog-scoped";
-    const changedProfileId = "agt-route-catalog-scoped-changed";
-    const bystanderProfileId = "agt-route-catalog-scoped-bystander";
+    const changedProfileId = `agt_${crypto.randomUUID()}`;
+    const bystanderProfileId = `agt_${crypto.randomUUID()}`;
     const shard = getRuntimeTransportShard(ownerUserId);
     await seedExpectedRoute({
       ownerUserId,
@@ -1017,8 +1071,8 @@ describe("runtime transport lease reconciliation", () => {
   it("re-registering the same catalog on the same socket publishes no readiness invalidation", async () => {
     const ownerUserId = "owner-reregister-delta";
     const deviceId = "device-reregister-delta";
-    const steadyProfileId = "agt-reregister-delta-steady";
-    const newcomerProfileId = "agt-reregister-delta-newcomer";
+    const steadyProfileId = `agt_${crypto.randomUUID()}`;
+    const newcomerProfileId = `agt_${crypto.randomUUID()}`;
     const shard = getRuntimeTransportShard(ownerUserId);
     await seedExpectedRoute({
       ownerUserId,
@@ -1105,7 +1159,7 @@ describe("runtime transport lease reconciliation", () => {
   it("throttles repeated route reconciliation while a heartbeat still reports the same missing route", async () => {
     const ownerUserId = "owner-route-reconcile-throttle";
     const deviceId = "device-route-reconcile-throttle";
-    const profileId = "agt-route-reconcile-throttle";
+    const profileId = `agt_${crypto.randomUUID()}`;
     const shard = getRuntimeTransportShard(ownerUserId);
     await seedExpectedRoute({
       ownerUserId,
@@ -1271,7 +1325,7 @@ describe("runtime transport lease reconciliation", () => {
   it("does not re-signal after the throttle window when the daemon report fingerprint is unchanged", async () => {
     const ownerUserId = "owner-route-reconcile-fingerprint";
     const deviceId = "device-route-reconcile-fingerprint";
-    const profileId = "agt-route-reconcile-fingerprint";
+    const profileId = `agt_${crypto.randomUUID()}`;
     const shard = getRuntimeTransportShard(ownerUserId);
     await seedExpectedRoute({
       ownerUserId,
@@ -1322,7 +1376,7 @@ describe("runtime transport lease reconciliation", () => {
   it("skips the expected-routes read for consecutive heartbeats with the same fresh leases", async () => {
     const ownerUserId = "owner-route-reconcile-read-cache";
     const deviceId = "device-route-reconcile-read-cache";
-    const profileId = "agt-route-reconcile-read-cache";
+    const profileId = `agt_${crypto.randomUUID()}`;
     const shard = getRuntimeTransportShard(ownerUserId);
     let profileResolveCount = 0;
     await seedExpectedRoute({
@@ -1382,7 +1436,7 @@ describe("runtime transport lease reconciliation", () => {
   it("nudges an already registered daemon session when a new expected route appears before heartbeat", async () => {
     const ownerUserId = "owner-route-reconcile-heartbeat";
     const deviceId = "device-route-reconcile-heartbeat";
-    const profileId = "agt-route-reconcile-heartbeat";
+    const profileId = `agt_${crypto.randomUUID()}`;
     const shard = getRuntimeTransportShard(ownerUserId);
     const socket = await openDaemonStream(ownerUserId);
 
