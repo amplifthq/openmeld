@@ -1,11 +1,9 @@
-import { createPrepareReadinessApi } from "@openmeld/api-client";
 import {
   PREPARE_SESSION_STREAM_PROTOCOL_VERSION,
   prepareSessionResponseSchema,
   prepareSessionStreamServerFrameSchema,
 } from "@openmeld/schemas";
 import type {
-  GetPrepareReadinessResponse,
   PrepareLocalAgentCatalog,
   PrepareLocalReadinessSnapshot,
   PrepareSessionSnapshot,
@@ -30,8 +28,6 @@ import {
 } from "../guides/local-agents-guide-url";
 import {
   assertSelectedAgentControllerReportSubmissionsAccepted,
-  resolveSelectedAgentControllerReadiness,
-  type SelectedAgentControllerReadinessDecision,
   type SelectedAgentControllerReportResult,
   submitSelectedAgentControllerReports,
 } from "../local-service/reporting/selected-agent-controller-reporting";
@@ -43,7 +39,6 @@ import { getCliVersionInfo } from "../runtime/cli-version";
 import type { createPresenter } from "../runtime/presenter/index";
 import { computeRetryDelayMs } from "../runtime/retry-delay";
 import type { RuntimeContext } from "../runtime/types";
-import { createCliApiClientFoundation } from "../space/api-client-foundation";
 import { fetchSpaceRequestWithTimeout } from "../space/fetch-with-timeout";
 import { runStartLocalAgentsEnable } from "../start-local/agents-local";
 import { collectStartLocalReadiness } from "../start-local/readiness";
@@ -78,15 +73,6 @@ const PREPARE_TOKEN_HEADER = "x-openmeld-prepare-token";
 // computeRetryDelayMs schedule sums to 11750ms across 8 sleeps (attempts 1-8),
 // matching the prior fixed 11 x 1000ms = 11000ms budget before giving up.
 const REPORT_RUNTIME_CONNECTION_MAX_ATTEMPTS = 9;
-const VERIFY_SETUP_POLL_TIMEOUT_MS = 120_000;
-const VERIFY_SETUP_RETRY_INITIAL_DELAY_MS = 2000;
-const VERIFY_SETUP_RETRY_MAX_DELAY_MS = 5000;
-const VERIFY_SETUP_CONVERGING_TIMEOUT_SUPPORT_CODE =
-  "verify_setup.converging_timeout";
-const VERIFY_SETUP_CONVERGING_TIMEOUT_MESSAGE =
-  "OpenMeld Service is still finishing its final checks in the background.";
-const VERIFY_SETUP_READINESS_UNREACHABLE_SUPPORT_CODE =
-  "verify_setup.readiness_unreachable";
 const WAITING_PROGRESS_DELAY_MS = 500;
 
 const TERMINAL_PREPARE_STEP_ORDER: readonly PrepareStepId[] = [
@@ -881,7 +867,6 @@ export async function runTerminalStep(
     });
     const openMeldServiceRuntimeIdentity = await input.run(progress);
     input.onRunResult?.(openMeldServiceRuntimeIdentity);
-    const completionNotice = openMeldServiceRuntimeIdentity?.completionNotice;
     const stepCompleteRevision = startedSnapshot.sessionRevision;
     input.stream.writeTerminalStep({
       connectionEpoch: input.connectionEpoch,
@@ -889,7 +874,6 @@ export async function runTerminalStep(
       ...(openMeldServiceRuntimeIdentity ?? {}),
       stepId: input.stepId,
       status: "completed",
-      ...buildTerminalStepCompletionNoticeWrite(completionNotice),
     });
     const resolvedSnapshot = await input.stream.waitForSnapshot((snapshot) => {
       const step = findStep(snapshot, input.stepId);
@@ -907,7 +891,6 @@ export async function runTerminalStep(
       stepId: input.stepId,
     });
     progress.complete(formatTerminalStepCompleteMessage(input.stepId));
-    emitTerminalStepCompletionNotice(input.input, completionNotice);
     return resolvedSnapshot;
   } catch (error) {
     return await handleTerminalStepFailure({
@@ -1190,11 +1173,10 @@ export function buildTerminalStep(input: BuildTerminalStepInput): {
       };
     case "verify_setup":
       return {
-        message: "Checking that selected local agents are connected...",
+        message: getSetupFlowCopy("setup").cliProgressFinishingSetup,
         run: async () => {
-          return await verifySelectedLocalAgentsConnectedToOpenMeld({
+          return await finishPrepareSetup({
             gatewayUrl: input.input.gatewayUrl,
-            localAgentIds: input.localAgentIds,
           });
         },
       };
@@ -1212,7 +1194,7 @@ function formatTerminalStepCompleteMessage(stepId: PrepareStepId): string {
     case "report_runtime":
       return "Reported selected local agents to OpenMeld.";
     case "verify_setup":
-      return "Verified selected local agents.";
+      return "Setup ready.";
     default:
       return "Step complete.";
   }
@@ -1806,7 +1788,7 @@ function emitSelectedLocalAgentAttention(
     progress?.detail({
       code: "prepare.session.progress.report_runtime.agent_attention",
       text: needsSignIn
-        ? `${displayName} is enabled, but its local account is not signed in. Sign in before using it.`
+        ? `${displayName} needs sign-in before you can use it. You can do this later.`
         : `${displayName} is enabled, but it is not ready yet. Review it later in this computer's settings.`,
     });
   }
@@ -1837,9 +1819,8 @@ function isTransientSelectedAgentConnectionError(error: unknown): boolean {
   );
 }
 
-async function verifySelectedLocalAgentsConnectedToOpenMeld(input: {
+async function finishPrepareSetup(input: {
   gatewayUrl: string;
-  localAgentIds: readonly string[];
 }): Promise<TerminalStepRunResult> {
   const openMeldServiceRuntimeIdentity =
     await readTerminalRuntimeIdentityFromServiceContract();
@@ -1851,29 +1832,9 @@ async function verifySelectedLocalAgentsConnectedToOpenMeld(input: {
       gatewayUrl: input.gatewayUrl,
     },
   });
-  const selectedReadiness = resolveSelectedAgentControllerReadiness({
-    readiness,
-    localAgentIds: input.localAgentIds,
-  });
-  const readySelectedAgents = selectedReadiness.filter(
-    (decision) => decision.localParticipationState === "ready"
-  );
-  const verification = await waitForSelectedRuntimeReadiness({
-    gatewayUrl: input.gatewayUrl,
-    openMeldServiceRuntimeIdentity,
-    selectedReadiness: readySelectedAgents,
-  });
   return {
     ...openMeldServiceRuntimeIdentity,
     localReadinessSnapshot: buildPrepareLocalReadinessSnapshot(readiness),
-    ...(verification === "converging_timeout"
-      ? {
-          completionNotice: {
-            message: VERIFY_SETUP_CONVERGING_TIMEOUT_MESSAGE,
-            supportCode: VERIFY_SETUP_CONVERGING_TIMEOUT_SUPPORT_CODE,
-          },
-        }
-      : {}),
   };
 }
 
@@ -1886,7 +1847,7 @@ async function readTerminalRuntimeIdentityFromServiceContract(): Promise<Termina
   const runtimeLane = serviceContract?.lane;
   if (!(deviceId && runtimeLane)) {
     throw new Error(
-      `OpenMeld could not verify selected agents because OpenMeld Service did not provide this computer's device identity yet. Keep OpenMeld Service running, then run \`${formatOpenMeldCliCommand(
+      `OpenMeld could not finish setup because OpenMeld Service did not provide this computer's device identity yet. Keep OpenMeld Service running, then run \`${formatOpenMeldCliCommand(
         "openmeld setup --view agent"
       )}\` again. You can also run \`${formatOpenMeldCliCommand(
         "openmeld service status --view agent"
@@ -1905,179 +1866,6 @@ async function notifyRouteCatalogAfterPrepare(input: {
   await notifyDaemonRouteCatalogChanged({
     reason: input.reason,
   });
-}
-
-async function waitForSelectedRuntimeReadiness(input: {
-  gatewayUrl: string;
-  openMeldServiceRuntimeIdentity: TerminalRuntimeIdentity;
-  selectedReadiness: readonly SelectedAgentControllerReadinessDecision[];
-}): Promise<"converging_timeout" | "ready"> {
-  // OPENMELD_SETUP_TO_WAKE_PATH: HIGHEST_FACT agent-controller-report
-  // Prepare verifies that selected local capabilities are readable by OpenMeld. It
-  // does not prove a later Space Wake will run successfully.
-  const agentControllerRefs = input.selectedReadiness.map(
-    (decision) => decision.agentControllerRef
-  );
-  if (agentControllerRefs.length === 0) {
-    return "ready";
-  }
-
-  const getReadiness = createPrepareReadinessApi(
-    createCliApiClientFoundation(input.gatewayUrl)
-  ).getReadiness;
-  const deadlineMs = Date.now() + VERIFY_SETUP_POLL_TIMEOUT_MS;
-  let attempt = 0;
-  let lastError: unknown;
-  let lastResponse: GetPrepareReadinessResponse | undefined;
-
-  while (true) {
-    try {
-      lastResponse = await getReadiness({
-        agentControllerRefs,
-        deviceId: input.openMeldServiceRuntimeIdentity.deviceId,
-        lane: input.openMeldServiceRuntimeIdentity.runtimeLane,
-      });
-      if (
-        isSelectedRuntimeReadinessReady({
-          agentControllerRefs,
-          response: lastResponse,
-        })
-      ) {
-        return "ready";
-      }
-    } catch (error) {
-      lastError = error;
-    }
-
-    const remainingMs = deadlineMs - Date.now();
-    if (remainingMs <= 0) {
-      break;
-    }
-    attempt += 1;
-    await sleep(Math.min(computeVerifySetupRetryDelayMs(attempt), remainingMs));
-  }
-
-  if (!lastResponse) {
-    throw buildSelectedRuntimeReadinessUnreachableError(lastError);
-  }
-  if (
-    isSelectedRuntimeReadinessStillConverging({
-      agentControllerRefs,
-      nowMs: Date.now(),
-      response: lastResponse,
-    })
-  ) {
-    return "converging_timeout";
-  }
-  throw buildSelectedRuntimeReadinessError({
-    agentControllerRefs,
-    response: lastResponse,
-  });
-}
-
-function isSelectedRuntimeReadinessReady(input: {
-  agentControllerRefs: readonly string[];
-  response: GetPrepareReadinessResponse;
-}): boolean {
-  const runnableAgentControllerRefs = new Set(
-    input.response.runnableCapabilities.map(
-      (capability) => capability.agentControllerRef
-    )
-  );
-  const missingAgentControllerRef = input.agentControllerRefs.find(
-    (agentControllerRef) => !runnableAgentControllerRefs.has(agentControllerRef)
-  );
-  return (
-    input.response.status === "ready" &&
-    input.response.openMeldServiceRuntimeId !== undefined &&
-    missingAgentControllerRef === undefined
-  );
-}
-
-function buildSelectedRuntimeReadinessError(input: {
-  agentControllerRefs: readonly string[];
-  response: GetPrepareReadinessResponse;
-}): Error {
-  const runnableAgentControllerRefs = new Set(
-    input.response.runnableCapabilities.map(
-      (capability) => capability.agentControllerRef
-    )
-  );
-  const missingAgentControllerRef = input.agentControllerRefs.find(
-    (agentControllerRef) => !runnableAgentControllerRefs.has(agentControllerRef)
-  );
-  const reasonCode =
-    input.response.summary.reasonCodes[0] ??
-    input.response.reason ??
-    (missingAgentControllerRef
-      ? "prepare_readiness.capability_not_ready"
-      : "prepare_readiness.not_ready");
-  return new Error(
-    `OpenMeld could not verify that selected local agents were reported to OpenMeld yet. Keep OpenMeld Service running, then run \`${formatOpenMeldCliCommand(
-      "openmeld setup --view agent"
-    )}\` again. You can also run \`${formatOpenMeldCliCommand(
-      "openmeld service status --view agent"
-    )}\` to inspect the local service. Support code: ${reasonCode}.`
-  );
-}
-
-function buildSelectedRuntimeReadinessUnreachableError(
-  lastError: unknown
-): Error {
-  return new Error(
-    `OpenMeld could not connect to the setup service while checking your local agents. Last network error: ${toErrorMessage(
-      lastError
-    )}. Support code: ${VERIFY_SETUP_READINESS_UNREACHABLE_SUPPORT_CODE}.`,
-    { cause: lastError }
-  );
-}
-
-function isSelectedRuntimeReadinessStillConverging(input: {
-  agentControllerRefs: readonly string[];
-  nowMs: number;
-  response: GetPrepareReadinessResponse;
-}): boolean {
-  if (
-    !input.response.agentControllerReportsRead ||
-    input.response.openMeldServiceRuntimeId === undefined
-  ) {
-    return false;
-  }
-  const runnableAgentControllerRefs = new Set(
-    input.response.runnableCapabilities.map(
-      (capability) => capability.agentControllerRef
-    )
-  );
-  const nonRunnableCapabilitiesByRef = new Map(
-    input.response.nonRunnableCapabilities.map((capability) => [
-      capability.agentControllerRef,
-      capability,
-    ])
-  );
-  let unavailableReportCount = 0;
-  for (const agentControllerRef of input.agentControllerRefs) {
-    if (runnableAgentControllerRefs.has(agentControllerRef)) {
-      continue;
-    }
-    const capability = nonRunnableCapabilitiesByRef.get(agentControllerRef);
-    if (
-      capability?.status !== "unavailable" ||
-      capability.observedAtMs === undefined ||
-      capability.expiresAtMs === undefined ||
-      capability.observedAtMs > input.nowMs ||
-      capability.expiresAtMs <= input.nowMs
-    ) {
-      return false;
-    }
-    unavailableReportCount += 1;
-  }
-  return unavailableReportCount > 0;
-}
-
-function computeVerifySetupRetryDelayMs(attempt: number): number {
-  const exponentialDelayMs =
-    VERIFY_SETUP_RETRY_INITIAL_DELAY_MS * 2 ** Math.max(0, attempt - 1);
-  return Math.min(exponentialDelayMs, VERIFY_SETUP_RETRY_MAX_DELAY_MS);
 }
 
 function buildPrepareLocalReadinessSnapshot(
@@ -2153,11 +1941,6 @@ function resolveTerminalStepFailureReasonCode(input: {
   if (input.rawMessage.includes("runtime.registration.device_forgotten")) {
     return "runtime.registration.device_forgotten";
   }
-  if (
-    input.rawMessage.includes(VERIFY_SETUP_READINESS_UNREACHABLE_SUPPORT_CODE)
-  ) {
-    return VERIFY_SETUP_READINESS_UNREACHABLE_SUPPORT_CODE;
-  }
   if (input.stepId === "refresh_service") {
     if (input.serviceJobVerdict === "never_spawned") {
       return "prepare.refresh_service.service_never_spawned";
@@ -2192,25 +1975,9 @@ type TerminalRuntimeIdentity = {
 };
 
 type TerminalStepRunResult = TerminalRuntimeIdentity & {
-  completionNotice?: {
-    message: string;
-    supportCode: string;
-  };
   localReadinessSnapshot?: PrepareLocalReadinessSnapshot;
   runtimeReports?: readonly SelectedAgentControllerReportResult[];
 };
-
-function buildTerminalStepCompletionNoticeWrite(
-  notice: TerminalStepRunResult["completionNotice"]
-): Pick<TerminalStepWriteInput, "message" | "reasonCode"> {
-  if (!notice) {
-    return {};
-  }
-  return {
-    message: notice.message,
-    reasonCode: notice.supportCode,
-  };
-}
 
 function resolveRuntimeIdentityFromPrepareSessionSnapshot(
   snapshot: PrepareSessionSnapshot
@@ -2708,31 +2475,6 @@ function emitHumanStatus(
     rows: lines.map((line) => ({ label: "", value: line })),
     sanitize: true,
     minContentWidth: 56,
-  });
-}
-
-function emitTerminalStepCompletionNotice(
-  input: PrepareSessionExecutorInput,
-  notice: TerminalStepRunResult["completionNotice"]
-): void {
-  if (!notice) {
-    return;
-  }
-  if (input.runtime.resolvedView === "human") {
-    emitHumanStatus(input, "Setup complete — final checks still running", [
-      notice.message,
-      "This usually completes automatically within a few minutes. You do not need to run setup again.",
-      `Run \`${formatOpenMeldCliCommand(
-        "openmeld service status"
-      )}\` to check progress.`,
-    ]);
-    return;
-  }
-  createPrepareProgressReporter(input).line({
-    code: notice.supportCode,
-    data: { supportCode: notice.supportCode },
-    state: "success",
-    text: notice.message,
   });
 }
 

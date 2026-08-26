@@ -17,9 +17,7 @@ import {
 } from "../local-components/manifest";
 import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
 import {
-  assertSelectedAgentControllerReadinessReady,
-  assertSelectedAgentControllerReportsAccepted,
-  resolveSelectedAgentControllerReadiness,
+  assertSelectedAgentControllerReportSubmissionsAccepted,
   type SelectedAgentControllerReportResult,
   submitSelectedAgentControllerReports,
 } from "../local-service/reporting/selected-agent-controller-reporting";
@@ -284,16 +282,11 @@ async function runSetupUnlocked(input: {
       gatewayUrl,
     },
   });
-  const runtimeReadiness = resolveSelectedAgentControllerReadiness({
-    readiness: finalReadiness,
-    localAgentIds: selectedLocalAgentIds,
-  });
-  assertSelectedAgentControllerReadinessReady(runtimeReadiness);
   const runtimeReports = await submitSelectedAgentControllerReports({
     readiness: finalReadiness,
     localAgentIds: selectedLocalAgentIds,
   });
-  assertSelectedAgentControllerReportsAccepted(runtimeReports);
+  assertSelectedAgentControllerReportSubmissionsAccepted(runtimeReports);
 
   const routeCatalogSync =
     selectedLocalAgentIds.length > 0
@@ -779,16 +772,11 @@ async function resolveDelegatedSetupCompletionFacts(input: {
       gatewayUrl: input.gatewayUrl,
     },
   });
-  const runtimeReadiness = resolveSelectedAgentControllerReadiness({
-    readiness: finalReadiness,
-    localAgentIds: selectedLocalAgentIds,
-  });
-  assertSelectedAgentControllerReadinessReady(runtimeReadiness);
   const runtimeReports = await submitSelectedAgentControllerReports({
     readiness: finalReadiness,
     localAgentIds: selectedLocalAgentIds,
   });
-  assertSelectedAgentControllerReportsAccepted(runtimeReports);
+  assertSelectedAgentControllerReportSubmissionsAccepted(runtimeReports);
   const routeCatalogSync = await notifyRouteCatalogAfterSetup({
     reason: "setup_session_capabilities_reported",
   });

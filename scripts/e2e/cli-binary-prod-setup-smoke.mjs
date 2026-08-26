@@ -14,8 +14,7 @@ import { buildCliBinary } from "../release/build-cli-binary.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
-const BOOTSTRAP_HANDOFF_LINE =
-  'run_openmeld "$@" || die "OpenMeld could not set up this computer. Fix the error above, then copy a fresh setup command from OpenMeld Web and run setup again."';
+const BOOTSTRAP_HANDOFF_LINE = 'run_openmeld "$@" || exit $?';
 const OPENMELD_ENV_KEYS_TO_CLEAR = new Set([
   "OPENMELD_AUTH_URL",
   "OPENMELD_ENV_PRESET",
