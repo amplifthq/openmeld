@@ -1595,7 +1595,10 @@ function buildLocalAgentCatalogRow(
 		displayName: input.entry.displayName,
 		id: input.entry.agentId,
 		logoAgentId: input.entry.agentId,
-		muted: input.muted || !enabled,
+		muted:
+			input.muted ||
+			!enabled ||
+			agentControllerInterface?.auth.status === "unauthenticated",
 		summaryAccessory,
 		summaryMeta:
 			enabled && agentControllerInterface
@@ -1985,7 +1988,9 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		return { label: "Couldn't check", tone: "warning" };
 	}
 	if (snapshot.auth.status === "unauthenticated") {
-		return { label: "Sign in required", tone: "danger" };
+		// Signing in is a routine account state, not a computer failure: keep it
+		// quiet (muted row, no red) the same way a switched-off agent reads.
+		return { label: "Not signed in", tone: "muted" };
 	}
 	if (snapshot.status === "error") {
 		return { label: "Needs repair", tone: "danger" };

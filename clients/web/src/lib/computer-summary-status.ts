@@ -18,6 +18,7 @@ export type ComputerSummaryStatusReason =
 	| "checking"
 	| "agent_check_failed"
 	| "agent_needs_setup"
+	| "agent_sign_in_needed"
 	| "local_agents_off"
 	| "service_not_connected"
 	| "openmeld_tools_update"
@@ -59,10 +60,20 @@ const SERVICE_NOT_CONNECTED_STATUS = {
 } as const satisfies ComputerSummaryStatus;
 
 const AGENT_NEEDS_SETUP_STATUS = {
-	label: "Local agents need repair",
+	label: "Local agents need setup",
 	reason: "agent_needs_setup",
 	showLabel: true,
-	tone: "danger",
+	tone: "warning",
+} as const satisfies ComputerSummaryStatus;
+
+// Signing in to a local agent is a routine, reversible account state, not a
+// computer failure. It stays quiet (muted, no rail attention) the same way a
+// switched-off local agent does.
+const AGENT_SIGN_IN_NEEDED_STATUS = {
+	label: "Sign in to a local agent",
+	reason: "agent_sign_in_needed",
+	showLabel: true,
+	tone: "muted",
 } as const satisfies ComputerSummaryStatus;
 
 const AGENT_CHECK_FAILED_STATUS = {
@@ -104,7 +115,7 @@ const ORGANIZATION_NOT_CONNECTED_STATUS = {
 	label: "Computer offline",
 	reason: "service_not_connected",
 	showLabel: true,
-	tone: "danger",
+	tone: "muted",
 } as const satisfies ComputerSummaryStatus;
 
 const STATUS_UNAVAILABLE = {
@@ -129,6 +140,9 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 		return SERVICE_NOT_CONNECTED_STATUS;
 	}
 	if (readiness.nextAction === "run_setup") {
+		if (hasControllerSignInReason(readiness)) {
+			return AGENT_SIGN_IN_NEEDED_STATUS;
+		}
 		return AGENT_NEEDS_SETUP_STATUS;
 	}
 	if (
@@ -241,5 +255,13 @@ function hasRequiredOpenMeldToolsUpdate(
 		isOpenMeldToolsComponentUpdateRequired(
 			(localComponents as Partial<typeof localComponents>).skills
 		)
+	);
+}
+
+function hasControllerSignInReason(
+	readiness: CurrentLocalRuntimeReplyReadinessResponse
+): boolean {
+	return readiness.runtime.reasonCodes.includes(
+		"controller.auth.unauthenticated"
 	);
 }

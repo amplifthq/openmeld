@@ -398,7 +398,7 @@ function createLeaseFixture() {
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
 
-  git(root, "init", "--bare", "--quiet", remote);
+  git(root, "init", "--bare", "--quiet", "--initial-branch=main", remote);
   git(root, "init", "--initial-branch=main", "--quiet", seed);
   git(seed, "config", "user.email", "lease-test@openmeld.ai");
   git(seed, "config", "user.name", "OpenMeld Lease Test");
