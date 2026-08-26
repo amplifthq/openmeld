@@ -1641,7 +1641,13 @@ describe("shared db tooling", () => {
       "utf8"
     );
 
-    expect(source).toContain("run: pnpm run db:release:prod");
+    expect(source).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: this asserts the literal GitHub Actions expression text in the composite action.
+      "DB_RELEASE_WORKING_DIRECTORY: ${{ inputs.working_directory }}"
+    );
+    expect(source).toContain(
+      'run: pnpm --dir "$DB_RELEASE_WORKING_DIRECTORY" run db:release:prod'
+    );
     expect(source).not.toContain("run: pnpm db:check");
     expect(source).not.toContain("run: pnpm db:generate");
     expect(source).not.toContain("run: pnpm db:migrate:prod");
