@@ -37,7 +37,6 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/final-candidate.test.mjs",
   "scripts/ci/install-isolated-candidate-dependencies.sh",
   "scripts/ci/install-isolated-candidate-dependencies.test.mjs",
-  "scripts/ci/prepare-isolated-candidate.sh",
   "scripts/ci/resolve-approved-native-builds.mjs",
   "scripts/ci/resolve-approved-native-builds.test.mjs",
   "scripts/ci/run-isolated-candidate-command.sh",

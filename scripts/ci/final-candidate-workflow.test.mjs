@@ -74,14 +74,14 @@ test("keeps every untrusted GitHub expression outside shell run blocks", () => {
   );
 });
 
-test("isolates status writers from the candidate command credentials", () => {
+test("keeps status credentials out of candidate commands", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
-  const isolationSetup = readRepoFile(
-    "scripts/ci/prepare-isolated-candidate.sh"
-  );
   const candidateRunner = readRepoFile("scripts/ci/final-candidate.mjs");
   const dependencyInstall = readRepoFile(
     "scripts/ci/install-isolated-candidate-dependencies.sh"
+  );
+  const commandWrapper = readRepoFile(
+    "scripts/ci/run-isolated-candidate-command.sh"
   );
   const trustedGit = readRepoFile("scripts/ci/trusted-git-network.mjs");
   const candidateJob = readJob(workflow, "candidate", "publish_final");
@@ -119,19 +119,16 @@ test("isolates status writers from the candidate command credentials", () => {
     )
   );
   assert.ok(candidateJob.includes("--ignore-scripts"));
+  assert.ok(dependencyInstall.includes("--config.ignore-pnpmfile=true"));
   assert.ok(dependencyInstall.includes(" rebuild \\".trimEnd()));
   assert.ok(dependencyInstall.includes("resolve-approved-native-builds.mjs"));
-  assert.ok(isolationSetup.includes("useradd"));
-  assert.ok(isolationSetup.includes('mv "$OPENMELD_CANDIDATE_ROOT/.git"'));
-  assert.ok(isolationSetup.includes('chmod 1770 "$OPENMELD_CANDIDATE_ROOT"'));
-  assert.ok(
-    isolationSetup.includes('chmod 0440 "$OPENMELD_CANDIDATE_ROOT/.git"')
-  );
-  assert.ok(
-    !isolationSetup.includes('chmod -R g+rwX "$OPENMELD_CANDIDATE_ROOT"')
-  );
-  assert.ok(candidateJob.includes("openmeld-candidate"));
-  assert.ok(candidateJob.includes("OPENMELD_CANDIDATE_GIT_DIR:"));
+  assert.ok(commandWrapper.includes("exec env -i"));
+  assert.ok(!commandWrapper.includes("sudo"));
+  assert.ok(!commandWrapper.includes("GITHUB_TOKEN="));
+  assert.ok(!commandWrapper.includes("GH_TOKEN="));
+  assert.ok(!candidateJob.includes("openmeld-candidate"));
+  assert.ok(!candidateJob.includes("OPENMELD_CANDIDATE_GIT_DIR:"));
+  assert.ok(!candidateJob.includes("prepare-isolated-candidate.sh"));
   assert.ok(candidateJob.includes("OPENMELD_TRUSTED_GIT_GITHUB_TOKEN:"));
   assert.ok(candidateRunner.includes("OPENMELD_TRUSTED_GIT_GITHUB_TOKEN"));
   assert.ok(trustedGit.includes("buildTrustedGitHubRepositoryUrl"));
@@ -184,31 +181,32 @@ test("isolates status writers from the candidate command credentials", () => {
   assert.ok(!finalizer.includes("pnpm"));
 });
 
-test("establishes the Linux write boundary before reading candidate pnpm config", () => {
+test("disables candidate install hooks before selected commands", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
   const candidateJob = readJob(workflow, "candidate", "publish_final");
   const trustedInstall = candidateJob.indexOf(
     "Install trusted evidence parser"
   );
-  const isolation = candidateJob.indexOf(
-    "Prepare isolated candidate dependency install"
-  );
   const candidateInstall = candidateJob.indexOf(
-    "Install untrusted candidate dependencies in isolation"
+    "Install candidate dependencies without repository scripts"
+  );
+  const candidateValidation = candidateJob.indexOf(
+    "Validate the exact final candidate without write credentials"
   );
 
   assert.ok(trustedInstall >= 0);
-  assert.ok(isolation > trustedInstall);
-  assert.ok(candidateInstall > isolation);
-  assert.doesNotMatch(
-    candidateJob.slice(0, isolation),
-    /pnpm --dir untrusted-candidate/gu
-  );
+  assert.ok(candidateInstall > trustedInstall);
+  assert.ok(candidateValidation > candidateInstall);
   assert.ok(
     candidateJob
       .slice(candidateInstall)
       .includes("install-isolated-candidate-dependencies.sh")
   );
+  const dependencyInstall = readRepoFile(
+    "scripts/ci/install-isolated-candidate-dependencies.sh"
+  );
+  assert.ok(dependencyInstall.includes("--config.ignore-pnpmfile=true"));
+  assert.ok(dependencyInstall.includes("--ignore-scripts"));
 });
 
 test("always finalizes an exact head after pending publication starts", () => {

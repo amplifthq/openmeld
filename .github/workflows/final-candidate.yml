@@ -125,10 +125,6 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "24"
-          cache: pnpm
-          cache-dependency-path: |
-            trusted-control/pnpm-lock.yaml
-            untrusted-candidate/pnpm-lock.yaml
 
       - name: Install trusted evidence parser
         shell: bash
@@ -136,23 +132,11 @@ jobs:
           set -euo pipefail
           pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --ignore-scripts
 
-      - name: Prepare isolated candidate dependency install
-        env:
-          OPENMELD_CANDIDATE_HOME: ${{ runner.temp }}/final-candidate-home
-          OPENMELD_CANDIDATE_GIT_DIR: ${{ runner.temp }}/final-candidate-git
-          OPENMELD_CANDIDATE_ROOT: ${{ github.workspace }}/untrusted-candidate
-          OPENMELD_CANDIDATE_USER: openmeld-candidate
-          OPENMELD_FINAL_CANDIDATE_EVIDENCE_ROOT: ${{ runner.temp }}/final-candidate-control
-          OPENMELD_TRUSTED_CONTROL_ROOT: ${{ github.workspace }}/trusted-control
-        shell: bash
-        run: trusted-control/scripts/ci/prepare-isolated-candidate.sh
-
-      - name: Install untrusted candidate dependencies in isolation
+      - name: Install candidate dependencies without repository scripts
         env:
           OPENMELD_AFFECTED_BASE: ${{ env.CANDIDATE_BASE_SHA }}
           OPENMELD_CANDIDATE_HOME: ${{ runner.temp }}/final-candidate-home
           OPENMELD_CANDIDATE_ROOT: ${{ github.workspace }}/untrusted-candidate
-          OPENMELD_CANDIDATE_USER: openmeld-candidate
           OPENMELD_TRUSTED_CONTROL_ROOT: ${{ github.workspace }}/trusted-control
         shell: bash
         run: trusted-control/scripts/ci/install-isolated-candidate-dependencies.sh
@@ -162,9 +146,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OPENMELD_AFFECTED_BASE: ${{ env.CANDIDATE_BASE_SHA }}
           OPENMELD_CANDIDATE_HOME: ${{ runner.temp }}/final-candidate-home
-          OPENMELD_CANDIDATE_GIT_DIR: ${{ runner.temp }}/final-candidate-git
           OPENMELD_CANDIDATE_ROOT: ${{ github.workspace }}/untrusted-candidate
-          OPENMELD_CANDIDATE_USER: openmeld-candidate
           OPENMELD_TRUSTED_CONTROL_ROOT: ${{ github.workspace }}/trusted-control
           OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL: ${{ github.server_url }}
           OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: ${{ github.token }}

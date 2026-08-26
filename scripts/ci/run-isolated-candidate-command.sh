@@ -11,12 +11,11 @@ if [ -n "${OPENMELD_CANDIDATE_SANDBOX_PROFILE:-}" ]; then
   exec sandbox-exec -f "$OPENMELD_CANDIDATE_SANDBOX_PROFILE" "$@"
 fi
 
-: "${OPENMELD_CANDIDATE_USER:?Missing isolated candidate user.}"
 : "${OPENMELD_CANDIDATE_HOME:?Missing isolated candidate home.}"
 : "${OPENMELD_CANDIDATE_ROOT:?Missing isolated candidate root.}"
 : "${OPENMELD_AFFECTED_BASE:?Missing exact affected base.}"
 
-exec sudo -n -u "$OPENMELD_CANDIDATE_USER" env -i \
+exec env -i \
   CI=true \
   GIT_CONFIG_GLOBAL=/dev/null \
   GIT_CONFIG_NOSYSTEM=1 \
