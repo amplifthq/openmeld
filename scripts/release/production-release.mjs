@@ -1158,6 +1158,9 @@ function coreCliChannelCompatibilityStep() {
       "--channel-sync-check",
     ],
     command: "pnpm",
+    controlArgs: ["--current", "--channel-sync-check"],
+    controlCommand: "node",
+    controlPath: "scripts/release/verify-release-ready.mjs",
     label: "Verify Core CLI channel compatibility",
   };
 }

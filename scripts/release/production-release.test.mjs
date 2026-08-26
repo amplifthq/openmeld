@@ -371,6 +371,32 @@ test("fails fast on current CLI channel truth before expensive Core verification
   ]);
 });
 
+test("gives every hosted-eligible preflight step a trusted control path", () => {
+  for (const scope of ["auth", "core", "gateway", "remote-agent", "web"]) {
+    const steps = buildProductionPreflightStepSpecs({
+      changedPaths: [],
+      scopes: [scope],
+    });
+    for (const step of steps) {
+      assert.ok(
+        typeof step.controlPath === "string" && step.controlPath.length > 0,
+        `Hosted production preflight step has no trusted control path: ${step.label}`
+      );
+    }
+  }
+});
+
+test("runs the Core CLI channel compatibility gate through the trusted control checkout", () => {
+  const step = buildProductionPreflightStepSpecs({
+    changedPaths: [],
+    scopes: ["core"],
+  }).find((entry) => entry.label === "Verify Core CLI channel compatibility");
+
+  assert.equal(step?.controlCommand, "node");
+  assert.equal(step?.controlPath, "scripts/release/verify-release-ready.mjs");
+  assert.deepEqual(step?.controlArgs, ["--current", "--channel-sync-check"]);
+});
+
 test("lets a selected CLI release publish its channel before the Core compatibility gate", () => {
   const verifySteps = buildProductionVerifyStepSpecs({
     changedPaths: [],
