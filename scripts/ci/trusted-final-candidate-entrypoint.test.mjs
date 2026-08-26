@@ -62,11 +62,22 @@ test("the guarded first-hop fetch strips Git tracing and names an explicit trust
   );
 
   for (const variableName of [
+    "ALL_PROXY",
+    "CURL_CA_BUNDLE",
     "GIT_CURL_VERBOSE",
+    "GIT_HTTP_PROXY_AUTHMETHOD",
+    "GIT_PROXY_SSL_CAINFO",
+    "GIT_SSL_CAINFO",
+    "GIT_SSL_CAPATH",
+    "GIT_SSL_NO_VERIFY",
     "GIT_TRACE",
     "GIT_TRACE_CURL",
     "GIT_TRACE_PACKET",
     "GIT_TRACE2",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
   ]) {
     assert.ok(
       entrypoint.includes(`-u ${variableName}`),

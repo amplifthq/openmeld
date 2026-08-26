@@ -26,9 +26,23 @@ trusted_git() {
     -u GIT_OBJECT_DIRECTORY \
     -u GIT_PREFIX \
     -u GIT_PROXY_COMMAND \
+    -u GIT_PROXY_SSL_CAINFO \
+    -u GIT_PROXY_SSL_CERT \
+    -u GIT_PROXY_SSL_CERT_PASSWORD_PROTECTED \
+    -u GIT_PROXY_SSL_KEY \
     -u GIT_SSH \
     -u GIT_SSH_COMMAND \
     -u GIT_SSH_VARIANT \
+    -u GIT_SSL_CAINFO \
+    -u GIT_SSL_CAPATH \
+    -u GIT_SSL_CERT \
+    -u GIT_SSL_CERT_PASSWORD_PROTECTED \
+    -u GIT_SSL_CERT_TYPE \
+    -u GIT_SSL_CIPHER_LIST \
+    -u GIT_SSL_KEY \
+    -u GIT_SSL_KEY_TYPE \
+    -u GIT_SSL_NO_VERIFY \
+    -u GIT_SSL_VERSION \
     -u GIT_TRACE \
     -u GIT_TRACE_CURL \
     -u GIT_TRACE_CURL_NO_DATA \
@@ -40,12 +54,35 @@ trusted_git() {
     -u GIT_TRACE2_EVENT \
     -u GIT_TRACE2_PERF \
     -u GIT_WORK_TREE \
+    -u GIT_HTTP_KEEPALIVE_COUNT \
+    -u GIT_HTTP_KEEPALIVE_IDLE \
+    -u GIT_HTTP_KEEPALIVE_INTERVAL \
+    -u GIT_HTTP_LOW_SPEED_LIMIT \
+    -u GIT_HTTP_LOW_SPEED_TIME \
+    -u GIT_HTTP_MAX_REQUESTS \
+    -u GIT_HTTP_PROXY_AUTHMETHOD \
+    -u GIT_HTTP_USER_AGENT \
+    -u ALL_PROXY \
+    -u CURL_CA_BUNDLE \
+    -u CURL_SSL_BACKEND \
+    -u HTTP_PROXY \
+    -u HTTPS_PROXY \
+    -u NO_PROXY \
     -u SSH_ASKPASS \
+    -u SSL_CERT_DIR \
+    -u SSL_CERT_FILE \
+    -u SSLKEYLOGFILE \
+    -u all_proxy \
+    -u http_proxy \
+    -u https_proxy \
+    -u no_proxy \
     GIT_TERMINAL_PROMPT=0 \
     GIT_TRACE_REDACT=1 \
     git \
     -c core.hooksPath=/dev/null \
     -c core.fsmonitor=false \
+    -c http.proxy= \
+    -c http.sslVerify=true \
     -c protocol.ext.allow=never \
     "$@"
 }

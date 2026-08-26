@@ -14,7 +14,7 @@ import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   buildTrustedGitHubRepositoryUrl,
@@ -112,10 +112,12 @@ test("hostile parent Git tracing cannot print a trusted HTTPS credential", async
   const repository = path.join(root, "release-source");
   const certificate = path.join(root, "certificate.pem");
   const privateKey = path.join(root, "private-key.pem");
+  const trustedFetch = path.join(root, "trusted-fetch.mjs");
   const token = "fixture-trace-token-not-real";
   const encodedToken = Buffer.from(`x-access-token:${token}`).toString(
     "base64"
   );
+  let receivedAuthorization = "";
   let server;
   try {
     mkdirSync(repository);
@@ -137,6 +139,10 @@ test("hostile parent Git tracing cannot print a trusted HTTPS credential", async
         certificate,
         "-subj",
         "/CN=127.0.0.1",
+        "-addext",
+        "subjectAltName=IP:127.0.0.1",
+        "-addext",
+        "basicConstraints=critical,CA:TRUE",
         "-days",
         "1",
       ],
@@ -147,7 +153,8 @@ test("hostile parent Git tracing cannot print a trusted HTTPS credential", async
         cert: readFileSync(certificate),
         key: readFileSync(privateKey),
       },
-      (_request, response) => {
+      (request, response) => {
+        receivedAuthorization = String(request.headers.authorization ?? "");
         response.writeHead(401, { "content-type": "text/plain" });
         response.end("fixture authentication rejected\n");
       }
@@ -158,21 +165,44 @@ test("hostile parent Git tracing cannot print a trusted HTTPS credential", async
     });
     const address = server.address();
     assert.ok(address && typeof address === "object");
+    const serverUrl = `https://127.0.0.1:${String(address.port)}`;
+    writeFileSync(
+      trustedFetch,
+      [
+        `import { fetchTrustedGitHubMain } from ${JSON.stringify(pathToFileURL(SCRIPT_PATH).href)};`,
+        "try {",
+        "  fetchTrustedGitHubMain({",
+        "    caInfoPath: process.argv[4],",
+        "    cwd: process.argv[2],",
+        "    environment: process.env,",
+        '    repository: "amplifthq/openmeld",',
+        "    serverUrl: process.argv[3],",
+        "    token: process.env.OPENMELD_TRUSTED_GIT_GITHUB_TOKEN,",
+        "  });",
+        "} catch (error) {",
+        "  const message = error instanceof Error ? error.message : String(error);",
+        '  process.stderr.write(message + "\\n");',
+        "  process.exitCode = 1;",
+        "}",
+        "",
+      ].join("\n")
+    );
 
     const result = await runChild(
       process.execPath,
-      [
-        SCRIPT_PATH,
-        "fetch-main",
-        "--cwd",
-        repository,
-        "--repository",
-        "amplifthq/openmeld",
-      ],
+      [trustedFetch, repository, serverUrl, certificate],
       {
         ...process.env,
+        ALL_PROXY: "http://127.0.0.1:1",
+        CURL_CA_BUNDLE: "/tmp/attacker-curl-ca.pem",
         GIT_CURL_VERBOSE: "1",
+        GIT_HTTP_PROXY_AUTHMETHOD: "basic",
+        GIT_PROXY_SSL_CAINFO: "/tmp/attacker-proxy-ca.pem",
+        GIT_SSL_CAINFO: "/tmp/attacker-ca.pem",
+        GIT_SSL_CAPATH: "/tmp/attacker-ca-dir",
+        GIT_SSL_CIPHER_LIST: "attacker-cipher-list",
         GIT_SSL_NO_VERIFY: "1",
+        GIT_SSL_VERSION: "sslv3",
         GIT_TRACE: "1",
         GIT_TRACE_CURL: "1",
         GIT_TRACE_CURL_NO_DATA: "0",
@@ -181,13 +211,20 @@ test("hostile parent Git tracing cannot print a trusted HTTPS credential", async
         GIT_TRACE_REDACT: "0",
         GIT_TRACE_SETUP: "1",
         GIT_TRACE_SHALLOW: "1",
-        OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL: `https://127.0.0.1:${String(address.port)}`,
         OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: token,
+        HTTPS_PROXY: "http://127.0.0.1:1",
+        NO_PROXY: "",
+        SSL_CERT_DIR: "/tmp/attacker-cert-dir",
+        SSL_CERT_FILE: "/tmp/attacker-cert.pem",
+        all_proxy: "http://127.0.0.1:1",
+        https_proxy: "http://127.0.0.1:1",
+        no_proxy: "",
       }
     );
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, TRUSTED_MAIN_REFRESH_ERROR_PATTERN);
+    assert.equal(receivedAuthorization, `basic ${encodedToken}`);
     for (const output of [result.stdout, result.stderr]) {
       assert.ok(!output.includes(token));
       assert.ok(!output.includes(encodedToken));
@@ -202,21 +239,53 @@ test("hostile parent Git tracing cannot print a trusted HTTPS credential", async
 test("trusted Git ignores inherited config injection and external behavior hooks", () => {
   const sanitized = createTrustedGitEnvironment({
     ...process.env,
+    ALL_PROXY: "http://127.0.0.1:1",
+    CURL_CA_BUNDLE: "/tmp/attacker-curl-ca.pem",
     GIT_ALTERNATE_OBJECT_DIRECTORIES: "/tmp/attacker-objects",
     GIT_CONFIG_PARAMETERS: "'http.extraheader=Authorization: stolen'",
     GIT_EXEC_PATH: "/tmp/attacker-git-exec",
     GIT_EXTERNAL_DIFF: "/tmp/attacker-diff",
+    GIT_HTTP_PROXY_AUTHMETHOD: "basic",
     GIT_PROXY_COMMAND: "/tmp/attacker-proxy",
+    GIT_PROXY_SSL_CAINFO: "/tmp/attacker-proxy-ca.pem",
     GIT_SSH: "/tmp/attacker-ssh",
+    GIT_SSL_CAINFO: "/tmp/attacker-ca.pem",
+    GIT_SSL_CAPATH: "/tmp/attacker-ca-dir",
+    GIT_SSL_CIPHER_LIST: "attacker-cipher-list",
+    GIT_SSL_NO_VERIFY: "1",
+    GIT_SSL_VERSION: "sslv3",
+    HTTPS_PROXY: "http://127.0.0.1:1",
+    NO_PROXY: "",
+    SSL_CERT_DIR: "/tmp/attacker-cert-dir",
+    SSL_CERT_FILE: "/tmp/attacker-cert.pem",
+    all_proxy: "http://127.0.0.1:1",
+    https_proxy: "http://127.0.0.1:1",
+    no_proxy: "",
   });
 
   for (const variableName of [
+    "ALL_PROXY",
+    "CURL_CA_BUNDLE",
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CONFIG_PARAMETERS",
     "GIT_EXEC_PATH",
     "GIT_EXTERNAL_DIFF",
+    "GIT_HTTP_PROXY_AUTHMETHOD",
     "GIT_PROXY_COMMAND",
+    "GIT_PROXY_SSL_CAINFO",
     "GIT_SSH",
+    "GIT_SSL_CAINFO",
+    "GIT_SSL_CAPATH",
+    "GIT_SSL_CIPHER_LIST",
+    "GIT_SSL_NO_VERIFY",
+    "GIT_SSL_VERSION",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "all_proxy",
+    "https_proxy",
+    "no_proxy",
   ]) {
     assert.equal(sanitized[variableName], undefined);
   }

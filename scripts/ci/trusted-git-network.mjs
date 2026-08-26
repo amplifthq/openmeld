@@ -1,15 +1,32 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { isAbsolute } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 const GITHUB_REPOSITORY_PATTERN = /^[^/\s]+\/[^/\s]+$/u;
 const GIT_CONFIG_ENV_PATTERN = /^GIT_CONFIG_/u;
+const GIT_HTTP_TLS_ENV_PATTERN = /^GIT_(?:HTTP|PROXY_SSL|SSL)(?:$|_)/u;
 const GIT_TRACE_ENV_PATTERN = /^GIT_TRACE(?:$|_)/u;
 const GIT_TRACE2_ENV_PATTERN = /^GIT_TRACE2(?:$|_)/u;
 const TRAILING_SLASH_PATTERN = /\/$/u;
 const UNSAFE_GIT_DIAGNOSTIC_ENV_NAMES = new Set(["GIT_CURL_VERBOSE"]);
+const UNSAFE_HTTP_TLS_ENV_NAMES = new Set([
+  "ALL_PROXY",
+  "CURL_CA_BUNDLE",
+  "CURL_SSL_BACKEND",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "SSL_CERT_DIR",
+  "SSL_CERT_FILE",
+  "SSLKEYLOGFILE",
+  "all_proxy",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+]);
 const UNSAFE_GIT_BEHAVIOR_ENV_NAMES = new Set([
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
@@ -38,10 +55,12 @@ export function createTrustedGitEnvironment(environment, input = {}) {
   for (const name of Object.keys(gitEnvironment)) {
     if (
       GIT_CONFIG_ENV_PATTERN.test(name) ||
+      GIT_HTTP_TLS_ENV_PATTERN.test(name) ||
       GIT_TRACE_ENV_PATTERN.test(name) ||
       GIT_TRACE2_ENV_PATTERN.test(name) ||
       UNSAFE_GIT_BEHAVIOR_ENV_NAMES.has(name) ||
       UNSAFE_GIT_DIAGNOSTIC_ENV_NAMES.has(name) ||
+      UNSAFE_HTTP_TLS_ENV_NAMES.has(name) ||
       SENSITIVE_GIT_ENV_NAMES.includes(name)
     ) {
       Reflect.deleteProperty(gitEnvironment, name);
@@ -76,6 +95,17 @@ export function createTrustedGitEnvironment(environment, input = {}) {
       `http.${serverUrl}/.extraheader`,
       `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
     ]);
+    entries.push([`http.${serverUrl}/.proxy`, ""]);
+    entries.push([`http.${serverUrl}/.sslVerify`, "true"]);
+    if (input.caInfoPath !== undefined) {
+      const caInfoPath = String(input.caInfoPath);
+      if (!isAbsolute(caInfoPath)) {
+        throw new Error(
+          "Trusted Git CA information must use an absolute path."
+        );
+      }
+      entries.push([`http.${serverUrl}/.sslCAInfo`, caInfoPath]);
+    }
   }
   gitEnvironment.GIT_CONFIG_COUNT = String(entries.length);
   for (const [index, [key, value]] of entries.entries()) {
@@ -150,6 +180,7 @@ function runGit(input) {
     encoding: "utf8",
     env: createTrustedGitEnvironment(input.environment ?? process.env, {
       authenticate: input.authenticate,
+      caInfoPath: input.caInfoPath,
       serverUrl: input.serverUrl,
       token: input.token,
     }),
