@@ -121,11 +121,26 @@ jobs:
 
       - name: Run Core Worker deployment preflight
         if: inputs.deployment_mode == 'standard'
-        run: pnpm run release:preflight:local -- --scope core --base HEAD
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          node ../release-control/scripts/release/hosted-production-preflight.mjs \
+            --release-source "$PWD" \
+            --release-sha "$RELEASE_SHA" \
+            --scope core
 
       - name: Run current-stable Core recovery preflight
         if: inputs.deployment_mode == 'current-stable-cli-projection'
-        run: pnpm run release:preflight:core-current-cli-projection
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          node ../release-control/scripts/release/hosted-production-preflight.mjs \
+            --release-source "$PWD" \
+            --release-sha "$RELEASE_SHA" \
+            --scope core \
+            --current-stable-cli-projection
 
       - name: Capture Core bundle evidence
         run: pnpm run evidence:bundle:core

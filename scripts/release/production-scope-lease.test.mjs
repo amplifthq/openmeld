@@ -29,6 +29,7 @@ const AGENT_A_PATTERN = /local:agent-a/u;
 const EXPIRY_FACT_PATTERN = /Expires:/u;
 const STALE_RELEASE_PATTERN = /Refusing to release stale lease/u;
 const ACTIVE_LEASE_PATTERN = /still active/u;
+const AGENT_A_HOST_PATTERN = /agent-a@mac-a/u;
 const SHELL_PARAMETER_PREFIX = "$";
 const SCRIPT_PATH = fileURLToPath(
   new URL("./production-scope-lease.mjs", import.meta.url)
@@ -116,6 +117,58 @@ test("serializes one production scope across clones while unrelated scopes proce
       cwd: fixture.agentB,
       leaseSha: authB.leaseSha,
       scope: "auth",
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("separate CLI release processes cannot overlap across computers", () => {
+  const fixture = createLeaseFixture();
+  const environment = isolatedGitEnvironment(process.env);
+  try {
+    const first = spawnSync(
+      process.execPath,
+      [
+        SCRIPT_PATH,
+        "acquire",
+        "--scope",
+        "cli",
+        "--source-sha",
+        fixture.sourceSha,
+        "--owner",
+        "local:agent-a@mac-a:101",
+      ],
+      { cwd: fixture.agentA, encoding: "utf8", env: environment }
+    );
+    assert.equal(first.status, 0, first.stderr);
+
+    const competing = spawnSync(
+      process.execPath,
+      [
+        SCRIPT_PATH,
+        "acquire",
+        "--scope",
+        "cli",
+        "--source-sha",
+        fixture.sourceSha,
+        "--owner",
+        "local:agent-b@mac-b:202",
+      ],
+      { cwd: fixture.agentB, encoding: "utf8", env: environment }
+    );
+    assert.notEqual(competing.status, 0);
+    assert.match(competing.stderr, HELD_LEASE_PATTERN);
+    assert.match(competing.stderr, AGENT_A_HOST_PATTERN);
+
+    const held = inspectProductionScopeLease({
+      cwd: fixture.agentA,
+      scope: "cli",
+    });
+    releaseProductionScopeLease({
+      cwd: fixture.agentA,
+      leaseSha: held.leaseSha,
+      scope: "cli",
     });
   } finally {
     fixture.cleanup();

@@ -5,8 +5,26 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 const GITHUB_REPOSITORY_PATTERN = /^[^/\s]+\/[^/\s]+$/u;
-const GIT_CONFIG_ENV_PATTERN = /^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/u;
+const GIT_CONFIG_ENV_PATTERN = /^GIT_CONFIG_/u;
+const GIT_TRACE_ENV_PATTERN = /^GIT_TRACE(?:$|_)/u;
+const GIT_TRACE2_ENV_PATTERN = /^GIT_TRACE2(?:$|_)/u;
 const TRAILING_SLASH_PATTERN = /\/$/u;
+const UNSAFE_GIT_DIAGNOSTIC_ENV_NAMES = new Set(["GIT_CURL_VERBOSE"]);
+const UNSAFE_GIT_BEHAVIOR_ENV_NAMES = new Set([
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_EXEC_PATH",
+  "GIT_EXTERNAL_DIFF",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_PROXY_COMMAND",
+  "GIT_SSH",
+  "GIT_SSH_VARIANT",
+  "GIT_WORK_TREE",
+]);
 const SENSITIVE_GIT_ENV_NAMES = [
   "GH_ENTERPRISE_TOKEN",
   "GH_TOKEN",
@@ -20,6 +38,10 @@ export function createTrustedGitEnvironment(environment, input = {}) {
   for (const name of Object.keys(gitEnvironment)) {
     if (
       GIT_CONFIG_ENV_PATTERN.test(name) ||
+      GIT_TRACE_ENV_PATTERN.test(name) ||
+      GIT_TRACE2_ENV_PATTERN.test(name) ||
+      UNSAFE_GIT_BEHAVIOR_ENV_NAMES.has(name) ||
+      UNSAFE_GIT_DIAGNOSTIC_ENV_NAMES.has(name) ||
       SENSITIVE_GIT_ENV_NAMES.includes(name)
     ) {
       Reflect.deleteProperty(gitEnvironment, name);
@@ -30,6 +52,7 @@ export function createTrustedGitEnvironment(environment, input = {}) {
     GIT_OPTIONAL_LOCKS: "0",
     GIT_SSH_COMMAND: "",
     GIT_TERMINAL_PROMPT: "0",
+    GIT_TRACE_REDACT: "1",
   });
   if (!input.preserveCredentialConfig) {
     Object.assign(gitEnvironment, {

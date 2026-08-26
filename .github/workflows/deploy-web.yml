@@ -107,7 +107,14 @@ jobs:
           working_directory: release-source
 
       - name: Run Web deployment preflight
-        run: pnpm run release:preflight:local -- --scope web --base HEAD
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          node ../release-control/scripts/release/hosted-production-preflight.mjs \
+            --release-source "$PWD" \
+            --release-sha "$RELEASE_SHA" \
+            --scope web
 
       - name: Deploy Web
         shell: bash

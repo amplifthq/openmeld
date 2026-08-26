@@ -55,6 +55,29 @@ test("the guarded local first hop comes from current main, not candidate package
   }
 });
 
+test("the guarded first-hop fetch strips Git tracing and names an explicit trusted remote", () => {
+  const entrypoint = readFileSync(
+    path.join(REPO_ROOT, ENTRYPOINT_PATH),
+    "utf8"
+  );
+
+  for (const variableName of [
+    "GIT_CURL_VERBOSE",
+    "GIT_TRACE",
+    "GIT_TRACE_CURL",
+    "GIT_TRACE_PACKET",
+    "GIT_TRACE2",
+  ]) {
+    assert.ok(
+      entrypoint.includes(`-u ${variableName}`),
+      `${variableName} must not reach the trusted fetch`
+    );
+  }
+  assert.ok(entrypoint.includes("GIT_TRACE_REDACT=1"));
+  assert.ok(entrypoint.includes('fetch --no-tags "$trusted_remote_url"'));
+  assert.ok(!entrypoint.includes("fetch --no-tags origin"));
+});
+
 test("an explicit inspected control object bootstraps a main that predates the gate", () => {
   const fixture = createInitialBootstrapFixture();
   try {

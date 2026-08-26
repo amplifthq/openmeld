@@ -1307,7 +1307,7 @@ actually publishes the integrated feature:
 2. run the base-aware `pnpm release:local-components stamp ...` command with an
    explicit policy; it rebuilds the packaged CLI and verifies what it writes;
 3. run `pnpm run verify:release-ready`; and
-4. publish through `pnpm run release:cli --with-binary` so the package,
+4. publish through `pnpm run release:deploy:local -- --scope cli` so the package,
    binary channel, tag, manifest projection, and production Core come from the
    same commit.
 
@@ -1474,7 +1474,7 @@ Verify the tracked manifest against a freshly rebuilt package, Service bundle,
 skill bundle, and changed paths with the release-ready gate. The base resolves
 in this order: an explicit `--base`, then `OPENMELD_AFFECTED_BASE` when set, then
 the most recent `v*` release tag reachable from HEAD (created locally and
-published to `origin` automatically by `pnpm run release:cli`; it marks the last
+published to `origin` automatically by the guarded CLI release; it marks the last
 actually-published state), and only then `origin/main` as the pre-tagging
 fallback. Do not treat `origin/main` as the published baseline — in a
 batched-push workflow it can lag arbitrarily far behind the last npm publish:

@@ -38,7 +38,8 @@ const IMMUTABLE_TAG_CONFLICT_RE =
   /refusing to overwrite an immutable release tag/u;
 const MANIFEST_GATE_EXPLODED_RE = /manifest gate exploded/u;
 const QUEUE_GATE_EXPLODED_RE = /queue gate exploded/u;
-const RELEASE_RESUME_COMMAND_RE = /pnpm run release:cli --with-binary/u;
+const RELEASE_RESUME_COMMAND_RE =
+  /pnpm run release:deploy:local -- --scope cli/u;
 const DECLARED_CLI_VERSION_RE = /0\.7\.96/u;
 const ENOTFOUND_RE = /ENOTFOUND/u;
 const UNKNOWN_RELEASE_ARG_RE = /Unknown CLI release/u;

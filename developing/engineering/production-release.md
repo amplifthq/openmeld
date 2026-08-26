@@ -541,11 +541,19 @@ product code or silently changing the product SHA.
 Trusted current-main controls receive step-scoped GitHub tokens and explicit
 repository roots. They inject HTTPS authentication only into the exact fetch,
 lease compare-and-swap, or immutable tag network process; disable source Git
-hooks and unsafe protocol helpers; and never persist credentials in Git
+hooks and unsafe protocol helpers; remove inherited Git trace and curl-debug
+settings; force Git credential redaction; and never persist credentials in Git
 configuration. Product build, signing, deploy, health, and smoke commands do
 not receive those Git credentials. This also makes private-repository main/tag
 refresh and the shared lease independent of persisted checkout credentials or
 the workflow's workspace-root working directory.
+
+Hosted Worker preflight follows the same control/source split. The current-main
+`release-control` checkout runs `hosted-production-preflight.mjs` and passes the
+exact historical `release-source` root and SHA as data. Current control scripts
+inspect that product root and run their commands there; they never load a
+preflight entry from the historical package manifest. Product build and deploy
+still run only from the exact `release-source` checkout.
 
 ```sh
 release_sha="$(git rev-parse origin/main)"
@@ -663,11 +671,12 @@ version, a later restamp may change only the manifest. Ordinary feature branches
 must keep both release files unchanged, which the pre-push gate enforces through
 deferred-release verification against the PR base.
 
-At publication time, `pnpm run release:cli --next --with-binary` rechecks the
-same npm/R2 decision and requires it to match the committed package and manifest;
-it never edits the clean release worktree. Use the canonical command without a
-version selector when resuming a partially completed immutable release, because
-the resumable executor already reads its target from the committed package.
+At publication time, `pnpm run release:deploy:local -- --scope cli` rechecks the
+committed package and manifest through the guarded local production lane. It
+requires the exact clean source to remain on current `main`, acquires both the
+shared CLI and Core leases, and never edits the release worktree. The resumable
+internal publisher reads its target from the committed package, so recovery uses
+the same guarded command without a second public publisher entry.
 
 For GitHub, use `.github/workflows/cli-release.yml`:
 
@@ -697,7 +706,8 @@ Recovery inputs remain available for workflow compatibility, but they all run
 the same resumable release command at the exact original `release_sha`:
 
 - `normal`, `resume-after-binary-upload`, and `resume-after-npm-publish` all
-  invoke `pnpm run release:cli --with-binary`.
+  invoke the same internal resumable publisher from trusted current-main
+  release control.
 - The executor probes each immutable stage and skips completed work instead of
   relying on a human-authored exclusion list.
 - Always provide the original `release_sha`; a release tag or Core projection

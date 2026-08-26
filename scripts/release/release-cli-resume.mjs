@@ -20,7 +20,7 @@ const ARTIFACT_PROBE_TIMEOUT_MS = 60_000;
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const WHITESPACE_SPLIT_REGEX = /\s+/u;
-const RELEASE_RESUME_COMMAND = "pnpm run release:cli --with-binary";
+const RELEASE_RESUME_COMMAND = "pnpm run release:deploy:local -- --scope cli";
 const CORE_WRANGLER_ARGS = [
   "--config",
   "services/core/wrangler.jsonc",
@@ -202,7 +202,7 @@ function runBinaryReleaseStage(input) {
       [
         input.initial.binary.reason,
         "Next: rerun with the binary stage enabled:",
-        "pnpm run release:cli --with-binary",
+        "pnpm run release:deploy:local -- --scope cli",
       ].join("\n")
     );
   }

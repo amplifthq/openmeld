@@ -123,7 +123,10 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 The first shell program comes from the cached trusted `origin/main` Git object;
 it fetches live `main` before loading a detached current-main bootstrap and
 control copy. No candidate-owned package script or bootstrap runs before that
-boundary. Planning is read-only.
+boundary. The fetch names the clean HTTPS or explicit local origin directly,
+removes inherited Git trace and curl diagnostics, and forces credential
+redaction before Git can use the workstation credential helper. Planning is
+read-only.
 It shows uncommitted paths and the commands a committed candidate would select.
 Run any listed lower-level command directly when a failure needs isolation. Add
 `--full` when the risk or uncertainty justifies repository-wide checks, unit

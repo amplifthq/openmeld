@@ -4186,7 +4186,7 @@ Service projection `required` even when the latest artifact is advisory:
   derives this floor from the manifest in the same step, so the npm field is a
   projection, not a second source of truth. The floor is monotonic inside a
   release line against the last-published baseline (the `v*` release tag
-  `release:cli` creates): a `required` release pins it to at least its own
+  created by the guarded CLI release): a `required` release pins it to at least its own
   version, a deliberate in-repo raise may ship with any release (it stays
   dormant until the next `required` release pins it higher anyway), and `verify`
   hard-rejects any regression below the baseline — dropping the floor silently

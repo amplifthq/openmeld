@@ -6,7 +6,7 @@
 # concept — stop and read docs/architecture/facts.md before proceeding.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="${OPENMELD_VERIFICATION_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$REPO_ROOT"
 
 # Note: the legacy storage key "daemonhub.snapshot.v1" still has one allowed

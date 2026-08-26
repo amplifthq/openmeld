@@ -829,10 +829,14 @@ test("pins every component deploy to one SHA, runs preflight, and checks health"
     );
     assert.ok(
       source.includes(
-        `pnpm run release:preflight:local -- --scope ${scope} --base HEAD`
+        "node ../release-control/scripts/release/hosted-production-preflight.mjs"
       ),
-      `${workflowPath} must run scoped deployment preflight`
+      `${workflowPath} must run current-main preflight control`
     );
+    assert.ok(source.includes(`--scope ${scope}`));
+    assert.ok(source.includes('--release-source "$PWD"'));
+    assert.ok(source.includes('--release-sha "$RELEASE_SHA"'));
+    assert.ok(!source.includes("pnpm run release:preflight:local"));
     assert.ok(!source.includes("pnpm run release:verify:local"));
     assert.ok(
       source.includes(healthEvidence),
@@ -841,6 +845,26 @@ test("pins every component deploy to one SHA, runs preflight, and checks health"
     assert.ok(!source.includes("shared-db-gate"));
     assert.ok(!source.includes("run_db_gate"));
   }
+});
+
+test("exposes one guarded local CLI publication entry and keeps the publisher internal", () => {
+  const rootPackage = JSON.parse(readRepoFile("package.json"));
+  const cliPackage = JSON.parse(
+    readRepoFile("clients/openmeld-cli/package.json")
+  );
+  const localControl = readRepoFile("scripts/release/production-release.mjs");
+  const internalPublisher = readRepoFile("scripts/release/release-cli.mjs");
+  const hostedControl = readRepoFile("scripts/release/hosted-cli-release.mjs");
+
+  assert.equal(rootPackage.scripts["release:cli"], undefined);
+  assert.equal(
+    cliPackage.scripts.deploy,
+    "pnpm -C ../.. run release:deploy:local -- --scope cli"
+  );
+  assert.ok(localControl.includes('from "./release-cli.mjs"'));
+  assert.ok(localControl.includes("publishCliRelease"));
+  assert.ok(hostedControl.includes("runCliRelease"));
+  assert.ok(!internalPublisher.includes("pathToFileURL(process.argv[1])"));
 });
 
 test("component workflows reject side-branch release sources before production code or secrets", () => {
@@ -914,7 +938,7 @@ test("routes stable CLI projection recovery through the guarded Core workflow", 
   assert.ok(core.includes("pnpm run evidence:startup:core"));
   assert.match(core, LOCAL_CORE_STARTUP_DIAGNOSTIC);
   assert.ok(core.includes("deploy-core-worker.mjs"));
-  assert.ok(core.includes("release:preflight:core-current-cli-projection"));
+  assert.ok(core.includes("--current-stable-cli-projection"));
   assert.ok(core.includes("core-startup-evidence-"));
   assert.ok(core.includes("core-startup-profile-"));
   assert.ok(

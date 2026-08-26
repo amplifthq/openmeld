@@ -110,7 +110,14 @@ jobs:
           working_directory: release-source
 
       - name: Run Auth Worker deployment preflight
-        run: pnpm run release:preflight:local -- --scope auth --base HEAD
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          node ../release-control/scripts/release/hosted-production-preflight.mjs \
+            --release-source "$PWD" \
+            --release-sha "$RELEASE_SHA" \
+            --scope auth
 
       - name: Capture Auth bundle evidence
         run: pnpm run evidence:bundle:auth

@@ -264,7 +264,7 @@ same signing, notarization, verification, R2, npm, tag, and Core rollout path as
 GitHub:
 
 ```sh
-pnpm run release:cli --with-binary
+pnpm run release:deploy:local -- --scope cli
 ```
 
 Local release still requires a clean worktree and the normal production npm,
@@ -274,7 +274,7 @@ names only when rotating configuration:
 ```sh
 APPLE_TEAM_ID=<TEAM_ID> \
 APPLE_NOTARY_KEYCHAIN_PROFILE=<PROFILE_NAME> \
-pnpm run release:cli --with-binary
+pnpm run release:deploy:local -- --scope cli
 ```
 
 Do not export only part of the CI credential set during a local release. Any CI
@@ -328,7 +328,8 @@ For an explicitly approved local production release:
 
 Do not run `upload-cli-binary.mjs` as the normal production entrypoint. It is a
 scoped binary-channel operation for an approved recovery or diagnostics flow;
-the complete release entrypoint is `release:cli --with-binary`.
+the complete local release entrypoint is
+`pnpm run release:deploy:local -- --scope cli`.
 
 - For an approved scoped recovery or diagnostics flow, upload the binary and
   manifest to the production R2 bucket with:
@@ -359,7 +360,7 @@ node scripts/release/upload-cli-binary.mjs
   advertise that version. Use the binary release path:
 
 ```sh
-pnpm run release:cli --with-binary
+pnpm run release:deploy:local -- --scope cli
 ```
 
 - The release builds and uploads the manifest and platform artifacts before its
@@ -367,9 +368,9 @@ pnpm run release:cli --with-binary
   the stable channel must not trail `release/local-components.json`; when the
   versions match, every declared platform raw, gzip, and delta URL must answer
   successfully with complete manifest metadata.
-- `pnpm run release:cli` without `--with-binary` is only a recovery/resume path
-  when the same version is already live on the production channel. Its
-  preflight fails closed when the declared version is ahead of the channel.
+- Partial publication recovery uses the same guarded local command. The
+  internal resumable publisher probes completed immutable stages and skips
+  them only while the CLI and Core shared leases remain held.
 - `pnpm run deploy:core:local-components` is the scoped Core redeploy path for
   an already-published release. It enables the same channel-sync gate.
 
@@ -390,8 +391,8 @@ pnpm run release:cli --with-binary
   rollout through `.github/workflows/release-on-main.yml`.
 - Keep the default `release_path` set to `normal` for every complete release.
   The legacy `resume-after-binary-upload` and `resume-after-npm-publish` inputs
-  remain accepted, but all three inputs run the same resumable
-  `pnpm run release:cli --with-binary` command. Pass the exact original
+  remain accepted, but all three inputs run the same internal resumable
+  publisher from trusted current-main control. Pass the exact original
   `release_sha`; read-only completion probes skip an already published binary,
   npm version, matching release tag, or active Core projection without
   overwriting immutable artifacts.

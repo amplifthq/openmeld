@@ -106,7 +106,14 @@ jobs:
           working_directory: release-source
 
       - name: Run Remote Agent Worker deployment preflight
-        run: pnpm run release:preflight:local -- --scope remote-agent --base HEAD
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          node ../release-control/scripts/release/hosted-production-preflight.mjs \
+            --release-source "$PWD" \
+            --release-sha "$RELEASE_SHA" \
+            --scope remote-agent
 
       - name: Deploy Remote Agent Worker
         run: pnpm -C services/remote-agent run sync:config:prod

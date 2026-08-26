@@ -168,9 +168,9 @@ test("local production release accepts only current main first-parent sources", 
   }
 });
 
-test("local deploy holds shared CLI and Core leases and releases in reverse order", () => {
+test("local deploy holds shared CLI and Core leases and releases in reverse order", async () => {
   const operations = [];
-  const result = executeWithProductionScopeLeases({
+  const result = await executeWithProductionScopeLeases({
     adapters: {
       acquireProductionScopeLease: ({ scope, sourceSha }) => {
         operations.push(`acquire:${scope}:${sourceSha}`);
@@ -197,6 +197,45 @@ test("local deploy holds shared CLI and Core leases and releases in reverse orde
     `acquire:cli:${REMOTE_SOURCE_SHA}`,
     `acquire:core:${REMOTE_SOURCE_SHA}`,
     "deploy",
+    "release:core",
+    "release:cli",
+  ]);
+});
+
+test("the guarded local lane invokes the internal CLI publisher while both leases are held", async () => {
+  const operations = [];
+  await executeWithProductionScopeLeases({
+    adapters: {
+      acquireProductionScopeLease: ({ scope }) => {
+        operations.push(`acquire:${scope}`);
+        return {
+          leaseSha: scope.padEnd(40, "0").slice(0, 40),
+          metadata: { scope },
+        };
+      },
+      releaseProductionScopeLease: ({ scope }) => {
+        operations.push(`release:${scope}`);
+      },
+    },
+    execute: async () => {
+      await executeProductionDeploySteps({
+        adapters: {
+          publishCliRelease: () => {
+            operations.push("publish-cli");
+          },
+        },
+        steps: buildProductionDeployStepSpecs(["cli"]).slice(0, 1),
+      });
+    },
+    owner: "local:test",
+    scopes: ["cli"],
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.deepEqual(operations, [
+    "acquire:cli",
+    "acquire:core",
+    "publish-cli",
     "release:core",
     "release:cli",
   ]);
@@ -463,11 +502,8 @@ test("lets CLI release own its required Core projection", () => {
     ]
   );
   assert.deepEqual(
-    steps.map((step) => step.args),
-    [
-      ["run", "release:cli", "--with-binary"],
-      ["run", "release:cli", "--with-binary"],
-    ]
+    steps.map((step) => step.internalOperation),
+    ["publish-cli", "publish-cli"]
   );
 });
 
@@ -779,10 +815,10 @@ test("deploys Core's strict worker-response reader before PR 194's Remote Agent 
   );
 });
 
-test("prints the current production Worker version before a harmless redeploy", () => {
+test("prints the current production Worker version before a harmless redeploy", async () => {
   const sideEffects = [];
   const output = [];
-  executeProductionDeploySteps({
+  await executeProductionDeploySteps({
     adapters: {
       runCommand: () => ({
         status: 0,

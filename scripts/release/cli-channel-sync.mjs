@@ -11,7 +11,7 @@
 // Born from the 2026-07-10 half-release incident: commit 3bdbec9c9 stamped
 // release/local-components.json and clients/openmeld-cli/package.json to
 // 0.2.21 and Core was deployed, but the 0.2.21 CLI binary was never uploaded
-// (upload-cli-binary.mjs only runs when `release:cli` is passed
+// (upload-cli-binary.mjs only runs when the guarded CLI release selects
 // --with-binary). Core compiles release/local-components.json in at build
 // time (services/core/src/local-components/update-projection.ts), so it
 // announced "update required 0.2.21" to every user while
