@@ -95,6 +95,7 @@ describe("agent-execution-readiness-service", () => {
         {
           managed_role: "center_agent",
           organization_id: "org-personal",
+          owner_user_id: "user-1",
           profile_kind: "agent",
           profile_name: "Personal Center Agent",
         }
@@ -126,6 +127,7 @@ describe("agent-execution-readiness-service", () => {
         {
           managed_role: "center_agent",
           organization_id: "org-acme",
+          owner_user_id: "user-1",
           profile_kind: "agent",
           profile_name: "Acme Center Agent",
         }
@@ -157,6 +159,7 @@ function createAuthorizationEnv(
   profileContext: unknown = {
     managed_role: null,
     organization_id: null,
+    owner_user_id: "user-1",
     profile_kind: "agent",
     profile_name: "Personal Agent",
   }
