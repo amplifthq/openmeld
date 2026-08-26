@@ -13211,6 +13211,51 @@ describe("SpaceLanding", () => {
 		expect(document.activeElement).toBe(target);
 	});
 
+	it("opens a terminal Wake failure Inbox target at the source message that presents its outcome", () => {
+		const sourceSignal = createTextSignal({
+			id: "sig-failed-wake-source",
+			text: "@Runner(wake) check the deployment.",
+		});
+		const failureSignal = createTerminalFailureNoticeSignal({
+			actorProfileId: "agt_22222222-2222-2222-2222-222222222222",
+			dispatchId: null,
+			id: "sig-failed-wake-outcome",
+			replyToSignalId: sourceSignal.id,
+			text: "Runner could not complete this Wake.",
+			ts: 20,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [sourceSignal, failureSignal],
+					nextCursor: null,
+				},
+			}),
+		});
+
+		renderSpaceLanding({ initialFocusSignalId: sourceSignal.id });
+
+		const source = document.querySelector(
+			`[data-signal-id="${sourceSignal.id}"]`
+		);
+		expect(source?.getAttribute("data-highlighted")).toBe("true");
+		expect(document.activeElement).toBe(source);
+		expect(
+			screen.queryByRole("status", {
+				name: "Linked message isn't available",
+			})
+		).toBeNull();
+	});
+
 	it("loads bounded earlier history to open an older Inbox source message", async () => {
 		const recentSignal = createTextSignal({
 			id: "sig-recent",

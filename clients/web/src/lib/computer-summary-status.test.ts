@@ -185,7 +185,7 @@ describe("computer summary status", () => {
 		});
 	});
 
-	it("returns danger for a real local-agent repair blocker", () => {
+	it("asks for setup without claiming a repair when local agents are not ready", () => {
 		expect(
 			resolveCurrentLocalRuntimeComputerSummaryStatus({
 				readiness: buildReadiness({
@@ -195,7 +195,34 @@ describe("computer summary status", () => {
 					status: "blocked",
 				}),
 			})
-		).toMatchObject({ label: "Local agents need repair", tone: "danger" });
+		).toMatchObject({ label: "Local agents need setup", tone: "warning" });
+	});
+
+	it("keeps sign-in quiet when an enabled local agent only needs its account connected", () => {
+		const readiness = buildReadiness({
+			canReplyFromThisComputer: false,
+			nextAction: "run_setup",
+			primaryBlocker: "agent_controller_report_not_ready",
+			runtime: {
+				...buildReadiness().runtime,
+				reasonCodes: ["controller.auth.unauthenticated"],
+			},
+			status: "blocked",
+		});
+
+		expect(
+			resolveCurrentLocalRuntimeComputerSummaryStatus({ readiness })
+		).toMatchObject({
+			label: "Sign in to a local agent",
+			reason: "agent_sign_in_needed",
+			tone: "muted",
+		});
+		expect(
+			resolveCurrentLocalRuntimeComputerAttentionToneForInventory({
+				localRuntimeCount: 1,
+				readiness,
+			})
+		).toBeNull();
 	});
 
 	it("shows all-disabled local agents as an intentional quiet state", () => {
@@ -240,7 +267,7 @@ describe("computer summary status", () => {
 		).toMatchObject({ reason: "openmeld_tools_update", tone: "warning" });
 	});
 
-	it("keeps Computers attention when an enabled local agent needs repair", () => {
+	it("keeps Computers attention when an enabled local agent needs setup", () => {
 		const readiness = buildReadiness({
 			canReplyFromThisComputer: false,
 			nextAction: "run_setup",
@@ -253,7 +280,7 @@ describe("computer summary status", () => {
 				localRuntimeCount: 1,
 				readiness,
 			})
-		).toBe("danger");
+		).toBe("warning");
 	});
 
 	it("maps an incomplete controller check to the same warning used in agent detail", () => {
@@ -330,7 +357,7 @@ describe("computer summary status", () => {
 			})
 		).toMatchObject({
 			reason: "agent_needs_setup",
-			tone: "danger",
+			tone: "warning",
 		});
 	});
 
@@ -381,7 +408,7 @@ describe("computer summary status", () => {
 	it.each([
 		["connected", "ready", "OpenMeld Tools are ready"],
 		["needs_attention", "warning", "OpenMeld Tools need an update"],
-		["not_connected", "danger", "Computer offline"],
+		["not_connected", "muted", "Computer offline"],
 		["unknown", "muted", "OpenMeld Tools status unavailable"],
 	] as const)("maps an Organization computer's %s projection to %s", (serviceState, tone, label) => {
 		expect(

@@ -218,9 +218,10 @@ describe("Space Inbox projection", () => {
     ).toBeNull();
   });
 
-  it("delivers a terminal Wake failure as urgent action only to the exact requester", () => {
+  it("delivers a terminal Wake failure as an urgent update only to the exact requester", () => {
     const signal = systemNoticeSignal({
       noticeType: "terminal_failure",
+      replyToSignalId: "signal-wake-source",
       text: "The Wake could not finish.",
     });
     const record = buildSpaceInboxProjectionOutboxRecord({
@@ -237,14 +238,14 @@ describe("Space Inbox projection", () => {
 
     expect(record?.candidates).toEqual([
       expect.objectContaining({
-        attention: "action_required",
+        attention: "update",
         importance: "urgent",
         kind: "wake_outcome",
         preview: "The Wake could not finish.",
         recipientUserId: "user-requester",
         sourceTarget: {
           kind: "space",
-          signalId: "signal-1",
+          signalId: "signal-wake-source",
           spaceId: "space-1",
         },
         title: "Agent couldn't finish in Operations",
@@ -421,6 +422,63 @@ describe("Space Inbox projection", () => {
     expect(
       statements.some((statement) => statement.includes("status = 'completed'"))
     ).toBe(true);
+  });
+
+  it("normalizes a legacy terminal-failure action from the durable outbox before delivery", async () => {
+    const record: SpaceInboxProjectionOutboxRecord = {
+      attemptCount: 0,
+      candidates: [
+        {
+          ...candidate("user-1"),
+          attention: "action_required",
+          importance: "urgent",
+          kind: "wake_outcome",
+        },
+      ],
+      completedAtMs: null,
+      createdAtMs: 1000,
+      lastErrorCode: null,
+      nextRetryAtMs: null,
+      projectionId: "signal-1",
+      signalId: "signal-1",
+      spaceId: "space-1",
+      status: "pending",
+      updatedAtMs: 1000,
+    };
+    const sql = {
+      exec() {
+        return { rowsWritten: 1, toArray: () => [] };
+      },
+    } as unknown as SqlStorage;
+    const ensureItem = vi.fn().mockResolvedValue({
+      deliveryId: "delivery-1",
+      itemId: "item-1",
+    });
+
+    await expect(
+      attemptSpaceInboxProjectionOutboxRecord({
+        db: {} as D1Database,
+        ensureItem,
+        isRecipientEligible: vi.fn().mockResolvedValue(true),
+        nowMs: 2000,
+        record,
+        sql,
+      })
+    ).resolves.toMatchObject({ status: "completed" });
+
+    expect(ensureItem).toHaveBeenCalledWith({
+      candidate: expect.objectContaining({
+        attention: "update",
+        importance: "urgent",
+        kind: "wake_outcome",
+        sourceTarget: {
+          kind: "space",
+          spaceId: "space-1",
+        },
+      }),
+      db: {},
+      nowMs: 2000,
+    });
   });
 
   it("normalizes an eligible Center Agent reply before writing the Inbox item", async () => {
@@ -804,6 +862,7 @@ function systemNoticeSignal(input: {
     | "stay_silent"
     | "terminal_failure"
     | "wake_stopped";
+  replyToSignalId?: string;
   text: string;
 }): SignalEnvelope {
   return {
@@ -812,6 +871,17 @@ function systemNoticeSignal(input: {
       dispatchId: "dispatch-1",
       generatedBy: "openmeld",
       noticeType: input.noticeType,
+      ...(input.replyToSignalId
+        ? {
+            replyTo: {
+              profileId: "profile-requester",
+              profileKind: "human" as const,
+              profileName: "Requester",
+              previewText: "Wake request",
+              signalId: input.replyToSignalId,
+            },
+          }
+        : {}),
       text: input.text,
     },
     id: "signal-1",

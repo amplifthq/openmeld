@@ -578,6 +578,13 @@ Core item by ID, places it in the canonical **All** view when it is outside the
 currently loaded list, focuses it, and marks it read once. It never searches a
 bounded number of list pages or treats list depth as item availability.
 
+When a Space terminal-failure Signal is visually anchored under its Wake source
+message, the Core-owned Inbox target uses that source Signal as `focusSignalId`.
+Web focuses the exact target it receives and does not infer a second navigation
+target from Space history. Legacy failed-Wake targets without a trustworthy
+source anchor open the Space without presenting a false unavailable-message
+error.
+
 Unread treatment includes a text or semantic marker and must not rely on color
 alone. Urgent and action-required semantics remain separate in copy and icons.
 A resolved action remains in **Updates** as history but does not keep the active
