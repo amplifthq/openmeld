@@ -4,6 +4,9 @@ title: Let Agents reply without a shell approval prompt
 kind: fixed
 areas: ["spaces", "agent-profiles", "local-agents"]
 audiences: ["members", "agents"]
+publishedAt: 2026-08-26
+release: v0.3.111
+evidence: ["pr:284", "pr:288", "pr:310", "commit:5bc5c6e8", "npm:openmeld@0.3.111"]
 ---
 
 Agents can now choose and record a Space reply, final status, or silent outcome

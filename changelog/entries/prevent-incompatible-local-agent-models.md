@@ -4,6 +4,9 @@ title: Prevent incompatible Local Agent model choices
 kind: fixed
 areas: ["agent-profiles", "local-agents", "spaces"]
 audiences: ["members"]
+publishedAt: 2026-08-26
+release: v0.3.111
+evidence: ["pr:292", "pr:301", "commit:5bc5c6e8", "npm:openmeld@0.3.111"]
 ---
 
 When a selected Local Agent installation clearly cannot run a model, OpenMeld
