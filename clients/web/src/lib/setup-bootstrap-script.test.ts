@@ -37,6 +37,7 @@ const BOOTSTRAP_FAKE_COMMAND_BIN_WITHOUT_ATS = join(
 );
 
 function buildExpectedDevLocalFollowUpPrefix(input: {
+	binaryManifestUrl?: string;
 	command: string;
 	openMeldHome?: string;
 }): string {
@@ -46,6 +47,9 @@ function buildExpectedDevLocalFollowUpPrefix(input: {
 		"OPENMELD_ENV_PRESET='dev-local'",
 		"OPENMELD_GATEWAY_URL='http://localhost:8080'",
 		"OPENMELD_AUTH_URL='http://localhost:8788'",
+		...(input.binaryManifestUrl
+			? [`OPENMELD_CLI_BINARY_MANIFEST_URL='${input.binaryManifestUrl}'`]
+			: []),
 		`'${input.command}'`,
 	].join(" ");
 }
@@ -63,7 +67,7 @@ describe("setup-bootstrap-script", () => {
 		});
 
 		expect(script).toContain(
-			"env -u OPENMELD_HOME -u OPENMELD_GATEWAY_URL -u OPENMELD_AUTH_URL -u OPENMELD_USER_FACING_CLI_COMMAND"
+			"env -u OPENMELD_HOME -u OPENMELD_GATEWAY_URL -u OPENMELD_AUTH_URL -u OPENMELD_CLI_BINARY_MANIFEST_URL -u OPENMELD_USER_FACING_CLI_COMMAND"
 		);
 		expect(script).toContain(
 			'OPENMELD_ENV_PRESET="$OPENMELD_SETUP_ENV_PRESET"'
@@ -626,6 +630,7 @@ describe("setup-bootstrap-script", () => {
 			const openMeldHome = join(tempDir, ".openmeld-dev");
 			const managedBinaryPath = join(openMeldHome, "bin", "openmeld");
 			const followUpCommandPrefix = buildExpectedDevLocalFollowUpPrefix({
+				binaryManifestUrl: "http://127.0.0.1:3197/cli/manifest.json",
 				command: managedBinaryPath,
 				openMeldHome,
 			});
@@ -1425,10 +1430,52 @@ describe("setup-bootstrap-script", () => {
 		});
 
 		expect(result).toEqual({
-			body: "Non-production OpenMeld setup lanes are only available from localhost.",
+			body: "Non-production OpenMeld setup lanes are only available from localhost or OpenMeld staging.",
 			status: "error",
 			statusCode: 404,
 		});
+	});
+
+	it("allows the isolated binary canary lane from the official staging app", () => {
+		const result = resolveOpenMeldSetupBootstrapScriptConfig({
+			authUrl: "https://auth.staging.openmeld.ai",
+			gatewayUrl: "https://gateway.staging.openmeld.ai",
+			platform: "posix",
+			requestUrl: "https://staging.openmeld.ai/setup?lane=canary&dist=binary",
+			webAppUrl: "https://staging.openmeld.ai",
+		});
+
+		expect(result).toEqual({
+			config: {
+				authUrl: "https://auth.staging.openmeld.ai",
+				binaryManifestUrl: "https://staging.openmeld.ai/cli/manifest.json",
+				distribution: "binary",
+				gatewayUrl: "https://gateway.staging.openmeld.ai",
+				lane: "canary",
+			},
+			status: "ok",
+		});
+	});
+
+	it("keeps dev-local and lookalike hosts unavailable outside localhost", () => {
+		for (const requestUrl of [
+			"https://staging.openmeld.ai/setup?lane=dev-local",
+			"https://staging.openmeld.invalid/setup?lane=canary&dist=binary",
+		]) {
+			const result = resolveOpenMeldSetupBootstrapScriptConfig({
+				authUrl: "https://auth.staging.openmeld.ai",
+				gatewayUrl: "https://gateway.staging.openmeld.ai",
+				platform: "posix",
+				requestUrl,
+				webAppUrl: new URL(requestUrl).origin,
+			});
+
+			expect(result).toEqual({
+				body: "Non-production OpenMeld setup lanes are only available from localhost or OpenMeld staging.",
+				status: "error",
+				statusCode: 404,
+			});
+		}
 	});
 
 	it("does not allow a production request to set OPENMELD_HOME", () => {

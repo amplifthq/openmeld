@@ -15,7 +15,6 @@ import {
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
-import packageJson from "../../package.json";
 import {
   acquireLock,
   isOpenMeldLockError,
@@ -30,6 +29,7 @@ import {
   openMeldVersionsDir,
 } from "../config/paths";
 import { compareSemver } from "../config/version-state";
+import { OPENMELD_VERSION } from "../runtime/version";
 
 export type CliInstallSelfResult =
   | "installed"
@@ -66,7 +66,7 @@ export function resolveCliPlatformToken(): string {
 }
 
 export function resolveCliSelfVersion(): string {
-  return packageJson.version;
+  return OPENMELD_VERSION;
 }
 
 async function isUsableManagedBinary(target: string): Promise<boolean> {

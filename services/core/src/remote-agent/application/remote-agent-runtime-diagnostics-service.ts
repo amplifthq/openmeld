@@ -10,15 +10,10 @@ export async function readRemoteAgentRuntimeDiagnosticsForDispatch(input: {
   remoteAgentWorker: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"] | undefined;
   spaceId: string;
   targetProfileId: string;
-}): Promise<RemoteAgentWorkerRuntimeDiagnosticsResponse> {
+}): Promise<RemoteAgentWorkerRuntimeDiagnosticsResponse | null> {
   if (!input.db) {
     throw new Error(
       "Remote Agent runtime diagnostics require the Wake evidence store."
-    );
-  }
-  if (typeof input.remoteAgentWorker?.readRuntimeDiagnostics !== "function") {
-    throw new Error(
-      "Remote Agent Worker does not expose readRuntimeDiagnostics."
     );
   }
   const nativeDelivery = await readRemoteAgentNativeDeliveryByExecution({
@@ -28,16 +23,12 @@ export async function readRemoteAgentRuntimeDiagnosticsForDispatch(input: {
     spaceId: input.spaceId,
   });
   if (!nativeDelivery) {
-    throw new Error(
-      "Remote Agent runtime diagnostics require a native delivery record."
-    );
+    return null;
   }
   const runtimeConversationId =
     resolveRemoteAgentNativeDeliveryRuntimeConversationId(nativeDelivery);
   if (!runtimeConversationId) {
-    throw new Error(
-      "Remote Agent runtime diagnostics require a frozen runtime conversation identity."
-    );
+    return null;
   }
   return readRemoteAgentRuntimeDiagnosticsForConversation({
     remoteAgentWorker: input.remoteAgentWorker,

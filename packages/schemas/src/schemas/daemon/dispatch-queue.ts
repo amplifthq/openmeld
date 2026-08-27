@@ -29,6 +29,10 @@ export const openMeldDaemonDispatchDeliveryRecoveryReasonSchema = z.enum([
   "connection_replaced",
   "route_lost",
 ]);
+export const openMeldDaemonDispatchQueueRecoveryReasonSchema = z.union([
+  openMeldDaemonDispatchDeliveryRecoveryReasonSchema,
+  z.literal("hosted_admission_incomplete"),
+]);
 
 export const openMeldDaemonDispatchRulesSnapshotSchema = z.strictObject({
   dispatchPolicy: runtimeDispatchPolicySchema,
@@ -141,7 +145,7 @@ export const openMeldDaemonDispatchQueueMessageSchema = z
     sourceProfileNameSnapshot: z.string().min(1).nullable().optional(),
     targetProfileNameSnapshot: z.string().min(1).nullable().optional(),
     deliveryRecoveryReason:
-      openMeldDaemonDispatchDeliveryRecoveryReasonSchema.optional(),
+      openMeldDaemonDispatchQueueRecoveryReasonSchema.optional(),
     idempotencyKey: z.string().min(1),
     enqueuedAtMs: z.number().int().nonnegative(),
   })

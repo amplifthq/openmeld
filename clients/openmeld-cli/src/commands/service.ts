@@ -1,7 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { cancel, confirm, isCancel, select } from "@clack/prompts";
 import { sleep, toErrorMessage } from "@openmeld/utils";
-import packageJson from "../../package.json";
 import {
   type AuthenticationGuidance,
   buildHumanAuthenticationCard,
@@ -172,6 +171,7 @@ import { type RuntimeContext, resolveRuntimeContext } from "../runtime/context";
 import { isBinaryDistribution } from "../runtime/distribution";
 import { canUseInteractivePrompts } from "../runtime/interaction";
 import { createPresenter } from "../runtime/presenter/index";
+import { OPENMELD_VERSION } from "../runtime/version";
 import {
   formatDaemonServiceMissingMeaning,
   formatDaemonServiceMissingRunStepOne,
@@ -543,7 +543,7 @@ export async function runDaemonInstall(
     code: "daemon.install.installing",
     text: "Installing OpenMeld Service...",
   });
-  const requestedVersion = options.daemonVersion ?? packageJson.version;
+  const requestedVersion = options.daemonVersion ?? OPENMELD_VERSION;
   const downgradeBlock = await resolveDaemonDowngradeBlock({
     requestedVersion,
   });
@@ -1381,7 +1381,7 @@ function resolveDaemonReinstallOptions(
   resolveUpdateUrgency: typeof resolveServiceUpdateUrgency;
   scheduleServiceUpdate: typeof scheduleDaemonServiceUpdate;
 } {
-  const daemonVersion = options.daemonVersion ?? packageJson.version;
+  const daemonVersion = options.daemonVersion ?? OPENMELD_VERSION;
   return {
     drainWaitMs: options.drainWaitMs ?? REINSTALL_DRAIN_WAIT_MS,
     daemonVersion,
@@ -2694,7 +2694,7 @@ export async function runDaemonRun(
   if (!input.mode && canUseInteractivePrompts(runtime)) {
     const preflightResult =
       await runDaemonRunInteractivePreflightBeforeModePrompt({
-        daemonVersion: packageJson.version,
+        daemonVersion: OPENMELD_VERSION,
         input,
         presenter,
         runtime,
@@ -2726,7 +2726,7 @@ export async function runDaemonRun(
   }
 
   return await executeResolvedDaemonRun({
-    daemonVersion: packageJson.version,
+    daemonVersion: OPENMELD_VERSION,
     input,
     mode,
     options,
@@ -2945,7 +2945,7 @@ async function maybeRunDaemonRepairBeforeBackgroundStartDecision(input: {
   }
 
   const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: packageJson.version,
+    expectedVersion: OPENMELD_VERSION,
     intendedMode: "background",
   }).catch(() => null);
   if (!(inventory && shouldBlockDaemonRunFromInventory(inventory))) {
@@ -3247,7 +3247,7 @@ async function runSystemDaemonCore(context: {
   const isSystemServiceBootstrap = isManagedSystemServiceBootstrapRun();
   if (isSystemServiceBootstrap) {
     warnDaemonEvent("[openmeld.daemon.lifecycle_started]", {
-      cliVersion: packageJson.version,
+      cliVersion: OPENMELD_VERSION,
       event: "cli.daemon.lifecycle_started",
       pid: process.pid,
     });
@@ -4821,7 +4821,7 @@ type DetachedDaemonServiceLaunchTarget = {
 
 async function resolveDetachedDaemonServiceLaunchTarget(): Promise<DetachedDaemonServiceLaunchTarget> {
   const entryPath = await resolveAlignedDaemonActiveBundleEntryPath({
-    expectedVersion: packageJson.version,
+    expectedVersion: OPENMELD_VERSION,
   });
   if (entryPath) {
     if (isBinaryDistribution()) {

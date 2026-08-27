@@ -1,5 +1,4 @@
 import { Command, Option } from "commander";
-import packageJson from "../package.json";
 import {
   runActivityContext,
   runActivityHealth,
@@ -291,6 +290,7 @@ import {
 import { createPresenter } from "./runtime/presenter/index";
 import { createSilentPresenter } from "./runtime/presenter/silent";
 import { resolveRetiredCliCommandMessage } from "./runtime/retired-command-argv";
+import { OPENMELD_VERSION } from "./runtime/version";
 import {
   hasJsonOutputArgv,
   isPassiveCliQueryArgv,
@@ -402,7 +402,7 @@ function parseSpaceHistoryKindOption(value: string): SpaceHistoryKindOption {
 
 applyProductionReleaseDefaultsToProcessEnv();
 
-program.name(resolveUserFacingCliEntryCommand()).version(packageJson.version);
+program.name(resolveUserFacingCliEntryCommand()).version(OPENMELD_VERSION);
 program.option("--view <mode>", "View mode: auto|human|agent", "auto");
 program.option(
   "--service-auto-install <mode>",
@@ -5368,7 +5368,7 @@ async function delegateToManagedCliIfAuthoritative(
 ): Promise<boolean> {
   const delegation = await resolveManagedCliDelegation({
     argv,
-    currentVersion: packageJson.version,
+    currentVersion: OPENMELD_VERSION,
     distribution: resolveOpenMeldDistribution(),
   });
   if (delegation.status !== "delegate") {

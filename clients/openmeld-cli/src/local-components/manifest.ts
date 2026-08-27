@@ -14,7 +14,6 @@ import {
   type LocalSetupAction,
 } from "@openmeld/schemas";
 import type { InstalledLocalComponentsSnapshot } from "@openmeld/schemas/types";
-import packageJson from "../../package.json";
 import { collectSkillsReadinessSnapshot } from "../commands/skills";
 import { openMeldRootDir } from "../config/paths";
 import { compareSemver } from "../config/version-state";
@@ -26,6 +25,7 @@ import {
 } from "../local-service/lifecycle/daemon-service-inventory";
 import { resolveOpenMeldToolsMaintenanceProjection } from "../local-service/maintenance/openmeld-tools-maintenance-policy";
 import { resolveOpenMeldToolsUpdateOperation } from "../local-service/maintenance/openmeld-tools-update-operation";
+import { OPENMELD_VERSION } from "../runtime/version";
 import {
   hashBundledSkillAssets,
   loadBundledSkillAssets,
@@ -90,9 +90,9 @@ export async function buildExpectedLocalComponentsManifest(): Promise<LocalCompo
   const skills = await resolveExpectedSkillsManifest();
   return {
     schemaVersion: LOCAL_COMPONENTS_SCHEMA_VERSION,
-    openMeldReleaseVersion: packageJson.version,
+    openMeldReleaseVersion: OPENMELD_VERSION,
     cli: {
-      packageVersion: packageJson.version,
+      packageVersion: OPENMELD_VERSION,
       commandContractVersion: OPENMELD_CLI_COMMAND_CONTRACT_VERSION,
     },
     service: {
@@ -238,7 +238,7 @@ function resolveCliComponentStatus(
     reasonCodes.push("cli.command_contract_mismatch");
   } else if (
     latestPackageVersion &&
-    compareSemver(packageJson.version, latestPackageVersion) < 0
+    compareSemver(OPENMELD_VERSION, latestPackageVersion) < 0
   ) {
     status = "update_available";
     reasonCodes.push("cli.package_update_available");
@@ -246,7 +246,7 @@ function resolveCliComponentStatus(
   return {
     commandContractVersion: OPENMELD_CLI_COMMAND_CONTRACT_VERSION,
     latestPackageVersion,
-    packageVersion: packageJson.version,
+    packageVersion: OPENMELD_VERSION,
     reasonCodes,
     requiredCommandContractVersion,
     status,
