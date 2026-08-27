@@ -54,6 +54,12 @@ export type CenterAgentTaskDetailResponseV2 = z.infer<
 export type CenterAgentCreateTaskToolRpcInput = z.infer<
   Schemas["centerAgentCreateTaskToolRpcInputSchema"]
 >;
+export type CenterAgentListTasksToolRpcInput = z.infer<
+  Schemas["centerAgentListTasksToolRpcInputSchema"]
+>;
+export type CenterAgentGetTaskToolRpcInput = z.infer<
+  Schemas["centerAgentGetTaskToolRpcInputSchema"]
+>;
 export type CreateCenterAgentTaskResponse = z.infer<
   Schemas["createCenterAgentTaskResponseSchema"]
 >;
