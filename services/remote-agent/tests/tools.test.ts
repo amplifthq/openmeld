@@ -2274,7 +2274,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
   });
 
-  it("returns Core-projected computer setup context without exposing local agent candidates", async () => {
+  it("returns Computer setup facts without presenting setup implicitly", async () => {
     const baseRequest = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({
       turnEnvelope: {
@@ -2307,15 +2307,6 @@ describe("remote agent OpenMeld tool catalog", () => {
           status: "needs_attention",
         },
       ],
-      navigationAction: {
-        label: "Update OpenMeld Service",
-        target: {
-          connectedComputerId: "computer_1",
-          kind: "computer_setup",
-          mode: "update_service",
-        },
-        url: "https://openmeld.test/o/acme/connect?connectedComputerId=computer_1&serviceAction=update_service&session=fresh",
-      },
       organizationId: "org_123",
     });
     expect(centerAgentListComputers).toHaveBeenCalledWith(
@@ -2327,13 +2318,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
-    ).resolves.toMatchObject({
-      navigationTarget: {
-        connectedComputerId: "computer_1",
-        kind: "computer_setup",
-        mode: "update_service",
-      },
-    });
+    ).resolves.not.toHaveProperty("navigationTarget");
   });
 
   it("updates OpenMeld Tools through the requester's private Computer control", async () => {
@@ -2522,7 +2507,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
   });
 
-  it("attaches a trusted navigation action to Space-bearing tool results", async () => {
+  it("keeps a created Space available without presenting it implicitly", async () => {
     const baseRequest = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({
       turnEnvelope: {
@@ -2542,14 +2527,10 @@ describe("remote agent OpenMeld tool catalog", () => {
       turnEnvelope: request.turnEnvelope,
     });
 
-    await expect(
-      executeTool(tools, "openmeld_create_space", { name: "Launch Room" })
-    ).resolves.toMatchObject({
-      navigationAction: {
-        label: "Open this Space",
-        target: { kind: "space", spaceId: SPACE_ID },
-        url: `https://openmeld.ai/o/amplift/spaces/${SPACE_ID}`,
-      },
+    const created = await executeTool(tools, "openmeld_create_space", {
+      name: "Launch Room",
+    });
+    expect(created).toMatchObject({
       replyHandoff: {
         requiresAgentMention: true,
         userGuidance:
@@ -2557,14 +2538,10 @@ describe("remote agent OpenMeld tool catalog", () => {
       },
       spaceId: SPACE_ID,
     });
+    expect(created).not.toHaveProperty("navigationAction");
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
-    ).resolves.toMatchObject({
-      navigationTarget: {
-        kind: "space",
-        spaceId: SPACE_ID,
-      },
-    });
+    ).resolves.not.toHaveProperty("navigationTarget");
   });
 
   it("creates a private Space with members-only access when access settings are omitted", async () => {
@@ -2778,7 +2755,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
   });
 
-  it("records the created Project action but does not offer a removed Project", async () => {
+  it("clears an explicitly presented Project after removal", async () => {
     const baseRequest = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({
       turnEnvelope: {
@@ -2813,18 +2790,19 @@ describe("remote agent OpenMeld tool catalog", () => {
       turnEnvelope: request.turnEnvelope,
     });
 
+    const created = await executeTool(tools, "openmeld_create_project", {
+      name: "OpenMeld",
+      operationId: "create-project-123",
+      repositoryUrl: "https://github.com/amplifthq/openmeld",
+    });
+    expect(created).not.toHaveProperty("navigationAction");
     await expect(
-      executeTool(tools, "openmeld_create_project", {
-        name: "OpenMeld",
-        operationId: "create-project-123",
-        repositoryUrl: "https://github.com/amplifthq/openmeld",
-      })
-    ).resolves.toMatchObject({
-      navigationAction: {
-        label: "Open this Project",
-        target: { kind: "project", projectId: "project_123" },
-        url: "http://localhost:5173/o/amplift/projects/project_123",
-      },
+      readRemoteAgentCallbackContext(storage, ACK.submissionId)
+    ).resolves.not.toHaveProperty("navigationTarget");
+
+    await executeTool(tools, "openmeld_get_navigation_action", {
+      kind: "project",
+      projectId: "project_123",
     });
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
@@ -2850,7 +2828,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).resolves.not.toHaveProperty("navigationTarget");
   });
 
-  it("records Projects home as the action for a Project list", async () => {
+  it("presents Projects only after an explicit navigation request", async () => {
     const baseRequest = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({
       turnEnvelope: {
@@ -2884,20 +2862,25 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_list_projects", {})
-    ).resolves.toMatchObject({
-      navigationAction: {
-        label: "Open Projects",
-        target: { kind: "projects" },
-        url: "http://localhost:5173/o/amplift/projects",
-      },
+    ).resolves.toEqual({
+      hasMore: false,
       projects: [
         {
-          navigationAction: {
-            label: "Open this Project",
-            target: { kind: "project", projectId: "project_123" },
-          },
+          canArchive: true,
+          canManage: true,
+          id: "project_123",
+          name: "OpenMeld",
+          repositoryUrl: "https://github.com/amplifthq/openmeld",
+          slug: "openmeld",
         },
       ],
+    });
+    await expect(
+      readRemoteAgentCallbackContext(storage, ACK.submissionId)
+    ).resolves.not.toHaveProperty("navigationTarget");
+
+    await executeTool(tools, "openmeld_get_navigation_action", {
+      kind: "projects",
     });
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
@@ -4722,9 +4705,19 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
     expect(tools.map((tool) => tool.name)).toContain(toolName);
 
-    await expect(executeTool(tools, toolName, scenario.input)).resolves.toEqual(
-      scenario.response
-    );
+    const result = await executeTool(tools, toolName, scenario.input);
+    if (toolName === "openmeld_create_space") {
+      expect(result).toEqual({
+        ...createSpaceResponse(),
+        replyHandoff: {
+          requiresAgentMention: true,
+          userGuidance:
+            "In this ordinary Space, @ mention the Agent you want to respond or act.",
+        },
+      });
+    } else {
+      expect(result).toEqual(scenario.response);
+    }
     expect(rpc).toHaveBeenCalledOnce();
   });
 
