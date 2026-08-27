@@ -15,6 +15,11 @@ import {
   createRuntimeTransportMutableState,
   type PendingDispatchState,
 } from "../runtime-transport/application/runtime-transport-state";
+import {
+  RUNTIME_TRANSPORT_DELIVER_CONVERGENCE_SAFETY_MARGIN_MS,
+  RUNTIME_TRANSPORT_DELIVER_TIMEOUT_MS,
+  RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_TIMEOUT_MS,
+} from "../strategy-constants";
 
 const COMPATIBLE_EXECUTION_CONTRACT = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -297,9 +302,17 @@ describe("runtime transport dispatch service", () => {
       agentControllerRef,
     });
     let convergencePolls = 0;
+    // Deterministic virtual clock: every now() read advances the timeline so
+    // the bounded wait runs to completion without real time or CPU spinning.
+    let virtualNowMs = 0;
     const response = await deliverDispatch(fixture.state, fixture.request, {
       cleanupCompletedResults: () => undefined,
       profileConfigurationConvergence: {
+        now: () => {
+          const value = virtualNowMs;
+          virtualNowMs += 100;
+          return value;
+        },
         sleep: () => {
           convergencePolls += 1;
           // Simulate the daemon applying expected-routes v3 and re-registering.
@@ -347,6 +360,7 @@ describe("runtime transport dispatch service", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
       // Silence the expected fence diagnostic in test output.
     });
+    let virtualDeadlineMs = 0;
     try {
       const { request, sendFrame, state } = createFencedDeliveryFixture({
         agentControllerRef,
@@ -356,6 +370,12 @@ describe("runtime transport dispatch service", () => {
         cleanupCompletedResults: () => undefined,
         profileConfigurationConvergence: {
           pollIntervalMs: 1,
+          now: () => {
+            // Every clock read advances 100ms so the bounded deadline fires
+            // without wall-clock sleeps and the loop can never spin.
+            virtualDeadlineMs += 100;
+            return virtualDeadlineMs;
+          },
           sleep: () => Promise.resolve(),
           timeoutMs: 5,
         },
@@ -384,6 +404,296 @@ describe("runtime transport dispatch service", () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+
+  it("serializes a concurrent duplicate delivery behind the in-flight convergence claim", async () => {
+    // Two concurrent deliveries of the same dispatch attempt while the fence
+    // waits for convergence must not both reach daemon.dispatch.deliver. The
+    // first caller owns one canonical wait. The duplicate must not report an
+    // accepted outcome before the owner really sends the delivery.
+    const fixture = createFencedDeliveryFixture();
+    const armedGates: Array<() => void> = [];
+    // Each gated sleep holds its caller until explicitly released below.
+    const convergenceGate = () =>
+      new Promise<void>((resolve) => {
+        armedGates.push(resolve);
+      });
+    let virtualNowMs = 0;
+
+    const firstDelivery = deliverDispatch(fixture.state, fixture.request, {
+      cleanupCompletedResults: () => undefined,
+      profileConfigurationConvergence: {
+        now: () => {
+          const value = virtualNowMs;
+          virtualNowMs += 100;
+          return value;
+        },
+        sleep: convergenceGate,
+      },
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame: fixture.sendFrame,
+    });
+    // Let the first caller enter the convergence wait (after its nudge frame).
+    await Promise.resolve();
+    await Promise.resolve();
+
+    let duplicateSettled = false;
+    const duplicateDelivery = deliverDispatch(fixture.state, fixture.request, {
+      cleanupCompletedResults: () => undefined,
+      profileConfigurationConvergence: {
+        now: () => virtualNowMs,
+        sleep: () => Promise.resolve(),
+      },
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame: fixture.sendFrame,
+    }).finally(() => {
+      duplicateSettled = true;
+    });
+    await Promise.resolve();
+    expect(duplicateSettled).toBe(false);
+    expect(fixture.sendFrame).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ code: "daemon.dispatch.deliver" })
+    );
+
+    // The Service applies the expected revision and the first caller delivers.
+    const releaseConvergence = armedGates[0];
+    if (!releaseConvergence) {
+      throw new Error("convergence gate was never armed");
+    }
+    const report = fixture.session.localWakeRouteReport;
+    if (!report?.profileConfigurationRevisions?.[0]) {
+      throw new Error("test report missing");
+    }
+    report.profileConfigurationRevisions[0].configurationRevision = 7;
+    report.reportedAtMs += 1000;
+    releaseConvergence();
+
+    expect(await firstDelivery).toEqual({
+      accepted: true,
+      status: "delivered",
+    });
+    expect(await duplicateDelivery).toEqual({
+      accepted: true,
+      existingAttemptId: "attempt-1",
+      status: "already_pending",
+    });
+    const deliveredFrames = fixture.sendFrame.mock.calls.filter(
+      (call) =>
+        (call[1] as { code?: string }).code === "daemon.dispatch.deliver"
+    );
+    expect(deliveredFrames).toHaveLength(1);
+    expect(
+      fixture.state.pendingDispatches.get(
+        buildDispatchAttemptKey("dispatch-1", "attempt-1")
+      )
+    ).toEqual(expect.objectContaining({ attemptId: "attempt-1" }));
+  });
+
+  it("releases the in-flight convergence claim when delivery fails closed", async () => {
+    let virtualDeadlineMs = 0;
+    const { request, state } = createFencedDeliveryFixture();
+
+    const response = await deliverDispatch(state, request, {
+      cleanupCompletedResults: () => undefined,
+      profileConfigurationConvergence: {
+        pollIntervalMs: 1,
+        now: () => {
+          virtualDeadlineMs += 100;
+          return virtualDeadlineMs;
+        },
+        sleep: () => Promise.resolve(),
+        timeoutMs: 5,
+      },
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame: vi.fn(),
+    });
+
+    expect(response).toEqual({
+      accepted: false,
+      reasonCode: "daemon.profile.configuration_not_synced",
+      status: "rejected",
+    });
+    // A retry (queue redrive) must see a clean slate, not a stuck transient
+    // claim or a false pending delivery.
+    expect(state.inFlightDispatchDeliveries.size).toBe(0);
+    expect(
+      state.pendingDispatches.has(
+        buildDispatchAttemptKey("dispatch-1", "attempt-1")
+      )
+    ).toBe(false);
+  });
+
+  it("gives a concurrent duplicate the real rejection when convergence fails", async () => {
+    const fixture = createFencedDeliveryFixture();
+    let releaseWait: (() => void) | undefined;
+    let virtualNowMs = 0;
+    const deps = {
+      cleanupCompletedResults: () => undefined,
+      profileConfigurationConvergence: {
+        now: () => virtualNowMs,
+        pollIntervalMs: 1,
+        sleep: () =>
+          new Promise<void>((resolve) => {
+            releaseWait = () => {
+              virtualNowMs = 2;
+              resolve();
+            };
+          }),
+        timeoutMs: 1,
+      },
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame: fixture.sendFrame,
+    };
+
+    const firstDelivery = deliverDispatch(fixture.state, fixture.request, deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    const duplicateDelivery = deliverDispatch(
+      fixture.state,
+      fixture.request,
+      deps
+    );
+    await Promise.resolve();
+
+    if (!releaseWait) {
+      throw new Error("convergence wait was never armed");
+    }
+    releaseWait();
+
+    const rejection = {
+      accepted: false,
+      reasonCode: "daemon.profile.configuration_not_synced",
+      status: "rejected",
+    } as const;
+    expect(await firstDelivery).toEqual(rejection);
+    expect(await duplicateDelivery).toEqual(rejection);
+    expect(fixture.state.inFlightDispatchDeliveries.size).toBe(0);
+    expect(
+      fixture.sendFrame.mock.calls.filter(
+        (call) =>
+          (call[1] as { code?: string }).code === "daemon.dispatch.deliver"
+      )
+    ).toHaveLength(0);
+  });
+
+  it("reports live transport authority instead of configuration drift when the refresh nudge cannot be sent", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
+      // Silence the expected nudge failure diagnostic in test output.
+    });
+    let virtualDeadlineMs = 0;
+    try {
+      const { request, state } = createFencedDeliveryFixture();
+      // The recorded socket exists but every frame send fails (half-open).
+      const failingSendFrame = vi.fn((): void => {
+        throw new Error("socket write failed");
+      });
+
+      const response = await deliverDispatch(state, request, {
+        cleanupCompletedResults: () => undefined,
+        profileConfigurationConvergence: {
+          now: () => {
+            virtualDeadlineMs += 100;
+            return virtualDeadlineMs;
+          },
+          pollIntervalMs: 1,
+          sleep: () => Promise.resolve(),
+          timeoutMs: 5,
+        },
+        reapExpiredLeases: () => undefined,
+        resolvePendingResultWaiters: () => undefined,
+        sendFrame: failingSendFrame,
+      });
+
+      expect(response).toEqual({
+        accepted: false,
+        status: "rejected",
+        reasonCode: "daemon.profile.offline",
+      });
+      expect(failingSendFrame).toHaveBeenCalledTimes(1);
+      expect(failingSendFrame).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          code: "daemon.route_catalog.changed",
+        })
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[core.runtime_transport.profile_configuration_convergence_nudge_failed]",
+        expect.objectContaining({
+          dispatchId: "dispatch-1",
+          error: "Error: socket write failed",
+          profileId: "agt-1",
+          reasonCode: "daemon.profile.offline",
+        })
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("preserves the bounded convergence budget inside the outer delivery deadline", () => {
+    // The convergence window is DERIVED from the owning /deliver-dispatch
+    // deadline plus an explicit RTT/scheduling margin. If someone widens the
+    // margin past the whole window or shrinks the window below the healthy
+    // Service chain (zero-delay heartbeat + forced catalog sync ending in a
+    // register report, i.e. roughly two round trips), this test fails before
+    // the outer deadline can mask daemon.profile.configuration_not_synced.
+    expect(RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_TIMEOUT_MS).toBe(
+      RUNTIME_TRANSPORT_DELIVER_TIMEOUT_MS -
+        RUNTIME_TRANSPORT_DELIVER_CONVERGENCE_SAFETY_MARGIN_MS
+    );
+    expect(
+      RUNTIME_TRANSPORT_DELIVER_CONVERGENCE_SAFETY_MARGIN_MS
+    ).toBeGreaterThanOrEqual(1000);
+    // Healthy Service convergence needs only a couple of round trips; the
+    // window keeps multiple multiples of headroom for slower but healthy
+    // Services (see clients/openmeld-cli/src/strategy-constants.ts caps).
+    expect(
+      RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_TIMEOUT_MS
+    ).toBeGreaterThanOrEqual(25_000);
+  });
+
+  it("delivers a register that converges late but still inside the bounded window", async () => {
+    const fixture = createFencedDeliveryFixture();
+    // Virtual timeline in ms; convergence applies at t=7000 (slower than the
+    // old fixed 6s budget, still inside the current bounded window).
+    let virtualNowMs = 0;
+    const response = await deliverDispatch(fixture.state, fixture.request, {
+      cleanupCompletedResults: () => undefined,
+      profileConfigurationConvergence: {
+        now: () => {
+          const value = virtualNowMs;
+          virtualNowMs += 500;
+          return value;
+        },
+        sleep: () => {
+          if (virtualNowMs >= 7000) {
+            const report = fixture.session.localWakeRouteReport;
+            if (!report?.profileConfigurationRevisions?.[0]) {
+              throw new Error("test report missing");
+            }
+            report.profileConfigurationRevisions[0].configurationRevision = 7;
+            report.reportedAtMs += 7000;
+          }
+          return Promise.resolve();
+        },
+      },
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame: fixture.sendFrame,
+    });
+
+    expect(response).toEqual({
+      accepted: true,
+      status: "delivered",
+    });
+    expect(virtualNowMs).toBeLessThan(
+      RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_TIMEOUT_MS + 500
+    );
   });
 
   it("rejects delivery until the local route has the accepted binding configuration", async () => {
