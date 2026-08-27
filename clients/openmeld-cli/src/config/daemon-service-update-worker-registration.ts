@@ -112,7 +112,7 @@ export function readManagedVersionsFromUpdateWorkerRegistration(
   return versions;
 }
 
-function resolveDaemonServiceUpdateWorkerRegistrationPath(
+export function resolveDaemonServiceUpdateWorkerRegistrationPath(
   pathInput: OpenMeldPathResolutionInput,
   platform: NodeJS.Platform
 ): string | null {

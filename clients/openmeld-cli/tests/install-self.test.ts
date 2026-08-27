@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveDaemonServiceUpdateWorkerLaunchdPlistPath } from "../src/config/daemon-service-update-worker-registration";
+import { resolveDaemonServiceUpdateWorkerRegistrationPath } from "../src/config/daemon-service-update-worker-registration";
 import {
   buildInstallSelfJsonPayload,
   performManagedInstall,
@@ -142,9 +142,13 @@ describe("managed install (install-self)", () => {
       await writeFile(path.join(versionDir, "openmeld"), version);
       await chmod(path.join(versionDir, "openmeld"), 0o755);
     }
-    const registrationPath = resolveDaemonServiceUpdateWorkerLaunchdPlistPath({
-      homeDir: home,
-    });
+    const registrationPath = resolveDaemonServiceUpdateWorkerRegistrationPath(
+      { homeDir: home },
+      process.platform
+    );
+    if (registrationPath === null) {
+      throw new Error(`Unsupported test platform: ${process.platform}`);
+    }
     await mkdir(path.dirname(registrationPath), { recursive: true });
     await writeFile(
       registrationPath,

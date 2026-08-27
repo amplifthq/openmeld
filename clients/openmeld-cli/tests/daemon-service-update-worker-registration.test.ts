@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   readDaemonServiceUpdateWorkerProtectedManagedVersions,
   readManagedVersionsFromUpdateWorkerRegistration,
   resolveDaemonServiceUpdateWorkerLaunchdPlistPath,
+  resolveDaemonServiceUpdateWorkerRegistrationPath,
+  resolveDaemonServiceUpdateWorkerSystemdUnitPath,
+  resolveDaemonServiceUpdateWorkerWindowsScriptPath,
 } from "../src/config/daemon-service-update-worker-registration";
 
 describe("daemon service update worker registration", () => {
@@ -37,6 +40,44 @@ describe("daemon service update worker registration", () => {
       readDaemonServiceUpdateWorkerProtectedManagedVersions(
         { homeDir },
         "darwin"
+      )
+    ).resolves.toEqual(new Set(["0.3.120"]));
+  });
+
+  it.each([
+    {
+      executable: "/Users/test/.openmeld/versions/0.3.120/openmeld",
+      platform: "darwin" as const,
+      resolvePath: resolveDaemonServiceUpdateWorkerLaunchdPlistPath,
+    },
+    {
+      executable: "/home/test/.openmeld/versions/0.3.120/openmeld",
+      platform: "linux" as const,
+      resolvePath: resolveDaemonServiceUpdateWorkerSystemdUnitPath,
+    },
+    {
+      executable: "C:\\Users\\test\\.openmeld\\versions\\0.3.120\\openmeld.exe",
+      platform: "win32" as const,
+      resolvePath: resolveDaemonServiceUpdateWorkerWindowsScriptPath,
+    },
+  ])("reads the legacy $platform worker registration before pruning managed versions", async ({
+    executable,
+    platform,
+    resolvePath,
+  }) => {
+    const homeDir = join(tmpdir(), `openmeld-worker-${randomUUID()}`);
+    temporaryHomes.push(homeDir);
+    const registrationPath = resolvePath({ homeDir });
+    expect(
+      resolveDaemonServiceUpdateWorkerRegistrationPath({ homeDir }, platform)
+    ).toBe(registrationPath);
+    await mkdir(dirname(registrationPath), { recursive: true });
+    await writeFile(registrationPath, executable, "utf8");
+
+    await expect(
+      readDaemonServiceUpdateWorkerProtectedManagedVersions(
+        { homeDir },
+        platform
       )
     ).resolves.toEqual(new Set(["0.3.120"]));
   });
