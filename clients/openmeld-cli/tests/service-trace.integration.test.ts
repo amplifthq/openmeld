@@ -3547,6 +3547,148 @@ describe("service trace command", () => {
     });
   });
 
+  it("reports a hosted Center Agent text failure notice as a structured visible failure in the agent summary", async () => {
+    await withTempHome(async () => {
+      resolveRuntimeContextMock.mockResolvedValue({
+        viewMode: "agent",
+        resolvedView: "agent",
+        interactive: false,
+      });
+      resolveCurrentReplyReadinessSnapshotMock.mockResolvedValue(null);
+      const traceResponse = createTraceResponse();
+      if (!traceResponse.trace) {
+        throw new Error("expected trace fixture");
+      }
+      const failureNoticeText =
+        "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong.";
+      traceResponse.correlation = {
+        ...traceResponse.correlation,
+        bindingId: "binding-hosted-1",
+        openMeldServiceRuntimeId: null,
+        agentControllerRef: "hosted:center-agent",
+        resultRef: null,
+        publishedSignalId: null,
+        replySignalId: "sig-failure-notice",
+      };
+      traceResponse.trace = {
+        ...traceResponse.trace,
+        dispatch: {
+          ...traceResponse.trace.dispatch,
+          status: "failed_terminal",
+        },
+        latestAttempt: {
+          ...traceResponse.trace.latestAttempt,
+          status: "failed_terminal",
+          errorCode: "remote_agent.turn_not_completed",
+          errorMessage: null,
+          finishedAt: "2026-03-09T00:00:04.000Z",
+        },
+        executionIdentity: null,
+        nativeDelivery: {
+          bindingId: "binding-hosted-1",
+          controllerNormalization: {
+            bindingUpdatedAt: "2026-03-09T00:00:01.000Z",
+            canonicalAgentControllerRef: "hosted:center-agent",
+            factSource: "remote_agent_native_delivery_ledger",
+            reasonCode: "hosted_runtime_family_controller_canonicalized",
+            storedAgentControllerRef: null,
+            storedAgentControllerRefStatus: "missing",
+          },
+          createdAt: "2026-03-09T00:00:01.000Z",
+          deliveryId: "delivery-hosted-1",
+          destination: {
+            conversationKind: "space",
+            organizationId: "org-1",
+            spaceId: "space-demo",
+            targetProfileId: "agt-target",
+          },
+          dispatchId: "dispatch-demo",
+          factSource: "remote_agent_native_delivery_ledger",
+          idempotencyKey: "idem-1",
+          runtimeFamily: "hosted_center_agent",
+          status: "failed",
+          submissionId: "submission-hosted-1",
+          updatedAt: "2026-03-09T00:00:04.000Z",
+        },
+        result: null,
+        resultInbox: null,
+        replySignal: {
+          factSource: "space_signal_by_published_signal_id",
+          signalId: "sig-failure-notice",
+          profileId: "agt-target",
+          profileKind: "agent",
+          profileName: "Demo Bot",
+          text: failureNoticeText,
+          createdAt: "2026-03-09T00:00:04.000Z",
+        },
+        finalVisibleMessage: {
+          factSource: "space_signal_by_published_signal_id",
+          signalId: "sig-failure-notice",
+          signalType: "signal.text",
+          dispatchId: "dispatch-demo",
+          targetProfileId: "agt-target",
+          profileId: "agt-target",
+          profileKind: "agent",
+          profileName: "Demo Bot",
+          text: failureNoticeText,
+          reasonCode: "remote_agent.turn_not_completed",
+          noticeType: null,
+          statusType: null,
+          createdAt: "2026-03-09T00:00:04.000Z",
+        },
+        finalVisibleMessageLinkage: {
+          status: "matched_published_signal",
+          reasonCode: "final_visible_message.matched_published_signal",
+          sourceFact: "published_signal_candidate",
+          candidateSignalIds: ["sig-failure-notice"],
+          claimSignalId: null,
+          selectedSignalId: "sig-failure-notice",
+        },
+      };
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runServiceTrace(
+          {
+            baseUrl: "https://gateway.openmeld.invalid",
+            dispatchId: "dispatch-demo",
+            space: "space-demo",
+            view: "agent",
+          },
+          createReadOnlyTraceDependencies(traceResponse)
+        );
+      });
+
+      const summary = stdout
+        .trim()
+        .split("\n")
+        .filter((line) => line.trim().startsWith("{"))
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              code?: string;
+              data?: { agentSummary?: unknown; diagnosticSummary?: string };
+              text?: string;
+            }
+        )
+        .find((line) => line.code === "service.trace.summary");
+      expect(summary?.data?.agentSummary).toMatchObject({
+        currentState: "delivered",
+        delivered: true,
+        nextAction: "none",
+        reasonCode: "remote_agent.turn_not_completed",
+        runtimeFamily: "hosted_center_agent",
+        visibleOutcome: "visible_failure",
+      });
+      expect(summary?.text).toContain(
+        "delivered=true visible_outcome=visible_failure current_state=delivered reason=remote_agent.turn_not_completed"
+      );
+      expect(summary?.text).not.toContain("reason=reply.delivered");
+      expect(summary?.data?.diagnosticSummary).toContain(
+        "finalVisibleOutcome=visible_failure"
+      );
+    });
+  });
+
   it("shows service drift setup guidance in human trace output", async () => {
     await withTempHome(async () => {
       resolveRuntimeContextMock.mockResolvedValue({
