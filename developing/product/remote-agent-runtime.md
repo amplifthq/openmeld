@@ -2470,14 +2470,21 @@ tooling, not a user surface and not availability truth.
   exists, the Center Agent names the exact missing capability, connection,
   environment, authority, or material decision and gives one concrete next
   step.
-- Top-level Space-, Project-, Projects-, and App-bearing OpenMeld tool results
-  include a structured Navigation Action when Core supplied trusted
-  Organization Web context. The Center Agent relies on that action and does not
-  repeat its URL in Markdown: the delivery layer renders the most recent
-  top-level action as a Web or Slack button. For an older result without the
-  action, the agent may call the read-only navigation tool with the exact
-  returned target ID; it never invents a relative path, origin, Organization
-  slug, label, or URL.
+- Navigation Actions are explicit presentation output, not metadata inferred
+  from an ordinary tool result's shape. Reading, listing, creating, or changing
+  a Space, Project, Projects collection, App, or Computer never records an
+  action merely because the result contains a routable ID or recommendation.
+  The Center Agent calls the read-only navigation tool only when the user asked
+  to open that exact destination or opening it is the one concrete next step
+  required to advance the current request. Core builds the trusted action from
+  the exact returned target, and the delivery layer renders that explicitly
+  selected action as a Web or supported Message Channel control. Code-owned
+  blocker paths such as required GitHub or Message Channel identity setup may
+  record their own exact action at the boundary that proves the blocker. New
+  tools and action-linked UI must follow one of those explicit producer
+  contracts; generic result scanning and field-name-based promotion are not
+  allowed. The model never invents a relative path, origin, Organization slug,
+  label, or URL.
 - GitHub connection recovery records the code-owned GitHub App target when the
   same trusted context is available. Core rebuilds the current Organization's
   direct App action, Web renders it as a button-styled link, and Slack renders a
