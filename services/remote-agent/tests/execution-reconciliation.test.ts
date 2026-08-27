@@ -14,7 +14,7 @@ import {
   reconcileRemoteAgentExecution,
   reconcileSettledRemoteAgentExecutionFailures,
 } from "../flue-adapter/execution-reconciliation";
-import { preserveRemoteAgentGeneratedText } from "../flue-adapter/streaming";
+import { createRemoteAgentStreamPublisher } from "../flue-adapter/streaming";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -281,7 +281,7 @@ describe("remote agent execution reconciliation", () => {
     expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
   });
 
-  it("replays a preserved answer once when the runtime settled before the final callback", async () => {
+  it("replays a durable completed answer once when the final callback was lost", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const request = createSubmitTurnRequest();
     const submissionId = "submission_settled_after_answer";
@@ -297,6 +297,12 @@ describe("remote agent execution reconciliation", () => {
       identity,
       storage,
     });
+    await completeRemoteAgentExecutionState({
+      identity,
+      nowMs: TEST_NOW_MS + 500,
+      status: "completed",
+      storage,
+    });
     await putRemoteAgentCallbackContext(storage, {
       ...createRemoteAgentCallbackContext({
         ack: {
@@ -310,7 +316,7 @@ describe("remote agent execution reconciliation", () => {
         nowMs: TEST_NOW_MS,
         request,
       }),
-      callbackStatus: "failed",
+      callbackStatus: "pending",
       completedText: "The release plan is ready.",
     });
     const completeRemoteAgentSubmission = vi.fn(async () => ({
@@ -318,7 +324,6 @@ describe("remote agent execution reconciliation", () => {
       status: "accepted" as const,
     }));
     const readSubmission = vi.fn(async () => ({
-      error: "Connection closed before the final callback was sent.",
       status: "settled" as const,
     }));
 
@@ -338,10 +343,11 @@ describe("remote agent execution reconciliation", () => {
     });
 
     expect(first).toMatchObject({
-      execution: { completedAtMs: TEST_NOW_MS + 1000, status: "completed" },
+      execution: { completedAtMs: TEST_NOW_MS + 500, status: "completed" },
       status: "found",
     });
     expect(second).toEqual(first);
+    expect(readSubmission).not.toHaveBeenCalled();
     expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
     expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -358,7 +364,7 @@ describe("remote agent execution reconciliation", () => {
     });
   });
 
-  it("replays preserved stream text when no completed answer was recorded", async () => {
+  it("does not turn partial stream text from a failed runtime into a successful answer", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const request = createSubmitTurnRequest();
     const submissionId = "submission_settled_with_stream_text";
@@ -374,29 +380,34 @@ describe("remote agent execution reconciliation", () => {
       identity,
       storage,
     });
-    await putRemoteAgentCallbackContext(
-      storage,
-      createRemoteAgentCallbackContext({
-        ack: {
-          accepted: true,
-          createdAt: TEST_NOW_MS,
-          idempotencyKey: request.idempotencyKey,
-          requestId: submissionId,
-          status: "pending",
-          submissionId,
-        },
-        nowMs: TEST_NOW_MS,
-        request,
-      })
-    );
-    await preserveRemoteAgentGeneratedText({
+    const context = createRemoteAgentCallbackContext({
+      ack: {
+        accepted: true,
+        createdAt: TEST_NOW_MS,
+        idempotencyKey: request.idempotencyKey,
+        requestId: submissionId,
+        status: "pending",
+        submissionId,
+      },
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    await putRemoteAgentCallbackContext(storage, context);
+    await createRemoteAgentStreamPublisher().push({
+      context,
+      coreWorker: {
+        submitRemoteAgentStreamDelta: async (body) => ({
+          lastSequence: body.sequence,
+          status: "accepted",
+        }),
+      },
       observedAtMs: TEST_NOW_MS + 400,
       storage,
-      submissionId,
-      text: "Recovered draft answer.",
+      delta: "Partial draft before the provider failed. ".repeat(8),
+      kind: "text",
     });
     const completeRemoteAgentSubmission = vi.fn(async () => ({
-      publishedSignalId: "signal_stream_recovered_reply",
+      publishedSignalId: "signal_stream_failure",
       status: "accepted" as const,
     }));
 
@@ -412,19 +423,24 @@ describe("remote agent execution reconciliation", () => {
         storage,
       })
     ).resolves.toMatchObject({
-      execution: { status: "completed" },
+      execution: { status: "failed" },
       status: "found",
     });
     expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: "completed",
+        status: "failed",
         submissionId,
-        text: "Recovered draft answer.",
       })
+    );
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.not.objectContaining({ text: expect.any(String) })
     );
     await expect(
       readRemoteAgentCallbackContext(storage, submissionId)
-    ).resolves.toMatchObject({ callbackStatus: "completed" });
+    ).resolves.toMatchObject({
+      callbackStatus: "failed",
+      terminalFailureFact: { code: "remote_agent.turn_not_completed" },
+    });
   });
 
   it("does not revive a cancelled execution even when an answer was preserved", async () => {
@@ -443,26 +459,31 @@ describe("remote agent execution reconciliation", () => {
       identity,
       storage,
     });
-    await putRemoteAgentCallbackContext(
-      storage,
-      createRemoteAgentCallbackContext({
-        ack: {
-          accepted: true,
-          createdAt: TEST_NOW_MS,
-          idempotencyKey: request.idempotencyKey,
-          requestId: submissionId,
-          status: "pending",
-          submissionId,
-        },
-        nowMs: TEST_NOW_MS,
-        request,
-      })
-    );
-    await preserveRemoteAgentGeneratedText({
+    const context = createRemoteAgentCallbackContext({
+      ack: {
+        accepted: true,
+        createdAt: TEST_NOW_MS,
+        idempotencyKey: request.idempotencyKey,
+        requestId: submissionId,
+        status: "pending",
+        submissionId,
+      },
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    await putRemoteAgentCallbackContext(storage, context);
+    await createRemoteAgentStreamPublisher().push({
+      context,
+      coreWorker: {
+        submitRemoteAgentStreamDelta: async (body) => ({
+          lastSequence: body.sequence,
+          status: "accepted",
+        }),
+      },
       observedAtMs: TEST_NOW_MS + 400,
       storage,
-      submissionId,
-      text: "An answer that arrived after cancellation.",
+      delta: "Text observed before cancellation. ".repeat(8),
+      kind: "text",
     });
     await requestRemoteAgentExecutionCancellation({
       identity,

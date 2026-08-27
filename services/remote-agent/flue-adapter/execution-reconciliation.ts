@@ -9,13 +9,11 @@ import {
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
   readRemoteAgentCallbackContext,
-  recordRemoteAgentRecoveredAnswer,
 } from "../agent-core/callback-context";
 import {
   completeRemoteAgentExecutionState,
   readRemoteAgentExecutionState,
 } from "../agent-core/execution-state";
-import { readPreservedRemoteAgentStreamText } from "./streaming";
 
 export type FlueSubmissionLifecycle = {
   error?: string;
@@ -37,10 +35,7 @@ export async function reconcileSettledRemoteAgentExecutionFailures(input: {
   for (const context of pendingContexts) {
     try {
       const submission = await input.readSubmission(context.submissionId);
-      // A successful submission can briefly settle before its stream observer
-      // finishes the Core callback. Only Flue's durable error fact proves that a
-      // pending callback has a terminal failure to reconcile.
-      if (submission?.status !== "settled" || !submission.error) {
+      if (submission?.status !== "settled") {
         continue;
       }
       const result = await reconcileRemoteAgentExecution({
@@ -90,7 +85,16 @@ export async function reconcileRemoteAgentExecution(input: {
     return current;
   }
   if (current.execution.status === "completed") {
-    return current;
+    await replayDurableCompletedAnswer({
+      coreWorker: input.coreWorker,
+      identity: input.identity,
+      nowMs: input.nowMs?.() ?? Date.now(),
+      storage: input.storage,
+    });
+    return await readRemoteAgentExecutionState({
+      identity: input.identity,
+      storage: input.storage,
+    });
   }
 
   const submission = await input.readSubmission(input.identity.submissionId);
@@ -109,20 +113,6 @@ export async function reconcileRemoteAgentExecution(input: {
   }
 
   const nowMs = input.nowMs?.() ?? Date.now();
-
-  // Cancellation is a member decision and always wins: a preserved answer must
-  // never revive a cancelled execution.
-  if (!cancelled) {
-    const recovered = await replayPreservedSettledAnswer({
-      coreWorker: input.coreWorker,
-      identity: input.identity,
-      nowMs,
-      storage: input.storage,
-    });
-    if (recovered) {
-      return recovered;
-    }
-  }
 
   await completeRemoteAgentExecutionState({
     identity: input.identity,
@@ -152,52 +142,30 @@ export async function reconcileRemoteAgentExecution(input: {
 }
 
 /**
- * Replay a durably preserved answer after a settled runtime whose final
- * callback never reached Core. The answer is published through the same
- * durable delivery path as the first completion callback, so repeated
- * recovery cannot publish twice: the execution is completed first, the
- * context only ever gains one answer, and Core rejects duplicate completions
- * for a submission.
+ * Replay an authoritative answer only after the durable execution owner has
+ * already recorded a successful completion. Partial stream text and failed
+ * executions can never enter this path.
  */
-async function replayPreservedSettledAnswer(input: {
+async function replayDurableCompletedAnswer(input: {
   coreWorker?: RemoteAgentCoreWorkerBinding;
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs: number;
   storage: RemoteAgentStorage;
-}): Promise<RemoteAgentWorkerExecutionQueryResponse | null> {
+}): Promise<void> {
   const context = await readRemoteAgentCallbackContext(
     input.storage,
     input.identity.submissionId
   );
   if (!context) {
-    return null;
+    return;
   }
-  const preservedText =
-    context.completedText?.trim() ||
-    (await readPreservedRemoteAgentStreamText({
-      storage: input.storage,
-      submissionId: input.identity.submissionId,
-    }));
-  if (!preservedText) {
-    return null;
+  if (!context.completedText?.trim()) {
+    return;
   }
-
-  await completeRemoteAgentExecutionState({
-    identity: input.identity,
-    nowMs: input.nowMs,
-    status: "completed",
-    storage: input.storage,
-  });
-
   if (
     context.callbackStatus !== "completed" &&
     context.callbackStatus !== "rejected"
   ) {
-    const readyContext = await recordRemoteAgentRecoveredAnswer({
-      storage: input.storage,
-      submissionId: input.identity.submissionId,
-      text: preservedText,
-    });
     console.info("[remote_agent.execution.answer_replayed]", {
       dispatchId: context.dispatchId,
       idempotencyKey: context.idempotencyKey,
@@ -205,22 +173,11 @@ async function replayPreservedSettledAnswer(input: {
       submissionId: context.submissionId,
       triggerMessageId: context.triggerMessageId,
     });
-    if (
-      readyContext &&
-      readyContext.callbackStatus !== "completed" &&
-      readyContext.callbackStatus !== "rejected"
-    ) {
-      await attemptRemoteAgentCallbackDelivery({
-        context: readyContext,
-        coreWorker: input.coreWorker,
-        nowMs: input.nowMs,
-        storage: input.storage,
-      });
-    }
+    await attemptRemoteAgentCallbackDelivery({
+      context,
+      coreWorker: input.coreWorker,
+      nowMs: input.nowMs,
+      storage: input.storage,
+    });
   }
-
-  return await readRemoteAgentExecutionState({
-    identity: input.identity,
-    storage: input.storage,
-  });
 }

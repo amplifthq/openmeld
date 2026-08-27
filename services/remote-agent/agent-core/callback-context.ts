@@ -1394,16 +1394,19 @@ export function recordTerminalTurnFailure(input: {
 }
 
 /**
- * Persist a recovered answer into the callback context so the durable delivery
- * path can replay it to Core. Never overwrites an existing answer and never
- * touches an already completed or rejected context, so repeated recovery calls
- * cannot publish twice.
+ * Persist the authoritative completed answer before its first Core callback.
+ * The durable retry path can then replay the exact final answer after an
+ * instance restart without treating partial stream text as a completed turn.
  */
-export async function recordRemoteAgentRecoveredAnswer(input: {
+export async function recordRemoteAgentCompletedAnswer(input: {
   storage: RemoteAgentStorage;
   submissionId: string;
   text: string;
-}): Promise<RemoteAgentCallbackContext | null> {
+}): Promise<RemoteAgentCallbackContext> {
+  const completedText = input.text.trim();
+  if (!completedText) {
+    throw new Error("Remote Agent completed answer cannot be empty.");
+  }
   return await updateRemoteAgentCallbackContext({
     storage: input.storage,
     submissionId: input.submissionId,
@@ -1412,8 +1415,11 @@ export async function recordRemoteAgentRecoveredAnswer(input: {
       current.callbackStatus === "rejected" ||
       current.completedText?.trim()
         ? current
-        : { ...current, completedText: input.text.trim() },
-  }).catch(() => null);
+        : {
+            ...current,
+            completedText: fitRemoteAgentCompletedText(completedText),
+          },
+  });
 }
 
 /**
@@ -1678,7 +1684,7 @@ export async function handleRemoteAgentChatResponse(input: {
       }
       return {
         ...current,
-        completedText,
+        completedText: fitRemoteAgentCompletedText(completedText),
         lastUsage: input.result.usage ?? undefined,
         modelId: input.result.modelId ?? current.modelId ?? null,
       };

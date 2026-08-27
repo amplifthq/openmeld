@@ -12,6 +12,7 @@ import {
   type RemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
+  recordRemoteAgentCompletedAnswer,
   waitForRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
@@ -45,7 +46,6 @@ import { recordOrganizationSkillActivation } from "./organization-skills";
 import { createRemoteAgentSqlStorage } from "./storage";
 import {
   isRemoteAgentStreamEligible,
-  preserveRemoteAgentGeneratedText,
   type RemoteAgentStreamPublisher,
   resolveRemoteAgentStreamContext,
 } from "./streaming";
@@ -300,22 +300,6 @@ async function handleCenterAgentStreamDelta(input: {
     return;
   }
   if (!isRemoteAgentStreamEligible(context)) {
-    // Non-streaming surfaces (for example Slack) never publish deltas. Persist
-    // the generated text so execution reconciliation can replay it if the
-    // final callback never reaches Core.
-    await preserveRemoteAgentGeneratedText({
-      observedAtMs: input.streamDelta.observedAtMs,
-      storage,
-      submissionId: input.streamDelta.submissionId,
-      text: input.streamDelta.delta,
-    }).catch((error) => {
-      logRemoteAgentStreamFailure({
-        error,
-        eventIndex: input.eventIndex,
-        phase: "preserve",
-        submissionId: input.streamDelta.submissionId,
-      });
-    });
     return;
   }
   try {
@@ -367,7 +351,8 @@ async function handleCenterAgentPromptCompletion(input: {
     input.event.submissionId
   );
   const completedAtMs = parseObservationTimestamp(input.event.timestamp);
-  const hasAssistantText = extractAssistantText(input.event).trim().length > 0;
+  const assistantText = extractAssistantText(input.event);
+  const hasAssistantText = assistantText.trim().length > 0;
   const modelEventObservation =
     await recordRemoteAgentTurnObservabilityBestEffort({
       event: {
@@ -433,6 +418,13 @@ async function handleCenterAgentPromptCompletion(input: {
         storage,
       })
     : null;
+  await persistAuthoritativeCompletedAnswer({
+    assistantText,
+    isError: input.event.isError,
+    settledExecution,
+    storage,
+    submissionId,
+  });
   const cancelled = settledExecution?.status === "aborted";
   const resultStatus = resolveRemoteAgentPromptResultStatus({
     cancelled,
@@ -458,7 +450,7 @@ async function handleCenterAgentPromptCompletion(input: {
           : undefined,
         ...(failureReasonCode ? { failureReasonCode } : {}),
         message: {
-          parts: [{ text: extractAssistantText(input.event), type: "text" }],
+          parts: [{ text: assistantText, type: "text" }],
         },
         modelId: extractModelId(input.event),
         requestId: submissionId,
@@ -501,6 +493,29 @@ async function handleCenterAgentPromptCompletion(input: {
       await cleanup;
     }
   }
+}
+
+async function persistAuthoritativeCompletedAnswer(input: {
+  assistantText: string;
+  isError: boolean;
+  settledExecution: Awaited<
+    ReturnType<typeof completeRemoteAgentExecutionState>
+  >;
+  storage: RemoteAgentStorage;
+  submissionId: string;
+}): Promise<void> {
+  if (
+    input.settledExecution?.status !== "completed" ||
+    input.isError ||
+    !input.assistantText.trim()
+  ) {
+    return;
+  }
+  await recordRemoteAgentCompletedAnswer({
+    storage: input.storage,
+    submissionId: input.submissionId,
+    text: input.assistantText,
+  });
 }
 
 async function recordFirstVisibleCenterAgentContent(input: {
@@ -824,7 +839,7 @@ function logRemoteAgentStreamFailure(input: {
   error?: unknown;
   errorName?: string;
   eventIndex: number;
-  phase: "close" | "flush" | "part" | "preserve" | "push";
+  phase: "close" | "flush" | "part" | "push";
   submissionId: string;
   deltaLength?: number;
 }): void {
