@@ -182,6 +182,7 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 			<div className="space-y-4">
 				<SettingsLocalAgentUsageLimits
 					agentName={agent.displayName}
+					fillColumns
 					limits={agent.details?.usageLimits}
 				/>
 				<SettingsDetailList rows={detailRows} />
@@ -213,9 +214,9 @@ function resolveTeamLocalAgentSummaryStatus(
 		case "ready":
 			return { label: "Ready", tone: "ready" };
 		case "not_ready":
-			return { label: "Needs attention", tone: "warning" };
+			return { label: "Error", tone: "danger" };
 		case "stale":
-			return { label: "Needs a fresh check", tone: "warning" };
+			return { label: "Error", tone: "danger" };
 		default:
 			return { label: "Not confirmed", tone: "muted" };
 	}
@@ -1590,6 +1591,7 @@ function buildLocalAgentCatalogRow(
 	});
 
 	return {
+		advisory: summaryAccessory.advisory,
 		badge: display.label ? (
 			<Badge variant={display.badgeVariant}>{display.label}</Badge>
 		) : null,
@@ -1616,7 +1618,7 @@ function buildLocalAgentCatalogRow(
 			input.muted ||
 			!enabled ||
 			agentControllerInterface?.auth.status === "unauthenticated",
-		summaryAccessory,
+		summaryAccessory: summaryAccessory.usage,
 		summaryMeta:
 			enabled && agentControllerInterface
 				? renderAgentControllerInterfaceSummary({
@@ -1635,29 +1637,29 @@ function renderLocalAgentCatalogRowSummaryAccessory(input: {
 	displayName: string;
 	enabled: boolean;
 	snapshot: AgentControllerInterfaceSnapshot | null;
-}): ReactNode {
+}): { advisory: ReactNode; usage: ReactNode } {
 	if (!(input.enabled && input.snapshot)) {
-		return null;
+		return { advisory: null, usage: null };
 	}
 	const versionAdvisory = getAgentControllerVersionAdvisoryPresentation(
 		input.snapshot
 	);
-	return (
-		<span className="inline-flex items-center gap-1.5">
-			{versionAdvisory ? (
-				<SettingsLocalAgentAdvisoryBadge
-					detail={versionAdvisory.detail}
-					label={versionAdvisory.label}
-					tone={versionAdvisory.tone}
-					updateCommand={versionAdvisory.updateCommand}
-				/>
-			) : null}
+	return {
+		advisory: versionAdvisory ? (
+			<SettingsLocalAgentAdvisoryBadge
+				detail={versionAdvisory.detail}
+				label={versionAdvisory.label}
+				tone={versionAdvisory.tone}
+				updateCommand={versionAdvisory.updateCommand}
+			/>
+		) : null,
+		usage: (
 			<SettingsLocalAgentUsageSummary
 				agentName={input.displayName}
 				limits={input.snapshot.usageLimits}
 			/>
-		</span>
-	);
+		),
+	};
 }
 
 function renderLocalAgentCatalogRowDetail(input: {
@@ -1672,6 +1674,7 @@ function renderLocalAgentCatalogRowDetail(input: {
 		<div className="space-y-3">
 			<SettingsLocalAgentUsageLimits
 				agentName={input.rowInput.entry.displayName}
+				fillColumns
 				limits={input.snapshot.usageLimits}
 			/>
 			<SettingsDetailList
@@ -1992,7 +1995,7 @@ function resolveLocalAgentSetupSummaryStatus(
 	if (entry.launchStatus === "needs_choice") {
 		return { label: "Choose setup", tone: "warning" };
 	}
-	return { label: "Needs repair", tone: "danger" };
+	return { label: "Error", tone: "danger" };
 }
 
 function resolveAgentControllerInterfaceSummaryStatus(
@@ -2002,7 +2005,7 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		return null;
 	}
 	if (snapshot.check?.status === "failed") {
-		return { label: "Couldn't check", tone: "warning" };
+		return { label: "Error", tone: "danger" };
 	}
 	if (snapshot.auth.status === "unauthenticated") {
 		// Signing in is a routine account state, not a computer failure: keep it
@@ -2010,10 +2013,10 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		return { label: "Not signed in", tone: "muted" };
 	}
 	if (snapshot.status === "error") {
-		return { label: "Needs repair", tone: "danger" };
+		return { label: "Error", tone: "danger" };
 	}
 	if (snapshot.status === "warning" || snapshot.status === "unavailable") {
-		return { label: "Needs attention", tone: "warning" };
+		return { label: "Error", tone: "danger" };
 	}
 	return null;
 }

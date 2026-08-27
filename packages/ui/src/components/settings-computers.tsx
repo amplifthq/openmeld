@@ -1,11 +1,12 @@
 import type { AgentControllerUsageLimits } from "@openmeld/schemas/types";
 import {
+  CaretRightIcon,
   DesktopTowerIcon,
   PlusIcon,
   PulseIcon,
   RobotIcon,
 } from "@phosphor-icons/react";
-import { Fragment, type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useRef, useState } from "react";
 import { Badge } from "#components/badge";
 import {
   Card,
@@ -308,6 +309,7 @@ export type SettingsLocalAgentRowSummaryStatus = {
 };
 
 export type SettingsLocalAgentRow = {
+  advisory?: ReactNode;
   badge?: ReactNode;
   control?: ReactNode;
   defaultExpanded?: boolean;
@@ -451,10 +453,17 @@ export function SettingsLocalAgentUsageLimits({
   agentName,
   limits,
   nowMs = Date.now(),
+  fillColumns = false,
 }: {
   agentName: string;
   limits?: AgentControllerUsageLimits;
   nowMs?: number;
+  /**
+   * When true, limit cards stretch to fill one row instead of a fixed
+   * three-column grid: one card takes the full width, two split it, three or
+   * more cap at three equal columns.
+   */
+  fillColumns?: boolean;
 }) {
   if (limits === undefined) {
     return null;
@@ -474,6 +483,16 @@ export function SettingsLocalAgentUsageLimits({
         <div
           className="grid gap-2.5 md:grid-cols-3"
           data-testid="local-agent-usage-limit-grid"
+          style={
+            fillColumns
+              ? {
+                  gridTemplateColumns: `repeat(${Math.min(
+                    orderedLimits.length,
+                    3
+                  )}, minmax(0, 1fr))`,
+                }
+              : undefined
+          }
         >
           {orderedLimits.map((limit) => (
             <SettingsLocalAgentUsageLimitGauge
@@ -1179,52 +1198,115 @@ function resolveLocalAgentCardStatus(
 
 function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // Dismissing the dialog (overlay click or close button) removes the popup
+  // on pointerdown, so the same click then lands on this card and would
+  // instantly reopen the dialog. Remember when the dialog closed and ignore
+  // that click-through.
+  const closedAtRef = useRef(0);
   const status = resolveLocalAgentCardStatus(row);
   const hasDialog = Boolean(row.detail || row.description);
+  const openDetails = () => {
+    if (Date.now() - closedAtRef.current < 300) {
+      return;
+    }
+    setDetailsOpen(true);
+  };
 
   return (
     <FluidCardItem
-      className="rounded-md bg-card ring-1 ring-foreground/10"
+      className={cn(
+        "rounded-md bg-card ring-1 ring-foreground/10 transition-colors",
+        hasDialog && "cursor-pointer"
+      )}
       data-muted={row.muted ? "true" : undefined}
       data-testid={`settings-local-agent-row-${row.id}`}
       itemId={row.id}
+      onClick={hasDialog ? openDetails : undefined}
       role="listitem"
     >
-      <div className="flex h-full min-w-0 items-start gap-3 px-3.5 py-3">
+      <div className="flex h-full min-w-0 items-center gap-3.5 px-4 py-4">
         <SettingsLocalAgentIcon
           agentId={row.logoAgentId ?? row.id}
           muted={row.muted === true}
         />
-        {hasDialog ? (
-          <button
-            aria-label={`${row.displayName} details`}
-            className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-            data-testid="settings-local-agent-row-trigger"
-            onClick={() => {
-              setDetailsOpen(true);
-            }}
-            type="button"
-          >
-            <SettingsLocalAgentCardContent row={row} status={status} />
-          </button>
-        ) : (
-          <div
-            className="min-w-0 flex-1"
-            data-testid="settings-local-agent-row-trigger"
-          >
-            <SettingsLocalAgentCardContent row={row} status={status} />
+        <div
+          className="flex min-w-0 flex-1 flex-col gap-1.5"
+          data-testid="settings-local-agent-row-trigger"
+        >
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <p
+              className={cn(
+                "font-medium text-sm",
+                row.muted ? "text-muted-foreground" : "text-foreground"
+              )}
+            >
+              {row.displayName}
+            </p>
+            <span
+              aria-hidden="true"
+              className={cn(
+                "h-2 w-2 shrink-0 rounded-full",
+                resolveStatusToneIndicatorClassName(status.tone ?? "muted")
+              )}
+              data-testid={`settings-local-agent-status-dot-${row.id}`}
+            />
+            <span
+              className={cn(
+                "shrink-0 font-medium text-sm",
+                resolveLocalAgentSummaryStatusClassName(status.tone)
+              )}
+            >
+              {status.label}
+            </span>
+            {row.summaryAccessory}
           </div>
-        )}
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          {row.summaryAccessory}
+          {row.summaryMeta ? (
+            <p className="truncate text-muted-foreground text-xs">
+              {row.summaryMeta}
+            </p>
+          ) : null}
+        </div>
+        {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: the wrapper shields these controls from the card's open-dialog click; each control keeps its own semantics. */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: same shielding purpose; no interactive role is added. */}
+        {/* biome-ignore lint/a11y/useKeyWithClickEvents: pointer-only shield; every control inside is keyboard accessible on its own. */}
+        <div
+          className="flex shrink-0 flex-col items-end gap-2.5"
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          {row.advisory}
           <SettingsLocalAgentRowControl control={row.control} />
+          {hasDialog ? (
+            <button
+              aria-label={`${row.displayName} details`}
+              className="inline-flex items-center gap-0.5 rounded-sm text-muted-foreground text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              data-testid="settings-local-agent-more-button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openDetails();
+              }}
+              type="button"
+            >
+              More
+              <CaretRightIcon aria-hidden="true" className="size-3.5" />
+            </button>
+          ) : null}
         </div>
       </div>
       {hasDialog ? (
-        <Dialog onOpenChange={setDetailsOpen} open={detailsOpen}>
-          <DialogContent className="sm:max-w-lg">
+        <Dialog
+          onOpenChange={(open) => {
+            if (!open) {
+              closedAtRef.current = Date.now();
+            }
+            setDetailsOpen(open);
+          }}
+          open={detailsOpen}
+        >
+          <DialogContent className="max-h-[calc(100dvh-6rem)] sm:max-w-2xl">
             <DialogHeader className="min-w-0 pr-8">
-              <div className="flex min-w-0 items-start gap-2.5">
+              <div className="flex min-w-0 items-center gap-3">
                 <SettingsLocalAgentIcon
                   agentId={row.logoAgentId ?? row.id}
                   muted={row.muted === true}
@@ -1242,7 +1324,6 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
                           status.tone ?? "muted"
                         )
                       )}
-                      data-testid={`settings-local-agent-status-dot-${row.id}`}
                     />
                     <span
                       className={cn(
@@ -1265,55 +1346,6 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
         </Dialog>
       ) : null}
     </FluidCardItem>
-  );
-}
-
-function SettingsLocalAgentCardContent({
-  row,
-  status,
-}: {
-  row: SettingsLocalAgentRow;
-  status: SettingsLocalAgentRowSummaryStatus;
-}) {
-  return (
-    <div className="min-w-0 space-y-1">
-      <div className="flex min-w-0 items-center gap-2">
-        <p
-          className={cn(
-            "truncate font-medium text-sm",
-            row.muted ? "text-muted-foreground" : "text-foreground"
-          )}
-        >
-          {row.displayName}
-        </p>
-        {row.badge}
-      </div>
-      <div className="flex min-w-0 items-center gap-1.5 text-xs">
-        <span
-          aria-hidden="true"
-          className={cn(
-            "h-2 w-2 shrink-0 rounded-full",
-            resolveStatusToneIndicatorClassName(status.tone ?? "muted")
-          )}
-          data-testid={`settings-local-agent-status-dot-${row.id}`}
-        />
-        <span
-          className={cn(resolveLocalAgentSummaryStatusClassName(status.tone))}
-        >
-          {status.label}
-        </span>
-        {row.summaryMeta ? (
-          <>
-            <span aria-hidden="true" className="shrink-0 text-muted-foreground">
-              ·
-            </span>
-            <span className="min-w-0 truncate text-muted-foreground">
-              {row.summaryMeta}
-            </span>
-          </>
-        ) : null}
-      </div>
-    </div>
   );
 }
 

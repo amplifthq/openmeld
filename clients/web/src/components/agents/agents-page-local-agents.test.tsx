@@ -30,8 +30,8 @@ const NVM_INSTALLATION_LAUNCH_CHECK =
 	/nvm install.*v0\.38\.0.*Can launch.*2 local installs found/u;
 const NVM_INSTALLATION_SUMMARY = /Authenticated.*v0\.38\.0.*nvm install/u;
 const LOW_CODEX_USAGE_GAUGE_NAME = /Codex 5-hour usage, 16% left, Low/u;
-const OWNED_USAGE_SUMMARY_ORDER = /v0\.38\.0.*16%/u;
-const TEAM_USAGE_SUMMARY_ORDER = /v0\.148\.0.*16%/u;
+const OWNED_USAGE_SUMMARY_ORDER = /16%.*v0\.38\.0/u;
+const TEAM_USAGE_SUMMARY_ORDER = /16%.*v0\.148\.0/u;
 const LOW_CODEX_USAGE_SUMMARY_NAME = /Codex usage limits, 16% left, Low/u;
 const LOCAL_AGENT_ROW_TEST_ID =
 	/^settings-local-agent-row-(?:codex|claude-code|grok-build|cursor|opencode)$/u;
@@ -601,7 +601,7 @@ describe("LocalAgentsCard", () => {
 		expect(within(row).queryByText("Turn on")).toBeNull();
 		expect(within(row).queryByText("Sign in required")).toBeNull();
 		expect(within(row).queryByText("Not authenticated · v0.38.0")).toBeNull();
-		expect(within(row).queryByText("Needs repair")).toBeNull();
+		expect(within(row).queryByText("Error")).toBeNull();
 		expect(within(row).queryByText("Connect local agent")).toBeNull();
 		expect(
 			within(row)
@@ -610,7 +610,7 @@ describe("LocalAgentsCard", () => {
 		).toBe(true);
 		expect(
 			within(row)
-				.getByRole("button", { name: "Codex details" })
+				.getByTestId("settings-local-agent-row-trigger")
 				.querySelector("p")
 				?.classList.contains("text-muted-foreground")
 		).toBe(true);
@@ -721,7 +721,7 @@ describe("LocalAgentsCard", () => {
 		).toBeNull();
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		const row = screen.getByTestId("settings-local-agent-row-openclaw");
-		const setupLabel = within(row).getByText("Needs repair");
+		const setupLabel = within(row).getByText("Error");
 		expect(setupLabel.getAttribute("data-slot")).not.toBe("badge");
 		expect(setupLabel.className).toContain("text-destructive");
 		fireEvent.click(
@@ -754,7 +754,7 @@ describe("LocalAgentsCard", () => {
 		).toBeNull();
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		const row = screen.getByTestId("settings-local-agent-row-openclaw");
-		expect(within(row).getByText("Needs repair")).toBeTruthy();
+		expect(within(row).getByText("Error")).toBeTruthy();
 		fireEvent.click(
 			within(row).getByRole("button", { name: "OpenClaw details" })
 		);
@@ -1123,7 +1123,7 @@ describe("LocalAgentsCard", () => {
 		});
 
 		const row = screen.getByTestId("settings-local-agent-row-codex");
-		const setupLabel = within(row).getByText("Needs repair");
+		const setupLabel = within(row).getByText("Error");
 		expect(setupLabel.getAttribute("data-slot")).not.toBe("badge");
 		expect(setupLabel.className).toContain("text-destructive");
 		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
@@ -1157,8 +1157,8 @@ describe("LocalAgentsCard", () => {
 		const row = screen.getByTestId("settings-local-agent-row-codex");
 		expect(
 			within(row)
-				.getAllByText("Couldn't check")
-				.some((element) => element.className.includes("text-amber"))
+				.getAllByText("Error")
+				.some((element) => element.className.includes("text-destructive"))
 		).toBe(true);
 		expect(within(row).queryByText("Needs setup")).toBeNull();
 		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
