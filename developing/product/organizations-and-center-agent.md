@@ -1113,6 +1113,11 @@ metadata or shows raw provider ids. BYOK is not part of this release.
   access. The Center Agent may combine this directory with its separate
   team-safe Computer and approved Organization Document reads, but those owners
   remain separate and no composite cache becomes another source of truth.
+- A narrow Center Agent member-list read reuses that same Auth-owned member
+  projection for counting and paging through human members. It returns the
+  authoritative total and never resolves Agent Profiles or readiness. The broad
+  Organization Directory remains the only tool read for Agent Profile identity,
+  ownership, and readiness; the narrow list is not a second People source.
 - Space Files remain ordinary Space-owned collaboration. The Center Agent may
   list and read files in an Organization-owned Space when that same managed
   Agent Profile could read the Space, and may create, revise, organize, or
