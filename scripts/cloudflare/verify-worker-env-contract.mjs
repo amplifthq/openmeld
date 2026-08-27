@@ -330,7 +330,7 @@ const workerPackages = [
       "top-level": "openmeld-agent-computer",
       "env.dev": "openmeld-agent-computer-dev",
       "env.stg": "openmeld-agent-computer-stg",
-      "env.prod": "openmeld-agent-computer-prod",
+      "env.prod": "openmeld-agent-computer",
     },
     requiredVarNames: [
       "OPENMELD_FEEDBACK_SUBMIT_BASE_URL",
