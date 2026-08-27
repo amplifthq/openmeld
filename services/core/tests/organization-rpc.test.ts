@@ -43,6 +43,7 @@ import {
   rpcCenterAgentCreateSpace,
   rpcCenterAgentListComputers,
   rpcCenterAgentListLocalAgentInstallations,
+  rpcCenterAgentListOrganizationMembers,
   rpcCenterAgentListSlackChannels,
   rpcCenterAgentListSpaceFiles,
   rpcCenterAgentPostSlackChannelMessage,
@@ -1058,6 +1059,70 @@ describe("organization Core RPC", () => {
       response.agentProfiles[0]?.readiness.agentExecutionReadiness
         .agentProfileId
     ).toBe(AGENT_PROFILE_ID);
+  });
+
+  it("pages the narrow Center Agent member list without resolving Agent Profiles", async () => {
+    const resolveAgentProfiles = vi.fn(() =>
+      Promise.reject(
+        new Error("The narrow member list must not resolve Agent Profiles.")
+      )
+    );
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [
+        memberRow("member-b", "org-a", "user-b"),
+        memberRow("member-a", "org-a", "user-a", "owner"),
+      ],
+    });
+    const env = buildEnv({
+      authWorker: {
+        resolveOrganizationDirectoryAgentProfiles: resolveAgentProfiles,
+      },
+      db,
+    });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent",
+      userId: "user-a",
+    });
+
+    const firstPage = await rpcCenterAgentListOrganizationMembers(env, {
+      context,
+      limit: 1,
+    });
+    expect(firstPage).toMatchObject({
+      organizationId: "org-a",
+      totalMembers: 2,
+    });
+    expect(firstPage.members.map((member) => member.user.name)).toEqual([
+      "Ava",
+    ]);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+    expect(firstPage).not.toHaveProperty("agentProfiles");
+
+    const secondPage = await rpcCenterAgentListOrganizationMembers(env, {
+      context,
+      cursor: firstPage.nextCursor ?? undefined,
+      limit: 1,
+    });
+    expect(secondPage.members.map((member) => member.user.name)).toEqual([
+      "Ben",
+    ]);
+    expect(secondPage.nextCursor).toBeNull();
+    expect(resolveAgentProfiles).not.toHaveBeenCalled();
+    expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
+      "read_org_directory",
+      "read_org_directory",
+    ]);
   });
 
   it("omits Organization member activity unless the caller opts in", async () => {

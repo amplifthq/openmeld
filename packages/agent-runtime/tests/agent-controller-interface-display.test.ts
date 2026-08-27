@@ -161,7 +161,7 @@ describe("agent controller interface display", () => {
 
     expect(getAgentControllerVersionAdvisoryPresentation(snapshot)).toEqual({
       detail: "Update available.",
-      label: "Update available",
+      label: "Update",
       tone: "warning",
       updateCommand: "npm install -g @openai/codex@latest",
     });

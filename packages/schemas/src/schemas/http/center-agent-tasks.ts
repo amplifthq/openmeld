@@ -501,6 +501,21 @@ export const retryCenterAgentTaskRpcInputSchema =
         centerAgentTaskResponseContractVersionSchema.optional(),
     });
 
+/** Read-only model-visible canonical Task list. Cursor/limit/status semantics
+ * match the Gateway `listCenterAgentTasksQuerySchema`; the requester always
+ * comes from the verified speaker, never from model text. */
+export const centerAgentListTasksToolRpcInputSchema =
+  listCenterAgentTasksQuerySchema.extend({
+    context: openMeldRequestContextSchema,
+    speakerMember: centerAgentToolSpeakerSchema,
+  });
+
+export const centerAgentGetTaskToolRpcInputSchema =
+  centerAgentTaskRouteParamsSchema.extend({
+    context: openMeldRequestContextSchema,
+    speakerMember: centerAgentToolSpeakerSchema,
+  });
+
 export const mutateCenterAgentTaskResponseSchema = centerAgentTaskDetailSchema;
 export const mutateCenterAgentTaskResponseV1Schema =
   centerAgentTaskDetailResponseV1Schema;
