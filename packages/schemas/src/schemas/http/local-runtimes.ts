@@ -315,6 +315,7 @@ export const currentLocalRuntimeReplyReadinessResponseSchema = z.strictObject({
     executionTargetStatus: localRuntimeExecutionTargetStatusSchema.nullable(),
     lastObservedAtMs: z.number().int().nonnegative().nullable(),
     reasonCodes: z.array(reasonCodeSchema),
+    signInOnlyBlockers: z.boolean().default(false),
     openMeldServiceRuntimeId: prepareReadinessRuntimeIdSchema.nullable(),
     runtimeLane: daemonServiceLaneSchema.nullable(),
   }),

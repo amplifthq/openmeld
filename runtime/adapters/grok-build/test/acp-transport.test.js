@@ -316,6 +316,7 @@ function invokeFixture(fixture, input = {}) {
     env: {
       GROK_TEST_SCENARIO: input.scenario ?? "text",
       GROK_TEST_TRANSCRIPT: fixture.transcriptPath,
+      ...(input.env ?? {}),
     },
     grokBuildTimeoutMs: 2000,
     grokBuildWorkdir: fixture.fixtureDir,
@@ -361,6 +362,11 @@ test("Grok Build ACP authenticates headlessly, selects exact model and effort, a
   try {
     const result = await invokeFixture(fixture, {
       conversationPolicy: { model: "grok-4.5", reasoningLevel: "medium" },
+      env: {
+        OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
+        OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: "/tmp/action/bin/openmeld",
+        OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
+      },
     });
     assert.equal(result.output, "Hello from Grok");
     assert.equal(result.sessionId, SESSION_ID);
@@ -382,6 +388,31 @@ test("Grok Build ACP authenticates headlessly, selects exact model and effort, a
       _meta: { headless: true },
       methodId: "cached_token",
     });
+    assert.deepEqual(
+      transcript.find((message) => message.method === "session/new")?.params
+        ?.mcpServers,
+      [
+        {
+          args: ["space", "action", "tool-server"],
+          command: "/tmp/action/bin/openmeld",
+          env: [
+            {
+              name: "OPENMELD_SPACE_ACTION_CONTEXT_PATH",
+              value: "/tmp/action/context.json",
+            },
+            {
+              name: "OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH",
+              value: "/tmp/action/bin/openmeld",
+            },
+            {
+              name: "OPENMELD_USER_FACING_CLI_COMMAND",
+              value: "openmeld",
+            },
+          ],
+          name: "openmeld_internal_dispatch_space_action",
+        },
+      ]
+    );
     const setModel = transcript.find(
       (message) => message.method === "session/set_model"
     );

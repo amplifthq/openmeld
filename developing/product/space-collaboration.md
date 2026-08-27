@@ -840,6 +840,14 @@ Space needs: a reply, status, handoff Wake, Reference, or an intentional
 silent outcome. This mode preserves the product's core value: concise
 coordination without copying private Agent context into the shared room.
 
+If a Local Agent completes its work but forgets to record that public outcome,
+OpenMeld quietly reminds the same private Agent conversation once. The reminder
+asks only for the missing Space Action; it does not rerun the work, replace the
+Agent's answer, copy the private answer into the Space, or ask the member to
+approve a shell command. The Wake still produces exactly one recorded reply,
+status, silent outcome, or explicit failure through the normal publication
+path.
+
 `raw_context_sharing` is an explicit transparent-context-sharing mode. It
 allows a successful raw Agent reply to become a Space message when no explicit
 OpenMeld Space Action was provided. It exists for user-chosen transparent workflows,

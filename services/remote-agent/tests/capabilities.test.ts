@@ -367,7 +367,6 @@ describe("remote agent Flue capability inventory", () => {
     for (const toolName of [
       "openmeld_connect_agent_profile_to_local_agent",
       "openmeld_update_agent_profile_runtime_settings",
-      "openmeld_create_configured_agent_profile",
     ]) {
       const tool = tools.find((candidate) => candidate.name === toolName);
       if (!tool?.input) {

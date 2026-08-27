@@ -5,6 +5,7 @@ import {
 } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonDispatchQueueMessage,
+  OpenMeldDaemonDispatchQueueRecoveryReason,
   OpenMeldDaemonMentionDispatchResultPayload,
   RuntimeCoordinatorExecutionStatus,
   RuntimeTransportDeliveryExecutionIdentity,
@@ -24,7 +25,6 @@ import {
 } from "../../application/dispatch-trace-decision-codes";
 import {
   type DispatchAttemptClaimDecision,
-  type OpenMeldDaemonDispatchDeliveryRecoveryReason,
   resolveDispatchAttemptClaimDecision,
 } from "../../rules/dispatch-attempt-claim-policy";
 import { resolveCoreClaimTransitionContractViolation } from "../../rules/dispatch-health-invariant-policy";
@@ -98,7 +98,7 @@ export type OpenMeldDaemonDispatchAttemptClaimResult =
       attemptId: string;
       attemptNo: number;
       replyingHintActive: boolean;
-      deliveryRecoveryReason?: OpenMeldDaemonDispatchDeliveryRecoveryReason;
+      deliveryRecoveryReason?: OpenMeldDaemonDispatchQueueRecoveryReason;
     }
   | {
       status: "continued";
@@ -111,6 +111,8 @@ export type OpenMeldDaemonDispatchAttemptClaimResult =
     }
   | {
       status: "deduped";
+      hostedAdmissionRecoveryAttemptId?: string;
+      hostedAdmissionRecoveryAttemptNo?: number;
       runtimeCoordinatorDecisionRequest?: RuntimeCoordinatorQueueDecisionRequest;
     };
 
@@ -453,7 +455,7 @@ const buildClaimedDispatchAttemptResult = (input: {
   attemptId: string;
   attemptNo: number;
   replyingHintActive: boolean;
-  deliveryRecoveryReason?: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+  deliveryRecoveryReason?: OpenMeldDaemonDispatchQueueRecoveryReason | null;
 }): OpenMeldDaemonDispatchAttemptClaimResult => {
   return {
     status: "claimed",
@@ -473,7 +475,7 @@ const commitDispatchAttemptClaim = async (input: {
   attemptNo: number;
   createdAtMs: number;
   db: D1Database;
-  deliveryRecoveryReason?: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+  deliveryRecoveryReason?: OpenMeldDaemonDispatchQueueRecoveryReason | null;
   dispatchId: string;
   idempotencyKey: string;
   ledgerMutation: D1PreparedStatement;
@@ -636,7 +638,7 @@ const tryClaimRecoveryDispatchAttempt = (input: {
   lastAttemptAtMs: number;
   message: OpenMeldDaemonDispatchQueueMessage;
   nowMs: number;
-  deliveryRecoveryReason: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+  deliveryRecoveryReason: OpenMeldDaemonDispatchQueueRecoveryReason | null;
 }): Promise<OpenMeldDaemonDispatchAttemptClaimResult | null> => {
   if (!input.deliveryRecoveryReason) {
     return Promise.resolve(null);
@@ -686,7 +688,7 @@ const reclaimStaleDispatchAttempt = async (input: {
   lastAttemptAtMs: number;
   message: OpenMeldDaemonDispatchQueueMessage;
   nowMs: number;
-  deliveryRecoveryReason: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+  deliveryRecoveryReason: OpenMeldDaemonDispatchQueueRecoveryReason | null;
 }): Promise<OpenMeldDaemonDispatchAttemptClaimResult> => {
   const attemptId = crypto.randomUUID();
   const attemptNo = Math.max(1, input.existing.attemptCount + 1);
@@ -739,7 +741,7 @@ const claimExistingDispatchInsideIdempotencyWindow = (input: {
   existing: ExistingDispatchLedgerRow;
   message: OpenMeldDaemonDispatchQueueMessage;
   nowMs: number;
-  deliveryRecoveryReason: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+  deliveryRecoveryReason: OpenMeldDaemonDispatchQueueRecoveryReason | null;
 }): Promise<OpenMeldDaemonDispatchAttemptClaimResult> => {
   const attemptId = crypto.randomUUID();
   const attemptNo = Math.max(1, input.existing.attemptCount + 1);
@@ -780,7 +782,7 @@ const resetDispatchLedgerClaim = (input: {
   existing: ExistingDispatchLedgerRow;
   message: OpenMeldDaemonDispatchQueueMessage;
   nowMs: number;
-  deliveryRecoveryReason: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+  deliveryRecoveryReason: OpenMeldDaemonDispatchQueueRecoveryReason | null;
 }): Promise<OpenMeldDaemonDispatchAttemptClaimResult> => {
   const dispatchOwner = normalizeDispatchOwnerEvidence(
     input.message.dispatchOwner
@@ -1043,6 +1045,7 @@ export const claimDispatchAttempt = async (
     existing,
     latestAttempt,
     nowMs: input.nowMs,
+    requestedDispatchId: input.message.dispatchId,
     requestedRecoveryReason: input.message.deliveryRecoveryReason,
     staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
   });
@@ -1091,6 +1094,13 @@ export const claimDispatchAttempt = async (
   switch (claimDecision.kind) {
     case "claim_new": {
       return claimNewDispatchAttempt(input);
+    }
+    case "resume_hosted_admission": {
+      return {
+        hostedAdmissionRecoveryAttemptId: claimDecision.attemptId,
+        hostedAdmissionRecoveryAttemptNo: claimDecision.attemptNo,
+        status: "deduped",
+      };
     }
     case "reset_existing": {
       return resetDispatchLedgerClaim({

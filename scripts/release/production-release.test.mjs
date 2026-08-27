@@ -423,13 +423,22 @@ test("lets a selected CLI release publish its channel before the Core compatibil
 });
 
 test("keeps deployment preflight cheap while preserving release invariants", () => {
+  const webSteps = buildProductionPreflightStepSpecs({
+    changedPaths: [],
+    scopes: ["web"],
+  });
   assert.deepEqual(
-    buildProductionPreflightStepSpecs({
-      changedPaths: [],
-      scopes: ["web"],
-    }).map((step) => step.label),
+    webSteps.map((step) => step.label),
     ["Verify Cloudflare environment contracts", "Check retired identifiers"]
   );
+  assert.deepEqual(webSteps[0]?.args, [
+    "run",
+    "verify:cloudflare:env-contract",
+    "--",
+    "--profile",
+    "production",
+  ]);
+  assert.deepEqual(webSteps[0]?.controlArgs, ["--profile", "production"]);
 
   const coreSteps = buildProductionPreflightStepSpecs({
     changedPaths: [],

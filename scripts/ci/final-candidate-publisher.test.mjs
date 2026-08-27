@@ -15,6 +15,7 @@ const TRUSTED_PLAN_MISMATCH_PATTERN =
 const trustedPlan = createFinalCandidatePlan({
   baseSha: BASE_SHA,
   branchName: "codex/malicious-candidate",
+  candidateKind: "pull-request",
   changedPaths: ["clients/web/src/app.tsx"],
   confidence: "standard",
   headSha: HEAD_SHA,
@@ -88,6 +89,7 @@ function createEvidence() {
     baseSha: BASE_SHA,
     bootstrapReason: null,
     branchName: trustedPlan.branchName,
+    candidateKind: "pull-request",
     changedPaths: trustedPlan.changedPaths,
     conclusion: "success",
     confidence: "standard",

@@ -300,19 +300,12 @@ describe("Remote Agent user-visible work semantics", () => {
     });
     expect(
       resolveRemoteAgentToolWorkActivity(
-        "openmeld_create_configured_agent_profile",
+        "openmeld_create_configured_agent_profile" as never,
         {
           profileName: "Configured Agent",
         }
       )
-    ).toEqual({
-      v: 1,
-      key: "agent_profile.configure",
-      subject: {
-        kind: "agent_profile",
-        label: "Configured Agent",
-      },
-    });
+    ).toBeNull();
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_update_space_settings", {
         spaceId: "space-private-id",

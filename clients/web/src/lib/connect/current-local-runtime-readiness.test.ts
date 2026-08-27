@@ -69,6 +69,7 @@ const disconnectedReadiness: CurrentLocalRuntimeReplyReadinessResponse = {
 			value: "runtime_office",
 		},
 		runtimeLane: "prod",
+		signInOnlyBlockers: false,
 	},
 	service: {
 		connected: false,

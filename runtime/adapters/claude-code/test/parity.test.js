@@ -441,6 +441,9 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
       },
       env: {
         OPENMELD_SDK_TEST_ENV: "yes",
+        OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
+        OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: "/tmp/action/bin/openmeld-dev",
+        OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
       },
       instructionPrompt: {
         developerInstructions: "stable OpenMeld contract",
@@ -473,10 +476,24 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
     assert.deepEqual(captured.options.additionalDirectories, [dispatchDir]);
     assert.equal(captured.options.env.OPENMELD_SDK_TEST_ENV, "yes");
     assert.equal(typeof captured.options.env.PATH, "string");
-    assert.deepEqual(
-      captured.options.allowedTools,
-      OPENMELD_CLAUDE_ALLOWED_TOOLS
-    );
+    assert.deepEqual(captured.options.allowedTools, [
+      ...OPENMELD_CLAUDE_ALLOWED_TOOLS,
+      "mcp__openmeld_internal_dispatch_space_action__reply",
+      "mcp__openmeld_internal_dispatch_space_action__status",
+      "mcp__openmeld_internal_dispatch_space_action__stay_silent",
+    ]);
+    assert.deepEqual(captured.options.mcpServers, {
+      openmeld_internal_dispatch_space_action: {
+        args: ["space", "action", "tool-server"],
+        command: "/tmp/action/bin/openmeld-dev",
+        env: {
+          OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
+          OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH:
+            "/tmp/action/bin/openmeld-dev",
+          OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
+        },
+      },
+    });
     assert.equal(captured.options.permissionMode, "bypassPermissions");
     assert.equal(captured.options.allowDangerouslySkipPermissions, true);
     assert.equal(captured.options.resume, "existing-sdk-session");

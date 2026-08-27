@@ -87,8 +87,9 @@ the correct owner document. Do not migrate raw logs or long historical notes.
   applied.
 - After regeneration, set `LATEST_SHARED_MIGRATION_ID` to the rebased journal
   entry count and run the shared migration-history integrity test. Put an
-  approved lane into the merge queue immediately instead of allowing its shared
-  registries and migration base to drift.
+  approved lane into the merge queue immediately when that repository capability
+  is available. Otherwise, use one short strict-up-to-date merge slot instead of
+  asking unrelated agents to stop work.
 
 ### Delivery Pipeline
 
@@ -121,6 +122,11 @@ the correct owner document. Do not migrate raw logs or long historical notes.
   handoff. The unattended executor runs only those endorsed commands.
 - A background command attached to Codex must redirect standard input explicitly
   with `< /dev/null` so it cannot wait on the agent session.
+- Do not ask unrelated agents to freeze `main` while one Final Candidate runs.
+  A successful exact PR candidate keeps its immutable evidence. Merge queue owns
+  the latest-main combination when available; strict up-to-date protection owns
+  it otherwise. Agents should inspect those facts and choose their next action
+  without CI/CD making a business or review decision for them.
 
 ## Standard Lanes
 
@@ -141,6 +147,13 @@ another lane.
 Use `openmeld-dev` for normal source validation. Use `openmeld-canary` when package shape
 matters before publishing. Use published `openmeld` only when the question is what
 real users get from the published package.
+
+The persistent Cloudflare staging environment is not a fourth local CLI lane.
+It is a remote internal environment deployed with `pnpm staging:deploy`. A
+staging-aligned CLI and Service lane is a separate release layer and must use
+its own `OPENMELD_HOME`; until that layer exists, do not point a development or
+production Service at staging by hand. See
+`developing/engineering/staging-environment.md`.
 
 ## Local Worker Persistence
 
@@ -654,6 +667,19 @@ The guarded local and GitHub release entrypoints enforce these checks. Do not
 bypass them with raw package deploys, raw `wrangler deploy`, or raw npm publish.
 When a gate fails, fix or restamp the final release commit and rerun the same
 scoped entrypoint. Do not use a skip flag as a normal deploy path.
+
+Internal staging uses its own guarded entry point:
+
+```bash
+pnpm staging:plan
+pnpm staging:deploy
+pnpm staging:verify
+```
+
+It never publishes production components. The deploy command requires a clean
+worktree and reports the exact failing step. The complete staging boundary and
+evidence rules are owned by
+`developing/engineering/staging-environment.md`.
 
 ## Contract Impact Audit
 

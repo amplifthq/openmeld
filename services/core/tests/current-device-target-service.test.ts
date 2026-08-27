@@ -1365,6 +1365,157 @@ describe("current device target service", () => {
     });
   });
 
+  it("marks the runtime projection as sign-in-only when every not-ready capability only needs authentication", async () => {
+    const store = createInMemoryCurrentDeviceTargetStore({
+      executionTargetsByUserId: {
+        "owner-1": [
+          {
+            agentControllerRef: "builtin:claude-code",
+            capabilityEnabled: true,
+            capabilityReasonCodes: ["controller.auth.unauthenticated"],
+            capabilityStatus: "not_ready",
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+          {
+            agentControllerRef: "builtin:codex",
+            capabilityEnabled: true,
+            capabilityReasonCodes: ["controller.auth.unauthenticated"],
+            capabilityStatus: "not_ready",
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+        ],
+      },
+      ownedDevicesByUserId: {
+        "owner-1": [
+          createOwnedDeviceRecord({
+            deviceId: "device-owner-1",
+            ownerUserId: "owner-1",
+          }),
+        ],
+      },
+    });
+    await seedCurrentDeviceTarget({
+      store,
+      userId: "owner-1",
+      deviceId: "device-owner-1",
+      runtimeLane: "dev-local",
+      now: new Date("2026-04-10T00:00:00.000Z"),
+    });
+
+    await expect(
+      getCurrentLocalRuntimeReplyReadinessUseCase({
+        lookupOwnerService: () =>
+          Promise.resolve({
+            online: true,
+            sessions: [
+              {
+                capabilities: {
+                  localComponents: CURRENT_LOCAL_COMPONENTS_STATUS,
+                },
+                connectionGeneration: 1,
+                daemonSessionId: "daemon-session-1",
+                deviceId: "device-owner-1",
+                executionCompatibility: COMPATIBLE_SERVICE,
+                lane: "dev-local",
+                lastHeartbeatMs: Date.parse("2026-04-10T00:05:00.000Z"),
+                serviceVersion: "999.0.0",
+              },
+            ],
+          }),
+        now: new Date("2026-04-10T00:10:00.000Z"),
+        store,
+        userId: "owner-1",
+      })
+    ).resolves.toMatchObject({
+      nextAction: "run_setup",
+      runtime: {
+        reasonCodes: ["controller.auth.unauthenticated"],
+        signInOnlyBlockers: true,
+      },
+    });
+  });
+
+  it("keeps mixed real failures out of the sign-in-only projection", async () => {
+    const store = createInMemoryCurrentDeviceTargetStore({
+      executionTargetsByUserId: {
+        "owner-1": [
+          {
+            agentControllerRef: "builtin:claude-code",
+            capabilityEnabled: true,
+            capabilityReasonCodes: ["controller.auth.unauthenticated"],
+            capabilityStatus: "not_ready",
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+          {
+            agentControllerRef: "builtin:codex",
+            capabilityEnabled: true,
+            capabilityReasonCodes: ["controller.interface.check_failed"],
+            capabilityStatus: "not_ready",
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+        ],
+      },
+      ownedDevicesByUserId: {
+        "owner-1": [
+          createOwnedDeviceRecord({
+            deviceId: "device-owner-1",
+            ownerUserId: "owner-1",
+          }),
+        ],
+      },
+    });
+    await seedCurrentDeviceTarget({
+      store,
+      userId: "owner-1",
+      deviceId: "device-owner-1",
+      runtimeLane: "dev-local",
+      now: new Date("2026-04-10T00:00:00.000Z"),
+    });
+
+    await expect(
+      getCurrentLocalRuntimeReplyReadinessUseCase({
+        lookupOwnerService: () =>
+          Promise.resolve({
+            online: true,
+            sessions: [
+              {
+                capabilities: {
+                  localComponents: CURRENT_LOCAL_COMPONENTS_STATUS,
+                },
+                connectionGeneration: 1,
+                daemonSessionId: "daemon-session-1",
+                deviceId: "device-owner-1",
+                executionCompatibility: COMPATIBLE_SERVICE,
+                lane: "dev-local",
+                lastHeartbeatMs: Date.parse("2026-04-10T00:05:00.000Z"),
+                serviceVersion: "999.0.0",
+              },
+            ],
+          }),
+        now: new Date("2026-04-10T00:10:00.000Z"),
+        store,
+        userId: "owner-1",
+      })
+    ).resolves.toMatchObject({
+      nextAction: "run_setup",
+      runtime: {
+        signInOnlyBlockers: false,
+      },
+    });
+  });
+
   it("excludes a disabled local-agent failure from current-computer reply readiness", async () => {
     const store = createInMemoryCurrentDeviceTargetStore({
       executionTargetsByUserId: {

@@ -3,8 +3,10 @@ import {
   chmod,
   mkdir,
   mkdtemp,
+  readFile,
   realpath,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -255,6 +257,94 @@ test("openclaw adapter dispatch uses dispatch-time runtime context for spawn cwd
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("openclaw adapter keeps an existing session while loading dispatch Space actions locally", async () => {
+  const { createOpenClawAdapter } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "openclaw-action-dispatch-"));
+  const fixturePath = join(fixtureDir, "openclaw-fixture-action-dispatch.mjs");
+  const capturePath = join(fixtureDir, "capture.json");
+  const baseConfigPath = join(fixtureDir, "openclaw.json");
+  const contextPath = join(fixtureDir, "action-context.json");
+  const commandPath = join(fixtureDir, "openmeld");
+  const sessionId = "openclaw-session-existing-1";
+
+  await writeFile(baseConfigPath, '{"tools":{"profile":"minimal"}}\n');
+  await writeFile(contextPath, "{}\n");
+  await writeFile(commandPath, "#!/bin/sh\nexit 0\n");
+  await chmod(commandPath, 0o755);
+  await writeFile(
+    fixturePath,
+    [
+      "#!/usr/bin/env node",
+      'const { readFile, writeFile } = await import("node:fs/promises");',
+      "const args = process.argv.slice(2);",
+      "if (args.includes('--version')) { console.log('OpenClaw 2026.3.13'); process.exit(0); }",
+      "if (args[0] !== 'agent' || !args.includes('--local') || args.includes('gateway')) process.exit(10);",
+      "const sessionIndex = args.indexOf('--session-id');",
+      "const actualSessionId = sessionIndex >= 0 ? args[sessionIndex + 1] : '';",
+      "const configPath = process.env.OPENCLAW_CONFIG_PATH || '';",
+      "const config = JSON.parse(await readFile(configPath, 'utf8'));",
+      "const pluginDir = config.plugins?.load?.paths?.[0] || '';",
+      "const manifest = JSON.parse(await readFile(pluginDir + '/openclaw.plugin.json', 'utf8'));",
+      "await writeFile(process.env.OPENMELD_TEST_CAPTURE_PATH, JSON.stringify({ args, actualSessionId, configPath, manifestId: manifest.id }));",
+      "console.log(JSON.stringify({ ok: true, reply: { text: 'dispatch action tools ready' }, metadata: { session_id: actualSessionId } }));",
+      "process.exit(0);",
+    ].join("\n"),
+    "utf8"
+  );
+  await chmod(fixturePath, 0o755);
+
+  let temporaryConfigPath = "";
+  try {
+    const adapter = createOpenClawAdapter({
+      openClawAgentId: "main",
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      openClawTimeoutMs: 5000,
+    });
+    const dispatchResult = await adapter.dispatch({
+      agentId: "agt-demo",
+      agentControllerConversationId: sessionId,
+      agentControllerConversation: {
+        agentControllerRef: "builtin:openclaw",
+        agentControllerConversationId:
+          "agent:main:openmeld-space:room--abc12345",
+        agentControllerConversationKind: "session",
+      },
+      env: {
+        OPENCLAW_CONFIG_PATH: baseConfigPath,
+        OPENMELD_DAEMON_RUNTIME_OPENCLAW_AGENT_ID: "main",
+        OPENMELD_SPACE_ACTION_CONTEXT_PATH: contextPath,
+        OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: commandPath,
+        OPENMELD_TEST_CAPTURE_PATH: capturePath,
+        OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
+      },
+      prompt: "hello",
+      runtimeContext: createRuntimeContext(),
+      sourceEventId: "evt-action-dispatch-1",
+      spaceId: "space-1",
+      taskId: "task-action-dispatch-1",
+    });
+    assert.equal(
+      dispatchResult.status,
+      "success",
+      JSON.stringify(dispatchResult)
+    );
+    const captured = JSON.parse(await readFile(capturePath, "utf8"));
+    temporaryConfigPath = captured.configPath;
+
+    assert.equal(dispatchResult.output, "dispatch action tools ready");
+    assert.equal(captured.actualSessionId, sessionId);
+    assert.equal(captured.manifestId, "openmeld-space-action");
+    assert.notEqual(temporaryConfigPath, baseConfigPath);
+    await assert.rejects(stat(temporaryConfigPath), { code: "ENOENT" });
+    assert.equal(
+      await readFile(baseConfigPath, "utf8"),
+      '{"tools":{"profile":"minimal"}}\n'
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
   }
 });
 

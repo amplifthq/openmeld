@@ -588,6 +588,79 @@ describe("agent controller version advisory", () => {
     }
   });
 
+  it("uses a third-party Homebrew cask receipt from the Caskroom metadata directory", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-brew-tap-cask-"));
+    try {
+      const caskPath = join(
+        home,
+        "opt",
+        "homebrew",
+        "Caskroom",
+        "claude-code",
+        "2.1.197",
+        "claude"
+      );
+      const commandPath = join(home, "opt", "homebrew", "bin", "claude");
+      await writeClaudeCodeExecutable(caskPath, "2.1.197");
+      const metadataDirectory = join(caskPath, "..", "..", ".metadata");
+      await mkdir(metadataDirectory, { recursive: true });
+      await writeHomebrewReceipt(metadataDirectory, "acme/agents");
+      await mkdir(join(home, "opt", "homebrew", "bin"), { recursive: true });
+      await symlink(caskPath, commandPath);
+
+      const topLevelUrl =
+        "https://raw.githubusercontent.com/acme/homebrew-agents/HEAD/claude-code.rb";
+      const caskUrl =
+        "https://raw.githubusercontent.com/acme/homebrew-agents/HEAD/Casks/claude-code.rb";
+      const fetchMock = vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url === topLevelUrl) {
+          return Promise.resolve(new Response("Not Found", { status: 404 }));
+        }
+        if (url === caskUrl) {
+          return Promise.resolve(
+            new Response('cask "claude-code" do\n  version "2.1.198"\nend\n')
+          );
+        }
+        throw new Error(`Unexpected version lookup: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { resolveAgentControllerInterfaceSnapshot } = await import(
+        "../src/local-service/inventory/agent-controller-interface"
+      );
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:claude-code",
+        state: createAgentTargetState(
+          "claude-code",
+          "Claude Code",
+          commandPath
+        ),
+      });
+
+      expect(snapshot.versionAdvisory).toMatchObject({
+        currentVersion: "2.1.197",
+        latestVersion: "2.1.198",
+        status: "behind_latest",
+        updateCommand: "brew upgrade --cask acme/agents/claude-code",
+      });
+      expect(fetchMock).toHaveBeenNthCalledWith(1, topLevelUrl, {
+        headers: { accept: "text/plain" },
+        signal: expect.any(AbortSignal),
+      });
+      expect(fetchMock).toHaveBeenNthCalledWith(2, topLevelUrl, {
+        headers: { accept: "text/plain" },
+        signal: expect.any(AbortSignal),
+      });
+      expect(fetchMock).toHaveBeenNthCalledWith(3, caskUrl, {
+        headers: { accept: "text/plain" },
+        signal: expect.any(AbortSignal),
+      });
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
   it("recovers within one logical lookup when the fresh retry succeeds", async () => {
     const home = await mkdtemp(
       join(tmpdir(), "openmeld-aci-version-retry-success-")

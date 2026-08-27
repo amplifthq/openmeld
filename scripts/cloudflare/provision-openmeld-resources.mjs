@@ -57,6 +57,57 @@ export const OPENMELD_RESOURCES = [
   aiGateway("openmeld-remote-agent-prod", "remote-agent"),
 ];
 
+export const OPENMELD_STAGING_RESOURCES = [
+  dnsRecord("staging.openmeld.ai", "web", "staging"),
+  dnsRecord("auth.staging.openmeld.ai", "auth", "staging"),
+  dnsRecord("gateway.staging.openmeld.ai", "gateway", "staging"),
+  worker("openmeld-web-stg", "web", "staging"),
+  worker("openmeld-auth-stg", "auth", "staging"),
+  worker("openmeld-core-stg", "core", "staging"),
+  worker("openmeld-gateway-stg", "gateway", "staging"),
+  worker("openmeld-remote-agent-stg", "remote-agent", "staging"),
+  durableObject(
+    "openmeld-core-stg_RuntimeTransportHub",
+    "core",
+    "ephemeral",
+    "staging"
+  ),
+  durableObject("openmeld-core-stg_Space", "core", "confidential", "staging"),
+  durableObject(
+    "openmeld-core-stg_PrepareSessionHub",
+    "core",
+    "confidential",
+    "staging"
+  ),
+  durableObject(
+    "openmeld-remote-agent-stg_FlueCenterAgentAgent",
+    "remote-agent",
+    "confidential",
+    "staging"
+  ),
+  durableObject(
+    "openmeld-remote-agent-stg_AgentComputer",
+    "remote-agent",
+    "private",
+    "staging"
+  ),
+  durableObject(
+    "openmeld-remote-agent-stg_FlueRegistry",
+    "remote-agent",
+    "private",
+    "staging"
+  ),
+  d1("openmeld-db-stg", "shared", "staging"),
+  kv("openmeld-auth-kv-stg", "auth", "staging"),
+  r2("openmeld-space-attachments-stg", "shared", "confidential", "staging"),
+  r2("openmeld-organization-skills-stg", "shared", "private", "staging"),
+  r2("openmeld-organization-logos-stg", "shared", "public", "staging"),
+  r2("openmeld-desktop-downloads-stg", "web", "public", "staging"),
+  queue("openmeld-daemon-dispatch-stg", "shared", "staging"),
+  queue("openmeld-message-channel-events-stg", "shared", "staging"),
+  aiGateway("openmeld-remote-agent-stg", "remote-agent", "staging"),
+];
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   runCli(process.argv.slice(2)).catch((error) => {
     console.error(formatError(error));
@@ -66,57 +117,35 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
 export async function provisionOpenMeldResources(input) {
   const client = input.client ?? createCloudflareClient(input);
+  const desiredResources = resolveDesiredResources(input.environment);
+  const requireDeploymentManaged = input.requireDeploymentManaged ?? true;
   const summary = {
+    environment: input.environment ?? "production",
     mode: input.apply ? "apply" : "plan",
     ok: true,
     resources: [],
     tagWarnings: [],
   };
 
-  for (const desired of OPENMELD_RESOURCES) {
-    try {
-      const existing = await findResource(client, desired);
-      const mayCreate =
-        input.apply && desired.lifecycle !== "deployment-managed";
-      if (!(existing || mayCreate)) {
-        summary.resources.push(toSummary(desired, "missing"));
-        summary.ok = false;
-        continue;
-      }
-
-      const resource = existing ?? (await createResource(client, desired));
-      const action = existing ? "existing" : "created";
-      let tagStatus = "not-requested";
-
-      if (input.apply) {
-        try {
-          tagStatus = await reconcileTags(client, desired, resource.id);
-        } catch (error) {
-          tagStatus = "blocked";
-          summary.ok = false;
-          summary.tagWarnings.push(
-            `${desired.kind} ${desired.name}: ${formatError(error)}`
-          );
-        }
-      }
-
-      summary.resources.push({
-        ...toSummary(desired, action),
-        id: resource.id,
-        tagStatus,
-      });
-    } catch (error) {
+  for (const desired of desiredResources) {
+    const result = await reconcileDesiredResource({
+      apply: input.apply,
+      client,
+      desired,
+      requireDeploymentManaged,
+    });
+    summary.resources.push(result.resource);
+    if (!result.ok) {
       summary.ok = false;
-      summary.resources.push({
-        ...toSummary(desired, "blocked"),
-        error: formatError(error),
-      });
+    }
+    if (result.tagWarning) {
+      summary.tagWarnings.push(result.tagWarning);
     }
   }
 
   if (input.apply) {
-    await verifyCreatedResources(client, summary);
-    await reconcileActiveWorkerVersionTags(client, summary);
+    await verifyCreatedResources(client, summary, desiredResources);
+    await reconcileActiveWorkerVersionTags(client, summary, desiredResources);
   }
   if (input.outputPath) {
     await writeFile(input.outputPath, `${JSON.stringify(summary, null, 2)}\n`, {
@@ -136,26 +165,32 @@ export function parseArgs(rawArgs, env = process.env) {
     apiToken: env.CLOUDFLARE_API_TOKEN,
     apply: false,
     outputPath: undefined,
+    environment: "production",
+    requireDeploymentManaged: true,
   };
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
-    if (arg === "--apply") {
-      result.apply = true;
-      continue;
+    switch (arg) {
+      case "--allow-pending-deploy":
+        result.requireDeploymentManaged = false;
+        break;
+      case "--apply":
+        result.apply = true;
+        break;
+      case "--environment":
+        result.environment = parseEnvironment(rawArgs[index + 1]);
+        index += 1;
+        break;
+      case "--help":
+      case "-h":
+        return { help: true };
+      case "--output":
+        result.outputPath = parseOutputPath(rawArgs[index + 1]);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown argument: ${arg}`);
     }
-    if (arg === "--help" || arg === "-h") {
-      return { help: true };
-    }
-    if (arg === "--output") {
-      const value = rawArgs[index + 1];
-      if (!value || value.startsWith("--")) {
-        throw new Error("--output requires a file path.");
-      }
-      result.outputPath = value;
-      index += 1;
-      continue;
-    }
-    throw new Error(`Unknown argument: ${arg}`);
   }
   if (!(result.accountId && result.apiToken)) {
     throw new Error(
@@ -165,7 +200,89 @@ export function parseArgs(rawArgs, env = process.env) {
   return result;
 }
 
-function worker(name, component) {
+async function reconcileDesiredResource(input) {
+  try {
+    const existing = await findResource(input.client, input.desired);
+    const mayCreate =
+      input.apply && input.desired.lifecycle !== "deployment-managed";
+    if (!(existing || mayCreate)) {
+      return summarizeMissingResource(input);
+    }
+
+    const resource =
+      existing ?? (await createResource(input.client, input.desired));
+    const tagResult = await reconcileResourceTags({
+      ...input,
+      resourceId: resource.id,
+    });
+    return {
+      ok: tagResult.ok,
+      resource: {
+        ...toSummary(input.desired, existing ? "existing" : "created"),
+        id: resource.id,
+        tagStatus: tagResult.status,
+      },
+      tagWarning: tagResult.warning,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      resource: {
+        ...toSummary(input.desired, "blocked"),
+        error: formatError(error),
+      },
+    };
+  }
+}
+
+function summarizeMissingResource(input) {
+  const awaitingDeployment =
+    input.desired.lifecycle === "deployment-managed" &&
+    !input.requireDeploymentManaged;
+  return {
+    ok: awaitingDeployment,
+    resource: toSummary(
+      input.desired,
+      awaitingDeployment ? "awaiting-deploy" : "missing"
+    ),
+  };
+}
+
+async function reconcileResourceTags(input) {
+  if (!input.apply) {
+    return { ok: true, status: "not-requested" };
+  }
+  try {
+    const status = await reconcileTags(
+      input.client,
+      input.desired,
+      input.resourceId
+    );
+    return { ok: true, status };
+  } catch (error) {
+    return {
+      ok: false,
+      status: "blocked",
+      warning: `${input.desired.kind} ${input.desired.name}: ${formatError(error)}`,
+    };
+  }
+}
+
+function parseEnvironment(value) {
+  if (value !== "production" && value !== "staging") {
+    throw new Error("--environment must be production or staging.");
+  }
+  return value;
+}
+
+function parseOutputPath(value) {
+  if (!value || value.startsWith("--")) {
+    throw new Error("--output requires a file path.");
+  }
+  return value;
+}
+
+function worker(name, component, environment = "production") {
   return resource({
     component,
     dataClass: "private",
@@ -176,6 +293,7 @@ function worker(name, component) {
     name,
     nameField: "id",
     resourceType: "worker",
+    environment,
   });
 }
 
@@ -198,7 +316,7 @@ function zone(name) {
   });
 }
 
-function dnsRecord(name, component) {
+function dnsRecord(name, component, environment = "production") {
   return resource({
     apiScope: "global",
     component,
@@ -215,24 +333,26 @@ function dnsRecord(name, component) {
     name,
     resourceType: "dns_record",
     tagPath: `/zones/${OPENMELD_ZONE_ID}/tags`,
+    environment,
   });
 }
 
-function durableObject(name, component, dataClass) {
+function durableObject(name, component, dataClass, environment = "production") {
   return resource({
     component,
     dataClass,
     idField: "id",
     kind: "Durable Object namespace",
     lifecycle: "deployment-managed",
-    listPath: "/workers/durable_objects/namespaces",
+    listPath: "/workers/durable_objects/namespaces?per_page=100",
     name,
     nameField: "name",
     resourceType: "durable_object_namespace",
+    environment,
   });
 }
 
-function d1(name, component) {
+function d1(name, component, environment = "production") {
   return resource({
     component,
     createBody: { name, primary_location_hint: "enam" },
@@ -244,10 +364,11 @@ function d1(name, component) {
     nameField: "name",
     postPath: "/d1/database",
     resourceType: "d1_database",
+    environment,
   });
 }
 
-function kv(name, component) {
+function kv(name, component, environment = "production") {
   return resource({
     component,
     createBody: { title: name },
@@ -259,6 +380,7 @@ function kv(name, component) {
     nameField: "title",
     postPath: "/storage/kv/namespaces",
     resourceType: "kv_namespace",
+    environment,
   });
 }
 
@@ -279,7 +401,7 @@ function r2(name, component, dataClass, environment = "production") {
   });
 }
 
-function queue(name, component) {
+function queue(name, component, environment = "production") {
   return resource({
     component,
     createBody: { queue_name: name },
@@ -291,6 +413,7 @@ function queue(name, component) {
     nameField: "queue_name",
     postPath: "/queues",
     resourceType: "queue",
+    environment,
     verify(resourceValue) {
       const retention = resourceValue.settings?.message_retention_period;
       if (retention !== FOUR_DAYS_IN_SECONDS) {
@@ -302,7 +425,7 @@ function queue(name, component) {
   });
 }
 
-function aiGateway(name, component) {
+function aiGateway(name, component, environment = "production") {
   return resource({
     component,
     createBody: {
@@ -322,6 +445,7 @@ function aiGateway(name, component) {
     nameField: "id",
     postPath: "/ai-gateway/gateways",
     resourceType: "ai_gateway",
+    environment,
   });
 }
 
@@ -422,7 +546,11 @@ function buildTagQuery(desired, resourceId) {
   return `${desired.tagPath ?? "/tags"}?${query.toString()}`;
 }
 
-async function reconcileActiveWorkerVersionTags(client, summary) {
+async function reconcileActiveWorkerVersionTags(
+  client,
+  summary,
+  desiredResources
+) {
   const availableWorkers = new Set(
     summary.resources
       .filter(
@@ -431,7 +559,7 @@ async function reconcileActiveWorkerVersionTags(client, summary) {
       )
       .map((item) => item.name)
   );
-  const workers = OPENMELD_RESOURCES.filter(
+  const workers = desiredResources.filter(
     (desired) =>
       desired.resourceType === "worker" && availableWorkers.has(desired.name)
   );
@@ -463,6 +591,7 @@ async function reconcileActiveWorkerVersionTags(client, summary) {
           name: `${workerResource.name}@${activeVersion.version_id}`,
           resourceType: "worker_version",
           tagContext: { worker_id: workerResource.name },
+          environment: workerResource.environment,
         });
         let tagStatus = "verified";
         try {
@@ -497,12 +626,12 @@ async function reconcileActiveWorkerVersionTags(client, summary) {
   }
 }
 
-async function verifyCreatedResources(client, summary) {
+async function verifyCreatedResources(client, summary, desiredResources) {
   for (const item of summary.resources) {
     if (!item.id) {
       continue;
     }
-    const desired = OPENMELD_RESOURCES.find(
+    const desired = desiredResources.find(
       (candidate) =>
         candidate.kind === item.kind && candidate.name === item.name
     );
@@ -522,6 +651,16 @@ async function verifyCreatedResources(client, summary) {
       summary.ok = false;
     }
   }
+}
+
+function resolveDesiredResources(environment = "production") {
+  if (environment === "staging") {
+    return OPENMELD_STAGING_RESOURCES;
+  }
+  if (environment === "production") {
+    return OPENMELD_RESOURCES;
+  }
+  throw new Error(`Unsupported OpenMeld environment: ${environment}`);
 }
 
 function createCloudflareClient({ accountId, apiToken, fetchImpl = fetch }) {
@@ -596,11 +735,13 @@ function formatError(error) {
 async function runCli(rawArgs) {
   const parsed = parseArgs(rawArgs);
   if (parsed.help) {
-    console.log(`Usage: node scripts/cloudflare/provision-openmeld-resources.mjs [--apply] [--output PATH]
+    console.log(`Usage: node scripts/cloudflare/provision-openmeld-resources.mjs [--environment production|staging] [--apply] [--allow-pending-deploy] [--output PATH]
 
 Default mode is read-only and reports whether each exact resource exists.
 --apply creates missing provisioned resources, requires deployment-managed resources
-to exist, reconciles tags, and verifies IDs by listing again.
+to exist, reconciles tags, and verifies IDs by listing again. Use
+--allow-pending-deploy only for the first staging provision before Workers and
+Custom Domains exist.
 Credentials must be supplied via CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN.`);
     return;
   }

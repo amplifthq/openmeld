@@ -56,7 +56,29 @@ const MAGIC_LINK_ROUTE_FAMILY = "/magic-link";
 const ACCEPT_INVITATION_ROUTE_PREFIX = "/accept-invitation";
 const JOIN_ORGANIZATION_ROUTE_PREFIX = "/join-organization";
 const EMAIL_ROUTE_FAMILY = "/verify-email";
+// Verification sets the browser cookies before a same-turn session read is
+// guaranteed to observe them. Retry only the read; never reuse the one-time link.
+const MAGIC_LINK_SESSION_CONFIRMATION_DELAYS_MS = [0, 250, 750, 1500, 2500];
 const verificationRequestsInFlight = new Map<string, Promise<void>>();
+
+async function waitForMagicLinkSession(
+	readSession: () => Promise<{ data?: { session?: unknown } | null }>
+): Promise<boolean> {
+	for (const delayMs of MAGIC_LINK_SESSION_CONFIRMATION_DELAYS_MS) {
+		if (delayMs > 0) {
+			await new Promise<void>((resolve) => {
+				window.setTimeout(resolve, delayMs);
+			});
+		}
+
+		const latestSession = await readSession();
+		if (latestSession.data?.session) {
+			return true;
+		}
+	}
+
+	return false;
+}
 
 function runDedupedVerificationRequest(
 	key: string,
@@ -467,8 +489,8 @@ export function UnifiedVerificationForm({
 		  }
 		| { ok: false }
 	> => {
-		const latestSession = await refetchSession();
-		if (!latestSession.data?.session) {
+		const sessionEstablished = await waitForMagicLinkSession(refetchSession);
+		if (!sessionEstablished) {
 			return { ok: false };
 		}
 
