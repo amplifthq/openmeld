@@ -42,6 +42,12 @@ test("deploys isolated prerequisites, database, secrets, and Workers in order", 
       "Verify staging user entry points",
     ]
   );
+  assert.deepEqual(steps[0], {
+    args: ["run", "verify:cloudflare:env-contract"],
+    command: "pnpm",
+    label: "Verify staging environment contracts",
+    mutates: false,
+  });
 
   const commandArguments = steps.flatMap((step) => step.args ?? []);
   assert.equal(commandArguments.includes("staging"), true);

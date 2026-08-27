@@ -125,8 +125,8 @@ async function runStagingRelease(input) {
 
 function environmentContractStep() {
   return {
-    args: ["scripts/cloudflare/verify-worker-env-contract.mjs"],
-    command: "node",
+    args: ["run", "verify:cloudflare:env-contract"],
+    command: "pnpm",
     label: "Verify staging environment contracts",
     mutates: false,
   };
