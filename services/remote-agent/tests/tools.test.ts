@@ -156,10 +156,26 @@ describe("remote agent OpenMeld tool catalog", () => {
       "utf8"
     );
 
-    const enabled = '"OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "true"';
-    const disabled = '"OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "false"';
-    expect(wrangler.split(enabled).length - 1).toBe(3);
-    expect(wrangler.includes(disabled)).toBe(false);
+    for (const environment of ["local", "dev", "stg", "prod"]) {
+      const environmentMarker = `"OPENMELD_WORKER_ENVIRONMENT": "${environment}"`;
+      const environmentStart = wrangler.indexOf(environmentMarker);
+      const nextEnvironmentStart = wrangler.indexOf(
+        '"OPENMELD_WORKER_ENVIRONMENT":',
+        environmentStart + environmentMarker.length
+      );
+      const environmentConfig = wrangler.slice(
+        environmentStart,
+        nextEnvironmentStart === -1 ? undefined : nextEnvironmentStart
+      );
+
+      expect(environmentStart, environment).toBeGreaterThanOrEqual(0);
+      expect(environmentConfig, environment).toContain(
+        '"OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "true"'
+      );
+      expect(environmentConfig, environment).not.toContain(
+        '"OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "false"'
+      );
+    }
   });
 
   it("exposes exactly the approved model-visible OpenMeld tool list", () => {

@@ -142,6 +142,13 @@ Use `openmeld-dev` for normal source validation. Use `openmeld-canary` when pack
 matters before publishing. Use published `openmeld` only when the question is what
 real users get from the published package.
 
+The persistent Cloudflare staging environment is not a fourth local CLI lane.
+It is a remote internal environment deployed with `pnpm staging:deploy`. A
+staging-aligned CLI and Service lane is a separate release layer and must use
+its own `OPENMELD_HOME`; until that layer exists, do not point a development or
+production Service at staging by hand. See
+`developing/engineering/staging-environment.md`.
+
 ## Local Worker Persistence
 
 The local Worker stack must use one shared Miniflare persistence root at the
@@ -654,6 +661,19 @@ The guarded local and GitHub release entrypoints enforce these checks. Do not
 bypass them with raw package deploys, raw `wrangler deploy`, or raw npm publish.
 When a gate fails, fix or restamp the final release commit and rerun the same
 scoped entrypoint. Do not use a skip flag as a normal deploy path.
+
+Internal staging uses its own guarded entry point:
+
+```bash
+pnpm staging:plan
+pnpm staging:deploy
+pnpm staging:verify
+```
+
+It never publishes production components. The deploy command requires a clean
+worktree and reports the exact failing step. The complete staging boundary and
+evidence rules are owned by
+`developing/engineering/staging-environment.md`.
 
 ## Contract Impact Audit
 

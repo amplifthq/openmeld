@@ -105,6 +105,87 @@
     }
   ],
   "env": {
+    "stg": {
+      "route": {
+        "custom_domain": true,
+        "pattern": "auth.staging.openmeld.ai"
+      },
+      "triggers": {
+        "crons": ["*/15 * * * *"]
+      },
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence_stg"
+        }
+      ],
+      "send_email": [
+        {
+          "name": "AUTH_EMAIL"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER",
+          "namespace_id": "2003",
+          "simple": { "limit": 10, "period": 60 }
+        }
+      ],
+      "secrets": {
+        "required": ["BETTER_AUTH_OPENMELD_SECRET"]
+      },
+      "vars": {
+        "OPENMELD_WORKER_ENVIRONMENT": "stg",
+        "BETTER_AUTH_URL": "https://auth.staging.openmeld.ai",
+        "WEB_APP_URL": "https://staging.openmeld.ai",
+        "AUTH_WORKER_NODE_ENV": "production",
+        "AUTH_DEVICE_ALLOWED_CLIENT_IDS": "openmeld-cli,openmeld-cli-dev",
+        "OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED": "false",
+        "AUTH_BRAND_NAME": "OpenMeld",
+        "AUTH_FROM_EMAIL": "OpenMeld <noreply@openmeld.ai>",
+        "AUTH_COOKIE_DOMAIN": "staging.openmeld.ai",
+        "PASSKEY_RP_ID": "staging.openmeld.ai",
+        "AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS": "300"
+      },
+      "d1_databases": [
+        {
+          "binding": "OPENMELD_DB",
+          "database_name": "openmeld-db-stg",
+          "database_id": "10da3483-0644-459a-8523-381a2a17ac39",
+          "migrations_dir": "../../packages/db/drizzle"
+        },
+        {
+          "binding": "OPENMELD_IDENTITY_DB",
+          "database_name": "openmeld-db-stg",
+          "database_id": "10da3483-0644-459a-8523-381a2a17ac39"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "OPENMELD_AUTH_KV",
+          "id": "ce0678aff60e4d5b864ad0591ea5e88a"
+        }
+      ],
+      "services": [
+        {
+          "binding": "OPENMELD_CORE_WORKER",
+          "service": "openmeld-core-stg",
+          "entrypoint": "ProfileLifecycleEntrypoint"
+        }
+      ]
+    },
     "prod": {
       // Per-env triggers do not inherit the top-level block; declare the Auth
       // convergence cron explicitly for the prod deploy.

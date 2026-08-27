@@ -191,6 +191,88 @@
         }
       ]
     },
+    "stg": {
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence_stg"
+        },
+        {
+          "binding": "OPENMELD_CENTER_AGENT_PERFORMANCE",
+          "dataset": "openmeld_center_agent_performance_stg"
+        }
+      ],
+      "images": {
+        "binding": "OPENMELD_IMAGES"
+      },
+      "browser": {
+        "binding": "BROWSER",
+        "remote": true
+      },
+      "worker_loaders": [
+        {
+          "binding": "LOADER"
+        }
+      ],
+      "containers": [
+        {
+          "name": "openmeld-agent-computer-stg",
+          "class_name": "AgentComputer",
+          "image": "./Dockerfile",
+          "instance_type": "standard-2",
+          "max_instances": 10
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "AgentComputer",
+            "name": "AGENT_COMPUTER"
+          }
+        ]
+      },
+      "r2_buckets": [
+        {
+          "binding": "OPENMELD_SPACE_ATTACHMENTS",
+          "bucket_name": "openmeld-space-attachments-stg",
+          "preview_bucket_name": "openmeld-space-attachments-stg"
+        }
+      ],
+      "vars": {
+        "OPENMELD_WORKER_ENVIRONMENT": "stg",
+        "OPENMELD_CONNECTORS_BASE_URL": "",
+        "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",
+        "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID": "openmeld-remote-agent-stg",
+        "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS": "openrouter",
+        "OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID": "x-ai/grok-4.5",
+        "OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "true",
+        "OPENMELD_AGENT_ACTIVITY_DIGEST_MODEL_ID": "",
+        "OPENMELD_FEEDBACK_SUBMIT_BASE_URL": "https://gateway.staging.openmeld.ai",
+        "OPENMELD_OFFICIAL_FEEDBACK_INBOX_KEY": ""
+      },
+      "secrets": {
+        "required": ["CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN"]
+      },
+      "services": [
+        {
+          "binding": "OPENMELD_CORE_WORKER",
+          "service": "openmeld-core-stg",
+          "entrypoint": "CenterAgentRpcEntrypoint"
+        }
+      ]
+    },
     "prod": {
       "observability": {
         "enabled": true,
