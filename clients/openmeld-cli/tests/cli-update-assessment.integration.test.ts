@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJson from "../package.json";
-import { assessCliUpdate } from "../src/command-entry-checks/cli-update-assessment";
+import {
+  assessCliUpdate,
+  isCliUpdateCheckApplicable,
+} from "../src/command-entry-checks/cli-update-assessment";
 import type { OpenMeldEnvironmentTarget } from "../src/config/openmeld-environment-target";
 import {
   readVersionState,
@@ -21,6 +24,13 @@ const DEV_TARGET: OpenMeldEnvironmentTarget = {
   gatewayUrl: "http://localhost:8080",
   preset: "dev-local",
   userFacingCommand: "openmeld-dev",
+};
+
+const CANARY_TARGET: OpenMeldEnvironmentTarget = {
+  authBaseUrl: "https://auth.staging.openmeld.ai",
+  gatewayUrl: "https://gateway.staging.openmeld.ai",
+  preset: "canary",
+  userFacingCommand: "openmeld-canary",
 };
 
 function npmLatestResponse(input: {
@@ -131,6 +141,27 @@ describe("assessCliUpdate", () => {
       expect(assessment.floorBreached).toBe(false);
       expect(fetchMock).not.toHaveBeenCalled();
     });
+  });
+
+  it("checks an isolated binary canary only when it has an explicit manifest", () => {
+    expect(
+      isCliUpdateCheckApplicable(CANARY_TARGET, {
+        distribution: "binary",
+        manifestUrl: "https://staging.openmeld.ai/cli/manifest.json",
+      })
+    ).toBe(true);
+    expect(
+      isCliUpdateCheckApplicable(CANARY_TARGET, {
+        distribution: "npm",
+        manifestUrl: "https://staging.openmeld.ai/cli/manifest.json",
+      })
+    ).toBe(false);
+    expect(
+      isCliUpdateCheckApplicable(CANARY_TARGET, {
+        distribution: "binary",
+        manifestUrl: null,
+      })
+    ).toBe(false);
   });
 
   // A floor must be a plain published release version. Anything else — garbage,
