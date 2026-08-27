@@ -2270,14 +2270,16 @@ a dedicated secondary sidebar, including an explicit missing-profile state when
 that member has no Human Profile identity yet. Selecting an item makes that
 person's complete Profile detail the persistent main content; it does not open
 a transient drawer. The item owns only high-frequency scan signals: a prominent
-Human Profile avatar, the member's name, an explicit `(you)` marker, the
-Organization role, Core-owned **Last active** time, coarse Computer state,
-actually linked Slack, Lark, or Feishu identity icons, and enabled reported
-Local Agent icons. Email and provider account text belong in Profile detail,
-not in the sidebar. Missing identity mappings, unconfigured providers, and
-disabled Local Agents add no placeholder icons. Every logo-only signal has an
-accessible name and tooltip and reuses the catalog-owned identity from its
-canonical Channel or Computer surface.
+Human Profile avatar, the member's name, an explicit `(you)` marker, Core-owned
+**Last active** time, coarse Computer state, one compact mapped Slack, Lark, or
+Feishu identity line, and enabled reported Local Agent icons. The mapped
+identity line may show the provider icon followed by the account name or handle
+and provider email when Core supplies those values. The member's OpenMeld
+account email and Organization role belong in Profile detail, not in the
+sidebar. Missing identity mappings, unavailable account metadata, unconfigured
+providers, and disabled Local Agents add no placeholder text or icons. Every
+logo-only signal has an accessible name and tooltip and reuses the catalog-owned
+identity from its canonical Channel or Computer surface.
 
 The sidebar never exposes the internal profile Handle or slug, a generic
 **Active** badge, an invented online presence, or an undefined recent-activity
@@ -2343,12 +2345,13 @@ executable paths, credentials, private setup instructions, or management
 controls. The Profile detail reuses the existing Computer card and Computer
 detail components; People does not maintain a parallel Computer UI.
 
-Each Human Profile sidebar item shows a Slack, Lark, or Feishu provider icon
-only for an identity that is actually mapped to that member. A missing,
-unavailable, unconfigured, or unmapped account adds no sidebar icon. The Profile
-detail may show the provider account name or handle followed by the exact email,
-separated by a middle dot, when Core provides those fields. Missing account
-metadata is never inferred. The detail keeps the corresponding neutral gray status and
+Each Human Profile sidebar item shows one compact Slack, Lark, or Feishu
+identity line only for an identity that is actually mapped to that member. The
+line uses the provider icon followed by the account name or handle and exact
+provider email, separated by a middle dot, when Core provides those fields. A
+missing, unavailable, unconfigured, or unmapped account adds no sidebar icon or
+placeholder text. Missing account metadata is never inferred. The Profile
+detail keeps the same mapped identity and corresponding neutral gray status and
 the permitted **Connect**, **Set up**, **Ask an admin**, or **Manage** action.
 Those actions start the existing authorization or private provider-proof flow;
 they do not bind an account by Profile selection alone. Another member's missing
