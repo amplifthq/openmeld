@@ -429,9 +429,14 @@ openmeld org computers --view agent
 Create or request a new-session Agent Profile with the same configuration:
 
 ```bash
-openmeld profiles create "Review Agent" --kind agent --owner self --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create "Review Agent" --kind agent --owner self --agent-controller builtin:codex --session new --source local-agent --request-key <stable-key> --view agent
 openmeld profiles create "Review Agent" --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
 ```
+
+For `--owner self`, omit `--computer` to use this computer when the selected
+Local Agent is ready here. Pass an exact `--computer` when the user selected a
+different computer. Teammate-owned requests always require `--computer`; never
+guess which of the teammate's computers to use.
 
 Use `--source local-agent` when a supported Local Agent is making the request;
 ordinary terminal use defaults to `--source cli`. The server derives the real
