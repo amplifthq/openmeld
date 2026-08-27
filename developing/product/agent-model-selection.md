@@ -277,7 +277,10 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   that frozen value dynamically for each admitted route. It is not a separate
   Organization preference or Web setting in the current product.
 - `hostedRuntimePolicy.imageUnderstandingModelId` names the image-capable
-  auxiliary model used when the selected primary model is text-only.
+  auxiliary model used for every current-version image turn before persistent
+  primary-model admission. The auxiliary returns an untrusted text
+  description; the frozen primary model still owns semantic judgment and the
+  final answer.
 - The frozen primary model owns semantic judgment and completion for every
   ordinary Center Agent turn, including Task and Space creation requests. A
   worker-owned classifier or auxiliary completion model must not replace it for
@@ -324,10 +327,11 @@ mirrored in `services/remote-agent/tests/fixtures/openrouter-model-z-ai-glm-5.3-
 
 `x-ai/grok-4.6` remains the dedicated `imageUnderstandingModelId`: the
 auxiliary image path stays on the production-proven model while the primary
-default changes independently. GLM 5.3 Flash itself is declared
-`["text", "image"]`, so a system-default turn owns its own images instead of
-routing them through the auxiliary. Explicitly selected Grok 4.6 turns remain
-Grok 4.6.
+default changes independently. GLM 5.3 Flash is declared `["text", "image"]`
+to reflect the verified provider capability and selector contract, but the
+current version still sends every raw image through the frozen Grok 4.6
+auxiliary before GLM receives the bounded text description. Explicitly
+selected Grok 4.6 turns remain Grok 4.6 as the primary model as well.
 
 ### 5.7 OpenCode controller catalog refresh
 
@@ -360,9 +364,10 @@ stale entries:
   `Unavailable model` per §5.5.
 - **Controller default:** because the previous default
   `opencode/north-mini-code-free` disappeared upstream, the default moved to
-  `opencode-go/glm-5.3-flash`. A controller default must always be a valid,
-  maintained id (§8.2), and every non-empty `supportedReasoningLevels`
-  variant was verified against the same CLI output.
+  the currently reported free-tier model `opencode/mimo-v2.5-free`, not to a
+  paid-plan model that an OpenCode user may not have. A controller default must
+  always be a valid, maintained id (§8.2), and every non-empty
+  `supportedReasoningLevels` variant was verified against the same CLI output.
 
 ---
 

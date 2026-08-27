@@ -80,7 +80,7 @@ describe("model catalog schema", () => {
       }
 
       expect(result.data.agentControllers.opencode?.defaultModelId).toBe(
-        "opencode-go/glm-5.3-flash"
+        "opencode/mimo-v2.5-free"
       );
       const opencodeModelIds =
         result.data.agentControllers.opencode?.models.map(

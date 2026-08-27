@@ -373,7 +373,7 @@
       ]
     },
     "opencode": {
-      "defaultModelId": "opencode-go/glm-5.3-flash",
+      "defaultModelId": "opencode/mimo-v2.5-free",
       "models": [
         {
           "id": "opencode/big-pickle",
