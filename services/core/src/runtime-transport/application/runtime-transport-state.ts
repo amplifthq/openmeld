@@ -4,6 +4,7 @@ import type {
   LocalWakeRouteReport,
   OpenMeldDaemonTaskResultEnvelope,
   RuntimeTransportCapabilities,
+  RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDeliveryExecutionIdentity,
   RuntimeTransportDispatchLifecyclePhase,
   RuntimeTransportDispatchLifecycleSnapshot,
@@ -136,6 +137,13 @@ export type RuntimeTransportMutableState = {
   >;
   sessionIdBySocket: Map<WebSocket, string | null>;
   pendingDispatches: Map<string, PendingDispatchState>;
+  inFlightDispatchDeliveries: Map<
+    string,
+    {
+      attemptId: string;
+      response: Promise<RuntimeTransportDeliverDispatchResponse>;
+    }
+  >;
   completedDispatchResults: Map<string, CompletedDispatchResultState>;
   pendingResultWaiters: Map<string, Set<Waiter>>;
 };
@@ -163,6 +171,7 @@ export const createRuntimeTransportMutableState =
       >(),
       sessionIdBySocket: new Map<WebSocket, string | null>(),
       pendingDispatches: new Map<string, PendingDispatchState>(),
+      inFlightDispatchDeliveries: new Map(),
       completedDispatchResults: new Map<string, CompletedDispatchResultState>(),
       pendingResultWaiters: new Map<string, Set<Waiter>>(),
     };
