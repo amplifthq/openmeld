@@ -32,7 +32,11 @@ import type {
   ConversationPolicy,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
-import { materializeCliLaunchCommand } from "@openmeld/adapter-core";
+import {
+  buildDispatchSpaceActionMcpToolIds,
+  materializeCliLaunchCommand,
+  resolveDispatchSpaceActionMcpServer,
+} from "@openmeld/adapter-core";
 import { createClaudeAgentSdkToolActivityTracker } from "../output/claude-tool-activity.js";
 import { projectClaudeCodeUsageLimits } from "../usage/claude-code-usage-limits.js";
 import {
@@ -548,6 +552,7 @@ function buildClaudeAgentSdkOptions(input: {
   sessionId: string | null;
   streamingMode?: AdapterStreamingMode;
 }): ClaudeAgentOptions {
+  const spaceActionMcpServer = resolveDispatchSpaceActionMcpServer(input.env);
   const permissionMode = resolveClaudePermissionMode({
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     executionMode: input.executionMode,
@@ -556,7 +561,14 @@ function buildClaudeAgentSdkOptions(input: {
     abortController: input.abortController,
     additionalDirectories: [input.claudeWorkdir],
     allowDangerouslySkipPermissions: permissionMode === "bypassPermissions",
-    allowedTools: [...OPENMELD_CLAUDE_ALLOWED_TOOLS],
+    allowedTools: [
+      ...OPENMELD_CLAUDE_ALLOWED_TOOLS,
+      ...(spaceActionMcpServer
+        ? buildDispatchSpaceActionMcpToolIds("__").map(
+            (toolId) => `mcp__${toolId}`
+          )
+        : []),
+    ],
     cwd: input.claudeWorkdir,
     env: {
       ...process.env,
@@ -566,6 +578,17 @@ function buildClaudeAgentSdkOptions(input: {
       input.streamingMode === "stream" ||
       input.onInteractionRequest !== undefined,
     pathToClaudeCodeExecutable: input.pathToClaudeCodeExecutable,
+    ...(spaceActionMcpServer
+      ? {
+          mcpServers: {
+            [spaceActionMcpServer.id]: {
+              args: [...spaceActionMcpServer.args],
+              command: spaceActionMcpServer.commandPath,
+              env: spaceActionMcpServer.env,
+            },
+          },
+        }
+      : {}),
     permissionMode,
     ...(input.planDirectory
       ? {

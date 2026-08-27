@@ -13,10 +13,12 @@ import type {
 } from "@openmeld/adapter-core";
 import {
   buildCliLaunchInvocation,
+  buildDispatchSpaceActionMcpToolIds,
   buildProviderExitError,
   classifyCliDriverTimeoutFailure,
   classifyRuntimePermissionDenialMessage,
   looksLikeRuntimePermissionDenialMessage,
+  resolveDispatchSpaceActionMcpServer,
 } from "@openmeld/adapter-core";
 import {
   CliDriverError,
@@ -95,6 +97,7 @@ export async function invokeClaudeCliTransport(input: {
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     conversationPolicy: input.conversationPolicy,
     executionMode: input.executionMode,
+    env: input.env,
     prompt,
     sessionId: normalizeOptionalText(input.sessionId),
     streamingMode: input.streamingMode,
@@ -287,11 +290,13 @@ export const buildClaudeArgs = (input: {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   conversationPolicy?: ConversationPolicy;
   executionMode?: AdapterDispatchExecutionMode;
+  env?: Record<string, string | undefined>;
   prompt: string;
   sessionId: string | null;
   streamingMode?: AdapterStreamingMode;
 }): string[] => {
   const args: string[] = [];
+  const spaceActionMcpServer = resolveDispatchSpaceActionMcpServer(input.env);
   if (input.sessionId) {
     args.push("--resume", input.sessionId);
     if (input.executionMode === "repair") {
@@ -299,10 +304,25 @@ export const buildClaudeArgs = (input: {
     }
   }
   appendClaudeConversationPolicyArgs(args, input.conversationPolicy);
+  if (spaceActionMcpServer) {
+    args.push(
+      "--mcp-config",
+      JSON.stringify({
+        mcpServers: {
+          [spaceActionMcpServer.id]: {
+            args: [...spaceActionMcpServer.args],
+            command: spaceActionMcpServer.commandPath,
+            env: spaceActionMcpServer.env,
+          },
+        },
+      })
+    );
+  }
   args.push("-p", input.prompt);
   appendClaudeAgentControllerPermissionModeArgs(args, {
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     executionMode: input.executionMode,
+    spaceActionMcpEnabled: spaceActionMcpServer !== null,
   });
   if (input.streamingMode === "stream") {
     args.push(
@@ -322,9 +342,18 @@ const appendClaudeAgentControllerPermissionModeArgs = (
   input: {
     agentControllerPermissionMode?: AgentControllerPermissionMode;
     executionMode?: AdapterDispatchExecutionMode;
+    spaceActionMcpEnabled?: boolean;
   }
 ): void => {
-  args.push("--allowedTools", ...OPENMELD_CLAUDE_ALLOWED_TOOLS);
+  args.push(
+    "--allowedTools",
+    ...OPENMELD_CLAUDE_ALLOWED_TOOLS,
+    ...(input.spaceActionMcpEnabled
+      ? buildDispatchSpaceActionMcpToolIds("__").map(
+          (toolId) => `mcp__${toolId}`
+        )
+      : [])
+  );
   args.push("--permission-mode", resolveClaudePermissionMode(input));
 };
 

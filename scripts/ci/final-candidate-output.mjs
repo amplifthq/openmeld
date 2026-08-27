@@ -18,6 +18,7 @@ export function printPlan(plan, dirtyPaths) {
       `Base: ${plan.baseSha}`,
       `Tree: ${plan.treeSha}`,
       `Mode: ${plan.mode}`,
+      `Candidate kind: ${plan.candidateKind}`,
       `Control trust: ${plan.controlTrust}`,
       `Plan source: ${plan.planSourceSha}`,
       ...(plan.bootstrapReason
@@ -61,6 +62,7 @@ export function renderEvidenceSummary(evidence, evidencePath, options = {}) {
     `- Candidate validation: **${evidence.conclusion}**`,
     `- Evidence publication: **${resolvePublicationSummary(evidence, options)}**`,
     `- Mode: \`${evidence.mode}\``,
+    `- Candidate kind: \`${evidence.candidateKind}\``,
     `- Control trust: \`${evidence.controlTrust}\``,
     `- Head: \`${evidence.headSha ?? "unresolved"}\``,
     `- Base: \`${evidence.baseSha ?? "unresolved"}\``,

@@ -17,6 +17,7 @@ import type {
 } from "@openmeld/adapter-core";
 import {
   AcpProcessSession,
+  buildAcpDispatchSpaceActionMcpServers,
   createAcpToolActivityTracker,
   createUnavailableProviderUsageLimits,
 } from "@openmeld/adapter-core";
@@ -420,12 +421,12 @@ class GrokBuildAcpSession {
       result = input.sessionId
         ? await this.request("session/resume", {
             cwd: this.#input.workdir,
-            mcpServers: [],
+            mcpServers: buildAcpDispatchSpaceActionMcpServers(this.#input.env),
             sessionId: input.sessionId,
           })
         : await this.request("session/new", {
             cwd: this.#input.workdir,
-            mcpServers: [],
+            mcpServers: buildAcpDispatchSpaceActionMcpServers(this.#input.env),
           });
     } catch (error) {
       if (input.sessionId && isContextNotFoundError(error)) {

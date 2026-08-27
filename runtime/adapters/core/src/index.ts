@@ -92,6 +92,15 @@ export {
   resolveBuiltinAdapterConversationBridgeSpec,
 } from "./conversation-bridge.js";
 export {
+  type AcpDispatchSpaceActionMcpServer,
+  buildAcpDispatchSpaceActionMcpServers,
+  buildDispatchSpaceActionMcpToolIds,
+  type DispatchSpaceActionMcpServer,
+  OPENMELD_SPACE_ACTION_MCP_SERVER_ID,
+  OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES,
+  resolveDispatchSpaceActionMcpServer,
+} from "./dispatch-space-action-mcp.js";
+export {
   buildCliLaunchInvocation,
   buildExecutableLaunchContract,
   type CliLaunchCommand,

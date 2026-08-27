@@ -132,6 +132,30 @@ describe("Codex CLI transport args", () => {
     );
   });
 
+  it("adds the approval-free Space Action MCP server to CLI execution", () => {
+    const args = buildCodexExecArgs({
+      env: {
+        OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
+        OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: "/tmp/action/bin/openmeld",
+        OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
+      },
+      threadId: "thread-1",
+    });
+
+    assert.equal(
+      args.includes(
+        'mcp_servers.openmeld_internal_dispatch_space_action.command="/tmp/action/bin/openmeld"'
+      ),
+      true
+    );
+    assert.equal(
+      args.includes(
+        'mcp_servers.openmeld_internal_dispatch_space_action.default_tools_approval_mode="approve"'
+      ),
+      true
+    );
+  });
+
   it("passes model and reasoning effort when resuming a thread", () => {
     assert.deepEqual(
       buildCodexExecArgs({
@@ -255,15 +279,17 @@ describe("Codex Space Action MCP config", () => {
       buildCodexSpaceActionMcpGlobalArgs({
         OPENMELD_SPACE_ACTION_CONTEXT_PATH:
           "/tmp/openmeld dispatch/context.json",
+        OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH:
+          "/tmp/openmeld dispatch/bin/openmeld-dev",
         OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
       }),
       [
         "-c",
-        'mcp_servers.openmeld_internal_dispatch_space_action.command="openmeld-dev"',
+        'mcp_servers.openmeld_internal_dispatch_space_action.command="/tmp/openmeld dispatch/bin/openmeld-dev"',
         "-c",
         'mcp_servers.openmeld_internal_dispatch_space_action.args=["space","action","tool-server"]',
         "-c",
-        'mcp_servers.openmeld_internal_dispatch_space_action.env_vars=["OPENMELD_SPACE_ACTION_CONTEXT_PATH","OPENMELD_DISPATCH_RUNTIME_MODE","OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID","OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID","OPENMELD_USER_FACING_CLI_COMMAND","OPENMELD_ENV_PRESET"]',
+        'mcp_servers.openmeld_internal_dispatch_space_action.env_vars=["OPENMELD_SPACE_ACTION_CONTEXT_PATH","OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH","OPENMELD_USER_FACING_CLI_COMMAND"]',
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.enabled=true",
         "-c",

@@ -198,6 +198,37 @@ describe("computer summary status", () => {
 		).toMatchObject({ label: "Local agents need setup", tone: "warning" });
 	});
 
+	it("keeps attention when one agent needs sign-in and another has a real failure", () => {
+		const readiness = buildReadiness({
+			canReplyFromThisComputer: false,
+			nextAction: "run_setup",
+			primaryBlocker: "agent_controller_report_not_ready",
+			runtime: {
+				...buildReadiness().runtime,
+				reasonCodes: [
+					"controller.auth.unauthenticated",
+					"controller.interface.check_failed",
+				],
+				signInOnlyBlockers: false,
+			},
+			status: "blocked",
+		});
+
+		expect(
+			resolveCurrentLocalRuntimeComputerSummaryStatus({ readiness })
+		).toMatchObject({
+			label: "Local agents need setup",
+			reason: "agent_needs_setup",
+			tone: "warning",
+		});
+		expect(
+			resolveCurrentLocalRuntimeComputerAttentionToneForInventory({
+				localRuntimeCount: 1,
+				readiness,
+			})
+		).toBe("warning");
+	});
+
 	it("keeps sign-in quiet when an enabled local agent only needs its account connected", () => {
 		const readiness = buildReadiness({
 			canReplyFromThisComputer: false,
@@ -206,6 +237,7 @@ describe("computer summary status", () => {
 			runtime: {
 				...buildReadiness().runtime,
 				reasonCodes: ["controller.auth.unauthenticated"],
+				signInOnlyBlockers: true,
 			},
 			status: "blocked",
 		});

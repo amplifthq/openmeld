@@ -1114,6 +1114,7 @@ function buildCurrentRuntimeEvidence(input: {
     executionTargetStatus: input.target?.status ?? null,
     lastObservedAtMs: input.target?.lastObservedAtMs ?? null,
     reasonCodes: input.target?.reasonCodes ?? [],
+    signInOnlyBlockers: hasOnlyControllerSignInBlockers(input.target),
     openMeldServiceRuntimeId: input.target?.openMeldServiceRuntimeId ?? null,
     runtimeLane: input.target?.runtimeLane ?? null,
   };
@@ -1157,6 +1158,7 @@ function buildCurrentLocalRuntimeReplyReadiness(input: {
       executionTargetStatus: null,
       lastObservedAtMs: null,
       reasonCodes: [],
+      signInOnlyBlockers: false,
       openMeldServiceRuntimeId: null,
       runtimeLane: null,
     },
@@ -1170,6 +1172,28 @@ function buildCurrentLocalRuntimeReplyReadiness(input: {
     },
     status: input.status,
   };
+}
+
+function hasOnlyControllerSignInBlockers(
+  target: LocalRuntimeExecutionTarget | null
+): boolean {
+  if (!target) {
+    return false;
+  }
+  const blockers = resolveEnabledExecutionTargetCapabilities(
+    target.capabilities
+  ).filter((capability) => capability.status !== "ready");
+  return (
+    blockers.length > 0 &&
+    blockers.every(
+      (capability) =>
+        capability.status === "not_ready" &&
+        capability.reasonCodes.length > 0 &&
+        capability.reasonCodes.every(
+          (reasonCode) => reasonCode === "controller.auth.unauthenticated"
+        )
+    )
+  );
 }
 
 function buildLocalRuntimeComputer(input: {

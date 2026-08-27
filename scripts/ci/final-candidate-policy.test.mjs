@@ -15,6 +15,8 @@ const HEAD_SHA = "2".repeat(40);
 const TREE_SHA = "3".repeat(40);
 const DIRTY_WORKTREE_PATTERN = /worktree is dirty/u;
 const MAIN_ADVANCED_PATTERN = /Main advanced/u;
+const MAIN_OR_PULL_REQUEST_BASE_ADVANCED_PATTERN =
+  /Pull request base drifted|Main advanced/u;
 const MISSING_ANCESTRY_PATTERN = /does not contain current main/u;
 const NO_EXECUTABLE_SOURCE_PATTERN = /No executable workspace source/u;
 const PULL_REQUEST_HEAD_DRIFT_PATTERN = /Pull request head drifted/u;
@@ -24,6 +26,7 @@ const createPlan = (changedPaths, overrides = {}) =>
     baseSha: BASE_SHA,
     bootstrapReason: null,
     branchName: "codex/example",
+    candidateKind: "pull-request",
     changedPaths,
     controlTrust: "current-main",
     headSha: HEAD_SHA,
@@ -312,6 +315,47 @@ test("candidate state rejects stale head, stale main, missing ancestry, and dirt
   );
 });
 
+test("completed pull-request evidence keeps its exact base fact when main advances", () => {
+  const snapshot = {
+    actualHeadSha: HEAD_SHA,
+    baseIsAncestorOfHead: true,
+    currentMainSha: "5".repeat(40),
+    dirtyPaths: [],
+    expectedBaseSha: BASE_SHA,
+    expectedHeadSha: HEAD_SHA,
+    pullRequestBaseRef: "main",
+    pullRequestBaseSha: "5".repeat(40),
+    pullRequestDraft: false,
+    pullRequestHeadSha: HEAD_SHA,
+    pullRequestState: "open",
+    treeSha: TREE_SHA,
+  };
+
+  assert.doesNotThrow(() =>
+    assertCandidateSnapshot(snapshot, { requireCurrentBase: false })
+  );
+  assert.throws(
+    () => assertCandidateSnapshot(snapshot),
+    MAIN_OR_PULL_REQUEST_BASE_ADVANCED_PATTERN
+  );
+});
+
+test("an exact merge-group plan makes local-component readiness strict", () => {
+  const plan = createPlan(["clients/openmeld-cli/src/index.ts"], {
+    candidateKind: "merge-group",
+    branchName: "gh-readonly-queue/main/pr-378-abc",
+  });
+  const releaseReady = plan.selectedChecks.find(
+    (selectedCheck) => selectedCheck.id === "local-components-release-ready"
+  );
+
+  assert.deepEqual(releaseReady.command, [
+    "pnpm",
+    "run",
+    "verify:release-ready",
+  ]);
+});
+
 test("a real command failure blocks the candidate and stops later checks", () => {
   const executed = [];
   let clock = 0;
@@ -376,6 +420,7 @@ test("evidence is reusable only for the same successful head, base, and tree", (
     baseSha: BASE_SHA,
     bootstrapReason: null,
     branchName: "codex/example",
+    candidateKind: "pull-request",
     changedPaths: ["clients/web/src/app.tsx"],
     conclusion: "success",
     confidence: "standard",

@@ -82,6 +82,7 @@ Use these owner documents:
 | Production release lane selection, scoped local/GitHub deploys, D1 production sequencing, CLI rollout choice, health checks, and release reporting | `developing/engineering/production-release.md` |
 | OpenMeld Changelog authoring, publication, historical backfill, generated projections, and GitHub release-note handoff | `developing/engineering/changelog.md`, then `.agents/skills/openmeld-changelog/SKILL.md` |
 | Environment variables, Doppler local development, secret ownership, contributor onboarding, and production secret readiness | `developing/engineering/environment-and-secrets.md` |
+| Internal staging scope, isolation, guarded deployment, and staging evidence | `developing/engineering/staging-environment.md` |
 | Parallel-agent worktree ownership and coordination, unattended execution, local lanes, validation gates, contract rollouts, `OPENMELD_HOME`, real-user smoke, local component releases, DB workflow, Fresh Web Start | `developing/engineering/development-workflow.md` |
 | Code style, lint, and formatting standards (Ultracite/Biome) | `developing/engineering/code-standards.md` |
 | Repo-specific anti-patterns for tests, mocks, status logic, timeouts, keepalive | `developing/engineering/anti-patterns.md` |

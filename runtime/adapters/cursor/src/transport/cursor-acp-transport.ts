@@ -15,7 +15,10 @@ import type {
   ConversationPolicy,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
-import { AcpProcessSession } from "@openmeld/adapter-core";
+import {
+  AcpProcessSession,
+  buildAcpDispatchSpaceActionMcpServers,
+} from "@openmeld/adapter-core";
 import { createCursorAcpToolActivityTracker } from "../output/cursor-tool-activity.js";
 import {
   readCursorPermissionOptions,
@@ -383,6 +386,9 @@ async function withCursorAcpSession<T>(
 class CursorAcpSession {
   readonly #agentControllerPermissionMode?: AgentControllerPermissionMode;
   readonly #cursorWorkdir: string;
+  readonly #mcpServers: ReturnType<
+    typeof buildAcpDispatchSpaceActionMcpServers
+  >;
   readonly #onInteractionRequest?: AdapterInteractionCallback;
   readonly #onPreview?: AdapterPreviewCallback;
   readonly #onRuntimeEvent?: AdapterRuntimeEventCallback;
@@ -409,6 +415,7 @@ class CursorAcpSession {
   }) {
     this.#agentControllerPermissionMode = input.agentControllerPermissionMode;
     this.#cursorWorkdir = input.cursorWorkdir;
+    this.#mcpServers = buildAcpDispatchSpaceActionMcpServers(input.env);
     this.#onInteractionRequest = input.onInteractionRequest;
     this.#onPreview = input.onPreview;
     this.#onRuntimeEvent = input.onRuntimeEvent;
@@ -483,7 +490,7 @@ class CursorAcpSession {
   }): Promise<CursorAcpSessionDescriptor> {
     const params = {
       cwd: this.#cursorWorkdir,
-      mcpServers: [],
+      mcpServers: this.#mcpServers,
     };
     if (input.sessionId) {
       let result: unknown;

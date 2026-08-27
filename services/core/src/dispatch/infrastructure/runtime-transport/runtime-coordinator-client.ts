@@ -29,6 +29,7 @@ import {
   runtimeTransportWaitDispatchResultResponseSchema,
 } from "@openmeld/schemas";
 import type {
+  OpenMeldDaemonDispatchDeliveryRecoveryReason,
   OpenMeldDaemonDispatchQueueMessage,
   RuntimeTransportDeliverDispatchPayload,
   RuntimeTransportDeliverDispatchRequest,
@@ -79,6 +80,14 @@ async function measureRuntimeTransportClientTiming<T>(input: {
     },
     input.read
   );
+}
+
+function resolveRuntimeTransportDeliveryRecoveryReason(
+  reason: OpenMeldDaemonDispatchQueueMessage["deliveryRecoveryReason"]
+): OpenMeldDaemonDispatchDeliveryRecoveryReason | null {
+  return reason === "connection_replaced" || reason === "route_lost"
+    ? reason
+    : null;
 }
 
 export const deliverRuntimeTransportDispatch = async (input: {
@@ -200,6 +209,9 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
     route: input.route,
     sourceSignalSnapshot: input.message.sourceSignalSnapshot,
   });
+  const deliveryRecoveryReason = resolveRuntimeTransportDeliveryRecoveryReason(
+    input.message.deliveryRecoveryReason
+  );
   const payloadCandidate: RuntimeTransportDeliverDispatchPayload = {
     runtimeCoordinatorExecutionId: buildRuntimeCoordinatorExecutionId({
       dispatchId: input.message.dispatchId,
@@ -283,9 +295,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
           ) as string,
         }
       : {}),
-    ...(input.message.deliveryRecoveryReason
-      ? { deliveryRecoveryReason: input.message.deliveryRecoveryReason }
-      : {}),
+    ...(deliveryRecoveryReason ? { deliveryRecoveryReason } : {}),
     ...(input.message.dispatchChainId
       ? { dispatchChainId: input.message.dispatchChainId }
       : {}),

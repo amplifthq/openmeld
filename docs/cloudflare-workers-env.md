@@ -27,12 +27,12 @@ Official references:
 ## Rules
 
 1. Non-sensitive configuration belongs in `wrangler.jsonc` `vars` and `env.prod.vars`.
-2. Sensitive values belong in the approved Doppler process-injection path or local `.dev.vars` / `.dev.vars.prod` for local work, and in Cloudflare Worker secret storage for production.
+2. Sensitive values belong in the approved Doppler process-injection path or local `.dev.vars` / `.dev.vars.prod` for local work, and in Cloudflare Worker secret storage for staging and production.
 3. This repo uses `.dev.vars.prod`, not `.dev.vars.production`, because the Wrangler environment name is `prod`.
-4. `wrangler.jsonc` is the source of truth for public Worker config. Do not hand-maintain production vars in the Cloudflare dashboard.
-5. Secret sync is explicit. Production secret changes do not happen through deploy; they happen through `sync:secrets:prod`.
-6. Every Cloudflare Worker package must provide `cf-typegen`, `sync:config:prod`, and `sync:prod`.
-7. Every Worker package that owns secrets must also provide `sync:secrets:prod`.
+4. `wrangler.jsonc` is the source of truth for public Worker config. Do not hand-maintain staging or production vars in the Cloudflare dashboard.
+5. Secret sync is explicit. Staging and production secret changes happen through the matching `sync:secrets:*` command, not an untracked Dashboard edit.
+6. Every Cloudflare Worker package must provide `cf-typegen`, `sync:config:stg`, `sync:stg`, `sync:config:prod`, and `sync:prod`.
+7. Every Worker package that owns secrets must also provide `sync:secrets:stg` and `sync:secrets:prod`.
 
 For a brand-new OpenMeld account surface, Core, Auth, and Remote Agent form a
 Service Binding cycle, while Gateway and Web need stable identities before
@@ -45,6 +45,40 @@ release then replaces those placeholders with the real Workers.
 9. New Cloudflare resources may be created with the local Wrangler CLI, but they
    are not integrated until the owning `wrangler.jsonc`, this document, and
    generated Worker types are updated.
+
+## Internal Staging Topology
+
+Each Worker has an explicit `env.stg` block. Staging uses the same binding names
+as production but points every stateful binding and Service Binding to a
+staging-only resource:
+
+| Resource | Staging identity |
+| --- | --- |
+| Workers | `openmeld-web-stg`, `openmeld-auth-stg`, `openmeld-gateway-stg`, `openmeld-core-stg`, `openmeld-remote-agent-stg` |
+| D1 | `openmeld-db-stg` |
+| KV | `openmeld-auth-kv-stg` |
+| Queues | `openmeld-daemon-dispatch-stg`, `openmeld-message-channel-events-stg` |
+| R2 | `openmeld-space-attachments-stg`, `openmeld-organization-skills-stg`, `openmeld-organization-logos-stg`, `openmeld-desktop-downloads-stg` |
+| AI Gateway | `openmeld-remote-agent-stg` |
+| Remote Agent container | `openmeld-agent-computer-stg` |
+| Public routes | `staging.openmeld.ai`, `auth.staging.openmeld.ai`, `gateway.staging.openmeld.ai` |
+
+Durable Object namespaces, Workflow identity, Analytics Engine environment
+metadata, and Worker versions are created by the staging Worker deployments.
+No staging binding may point at a `-prod` D1, KV, R2, Queue, Worker, Durable
+Object, or container resource. The checked-in contract verifier rejects those
+cross-environment references.
+
+`OPENMELD_LARK_CHANNEL_ENABLED` and `OPENMELD_FEISHU_CHANNEL_ENABLED` are false
+in staging. OpenConnector endpoints are empty. These external integrations are
+not part of the initial internal staging baseline.
+
+The resource manifest in
+`scripts/cloudflare/provision-openmeld-resources.mjs` is the account-resource
+source of truth. `pnpm staging:deploy` provisions missing resources, bootstraps
+missing Worker identities, applies only staging D1 migrations, deploys all five
+Workers, and verifies the public entry points. See
+`developing/engineering/staging-environment.md` for the guarded operator flow.
 
 ## Package Matrix
 
@@ -450,7 +484,10 @@ Run this whenever you change Worker env names, bindings, `wrangler.jsonc`, or
 2. Run `pnpm install`.
 3. Run `pnpm cf-typegen`.
 4. Commit the updated `worker-configuration.d.ts` files.
-5. Sync production config or secrets as needed:
+5. Sync staging config or secrets when staging changed:
+   - public config: `pnpm -C <package> run sync:config:stg`
+   - secrets: `pnpm -C <package> run sync:secrets:stg`
+6. Sync production config or secrets as needed:
    - public config: `pnpm -C <package> run sync:config:prod`
    - secrets: `pnpm -C <package> run sync:secrets:prod`
 

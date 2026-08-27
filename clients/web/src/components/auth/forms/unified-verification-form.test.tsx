@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -77,6 +77,7 @@ describe("UnifiedVerificationForm magic-link session confirmation", () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		cleanup();
 	});
 
@@ -115,15 +116,54 @@ describe("UnifiedVerificationForm magic-link session confirmation", () => {
 		expect(toastSuccessMock).toHaveBeenCalledWith("You're signed in.");
 	});
 
+	it("waits for the new magic-link session to become readable", async () => {
+		vi.useFakeTimers();
+		authFormHookMocks.verifyMagicLinkMutateAsync.mockResolvedValue({
+			redirectTo: "/login",
+		});
+		authSessionMock.refetch
+			.mockResolvedValueOnce({ data: null })
+			.mockResolvedValueOnce({
+				data: {
+					session: { id: "session-123" },
+					user: { id: "user-123" },
+				},
+			});
+		resolveActiveOrganizationEntryPathMock.mockResolvedValue(
+			"/o/acme/new-space"
+		);
+
+		render(<UnifiedVerificationForm verificationKind="magic-link" />);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(authSessionMock.refetch).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(250);
+		});
+
+		expect(screen.getByText("You're signed in.")).toBeTruthy();
+
+		expect(authSessionMock.refetch).toHaveBeenCalledTimes(2);
+		expect(screen.queryByText("Sign-in Not Completed")).toBeNull();
+		expect(resolveActiveOrganizationEntryPathMock).toHaveBeenCalledWith({
+			data: { routeFamily: "/magic-link" },
+		});
+	});
+
 	it("does not show success when verification completes without a session", async () => {
+		vi.useFakeTimers();
 		authFormHookMocks.verifyMagicLinkMutateAsync.mockResolvedValue({
 			redirectTo: "/login",
 		});
 		authSessionMock.refetch.mockResolvedValue({ data: null });
 
 		render(<UnifiedVerificationForm verificationKind="magic-link" />);
+		await act(async () => {
+			await vi.runAllTimersAsync();
+		});
 
-		await screen.findByText("Sign-in Not Completed");
+		expect(screen.getByText("Sign-in Not Completed")).toBeTruthy();
 
 		expect(screen.queryByText("You're signed in.")).toBeNull();
 		expect(
@@ -132,11 +172,13 @@ describe("UnifiedVerificationForm magic-link session confirmation", () => {
 		expect(
 			screen.getByRole("button", { name: "Request New Magic Link" })
 		).toBeTruthy();
+		expect(authSessionMock.refetch).toHaveBeenCalledTimes(5);
 		expect(resolveActiveOrganizationEntryPathMock).not.toHaveBeenCalled();
 		expect(toastSuccessMock).not.toHaveBeenCalled();
 	});
 
 	it("does not show success when a redirect verification error has no session", async () => {
+		vi.useFakeTimers();
 		authFormHookMocks.verifyMagicLinkMutateAsync.mockRejectedValue(
 			Object.assign(
 				new Error(
@@ -148,8 +190,11 @@ describe("UnifiedVerificationForm magic-link session confirmation", () => {
 		authSessionMock.refetch.mockResolvedValue({ data: null });
 
 		render(<UnifiedVerificationForm verificationKind="magic-link" />);
+		await act(async () => {
+			await vi.runAllTimersAsync();
+		});
 
-		await screen.findByText("Sign-in Not Completed");
+		expect(screen.getByText("Sign-in Not Completed")).toBeTruthy();
 
 		expect(screen.queryByText("You're signed in.")).toBeNull();
 		expect(

@@ -1,0 +1,149 @@
+# Internal Staging Environment
+
+## Agent Context
+
+- Purpose: Define the reusable OpenMeld staging environment, its isolation
+  boundary, and the commands that deploy and verify it.
+- Read this when: You need to deploy or diagnose staging, test a cross-service
+  change before production, or add a staging Cloudflare resource or secret.
+- Update this when: Staging components, resource names, Doppler ownership,
+  deploy ordering, public entry points, or verification commands change.
+- Do not use this for: Production release authority, production data, local
+  worktree development, or a feature-specific smoke script.
+- Source of truth: This file owns the operator workflow and isolation contract
+  for OpenMeld internal staging. Worker bindings remain owned by each
+  `wrangler.jsonc`; Doppler allowlists live in
+  `scripts/dev/doppler-environment.mjs`.
+
+## What Staging Provides
+
+Staging is a persistent, internal OpenMeld environment. It runs the same five
+internal deployables as production:
+
+- Web
+- Auth
+- Gateway
+- Core
+- Remote Agent
+
+It has separate Cloudflare Workers, D1, KV, R2 buckets, Queues, Durable Object
+namespaces, container identity, and AI Gateway. Its public entry points are:
+
+- `https://staging.openmeld.ai`
+- `https://auth.staging.openmeld.ai`
+- `https://gateway.staging.openmeld.ai`
+
+Staging never reads or copies production user data. It does not share
+production D1, KV, R2, Queues, Worker identities, Durable Object namespaces, or
+runtime containers. A staging deploy must not publish the production CLI,
+change a production Worker, or touch `~/.openmeld`.
+
+The first staging baseline intentionally omits peripheral parity. Slack, Lark,
+Feishu, OpenConnector administration, production OAuth clients, billing, and
+production email delivery are not required for the internal chain to be
+deployable. Magic-link authentication is the initial human sign-in path.
+Enable an omitted integration only when a concrete staging test needs it and a
+separate staging credential exists.
+
+## Operate Staging
+
+Use one guarded entry point from the repository root:
+
+```bash
+pnpm staging:plan
+pnpm env:doctor:stg
+pnpm staging:deploy
+pnpm staging:verify
+pnpm staging:cli:plan
+pnpm staging:cli:publish
+pnpm staging:cli:verify
+```
+
+- `staging:plan` prints the exact order and changes nothing.
+- `env:doctor:stg` checks Doppler access and required names without printing
+  values or changing Cloudflare.
+- `staging:deploy` requires a clean worktree, creates only missing staging
+  prerequisites, applies staging D1 migrations, deploys the five Workers, and
+  verifies resources and public entry points.
+- `staging:verify` is read-only. It verifies the checked-in environment
+  contract, Doppler readiness, Cloudflare resource inventory, and public
+  staging entry points.
+- `staging:cli:plan` shows the exact source, isolated prerelease version,
+  bucket, and manifest without changing anything.
+- `staging:cli:publish` builds, signs, notarizes, and uploads a binary only to
+  the staging R2 bucket. It uses a staging prerelease version so update tests do
+  not wait for or publish a production version.
+- `staging:cli:verify` reads the public staging manifest and rejects any
+  Production artifact URL or non-staging version.
+
+Do not replace this workflow with raw `wrangler deploy`, Dashboard edits, or a
+Production release command. A clean worktree makes the exact deployed commit
+recoverable. If `origin/main` changes before deployment, resolve that change
+and rerun the same gate from the final commit.
+
+The Staging Computer uses the `canary` OS-service identity and
+`~/.openmeld-canary`; its Setup and Service preserve
+`https://staging.openmeld.ai/cli/manifest.json` as the only update source. This
+keeps launchd registration and local state separate from the published
+`openmeld` lane. Never point this lane at the Production manifest.
+
+## Deployment Order
+
+The guarded deployment order is intentional:
+
+1. verify checked-in staging contracts;
+2. verify the minimal Doppler values;
+3. create missing staging account resources;
+4. create missing route-free Worker identities;
+5. apply migrations to `openmeld-db-stg`;
+6. deploy Auth, Web, Gateway, Core, and Remote Agent;
+7. verify the resource inventory and public entry points.
+
+Worker identities exist before the real deploy because the internal Service
+Bindings form a cycle. The bootstrap Workers have no routes and return a
+diagnostic `503`; the guarded deploy replaces them with the real code.
+
+## Secrets And Authority
+
+Staging uses only Doppler `stg` configs. The release credential is stored once
+in `openmeld-release/stg`; component secrets stay in the component that owns
+them. The staging launcher requests only the names required by one step and
+maps the canonical OpenMeld release token to Cloudflare's CLI variable only at
+the child-process boundary.
+
+Creating or rotating a Cloudflare token, AI Gateway token, or Doppler secret is
+an explicit operator action. Never put the value in Git, command output, a PR,
+or a staging report. Staging credentials must be independently revocable and
+must not reuse a Production deploy token.
+
+## Evidence And Failure Handling
+
+A successful deployment report must name:
+
+- the exact Git commit;
+- the `staging` environment;
+- the contract and Doppler checks that passed;
+- the D1 migration outcome;
+- the five deployed Workers;
+- the public entry points that returned success;
+- any product flow that still needs a separate real-user smoke.
+
+Resource-list commands, D1 inspection, and direct Worker calls are diagnostics,
+not real-user smoke. Feature smoke must still use Web, a staging-aligned CLI or
+Service, and the product-supported trace path. A failed step stops the guarded
+deployment and keeps its error context; do not report partial deployment as a
+working staging environment.
+
+## Planned Test Layers
+
+The staging platform is deliberately delivered in layers:
+
+1. the internal Cloudflare environment and guarded deployment;
+2. a staging-only CLI and OpenMeld Service update channel;
+3. one repeatable regression smoke for Computer connection, automatic and
+   manual update coordination, Service recovery, and Wake result safety.
+
+The third layer is worth automating because every CLI or Service release can
+regress the same critical product promise. Feature-specific tests remain
+manual or focused automation; staging is not a mandate to build one giant test
+for every product surface.

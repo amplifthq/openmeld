@@ -16,12 +16,15 @@ import {
   buildDopplerComponentCommand,
   buildInjectedComponentEnvironment,
   buildInjectedEnvironment,
+  buildInjectedStagingComponentEnvironment,
   buildNestedDopplerCommand,
   DEVELOPMENT_SECRET_SOURCES,
   findLocalShadowFiles,
   inspectEnvironment,
   PRODUCTION_WORKER_SECRET_SOURCES,
   resolveDevelopmentComponentSources,
+  resolveStagingComponentSources,
+  STAGING_WORKER_SECRET_SOURCES,
 } from "./doppler-environment.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -201,6 +204,57 @@ test("keeps production readiness read-only and scoped to prd", () => {
   assert.equal(serialized.includes("sync:secrets:prod"), false);
 });
 
+test("keeps staging readiness scoped to the minimal stg secret set", () => {
+  const command = buildNestedDopplerCommand({
+    sources: STAGING_WORKER_SECRET_SOURCES,
+    terminalArgs: ["node", "script.mjs", "__check", "stg"],
+  });
+  const serialized = [command.executable, ...command.args].join(" ");
+
+  assert.equal(
+    countOccurrences(serialized, "--config stg"),
+    STAGING_WORKER_SECRET_SOURCES.length
+  );
+  assert.equal(serialized.includes("--config prd"), false);
+  assert.equal(serialized.includes("--config dev"), false);
+  assert.deepEqual(
+    STAGING_WORKER_SECRET_SOURCES.map((source) => source.project),
+    [
+      "openmeld-release",
+      "openmeld-web",
+      "openmeld-auth",
+      "openmeld-remote-agent",
+    ]
+  );
+  assert.deepEqual(STAGING_WORKER_SECRET_SOURCES[0].requiredSecrets, [
+    "CLOUDFLARE_ACCOUNT_ID",
+    "CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN",
+  ]);
+});
+
+test("gives each staging deployable only the secrets it needs", () => {
+  assert.deepEqual(
+    Object.fromEntries(
+      ["web", "auth", "core", "gateway", "remote-agent"].map((component) => [
+        component,
+        resolveStagingComponentSources(component).map(
+          (source) => source.project
+        ),
+      ])
+    ),
+    {
+      auth: ["openmeld-release", "openmeld-auth"],
+      core: ["openmeld-release"],
+      gateway: ["openmeld-release"],
+      "remote-agent": ["openmeld-release", "openmeld-remote-agent"],
+      web: ["openmeld-release", "openmeld-web"],
+    }
+  );
+  assert.deepEqual(resolveStagingComponentSources("release"), [
+    STAGING_WORKER_SECRET_SOURCES[0],
+  ]);
+});
+
 test("reports required and optional availability without exposing values", () => {
   const sources = [
     {
@@ -289,6 +343,23 @@ test("passes only one component's managed secrets into its runtime", () => {
       SLACK_OPENMELD_OAUTH_CLIENT_ID: "gateway-client-id",
       SLACK_OPENMELD_OAUTH_CLIENT_SECRET: "gateway-client-secret",
       SLACK_OPENMELD_SIGNING_SECRET: "gateway-signing-secret",
+    }
+  );
+});
+
+test("maps the stable OpenMeld release token name only at the staging command boundary", () => {
+  assert.deepEqual(
+    buildInjectedStagingComponentEnvironment("core", {
+      CLOUDFLARE_ACCOUNT_ID: "account-id",
+      CLOUDFLARE_API_TOKEN: "stale-native-token",
+      CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "must-not-reach-core",
+      CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: "staging-release-token",
+      EXISTING_VALUE: "kept",
+    }),
+    {
+      CLOUDFLARE_ACCOUNT_ID: "account-id",
+      CLOUDFLARE_API_TOKEN: "staging-release-token",
+      EXISTING_VALUE: "kept",
     }
   );
 });

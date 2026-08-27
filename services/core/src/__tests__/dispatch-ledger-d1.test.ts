@@ -1012,6 +1012,7 @@ const createInMemoryDispatchLedgerDb = (options?: {
 };
 
 const buildDispatchMessage = (overrides?: {
+  deliveryRecoveryReason?: OpenMeldDaemonDispatchQueueMessage["deliveryRecoveryReason"];
   dispatchOwner?: OpenMeldDaemonDispatchQueueMessage["dispatchOwner"];
   dispatchId?: string;
   idempotencyKey?: string;
@@ -1027,6 +1028,9 @@ const buildDispatchMessage = (overrides?: {
     dispatchId,
     spaceId: "space-1",
     sourceEventId,
+    ...(overrides?.deliveryRecoveryReason
+      ? { deliveryRecoveryReason: overrides.deliveryRecoveryReason }
+      : {}),
     ...(overrides?.sourceClientMessageId
       ? { sourceClientMessageId: overrides.sourceClientMessageId }
       : {}),
@@ -1291,6 +1295,40 @@ describe("claimDispatchAttempt", () => {
       status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.waitingResult,
       targetProfileId: message.targetProfileId,
       taskId: message.taskId,
+    });
+  });
+
+  it("reuses the active dispatch attempt for incomplete hosted admission recovery", async () => {
+    const { db } = createInMemoryDispatchLedgerDb();
+    const message = buildDispatchMessage({
+      dispatchId: "dispatch-hosted-admission-recovery-1",
+      sourceEventId: "signal-hosted-admission-recovery-1",
+      targetProfileId: "agt-hosted-admission-recovery-1",
+    });
+    const first = await claimDispatchAttempt({
+      attempt: 1,
+      db,
+      message,
+      nowMs: 1000,
+    });
+    if (first.status !== "claimed") {
+      throw new Error("expected first hosted dispatch claim");
+    }
+
+    await expect(
+      claimDispatchAttempt({
+        attempt: 2,
+        db,
+        message: {
+          ...message,
+          deliveryRecoveryReason: "hosted_admission_incomplete",
+        },
+        nowMs: 30_000,
+      })
+    ).resolves.toEqual({
+      hostedAdmissionRecoveryAttemptId: first.attemptId,
+      hostedAdmissionRecoveryAttemptNo: first.attemptNo,
+      status: "deduped",
     });
   });
 
