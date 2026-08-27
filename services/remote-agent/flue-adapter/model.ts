@@ -22,10 +22,6 @@ import {
 } from "../agent-core/model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
-import {
-  expandRemoteAgentCapabilityDependencies,
-  rankRemoteAgentCapabilities,
-} from "./capability-catalog";
 import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "./capability-discovery";
 import { emitCenterAgentPerformanceMilestone } from "./center-agent-performance-observability";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
@@ -749,9 +745,8 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
       const originalToolCount = Array.isArray(resolvedPayload.tools)
         ? resolvedPayload.tools.length
         : 0;
-      const compactedTools = compactRemoteAgentProviderTools(
-        resolvedPayload.tools,
-        resolvedPayload.messages
+      const compactedTools = exposeRemoteAgentBootstrapTools(
+        resolvedPayload.tools
       );
       const preparedPayload =
         compactedTools === resolvedPayload.tools
@@ -857,29 +852,23 @@ function enforceRemoteAgentProviderContextCapacity(input: {
   });
 }
 
-const REMOTE_AGENT_DIRECT_TOOL_SCHEMA_LIMIT = 64;
 const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
-const REMOTE_AGENT_RELEVANT_DIRECT_TOOL_LIMIT = 8;
 const REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET = new Set<string>([
   ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
   ...REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
 ]);
 
-function compactRemoteAgentProviderTools(
-  tools: unknown,
-  messages: unknown
-): unknown {
+function exposeRemoteAgentBootstrapTools(tools: unknown): unknown {
   if (!Array.isArray(tools)) {
     return tools;
   }
   const codeModeTools = tools.filter(isRemoteAgentCodeModeProviderTool);
-  const directToolCount = tools.length - codeModeTools.length;
-  if (directToolCount <= REMOTE_AGENT_DIRECT_TOOL_SCHEMA_LIMIT) {
+  if (codeModeTools.length === 0) {
     return tools;
   }
   if (codeModeTools.length !== 1) {
     throw new Error(
-      "A large Remote Agent tool surface requires exactly one Code Mode tool."
+      "A Remote Agent capability catalog requires exactly one Code Mode tool."
     );
   }
   const alwaysDirectTools = tools.filter(
@@ -890,85 +879,7 @@ function compactRemoteAgentProviderTools(
       typeof tool.function.name === "string" &&
       REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET.has(tool.function.name)
   );
-  if (alwaysDirectTools.length > REMOTE_AGENT_DIRECT_TOOL_SCHEMA_LIMIT) {
-    throw new Error(
-      "The required direct Remote Agent tool surface exceeds the provider schema limit."
-    );
-  }
-  const latestUserText = readLatestRemoteAgentUserText(messages);
-  const candidateTools = tools.flatMap((tool) => {
-    const summary = readRemoteAgentProviderToolSummary(tool);
-    return summary &&
-      !REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET.has(summary.name) &&
-      summary.name !== REMOTE_AGENT_CODE_MODE_TOOL_NAME
-      ? [{ summary, tool }]
-      : [];
-  });
-  const rankedCapabilities = rankRemoteAgentCapabilities(
-    candidateTools.map(({ summary }) => summary),
-    latestUserText
-  );
-  const strongestScore = rankedCapabilities[0]?.score ?? 0;
-  const relevantNames = expandRemoteAgentCapabilityDependencies(
-    new Set(
-      rankedCapabilities
-        .filter(({ score }) => score >= strongestScore * 0.6)
-        .slice(0, REMOTE_AGENT_RELEVANT_DIRECT_TOOL_LIMIT)
-        .map(({ capability }) => capability.name)
-    )
-  );
-  const relevantTools = candidateTools
-    .filter(({ summary }) => relevantNames.has(summary.name))
-    .map(({ tool }) => tool);
-  return [...alwaysDirectTools, ...relevantTools, ...codeModeTools];
-}
-
-function readRemoteAgentProviderToolSummary(
-  tool: unknown
-): { description: string; name: string } | null {
-  if (
-    !isRecord(tool) ||
-    tool.type !== "function" ||
-    !isRecord(tool.function) ||
-    typeof tool.function.name !== "string"
-  ) {
-    return null;
-  }
-  return {
-    description:
-      typeof tool.function.description === "string"
-        ? tool.function.description
-        : "",
-    name: tool.function.name,
-  };
-}
-
-function readLatestRemoteAgentUserText(messages: unknown): string {
-  if (!Array.isArray(messages)) {
-    return "";
-  }
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (!(isRecord(message) && message.role === "user")) {
-      continue;
-    }
-    if (typeof message.content === "string") {
-      return message.content;
-    }
-    if (!Array.isArray(message.content)) {
-      return "";
-    }
-    return message.content
-      .flatMap((part) =>
-        isRecord(part) &&
-        (part.type === "text" || part.type === "input_text") &&
-        typeof part.text === "string"
-          ? [part.text]
-          : []
-      )
-      .join("\n");
-  }
-  return "";
+  return [...alwaysDirectTools, ...codeModeTools];
 }
 
 function isRemoteAgentCodeModeProviderTool(tool: unknown): boolean {

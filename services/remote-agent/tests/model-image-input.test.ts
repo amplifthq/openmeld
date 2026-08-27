@@ -225,7 +225,10 @@ describe("Remote Agent model reasoning", () => {
     ).resolves.toMatchObject(payload);
   });
 
-  it("keeps progressive discovery beside Code Mode without duplicating the catalog in the provider payload", async () => {
+  it.each([
+    "z-ai/glm-5.3-flash",
+    "x-ai/grok-4.6",
+  ])("keeps the same progressive discovery bootstrap for %s", async (modelId) => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
@@ -257,7 +260,7 @@ describe("Remote Agent model reasoning", () => {
 
     const payload = await options.onPayload?.(
       { messages: [{ content: "hello", role: "user" }], tools },
-      TEXT_ONLY_MODEL
+      { ...TEXT_ONLY_MODEL, id: modelId }
     );
 
     expect(payload).toMatchObject({ tools: [...discoveryTools, codemode] });
@@ -362,7 +365,7 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
-  it("loads the exact Slack invitation capabilities for a Chinese user goal", async () => {
+  it("does not let Chinese user wording preselect Slack capabilities", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
@@ -420,7 +423,10 @@ describe("Remote Agent model reasoning", () => {
     );
 
     expect(payload).toMatchObject({
-      tools: [...discoveryTools, slackDirectory, slackInvitation, codemode],
+      tools: [...discoveryTools, codemode],
+    });
+    expect(payload).not.toMatchObject({
+      tools: expect.arrayContaining([slackDirectory, slackInvitation]),
     });
     expect(payload).not.toMatchObject({
       tools: expect.arrayContaining(unrelatedTools),
@@ -428,12 +434,12 @@ describe("Remote Agent model reasoning", () => {
     expect(reportStage).toHaveBeenCalledWith(
       expect.objectContaining({
         messageCount: 1,
-        toolCount: 5,
+        toolCount: 3,
       })
     );
   });
 
-  it("loads member directory before member Computer diagnostics", async () => {
+  it("does not let a broad user phrase preselect member capabilities", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
@@ -486,12 +492,10 @@ describe("Remote Agent model reasoning", () => {
     );
 
     expect(payload).toMatchObject({
-      tools: [
-        ...discoveryTools,
-        organizationDirectory,
-        memberComputers,
-        codemode,
-      ],
+      tools: [...discoveryTools, codemode],
+    });
+    expect(payload).not.toMatchObject({
+      tools: expect.arrayContaining([organizationDirectory, memberComputers]),
     });
     expect(payload).not.toMatchObject({
       tools: expect.arrayContaining(unrelatedTools),
@@ -499,7 +503,7 @@ describe("Remote Agent model reasoning", () => {
     expect(reportStage).toHaveBeenCalledWith(
       expect.objectContaining({
         messageCount: 1,
-        toolCount: 5,
+        toolCount: 3,
       })
     );
   });
@@ -572,7 +576,7 @@ describe("Remote Agent model reasoning", () => {
       targetDescription: "Create one working Agent Profile request.",
       targetName: "openmeld_create_agent_profile_request",
     },
-  ])("loads exact prerequisites before $targetName", async ({
+  ])("does not preselect $targetName or its prerequisites from user text", async ({
     prerequisites,
     query,
     targetDescription,
@@ -624,7 +628,10 @@ describe("Remote Agent model reasoning", () => {
     );
 
     expect(payload).toMatchObject({
-      tools: [...discoveryTools, ...prerequisiteTools, target, codemode],
+      tools: [...discoveryTools, codemode],
+    });
+    expect(payload).not.toMatchObject({
+      tools: expect.arrayContaining([...prerequisiteTools, target]),
     });
     expect(payload).not.toMatchObject({
       tools: expect.arrayContaining(unrelatedTools),
@@ -632,12 +639,12 @@ describe("Remote Agent model reasoning", () => {
     expect(reportStage).toHaveBeenCalledWith(
       expect.objectContaining({
         messageCount: 1,
-        toolCount: 4 + prerequisiteTools.length,
+        toolCount: 3,
       })
     );
   });
 
-  it("fails fast when a large tool surface has no Code Mode capability catalog", async () => {
+  it("does not impose a fixed schema-count limit on a generic provider payload", async () => {
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
     const directTools = Array.from({ length: 65 }, (_, index) => ({
       function: { name: `tool_${String(index)}` },
@@ -649,12 +656,10 @@ describe("Remote Agent model reasoning", () => {
         { messages: [{ content: "hello", role: "user" }], tools: directTools },
         TEXT_ONLY_MODEL
       )
-    ).rejects.toThrow(
-      "A large Remote Agent tool surface requires exactly one Code Mode tool."
-    );
+    ).resolves.toMatchObject({ tools: directTools });
   });
 
-  it("keeps an explicitly requested Task with the primary Agent while compacting the tool surface", async () => {
+  it("keeps Task selection with the primary Agent instead of preselecting a Task write", async () => {
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
     const createTask = {
       function: { name: "openmeld_create_task" },
@@ -668,6 +673,9 @@ describe("Remote Agent model reasoning", () => {
       function: { name: "codemode" },
       type: "function",
     };
+    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
+      (name) => ({ function: { name }, type: "function" })
+    );
     const tools = [
       createTask,
       createSpace,
@@ -675,6 +683,7 @@ describe("Remote Agent model reasoning", () => {
         function: { name: `tool_${String(index)}` },
         type: "function",
       })),
+      ...discoveryTools,
       codemode,
     ];
 
@@ -695,12 +704,12 @@ describe("Remote Agent model reasoning", () => {
 
     expect(payload).toMatchObject({
       reasoning: { effort: "high" },
-      tools: [createTask, codemode],
+      tools: [...discoveryTools, codemode],
     });
     expect(payload).not.toHaveProperty("tool_choice");
   });
 
-  it("preserves a successful legacy Space result for the primary Agent without forcing another write", async () => {
+  it("preserves a successful legacy Space result without re-exposing its write tool", async () => {
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
     const codemode = {
       function: { name: "codemode" },
@@ -760,19 +769,13 @@ describe("Remote Agent model reasoning", () => {
     expect(payload).toMatchObject({
       messages,
       reasoning: { effort: "high" },
-      tools: [
-        {
-          function: { name: "openmeld_create_space" },
-          type: "function",
-        },
-        codemode,
-      ],
+      tools: [codemode],
     });
     expect(JSON.stringify(payload)).toContain("space_existing");
     expect(payload).not.toHaveProperty("tool_choice");
   });
 
-  it("keeps an explicitly requested Space with the primary Agent", async () => {
+  it("keeps Space selection with the primary Agent instead of preselecting a Space write", async () => {
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
     const createSpace = {
       function: { name: "openmeld_create_space" },
@@ -811,7 +814,7 @@ describe("Remote Agent model reasoning", () => {
 
     expect(payload).toMatchObject({
       reasoning: { effort: "high" },
-      tools: [createSpace, codemode],
+      tools: [codemode],
     });
     expect(payload).not.toHaveProperty("tool_choice");
   });
