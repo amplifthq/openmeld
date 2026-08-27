@@ -99,30 +99,20 @@ export function buildStructuredActionRepairPrompt(input: {
   spaceId?: string | null;
   previousOutput?: string | null;
 }): string {
-  const previousOutput = normalizeOptionalText(input.previousOutput);
-  const normalizedSpaceId = normalizeOptionalText(input.spaceId);
+  const previousOutput = buildBoundedRepairOutputPreview(input.previousOutput);
   const cliEntry = normalizeOptionalText(input.cliEntry) ?? "openmeld";
-  const historyCommand = normalizedSpaceId
-    ? `${cliEntry} space history ${normalizedSpaceId} --kind text --limit 20`
-    : `${cliEntry} space history <space-id> --kind text --limit 20`;
-  const promptCommand = `${cliEntry} prompt`;
-  const spaceGuideCommand = normalizedSpaceId
-    ? `${cliEntry} space guide ${normalizedSpaceId}`
-    : `${cliEntry} space guide <space-id>`;
   const publicationRequirement = resolveSpacePublicationRequirement(
     input.spaceContractSnapshot
   );
   return [
-    "Your previous OpenMeld Space structured action was invalid.",
-    `Problem: ${input.parseError}`,
+    `OpenMeld delivery repair: ${input.parseError}`,
     ...(previousOutput
       ? ["Your previous final answer was:", "```text", previousOutput, "```"]
       : []),
-    "This is a bounded repair of the public delivery action only. Do not redo the user's work.",
-    "Do not change the user's intent.",
+    "Do not redo the user's work or change the answer.",
     ...SPACE_ACTION_CONTEXT_GUIDANCE_LINES,
     "Your answer text never selects an OpenMeld Space action.",
-    "Call exactly one dispatch-scoped OpenMeld Space Action tool to repair the delivery action. Use the CLI only if the tool is unavailable.",
+    "Call exactly one dispatch-scoped OpenMeld Space Action tool now.",
     publicationRequirement.repairRequirementLine,
     ...SPACE_ACTION_TARGET_GUIDANCE_LINES,
     ...(normalizeOptionalText(input.currentReplyToSignalId)
@@ -134,13 +124,7 @@ export function buildStructuredActionRepairPrompt(input: {
     ...buildStructuredActionRepairSendTargetReferenceLines(
       input.sendTargetReferenceLines
     ),
-    `If you need recent public room context, use \`${historyCommand}\`.`,
-    `If you need the OpenMeld action rules again, read the official guidance with \`${promptCommand}\` or \`${spaceGuideCommand}\`.`,
-    ...(normalizedSpaceId
-      ? [
-          `For this room, you can inspect the current guide with \`${spaceGuideCommand}\`.`,
-        ]
-      : []),
+    "Use the official `openmeld-cli` skill for future OpenMeld work.",
     ...buildStructuredActionRepairCompletionLines({
       cliEntry,
       publicationRequirement,
@@ -153,11 +137,23 @@ function buildStructuredActionRepairCompletionLines(input: {
   publicationRequirement: ReturnType<typeof resolveSpacePublicationRequirement>;
 }): string[] {
   return [
-    "Repair completion rule:",
     buildStructuredActionRepairPrimaryCommandLine(input),
     "If neither the tool nor the fallback command can record the action, stop. Do not print JSON or prose as a substitute.",
     "Do not finish with an explanation of what you will do.",
   ];
+}
+
+const REPAIR_OUTPUT_PREVIEW_MAX_CHARS = 1200;
+
+function buildBoundedRepairOutputPreview(value: unknown): string | null {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.length <= REPAIR_OUTPUT_PREVIEW_MAX_CHARS) {
+    return normalized;
+  }
+  return `${normalized.slice(0, REPAIR_OUTPUT_PREVIEW_MAX_CHARS).trimEnd()}\n[truncated; reuse the complete answer already in this conversation]`;
 }
 
 function buildStructuredActionRepairPrimaryCommandLine(input: {

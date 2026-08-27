@@ -686,12 +686,9 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       spaceId: "space-123",
     });
 
+    expect(prompt).toContain("OpenMeld delivery repair: malformed JSON");
     expect(prompt).toContain(
-      "Your previous OpenMeld Space structured action was invalid."
-    );
-    expect(prompt).toContain("Problem: malformed JSON");
-    expect(prompt).toContain(
-      "This is a bounded repair of the public delivery action only. Do not redo the user's work."
+      "Do not redo the user's work or change the answer."
     );
     expect(prompt).toContain(
       "Treat this Wake as the current source; tie other context to the claims it supports"
@@ -703,7 +700,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       "Your answer text never selects an OpenMeld Space action."
     );
     expect(prompt).toContain(
-      "Call exactly one dispatch-scoped OpenMeld Space Action tool to repair the delivery action. Use the CLI only if the tool is unavailable."
+      "Call exactly one dispatch-scoped OpenMeld Space Action tool now."
     );
     expect(prompt).toContain(
       "Preserve the user's intent and record exactly one dispatch-scoped OpenMeld Space Action. Do not print an action as JSON or prose."
@@ -711,7 +708,6 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     expect(prompt).toContain(
       "Use the dispatch-scoped Space Action reply for normal public replies, greetings, answers, and discussion."
     );
-    expect(prompt).toContain("Repair completion rule:");
     expect(prompt).toContain(
       'For a normal reply, call the OpenMeld Space Action `reply` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command `openmeld space action reply "corrected public message"` and wait for it to finish.'
     );
@@ -737,10 +733,11 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       'Use post_status only for final-safe outcomes: done, blocked, needs_input, or handoff. Do not use "working" or "ready" because post_status closes the Wake.'
     );
     expect(prompt).toContain(
-      "`openmeld space history space-123 --kind text --limit 20`"
+      "Use the official `openmeld-cli` skill for future OpenMeld work."
     );
-    expect(prompt).toContain("`openmeld prompt`");
-    expect(prompt).toContain("`openmeld space guide space-123`");
+    expect(prompt).not.toContain("space history");
+    expect(prompt).not.toContain("`openmeld prompt`");
+    expect(prompt).not.toContain("space guide");
     expect(prompt).not.toContain("```openmeld-space-action");
   });
 
@@ -752,14 +749,10 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     });
 
     expect(prompt).toContain(
-      "`openmeld-dev space history space-123 --kind text --limit 20`"
-    );
-    expect(prompt).toContain(
       'For a normal reply, call the OpenMeld Space Action `reply` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command `openmeld-dev space action reply "corrected public message"` and wait for it to finish.'
     );
-    expect(prompt).toContain("`openmeld-dev prompt`");
-    expect(prompt).toContain("`openmeld-dev space guide space-123`");
-    expect(prompt).not.toContain("`openmeld space history space-123`");
+    expect(prompt).not.toContain("space history");
+    expect(prompt).not.toContain("space guide");
   });
 
   it("includes the previous final answer in the repair prompt when available", () => {
@@ -772,6 +765,17 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     expect(prompt).toContain("Your previous final answer was:");
     expect(prompt).toContain("```text");
     expect(prompt).toContain("Here is the previous answer.");
+  });
+
+  it("keeps the repair reminder bounded when the previous answer was large", () => {
+    const prompt = buildStructuredActionRepairPrompt({
+      parseError: "no action was recorded",
+      previousOutput: `START-${"x".repeat(20_000)}-END`,
+    });
+
+    expect(prompt).toContain("START-");
+    expect(prompt).not.toContain("-END");
+    expect(prompt.length).toBeLessThan(5000);
   });
 
   it("keeps raw context sharing repair guidance compatible with plain raw replies", () => {
