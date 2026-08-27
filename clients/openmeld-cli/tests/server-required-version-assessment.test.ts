@@ -93,6 +93,7 @@ function buildReplyReadinessResponse(
       executionTargetStatus: "ready",
       lastObservedAtMs: Date.parse("2026-07-10T12:00:00.000Z"),
       reasonCodes: [],
+      signInOnlyBlockers: false,
       runtimeLane: "prod",
       openMeldServiceRuntimeId: {
         source: "runtime_registry_authority",

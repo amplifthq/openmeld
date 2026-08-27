@@ -140,7 +140,7 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 		return SERVICE_NOT_CONNECTED_STATUS;
 	}
 	if (readiness.nextAction === "run_setup") {
-		if (hasControllerSignInReason(readiness)) {
+		if (hasOnlyControllerSignInBlockers(readiness)) {
 			return AGENT_SIGN_IN_NEEDED_STATUS;
 		}
 		return AGENT_NEEDS_SETUP_STATUS;
@@ -258,10 +258,8 @@ function hasRequiredOpenMeldToolsUpdate(
 	);
 }
 
-function hasControllerSignInReason(
+function hasOnlyControllerSignInBlockers(
 	readiness: CurrentLocalRuntimeReplyReadinessResponse
 ): boolean {
-	return readiness.runtime.reasonCodes.includes(
-		"controller.auth.unauthenticated"
-	);
+	return readiness.runtime.signInOnlyBlockers === true;
 }

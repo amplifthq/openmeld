@@ -352,6 +352,7 @@ function buildConnectedReadiness(
 			lastObservedAtMs: 1_700_000_020_000,
 			reasonCodes: [],
 			runtimeLane: "dev-local",
+			signInOnlyBlockers: false,
 			openMeldServiceRuntimeId: null,
 		},
 		service: {
