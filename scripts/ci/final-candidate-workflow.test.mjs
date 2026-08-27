@@ -226,6 +226,13 @@ test("gives isolated candidate Node processes one explicit hosted-safe heap budg
   assert.doesNotMatch(commandWrapper, INHERITED_NODE_OPTIONS_PATTERN);
 });
 
+test("gives serial candidate validation enough time to finish", () => {
+  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const candidateJob = readJob(workflow, "candidate", "publish_final");
+
+  assert.ok(candidateJob.includes("timeout-minutes: 60"));
+});
+
 test("always finalizes an exact head after pending publication starts", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
   const finalJob = readJob(workflow, "publish_final", null);
