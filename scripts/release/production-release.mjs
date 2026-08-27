@@ -413,9 +413,15 @@ function productionQueueVerificationStep(scope) {
 function buildCommonReleaseStepSpecs(changedPaths) {
   const steps = [
     {
-      args: ["run", "verify:cloudflare:env-contract"],
+      args: [
+        "run",
+        "verify:cloudflare:env-contract",
+        "--",
+        "--profile",
+        "production",
+      ],
       command: "pnpm",
-      controlArgs: [],
+      controlArgs: ["--profile", "production"],
       controlCommand: "node",
       controlNodeArgs: ["--experimental-strip-types"],
       controlPath: "scripts/cloudflare/verify-worker-env-contract.mjs",
