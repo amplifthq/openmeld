@@ -9,6 +9,11 @@ const STAGING_KV_ID = "ce0678aff60e4d5b864ad0591ea5e88a";
 const PRODUCTION_RESOURCE_PATTERN = /-prod/u;
 const PRODUCTION_URL_PATTERN =
   /https:\/\/(?:auth\.|gateway\.)?openmeld\.ai(?:["/])/u;
+const DEPLOY_STAGING_SCRIPT_PATTERN = /deploy:stg/u;
+const STAGING_ARGUMENT_PATTERN = /stg/u;
+const PRODUCTION_ARGUMENT_PATTERN = /prod/u;
+const ENVIRONMENT_SECRET_SOURCE_PATTERN = /--from-env/u;
+const LOCAL_SECRET_FILE_PATTERN = /\.dev\.vars/u;
 
 const readConfig = (path) =>
   parseJsoncObject(
@@ -21,6 +26,14 @@ const configs = {
   gateway: readConfig("services/gateway/wrangler.jsonc"),
   remoteAgent: readConfig("services/remote-agent/wrangler.jsonc"),
   web: readConfig("clients/web/wrangler.jsonc"),
+};
+
+const packageManifests = {
+  auth: readConfig("services/auth/package.json"),
+  core: readConfig("services/core/package.json"),
+  gateway: readConfig("services/gateway/package.json"),
+  remoteAgent: readConfig("services/remote-agent/package.json"),
+  web: readConfig("clients/web/package.json"),
 };
 
 test("declares one isolated staging environment for every internal Worker", () => {
@@ -107,4 +120,41 @@ test("disables external message channels in staging", () => {
     configs.remoteAgent.env.stg.vars.OPENMELD_CONNECTORS_BASE_URL,
     ""
   );
+});
+
+test("gives every internal Worker an explicit staging deploy command", () => {
+  for (const [component, manifest] of Object.entries(packageManifests)) {
+    assert.match(
+      manifest.scripts?.["sync:config:stg"] ?? "",
+      DEPLOY_STAGING_SCRIPT_PATTERN,
+      `${component} must expose sync:config:stg`
+    );
+    assert.match(
+      manifest.scripts?.["deploy:stg"] ?? "",
+      STAGING_ARGUMENT_PATTERN,
+      `${component} must deploy only env.stg`
+    );
+    assert.doesNotMatch(
+      manifest.scripts?.["deploy:stg"] ?? "",
+      PRODUCTION_ARGUMENT_PATTERN
+    );
+  }
+});
+
+test("syncs staging secrets from Doppler without committed secret files", () => {
+  const secretOwners = [
+    packageManifests.web,
+    packageManifests.auth,
+    packageManifests.remoteAgent,
+  ];
+  for (const manifest of secretOwners) {
+    assert.match(
+      manifest.scripts?.["sync:secrets:stg"] ?? "",
+      ENVIRONMENT_SECRET_SOURCE_PATTERN
+    );
+    assert.doesNotMatch(
+      manifest.scripts?.["sync:secrets:stg"] ?? "",
+      LOCAL_SECRET_FILE_PATTERN
+    );
+  }
 });

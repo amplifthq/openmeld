@@ -86,6 +86,12 @@ export const STAGING_WORKER_SECRET_SOURCES = [
   {
     config: "stg",
     optionalSecrets: [],
+    project: "openmeld-release",
+    requiredSecrets: ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"],
+  },
+  {
+    config: "stg",
+    optionalSecrets: [],
     project: "openmeld-web",
     requiredSecrets: ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"],
   },
@@ -104,11 +110,12 @@ export const STAGING_WORKER_SECRET_SOURCES = [
 ];
 
 const STAGING_COMPONENT_PROJECTS = new Map([
-  ["web", ["openmeld-web"]],
-  ["auth", ["openmeld-auth"]],
-  ["core", []],
-  ["gateway", []],
-  ["remote-agent", ["openmeld-remote-agent"]],
+  ["release", ["openmeld-release"]],
+  ["web", ["openmeld-release", "openmeld-web"]],
+  ["auth", ["openmeld-release", "openmeld-auth"]],
+  ["core", ["openmeld-release"]],
+  ["gateway", ["openmeld-release"]],
+  ["remote-agent", ["openmeld-release", "openmeld-remote-agent"]],
 ]);
 
 const LOCAL_WORKER_DIRECTORIES = [
@@ -214,7 +221,7 @@ async function main() {
       const targetArgs = stripCommandSeparator(args.slice(1));
       if (targetArgs.length === 0) {
         throw new Error(
-          "Usage: doppler-environment.mjs component:stg <web|auth|core|gateway|remote-agent> -- <command> [arguments]"
+          "Usage: doppler-environment.mjs component:stg <release|web|auth|core|gateway|remote-agent> -- <command> [arguments]"
         );
       }
       const sources = resolveStagingComponentSources(component);

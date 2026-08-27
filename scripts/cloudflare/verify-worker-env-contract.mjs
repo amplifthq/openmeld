@@ -129,8 +129,16 @@ const workerPackages = [
     packageJsonPath: "clients/web/package.json",
     wranglerConfigPath: "clients/web/wrangler.jsonc",
     generatedTypesPath: "clients/web/worker-configuration.d.ts",
-    requiredScripts: ["cf-typegen", "sync:config:prod", "sync:prod"],
+    requiredScripts: [
+      "cf-typegen",
+      "deploy:stg",
+      "sync:config:prod",
+      "sync:config:stg",
+      "sync:prod",
+      "sync:stg",
+    ],
     secretOwned: true,
+    stagingSecretOwned: true,
     requiredSecretNames: ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"],
     requiredConfigEnvironments: ["stg", "prod"],
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
@@ -155,8 +163,16 @@ const workerPackages = [
     packageJsonPath: "services/auth/package.json",
     wranglerConfigPath: "services/auth/wrangler.jsonc",
     generatedTypesPath: "services/auth/worker-configuration.d.ts",
-    requiredScripts: ["cf-typegen", "sync:config:prod", "sync:prod"],
+    requiredScripts: [
+      "cf-typegen",
+      "deploy:stg",
+      "sync:config:prod",
+      "sync:config:stg",
+      "sync:prod",
+      "sync:stg",
+    ],
     secretOwned: true,
+    stagingSecretOwned: true,
     requiredSecretNames: [
       "BETTER_AUTH_OPENMELD_SECRET",
       "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET",
@@ -189,7 +205,14 @@ const workerPackages = [
     packageJsonPath: "services/core/package.json",
     wranglerConfigPath: "services/core/wrangler.jsonc",
     generatedTypesPath: "services/core/worker-configuration.d.ts",
-    requiredScripts: ["cf-typegen", "sync:config:prod", "sync:prod"],
+    requiredScripts: [
+      "cf-typegen",
+      "deploy:stg",
+      "sync:config:prod",
+      "sync:config:stg",
+      "sync:prod",
+      "sync:stg",
+    ],
     secretOwned: true,
     requiredSecretNames: [
       "GITHUB_OPENMELD_API_TOKEN",
@@ -282,8 +305,16 @@ const workerPackages = [
     packageJsonPath: "services/remote-agent/package.json",
     wranglerConfigPath: "services/remote-agent/wrangler.jsonc",
     generatedTypesPath: "services/remote-agent/worker-configuration.d.ts",
-    requiredScripts: ["cf-typegen", "sync:config:prod", "sync:prod"],
+    requiredScripts: [
+      "cf-typegen",
+      "deploy:stg",
+      "sync:config:prod",
+      "sync:config:stg",
+      "sync:prod",
+      "sync:stg",
+    ],
     secretOwned: true,
+    stagingSecretOwned: true,
     requiredSecretNames: [
       "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
       "CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN",
@@ -357,7 +388,14 @@ const workerPackages = [
     packageJsonPath: "services/gateway/package.json",
     wranglerConfigPath: "services/gateway/wrangler.jsonc",
     generatedTypesPath: "services/gateway/worker-configuration.d.ts",
-    requiredScripts: ["cf-typegen", "sync:config:prod", "sync:prod"],
+    requiredScripts: [
+      "cf-typegen",
+      "deploy:stg",
+      "sync:config:prod",
+      "sync:config:stg",
+      "sync:prod",
+      "sync:stg",
+    ],
     secretOwned: true,
     requiredSecretNames: [
       "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
@@ -618,6 +656,17 @@ for (const workerPackage of workerPackages) {
         );
       }
     }
+  }
+
+  if (workerPackage.stagingSecretOwned) {
+    ensure(
+      scripts["sync:secrets:stg"]?.includes("--from-env") ?? false,
+      `${workerPackage.name} must inject staging secrets through Doppler instead of a local file.`
+    );
+    ensure(
+      !(scripts["sync:secrets:stg"]?.includes(".dev.vars") ?? true),
+      `${workerPackage.name} staging secrets must not depend on .dev.vars files.`
+    );
   }
 
   const workerConfig = parseJsoncObject(workerPackage.wranglerConfigPath);

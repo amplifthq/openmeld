@@ -218,7 +218,12 @@ test("keeps staging readiness scoped to the minimal stg secret set", () => {
   assert.equal(serialized.includes("--config dev"), false);
   assert.deepEqual(
     STAGING_WORKER_SECRET_SOURCES.map((source) => source.project),
-    ["openmeld-web", "openmeld-auth", "openmeld-remote-agent"]
+    [
+      "openmeld-release",
+      "openmeld-web",
+      "openmeld-auth",
+      "openmeld-remote-agent",
+    ]
   );
 });
 
@@ -233,13 +238,16 @@ test("gives each staging deployable only the secrets it needs", () => {
       ])
     ),
     {
-      auth: ["openmeld-auth"],
-      core: [],
-      gateway: [],
-      "remote-agent": ["openmeld-remote-agent"],
-      web: ["openmeld-web"],
+      auth: ["openmeld-release", "openmeld-auth"],
+      core: ["openmeld-release"],
+      gateway: ["openmeld-release"],
+      "remote-agent": ["openmeld-release", "openmeld-remote-agent"],
+      web: ["openmeld-release", "openmeld-web"],
     }
   );
+  assert.deepEqual(resolveStagingComponentSources("release"), [
+    STAGING_WORKER_SECRET_SOURCES[0],
+  ]);
 });
 
 test("reports required and optional availability without exposing values", () => {
