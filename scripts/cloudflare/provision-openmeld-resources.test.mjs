@@ -86,6 +86,22 @@ test("keeps staging infrastructure isolated from production", () => {
   );
 });
 
+test("requests every Durable Object namespace in one page", () => {
+  const durableObjects = [
+    ...OPENMELD_RESOURCES,
+    ...OPENMELD_STAGING_RESOURCES,
+  ].filter((resource) => resource.kind === "Durable Object namespace");
+
+  assert.ok(durableObjects.length > 0);
+  assert.ok(
+    durableObjects.every(
+      (resource) =>
+        resource.listPath ===
+        "/workers/durable_objects/namespaces?per_page=100"
+    )
+  );
+});
+
 test("allows deployment-managed staging resources to arrive after prerequisites", async () => {
   const missingDeploymentManagedResources = OPENMELD_STAGING_RESOURCES.filter(
     (resource) => resource.lifecycle === "deployment-managed"
