@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { resolveAppNavigationItems } from "./app-navigation-items";
+import {
+	appShellStaticData,
+	resolveAppOuterRailDestinationFromMatches,
+} from "./shell-layout";
 
 describe("resolveAppNavigationItems", () => {
 	it("uses Home as the only primary Center Agent conversation entry", () => {
@@ -23,5 +27,10 @@ describe("resolveAppNavigationItems", () => {
 		});
 
 		expect(items.some((item) => item.label === "Computers")).toBe(false);
+		expect(
+			resolveAppOuterRailDestinationFromMatches([
+				{ staticData: appShellStaticData.computers },
+			])
+		).toBe("people");
 	});
 });
