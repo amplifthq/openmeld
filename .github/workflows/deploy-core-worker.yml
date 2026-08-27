@@ -119,7 +119,7 @@ jobs:
           source_sha: ${{ inputs.release_sha }}
           working_directory: release-source
 
-      - name: Run Core Worker deployment preflight
+      - name: Run trusted Core Worker deployment preflight
         if: inputs.deployment_mode == 'standard'
         shell: bash
         env:
