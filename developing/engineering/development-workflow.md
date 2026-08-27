@@ -87,8 +87,9 @@ the correct owner document. Do not migrate raw logs or long historical notes.
   applied.
 - After regeneration, set `LATEST_SHARED_MIGRATION_ID` to the rebased journal
   entry count and run the shared migration-history integrity test. Put an
-  approved lane into the merge queue immediately instead of allowing its shared
-  registries and migration base to drift.
+  approved lane into the merge queue immediately when that repository capability
+  is available. Otherwise, use one short strict-up-to-date merge slot instead of
+  asking unrelated agents to stop work.
 
 ### Delivery Pipeline
 
@@ -122,10 +123,10 @@ the correct owner document. Do not migrate raw logs or long historical notes.
 - A background command attached to Codex must redirect standard input explicitly
   with `< /dev/null` so it cannot wait on the agent session.
 - Do not ask unrelated agents to freeze `main` while one Final Candidate runs.
-  A successful exact PR candidate keeps its immutable evidence; GitHub's merge
-  queue owns the short-lived latest-main merge-group fact. Agents should inspect
-  those facts and choose their next action without CI/CD making a business or
-  review decision for them.
+  A successful exact PR candidate keeps its immutable evidence. Merge queue owns
+  the latest-main combination when available; strict up-to-date protection owns
+  it otherwise. Agents should inspect those facts and choose their next action
+  without CI/CD making a business or review decision for them.
 
 ## Standard Lanes
 
