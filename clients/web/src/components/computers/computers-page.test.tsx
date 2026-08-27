@@ -244,6 +244,10 @@ function buildComputer(input: {
 function buildRecoveryControllerStub(input: {
 	devices: readonly LocalRuntimeComputer[];
 	isPending?: boolean;
+	isFetching?: boolean;
+	isFetchedAfterMount?: boolean;
+	isError?: boolean;
+	error?: Error | null;
 	connectedDeviceId?: string | null;
 	currentReadiness?: CurrentLocalRuntimeReplyReadinessResponse | null;
 	isCurrentReadinessFetching?: boolean;
@@ -261,6 +265,10 @@ function buildRecoveryControllerStub(input: {
 				localRuntimes: input.devices,
 			},
 			isPending: input.isPending ?? false,
+			isFetching: input.isFetching ?? false,
+			isFetchedAfterMount: input.isFetchedAfterMount ?? true,
+			isError: input.isError ?? false,
+			error: input.error ?? null,
 		},
 		currentDeviceTargetQuery: {
 			data: connectedDeviceId
@@ -278,6 +286,7 @@ function buildRecoveryControllerStub(input: {
 			isFetching: input.isCurrentReadinessFetching ?? false,
 			isPending: false,
 		},
+		refreshAll: vi.fn().mockResolvedValue(undefined),
 	};
 }
 
@@ -307,10 +316,15 @@ function buildOrganizationDirectory(input: {
 		members: [
 			{
 				humanProfile: { profileId: "human-felix" },
+				memberId: "member-felix",
 				userId: "user-felix",
 				user: { name: "Felix" },
 			},
-			{ userId: "user-ashley", user: { name: "Ashley" } },
+			{
+				memberId: "member-ashley",
+				userId: "user-ashley",
+				user: { name: "Ashley" },
+			},
 		],
 		agentProfiles: input.includeOtherMemberComputers
 			? [
@@ -559,6 +573,9 @@ describe("ComputersPage", () => {
 		expect(
 			screen.queryByRole("button", { name: COMPUTER_OPTIONS_NAME_PATTERN })
 		).toBeNull();
+		expect(
+			screen.getByTestId("computer-owner-profile-link").getAttribute("href")
+		).toBe("/o/acme/people?profileId=member:member-ashley");
 	});
 
 	it("returns to People when the legacy Computers home has no current device", () => {
@@ -575,6 +592,52 @@ describe("ComputersPage", () => {
 
 		expect(onComputerRouteUnavailable).toHaveBeenCalledOnce();
 		expect(screen.queryByTestId("computers-picker-list")).toBeNull();
+	});
+
+	it("waits for setup-complete inventory reconciliation before returning to People", () => {
+		const onComputerRouteUnavailable = vi.fn();
+		useRefreshComputersAfterSetupCompleteMock.mockReturnValue("pending");
+		useLocalAgentRecoveryControllerMock.mockReturnValue(
+			buildRecoveryControllerStub({
+				connectedDeviceId: null,
+				devices: [],
+				isFetchedAfterMount: false,
+			})
+		);
+
+		const view = render(
+			<TestComputersRouteStateProvider
+				value={{
+					computersSetupCompleteRefresh: true,
+					onComputerRouteUnavailable,
+				}}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(onComputerRouteUnavailable).not.toHaveBeenCalled();
+
+		useRefreshComputersAfterSetupCompleteMock.mockReturnValue("ready");
+		useLocalAgentRecoveryControllerMock.mockReturnValue(
+			buildRecoveryControllerStub({
+				connectedDeviceId: null,
+				devices: [],
+				isFetchedAfterMount: true,
+			})
+		);
+		view.rerender(
+			<TestComputersRouteStateProvider
+				value={{
+					computersSetupCompleteRefresh: true,
+					onComputerRouteUnavailable,
+				}}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(onComputerRouteUnavailable).toHaveBeenCalledOnce();
 	});
 
 	it("renders a computer detail from the selected device route state", () => {
@@ -827,5 +890,36 @@ describe("ComputersPage", () => {
 		);
 
 		expect(screen.getByTestId("selected-computer-panel")).toBeTruthy();
+	});
+
+	it("shows a retryable projection error before declaring a Computer missing", () => {
+		useLocalAgentRecoveryControllerMock.mockReturnValue(
+			buildRecoveryControllerStub({
+				devices: [],
+				error: new Error("Local Computer inventory could not be loaded."),
+				isError: true,
+			})
+		);
+
+		render(
+			<TestComputersRouteStateProvider
+				value={{ computersSelectedDeviceId: "device-office" }}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(
+			screen.getByRole("heading", {
+				name: "Computer details are unavailable",
+			})
+		).toBeTruthy();
+		expect(
+			screen.getByText("Local Computer inventory could not be loaded.")
+		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+		expect(
+			screen.queryByRole("heading", { name: "Computer not found" })
+		).toBeNull();
 	});
 });

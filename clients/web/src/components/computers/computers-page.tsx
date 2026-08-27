@@ -1,7 +1,7 @@
 "use client";
 
 import type { LocalRuntimeComputer } from "@openmeld/schemas/types";
-import { buttonVariants } from "@openmeld/ui/components/button";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
@@ -93,6 +93,12 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		isOrganizationContext &&
 		(organizationDirectoryQuery.isPending ||
 			organizationComputersQuery.isPending);
+	const computerResolutionError = resolveComputerResolutionError([
+		recovery.localRuntimesQuery.error,
+		...(isOrganizationContext
+			? [organizationDirectoryQuery.error, organizationComputersQuery.error]
+			: []),
+	]);
 	const computerGroups = resolveOrganizationComputerGroups({
 		currentUserId,
 		directory: organizationDirectoryQuery.data ?? null,
@@ -131,7 +137,15 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	});
 	useResolveMissingComputerRoute({
 		canResolvePreferredDeviceRoute,
-		inventoryIsPending: recovery.localRuntimesQuery.isPending,
+		inventoryIsSettled:
+			!(
+				recovery.localRuntimesQuery.isPending ||
+				recovery.localRuntimesQuery.isFetching
+			) &&
+			recovery.localRuntimesQuery.isFetchedAfterMount &&
+			!recovery.localRuntimesQuery.isError &&
+			setupCompleteRefreshStatus !== "pending" &&
+			setupCompleteRefreshStatus !== "error",
 		onComputerRouteUnavailable: routeState.onComputerRouteUnavailable,
 		preferredDeviceId,
 		shouldResolve: selectedDeviceId === null,
@@ -144,11 +158,13 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	});
 
 	const sectionTitle = resolveComputersSectionTitle({
+		hasResolutionError: computerResolutionError !== null,
 		selectedOrganizationComputer,
 		selectedComputer,
 		selectedDeviceId,
 	});
 	const sectionDescription = resolveComputersSectionDescription({
+		hasResolutionError: computerResolutionError !== null,
 		selectedOrganizationComputer,
 		selectedComputer,
 		selectedDeviceId,
@@ -192,9 +208,28 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 					computerGroups={computerGroups}
 					directoryIsPending={directoryIsPending}
 					isReconcilingCurrentToolsStatus={isReconcilingCurrentToolsStatus}
+					onRetry={() => {
+						Promise.all([
+							recovery.refreshAll(),
+							...(isOrganizationContext
+								? [
+										organizationDirectoryQuery.refetch(),
+										organizationComputersQuery.refetch(),
+									]
+								: []),
+						]).catch((error: unknown) => {
+							console.error("Failed to refresh Computer details.", error);
+						});
+					}}
 					orgSlug={orgSlug}
 					queryClient={queryClient}
 					recovery={recovery}
+					resolutionError={
+						computerResolutionError ??
+						(setupCompleteRefreshStatus === "error"
+							? "OpenMeld could not refresh this Computer after setup."
+							: null)
+					}
 					routeState={routeState}
 					selectedComputer={selectedComputer}
 					selectedDeviceId={selectedDeviceId}
@@ -210,6 +245,7 @@ function ComputersPageBody(input: {
 	computerGroups: readonly OrganizationComputerGroup[];
 	directoryIsPending: boolean;
 	isReconcilingCurrentToolsStatus: boolean;
+	onRetry: () => void;
 	orgSlug: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
@@ -217,6 +253,7 @@ function ComputersPageBody(input: {
 	selectedComputer: LocalRuntimeComputer | null;
 	selectedDeviceId: string | null;
 	selectedOrganizationComputer: OrganizationComputer | null;
+	resolutionError: string | null;
 	setupCompleteRefreshPending: boolean;
 }) {
 	if (
@@ -243,6 +280,14 @@ function ComputersPageBody(input: {
 		return (
 			<OrganizationComputerDetail
 				computer={input.selectedOrganizationComputer}
+			/>
+		);
+	}
+	if (input.resolutionError) {
+		return (
+			<ComputerResolutionErrorState
+				errorMessage={input.resolutionError}
+				onRetry={input.onRetry}
 			/>
 		);
 	}
@@ -279,7 +324,7 @@ function useResolvePreferredComputerRoute(input: {
 
 function useResolveMissingComputerRoute(input: {
 	canResolvePreferredDeviceRoute: boolean;
-	inventoryIsPending: boolean;
+	inventoryIsSettled: boolean;
 	onComputerRouteUnavailable?: () => void;
 	preferredDeviceId: string | null;
 	shouldResolve: boolean;
@@ -287,14 +332,14 @@ function useResolveMissingComputerRoute(input: {
 	useEffect(() => {
 		if (
 			input.shouldResolve &&
-			!input.inventoryIsPending &&
+			input.inventoryIsSettled &&
 			!(input.preferredDeviceId && input.canResolvePreferredDeviceRoute)
 		) {
 			input.onComputerRouteUnavailable?.();
 		}
 	}, [
 		input.canResolvePreferredDeviceRoute,
-		input.inventoryIsPending,
+		input.inventoryIsSettled,
 		input.onComputerRouteUnavailable,
 		input.preferredDeviceId,
 		input.shouldResolve,
@@ -315,9 +360,14 @@ function resolveComputerOwnerProfileId(input: {
 	if (!ownerUserId) {
 		return null;
 	}
+	const ownerMember = input.directory?.members.find(
+		(member) => member.userId === ownerUserId
+	);
+	if (!ownerMember) {
+		return null;
+	}
 	return (
-		input.directory?.members.find((member) => member.userId === ownerUserId)
-			?.humanProfile?.profileId ?? null
+		ownerMember.humanProfile?.profileId ?? `member:${ownerMember.memberId}`
 	);
 }
 
@@ -337,12 +387,23 @@ function resolveSelectedOrganizationComputer(input: {
 }
 
 function resolveComputersSectionTitle(input: {
+	hasResolutionError: boolean;
 	selectedOrganizationComputer: OrganizationComputer | null;
 	selectedComputer: LocalRuntimeComputer | null;
 	selectedDeviceId: string | null;
 }): string {
 	if (input.selectedDeviceId === null) {
+		if (input.hasResolutionError) {
+			return "Computer details are unavailable";
+		}
 		return "Computer";
+	}
+	if (
+		input.hasResolutionError &&
+		!input.selectedComputer &&
+		!input.selectedOrganizationComputer
+	) {
+		return "Computer details are unavailable";
 	}
 	return (
 		input.selectedComputer?.deviceDisplayName ??
@@ -352,11 +413,15 @@ function resolveComputersSectionTitle(input: {
 }
 
 function resolveComputersSectionDescription(input: {
+	hasResolutionError: boolean;
 	selectedOrganizationComputer: OrganizationComputer | null;
 	selectedComputer: LocalRuntimeComputer | null;
 	selectedDeviceId: string | null;
 }): string {
 	if (input.selectedDeviceId === null) {
+		if (input.hasResolutionError) {
+			return "OpenMeld could not load this Computer. Try again to refresh its details.";
+		}
 		return "Opening this computer's details.";
 	}
 	if (input.selectedComputer) {
@@ -367,7 +432,30 @@ function resolveComputersSectionDescription(input: {
 			input.selectedOrganizationComputer
 		);
 	}
+	if (input.hasResolutionError) {
+		return "OpenMeld could not load this Computer. Try again to refresh its details.";
+	}
 	return "This computer is no longer available in this workspace.";
+}
+
+function resolveComputerResolutionError(
+	errors: readonly unknown[]
+): string | null {
+	for (const error of errors) {
+		if (error instanceof Error && error.message.trim()) {
+			return error.message.trim();
+		}
+		if (
+			typeof error === "object" &&
+			error !== null &&
+			"message" in error &&
+			typeof error.message === "string" &&
+			error.message.trim()
+		) {
+			return error.message.trim();
+		}
+	}
+	return null;
 }
 
 function SelectedComputerLoading() {
@@ -375,6 +463,28 @@ function SelectedComputerLoading() {
 		<div className="flex flex-col gap-4" data-testid="computer-detail-loading">
 			<Skeleton className="h-56 w-full" />
 			<Skeleton className="h-72 w-full" />
+		</div>
+	);
+}
+
+function ComputerResolutionErrorState(input: {
+	errorMessage: string;
+	onRetry: () => void;
+}) {
+	return (
+		<div className="border border-border/70 bg-card/35 px-4 py-5" role="alert">
+			<p className="max-w-xl text-muted-foreground text-sm">
+				{input.errorMessage}
+			</p>
+			<Button
+				className="mt-4"
+				onClick={input.onRetry}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				Try again
+			</Button>
 		</div>
 	);
 }

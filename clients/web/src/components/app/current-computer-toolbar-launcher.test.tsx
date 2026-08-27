@@ -125,6 +125,22 @@ describe("CurrentComputerToolbarLauncher", () => {
 		expect(launcher.getAttribute("href")).toBe("/o/acme/connect?session=fresh");
 	});
 
+	it("ignores cached readiness for a Computer that is no longer in inventory", () => {
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				readinessDeviceId: "device-forgotten",
+				staleCurrentDeviceId: "device-forgotten",
+			})
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		const launcher = screen.getByRole("link", {
+			name: "Connect this Computer",
+		});
+		expect(launcher.getAttribute("href")).toBe("/o/acme/connect?session=fresh");
+	});
+
 	it("stays hidden before the app shell has an Organization context", () => {
 		useOptionalAppOrganizationMock.mockReturnValue(null);
 
@@ -139,6 +155,8 @@ describe("CurrentComputerToolbarLauncher", () => {
 function buildRuntimeQueries(input: {
 	currentDeviceId?: string;
 	deviceDisplayName?: string;
+	readinessDeviceId?: string;
+	staleCurrentDeviceId?: string;
 }) {
 	const localRuntimes = input.currentDeviceId
 		? [
@@ -151,13 +169,16 @@ function buildRuntimeQueries(input: {
 		: [];
 	return {
 		currentLocalRuntimeReplyReadinessQuery: {
-			data: null,
+			data: input.readinessDeviceId
+				? { deviceId: input.readinessDeviceId }
+				: null,
 			isFetchedAfterMount: true,
 			isFetching: false,
 		},
 		localRuntimesQuery: {
 			data: {
-				currentDeviceId: input.currentDeviceId ?? null,
+				currentDeviceId:
+					input.staleCurrentDeviceId ?? input.currentDeviceId ?? null,
 				localRuntimes,
 			},
 		},

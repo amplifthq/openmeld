@@ -1085,6 +1085,39 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(within(issue).getByText(namedRecovery)).toBeTruthy();
 	});
 
+	it("keeps a Computer recovery action scoped to the affected Agent Profile", () => {
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+
+		renderMessageDetailsPanel({
+			wakeIssueEntries: [
+				{
+					action: {
+						display: {
+							actionTarget: "computer",
+							body: "Update Runner's local agent, then try again.",
+							primaryActionId: "manage_local_agent",
+							primaryActionLabel: "Update or change local agent",
+						},
+						kind: "wake_failure",
+					},
+					body: "Update Runner's local agent, then try again.",
+					key: "agt_runner:controller.client.upgrade_required",
+					message: "Runner needs a local-agent update.",
+					targetLabel: "Runner",
+					targetProfileId: "agt_runner",
+				},
+			],
+		});
+
+		expect(
+			within(getActivityRegion("Runner"))
+				.getByRole("link", { name: "Update or change local agent" })
+				.getAttribute("href")
+		).toBe("/o/acme/agents?profileId=agt_runner");
+	});
+
 	it("shows one exact setup action when progress details also offer a rerun", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })

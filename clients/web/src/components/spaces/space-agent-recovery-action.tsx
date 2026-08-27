@@ -53,7 +53,7 @@ export function SpaceAgentRecoveryActionControl(input: {
 					"mt-1 text-foreground",
 					input.className
 				)}
-				to={buildOrganizationComputersPath(orgSlug)}
+				to={buildAgentProfilePath({ orgSlug, profileId: plan.profileId })}
 			>
 				<WrenchIcon aria-hidden="true" data-icon="inline-start" />
 				{input.actionLabel ?? plan.primaryActionLabel}

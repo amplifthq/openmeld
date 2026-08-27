@@ -37,6 +37,7 @@ import { copyTextToClipboard } from "#/lib/clipboard";
 export type DirectoryHumanProfileResearchAction = {
 	description: string;
 	disabled: boolean;
+	errorMessage: string | null;
 	label: string;
 	onSelect: () => void;
 };
@@ -74,6 +75,11 @@ export function DirectoryHumanProfileDetails(
 				onOpenDirectMessage={input.onOpenDirectMessage}
 				researchAction={input.researchAction}
 			/>
+			{input.member.notice ? (
+				<output className="block rounded-md border border-border bg-muted/35 px-4 py-3 text-muted-foreground text-sm">
+					{input.member.notice}
+				</output>
+			) : null}
 
 			<DetailSection title="Member account">
 				<DetailRow
@@ -138,45 +144,55 @@ function ProfileActions(input: {
 	}
 	return (
 		<div
-			className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 self-end"
+			className="flex max-w-full shrink-0 flex-col items-end gap-2 self-end"
 			data-testid="human-profile-header-actions"
 		>
-			{input.canOpenDirectMessage ? (
-				<Button
-					disabled={input.directMessageIsPending}
-					onClick={input.onOpenDirectMessage}
-					size="sm"
-					type="button"
-					variant="outline"
+			<div className="flex max-w-full flex-wrap items-center justify-end gap-2">
+				{input.canOpenDirectMessage ? (
+					<Button
+						disabled={input.directMessageIsPending}
+						onClick={input.onOpenDirectMessage}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
+						Direct Message
+					</Button>
+				) : null}
+				{input.researchAction ? (
+					<Button
+						aria-description={input.researchAction.description}
+						aria-label={input.researchAction.label}
+						disabled={input.researchAction.disabled}
+						onClick={input.researchAction.onSelect}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						<UserFocusIcon aria-hidden="true" data-icon="inline-start" />
+						{input.researchAction.label}
+					</Button>
+				) : null}
+				{input.canEdit ? (
+					<Button
+						onClick={input.onEdit}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						<PencilSimpleIcon aria-hidden="true" data-icon="inline-start" />
+						Edit profile
+					</Button>
+				) : null}
+			</div>
+			{input.researchAction?.errorMessage ? (
+				<p
+					className="max-w-md text-right text-destructive text-xs"
+					role="alert"
 				>
-					<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
-					Direct Message
-				</Button>
-			) : null}
-			{input.researchAction ? (
-				<Button
-					aria-description={input.researchAction.description}
-					aria-label={input.researchAction.label}
-					disabled={input.researchAction.disabled}
-					onClick={input.researchAction.onSelect}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					<UserFocusIcon aria-hidden="true" data-icon="inline-start" />
-					{input.researchAction.label}
-				</Button>
-			) : null}
-			{input.canEdit ? (
-				<Button
-					onClick={input.onEdit}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					<PencilSimpleIcon aria-hidden="true" data-icon="inline-start" />
-					Edit profile
-				</Button>
+					{input.researchAction.errorMessage}
+				</p>
 			) : null}
 		</div>
 	);

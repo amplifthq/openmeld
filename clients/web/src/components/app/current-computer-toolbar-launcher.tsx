@@ -38,9 +38,22 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 
 	const readinessQuery = runtimeQueries.currentLocalRuntimeReplyReadinessQuery;
 	const inventory = runtimeQueries.localRuntimesQuery.data;
+	const readinessDeviceId = resolveCurrentLocalRuntimeSubjectDeviceId(
+		readinessQuery.data
+	);
+	const readinessComputer = readinessDeviceId
+		? (inventory?.localRuntimes.find(
+				(candidate) => candidate.deviceId === readinessDeviceId
+			) ?? null)
+		: null;
+	const inventoryCurrentComputer = inventory?.currentDeviceId
+		? (inventory.localRuntimes.find(
+				(candidate) => candidate.deviceId === inventory.currentDeviceId
+			) ?? null)
+		: null;
 	const deviceId =
-		resolveCurrentLocalRuntimeSubjectDeviceId(readinessQuery.data) ??
-		inventory?.currentDeviceId ??
+		readinessComputer?.deviceId ??
+		inventoryCurrentComputer?.deviceId ??
 		inventory?.localRuntimes.find((computer) => computer.isCurrent)?.deviceId ??
 		null;
 	const computer = deviceId

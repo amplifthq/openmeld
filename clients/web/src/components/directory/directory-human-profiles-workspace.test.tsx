@@ -341,17 +341,68 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				.map((button) => button.textContent)
 		).toEqual(["Direct Message", "Learn about Grace Hopper"]);
 	});
+
+	it("keeps a member-scoped research failure beside its retry action", () => {
+		renderWorkspace({
+			memberResearchError: {
+				message: "Center Agent is unavailable for this member.",
+				subjectUserId: "user-current",
+			},
+		});
+
+		expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+		expect(screen.getByRole("alert").textContent).toBe(
+			"Center Agent is unavailable for this member."
+		);
+	});
+
+	it("does not turn an unresolved Computer projection into an empty state", () => {
+		renderWorkspace({
+			directoryError: "Computer inventory could not be loaded.",
+			selectedProfileId: "profile-grace",
+		});
+
+		expect(screen.getByRole("alert").textContent).toBe(
+			"Computer inventory could not be loaded."
+		);
+		expect(screen.queryByText("No computers connected.")).toBeNull();
+	});
+
+	it("shows pending Computer projection state before confirmed emptiness", () => {
+		renderWorkspace({
+			directoryIsPending: true,
+			selectedProfileId: "profile-grace",
+		});
+
+		expect(screen.getByText("Loading computers…")).toBeTruthy();
+		expect(screen.queryByText("No computers connected.")).toBeNull();
+	});
+
+	it("explains a missing personal Human Profile identity in detail", () => {
+		renderWorkspace({
+			currentNotice:
+				"Create a Human Profile to manage how you appear in this workspace.",
+		});
+
+		expect(screen.getByRole("status").textContent).toBe(
+			"Create a Human Profile to manage how you appear in this workspace."
+		);
+	});
 });
 
 function renderWorkspace(
 	input: {
+		currentNotice?: string;
+		directoryError?: string | null;
+		directoryIsPending?: boolean;
+		memberResearchError?: { message: string; subjectUserId: string } | null;
 		onResearch?: (userId: string) => void;
 		onSelectProfile?: (profileId: string) => void;
 		selectedProfileId?: string;
 	} = {}
 ) {
 	const members = [
-		buildMember({ current: true }),
+		buildMember({ current: true, notice: input.currentNotice }),
 		buildMember({ current: false }),
 	];
 	return render(
@@ -359,12 +410,12 @@ function renderWorkspace(
 			activeBatch={null}
 			canCreateProfile={false}
 			computerGroups={[buildCurrentComputerGroup()]}
-			directoryError={null}
-			directoryIsPending={false}
+			directoryError={input.directoryError ?? null}
+			directoryIsPending={input.directoryIsPending ?? false}
 			emptyMessage="No Human Profiles"
 			errorMessage={null}
 			latestBatch={null}
-			memberResearchError={null}
+			memberResearchError={input.memberResearchError ?? null}
 			members={members}
 			onCreateProfile={vi.fn()}
 			onDisconnectConnectedAccount={vi.fn()}
@@ -389,7 +440,10 @@ function renderWorkspace(
 	);
 }
 
-function buildMember(input: { current: boolean }): DirectoryHumanProfileRow {
+function buildMember(input: {
+	current: boolean;
+	notice?: string;
+}): DirectoryHumanProfileRow {
 	const name = input.current ? "Felix" : "Grace Hopper";
 	const profileId = input.current ? "profile-current" : "profile-grace";
 	const userId = input.current ? "user-current" : "user-grace";
@@ -438,7 +492,7 @@ function buildMember(input: { current: boolean }): DirectoryHumanProfileRow {
 		joinedAt: "2026-08-01T00:00:00.000Z",
 		lastActiveAt: "2026-08-27T00:00:00.000Z",
 		name,
-		notice: null,
+		notice: input.notice ?? null,
 		profileReport: input.current
 			? {
 					hasDraft: false,

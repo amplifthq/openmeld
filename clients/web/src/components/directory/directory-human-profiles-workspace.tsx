@@ -636,6 +636,20 @@ function HumanProfileComputers(input: {
 	orgSlug: string;
 	recovery: LocalAgentRecoveryController;
 }) {
+	if (input.directoryError) {
+		return (
+			<p className="px-4 py-3 text-destructive text-sm" role="alert">
+				{input.directoryError}
+			</p>
+		);
+	}
+	if (input.directoryIsPending) {
+		return (
+			<p className="px-4 py-3 text-muted-foreground text-sm">
+				Loading computers…
+			</p>
+		);
+	}
 	if (!input.group) {
 		return (
 			<p className="px-4 py-3 text-muted-foreground text-sm">
@@ -721,6 +735,7 @@ function resolveResearchAction(input: {
 			!input.member.userId ||
 			Boolean(input.activeBatch) ||
 			input.state.research === "pending",
+		errorMessage: memberResearchError,
 		label: resolveLearnActionLabel({
 			displayName: input.member.name,
 			hasDraft:
