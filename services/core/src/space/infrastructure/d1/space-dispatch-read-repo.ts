@@ -5,6 +5,7 @@ import {
   listSpaceDispatchTraceFinalVisibleSignalCandidates,
   openMeldDaemonTaskResultEnvelopeSchema,
   projectObservabilityWakeCorrelation,
+  projectSpaceDispatchTraceFinalVisibleOutcome,
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -37,7 +38,6 @@ import {
   listRuntimeCoordinatorExecutionEventsByExecutionId,
   readRuntimeCoordinatorExecutionProjectionByDispatch,
 } from "../../../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
-import { projectSpaceDispatchTraceFinalVisibleOutcome } from "../../rules/dispatch/space-final-outcome";
 import {
   type DispatchRuntimeTelemetryDecisionPayload,
   normalizeDispatchOpenClawGatewayVisibilityTraceRecord,
