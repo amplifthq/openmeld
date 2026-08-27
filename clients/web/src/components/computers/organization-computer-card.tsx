@@ -7,6 +7,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { LocalAgentsCard } from "#/components/agents/agents-page-local-agents";
 import { OpenMeldServiceCard } from "#/components/agents/agents-page-openmeld-service";
+import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { resolveOrganizationComputerSummaryStatus } from "#/lib/computer-summary-status";
 import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
 import {
@@ -81,7 +82,9 @@ export function OrganizationComputerDetail(input: {
 						return {
 							agentId: parsed?.id ?? agent.agentControllerRef,
 							details: agent.details,
-							displayName: formatAgentControllerName(agent.agentControllerRef),
+							displayName: formatLocalAgentDisplayName(
+								parsed?.id ?? agent.agentControllerRef
+							),
 							enabled: agent.enabled,
 							status: agent.status,
 						};
@@ -100,7 +103,9 @@ function formatOrganizationComputerLocalAgents(
 		const parsed = parseAgentControllerRef(agent.agentControllerRef);
 		return {
 			agentId: parsed?.id ?? agent.agentControllerRef,
-			displayName: formatAgentControllerName(agent.agentControllerRef),
+			displayName: formatLocalAgentDisplayName(
+				parsed?.id ?? agent.agentControllerRef
+			),
 		};
 	});
 }
@@ -111,18 +116,4 @@ function formatLocalAgentSummaryLabel(
 	return localAgents.length > 0
 		? localAgents.map((agent) => agent.displayName).join(", ")
 		: "No local agents";
-}
-
-function formatAgentControllerName(agentControllerRef: string): string {
-	const id =
-		parseAgentControllerRef(agentControllerRef)?.id ?? agentControllerRef;
-	const names: Record<string, string> = {
-		"claude-code": "Claude Code",
-		codex: "Codex",
-		cursor: "Cursor",
-		"grok-build": "Grok Build",
-		opencode: "OpenCode",
-		openclaw: "OpenClaw",
-	};
-	return names[id] ?? id;
 }

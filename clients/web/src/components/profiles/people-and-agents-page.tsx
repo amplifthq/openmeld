@@ -196,48 +196,81 @@ export function PeopleAndAgentsPage(input: {
 			console.error("Failed to open the created profile.", error);
 		});
 	};
-	let profilesContent: ReactNode;
-	if (input.activeSectionId === "agents") {
-		profilesContent = isOrganizationContext ? (
-			<OrganizationAgentProfilesPanel
-				availabilityFilter={resolveAgentProfileAvailabilityFilter(
-					agentProfileFilter
-				)}
-				currentUserId={recovery.storageScope}
-				directoryQuery={organizationDirectoryQuery}
-				focusProfileId={input.focusProfileId}
-				onCreateProfile={() => setIsCreateProfileOpen(true)}
-				onFocusConsumed={input.onFocusConsumed}
-				orgSlug={orgSlug}
-				recovery={recovery}
-			/>
-		) : (
-			<AgentProfilesPanel
-				availabilityFilter={resolveAgentProfileAvailabilityFilter(
-					agentProfileFilter
-				)}
-				fallbackOwnerLabel={fallbackOwnerLabel}
-				focusProfileId={input.focusProfileId}
-				onCreateProfile={() => setIsCreateProfileOpen(true)}
-				onFocusConsumed={input.onFocusConsumed}
-				orgSlug={orgSlug}
-				recovery={recovery}
-			/>
-		);
-	} else {
-		profilesContent = (
-			<DirectoryMembersOverview
-				account={account}
-				currentOrganization={currentOrganization}
-				currentUserId={currentUserId}
-				directoryQuery={organizationDirectoryQuery}
-				focusProfileId={input.focusProfileId}
-				onCreateProfile={() => setIsCreateProfileOpen(true)}
-				onFocusConsumed={input.onFocusConsumed}
-				storageScope={recovery.storageScope}
-			/>
+	const createProfileDialog = isCreateProfileOpen ? (
+		<CreateProfileDialog
+			allowTeammateRequests={isOrganizationContext}
+			currentUserId={currentUserId}
+			onAgentRequestCreated={(request) => {
+				if (request.createdAgentProfileId) {
+					navigate({
+						search: { profileId: request.createdAgentProfileId },
+						to: profileHomeRoutes.agents,
+					}).catch((error: unknown) => {
+						console.error("Failed to open the created Agent.", error);
+					});
+					return;
+				}
+				input.onAgentViewChange?.("requests");
+			}}
+			onOpenChange={setIsCreateProfileOpen}
+			onProfileCreated={handleProfileCreated}
+			open={true}
+			organizationAuthorizationContext={
+				isOrganizationContext && input.activeSectionId === "agents"
+					? {
+							organizationId: currentOrganization.id,
+							organizationName: currentOrganization.name,
+						}
+					: undefined
+			}
+			organizationId={currentOrganization.id}
+			recovery={recovery}
+		/>
+	) : null;
+	if (input.activeSectionId === "people") {
+		return (
+			<>
+				<DirectoryMembersOverview
+					account={account}
+					currentOrganization={currentOrganization}
+					currentUserId={currentUserId}
+					directoryQuery={organizationDirectoryQuery}
+					focusProfileId={input.focusProfileId}
+					initialSidebarStates={input.initialSidebarStates}
+					onCreateProfile={() => setIsCreateProfileOpen(true)}
+					recovery={recovery}
+					storageScope={recovery.storageScope}
+				/>
+				{createProfileDialog}
+			</>
 		);
 	}
+	const profilesContent: ReactNode = isOrganizationContext ? (
+		<OrganizationAgentProfilesPanel
+			availabilityFilter={resolveAgentProfileAvailabilityFilter(
+				agentProfileFilter
+			)}
+			currentUserId={recovery.storageScope}
+			directoryQuery={organizationDirectoryQuery}
+			focusProfileId={input.focusProfileId}
+			onCreateProfile={() => setIsCreateProfileOpen(true)}
+			onFocusConsumed={input.onFocusConsumed}
+			orgSlug={orgSlug}
+			recovery={recovery}
+		/>
+	) : (
+		<AgentProfilesPanel
+			availabilityFilter={resolveAgentProfileAvailabilityFilter(
+				agentProfileFilter
+			)}
+			fallbackOwnerLabel={fallbackOwnerLabel}
+			focusProfileId={input.focusProfileId}
+			onCreateProfile={() => setIsCreateProfileOpen(true)}
+			onFocusConsumed={input.onFocusConsumed}
+			orgSlug={orgSlug}
+			recovery={recovery}
+		/>
+	);
 
 	return (
 		<AppFullWidthLayout
@@ -297,37 +330,7 @@ export function PeopleAndAgentsPage(input: {
 					profilesContent
 				)}
 			</ProfilesSectionLayout>
-			{isCreateProfileOpen ? (
-				<CreateProfileDialog
-					allowTeammateRequests={isOrganizationContext}
-					currentUserId={currentUserId}
-					onAgentRequestCreated={(request) => {
-						if (request.createdAgentProfileId) {
-							navigate({
-								search: { profileId: request.createdAgentProfileId },
-								to: profileHomeRoutes.agents,
-							}).catch((error: unknown) => {
-								console.error("Failed to open the created Agent.", error);
-							});
-							return;
-						}
-						input.onAgentViewChange?.("requests");
-					}}
-					onOpenChange={setIsCreateProfileOpen}
-					onProfileCreated={handleProfileCreated}
-					open={true}
-					organizationAuthorizationContext={
-						isOrganizationContext && input.activeSectionId === "agents"
-							? {
-									organizationId: currentOrganization.id,
-									organizationName: currentOrganization.name,
-								}
-							: undefined
-					}
-					organizationId={currentOrganization.id}
-					recovery={recovery}
-				/>
-			) : null}
+			{createProfileDialog}
 		</AppFullWidthLayout>
 	);
 }

@@ -1,35 +1,59 @@
 "use client";
 
+import { cn } from "@openmeld/ui/lib/utils";
 import type { ReactNode } from "react";
 import {
 	AppGlobalControls,
 	type AppGlobalControlsProps,
 } from "#/components/app/app-global-controls";
+import { AppInnerSidebar } from "#/components/app/app-inner-sidebar";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { useComputerAttentionTone } from "#/components/app/use-computer-attention-tone";
-import type { SidebarPersistedState } from "#/lib/sidebar-width-cookie";
+import type {
+	InnerSidebarPreferenceKey,
+	SidebarPersistedState,
+} from "#/lib/sidebar-width-cookie";
 
 export function AppFullWidthLayout(input: {
 	children: ReactNode;
+	contentLayout?: "centered" | "flush";
 	globalControls?: AppGlobalControlsProps;
+	initialInnerSidebarState?: SidebarPersistedState;
 	initialOuterSidebarState?: SidebarPersistedState;
+	mobileSidebarTitle?: string;
+	sidebar?: ReactNode;
+	sidebarPreferenceKey?: InnerSidebarPreferenceKey;
+	sidebarSeparatorLabel?: string;
 }) {
 	const account = useAppShellAccount();
-	const computerAttentionTone = useComputerAttentionTone();
-
+	if (input.sidebar && !input.sidebarPreferenceKey) {
+		throw new Error(
+			"A sidebarPreferenceKey is required when sidebar is present."
+		);
+	}
 	return (
 		<AppSurfaceLayout
 			frameSlotName="app-full-width-layout"
 			globalControls={<AppGlobalControls {...input.globalControls} />}
+			mobileSidebarTitle={input.mobileSidebarTitle}
 			outerRail={
 				<AppOuterRail
 					account={account}
-					computerAttentionTone={computerAttentionTone}
 					initialState={input.initialOuterSidebarState}
 				/>
+			}
+			sidebar={
+				input.sidebar && input.sidebarPreferenceKey ? (
+					<AppInnerSidebar
+						initialState={input.initialInnerSidebarState}
+						preferenceKey={input.sidebarPreferenceKey}
+						separatorLabel={input.sidebarSeparatorLabel ?? "Resize the sidebar"}
+					>
+						{input.sidebar}
+					</AppInnerSidebar>
+				) : undefined
 			}
 		>
 			<AppMainContent
@@ -38,7 +62,12 @@ export function AppFullWidthLayout(input: {
 				showHeader={false}
 			>
 				<div
-					className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 pt-8 pb-6 sm:px-6 lg:px-8"
+					className={cn(
+						"flex w-full flex-col",
+						input.contentLayout === "flush"
+							? "min-h-full"
+							: "mx-auto max-w-7xl gap-4 px-4 pt-8 pb-6 sm:px-6 lg:px-8"
+					)}
 					data-slot="app-full-width-content"
 				>
 					{input.children}

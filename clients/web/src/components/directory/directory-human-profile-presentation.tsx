@@ -27,6 +27,7 @@ import {
 import { AppLogo } from "#/components/organizations/app-logo";
 
 export function DirectoryComputerSummary(input: {
+	interactive?: boolean;
 	member: DirectoryHumanProfileRow;
 	size?: "card" | "detail";
 }) {
@@ -47,7 +48,7 @@ export function DirectoryComputerSummary(input: {
 		</>
 	);
 	const className = cn("inline-flex min-w-0 items-center gap-2", "text-xs");
-	if (!input.member.computer.path) {
+	if (input.interactive === false || !input.member.computer.path) {
 		return (
 			<div className={cn(className, "text-muted-foreground")}>{content}</div>
 		);

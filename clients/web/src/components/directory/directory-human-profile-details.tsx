@@ -9,12 +9,10 @@ import {
 	FileTextIcon,
 	PencilSimpleIcon,
 	UserFocusIcon,
-	XIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import type { CSSProperties, RefObject } from "react";
+import type { ReactNode } from "react";
 import { toast } from "sonner";
-import { Drawer } from "vaul";
 import { DirectoryHumanProfileAvatar } from "#/components/directory/directory-human-profile-avatar";
 import {
 	formatDirectoryDate,
@@ -43,139 +41,89 @@ export type DirectoryHumanProfileResearchAction = {
 	onSelect: () => void;
 };
 
-export function DirectoryHumanProfileDetailsDrawer(input: {
+export type DirectoryHumanProfileDetailsProps = {
 	activityNowMs: number;
+	computersContent?: ReactNode;
 	directMessageIsPending: boolean;
 	editing: boolean;
 	member: DirectoryHumanProfileRow;
 	onConnectAccount: (account: DirectoryIdentityAccount) => void;
 	onEditingChange: (editing: boolean) => void;
 	onManageAccount: (account: DirectoryIdentityAccount) => void;
-	onOpenChange: (open: boolean) => void;
 	onOpenDirectMessage: () => void;
-	open: boolean;
 	researchAction: DirectoryHumanProfileResearchAction | null;
-	returnFocusRef: RefObject<HTMLElement | null>;
-}) {
+};
+
+export function DirectoryHumanProfileDetails(
+	input: DirectoryHumanProfileDetailsProps
+) {
 	const canOpenDirectMessage =
 		input.member.profileStatus === "active" && !input.member.isCurrentUser;
 	return (
-		<Drawer.Root
-			autoFocus
-			direction="right"
-			onAnimationEnd={(open) => {
-				if (!open) {
-					input.returnFocusRef.current?.focus();
-				}
-			}}
-			onOpenChange={input.onOpenChange}
-			open={input.open}
+		<div
+			className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
+			data-testid="human-profile-details"
 		>
-			<Drawer.Portal>
-				<Drawer.Overlay className="fixed inset-0 z-40 bg-background/55 backdrop-blur-[2px] motion-reduce:transition-none" />
-				<Drawer.Content
-					className="fixed top-0 right-0 bottom-0 z-50 flex border-border border-l bg-background shadow-2xl outline-none motion-reduce:transition-none"
-					data-testid="human-profile-details-drawer"
-					style={
-						{
-							"--initial-transform": "calc(100% + 1px)",
-							width: "min(32rem, 100vw)",
-						} as CSSProperties
-					}
-				>
-					<div className="flex min-h-0 w-full flex-col">
-						<header className="flex shrink-0 items-center justify-between gap-4 border-border border-b px-5 py-4">
-							<div className="min-w-0">
-								<Drawer.Title className="font-medium text-base">
-									Profile
-								</Drawer.Title>
-								<Drawer.Description className="sr-only">
-									Member identity, access, and account details.
-								</Drawer.Description>
-							</div>
-							<Drawer.Close asChild>
-								<Button
-									aria-label="Close profile"
-									size="icon"
-									type="button"
-									variant="ghost"
-								>
-									<XIcon aria-hidden="true" />
-								</Button>
-							</Drawer.Close>
-						</header>
+			<ProfileHero
+				activityNowMs={input.activityNowMs}
+				editing={input.editing}
+				member={input.member}
+				onEditingChange={input.onEditingChange}
+			/>
+			<ProfileActions
+				canOpenDirectMessage={canOpenDirectMessage}
+				directMessageIsPending={input.directMessageIsPending}
+				onOpenDirectMessage={input.onOpenDirectMessage}
+				researchAction={input.researchAction}
+			/>
 
-						<div className="min-h-0 flex-1 overflow-y-auto">
-							<div className="space-y-6 px-5 py-6">
-								<ProfileHero
-									activityNowMs={input.activityNowMs}
-									editing={input.editing}
-									member={input.member}
-									onEditingChange={input.onEditingChange}
-								/>
-								<ProfileActions
-									canOpenDirectMessage={canOpenDirectMessage}
-									directMessageIsPending={input.directMessageIsPending}
-									onOpenDirectMessage={input.onOpenDirectMessage}
-									researchAction={input.researchAction}
-								/>
+			<DetailSection title="Member account">
+				<DetailRow
+					label="Email"
+					value={resolveDirectoryEmailLabel(input.member.email)}
+				/>
+				{input.member.role === null ? null : (
+					<DetailRow
+						label="Organization role"
+						value={resolveDirectoryRoleLabel(input.member.role)}
+					/>
+				)}
+				<DetailRow
+					label="Joined"
+					value={formatDirectoryDate(input.member.joinedAt)}
+				/>
+			</DetailSection>
 
-								<DetailSection title="Member account">
-									<DetailRow
-										label="Email"
-										value={resolveDirectoryEmailLabel(input.member.email)}
-									/>
-									{input.member.role === null ? null : (
-										<DetailRow
-											label="Organization role"
-											value={resolveDirectoryRoleLabel(input.member.role)}
-										/>
-									)}
-									<DetailRow
-										label="Joined"
-										value={formatDirectoryDate(input.member.joinedAt)}
-									/>
-								</DetailSection>
+			<DetailSection title="Agent Profiles">
+				<DirectoryAgentProfilesSummary
+					ownerName={input.member.name}
+					path={input.member.agentProfilesPath}
+					profiles={input.member.agentProfiles}
+				/>
+			</DetailSection>
 
-								<DetailSection title="Agent Profiles">
-									<DirectoryAgentProfilesSummary
-										ownerName={input.member.name}
-										path={input.member.agentProfilesPath}
-										profiles={input.member.agentProfiles}
-									/>
-								</DetailSection>
+			<DetailSection title="Computers">
+				{input.computersContent ?? (
+					<DirectoryComputerSummary member={input.member} size="detail" />
+				)}
+			</DetailSection>
 
-								<DetailSection title="Work access">
-									<DirectoryComputerSummary
-										member={input.member}
-										size="detail"
-									/>
-								</DetailSection>
+			<ConnectedIdentities
+				accounts={input.member.identityAccounts}
+				onConnectAccount={input.onConnectAccount}
+				onManageAccount={input.onManageAccount}
+			/>
 
-								<ConnectedIdentities
-									accounts={input.member.identityAccounts}
-									onConnectAccount={input.onConnectAccount}
-									onManageAccount={input.onManageAccount}
-								/>
+			<ProfileReportSection member={input.member} />
 
-								<ProfileReportSection member={input.member} />
-
-								{input.member.details?.sections.map((section) => (
-									<DetailSection key={section.id} title={section.title}>
-										{section.rows.map((row) => (
-											<ProfileDetailRow
-												key={`${section.id}:${row.id}`}
-												row={row}
-											/>
-										))}
-									</DetailSection>
-								))}
-							</div>
-						</div>
-					</div>
-				</Drawer.Content>
-			</Drawer.Portal>
-		</Drawer.Root>
+			{input.member.details?.sections.map((section) => (
+				<DetailSection key={section.id} title={section.title}>
+					{section.rows.map((row) => (
+						<ProfileDetailRow key={`${section.id}:${row.id}`} row={row} />
+					))}
+				</DetailSection>
+			))}
+		</div>
 	);
 }
 
