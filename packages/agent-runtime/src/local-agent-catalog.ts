@@ -270,7 +270,28 @@ function readBuiltinLocalAgentCatalogDefinitions(): readonly BuiltinLocalAgentCa
         },
       ];
     })
-    .sort((left, right) => left.displayName.localeCompare(right.displayName));
+    .sort(compareBuiltinLocalAgentDisplayNames);
+}
+
+function compareBuiltinLocalAgentDisplayNames(
+  left: BuiltinLocalAgentCatalogDefinition,
+  right: BuiltinLocalAgentCatalogDefinition
+): number {
+  const leftName = left.displayName.toLowerCase();
+  const rightName = right.displayName.toLowerCase();
+  if (leftName < rightName) {
+    return -1;
+  }
+  if (leftName > rightName) {
+    return 1;
+  }
+  if (left.displayName < right.displayName) {
+    return -1;
+  }
+  if (left.displayName > right.displayName) {
+    return 1;
+  }
+  return 0;
 }
 
 function isBuiltinLocalAgentDefinition(

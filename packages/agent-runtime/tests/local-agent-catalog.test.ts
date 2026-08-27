@@ -56,6 +56,21 @@ describe("local agent catalog projection", () => {
     );
   });
 
+  it("keeps builtin display names in stable case-insensitive English order", () => {
+    const catalog = projectLocalAgentCatalogFromCapabilities({
+      capabilities: [],
+    });
+    const builtinIds = catalog.entries
+      .filter((entry) => entry.targetKind === "builtin")
+      .map((entry) => entry.agentId);
+
+    expect(
+      builtinIds.filter((agentId) =>
+        ["github-copilot", "iflow-cli", "junie"].includes(agentId)
+      )
+    ).toEqual(["github-copilot", "iflow-cli", "junie"]);
+  });
+
   it("keeps detected supported builtin agents selectable when launch status needs repair", () => {
     const catalog = projectLocalAgentCatalogFromCapabilities({
       capabilities: [
