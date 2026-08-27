@@ -63,6 +63,29 @@ describe("local service process inventory", () => {
     });
   });
 
+  it("does not claim a repo-local service from another custom OPENMELD_HOME", async () => {
+    const pathInput = {
+      env: {
+        ...process.env,
+        OPENMELD_ENV_PRESET: "dev-local",
+        OPENMELD_HOME: "/tmp/openmeld-current-worktree",
+      },
+    };
+
+    const processes = await listDaemonOwnedProcesses({
+      pathInput,
+      listProcesses: async () => [
+        {
+          pid: 105,
+          parentPid: 1,
+          command: `node ${openMeldRootDir()}/clients/openmeld-cli/dist/openmeld-dev.js service start --mode foreground --json`,
+        },
+      ],
+    });
+
+    expect(processes).toEqual([]);
+  });
+
   it("projects equals-style foreground mode for a repo-local service start process", async () => {
     await withDaemonEnvPreset("dev-local", async () => {
       const processes = await listDaemonOwnedProcesses({
