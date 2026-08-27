@@ -1,23 +1,23 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-27T13:30:19.615Z",
+  "updatedAt": "2026-08-27T20:52:50.709Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.121",
+      "packageVersion": "0.3.122",
       "updatePolicy": "available",
       "reason": "A newer local component is available, but current Wake work can continue."
     },
     "service": {
-      "bundleHash": "e168b6d2c6c2f01664eab79781120698cc3e223bcb9c4581a3416d886a883821",
-      "bundleVersion": "0.3.121",
+      "bundleHash": "4e50cd373c96938c9cf2abdc466d756d0764c650ec6764f2074fd7bcafe97896",
+      "bundleVersion": "0.3.122",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
       "reason": "A newer local component is available, but current Wake work can continue."
     },
     "skills": {
-      "bundleHash": "314cbbd8cd486b5cada78a5f3a966d3240f1d378c65c50945f099d1038bd3bca",
+      "bundleHash": "3b9b009ba253a1ec80240545d016a238505cd21ec6b11b34a10eea755f2e2683",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
