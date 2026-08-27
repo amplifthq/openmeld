@@ -53,8 +53,9 @@ development push, and Actions quota is not delivery authority.
 4. A pull-request candidate must start on current `main`. If `main` advances
    while its checks run, the completed evidence keeps its original base as an
    explicit fact instead of discarding successful work. That evidence does not
-   prove the newer merge. The merge queue validates the exact merge-group SHA
-   against the then-current `main` before GitHub can merge it.
+   prove the newer merge. When the repository has merge queue available, its
+   exact merge-group candidate owns that fact. Otherwise, strict up-to-date
+   protection requires a new current-base pull-request candidate before merge.
 5. A real selected-check failure blocks that candidate. The runner stops, records
    the failed command, and publishes failure. It never converts uncertainty,
    missing evidence, or unavailable GitHub state into green.
@@ -251,8 +252,9 @@ The workflow:
 - validates live PR head, live PR base, current remote `main`, ancestry, and
   worktree cleanliness before checks;
 - after checks, rejects any PR-head or tree drift but preserves the completed
-  exact-base evidence when only `main` advanced; the required merge-group check
-  owns freshness against the newer base;
+  exact-base evidence when only `main` advanced; that result remains a precise
+  historical fact, while the active repository protection owns freshness
+  against the newer base;
 - publishes `OpenMeld Final Candidate` on the exact head;
 - preserves the JSON evidence, complete redacted command logs, and a readable
   job summary in one artifact.
@@ -274,13 +276,20 @@ pending status.
 
 A later push has a different head SHA and therefore has no valid status. A later
 `main` commit does not rewrite what the exact pull-request candidate proved and
-does not require those successful checks to be repeated. The merge queue builds
-and validates a new exact merge-group SHA on the latest base.
+does not turn that historical evidence into proof of the newer merge. When merge
+queue is available, GitHub builds and validates a new exact merge-group SHA on
+the latest base. Without merge queue, sync the branch and create a new exact
+pull-request candidate as required by strict up-to-date protection.
 
 ## Merge Queue Final Candidate
 
-After one pull-request candidate succeeds, enqueue that unchanged PR through
-GitHub's merge queue. Do not manually freeze unrelated work or repeatedly merge
+Use this lane only when the repository's live GitHub plan and Ruleset expose
+merge queue. GitHub currently offers merge queues to organization-owned public
+repositories and private repositories owned by GitHub Enterprise Cloud
+organizations. Workflow code alone does not make the feature available.
+
+When available, enqueue an unchanged pull request after its pull-request
+candidate succeeds. Do not manually freeze unrelated work or repeatedly merge
 new `main` commits into an already-proven PR merely to chase freshness.
 
 GitHub creates a temporary merge-group commit containing the latest `main`, the
@@ -374,8 +383,9 @@ Repository protection for `main` must require:
 
 - changes through a pull request;
 - the `OpenMeld Final Candidate` status;
-- GitHub's merge queue, whose exact merge-group commit must report the same
-  required status context;
+- either GitHub's merge queue, whose exact merge-group commit must report the
+  same required status context, or strict up-to-date protection when merge queue
+  is unavailable; and
 - no human approval count.
 
 Do not pin the required context to the GitHub Actions app because the guarded
@@ -384,11 +394,12 @@ unavailable. Agents with write access are trusted engineering principals; the
 exact evidence remains required, while review beyond the responsible agent's
 own evaluation is required only when the task explicitly calls for it.
 
-Immediately before enqueueing, re-read the live PR head, candidate evidence,
-status, and mergeability. If the head differs from the evidence, stop and create
-a new pull-request candidate. A changed base is not hidden: GitHub records it in
-the new merge-group SHA and the merge-group Final Candidate validates that exact
-combination before merge.
+Immediately before enqueueing or merging, re-read the live PR head, candidate
+evidence, status, mergeability, and the active Ruleset. If the head differs from
+the evidence, stop and create a new pull-request candidate. With merge queue, a
+changed base is recorded in the new merge-group SHA and validated there. Without
+merge queue, strict up-to-date protection requires branch sync and a new exact
+pull-request candidate.
 
 When GitHub Actions cannot run merge-group checks, the queue cannot complete.
 Keep the existing trusted local pull-request fallback and exact evidence, but do
@@ -479,8 +490,9 @@ Do not collapse those lines into “deployed successfully.”
 - Candidate check failure: keep its command and error, fix the cause, commit a
   new head, sync current `main`, and create a new candidate.
 - Candidate head or tree drift: do not reuse green checks; create a new
-  pull-request candidate. Main-only drift is handled by the exact merge-group
-  candidate without rerunning unchanged PR evidence.
+  pull-request candidate. Main-only drift keeps the old evidence as a fact. The
+  exact merge-group candidate handles it when queue is available; otherwise,
+  strict up-to-date protection requires branch sync and a new candidate.
 - Actions unavailable: use the trusted current-main local command; do not
   weaken the required status or invent a success comment.
 - Hosted release unavailable: use the guarded local lane at the same approved
