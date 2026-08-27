@@ -12,6 +12,7 @@ import {
   OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV,
   OPENMELD_DISPATCH_RUNTIME_MODE_ENV,
   OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV,
+  OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH_ENV,
 } from "../src/runtime/dispatch-runtime-env";
 import { OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV } from "../src/runtime/dispatch-space-action-context";
 
@@ -64,6 +65,9 @@ describe("dispatch-owned runtime env", () => {
       "agt_executor"
     );
     expect(env.OPENMELD_USER_FACING_CLI_COMMAND).toBe("openmeld");
+    expect(env[OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH_ENV]).toBe(
+      join(shimDir, "openmeld")
+    );
     expect(env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]).toBe(contextPath);
   });
 
