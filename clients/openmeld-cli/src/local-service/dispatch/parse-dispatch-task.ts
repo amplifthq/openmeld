@@ -34,6 +34,7 @@ import {
   resolveSpacePublicationRequirement,
 } from "@openmeld/space-mesh";
 import { createDefaultRuntimeAgentControllerSettings } from "../../config/runtime-config";
+import { DISPATCH_SPACE_ACTION_CLI_FALLBACK_COMMAND } from "../../runtime/dispatch-runtime-env";
 import {
   isLocalSpaceStateCorruptResult,
   readSpaceConfig,
@@ -526,8 +527,7 @@ function renderActivationIntentGate(
   return [
     "Activation intent gate:",
     "- Decide from the current Wake message and structured addressing before reading Space history or using any tool. Use one brief pass: assigned, referenced_or_candidate, or ambiguous.",
-    `- If you are only named as a candidate, example, alternative, or possible helper while another Agent owns the request, call the Space Action \`stay_silent\` tool with reason \`activation_intent.referenced_or_candidate\`; if unavailable, run \`${buildSpaceActionCommand(
-      input,
+    `- If you are only a candidate, example, alternative, or possible helper while another Agent owns the request, call dispatch-scoped Space Action \`stay_silent\` with reason \`activation_intent.referenced_or_candidate\`; only if unavailable, run \`${buildSpaceActionCommand(
       'silent --reason "activation_intent.referenced_or_candidate"'
     )}\`. Stop before reading history, calling business tools, or publishing an explanation.`,
     "- An explicit Wake target does not by itself prove that the words assign work to you. If the message directly assigns you work, continue. When the intent remains ambiguous, honor the explicit Wake and continue; never rewrite the user's structured targets.",
@@ -676,32 +676,28 @@ function renderMandatoryCompletionSection(
 
   return [
     "Mandatory completion:",
-    "- Plain text stays local; it is never a public Space reply.",
-    buildMandatoryCompletionActionLine(input, publicationRequirement),
-    "- Stop after one action is recorded; that action is the public outcome.",
-    "- If neither path can record it, stop. Do not substitute prose or JSON.",
+    "- Plain text is not a Space reply.",
+    buildMandatoryCompletionActionLine(publicationRequirement),
+    "- Stop after one action; it is the public outcome.",
+    "- If both fail, stop; prose/JSON are not actions.",
   ].join("\n");
 }
 
 function buildMandatoryCompletionActionLine(
-  input: Pick<DispatchPromptBootstrapInput, "cliEntry">,
   publicationRequirement: ReturnType<typeof resolveSpacePublicationRequirement>
 ): string {
   if (publicationRequirement.allowedActions.includes("post_message")) {
-    return `- Normal completion: call Space Action \`reply\` with your exact public message. CLI fallback if unavailable: \`${buildSpaceActionCommand(
-      input,
+    return `- Normal completion: call dispatch-scoped Space Action \`reply\` with the exact public message. Only if unavailable: \`${buildSpaceActionCommand(
       'reply "your public message"'
     )}\` and wait for it to finish.`;
   }
   if (publicationRequirement.allowedActions.includes("post_status")) {
-    return `- Normal completion: call Space Action \`status\` with a final-safe status and short update. CLI fallback if unavailable: \`${buildSpaceActionCommand(
-      input,
+    return `- Normal completion: call dispatch-scoped Space Action \`status\` with a final-safe status and short update. Only if unavailable: \`${buildSpaceActionCommand(
       'status done "short completion update"'
     )}\` and wait for it to finish.`;
   }
   if (publicationRequirement.allowedActions.includes("stay_silent")) {
-    return `- Normal completion: call Space Action \`stay_silent\` with your reason. CLI fallback if unavailable: \`${buildSpaceActionCommand(
-      input,
+    return `- Normal completion: call dispatch-scoped Space Action \`stay_silent\` with your reason. Only if unavailable: \`${buildSpaceActionCommand(
       'silent --reason "reason"'
     )}\` and wait for it to finish.`;
   }
@@ -782,12 +778,8 @@ function buildActionGuidanceLines(
   ];
 }
 
-function buildSpaceActionCommand(
-  input: Pick<DispatchPromptBootstrapInput, "cliEntry">,
-  action: string
-): string {
-  const cliEntry = normalizeOptionalText(input.cliEntry) ?? "openmeld";
-  return `${cliEntry} space action ${action}`;
+function buildSpaceActionCommand(action: string): string {
+  return `${DISPATCH_SPACE_ACTION_CLI_FALLBACK_COMMAND} space action ${action}`;
 }
 
 function buildSendTargetReferenceLines(

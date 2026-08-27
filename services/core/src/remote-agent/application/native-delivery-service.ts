@@ -392,6 +392,22 @@ type NativeDeliveryBindingSnapshot = {
   ownerUserId: string;
 };
 
+type RemoteAgentSpaceNativeDeliveryInput = {
+  db: D1Database;
+  env: CoreBindings;
+  executionAttemptId: string;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  nowMs: number;
+  binding: NativeDeliveryBindingSnapshot;
+  memoryService?: CenterAgentMemoryService | null;
+  timing?: SpaceBootstrapTimingCollector;
+};
+
+type RemoteAgentSpaceNativeDeliveryResult = {
+  shouldAck: boolean;
+  status: "submitted" | "failed" | "stopped";
+};
+
 type NativeDeliveryPublishRecord = Pick<
   RemoteAgentNativeDeliveryRecord,
   | "anonymousMemberSpeaker"
@@ -1325,19 +1341,9 @@ function buildRemoteAgentSourceText(
   ].join("\n\n");
 }
 
-export async function submitRemoteAgentNativeDelivery(input: {
-  db: D1Database;
-  env: CoreBindings;
-  executionAttemptId: string;
-  message: OpenMeldDaemonDispatchQueueMessage;
-  nowMs: number;
-  binding: NativeDeliveryBindingSnapshot;
-  memoryService?: CenterAgentMemoryService | null;
-  timing?: SpaceBootstrapTimingCollector;
-}): Promise<{
-  shouldAck: boolean;
-  status: "submitted" | "failed" | "stopped";
-}> {
+export async function submitRemoteAgentNativeDelivery(
+  input: RemoteAgentSpaceNativeDeliveryInput
+): Promise<RemoteAgentSpaceNativeDeliveryResult> {
   const author = buildRemoteAgentAuthorContext(input.message);
   const sourceText = buildRemoteAgentSourceText(input.message);
   const existingDelivery = await measureRemoteAgentAdmissionStage(
@@ -1461,6 +1467,16 @@ export async function submitRemoteAgentNativeDelivery(input: {
       text: CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
     });
     return { shouldAck: true, status: "failed" };
+  }
+
+  if (
+    existingDelivery?.status === "submitted" &&
+    existingDelivery.workerSubmitRequest
+  ) {
+    return await submitDurableRemoteAgentSpaceAdmission({
+      ...input,
+      durableWorkerRequest: existingDelivery.workerSubmitRequest,
+    });
   }
 
   if (!sourceText) {
@@ -1678,6 +1694,23 @@ export async function submitRemoteAgentNativeDelivery(input: {
   if (!durableWorkerRequest) {
     throw new Error("Space native delivery lost its durable worker request");
   }
+  return await submitDurableRemoteAgentSpaceAdmission({
+    ...input,
+    durableWorkerRequest,
+  });
+}
+
+async function submitDurableRemoteAgentSpaceAdmission(
+  input: RemoteAgentSpaceNativeDeliveryInput & {
+    durableWorkerRequest: RemoteAgentWorkerSubmitTurnRequest;
+  }
+): Promise<RemoteAgentSpaceNativeDeliveryResult> {
+  const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
+  if (!worker?.submitConversationTurn) {
+    throw new Error(
+      "Remote Agent worker became unavailable after admission preflight"
+    );
+  }
   const admissionAttempt = runRemoteAgentAdmissionWithWatchdog({
     enqueueWatchdog: async () =>
       await measureRemoteAgentAdmissionStage(
@@ -1717,7 +1750,7 @@ export async function submitRemoteAgentNativeDelivery(input: {
             env: input.env,
             nowMs: input.nowMs,
             organizationId: input.binding.organizationId,
-            request: durableWorkerRequest,
+            request: input.durableWorkerRequest,
             worker,
           })
       ),

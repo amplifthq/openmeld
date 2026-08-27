@@ -1409,6 +1409,35 @@ export function recordTerminalTurnFailure(input: {
 }
 
 /**
+ * Persist the authoritative completed answer before its first Core callback.
+ * The durable retry path can then replay the exact final answer after an
+ * instance restart without treating partial stream text as a completed turn.
+ */
+export async function recordRemoteAgentCompletedAnswer(input: {
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  text: string;
+}): Promise<RemoteAgentCallbackContext> {
+  const completedText = input.text.trim();
+  if (!completedText) {
+    throw new Error("Remote Agent completed answer cannot be empty.");
+  }
+  return await updateRemoteAgentCallbackContext({
+    storage: input.storage,
+    submissionId: input.submissionId,
+    update: (current) =>
+      current.callbackStatus === "completed" ||
+      current.callbackStatus === "rejected" ||
+      current.completedText?.trim()
+        ? current
+        : {
+            ...current,
+            completedText: fitRemoteAgentCompletedText(completedText),
+          },
+  });
+}
+
+/**
  * Deliver one stored successful answer to Core. Shared by the first completion
  * callback and every durable retry so both paths update state identically. The
  * assistant text is read from the persisted context (not a live turn result),
@@ -1670,7 +1699,7 @@ export async function handleRemoteAgentChatResponse(input: {
       }
       return {
         ...current,
-        completedText,
+        completedText: fitRemoteAgentCompletedText(completedText),
         lastUsage: input.result.usage ?? undefined,
         modelId: input.result.modelId ?? current.modelId ?? null,
       };

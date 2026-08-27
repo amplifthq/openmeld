@@ -117,8 +117,8 @@ import type {
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
-  OpenMeldDaemonDispatchDeliveryRecoveryReason,
   OpenMeldDaemonDispatchQueueMessage,
+  OpenMeldDaemonDispatchQueueRecoveryReason,
   OpenMeldDaemonMentionDispatchResultPayload,
   OpenMeldRequestContext,
   PostSpaceDispatchOutboxRedriveResponse,
@@ -614,7 +614,10 @@ import {
 } from "../../rules/mention/mention-dispatch-rules";
 import type { SpaceCursorRecord } from "../../rules/parsers/space-cursor";
 import { parseStoredSignal } from "../../rules/parsers/stored-signal";
-import { resolveHandedOffOutboxCandidatePolicyDecision } from "../../rules/policy/dispatch-outbox-redrive-policy";
+import {
+  type HostedNativeDeliveryHandoffState,
+  resolveHandedOffOutboxCandidatePolicyDecision,
+} from "../../rules/policy/dispatch-outbox-redrive-policy";
 import { shouldEmitRetentionWarning } from "../../rules/policy/retention-warning-policy";
 import { redactSignalForViewer } from "../../rules/privacy/agent-profile-visibility";
 import {
@@ -1468,7 +1471,7 @@ type HandedOffOutboxCandidateDecision =
     }
   | {
       kind: "submit";
-      deliveryRecoveryReason?: OpenMeldDaemonDispatchDeliveryRecoveryReason;
+      deliveryRecoveryReason?: OpenMeldDaemonDispatchQueueRecoveryReason;
       human: DispatchHumanLogContext;
     };
 type DispatchLedgerEvidence =
@@ -14317,7 +14320,7 @@ export class Space extends DurableObject<CoreBindings> {
   private buildDispatchMessageFromRecoveryCandidate(
     candidate: OpenMeldDaemonDispatchOutboxRecoveryCandidate,
     deliveryRecoveryReason?:
-      | OpenMeldDaemonDispatchDeliveryRecoveryReason
+      | OpenMeldDaemonDispatchQueueRecoveryReason
       | undefined,
     snapshots?: {
       spaceName?: string | null;
@@ -14412,7 +14415,11 @@ export class Space extends DurableObject<CoreBindings> {
     );
     const ledgerRow =
       ledgerEvidence.kind === "found" ? ledgerEvidence.row : null;
+    const hostedNativeDeliveryHandoffState = ledgerRow
+      ? await this.readHostedNativeDeliveryHandoffState(candidate)
+      : "not_applicable";
     const policyDecision = resolveHandedOffOutboxCandidatePolicyDecision({
+      hostedNativeDeliveryHandoffState,
       outboxStatus: candidate.outboxStatus,
       ledgerRow,
       nowMs,
@@ -14459,6 +14466,17 @@ export class Space extends DurableObject<CoreBindings> {
         human,
         reason: "runtime_coordinator.pre_agent_stop_requested",
         targetWakeLifecycleId: stoppedGuard.targetWakeLifecycleId,
+      };
+    }
+    if (policyDecision.kind === "submit") {
+      return {
+        kind: "submit",
+        ...(policyDecision.deliveryRecoveryReason
+          ? {
+              deliveryRecoveryReason: policyDecision.deliveryRecoveryReason,
+            }
+          : {}),
+        human,
       };
     }
     if (!ledgerRow) {
@@ -14691,6 +14709,65 @@ export class Space extends DurableObject<CoreBindings> {
     return row ? { kind: "found", row } : { kind: "missing" };
   }
 
+  private async readHostedNativeDeliveryHandoffState(
+    candidate: OpenMeldDaemonDispatchOutboxRecoveryCandidate
+  ): Promise<HostedNativeDeliveryHandoffState> {
+    const evidenceDb = wakeEvidenceDb(this.bindings);
+    if (!(evidenceDb && typeof evidenceDb.prepare === "function")) {
+      return "evidence_unavailable";
+    }
+    try {
+      const delivery = await readRemoteAgentNativeDeliveryByExecution({
+        db: evidenceDb,
+        dispatchId: candidate.dispatchId,
+        profileId: candidate.targetProfileId,
+        spaceId: candidate.spaceId,
+      });
+      if (delivery) {
+        return delivery.status === "submitted"
+          ? "admission_incomplete"
+          : "durably_owned";
+      }
+
+      if (
+        candidate.controllerSnapshot?.agentControllerRef ===
+        HOSTED_CENTER_AGENT_CONTROLLER_REF
+      ) {
+        return "admission_incomplete";
+      }
+
+      const ownerUserId =
+        candidate.dispatchOwner?.kind === "owner_account"
+          ? normalizeOptionalText(candidate.dispatchOwner.id)
+          : null;
+      const bindingDb = localStateDb(this.bindings);
+      if (ownerUserId && bindingDb) {
+        const binding = await readPrimaryAgentProfileBindingRecord({
+          agentProfileId: candidate.targetProfileId,
+          db: bindingDb,
+          owner: { id: ownerUserId, kind: "owner_account" },
+        });
+        return binding?.runtimeKind === "hosted_center_agent"
+          ? "admission_incomplete"
+          : "not_applicable";
+      }
+
+      return "not_applicable";
+    } catch (error) {
+      console.warn(
+        "[core.openmeld.space.outbox.hosted_admission_evidence_read_failed]",
+        {
+          dispatchId: candidate.dispatchId,
+          error: formatUnknownErrorMessage(error),
+          idempotencyKey: candidate.idempotencyKey,
+          spaceId: candidate.spaceId,
+          targetProfileId: candidate.targetProfileId,
+        }
+      );
+      return "evidence_unavailable";
+    }
+  }
+
   private async resolveOutboxActiveAttemptOwnerUserId(
     targetProfileId: string
   ): Promise<
@@ -14775,17 +14852,17 @@ export class Space extends DurableObject<CoreBindings> {
         "Remote Agent runtime diagnostics require exact dispatch identity."
       );
     }
-    return {
-      ...trace,
-      remoteAgentRuntimeDiagnostics:
-        await readRemoteAgentRuntimeDiagnosticsForDispatch({
-          db: wakeEvidenceDb(this.bindings),
-          dispatchId,
-          remoteAgentWorker: this.bindings.OPENMELD_REMOTE_AGENT_WORKER,
-          spaceId: this.spaceId,
-          targetProfileId,
-        }),
-    };
+    const remoteAgentRuntimeDiagnostics =
+      await readRemoteAgentRuntimeDiagnosticsForDispatch({
+        db: wakeEvidenceDb(this.bindings),
+        dispatchId,
+        remoteAgentWorker: this.bindings.OPENMELD_REMOTE_AGENT_WORKER,
+        spaceId: this.spaceId,
+        targetProfileId,
+      });
+    return remoteAgentRuntimeDiagnostics
+      ? { ...trace, remoteAgentRuntimeDiagnostics }
+      : trace;
   }
 
   private async readWakeProgressRuntimeDeviceDisplayName(

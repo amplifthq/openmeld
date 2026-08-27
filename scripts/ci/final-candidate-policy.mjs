@@ -37,6 +37,7 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/final-candidate.test.mjs",
   "scripts/ci/install-isolated-candidate-dependencies.sh",
   "scripts/ci/install-isolated-candidate-dependencies.test.mjs",
+  "scripts/ci/merge-group-final-candidate-workflow.test.mjs",
   "scripts/ci/resolve-approved-native-builds.mjs",
   "scripts/ci/resolve-approved-native-builds.test.mjs",
   "scripts/ci/run-isolated-candidate-command.sh",
@@ -98,6 +99,10 @@ function resolvePlanAuthority(input) {
 
 export function createFinalCandidatePlan(input) {
   const changedPaths = [...new Set(input.changedPaths ?? [])].toSorted();
+  const candidateKind = input.candidateKind ?? "pull-request";
+  if (!(candidateKind === "pull-request" || candidateKind === "merge-group")) {
+    throw new Error(`Unknown final-candidate kind: ${candidateKind}`);
+  }
   const { bootstrapReason, confidence, controlTrust, mode } =
     resolvePlanAuthority(input);
 
@@ -123,7 +128,9 @@ export function createFinalCandidatePlan(input) {
       (controlTrust === "explicit-bootstrap" ? input.headSha : input.baseSha),
     releaseReadyPaths: changedPaths.filter(isReleaseReadyPath),
     repositoryControlChange: changedPaths.some(isRepositoryControlPath),
-    strictRelease: isVersionedReleaseBranch(input.branchName),
+    strictRelease:
+      candidateKind === "merge-group" ||
+      isVersionedReleaseBranch(input.branchName),
   };
   const selectedChecks = [
     check(
@@ -167,6 +174,7 @@ export function createFinalCandidatePlan(input) {
     baseSha: input.baseSha,
     bootstrapReason,
     branchName: input.branchName,
+    candidateKind,
     changedPaths,
     confidence,
     controlTrust,
@@ -354,42 +362,36 @@ function resolveRiskTags(context) {
   ];
 }
 
-export function assertCandidateSnapshot(snapshot) {
-  for (const [name, value] of [
+function assertExactCandidateFacts(snapshot, candidateKind) {
+  const exactFacts = [
     ["expected head", snapshot.expectedHeadSha],
     ["actual head", snapshot.actualHeadSha],
     ["expected base", snapshot.expectedBaseSha],
-    ["pull request base", snapshot.pullRequestBaseSha],
     ["current main", snapshot.currentMainSha],
     ["tree", snapshot.treeSha],
-  ]) {
+  ];
+  if (candidateKind === "pull-request") {
+    exactFacts.push(["pull request base", snapshot.pullRequestBaseSha]);
+  }
+  for (const [name, value] of exactFacts) {
     if (!EXACT_SHA_PATTERN.test(String(value ?? ""))) {
       throw new Error(`Final Candidate requires an exact ${name} SHA.`);
     }
   }
-  if (snapshot.actualHeadSha !== snapshot.expectedHeadSha) {
-    throw new Error(
-      `Candidate head drifted: expected ${snapshot.expectedHeadSha}, found ${snapshot.actualHeadSha}.`
-    );
-  }
+}
+
+function assertPullRequestSnapshot(snapshot, requireCurrentBase) {
   if (snapshot.pullRequestHeadSha !== snapshot.expectedHeadSha) {
     throw new Error(
       `Pull request head drifted: expected ${snapshot.expectedHeadSha}, found ${snapshot.pullRequestHeadSha}.`
     );
   }
-  if (snapshot.pullRequestBaseSha !== snapshot.expectedBaseSha) {
+  if (
+    requireCurrentBase &&
+    snapshot.pullRequestBaseSha !== snapshot.expectedBaseSha
+  ) {
     throw new Error(
       `Pull request base drifted: expected ${snapshot.expectedBaseSha}, found ${snapshot.pullRequestBaseSha}.`
-    );
-  }
-  if (snapshot.currentMainSha !== snapshot.expectedBaseSha) {
-    throw new Error(
-      `Main advanced: candidate base ${snapshot.expectedBaseSha}, current main ${snapshot.currentMainSha}. Sync the branch and create a new candidate.`
-    );
-  }
-  if (!snapshot.baseIsAncestorOfHead) {
-    throw new Error(
-      `Candidate ${snapshot.expectedHeadSha} does not contain current main ${snapshot.expectedBaseSha}. Sync the branch before validation.`
     );
   }
   if (snapshot.pullRequestBaseRef !== "main") {
@@ -404,6 +406,33 @@ export function assertCandidateSnapshot(snapshot) {
     throw new Error(
       `Final Candidate requires an open pull request, found ${snapshot.pullRequestState}.`
     );
+  }
+}
+
+export function assertCandidateSnapshot(snapshot, options = {}) {
+  const candidateKind = options.candidateKind ?? "pull-request";
+  const requireCurrentBase = options.requireCurrentBase ?? true;
+  assertExactCandidateFacts(snapshot, candidateKind);
+  if (snapshot.actualHeadSha !== snapshot.expectedHeadSha) {
+    throw new Error(
+      `Candidate head drifted: expected ${snapshot.expectedHeadSha}, found ${snapshot.actualHeadSha}.`
+    );
+  }
+  if (
+    requireCurrentBase &&
+    snapshot.currentMainSha !== snapshot.expectedBaseSha
+  ) {
+    throw new Error(
+      `Main advanced: candidate base ${snapshot.expectedBaseSha}, current main ${snapshot.currentMainSha}. Sync the branch and create a new candidate.`
+    );
+  }
+  if (!snapshot.baseIsAncestorOfHead) {
+    throw new Error(
+      `Candidate ${snapshot.expectedHeadSha} does not contain current main ${snapshot.expectedBaseSha}. Sync the branch before validation.`
+    );
+  }
+  if (candidateKind === "pull-request") {
+    assertPullRequestSnapshot(snapshot, requireCurrentBase);
   }
   if ((snapshot.dirtyPaths ?? []).length > 0) {
     throw new Error(

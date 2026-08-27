@@ -3,7 +3,6 @@ import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { cancel, confirm, isCancel } from "@clack/prompts";
-import packageJson from "../../package.json";
 import { resolveServiceUpdateUrgency } from "../command-entry-checks/service-update-urgency";
 import {
   buildNextVersionState,
@@ -51,6 +50,7 @@ import {
   formatNpmPackageAcquisitionFailureDiagnosis,
 } from "../runtime/npm-package-acquisition-diagnostics";
 import { createPresenter } from "../runtime/presenter/index";
+import { OPENMELD_VERSION } from "../runtime/version";
 import {
   formatDaemonServiceDowngradeBlockedRecommendation,
   formatDaemonServiceMissingRecommendation,
@@ -62,6 +62,10 @@ const OPENMELD_PACKAGE_NAME = "openmeld";
 const CLI_BINARY_DOWNLOAD_TIMEOUT_MS = 60_000;
 const BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND =
   "curl -fsSL 'https://openmeld.ai/setup?dist=binary' | sh";
+const STAGING_BINARY_MANIFEST_URL =
+  "https://staging.openmeld.ai/cli/manifest.json";
+const STAGING_BINARY_SETUP_COMMAND =
+  "curl -fsSL 'https://staging.openmeld.ai/setup?lane=canary&dist=binary' | sh";
 const INSTALL_SELF_JSON_LINE_SPLIT_RE = /\r?\n/u;
 const SERVICE_CHECK_STARTED_TEXT = "Checking OpenMeld Service";
 const SERVICE_CHECK_COMPLETED_TEXT = "OpenMeld Service check finished.";
@@ -143,7 +147,7 @@ export async function runUpgrade(input: {
     await runInternalUpgradeServiceAlignment({
       presenter,
       resolvedView: runtime.resolvedView,
-      daemonVersion: packageJson.version,
+      daemonVersion: OPENMELD_VERSION,
       ...(process.argv[1] && !isBinaryDistribution()
         ? { cliScriptPath: process.argv[1] }
         : {}),
@@ -152,7 +156,7 @@ export async function runUpgrade(input: {
   }
 
   const allowPrompt = canUseInteractivePrompts(runtime);
-  const currentVersion = packageJson.version;
+  const currentVersion = OPENMELD_VERSION;
   const { currentGlobalInstall, manualUpgradeCommand } =
     await resolveUpgradeInstallContext();
   const previousVersionState = await readVersionState();
@@ -511,7 +515,7 @@ async function resolveUpgradeInstallContext(): Promise<{
   if (isBinaryDistribution()) {
     return {
       currentGlobalInstall: null,
-      manualUpgradeCommand: BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND,
+      manualUpgradeCommand: resolveBinaryManualOpenMeldUpgradeCommand(),
     };
   }
   const currentGlobalInstall = await resolveCurrentNpmGlobalPackageInstall({
@@ -523,6 +527,15 @@ async function resolveUpgradeInstallContext(): Promise<{
       globalPrefixPath: currentGlobalInstall?.globalPrefixPath ?? null,
     }),
   };
+}
+
+export function resolveBinaryManualOpenMeldUpgradeCommand(
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  return env.OPENMELD_ENV_PRESET === "canary" &&
+    env.OPENMELD_CLI_BINARY_MANIFEST_URL === STAGING_BINARY_MANIFEST_URL
+    ? STAGING_BINARY_SETUP_COMMAND
+    : BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND;
 }
 
 function handleMissingVersionMetadata(input: {
@@ -1119,7 +1132,7 @@ function buildUpgradeAlignmentBlockedMessage(
 ): string {
   if (reasonCodes.includes("downgrade_blocked")) {
     return formatDaemonServiceDowngradeBlockedRecommendation({
-      expectedVersion: packageJson.version,
+      expectedVersion: OPENMELD_VERSION,
     });
   }
   const reasonText =
@@ -1195,7 +1208,7 @@ function resolveUpgradeReconcileSkipMessage(reason: string): {
   if (reason === "downgrade_blocked") {
     return {
       text: formatDaemonServiceDowngradeBlockedRecommendation({
-        expectedVersion: packageJson.version,
+        expectedVersion: OPENMELD_VERSION,
       }),
       command: "openmeld upgrade",
     };

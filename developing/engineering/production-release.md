@@ -553,7 +553,11 @@ Hosted Worker preflight follows the same control/source split. The current-main
 exact historical `release-source` root and SHA as data. Current control scripts
 inspect that product root and run their commands there; they never load a
 preflight entry from the historical package manifest. Product build and deploy
-still run only from the exact `release-source` checkout.
+still run only from the exact `release-source` checkout. Cloudflare environment
+verification uses its explicit `production` profile in this lane, so a staging
+contract introduced after the approved cutoff cannot retroactively invalidate
+that immutable production source. Normal repository verification keeps using
+the full environment profile and continues to enforce staging requirements.
 
 ```sh
 release_sha="$(git rev-parse origin/main)"

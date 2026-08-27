@@ -32,6 +32,7 @@ import {
   resolveChangedPaths,
   resolveCommit,
   resolveDirtyPaths,
+  resolveMergeGroupState,
   resolveObject,
   resolveRepository,
   runGh,
@@ -85,6 +86,7 @@ function runPlan(options) {
     baseSha,
     bootstrapReason: options.bootstrapReason,
     branchName,
+    candidateKind: options.candidateKind,
     changedPaths,
     confidence: options.confidence,
     controlTrust: options.controlTrust,
@@ -206,15 +208,31 @@ function runCandidate(options) {
 }
 
 function createRunContext(options) {
-  const pullRequestNumber = requirePullRequestNumber(options.pr);
   const repository = resolveRepository(options.repository);
   const mode = options.mode ?? "local";
+  const candidateKind = options.candidateKind ?? "pull-request";
   if (!(mode === "local" || mode === "remote")) {
     throw new Error(
       `Final Candidate mode must be local or remote, found ${mode}.`
     );
   }
+  if (!(candidateKind === "pull-request" || candidateKind === "merge-group")) {
+    throw new Error(`Unknown Final Candidate kind: ${candidateKind}.`);
+  }
+  if (candidateKind === "merge-group" && mode !== "remote") {
+    throw new Error("Merge-group Final Candidate is hosted-only.");
+  }
+  if (candidateKind === "merge-group" && options.publishStatus) {
+    throw new Error(
+      "Merge-group Final Candidate uses GitHub's required job check, not a writable commit status."
+    );
+  }
+  const pullRequestNumber =
+    candidateKind === "pull-request"
+      ? requirePullRequestNumber(options.pr)
+      : null;
   return {
+    candidateKind,
     candidateRoot: path.resolve(options.candidateRoot ?? process.cwd()),
     commandLogsPath: null,
     evidencePath: null,
@@ -234,18 +252,28 @@ function createRunContext(options) {
 }
 
 function prepareCandidateRun(context) {
-  context.state = resolveCandidateState({
+  const stateInput = {
     cwd: context.candidateRoot,
     expectedBaseSha: context.options.base,
     expectedHeadSha: context.options.head,
-    pullRequestNumber: context.pullRequestNumber,
     repository: context.repository,
+  };
+  context.state =
+    context.candidateKind === "merge-group"
+      ? resolveMergeGroupState(stateInput)
+      : resolveCandidateState({
+          ...stateInput,
+          pullRequestNumber: context.pullRequestNumber,
+        });
+  assertCandidateSnapshot(context.state.snapshot, {
+    candidateKind: context.candidateKind,
   });
-  assertCandidateSnapshot(context.state.snapshot);
   context.plan = createFinalCandidatePlan({
     baseSha: context.state.snapshot.expectedBaseSha,
     bootstrapReason: context.options.bootstrapReason,
-    branchName: context.options.branch ?? context.state.pullRequest.head.ref,
+    branchName:
+      context.options.branch ?? context.state.pullRequest?.head.ref ?? null,
+    candidateKind: context.candidateKind,
     changedPaths: resolveChangedPaths(
       context.state.snapshot.expectedBaseSha,
       context.state.snapshot.expectedHeadSha,
@@ -269,7 +297,7 @@ function prepareCandidateRun(context) {
   context.targetUrl = resolveTargetUrl(
     context.mode,
     context.repository,
-    context.state.pullRequest.html_url
+    context.state.pullRequest?.html_url ?? null
   );
 }
 
@@ -304,14 +332,23 @@ function executePreparedCandidate(context) {
     );
   }
 
-  const finalState = resolveCandidateState({
+  const stateInput = {
     cwd: context.candidateRoot,
     expectedBaseSha: context.plan.baseSha,
     expectedHeadSha: context.plan.headSha,
-    pullRequestNumber: context.pullRequestNumber,
     repository: context.repository,
+  };
+  const finalState =
+    context.candidateKind === "merge-group"
+      ? resolveMergeGroupState(stateInput)
+      : resolveCandidateState({
+          ...stateInput,
+          pullRequestNumber: context.pullRequestNumber,
+        });
+  assertCandidateSnapshot(finalState.snapshot, {
+    candidateKind: context.candidateKind,
+    requireCurrentBase: context.candidateKind === "merge-group",
   });
-  assertCandidateSnapshot(finalState.snapshot);
   if (finalState.snapshot.treeSha !== context.plan.treeSha) {
     throw new Error(
       `Candidate tree drifted: expected ${context.plan.treeSha}, found ${finalState.snapshot.treeSha}.`
@@ -346,6 +383,7 @@ function createFailureEvidence(context, error) {
       context.state?.snapshot.expectedBaseSha ?? context.options.base ?? null,
     bootstrapReason: context.plan?.bootstrapReason ?? null,
     branchName: context.plan?.branchName ?? context.options.branch ?? null,
+    candidateKind: context.candidateKind,
     changedPaths: context.plan?.changedPaths ?? [],
     conclusion: "failure",
     confidence: context.plan?.confidence ?? context.options.confidence,
@@ -361,7 +399,7 @@ function createFailureEvidence(context, error) {
       context.plan?.planSourceSha ?? context.options.planSourceSha ?? null,
     publicationErrors: [...context.publicationErrors],
     pullRequestNumber: context.pullRequestNumber,
-    pullRequestUrl: context.state?.pullRequest.html_url ?? null,
+    pullRequestUrl: context.state?.pullRequest?.html_url ?? null,
     repository: context.repository,
     results: execution.results,
     riskTags: context.plan?.riskTags ?? [],
@@ -377,7 +415,7 @@ function publishFinalEvidence(context, evidence, evidencePath) {
   if (!context.publishStatus) {
     return;
   }
-  if (context.mode === "local") {
+  if (context.mode === "local" && context.candidateKind === "pull-request") {
     try {
       publishPullRequestComment({
         body: renderEvidenceSummary(evidence, evidencePath, {
@@ -433,6 +471,7 @@ function createEvidence(input) {
     baseSha: input.plan.baseSha,
     bootstrapReason: input.plan.bootstrapReason,
     branchName: input.plan.branchName,
+    candidateKind: input.plan.candidateKind,
     changedPaths: input.plan.changedPaths,
     conclusion: input.conclusion,
     confidence: input.plan.confidence,
@@ -443,8 +482,8 @@ function createEvidence(input) {
     mode: input.mode,
     planSourceSha: input.plan.planSourceSha,
     publicationErrors: [],
-    pullRequestNumber: input.pullRequest.number,
-    pullRequestUrl: input.pullRequest.html_url,
+    pullRequestNumber: input.pullRequest?.number ?? null,
+    pullRequestUrl: input.pullRequest?.html_url ?? null,
     repository: input.repository,
     results: input.execution.results,
     riskTags: input.plan.riskTags,
@@ -600,6 +639,7 @@ function parseOptions(args) {
     index += 1;
     const optionName = {
       candidate_root: "candidateRoot",
+      candidate_kind: "candidateKind",
       evidence: "evidence",
       base: "base",
       bootstrap_reason: "bootstrapReason",

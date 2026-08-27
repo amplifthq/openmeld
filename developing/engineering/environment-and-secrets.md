@@ -10,8 +10,8 @@
   diagnose a missing environment value, add or move a secret, onboard a
   contributor, or assess Doppler production readiness.
 - Update this when: Doppler projects or configs, the shared development secret
-  allowlist, local environment commands, optional capabilities, or production
-  secret handoff rules change.
+  allowlist, staging allowlist, local environment commands, optional
+  capabilities, or production secret handoff rules change.
 - Do not use this for: Secret values, temporary migration inventories,
   deployment approval, Cloudflare binding topology, or production incident
   output.
@@ -139,6 +139,35 @@ gateway-scoped. The shared `openmeld-remote-agent` Doppler project supplies the
 account-scoped gateway token and the configured `openrouter` BYOK alias; it does
 not copy the OpenRouter provider key into a local file or Worker environment.
 Worker-environment and Organization metadata keep requests attributable.
+
+## Staging Secret Boundary
+
+Staging is a guarded deployment environment, not another local development
+source. `pnpm env:doctor:stg` checks these minimal `stg` values without printing
+them or changing Cloudflare:
+
+| Doppler project | Required staging values |
+| --- | --- |
+| `openmeld-release` | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN` |
+| `openmeld-web` | `WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET` |
+| `openmeld-auth` | `BETTER_AUTH_OPENMELD_SECRET` |
+| `openmeld-remote-agent` | `CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN` |
+
+The release token is a staging-only Cloudflare account token. It is stored once
+and requested alongside only the component secret needed for the current
+deployment step. The launcher maps
+`CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN` to Cloudflare's native
+`CLOUDFLARE_API_TOKEN` name inside the child process; Doppler does not store the
+same token under two names.
+
+Web and Auth secrets are new random staging values. They do not preserve or
+decrypt production state. The AI Gateway token is dedicated to the staging
+runtime. OAuth, Slack, Lark, Feishu, OpenConnector, and production release
+credentials are intentionally absent from the initial staging baseline.
+
+Use `pnpm staging:plan`, `pnpm staging:deploy`, and `pnpm staging:verify` for
+the complete operator workflow. The staging isolation and evidence contract is
+owned by `developing/engineering/staging-environment.md`.
 
 ## Shared Development And Optional Capabilities
 

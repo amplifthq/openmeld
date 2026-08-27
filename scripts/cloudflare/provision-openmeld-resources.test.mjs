@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   OPENMELD_RESOURCES,
+  OPENMELD_STAGING_RESOURCES,
   provisionOpenMeldResources,
 } from "./provision-openmeld-resources.mjs";
 
@@ -13,7 +14,7 @@ test("reconciles every static resource and active Worker version", async () => {
 
   const summary = await provisionOpenMeldResources({ apply: true, client });
 
-  assert.equal(summary.ok, true);
+  assert.equal(summary.ok, true, JSON.stringify(summary, null, 2));
   assert.equal(summary.resources.length, OPENMELD_RESOURCES.length + 6);
   assert.ok(
     summary.resources.every((resource) => resource.tagStatus === "verified")
@@ -61,8 +62,80 @@ test("fails closed without creating a missing deployment-managed Worker", async 
   );
 });
 
+test("keeps staging infrastructure isolated from production", () => {
+  const productionNames = new Set(
+    OPENMELD_RESOURCES.map((resource) => resource.name)
+  );
+
+  assert.ok(OPENMELD_STAGING_RESOURCES.length > 0);
+  assert.ok(
+    OPENMELD_STAGING_RESOURCES.every(
+      (resource) => resource.environment === "staging"
+    )
+  );
+  assert.ok(
+    OPENMELD_STAGING_RESOURCES.every(
+      (resource) => !productionNames.has(resource.name)
+    )
+  );
+  assert.deepEqual(
+    OPENMELD_STAGING_RESOURCES.filter((resource) => resource.kind === "D1").map(
+      (resource) => resource.name
+    ),
+    ["openmeld-db-stg"]
+  );
+});
+
+test("requests every Durable Object namespace in one page", () => {
+  const durableObjects = [
+    ...OPENMELD_RESOURCES,
+    ...OPENMELD_STAGING_RESOURCES,
+  ].filter((resource) => resource.kind === "Durable Object namespace");
+
+  assert.ok(durableObjects.length > 0);
+  assert.ok(
+    durableObjects.every(
+      (resource) =>
+        resource.listPath === "/workers/durable_objects/namespaces?per_page=100"
+    )
+  );
+});
+
+test("allows deployment-managed staging resources to arrive after prerequisites", async () => {
+  const missingDeploymentManagedResources = OPENMELD_STAGING_RESOURCES.filter(
+    (resource) => resource.lifecycle === "deployment-managed"
+  );
+  const client = createFakeCloudflareClient({
+    missingResources: missingDeploymentManagedResources.map(
+      (resource) => `${resource.kind}:${resource.name}`
+    ),
+    resources: OPENMELD_STAGING_RESOURCES,
+  });
+
+  const summary = await provisionOpenMeldResources({
+    apply: true,
+    environment: "staging",
+    requireDeploymentManaged: false,
+    client,
+  });
+
+  assert.equal(summary.ok, true, JSON.stringify(summary, null, 2));
+  assert.equal(client.creates.length, 0);
+  assert.deepEqual(
+    summary.resources
+      .filter((resource) => resource.action === "awaiting-deploy")
+      .map((resource) => `${resource.kind}:${resource.name}`)
+      .toSorted(),
+    missingDeploymentManagedResources
+      .map((resource) => `${resource.kind}:${resource.name}`)
+      .toSorted()
+  );
+});
+
 function createFakeCloudflareClient(input = {}) {
   const missingNames = new Set(input.missingNames ?? []);
+  const missingResources = new Set(input.missingResources ?? []);
+  const resources = input.resources ?? OPENMELD_RESOURCES;
   const tags = new Map();
   const tagWrites = [];
   const creates = [];
@@ -105,15 +178,22 @@ function createFakeCloudflareClient(input = {}) {
         };
       }
 
-      const desiredResources = OPENMELD_RESOURCES.filter(
+      const resourcesForPath = resources.filter(
         (resource) => resource.listPath === path
-      ).filter((resource) => !missingNames.has(resource.name));
-      if (desiredResources.length === 0) {
+      );
+      if (resourcesForPath.length === 0) {
         throw new Error(`unexpected Cloudflare request: ${path}`);
       }
+      const desiredResources = resourcesForPath.filter(
+        (resource) =>
+          !(
+            missingNames.has(resource.name) ||
+            missingResources.has(`${resource.kind}:${resource.name}`)
+          )
+      );
       const values = desiredResources.map(fakeResourceValue);
-      return desiredResources[0].listResultField
-        ? { result: { [desiredResources[0].listResultField]: values } }
+      return resourcesForPath[0].listResultField
+        ? { result: { [resourcesForPath[0].listResultField]: values } }
         : { result: values };
     },
   };

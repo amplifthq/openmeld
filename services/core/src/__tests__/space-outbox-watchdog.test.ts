@@ -1,5 +1,8 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
-import { CORE_READINESS_FACTS_CHANGED_MARKER_KIND } from "@openmeld/schemas";
+import {
+  CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  HOSTED_CENTER_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as dispatchQueueService from "../dispatch/application/dispatch-queue-service";
@@ -319,7 +322,7 @@ describe("space outbox watchdog", () => {
     });
   });
 
-  it("retires handed-off seeds after dispatch intake before reading the RuntimeCoordinator stop guard", async () => {
+  it("redrives a hosted handoff when native admission never became durable", async () => {
     const db = {
       prepare: vi.fn(() => ({
         bind: vi.fn(() => ({
@@ -340,13 +343,14 @@ describe("space outbox watchdog", () => {
     > & {
       readPreAgentStoppedGuardForOutboxCandidate: ReturnType<typeof vi.fn>;
     };
-    const readPreAgentStoppedGuardForOutboxCandidate = vi.fn(() =>
-      Promise.reject(
-        new Error("the intake-confirmed candidate must not read the guard")
-      )
-    );
+    const readPreAgentStoppedGuardForOutboxCandidate = vi
+      .fn()
+      .mockResolvedValue({ stopped: false });
     Object.defineProperty(space, "readPreAgentStoppedGuardForOutboxCandidate", {
       value: readPreAgentStoppedGuardForOutboxCandidate,
+    });
+    Object.defineProperty(space, "readHostedNativeDeliveryHandoffState", {
+      value: vi.fn().mockResolvedValue("admission_incomplete"),
     });
 
     await expect(
@@ -356,9 +360,45 @@ describe("space outbox watchdog", () => {
         buildLogContext()
       )
     ).resolves.toMatchObject({
-      kind: "delete",
+      deliveryRecoveryReason: "hosted_admission_incomplete",
+      kind: "submit",
     });
-    expect(readPreAgentStoppedGuardForOutboxCandidate).not.toHaveBeenCalled();
+    expect(readPreAgentStoppedGuardForOutboxCandidate).toHaveBeenCalledOnce();
+  });
+
+  it("uses the frozen hosted route when the current Binding may have changed", async () => {
+    const db = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({
+          first: vi.fn().mockResolvedValue(null),
+        })),
+      })),
+    } as unknown as D1Database;
+    const space = createSpaceHarness({ db }) as ReturnType<
+      typeof createSpaceHarness
+    > & {
+      readHostedNativeDeliveryHandoffState: (
+        candidate: typeof handedOffOutboxCandidate & {
+          controllerSnapshot: {
+            agentControllerRef: string;
+            targetBindingEnabled: boolean;
+            targetBindingState: "bound";
+          };
+        }
+      ) => Promise<string>;
+    };
+
+    await expect(
+      space.readHostedNativeDeliveryHandoffState({
+        ...handedOffOutboxCandidate,
+        controllerSnapshot: {
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          targetBindingEnabled: true,
+          targetBindingState: "bound",
+        },
+      })
+    ).resolves.toBe("admission_incomplete");
+    expect(db.prepare).toHaveBeenCalledOnce();
   });
 
   it("redrives a handed-off outbox seed when RuntimeCoordinator reports route reconnect", async () => {

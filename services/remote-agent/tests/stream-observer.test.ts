@@ -637,6 +637,45 @@ describe("Center Agent stream observation", () => {
     );
   });
 
+  it("keeps the authoritative final answer durable when its first Core callback fails", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: "remote-agent:dispatch_123",
+          requestId: SUBMISSION_ID,
+          status: "pending",
+          submissionId: SUBMISSION_ID,
+        },
+        nowMs: TEST_NOW_MS,
+        request: createSubmitTurnRequest(),
+      })
+    );
+    const completeRemoteAgentSubmission = vi.fn(() =>
+      Promise.reject(new Error("Core callback connection closed"))
+    );
+
+    await handleCenterAgentObservation({
+      event: completedPromptObservation("Durable authoritative final"),
+      resolveDependencies: () => ({
+        coreWorker: { completeRemoteAgentSubmission },
+        env: {} as CloudflareBindings,
+        storage,
+      }),
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    });
+
+    await expect(
+      readRemoteAgentCallbackContext(storage, SUBMISSION_ID)
+    ).resolves.toMatchObject({
+      callbackStatus: "retryable",
+      completedText: "Durable authoritative final",
+    });
+  });
+
   it("uses the immutable Flue execution identity when a prompt observation omits submissionId", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const staleSubmissionId = "submission_stale_pending";

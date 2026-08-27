@@ -19,9 +19,6 @@ import type {
 
 const WAKE_PROGRESS_LOCAL_EXPIRY_MS = 180_000;
 const WAKE_PROGRESS_TERMINAL_EXPIRY_MS = 180_000;
-const WAKE_PROGRESS_WAITING_ACTIVE_EXPIRY_MS = 480_000;
-const WAKE_PROGRESS_WORKING_ACTIVE_EXPIRY_MS = 1_800_000;
-const WAKE_PROGRESS_NO_RESPONSE_MESSAGE = "The agent didn't respond in time.";
 const ACTIVE_WAKE_PROGRESS_PHASES = new Set<WakeProgressPhase>([
   "sending",
   "request_sent",
@@ -279,9 +276,9 @@ export function filterVisibleWakeProgressItems(input: {
   nowMs?: number;
 }): WakeProgressItem[] {
   const nowMs = input.nowMs ?? Date.now();
-  return input.items
-    .map((item) => projectWakeProgressItemForPresentation({ item, nowMs }))
-    .filter((item) => shouldKeepWakeProgressItem({ item, nowMs }));
+  return input.items.filter((item) =>
+    shouldKeepWakeProgressItem({ item, nowMs })
+  );
 }
 
 export function isActiveWakeProgressItem(item: WakeProgressItem): boolean {
@@ -529,60 +526,7 @@ function shouldKeepWakeProgressItem(input: {
   if (input.item.phase === "sending") {
     return ageMs <= WAKE_PROGRESS_LOCAL_EXPIRY_MS;
   }
-  const activeExpiryMs = resolveWakeProgressActiveExpiryMs(input.item.phase);
-  return activeExpiryMs !== null && ageMs <= activeExpiryMs;
-}
-
-function projectWakeProgressItemForPresentation(input: {
-  item: WakeProgressItem;
-  nowMs: number;
-}): WakeProgressItem {
-  if (
-    input.item.terminal ||
-    (input.item.pendingInteraction &&
-      input.item.pendingInteraction.expiresAtMs > input.nowMs)
-  ) {
-    return input.item;
-  }
-  const activeExpiryMs = resolveWakeProgressActiveExpiryMs(input.item.phase);
-  if (
-    activeExpiryMs === null ||
-    input.nowMs - input.item.updatedAtMs <= activeExpiryMs
-  ) {
-    return input.item;
-  }
-  return {
-    ...input.item,
-    failureReasonCode: null,
-    message: WAKE_PROGRESS_NO_RESPONSE_MESSAGE,
-    phase: "failed",
-    terminal: true,
-    updatedAtMs: input.item.updatedAtMs + activeExpiryMs,
-  };
-}
-
-function resolveWakeProgressActiveExpiryMs(
-  phase: WakeProgressPhase
-): number | null {
-  switch (phase) {
-    case "request_sent":
-    case "queued":
-    case "connecting":
-    case "retrying":
-      return WAKE_PROGRESS_WAITING_ACTIVE_EXPIRY_MS;
-    case "running":
-    case "writing":
-    case "publishing":
-      return WAKE_PROGRESS_WORKING_ACTIVE_EXPIRY_MS;
-    case "sending":
-    case "failed":
-    case "publication_unknown":
-    case "stopped":
-    case "replied":
-      return null;
-    default:
-      return assertNever(phase);
-  }
+  return ACTIVE_WAKE_PROGRESS_PHASES.has(input.item.phase);
 }
 
 function findMatchingWakeProgressItemEntry(input: {

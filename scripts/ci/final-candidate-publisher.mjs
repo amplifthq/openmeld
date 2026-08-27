@@ -57,7 +57,10 @@ function run() {
       pullRequestNumber,
       repository,
     });
-    assertCandidateSnapshot(liveState.snapshot);
+    assertCandidateSnapshot(liveState.snapshot, {
+      candidateKind: "pull-request",
+      requireCurrentBase: false,
+    });
     if (liveState.snapshot.treeSha !== expected.treeSha) {
       throw new Error(
         `Candidate tree drifted: expected ${expected.treeSha}, found ${liveState.snapshot.treeSha}.`
@@ -67,6 +70,7 @@ function run() {
       baseSha: expected.baseSha,
       bootstrapReason: null,
       branchName,
+      candidateKind: "pull-request",
       changedPaths: resolveChangedPaths(
         expected.baseSha,
         expected.headSha,
@@ -144,6 +148,7 @@ export function assertEvidenceMatchesExecution(input) {
   for (const field of [
     "branchName",
     "bootstrapReason",
+    "candidateKind",
     "changedPaths",
     "controlTrust",
     "planSourceSha",
