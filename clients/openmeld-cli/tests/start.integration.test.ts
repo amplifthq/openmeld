@@ -221,7 +221,7 @@ describe("openmeld start", () => {
     listAgentTargetStatesMock.mockResolvedValue([]);
     readCurrentObservedDaemonRuntimeStatusMock.mockResolvedValue(null);
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       reason: "no local execution routes are available",

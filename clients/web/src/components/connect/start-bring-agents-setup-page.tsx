@@ -1676,8 +1676,10 @@ function usePrepareSession(input: {
 	);
 	const [webSocketStatus, setWebSocketStatus] =
 		useState<PrepareWebSocketStatus>("idle");
-	const [isRefreshingCommand, setIsRefreshingCommand] = useState(false);
+	const [refreshingCommandSessionKey, setRefreshingCommandSessionKey] =
+		useState<string | null>(null);
 	const socketRef = useRef<WebSocket | null>(null);
+	const commandGenerationKeyRef = useRef<string | null>(null);
 	const activePrepareSessionId = state.snapshot?.prepareSessionId ?? null;
 	const sessionKey = buildPrepareSessionKey({
 		connectedComputerId,
@@ -1686,6 +1688,15 @@ function usePrepareSession(input: {
 		runtimeLane,
 		targetSpaceId,
 	});
+	const activeCommandSessionKeyRef = useRef<string | null>(sessionKey);
+	const isRefreshingCommand =
+		sessionKey !== null && refreshingCommandSessionKey === sessionKey;
+	const isPrepareSessionMountedRef = useRef(true);
+	const commandRefreshRef = useRef<{
+		request: object;
+		sessionKey: string;
+		task: Promise<string | null>;
+	} | null>(null);
 	const generateOneTimeToken = useGenerateOneTimeToken();
 	const generateOneTimeTokenRef = useRef(generateOneTimeToken.mutateAsync);
 	generateOneTimeTokenRef.current = generateOneTimeToken.mutateAsync;
@@ -1699,6 +1710,18 @@ function usePrepareSession(input: {
 	const sourceNavigationActionSignalId =
 		sourceNavigationAction?.signalId ?? null;
 	const sourceNavigationActionSpaceId = sourceNavigationAction?.spaceId ?? null;
+
+	useEffect(() => {
+		isPrepareSessionMountedRef.current = true;
+		return () => {
+			isPrepareSessionMountedRef.current = false;
+		};
+	}, []);
+
+	useEffect(() => {
+		activeCommandSessionKeyRef.current = sessionKey;
+		commandRefreshRef.current = null;
+	}, [sessionKey]);
 
 	useEffect(() => {
 		if (!sessionKey) {
@@ -1795,38 +1818,60 @@ function usePrepareSession(input: {
 		targetSpaceId,
 	]);
 
+	const generateSetupCommand = useCallback(
+		async (input: {
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string | null;
+		}) => {
+			const [gatewayUrl, oneTimeToken] = await Promise.all([
+				loadGatewayUrl(),
+				generateOneTimeTokenRef.current(),
+			]);
+			return {
+				command: buildWebSetupCommand({
+					setupPlatform: commandPlatform,
+					gatewayUrl,
+					startSession: input.opaqueToken,
+					oneTimeToken: oneTimeToken.token,
+				}),
+				expiresAt: resolveSetupCommandExpiresAt({
+					opaqueTokenExpiresAt: input.opaqueTokenExpiresAt,
+					oneTimeTokenExpiresIn: oneTimeToken.expiresIn,
+				}),
+			};
+		},
+		[commandPlatform, loadGatewayUrl]
+	);
+
 	useEffect(() => {
 		const shouldBuildCommand =
 			state.opaqueToken !== null &&
 			state.snapshot?.lifecycleStatus !== "completed";
 		if (!shouldBuildCommand) {
+			commandGenerationKeyRef.current = null;
 			setCommand(null);
 			setCommandExpiresAt(null);
+			return;
+		}
+		const generationKey = `${commandPlatform}:${state.opaqueToken}`;
+		if (commandGenerationKeyRef.current === generationKey) {
 			return;
 		}
 
 		let cancelled = false;
 		setCommand(null);
 		setCommandExpiresAt(state.opaqueTokenExpiresAt);
-		Promise.all([loadGatewayUrl(), generateOneTimeTokenRef.current()])
-			.then(([gatewayUrl, oneTimeToken]) => {
+		generateSetupCommand({
+			opaqueToken: state.opaqueToken as string,
+			opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
+		})
+			.then((generated) => {
 				if (cancelled) {
 					return;
 				}
-				setCommand(
-					buildWebSetupCommand({
-						setupPlatform: commandPlatform,
-						gatewayUrl,
-						startSession: state.opaqueToken as string,
-						oneTimeToken: oneTimeToken.token,
-					})
-				);
-				setCommandExpiresAt(
-					resolveSetupCommandExpiresAt({
-						opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
-						oneTimeTokenExpiresIn: oneTimeToken.expiresIn,
-					})
-				);
+				commandGenerationKeyRef.current = generationKey;
+				setCommand(generated.command);
+				setCommandExpiresAt(generated.expiresAt);
 				setCopyStatus("idle");
 			})
 			.catch((error: unknown) => {
@@ -1844,7 +1889,7 @@ function usePrepareSession(input: {
 		};
 	}, [
 		commandPlatform,
-		loadGatewayUrl,
+		generateSetupCommand,
 		state.opaqueToken,
 		state.opaqueTokenExpiresAt,
 		state.snapshot?.lifecycleStatus,
@@ -2149,60 +2194,147 @@ function usePrepareSession(input: {
 		targetSpaceId,
 	]);
 
-	const refreshCommand = useCallback(async () => {
+	const refreshCommandAndReturn = useCallback((): Promise<string | null> => {
 		const snapshot = state.snapshot;
-		if (snapshot === null) {
-			return;
+		if (snapshot === null || sessionKey === null) {
+			return Promise.resolve(null);
 		}
+		const existingRefresh = commandRefreshRef.current;
+		if (existingRefresh?.sessionKey === sessionKey) {
+			return existingRefresh.task;
+		}
+		const refreshSessionKey = sessionKey;
+		const isCurrentRefreshSession = () =>
+			isPrepareSessionMountedRef.current &&
+			activeCommandSessionKeyRef.current === refreshSessionKey;
 
-		setIsRefreshingCommand(true);
-		try {
-			const session = await mintPrepareSessionToken({
-				prepareSessionId: snapshot.prepareSessionId,
-			});
-			setState((current) => ({
-				...current,
-				error: null,
-				opaqueToken: session.opaqueToken,
-				opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
-				snapshot: session.snapshot,
-				status: "ready",
-			}));
-			persistPrepareSessionPointer(session, {
-				connectedComputerId,
-				deviceId,
-				humanProfileId,
-				runtimeLane,
-				targetSpaceId,
-			});
-			setCopyStatus("idle");
-		} catch (error) {
+		const refreshRequest = {};
+		const reportRefreshError = (error: unknown) => {
+			if (!isCurrentRefreshSession()) {
+				return;
+			}
 			setState((current) => ({
 				...current,
 				error: normalizeError(error),
 			}));
-		} finally {
-			setIsRefreshingCommand(false);
-		}
+		};
+		const refreshTask = (async () => {
+			setRefreshingCommandSessionKey(refreshSessionKey);
+			try {
+				const session = await mintPrepareSessionToken({
+					prepareSessionId: snapshot.prepareSessionId,
+				});
+				if (!isCurrentRefreshSession()) {
+					return null;
+				}
+				const generated = await generateSetupCommand({
+					opaqueToken: session.opaqueToken,
+					opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
+				});
+				if (!isCurrentRefreshSession()) {
+					return null;
+				}
+				commandGenerationKeyRef.current = `${commandPlatform}:${session.opaqueToken}`;
+				setCommand(generated.command);
+				setCommandExpiresAt(generated.expiresAt);
+				setState((current) => ({
+					...current,
+					error: null,
+					opaqueToken: session.opaqueToken,
+					opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
+					snapshot: session.snapshot,
+					status: "ready",
+				}));
+				persistPrepareSessionPointer(session, {
+					connectedComputerId,
+					deviceId,
+					humanProfileId,
+					runtimeLane,
+					targetSpaceId,
+				});
+				setCopyStatus("idle");
+				return generated.command;
+			} catch (error) {
+				reportRefreshError(error);
+				return null;
+			} finally {
+				if (commandRefreshRef.current?.request === refreshRequest) {
+					commandRefreshRef.current = null;
+					if (isCurrentRefreshSession()) {
+						setRefreshingCommandSessionKey(null);
+					}
+				}
+			}
+		})();
+		commandRefreshRef.current = {
+			request: refreshRequest,
+			sessionKey: refreshSessionKey,
+			task: refreshTask,
+		};
+		return refreshTask;
 	}, [
+		commandPlatform,
 		connectedComputerId,
 		deviceId,
+		generateSetupCommand,
 		humanProfileId,
 		runtimeLane,
+		sessionKey,
 		state.snapshot,
 		targetSpaceId,
 	]);
 
-	const copyCommand = useCallback(async () => {
-		if (command === null) {
+	const refreshCommand = useCallback(async () => {
+		await refreshCommandAndReturn();
+	}, [refreshCommandAndReturn]);
+
+	useEffect(() => {
+		if (
+			command === null ||
+			commandExpiresAt === null ||
+			state.snapshot?.lifecycleStatus === "completed"
+		) {
 			return;
 		}
-		const didCopy = await copyCliEntryCommand(command);
+		const expiresAtMs = Date.parse(commandExpiresAt);
+		if (!Number.isFinite(expiresAtMs)) {
+			return;
+		}
+		const refreshTimer = window.setTimeout(
+			() => {
+				refreshCommandAndReturn().catch(() => undefined);
+			},
+			Math.max(0, expiresAtMs - Date.now()) + 25
+		);
+		return () => {
+			window.clearTimeout(refreshTimer);
+		};
+	}, [
+		command,
+		commandExpiresAt,
+		refreshCommandAndReturn,
+		state.snapshot?.lifecycleStatus,
+	]);
+
+	const copyCommand = useCallback(async () => {
+		let commandToCopy = command;
+		const commandExpiresAtMs = Date.parse(commandExpiresAt ?? "");
+		if (
+			commandToCopy !== null &&
+			Number.isFinite(commandExpiresAtMs) &&
+			commandExpiresAtMs <= Date.now()
+		) {
+			commandToCopy = await refreshCommandAndReturn();
+		}
+		if (commandToCopy === null) {
+			return;
+		}
+		const didCopy = await copyCliEntryCommand(commandToCopy);
 		setCopyStatus(didCopy ? "copied" : "manual");
 		if (didCopy) {
 			toast.success("CLI command copied.");
 		}
-	}, [command]);
+	}, [command, commandExpiresAt, refreshCommandAndReturn]);
 
 	return {
 		command,
@@ -2665,7 +2797,7 @@ function resolvePrepareCompletionReadyStepSummary(input: {
 		return input.setupCopy.readyNoSelectedLocalAgentsSummary;
 	}
 	if (input.completionReadiness.kind === "needs_attention") {
-		return `${input.setupCopy.readyCompleteSummary} Wake availability still needs ${formatAgentProfileCount(input.completionReadiness.count)}.`;
+		return `${input.setupCopy.readyCompleteSummary} Agent availability still needs ${formatAgentProfileCount(input.completionReadiness.count)}.`;
 	}
 	if (input.completionReadiness.kind === "error") {
 		return input.setupCopy.readyRefreshErrorSummary;

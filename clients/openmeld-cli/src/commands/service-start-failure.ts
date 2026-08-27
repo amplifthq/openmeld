@@ -206,7 +206,7 @@ export function buildSystemServiceStartupFailureReportFromVerdict(
     const card = buildDaemonStartNeedsAttentionCard({
       summary,
       nextStep: formatInlineOpenMeldCliCommands(
-        "Run `openmeld service start --mode foreground` to see what stopped it."
+        "Run `openmeld service repair` once. OpenMeld saved the startup evidence for diagnostics."
       ),
       autoRepairAttempted,
     });
@@ -252,7 +252,7 @@ export function buildSystemServiceStartupFailureReportFromVerdict(
   const card = buildDaemonStartNeedsAttentionCard({
     summary: "OpenMeld could not finish starting OpenMeld Service.",
     nextStep: formatInlineOpenMeldCliCommands(
-      "Run `openmeld service start --mode foreground` to see what stopped it."
+      "Run `openmeld service repair` once. OpenMeld saved the startup evidence for diagnostics."
     ),
     autoRepairAttempted,
   });
@@ -318,10 +318,7 @@ export function buildSystemServiceStartupFailureDiagnostics(input: {
     managerStatus: timeoutError?.managerStatus ?? null,
     nextSteps: localMachineIssue?.primaryAction
       ? [localMachineIssue.primaryAction]
-      : [
-          formatOpenMeldCliCommand("openmeld service start --mode foreground"),
-          formatOpenMeldCliCommand("openmeld service repair"),
-        ],
+      : [formatOpenMeldCliCommand("openmeld service repair")],
     recovery: input.recovery,
     runtimeStatus: timeoutError?.runtimeStatus ?? null,
     serviceLogPath: getDaemonSystemServiceLogPath(),

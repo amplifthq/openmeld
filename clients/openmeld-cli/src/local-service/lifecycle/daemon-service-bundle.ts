@@ -27,8 +27,10 @@ import {
   daemonServiceActiveBundleStatePath,
   daemonServiceLegacyExecutableWrapperPath,
   daemonServiceRecognizedExecutableWrapperPaths,
+  daemonServiceStableBinaryExecutablePath,
   daemonServiceStableExecutableWrapperPath,
   daemonServiceStableLauncherPath,
+  daemonServiceUpdateWorkerBinaryExecutablePath,
   daemonStatePath,
   getDaemonStatus,
 } from "../../config/daemon-state";
@@ -37,7 +39,12 @@ import {
   resolveOpenMeldEnvPreset,
 } from "../../config/paths";
 import { performManagedInstall } from "../../local-components/managed-install";
-import { isBinaryDistribution } from "../../runtime/distribution";
+import {
+  isBinaryDistribution,
+  type OpenMeldDistribution,
+  resolveOpenMeldDistribution,
+} from "../../runtime/distribution";
+import { emitDaemonLifecycleEvent } from "./daemon-lifecycle-journal";
 import { resolveDaemonServiceArtifact } from "./daemon-service-artifact";
 
 const DAEMON_ACTIVE_BUNDLE_SCHEMA = "openmeld-daemon-active-bundle-v2";
@@ -96,7 +103,25 @@ export function daemonServiceExecutableWrapperPath(
   return daemonServiceStableExecutableWrapperPath(pathInput);
 }
 
+export function daemonServiceBinaryExecutablePath(
+  pathInput: OpenMeldPathResolutionInput = {}
+): string {
+  return daemonServiceStableBinaryExecutablePath(pathInput);
+}
+
+export function daemonServiceUpdateWorkerBinaryPath(
+  pathInput: OpenMeldPathResolutionInput = {}
+): string {
+  return daemonServiceUpdateWorkerBinaryExecutablePath(pathInput);
+}
+
 export function daemonServiceExecutableWrapperPaths(
+  pathInput: OpenMeldPathResolutionInput = {}
+): string[] {
+  return daemonServiceRecognizedExecutableWrapperPaths(pathInput);
+}
+
+export function daemonServiceRecognizedExecutablePaths(
   pathInput: OpenMeldPathResolutionInput = {}
 ): string[] {
   return daemonServiceRecognizedExecutableWrapperPaths(pathInput);
@@ -291,7 +316,7 @@ export async function resolveDaemonBundleEntryPathFromState(
     return null;
   }
   if (state.bundleFormat === "binary_v1") {
-    const stableExecutablePath = daemonServiceExecutableWrapperPath(pathInput);
+    const stableExecutablePath = daemonServiceBinaryExecutablePath(pathInput);
     if (await pathExists(stableExecutablePath)) {
       return stableExecutablePath;
     }
@@ -475,6 +500,56 @@ async function hashDaemonBinaryFile(filePath: string): Promise<string> {
   return hash.digest("hex");
 }
 
+async function runAuditedServiceManagerCarrierMutation<T>(input: {
+  distribution?: OpenMeldDistribution;
+  operation: string;
+  pathInput?: OpenMeldPathResolutionInput;
+  run: () => Promise<T>;
+  targetPath: string;
+}): Promise<T> {
+  const pathInput = input.pathInput ?? {};
+  const metadata = {
+    distribution: input.distribution ?? resolveOpenMeldDistribution(),
+    executable: process.execPath,
+    operation: input.operation,
+    preset: resolveOpenMeldEnvPreset(pathInput),
+    targetPath: input.targetPath,
+  };
+  await emitDaemonLifecycleEvent({
+    command: "openmeld service carrier mutation",
+    intent: "status_cleanup",
+    metadata,
+    pathInput,
+    result: "attempted",
+    type: "service_manager.registration_reconcile",
+  });
+  try {
+    const result = await input.run();
+    await emitDaemonLifecycleEvent({
+      command: "openmeld service carrier mutation",
+      intent: "status_cleanup",
+      metadata,
+      pathInput,
+      result: "completed",
+      type: "service_manager.registration_reconcile",
+    });
+    return result;
+  } catch (error) {
+    await emitDaemonLifecycleEvent({
+      command: "openmeld service carrier mutation",
+      intent: "status_cleanup",
+      metadata: {
+        ...metadata,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      },
+      pathInput,
+      result: "failed",
+      type: "service_manager.registration_reconcile",
+    });
+    throw error;
+  }
+}
+
 export async function ensureDaemonServiceStableBinaryExecutable(
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<string> {
@@ -484,11 +559,55 @@ export async function ensureDaemonServiceStableBinaryExecutable(
       "OpenMeld cannot prepare the stable macOS Service executable without an active binary bundle."
     );
   }
-  const sourcePath = activeBundle.sourceEntryScriptPath;
+  return await ensureVerifiedBinaryCarrier({
+    bundle: activeBundle,
+    operationName: "stable_binary",
+    pathInput,
+    targetPath: daemonServiceBinaryExecutablePath(pathInput),
+  });
+}
+
+export async function ensureDaemonServiceUpdateWorkerBinaryExecutable(
+  preparedBundle: DaemonActiveBundleState,
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<string> {
+  if (preparedBundle.bundleFormat !== "binary_v1") {
+    throw new Error(
+      "OpenMeld cannot prepare the update worker binary without a binary Service bundle."
+    );
+  }
+  return await ensureVerifiedBinaryCarrier({
+    bundle: preparedBundle,
+    operationName: "update_worker_binary",
+    pathInput,
+    targetPath: daemonServiceUpdateWorkerBinaryPath(pathInput),
+  });
+}
+
+export async function clearDaemonServiceUpdateWorkerBinaryExecutable(
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<void> {
+  const targetPath = daemonServiceUpdateWorkerBinaryPath(pathInput);
+  await runAuditedServiceManagerCarrierMutation({
+    distribution: "binary",
+    operation: "remove_update_worker_binary",
+    pathInput,
+    targetPath,
+    run: async () => await rm(targetPath, { force: true }),
+  });
+}
+
+async function ensureVerifiedBinaryCarrier(input: {
+  bundle: DaemonActiveBundleState;
+  operationName: "stable_binary" | "update_worker_binary";
+  pathInput: OpenMeldPathResolutionInput;
+  targetPath: string;
+}): Promise<string> {
+  const sourcePath = input.bundle.sourceEntryScriptPath;
   const expectedFingerprint =
-    activeBundle.sourceDistFingerprint ??
+    input.bundle.sourceDistFingerprint ??
     (await hashDaemonBinaryFile(sourcePath));
-  const stableExecutablePath = daemonServiceExecutableWrapperPath(pathInput);
+  const stableExecutablePath = input.targetPath;
   const stableExecutableStat = await lstat(stableExecutablePath).catch(
     () => null
   );
@@ -498,26 +617,58 @@ export async function ensureDaemonServiceStableBinaryExecutable(
     (await hashDaemonBinaryFile(stableExecutablePath).catch(() => null)) ===
       expectedFingerprint
   ) {
-    await chmod(stableExecutablePath, 0o700);
+    await runAuditedServiceManagerCarrierMutation({
+      distribution: "binary",
+      operation: `refresh_${input.operationName}_permissions`,
+      pathInput: input.pathInput,
+      targetPath: stableExecutablePath,
+      run: async () => await chmod(stableExecutablePath, 0o700),
+    });
     return stableExecutablePath;
   }
 
   await mkdir(dirname(stableExecutablePath), { recursive: true });
   const preparedPath = `${stableExecutablePath}.next-${String(process.pid)}`;
-  await rm(preparedPath, { force: true });
+  await runAuditedServiceManagerCarrierMutation({
+    distribution: "binary",
+    operation: `clear_prepared_${input.operationName}`,
+    pathInput: input.pathInput,
+    targetPath: preparedPath,
+    run: async () => await rm(preparedPath, { force: true }),
+  });
   try {
-    await copyFile(sourcePath, preparedPath);
-    await chmod(preparedPath, 0o700);
+    await runAuditedServiceManagerCarrierMutation({
+      distribution: "binary",
+      operation: `prepare_${input.operationName}`,
+      pathInput: input.pathInput,
+      targetPath: preparedPath,
+      run: async () => {
+        await copyFile(sourcePath, preparedPath);
+        await chmod(preparedPath, 0o700);
+      },
+    });
     const preparedFingerprint = await hashDaemonBinaryFile(preparedPath);
     if (preparedFingerprint !== expectedFingerprint) {
       throw new Error(
-        "OpenMeld could not verify the prepared stable macOS Service executable."
+        "OpenMeld could not verify the prepared Service carrier executable."
       );
     }
-    await rename(preparedPath, stableExecutablePath);
+    await runAuditedServiceManagerCarrierMutation({
+      distribution: "binary",
+      operation: `replace_${input.operationName}`,
+      pathInput: input.pathInput,
+      targetPath: stableExecutablePath,
+      run: async () => await rename(preparedPath, stableExecutablePath),
+    });
     return stableExecutablePath;
   } finally {
-    await rm(preparedPath, { force: true }).catch(() => undefined);
+    await runAuditedServiceManagerCarrierMutation({
+      distribution: "binary",
+      operation: `clear_prepared_${input.operationName}`,
+      pathInput: input.pathInput,
+      targetPath: preparedPath,
+      run: async () => await rm(preparedPath, { force: true }),
+    }).catch(() => undefined);
   }
 }
 
@@ -638,14 +789,22 @@ export async function writeDaemonServiceLauncher(
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<void> {
   await mkdir(daemonRuntimeServiceManagerPath(pathInput), { recursive: true });
-  await writeFile(
-    daemonServiceLauncherPath(pathInput),
-    `${buildDaemonServiceLauncherSource(pathInput)}\n`,
-    {
-      encoding: "utf8",
-      mode: 0o700,
-    }
-  );
+  const targetPath = daemonServiceLauncherPath(pathInput);
+  await runAuditedServiceManagerCarrierMutation({
+    distribution: "npm",
+    operation: "write_launcher",
+    pathInput,
+    targetPath,
+    run: async () =>
+      await writeFile(
+        targetPath,
+        `${buildDaemonServiceLauncherSource(pathInput)}\n`,
+        {
+          encoding: "utf8",
+          mode: 0o700,
+        }
+      ),
+  });
 }
 
 export async function writeDaemonServiceExecutableWrapper(
@@ -654,15 +813,23 @@ export async function writeDaemonServiceExecutableWrapper(
   await mkdir(daemonRuntimeServiceManagerPath(pathInput), { recursive: true });
   await Promise.all(
     daemonServiceExecutableWrapperPaths(pathInput).map(async (wrapperPath) => {
-      await writeFile(
-        wrapperPath,
-        `${buildDaemonServiceExecutableWrapperSource(pathInput)}\n`,
-        {
-          encoding: "utf8",
-          mode: 0o700,
-        }
-      );
-      await chmod(wrapperPath, 0o700);
+      await runAuditedServiceManagerCarrierMutation({
+        distribution: "npm",
+        operation: "write_executable_wrapper",
+        pathInput,
+        targetPath: wrapperPath,
+        run: async () => {
+          await writeFile(
+            wrapperPath,
+            `${buildDaemonServiceExecutableWrapperSource(pathInput)}\n`,
+            {
+              encoding: "utf8",
+              mode: 0o700,
+            }
+          );
+          await chmod(wrapperPath, 0o700);
+        },
+      });
     })
   );
 }
@@ -696,9 +863,25 @@ export async function restoreDaemonActiveBundleStateSnapshot(
 export async function clearDaemonServiceBundles(): Promise<void> {
   await Promise.all([
     rm(daemonServiceActiveBundlePath(), { force: true }),
-    rm(daemonServiceLauncherPath(), { force: true }),
+    runAuditedServiceManagerCarrierMutation({
+      operation: "remove_launcher",
+      targetPath: daemonServiceLauncherPath(),
+      run: async () => await rm(daemonServiceLauncherPath(), { force: true }),
+    }),
+    runAuditedServiceManagerCarrierMutation({
+      distribution: "binary",
+      operation: "remove_stable_binary",
+      targetPath: daemonServiceBinaryExecutablePath(),
+      run: async () =>
+        await rm(daemonServiceBinaryExecutablePath(), { force: true }),
+    }),
+    clearDaemonServiceUpdateWorkerBinaryExecutable(),
     ...daemonServiceExecutableWrapperPaths().map((wrapperPath) =>
-      rm(wrapperPath, { force: true })
+      runAuditedServiceManagerCarrierMutation({
+        operation: "remove_executable_wrapper",
+        targetPath: wrapperPath,
+        run: async () => await rm(wrapperPath, { force: true }),
+      })
     ),
     rm(daemonRuntimeBundlesPath(), { recursive: true, force: true }),
   ]);

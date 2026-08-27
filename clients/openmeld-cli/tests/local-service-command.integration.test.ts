@@ -4026,7 +4026,7 @@ describe("openmeld service commands", () => {
           "https://gateway.openmeld.invalid"
         );
         expect(payload?.attention?.nextStep).toContain(
-          "openmeld service start --mode foreground"
+          "openmeld service status"
         );
       } finally {
         process.env.OPENMELD_ENV_PRESET = undefined;

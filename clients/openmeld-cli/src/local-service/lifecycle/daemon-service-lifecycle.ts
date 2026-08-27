@@ -28,6 +28,8 @@ import {
 import type { OpenMeldProfile } from "../../config/openmeld-profiles-api";
 import { resolveOpenMeldEnvPreset } from "../../config/paths";
 import { resolveOpenMeldProfileOrNull } from "../../config/resolve-openmeld-profile";
+import { compareSemver, readVersionState } from "../../config/version-state";
+import type { OpenMeldDistribution } from "../../runtime/distribution";
 import {
   LocalDaemonControlPlaneClientError,
   requestLocalDaemonShutdown,
@@ -654,14 +656,18 @@ async function executeDaemonServiceLifecycle(input: {
 
     input.state.failureStage = "register_service";
     await input.emitPhase("register_service");
+    const serviceDistribution: OpenMeldDistribution =
+      preparedBundle.bundleFormat === "binary_v1" ? "binary" : "npm";
     const serviceCommandSpec = buildDaemonSystemServiceCommandSpec({
       ...(preparedBundle.bundleFormat === "binary_v1"
         ? { binaryExecutablePath: preparedBundle.sourceEntryScriptPath }
         : {}),
       controller: input.context.serviceManager.controller,
+      distribution: serviceDistribution,
       environmentTarget: input.context.commandOptions.environmentTarget,
     });
     await installDaemonSystemServiceRegistration({
+      distribution: serviceDistribution,
       serviceCommandSpec,
       serviceManager: input.context.serviceManager,
     });
@@ -684,6 +690,7 @@ async function executeDaemonServiceLifecycle(input: {
       input.state.failureStage = "start_if_desired";
       await input.emitPhase("start_if_desired");
       await startLifecycleServiceWithRetry({
+        distribution: serviceDistribution,
         serviceCommandSpec,
         serviceManager: input.context.serviceManager,
       });
@@ -935,6 +942,20 @@ async function restoreVerifiedPreviousState(input: {
   restorePoint: DaemonServiceLifecycleRestorePoint;
   serviceManager: DaemonServiceManager;
 }): Promise<DaemonServiceInventory> {
+  const previousVersion =
+    input.restorePoint.previousInstallState?.daemonVersion ??
+    input.restorePoint.previousContract?.daemonVersion;
+  if (!previousVersion) {
+    throw new Error(
+      "verified rollback is missing the previous daemon version."
+    );
+  }
+  const requiredFloor = (await readVersionState())?.required_floor?.trim();
+  if (requiredFloor && compareSemver(previousVersion, requiredFloor) < 0) {
+    throw new Error(
+      `verified rollback version ${previousVersion} is below the required version floor ${requiredFloor}.`
+    );
+  }
   await input.serviceManager.uninstall();
   await input.serviceManager.waitUntilAbsent();
   await ensureNoOwnedProcessesRemain();
@@ -947,7 +968,12 @@ async function restoreVerifiedPreviousState(input: {
   await restoreLifecycleServiceContractSnapshot(
     input.restorePoint.previousContract
   );
+  const previousDistribution: OpenMeldDistribution =
+    input.restorePoint.previousActiveBundle?.bundleFormat === "binary_v1"
+      ? "binary"
+      : "npm";
   await installDaemonSystemServiceRegistration({
+    distribution: previousDistribution,
     serviceCommandSpec: buildDaemonSystemServiceCommandSpec({
       ...(input.restorePoint.previousActiveBundle?.bundleFormat === "binary_v1"
         ? {
@@ -956,6 +982,7 @@ async function restoreVerifiedPreviousState(input: {
           }
         : {}),
       controller: input.serviceManager.controller,
+      distribution: previousDistribution,
       environmentTarget: resolveOpenMeldEnvironmentTargetFromEnv(),
     }),
     serviceManager: input.serviceManager,
@@ -965,14 +992,6 @@ async function restoreVerifiedPreviousState(input: {
     await input.serviceManager.waitUntilRunning();
   } else {
     await input.serviceManager.waitUntilStopped();
-  }
-  const previousVersion =
-    input.restorePoint.previousInstallState?.daemonVersion ??
-    input.restorePoint.previousContract?.daemonVersion;
-  if (!previousVersion) {
-    throw new Error(
-      "verified rollback is missing the previous daemon version."
-    );
   }
   const inventoryAfter = await waitForVerifiedLifecycleInventory({
     desiredState: input.restorePoint.desiredState,
@@ -1018,12 +1037,16 @@ async function transitionLifecycleToStoppedSafeCurrentVersion(input: {
     preparedBundle,
     serviceController: input.serviceManager.controller,
   });
+  const serviceDistribution: OpenMeldDistribution =
+    preparedBundle.bundleFormat === "binary_v1" ? "binary" : "npm";
   await installDaemonSystemServiceRegistration({
+    distribution: serviceDistribution,
     serviceCommandSpec: buildDaemonSystemServiceCommandSpec({
       ...(preparedBundle.bundleFormat === "binary_v1"
         ? { binaryExecutablePath: preparedBundle.sourceEntryScriptPath }
         : {}),
       controller: input.serviceManager.controller,
+      distribution: serviceDistribution,
       environmentTarget: input.commandOptions.environmentTarget,
     }),
     serviceManager: input.serviceManager,
@@ -1070,9 +1093,11 @@ async function recoverBackgroundLifecycleVerificationFailure(input: {
   await ensureNoOwnedProcessesRemain();
   const serviceCommandSpec = buildDaemonSystemServiceCommandSpec({
     controller: input.serviceManager.controller,
+    distribution: input.target.bundleFormat === "binary_v1" ? "binary" : "npm",
     environmentTarget: input.commandOptions.environmentTarget,
   });
   await startLifecycleServiceWithRetry({
+    distribution: input.target.bundleFormat === "binary_v1" ? "binary" : "npm",
     serviceCommandSpec,
     serviceManager: input.serviceManager,
   });
@@ -1364,13 +1389,20 @@ async function requestControlledSystemServiceDrain(input: {
     const isLegacyShutdownContract =
       error instanceof LocalDaemonControlPlaneClientError &&
       error.code === "daemon.control.contract_mismatch";
+    const isManagerRunningWithoutRuntime =
+      error instanceof LocalDaemonControlPlaneClientError &&
+      error.code === "daemon.control.endpoint_missing" &&
+      input.inventory.runtimeStatus.status !== "running" &&
+      input.inventory.ownedProcesses.length === 0;
     const isLegacyMissingCloseReason =
       isLegacyMissingControlledShutdownCloseReason({
         error,
         inventory: input.inventory,
       });
     const isCompatibilityFallback =
-      isLegacyShutdownContract || isLegacyMissingCloseReason;
+      isLegacyShutdownContract ||
+      isLegacyMissingCloseReason ||
+      isManagerRunningWithoutRuntime;
     const observedDaemonVersion = isLegacyMissingCloseReason
       ? resolveObservedDaemonVersion(input.inventory)
       : null;
@@ -1383,6 +1415,11 @@ async function requestControlledSystemServiceDrain(input: {
           ? {
               compatibilityReason: "legacy_missing_close_reason",
               observedDaemonVersion,
+            }
+          : {}),
+        ...(isManagerRunningWithoutRuntime
+          ? {
+              compatibilityReason: "manager_running_without_runtime",
             }
           : {}),
         errorMessage: toErrorMessage(error),
@@ -2083,6 +2120,7 @@ function readDaemonServiceInventoryAnomalyCodes(
 }
 
 async function startLifecycleServiceWithRetry(input: {
+  distribution: OpenMeldDistribution;
   serviceCommandSpec: ReturnType<typeof buildDaemonSystemServiceCommandSpec>;
   serviceManager: DaemonServiceManager;
 }): Promise<void> {
@@ -2097,6 +2135,7 @@ async function startLifecycleServiceWithRetry(input: {
   await input.serviceManager.uninstall();
   await input.serviceManager.waitUntilAbsent();
   await installDaemonSystemServiceRegistration({
+    distribution: input.distribution,
     serviceCommandSpec: input.serviceCommandSpec,
     serviceManager: input.serviceManager,
   });
@@ -2104,11 +2143,13 @@ async function startLifecycleServiceWithRetry(input: {
 }
 
 async function installDaemonSystemServiceRegistration(input: {
+  distribution: OpenMeldDistribution;
   serviceCommandSpec: ReturnType<typeof buildDaemonSystemServiceCommandSpec>;
   serviceManager: DaemonServiceManager;
 }): Promise<void> {
   await ensureDaemonSystemServiceCommandFiles({
     controller: input.serviceManager.controller,
+    distribution: input.distribution,
   });
   await input.serviceManager.install(input.serviceCommandSpec);
 }

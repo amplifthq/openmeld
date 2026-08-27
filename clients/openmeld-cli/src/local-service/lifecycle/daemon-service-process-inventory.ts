@@ -15,8 +15,8 @@ import {
   resolveOpenMeldManagedVersionBinaryRootPath,
 } from "./daemon-managed-binary-path";
 import {
-  daemonServiceExecutableWrapperPaths,
   daemonServiceLauncherPath,
+  daemonServiceRecognizedExecutablePaths,
 } from "./daemon-service-bundle";
 import {
   type DaemonServiceProcessMode,
@@ -98,7 +98,7 @@ function classifyDaemonOwnedProcess(
   const launcherPath = normalizeProcessCommand(
     daemonServiceLauncherPath(pathInput)
   );
-  const wrapperPaths = daemonServiceExecutableWrapperPaths(pathInput).map(
+  const wrapperPaths = daemonServiceRecognizedExecutablePaths(pathInput).map(
     normalizeProcessCommand
   );
   if (
@@ -280,7 +280,7 @@ function resolveManagedDaemonPathLane(input: {
     const laneLauncherPath = normalizeProcessCommand(
       daemonServiceLauncherPath(lanePathInput)
     );
-    const laneWrapperPaths = daemonServiceExecutableWrapperPaths(
+    const laneWrapperPaths = daemonServiceRecognizedExecutablePaths(
       lanePathInput
     ).map(normalizeProcessCommand);
     const laneRuntimeRoot = normalizeProcessCommand(

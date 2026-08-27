@@ -19,6 +19,7 @@ const {
   cleanupStaleDaemonRuntimeDataBackupsMock,
   clearDaemonRuntimeStateIfDefinitelyStoppedMock,
   ensureDaemonRuntimePathsMock,
+  ensureDaemonSystemServiceCommandFilesMock,
   inspectDaemonServiceInventoryMock,
   installDaemonMock,
   listDaemonOwnedProcessesMock,
@@ -28,6 +29,7 @@ const {
   readCurrentObservedDaemonRuntimeStatusMock,
   readDaemonServiceContractMock,
   readDaemonServiceRuntimeSnapshotMock,
+  readVersionStateMock,
   emitDaemonLifecycleEventMock,
   resolveOpenMeldProfileOrNullMock,
   resolveDaemonDeviceIdMock,
@@ -47,6 +49,7 @@ const {
   cleanupStaleDaemonRuntimeDataBackupsMock: vi.fn(),
   clearDaemonRuntimeStateIfDefinitelyStoppedMock: vi.fn(),
   ensureDaemonRuntimePathsMock: vi.fn(),
+  ensureDaemonSystemServiceCommandFilesMock: vi.fn(),
   inspectDaemonServiceInventoryMock: vi.fn(),
   installDaemonMock: vi.fn(),
   listDaemonOwnedProcessesMock: vi.fn(),
@@ -56,6 +59,7 @@ const {
   readCurrentObservedDaemonRuntimeStatusMock: vi.fn(),
   readDaemonServiceContractMock: vi.fn(),
   readDaemonServiceRuntimeSnapshotMock: vi.fn(),
+  readVersionStateMock: vi.fn(),
   emitDaemonLifecycleEventMock: vi.fn(),
   resolveOpenMeldProfileOrNullMock: vi.fn(),
   resolveDaemonDeviceIdMock: vi.fn(),
@@ -105,6 +109,16 @@ vi.mock("../src/config/resolve-openmeld-profile", () => ({
   resolveOpenMeldProfileOrNull: resolveOpenMeldProfileOrNullMock,
 }));
 
+vi.mock("../src/config/version-state", async () => {
+  const actual = await vi.importActual<
+    typeof import("../src/config/version-state")
+  >("../src/config/version-state");
+  return {
+    ...actual,
+    readVersionState: readVersionStateMock,
+  };
+});
+
 vi.mock("../src/local-service/state/daemon-device-id", () => ({
   ensureDaemonRuntimePaths: ensureDaemonRuntimePathsMock,
   resolveDaemonDeviceId: resolveDaemonDeviceIdMock,
@@ -137,6 +151,20 @@ vi.mock("../src/local-service/lifecycle/daemon-service-bundle", async () => {
     verifyDaemonActiveBundleIntegrity: verifyDaemonActiveBundleIntegrityMock,
   };
 });
+
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-command-spec",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../src/local-service/lifecycle/daemon-service-command-spec")
+    >("../src/local-service/lifecycle/daemon-service-command-spec");
+    return {
+      ...actual,
+      ensureDaemonSystemServiceCommandFiles:
+        ensureDaemonSystemServiceCommandFilesMock,
+    };
+  }
+);
 
 vi.mock("../src/local-service/control-plane/client", async () => {
   const actual = await vi.importActual<
@@ -279,6 +307,7 @@ describe("local service lifecycle", () => {
     });
     readDaemonServiceContractMock.mockReset().mockResolvedValue(null);
     readDaemonServiceRuntimeSnapshotMock.mockReset().mockResolvedValue(null);
+    readVersionStateMock.mockReset().mockResolvedValue(null);
     emitDaemonLifecycleEventMock.mockReset().mockResolvedValue(undefined);
     resolveOpenMeldProfileOrNullMock.mockReset().mockResolvedValue(null);
     resolveDaemonDeviceIdMock.mockReset().mockResolvedValue("device-123");
@@ -553,6 +582,46 @@ describe("local service lifecycle", () => {
     expect(serviceManager.stop).not.toHaveBeenCalled();
   });
 
+  it("repairs a crash-looping system service when no runtime or owned process is active", async () => {
+    const crashLoopInventory = buildInitialInventory(serviceManager);
+    crashLoopInventory.runtimeStatus = buildRuntimeStatus("stale");
+    inspectDaemonServiceInventoryMock
+      .mockReset()
+      .mockResolvedValueOnce(crashLoopInventory)
+      .mockResolvedValue(buildFinalInventory(serviceManager));
+    requestLocalDaemonShutdownMock.mockRejectedValue(
+      new LocalDaemonControlPlaneClientError(
+        "daemon.control.endpoint_missing",
+        "daemon control endpoint is missing"
+      )
+    );
+
+    const result = await runDaemonServiceLifecycle({
+      expectedVersion: EXPECTED_VERSION,
+      operation: "startup_repair",
+      installSource: "daemon.command.install",
+      desiredState: "stopped",
+      shouldStartAfterLifecycle: false,
+      forceReinstall: true,
+    });
+
+    expect(result.status).toBe("aligned");
+    expect(requestLocalDaemonShutdownMock).toHaveBeenCalledTimes(1);
+    expect(serviceManager.stop).toHaveBeenCalledTimes(1);
+    expect(serviceManager.uninstall).toHaveBeenCalledTimes(1);
+    expect(serviceManager.install).toHaveBeenCalledTimes(1);
+    expect(emitDaemonLifecycleEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          compatibilityFallback: true,
+          compatibilityReason: "manager_running_without_runtime",
+        }),
+        result: "fallback",
+        type: "stop.controlled_drain",
+      })
+    );
+  });
+
   it("keeps the running service untouched when the replacement bundle cannot be prepared", async () => {
     prepareDaemonServiceBundleMock.mockRejectedValue(
       new Error("replacement bundle validation failed")
@@ -657,6 +726,53 @@ describe("local service lifecycle", () => {
     expect(serviceManager.uninstall).toHaveBeenCalledTimes(2);
     expect(serviceManager.install).toHaveBeenCalledTimes(2);
     expect(serviceManager.waitUntilRunning).toHaveBeenCalledTimes(2);
+    expect(ensureDaemonSystemServiceCommandFilesMock).toHaveBeenCalledTimes(2);
+    expect(ensureDaemonSystemServiceCommandFilesMock).toHaveBeenNthCalledWith(
+      2,
+      {
+        controller: "launchd",
+        distribution: "binary",
+      }
+    );
+  });
+
+  it("does not roll back below the cached Core required version floor", async () => {
+    const previousInventory = buildInitialInventory(serviceManager, {
+      installedVersion: PREVIOUS_VERSION,
+    });
+    readVersionStateMock.mockResolvedValue({
+      v: 1,
+      last_version: EXPECTED_VERSION,
+      latest_version: EXPECTED_VERSION,
+      required_floor: EXPECTED_VERSION,
+      updated_at: "2026-08-27T00:00:00.000Z",
+    });
+    serviceManager.waitUntilRunning = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("replacement service did not start"));
+    inspectDaemonServiceInventoryMock
+      .mockReset()
+      .mockResolvedValueOnce(previousInventory)
+      .mockResolvedValue(buildFinalInventory(serviceManager));
+
+    const result = await runDaemonServiceLifecycle({
+      expectedVersion: EXPECTED_VERSION,
+      operation: "upgrade_reconcile",
+      installSource: "daemon.command.install",
+      desiredState: "background",
+      shouldStartAfterLifecycle: true,
+      forceReinstall: true,
+    });
+
+    expect(result).toMatchObject({
+      recoveryStatus: "stopped_safe_current_version",
+      status: "stopped_safe",
+    });
+    expect(result.errorMessage).toContain(
+      `required version floor ${EXPECTED_VERSION}`
+    );
+    expect(restoreDaemonInstallStateSnapshotMock).not.toHaveBeenCalled();
+    expect(restoreDaemonActiveBundleStateSnapshotMock).not.toHaveBeenCalled();
   });
 
   it("uses the legacy stop path only when the old service does not support controlled drain", async () => {

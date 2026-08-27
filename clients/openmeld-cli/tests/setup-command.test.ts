@@ -1173,7 +1173,7 @@ describe("setup command", () => {
       ([line]) => (line as { text: string }).text
     );
     const output = lines.join("\n");
-    expect(output).toContain("OpenMeld Setup Complete 🎉");
+    expect(output).toContain("Computer connected");
     expect(output).not.toContain("Status: Ready");
     expect(output).toContain(
       `CLI version: ${resolveCurrentDaemonExpectedVersion()}`

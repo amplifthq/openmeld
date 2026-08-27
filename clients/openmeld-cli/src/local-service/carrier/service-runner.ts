@@ -28,7 +28,10 @@ import {
   refreshManagedAgentActivityIntegrations,
 } from "../../agent-activity/integration-refresh";
 import { startLocalAgentActivitySyncLoop } from "../../agent-activity/local-sync";
-import { setAgentRegistrationEnabled } from "../../agents/registry";
+import {
+  reconcileNewRunnableBuiltinAgentRegistrations,
+  setAgentRegistrationEnabled,
+} from "../../agents/registry";
 import {
   type AuthSessionState,
   getAuthSessionState,
@@ -663,15 +666,19 @@ export const runDaemonServiceLoop = async (
     skippedProfiles: [],
   });
   const routeCatalogLoader = createRouteCatalogSyncLoader({
-    loadFresh: async () =>
-      await loadDaemonRouteCatalog({
+    loadFresh: async () => {
+      await reconcileNewRunnableBuiltinAgentRegistrations({
+        notifyRouteCatalogChanged: false,
+      });
+      return await loadDaemonRouteCatalog({
         allowEmpty: true,
         localAdapterContainer,
         localReplyStateMode: "check",
         ownerUserId,
         presenter: input.presenter,
         quiet: true,
-      }),
+      });
+    },
     loadInitial: async () =>
       await loadInitialDaemonRouteCatalog({
         allowEmpty: true,

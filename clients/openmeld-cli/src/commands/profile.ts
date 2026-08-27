@@ -87,7 +87,6 @@ import {
   resolveAgentProfilePrimaryAgentControllerReport,
 } from "../system/agent-profile-primary-binding";
 import { ensureAgentProfileRuntimeBinding } from "../system/ensure-agent-profile-runtime-binding";
-import { postLocalParticipationMutationReconcile } from "../system/local-participation-mutation-reconcile";
 import { createModelCatalogReadSession } from "../system/model-catalog-read-session";
 import { renderInfoCard } from "../ui/info-card";
 import {
@@ -1162,12 +1161,6 @@ export async function runProfileUpdate(input: {
   const updated = await applyProfileUpdatePatch({
     profile,
     payload,
-  });
-  await postLocalParticipationMutationReconcile({
-    codePrefix: "profile.update",
-    ownerUserId: updated.ownerUserId,
-    presenter,
-    shouldReconcile: false,
   });
   const agentRuntimeState = await resolveAgentProfileRuntimeState(updated);
   if (runtime.resolvedView === "human") {

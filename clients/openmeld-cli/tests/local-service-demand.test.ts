@@ -84,11 +84,7 @@ vi.mock("../src/local-service/lifecycle/daemon-service-runtime", () => ({
   waitForDaemonSystemServiceToStop: waitForDaemonSystemServiceToStopMock,
 }));
 
-import {
-  formatLocalServiceAutoStoppedMessage,
-  maybeAutoStopIdleLocalService,
-  resolveLocalServiceDemand,
-} from "../src/local-service/lifecycle/local-service-demand";
+import { resolveLocalServiceDemand } from "../src/local-service/lifecycle/local-service-demand";
 
 describe("local service demand", () => {
   beforeEach(() => {
@@ -254,7 +250,7 @@ describe("local service demand", () => {
     expect(result.reason).toBe("owner user is unavailable");
   });
 
-  it("allows auto-stop when there are no local execution routes left", async () => {
+  it("keeps the connected service available when there are no local agents yet", async () => {
     loadDaemonRouteCatalogMock.mockResolvedValue({
       profileIds: [],
       routeByProfileId: new Map(),
@@ -275,16 +271,13 @@ describe("local service demand", () => {
     });
 
     expect(result).toMatchObject({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       localExecutionRouteCount: 0,
     });
     expect(result.reason).toBe(
       "No local agents on this device need OpenMeld Service right now"
-    );
-    expect(formatLocalServiceAutoStoppedMessage(result)).toContain(
-      "no projected local agent controllers"
     );
   });
 
@@ -300,7 +293,7 @@ describe("local service demand", () => {
     expect(loadDaemonRouteCatalogMock).not.toHaveBeenCalled();
   });
 
-  it("does not keep running for workspace.invalid without another repairable route", async () => {
+  it("keeps the connected service idle when configured agents are unavailable", async () => {
     loadDaemonRouteCatalogMock.mockResolvedValue({
       profileIds: [],
       routeByProfileId: new Map(),
@@ -318,83 +311,10 @@ describe("local service demand", () => {
     });
 
     expect(result).toMatchObject({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       localExecutionRouteCount: 0,
     });
-  });
-
-  it("auto-stops only the running system-managed background service", async () => {
-    loadDaemonRouteCatalogMock.mockResolvedValue({
-      profileIds: [],
-      routeByProfileId: new Map(),
-      skippedProfiles: [],
-    });
-    syncDeviceRuntimeStateProjectionMock.mockResolvedValue({
-      status: "ok",
-      mode: "check",
-      projectedControllerIds: [],
-      missingControllerIds: [],
-      disabledControllerIds: [],
-      repairedControllerIds: [],
-      reason: "No local agents on this device need OpenMeld Service right now",
-    });
-    const presenter = {
-      view: "human" as const,
-      event: vi.fn(),
-      line: vi.fn(),
-      data: vi.fn(),
-    };
-
-    const result = await maybeAutoStopIdleLocalService({
-      codePrefix: "daemon.status.service",
-      ownerUserId: "owner-1",
-      presenter,
-    });
-
-    expect(result.autoStopped).toBe(true);
-    expect(waitForDaemonSystemServiceToStopMock).toHaveBeenCalledTimes(1);
-    expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
-    expect(presenter.line).toHaveBeenCalledWith(
-      expect.objectContaining({
-        code: "daemon.status.service.auto_stopped",
-      })
-    );
-  });
-
-  it("does not auto-stop foreground or non-system runtimes", async () => {
-    loadDaemonRouteCatalogMock.mockResolvedValue({
-      profileIds: [],
-      routeByProfileId: new Map(),
-      skippedProfiles: [],
-    });
-    resolveDaemonRuntimeStateMock.mockResolvedValue({
-      status: "running",
-      mode: "foreground",
-      pid: 77,
-      startedAt: "2026-03-07T00:00:00.000Z",
-      updatedAt: "2026-03-07T00:00:00.000Z",
-      managedBySystemService: false,
-      serviceController: "legacy-detached",
-      autoStart: false,
-    });
-    const presenter = {
-      view: "human" as const,
-      event: vi.fn(),
-      line: vi.fn(),
-      data: vi.fn(),
-    };
-
-    const result = await maybeAutoStopIdleLocalService({
-      codePrefix: "daemon.status.service",
-      ownerUserId: "owner-1",
-      presenter,
-    });
-
-    expect(result.autoStopped).toBe(false);
-    expect(waitForDaemonSystemServiceToStopMock).not.toHaveBeenCalled();
-    expect(clearDaemonServiceRuntimeStateMock).not.toHaveBeenCalled();
-    expect(presenter.line).not.toHaveBeenCalled();
   });
 });

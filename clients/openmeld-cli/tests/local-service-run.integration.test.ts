@@ -38,6 +38,7 @@ const {
   clearDaemonRuntimeStateIfDefinitelyStoppedMock,
   emitDaemonLifecycleEventMock,
   ensureDaemonRuntimePathsMock,
+  ensureDaemonSystemServiceCommandFilesMock,
   confirmMock,
   getAuthSessionStateMock,
   getObservedDaemonRuntimeStatusMock,
@@ -83,6 +84,7 @@ const {
   clearDaemonRuntimeStateIfDefinitelyStoppedMock: vi.fn(),
   emitDaemonLifecycleEventMock: vi.fn(),
   ensureDaemonRuntimePathsMock: vi.fn(),
+  ensureDaemonSystemServiceCommandFilesMock: vi.fn(),
   confirmMock:
     vi.fn<
       (
@@ -257,6 +259,20 @@ vi.mock("../src/local-service/carrier/service-runner", async () => {
     runDaemonServiceLoop: runDaemonServiceLoopMock,
   };
 });
+
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-command-spec",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../src/local-service/lifecycle/daemon-service-command-spec")
+    >("../src/local-service/lifecycle/daemon-service-command-spec");
+    return {
+      ...actual,
+      ensureDaemonSystemServiceCommandFiles:
+        ensureDaemonSystemServiceCommandFilesMock,
+    };
+  }
+);
 
 vi.mock("../src/local-service/lifecycle/daemon-startup-preflight", async () => {
   const actual = await vi.importActual<
@@ -641,6 +657,9 @@ describe("openmeld service run command", () => {
       deviceIdPath: "/tmp/daemon/device-id",
       ledgerRootPath: "/tmp/daemon/ledger",
     });
+    ensureDaemonSystemServiceCommandFilesMock
+      .mockReset()
+      .mockResolvedValue(undefined);
     resolveDaemonDeviceIdMock.mockReset().mockResolvedValue("device_123");
     contractState = null;
     clearDaemonServiceContractMock.mockReset().mockImplementation(() => {
@@ -1400,7 +1419,8 @@ describe("openmeld service run command", () => {
       expect(stdout).toContain(
         "OpenMeld Service couldn't start after the repair."
       );
-      expect(stdout).toContain("openmeld service start --mode foreground");
+      expect(stdout).toContain("openmeld service repair");
+      expect(stdout).not.toContain("--mode foreground");
       expect(stdout).not.toContain("bundle preparation exploded");
       expect(stdout).not.toContain("latest local service log");
     });
@@ -3268,7 +3288,7 @@ describe("openmeld service run command", () => {
       const attentionCard = buildDaemonStartNeedsAttentionCard({
         summary: "OpenMeld could not finish starting OpenMeld Service.",
         nextStep:
-          "Run `openmeld service start --mode foreground` to see what stopped it.",
+          "Run `openmeld service repair` once. OpenMeld saved the startup evidence for diagnostics.",
       });
       expect(process.exitCode).toBe(1);
       expect(stdout).toContain(attentionCard.title);

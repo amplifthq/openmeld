@@ -5,7 +5,10 @@ import {
   type OpenMeldPathResolutionInput,
   openMeldManagedVersionBinaryPath,
 } from "../src/config/paths";
-import { daemonServiceExecutableWrapperPath } from "../src/local-service/lifecycle/daemon-service-bundle";
+import {
+  daemonServiceBinaryExecutablePath,
+  daemonServiceExecutableWrapperPath,
+} from "../src/local-service/lifecycle/daemon-service-bundle";
 import {
   matchesExpectedDaemonServiceManagerCommand,
   matchesExpectedDaemonServiceManagerDefinition,
@@ -44,8 +47,7 @@ describe("local service manager command matching", () => {
   it("matches binary launchd definitions that point at the stable Service executable", async () => {
     await withTempHome(async () => {
       const pathInput = testPathInput();
-      const stableExecutablePath =
-        daemonServiceExecutableWrapperPath(pathInput);
+      const stableExecutablePath = daemonServiceBinaryExecutablePath(pathInput);
       const definitionPath = await writeLaunchdDefinition(stableExecutablePath);
 
       await expect(
