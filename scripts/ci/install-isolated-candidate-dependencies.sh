@@ -60,5 +60,5 @@ printf 'Rebuilding trusted allowBuilds dependencies only: %s\n' "${approved_nati
   --config.state-dir="$OPENMELD_CANDIDATE_HOME/pnpm-state" \
   --config.store-dir="$OPENMELD_CANDIDATE_HOME/pnpm-store" \
   --config.virtual-store-dir=node_modules/.pnpm \
-  --dir "$OPENMELD_CANDIDATE_ROOT" rebuild \
+  --dir "$OPENMELD_CANDIDATE_ROOT" --recursive rebuild \
   "${approved_native_builds[@]}"
