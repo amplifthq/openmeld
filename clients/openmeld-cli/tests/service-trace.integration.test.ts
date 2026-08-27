@@ -3556,9 +3556,10 @@ describe("service trace command", () => {
       });
       resolveCurrentReplyReadinessSnapshotMock.mockResolvedValue(null);
       const traceResponse = createTraceResponse();
-      if (!traceResponse.trace) {
-        throw new Error("expected trace fixture");
+      if (!traceResponse.trace?.latestAttempt) {
+        throw new Error("expected trace fixture with latest attempt");
       }
+      const latestAttempt = traceResponse.trace.latestAttempt;
       const failureNoticeText =
         "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong.";
       traceResponse.correlation = {
@@ -3577,7 +3578,7 @@ describe("service trace command", () => {
           status: "failed_terminal",
         },
         latestAttempt: {
-          ...traceResponse.trace.latestAttempt,
+          ...latestAttempt,
           status: "failed_terminal",
           errorCode: "remote_agent.turn_not_completed",
           errorMessage: null,
