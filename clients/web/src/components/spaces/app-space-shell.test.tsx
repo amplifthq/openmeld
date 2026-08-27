@@ -14,7 +14,6 @@ import {
 
 const appOuterRailSpy = vi.hoisted(() => vi.fn());
 const appInnerSidebarSpy = vi.hoisted(() => vi.fn());
-const useComputerAttentionToneMock = vi.hoisted(() => vi.fn());
 
 vi.mock("#/components/app/app-inner-sidebar", () => ({
 	AppInnerSidebar: (props: { children: ReactNode; preferenceKey?: string }) => {
@@ -24,9 +23,7 @@ vi.mock("#/components/app/app-inner-sidebar", () => ({
 }));
 
 vi.mock("#/components/app/app-outer-rail", () => ({
-	AppOuterRail: (props: {
-		computerAttentionTone?: "warning" | "danger" | null;
-	}) => {
+	AppOuterRail: (props: unknown) => {
 		appOuterRailSpy(props);
 		return <aside data-testid="outer-rail" />;
 	},
@@ -40,8 +37,8 @@ vi.mock("#/components/app/app-shell-account", () => ({
 	}),
 }));
 
-vi.mock("#/components/app/use-computer-attention-tone", () => ({
-	useComputerAttentionTone: useComputerAttentionToneMock,
+vi.mock("#/components/app/current-computer-toolbar-launcher", () => ({
+	CurrentComputerToolbarLauncher: () => null,
 }));
 
 vi.mock("#/components/spaces/app-spaces-sidebar", () => ({
@@ -84,7 +81,6 @@ describe("SpaceWindowShell", () => {
 	beforeEach(() => {
 		appInnerSidebarSpy.mockReset();
 		appOuterRailSpy.mockReset();
-		useComputerAttentionToneMock.mockReset().mockReturnValue(null);
 	});
 
 	it("keeps the main pane as a flex height container", () => {
@@ -105,30 +101,12 @@ describe("SpaceWindowShell", () => {
 		expect(mainContentPane?.className).toContain("flex-1");
 		expect(screen.getByTestId("space-window-frame")).toBeTruthy();
 	});
-
-	it("keeps the Computers attention marker visible from Spaces", () => {
-		useComputerAttentionToneMock.mockReturnValue("danger");
-
-		render(
-			<SpaceWindowShell
-				sidebar={<nav>Spaces</nav>}
-				sidebarPreferenceKey="spaces"
-			>
-				<div>Main content</div>
-			</SpaceWindowShell>
-		);
-
-		expect(appOuterRailSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ computerAttentionTone: "danger" })
-		);
-	});
 });
 
 describe("AppSpaceShell", () => {
 	beforeEach(() => {
 		appInnerSidebarSpy.mockReset();
 		appOuterRailSpy.mockReset();
-		useComputerAttentionToneMock.mockReset().mockReturnValue(null);
 	});
 
 	it("does not mount the inner Spaces sidebar when no Spaces should be shown", () => {

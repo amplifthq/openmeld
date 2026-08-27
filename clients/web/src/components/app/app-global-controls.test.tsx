@@ -1,6 +1,16 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppGlobalControls } from "./app-global-controls";
+
+vi.mock("./current-computer-toolbar-launcher", () => ({
+	CurrentComputerToolbarLauncher: () => <a href="/computer">Computer</a>,
+}));
 
 vi.mock("#/components/inbox/global-inbox-launcher", () => ({
 	GlobalInboxLauncher: (input: {
@@ -57,6 +67,33 @@ describe("AppGlobalControls", () => {
 		expect(
 			screen.getByRole("button", { name: "Open Center Agent panel" })
 		).toBeTruthy();
+	});
+
+	it("places Computer at the far left while Center Agent and Inbox stay together at the far right", () => {
+		render(<AppGlobalControls />);
+
+		const toolbar = screen.getByRole("toolbar", { name: "Global controls" });
+		const start = toolbar.querySelector(
+			'[data-slot="app-global-controls-start"]'
+		);
+		const end = toolbar.querySelector('[data-slot="app-global-controls-end"]');
+		expect(start).toBeInstanceOf(HTMLElement);
+		expect(end).toBeInstanceOf(HTMLElement);
+		if (!(start instanceof HTMLElement && end instanceof HTMLElement)) {
+			return;
+		}
+
+		expect(within(start).getByRole("link", { name: "Computer" })).toBeTruthy();
+		expect(within(end).queryByRole("link", { name: "Computer" })).toBeNull();
+		expect(
+			within(end)
+				.getAllByRole("button")
+				.map((button) => button.textContent)
+		).toEqual([
+			"Open Task panel",
+			"Open Center Agent panel",
+			"Open Inbox panel",
+		]);
 	});
 
 	it("keeps Task, Inbox, and Center Agent panels mutually exclusive", () => {

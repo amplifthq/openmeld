@@ -35,7 +35,6 @@ import {
 	GearSixIcon,
 	HashIcon,
 	HouseIcon,
-	MonitorIcon,
 	PlusIcon,
 	RobotIcon,
 	SidebarSimpleIcon,
@@ -80,14 +79,12 @@ import {
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { useAccountAvatar } from "#/hooks/account.hooks";
-import type { ComputerAttentionTone } from "#/lib/computer-summary-status";
 import { selectLastSelectedOrganization } from "#/lib/organizations/account-organization-preference";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAccountSettingsPath,
 	buildOrganizationAgentActivityPath,
 	buildOrganizationAgentsPath,
-	buildOrganizationComputersPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationDocumentsPath,
 	buildOrganizationNewOrganizationPath,
@@ -144,7 +141,6 @@ type HumanProfileAvatarIdentity = {
 type AppOuterRailProps = {
 	account: AppOuterRailAccount;
 	initialState?: SidebarPersistedState;
-	computerAttentionTone?: ComputerAttentionTone | null;
 };
 
 function resolveNextRailTier(tier: SidebarTier): SidebarTier {
@@ -220,12 +216,6 @@ function buildAppRailGroups(input: {
 					to: buildOrganizationAgentsPath(input.orgSlug),
 					icon: <RobotIcon aria-hidden="true" className="size-4" />,
 				},
-				{
-					id: "computers",
-					label: "Computers",
-					to: buildOrganizationComputersPath(input.orgSlug),
-					icon: <MonitorIcon aria-hidden="true" className="size-4" />,
-				},
 			],
 		},
 		{
@@ -264,11 +254,7 @@ function buildSettingsRailItem(input: { orgSlug: string }): AppRailDestination {
 	};
 }
 
-export function AppOuterRail({
-	account,
-	initialState,
-	computerAttentionTone = null,
-}: AppOuterRailProps) {
+export function AppOuterRail({ account, initialState }: AppOuterRailProps) {
 	const { presentation } = useAppNavigationPresentation();
 	const drawerPresentation = presentation === "drawer";
 	const [state, setState] = useState<SidebarPersistedState>(() =>
@@ -421,7 +407,6 @@ export function AppOuterRail({
 					}).map((group, index) => (
 						<AppRailNavigationGroup
 							activeDestination={activeDestination}
-							computerAttentionTone={computerAttentionTone}
 							group={group}
 							key={group.id}
 							position={index}
@@ -442,7 +427,6 @@ export function AppOuterRail({
 					>
 						<AppRailLink
 							active={activeDestination === "settings"}
-							computerAttentionTone={computerAttentionTone}
 							destination={buildSettingsRailItem({
 								orgSlug,
 							})}
@@ -467,7 +451,6 @@ function AppRailNavigationGroup(input: {
 	activeDestination: AppOuterRailDestination | null;
 	group: AppRailGroup;
 	position: number;
-	computerAttentionTone: ComputerAttentionTone | null;
 	tier: SidebarTier;
 }) {
 	const navigation = (
@@ -481,7 +464,6 @@ function AppRailNavigationGroup(input: {
 			{input.group.destinations.map((destination, index) => (
 				<AppRailLink
 					active={destination.id === input.activeDestination}
-					computerAttentionTone={input.computerAttentionTone}
 					destination={destination}
 					index={index}
 					key={destination.id}
@@ -1002,7 +984,6 @@ function AppRailLink(input: {
 	active: boolean;
 	destination: AppRailDestination;
 	index: number;
-	computerAttentionTone: ComputerAttentionTone | null;
 	tier: SidebarTier;
 }) {
 	const { dismiss } = useAppNavigationPresentation();
@@ -1010,8 +991,6 @@ function AppRailLink(input: {
 	const isCompact = input.tier === "compact";
 	const attentionCount = Math.max(0, input.destination.attentionCount ?? 0);
 	const unreadCount = Math.max(0, input.destination.unreadCount ?? 0);
-	const computerAttentionTone =
-		input.destination.id === "computers" ? input.computerAttentionTone : null;
 	let statusIndicator: AppRailStatusIndicator | null = null;
 	const unreadIndicatorKind = resolveAppRailUnreadIndicatorKind(
 		input.destination.id
@@ -1021,15 +1000,9 @@ function AppRailLink(input: {
 			kind: unreadIndicatorKind,
 			tone: "warning",
 		};
-	} else if (computerAttentionTone) {
-		statusIndicator = {
-			kind: "computer-attention",
-			tone: computerAttentionTone,
-		};
 	}
 	const accessibleLabel = buildAppRailAccessibleLabel({
 		attentionCount,
-		computerAttentionTone,
 		destinationId: input.destination.id,
 		label: input.destination.label,
 		unreadCount,
@@ -1191,14 +1164,11 @@ function AppRailAttentionBadge(input: {
 	);
 }
 
-type AppRailStatusIndicatorKind =
-	| "center-agent-unread"
-	| "computer-attention"
-	| "spaces-unread";
+type AppRailStatusIndicatorKind = "center-agent-unread" | "spaces-unread";
 
 type AppRailStatusIndicator = {
 	kind: AppRailStatusIndicatorKind;
-	tone: ComputerAttentionTone;
+	tone: "danger" | "warning";
 };
 
 function AppRailStatusDot(input: {
@@ -1221,7 +1191,6 @@ function AppRailStatusDot(input: {
 
 function buildAppRailAccessibleLabel(input: {
 	attentionCount: number;
-	computerAttentionTone: ComputerAttentionTone | null;
 	destinationId: AppOuterRailDestination;
 	label: string;
 	unreadCount: number;
@@ -1232,9 +1201,6 @@ function buildAppRailAccessibleLabel(input: {
 			destinationId: input.destinationId,
 		});
 		return `${input.label}, ${input.unreadCount} unread ${unreadCopy}`;
-	}
-	if (input.computerAttentionTone) {
-		return `${input.label}, needs attention`;
 	}
 	if (input.attentionCount === 0) {
 		return input.label;

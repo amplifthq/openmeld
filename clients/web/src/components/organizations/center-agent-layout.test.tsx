@@ -25,10 +25,6 @@ vi.mock("#/components/app/app-shell-account", () => ({
 	}),
 }));
 
-vi.mock("#/components/app/use-computer-attention-tone", () => ({
-	useComputerAttentionTone: () => null,
-}));
-
 afterEach(cleanup);
 
 describe("CenterAgentLayout", () => {

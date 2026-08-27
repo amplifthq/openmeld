@@ -57,8 +57,20 @@ function TestComputersPage() {
 }
 
 vi.mock("@tanstack/react-router", () => ({
-	Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
-		<a href={to} {...props}>
+	Link: ({
+		children,
+		search,
+		to,
+		...props
+	}: {
+		children: ReactNode;
+		search?: { profileId?: string };
+		to: string;
+	}) => (
+		<a
+			href={`${to}${search?.profileId ? `?profileId=${search.profileId}` : ""}`}
+			{...props}
+		>
 			{children}
 		</a>
 	),
@@ -269,124 +281,6 @@ function buildRecoveryControllerStub(input: {
 	};
 }
 
-function buildCurrentRuntimeReadiness(input: {
-	deviceId: string;
-	localComponents?: CurrentLocalRuntimeReplyReadinessResponse["localComponents"];
-	nextAction?: CurrentLocalRuntimeReplyReadinessResponse["nextAction"];
-	primaryBlocker?: CurrentLocalRuntimeReplyReadinessResponse["primaryBlocker"];
-	runtimeReasonCodes?: readonly string[];
-	serviceConnected?: boolean;
-	status?: CurrentLocalRuntimeReplyReadinessResponse["status"];
-}): CurrentLocalRuntimeReplyReadinessResponse {
-	const serviceConnected = input.serviceConnected ?? true;
-	const primaryBlocker = input.primaryBlocker ?? "none";
-	return {
-		canReplyFromThisComputer: primaryBlocker === "none",
-		currentTarget: {
-			availability: "resolved",
-			deviceId: input.deviceId,
-			runtimeLane: "dev-local",
-		},
-		generatedAt: "2026-07-06T00:00:00.000Z",
-		localComponents: input.localComponents ?? buildLocalComponents(),
-		message:
-			primaryBlocker === "service_not_connected"
-				? "OpenMeld Service is not connected for this account on this computer."
-				: "This computer is ready.",
-		nextAction: input.nextAction ?? "none",
-		primaryBlocker,
-		runtime: {
-			deviceDisplayName: "This MacBook",
-			deviceId: input.deviceId,
-			executionTargetStatus: "ready",
-			lastObservedAtMs: 1_700_000_020_000,
-			reasonCodes: [...(input.runtimeReasonCodes ?? [])],
-			runtimeLane: "dev-local",
-			openMeldServiceRuntimeId: {
-				source: "runtime_registry_authority",
-				value: `runtime-${input.deviceId}`,
-			},
-		},
-		service: {
-			connected: serviceConnected,
-			executionCompatibility: null,
-			matchingCurrentRuntime: serviceConnected,
-			reasonCodes: serviceConnected ? [] : ["daemon.session.missing"],
-			sessionDeviceId: serviceConnected ? input.deviceId : null,
-			sessionLane: serviceConnected ? "dev-local" : null,
-		},
-		status: input.status ?? (primaryBlocker === "none" ? "ready" : "blocked"),
-	} as unknown as CurrentLocalRuntimeReplyReadinessResponse;
-}
-
-function buildLocalComponents(
-	input: {
-		cliStatus?: CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["cli"]["status"];
-		serviceStatus?: CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["service"]["status"];
-		skillsStatus?: CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["skills"]["status"];
-	} = {}
-): CurrentLocalRuntimeReplyReadinessResponse["localComponents"] {
-	const cliStatus = input.cliStatus ?? "current";
-	const serviceStatus = input.serviceStatus ?? "current";
-	const skillsStatus = input.skillsStatus ?? "current";
-	return {
-		agentSetupCommand: "openmeld setup --view agent",
-		cli: {
-			commandContractVersion: null,
-			installedPackageVersion: null,
-			latestPackageVersion: null,
-			reasonCodes: [],
-			requiredCommandContractVersion: null,
-			status: cliStatus,
-			updatePolicy: resolveLocalComponentUpdatePolicy(cliStatus),
-			wakeBlocked: false,
-		},
-		generatedAt: "2026-07-06T00:00:00.000Z",
-		humanSetupCommand: "openmeld setup",
-		schemaVersion: 1,
-		service: {
-			installedVersion: null,
-			latestVersion: null,
-			reasonCodes: [],
-			requiredVersion: null,
-			status: serviceStatus,
-			updatePolicy: resolveLocalComponentUpdatePolicy(serviceStatus),
-			wakeBlocked: false,
-		},
-		setupAction: "none",
-		setupActionDescription:
-			"OpenMeld local components are aligned for this computer.",
-		setupActionLabel: "Everything is up to date",
-		skills: {
-			expectedBundleHash: null,
-			expectedTargetCount: 0,
-			installedBundleHash: null,
-			reasonCodes: [],
-			skillContractVersion: null,
-			status: skillsStatus,
-			targetCount: null,
-			updatePolicy: resolveLocalComponentUpdatePolicy(skillsStatus),
-			wakeBlocked: false,
-		},
-	};
-}
-
-function resolveLocalComponentUpdatePolicy(
-	status:
-		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["cli"]["status"]
-		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["service"]["status"]
-		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["skills"]["status"]
-): CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["cli"]["updatePolicy"] {
-	switch (status) {
-		case "update_required":
-			return "required";
-		case "update_available":
-			return "available";
-		default:
-			return "ok";
-	}
-}
-
 const CURRENT_COMPUTER = buildComputer({
 	deviceDisplayName: "This MacBook",
 	deviceId: "device-current",
@@ -411,7 +305,11 @@ function buildOrganizationDirectory(input: {
 		organizationId: "org-acme",
 		generatedAt: "2026-08-08T00:00:00.000Z",
 		members: [
-			{ userId: "user-felix", user: { name: "Felix" } },
+			{
+				humanProfile: { profileId: "human-felix" },
+				userId: "user-felix",
+				user: { name: "Felix" },
+			},
 			{ userId: "user-ashley", user: { name: "Ashley" } },
 		],
 		agentProfiles: input.includeOtherMemberComputers
@@ -566,125 +464,18 @@ describe("ComputersPage", () => {
 		});
 	});
 
-	it("renders the picker pre-state with one selectable card per computer", () => {
-		render(<TestComputersPage />);
+	it("resolves the legacy Computers home directly to the current Computer detail", () => {
+		const onComputerRouteResolved = vi.fn();
 
-		expect(screen.getByRole("heading", { name: "Computers" })).toBeTruthy();
-		const pickerList = screen.getByTestId("computers-picker-list");
-		expect(pickerList).toBeTruthy();
-		expect(pickerList.className).toContain("grid");
-		expect(pickerList.className).toContain("lg:grid-cols-2");
-		expect(within(pickerList).getAllByRole("listitem")).toHaveLength(3);
-		const officeComputerLink = screen.getByRole("link", {
-			name: "Open Office Mac mini details",
-		});
-		expect(officeComputerLink.className).toContain("h-full");
-		expect(officeComputerLink.className).toContain("min-h-40");
-		expect(officeComputerLink.className).toContain("flex-col");
-		expect(officeComputerLink.getAttribute("href")).toBe(
-			"/o/acme/computers/device-office"
+		render(
+			<TestComputersRouteStateProvider value={{ onComputerRouteResolved }}>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
 		);
-		expect(
-			screen.getByTestId("computer-picker-card-device-current")
-		).toBeTruthy();
-		expect(
-			screen.getByTestId("computer-picker-card-device-office")
-		).toBeTruthy();
-		expect(
-			screen.getByRole("button", {
-				name: "Computer options for This MacBook",
-			})
-		).toBeTruthy();
-		expect(
-			screen.getByRole("button", {
-				name: "Computer options for Office Mac mini",
-			})
-		).toBeTruthy();
-		const currentComputerCard = screen.getByTestId(
-			"computer-picker-card-device-current"
-		);
-		expect(
-			within(currentComputerCard).getByTestId("local-agent-logo-claude-code")
-		).toBeTruthy();
-		expect(
-			within(currentComputerCard).getByTestId("local-agent-logo-codex")
-		).toBeTruthy();
-		expect(
-			within(currentComputerCard).getByTestId("local-agent-logo-opencode")
-		).toBeTruthy();
-		expect(
-			within(currentComputerCard).getByTestId("local-agent-logo-openclaw")
-		).toBeTruthy();
-		expect(
-			screen.getByRole("heading", { level: 1, name: "Computers" })
-		).toBeTruthy();
-		expect(screen.getByText("Run agents locally")).toBeTruthy();
-		expect(screen.queryByText("1 local agent")).toBeNull();
-		expect(screen.getByTestId("add-computer-picker-card")).toBeTruthy();
-		expect(
-			screen.getByRole("link", { name: "Add a Computer" }).getAttribute("href")
-		).toBe("/o/acme/connect?session=fresh");
-		expect(
-			screen.getByText("Set up OpenMeld Service and local agents.")
-		).toBeTruthy();
-		expect(screen.queryByText("Available for Wake")).toBeNull();
-		expect(screen.queryByText("Organization Wake Access")).toBeNull();
-		// The picker route stays on the picker; the detail route supplies deviceId.
-		expect(screen.queryByTestId("selected-computer-panel")).toBeNull();
-	});
 
-	it("groups personal and organization-visible computers by owner", () => {
-		organizationDirectoryQueryData = buildOrganizationDirectory({
-			includeOtherMemberComputers: true,
-		});
-		organizationComputersQueryData = buildOrganizationComputers({
-			includeOtherMemberComputer: true,
-		});
-
-		render(<TestComputersPage />);
-
-		expect(
-			screen.getByRole("heading", { level: 2, name: "Felix" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("heading", { level: 2, name: "Ashley" })
-		).toBeTruthy();
-		expect(
-			screen
-				.getByRole("link", {
-					name: "Open Ashley's Mac Studio details",
-				})
-				.getAttribute("href")
-		).toBe("/o/acme/computers/computer%3Adevice-ashley");
-		const ashleyComputer = screen.getByTestId(
-			"organization-computer-card-computer:device-ashley"
-		);
-		expect(
-			within(ashleyComputer).getByText(
-				"Desktop · macOS 25.5.0 · Owned by Ashley"
-			)
-		).toBeTruthy();
-		expect(within(ashleyComputer).queryByText("Claude Code, Codex")).toBeNull();
-		expect(within(ashleyComputer).queryByText("2 Local agents")).toBeNull();
-		expect(
-			within(ashleyComputer).getByText("OpenMeld Tools need an update")
-		).toBeTruthy();
-		expect(
-			within(ashleyComputer).getByTestId(
-				"computer-status-dot-computer:device-ashley"
-			).className
-		).toContain("bg-amber");
-		expect(
-			within(ashleyComputer).getByTestId("local-agent-logo-claude-code")
-		).toBeTruthy();
-		expect(
-			within(ashleyComputer).getByTestId("local-agent-logo-codex")
-		).toBeTruthy();
-		expect(
-			within(ashleyComputer).queryByRole("button", {
-				name: COMPUTER_OPTIONS_NAME_PATTERN,
-			})
-		).toBeNull();
+		expect(onComputerRouteResolved).toHaveBeenCalledWith("device-current");
+		expect(screen.getByTestId("computer-detail-loading")).toBeTruthy();
+		expect(screen.queryByTestId("computers-picker-list")).toBeNull();
 	});
 
 	it("shows a read-only detail for another member's computer", () => {
@@ -770,225 +561,20 @@ describe("ComputersPage", () => {
 		).toBeNull();
 	});
 
-	it("marks the current computer card when OpenMeld tools updates are available", () => {
-		useLocalAgentRecoveryControllerMock.mockReturnValue(
-			buildRecoveryControllerStub({
-				currentReadiness: buildCurrentRuntimeReadiness({
-					deviceId: "device-current",
-					localComponents: buildLocalComponents({
-						cliStatus: "update_available",
-					}),
-				}),
-				devices: [CURRENT_COMPUTER, OTHER_COMPUTER],
-			})
-		);
-
-		render(<TestComputersPage />);
-
-		const currentComputerCard = screen.getByTestId(
-			"computer-picker-card-device-current"
-		);
-		const updateLabel =
-			within(currentComputerCard).getByText("Update available");
-		expect(updateLabel.className).toContain("text-amber");
-		expect(
-			within(currentComputerCard).getByTestId(
-				"computer-status-dot-device-current"
-			).className
-		).toContain("bg-amber");
-		expect(
-			within(
-				screen.getByTestId("computer-picker-card-device-office")
-			).queryByText("Update available")
-		).toBeNull();
-	});
-
-	it("does not mark a cached tools update while current status is reconciling", () => {
-		useLocalAgentRecoveryControllerMock.mockReturnValue(
-			buildRecoveryControllerStub({
-				currentReadiness: buildCurrentRuntimeReadiness({
-					deviceId: "device-current",
-					localComponents: buildLocalComponents({
-						cliStatus: "update_available",
-					}),
-				}),
-				devices: [CURRENT_COMPUTER, OTHER_COMPUTER],
-				isCurrentReadinessFetchedAfterMount: false,
-				isCurrentReadinessFetching: true,
-			})
-		);
-
-		render(<TestComputersPage />);
-
-		const currentComputerCard = screen.getByTestId(
-			"computer-picker-card-device-current"
-		);
-		expect(
-			within(currentComputerCard).queryByText("Update available")
-		).toBeNull();
-		expect(
-			within(currentComputerCard).getByTestId(
-				"computer-status-dot-device-current"
-			).className
-		).toContain("bg-sky");
-	});
-
-	it("marks the current computer card when OpenMeld Service is not connected", () => {
-		useLocalAgentRecoveryControllerMock.mockReturnValue(
-			buildRecoveryControllerStub({
-				currentReadiness: buildCurrentRuntimeReadiness({
-					deviceId: "device-current",
-					localComponents: buildLocalComponents({
-						cliStatus: "update_available",
-					}),
-					nextAction: "reconnect_service",
-					primaryBlocker: "service_not_connected",
-					serviceConnected: false,
-				}),
-				devices: [CURRENT_COMPUTER, OTHER_COMPUTER],
-			})
-		);
-
-		render(<TestComputersPage />);
-
-		const currentComputerCard = screen.getByTestId(
-			"computer-picker-card-device-current"
-		);
-		expect(
-			within(currentComputerCard).getAllByText(
-				"OpenMeld Service is not connected"
-			).length
-		).toBeGreaterThan(0);
-		expect(
-			within(currentComputerCard).getByTestId(
-				"computer-status-dot-device-current"
-			).className
-		).toContain("bg-destructive");
-		expect(
-			within(currentComputerCard).queryByText("Update available")
-		).toBeNull();
-		expect(
-			within(
-				screen.getByTestId("computer-picker-card-device-office")
-			).queryByText("OpenMeld Service is not connected")
-		).toBeNull();
-	});
-
-	it("marks the current computer card when an agent needs setup", () => {
-		useLocalAgentRecoveryControllerMock.mockReturnValue(
-			buildRecoveryControllerStub({
-				currentReadiness: buildCurrentRuntimeReadiness({
-					deviceId: "device-current",
-					nextAction: "run_setup",
-					primaryBlocker: "agent_controller_report_not_ready",
-					status: "blocked",
-				}),
-				devices: [CURRENT_COMPUTER, OTHER_COMPUTER],
-			})
-		);
-
-		render(<TestComputersPage />);
-
-		const currentComputerCard = screen.getByTestId(
-			"computer-picker-card-device-current"
-		);
-		const setupLabel = within(currentComputerCard).getByText(
-			"Local agents need setup"
-		);
-		expect(setupLabel.className).toContain("text-amber");
-		expect(
-			within(currentComputerCard).getByTestId(
-				"computer-status-dot-device-current"
-			).className
-		).toContain("bg-amber");
-		expect(
-			within(currentComputerCard).queryByText(
-				"OpenMeld Service is not connected"
-			)
-		).toBeNull();
-	});
-
-	it("shows a warning while a connected computer retries a local agent check", () => {
-		useLocalAgentRecoveryControllerMock.mockReturnValue(
-			buildRecoveryControllerStub({
-				currentReadiness: buildCurrentRuntimeReadiness({
-					deviceId: "device-current",
-					nextAction: "check_status",
-					primaryBlocker: "agent_controller_report_not_ready",
-					runtimeReasonCodes: ["controller.interface.check_failed"],
-					status: "blocked",
-				}),
-				devices: [CURRENT_COMPUTER, OTHER_COMPUTER],
-			})
-		);
-
-		render(<TestComputersPage />);
-
-		const currentComputerCard = screen.getByTestId(
-			"computer-picker-card-device-current"
-		);
-		expect(
-			within(currentComputerCard).queryByText("Checking local agents")
-		).toBeNull();
-		expect(
-			within(currentComputerCard).queryByText("Local agents need setup")
-		).toBeNull();
-		expect(
-			within(currentComputerCard).getByText("Couldn't check").className
-		).toContain("text-amber");
-		expect(
-			within(currentComputerCard).getByTestId(
-				"computer-status-dot-device-current"
-			).className
-		).toContain("bg-amber");
-	});
-
-	it("opens the reused computer actions dialog from the picker card", () => {
-		render(<TestComputersPage />);
-
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Computer options for Office Mac mini",
-			})
-		);
-
-		expect(
-			screen.getByRole("heading", { name: "Computer details" })
-		).toBeTruthy();
-		expect(
-			screen.getByText(
-				"Review this computer, rename it, or remove it from this OpenMeld account."
-			)
-		).toBeTruthy();
-	});
-
-	it("renders a loading state while the device list is pending", () => {
-		useLocalAgentRecoveryControllerMock.mockReturnValue(
-			buildRecoveryControllerStub({ devices: [], isPending: true })
-		);
-
-		render(<TestComputersPage />);
-
-		expect(screen.getByTestId("computers-picker-loading")).toBeTruthy();
-		expect(screen.queryByTestId("computers-picker-list")).toBeNull();
-	});
-
-	it("renders the add-computer card when there are no computers", () => {
+	it("returns to People when the legacy Computers home has no current device", () => {
+		const onComputerRouteUnavailable = vi.fn();
 		useLocalAgentRecoveryControllerMock.mockReturnValue(
 			buildRecoveryControllerStub({ devices: [], connectedDeviceId: null })
 		);
 
-		render(<TestComputersPage />);
+		render(
+			<TestComputersRouteStateProvider value={{ onComputerRouteUnavailable }}>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
 
-		const pickerList = screen.getByTestId("computers-picker-list");
-		expect(within(pickerList).getAllByRole("listitem")).toHaveLength(1);
-		expect(screen.getByTestId("add-computer-picker-card")).toBeTruthy();
-		expect(
-			screen.getByRole("link", { name: "Add a Computer" }).getAttribute("href")
-		).toBe("/o/acme/connect?session=fresh");
-		expect(
-			screen.queryByTestId("computer-picker-card-device-current")
-		).toBeNull();
+		expect(onComputerRouteUnavailable).toHaveBeenCalledOnce();
+		expect(screen.queryByTestId("computers-picker-list")).toBeNull();
 	});
 
 	it("renders a computer detail from the selected device route state", () => {
@@ -1015,10 +601,10 @@ describe("ComputersPage", () => {
 		expect(
 			screen.queryByRole("button", { name: "Use this computer" })
 		).toBeNull();
-		expect(screen.getByTestId("all-computers-link").getAttribute("href")).toBe(
-			"/o/acme/computers"
-		);
-		const backLink = screen.getByTestId("all-computers-link");
+		expect(
+			screen.getByTestId("computer-owner-profile-link").getAttribute("href")
+		).toBe("/o/acme/people?profileId=human-felix");
+		const backLink = screen.getByTestId("computer-owner-profile-link");
 		expect(backLink.className).toContain("touch-manipulation");
 		expect(backLink.className).toContain("max-lg:min-h-11");
 		expect(backLink.className).not.toContain("px-");
@@ -1217,9 +803,14 @@ describe("ComputersPage", () => {
 		).toBeTruthy();
 		expect(
 			within(screen.getByTestId("computer-not-found-state")).getByText(
-				"This computer is no longer available. Return to all computers to choose another machine."
+				"This computer is no longer available. Return to People to choose another computer from its owner's profile."
 			)
 		).toBeTruthy();
+		expect(
+			within(screen.getByTestId("computer-not-found-state"))
+				.getByRole("link", { name: "Back to People" })
+				.getAttribute("href")
+		).toBe("/o/acme/people");
 
 		// If that same URL becomes valid again later, the detail renders again.
 		useLocalAgentRecoveryControllerMock.mockReturnValue(

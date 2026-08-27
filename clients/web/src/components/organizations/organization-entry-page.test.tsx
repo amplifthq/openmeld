@@ -83,10 +83,6 @@ vi.mock("#/components/app/app-shell-account", () => ({
 	}),
 }));
 
-vi.mock("#/components/app/use-computer-attention-tone", () => ({
-	useComputerAttentionTone: () => null,
-}));
-
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
 		currentOrganization,

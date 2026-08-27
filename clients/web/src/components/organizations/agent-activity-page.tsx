@@ -51,7 +51,6 @@ import { AppInnerSidebar } from "#/components/app/app-inner-sidebar";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { useComputerAttentionTone } from "#/components/app/use-computer-attention-tone";
 import { agentActivityProjectScopeParser } from "#/lib/organizations/agent-activity-search";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationProjectsPath } from "#/lib/organizations/organization-routes";
@@ -99,7 +98,6 @@ export function AgentActivityPage(input: {
 	routes: AgentActivityRoutes;
 }) {
 	const account = useAppShellAccount();
-	const computerAttentionTone = useComputerAttentionTone();
 	return (
 		<AppSurfaceLayout
 			globalControls={<AppGlobalControls />}
@@ -107,7 +105,6 @@ export function AgentActivityPage(input: {
 			outerRail={
 				<AppOuterRail
 					account={account}
-					computerAttentionTone={computerAttentionTone}
 					initialState={input.initialSidebarStates?.outer}
 				/>
 			}

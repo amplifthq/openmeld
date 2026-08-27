@@ -15,4 +15,13 @@ describe("resolveAppNavigationItems", () => {
 		});
 		expect(items.some((item) => item.label === "Center Agent")).toBe(false);
 	});
+
+	it("keeps Computers out of shared product navigation", () => {
+		const items = resolveAppNavigationItems({
+			includeSpaces: true,
+			orgSlug: "acme",
+		});
+
+		expect(items.some((item) => item.label === "Computers")).toBe(false);
+	});
 });

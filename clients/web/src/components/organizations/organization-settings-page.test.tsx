@@ -174,10 +174,6 @@ vi.mock("#/components/app/app-shell-account", () => ({
 	}),
 }));
 
-vi.mock("#/components/app/use-computer-attention-tone", () => ({
-	useComputerAttentionTone: () => null,
-}));
-
 vi.mock("#/query/persistence/app-query-persistence", () => ({
 	resolveAppQueryPersistenceController: () => ({
 		clearOrganization: clearOrganizationPersistenceMock,
