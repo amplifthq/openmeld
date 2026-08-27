@@ -121,6 +121,11 @@ the correct owner document. Do not migrate raw logs or long historical notes.
   handoff. The unattended executor runs only those endorsed commands.
 - A background command attached to Codex must redirect standard input explicitly
   with `< /dev/null` so it cannot wait on the agent session.
+- Do not ask unrelated agents to freeze `main` while one Final Candidate runs.
+  A successful exact PR candidate keeps its immutable evidence; GitHub's merge
+  queue owns the short-lived latest-main merge-group fact. Agents should inspect
+  those facts and choose their next action without CI/CD making a business or
+  review decision for them.
 
 ## Standard Lanes
 
