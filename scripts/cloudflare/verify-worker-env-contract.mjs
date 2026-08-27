@@ -16,6 +16,8 @@ const repoRoot = path.resolve(
   process.env.OPENMELD_VERIFICATION_ROOT ??
     path.resolve(import.meta.dirname, "../..")
 );
+const verificationProfile = parseVerificationProfile(process.argv.slice(2));
+const verifiesStaging = verificationProfile === "all";
 const DEV_VAR_KEY_PATTERN = /^([A-Z0-9_]+)=/u;
 const CONFIG_ENV_LABEL_PREFIX_PATTERN = /^env\./u;
 const OPENCONNECTOR_GOOGLE_ACTION_PATTERN =
@@ -606,7 +608,9 @@ for (const workerPackage of workerPackages) {
   const packageJson = JSON.parse(readText(workerPackage.packageJsonPath));
   const scripts = packageJson.scripts ?? {};
 
-  for (const scriptName of workerPackage.requiredScripts) {
+  for (const scriptName of workerPackage.requiredScripts.filter(
+    (name) => verifiesStaging || !name.endsWith(":stg")
+  )) {
     ensure(
       typeof scripts[scriptName] === "string" &&
         scripts[scriptName].trim().length > 0,
@@ -658,7 +662,7 @@ for (const workerPackage of workerPackages) {
     }
   }
 
-  if (workerPackage.stagingSecretOwned) {
+  if (verifiesStaging && workerPackage.stagingSecretOwned) {
     ensure(
       scripts["sync:secrets:stg"]?.includes("--from-env") ?? false,
       `${workerPackage.name} must inject staging secrets through Doppler instead of a local file.`
@@ -670,7 +674,9 @@ for (const workerPackage of workerPackages) {
   }
 
   const workerConfig = parseJsoncObject(workerPackage.wranglerConfigPath);
-  for (const environment of workerPackage.requiredConfigEnvironments ?? []) {
+  for (const environment of (
+    workerPackage.requiredConfigEnvironments ?? []
+  ).filter((name) => verifiesStaging || name !== "stg")) {
     ensure(
       Object.hasOwn(workerConfig.env ?? {}, environment),
       `${workerPackage.name} must declare env.${environment}.`
@@ -702,11 +708,30 @@ function listD1BindingsByName(configSection) {
 function getConfigSections(config) {
   return [
     { label: "top-level", value: config },
-    ...Object.entries(config.env ?? {}).map(([envName, value]) => ({
-      label: `env.${envName}`,
-      value,
-    })),
+    ...Object.entries(config.env ?? {})
+      .filter(([envName]) => verifiesStaging || envName !== "stg")
+      .map(([envName, value]) => ({
+        label: `env.${envName}`,
+        value,
+      })),
   ];
+}
+
+function parseVerificationProfile(args) {
+  const normalizedArgs = args[0] === "--" ? args.slice(1) : args;
+  if (normalizedArgs.length === 0) {
+    return "all";
+  }
+  if (
+    normalizedArgs.length === 2 &&
+    normalizedArgs[0] === "--profile" &&
+    (normalizedArgs[1] === "all" || normalizedArgs[1] === "production")
+  ) {
+    return normalizedArgs[1];
+  }
+  throw new Error(
+    "Usage: verify-worker-env-contract.mjs [--profile all|production]"
+  );
 }
 
 function listAnalyticsEngineBindingsByName(configSection) {
