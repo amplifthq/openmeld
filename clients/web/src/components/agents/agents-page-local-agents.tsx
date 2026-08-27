@@ -5,7 +5,6 @@ import {
 	formatAgentControllerInterfaceSummary,
 	getAgentControllerVersionAdvisoryPresentation,
 	resolveAgentControllerInterfaceDescription,
-	shouldExpandAgentControllerInterface,
 } from "@openmeld/agent-runtime";
 import {
 	compareAgentControllerRefsForDisplay,
@@ -41,8 +40,8 @@ import {
 import { SettingsActionMenu } from "@openmeld/ui/components/settings-action-menu";
 import {
 	SettingsLocalAgentAdvisoryBadge,
+	SettingsLocalAgentCardGrid,
 	type SettingsLocalAgentRow,
-	SettingsLocalAgentRows,
 	SettingsLocalAgentUsageLimits,
 	SettingsLocalAgentUsageSummary,
 } from "@openmeld/ui/components/settings-computers";
@@ -147,7 +146,7 @@ function TeamLocalAgentsCard(input: {
 	return (
 		<LocalAgentsCardFrame description="See which local agents are available on this computer. Only the computer owner can change these settings.">
 			{rows.length > 0 ? (
-				<SettingsLocalAgentRows rows={rows} />
+				<SettingsLocalAgentCardGrid rows={rows} />
 			) : (
 				<p className="text-muted-foreground text-sm">
 					No local agents have been reported from this computer yet.
@@ -191,6 +190,7 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 		displayName: agent.displayName,
 		id: agent.agentId,
 		logoAgentId: agent.agentId,
+		summaryStatus: resolveTeamLocalAgentSummaryStatus(agent),
 		summaryMeta: agent.details
 			? formatAgentControllerInterfaceOperationalSummary(agent.details)
 			: null,
@@ -201,6 +201,24 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 			/>
 		),
 	};
+}
+
+function resolveTeamLocalAgentSummaryStatus(
+	agent: TeamLocalAgent
+): SettingsLocalAgentRow["summaryStatus"] {
+	if (!agent.enabled) {
+		return { label: "Off", tone: "muted" };
+	}
+	switch (agent.status) {
+		case "ready":
+			return { label: "Ready", tone: "ready" };
+		case "not_ready":
+			return { label: "Needs attention", tone: "warning" };
+		case "stale":
+			return { label: "Needs a fresh check", tone: "warning" };
+		default:
+			return { label: "Not confirmed", tone: "muted" };
+	}
 }
 
 function resolveTeamLocalAgentDescription(agent: TeamLocalAgent): string {
@@ -969,39 +987,33 @@ function LocalAgentCatalogList(input: {
 			{input.showInstallGuideLink ? <LocalAgentInstallGuideLink /> : null}
 			<div className="grid gap-3" data-testid="local-agent-catalog-list">
 				{/* Local agent search is intentionally hidden while the supported agent list is short. */}
-				<div
-					className="max-h-[28rem] overflow-y-auto pr-1"
-					data-testid="local-agent-catalog-scroll-area"
-				>
-					<div data-testid="local-agent-catalog-rows">
-						<SettingsLocalAgentRows
-							rows={visibleEntries.map((entry) => {
-								const effectiveEntry = applyLocalAgentEnabledOverride({
-									enabledOverrides,
-									entry,
-								});
-								return buildLocalAgentCatalogRow({
-									accountEmailRevealed: revealedAccountEmailAgentIds.has(
-										entry.agentId
-									),
-									canRefreshCatalog: input.capabilities.refreshCatalog,
-									canManageInstallations:
-										input.capabilities.manageInstallations,
-									canSetEnabled: input.capabilities.setEnabled,
-									entry: effectiveEntry,
-									isCheckingAgents: input.isCheckingAgents,
-									muted: input.muted,
-									onCheckAgents: input.onCheckAgents,
-									onRefresh: input.onRefresh,
-									onRevealAccountEmail: revealAccountEmail,
-									onSetEnabled: requestSetEnabled,
-									pending: pendingAgentId === entry.agentId,
-									target: input.target,
-									targetStatus: input.targetStatus,
-								});
-							})}
-						/>
-					</div>
+				<div data-testid="local-agent-catalog-rows">
+					<SettingsLocalAgentCardGrid
+						rows={visibleEntries.map((entry) => {
+							const effectiveEntry = applyLocalAgentEnabledOverride({
+								enabledOverrides,
+								entry,
+							});
+							return buildLocalAgentCatalogRow({
+								accountEmailRevealed: revealedAccountEmailAgentIds.has(
+									entry.agentId
+								),
+								canRefreshCatalog: input.capabilities.refreshCatalog,
+								canManageInstallations: input.capabilities.manageInstallations,
+								canSetEnabled: input.capabilities.setEnabled,
+								entry: effectiveEntry,
+								isCheckingAgents: input.isCheckingAgents,
+								muted: input.muted,
+								onCheckAgents: input.onCheckAgents,
+								onRefresh: input.onRefresh,
+								onRevealAccountEmail: revealAccountEmail,
+								onSetEnabled: requestSetEnabled,
+								pending: pendingAgentId === entry.agentId,
+								target: input.target,
+								targetStatus: input.targetStatus,
+							});
+						})}
+					/>
 				</div>
 				{errorMessage ? (
 					<p className="text-destructive text-sm leading-5">{errorMessage}</p>
@@ -1564,6 +1576,13 @@ function buildLocalAgentCatalogRow(
 	].filter(
 		(status): status is LocalAgentCatalogRowSummaryStatus => status !== null
 	);
+	if (summaryStatuses.length === 0) {
+		summaryStatuses.push(
+			enabled
+				? { label: "Ready", tone: "ready" }
+				: { label: "Off", tone: "muted" }
+		);
+	}
 	const summaryAccessory = renderLocalAgentCatalogRowSummaryAccessory({
 		displayName: input.entry.displayName,
 		enabled,
@@ -1584,8 +1603,6 @@ function buildLocalAgentCatalogRow(
 				}}
 			/>
 		),
-		defaultExpanded:
-			enabled && shouldExpandAgentControllerInterface(agentControllerInterface),
 		description,
 		detail: renderLocalAgentCatalogRowDetail({
 			canChangeInstallation,

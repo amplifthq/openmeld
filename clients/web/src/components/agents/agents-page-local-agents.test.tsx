@@ -225,7 +225,9 @@ describe("LocalAgentsCard", () => {
 		expect(ownedSummary.getAttribute("aria-valuenow")).toBe("16");
 		expect(ownedSummary.getAttribute("aria-valuetext")).toBe("16% left");
 		expect(ownedRow.textContent).toMatch(OWNED_USAGE_SUMMARY_ORDER);
-		fireEvent.click(ownedSummary);
+		fireEvent.click(
+			within(ownedRow).getByRole("button", { name: "Codex details" })
+		);
 		expect(
 			screen.getByRole("progressbar", {
 				name: LOW_CODEX_USAGE_GAUGE_NAME,
@@ -279,21 +281,19 @@ describe("LocalAgentsCard", () => {
 		expect(teammateSummary.getAttribute("aria-valuenow")).toBe("16");
 		expect(teammateSummary.getAttribute("aria-valuetext")).toBe("16% left");
 		expect(teammateRow.textContent).toMatch(TEAM_USAGE_SUMMARY_ORDER);
+		expect(
+			screen
+				.getByRole("switch", { name: "Codex local agent" })
+				.hasAttribute("data-disabled")
+		).toBe(true);
 		fireEvent.click(
-			within(teammateRow)
-				.getByTestId("settings-local-agent-row-trigger")
-				.querySelector("button") as HTMLButtonElement
+			within(teammateRow).getByRole("button", { name: "Codex details" })
 		);
 		expect(
 			screen.getByRole("progressbar", {
 				name: LOW_CODEX_USAGE_GAUGE_NAME,
 			})
 		).toBeTruthy();
-		expect(
-			screen
-				.getByRole("switch", { name: "Codex local agent" })
-				.hasAttribute("data-disabled")
-		).toBe(true);
 	});
 
 	it("does not advertise unsupported usage in collapsed agent rows", () => {
@@ -447,19 +447,16 @@ describe("LocalAgentsCard", () => {
 		await waitFor(() => {
 			expect(row.textContent).toMatch(NVM_INSTALLATION_SUMMARY);
 		});
-		const rowTrigger = within(row)
-			.getByTestId("settings-local-agent-row-trigger")
-			.querySelector("button");
-		expect(rowTrigger).toBeTruthy();
-		fireEvent.click(rowTrigger as HTMLButtonElement);
+		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
+		const agentDialog = screen.getByRole("dialog");
 		expect(
 			Array.from(
-				row.querySelectorAll("dt"),
+				agentDialog.querySelectorAll("dt"),
 				(element) => element.textContent
 			).slice(0, 2)
 		).toEqual(["Controller", "Launch check"]);
 
-		const launchCheckLabel = within(row).getByText("Launch check");
+		const launchCheckLabel = within(agentDialog).getByText("Launch check");
 		const launchCheckValue = launchCheckLabel.nextElementSibling;
 		expect(launchCheckValue).toBeTruthy();
 		expect(
@@ -472,9 +469,9 @@ describe("LocalAgentsCard", () => {
 				name: "Change installation",
 			})
 		).toBeTruthy();
-		expect(within(row).queryByText("Installation")).toBeNull();
+		expect(within(agentDialog).queryByText("Installation")).toBeNull();
 		expect(
-			within(row).queryByText(
+			within(agentDialog).queryByText(
 				"OpenMeld uses one installation on this computer."
 			)
 		).toBeNull();
@@ -608,11 +605,6 @@ describe("LocalAgentsCard", () => {
 		expect(within(row).queryByText("Connect local agent")).toBeNull();
 		expect(
 			within(row)
-				.getByText("Built-in local agent found on this computer.")
-				.classList.contains("text-muted-foreground")
-		).toBe(true);
-		expect(
-			within(row)
 				.getByTestId("local-agent-logo-codex")
 				.parentElement?.classList.contains("text-muted-foreground")
 		).toBe(true);
@@ -622,12 +614,12 @@ describe("LocalAgentsCard", () => {
 				.querySelector("p")
 				?.classList.contains("text-muted-foreground")
 		).toBe(true);
+		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
 		expect(
-			within(row)
-				.getByTestId("settings-local-agent-row-trigger")
-				.closest("[data-state]")
-				?.getAttribute("data-state")
-		).not.toBe("open");
+			within(screen.getByRole("dialog"))
+				.getByText("Built-in local agent found on this computer.")
+				.classList.contains("text-muted-foreground")
+		).toBe(true);
 	});
 
 	it("reconciles a slow local agent change before reporting a failure", async () => {
@@ -698,15 +690,18 @@ describe("LocalAgentsCard", () => {
 		expect(within(row).queryByText("Needs setup")).toBeNull();
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		expect(
-			within(row).getByText(
-				"OpenMeld keeps this existing controller setting on this computer."
-			)
-		).toBeTruthy();
-		expect(
 			within(row)
 				.getByRole("switch", { name: "OpenClaw local agent" })
 				.getAttribute("aria-checked")
 		).toBe("true");
+		fireEvent.click(
+			within(row).getByRole("button", { name: "OpenClaw details" })
+		);
+		expect(
+			within(screen.getByRole("dialog")).getByText(
+				"OpenMeld keeps this existing controller setting on this computer."
+			)
+		).toBeTruthy();
 	});
 
 	it("shows active setup repair inline without a service-level connect prompt", () => {
@@ -729,8 +724,11 @@ describe("LocalAgentsCard", () => {
 		const setupLabel = within(row).getByText("Needs repair");
 		expect(setupLabel.getAttribute("data-slot")).not.toBe("badge");
 		expect(setupLabel.className).toContain("text-destructive");
+		fireEvent.click(
+			within(row).getByRole("button", { name: "OpenClaw details" })
+		);
 		expect(
-			within(row).getByText(
+			within(screen.getByRole("dialog")).getByText(
 				"OpenMeld found OpenClaw, but couldn't confirm a working launch command."
 			)
 		).toBeTruthy();
@@ -757,8 +755,11 @@ describe("LocalAgentsCard", () => {
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		const row = screen.getByTestId("settings-local-agent-row-openclaw");
 		expect(within(row).getByText("Needs repair")).toBeTruthy();
+		fireEvent.click(
+			within(row).getByRole("button", { name: "OpenClaw details" })
+		);
 		expect(
-			within(row).getByText(
+			within(screen.getByRole("dialog")).getByText(
 				"OpenMeld found OpenClaw, but couldn't confirm a working launch command."
 			)
 		).toBeTruthy();
@@ -1029,9 +1030,11 @@ describe("LocalAgentsCard", () => {
 		).toBeNull();
 		expect(screen.queryByRole("menuitem", { name: "Check agents" })).toBeNull();
 		const row = screen.getByTestId("settings-local-agent-row-codex");
-		expect(within(row).getByText("Issue")).toBeTruthy();
+		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
+		const agentDialog = screen.getByRole("dialog");
+		expect(within(agentDialog).getByText("Issue")).toBeTruthy();
 		expect(
-			within(row).queryByRole("button", { name: "Check again" })
+			within(agentDialog).queryByRole("button", { name: "Check again" })
 		).toBeNull();
 		expect(refreshLocalAgentCatalog).not.toHaveBeenCalled();
 	});
@@ -1123,14 +1126,18 @@ describe("LocalAgentsCard", () => {
 		const setupLabel = within(row).getByText("Needs repair");
 		expect(setupLabel.getAttribute("data-slot")).not.toBe("badge");
 		expect(setupLabel.className).toContain("text-destructive");
+		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
+		const agentDialog = screen.getByRole("dialog");
 		expect(
-			within(row).getAllByText(
+			within(agentDialog).getAllByText(
 				"Codex CLI is installed, but OpenMeld could not confirm controller readiness."
 			).length
 		).toBeGreaterThan(0);
-		expect(within(row).getByText("Issue")).toBeTruthy();
+		expect(within(agentDialog).getByText("Issue")).toBeTruthy();
 
-		fireEvent.click(within(row).getByRole("button", { name: "Check again" }));
+		fireEvent.click(
+			within(agentDialog).getByRole("button", { name: "Check again" })
+		);
 
 		expect(refreshLocalAgentCatalog).toHaveBeenCalledTimes(1);
 	});
@@ -1154,12 +1161,14 @@ describe("LocalAgentsCard", () => {
 				.some((element) => element.className.includes("text-amber"))
 		).toBe(true);
 		expect(within(row).queryByText("Needs setup")).toBeNull();
+		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
+		const agentDialog = screen.getByRole("dialog");
 		expect(
-			within(row).getByText(
+			within(agentDialog).getByText(
 				"OpenMeld couldn't finish checking Codex. It will try again automatically."
 			)
 		).toBeTruthy();
-		expect(within(row).getByText("Last successful check")).toBeTruthy();
+		expect(within(agentDialog).getByText("Last successful check")).toBeTruthy();
 	});
 
 	it("shows the controller-specific not-signed-in guidance for an unauthenticated Codex controller", () => {
@@ -1174,8 +1183,9 @@ describe("LocalAgentsCard", () => {
 
 		const row = screen.getByTestId("settings-local-agent-row-codex");
 		expect(within(row).getByText("Not signed in")).toBeTruthy();
+		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
 		expect(
-			within(row).getAllByText(
+			within(screen.getByRole("dialog")).getAllByText(
 				"Codex CLI is installed, but this computer is not signed in to Codex."
 			).length
 		).toBeGreaterThan(0);
@@ -1273,8 +1283,9 @@ describe("LocalAgentsCard", () => {
 
 		const row = screen.getByTestId("settings-local-agent-row-codex");
 		expect(within(row).queryByText("Last seen")).toBeNull();
+		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
 		expect(
-			within(row).getByText(
+			within(screen.getByRole("dialog")).getByText(
 				"Last check found this local agent. Connect OpenMeld Service to refresh its status."
 			)
 		).toBeTruthy();

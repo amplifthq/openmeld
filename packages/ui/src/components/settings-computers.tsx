@@ -5,7 +5,7 @@ import {
   PulseIcon,
   RobotIcon,
 } from "@phosphor-icons/react";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useState } from "react";
 import { Badge } from "#components/badge";
 import {
   Card,
@@ -15,6 +15,13 @@ import {
   CardHeader,
   CardTitle,
 } from "#components/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "#components/dialog";
 import { LocalAgentLogo } from "#components/local-agent-logo";
 import { hasLocalAgentLogo } from "#components/local-agent-logo-utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#components/tooltip";
@@ -24,6 +31,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "#fluid/accordion";
+import { FluidCardGroup, FluidCardItem } from "#fluid/card";
 import {
   resolveStatusToneAdvisoryBadgeClassName,
   resolveStatusToneIndicatorClassName,
@@ -296,7 +304,7 @@ export function SettingsComputerStatusCard({
 
 export type SettingsLocalAgentRowSummaryStatus = {
   label: ReactNode;
-  tone?: "danger" | "muted" | "warning";
+  tone?: "danger" | "muted" | "ready" | "warning";
 };
 
 export type SettingsLocalAgentRow = {
@@ -1132,6 +1140,179 @@ function SettingsLocalAgentRowControl({
       data-testid="settings-local-agent-row-control"
     >
       {control}
+    </div>
+  );
+}
+
+export function SettingsLocalAgentCardGrid({
+  className,
+  rows,
+}: {
+  className?: string;
+  rows: readonly SettingsLocalAgentRow[];
+}) {
+  return (
+    <FluidCardGroup
+      className={cn("grid gap-3 lg:grid-cols-2", className)}
+      role="list"
+    >
+      {rows.map((row) => (
+        <SettingsLocalAgentCard key={row.id} row={row} />
+      ))}
+    </FluidCardGroup>
+  );
+}
+
+function resolveLocalAgentCardStatus(
+  row: SettingsLocalAgentRow
+): SettingsLocalAgentRowSummaryStatus {
+  const statuses =
+    row.summaryStatuses ?? (row.summaryStatus ? [row.summaryStatus] : []);
+  const [status] = statuses;
+  if (status) {
+    return status;
+  }
+  return row.muted
+    ? { label: "Off", tone: "muted" }
+    : { label: "Ready", tone: "ready" };
+}
+
+function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const status = resolveLocalAgentCardStatus(row);
+  const hasDialog = Boolean(row.detail || row.description);
+
+  return (
+    <FluidCardItem
+      className="rounded-md bg-card ring-1 ring-foreground/10"
+      data-muted={row.muted ? "true" : undefined}
+      data-testid={`settings-local-agent-row-${row.id}`}
+      itemId={row.id}
+      role="listitem"
+    >
+      <div className="flex h-full min-w-0 items-start gap-3 px-3.5 py-3">
+        <SettingsLocalAgentIcon
+          agentId={row.logoAgentId ?? row.id}
+          muted={row.muted === true}
+        />
+        {hasDialog ? (
+          <button
+            aria-label={`${row.displayName} details`}
+            className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            data-testid="settings-local-agent-row-trigger"
+            onClick={() => {
+              setDetailsOpen(true);
+            }}
+            type="button"
+          >
+            <SettingsLocalAgentCardContent row={row} status={status} />
+          </button>
+        ) : (
+          <div
+            className="min-w-0 flex-1"
+            data-testid="settings-local-agent-row-trigger"
+          >
+            <SettingsLocalAgentCardContent row={row} status={status} />
+          </div>
+        )}
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          {row.summaryAccessory}
+          <SettingsLocalAgentRowControl control={row.control} />
+        </div>
+      </div>
+      {hasDialog ? (
+        <Dialog onOpenChange={setDetailsOpen} open={detailsOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader className="min-w-0 pr-8">
+              <div className="flex min-w-0 items-start gap-2.5">
+                <SettingsLocalAgentIcon
+                  agentId={row.logoAgentId ?? row.id}
+                  muted={row.muted === true}
+                />
+                <div className="min-w-0 space-y-1">
+                  <DialogTitle className="font-medium text-base">
+                    {row.displayName}
+                  </DialogTitle>
+                  <p className="flex items-center gap-1.5 font-medium text-xs">
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "h-2 w-2 shrink-0 rounded-full",
+                        resolveStatusToneIndicatorClassName(
+                          status.tone ?? "muted"
+                        )
+                      )}
+                      data-testid={`settings-local-agent-status-dot-${row.id}`}
+                    />
+                    <span
+                      className={cn(
+                        resolveLocalAgentSummaryStatusClassName(status.tone)
+                      )}
+                    >
+                      {status.label}
+                    </span>
+                  </p>
+                  {row.description ? (
+                    <DialogDescription>{row.description}</DialogDescription>
+                  ) : null}
+                </div>
+              </div>
+            </DialogHeader>
+            {row.detail ? (
+              <div className="border-border/70 border-t pt-3">{row.detail}</div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+      ) : null}
+    </FluidCardItem>
+  );
+}
+
+function SettingsLocalAgentCardContent({
+  row,
+  status,
+}: {
+  row: SettingsLocalAgentRow;
+  status: SettingsLocalAgentRowSummaryStatus;
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <div className="flex min-w-0 items-center gap-2">
+        <p
+          className={cn(
+            "truncate font-medium text-sm",
+            row.muted ? "text-muted-foreground" : "text-foreground"
+          )}
+        >
+          {row.displayName}
+        </p>
+        {row.badge}
+      </div>
+      <div className="flex min-w-0 items-center gap-1.5 text-xs">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "h-2 w-2 shrink-0 rounded-full",
+            resolveStatusToneIndicatorClassName(status.tone ?? "muted")
+          )}
+          data-testid={`settings-local-agent-status-dot-${row.id}`}
+        />
+        <span
+          className={cn(resolveLocalAgentSummaryStatusClassName(status.tone))}
+        >
+          {status.label}
+        </span>
+        {row.summaryMeta ? (
+          <>
+            <span aria-hidden="true" className="shrink-0 text-muted-foreground">
+              ·
+            </span>
+            <span className="min-w-0 truncate text-muted-foreground">
+              {row.summaryMeta}
+            </span>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
