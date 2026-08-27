@@ -119,6 +119,16 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(within(sidebar).getByText("Felix")).toBeTruthy();
 		expect(within(sidebar).queryByText("felix@example.com")).toBeNull();
 		expect(within(sidebar).getByRole("img", { name: "Slack" })).toBeTruthy();
+		const slackLogo = within(sidebar).getByTestId("app-logo-slack");
+		expect([...(slackLogo.parentElement?.classList ?? [])]).toEqual(
+			expect.arrayContaining([
+				"size-4",
+				"border-0",
+				"bg-transparent",
+				"p-0",
+				"shadow-none",
+			])
+		);
 		expect(within(sidebar).queryByRole("img", { name: "Lark" })).toBeNull();
 		expect(within(sidebar).getByTestId("local-agent-logo-codex")).toBeTruthy();
 		expect(

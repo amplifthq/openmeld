@@ -92,12 +92,6 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	state: DirectoryHumanProfilesViewState;
 }) {
 	const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
-	const [editing, setEditing] = useState(false);
-	const [connectableAccounts, setConnectableAccounts] = useState<
-		readonly DirectoryIdentityAccount[] | null
-	>(null);
-	const [connectedAccount, setConnectedAccount] =
-		useState<DirectoryIdentityAccount | null>(null);
 	const selectedMember = resolveSelectedMember({
 		members: input.members,
 		selectedProfileId: input.selectedProfileId,
@@ -131,15 +125,6 @@ export function DirectoryHumanProfilesWorkspace(input: {
 		);
 		return () => window.clearInterval(intervalId);
 	}, []);
-
-	useEffect(() => {
-		if (!selectedMember?.id) {
-			return;
-		}
-		setEditing(false);
-		setConnectableAccounts(null);
-		setConnectedAccount(null);
-	}, [selectedMember?.id]);
 
 	const sidebar = (
 		<AppContextualSidebarNav
@@ -204,58 +189,92 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	);
 
 	return (
+		<AppFullWidthLayout
+			contentLayout="flush"
+			initialInnerSidebarState={input.initialSidebarStates?.inner}
+			initialOuterSidebarState={input.initialSidebarStates?.outer}
+			mobileSidebarTitle="People"
+			sidebar={sidebar}
+			sidebarPreferenceKey="people"
+			sidebarSeparatorLabel="Resize the People sidebar"
+		>
+			{input.researchErrorMessage ? (
+				<p className="m-4 rounded-md border border-destructive/50 px-4 py-3 text-destructive text-sm">
+					{input.researchErrorMessage}
+				</p>
+			) : null}
+			{selectedMember ? (
+				<SelectedHumanProfileWorkspace
+					activityNowMs={activityNowMs}
+					computersContent={
+						<HumanProfileComputers
+							directoryError={input.directoryError}
+							directoryIsPending={input.directoryIsPending}
+							group={selectedComputerGroup}
+							isOrganizationContext={input.state.context === "organization"}
+							orgSlug={input.orgSlug}
+							recovery={input.recovery}
+						/>
+					}
+					directMessageIsPending={input.state.directMessage === "pending"}
+					key={selectedMember.id}
+					member={selectedMember}
+					onDisconnectConnectedAccount={input.onDisconnectConnectedAccount}
+					onOpenDirectMessage={() => {
+						input.onOpenDirectMessage(selectedMember.id).catch((error) => {
+							console.error(
+								"Human Profile Direct Message action failed.",
+								error
+							);
+						});
+					}}
+					onRequestChannelSetup={input.onRequestChannelSetup}
+					researchAction={researchAction}
+				/>
+			) : (
+				<HumanProfileWorkspaceState
+					emptyMessage={input.emptyMessage}
+					errorMessage={input.errorMessage}
+					loading={input.state.profiles === "loading"}
+				/>
+			)}
+		</AppFullWidthLayout>
+	);
+}
+
+function SelectedHumanProfileWorkspace(input: {
+	activityNowMs: number;
+	computersContent: ReactNode;
+	directMessageIsPending: boolean;
+	member: DirectoryHumanProfileRow;
+	onDisconnectConnectedAccount: (identityLinkId: string) => void;
+	onOpenDirectMessage: () => void;
+	onRequestChannelSetup: (
+		provider: DirectoryIdentityAccount["provider"]
+	) => Promise<void>;
+	researchAction: DirectoryHumanProfileResearchAction | null;
+}) {
+	const [editing, setEditing] = useState(false);
+	const [connectableAccounts, setConnectableAccounts] = useState<
+		readonly DirectoryIdentityAccount[] | null
+	>(null);
+	const [connectedAccount, setConnectedAccount] =
+		useState<DirectoryIdentityAccount | null>(null);
+
+	return (
 		<>
-			<AppFullWidthLayout
-				contentLayout="flush"
-				initialInnerSidebarState={input.initialSidebarStates?.inner}
-				initialOuterSidebarState={input.initialSidebarStates?.outer}
-				mobileSidebarTitle="People"
-				sidebar={sidebar}
-				sidebarPreferenceKey="people"
-				sidebarSeparatorLabel="Resize the People sidebar"
-			>
-				{input.researchErrorMessage ? (
-					<p className="m-4 rounded-md border border-destructive/50 px-4 py-3 text-destructive text-sm">
-						{input.researchErrorMessage}
-					</p>
-				) : null}
-				{selectedMember ? (
-					<DirectoryHumanProfileDetails
-						activityNowMs={activityNowMs}
-						computersContent={
-							<HumanProfileComputers
-								directoryError={input.directoryError}
-								directoryIsPending={input.directoryIsPending}
-								group={selectedComputerGroup}
-								isOrganizationContext={input.state.context === "organization"}
-								orgSlug={input.orgSlug}
-								recovery={input.recovery}
-							/>
-						}
-						directMessageIsPending={input.state.directMessage === "pending"}
-						editing={editing}
-						member={selectedMember}
-						onConnectAccount={(account) => setConnectableAccounts([account])}
-						onEditingChange={setEditing}
-						onManageAccount={setConnectedAccount}
-						onOpenDirectMessage={() => {
-							input.onOpenDirectMessage(selectedMember.id).catch((error) => {
-								console.error(
-									"Human Profile Direct Message action failed.",
-									error
-								);
-							});
-						}}
-						researchAction={researchAction}
-					/>
-				) : (
-					<HumanProfileWorkspaceState
-						emptyMessage={input.emptyMessage}
-						errorMessage={input.errorMessage}
-						loading={input.state.profiles === "loading"}
-					/>
-				)}
-			</AppFullWidthLayout>
+			<DirectoryHumanProfileDetails
+				activityNowMs={input.activityNowMs}
+				computersContent={input.computersContent}
+				directMessageIsPending={input.directMessageIsPending}
+				editing={editing}
+				member={input.member}
+				onConnectAccount={(account) => setConnectableAccounts([account])}
+				onEditingChange={setEditing}
+				onManageAccount={setConnectedAccount}
+				onOpenDirectMessage={input.onOpenDirectMessage}
+				researchAction={input.researchAction}
+			/>
 			<ConnectChannelAccountDialog
 				accounts={connectableAccounts}
 				onOpenChange={(open) => {
@@ -278,7 +297,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 						setConnectedAccount(null);
 					}
 				}}
-				profileName={selectedMember?.name ?? "this profile"}
+				profileName={input.member.name}
 			/>
 		</>
 	);
@@ -421,6 +440,7 @@ function HumanProfileSidebarItem(input: {
 								{mappedAccounts.map((account) => (
 									<DirectoryIdentityLogo
 										account={account}
+										className="size-4 rounded-sm border-0 bg-transparent p-0 shadow-none"
 										key={account.provider}
 									/>
 								))}
