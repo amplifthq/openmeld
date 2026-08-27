@@ -1498,13 +1498,15 @@ one-time claim, and exact-request continuation do not.
 After identity is linked, personal Computer readiness remains a separate
 boundary. When the verified requester asks for Codex or another local Agent and
 Core reports that their Computer needs setup, reconnect, or an OpenMeld Service
-update, the Computer query attaches the exact Core-projected navigation action.
-Core publishes that action privately to the same Slack, Lark, or Feishu
-identity only after the ordinary task result is confirmed. The public channel
-receives the useful result and concrete limitation; the requester receives the
-native **Connect this computer**, **Reconnect this computer**, or **Update
-OpenMeld Service** action. A normal task that does not query personal Computer
-readiness never receives this setup guidance.
+update, the Computer query returns those facts and the Center Agent explicitly
+requests the exact Core-projected navigation action as the one next step needed
+to continue that task. Core publishes that action privately to the same Slack,
+Lark, or Feishu identity only after the ordinary task result is confirmed. The
+public channel receives the useful result and concrete limitation; the
+requester receives the native **Connect this computer**, **Reconnect this
+computer**, or **Update OpenMeld Service** action. A normal answer, diagnostic
+read, or unrelated task never receives setup guidance merely because a Computer
+query ran or returned a recommendation.
 
 The token is frozen to the Organization, Slack workspace, Slack user, and
 source native delivery. Core sends the action as a durable direct message

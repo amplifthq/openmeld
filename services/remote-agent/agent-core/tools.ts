@@ -118,7 +118,6 @@ import {
   listFeedbackIssuesForOrganizationRequestSchema,
   listFeedbackIssuesForOrganizationResponseSchema,
   MAX_TEXT_LENGTH,
-  navigationActionSchema,
   OPPORTUNITY_DECISIONS,
   OPPORTUNITY_EVIDENCE_MAX_CHARS,
   OPPORTUNITY_EVIDENCE_MAX_ITEMS,
@@ -1704,7 +1703,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_get_navigation_action",
       description:
-        "Return a trusted OpenMeld action for the current Organization. Use this for computer setup or recovery, GitHub access, the Projects page, one Project, or a Space returned by another tool. For a connected Slack, Lark, or Feishu member whose requested action is blocked on personal OpenMeld access, first call openmeld_require_identity_for_action, then read the Organization directory. If the current provider name and available email clearly identify exactly one member, copy that directory userId into connectToUserId; otherwise omit it. Then use kind message_channel_identity_link with purpose continue_request. Use purpose optional_setup only when the participant explicitly asks to connect this provider account, never as an unsolicited suggestion after successful work. The action connects or sets up the account and continues the same request, so never tell the member to find an admin, request an invite link, mention the Center Agent again, or repeat the request. Never invent a userId or construct an OpenMeld link.",
+        "Record and return one trusted OpenMeld action for the final reply. Call this only when the user explicitly asked to open the exact destination or opening it is the one concrete next step required to advance the current request. Reading, listing, or changing a routable resource is not by itself a reason to present an action. Use this for computer setup or recovery, GitHub access, the Projects page, one Project, or one Space. For a connected Slack, Lark, or Feishu member whose requested action is blocked on personal OpenMeld access, first call openmeld_require_identity_for_action, then read the Organization directory. If the current provider name and available email clearly identify exactly one member, copy that directory userId into connectToUserId; otherwise omit it. Then use kind message_channel_identity_link with purpose continue_request. Use purpose optional_setup only when the participant explicitly asks to connect this provider account, never as an unsolicited suggestion after successful work. The action connects or sets up the account and continues the same request, so never tell the member to find an admin, request an invite link, mention the Center Agent again, or repeat the request. Never invent a userId or construct an OpenMeld link.",
       input: navigationActionToolInputSchema,
       execute: async (payload) => {
         const toolContext = await buildRemoteAgentToolContext({
@@ -1736,10 +1735,16 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             "A trusted OpenMeld link is unavailable for this turn. Do not construct or guess a URL."
           );
         }
-        return buildOpenMeldNavigationAction({
+        const navigationAction = buildOpenMeldNavigationAction({
           organizationWebUrl,
           target: parsedTarget,
         });
+        await recordRemoteAgentNavigationTarget({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          target: navigationAction.target,
+        });
+        return navigationAction;
       },
     }),
     toolDefinition({
@@ -4197,7 +4202,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             : undefined;
         const visibility = spaceInput.access?.visibility ?? "private";
         const { access: _access, ...spaceDetails } = spaceInput;
-        return centerAgentCreateSpaceResponseSchema.parse(
+        const createdSpace = centerAgentCreateSpaceResponseSchema.parse(
           await rpc({
             ...spaceDetails,
             ...toolContext,
@@ -4206,6 +4211,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             visibility,
           })
         );
+        return {
+          ...createdSpace,
+          replyHandoff: {
+            requiresAgentMention: true,
+            userGuidance:
+              "In this ordinary Space, @ mention the Agent you want to respond or act.",
+          },
+        };
       },
     }),
     toolDefinition({
@@ -5012,19 +5025,8 @@ function enforceRemoteAgentUnattendedToolPolicyAtExecution(input: {
           `Member research turns cannot execute ${input.definition.name}.`
         );
       }
-      const result = attachNavigationActionsToToolResult({
-        result: await input.definition.execute(payload),
-        toolName: input.definition.name,
-        turnEnvelope,
-      });
-      const navigationAction = readTopLevelNavigationAction(result);
-      if (navigationAction) {
-        await recordRemoteAgentNavigationTarget({
-          storage: input.storage,
-          submissionId: input.submissionId,
-          target: navigationAction.target,
-        });
-      } else if (
+      const result = await input.definition.execute(payload);
+      if (
         input.definition.name === "openmeld_remove_project" &&
         isSuccessfulProjectRemoval(result)
       ) {
@@ -5036,172 +5038,6 @@ function enforceRemoteAgentUnattendedToolPolicyAtExecution(input: {
       return result;
     },
   };
-}
-
-function attachNavigationActionsToToolResult(input: {
-  result: unknown;
-  toolName: RemoteAgentOpenMeldToolName;
-  turnEnvelope: RemoteAgentTurnEnvelope | undefined;
-}): unknown {
-  const organizationWebUrl = input.turnEnvelope?.organization.webUrl;
-  if (
-    !(organizationWebUrl && input.result) ||
-    typeof input.result !== "object" ||
-    Array.isArray(input.result)
-  ) {
-    return input.result;
-  }
-  const result = input.result as Record<string, unknown>;
-  const withAction = (record: Record<string, unknown>) => {
-    if (typeof record.spaceId !== "string" || !record.spaceId.trim()) {
-      return record;
-    }
-    return {
-      ...record,
-      navigationAction: buildOpenMeldNavigationAction({
-        organizationWebUrl,
-        target: { kind: "space", spaceId: record.spaceId },
-      }),
-      ...(input.toolName === "openmeld_create_space"
-        ? {
-            replyHandoff: {
-              requiresAgentMention: true,
-              userGuidance:
-                "In this ordinary Space, @ mention the Agent you want to respond or act.",
-            },
-          }
-        : {}),
-    };
-  };
-  const withProjectAction = (record: Record<string, unknown>) => {
-    if (typeof record.id !== "string" || !record.id.trim()) {
-      return record;
-    }
-    return {
-      ...record,
-      navigationAction: buildOpenMeldNavigationAction({
-        organizationWebUrl,
-        target: { kind: "project", projectId: record.id },
-      }),
-    };
-  };
-  const withRecommendedComputerAction = (
-    record: Record<string, unknown>
-  ): Record<string, unknown> => {
-    if (!Array.isArray(record.computers)) {
-      return record;
-    }
-    const recommendedComputer = record.computers.find(
-      (computer) =>
-        computer &&
-        typeof computer === "object" &&
-        !Array.isArray(computer) &&
-        (computer as Record<string, unknown>).isCurrent === true &&
-        typeof (computer as Record<string, unknown>).recommendedMode ===
-          "string"
-    ) as Record<string, unknown> | undefined;
-    const fallbackComputer = record.computers.find(
-      (computer) =>
-        computer &&
-        typeof computer === "object" &&
-        !Array.isArray(computer) &&
-        typeof (computer as Record<string, unknown>).recommendedMode ===
-          "string"
-    ) as Record<string, unknown> | undefined;
-    const computer = recommendedComputer ?? fallbackComputer;
-    if (!computer) {
-      return record;
-    }
-    const mode = computer.recommendedMode;
-    if (mode !== "setup" && mode !== "reconnect" && mode !== "update_service") {
-      return record;
-    }
-    const connectedComputerId = computer.connectedComputerId;
-    if (
-      mode !== "setup" &&
-      (typeof connectedComputerId !== "string" || !connectedComputerId.trim())
-    ) {
-      return record;
-    }
-    return {
-      ...record,
-      navigationAction: buildOpenMeldNavigationAction({
-        organizationWebUrl,
-        target:
-          mode === "setup"
-            ? { kind: "computer_setup", mode }
-            : {
-                connectedComputerId: connectedComputerId as string,
-                kind: "computer_setup",
-                mode,
-              },
-      }),
-    };
-  };
-  let enriched = withAction(result);
-  if (input.toolName === "openmeld_list_computers") {
-    enriched = withRecommendedComputerAction(enriched);
-  }
-  if (
-    input.toolName !== "openmeld_remove_project" &&
-    result.project &&
-    typeof result.project === "object" &&
-    !Array.isArray(result.project)
-  ) {
-    const project = withProjectAction(
-      result.project as Record<string, unknown>
-    );
-    enriched = {
-      ...enriched,
-      ...(project.navigationAction === undefined
-        ? {}
-        : { navigationAction: project.navigationAction }),
-      project,
-    };
-  }
-  if (Array.isArray(result.projects)) {
-    enriched = {
-      ...enriched,
-      ...(input.toolName === "openmeld_list_projects"
-        ? {
-            navigationAction: buildOpenMeldNavigationAction({
-              organizationWebUrl,
-              target: { kind: "projects" },
-            }),
-          }
-        : {}),
-      projects: result.projects.map((project) =>
-        project && typeof project === "object" && !Array.isArray(project)
-          ? withProjectAction(project as Record<string, unknown>)
-          : project
-      ),
-    };
-  }
-  if (!Array.isArray(result.spaces)) {
-    return enriched;
-  }
-  return {
-    ...enriched,
-    spaces: result.spaces.map((space) =>
-      space && typeof space === "object" && !Array.isArray(space)
-        ? withAction(space as Record<string, unknown>)
-        : space
-    ),
-  };
-}
-
-function readTopLevelNavigationAction(result: unknown) {
-  const directAction = navigationActionSchema.safeParse(result);
-  if (directAction.success) {
-    return directAction.data;
-  }
-  if (!result || typeof result !== "object" || Array.isArray(result)) {
-    return null;
-  }
-  const nestedAction = navigationActionSchema.safeParse(
-    (result as Record<string, unknown>).navigationAction
-  );
-  return nestedAction.success ? nestedAction.data : null;
 }
 
 function isSuccessfulProjectRemoval(result: unknown): boolean {
