@@ -4,6 +4,7 @@ import {
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 } from "@openmeld/schemas";
 import type { AgentProfileCreationConfiguration } from "@openmeld/schemas/types";
+import { readCurrentLocalDeviceId } from "../local-service/state/current-device-identity";
 import { resolveAgentControllerPermissionModeInput } from "../profile/controller-permission-mode-input";
 import {
   type ProfileCreationRequestCommandContext,
@@ -12,6 +13,7 @@ import {
 } from "./context";
 import {
   normalizeOptionalText,
+  ProfileCreationRequestCliError,
   parseApprovalPolicy,
   parseRequestSource,
   parseSessionStrategy,
@@ -103,12 +105,12 @@ async function resolveRequestConfiguration(options: {
 }): Promise<AgentProfileCreationConfiguration> {
   const { context, input, targetOwnerUserId } = options;
   const agentControllerRef = normalizeOptionalText(input.agentController);
-  const targetComputerId = normalizeOptionalText(input.targetComputerId);
-  if (Boolean(agentControllerRef) !== Boolean(targetComputerId)) {
-    throw new Error(
-      "--agent-controller and --computer must be provided together for a creation request."
-    );
-  }
+  const targetComputerId = await resolveRequestComputerId({
+    agentControllerRef,
+    context,
+    requestedComputerId: normalizeOptionalText(input.targetComputerId),
+    targetOwnerUserId,
+  });
   const permissionMode = await resolveAgentControllerPermissionModeInput({
     agentControllerRef,
     agentControllerPermissionModeInput:
@@ -139,6 +141,79 @@ async function resolveRequestConfiguration(options: {
     reasoningLevel: normalizeOptionalText(input.reasoningLevel) ?? null,
     targetComputerId: targetComputerId ?? null,
   });
+}
+
+async function resolveRequestComputerId(options: {
+  agentControllerRef: string | undefined;
+  context: ProfileCreationRequestCommandContext;
+  requestedComputerId: string | undefined;
+  targetOwnerUserId: string;
+}): Promise<string | null> {
+  const {
+    agentControllerRef,
+    context,
+    requestedComputerId,
+    targetOwnerUserId,
+  } = options;
+  if (!(agentControllerRef || requestedComputerId)) {
+    return null;
+  }
+  if (!agentControllerRef) {
+    throw new ProfileCreationRequestCliError({
+      code: "profile.creation_request.agent_controller_required",
+      message: "A Computer selection also requires a Local Agent.",
+      nextStep:
+        "Pass `--agent-controller <ref>` with `--computer`, or remove `--computer`.",
+      title: "Local Agent Needed",
+    });
+  }
+  if (requestedComputerId) {
+    return requestedComputerId;
+  }
+  if (targetOwnerUserId !== context.callerUserId) {
+    throw new ProfileCreationRequestCliError({
+      code: "profile.creation_request.computer_required",
+      message: "Creating an Agent for a teammate requires their Computer.",
+      nextStep:
+        "Run `openmeld org computers --view agent`, then pass `--computer <computer-id>`.",
+      title: "Computer Needed",
+    });
+  }
+
+  const currentComputerId = await readCurrentLocalDeviceId();
+  const computers = await context.api.getCurrentComputers();
+  const currentComputer = computers.computers.find(
+    (computer) =>
+      computer.computerId === currentComputerId &&
+      computer.ownerUserId === context.callerUserId
+  );
+  if (!currentComputer) {
+    throw new ProfileCreationRequestCliError({
+      code: "profile.creation_request.current_computer_unavailable",
+      message:
+        "This computer is not available for Agent Profile creation in the selected Organization.",
+      nextStep:
+        "Run `openmeld setup`, then retry; or pass `--computer <computer-id>` from `openmeld org computers --view agent`.",
+      title: "Computer Not Available",
+    });
+  }
+  const localAgent = currentComputer.localAgents.find(
+    (agent) => agent.agentControllerRef === agentControllerRef
+  );
+  if (
+    currentComputer.serviceState !== "connected" ||
+    !localAgent?.enabled ||
+    localAgent.status !== "ready"
+  ) {
+    throw new ProfileCreationRequestCliError({
+      code: "profile.creation_request.local_agent_unavailable",
+      message: `${agentControllerRef} is not ready on this computer.`,
+      nextStep:
+        "Run `openmeld computer current --view agent` and repair the Local Agent, then retry; or pass another ready `--computer <computer-id>`.",
+      title: "Local Agent Not Ready",
+    });
+  }
+  return currentComputer.computerId;
 }
 
 async function resolveRequestDefaultProjectId(options: {

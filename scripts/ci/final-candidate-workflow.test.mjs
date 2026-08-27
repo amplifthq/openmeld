@@ -27,6 +27,7 @@ const GITHUB_EXPRESSION_PATTERN = /\$\{\{\s*github\./u;
 const RUN_LINE_PATTERN = /^(\s+)run:\s*(.*)$/u;
 const LEADING_WHITESPACE_PATTERN = /^\s*/u;
 const TEN_SPACE_PREFIX_PATTERN = /^ {10}/u;
+const INHERITED_NODE_OPTIONS_PATTERN = /NODE_OPTIONS="?\$\{/u;
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
 const DELIVERY_ROUTER_PATHS = [
   "AGENTS.md",
@@ -120,7 +121,7 @@ test("keeps status credentials out of candidate commands", () => {
   );
   assert.ok(candidateJob.includes("--ignore-scripts"));
   assert.ok(dependencyInstall.includes("--config.ignore-pnpmfile=true"));
-  assert.ok(dependencyInstall.includes(" rebuild \\".trimEnd()));
+  assert.ok(dependencyInstall.includes(" --recursive rebuild \\".trimEnd()));
   assert.ok(dependencyInstall.includes("resolve-approved-native-builds.mjs"));
   assert.ok(commandWrapper.includes("exec env -i"));
   assert.ok(!commandWrapper.includes("sudo"));
@@ -139,6 +140,12 @@ test("keeps status credentials out of candidate commands", () => {
     )
   );
   assert.ok(candidateJob.includes("$RUNNER_TEMP/final-candidate-control"));
+  assert.ok(
+    candidateJob.includes(
+      `path: ${GITHUB_EXPRESSION_PREFIX} runner.temp }}/final-candidate-control/`
+    ),
+    "the hosted artifact must preserve both canonical evidence and complete command logs"
+  );
   assert.ok(candidateJob.includes('--plan-source "$CANDIDATE_BASE_SHA"'));
   assert.ok(finalJob.includes("final-candidate-publisher.mjs"));
   assert.ok(
@@ -207,6 +214,16 @@ test("disables candidate install hooks before selected commands", () => {
   );
   assert.ok(dependencyInstall.includes("--config.ignore-pnpmfile=true"));
   assert.ok(dependencyInstall.includes("--ignore-scripts"));
+});
+
+test("gives isolated candidate Node processes one explicit hosted-safe heap budget", () => {
+  const commandWrapper = readRepoFile(
+    "scripts/ci/run-isolated-candidate-command.sh"
+  );
+
+  assert.ok(commandWrapper.includes("exec env -i"));
+  assert.ok(commandWrapper.includes("NODE_OPTIONS=--max-old-space-size=6144"));
+  assert.doesNotMatch(commandWrapper, INHERITED_NODE_OPTIONS_PATTERN);
 });
 
 test("always finalizes an exact head after pending publication starts", () => {

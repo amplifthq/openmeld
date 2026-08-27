@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -190,7 +191,12 @@ function runCandidate(options) {
 
   evidence.publicationErrors = [...context.publicationErrors];
   writeEvidence(evidencePath, evidence);
-  const finalSummary = renderEvidenceSummary(evidence, evidencePath);
+  const finalSummary = renderEvidenceSummary(evidence, evidencePath, {
+    commandLogsLocation:
+      context.mode === "remote"
+        ? "the final-candidate-evidence workflow artifact"
+        : context.commandLogsPath,
+  });
   process.stdout.write(`${finalSummary}\n`);
   appendWorkflowSummary(finalSummary);
 
@@ -210,6 +216,8 @@ function createRunContext(options) {
   }
   return {
     candidateRoot: path.resolve(options.candidateRoot ?? process.cwd()),
+    commandLogsPath: null,
+    evidencePath: null,
     mode,
     options,
     execution: null,
@@ -250,6 +258,13 @@ function prepareCandidateRun(context) {
     planSourceSha: context.options.planSourceSha,
     treeSha: context.state.snapshot.treeSha,
   });
+  context.evidencePath = resolveEvidencePath(
+    context.options.evidence,
+    context.plan.headSha
+  );
+  context.commandLogsPath = `${context.evidencePath}.logs`;
+  rmSync(context.commandLogsPath, { force: true, recursive: true });
+  mkdirSync(context.commandLogsPath, { recursive: true });
   printPlan(context.plan, []);
   context.targetUrl = resolveTargetUrl(
     context.mode,
@@ -467,7 +482,10 @@ function runCandidateCommand(command, selectedCheck, context) {
           ...trustedArgs,
         ]
       : [resolvedBinary, ...trustedArgs];
-  process.stdout.write(`\n$ ${formatCommand(executionCommand)}\n`);
+  const startedAt = Date.now();
+  process.stdout.write(
+    `Running ${selectedCheck.id}: ${formatCommand(executionCommand)}\n`
+  );
   const [binary, ...args] = executionCommand;
   const commandEnvironment = { ...process.env };
   for (const credentialName of [
@@ -497,13 +515,19 @@ function runCandidateCommand(command, selectedCheck, context) {
   });
   const stdout = sanitizeCommandOutput(result.stdout);
   const stderr = sanitizeCommandOutput(result.stderr);
-  if (stdout) {
-    process.stdout.write(stdout);
-  }
-  if (stderr) {
-    process.stderr.write(stderr);
-  }
   const failed = Boolean(result.error) || result.status !== 0;
+  const durationMs = Math.max(0, Date.now() - startedAt);
+  writeCommandLog({
+    command: executionCommand,
+    commandLogsPath: context.commandLogsPath,
+    result,
+    selectedCheck,
+    stderr,
+    stdout,
+  });
+  process.stdout.write(
+    `${failed ? "Failed" : "Passed"} ${selectedCheck.id} (${formatCompactDuration(durationMs)}).\n`
+  );
   return {
     spawnError: result.error
       ? sanitizeCommandOutput(result.error.message).trim()
@@ -512,6 +536,35 @@ function runCandidateCommand(command, selectedCheck, context) {
     stderrTail: failed ? tail(stderr) : "",
     stdoutTail: failed ? tail(stdout) : "",
   };
+}
+
+function writeCommandLog(input) {
+  const safeCheckId = input.selectedCheck.id.replaceAll(/[^a-z0-9-]/giu, "-");
+  const logPath = path.join(input.commandLogsPath, `${safeCheckId}.log`);
+  const spawnError = input.result.error
+    ? sanitizeCommandOutput(input.result.error.message).trim()
+    : "none";
+  writeFileSync(
+    logPath,
+    [
+      `Check: ${input.selectedCheck.id}`,
+      `Command: ${formatCommand(input.command)}`,
+      `Exit code: ${input.result.status ?? "none"}`,
+      `Spawn error: ${spawnError}`,
+      "",
+      "--- stdout ---",
+      input.stdout || "(empty)\n",
+      "--- stderr ---",
+      input.stderr || "(empty)\n",
+    ].join("\n"),
+    "utf8"
+  );
+}
+
+function formatCompactDuration(durationMs) {
+  return durationMs < 1000
+    ? `${durationMs} ms`
+    : `${(durationMs / 1000).toFixed(1)} s`;
 }
 
 function parseOptions(args) {
@@ -584,15 +637,15 @@ function printHelp() {
 Plan the exact candidate without running checks:
   git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 
-Request the normal GitHub-hosted gate once the committed branch contains current main:
+Use the normal, recommended GitHub-hosted gate when Actions is available:
   git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- request --pr <number>
 
-Run the same gate locally and publish shared evidence when Actions is unavailable:
+Use the workstation fallback only when Actions quota, billing, or runners are unavailable:
   git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- local --pr <number>
 
 Add --full to plan, request, or run. A hosted request uses the distinct final-candidate-full label and executes full repository checks; a standard request never does.
 The first hop and normal local runs come from exact current main. Delivery-control changes require a reviewed control SHA plus explicit exact --bootstrap-control-sha and --bootstrap-reason through the trusted Git-object entrypoint.
-Every run prints the exact head, base, tree, changed paths, selected commands, reasons, skips, durations, and result.
+Every run prints the exact plan plus compact check progress, durations, and results. Complete redacted command logs are stored beside local evidence or in the hosted evidence artifact; only bounded failure tails return to the terminal.
 `);
 }
 
