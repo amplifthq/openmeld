@@ -34,6 +34,17 @@ next step for the current request.
 
 Evidence: pr:369, commit:6d1375c8b9f80fe58f65d8f4fb4b06454fccb305, workflow:33061998100, workflow:33062520467
 
+### Stop waiting when Center Agent work has failed
+
+Fixed · v0.3.121 · center-agent · spaces · cli
+
+When Center Agent work ends in failure, OpenMeld now reports that same final
+outcome in the conversation, progress checks, diagnostics, and the CLI Wake
+trace summary. Agents no longer keep waiting, treat a failed turn as an
+ordinary reply, or suggest that a failed response is still being published.
+
+Evidence: pr:357, pr:382, commit:7f438b73a1076d7436fe330862e09681ec4b0e45, commit:45c4edfdabfa862bc52f30c801d04bb81ba813e1, workflow:33079113134, npm:openmeld@0.3.121
+
 ## August 26, 2026
 
 ### Keep browser notification setup out of the way
