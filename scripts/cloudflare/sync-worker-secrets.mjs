@@ -1,86 +1,124 @@
+#!/usr/bin/env node
+
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const ENV_LINE_SPLIT_PATTERN = /\r?\n/u;
 const ENV_ASSIGNMENT_PATTERN = /^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/u;
+const scriptPath = fileURLToPath(import.meta.url);
 
-const args = process.argv.slice(2);
-const envName = readFlagValue(args, "--env");
-const filePath = readFlagValue(args, "--file");
-const secretNames = collectPositionalArgs(args);
-
-if (!(envName && filePath && secretNames.length > 0)) {
-  console.error(
-    [
-      "Usage:",
-      "node scripts/cloudflare/sync-worker-secrets.mjs --env <name> --file <path> <SECRET_KEY> [MORE_SECRET_KEYS...]",
-    ].join(" ")
-  );
-  process.exit(1);
-}
-
-const envFilePath = path.resolve(process.cwd(), filePath);
-const parsedEntries = parseEnvFile(readFileSync(envFilePath, "utf8"));
-const missingSecretNames = [];
-const filteredLines = [];
-
-for (const secretName of secretNames) {
-  const entry = parsedEntries.get(secretName);
-  if (!(entry && entry.normalizedValue.length > 0)) {
-    missingSecretNames.push(secretName);
-    continue;
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+  try {
+    process.exitCode = runSyncWorkerSecrets(
+      parseSyncWorkerSecretsArgs(process.argv.slice(2))
+    );
+  } catch (error) {
+    console.error(
+      `[sync-worker-secrets] ${error instanceof Error ? error.message : String(error)}`
+    );
+    process.exitCode = 1;
   }
-  filteredLines.push(`${secretName}=${entry.rawValue}`);
 }
 
-if (missingSecretNames.length > 0) {
-  console.error(
-    `[sync-worker-secrets] Missing required secrets in ${filePath}: ${missingSecretNames.join(", ")}`
+export function parseSyncWorkerSecretsArgs(args) {
+  const envName = readFlagValue(args, "--env");
+  const filePath = readFlagValue(args, "--file");
+  const fromEnvironment = args.includes("--from-env");
+  const secretNames = collectPositionalArgs(args);
+
+  if (!(envName && secretNames.length > 0)) {
+    throw new Error(
+      "Usage: sync-worker-secrets.mjs --env <name> (--file <path> | --from-env) <SECRET_KEY> [MORE_SECRET_KEYS...]"
+    );
+  }
+  if (Boolean(filePath) === fromEnvironment) {
+    throw new Error("Choose exactly one secret source: --file or --from-env.");
+  }
+
+  return { envName, filePath, fromEnvironment, secretNames };
+}
+
+export function collectSecretValuesFromEnvironment(secretNames, env) {
+  const missingSecretNames = secretNames.filter(
+    (secretName) => !hasValue(env[secretName])
   );
-  process.exit(1);
-}
+  if (missingSecretNames.length > 0) {
+    throw new Error(
+      `Missing required secrets in the environment: ${missingSecretNames.join(", ")}`
+    );
+  }
 
-const ignoredKeys = [...parsedEntries.keys()].filter(
-  (key) => !secretNames.includes(key)
-);
-if (ignoredKeys.length > 0) {
-  console.warn(
-    `[sync-worker-secrets] Ignoring non-secret keys from ${filePath}: ${ignoredKeys.join(", ")}`
+  return secretNames.map(
+    (secretName) => `${secretName}=${JSON.stringify(env[secretName])}`
   );
 }
 
-const tempDirectory = mkdtempSync(
-  path.join(os.tmpdir(), "openmeld-worker-secret-sync-")
-);
-const tempFilePath = path.join(tempDirectory, ".dev.vars.prod");
+export function runSyncWorkerSecrets(input, env = process.env) {
+  const filteredLines = input.fromEnvironment
+    ? collectSecretValuesFromEnvironment(input.secretNames, env)
+    : collectSecretValuesFromFile(input.filePath, input.secretNames);
+  const tempDirectory = mkdtempSync(
+    path.join(os.tmpdir(), "openmeld-worker-secret-sync-")
+  );
+  const tempFilePath = path.join(tempDirectory, `.dev.vars.${input.envName}`);
 
-try {
-  writeFileSync(tempFilePath, `${filteredLines.join("\n")}\n`, "utf8");
-
-  const command = spawnSync(
-    "wrangler",
-    ["secret", "bulk", `--env=${envName}`, tempFilePath],
-    {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: "inherit",
+  try {
+    writeFileSync(tempFilePath, `${filteredLines.join("\n")}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    const command = spawnSync(
+      "wrangler",
+      ["secret", "bulk", `--env=${input.envName}`, tempFilePath],
+      {
+        cwd: process.cwd(),
+        env,
+        stdio: "inherit",
+      }
+    );
+    if (command.error) {
+      throw command.error;
     }
-  );
+    return command.status ?? 1;
+  } finally {
+    rmSync(tempDirectory, { recursive: true, force: true });
+  }
+}
 
-  process.exit(command.status ?? 1);
-} finally {
-  rmSync(tempDirectory, { recursive: true, force: true });
+function collectSecretValuesFromFile(filePath, secretNames) {
+  const envFilePath = path.resolve(process.cwd(), filePath);
+  const parsedEntries = parseEnvFile(readFileSync(envFilePath, "utf8"));
+  const missingSecretNames = secretNames.filter((secretName) => {
+    const entry = parsedEntries.get(secretName);
+    return !(entry && entry.normalizedValue.length > 0);
+  });
+  if (missingSecretNames.length > 0) {
+    throw new Error(
+      `Missing required secrets in ${filePath}: ${missingSecretNames.join(", ")}`
+    );
+  }
+
+  const ignoredKeys = [...parsedEntries.keys()].filter(
+    (key) => !secretNames.includes(key)
+  );
+  if (ignoredKeys.length > 0) {
+    console.warn(
+      `[sync-worker-secrets] Ignoring non-secret keys from ${filePath}: ${ignoredKeys.join(", ")}`
+    );
+  }
+
+  return secretNames.map((secretName) => {
+    const entry = parsedEntries.get(secretName);
+    return `${secretName}=${entry.rawValue}`;
+  });
 }
 
 function readFlagValue(argv, flagName) {
-  const flag = argv.find((value) => value === flagName);
-  if (!flag) {
-    return null;
-  }
-  const flagIndex = argv.indexOf(flag);
-  return argv[flagIndex + 1] ?? null;
+  const flagIndex = argv.indexOf(flagName);
+  return flagIndex === -1 ? null : (argv[flagIndex + 1] ?? null);
 }
 
 function collectPositionalArgs(argv) {
@@ -115,18 +153,13 @@ function parseEnvFile(text) {
     }
 
     const match = line.match(ENV_ASSIGNMENT_PATTERN);
-    if (!match) {
+    if (!(match?.[1] && match[2] !== undefined)) {
       continue;
     }
 
-    const [, key, rawValue] = match;
-    if (!key) {
-      continue;
-    }
-
-    entries.set(key, {
-      rawValue,
-      normalizedValue: normalizeEnvValue(rawValue),
+    entries.set(match[1], {
+      rawValue: match[2],
+      normalizedValue: normalizeEnvValue(match[2]),
     });
   }
 
@@ -143,4 +176,8 @@ function normalizeEnvValue(rawValue) {
     return trimmedValue.slice(1, -1).trim();
   }
   return trimmedValue;
+}
+
+function hasValue(value) {
+  return typeof value === "string" && value.trim().length > 0;
 }

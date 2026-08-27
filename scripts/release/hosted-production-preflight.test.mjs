@@ -53,6 +53,7 @@ function buildHostedPreflightFixture(extraControlScripts = []) {
     [
       'import { readFileSync } from "node:fs";',
       'import path from "node:path";',
+      'if (process.argv[2] !== "--profile" || process.argv[3] !== "production") process.exit(90);',
       'if (readFileSync(path.join(process.env.OPENMELD_VERIFICATION_ROOT, "product.txt"), "utf8") !== "historical product\\n") process.exit(91);',
       "",
     ].join("\n")

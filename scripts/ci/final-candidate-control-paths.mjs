@@ -1,6 +1,7 @@
 const CONTROL_PATH_PATTERNS = [
   /^\.github\/actions\/trusted-git-network\/action\.yml$/u,
   /^\.github\/workflows\/final-candidate\.yml$/u,
+  /^\.github\/workflows\/merge-group-final-candidate\.yml$/u,
   /^package\.json$/u,
   /^pnpm-lock\.yaml$/u,
   /^pnpm-workspace\.yaml$/u,

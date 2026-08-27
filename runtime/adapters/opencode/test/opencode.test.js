@@ -325,6 +325,7 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
       "  sessionID: 'opencode-session-permission-env',",
       "  part: {",
       "    text: JSON.stringify({",
+      "      config: process.env.OPENCODE_CONFIG_CONTENT ?? null,",
       "      permission: process.env.OPENCODE_PERMISSION ?? null,",
       "      passthrough: process.env.OPENMELD_TEST_ENV ?? null,",
       "    }),",
@@ -355,6 +356,9 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
       env: {
         OPENCODE_PERMISSION: '{"edit":"allow"}',
         OPENMELD_TEST_ENV: "kept",
+        OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
+        OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: "/tmp/action/bin/openmeld-dev",
+        OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
       },
       openCodePermission,
       prompt: "hello",
@@ -366,7 +370,37 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
 
     assert.equal(dispatchResult.status, "success");
     assert.deepEqual(JSON.parse(dispatchResult.output), {
-      permission: JSON.stringify(openCodePermission),
+      config: JSON.stringify({
+        mcp: {
+          openmeld_internal_dispatch_space_action: {
+            command: [
+              "/tmp/action/bin/openmeld-dev",
+              "space",
+              "action",
+              "tool-server",
+            ],
+            enabled: true,
+            environment: {
+              OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
+              OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH:
+                "/tmp/action/bin/openmeld-dev",
+              OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
+            },
+            type: "local",
+          },
+        },
+        tools: {
+          openmeld_internal_dispatch_space_action_reply: true,
+          openmeld_internal_dispatch_space_action_status: true,
+          openmeld_internal_dispatch_space_action_stay_silent: true,
+        },
+      }),
+      permission: JSON.stringify({
+        ...openCodePermission,
+        openmeld_internal_dispatch_space_action_reply: "allow",
+        openmeld_internal_dispatch_space_action_status: "allow",
+        openmeld_internal_dispatch_space_action_stay_silent: "allow",
+      }),
       passthrough: "kept",
     });
   } finally {

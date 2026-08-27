@@ -39,6 +39,57 @@ describe("Claude CLI transport args", () => {
     );
   });
 
+  it("adds approval-free dispatch Space Action tools without changing ordinary permissions", () => {
+    const args = buildClaudeArgs({
+      agentControllerPermissionMode: "claude-code:default",
+      env: {
+        OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
+        OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: "/tmp/action/bin/openmeld-dev",
+        OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
+      },
+      prompt: "Reply in Space.",
+      sessionId: "session-1",
+    });
+
+    const configIndex = args.indexOf("--mcp-config");
+    assert.notEqual(configIndex, -1);
+    assert.deepEqual(JSON.parse(args[configIndex + 1]), {
+      mcpServers: {
+        openmeld_internal_dispatch_space_action: {
+          args: ["space", "action", "tool-server"],
+          command: "/tmp/action/bin/openmeld-dev",
+          env: {
+            OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
+            OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH:
+              "/tmp/action/bin/openmeld-dev",
+            OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
+          },
+        },
+      },
+    });
+    assert.equal(
+      args.includes("mcp__openmeld_internal_dispatch_space_action__reply"),
+      true
+    );
+    assert.equal(
+      args.includes("mcp__openmeld_internal_dispatch_space_action__status"),
+      true
+    );
+    assert.equal(
+      args.includes(
+        "mcp__openmeld_internal_dispatch_space_action__stay_silent"
+      ),
+      true
+    );
+    assert.deepEqual(
+      args.slice(
+        args.indexOf("--permission-mode"),
+        args.indexOf("--permission-mode") + 2
+      ),
+      ["--permission-mode", "default"]
+    );
+  });
+
   it("omits duplicate fallback model for a new session", () => {
     assert.deepEqual(
       buildClaudeArgs({

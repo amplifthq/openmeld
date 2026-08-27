@@ -572,12 +572,15 @@ a separate hand-written shared type that can drift from the runtime schema.
 
 `packages/schemas/src/schemas/ci/final-candidate.ts` owns the strict versioned
 Final Candidate evidence exchanged between the local runner, hosted runner,
-workflow artifact, PR comment renderer, and status publisher. The contract
+merge-group runner, workflow artifact, PR comment renderer, and status
+publisher. The contract
 keeps candidate validation and evidence-publication failures separate, bounds
 recorded command output, and makes head, base, and tree identity mandatory for
-success. It also owns the runtime projection of GitHub's pull-request candidate
-facts; the repository fixture is captured from the GitHub REST API rather than
-shaped from runner assumptions.
+success. Candidate kind explicitly distinguishes one pull request from GitHub's
+synthetic merge group; a merge group cannot claim one PR identity. It also owns
+the runtime projection of GitHub's pull-request candidate facts; the repository
+fixture is captured from the GitHub REST API rather than shaped from runner
+assumptions.
 
 `packages/schemas/src/schemas/release/production-scope-lease.ts` owns the
 strict metadata stored in the cross-machine Git scope lease. The schema defines
