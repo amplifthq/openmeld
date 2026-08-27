@@ -1,4 +1,5 @@
 import packageJson from "../../package.json";
+import { OPENMELD_VERSION } from "./version";
 
 type CliPackageJson = {
   version: string;
@@ -16,7 +17,7 @@ const PACKAGE_JSON = packageJson as CliPackageJson;
 const ISO_RELEASE_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/u;
 
 export function getCliVersionInfo(): CliVersionInfo {
-  const version = PACKAGE_JSON.version;
+  const version = OPENMELD_VERSION;
   const releaseDate = normalizeReleaseDate(PACKAGE_JSON.openMeldReleaseDate);
   const releaseDateLabel = releaseDate
     ? formatCliReleaseDateLabel(releaseDate)

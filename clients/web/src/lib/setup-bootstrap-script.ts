@@ -13,6 +13,7 @@ const DEFAULT_MIN_NODE_MAJOR_VERSION = 20;
 const DEFAULT_LOCAL_CLI_BINARY_MANIFEST_URL =
 	"http://127.0.0.1:3197/cli/manifest.json";
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+const OPENMELD_STAGING_HOSTNAME = "staging.openmeld.ai";
 
 export type OpenMeldSetupBootstrapLane = "prod" | "dev-local" | "canary";
 type OpenMeldSetupBootstrapPlatform = "posix" | "windows";
@@ -84,9 +85,14 @@ export function resolveOpenMeldSetupBootstrapScriptConfig(
 	}
 
 	const localRequest = isLocalUrl(requestUrl) || isLocalUrl(input.webAppUrl);
-	if (lane !== "prod" && !localRequest) {
+	const stagingRequest = isOfficialStagingRequest(requestUrl, input.webAppUrl);
+	if (
+		lane !== "prod" &&
+		!localRequest &&
+		!(lane === "canary" && stagingRequest)
+	) {
 		return {
-			body: "Non-production OpenMeld setup lanes are only available from localhost.",
+			body: "Non-production OpenMeld setup lanes are only available from localhost or OpenMeld staging.",
 			status: "error",
 			statusCode: 404,
 		};
@@ -125,7 +131,7 @@ export function resolveOpenMeldSetupBootstrapScriptConfig(
 		input.binaryManifestUrl
 	);
 	const binaryManifestUrl =
-		localRequest && binaryManifestUrlOverride
+		(localRequest || stagingRequest) && binaryManifestUrlOverride
 			? binaryManifestUrlOverride
 			: buildSetupBinaryManifestUrl(requestUrl, { lane, localRequest });
 
@@ -277,7 +283,7 @@ ensure_node_runtime() {
 
 run_clean_openmeld_env() {
   if [ -n "$OPENMELD_SETUP_OPENMELD_HOME" ]; then
-    env -u OPENMELD_GATEWAY_URL -u OPENMELD_AUTH_URL -u OPENMELD_USER_FACING_CLI_COMMAND -u OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND -u OPENMELD_SETUP_FORCE_SERVICE_REFRESH \\
+    env -u OPENMELD_GATEWAY_URL -u OPENMELD_AUTH_URL -u OPENMELD_CLI_BINARY_MANIFEST_URL -u OPENMELD_USER_FACING_CLI_COMMAND -u OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND -u OPENMELD_SETUP_FORCE_SERVICE_REFRESH \\
       OPENMELD_HOME="$OPENMELD_SETUP_OPENMELD_HOME" \\
       OPENMELD_ENV_PRESET="$OPENMELD_SETUP_ENV_PRESET" \\
       OPENMELD_USER_FACING_CLI_COMMAND="$(resolve_follow_up_cli_command_prefix)" \\
@@ -285,27 +291,30 @@ run_clean_openmeld_env() {
       OPENMELD_SETUP_FORCE_SERVICE_REFRESH="$OPENMELD_SETUP_FORCE_SERVICE_REFRESH" \\
       OPENMELD_GATEWAY_URL="$OPENMELD_SETUP_GATEWAY_URL" \\
       OPENMELD_AUTH_URL="$OPENMELD_SETUP_AUTH_URL" \\
+      OPENMELD_CLI_BINARY_MANIFEST_URL="$OPENMELD_SETUP_BINARY_MANIFEST_URL" \\
       "$@" < "$OPENMELD_SETUP_RUN_STDIN"
     return $?
   fi
 
   if [ -n "$OPENMELD_SETUP_GATEWAY_URL" ] || [ -n "$OPENMELD_SETUP_AUTH_URL" ]; then
-    env -u OPENMELD_HOME -u OPENMELD_GATEWAY_URL -u OPENMELD_AUTH_URL -u OPENMELD_USER_FACING_CLI_COMMAND -u OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND -u OPENMELD_SETUP_FORCE_SERVICE_REFRESH \\
+    env -u OPENMELD_HOME -u OPENMELD_GATEWAY_URL -u OPENMELD_AUTH_URL -u OPENMELD_CLI_BINARY_MANIFEST_URL -u OPENMELD_USER_FACING_CLI_COMMAND -u OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND -u OPENMELD_SETUP_FORCE_SERVICE_REFRESH \\
       OPENMELD_ENV_PRESET="$OPENMELD_SETUP_ENV_PRESET" \\
       OPENMELD_USER_FACING_CLI_COMMAND="$(resolve_follow_up_cli_command_prefix)" \\
       OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND="$(resolve_follow_up_cli_command_prefix)" \\
       OPENMELD_SETUP_FORCE_SERVICE_REFRESH="$OPENMELD_SETUP_FORCE_SERVICE_REFRESH" \\
       OPENMELD_GATEWAY_URL="$OPENMELD_SETUP_GATEWAY_URL" \\
       OPENMELD_AUTH_URL="$OPENMELD_SETUP_AUTH_URL" \\
+      OPENMELD_CLI_BINARY_MANIFEST_URL="$OPENMELD_SETUP_BINARY_MANIFEST_URL" \\
       "$@" < "$OPENMELD_SETUP_RUN_STDIN"
     return $?
   fi
 
-  env -u OPENMELD_HOME -u OPENMELD_GATEWAY_URL -u OPENMELD_AUTH_URL -u OPENMELD_USER_FACING_CLI_COMMAND -u OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND -u OPENMELD_SETUP_FORCE_SERVICE_REFRESH \\
+  env -u OPENMELD_HOME -u OPENMELD_GATEWAY_URL -u OPENMELD_AUTH_URL -u OPENMELD_CLI_BINARY_MANIFEST_URL -u OPENMELD_USER_FACING_CLI_COMMAND -u OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND -u OPENMELD_SETUP_FORCE_SERVICE_REFRESH \\
     OPENMELD_ENV_PRESET="$OPENMELD_SETUP_ENV_PRESET" \\
     OPENMELD_USER_FACING_CLI_COMMAND="$(resolve_follow_up_cli_command_prefix)" \\
     OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND="$(resolve_follow_up_cli_command_prefix)" \\
     OPENMELD_SETUP_FORCE_SERVICE_REFRESH="$OPENMELD_SETUP_FORCE_SERVICE_REFRESH" \\
+    OPENMELD_CLI_BINARY_MANIFEST_URL="$OPENMELD_SETUP_BINARY_MANIFEST_URL" \\
     "$@" < "$OPENMELD_SETUP_RUN_STDIN"
 }
 
@@ -653,6 +662,9 @@ resolve_follow_up_cli_command_prefix() {
   fi
   if [ -n "$OPENMELD_SETUP_AUTH_URL" ]; then
     print_follow_up_shell_assignment OPENMELD_AUTH_URL "$OPENMELD_SETUP_AUTH_URL"
+  fi
+  if [ "$OPENMELD_SETUP_DISTRIBUTION" = "binary" ]; then
+    print_follow_up_shell_assignment OPENMELD_CLI_BINARY_MANIFEST_URL "$OPENMELD_SETUP_BINARY_MANIFEST_URL"
   fi
   printf ' '
   OPENMELD_SETUP_FOLLOW_UP_COMMAND="$(resolve_follow_up_cli_command)"
@@ -1197,6 +1209,17 @@ function buildSetupBinaryManifestUrl(
 function isLocalUrl(value: string | URL): boolean {
 	const url = typeof value === "string" ? new URL(value) : value;
 	return LOCAL_HOSTNAMES.has(normalizeUrlHostname(url.hostname));
+}
+
+function isOfficialStagingRequest(requestUrl: URL, webAppUrl: string): boolean {
+	const configuredWebAppUrl = new URL(webAppUrl);
+	return (
+		requestUrl.protocol === "https:" &&
+		configuredWebAppUrl.protocol === "https:" &&
+		requestUrl.hostname === OPENMELD_STAGING_HOSTNAME &&
+		configuredWebAppUrl.hostname === OPENMELD_STAGING_HOSTNAME &&
+		requestUrl.origin === configuredWebAppUrl.origin
+	);
 }
 
 function normalizeUrlHostname(hostname: string): string {

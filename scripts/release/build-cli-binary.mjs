@@ -63,6 +63,8 @@ export function buildBunCompileArgs(input) {
     `--target=${input.bunTarget}`,
     "--define",
     DISTRIBUTION_DEFINE,
+    "--define",
+    `__OPENMELD_VERSION__=${JSON.stringify(input.version)}`,
     "--minify",
     "--keep-names",
     "--outfile",
@@ -106,7 +108,7 @@ export function buildCliBinary(input = {}) {
       `Unsupported CLI binary platform: ${platform}. Supported: ${Object.keys(SUPPORTED_CLI_BINARY_PLATFORMS).join(", ")}`
     );
   }
-  const version = resolveCliPackageVersion();
+  const version = input.version ?? resolveCliPackageVersion();
   const outDir = resolveCliBinaryOutDir(input.outDir);
   mkdirSync(outDir, { recursive: true });
   const artifactName = resolveCliBinaryArtifactName({ platform, version });
@@ -119,7 +121,7 @@ export function buildCliBinary(input = {}) {
 
   const result = spawnSync(
     "bun",
-    buildBunCompileArgs({ bunTarget, entry: CLI_ENTRY, outFile }),
+    buildBunCompileArgs({ bunTarget, entry: CLI_ENTRY, outFile, version }),
     { cwd: CLI_DIR, env: process.env, stdio: "inherit" }
   );
   if (result.error) {

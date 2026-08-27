@@ -54,6 +54,9 @@ pnpm staging:plan
 pnpm env:doctor:stg
 pnpm staging:deploy
 pnpm staging:verify
+pnpm staging:cli:plan
+pnpm staging:cli:publish
+pnpm staging:cli:verify
 ```
 
 - `staging:plan` prints the exact order and changes nothing.
@@ -65,11 +68,24 @@ pnpm staging:verify
 - `staging:verify` is read-only. It verifies the checked-in environment
   contract, Doppler readiness, Cloudflare resource inventory, and public
   staging entry points.
+- `staging:cli:plan` shows the exact source, isolated prerelease version,
+  bucket, and manifest without changing anything.
+- `staging:cli:publish` builds, signs, notarizes, and uploads a binary only to
+  the staging R2 bucket. It uses a staging prerelease version so update tests do
+  not wait for or publish a production version.
+- `staging:cli:verify` reads the public staging manifest and rejects any
+  Production artifact URL or non-staging version.
 
 Do not replace this workflow with raw `wrangler deploy`, Dashboard edits, or a
 Production release command. A clean worktree makes the exact deployed commit
 recoverable. If `origin/main` changes before deployment, resolve that change
 and rerun the same gate from the final commit.
+
+The Staging Computer uses the `canary` OS-service identity and
+`~/.openmeld-canary`; its Setup and Service preserve
+`https://staging.openmeld.ai/cli/manifest.json` as the only update source. This
+keeps launchd registration and local state separate from the published
+`openmeld` lane. Never point this lane at the Production manifest.
 
 ## Deployment Order
 

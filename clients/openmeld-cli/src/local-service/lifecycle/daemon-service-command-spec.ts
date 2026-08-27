@@ -55,6 +55,7 @@ const DAEMON_SERVICE_ENV_KEY_WHITELIST = new Set([
   "OPENMELD_DEV_MODE",
   "OPENMELD_ENV_PRESET",
   "OPENMELD_USER_FACING_CLI_COMMAND",
+  "OPENMELD_CLI_BINARY_MANIFEST_URL",
 ]);
 
 export function buildDaemonSystemServiceCommandSpec(input: {
