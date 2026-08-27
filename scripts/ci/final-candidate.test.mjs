@@ -406,6 +406,8 @@ function createCandidateFixture() {
   const ghLogPath = path.join(root, "gh.log");
   const ghOperationCountsPath = path.join(root, "gh-operation-counts.json");
   const pnpmLogPath = path.join(root, "pnpm.log");
+  const pnpmStderrPath = path.join(root, "pnpm-stderr.txt");
+  const pnpmStdoutPath = path.join(root, "pnpm-stdout.txt");
   const candidateEnvironmentLogPath = path.join(root, "candidate-env.log");
   const evidencePath = path.join(root, "evidence.json");
   const commandLogsPath = `${evidencePath}.logs`;
@@ -414,6 +416,8 @@ function createCandidateFixture() {
   writeFileSync(ghLogPath, "");
   writeFileSync(ghOperationCountsPath, "{}");
   writeFileSync(pnpmLogPath, "");
+  writeFileSync(pnpmStderrPath, "");
+  writeFileSync(pnpmStdoutPath, "");
   writeFileSync(candidateEnvironmentLogPath, "");
   const gitEnvironment = isolatedGitEnvironment(process.env);
   const git = (cwd, ...args) =>
@@ -489,7 +493,7 @@ if (endpoint.endsWith("/pulls/1")) {
     path.join(binPath, "pnpm"),
     `#!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 appendFileSync(process.env.TEST_PNPM_LOG, process.argv.slice(2).join(" ") + "\\n");
 appendFileSync(process.env.TEST_CANDIDATE_ENV_LOG, "GH_TOKEN=" + (process.env.GH_TOKEN ? "present" : "absent") + " GITHUB_TOKEN=" + (process.env.GITHUB_TOKEN ? "present" : "absent") + "\\n");
@@ -504,12 +508,8 @@ if (process.env.TEST_ADVANCE_MAIN_DURING_CHECK === "1" && !existsSync(process.en
   execFileSync("git", ["push", "--quiet", "origin", "main"], { cwd: maintainer });
   writeFileSync(process.env.TEST_MAIN_DRIFT_MARKER, "advanced\\n");
 }
-if (process.env.TEST_PNPM_STDERR) {
-  process.stderr.write(process.env.TEST_PNPM_STDERR);
-}
-if (process.env.TEST_PNPM_STDOUT) {
-  process.stdout.write(process.env.TEST_PNPM_STDOUT);
-}
+process.stderr.write(readFileSync(process.env.TEST_PNPM_STDERR_PATH, "utf8"));
+process.stdout.write(readFileSync(process.env.TEST_PNPM_STDOUT_PATH, "utf8"));
 if (process.env.TEST_ATTACK_TRUSTED_PATH && process.env.TEST_ATTACK_EVIDENCE_PATH) {
   let deniedWrites = 0;
   for (const target of [process.env.TEST_ATTACK_TRUSTED_PATH, process.env.TEST_ATTACK_EVIDENCE_PATH]) {
@@ -539,6 +539,8 @@ process.exit(Number(process.env.TEST_PNPM_EXIT_CODE ?? "0"));
     gitEnvironment,
     headSha,
     pnpmLogPath,
+    pnpmStderrPath,
+    pnpmStdoutPath,
     remotePath,
     repositoryPath,
     root,
@@ -546,6 +548,8 @@ process.exit(Number(process.env.TEST_PNPM_EXIT_CODE ?? "0"));
 }
 
 function runCandidateFixture(fixture, options = {}) {
+  writeFileSync(fixture.pnpmStderrPath, options.pnpmStderr ?? "");
+  writeFileSync(fixture.pnpmStdoutPath, options.pnpmStdout ?? "");
   return spawnSync(
     process.execPath,
     [
@@ -604,8 +608,8 @@ function runCandidateFixture(fixture, options = {}) {
         ),
         TEST_PNPM_EXIT_CODE: String(options.pnpmExitCode ?? 0),
         TEST_PNPM_LOG: fixture.pnpmLogPath,
-        TEST_PNPM_STDERR: options.pnpmStderr ?? "",
-        TEST_PNPM_STDOUT: options.pnpmStdout ?? "",
+        TEST_PNPM_STDERR_PATH: fixture.pnpmStderrPath,
+        TEST_PNPM_STDOUT_PATH: fixture.pnpmStdoutPath,
         TEST_REMOTE_PATH: fixture.remotePath,
       },
     }
