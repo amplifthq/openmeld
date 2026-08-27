@@ -2355,6 +2355,10 @@ test("invokeCodexAppServerTransport applies model and reasoning to every app-ser
           newDispatchDir,
           "space-action-context.json"
         ),
+        OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: join(
+          newDispatchDir,
+          "openmeld-dev"
+        ),
         OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
       },
       prompt: "new app-server thread with conversation policy",
@@ -2392,6 +2396,10 @@ test("invokeCodexAppServerTransport applies model and reasoning to every app-ser
         OPENMELD_SPACE_ACTION_CONTEXT_PATH: join(
           resumeDispatchDir,
           "space-action-context.json"
+        ),
+        OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: join(
+          resumeDispatchDir,
+          "openmeld-dev"
         ),
         OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
       },
