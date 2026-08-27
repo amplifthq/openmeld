@@ -146,6 +146,7 @@ export async function uploadCliBinary(input = {}) {
   const compiled = (input.buildBinary ?? buildCliBinary)({
     outDir: input.outDir,
     platform,
+    version: input.version,
   });
   const built = await prepareVerifiedCliBinary({
     built: compiled,

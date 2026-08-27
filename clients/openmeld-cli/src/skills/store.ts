@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path, { dirname, join, relative } from "node:path";
-import packageJson from "../../package.json";
 import { skillsDir } from "../config/paths";
+import { OPENMELD_VERSION } from "../runtime/version";
 import {
   type BundledSkillAsset,
   hashBundledSkillAssets,
@@ -248,7 +248,7 @@ function readSkillName(rawSkillFile: string): string | undefined {
 }
 
 function resolveBundledCliVersion(): string | undefined {
-  const version = packageJson.version;
+  const version = OPENMELD_VERSION;
   return typeof version === "string" && version.trim().length > 0
     ? version.trim()
     : undefined;

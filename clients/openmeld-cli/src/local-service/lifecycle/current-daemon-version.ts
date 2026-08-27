@@ -1,5 +1,5 @@
-import packageJson from "../../../package.json";
+import { OPENMELD_VERSION } from "../../runtime/version";
 
 export function resolveCurrentDaemonExpectedVersion(): string {
-  return packageJson.version;
+  return OPENMELD_VERSION;
 }

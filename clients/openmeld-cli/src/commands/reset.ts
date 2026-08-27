@@ -10,7 +10,6 @@ import {
   resolve,
 } from "node:path";
 import { cancel, confirm, isCancel, text } from "@clack/prompts";
-import packageJson from "../../package.json";
 import {
   formatLaneScopeSentence,
   resolveOpenMeldLaneDescriptor,
@@ -20,6 +19,7 @@ import { resolveRuntimeContext } from "../runtime/context";
 import { createResetConfirmationGuideError } from "../runtime/dual-view-guide-catalog";
 import { canUseInteractivePrompts } from "../runtime/interaction";
 import { createPresenter } from "../runtime/presenter/index";
+import { OPENMELD_VERSION } from "../runtime/version";
 import { bootstrapOpenMeldHome } from "../system/bootstrap";
 import { runDaemonTeardownStrict } from "./service";
 import { runSkillsCheck } from "./skills";
@@ -87,7 +87,7 @@ export async function runReset(input: {
   });
   await rm(rootDir, { recursive: true, force: true });
   const bootstrap = await bootstrapOpenMeldHome({
-    currentVersion: packageJson.version,
+    currentVersion: OPENMELD_VERSION,
   });
   await runSkillsCheck({
     view: runtime.resolvedView,
@@ -97,7 +97,7 @@ export async function runReset(input: {
   const payload = {
     lane,
     rootDir,
-    version: bootstrap.versionState.last_version ?? packageJson.version,
+    version: bootstrap.versionState.last_version ?? OPENMELD_VERSION,
     skills: bootstrap.skills.map((skill) => ({
       id: skill.id,
       path: skill.relativePath,
