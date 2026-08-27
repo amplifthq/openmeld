@@ -23,6 +23,12 @@ import { buildSlackIdentityStartPath } from "#/lib/slack-oauth-start";
 
 type DirectoryHumanProfileRole = "admin" | "member" | "owner" | "unknown";
 
+const DIRECTORY_IDENTITY_ACCOUNT_STATE_ORDER = {
+	connected: 0,
+	not_connected: 1,
+	unavailable: 2,
+} as const;
+
 export type DirectoryDocumentsStatus = "failed" | "loading" | "ready";
 
 export type DirectoryProjectionStatus = "failed" | "loading" | "ready";
@@ -624,9 +630,15 @@ function resolveIdentityAccounts(input: {
 						: "unavailable",
 			};
 		})
-		.sort((left, right) =>
-			left.providerLabel.localeCompare(right.providerLabel)
-		);
+		.sort((left, right) => {
+			const stateOrder =
+				DIRECTORY_IDENTITY_ACCOUNT_STATE_ORDER[left.state] -
+				DIRECTORY_IDENTITY_ACCOUNT_STATE_ORDER[right.state];
+			return (
+				stateOrder ||
+				left.providerLabel.localeCompare(right.providerLabel, "en")
+			);
+		});
 }
 
 function resolveIdentityAccountAction(input: {

@@ -63,6 +63,7 @@ describe("AppFullWidthLayout", () => {
 			<AppFullWidthLayout
 				contentLayout="flush"
 				mobileSidebarTitle="People"
+				showMainHeader
 				sidebar={<nav aria-label="People">Human Profiles</nav>}
 				sidebarPreferenceKey="people"
 			>
@@ -74,5 +75,8 @@ describe("AppFullWidthLayout", () => {
 		expect(
 			document.querySelector('[data-slot="app-full-width-content"]')?.className
 		).toContain("min-h-full");
+		expect(
+			document.querySelector('[data-slot="app-main-content-header"]')
+		).toBeTruthy();
 	});
 });

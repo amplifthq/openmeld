@@ -1,5 +1,10 @@
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { resolveStatusToneRingIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
@@ -64,6 +69,35 @@ export function DirectoryComputerSummary(input: {
 		>
 			{content}
 		</Link>
+	);
+}
+
+export function DirectoryComputerStatusIcon(input: {
+	member: DirectoryHumanProfileRow;
+}) {
+	const label = input.member.computer.label;
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<span
+						aria-label={label}
+						className="inline-flex shrink-0 items-center justify-center"
+						data-slot="human-profile-computer-status"
+						role="img"
+					/>
+				}
+			>
+				<DesktopTowerIcon
+					aria-hidden="true"
+					className={cn(
+						"size-3.5 shrink-0",
+						resolveDirectoryComputerToneClassName(input.member.computer.state)
+					)}
+				/>
+			</TooltipTrigger>
+			<TooltipContent side="top">{label}</TooltipContent>
+		</Tooltip>
 	);
 }
 
@@ -228,14 +262,14 @@ export function DirectoryIdentityAccountSummary(input: {
 	context: "card" | "detail" | "sidebar";
 }) {
 	const label =
-		input.context === "card"
-			? resolveDirectoryIdentityAccountCardLabel(input.account)
-			: resolveDirectoryIdentityAccountLabel(input.account);
+		input.context === "detail"
+			? resolveDirectoryIdentityAccountLabel(input.account)
+			: resolveDirectoryIdentityAccountCardLabel(input.account);
 	return (
 		<span
 			className={cn(
 				"inline-flex min-w-0 items-center",
-				input.context === "sidebar" ? "w-full gap-1.5" : "gap-2"
+				input.context === "sidebar" ? "max-w-full gap-1.5" : "gap-2"
 			)}
 		>
 			<DirectoryIdentityLogo

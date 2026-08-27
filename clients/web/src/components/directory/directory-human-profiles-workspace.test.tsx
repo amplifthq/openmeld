@@ -6,7 +6,7 @@ import {
 	screen,
 	within,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { cloneElement, type ReactElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
@@ -46,9 +46,39 @@ vi.mock("@openmeld/ui/fluid/nav-menu", () => ({
 }));
 
 vi.mock("@openmeld/ui/components/local-agent-logo", () => ({
-	LocalAgentLogo: ({ agentId }: { agentId: string }) => (
-		<span data-testid={`local-agent-logo-${agentId}`} />
+	LocalAgentLogo: ({
+		agentId,
+		variant,
+	}: {
+		agentId: string;
+		variant?: string;
+	}) => (
+		<span data-testid={`local-agent-logo-${agentId}`} data-variant={variant} />
 	),
+}));
+
+vi.mock("@openmeld/ui/components/tooltip", () => ({
+	Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+	TooltipContent: ({
+		children,
+		side,
+	}: {
+		children: ReactNode;
+		side?: string;
+	}) => (
+		<span
+			data-side={side}
+			data-testid="sidebar-tooltip-content"
+			data-tooltip-label={String(children)}
+		/>
+	),
+	TooltipTrigger: ({
+		children,
+		render,
+	}: {
+		children: ReactNode;
+		render: ReactElement;
+	}) => cloneElement(render, undefined, children),
 }));
 
 vi.mock("#/components/app/app-contextual-layout", () => ({
@@ -73,14 +103,18 @@ vi.mock("#/components/app/app-contextual-layout", () => ({
 vi.mock("#/components/app/app-full-width-layout", () => ({
 	AppFullWidthLayout: ({
 		children,
+		showMainHeader,
 		sidebar,
 	}: {
 		children: ReactNode;
+		showMainHeader?: boolean;
 		sidebar?: ReactNode;
 	}) => (
 		<div>
 			{sidebar}
-			<main>{children}</main>
+			<main data-show-main-header={showMainHeader ? "true" : "false"}>
+				{children}
+			</main>
 		</div>
 	),
 }));
@@ -116,7 +150,7 @@ vi.mock("#/components/computers/computers-picker", () => ({
 }));
 
 describe("DirectoryHumanProfilesWorkspace", () => {
-	it("separates mapped Channel identity from a capped stack of enabled Local Agent icons", () => {
+	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {
 		renderWorkspace();
 
 		const sidebar = screen.getByRole("navigation", { name: "People" });
@@ -125,6 +159,17 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		const felixItem = screen.getByRole("button", {
 			name: "Open Felix's profile",
 		});
+		const heading = felixItem.querySelector(
+			'[data-slot="human-profile-sidebar-heading"]'
+		);
+		expect(heading).not.toBeNull();
+		expect(
+			within(heading as HTMLElement).getByRole("img", {
+				name: "Computer connected",
+			})
+		).toBeTruthy();
+		expect(felixItem.textContent).not.toContain("Computer connected");
+		expect(within(felixItem).queryByText("Owner")).toBeNull();
 		const channelAccounts = felixItem.querySelector(
 			'[data-slot="human-profile-channel-identities"]'
 		);
@@ -149,33 +194,91 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				"shadow-none",
 			])
 		);
-		expect(within(sidebar).queryByRole("img", { name: "Lark" })).toBeNull();
+		expect(within(sidebar).getByRole("img", { name: "Lark" })).toBeTruthy();
+		expect(
+			within(sidebar).queryByText("Account details unavailable")
+		).toBeNull();
 		const localAgents = within(sidebar).getByRole("img", {
 			name: ENABLED_LOCAL_AGENT_SUMMARY_PATTERN,
 		});
-		expect(
-			within(localAgents).getAllByTestId(LOCAL_AGENT_LOGO_TEST_ID_PATTERN)
-		).toHaveLength(4);
-		expect(within(localAgents).getByText("+2")).toBeTruthy();
+		expect(localAgents.classList.contains("justify-end")).toBe(true);
+		const localAgentLogos = within(localAgents).getAllByTestId(
+			LOCAL_AGENT_LOGO_TEST_ID_PATTERN
+		);
+		expect(localAgentLogos).toHaveLength(4);
+		for (const logo of localAgentLogos) {
+			expect(logo.dataset.variant).toBeUndefined();
+		}
+		const localAgentTriggers = within(localAgents).getAllByTestId(
+			"human-profile-local-agent"
+		);
+		for (const trigger of localAgentTriggers) {
+			expect(trigger.classList.contains("ring-1")).toBe(false);
+			expect(trigger.classList.contains("border")).toBe(false);
+			const logo = trigger.querySelector(
+				'[data-slot="human-profile-local-agent-logo"]'
+			);
+			expect(logo?.classList.contains("bg-sidebar")).toBe(true);
+			expect(logo?.classList.contains("before:bg-sidebar-accent")).toBe(true);
+			expect(logo?.classList.contains("overflow-hidden")).toBe(true);
+			expect(logo?.classList.contains("border")).toBe(false);
+			expect(logo?.classList.contains("ring-1")).toBe(false);
+			expect(
+				logo?.classList.contains("group-hover/local-agent:-translate-y-1")
+			).toBe(true);
+			expect(
+				logo?.classList.contains("group-hover/local-agent:scale-[1.14]")
+			).toBe(true);
+			expect(logo?.classList.contains("motion-reduce:transform-none")).toBe(
+				true
+			);
+			expect(logo?.classList.contains("motion-reduce:transition-none")).toBe(
+				true
+			);
+		}
+		const overflow = within(localAgents).getByText("+2").parentElement;
+		if (!overflow) {
+			throw new Error("Expected the Local Agent overflow indicator.");
+		}
+		expect(overflow.classList.contains("bg-sidebar")).toBe(true);
+		expect(overflow.classList.contains("before:bg-sidebar-accent")).toBe(true);
+		expect(overflow.classList.contains("overflow-hidden")).toBe(true);
+		expect(overflow.classList.contains("ring-1")).toBe(false);
+		expect(overflow.classList.contains("border")).toBe(false);
+		const tooltipLabels = within(felixItem)
+			.getAllByTestId("sidebar-tooltip-content")
+			.map((tooltip) => tooltip.dataset.tooltipLabel);
+		expect(tooltipLabels).toEqual(
+			expect.arrayContaining([
+				"Computer connected",
+				"Claude Code",
+				"Codex",
+				"Cursor",
+				"Grok",
+			])
+		);
 		expect(
 			within(screen.getByRole("main")).getAllByText("felix@example.com")
 		).toHaveLength(2);
+		expect(screen.getByRole("main").dataset.showMainHeader).toBe("true");
 	});
 
-	it("reflows each profile item when the resizable sidebar becomes narrow", () => {
+	it("keeps a single clipped row structure when the resizable sidebar becomes narrow", () => {
 		renderWorkspace();
 
 		const item = screen.getByRole("button", {
 			name: "Open Felix's profile",
 		});
-		expect(item.classList.contains("flex-col")).toBe(true);
-		expect(
-			item.classList.contains("@[12rem]/contextual-sidebar:flex-row")
-		).toBe(true);
+		expect(item.classList.contains("flex-row")).toBe(true);
+		expect(item.classList.contains("flex-col")).toBe(false);
+		expect(item.classList.contains("overflow-hidden")).toBe(false);
+		expect(item.classList.contains("focus-visible:ring-1")).toBe(false);
 		const heading = item.querySelector(
 			'[data-slot="human-profile-sidebar-heading"]'
 		);
-		expect(heading?.classList.contains("flex-wrap")).toBe(true);
+		expect(heading?.classList.contains("flex-nowrap")).toBe(true);
+		expect(heading?.classList.contains("overflow-hidden")).toBe(true);
+		expect(heading?.classList.contains("whitespace-nowrap")).toBe(true);
 	});
 
 	it("selects a Human Profile from the sidebar without opening a Drawer", () => {
@@ -291,10 +394,10 @@ function buildMember(input: { current: boolean }): DirectoryHumanProfileRow {
 						action: null,
 						canDisconnect: false,
 						channelsPath: null,
-						id: null,
+						id: "lark-link",
 						provider: "lark",
 						providerLabel: "Lark",
-						state: "not_connected",
+						state: "connected",
 					},
 				]
 			: [],

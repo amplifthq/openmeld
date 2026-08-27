@@ -22,7 +22,9 @@ export function AppFullWidthLayout(input: {
 	globalControls?: AppGlobalControlsProps;
 	initialInnerSidebarState?: SidebarPersistedState;
 	initialOuterSidebarState?: SidebarPersistedState;
+	mainHeader?: ReactNode;
 	mobileSidebarTitle?: string;
+	showMainHeader?: boolean;
 	sidebar?: ReactNode;
 	sidebarPreferenceKey?: InnerSidebarPreferenceKey;
 	sidebarSeparatorLabel?: string;
@@ -58,8 +60,9 @@ export function AppFullWidthLayout(input: {
 		>
 			<AppMainContent
 				bodySlotName="app-full-width-content-scroll"
+				header={input.mainHeader}
 				scroll
-				showHeader={false}
+				showHeader={input.showMainHeader ?? false}
 			>
 				<div
 					className={cn(

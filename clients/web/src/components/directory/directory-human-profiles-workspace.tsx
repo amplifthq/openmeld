@@ -9,6 +9,11 @@ import { Button } from "@openmeld/ui/components/button";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { PlusIcon, UserFocusIcon } from "@phosphor-icons/react";
@@ -38,10 +43,9 @@ import type {
 	DirectoryIdentityAccount,
 } from "#/components/directory/directory-human-profile-model";
 import {
-	DirectoryComputerSummary,
+	DirectoryComputerStatusIcon,
 	DirectoryIdentityAccountSummary,
 } from "#/components/directory/directory-human-profile-presentation";
-import { DirectoryHumanProfileRoleBadge } from "#/components/directory/directory-human-profile-role-badge";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 
@@ -229,6 +233,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 			initialInnerSidebarState={input.initialSidebarStates?.inner}
 			initialOuterSidebarState={input.initialSidebarStates?.outer}
 			mobileSidebarTitle="People"
+			showMainHeader
 			sidebar={sidebar}
 			sidebarPreferenceKey="people"
 			sidebarSeparatorLabel="Resize the People sidebar"
@@ -434,7 +439,7 @@ function HumanProfileSidebarItem(input: {
 				aria-current={input.isActive ? "page" : undefined}
 				aria-label={`Open ${input.member.name}'s profile`}
 				className={cn(
-					"flex min-h-20 w-full min-w-0 @[12rem]/contextual-sidebar:flex-row flex-col @[12rem]/contextual-sidebar:items-start items-stretch gap-2 px-2 py-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
+					"flex min-h-20 w-full min-w-0 flex-row items-start gap-2 px-2 py-2 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
 					input.isActive ? "text-sidebar-accent-foreground" : null
@@ -446,28 +451,31 @@ function HumanProfileSidebarItem(input: {
 				type="button"
 			>
 				<DirectoryHumanProfileAvatar context="sidebar" member={input.member} />
-				<span className="flex min-w-0 flex-1 flex-col gap-1">
+				<span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
 					<span
-						className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1"
+						className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden whitespace-nowrap"
 						data-slot="human-profile-sidebar-heading"
 					>
-						<span className="truncate font-medium text-sm">
+						<span className="min-w-0 truncate font-medium text-sm">
 							{input.member.name}
 						</span>
+						<DirectoryComputerStatusIcon member={input.member} />
 						{input.member.isCurrentUser ? (
 							<span className="shrink-0 text-muted-foreground text-xs">
 								(you)
 							</span>
 						) : null}
-						<DirectoryHumanProfileRoleBadge role={input.member.role} />
 					</span>
 					{mappedAccounts.length > 0 ? (
 						<span
-							className="flex min-w-0 flex-col gap-0.5"
+							className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap"
 							data-slot="human-profile-channel-identities"
 						>
 							{mappedAccounts.map((account) => (
-								<span className="min-w-0" key={account.provider}>
+								<span
+									className="min-w-0 shrink overflow-hidden"
+									key={account.provider}
+								>
 									<DirectoryIdentityAccountSummary
 										account={account}
 										context="sidebar"
@@ -481,32 +489,58 @@ function HumanProfileSidebarItem(input: {
 							{activityLabel}
 						</span>
 					) : null}
-					<span className="min-w-0">
-						<DirectoryComputerSummary
-							interactive={false}
-							member={input.member}
-						/>
-					</span>
 					{localAgents.length > 0 ? (
-						<span className="flex min-h-4 min-w-0 items-center">
+						<span className="flex min-h-4 min-w-0 items-center justify-end">
 							<span
 								aria-label={buildLocalAgentSummary(localAgents)}
-								className="flex shrink-0 items-center -space-x-1.5"
+								className="ml-auto flex shrink-0 items-center justify-end -space-x-1.5"
 								role="img"
 							>
 								{visibleLocalAgents.map((agent) => (
-									<span
-										className="grid size-3.5 place-items-center overflow-hidden rounded-sm ring-1 ring-sidebar"
-										key={agent.agentId}
-										title={agent.displayName}
-									>
-										<LocalAgentLogo agentId={agent.agentId} size="xs" />
-									</span>
+									<Tooltip key={agent.agentId}>
+										<TooltipTrigger
+											render={
+												<span
+													aria-hidden="true"
+													className="group/local-agent relative z-0 grid size-4 shrink-0 place-items-center hover:z-20"
+													data-testid="human-profile-local-agent"
+												/>
+											}
+										>
+											<span
+												className="relative isolate inline-grid size-4 overflow-hidden rounded-sm bg-sidebar p-px transition-transform duration-150 ease-[cubic-bezier(0.19,1,0.22,1)] before:absolute before:inset-0 before:bg-sidebar-accent before:content-[''] group-hover/local-agent:-translate-y-1 group-hover/local-agent:scale-[1.14] motion-reduce:transform-none motion-reduce:transition-none"
+												data-slot="human-profile-local-agent-logo"
+											>
+												<LocalAgentLogo
+													agentId={agent.agentId}
+													className="relative z-10"
+													size="xs"
+												/>
+											</span>
+										</TooltipTrigger>
+										<TooltipContent side="top" sideOffset={6}>
+											{agent.displayName}
+										</TooltipContent>
+									</Tooltip>
 								))}
 								{hiddenLocalAgentCount > 0 ? (
-									<span className="z-10 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-0.5 font-medium text-[9px] text-muted-foreground ring-1 ring-sidebar">
-										+{hiddenLocalAgentCount}
-									</span>
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<span className="relative isolate z-10 inline-flex h-4 min-w-4 items-center justify-center overflow-hidden rounded-full bg-sidebar px-0.5 font-medium text-[9px] text-muted-foreground before:absolute before:inset-0 before:bg-sidebar-accent before:content-['']" />
+											}
+										>
+											<span className="relative z-10">
+												+{hiddenLocalAgentCount}
+											</span>
+										</TooltipTrigger>
+										<TooltipContent side="top" sideOffset={6}>
+											{localAgents
+												.slice(MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS)
+												.map((agent) => agent.displayName)
+												.join(", ")}
+										</TooltipContent>
+									</Tooltip>
 								) : null}
 							</span>
 						</span>
