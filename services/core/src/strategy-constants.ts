@@ -16,6 +16,16 @@ export const RUNTIME_TRANSPORT_WAIT_TIMEOUT_GRACE_MS = 8000;
 export const RUNTIME_TRANSPORT_WAIT_TIMEOUT_MAX_MS =
   MAX_DISPATCH_WAIT_WINDOW_MS + 8000;
 export const RUNTIME_TRANSPORT_LEASE_TTL_MS = 200_000;
+// Bounded window Runtime Transport may hold an accepted delivery while an
+// advertised `profileConfigurationRevision` Service converges upward onto the
+// frozen dispatch revision after an acknowledged settings write. Ordinary
+// propagation finishes in one heartbeat plus one expected-routes v3 exchange,
+// so this window covers it in place; anything slower fails closed with
+// daemon.profile.configuration_not_synced. Must stay comfortably below
+// RUNTIME_TRANSPORT_DELIVER_TIMEOUT_MS so a timed-out wait can never surface
+// as the unrelated daemon.delivery.timeout reason.
+export const RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_TIMEOUT_MS = 6000;
+export const RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_POLL_INTERVAL_MS = 400;
 export const RUNTIME_TRANSPORT_RESULT_TTL_MS = 5 * 60 * 1000;
 export const RUNTIME_TRANSPORT_WAIT_RESULT_DEFAULT_TIMEOUT_MS =
   DEFAULT_DISPATCH_WAIT_WINDOW_MS;

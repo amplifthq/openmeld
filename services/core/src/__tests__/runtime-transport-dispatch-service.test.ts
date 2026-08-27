@@ -237,17 +237,22 @@ const buildPendingDispatch = (
 };
 
 describe("runtime transport dispatch service", () => {
-  it("rejects delivery until the local route has the accepted binding configuration", async () => {
+  const createFencedDeliveryFixture = (input?: {
+    agentControllerRef?: string;
+    appliedConfigurationRevision?: number;
+    expectedConfigurationRevision?: number;
+  }) => {
+    const appliedConfigurationRevision =
+      input?.appliedConfigurationRevision ?? 6;
+    const expectedConfigurationRevision =
+      input?.expectedConfigurationRevision ?? 7;
     const { state } = createState();
     const sendFrame = vi.fn();
     const session = state.sessionsById.get("session-2");
     if (!session) {
       throw new Error("test session missing");
     }
-    (
-      session.capabilities as typeof session.capabilities &
-        Record<string, unknown>
-    ).profileConfigurationRevision = true;
+    session.capabilities.profileConfigurationRevision = true;
     session.localWakeRouteReport = {
       daemonSessionId: "session-2",
       deviceId: "device-2",
@@ -257,24 +262,138 @@ describe("runtime transport dispatch service", () => {
       profileConfigurationRevisions: [
         {
           bindingId: "binding-1",
-          configurationRevision: 6,
+          configurationRevision: appliedConfigurationRevision,
           profileId: "agt-1",
         },
       ],
       skippedProfiles: [],
-    } as typeof session.localWakeRouteReport;
+    };
     const request: RuntimeTransportDeliverDispatchRequest =
       createDispatchRequest();
-    (
-      request.payload
-        .controllerSnapshot as typeof request.payload.controllerSnapshot &
-        Record<string, unknown>
-    ).bindingId = "binding-1";
-    (
-      request.payload
-        .controllerSnapshot as typeof request.payload.controllerSnapshot &
-        Record<string, unknown>
-    ).configurationRevision = 7;
+    request.payload.controllerSnapshot.bindingId = "binding-1";
+    request.payload.controllerSnapshot.configurationRevision =
+      expectedConfigurationRevision;
+    if (input?.agentControllerRef) {
+      request.payload.controllerSnapshot.agentControllerRef =
+        input.agentControllerRef;
+    }
+
+    return { request, sendFrame, session, state };
+  };
+
+  const AGENT_CONTROLLER_REFS_UNDER_TEST = ["codex", "opencode"] as const;
+
+  // Both representative workstation Local Agent controllers share the exact
+  // same Runtime Transport admission fence; the profile revision identity is
+  // controller-neutral, so each must converge and deliver identically.
+  it.each(
+    AGENT_CONTROLLER_REFS_UNDER_TEST
+  )("waits out ordinary %s profile revision propagation and delivers once the Service applies the accepted revision", async (agentControllerRef) => {
+    // Production repro: a settings save bumps Binding revision to N+1 and an
+    // immediate Wake freezes that revision while the local Service still
+    // reports N. Runtime Transport must wait for route-catalog convergence
+    // (with a refresh nudge) instead of rejecting and forcing a second Wake.
+    const fixture = createFencedDeliveryFixture({
+      agentControllerRef,
+    });
+    let convergencePolls = 0;
+    const response = await deliverDispatch(fixture.state, fixture.request, {
+      cleanupCompletedResults: () => undefined,
+      profileConfigurationConvergence: {
+        sleep: () => {
+          convergencePolls += 1;
+          // Simulate the daemon applying expected-routes v3 and re-registering.
+          if (convergencePolls === 1) {
+            const report = fixture.session.localWakeRouteReport;
+            if (!report?.profileConfigurationRevisions?.[0]) {
+              throw new Error("test report missing");
+            }
+            report.profileConfigurationRevisions[0].configurationRevision = 7;
+            report.reportedAtMs += 1000;
+          }
+          return Promise.resolve();
+        },
+      },
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame: fixture.sendFrame,
+    });
+
+    expect(response).toEqual({
+      accepted: true,
+      status: "delivered",
+    });
+    expect(fixture.sendFrame).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        code: "daemon.route_catalog.changed",
+        payload: { reason: "profile_configuration_convergence" },
+      })
+    );
+    const deliveredRequest = fixture.sendFrame.mock.calls.find(
+      (call) =>
+        (call[1] as { code?: string }).code === "daemon.dispatch.deliver"
+    )?.[1]?.payload as RuntimeTransportDeliverDispatchRequest | undefined;
+    expect(deliveredRequest?.payload.controllerSnapshot).toMatchObject({
+      agentControllerRef,
+      bindingId: "binding-1",
+      configurationRevision: 7,
+    });
+  });
+
+  it.each(
+    AGENT_CONTROLLER_REFS_UNDER_TEST
+  )("%s fails closed when propagation does not converge inside the bounded window", async (agentControllerRef) => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
+      // Silence the expected fence diagnostic in test output.
+    });
+    try {
+      const { request, sendFrame, state } = createFencedDeliveryFixture({
+        agentControllerRef,
+      });
+
+      const response = await deliverDispatch(state, request, {
+        cleanupCompletedResults: () => undefined,
+        profileConfigurationConvergence: {
+          pollIntervalMs: 1,
+          sleep: () => Promise.resolve(),
+          timeoutMs: 5,
+        },
+        reapExpiredLeases: () => undefined,
+        resolvePendingResultWaiters: () => undefined,
+        sendFrame,
+      });
+
+      expect(response).toEqual({
+        accepted: false,
+        reasonCode: "daemon.profile.configuration_not_synced",
+        status: "rejected",
+      });
+      expect(sendFrame).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          code: "daemon.route_catalog.changed",
+        })
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[core.runtime_transport.profile_configuration_not_synced]",
+        expect.objectContaining({
+          reasonCode: "daemon.profile.configuration_not_synced",
+        })
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("rejects delivery until the local route has the accepted binding configuration", async () => {
+    // Genuine drift: the Service reports a NEWER revision than the frozen
+    // dispatch identity (something changed twice). There is nothing to wait
+    // for, so Runtime Transport must fail closed immediately without nudging.
+    const { request, sendFrame, state } = createFencedDeliveryFixture({
+      appliedConfigurationRevision: 8,
+      expectedConfigurationRevision: 7,
+    });
 
     const response = await deliverDispatch(state, request, {
       reapExpiredLeases: () => undefined,

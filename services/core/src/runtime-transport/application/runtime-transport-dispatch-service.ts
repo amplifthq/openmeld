@@ -14,6 +14,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
+import {
+  RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_POLL_INTERVAL_MS,
+  RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_TIMEOUT_MS,
+} from "../../strategy-constants";
 import { isDaemonExecutionCompatible } from "./daemon-execution-compatibility";
 import type {
   CompletedDispatchResultState,
@@ -57,6 +61,11 @@ type DispatchServiceDependencies = {
     response: WaitDispatchResultResponse
   ) => void;
   cleanupCompletedResults: (nowMs: number) => void;
+  profileConfigurationConvergence?: {
+    sleep: (ms: number) => Promise<void>;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+  };
 };
 
 type ExecutionIncompatibleDeliveryReason =
@@ -340,10 +349,12 @@ export const deliverDispatch = async (
     return sessionCompatibilityRejection;
   }
 
-  const sessionBoundRequest = resolveSessionBoundDispatchRequest({
-    request,
-    session,
-  });
+  const sessionBoundRequest =
+    await resolveSessionBoundDispatchRequestWithConvergence({
+      deps,
+      request,
+      state,
+    });
   if (!sessionBoundRequest.ok) {
     return sessionBoundRequest.response;
   }
@@ -408,9 +419,160 @@ export const deliverDispatch = async (
   };
 };
 
-const resolveSessionBoundDispatchRequest = (input: {
+const PROFILE_CONFIGURATION_CONVERGENCE_REFRESH_REASON =
+  "profile_configuration_convergence";
+
+// One fence decision, three observable facts:
+// - stripped: the Service predates the revision capability; Core strips the
+//   additive identity fields and preserves legacy behavior.
+// - matched: applied identity equals the frozen dispatch identity.
+// - converging: same Binding id, older applied revision — the ordinary
+//   post-settings-write propagation race, safe to wait out in place.
+// Everything else is genuine drift and fails closed immediately.
+type ProfileConfigurationSyncState =
+  | "converging"
+  | "matched"
+  | "not_synced"
+  | "stripped";
+
+const resolveProfileConfigurationSyncState = (input: {
   request: RuntimeTransportDeliverDispatchRequest;
   session: RuntimeTransportSessionState;
+}): ProfileConfigurationSyncState => {
+  if (input.session.capabilities.profileConfigurationRevision !== true) {
+    return "stripped";
+  }
+  const { bindingId, configurationRevision } =
+    input.request.payload.controllerSnapshot;
+  if (!(bindingId && configurationRevision)) {
+    return "not_synced";
+  }
+  const appliedConfiguration =
+    input.session.localWakeRouteReport?.profileConfigurationRevisions?.find(
+      (candidate) => candidate.profileId === input.request.profileId
+    );
+  if (!appliedConfiguration) {
+    return "not_synced";
+  }
+  if (
+    appliedConfiguration.bindingId === bindingId &&
+    typeof appliedConfiguration.configurationRevision === "number" &&
+    appliedConfiguration.configurationRevision < configurationRevision
+  ) {
+    return "converging";
+  }
+  if (
+    appliedConfiguration.bindingId === bindingId &&
+    appliedConfiguration.configurationRevision === configurationRevision
+  ) {
+    return "matched";
+  }
+  return "not_synced";
+};
+
+const defaultConvergenceSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+// An acknowledged settings write increments the Binding revision after the
+// dispatch identity was frozen. When a capability-aware Service still reports
+// an OLDER revision for the SAME binding, this is ordinary route-catalog
+// propagation, not drift: nudge the Service to re-sync its expected routes,
+// then hold delivery inside the bounded convergence window until its next
+// register report matches, or fail closed with the regular not-synced fence.
+// Nothing executes stale configuration while waiting; nothing mutates or
+// duplicates execution authority.
+const resolveSessionBoundDispatchRequestWithConvergence = async (input: {
+  deps: DispatchServiceDependencies;
+  request: RuntimeTransportDeliverDispatchRequest;
+  state: RuntimeTransportMutableState;
+}): Promise<
+  | { ok: true; request: RuntimeTransportDeliverDispatchRequest }
+  | { ok: false; response: RuntimeTransportDeliverDispatchResponse }
+> => {
+  const resolveFence = () =>
+    resolveSessionBoundDispatchRequest({
+      request: input.request,
+      session: input.state.sessionsById.get(input.request.daemonSessionId),
+    });
+
+  const initialSession = input.state.sessionsById.get(
+    input.request.daemonSessionId
+  );
+  if (
+    !initialSession ||
+    resolveProfileConfigurationSyncState({
+      request: input.request,
+      session: initialSession,
+    }) !== "converging"
+  ) {
+    return resolveFence();
+  }
+
+  const timeoutMs =
+    input.deps.profileConfigurationConvergence?.timeoutMs ??
+    RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_TIMEOUT_MS;
+  const pollIntervalMs =
+    input.deps.profileConfigurationConvergence?.pollIntervalMs ??
+    RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_POLL_INTERVAL_MS;
+  const sleep =
+    input.deps.profileConfigurationConvergence?.sleep ??
+    defaultConvergenceSleep;
+
+  if (initialSession.socket) {
+    try {
+      input.deps.sendFrame(initialSession.socket, {
+        code: "daemon.route_catalog.changed",
+        payload: { reason: PROFILE_CONFIGURATION_CONVERGENCE_REFRESH_REASON },
+      });
+    } catch {
+      // A dead socket falls through to the fence/offline checks below.
+    }
+  }
+  console.info(
+    "[core.runtime_transport.profile_configuration_convergence_wait]",
+    {
+      appliedConfigurationRevision:
+        initialSession.localWakeRouteReport?.profileConfigurationRevisions?.find(
+          (candidate) => candidate.profileId === input.request.profileId
+        )?.configurationRevision ?? null,
+      dispatchId: input.request.dispatchId,
+      expectedBindingId:
+        input.request.payload.controllerSnapshot.bindingId ?? null,
+      expectedConfigurationRevision:
+        input.request.payload.controllerSnapshot.configurationRevision ?? null,
+      profileId: input.request.profileId,
+      timeoutMs,
+    }
+  );
+
+  const deadlineAtMs = Date.now() + timeoutMs;
+  while (Date.now() < deadlineAtMs) {
+    await sleep(Math.min(pollIntervalMs, deadlineAtMs - Date.now()));
+    const sessionNow = input.state.sessionsById.get(
+      input.request.daemonSessionId
+    );
+    if (!sessionNow) {
+      break;
+    }
+    const syncState = resolveProfileConfigurationSyncState({
+      request: input.request,
+      session: sessionNow,
+    });
+    if (syncState !== "converging") {
+      break;
+    }
+  }
+
+  // The fence owns the final verdict and diagnostics so a timed-out wait can
+  // never produce a different rejection shape than a plain not-synced check.
+  return resolveFence();
+};
+
+const resolveSessionBoundDispatchRequest = (input: {
+  request: RuntimeTransportDeliverDispatchRequest;
+  session: RuntimeTransportSessionState | undefined;
 }):
   | {
       ok: true;
@@ -420,6 +582,17 @@ const resolveSessionBoundDispatchRequest = (input: {
       ok: false;
       response: RuntimeTransportDeliverDispatchResponse;
     } => {
+  if (!input.session) {
+    return {
+      ok: false,
+      response: {
+        accepted: false,
+        reasonCode: "daemon.session.not_found",
+        status: "rejected",
+      },
+    };
+  }
+
   if (input.session.capabilities.profileConfigurationRevision !== true) {
     return {
       ok: true,
