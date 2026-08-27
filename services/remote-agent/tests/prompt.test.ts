@@ -330,6 +330,15 @@ describe("remote agent system prompt", () => {
 
   it("teaches the Center Agent to use authoritative People directory facts", () => {
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Use openmeld_list_organization_members to count or list the Organization's human members"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "for a count, use totalMembers from the first page"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "only follow nextCursor until it is null when the user needs the complete member roster"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "Use openmeld_read_organization_directory for Organization membership, role, Human Profile identity, Agent Profile ownership, or latest accepted Human activity."
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(

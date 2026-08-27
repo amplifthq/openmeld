@@ -4374,6 +4374,118 @@ describe("http schemas", () => {
       });
     });
 
+    it("projects a hosted Center Agent text failure notice as a structured visible failure", () => {
+      const parsed = spaceDispatchTraceResponseSchema.safeParse({
+        ...VALID_TRACE_RESPONSE,
+        correlation: {
+          ...VALID_TRACE_RESPONSE.correlation,
+          bindingId: "binding-hosted-demo",
+          openMeldServiceRuntimeId: null,
+          agentControllerRef: "hosted:center-agent",
+          resultRef: null,
+          publishedSignalId: null,
+          replySignalId: "sig-turn-not-completed",
+        },
+        trace: {
+          ...VALID_TRACE_RESPONSE.trace,
+          dispatch: {
+            ...VALID_TRACE_RESPONSE.trace.dispatch,
+            status: "failed_terminal",
+          },
+          latestAttempt: {
+            ...VALID_TRACE_RESPONSE.trace.latestAttempt,
+            status: "failed_terminal",
+            errorCode: "remote_agent.turn_not_completed",
+            errorMessage: null,
+            finishedAt: "2026-03-09T00:00:04.000Z",
+          },
+          executionIdentity: null,
+          nativeDelivery: {
+            bindingId: "binding-hosted-demo",
+            controllerNormalization: {
+              bindingUpdatedAt: "2026-03-09T00:00:01.000Z",
+              canonicalAgentControllerRef: "hosted:center-agent",
+              factSource: "remote_agent_native_delivery_ledger",
+              reasonCode: "hosted_runtime_family_controller_canonicalized",
+              storedAgentControllerRef: null,
+              storedAgentControllerRefStatus: "missing",
+            },
+            createdAt: "2026-03-09T00:00:01.000Z",
+            deliveryId: "delivery-hosted-demo",
+            destination: {
+              conversationKind: "space",
+              organizationId: "org-demo",
+              spaceId: "space-demo",
+              targetProfileId: "agt-demo",
+            },
+            dispatchId: "dispatch-demo",
+            factSource: "remote_agent_native_delivery_ledger",
+            idempotencyKey: "idem-1",
+            runtimeFamily: "hosted_center_agent",
+            status: "failed",
+            submissionId: "submission-hosted-demo",
+            updatedAt: "2026-03-09T00:00:04.000Z",
+          },
+          result: null,
+          resultInbox: null,
+          replySignal: {
+            factSource: "space_signal_by_published_signal_id",
+            signalId: "sig-turn-not-completed",
+            profileId: "agt-demo",
+            profileKind: "agent",
+            profileName: "Demo Bot",
+            text: "OpenMeld ran into a problem, so Center Agent couldn't finish your request.",
+            createdAt: "2026-03-09T00:00:04.000Z",
+          },
+          finalVisibleMessage: {
+            factSource: "space_signal_by_published_signal_id",
+            signalId: "sig-turn-not-completed",
+            signalType: "signal.text",
+            dispatchId: "dispatch-demo",
+            targetProfileId: "agt-demo",
+            profileId: "agt-demo",
+            profileKind: "agent",
+            profileName: "Demo Bot",
+            text: "OpenMeld ran into a problem, so Center Agent couldn't finish your request.",
+            reasonCode: "remote_agent.turn_not_completed",
+            noticeType: null,
+            statusType: null,
+            createdAt: "2026-03-09T00:00:04.000Z",
+          },
+          finalVisibleMessageLinkage: {
+            status: "matched_published_signal",
+            reasonCode: "final_visible_message.matched_published_signal",
+            sourceFact: "published_signal_candidate",
+            candidateSignalIds: ["sig-turn-not-completed"],
+            claimSignalId: null,
+            selectedSignalId: "sig-turn-not-completed",
+          },
+        },
+      });
+
+      expect(parsed.success).toBe(true);
+      if (!(parsed.success && parsed.data.trace)) {
+        throw new Error("expected parsed trace");
+      }
+      expect(
+        projectSpaceDispatchTraceFinalVisibleOutcome(parsed.data.trace)
+      ).toEqual({
+        delivered: true,
+        publicationErrorCode: null,
+        publicationKind: "failure_notice",
+        reasonCode: "remote_agent.turn_not_completed",
+        signalId: "sig-turn-not-completed",
+        sourceFact: "final_visible_message",
+        sourceReasonCode: "remote_agent.turn_not_completed",
+        sourceStatus: "signal.text",
+        status: "visible_failure",
+      });
+      expect(projectSpaceDispatchTraceRootCause(parsed.data.trace)).toEqual({
+        reasonCode: "remote_agent.turn_not_completed",
+        source: "final_visible_message",
+      });
+    });
+
     it("surfaces linkage missing as machine-readable root cause", () => {
       const parsed = spaceDispatchTraceResponseSchema.safeParse({
         ...VALID_TRACE_RESPONSE,

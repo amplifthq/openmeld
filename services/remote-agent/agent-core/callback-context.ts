@@ -35,12 +35,15 @@ import type {
   CenterAgentDraftOrganizationDocumentResponse,
   CenterAgentDraftOrganizationDocumentRpcInput,
   CenterAgentGetOrganizationInviteLinkToolRpcInput,
+  CenterAgentGetTaskToolRpcInput,
   CenterAgentInstallOrganizationSkillResponse,
   CenterAgentInstallOrganizationSkillRpcInput,
   CenterAgentInviteSlackTeammatesRpcInput,
   CenterAgentInviteSlackTeammatesRpcResponse,
   CenterAgentListOpportunitiesToolResponse,
   CenterAgentListOpportunitiesToolRpcInput,
+  CenterAgentListOrganizationMembersResponse,
+  CenterAgentListOrganizationMembersToolRpcInput,
   CenterAgentListProjectsToolResponse,
   CenterAgentListProjectsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
@@ -48,6 +51,7 @@ import type {
   CenterAgentListSlackChannelsResponse,
   CenterAgentListSpaceFilesResponse,
   CenterAgentListSpaceFilesRpcInput,
+  CenterAgentListTasksToolRpcInput,
   CenterAgentManageOrganizationDocumentsResponse,
   CenterAgentManageOrganizationDocumentsRpcInput,
   CenterAgentManageSpaceFilesResponse,
@@ -113,7 +117,9 @@ import type {
   CreateCenterAgentRoutineResponse,
   CreateCenterAgentTaskResponse,
   DeleteCenterAgentRoutineResponse,
+  GetCenterAgentTaskResponse,
   ListCenterAgentRoutinesResponse,
+  ListCenterAgentTasksResponse,
   OpenMeldRequestContext,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
@@ -327,6 +333,15 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentCreateTask?(
     input: CenterAgentCreateTaskToolRpcInput
   ): Promise<CreateCenterAgentTaskResponse>;
+  centerAgentGetTask?(
+    input: CenterAgentGetTaskToolRpcInput
+  ): Promise<GetCenterAgentTaskResponse>;
+  centerAgentListTasks?(
+    input: CenterAgentListTasksToolRpcInput
+  ): Promise<ListCenterAgentTasksResponse>;
+  centerAgentListOrganizationMembers?(
+    input: CenterAgentListOrganizationMembersToolRpcInput
+  ): Promise<CenterAgentListOrganizationMembersResponse>;
   centerAgentDraftOrganizationDocument?(
     input: CenterAgentDraftOrganizationDocumentRpcInput
   ): Promise<CenterAgentDraftOrganizationDocumentResponse>;
