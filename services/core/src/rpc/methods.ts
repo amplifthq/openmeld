@@ -51,8 +51,6 @@ import {
   centerAgentConnectAgentProfileToLocalAgentResponseSchema,
   centerAgentCreateAgentProfileBodySchema,
   centerAgentCreateAgentProfileResponseSchema,
-  centerAgentCreateConfiguredAgentProfileBodySchema,
-  centerAgentCreateConfiguredAgentProfileResponseSchema,
   centerAgentCreateSpaceBodySchema,
   centerAgentCreateSpaceResponseSchema,
   centerAgentEnableAgentProfileBodySchema,
@@ -341,7 +339,6 @@ import type {
   CenterAgentCreateAgentProfileBody,
   CenterAgentCreateAgentProfileResponse,
   CenterAgentCreateConfiguredAgentProfileBody,
-  CenterAgentCreateConfiguredAgentProfileResponse,
   CenterAgentCreateSpaceBody,
   CenterAgentCreateSpaceResponse,
   CenterAgentDelegationCompletionMode,
@@ -791,7 +788,6 @@ import {
   type CenterAgentProductOperationDeps,
   checkAgentProfileReadinessOperation,
   connectAgentProfileToLocalAgentOperation,
-  createConfiguredAgentProfileOperation,
   listLocalAgentConnectionCandidatesOperation,
   projectCenterAgentComputerSetupOptions,
   projectCenterAgentLocalAgentConnectionCandidates,
@@ -10454,71 +10450,6 @@ export async function rpcCenterAgentCheckAgentProfileReadiness(
   if (!validated.success) {
     throw new Error(
       `failed to build Center Agent Agent Profile readiness response: ${validated.error.message}`
-    );
-  }
-  return validated.data;
-}
-
-export async function rpcCenterAgentCreateConfiguredAgentProfile(
-  env: CoreBindings,
-  input: CenterAgentCreateConfiguredAgentProfileInput
-): Promise<CenterAgentCreateConfiguredAgentProfileResponse> {
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
-    context: requireRpcContext(input.context),
-    env,
-  });
-  const parsed = centerAgentCreateConfiguredAgentProfileBodySchema.safeParse({
-    agentControllerCollaborationMode: input.agentControllerCollaborationMode,
-    agentControllerPermissionMode: input.agentControllerPermissionMode,
-    candidateId: input.candidateId,
-    configuration: input.configuration,
-    modelId: input.modelId,
-    ...(input.onBehalfOf === undefined ? {} : { onBehalfOf: input.onBehalfOf }),
-    openCodePermission: input.openCodePermission,
-    profileName: input.profileName,
-    reasoningLevel: input.reasoningLevel,
-    spaceId: input.spaceId,
-    workspaceMode: input.workspaceMode,
-    workspacePath: input.workspacePath,
-  });
-  if (!parsed.success) {
-    throw createCoreRpcHttpError({
-      status: 400,
-      reason:
-        parsed.error.issues[0]?.message ??
-        "invalid Center Agent configured Agent Profile payload",
-      code: "invalid_payload",
-    });
-  }
-  const representedMember = parsed.data.onBehalfOf
-    ? await resolveCenterAgentAuditAttribution({
-        authorization,
-        onBehalfOfProfileId: parsed.data.onBehalfOf.profileId,
-      })
-    : null;
-  const representedUserId = representedMember?.onBehalfOf?.userId ?? null;
-  const representedContext = representedUserId
-    ? {
-        ...authorization.context,
-        actorContext: {
-          ...authorization.context.actorContext,
-          callerPrincipalId: representedUserId,
-          ownerUserId: representedUserId,
-        },
-      }
-    : null;
-  const response = await createConfiguredAgentProfileOperation({
-    deps: buildCenterAgentProductOperationDeps(env, authorization, {
-      representedContext,
-      representedUserId,
-    }),
-    request: parsed.data,
-  });
-  const validated =
-    centerAgentCreateConfiguredAgentProfileResponseSchema.safeParse(response);
-  if (!validated.success) {
-    throw new Error(
-      `failed to build Center Agent configured Agent Profile response: ${validated.error.message}`
     );
   }
   return validated.data;
