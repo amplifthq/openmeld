@@ -2,6 +2,28 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "glm-5-3-flash-center-agent",
+      "title": "GLM 5.3 Flash is the new Center Agent default",
+      "kind": "improved",
+      "areas": [
+        "center-agent",
+        "agents"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-27",
+      "release": "v0.3.119",
+      "evidence": [
+        "pr:352",
+        "commit:bf3f8e0e86ac978be72243d8b5a686e70b23c77d",
+        "workflow:33043819973",
+        "workflow:33043822367"
+      ],
+      "body": "The Center Agent now runs new turns on GLM 5.3 Flash instead of Grok 4.6.\nOrganizations that did not pick a specific model follow the default on their\nnext turn; organizations that explicitly selected a model keep that exact\nmodel, and Grok 4.6 stays selectable.\n\nCenter Agent settings now also describes the image path accurately: images use\nthe dedicated vision model before the selected primary model receives the\ndescription.\n\nOpenCode Agent Profiles also gain the current curated OpenCode Go, free-tier,\nand Zen model lineup, including GLM 5.3 Flash on OpenCode Go, with each\nmodel's official reasoning variants."
+    },
+    {
       "id": "nonblocking-browser-notification-prompt",
       "title": "Keep browser notification setup out of the way",
       "kind": "fixed",
