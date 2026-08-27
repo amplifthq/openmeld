@@ -374,17 +374,18 @@ test("current main drift rejects stale green before checks run", () => {
   }
 });
 
-test("main drift during a selected command is rejected by the post-check reread", () => {
+test("main drift during a pull-request check preserves exact reusable evidence for merge queue", () => {
   const fixture = createCandidateFixture();
   try {
     const result = runCandidateFixture(fixture, {
       advanceMainDuringCheck: true,
     });
 
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, MAIN_ADVANCED_PATTERN);
+    assert.equal(result.status, 0, result.stderr);
     const evidence = JSON.parse(readFileSync(fixture.evidencePath, "utf8"));
-    assert.equal(evidence.conclusion, "failure");
+    assert.equal(evidence.conclusion, "success");
+    assert.equal(evidence.baseSha, fixture.baseSha);
+    assert.equal(evidence.candidateKind, "pull-request");
     assert.deepEqual(
       evidence.results.map((entry) => entry.status),
       ["passed", "passed"]

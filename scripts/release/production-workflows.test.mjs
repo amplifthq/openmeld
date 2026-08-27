@@ -319,8 +319,11 @@ test("runs one explicit Final Candidate request with separate runner and publish
   assert.ok(deepConfidence.includes("workflow_dispatch:"));
 });
 
-test("pins Final Candidate to the current PR head and base in both lanes", () => {
+test("pins PR evidence and the final merge group to their exact identities", () => {
   const candidate = readRepoFile(".github/workflows/final-candidate.yml");
+  const mergeGroup = readRepoFile(
+    ".github/workflows/merge-group-final-candidate.yml"
+  );
   const engine = [
     readRepoFile("scripts/ci/final-candidate.mjs"),
     readRepoFile("scripts/ci/final-candidate-publisher.mjs"),
@@ -336,7 +339,18 @@ test("pins Final Candidate to the current PR head and base in both lanes", () =>
   assert.ok(trustedGit.includes("protocol.ext.allow"));
   assert.ok(trustedGit.includes("core.hooksPath"));
   assert.ok(engine.includes("assertCandidateSnapshot(state.snapshot)"));
-  assert.ok(engine.includes("assertCandidateSnapshot(finalState.snapshot)"));
+  assert.ok(engine.includes("candidateKind: context.candidateKind"));
+  assert.ok(
+    engine.includes(
+      'requireCurrentBase: context.candidateKind === "merge-group"'
+    )
+  );
+  assert.ok(mergeGroup.includes("merge_group:"));
+  assert.ok(mergeGroup.includes("github.event.merge_group.head_sha"));
+  assert.ok(mergeGroup.includes("github.event.merge_group.base_sha"));
+  assert.ok(mergeGroup.includes("--candidate-kind merge-group"));
+  assert.ok(mergeGroup.includes("name: OpenMeld Final Candidate"));
+  assert.ok(!mergeGroup.includes("statuses: write"));
   assert.ok(engine.includes("publishCommitStatus"));
   assert.ok(engine.includes("publishPullRequestComment"));
   assert.ok(policy.includes("Candidate head drifted"));

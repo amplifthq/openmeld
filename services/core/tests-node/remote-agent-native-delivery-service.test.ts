@@ -2857,10 +2857,12 @@ describe("Remote Agent native delivery callback service", () => {
     applyRemoteAgentSubmitMigrations(harness);
     const firstNowMs = Date.parse("2026-07-12T23:59:59.000Z");
     let submitAttempt = 0;
+    const submittedRequests: RemoteAgentWorkerSubmitTurnRequest[] = [];
     const env = buildEnv(harness.db, {
       remoteAgentWorker: {
         submitConversationTurn: vi.fn(
           (request: RemoteAgentWorkerSubmitTurnRequest) => {
+            submittedRequests.push(request);
             submitAttempt += 1;
             if (submitAttempt === 1) {
               throw new Error("simulated RPC disconnect after admission");
@@ -2875,6 +2877,7 @@ describe("Remote Agent native delivery callback service", () => {
           }
         ),
       },
+      spaceGuide: "Use the durable admission request.",
     });
 
     try {
@@ -2903,6 +2906,13 @@ describe("Remote Agent native delivery callback service", () => {
         }),
       });
 
+      const contextReadCounts = {
+        dispatchContinuity:
+          env.__spaceStub.rpcListDispatchConversationContinuitySignalsResult
+            .mock.calls.length,
+        meta: env.__spaceStub.rpcGetMeta.mock.calls.length,
+        signals: env.__spaceStub.rpcListSignalsResult.mock.calls.length,
+      };
       await expect(
         submitRemoteAgentNativeDelivery({
           binding: createBinding(),
@@ -2914,6 +2924,16 @@ describe("Remote Agent native delivery callback service", () => {
           nowMs: firstNowMs + 2000,
         })
       ).resolves.toEqual({ shouldAck: true, status: "submitted" });
+
+      expect(submittedRequests).toHaveLength(2);
+      expect(submittedRequests[1]).toEqual(submittedRequests[0]);
+      expect({
+        dispatchContinuity:
+          env.__spaceStub.rpcListDispatchConversationContinuitySignalsResult
+            .mock.calls.length,
+        meta: env.__spaceStub.rpcGetMeta.mock.calls.length,
+        signals: env.__spaceStub.rpcListSignalsResult.mock.calls.length,
+      }).toEqual(contextReadCounts);
 
       expect(
         harness.queryAll<{ admitted_count: number; day_utc: string }>({

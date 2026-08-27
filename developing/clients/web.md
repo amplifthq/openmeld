@@ -2990,7 +2990,11 @@ Active Wake progress must survive browser refreshes by reading the Core/Space
 Wake progress read model. Browser-local progress state may provide immediate
 feedback for a just-submitted Wake, but it must not be the only source for an
 active running, retrying, writing, publishing, replied, stopped, or failed Wake
-state. When Web shows elapsed running time, it uses the optional authoritative
+state. Web must not convert an aging Core-owned active state into a local
+terminal timeout or claim that the Agent did not respond; it remains active
+until Core projects a reply, stopped outcome, or explicit failure. Only a
+short-lived browser-local optimistic `sending` item may expire locally. When
+Web shows elapsed running time, it uses the optional authoritative
 `startedAtMs` timing projection requested with `includeTiming=true`.
 `updatedAtMs` remains progress freshness and ordering evidence; Web must never
 reinterpret it as the execution start time. A mixed-version response without

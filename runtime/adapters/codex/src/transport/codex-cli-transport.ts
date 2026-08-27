@@ -30,6 +30,7 @@ import {
 } from "../output/codex-provider-failure.js";
 import { extractCodexToolActivityEvent } from "../output/codex-tool-activity.js";
 import { buildCodexFileAccessBoundaryGlobalArgs } from "./codex-file-access-boundary.js";
+import { buildCodexSpaceActionMcpGlobalArgs } from "./codex-space-action-mcp-config.js";
 
 export type CodexCliTransportResult = {
   output: string;
@@ -82,6 +83,7 @@ export async function invokeCodexCliTransport(input: {
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     conversationPolicy: input.conversationPolicy,
     computerFileAccessBoundary: input.computerFileAccessBoundary,
+    env: input.env,
     executionMode: input.executionMode,
     threadId: input.threadId,
   });
@@ -260,6 +262,7 @@ export function buildCodexExecArgs(input: {
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
   conversationPolicy?: ConversationPolicy;
   executionMode?: AdapterDispatchExecutionMode;
+  env?: Record<string, string | undefined>;
   threadId: string | null;
 }): string[] {
   const conversationPolicyArgs = buildCodexConversationPolicyArgs(
@@ -270,10 +273,14 @@ export function buildCodexExecArgs(input: {
     computerFileAccessBoundary: input.computerFileAccessBoundary,
     executionMode: input.executionMode,
   });
+  const spaceActionMcpArgs = buildCodexSpaceActionMcpGlobalArgs(
+    input.env ?? {}
+  );
 
   if (input.threadId) {
     return [
       ...permissionModeArgs.globalArgs,
+      ...spaceActionMcpArgs,
       "exec",
       "resume",
       ...permissionModeArgs.execArgs,
@@ -287,6 +294,7 @@ export function buildCodexExecArgs(input: {
 
   return [
     ...permissionModeArgs.globalArgs,
+    ...spaceActionMcpArgs,
     "exec",
     ...permissionModeArgs.execArgs,
     "--json",

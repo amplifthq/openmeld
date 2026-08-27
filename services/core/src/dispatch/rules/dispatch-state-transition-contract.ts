@@ -348,6 +348,7 @@ export const resolveDispatchLedgerTransitionForClaimDecision = (input: {
         input.existingStatus
       );
     case "dedupe":
+    case "resume_hosted_admission":
       return validateLedgerTransition(
         DISPATCH_LEDGER_TRANSITION_MATRIX.dedupeExistingDispatch,
         input.existingStatus
@@ -400,6 +401,7 @@ export const resolveDispatchAttemptTransitionForClaimDecision = (input: {
         input.latestAttemptStatus
       );
     case "dedupe":
+    case "resume_hosted_admission":
       return validateAttemptTransition(
         DISPATCH_ATTEMPT_TRANSITION_MATRIX.dedupeExistingAttempt,
         input.latestAttemptStatus

@@ -84,7 +84,7 @@ import type {
   SlackOAuthOrganizationMembershipInput,
   SlackOAuthOrganizationMembershipResult,
 } from "@openmeld/schemas/types";
-import { createAuth } from "../better-auth";
+import { loadBetterAuthRuntime } from "../../lazy-runtime-modules";
 import { getLocalAuthUserStore } from "../better-auth/local-auth-user-store";
 import { getOrganizationServerApi } from "../better-auth/organization-server-api";
 import { readRefreshedAuthSessionCookies } from "../better-auth/refresh-session-cookie";
@@ -618,7 +618,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       let sessionCookies: string[] = [];
       try {
         sessionCookies = await readRefreshedAuthSessionCookies({
-          auth: this.getAuth(),
+          auth: await this.getAuth(),
           headers: new Headers(parsed.data.headers),
         });
       } catch (error) {
@@ -2077,7 +2077,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     input: ResolveRequestAuthInput
   ): Promise<ResolveSessionClaimsResult> {
     const sessionResolution = await resolveSessionFromHeaders({
-      auth: this.getAuth(),
+      auth: await this.getAuth(),
       headers,
       verifyLocalUserExists: (userId) =>
         getLocalAuthUserStore(this.env).hasUserById(userId),
@@ -2217,7 +2217,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
   > {
     const headers = toHeaders(input.headers);
     const sessionResolution = await resolveSessionFromHeaders({
-      auth: this.getAuth(),
+      auth: await this.getAuth(),
       headers,
       verifyLocalUserExists: (userId) =>
         getLocalAuthUserStore(this.env).hasUserById(userId),
@@ -2365,8 +2365,8 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
         {
           ...(await this.getOrganizationJoinLinkService().enrollVerifiedWorkspaceMember(
             {
-              addMember: (memberInput) =>
-                getOrganizationServerApi(this.getAuth()).addMember({
+              addMember: async (memberInput) =>
+                getOrganizationServerApi(await this.getAuth()).addMember({
                   body: memberInput,
                 }),
               emailVerified:
@@ -2391,7 +2391,8 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     }
   }
 
-  private getAuth() {
+  private async getAuth() {
+    const { createAuth } = await loadBetterAuthRuntime();
     return createAuth(this.env);
   }
 }

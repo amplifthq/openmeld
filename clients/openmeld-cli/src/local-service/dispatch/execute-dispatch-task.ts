@@ -139,6 +139,7 @@ import {
   type DispatchResultOutboxSettlement,
   enqueueDispatchResultOutboxRecord,
 } from "./dispatch-result-outbox";
+import { ensureDispatchControllerOpenMeldSkill } from "./ensure-dispatch-controller-openmeld-skill";
 import {
   markBootstrapInjectedContext as markBootstrapInjectedContextInternal,
   reconcileBootstrapInjectedContextAfterDispatch as reconcileBootstrapInjectedContextAfterDispatchInternal,
@@ -3859,6 +3860,24 @@ async function maybeRepairStructuredSpaceAction(input: {
     payload: {
       dispatchId: input.parsedTask.dispatchId,
       failureReason: input.failureReason,
+      targetProfileId: input.parsedTask.targetProfileId,
+      taskId: input.parsedTask.taskId,
+    },
+  });
+
+  const skillRepair = await ensureDispatchControllerOpenMeldSkill({
+    agentControllerRef: input.parsedTask.agentControllerRef,
+  });
+  emitRunLine({
+    presenter: input.presenter,
+    code: "daemon.run.dispatch_controller_skill_repair_checked",
+    text: `OpenMeld skill repair checked for task ${input.parsedTask.taskId}`,
+    payload: {
+      agentControllerRef: input.parsedTask.agentControllerRef,
+      agentId: skillRepair.agentId,
+      dispatchId: input.parsedTask.dispatchId,
+      ...(skillRepair.reason ? { reason: skillRepair.reason } : {}),
+      status: skillRepair.status,
       targetProfileId: input.parsedTask.targetProfileId,
       taskId: input.parsedTask.taskId,
     },

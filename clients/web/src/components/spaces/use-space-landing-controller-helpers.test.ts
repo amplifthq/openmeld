@@ -47,7 +47,7 @@ describe("listPendingWakeProgressClientMessageIds", () => {
 		]);
 	});
 
-	it("stops polling progress after its active phase freshness window expires", () => {
+	it("keeps polling request admission until Core sends a terminal outcome", () => {
 		const item = createWakeProgressItem({
 			clientMessageId: "client-message-1",
 			dispatchId: "dispatch-1",
@@ -58,9 +58,9 @@ describe("listPendingWakeProgressClientMessageIds", () => {
 			updatedAtMs: 100,
 		});
 
-		expect(listPendingWakeProgressClientMessageIds([item], 480_101)).toEqual(
-			[]
-		);
+		expect(listPendingWakeProgressClientMessageIds([item], 480_101)).toEqual([
+			"client-message-1",
+		]);
 	});
 });
 

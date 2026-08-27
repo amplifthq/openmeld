@@ -34,6 +34,39 @@ next step for the current request.
 
 Evidence: pr:369, commit:6d1375c8b9f80fe58f65d8f4fb4b06454fccb305, workflow:33061998100, workflow:33062520467
 
+### Keep Center Agent requests moving through Computer reconnects
+
+Fixed · v0.3.121 · center-agent · computers · tasks
+
+Center Agent requests now recover when the private Computer reconnects while a
+turn is being prepared. OpenMeld resumes the same request from durable state
+before any model or tool work starts, without repeating completed external
+actions. If recovery cannot finish, the request reaches one clear failure
+instead of remaining indefinitely active.
+
+Evidence: pr:302, commit:1c269512ebd2a27dc870e5cd695e786d3868ae18, commit:45c4edfdabfa862bc52f30c801d04bb81ba813e1, workflow:33081538161, worker-version:74602f63-8435-4dc8-8b81-18ed6b0dccb3
+
+### Read Organization members and Tasks with the Center Agent
+
+Improved · v0.3.121 · center-agent · organizations · tasks
+
+The Center Agent can page through Organization members without loading
+unrelated Agent Profile readiness, and can read the requester's canonical
+OpenMeld Tasks separately from local coding-agent task handles.
+
+Evidence: pr:370, commit:9571067601e5585c832107cc3eafacc39f0b27db, commit:45c4edfdabfa862bc52f30c801d04bb81ba813e1, workflow:33081538161, worker-version:74602f63-8435-4dc8-8b81-18ed6b0dccb3, center-agent-dispatch:b4082b85-ceb5-4163-ad4d-d1959c3b9fdf, center-agent-dispatch:27544c1c-f5eb-42af-8155-8198bde4c025, center-agent-dispatch:9e35b24a-78e8-49f3-afbf-4794287c730e, center-agent-dispatch:10b284af-4e31-41d0-92ad-73649f0973d3, center-agent-dispatch:3d575722-bbea-42c1-aff8-1fb0b5059c2e
+
+### Stop waiting when Center Agent work has failed
+
+Fixed · v0.3.121 · center-agent · spaces · cli
+
+When Center Agent work ends in failure, OpenMeld now reports that same final
+outcome in the conversation, progress checks, diagnostics, and the CLI Wake
+trace summary. Agents no longer keep waiting, treat a failed turn as an
+ordinary reply, or suggest that a failed response is still being published.
+
+Evidence: pr:357, pr:382, commit:7f438b73a1076d7436fe330862e09681ec4b0e45, commit:45c4edfdabfa862bc52f30c801d04bb81ba813e1, workflow:33079113134, npm:openmeld@0.3.121
+
 ## August 26, 2026
 
 ### Keep browser notification setup out of the way

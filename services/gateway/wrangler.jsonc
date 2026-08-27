@@ -208,6 +208,98 @@
         ]
       }
     },
+    "stg": {
+      "route": {
+        "custom_domain": true,
+        "pattern": "gateway.staging.openmeld.ai"
+      },
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence_stg"
+        }
+      ],
+      "images": {
+        "binding": "OPENMELD_IMAGES"
+      },
+      "r2_buckets": [
+        {
+          "binding": "OPENMELD_SPACE_ATTACHMENTS",
+          "bucket_name": "openmeld-space-attachments-stg",
+          "preview_bucket_name": "openmeld-space-attachments-stg"
+        },
+        {
+          "binding": "OPENMELD_ORGANIZATION_LOGOS",
+          "bucket_name": "openmeld-organization-logos-stg",
+          "preview_bucket_name": "openmeld-organization-logos-stg"
+        },
+        {
+          "binding": "OPENMELD_ACCOUNT_AVATARS",
+          "bucket_name": "openmeld-organization-logos-stg",
+          "preview_bucket_name": "openmeld-organization-logos-stg"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
+          "namespace_id": "2001",
+          "simple": { "limit": 10, "period": 60 }
+        },
+        {
+          "name": "OPENMELD_FEEDBACK_INBOX_RATE_LIMITER",
+          "namespace_id": "2002",
+          "simple": { "limit": 120, "period": 60 }
+        },
+        {
+          "name": "OPENMELD_SPACE_PASSWORD_RATE_LIMITER",
+          "namespace_id": "2004",
+          "simple": { "limit": 10, "period": 60 }
+        }
+      ],
+      "vars": {
+        "OPENMELD_WORKER_ENVIRONMENT": "stg",
+        "OPENMELD_CONNECTORS_BASE_URL": "",
+        "OPENMELD_GATEWAY_URL": "https://gateway.staging.openmeld.ai",
+        "WEB_APP_URL": "https://staging.openmeld.ai",
+        "OPENMELD_SLACK_OAUTH_REDIRECT_URL": ""
+      },
+      "services": [
+        {
+          "binding": "OPENMELD_CORE_WORKER",
+          "service": "openmeld-core-stg",
+          "entrypoint": "GatewayRpcEntrypoint"
+        },
+        {
+          "binding": "OPENMELD_AUTH_WORKER",
+          "service": "openmeld-auth-stg",
+          "entrypoint": "GatewayAuthRpcEntrypoint"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "OPENMELD_REMOTE_AGENT_SLACK_EVENTS_QUEUE",
+            "queue": "openmeld-daemon-dispatch-stg"
+          },
+          {
+            "binding": "OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE",
+            "queue": "openmeld-message-channel-events-stg"
+          }
+        ]
+      }
+    },
     "prod": {
       "observability": {
         "enabled": true,

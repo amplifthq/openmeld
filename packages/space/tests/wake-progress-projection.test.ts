@@ -57,7 +57,7 @@ describe("Wake progress projection", () => {
     );
   });
 
-  it("does not classify terminal or locally expired progress as active", () => {
+  it("does not classify terminal progress as active and keeps Core-owned work active", () => {
     const terminalItem = createWakeProgressItem({
       clientMessageId: "client-message-terminal",
       dispatchId: "dispatch-terminal",
@@ -86,7 +86,7 @@ describe("Wake progress projection", () => {
         items: [expiredItem],
         nowMs: 1_801_001,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("projects Wake progress from local send through final reply cleanup", () => {
@@ -1098,7 +1098,7 @@ describe("Wake progress projection", () => {
     ["running", 1_800_000],
     ["writing", 1_800_000],
     ["publishing", 1_800_000],
-  ] as const)("projects stale %s progress as a local terminal timeout after %i ms", (phase, expiryMs) => {
+  ] as const)("keeps stale %s progress nonterminal until Core reports an outcome", (phase, expiryMs) => {
     const items = applyWakeProgressSignals({
       currentItems: [
         createWakeProgressItem({
@@ -1118,10 +1118,9 @@ describe("Wake progress projection", () => {
     expect(items).toEqual([
       expect.objectContaining({
         clientMessageId: "client-message-1",
-        message: "The agent didn't respond in time.",
-        phase: "failed",
-        terminal: true,
-        updatedAtMs: 100 + expiryMs,
+        phase,
+        terminal: false,
+        updatedAtMs: 100,
       }),
     ]);
   });

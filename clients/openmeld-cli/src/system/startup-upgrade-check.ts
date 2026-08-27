@@ -1,6 +1,5 @@
 import { confirm, isCancel } from "@clack/prompts";
 import { shouldSkipStartupUpgradeCheck } from "@openmeld/local-service";
-import packageJson from "../../package.json";
 import { runUpgrade } from "../commands/upgrade";
 import {
   compareSemver,
@@ -9,6 +8,7 @@ import {
   fetchPackageVersionMetadata,
 } from "../config/version-state";
 import { resolveRuntimeContext } from "../runtime/context";
+import { OPENMELD_VERSION } from "../runtime/version";
 import {
   isPassiveCliQueryArgv,
   parseFirstCommandTokenFromArgv,
@@ -94,7 +94,7 @@ export async function maybeRunStartupUpgradeCheck(input: {
   const runtime = await resolveRuntimeContext({
     ...(explicitView ? { view: explicitView } : {}),
   });
-  const currentVersion = packageJson.version;
+  const currentVersion = OPENMELD_VERSION;
   const deprecatedWarning = await resolveDeprecatedVersionWarning({
     currentVersion,
   });

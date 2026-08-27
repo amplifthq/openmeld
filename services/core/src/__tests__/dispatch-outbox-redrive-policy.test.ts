@@ -89,6 +89,63 @@ describe("dispatch outbox redrive policy", () => {
     ).toEqual({ kind: "delete" });
   });
 
+  it("retains incomplete hosted admission until it can resume the original attempt", () => {
+    const ledgerRow = {
+      status: OPENMELD_DAEMON_DISPATCH_STATE.dispatching,
+      lastAttemptAtMs: 1000,
+      latestAttemptStatus: "dispatching",
+      latestAttemptErrorCode: null,
+      daemonSessionId: null,
+      connectionGeneration: null,
+      leaseEpoch: null,
+    };
+
+    expect(
+      resolveHandedOffOutboxCandidatePolicyDecision({
+        hostedNativeDeliveryHandoffState: "admission_incomplete",
+        outboxStatus: "handed_off",
+        ledgerRow,
+        nowMs: 20_000,
+        recentInflightSkipWithinMs: 20_000,
+        staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+      })
+    ).toEqual({ kind: "skip" });
+    expect(
+      resolveHandedOffOutboxCandidatePolicyDecision({
+        hostedNativeDeliveryHandoffState: "admission_incomplete",
+        outboxStatus: "handed_off",
+        ledgerRow,
+        nowMs: 21_001,
+        recentInflightSkipWithinMs: 20_000,
+        staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+      })
+    ).toEqual({
+      deliveryRecoveryReason: "hosted_admission_incomplete",
+      kind: "submit",
+      loopSuspected: false,
+    });
+    expect(
+      resolveHandedOffOutboxCandidatePolicyDecision({
+        hostedNativeDeliveryHandoffState: "durably_owned",
+        outboxStatus: "handed_off",
+        ledgerRow,
+        nowMs: 21_001,
+        recentInflightSkipWithinMs: 20_000,
+        staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+      })
+    ).toEqual({ kind: "delete" });
+    expect(
+      resolveHandedOffOutboxCandidatePolicyDecision({
+        hostedNativeDeliveryHandoffState: "evidence_unavailable",
+        outboxStatus: "handed_off",
+        ledgerRow,
+        nowMs: 21_001,
+        recentInflightSkipWithinMs: 20_000,
+        staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+      })
+    ).toEqual({ kind: "skip" });
+  });
+
   it("keeps explicit recovery reasons as diagnostic evidence, not redrive authority", () => {
     expect(
       resolveHandedOffOutboxCandidateRecoveryReason({
