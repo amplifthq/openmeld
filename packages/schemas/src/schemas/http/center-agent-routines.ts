@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { CENTER_AGENT_INTERACTION_CLIENT_MAX_CHARS } from "../protocol/center-agent-interaction-source";
 import { MAX_PROFILE_NAME_LENGTH } from "../protocol/constants";
@@ -618,7 +619,7 @@ function validateRoutineScheduleAndDestination(
     targetSpaceId: string | null;
     timezone: string | null;
   },
-  context: z.RefinementCtx
+  context: zod.RefinementCtx
 ): void {
   const recurringScheduleComplete = Boolean(
     value.cronExpression && value.timezone && value.runAtMs === null
@@ -673,7 +674,7 @@ function validateRoutineRunScheduledFor(
     scheduledFor: number;
     status: (typeof CENTER_AGENT_ROUTINE_RUN_STATUSES)[number];
   },
-  context: z.RefinementCtx
+  context: zod.RefinementCtx
 ): void {
   if (
     value.scheduledFor >= 0 ||

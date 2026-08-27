@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { centerAgentMemberResearchReportSchema } from "./center-agent-member-research";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
@@ -552,11 +553,11 @@ export const organizationDocumentPromptContextResponseSchema = z.strictObject({
 
 function validateCreateDocumentShape(
   value: {
-    kind: z.infer<typeof organizationDocumentKindSchema>;
+    kind: zod.infer<typeof organizationDocumentKindSchema>;
     subjectUserId?: string | null;
     title?: string;
   },
-  context: z.RefinementCtx
+  context: zod.RefinementCtx
 ): void {
   if (value.kind === "member_profile" && !value.subjectUserId) {
     context.addIssue({
@@ -586,15 +587,15 @@ function validateCenterAgentDraftTarget(
     documentId?: string;
     expectedDocumentUpdatedAt?: string;
     folderId?: string | null;
-    kind?: z.infer<typeof organizationDocumentKindSchema>;
-    memberResearchReport?: z.infer<
+    kind?: zod.infer<typeof organizationDocumentKindSchema>;
+    memberResearchReport?: zod.infer<
       typeof centerAgentMemberResearchReportSchema
     >;
     memberResearchTaskId?: string;
     subjectUserId?: string;
     title?: string;
   },
-  context: z.RefinementCtx
+  context: zod.RefinementCtx
 ): void {
   if (
     Boolean(value.memberResearchTaskId) !== Boolean(value.memberResearchReport)

@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import {
   projectSlugSchema,
   repositoryFingerprintSchema,
@@ -333,7 +334,7 @@ export const localProjectControlRemoveMissingConnectionsResultSchema = z.union([
 
 const LOCAL_PROJECT_CONTROL_FRAME_VERSION = 1 as const;
 
-function defineRequestFrame<TCode extends string, TRequest extends z.ZodType>(
+function defineRequestFrame<TCode extends string, TRequest extends zod.ZodType>(
   code: TCode,
   request: TRequest
 ) {
@@ -347,7 +348,7 @@ function defineRequestFrame<TCode extends string, TRequest extends z.ZodType>(
   });
 }
 
-function defineResultFrame<TCode extends string, TResult extends z.ZodType>(
+function defineResultFrame<TCode extends string, TResult extends zod.ZodType>(
   code: TCode,
   result: TResult
 ) {

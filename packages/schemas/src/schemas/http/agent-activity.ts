@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { optionalBooleanQuerySchema } from "../protocol/shared";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
@@ -192,8 +193,8 @@ export const agentActivityEventSchema = z
       session_started: ["active", "unknown"],
       session_updated: ["unknown"],
     } as const satisfies Record<
-      z.infer<typeof agentActivityEventTypeSchema>,
-      readonly z.infer<typeof agentActivitySessionStatusSchema>[]
+      zod.infer<typeof agentActivityEventTypeSchema>,
+      readonly zod.infer<typeof agentActivitySessionStatusSchema>[]
     >;
     if (!allowedStatuses[value.eventType].includes(value.status as never)) {
       context.addIssue({

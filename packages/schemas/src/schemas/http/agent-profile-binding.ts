@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { agentControllerCollaborationModeSchema } from "../agent-controller-collaboration-mode";
 import { agentControllerPermissionModeSchema } from "../agent-controller-permission-mode";
 import { openCodePermissionConfigSchema } from "../open-code-permission";
@@ -210,7 +211,7 @@ const agentProfileCreationDefaultsFields = {
 
 function requireCreationDefaultsModelForReasoning(
   value: { modelId: string | null; reasoningLevel: string | null },
-  context: z.RefinementCtx
+  context: zod.RefinementCtx
 ): void {
   if (value.reasoningLevel && !value.modelId) {
     context.addIssue({
@@ -499,8 +500,8 @@ export const ensureAgentProfilePrimaryBindingResponseSchema = z
   });
 
 function validateAgentProfileBindingProjection(
-  value: z.infer<typeof agentProfileBindingProjectionSchema>,
-  context: z.RefinementCtx
+  value: zod.infer<typeof agentProfileBindingProjectionSchema>,
+  context: zod.RefinementCtx
 ): void {
   validateBindingDispatchEligibility(value, context);
   bindingProjectionValidators[value.bindingState](value, context);
@@ -513,16 +514,16 @@ const bindingProjectionValidators = {
   missing: validateMissingProjection,
   owner_mismatch: validateOwnerMismatchProjection,
 } satisfies Record<
-  z.infer<typeof agentProfileBindingStateSchema>,
+  zod.infer<typeof agentProfileBindingStateSchema>,
   (
-    value: z.infer<typeof agentProfileBindingProjectionSchema>,
-    context: z.RefinementCtx
+    value: zod.infer<typeof agentProfileBindingProjectionSchema>,
+    context: zod.RefinementCtx
   ) => void
 >;
 
 function validateBindingDispatchEligibility(
-  value: z.infer<typeof agentProfileBindingProjectionSchema>,
-  context: z.RefinementCtx
+  value: zod.infer<typeof agentProfileBindingProjectionSchema>,
+  context: zod.RefinementCtx
 ): void {
   if (value.dispatchEligibility.routable !== value.routable) {
     context.addIssue({
@@ -544,8 +545,8 @@ function validateBindingDispatchEligibility(
 }
 
 function validateEnabledPrimaryProjection(
-  value: z.infer<typeof agentProfileBindingProjectionSchema>,
-  context: z.RefinementCtx
+  value: zod.infer<typeof agentProfileBindingProjectionSchema>,
+  context: zod.RefinementCtx
 ): void {
   requireBindingTruthProjection(value, context);
   if (!value.routable) {
@@ -558,8 +559,8 @@ function validateEnabledPrimaryProjection(
 }
 
 function validateDisabledHistoricalProjection(
-  value: z.infer<typeof agentProfileBindingProjectionSchema>,
-  context: z.RefinementCtx
+  value: zod.infer<typeof agentProfileBindingProjectionSchema>,
+  context: zod.RefinementCtx
 ): void {
   requireBindingTruthProjection(value, context);
   if (value.routable) {
@@ -572,8 +573,8 @@ function validateDisabledHistoricalProjection(
 }
 
 function validateMissingProjection(
-  value: z.infer<typeof agentProfileBindingProjectionSchema>,
-  context: z.RefinementCtx
+  value: zod.infer<typeof agentProfileBindingProjectionSchema>,
+  context: zod.RefinementCtx
 ): void {
   if (value.authoritySource !== "none") {
     context.addIssue({
@@ -593,8 +594,8 @@ function validateMissingProjection(
 }
 
 function rejectMissingProjectionEvidence(
-  value: z.infer<typeof agentProfileBindingProjectionSchema>,
-  context: z.RefinementCtx
+  value: zod.infer<typeof agentProfileBindingProjectionSchema>,
+  context: zod.RefinementCtx
 ): void {
   if (value.bindingId) {
     context.addIssue({
@@ -651,8 +652,8 @@ function rejectMissingProjectionEvidence(
 }
 
 function validateConflictProjection(
-  value: z.infer<typeof agentProfileBindingProjectionSchema>,
-  context: z.RefinementCtx
+  value: zod.infer<typeof agentProfileBindingProjectionSchema>,
+  context: zod.RefinementCtx
 ): void {
   if (value.authoritySource !== "blocked") {
     context.addIssue({
@@ -678,8 +679,8 @@ function validateConflictProjection(
 }
 
 function validateOwnerMismatchProjection(
-  value: z.infer<typeof agentProfileBindingProjectionSchema>,
-  context: z.RefinementCtx
+  value: zod.infer<typeof agentProfileBindingProjectionSchema>,
+  context: zod.RefinementCtx
 ): void {
   if (value.authoritySource !== "blocked") {
     context.addIssue({
@@ -698,8 +699,8 @@ function validateOwnerMismatchProjection(
 }
 
 function requireBindingTruthProjection(
-  value: z.infer<typeof agentProfileBindingProjectionSchema>,
-  context: z.RefinementCtx
+  value: zod.infer<typeof agentProfileBindingProjectionSchema>,
+  context: zod.RefinementCtx
 ): void {
   if (value.authoritySource !== "binding_truth") {
     context.addIssue({
@@ -733,8 +734,8 @@ function requireBindingTruthProjection(
 }
 
 function requireAcceptedBindingCommandProjection(
-  binding: z.infer<typeof agentProfileBindingProjectionSchema>,
-  context: z.RefinementCtx
+  binding: zod.infer<typeof agentProfileBindingProjectionSchema>,
+  context: zod.RefinementCtx
 ): void {
   if (binding.bindingState !== "enabled_primary") {
     context.addIssue({

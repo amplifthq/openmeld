@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 
 export const AGENT_INTERACTION_SCHEMA_VERSION = 1 as const;
 export const AGENT_INTERACTION_DEFAULT_TIMEOUT_MS = 8 * 60 * 60 * 1000;
@@ -104,8 +105,10 @@ export const agentInteractionResponseSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-type AgentInteractionRequest = z.infer<typeof agentInteractionRequestSchema>;
-type AgentInteractionResponse = z.infer<typeof agentInteractionResponseSchema>;
+type AgentInteractionRequest = zod.infer<typeof agentInteractionRequestSchema>;
+type AgentInteractionResponse = zod.infer<
+  typeof agentInteractionResponseSchema
+>;
 type AgentInteractionResolutionIssue = {
   message: string;
   path: string[];
