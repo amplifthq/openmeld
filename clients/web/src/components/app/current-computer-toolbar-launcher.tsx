@@ -38,6 +38,13 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 
 	const readinessQuery = runtimeQueries.currentLocalRuntimeReplyReadinessQuery;
 	const inventory = runtimeQueries.localRuntimesQuery.data;
+	if (!inventory) {
+		return (
+			<UnresolvedCurrentComputerToolbarStatus
+				inventoryFailed={runtimeQueries.localRuntimesQuery.isError}
+			/>
+		);
+	}
 	const readinessDeviceId = resolveCurrentLocalRuntimeSubjectDeviceId(
 		readinessQuery.data
 	);
@@ -61,11 +68,13 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 				(candidate) => candidate.deviceId === deviceId
 			) ?? null)
 		: null;
+	const readiness = readinessDeviceId === deviceId ? readinessQuery.data : null;
 	const isReconciling =
-		readinessQuery.isFetching && !readinessQuery.isFetchedAfterMount;
+		readinessQuery.isFetching &&
+		(!readinessQuery.isFetchedAfterMount || readinessDeviceId !== deviceId);
 	const status = resolveCurrentLocalRuntimeComputerSummaryStatus({
 		isReconcilingStatus: isReconciling,
-		readiness: readinessQuery.data,
+		readiness,
 	});
 	const destination = deviceId
 		? buildOrganizationComputerPath({
@@ -113,6 +122,51 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 			</TooltipTrigger>
 			<TooltipContent align="start" className="text-left" side="top">
 				{deviceLabel} · {statusLabel}
+			</TooltipContent>
+		</Tooltip>
+	);
+}
+
+function UnresolvedCurrentComputerToolbarStatus(input: {
+	inventoryFailed: boolean;
+}) {
+	return (
+		<CurrentComputerToolbarStatus
+			accessibleLabel={
+				input.inventoryFailed
+					? "Computer status unavailable"
+					: "Checking this Computer"
+			}
+			statusLabel={
+				input.inventoryFailed ? "Status unavailable" : "Checking status"
+			}
+		/>
+	);
+}
+
+function CurrentComputerToolbarStatus(input: {
+	accessibleLabel: string;
+	statusLabel: string;
+}) {
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<output
+						aria-label={input.accessibleLabel}
+						className={cn(
+							buttonVariants({ size: "sm", variant: "ghost" }),
+							"pointer-events-auto min-w-0 border-0 bg-transparent px-2 text-muted-foreground shadow-none dark:bg-transparent"
+						)}
+						data-testid="current-computer-toolbar-launcher"
+					/>
+				}
+			>
+				<DesktopTowerIcon aria-hidden="true" className="size-3.5" />
+				<span>Computer</span>
+			</TooltipTrigger>
+			<TooltipContent align="start" className="text-left" side="top">
+				Computer · {input.statusLabel}
 			</TooltipContent>
 		</Tooltip>
 	);

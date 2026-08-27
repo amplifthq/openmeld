@@ -8,6 +8,7 @@ import type {
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import { resolveOrganizationComputerGroups } from "#/components/computers/organization-computers";
 import {
 	buildOrganizationHumanProfileRows,
 	buildPersonalHumanProfileRows,
@@ -379,8 +380,13 @@ function buildOrganizationRows(input: {
 		agentProfiles: input.agentProfiles ?? [],
 		canManageConnectedAccounts: true,
 		canManageMessageChannels: true,
-		computers: null,
+		computerGroups: resolveOrganizationComputerGroups({
+			currentUserId: "user-a",
+			directory,
+			ownedComputers: [],
+		}),
 		computersStatus: "ready",
+		currentUserComputersStatus: "ready",
 		currentUserId: "user-a",
 		documents: [],
 		documentsStatus: input.documentsStatus ?? "ready",

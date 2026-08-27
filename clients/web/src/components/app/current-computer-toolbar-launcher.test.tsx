@@ -125,6 +125,32 @@ describe("CurrentComputerToolbarLauncher", () => {
 		expect(launcher.getAttribute("href")).toBe("/o/acme/connect?session=fresh");
 	});
 
+	it("does not offer setup before Computer inventory finishes loading", () => {
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({ inventoryState: "pending" })
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(
+			screen.queryByRole("link", { name: "Connect this Computer" })
+		).toBeNull();
+		expect(screen.getByLabelText("Checking this Computer")).toBeTruthy();
+	});
+
+	it("does not offer setup when Computer inventory is unavailable", () => {
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({ inventoryState: "failed" })
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(
+			screen.queryByRole("link", { name: "Connect this Computer" })
+		).toBeNull();
+		expect(screen.getByLabelText("Computer status unavailable")).toBeTruthy();
+	});
+
 	it("ignores cached readiness for a Computer that is no longer in inventory", () => {
 		useLocalRuntimeQueriesMock.mockReturnValue(
 			buildRuntimeQueries({
@@ -141,6 +167,40 @@ describe("CurrentComputerToolbarLauncher", () => {
 		expect(launcher.getAttribute("href")).toBe("/o/acme/connect?session=fresh");
 	});
 
+	it("does not apply another Computer's cached readiness to the selected Computer", () => {
+		statusMock.mockImplementation(
+			(input: { readiness: { deviceId?: string } | null }) =>
+				input.readiness
+					? {
+							label: "OpenMeld Tools are ready",
+							reason: "ready",
+							showLabel: false,
+							tone: "ready",
+						}
+					: null
+		);
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				deviceDisplayName: "Current MacBook Pro",
+				readinessDeviceId: "device-forgotten",
+			})
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		const launcher = screen.getByRole("link", {
+			name: "Open Current MacBook Pro details, Status unavailable",
+		});
+		expect(launcher.getAttribute("href")).toBe(
+			"/o/acme/computers/device-current"
+		);
+		expect(statusMock).toHaveBeenCalledWith({
+			isReconcilingStatus: false,
+			readiness: null,
+		});
+	});
+
 	it("stays hidden before the app shell has an Organization context", () => {
 		useOptionalAppOrganizationMock.mockReturnValue(null);
 
@@ -155,6 +215,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 function buildRuntimeQueries(input: {
 	currentDeviceId?: string;
 	deviceDisplayName?: string;
+	inventoryState?: "failed" | "pending" | "ready";
 	readinessDeviceId?: string;
 	staleCurrentDeviceId?: string;
 }) {
@@ -176,11 +237,18 @@ function buildRuntimeQueries(input: {
 			isFetching: false,
 		},
 		localRuntimesQuery: {
-			data: {
-				currentDeviceId:
-					input.staleCurrentDeviceId ?? input.currentDeviceId ?? null,
-				localRuntimes,
-			},
+			data:
+				input.inventoryState === "failed" || input.inventoryState === "pending"
+					? undefined
+					: {
+							currentDeviceId:
+								input.staleCurrentDeviceId ?? input.currentDeviceId ?? null,
+							localRuntimes,
+						},
+			isError: input.inventoryState === "failed",
+			isPending: input.inventoryState === "pending",
+			isSuccess:
+				input.inventoryState === undefined || input.inventoryState === "ready",
 		},
 	};
 }

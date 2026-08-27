@@ -10,6 +10,7 @@ import type {
 	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
 import type { AppShellAccount } from "#/components/app/app-shell-account";
+import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
 	buildOrganizationAgentsPath,
@@ -116,8 +117,9 @@ export function buildOrganizationHumanProfileRows(input: {
 	agentProfiles: OrganizationDirectoryResponse["agentProfiles"];
 	canManageConnectedAccounts: boolean;
 	canManageMessageChannels: boolean;
-	computers: OrganizationComputersResponse | null;
+	computerGroups: readonly OrganizationComputerGroup[];
 	computersStatus: DirectoryProjectionStatus;
+	currentUserComputersStatus: DirectoryProjectionStatus;
 	currentUserId: string;
 	documents: readonly DirectoryProfileReportDocument[];
 	documentsStatus: DirectoryDocumentsStatus;
@@ -134,6 +136,9 @@ export function buildOrganizationHumanProfileRows(input: {
 			const humanProfile = member.humanProfile;
 			const isCurrentUser = member.user.id === input.currentUserId;
 			const agentProfiles = agentProfilesByOwner.get(member.user.id) ?? [];
+			const computerGroup = input.computerGroups.find(
+				(group) => group.ownerUserId === member.user.id
+			);
 			return {
 				agentProfiles,
 				agentProfilesPath: resolveAgentProfilesPath({
@@ -142,12 +147,13 @@ export function buildOrganizationHumanProfileRows(input: {
 				}),
 				avatarImageUrl: member.user.image,
 				canEdit: isCurrentUser && humanProfile?.status === "active",
-				computer: resolveHumanProfileComputer({
-					computers: input.computers,
+				computer: resolveHumanProfileComputerGroup({
+					computerGroup,
 					isCurrentUser,
 					orgSlug: input.orgSlug,
-					status: input.computersStatus,
-					userId: member.user.id,
+					status: isCurrentUser
+						? input.currentUserComputersStatus
+						: input.computersStatus,
 				}),
 				identityAccounts: resolveIdentityAccounts({
 					canManageConnectedAccounts: input.canManageConnectedAccounts,
@@ -442,9 +448,55 @@ function resolveHumanProfileComputer(input: {
 		input.computers?.computers.filter(
 			(computer) => computer.ownerUserId === input.userId
 		) ?? [];
+	return resolveHumanProfileComputerRecords({
+		computers: computers.map((computer) => ({
+			routeId: input.isCurrentUser
+				? computer.computerId
+				: `computer:${computer.computerId}`,
+			serviceState: computer.serviceState,
+		})),
+		isCurrentUser: input.isCurrentUser,
+		orgSlug: input.orgSlug,
+		status: input.status,
+	});
+}
+
+function resolveHumanProfileComputerGroup(input: {
+	computerGroup: OrganizationComputerGroup | undefined;
+	isCurrentUser: boolean;
+	orgSlug: string;
+	status: DirectoryProjectionStatus;
+}): DirectoryHumanProfileComputer {
+	return resolveHumanProfileComputerRecords({
+		computers: (input.computerGroup?.computers ?? []).map((computer) => ({
+			routeId: computer.routeId,
+			serviceState:
+				computer.serviceState ??
+				(computer.ownedComputer?.connectionStatus === "connected"
+					? "connected"
+					: "unknown"),
+		})),
+		isCurrentUser: input.isCurrentUser,
+		orgSlug: input.orgSlug,
+		status: input.status,
+	});
+}
+
+type HumanProfileComputerRecord = {
+	routeId: string;
+	serviceState: "connected" | "needs_attention" | "not_connected" | "unknown";
+};
+
+function resolveHumanProfileComputerRecords(input: {
+	computers: readonly HumanProfileComputerRecord[];
+	isCurrentUser: boolean;
+	orgSlug: string;
+	status: DirectoryProjectionStatus;
+}): DirectoryHumanProfileComputer {
+	const computers = input.computers;
 	if (input.status === "loading") {
 		return {
-			count: 0,
+			count: computers.length,
 			label: "Checking computer…",
 			path: null,
 			state: "checking",
@@ -454,7 +506,7 @@ function resolveHumanProfileComputer(input: {
 		return {
 			count: computers.length,
 			label: "Computer status unavailable",
-			path: resolveComputerPath({ ...input, computers }),
+			path: resolveComputerRecordsPath(input),
 			state: "unknown",
 		};
 	}
@@ -465,7 +517,7 @@ function resolveHumanProfileComputer(input: {
 		return {
 			count: computers.length,
 			label: formatComputerCount(connectedCount, "connected"),
-			path: resolveComputerPath({ ...input, computers }),
+			path: resolveComputerRecordsPath(input),
 			state: "connected",
 		};
 	}
@@ -476,7 +528,7 @@ function resolveHumanProfileComputer(input: {
 		return {
 			count: computers.length,
 			label: formatComputerCount(needsAttentionCount, "needs attention"),
-			path: resolveComputerPath({ ...input, computers }),
+			path: resolveComputerRecordsPath(input),
 			state: "needs_attention",
 		};
 	}
@@ -484,7 +536,7 @@ function resolveHumanProfileComputer(input: {
 		return {
 			count: computers.length,
 			label: "Computer status unavailable",
-			path: resolveComputerPath({ ...input, computers }),
+			path: resolveComputerRecordsPath(input),
 			state: "unknown",
 		};
 	}
@@ -492,20 +544,20 @@ function resolveHumanProfileComputer(input: {
 		return {
 			count: computers.length,
 			label: "Computer offline",
-			path: resolveComputerPath({ ...input, computers }),
+			path: resolveComputerRecordsPath(input),
 			state: "not_connected",
 		};
 	}
 	return {
 		count: 0,
 		label: input.isCurrentUser ? "Connect a computer" : "No computer connected",
-		path: resolveComputerPath({ ...input, computers }),
+		path: resolveComputerRecordsPath(input),
 		state: "not_connected",
 	};
 }
 
-function resolveComputerPath(input: {
-	computers: OrganizationComputersResponse["computers"];
+function resolveComputerRecordsPath(input: {
+	computers: readonly HumanProfileComputerRecord[];
 	isCurrentUser: boolean;
 	orgSlug: string;
 }): string | null {
@@ -522,9 +574,7 @@ function resolveComputerPath(input: {
 		return null;
 	}
 	return buildOrganizationComputerPath({
-		deviceId: input.isCurrentUser
-			? computer.computerId
-			: `computer:${computer.computerId}`,
+		deviceId: computer.routeId,
 		orgSlug: input.orgSlug,
 	});
 }

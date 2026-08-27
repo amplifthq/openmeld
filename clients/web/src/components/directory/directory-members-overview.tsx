@@ -426,8 +426,17 @@ function useDirectoryMembersOverviewModel(
 		isSuccess: documentsQuery.isSuccess,
 	});
 	const computersStatus = resolveDirectoryProjectionStatus(computersQuery);
+	const currentUserComputersStatus = resolveDirectoryProjectionStatus(
+		input.recovery.localRuntimesQuery
+	);
 	const messageChannelsStatus =
 		resolveDirectoryProjectionStatus(messageChannelsQuery);
+	const computerGroups = resolveOrganizationComputerGroups({
+		currentUserId: input.currentUserId,
+		directory: input.directoryQuery.data ?? null,
+		organizationComputers: computersQuery.data ?? null,
+		ownedComputers: input.recovery.localRuntimesQuery.data?.localRuntimes ?? [],
+	});
 	const memberRows = isPersonalWorkspace
 		? buildPersonalHumanProfileRows({
 				account: input.account,
@@ -444,8 +453,9 @@ function useDirectoryMembersOverviewModel(
 				agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
 				canManageConnectedAccounts,
 				canManageMessageChannels,
-				computers: computersQuery.data ?? null,
+				computerGroups,
 				computersStatus,
+				currentUserComputersStatus,
 				currentUserId: input.currentUserId,
 				documents: documentsQuery.data?.documents ?? [],
 				documentsStatus,
@@ -454,12 +464,6 @@ function useDirectoryMembersOverviewModel(
 				members: input.directoryQuery.data?.members ?? [],
 				orgSlug: input.currentOrganization.slug,
 			});
-	const computerGroups = resolveOrganizationComputerGroups({
-		currentUserId: input.currentUserId,
-		directory: input.directoryQuery.data ?? null,
-		organizationComputers: computersQuery.data ?? null,
-		ownedComputers: input.recovery.localRuntimesQuery.data?.localRuntimes ?? [],
-	});
 	const profilesArePending = isPersonalWorkspace
 		? personalProfilesQuery.isPending
 		: input.directoryQuery.isPending;

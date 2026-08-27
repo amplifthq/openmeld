@@ -301,6 +301,32 @@ describe("DirectoryMembersOverview", () => {
 		});
 	});
 
+	it("uses the same current-member Computer projection in the sidebar and detail", async () => {
+		renderOverview({
+			recovery: buildRecovery({
+				currentDeviceId: "device-current",
+				deviceDisplayName: "Felix's MacBook Pro",
+			}),
+		});
+		await screen.findByTestId("people-workspace");
+
+		const props = workspacePropsMock.mock.lastCall?.[0];
+		const currentMember = props?.members.find(
+			(member: { userId: string }) => member.userId === "user-current"
+		);
+		const currentGroup = props?.computerGroups.find(
+			(group: { ownerUserId: string }) => group.ownerUserId === "user-current"
+		);
+
+		expect(currentGroup?.computers).toHaveLength(1);
+		expect(currentMember?.computer).toMatchObject({
+			count: 1,
+			label: "Computer connected",
+			path: "/o/acme/computers/device-current",
+			state: "connected",
+		});
+	});
+
 	it("turns Invite Members into organization guidance in a personal workspace", async () => {
 		renderOverview({ isPersonal: true });
 
@@ -313,7 +339,12 @@ describe("DirectoryMembersOverview", () => {
 	});
 });
 
-function renderOverview(input: { isPersonal?: boolean } = {}) {
+function renderOverview(
+	input: {
+		isPersonal?: boolean;
+		recovery?: Parameters<typeof DirectoryMembersOverview>[0]["recovery"];
+	} = {}
+) {
 	const queryClient = createTestQueryClient();
 	queryClient.setQueryData(startQueryKeys.profileCapabilities, {
 		additionalHumanProfileCreationEnabled: true,
@@ -342,7 +373,7 @@ function renderOverview(input: { isPersonal?: boolean } = {}) {
 				}}
 				focusProfileId={null}
 				onCreateProfile={vi.fn()}
-				recovery={buildRecovery()}
+				recovery={input.recovery ?? buildRecovery()}
 				storageScope="user-current"
 			/>
 		</TestQueryClientProvider>
@@ -422,9 +453,20 @@ function buildHumanProfile(): AuthProfileView {
 	};
 }
 
-function buildRecovery(): Parameters<
-	typeof DirectoryMembersOverview
->[0]["recovery"] {
+function buildRecovery(
+	input: { currentDeviceId?: string; deviceDisplayName?: string } = {}
+): Parameters<typeof DirectoryMembersOverview>[0]["recovery"] {
+	const localRuntimes = input.currentDeviceId
+		? [
+				{
+					connectionStatus: "connected",
+					deviceDisplayName: input.deviceDisplayName,
+					deviceId: input.currentDeviceId,
+					executionTargets: [],
+					isCurrent: true,
+				},
+			]
+		: [];
 	return {
 		currentLocalRuntimeReplyReadinessQuery: {
 			data: null,
@@ -432,8 +474,13 @@ function buildRecovery(): Parameters<
 			isFetching: false,
 		},
 		localRuntimesQuery: {
-			data: { currentDeviceId: null, localRuntimes: [] },
+			data: {
+				currentDeviceId: input.currentDeviceId ?? null,
+				localRuntimes,
+			},
+			isError: false,
 			isPending: false,
+			isSuccess: true,
 		},
 	} as unknown as Parameters<typeof DirectoryMembersOverview>[0]["recovery"];
 }
