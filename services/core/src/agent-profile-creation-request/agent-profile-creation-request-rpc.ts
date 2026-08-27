@@ -1,5 +1,7 @@
+import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import {
   agentProfileCreationRequestMutationResponseSchema,
+  centerAgentCreateConfiguredAgentProfileResponseSchema,
   createAgentProfileCreationRequestBodySchema,
   createAgentProfileCreationRequestResponseSchema,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
@@ -15,7 +17,9 @@ import type {
   AgentProfileCreationApprovalPolicy,
   AgentProfileCreationConfiguration,
   AgentProfileCreationRequestMutationResponse,
+  AgentProfileCreationRequestStatusReason,
   AgentProfileCreationSessionStrategy,
+  CenterAgentCreateConfiguredAgentProfileResponse,
   CenterAgentOnBehalfOfInput,
   CreateAgentProfileCreationRequestBody,
   CreateAgentProfileCreationRequestResponse,
@@ -31,17 +35,21 @@ import { rememberAgentProfileCreationDefaults } from "../agent-profile-binding/a
 import { projectCenterAgentLocalAgentConnectionCandidates } from "../center-agent/application/product-operations";
 import { resolveCenterAgentAuditAttribution } from "../center-agent/center-agent-audit";
 import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
+import { readModelCatalog } from "../config/model-catalog";
 import { forkRuntimeTransportAgentSession } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import { type CoreBindings, identityDb } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
+  type CenterAgentCreateConfiguredAgentProfileInput,
   rpcAddOrganizationDirectoryProfilesToSpace,
   rpcAuthorizeAgentProfileBindingForOrganization,
+  rpcCenterAgentCheckAgentProfileReadiness,
   rpcEnsureAgentProfilePrimaryBinding,
   rpcListLocalRuntimes,
   rpcSetCurrentAgentProfileWorkspace,
   rpcUpdateAgentProfileDefaultProject,
 } from "../rpc/methods";
+import { evaluateCenterAgentCreationModelGuard } from "./agent-profile-creation-model-guard";
 import { runAgentProfileCreationPostBindingFollowUps } from "./agent-profile-creation-post-binding-follow-ups";
 import { createD1AgentProfileCreationRequestInboxProjectionService } from "./agent-profile-creation-request-inbox-projection";
 import { createD1AgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
@@ -206,12 +214,83 @@ async function resolveCenterAgentProfileCreationRequestConfiguration(input: {
       status: 409,
     });
   }
+  assertRequestedModelCompatibility({
+    configuration:
+      input.configuration ?? DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+    deviceId: candidate.deviceId,
+    localRuntimes,
+    target: {
+      agentControllerRef: candidate.agentControllerRef,
+      deviceDisplayName: candidate.deviceDisplayName,
+    },
+  });
   return {
     ...(input.configuration ?? DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION),
     agentControllerRef: candidate.agentControllerRef,
     localAgentConnectionCandidateId: candidate.candidateId,
     targetComputerId: candidate.deviceId,
   };
+}
+
+/**
+ * Admission-time ACI model precheck shared by every Agent Profile creation
+ * entry. Blocks only explicit negative compatibility facts; missing or
+ * unknown evidence must never block a request.
+ */
+function assertRequestedModelCompatibility(input: {
+  configuration: AgentProfileCreationConfiguration;
+  deviceId: string;
+  localRuntimes: Awaited<ReturnType<typeof rpcListLocalRuntimes>>;
+  target: {
+    agentControllerRef: string;
+    deviceDisplayName: string;
+  };
+}): void {
+  const modelId = input.configuration.modelId ?? null;
+  if (!modelId) {
+    return;
+  }
+  const parsedRef = (() => {
+    try {
+      return parseAgentControllerRef(input.target.agentControllerRef);
+    } catch {
+      return null;
+    }
+  })();
+  if (!parsedRef) {
+    return;
+  }
+  const capability = input.localRuntimes.localRuntimes
+    .find((computer) =>
+      computer.executionTargets.some(
+        (target) => target.deviceId === input.deviceId
+      )
+    )
+    ?.executionTargets.flatMap((target) => target.capabilities)
+    .find(
+      (candidateCapability) =>
+        candidateCapability.agentControllerRef ===
+        input.target.agentControllerRef
+    );
+  const controllerInterface = capability?.agentControllerInterface ?? null;
+  const guard = evaluateCenterAgentCreationModelGuard({
+    catalogControllers: readModelCatalog().agentControllers,
+    controllerId: controllerInterface?.controllerId ?? parsedRef.id,
+    controllerInterfaceVersion: controllerInterface?.version ?? null,
+    modelId,
+    reportedModelIds:
+      controllerInterface?.models.flatMap((model) =>
+        model.id ? [model.id] : []
+      ) ?? null,
+  });
+  if (!guard) {
+    return;
+  }
+  throw createCoreRpcHttpError({
+    code: guard.code,
+    reason: guard.reason,
+    status: 409,
+  });
 }
 
 export async function rpcCenterAgentListAgentProfileCreationRequests(
@@ -1090,4 +1169,158 @@ function translateDomainError(error: unknown) {
     });
   }
   return error;
+}
+
+/**
+ * Compatibility shim for the pre-Creation-Request "create configured Agent
+ * Profile" Center Agent RPC. It exists so Workers deployed before the unified
+ * creation contract still get state-machine semantics; every current model-
+ * visible surface uses openmeld_create_agent_profile_request instead. The
+ * call is forwarded into the same Creation Request pipeline (request,
+ * approval, admission model precheck, execution, recovery) as the Web, CLI,
+ * and local-agent entries.
+ */
+type CreateRequestShimReadiness = Awaited<
+  ReturnType<typeof rpcCenterAgentCheckAgentProfileReadiness>
+> | null;
+
+export async function rpcCenterAgentCreateConfiguredAgentProfile(
+  env: CoreBindings,
+  input: CenterAgentCreateConfiguredAgentProfileInput
+): Promise<CenterAgentCreateConfiguredAgentProfileResponse> {
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: requireContext(input.context),
+    env,
+  });
+  const onBehalfOfProfileId = input.onBehalfOf?.profileId ?? null;
+  if (!onBehalfOfProfileId) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      reason:
+        "Agent Profile creation requires a represented Organization member.",
+      code: "agent_profile_creation_request.represented_member_required",
+    });
+  }
+  const attribution = await resolveCenterAgentAuditAttribution({
+    authorization,
+    onBehalfOfProfileId,
+  });
+  const representedUserId = attribution.onBehalfOf?.userId ?? null;
+  if (!representedUserId) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      reason:
+        "The represented Organization member could not be resolved for Agent Profile creation.",
+      code: "agent_profile_creation_request.represented_member_unresolved",
+    });
+  }
+  const organizationId = authorization.activeOrganization.organizationId;
+  const response = await rpcCreateAgentProfileCreationRequest(env, {
+    configuration: resolveUnifiedCreationRequestConfiguration(input),
+    context: {
+      ...authorization.context,
+      actorContext: {
+        ...authorization.context.actorContext,
+        callerPrincipalId: representedUserId,
+        ownerUserId: representedUserId,
+      },
+    },
+    idempotencyKey: await buildConfiguredShimIdempotencyKey({
+      configuration: {
+        defaultProjectId: input.configuration?.defaultProjectId ?? null,
+        modelId: input.modelId ?? input.configuration?.modelId ?? null,
+        profileName: input.profileName,
+        spaceId: input.spaceId,
+      },
+      organizationId,
+    }),
+    nativeSessionId: null,
+    organizationId,
+    profileName: input.profileName,
+    requestedSpaceId: input.spaceId,
+    sessionStrategy: "new",
+    source: "center_agent",
+    targetOwnerUserId: representedUserId,
+  });
+
+  const request = response.request;
+  const completed =
+    request.status === "completed" && request.createdAgentProfileId !== null;
+  let readiness: CreateRequestShimReadiness | null = null;
+  if (completed) {
+    readiness = await rpcCenterAgentCheckAgentProfileReadiness(env, {
+      agentProfileId: request.createdAgentProfileId ?? "",
+      context: authorization.context,
+    }).catch(() => null);
+  }
+  return centerAgentCreateConfiguredAgentProfileResponseSchema.parse({
+    ...(completed
+      ? { agentProfileId: request.createdAgentProfileId ?? undefined }
+      : {}),
+    canReply: Boolean(readiness?.canReply),
+    ...(readiness ? { readiness } : {}),
+    organizationId,
+    spaceId: input.spaceId,
+    status: completed ? ("completed" as const) : ("blocked" as const),
+    steps: [
+      {
+        message:
+          CONFIGURED_PROFILE_STATUS_STEP_COPY[request.statusReason] ??
+          `Agent Profile creation request is ${request.status}.`,
+        name: "create_agent_profile_request",
+        status: completed ? ("completed" as const) : ("blocked" as const),
+      },
+    ],
+  });
+}
+
+const CONFIGURED_PROFILE_STATUS_STEP_COPY: Partial<
+  Record<AgentProfileCreationRequestStatusReason, string>
+> = {
+  approval_required:
+    "Waiting for the represented member to approve this creation request.",
+  target_declined: "The requested member declined this creation request.",
+  requester_cancelled: "This Agent Profile creation request was cancelled.",
+  target_policy_denied:
+    "The represented member's approval policy denied this request.",
+};
+
+function resolveUnifiedCreationRequestConfiguration(
+  input: CenterAgentCreateConfiguredAgentProfileInput
+): AgentProfileCreationConfiguration {
+  const selection = input.configuration ?? null;
+  return {
+    ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+    agentControllerCollaborationMode:
+      input.agentControllerCollaborationMode ??
+      selection?.agentControllerCollaborationMode ??
+      null,
+    agentControllerPermissionMode:
+      input.agentControllerPermissionMode ??
+      selection?.agentControllerPermissionMode ??
+      null,
+    defaultProjectId: selection?.defaultProjectId ?? null,
+    modelId: input.modelId ?? selection?.modelId ?? null,
+    openCodePermission:
+      input.openCodePermission ?? selection?.openCodePermission ?? null,
+    reasoningLevel: input.reasoningLevel ?? selection?.reasoningLevel ?? null,
+  };
+}
+
+async function buildConfiguredShimIdempotencyKey(input: {
+  configuration: Record<string, unknown>;
+  organizationId: string;
+}): Promise<string> {
+  const payload = JSON.stringify({
+    ...input,
+    shim: "center-agent-configured-profile",
+  });
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(payload)
+  );
+  const fingerprint = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+  return `center-agent:configured-profile:${fingerprint}`;
 }

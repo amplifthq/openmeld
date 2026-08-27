@@ -33,7 +33,6 @@ import {
   centerAgentCheckAgentProfileReadinessResponseSchema,
   centerAgentConnectAgentProfileToLocalAgentResponseSchema,
   centerAgentCreateAgentProfileResponseSchema,
-  centerAgentCreateConfiguredAgentProfileResponseSchema,
   centerAgentCreateOrganizationInviteLinkResponseSchema,
   centerAgentCreateProjectToolResponseSchema,
   centerAgentCreateSpaceResponseSchema,
@@ -1365,7 +1364,6 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_connect_agent_profile_to_local_agent",
   "openmeld_update_agent_profile_runtime_settings",
   "openmeld_check_agent_profile_readiness",
-  "openmeld_create_configured_agent_profile",
   "openmeld_add_members_to_space",
   "openmeld_add_agent_profiles_to_space",
   "openmeld_remove_agent_profiles_from_space",
@@ -4638,51 +4636,6 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         );
         return centerAgentCheckAgentProfileReadinessResponseSchema.parse(
           await rpc({ agentProfileId: payload.agentProfileId, context })
-        );
-      },
-    }),
-    toolDefinition({
-      name: "openmeld_create_configured_agent_profile",
-      description:
-        "Compatibility only for an older self-owned create-and-add-to-Space flow. Do not use it for new Agent Profile creation when openmeld_create_agent_profile_request is available; the request tool is the shared Web, CLI, Local Agent, and Center Agent creation contract and also supports creating without a Space.",
-      input: object({
-        agentControllerCollaborationMode: collaborationModeSchema,
-        agentControllerPermissionMode: permissionModeSchema,
-        candidateId: nonEmptyStringSchema,
-        defaultProjectId: optionalNonEmptyStringSchema,
-        modelId: optionalNonEmptyStringSchema,
-        openCodePermission: openCodePermissionSchema,
-        profileName: nonEmptyStringSchema,
-        reasoningLevel: optionalNonEmptyStringSchema,
-        spaceId: nonEmptyStringSchema,
-      }),
-      execute: async (payload) => {
-        const toolContext = await buildRepresentedMemberAttributionToolContext({
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolName: "openmeld_create_configured_agent_profile",
-        });
-        const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentCreateConfiguredAgentProfile,
-          "centerAgentCreateConfiguredAgentProfile"
-        );
-        return centerAgentCreateConfiguredAgentProfileResponseSchema.parse(
-          await rpc({
-            candidateId: payload.candidateId,
-            configuration: {
-              agentControllerCollaborationMode:
-                payload.agentControllerCollaborationMode ?? null,
-              agentControllerPermissionMode:
-                payload.agentControllerPermissionMode ?? null,
-              defaultProjectId: payload.defaultProjectId ?? null,
-              modelId: payload.modelId ?? null,
-              openCodePermission: payload.openCodePermission ?? null,
-              reasoningLevel: payload.reasoningLevel ?? null,
-            },
-            profileName: payload.profileName,
-            spaceId: payload.spaceId,
-            ...toolContext,
-          })
         );
       },
     }),

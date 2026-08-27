@@ -30,7 +30,6 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_connect_agent_profile_to_local_agent", "agent_profile.connect"],
   ["openmeld_create_agent_profile", "agent_profile.create"],
   ["openmeld_create_agent_profile_request", "agent_profile.create"],
-  ["openmeld_create_configured_agent_profile", "agent_profile.configure"],
   ["openmeld_create_organization_invite_link", "organization.invite.create"],
   ["openmeld_create_project", "project.create"],
   ["openmeld_create_routine", "routine.create"],
@@ -234,10 +233,6 @@ const SUBJECT_RULE_BY_TOOL_NAME = new Map<
   ],
   [
     "openmeld_create_agent_profile_request",
-    { fields: ["profileName"], kind: "agent_profile" },
-  ],
-  [
-    "openmeld_create_configured_agent_profile",
     { fields: ["profileName"], kind: "agent_profile" },
   ],
   ["openmeld_create_project", { fields: ["name"], kind: "project" }],
