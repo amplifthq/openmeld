@@ -1,5 +1,6 @@
 import {
   projectObservabilityWakeCorrelation,
+  projectSpaceDispatchTraceFinalVisibleOutcome,
   projectSpaceDispatchTraceRootCause,
 } from "@openmeld/schemas";
 import type {
@@ -20,7 +21,6 @@ import type {
   WakeTraceWaterfallSummaryStatus,
 } from "@openmeld/schemas/types";
 import type { OpenMeldDaemonDispatchOutboxRecoveryCandidate } from "../infrastructure/outbox/dispatch-outbox-repo";
-import { projectSpaceDispatchTraceFinalVisibleOutcome } from "../rules/dispatch/space-final-outcome";
 import {
   type AgentOriginLineageScope,
   canViewAgentLocalOriginFacts,
