@@ -830,6 +830,26 @@ describe("runtime transport schema", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("rejects hosted admission recovery metadata at the workstation boundary", () => {
+    const parsed = runtimeTransportDeliverDispatchRequestSchema.safeParse({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      dispatchId: "dispatch-1",
+      attemptId: "attempt-1",
+      ownerUserId: "owner-1",
+      profileId: "agent-1",
+      daemonSessionId: "session-1",
+      connectionGeneration: 1,
+      leaseEpoch: 2,
+      deliveryRecoveryReason: "hosted_admission_incomplete",
+      payload: {
+        ...createDeliverDispatchPayload(),
+        deliveryRecoveryReason: "hosted_admission_incomplete",
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   it("rejects deliverDispatch payload with unknown fields", () => {
     const parsed = runtimeTransportDeliverDispatchPayloadSchema.safeParse({
       ...createDeliverDispatchPayload(),

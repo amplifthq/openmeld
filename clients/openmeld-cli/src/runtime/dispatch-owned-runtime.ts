@@ -17,6 +17,7 @@ import {
   OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV,
   OPENMELD_DISPATCH_RUNTIME_MODE_ENV,
   OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV,
+  OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH_ENV,
   OPENMELD_USER_FACING_CLI_COMMAND_ENV,
 } from "./dispatch-runtime-env";
 import { OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV } from "./dispatch-space-action-context";
@@ -59,6 +60,9 @@ export function buildDispatchOwnedRuntimeEnv(input: {
     spaceActionContextPath: input.spaceActionContextPath,
     targetProfileId: input.targetProfileId,
   });
+  const actionCommand = resolveDispatchOwnedRuntimeActionCliEntryCommand({
+    env: input.env,
+  });
   return {
     ...(input.env ?? {}),
     PATH: prependPathEntry({
@@ -68,10 +72,8 @@ export function buildDispatchOwnedRuntimeEnv(input: {
     [OPENMELD_DISPATCH_RUNTIME_MODE_ENV]: DISPATCH_OWNED_RUNTIME_MODE,
     [OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV]: input.dispatchId,
     [OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV]: input.targetProfileId,
-    [OPENMELD_USER_FACING_CLI_COMMAND_ENV]:
-      resolveDispatchOwnedRuntimeActionCliEntryCommand({
-        env: input.env,
-      }),
+    [OPENMELD_USER_FACING_CLI_COMMAND_ENV]: actionCommand,
+    [OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH_ENV]: join(shimDir, actionCommand),
     [OPENMELD_ENV_PRESET_ENV]: resolveDispatchOwnedRuntimeEnvPreset({
       env: input.env,
     }),

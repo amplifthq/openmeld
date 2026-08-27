@@ -64,6 +64,7 @@ describe("openMeldDaemonDispatchQueueMessageSchema", () => {
         targetBindingState: "bound",
         targetBindingEnabled: true,
       },
+      deliveryRecoveryReason: "hosted_admission_incomplete",
       idempotencyKey: "evt-1::agt-1",
       enqueuedAtMs: Date.now(),
     });
@@ -77,6 +78,9 @@ describe("openMeldDaemonDispatchQueueMessageSchema", () => {
       id: "owner-1",
       kind: "owner_account",
     });
+    expect(parsed.data.deliveryRecoveryReason).toBe(
+      "hosted_admission_incomplete"
+    );
     expect(
       parsed.data.sourceSignalSnapshot?.centerAgentInteractionSource
     ).toEqual({

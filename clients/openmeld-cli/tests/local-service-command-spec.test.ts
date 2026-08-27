@@ -14,6 +14,7 @@ const ENV_KEYS = [
   "OPENMELD_AUTH_URL",
   "OPENMELD_HOME",
   "OPENMELD_USER_FACING_CLI_COMMAND",
+  "OPENMELD_CLI_BINARY_MANIFEST_URL",
 ] as const;
 const DAEMON_SERVICE_LAUNCHER_PATH_PATTERN = /daemon-service-launcher\.mjs$/;
 const PROD_SERVICE_WRAPPER_PATH_PATTERN = /\/OpenMeld Service$/;
@@ -160,6 +161,8 @@ describe("local service system service command spec", () => {
     process.env.OPENMELD_AUTH_URL = "https://auth-preview.openmeld.test";
     process.env.OPENMELD_DEV_MODE = "1";
     process.env.OPENMELD_HOME = "/tmp/openmeld-fresh-home";
+    process.env.OPENMELD_CLI_BINARY_MANIFEST_URL =
+      "https://staging.openmeld.ai/cli/manifest.json";
 
     const spec = buildDaemonSystemServiceCommandSpec({
       controller: "launchd",
@@ -174,6 +177,9 @@ describe("local service system service command spec", () => {
     );
     expect(spec.env.OPENMELD_AUTH_URL).toBe(
       "https://auth-preview.openmeld.test"
+    );
+    expect(spec.env.OPENMELD_CLI_BINARY_MANIFEST_URL).toBe(
+      "https://staging.openmeld.ai/cli/manifest.json"
     );
   });
 });

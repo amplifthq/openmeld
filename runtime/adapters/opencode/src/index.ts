@@ -10,12 +10,14 @@ import {
   type AdapterTransportMode,
   bridgeAgentControllerConversationRef,
   buildAdapterCancelRequest,
+  buildDispatchSpaceActionMcpToolIds,
   buildExecutableLaunchContract,
   createSharedControlShell,
   createSharedDispatchShell,
   type RuntimeAdapter,
   type RuntimeAgentControllerLaunchContract,
   resolveBuiltinAdapterConversationBridgeSpec,
+  resolveDispatchSpaceActionMcpServer,
   type WaitForMs,
 } from "@openmeld/adapter-core";
 import {
@@ -90,6 +92,7 @@ export {
 const OPENCODE_CONVERSATION_BRIDGE_SPEC =
   resolveBuiltinAdapterConversationBridgeSpec("opencode");
 const OPENCODE_PERMISSION_ENV = "OPENCODE_PERMISSION";
+const OPENCODE_CONFIG_CONTENT_ENV = "OPENCODE_CONFIG_CONTENT";
 
 export const createOpenCodeAdapter = (
   options: OpenCodeAdapterOptions
@@ -194,13 +197,81 @@ const resolveDefaultOpenCodeInvoke = (
 function buildOpenCodeEnv(
   input: Pick<AdapterDispatchRequest, "env" | "openCodePermission">
 ): Record<string, string | undefined> | undefined {
-  if (!input.openCodePermission) {
-    return input.env;
+  const spaceActionMcpServer = resolveDispatchSpaceActionMcpServer(input.env);
+  if (!spaceActionMcpServer) {
+    if (!input.openCodePermission) {
+      return input.env;
+    }
+    return {
+      ...(input.env ?? {}),
+      [OPENCODE_PERMISSION_ENV]: JSON.stringify(input.openCodePermission),
+    };
   }
+
+  const toolIds = buildDispatchSpaceActionMcpToolIds("_");
+  const config = parseOpenCodeConfigContent(
+    input.env?.[OPENCODE_CONFIG_CONTENT_ENV]
+  );
+  const mcp = readRecord(config.mcp);
+  if (mcp[spaceActionMcpServer.id] !== undefined) {
+    throw new Error(
+      "OpenMeld cannot start its dispatch Space Action tool because the reserved OpenCode MCP server name is already configured."
+    );
+  }
+  const tools = readRecord(config.tools);
+  const permission = {
+    ...(input.openCodePermission ?? {}),
+    ...Object.fromEntries(toolIds.map((toolId) => [toolId, "allow"])),
+  };
+
   return {
     ...(input.env ?? {}),
-    [OPENCODE_PERMISSION_ENV]: JSON.stringify(input.openCodePermission),
+    [OPENCODE_CONFIG_CONTENT_ENV]: JSON.stringify({
+      ...config,
+      mcp: {
+        ...mcp,
+        [spaceActionMcpServer.id]: {
+          command: [
+            spaceActionMcpServer.commandPath,
+            ...spaceActionMcpServer.args,
+          ],
+          enabled: true,
+          environment: spaceActionMcpServer.env,
+          type: "local",
+        },
+      },
+      tools: {
+        ...tools,
+        ...Object.fromEntries(toolIds.map((toolId) => [toolId, true])),
+      },
+    }),
+    [OPENCODE_PERMISSION_ENV]: JSON.stringify(permission),
   };
+}
+
+function parseOpenCodeConfigContent(value: unknown): Record<string, unknown> {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) {
+    return {};
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(normalized);
+  } catch (error) {
+    throw new Error("OpenCode process config is not valid JSON.", {
+      cause: error,
+    });
+  }
+  if (!(parsed && typeof parsed === "object" && !Array.isArray(parsed))) {
+    throw new Error("OpenCode process config must be a JSON object.");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 const resolveOpenCodeDispatchLaunchContract = async (input: {

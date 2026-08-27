@@ -4117,6 +4117,115 @@ describe("handleDispatchQueueBatch", () => {
     infoSpy.mockRestore();
   });
 
+  it("resumes a deduped hosted admission on its original dispatch attempt", async () => {
+    const executionAttemptId = "attempt-hosted-admission-recovery-1";
+    vi.mocked(claimDispatchAttempt).mockResolvedValueOnce({
+      hostedAdmissionRecoveryAttemptId: executionAttemptId,
+      hostedAdmissionRecoveryAttemptNo: 1,
+      status: "deduped",
+    });
+    const submitNativeDelivery = vi
+      .spyOn(
+        remoteAgentNativeDeliveryService,
+        "submitRemoteAgentNativeDelivery"
+      )
+      .mockResolvedValue({
+        shouldAck: true,
+        status: "submitted",
+      });
+    const targetProfileId = normalizeAgentProfileIdForTest(
+      "agt-hosted-admission-recovery-1"
+    );
+    const message = createQueueMessage(
+      {
+        ...createDispatchBody({
+          dispatchId: "dispatch-hosted-admission-recovery-1",
+          sourceEventId: "evt-hosted-admission-recovery-1",
+          sourceText: "Continue the interrupted request",
+          targetProfileId,
+          visitedProfileIdsHash: "stable32:hosted-admission-recovery-1",
+        }),
+        deliveryRecoveryReason: "hosted_admission_incomplete",
+      },
+      2
+    );
+
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(
+        createOpenMeldDbWithProfileRow({
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          bindingId: "binding-hosted-center-agent",
+          controllerEnabled: 1,
+          hostedRuntimeIdentityJson: JSON.stringify(
+            HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+          ),
+          modelId: "deepseek/deepseek-v4-flash",
+          profileKind: "agent",
+          profileStatus: "active",
+          runtimeKind: "hosted_center_agent",
+          openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+        })
+      ),
+    });
+
+    expect(submitNativeDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionAttemptId,
+        message: expect.objectContaining({
+          deliveryRecoveryReason: "hosted_admission_incomplete",
+          dispatchId: "dispatch-hosted-admission-recovery-1",
+          targetProfileId,
+        }),
+      })
+    );
+    expect(markDispatchAttemptWaitingForResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptId: executionAttemptId,
+      })
+    );
+    expect(message.ack).toHaveBeenCalledOnce();
+    expect(message.retry).not.toHaveBeenCalled();
+  });
+
+  it("keeps hosted admission recovery metadata off the workstation transport", async () => {
+    vi.mocked(claimDispatchAttempt).mockResolvedValueOnce({
+      hostedAdmissionRecoveryAttemptId:
+        "attempt-hosted-admission-binding-change-1",
+      hostedAdmissionRecoveryAttemptNo: 1,
+      status: "deduped",
+    });
+    const message = createQueueMessage(
+      {
+        ...createDispatchBody({
+          dispatchId: "dispatch-hosted-admission-binding-change-1",
+          sourceEventId: "evt-hosted-admission-binding-change-1",
+          targetProfileId: "agt-hosted-admission-binding-change-1",
+          visitedProfileIdsHash: "stable32:hosted-admission-binding-change-1",
+        }),
+        deliveryRecoveryReason: "hosted_admission_incomplete",
+      },
+      2
+    );
+
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatch: expect.objectContaining({
+          payload: expect.not.objectContaining({
+            deliveryRecoveryReason: "hosted_admission_incomplete",
+          }),
+        }),
+      })
+    );
+  });
+
   it("retries RuntimeCoordinator trigger when durable authority is missing without re-delivering", async () => {
     const messageBody = createDispatchBody({
       dispatchId: "dispatch-rc-authority-missing-1",

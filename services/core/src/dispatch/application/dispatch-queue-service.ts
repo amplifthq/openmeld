@@ -1025,6 +1025,58 @@ const resolveDispatchTimingCollector = (
 ): SpaceBootstrapTimingCollector =>
   timing ?? createSpaceBootstrapTimingCollector();
 
+const resumeHostedAdmissionRecoveryClaim = (input: {
+  claimState: Awaited<ReturnType<typeof claimDispatchAttempt>>;
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  queueAttempt: number;
+}): Awaited<ReturnType<typeof claimDispatchAttempt>> => {
+  if (
+    input.claimState.status !== "deduped" ||
+    !input.claimState.hostedAdmissionRecoveryAttemptId ||
+    typeof input.claimState.hostedAdmissionRecoveryAttemptNo !== "number"
+  ) {
+    return input.claimState;
+  }
+  const resumedClaim = {
+    attemptId: input.claimState.hostedAdmissionRecoveryAttemptId,
+    attemptNo: input.claimState.hostedAdmissionRecoveryAttemptNo,
+    deliveryRecoveryReason: "hosted_admission_incomplete" as const,
+    replyingHintActive: false,
+    status: "claimed" as const,
+  };
+  console.info(
+    "[core.openMeldDaemon.dispatch_queue.hosted_admission_recovery_resumed]",
+    {
+      attemptId: resumedClaim.attemptId,
+      dispatchId: input.dispatchMessage.dispatchId,
+      idempotencyKey: input.dispatchMessage.idempotencyKey,
+      queueAttempt: input.queueAttempt,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+    }
+  );
+  return resumedClaim;
+};
+
+const removeHostedRecoveryReasonFromWorkstationDispatch = (
+  message: OpenMeldDaemonDispatchQueueMessage
+): OpenMeldDaemonDispatchQueueMessage => {
+  if (message.deliveryRecoveryReason !== "hosted_admission_incomplete") {
+    return message;
+  }
+  const {
+    deliveryRecoveryReason: _hostedAdmissionRecoveryReason,
+    ...workstationDispatchMessage
+  } = message;
+  console.info(
+    "[core.openMeldDaemon.dispatch_queue.hosted_admission_recovery_target_changed]",
+    {
+      dispatchId: workstationDispatchMessage.dispatchId,
+      targetProfileId: workstationDispatchMessage.targetProfileId,
+    }
+  );
+  return workstationDispatchMessage;
+};
+
 const processDispatchQueueMessageExecution = async (input: {
   captureAttempt?: (attempt: { attemptId: string; attemptNo: number }) => void;
   controllerKey: string;
@@ -1086,7 +1138,7 @@ const processDispatchQueueMessageExecution = async (input: {
     return preHeadFailurePublication;
   }
 
-  const claimState = await timing.measure(
+  let claimState = await timing.measure(
     {
       description: "Claim or correlate the durable dispatch attempt",
       name: "openmeld_dispatch_claim",
@@ -1107,6 +1159,11 @@ const processDispatchQueueMessageExecution = async (input: {
     sourceProfileName: input.dispatchMessage.sourceProfileNameSnapshot ?? null,
     sourceText: input.dispatchMessage.sourceSignalSnapshot?.text ?? null,
     handedOffAtMs: input.dispatchMessage.enqueuedAtMs,
+  });
+  claimState = resumeHostedAdmissionRecoveryClaim({
+    claimState,
+    dispatchMessage: input.dispatchMessage,
+    queueAttempt: input.queueAttempt,
   });
   if (claimState.status === "deduped") {
     const result = await handleDedupedDispatchClaim({
@@ -1257,6 +1314,10 @@ const processDispatchQueueMessageExecution = async (input: {
     logServerTiming();
     return result;
   }
+
+  effectiveDispatchMessage = removeHostedRecoveryReasonFromWorkstationDispatch(
+    effectiveDispatchMessage
+  );
 
   if (claimState.status === "continued") {
     const result = await scheduleContinuedDispatchWaitPhase({

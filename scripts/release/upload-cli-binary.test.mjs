@@ -28,6 +28,7 @@ const CAPTURED_MANIFEST = JSON.parse(
 );
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const SECURE_STORAGE_SMOKE_FAILURE_PATTERN = /secure storage smoke failed/u;
+const STOP_AFTER_BUILD_INPUT_PATTERN = /stop after build input/u;
 
 test("builds the captured stable CLI binary manifest shape", () => {
   const manifest = buildCliManifest({
@@ -63,6 +64,27 @@ test("builds the captured stable CLI binary manifest shape", () => {
       },
     },
   });
+});
+
+test("passes an isolated staging version into the binary build", async () => {
+  const calls = [];
+  const version = "0.3.122-staging.20260828001527123.30530093";
+  await assert.rejects(
+    async () =>
+      await import("./upload-cli-binary.mjs").then(({ uploadCliBinary }) =>
+        uploadCliBinary({
+          buildBinary: (input) => {
+            calls.push(input);
+            throw new Error("stop after build input");
+          },
+          version,
+        })
+      ),
+    STOP_AFTER_BUILD_INPUT_PATTERN
+  );
+  assert.deepEqual(calls, [
+    { outDir: undefined, platform: "darwin-arm64", version },
+  ]);
 });
 
 test("compresses the final signed CLI binary into a gzip transport artifact", () => {

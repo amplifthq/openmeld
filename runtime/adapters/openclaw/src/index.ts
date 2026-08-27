@@ -26,6 +26,7 @@ import {
 } from "./config/openclaw-runtime-config.js";
 import { invokeOpenClawWithSingleContextHeal as invokeOpenClawWithSingleContextHealLocal } from "./invoke/openclaw-invoke.js";
 import { invokeOpenClawGatewayTransport } from "./transport/openclaw-gateway-transport.js";
+import { withOpenClawDispatchSpaceActionPlugin } from "./transport/openclaw-space-action-plugin-config.js";
 
 export type OpenClawInvokeResult = {
   contextDelta?: AdapterDispatchContextDelta;
@@ -247,24 +248,36 @@ const resolveDefaultOpenClawInvoke = (
       dispatchEnvAgentId: input.env?.OPENMELD_DAEMON_RUNTIME_OPENCLAW_AGENT_ID,
       optionAgentId: options.openClawAgentId,
     });
-    const sessionKey = resolveOpenClawSessionKey(input);
-    if (sessionKey) {
-      return await invokeOpenClawGatewayPath({
-        input,
-        launchContract,
-        openClawAgentId,
-        openClawTimeoutMs,
-        openClawWorkdir,
-        sessionKey,
-      });
-    }
-    return await invokeOpenClawLocalCliPath({
-      input,
-      launchContract,
-      onProcessControlEvent,
-      openClawAgentId,
-      openClawTimeoutMs,
-      openClawWorkdir,
+    return await withOpenClawDispatchSpaceActionPlugin({
+      env: input.env,
+      run: async ({ active, env }) => {
+        const sessionKey = resolveOpenClawSessionKey(input);
+        const invokeInput: AdapterDispatchRequest = {
+          ...input,
+          env,
+          ...(active && sessionKey && !input.agentControllerConversationId
+            ? { agentControllerConversationId: sessionKey }
+            : {}),
+        };
+        if (sessionKey && !active) {
+          return await invokeOpenClawGatewayPath({
+            input: invokeInput,
+            launchContract,
+            openClawAgentId,
+            openClawTimeoutMs,
+            openClawWorkdir,
+            sessionKey,
+          });
+        }
+        return await invokeOpenClawLocalCliPath({
+          input: invokeInput,
+          launchContract,
+          onProcessControlEvent,
+          openClawAgentId,
+          openClawTimeoutMs,
+          openClawWorkdir,
+        });
+      },
     });
   };
 };

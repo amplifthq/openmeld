@@ -19,6 +19,7 @@ test("minifies release code while keeping function and class names for diagnosti
       bunTarget: "bun-darwin-arm64",
       entry: "/repo/clients/openmeld-cli/src/openmeld.ts",
       outFile: "/tmp/openmeld",
+      version: "0.3.122-staging.20260827160000.3053009",
     }),
     [
       "build",
@@ -27,6 +28,8 @@ test("minifies release code while keeping function and class names for diagnosti
       "--target=bun-darwin-arm64",
       "--define",
       '__OPENMELD_DISTRIBUTION__="binary"',
+      "--define",
+      '__OPENMELD_VERSION__="0.3.122-staging.20260827160000.3053009"',
       "--minify",
       "--keep-names",
       "--outfile",

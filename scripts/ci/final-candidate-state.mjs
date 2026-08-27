@@ -65,6 +65,53 @@ export function resolveCandidateState(input) {
   };
 }
 
+export function resolveMergeGroupState(input) {
+  const cwd = input.cwd ?? process.cwd();
+  fetchCurrentMain(cwd, input.repository);
+  const actualHeadSha = resolveCommit("HEAD", cwd);
+  const expectedHeadSha = input.expectedHeadSha ?? actualHeadSha;
+  const expectedBaseSha = input.expectedBaseSha;
+  if (!EXACT_SHA_PATTERN.test(String(expectedHeadSha ?? ""))) {
+    throw new Error(
+      "Merge-group Final Candidate requires --head to resolve to an exact SHA."
+    );
+  }
+  if (!EXACT_SHA_PATTERN.test(String(expectedBaseSha ?? ""))) {
+    throw new Error(
+      "Merge-group Final Candidate requires --base to resolve to an exact SHA."
+    );
+  }
+  resolveCommit(expectedBaseSha, cwd);
+  resolveCommit(expectedHeadSha, cwd);
+  const ancestry = spawnSync(
+    gitBinary,
+    ["merge-base", "--is-ancestor", expectedBaseSha, expectedHeadSha],
+    { cwd, encoding: "utf8", env: trustedLocalGitEnvironment() }
+  );
+  if (!(ancestry.status === 0 || ancestry.status === 1)) {
+    throw new Error(
+      `Could not verify merge-group ancestry: ${ancestry.stderr.trim()}`
+    );
+  }
+  return {
+    pullRequest: null,
+    snapshot: {
+      actualHeadSha,
+      baseIsAncestorOfHead: ancestry.status === 0,
+      currentMainSha: resolveCommit("refs/remotes/origin/main", cwd),
+      dirtyPaths: resolveDirtyPaths(cwd),
+      expectedBaseSha,
+      expectedHeadSha,
+      pullRequestBaseRef: null,
+      pullRequestBaseSha: null,
+      pullRequestDraft: null,
+      pullRequestHeadSha: null,
+      pullRequestState: null,
+      treeSha: resolveObject(`${expectedHeadSha}^{tree}`, cwd),
+    },
+  };
+}
+
 export function publishCommitStatus(input) {
   if (!EXACT_SHA_PATTERN.test(String(input.headSha ?? ""))) {
     throw new Error(

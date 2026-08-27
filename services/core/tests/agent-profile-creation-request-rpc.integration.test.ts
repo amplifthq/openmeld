@@ -73,6 +73,61 @@ describe("Agent Profile creation request RPC", () => {
     }
   });
 
+  it("blocks an explicitly unavailable model before every creation entry reaches Auth", async () => {
+    const fixture = await seedFixture();
+    const createAgentProfileInOrganization = vi.fn().mockResolvedValue({
+      ok: true,
+      profile: {
+        openMeldProfileId: "agt_22222222-2222-4222-8222-222222222222",
+      },
+    });
+    const listLocalRuntimes = vi
+      .spyOn(currentDeviceTargetService, "listLocalRuntimesUseCase")
+      .mockResolvedValue(createModelGuardLocalRuntimes());
+    const bindings = {
+      OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
+      OPENMELD_DB: env.OPENMELD_DB,
+    } as unknown as CoreBindings;
+
+    try {
+      const result = await rpcCreateAgentProfileCreationRequest(bindings, {
+        configuration: {
+          agentControllerCollaborationMode: null,
+          agentControllerPermissionMode: null,
+          agentControllerRef: "builtin:codex",
+          authorizeForOrganization: true,
+          defaultProjectId: null,
+          modelId: "gpt-5.6-sol",
+          openCodePermission: null,
+          reasoningLevel: "high",
+          targetComputerId: "device-model-guard",
+        },
+        context: contextFor(
+          fixture.requesterUserId,
+          fixture.requesterProfileId
+        ),
+        idempotencyKey: `model-guard-${fixture.suffix}`,
+        organizationId: fixture.organizationId,
+        profileName: "Model Guard Reviewer",
+        sessionStrategy: "new",
+        source: "web",
+        targetOwnerUserId: fixture.requesterUserId,
+      });
+
+      expect(result.request).toMatchObject({
+        createdAgentProfileId: null,
+        failureMessage: expect.stringContaining(
+          "gpt-5.6-sol isn't available for Codex on Model Guard Mac"
+        ),
+        status: "failed",
+      });
+      expect(createAgentProfileInOrganization).not.toHaveBeenCalled();
+      expect(listLocalRuntimes).toHaveBeenCalled();
+    } finally {
+      listLocalRuntimes.mockRestore();
+    }
+  });
+
   it("uses the represented member as requester and the Center Agent as actor", async () => {
     const fixture = await seedFixture();
     const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
@@ -331,6 +386,96 @@ describe("Agent Profile creation request RPC", () => {
     });
   });
 });
+
+function createModelGuardLocalRuntimes(): Awaited<
+  ReturnType<typeof currentDeviceTargetService.listLocalRuntimesUseCase>
+> {
+  return {
+    currentConnectedComputerId: null,
+    currentDeviceId: "device-model-guard",
+    currentRuntimeLane: "dev-local",
+    legacyDeviceEvidence: [],
+    localRuntimes: [
+      {
+        deviceDisplayName: "Model Guard Mac",
+        deviceDisplayNameSource: "observed",
+        deviceId: "device-model-guard",
+        deviceType: "laptop",
+        executionTargets: [
+          {
+            capabilities: [
+              {
+                agentControllerInterface: {
+                  agentControllerRef: "builtin:codex",
+                  auth: { status: "authenticated" },
+                  capabilities: {
+                    approvals: true,
+                    cancel: true,
+                    interrupt: true,
+                    modelSelection: true,
+                    nativeEventStream: true,
+                    permissionModes: true,
+                    structuredUserInput: true,
+                  },
+                  checkedAt: "2026-08-27T00:00:00.000Z",
+                  controllerId: "codex",
+                  displayName: "Codex",
+                  launch: {
+                    argsPrefix: [],
+                    commandPath: "/Applications/Codex.app/Contents/MacOS/Codex",
+                    installChoiceCount: 1,
+                    status: "ready",
+                  },
+                  message: null,
+                  models: [{ displayName: "GPT-5.6 Luna", id: "gpt-5.6-luna" }],
+                  nativeInterface: "codex-app-server",
+                  schemaVersion: 1,
+                  skills: [],
+                  status: "ready",
+                  version: "999.0.0",
+                },
+                agentControllerRef: "builtin:codex",
+                enabled: true,
+                reasonCodes: [],
+                status: "ready",
+              },
+            ],
+            deviceId: "device-model-guard",
+            isCurrent: true,
+            lastObservedAtMs: 1_788_000_000_000,
+            localAgentCatalog: {
+              detectedNotSupportedYet: 0,
+              detectedSupported: 0,
+              entries: [],
+              needsChoice: 0,
+              needsRepair: 0,
+              notDetected: 0,
+              totalBuiltins: 0,
+            },
+            localAgentControl: {
+              refreshCatalog: true,
+              setEnabled: true,
+              setProfileWorkspace: true,
+            },
+            openMeldServiceRuntimeId: {
+              source: "runtime_registry_authority",
+              value: "runtime-model-guard",
+            },
+            reasonCodes: [],
+            runtimeLane: "dev-local",
+            status: "ready",
+            userFacingCommand: "openmeld-dev",
+          },
+        ],
+        firstSeenAtMs: 1_787_999_900_000,
+        isCurrent: true,
+        lastObservedAtMs: 1_788_000_000_000,
+        osVersion: "15.6",
+        platformFamily: "macOS",
+      },
+    ],
+  };
+}
 
 function contextFor(userId: string, profileId: string) {
   return {

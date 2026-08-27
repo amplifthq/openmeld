@@ -203,7 +203,12 @@ test("Cursor ACP creates a session, applies mode and model, and returns structur
       conversationPolicy: { model },
       cursorTimeoutMs: 2000,
       cursorWorkdir: fixtureDir,
-      env: { OPENMELD_FAKE_CURSOR_ACP_LOG: logPath },
+      env: {
+        OPENMELD_FAKE_CURSOR_ACP_LOG: logPath,
+        OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
+        OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: "/tmp/action/bin/openmeld-dev",
+        OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
+      },
       instructionPrompt: {
         developerInstructions: "stable OpenMeld contract",
         instructionEpoch: "openmeld-native-instructions-v1:abc123",
@@ -226,6 +231,30 @@ test("Cursor ACP creates a session, applies mode and model, and returns structur
         "session/set_mode",
         "session/set_config_option",
         "session/prompt",
+      ]
+    );
+    assert.deepEqual(
+      log.find((entry) => entry.method === "session/new")?.params?.mcpServers,
+      [
+        {
+          args: ["space", "action", "tool-server"],
+          command: "/tmp/action/bin/openmeld-dev",
+          env: [
+            {
+              name: "OPENMELD_SPACE_ACTION_CONTEXT_PATH",
+              value: "/tmp/action/context.json",
+            },
+            {
+              name: "OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH",
+              value: "/tmp/action/bin/openmeld-dev",
+            },
+            {
+              name: "OPENMELD_USER_FACING_CLI_COMMAND",
+              value: "openmeld-dev",
+            },
+          ],
+          name: "openmeld_internal_dispatch_space_action",
+        },
       ]
     );
     assert.deepEqual(

@@ -1,5 +1,5 @@
 import { createMiddleware } from "hono/factory";
-import { createAuth } from "../better-auth";
+import { loadBetterAuthRuntime } from "../../lazy-runtime-modules";
 import { getLocalAuthUserStore } from "../better-auth/local-auth-user-store";
 import {
   AUTH_UPSTREAM_UNREACHABLE_CODE,
@@ -12,6 +12,7 @@ import { logError, logWarn } from "../utils/loggers";
 
 export const authInstanceMiddleware = createMiddleware<AppContext>(
   async (c, next) => {
+    const { createAuth } = await loadBetterAuthRuntime();
     c.set("betterAuth", createAuth(c.env));
     c.set("user", null);
     c.set("session", null);
