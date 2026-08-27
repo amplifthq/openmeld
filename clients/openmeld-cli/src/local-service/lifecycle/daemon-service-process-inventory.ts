@@ -238,6 +238,10 @@ function resolveDaemonCommandLaneScope(input: {
     return managedLane === currentLane ? "current_lane" : "other_lane";
   }
 
+  if (hasExplicitOpenMeldHome(input.pathInput)) {
+    return "not_openmeld";
+  }
+
   const detectedLane = resolveDaemonCliCommandLane(
     input.normalizedCommand,
     input.pathInput
@@ -246,6 +250,13 @@ function resolveDaemonCommandLaneScope(input: {
     return "not_openmeld";
   }
   return detectedLane === currentLane ? "current_lane" : "other_lane";
+}
+
+function hasExplicitOpenMeldHome(
+  pathInput: OpenMeldPathResolutionInput
+): boolean {
+  const value = (pathInput.env ?? process.env)[OPENMELD_HOME_ENV_KEY];
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function resolveDaemonCommandManagedVersionRoot(
