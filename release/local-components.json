@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-26T22:14:31.180Z",
+  "updatedAt": "2026-08-27T05:43:05.188Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.118",
+      "packageVersion": "0.3.119",
       "updatePolicy": "available",
       "reason": "A newer local component is available, but current Wake work can continue."
     },
     "service": {
-      "bundleHash": "10b994aaee6a260fe1a6217184b92c5c0d7e994cd75705f4c97bc80ed4929101",
-      "bundleVersion": "0.3.118",
+      "bundleHash": "9f312ccec8fb66a1cb512adaea16864134ccdfe8b79dfcc2f9d103721e5a57eb",
+      "bundleVersion": "0.3.119",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
