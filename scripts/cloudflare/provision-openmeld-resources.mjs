@@ -344,7 +344,7 @@ function durableObject(name, component, dataClass, environment = "production") {
     idField: "id",
     kind: "Durable Object namespace",
     lifecycle: "deployment-managed",
-    listPath: "/workers/durable_objects/namespaces",
+    listPath: "/workers/durable_objects/namespaces?per_page=100",
     name,
     nameField: "name",
     resourceType: "durable_object_namespace",

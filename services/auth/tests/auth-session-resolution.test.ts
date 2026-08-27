@@ -8,6 +8,7 @@ const authMock = {
     setPassword: vi.fn(),
   },
 };
+const createAuthMock = vi.fn(() => authMock);
 
 const profileServiceMock = {
   getProfileCapabilities: vi.fn(),
@@ -74,7 +75,13 @@ vi.mock("@openmeld/auth/server", async () => {
 });
 
 vi.mock("../src/lib/better-auth", () => ({
-  createAuth: vi.fn(() => authMock),
+  createAuth: createAuthMock,
+}));
+
+vi.mock("../src/lazy-runtime-modules", () => ({
+  loadBetterAuthRuntime: vi.fn(async () => ({
+    createAuth: createAuthMock,
+  })),
 }));
 
 vi.mock("../src/lib/profiles/service", async () => {

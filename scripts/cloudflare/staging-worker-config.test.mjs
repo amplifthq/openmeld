@@ -141,6 +141,25 @@ test("gives every internal Worker an explicit staging deploy command", () => {
   }
 });
 
+test("keeps the Auth request runtime outside the Worker startup module", () => {
+  assert.equal(configs.auth.base_dir, "src");
+  assert.equal(configs.auth.find_additional_modules, true);
+  assert.deepEqual(configs.auth.rules, [
+    {
+      globs: ["**/generated-runtime/*.mjs"],
+      type: "ESModule",
+    },
+  ]);
+  assert.equal(
+    configs.auth.build?.command,
+    "pnpm --filter @openmeld/auth-worker run build:lazy-runtime-modules"
+  );
+  assert.equal(
+    packageManifests.auth.scripts?.["build:lazy-runtime-modules"],
+    "node scripts/build-lazy-runtime-modules.mjs"
+  );
+});
+
 test("syncs staging secrets from Doppler without committed secret files", () => {
   const secretOwners = [
     packageManifests.web,

@@ -2,6 +2,19 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "openmeld-auth",
   "main": "src/index.ts",
+  // Better Auth is request-only. Keep it in an additional module so Worker
+  // startup does not parse the complete auth, passkey, and certificate stack.
+  "base_dir": "src",
+  "find_additional_modules": true,
+  "rules": [
+    {
+      "type": "ESModule",
+      "globs": ["**/generated-runtime/*.mjs"]
+    }
+  ],
+  "build": {
+    "command": "pnpm --filter @openmeld/auth-worker run build:lazy-runtime-modules"
+  },
   "compatibility_date": "2026-02-18",
   "compatibility_flags": ["nodejs_compat"],
   // Periodic Auth convergence: self-heals dropped Space Index overlay writes
