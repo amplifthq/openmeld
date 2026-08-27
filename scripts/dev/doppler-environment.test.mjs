@@ -22,6 +22,8 @@ import {
   inspectEnvironment,
   PRODUCTION_WORKER_SECRET_SOURCES,
   resolveDevelopmentComponentSources,
+  resolveStagingComponentSources,
+  STAGING_WORKER_SECRET_SOURCES,
 } from "./doppler-environment.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -199,6 +201,45 @@ test("keeps production readiness read-only and scoped to prd", () => {
   assert.equal(serialized.includes("--config dev"), false);
   assert.equal(serialized.includes("deploy"), false);
   assert.equal(serialized.includes("sync:secrets:prod"), false);
+});
+
+test("keeps staging readiness scoped to the minimal stg secret set", () => {
+  const command = buildNestedDopplerCommand({
+    sources: STAGING_WORKER_SECRET_SOURCES,
+    terminalArgs: ["node", "script.mjs", "__check", "stg"],
+  });
+  const serialized = [command.executable, ...command.args].join(" ");
+
+  assert.equal(
+    countOccurrences(serialized, "--config stg"),
+    STAGING_WORKER_SECRET_SOURCES.length
+  );
+  assert.equal(serialized.includes("--config prd"), false);
+  assert.equal(serialized.includes("--config dev"), false);
+  assert.deepEqual(
+    STAGING_WORKER_SECRET_SOURCES.map((source) => source.project),
+    ["openmeld-web", "openmeld-auth", "openmeld-remote-agent"]
+  );
+});
+
+test("gives each staging deployable only the secrets it needs", () => {
+  assert.deepEqual(
+    Object.fromEntries(
+      ["web", "auth", "core", "gateway", "remote-agent"].map((component) => [
+        component,
+        resolveStagingComponentSources(component).map(
+          (source) => source.project
+        ),
+      ])
+    ),
+    {
+      auth: ["openmeld-auth"],
+      core: [],
+      gateway: [],
+      "remote-agent": ["openmeld-remote-agent"],
+      web: ["openmeld-web"],
+    }
+  );
 });
 
 test("reports required and optional availability without exposing values", () => {

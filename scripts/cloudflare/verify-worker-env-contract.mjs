@@ -22,35 +22,48 @@ const OPENCONNECTOR_GOOGLE_ACTION_PATTERN =
   /^(?:gmail|googlecalendar|googledrive)\./u;
 const OBSERVABILITY_ANALYTICS_BINDING = "OPENMELD_OBSERVABILITY";
 const OBSERVABILITY_ANALYTICS_DATASET = "openmeld_runtime_evidence";
+const OBSERVABILITY_ANALYTICS_STAGING_DATASET = "openmeld_runtime_evidence_stg";
 const OBSERVABILITY_ANALYTICS_PROD_DATASET = "openmeld_runtime_evidence_prod";
 const CENTER_AGENT_PERFORMANCE_ANALYTICS_BINDING =
   "OPENMELD_CENTER_AGENT_PERFORMANCE";
 const CENTER_AGENT_PERFORMANCE_ANALYTICS_DATASET =
   "openmeld_center_agent_performance";
+const CENTER_AGENT_PERFORMANCE_ANALYTICS_STAGING_DATASET =
+  "openmeld_center_agent_performance_stg";
 const CENTER_AGENT_PERFORMANCE_ANALYTICS_PROD_DATASET =
   "openmeld_center_agent_performance_prod";
 const DESKTOP_DOWNLOADS_R2_BINDING = "OPENMELD_DESKTOP_DOWNLOADS";
 const DESKTOP_DOWNLOADS_R2_BUCKET = "openmeld-desktop-downloads-prod";
+const DESKTOP_DOWNLOADS_R2_STAGING_BUCKET = "openmeld-desktop-downloads-stg";
 const SPACE_ATTACHMENTS_R2_BINDING = "OPENMELD_SPACE_ATTACHMENTS";
 const SPACE_ATTACHMENTS_R2_BUCKET = "openmeld-space-attachments-prod";
 const SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET =
   "openmeld-space-attachments-preview";
+const SPACE_ATTACHMENTS_R2_STAGING_BUCKET = "openmeld-space-attachments-stg";
 const ORGANIZATION_SKILLS_R2_BINDING = "OPENMELD_ORGANIZATION_SKILLS";
 const ORGANIZATION_SKILLS_R2_BUCKET = "openmeld-organization-skills-prod";
 const ORGANIZATION_SKILLS_R2_PREVIEW_BUCKET =
   "openmeld-organization-skills-preview";
+const ORGANIZATION_SKILLS_R2_STAGING_BUCKET =
+  "openmeld-organization-skills-stg";
 const ORGANIZATION_LOGOS_R2_BINDING = "OPENMELD_ORGANIZATION_LOGOS";
 const ORGANIZATION_LOGOS_R2_BUCKET = "openmeld-organization-logos-prod";
 const ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET =
   "openmeld-organization-logos-preview";
+const ORGANIZATION_LOGOS_R2_STAGING_BUCKET = "openmeld-organization-logos-stg";
 const ACCOUNT_AVATARS_R2_BINDING = "OPENMELD_ACCOUNT_AVATARS";
 const ORGANIZATION_LOGOS_IMAGES_BINDING = "OPENMELD_IMAGES";
 const WORKER_ENVIRONMENT_VAR = "OPENMELD_WORKER_ENVIRONMENT";
 const DAEMON_DISPATCH_QUEUE_NAME = "openmeld-daemon-dispatch";
 const DAEMON_DISPATCH_PROD_QUEUE_NAME = "openmeld-daemon-dispatch-prod";
+const DAEMON_DISPATCH_STAGING_QUEUE_NAME = "openmeld-daemon-dispatch-stg";
 const MESSAGE_CHANNEL_EVENTS_QUEUE_NAME = "openmeld-message-channel-events";
 const MESSAGE_CHANNEL_EVENTS_PROD_QUEUE_NAME =
   "openmeld-message-channel-events-prod";
+const MESSAGE_CHANNEL_EVENTS_STAGING_QUEUE_NAME =
+  "openmeld-message-channel-events-stg";
+const STAGING_DB_DATABASE_ID = "10da3483-0644-459a-8523-381a2a17ac39";
+const STAGING_DB_DATABASE_NAME = "openmeld-db-stg";
 const FEEDBACK_RATE_LIMIT_BINDINGS = [
   {
     name: "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
@@ -119,6 +132,7 @@ const workerPackages = [
     requiredScripts: ["cf-typegen", "sync:config:prod", "sync:prod"],
     secretOwned: true,
     requiredSecretNames: ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"],
+    requiredConfigEnvironments: ["stg", "prod"],
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
     expectedGeneratedBindings: [
       "OPENMELD_DESKTOP_DOWNLOADS",
@@ -126,10 +140,13 @@ const workerPackages = [
     ],
     forbiddenGeneratedBindings: D1_BINDING_NAMES,
     expectedD1Bindings: () => [],
-    expectedR2Bindings: () => [
+    expectedR2Bindings: ({ environment }) => [
       {
         binding: DESKTOP_DOWNLOADS_R2_BINDING,
-        bucket_name: DESKTOP_DOWNLOADS_R2_BUCKET,
+        bucket_name:
+          environment === "stg"
+            ? DESKTOP_DOWNLOADS_R2_STAGING_BUCKET
+            : DESKTOP_DOWNLOADS_R2_BUCKET,
       },
     ],
   },
@@ -145,6 +162,10 @@ const workerPackages = [
       "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET",
       "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_SECRET",
     ],
+    requiredSecretNamesByEnvironment: {
+      stg: ["BETTER_AUTH_OPENMELD_SECRET"],
+    },
+    requiredConfigEnvironments: ["stg", "prod"],
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
     requiredVarNames: ["OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED"],
     expectedGeneratedBindings: [
@@ -156,9 +177,9 @@ const workerPackages = [
       "OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER",
     ],
     forbiddenGeneratedBindings: [],
-    expectedD1Bindings: ({ wranglerConfigPath }) => [
-      buildSharedD1BindingForWorkerConfig(wranglerConfigPath),
-      AUTH_IDENTITY_DB_BINDING,
+    expectedD1Bindings: ({ environment, wranglerConfigPath }) => [
+      buildSharedD1BindingForWorkerConfig(wranglerConfigPath, environment),
+      buildAliasedD1Binding(AUTH_IDENTITY_DB_BINDING.binding, environment),
     ],
     expectedR2Bindings: () => [],
     expectedRateLimitBindings: AUTH_RATE_LIMIT_BINDINGS,
@@ -177,6 +198,8 @@ const workerPackages = [
       "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY",
       "ZEP_OPENMELD_API_KEY",
     ],
+    requiredSecretNamesByEnvironment: { stg: [] },
+    requiredConfigEnvironments: ["stg", "prod"],
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
     requiredVarNames: [
       "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED",
@@ -215,28 +238,38 @@ const workerPackages = [
       "ZEP_OPENMELD_API_KEY",
     ],
     forbiddenGeneratedBindings: [],
-    expectedD1Bindings: ({ wranglerConfigPath }) => [
-      buildSharedD1BindingForWorkerConfig(wranglerConfigPath),
-      CORE_LOCAL_STATE_DB_BINDING,
-      CORE_WAKE_EVIDENCE_DB_BINDING,
-      CORE_PROJECTIONS_DB_BINDING,
+    expectedD1Bindings: ({ environment, wranglerConfigPath }) => [
+      buildSharedD1BindingForWorkerConfig(wranglerConfigPath, environment),
+      buildAliasedD1Binding(CORE_LOCAL_STATE_DB_BINDING.binding, environment),
+      buildAliasedD1Binding(CORE_WAKE_EVIDENCE_DB_BINDING.binding, environment),
+      buildAliasedD1Binding(CORE_PROJECTIONS_DB_BINDING.binding, environment),
     ],
     expectedR2Bindings: ({ environment }) => [
       {
         binding: SPACE_ATTACHMENTS_R2_BINDING,
-        bucket_name:
-          environment === "prod"
-            ? SPACE_ATTACHMENTS_R2_BUCKET
-            : SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
-        preview_bucket_name: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+        bucket_name: expectedResourceName(environment, {
+          local: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+          prod: SPACE_ATTACHMENTS_R2_BUCKET,
+          stg: SPACE_ATTACHMENTS_R2_STAGING_BUCKET,
+        }),
+        preview_bucket_name: expectedResourceName(environment, {
+          local: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+          prod: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+          stg: SPACE_ATTACHMENTS_R2_STAGING_BUCKET,
+        }),
       },
       {
         binding: ORGANIZATION_SKILLS_R2_BINDING,
-        bucket_name:
-          environment === "prod"
-            ? ORGANIZATION_SKILLS_R2_BUCKET
-            : ORGANIZATION_SKILLS_R2_PREVIEW_BUCKET,
-        preview_bucket_name: ORGANIZATION_SKILLS_R2_PREVIEW_BUCKET,
+        bucket_name: expectedResourceName(environment, {
+          local: ORGANIZATION_SKILLS_R2_PREVIEW_BUCKET,
+          prod: ORGANIZATION_SKILLS_R2_BUCKET,
+          stg: ORGANIZATION_SKILLS_R2_STAGING_BUCKET,
+        }),
+        preview_bucket_name: expectedResourceName(environment, {
+          local: ORGANIZATION_SKILLS_R2_PREVIEW_BUCKET,
+          prod: ORGANIZATION_SKILLS_R2_PREVIEW_BUCKET,
+          stg: ORGANIZATION_SKILLS_R2_STAGING_BUCKET,
+        }),
       },
     ],
     expectedQueueConsumers: ({ environment }) =>
@@ -255,11 +288,15 @@ const workerPackages = [
       "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
       "CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN",
     ],
+    requiredSecretNamesByEnvironment: {
+      stg: ["CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN"],
+    },
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
-    requiredConfigEnvironments: ["dev", "prod"],
+    requiredConfigEnvironments: ["dev", "stg", "prod"],
     expectedContainerNames: {
       "top-level": "openmeld-agent-computer",
       "env.dev": "openmeld-agent-computer-dev",
+      "env.stg": "openmeld-agent-computer-stg",
       "env.prod": "openmeld-agent-computer-prod",
     },
     requiredVarNames: [
@@ -291,21 +328,27 @@ const workerPackages = [
     expectedAdditionalAnalyticsBindings: ({ environment }) => [
       {
         binding: CENTER_AGENT_PERFORMANCE_ANALYTICS_BINDING,
-        dataset:
-          environment === "prod"
-            ? CENTER_AGENT_PERFORMANCE_ANALYTICS_PROD_DATASET
-            : CENTER_AGENT_PERFORMANCE_ANALYTICS_DATASET,
+        dataset: expectedResourceName(environment, {
+          local: CENTER_AGENT_PERFORMANCE_ANALYTICS_DATASET,
+          prod: CENTER_AGENT_PERFORMANCE_ANALYTICS_PROD_DATASET,
+          stg: CENTER_AGENT_PERFORMANCE_ANALYTICS_STAGING_DATASET,
+        }),
       },
     ],
     expectedD1Bindings: () => [],
     expectedR2Bindings: ({ environment }) => [
       {
         binding: SPACE_ATTACHMENTS_R2_BINDING,
-        bucket_name:
-          environment === "prod"
-            ? SPACE_ATTACHMENTS_R2_BUCKET
-            : SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
-        preview_bucket_name: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+        bucket_name: expectedResourceName(environment, {
+          local: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+          prod: SPACE_ATTACHMENTS_R2_BUCKET,
+          stg: SPACE_ATTACHMENTS_R2_STAGING_BUCKET,
+        }),
+        preview_bucket_name: expectedResourceName(environment, {
+          local: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+          prod: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+          stg: SPACE_ATTACHMENTS_R2_STAGING_BUCKET,
+        }),
       },
     ],
   },
@@ -322,6 +365,8 @@ const workerPackages = [
       "SLACK_OPENMELD_OAUTH_CLIENT_SECRET",
       "SLACK_OPENMELD_SIGNING_SECRET",
     ],
+    requiredSecretNamesByEnvironment: { stg: [] },
+    requiredConfigEnvironments: ["dev", "stg", "prod"],
     requiredVarNames: [
       "OPENMELD_CONNECTORS_BASE_URL",
       "OPENMELD_GATEWAY_URL",
@@ -355,32 +400,48 @@ const workerPackages = [
     expectedR2Bindings: ({ environment }) => [
       {
         binding: SPACE_ATTACHMENTS_R2_BINDING,
-        bucket_name:
-          environment === "prod"
-            ? SPACE_ATTACHMENTS_R2_BUCKET
-            : SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
-        preview_bucket_name: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+        bucket_name: expectedResourceName(environment, {
+          local: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+          prod: SPACE_ATTACHMENTS_R2_BUCKET,
+          stg: SPACE_ATTACHMENTS_R2_STAGING_BUCKET,
+        }),
+        preview_bucket_name: expectedResourceName(environment, {
+          local: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+          prod: SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET,
+          stg: SPACE_ATTACHMENTS_R2_STAGING_BUCKET,
+        }),
       },
       {
         binding: ACCOUNT_AVATARS_R2_BINDING,
-        bucket_name:
-          environment === "prod"
-            ? ORGANIZATION_LOGOS_R2_BUCKET
-            : ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
-        preview_bucket_name: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+        bucket_name: expectedResourceName(environment, {
+          local: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+          prod: ORGANIZATION_LOGOS_R2_BUCKET,
+          stg: ORGANIZATION_LOGOS_R2_STAGING_BUCKET,
+        }),
+        preview_bucket_name: expectedResourceName(environment, {
+          local: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+          prod: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+          stg: ORGANIZATION_LOGOS_R2_STAGING_BUCKET,
+        }),
       },
       {
         binding: ORGANIZATION_LOGOS_R2_BINDING,
-        bucket_name:
-          environment === "prod"
-            ? ORGANIZATION_LOGOS_R2_BUCKET
-            : ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
-        preview_bucket_name: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+        bucket_name: expectedResourceName(environment, {
+          local: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+          prod: ORGANIZATION_LOGOS_R2_BUCKET,
+          stg: ORGANIZATION_LOGOS_R2_STAGING_BUCKET,
+        }),
+        preview_bucket_name: expectedResourceName(environment, {
+          local: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+          prod: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+          stg: ORGANIZATION_LOGOS_R2_STAGING_BUCKET,
+        }),
       },
     ],
     expectedImagesBinding: ({ environment }) => ({
       binding: ORGANIZATION_LOGOS_IMAGES_BINDING,
-      remote: environment === "prod" ? undefined : true,
+      remote:
+        environment === "prod" || environment === "stg" ? undefined : true,
     }),
     expectedRateLimitBindings: GATEWAY_RATE_LIMIT_BINDINGS,
     expectedQueueConsumers: () => [],
@@ -749,10 +810,11 @@ function verifyObservabilityPolicy(workerPackage, workerConfig) {
     );
     const expectedWorkerEnvironment =
       expectedWorkerEnvironmentForSection(label);
-    const expectedDataset =
-      expectedWorkerEnvironment === "prod"
-        ? OBSERVABILITY_ANALYTICS_PROD_DATASET
-        : OBSERVABILITY_ANALYTICS_DATASET;
+    const expectedDataset = expectedResourceName(expectedWorkerEnvironment, {
+      local: OBSERVABILITY_ANALYTICS_DATASET,
+      prod: OBSERVABILITY_ANALYTICS_PROD_DATASET,
+      stg: OBSERVABILITY_ANALYTICS_STAGING_DATASET,
+    });
     ensure(
       Boolean(runtimeEvidenceBinding),
       `${workerPackage.name} ${label} must declare ${OBSERVABILITY_ANALYTICS_BINDING}.`
@@ -797,8 +859,13 @@ function verifyRequiredVars(workerPackage, workerConfig) {
 }
 
 function verifyRequiredSecrets(workerPackage, workerConfig) {
-  for (const secretName of workerPackage.requiredSecretNames ?? []) {
-    for (const { label, value } of getConfigSections(workerConfig)) {
+  for (const { label, value } of getConfigSections(workerConfig)) {
+    const environment = expectedWorkerEnvironmentForSection(label);
+    const expectedSecretNames =
+      workerPackage.requiredSecretNamesByEnvironment?.[environment] ??
+      workerPackage.requiredSecretNames ??
+      [];
+    for (const secretName of expectedSecretNames) {
       const requiredSecrets = Array.isArray(value?.secrets?.required)
         ? value.secrets.required
         : [];
@@ -827,12 +894,14 @@ function verifyContainerNames(workerPackage, workerConfig) {
 }
 
 function verifyD1Policy(workerPackage, workerConfig) {
-  const expectedD1Bindings = workerPackage.expectedD1Bindings(workerPackage);
-  const expectedD1BindingsByName = new Map(
-    expectedD1Bindings.map((binding) => [binding.binding, binding])
-  );
-
   for (const { label, value } of getConfigSections(workerConfig)) {
+    const expectedD1Bindings = workerPackage.expectedD1Bindings({
+      ...workerPackage,
+      environment: expectedWorkerEnvironmentForSection(label),
+    });
+    const expectedD1BindingsByName = new Map(
+      expectedD1Bindings.map((binding) => [binding.binding, binding])
+    );
     const d1BindingsByName = listD1BindingsByName(value);
 
     for (const [bindingName, d1Binding] of d1BindingsByName) {
@@ -958,15 +1027,22 @@ function verifyQueuePolicy(workerPackage, workerConfig) {
 }
 
 function expectedQueueNames(environment) {
-  return environment === "prod"
-    ? {
-        daemonDispatch: DAEMON_DISPATCH_PROD_QUEUE_NAME,
-        messageChannelEvents: MESSAGE_CHANNEL_EVENTS_PROD_QUEUE_NAME,
-      }
-    : {
-        daemonDispatch: DAEMON_DISPATCH_QUEUE_NAME,
-        messageChannelEvents: MESSAGE_CHANNEL_EVENTS_QUEUE_NAME,
-      };
+  if (environment === "prod") {
+    return {
+      daemonDispatch: DAEMON_DISPATCH_PROD_QUEUE_NAME,
+      messageChannelEvents: MESSAGE_CHANNEL_EVENTS_PROD_QUEUE_NAME,
+    };
+  }
+  if (environment === "stg") {
+    return {
+      daemonDispatch: DAEMON_DISPATCH_STAGING_QUEUE_NAME,
+      messageChannelEvents: MESSAGE_CHANNEL_EVENTS_STAGING_QUEUE_NAME,
+    };
+  }
+  return {
+    daemonDispatch: DAEMON_DISPATCH_QUEUE_NAME,
+    messageChannelEvents: MESSAGE_CHANNEL_EVENTS_QUEUE_NAME,
+  };
 }
 
 function expectedCoreQueueProducers(environment) {
@@ -1002,16 +1078,42 @@ function expectedGatewayQueueProducers(environment) {
   ];
 }
 
-function buildSharedD1BindingForWorkerConfig(wranglerConfigPath) {
+function buildSharedD1BindingForWorkerConfig(wranglerConfigPath, environment) {
+  const database = expectedDatabase(environment);
   return {
     binding: SHARED_DB_BINDING_NAME,
-    database_id: SHARED_DB_DATABASE_ID,
-    database_name: SHARED_DB_DATABASE_NAME,
+    database_id: database.id,
+    database_name: database.name,
     migrations_dir: path.posix.relative(
       path.posix.dirname(wranglerConfigPath),
       AUTH_DB_MIGRATIONS_PATH
     ),
   };
+}
+
+function buildAliasedD1Binding(binding, environment) {
+  const database = expectedDatabase(environment);
+  return {
+    binding,
+    database_id: database.id,
+    database_name: database.name,
+  };
+}
+
+function expectedDatabase(environment) {
+  return environment === "stg"
+    ? { id: STAGING_DB_DATABASE_ID, name: STAGING_DB_DATABASE_NAME }
+    : { id: SHARED_DB_DATABASE_ID, name: SHARED_DB_DATABASE_NAME };
+}
+
+function expectedResourceName(environment, values) {
+  if (environment === "stg") {
+    return values.stg;
+  }
+  if (environment === "prod") {
+    return values.prod;
+  }
+  return values.local;
 }
 
 function verifyGeneratedTypeBindings(workerPackage) {

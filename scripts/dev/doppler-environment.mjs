@@ -82,6 +82,35 @@ export const PRODUCTION_WORKER_SECRET_SOURCES = DEVELOPMENT_SECRET_SOURCES.map(
   })
 );
 
+export const STAGING_WORKER_SECRET_SOURCES = [
+  {
+    config: "stg",
+    optionalSecrets: [],
+    project: "openmeld-web",
+    requiredSecrets: ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"],
+  },
+  {
+    config: "stg",
+    optionalSecrets: [],
+    project: "openmeld-auth",
+    requiredSecrets: ["BETTER_AUTH_OPENMELD_SECRET"],
+  },
+  {
+    config: "stg",
+    optionalSecrets: [],
+    project: "openmeld-remote-agent",
+    requiredSecrets: ["CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN"],
+  },
+];
+
+const STAGING_COMPONENT_PROJECTS = new Map([
+  ["web", ["openmeld-web"]],
+  ["auth", ["openmeld-auth"]],
+  ["core", []],
+  ["gateway", []],
+  ["remote-agent", ["openmeld-remote-agent"]],
+]);
+
 const LOCAL_WORKER_DIRECTORIES = [
   "clients/web",
   "services/auth",
@@ -129,6 +158,14 @@ async function main() {
         sources: PRODUCTION_WORKER_SECRET_SOURCES,
       });
       return;
+    case "doctor:stg":
+      assertNoLocalShadowFiles(repoRoot);
+      process.exitCode = await checkDopplerSources({
+        environmentLabel: "staging Worker",
+        readOnly: true,
+        sources: STAGING_WORKER_SECRET_SOURCES,
+      });
+      return;
     case "run": {
       assertNoLocalShadowFiles(repoRoot);
       const targetArgs = stripCommandSeparator(args);
@@ -169,6 +206,38 @@ async function main() {
         ],
         sources: resolveDevelopmentComponentSources(component),
       });
+      return;
+    }
+    case "component:stg": {
+      assertNoLocalShadowFiles(repoRoot);
+      const component = args[0];
+      const targetArgs = stripCommandSeparator(args.slice(1));
+      if (targetArgs.length === 0) {
+        throw new Error(
+          "Usage: doppler-environment.mjs component:stg <web|auth|core|gateway|remote-agent> -- <command> [arguments]"
+        );
+      }
+      const sources = resolveStagingComponentSources(component);
+      const readinessExitCode = await checkDopplerSources({
+        environmentLabel: `${component} staging`,
+        readOnly: true,
+        sources,
+      });
+      if (readinessExitCode !== 0) {
+        process.exitCode = readinessExitCode;
+        return;
+      }
+      process.exitCode =
+        sources.length === 0
+          ? await runCommand(targetArgs[0], targetArgs.slice(1), {
+              cwd: process.cwd(),
+              env: stripManagedSecrets(process.env, allManagedSecretSources()),
+            })
+          : await launchWithDoppler({
+              cwd: process.cwd(),
+              sources,
+              terminalArgs: targetArgs,
+            });
       return;
     }
     case INTERNAL_CHECK_SOURCE_COMMAND:
@@ -301,6 +370,22 @@ export function resolveDevelopmentComponentSources(component) {
   });
 }
 
+export function resolveStagingComponentSources(component) {
+  const projects = STAGING_COMPONENT_PROJECTS.get(component);
+  if (!projects) {
+    throw new Error(`Unsupported Doppler staging component: ${component}`);
+  }
+  return projects.map((project) => {
+    const source = STAGING_WORKER_SECRET_SOURCES.find(
+      (candidate) => candidate.project === project
+    );
+    if (!source) {
+      throw new Error(`Missing Doppler staging source for ${project}.`);
+    }
+    return source;
+  });
+}
+
 function assertNoLocalShadowFiles(targetRepoRoot) {
   const shadowFiles = findLocalShadowFiles(targetRepoRoot);
   if (shadowFiles.length === 0) {
@@ -324,7 +409,7 @@ async function launchWithDoppler(input) {
   const command = buildNestedDopplerCommand(input);
   return await runCommand(command.executable, command.args, {
     cwd: input.cwd,
-    env: stripManagedSecrets(process.env),
+    env: stripManagedSecrets(process.env, allManagedSecretSources()),
   });
 }
 
@@ -347,7 +432,7 @@ async function checkDopplerSources(input) {
   }
 
   if (exitCode !== 0) {
-    if (input.production) {
+    if (input.production || input.readOnly) {
       console.error(
         "[doppler] This was a read-only check. No deployment or secret synchronization was attempted."
       );
@@ -359,11 +444,13 @@ async function checkDopplerSources(input) {
     (count, source) => count + source.requiredSecrets.length,
     0
   );
-  const label = input.production ? "production Worker" : "shared development";
+  const label =
+    input.environmentLabel ??
+    (input.production ? "production Worker" : "shared development");
   console.log(
     `[doppler] ${label} environment is ready (${String(requiredSecretCount)}/${String(requiredSecretCount)} required secrets available).`
   );
-  if (input.production) {
+  if (input.production || input.readOnly) {
     console.log(
       "[doppler] Read-only readiness passed. Deployment remains a separate, explicitly authorized release action."
     );
@@ -379,6 +466,7 @@ function runSourceEnvironmentCheck(project, config) {
   const source = [
     ...DEVELOPMENT_SECRET_SOURCES,
     ...PRODUCTION_WORKER_SECRET_SOURCES,
+    ...STAGING_WORKER_SECRET_SOURCES,
   ].find(
     (candidate) => candidate.project === project && candidate.config === config
   );
@@ -493,6 +581,14 @@ function getSecretNames(sources) {
   ]);
 }
 
+function allManagedSecretSources() {
+  return [
+    ...DEVELOPMENT_SECRET_SOURCES,
+    ...PRODUCTION_WORKER_SECRET_SOURCES,
+    ...STAGING_WORKER_SECRET_SOURCES,
+  ];
+}
+
 function stripCommandSeparator(args) {
   return args[0] === "--" ? args.slice(1) : args;
 }
@@ -524,6 +620,7 @@ function printHelp() {
       "Advanced compatibility commands:",
       "  pnpm env:doctor",
       "  pnpm env:doctor:prod        Read-only production readiness check; never deploys",
+      "  pnpm env:doctor:stg         Read-only staging readiness check; never deploys",
     ].join("\n")
   );
 }
