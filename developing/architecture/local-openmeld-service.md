@@ -307,8 +307,32 @@ dispatch. That configuration is not written into user settings. It exposes only
 the allowed `reply`, `status`, and `stay_silent` operations, forwards the active
 dispatch identity, and fails closed when the action context is absent, expired,
 or mismatched. Fresh and resumed controller conversations use the same tool
-boundary. Controllers without that proven structured-tool surface continue to
-use the exact dispatch-scoped CLI fallback.
+boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
+their controller-native tool extension point and the same dispatch-owned action
+writer. Controllers without a proven structured-tool surface continue to use
+the exact dispatch-scoped CLI fallback.
+
+OpenClaw Gateway does not expose a per-turn plugin-injection surface. During an
+action-enabled dispatch, the adapter therefore runs the same OpenClaw Session
+through its local CLI with a temporary first-party plugin and temporary config.
+The adapter preserves the provider Session ID and the user's existing model and
+tool policy, does not edit the user's config, and deletes the temporary files
+after the turn. Non-dispatch OpenClaw turns keep the existing Gateway path.
+
+When the controller finishes without one valid Space Action, the Service may
+continue that exact controller conversation once with one compact delivery
+repair instruction. The instruction tells the controller not to repeat the
+work or change its answer and asks it to record exactly one of the allowed
+actions. It includes only a bounded excerpt of the preceding output. This
+repair turn does not publish by itself, create a second dispatch, or change the
+Binding's controller-native permission intent.
+
+Immediately before that one repair turn, the Service may restore the bundled
+`openmeld-cli` Skill for only the active controller when its managed copy is
+missing or outdated. The Service must use the active lane, hold the normal
+skills lock, and leave any user-owned conflicting file untouched. Skill repair
+is guidance recovery, not execution authority; a failure remains diagnostic
+and must not bypass the dispatch-scoped action checks.
 
 Codex resume may use the smaller per-turn input only when the `thread/resume`
 response proves that `thread.threadSource` matches the exact current
@@ -1717,8 +1741,11 @@ for a temporary repair policy. Their repair turns therefore keep the exact
 Binding-selected native permission mode on the canonical session and must not
 apply a repair-only permission override. A future repair that requires such an
 override must fail explicitly until the controller exposes a proven isolation
-surface. OpenClaw remains outside this repair-isolation contract pending a
-separate audit of its provider-managed session semantics.
+surface. OpenClaw action repair likewise keeps the exact canonical Session and
+saved provider/tool policy while adding only the temporary dispatch-scoped
+first-party plugin. It must not apply a broader repair-only permission override;
+a future OpenClaw repair that needs one must fail until a proven isolated fork
+surface exists.
 
 Human-facing copy should use simple product language. Internal repair terms and
 raw anomaly codes belong in Agent View or diagnostics.
