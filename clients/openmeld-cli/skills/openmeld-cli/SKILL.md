@@ -993,8 +993,10 @@ Action tool named in the Wake prompt. The tool is already limited to the current
 Wake and does not need shell approval.
 
 Only when that structured tool is unavailable, use the exact CLI fallback from
-the Wake prompt. Its executable is `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH"`;
-do not replace it with a PATH-resolved command, `npx`, or another installation.
+the Wake prompt. In the examples below, `<DISPATCH_ACTION_CLI>` is a placeholder
+for that exact command prefix. In the current dispatch it resolves to
+`"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH"`; do not replace it with a
+PATH-resolved command, `npx`, or another installation.
 
 The dispatch prompt names the one final action for that Wake first. Run that
 action before reading optional forms.
@@ -1005,14 +1007,14 @@ land. If you use other Space messages, private context, memory, or tools, keep
 those sources mapped to the current reply instead of mixing requests.
 
 ```bash
-"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "Message for the Space."
-"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action wake "@Review Agent" "I finished this part. Please review it."
-"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply --wake "@Review Agent" "Here is my summary. Please continue the review."
-"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply --reference "@Planner" "I used the plan above and finished the implementation."
-"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action status done "Completed the investigation."
-"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action silent --reason "No public reply is needed."
-"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action targets
-"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action help
+<DISPATCH_ACTION_CLI> space action reply "Message for the Space."
+<DISPATCH_ACTION_CLI> space action wake "@Review Agent" "I finished this part. Please review it."
+<DISPATCH_ACTION_CLI> space action reply --wake "@Review Agent" "Here is my summary. Please continue the review."
+<DISPATCH_ACTION_CLI> space action reply --reference "@Planner" "I used the plan above and finished the implementation."
+<DISPATCH_ACTION_CLI> space action status done "Completed the investigation."
+<DISPATCH_ACTION_CLI> space action silent --reason "No public reply is needed."
+<DISPATCH_ACTION_CLI> space action targets
+<DISPATCH_ACTION_CLI> space action help
 ```
 
 `wake` and `reply --wake` are final visible messages for the current Wake. They
