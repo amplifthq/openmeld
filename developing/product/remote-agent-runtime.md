@@ -2574,10 +2574,14 @@ contract in Core, with Zep Cloud behind a provider adapter:
 - Core recalls the current member's organization-scoped member memory for a
   turn. When organization memory is enabled, it may also recall the shared
   organization subject.
-- Completed Center Agent DM turns write only member memory. Completed shared
-  Space and connected Channel turns write Organization memory while it is
-  enabled. Private Center Agent DMs never automatically write Organization
-  memory.
+- Completed requester-private Center Agent turns write only the verified
+  member's memory across OpenMeld, Slack, Lark, and Feishu DMs. Completed shared
+  Space and Organization-shared Channel turns may write Organization memory
+  while it is enabled. Externally shared Channels write neither automatically.
+- Core reads automatic-write scope from the completed delivery's frozen
+  `interactionEnvironment`, revalidates its verified sender against current
+  Organization membership, and fails closed when those facts are missing,
+  conflicting, or mismatched. Carrier and source names remain provenance only.
 - The explicit `centerAgentRememberForOrganization` tool is designation-gated
   and fails closed while organization memory is off.
 - Core projects bounded memory items into the shared turn envelope before
