@@ -204,7 +204,7 @@ export function getAgentControllerVersionAdvisoryPresentation(
       (latestVersion
         ? `A newer version is available: ${latestVersion}.`
         : "A newer controller version is available."),
-    label: "Update available",
+    label: "Update",
     tone: "warning",
     updateCommand: advisory.updateCommand,
   };
