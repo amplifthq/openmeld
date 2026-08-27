@@ -139,6 +139,12 @@ test("keeps status credentials out of candidate commands", () => {
     )
   );
   assert.ok(candidateJob.includes("$RUNNER_TEMP/final-candidate-control"));
+  assert.ok(
+    candidateJob.includes(
+      `path: ${GITHUB_EXPRESSION_PREFIX} runner.temp }}/final-candidate-control/`
+    ),
+    "the hosted artifact must preserve both canonical evidence and complete command logs"
+  );
   assert.ok(candidateJob.includes('--plan-source "$CANDIDATE_BASE_SHA"'));
   assert.ok(finalJob.includes("final-candidate-publisher.mjs"));
   assert.ok(
