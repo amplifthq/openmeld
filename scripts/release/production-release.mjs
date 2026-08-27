@@ -1149,16 +1149,11 @@ function combineReleaseErrors(originalError, releaseErrors) {
 }
 
 function coreCliChannelCompatibilityStep() {
+  const channelSyncArgs = ["--current", "--channel-sync-check"];
   return {
-    args: [
-      "run",
-      "verify:release-ready",
-      "--",
-      "--current",
-      "--channel-sync-check",
-    ],
+    args: ["run", "verify:release-ready", "--", ...channelSyncArgs],
     command: "pnpm",
-    controlArgs: ["--current", "--channel-sync-check"],
+    controlArgs: channelSyncArgs,
     controlCommand: "node",
     controlPath: "scripts/release/verify-release-ready.mjs",
     label: "Verify Core CLI channel compatibility",

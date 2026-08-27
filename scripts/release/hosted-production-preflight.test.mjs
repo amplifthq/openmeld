@@ -13,6 +13,9 @@ import test from "node:test";
 
 import { runHostedProductionPreflight } from "./hosted-production-preflight.mjs";
 
+const TRUSTED_CHANNEL_GATE_FAILURE_PATTERN =
+  /verify-release-ready\.mjs --current --channel-sync-check failed with exit code 93/u;
+
 function buildHostedPreflightFixture(extraControlScripts = []) {
   const root = mkdtempSync(
     path.join(tmpdir(), "openmeld-historical-preflight-")
@@ -156,6 +159,29 @@ test("hosted Core preflight runs the CLI channel compatibility gate through trus
     });
 
     assert.equal(existsSync(channelGateMarker), true);
+  } finally {
+    fixture.remove();
+  }
+});
+
+test("hosted Core preflight preserves a trusted channel gate failure", async () => {
+  const fixture = buildHostedPreflightFixture([
+    {
+      content: ["#!/usr/bin/env node", "process.exit(93);", ""].join("\n"),
+      path: "scripts/release/verify-release-ready.mjs",
+    },
+  ]);
+
+  try {
+    await assert.rejects(
+      runHostedProductionPreflight({
+        controlRoot: fixture.controlRoot,
+        releaseSha: fixture.releaseSha,
+        releaseSource: fixture.releaseSource,
+        scope: "core",
+      }),
+      TRUSTED_CHANNEL_GATE_FAILURE_PATTERN
+    );
   } finally {
     fixture.remove();
   }

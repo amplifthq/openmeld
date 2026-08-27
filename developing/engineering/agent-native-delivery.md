@@ -330,6 +330,11 @@ commands, and recovery mechanics. This document owns the lifecycle contract:
    is a formal fallback, not an emergency bypass. It must acquire the same
    shared scope lease as hosted release before the first production mutation.
 
+The standard hosted Core preflight runs the production CLI channel
+compatibility gate from the current-main control checkout, with the exact
+release source as its working directory. A missing trusted control path or a
+nonzero channel gate result blocks deployment before the Core Worker is built.
+
 ## Health And Real-User Smoke
 
 Component automation performs the cheap health check owned by
