@@ -805,12 +805,13 @@ describe("LocalAgentsCard", () => {
 		const row = screen.getByTestId("settings-local-agent-row-codex");
 		expect(row.getAttribute("data-muted")).toBe("true");
 		expect(row.querySelector("p")?.textContent).toBe("Codex");
-		expect(row.querySelector("p")?.className).toContain(
-			"text-muted-foreground"
-		);
+		// A disconnected service keeps the agent content full-color: the switch
+		// stays on and the stale snapshot is announced by the note, not by
+		// graying the card out like a disabled state.
+		expect(row.querySelector("p")?.className).toContain("text-foreground");
 		expect(
 			within(row).getByTestId("local-agent-logo-codex").parentElement?.className
-		).toContain("opacity-50");
+		).not.toContain("opacity-50");
 	});
 
 	it("shows service reconnect dependency as a quiet Local agents note", () => {
@@ -837,12 +838,10 @@ describe("LocalAgentsCard", () => {
 		const row = screen.getByTestId("settings-local-agent-row-codex");
 		expect(row.getAttribute("data-muted")).toBe("true");
 		expect(row.querySelector("p")?.textContent).toBe("Codex");
-		expect(row.querySelector("p")?.className).toContain(
-			"text-muted-foreground"
-		);
+		expect(row.querySelector("p")?.className).toContain("text-foreground");
 		expect(
 			within(row).getByTestId("local-agent-logo-codex").parentElement?.className
-		).toContain("opacity-50");
+		).not.toContain("opacity-50");
 	});
 
 	it("lets users manually check local agents", async () => {

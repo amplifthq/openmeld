@@ -1224,28 +1224,28 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
       onClick={hasDialog ? openDetails : undefined}
       role="listitem"
     >
-      <div className="relative flex h-full min-w-0 items-center gap-4 px-5 py-4">
-        {row.advisory ? (
-          <div className="absolute top-3.5 right-4 flex justify-end">
-            {row.advisory}
-          </div>
-        ) : null}
-        <div className="flex shrink-0 items-center self-center">
-          <SettingsLocalAgentIcon
-            agentId={row.logoAgentId ?? row.id}
-            muted={row.muted === true}
-            size="lg"
-          />
-        </div>
+      <div className="flex h-full min-w-0 gap-4 px-5 pt-4 pb-2">
+        {/* The quiet account states (Off, Not signed in) are the only ones that
+            dim the card; a stale service snapshot still shows full-color
+            content because the switch and the reported status stay real. */}
         <div
-          className="flex min-w-0 flex-1 flex-col gap-2 py-1"
+          className="flex min-w-0 flex-1 flex-col gap-2.5"
           data-testid="settings-local-agent-row-trigger"
         >
+          <div className="flex items-center">
+            <SettingsLocalAgentIcon
+              agentId={row.logoAgentId ?? row.id}
+              muted={status.tone === "muted"}
+              size="lg"
+            />
+          </div>
           <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
             <p
               className={cn(
                 "font-medium text-sm",
-                row.muted ? "text-muted-foreground" : "text-foreground"
+                status.tone === "muted"
+                  ? "text-muted-foreground"
+                  : "text-foreground"
               )}
             >
               {row.displayName}
@@ -1273,29 +1273,17 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
               {row.summaryMeta}
             </p>
           ) : null}
-          {hasDialog ? (
-            <div className="flex justify-end pt-0.5">
-              <button
-                aria-label={`${row.displayName} details`}
-                className="-mr-1 inline-flex items-center gap-0.5 rounded-sm px-1 py-0.5 text-muted-foreground text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-                data-testid="settings-local-agent-more-button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  openDetails();
-                }}
-                type="button"
-              >
-                More
-                <CaretRightIcon aria-hidden="true" className="size-3.5" />
-              </button>
-            </div>
-          ) : null}
         </div>
+        {row.advisory ? (
+          <div className="absolute top-3.5 right-4 flex justify-end">
+            {row.advisory}
+          </div>
+        ) : null}
         {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: the wrapper shields the switch from the card's open-dialog click; the switch keeps its own semantics. */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: same shielding purpose; no interactive role is added. */}
         {/* biome-ignore lint/a11y/useKeyWithClickEvents: pointer-only shield; the switch inside is keyboard accessible on its own. */}
         <div
-          className="flex shrink-0 self-center"
+          className="flex shrink-0 items-center"
           onClick={(event) => {
             event.stopPropagation();
           }}
@@ -1303,6 +1291,23 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
           <SettingsLocalAgentRowControl control={row.control} />
         </div>
       </div>
+      {hasDialog ? (
+        <div className="flex justify-end px-5 pb-2.5">
+          <button
+            aria-label={`${row.displayName} details`}
+            className="inline-flex items-center gap-0.5 rounded-sm text-muted-foreground text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            data-testid="settings-local-agent-more-button"
+            onClick={(event) => {
+              event.stopPropagation();
+              openDetails();
+            }}
+            type="button"
+          >
+            More
+            <CaretRightIcon aria-hidden="true" className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
       {hasDialog ? (
         <Dialog
           onOpenChange={(open) => {
@@ -1372,13 +1377,13 @@ function SettingsLocalAgentIcon({
       <span
         aria-hidden="true"
         className={cn(
-          "grid size-11 shrink-0 place-items-center rounded-lg border border-foreground/5 bg-muted/25",
+          "grid size-12 shrink-0 place-items-center",
           muted ? "text-muted-foreground opacity-50" : "text-foreground"
         )}
       >
         <LocalAgentLogo
           agentId={agentId}
-          className="size-7"
+          className="size-9"
           size="md"
           variant="plain"
         />
