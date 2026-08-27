@@ -122,7 +122,7 @@
     "verify:local-execution:liveness-guardrails": "node scripts/local-execution/verify-liveness-guardrails.mjs",
     "verify:local-execution:real-dogfooding": "node scripts/local-execution/verify-real-dogfooding.mjs",
     "verify:runtime-token-contract": "node scripts/local-execution/verify-runtime-token-contract.mjs",
-    "verify:cloudflare:env-contract": "node --test scripts/cloudflare/bootstrap-openmeld-worker-identities.test.mjs scripts/cloudflare/provision-openmeld-resources.test.mjs scripts/cloudflare/staging-worker-config.test.mjs scripts/cloudflare/sync-worker-secrets.test.mjs services/auth/scripts/build-lazy-runtime-modules.test.mjs services/remote-agent/scripts/write-flue-wrangler-env-config.test.mjs && node --experimental-strip-types scripts/cloudflare/verify-worker-env-contract.mjs",
+    "verify:cloudflare:env-contract": "pnpm --dir services/auth run build:workspace-dependencies && node --test scripts/cloudflare/bootstrap-openmeld-worker-identities.test.mjs scripts/cloudflare/provision-openmeld-resources.test.mjs scripts/cloudflare/staging-worker-config.test.mjs scripts/cloudflare/sync-worker-secrets.test.mjs services/auth/scripts/build-lazy-runtime-modules.test.mjs services/remote-agent/scripts/write-flue-wrangler-env-config.test.mjs && node --experimental-strip-types scripts/cloudflare/verify-worker-env-contract.mjs",
     "staging:plan": "node scripts/release/staging-release.mjs plan",
     "staging:deploy": "node scripts/release/staging-release.mjs deploy",
     "staging:verify": "node scripts/release/staging-release.mjs verify",
