@@ -27,6 +27,7 @@ const GITHUB_EXPRESSION_PATTERN = /\$\{\{\s*github\./u;
 const RUN_LINE_PATTERN = /^(\s+)run:\s*(.*)$/u;
 const LEADING_WHITESPACE_PATTERN = /^\s*/u;
 const TEN_SPACE_PREFIX_PATTERN = /^ {10}/u;
+const INHERITED_NODE_OPTIONS_PATTERN = /NODE_OPTIONS="?\$\{/u;
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
 const DELIVERY_ROUTER_PATHS = [
   "AGENTS.md",
@@ -213,6 +214,16 @@ test("disables candidate install hooks before selected commands", () => {
   );
   assert.ok(dependencyInstall.includes("--config.ignore-pnpmfile=true"));
   assert.ok(dependencyInstall.includes("--ignore-scripts"));
+});
+
+test("gives isolated candidate Node processes one explicit hosted-safe heap budget", () => {
+  const commandWrapper = readRepoFile(
+    "scripts/ci/run-isolated-candidate-command.sh"
+  );
+
+  assert.ok(commandWrapper.includes("exec env -i"));
+  assert.ok(commandWrapper.includes("NODE_OPTIONS=--max-old-space-size=6144"));
+  assert.doesNotMatch(commandWrapper, INHERITED_NODE_OPTIONS_PATTERN);
 });
 
 test("always finalizes an exact head after pending publication starts", () => {
