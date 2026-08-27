@@ -233,9 +233,10 @@ The workflow:
   checkout credentials disabled on an ephemeral GitHub-hosted runner;
 - installs candidate dependencies with lifecycle scripts and candidate-owned
   pnpm hooks disabled, then rebuilds only dependency packages approved by the
-  trusted current-main `allowBuilds` policy. Candidate root lifecycle scripts
-  remain disabled, while required native packages still build with dedicated
-  home, cache, store, modules, and virtual-store paths;
+  trusted current-main `allowBuilds` policy across every workspace project.
+  Candidate root lifecycle scripts remain disabled, while required native
+  packages still build with dedicated home, cache, store, modules, and
+  virtual-store paths;
 - runs selected candidate commands through a clean environment that omits
   GitHub credentials and Actions command-file variables;
 - separates the read-only candidate runner from small pending/final publisher

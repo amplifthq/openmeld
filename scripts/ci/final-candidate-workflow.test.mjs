@@ -120,7 +120,7 @@ test("keeps status credentials out of candidate commands", () => {
   );
   assert.ok(candidateJob.includes("--ignore-scripts"));
   assert.ok(dependencyInstall.includes("--config.ignore-pnpmfile=true"));
-  assert.ok(dependencyInstall.includes(" rebuild \\".trimEnd()));
+  assert.ok(dependencyInstall.includes(" --recursive rebuild \\".trimEnd()));
   assert.ok(dependencyInstall.includes("resolve-approved-native-builds.mjs"));
   assert.ok(commandWrapper.includes("exec env -i"));
   assert.ok(!commandWrapper.includes("sudo"));
