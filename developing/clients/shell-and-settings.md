@@ -33,9 +33,11 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 ## 1. Goal and current owner
 
 Current Web uses the fixed
-**Home / Spaces / Direct Messages / People / Agents / Computers / Projects / Documents / Agent Activity**
-product rail, with **Settings** as a separated utility and **Inbox** in the
-bottom-right global control area, and
+**Home / Spaces / Direct Messages / People / Agents / Projects / Documents / Agent Activity**
+product rail, with **Settings** as a separated utility. The bottom toolbar puts
+the signed-in member's current **Computer** at the far-left edge of the inset
+content column and keeps **Center Agent / Inbox** together at the far-right
+edge, and
 the **Personal / current Organization name** Settings groups defined in
 `developing/clients/web.md`. Center Agent has no secondary sidebar: **Messages /
 Graph / Files / Tasks / Routines / Skills / Apps** live in its header, while
@@ -44,14 +46,15 @@ Graph / Files / Tasks / Routines / Skills / Apps** live in its header, while
 One shell and one Settings framework let Web and the Electron GUI reuse shared
 pieces without forcing two clients to keep an obsolete route map. Current Web:
 
-- keeps **Home / Spaces / Direct Messages / People / Agents /
-  Computers / Projects / Documents / Agent Activity** as the fixed product
-  destinations, separates Settings as a utility, and opens Inbox from the app
-  canvas's global control area;
+- keeps **Home / Spaces / Direct Messages / People / Agents / Projects /
+  Documents / Agent Activity** as the fixed product destinations, separates
+  Settings as a utility, and opens the current Computer, Center Agent, and
+  Inbox from the app canvas's global toolbar;
 - uses one Settings destination with stable **Personal** and dynamically named
   current Organization groups;
-- gives Human teammates, ordinary Agent Profiles, and personal computers the
-  parallel first-level **People / Agents / Computers** homes;
+- gives Human teammates and ordinary Agent Profiles the parallel first-level
+  **People / Agents** homes, with each person's Computers inside their Human
+  Profile detail;
 - keeps Service preferences capability-gated for hosts that can own local-service
   controls; Service is not a Web top-level sidebar item;
 - gives every active app view one persistent outer app rail and content
@@ -148,7 +151,9 @@ mental verbs:
 
 1. **Account** — "who I am to the cloud": identity, sign-in/providers, sessions,
    CLI tokens. (= today's `account.tsx`, moved under Settings, largely unchanged.)
-2. **Computers** — "my machines": a first-level product home in Web. Each Computer is the entity; the **OpenMeld Service**
+2. **Computers** — "my machines": Computer cards live inside the owning Human
+   Profile in People, and the bottom toolbar opens the signed-in member's
+   current Computer detail directly. Each Computer is the entity; the **OpenMeld Service**
    (version / health / status / update / autostart) and its **local agents**
    (Codex / Claude Code / Grok Build / Cursor / OpenCode / OpenClaw, shown by product name)
    are folded IN as
@@ -197,17 +202,15 @@ programmatic-scroll lock, `history.replaceState`, focus-to-heading on jump,
 the sub-section. This satisfies "one Settings destination" without one 12000px
 DOM scroll.
 
-### Computers — first-level picker pre-state
+### Computers — People-owned cards and direct detail
 
-`/o/{orgSlug}/computers` opens on a **picker**, not directly on a machine's
-detail: a list of selectable computer cards (e.g. "This Mac", plus any other
-machines). Selecting a computer drills into its detail (Service + local agents) —
-the selected Computer is a real URL block at
-`/o/{orgSlug}/computers/{deviceId}`; a back affordance returns to the picker
-route. The picker route doubles as the overview/empty state. If a stale
-`:deviceId` no longer resolves to a Computer, show an explicit not-found state
-instead of silently falling back to another machine or the picker. (Ratified via
-widget preview, then updated for durable refresh/deep-link behavior.)
+People owns the Computer list for each Human Profile. Selecting a Computer card
+opens the durable detail route `/o/{orgSlug}/computers/{deviceId}`; its back
+affordance returns to the owning Human Profile. `/o/{orgSlug}/computers` is a
+compatibility handoff only: it opens the signed-in member's current Computer
+detail, or People when no current Computer exists. If a stale `:deviceId` no
+longer resolves, the detail shows an explicit not-found state with a return to
+People instead of silently choosing another machine.
 
 ## 5. Shell model — shared primitives remain active
 
@@ -215,13 +218,13 @@ The Web shell is a stable two-layer composition built from the shared
 `packages/ui` Sidebar family and Web-owned persistence/navigation adapters:
 
 - **App canvas** — the full-window background layer that owns the persistent
-  outer app rail and the bottom-right global control area.
+  outer app rail and the bottom global control row.
 - **Inset app surface** — one bounded surface inside the remaining viewport. It
   contains the optional inner contextual sidebar, required content region, and
   optional right drawer as one visual unit.
 
 - **Outer app rail** — always reachable on Home, Spaces, Direct
-  Messages, People, Agents, Computers, Projects, Documents, Agent Activity, and
+  Messages, People, Agents, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
   is the first destination; the remaining fixed destinations are grouped under
   **Work**, **Team**, and **Resources**, while Settings remains a bottom
@@ -236,7 +239,10 @@ The Web shell is a stable two-layer composition built from the shared
   expanded state shows the workspace identity, group labels, and destination
   labels.
 - **Global controls** — a Web-owned toolbar in the bottom canvas gutter outside
-  the inset surface. It contains separate Inbox and Center Agent launchers.
+  the inset surface. The current Computer sits at the far-left edge next to the
+  outer rail. Center Agent and Inbox remain adjacent at the far-right edge.
+  Computer opens the current device detail directly and carries its actionable
+  status tone; it never opens a Computer picker.
   Inbox opens its responsive attention preview and maximizes to the canonical
   full Inbox page. Center Agent opens a compact synchronized view of the same
   canonical Chat or Task and maximizes to that exact route; it never creates a
@@ -249,7 +255,9 @@ The Web shell is a stable two-layer composition built from the shared
   Direct Messages fills it with the current workspace's DM list, using the
   other participant's profile identity and opening the shared Space conversation
   surface in the content region. Agent Activity fills it with Overview / Sessions / Changes.
-  People, Agents, and Computers are full-width homes without an inner sidebar.
+  People fills it with an **Invite Members** button and the Human Profile list;
+  selecting a person opens that profile's persistent detail in the content
+  region. Agents remains a full-width home without an inner sidebar.
   Settings owns its Personal /
   current Organization section navigation. Every inner sidebar header shows one
   compact title only; it does not repeat the section purpose as a description.

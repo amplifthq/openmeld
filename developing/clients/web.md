@@ -220,12 +220,12 @@ authorization.
 
 The rail places the current workspace switcher at the top and has no separate
 OpenMeld brand row or account entry. **Home** is the first destination. The
-remaining nine product destinations are organized into three fixed,
+remaining seven product destinations are organized into three fixed,
 user-collapsible groups:
 
 - **Home** — the current Organization's adaptive overview and product entry.
-- **Work** — **Center Agent**, **Spaces**, **Direct Messages**.
-- **Team** — **People**, **Agents**, **Computers**.
+- **Work** — **Spaces**, **Direct Messages**.
+- **Team** — **People**, **Agents**.
 - **Resources** — **Projects**, **Documents**, **Agent Activity**.
 
 In the full rail, each labeled group uses its heading as an accessible
@@ -240,7 +240,7 @@ The destinations resolve in that group order:
 
 1. **Home** — the current Organization's concise overview. It leads with the
    designated Center Agent, then composes existing Agent Activity, Inbox, Tasks,
-   Spaces, People, Agents, Computers, Projects, and Documents projections. It
+   Spaces, People, Agents, Projects, Documents, and current-Computer projections. It
    owns no parallel state or mutation path. Its Center Agent action opens the
    canonical compact Center Agent conversation, and every other item links to
    its existing product home.
@@ -268,35 +268,27 @@ The destinations resolve in that group order:
    Canonical classification reads the Space status projection; the Account
    Space Index is list data and cannot override a fresher status result.
 5. **People** — the first-level home for the Human teammates in the current
-   workspace. Inviting a member is an action within People and remains
-   role-gated. The personal workspace shows the current member and the existing
-   create-Organization guidance instead of pretending that invitations are
-   available there.
+   workspace. Its secondary sidebar lists Human Profiles and owns the
+   **Invite Members** button. Selecting a person opens the full Human Profile
+   detail as the main content, including that person's Computer cards. Inviting
+   remains role-gated. The personal workspace shows the current member and the
+   existing create-Organization guidance instead of pretending that invitations
+   are available there.
 6. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. The page shows each Agent's
    identity, owner visibility, authoritative readiness, and execution
    relationship in plain language such as **Uses Codex on Felix's MacBook Pro**.
    The managed Center Agent remains in the separate Center Agent product home.
-7. **Computers** — the first-level home for computers connected to OpenMeld and
-   the Codex, Claude Code, Grok Build, Cursor, OpenCode, or other supported local tools
-   available on each one. Its canonical routes are `/o/{orgSlug}/computers`
-   and `/o/{orgSlug}/computers/{deviceId}`. In a personal workspace it shows
-   the signed-in member's computer inventory. In an Organization workspace it
-   groups computers by owner: the signed-in member still sees every computer
-   in their personal inventory, while other members' groups include only the
-   computers used by their active, ordinary Agents that are visible in the
-   current Organization Directory. This Organization view does not transfer
-   ownership or management authority.
-8. **Projects** — the first-level home for choosing, creating, and connecting
+7. **Projects** — the first-level home for choosing, creating, and connecting
    the code Projects used by local Agents. Project records are scoped to the
    selected Organization; local folder connections remain owner-self,
    device-local execution facts.
-9. **Documents** — the Organization-scoped Markdown home for the
+8. **Documents** — the Organization-scoped Markdown home for the
    Organization Brief, Profile Reports, and shared knowledge, organized into
    nested folders. It has no secondary sidebar; the current folder's child
    folders and files live inside the page itself.
-10. **Agent Activity** — the first-level home for local coding-agent session
+9. **Agent Activity** — the first-level home for local coding-agent session
    visibility. Its canonical route is `/o/{orgSlug}/agent-activity`; the full
    label prevents confusion with human activity and the Center Agent Audit Log.
    Its secondary sidebar groups **Overview**, **Sessions**, and **Changes** under
@@ -310,16 +302,23 @@ actions. Both entries open **Settings → Personal → Account**; they are two
 entry points to the one global Settings surface, not duplicate account or
 Settings implementations.
 
-**Inbox** is intentionally not a primary rail destination. The app canvas owns
-a bottom-right global control area outside the inset surface. Its Inbox launcher
-is present across ordinary authorized routes, shows only the uncleared,
+**Computer**, **Center Agent**, and **Inbox** are intentionally not primary rail
+destinations. The app canvas owns a bottom global control row outside the inset
+surface. The current Computer launcher sits at the far left, adjacent to the
+primary rail, and opens that exact Computer's detail without an inventory
+interstitial. Center Agent and Inbox remain together at the far right. The
+Computer launcher reflects the current Computer's coarse state; it never
+replaces Core-owned readiness truth or claims that an Agent can reply. When no
+current Computer exists, it opens the normal setup flow.
+
+The Inbox launcher is present across ordinary authorized routes, shows only the uncleared,
 unresolved action-required count (visually capped at `99+`), and opens a compact
 preview first. The preview shows unread context and a bounded list of recent
 items grouped as **Needs action** and **Recent updates**, preserves source
 navigation and read-on-open behavior, and exposes a clearly labeled maximize
 action to `/o/{orgSlug}/inbox`. One group does not hide the other. Its width and
 height must remain usable in narrow viewports. Ordinary unread updates never
-inflate the launcher badge. The same global control area contains a Center Agent
+inflate the launcher badge. The far-right global control group contains a Center Agent
 launcher plus a fixed-width, horizontally scrollable strip of active and
 action-required Task shortcuts. It never replaces overflow with a hidden `+N`
 count. Each Task shortcut opens the exact canonical Task preview, maximizes to
@@ -492,13 +491,15 @@ placeholder and return Artifacts to navigation only when it has real product
 content and passes the Use vs. Configure test.
 
 The product destinations that own a secondary sidebar are **Spaces**, **Direct
-Messages**, and **Agent Activity**. The Settings utility
-owns its own secondary sidebar. **People**, **Agents**, and **Computers** are independent full-width
-homes and must not recreate Directory as an inner sidebar. Center Agent is also
+Messages**, **People**, and **Agent Activity**. The Settings utility owns its
+own secondary sidebar. **Agents** is an independent full-width home. People
+uses its sidebar only to select a Human Profile; the selected Human Profile's
+complete detail is the canonical main content, including that person's
+Computers. Center Agent is also
 a full-width home: its primary work lives in the shared header and its lower-frequency
 capabilities and configuration live in one header menu.
 
-Each of those four route families owns one independent browser-persisted
+Each of those five route families owns one independent browser-persisted
 secondary-sidebar width. Child routes and selected records within a family
 share that width, as do different Organizations. The preference boundary is the
 stable route family, never the full pathname or a specific Organization, Space,
@@ -772,11 +773,13 @@ Profile directory readiness or retain a stale provider id. The Center Agent's
 system prompt receives the same friendly name so a member can also ask which
 model is active.
 
-Computers is a first-level product home. The signed-in member's inventory and
-all computer mutations remain account-scoped, but an Organization workspace
-also provides a read-only directory from Core's team-safe Organization Computer
-projection, including Service-connected Computers with no Agent Profile yet.
-Cards are grouped by owner just like Agents. Another member's card and detail
+Computers belong to their owners in **People**. The selected Human Profile's
+main detail renders that person's Computer cards from Core's team-safe
+Organization Computer projection, including a Service-connected Computer with
+no Agent Profile yet. Selecting a card opens the existing Computer detail route;
+the signed-in member also retains **Add a Computer**. The product does not keep
+an intermediate all-Computers inventory page. The signed-in member's complete
+inventory and all Computer mutations remain account-scoped. Another member's card and detail
 may show computer name, owner, device category, operating-system family/version,
 last-seen time, coarse Service state, team-safe local-agent availability, and
 visible Agents that use it. A reported local agent may also expose operational
@@ -801,7 +804,7 @@ progress bar. Owned and teammate Computers use the same shared summary and
 accessible gauge component.
 A provider with no quantified evidence does not add a collapsed-row badge or
 placeholder gauge. Web explicitly opts in to both owner and Organization
-projections and refreshes them while the Computers surface is active.
+projections and refreshes them while People or a Computer detail is active.
 A gauge names the limit, exposes its 0–100 used value to assistive technology,
 shows the used percentage in text, shows reset and last-observed time, and names
 the state so color is never the only signal. The UI derives **Low** when a fresh
@@ -989,10 +992,12 @@ former `/o/{orgSlug}/directory`, `/directory/people`, `/directory/members`, and
 `/directory/agents` routes are redirect-only compatibility entries. They must
 not render a Directory header, Directory sidebar, or a second mutation surface.
 
-**Settings → Personal → Computers** is also retired. The former picker and
-detail URLs redirect to the first-level Computers routes while preserving the
-device id and supported `focus` / `refresh` route state. Settings must not keep
-a Computers navigation item or render the computer management surface.
+**Settings → Personal → Computers** is also retired. Former detail URLs redirect
+to the canonical Computer detail route while preserving the device id and
+supported `focus` / `refresh` route state. The legacy `/computers` entry opens
+the current Computer directly, or People when no current Computer exists; it
+must not render an inventory picker. Settings must not keep a Computers
+navigation item or render the computer management surface.
 
 The seven-tab **Manage Center Agent** panel is retired as one concept. It must
 not survive as a hidden route, a personal-only implementation, or a parallel
@@ -1060,14 +1065,16 @@ is removed in the same cutover.
 The 2026-08-05 first-level object migration supersedes W-NAV4's user-facing
 Directory placement. It preserves the existing Human Profile, Agent Profile,
 Organization directory, Binding, readiness, and local-runtime owners while
-giving People, Agents, and Computers separate canonical product homes.
+giving People and Agents canonical product homes. Computers remain canonical
+objects and detail routes, but their discovery surface belongs to each owner in
+People rather than to a separate rail destination.
 
 ## Product Responsibilities
 
 OpenMeld Web owns the browser experience for:
 
 - Space list, Space entry, message timeline, and thread presentation
-- the fixed workspace switcher, primary rail, People, Agents, Computers, and Settings topology
+- the fixed workspace switcher, primary rail, People, Agents, current-Computer toolbar launcher, and Settings topology
 - the Projects page and owner-self current-computer connection presentation
 - Human and Agent Profile collaboration surfaces
 - Wake and Reference authoring affordances
@@ -1523,50 +1530,52 @@ button, correction flow, or discard chore. The calm explanation names review
 and save as the one next action only while a provisional version is pending.
 Documents introduces no upload surface.
 
-People cards link only to a Profile Report that already exists. They never open
-a prefilled blank document as a substitute for learning about the member.
+People links to a Profile Report only when one already exists. It never opens a
+prefilled blank document as a substitute for learning about the member.
 **Center Agent → Center Agent settings** links to the existing Organization
 Brief, or to a prefilled Brief creation route, and does not duplicate the
 editor in Settings. Organization switching preserves the Documents route
 family while replacing all document data with the target Organization's scope.
 
-Each People card uses a prominent Human Profile avatar, name, email, explicit
-`(you)` marker, Organization role, and a concrete **Last active {time}** value
-when the Directory provides one. This value comes only from the Core-owned,
-Organization-scoped Human activity projection; Auth Profile use, session
-refreshes, Computer heartbeats, and Agent Activity are not substitutes.
-Undefined activity is omitted instead of rendering a placeholder. The
-signed-in member sorts first; the remaining cards
-sort owner, admin, member, and unknown, then by name and user ID. The top-right
-icon row owns the contextual **Profile Report** and **Learn about {member}**
-actions, **Direct Message** for another active Human Profile, and **More**. The
-Computer summary and provider-logo identity-link states share one aligned footer
-below one divider instead of competing with profile actions.
+People is a two-pane workspace. Its secondary sidebar lists one Human Profile
+per current member and the main content renders the selected person's complete
+Profile detail. A sidebar item may show only the high-frequency scan signals:
+the Human Profile avatar, name, explicit `(you)` marker, Organization role,
+Core-owned **Last active {time}**, coarse Computer state, actually linked Slack,
+Lark, or Feishu identity icons, and each enabled reported Local Agent icon. It
+does not show email, provider account text, disabled Local Agents, unavailable
+identity mappings, or placeholder icons for providers the person has not linked.
+All logo-only signals have accessible names and tooltips. Local Agent identity
+uses the same catalog-owned logo and name as Computer detail; Web never creates
+a second name or logo map for People.
 
-Selecting any non-action area of a Human Profile card, or **More → View
-profile**, opens a right-side **Profile** drawer. Buttons, links, and menus keep
-their own actions and do not also open the drawer. The drawer owns the member
-account details, Organization role, join
-time, an ordinary Agent Profile count with up to three controller icons and an
-overflow count, Computer access, Connected Channels, shared Profile details,
-and the permitted Direct Message, edit, connect, or manage actions. The Work
-access row uses the same Computer projection and status tone as Computers and
-links to the member's sole Computer detail, or the Computers home when the
-member has multiple Computers. The Agent Profile count links to Agents and
-focuses the first Agent Profile in that member's owner group. Member-account,
-Channel-account, Profile, and advanced-detail values are text-selectable.
-**More → Edit
-profile** remains available only for the signed-in member's own active default
-Human Profile. The drawer and card omit the internal Handle, undefined recent
-activity, and the ubiquitous **Active** state; only an exceptional disabled
-state is visible. Web does not derive an Organization online dot from last-used
-time, Computer state, or Space-scoped presence. Members without an active Human
-Profile have no Direct Message or edit action, but the Profile drawer remains
-available for inspecting account details and the explicit unavailable or
-disabled profile state. The signed-in member cannot Direct Message themself.
+Last active comes only from the Core-owned, Organization-scoped Human activity
+projection; Auth Profile use, session refreshes, Computer heartbeats, and Agent
+Activity are not substitutes. Undefined activity is omitted instead of
+rendering a placeholder. The signed-in member sorts first; remaining items sort
+owner, admin, member, and unknown, then by name and user ID.
+
+Selecting a Human Profile sidebar item replaces the main content without
+opening a right drawer. The route preserves the selected `profileId`, so reload,
+back, and forward navigation return to the same person. The persistent detail
+owns member account details, Organization role, join time, an ordinary Agent
+Profile count with up to three controller icons and an overflow count,
+Computers, Connected Channels, shared Profile details, and the permitted
+Profile Report, Learn about, Direct Message, inline edit, connect, or manage
+actions. The Agent Profile count links to Agents and focuses the first Agent
+Profile in that member's owner group. Member-account, Channel-account, Profile,
+and advanced-detail values are text-selectable. Editing remains available only
+for the signed-in member's own active default Human Profile. The sidebar and
+detail omit the internal Handle, undefined recent activity, and the ubiquitous
+**Active** state; only an exceptional disabled state is visible. Web does not
+derive an Organization online dot from last-used time, Computer state, or
+Space-scoped presence. Members without an active Human Profile have no Direct
+Message or edit action, but their detail remains available for inspecting
+account details and the explicit unavailable or disabled profile state. The
+signed-in member cannot Direct Message themself.
 People admits only one pending Direct Message
 open intent at a time so competing responses cannot navigate to an earlier
-selection. The Human Profiles header includes
+selection. The People sidebar includes
 **Learn about all members** and shows processed progress such as `3/8` while
 Core runs the serial batch. A member currently queued or running shows
 **Learning…**; other starts stay disabled until the batch is terminal.
@@ -1576,39 +1585,47 @@ indicates that it has updates to review and save. **Learn about {member}**
 remains available beside it so a member can create a fresh dated report. A
 successful Documents read that contains no report shows only **Learn about
 {member}**. Loading or failed evidence shows neither action because Web cannot
-yet prove whether a report exists. The drawer follows the same evidence rule
-and keeps the learning action beside Direct Message when both are available.
+yet prove whether a report exists. The selected detail follows the same
+evidence rule and keeps the learning action beside Direct Message when both are
+available.
 **Profile Report** is the user-facing document term; the persisted
 `member_profile` kind and member-research orchestration names remain
 compatibility contracts.
 
 In an Organization workspace, People reads the Organization Computer
-projection and shows a concrete summary on every Human Profile card. Exactly
+projection and shows a concrete summary on every Human Profile sidebar item. Exactly
 one online Computer is **Computer connected**. Two or more online Computers are
 **2 computers connected**, **3 computers connected**, and so on. A mixed set
 summarizes only the online count, while an all-offline set is **Computer
 offline** without a number. Zero registered Computers remains **Connect a
 computer** for the signed-in member and **No computer connected** for a
 teammate. Attention and unavailable states remain explicit.
-The footer Computer icon uses the same state without a separate dot: green
+The sidebar Computer icon uses the same state without a separate dot: green
 for connected, amber for attention, and muted otherwise. One Computer opens its
-detail; multiple Computers open the Computers home. The signed-in member with
-none receives **Connect a computer** and the normal setup route; teammates have
-no setup or management action. A failed or incomplete response never blanks
-People or changes a member's identity; missing evidence stays unavailable
-rather than being presented as not connected. Computer state never claims that
-the Human Profile is online. The Profile drawer adds the matching colored dot
-to the same summary so status and navigation remain legible in the denser
-detail layout.
+detail from its card in the selected Profile; multiple Computers remain separate
+cards in that same Profile. The signed-in member with none receives **Add a
+Computer** and the normal setup route; teammates have no setup or management
+action. A failed or incomplete response never blanks People or changes a
+member's identity; missing evidence stays unavailable rather than being
+presented as not connected. Computer state never claims that the Human Profile
+is online. The main detail uses the same summary tone and projection as the
+sidebar.
+
+The selected Human Profile detail replaces the former **Work access** row with
+the existing Computer cards, preserving Computer name, operating-system and
+device metadata, state, Local Agent summary, last-seen evidence, and direct
+navigation to the existing Computer detail. This is component reuse, not a
+second Computer card implementation. **Add a Computer** appears alongside the
+cards only for the signed-in member.
 
 People reads Message Channel connections and their Core-owned identity-link
-projection together. Every card footer shows the relevant provider logos. A
-missing, unavailable, or unconfigured account renders as a muted logo without
-card copy; **Set up**, **Connection unavailable**, and **No account connected**
-belong only in the details flow. For the signed-in member, the logo remains a
-provider-specific action such as **Connect Slack**, **Connect Lark**, or
-**Connect Feishu** when that action is available. It opens the existing private
-provider-proof flow; it never assigns a Channel account merely because the card was selected.
+projection together. The sidebar shows a provider icon only when the selected
+member has a real identity mapping for that provider. Missing, unavailable,
+unconfigured, and unmapped accounts add no sidebar placeholder. **Set up**,
+**Connection unavailable**, **No account connected**, provider account text,
+and self-only actions belong in the persistent detail. **Connect Slack**,
+**Connect Lark**, or **Connect Feishu** opens the existing private
+provider-proof flow; selecting a Human Profile never assigns a Channel account.
 When the Organization has not configured that provider, the same connection
 panel gives an owner or admin **Set up Slack**, **Set up Lark**, or **Set up
 Feishu** and gives an ordinary member **Ask an admin to set up {provider}**.
@@ -1616,11 +1633,11 @@ The member action creates one deduplicated Organization Inbox request for every
 current owner and admin instead of granting Organization mutation authority.
 That request links directly to **Center Agent → Channels** and resolves when the
 Organization connects the provider.
-Teammates retain the non-actionable muted logo. The drawer exposes the same
-self-only connection action and keeps a mapped identity visible as unavailable
+The detail exposes the same self-only connection action and keeps a mapped
+identity visible as unavailable
 when that provider connection needs repair. All status copy remains neutral
-gray rather than amber. When available, the drawer and connected card state
-show the provider account name or handle first and the exact provider email
+gray rather than amber. When available, the detail shows the provider account
+name or handle first and the exact provider email
 second, separated by a middle dot. Either field may be absent, and Web never
 infers one from the other or adds `@` to a provider display name. For Slack, Core
 resolves the display metadata for the exact linked Slack user through the
@@ -1632,6 +1649,14 @@ Self and Channel managers may disconnect a wrong mapping; replacement still
 requires a private provider proof and confirmation by the intended signed-in
 account. Disconnecting this relationship never disconnects the Organization
 Channel.
+
+The top of the People sidebar owns one **Invite Members** button, parallel to
+**New Space** in Spaces. It opens a single dialog containing both invitation
+methods: email plus role plus **Send invitation**, and the Organization invite
+link with **Copy**, **Reset**, and **Revoke**. These lower-frequency controls do
+not consume permanent main-content space. Personal workspaces keep the button's
+position but show the existing Organization guidance instead of pretending an
+invitation is available.
 
 ### Projects
 
@@ -3101,7 +3126,7 @@ service reinstall may report a new `deviceId`; Web still follows the session and
 shows completion for the selected Computer instead of creating a browser-side
 device match that can leave the page waiting forever.
 
-Selecting a Computer in the Computers home is navigation, not a global routing
+Selecting a Computer card in a Human Profile is navigation, not a global routing
 mutation.
 Web must not offer a `Use this computer` action or claim that the browser has
 switched computers unless an owning server contract actually changes routing.
@@ -3310,7 +3335,7 @@ readiness fetch or a fixed grace timer. Computers, Agents, and Space recovery
 surfaces must consume the Core-owned current-local-runtime `nextAction` for the
 completed outcome. A completed `check_status` verdict uses the same amber
 **Couldn't check** outcome on the affected local-agent row, the current Computer
-summary, and Computers navigation attention. It never becomes a red repair
+summary, and current-Computer toolbar attention. It never becomes a red repair
 alert or setup action.
 
 Web does not inspect a second execution-target snapshot to override the Core

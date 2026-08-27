@@ -2265,20 +2265,28 @@ with non-empty approved content are discoverable by title and readable through
 the audited document tool; their bodies are never injected wholesale. A
 draft-only document does not place its proposed title into the system prompt.
 
-People represents every current human member with one **Human Profile** card,
-including an explicit missing-profile state when that member has no Human
-Profile identity yet. The card owns a prominent Human Profile avatar, the
-member's name and email, an explicit `(you)` marker for the signed-in member,
-the Organization role for every member, the **Last active** time when Core
-provides one, exceptional profile state, and contextual **Profile Report** and
-**Learn about {member}** actions. A consistent footer below one divider owns the
-coarse Computer state and provider-logo identity-link states. The card never
-exposes the internal profile Handle or slug, a generic **Active** badge, an
-invented online presence, or an undefined recent-activity field. People sorts
-the signed-in member first, then owner, admin, member, and unknown roles, with
-name and user ID as deterministic tie breakers. People must not duplicate the
-same people in a separate Members card. Invitation controls remain separate,
-and **Learn about all members** belongs to the Human Profiles section header.
+People represents every current human member with one **Human Profile** item in
+a dedicated secondary sidebar, including an explicit missing-profile state when
+that member has no Human Profile identity yet. Selecting an item makes that
+person's complete Profile detail the persistent main content; it does not open
+a transient drawer. The item owns only high-frequency scan signals: a prominent
+Human Profile avatar, the member's name, an explicit `(you)` marker, the
+Organization role, Core-owned **Last active** time, coarse Computer state,
+actually linked Slack, Lark, or Feishu identity icons, and enabled reported
+Local Agent icons. Email and provider account text belong in Profile detail,
+not in the sidebar. Missing identity mappings, unconfigured providers, and
+disabled Local Agents add no placeholder icons. Every logo-only signal has an
+accessible name and tooltip and reuses the catalog-owned identity from its
+canonical Channel or Computer surface.
+
+The sidebar never exposes the internal profile Handle or slug, a generic
+**Active** badge, an invented online presence, or an undefined recent-activity
+field. People sorts the signed-in member first, then owner, admin, member, and
+unknown roles, with name and user ID as deterministic tie breakers. People must
+not duplicate the same people in a separate Members card. **Learn about all
+members** belongs to the People sidebar. **Invite Members** opens one dialog
+that contains both the email-and-role invitation form and the invite-link Copy,
+Reset, and Revoke actions; invitation controls do not occupy the main detail.
 
 An existing Profile Report opens from a top-right document icon. Amber means
 the report has updates to review and save. **Learn about {member}** remains
@@ -2287,7 +2295,7 @@ projection proves that no report exists, People shows only **Learn about
 {member}**; it never opens a blank document. While Documents are loading or
 unavailable, People shows neither action because it cannot prove the current
 report state. A
-single-member learning start failure stays on that member's card with its retry
+  single-member learning start failure stays on that member's detail with its retry
 action. **Learn about** asks the designated Center Agent to process one member
 at a time and create one new dated Profile Report. The all-members operation is
 serial: one task reaches a terminal outcome before Core starts the next, and
@@ -2304,58 +2312,57 @@ the research task reaches its terminal outcome. User-defined recurring learning
 plans and proactive opt-in prompts for organization-wide automatic learning are
 future extensions of this same workflow, not alternate document writers.
 
-Human Profile cards reserve the top-right icon row for the contextual **Profile
-Report** and **Learn about {member}** actions, **Direct Message** for another
-active Human Profile, and an overflow menu. Selecting any non-action area of a
-card or **View profile** opens the right-side **Profile** details surface. That surface
-owns member account details, Organization role, join time, ordinary Agent
-Profile count and icons, Computer access, **Connected Channels**, shared Profile
-details, and the permitted Direct Message, learn, edit, connect, or manage
-actions. Its Agent Profile count links to the Agents surface and focuses the
-first Agent Profile in that member's owner group. The overflow menu keeps **Edit profile** for
-the signed-in member's own active default Human Profile. Self-Direct Messages
+The persistent Profile detail owns contextual **Profile Report**, **Learn about
+{member}**, **Direct Message** for another active Human Profile, and inline
+**Edit profile** actions. It also owns member account details, Organization
+role, join time, ordinary Agent Profile count and icons, Computers, **Connected
+Channels**, and shared Profile details. Its Agent Profile count links to Agents
+and focuses the first Agent Profile in that member's owner group. Edit remains
+available only for the signed-in member's own active default Human Profile. Self-Direct Messages
 are unavailable, and owners or admins do not receive an edit action for another
 member's Human Profile. Editing the current member's default Human Profile
 reuses the paired Account Display Name mutation rather than introducing a
 second identity writer.
 
-In an Organization workspace, each Human Profile card also shows one coarse
+In an Organization workspace, each Human Profile sidebar item also shows one coarse
 **Computer** summary. One online Computer is **Computer connected**; two or more
 online Computers show the connected count; a mixed set summarizes only the
 online count; and an all-offline set is **Computer offline** without a count.
-Attention and unavailable states remain explicit. The footer colors the Computer
+Attention and unavailable states remain explicit. The sidebar colors the Computer
 icon green for connected, amber for attention, and muted otherwise, with no separate status dot. A member
-with one Computer opens that Computer directly; multiple Computers open the
-Computers home. A signed-in member with none sees **Connect a computer** and
-reaches the normal setup path, while another member sees only **No computer
-connected**. This answers only whether at least one current OpenMeld Service
+with one or more Computers sees the same coarse summary while the main detail
+renders one existing Computer card per device. Selecting a Computer card opens
+that exact Computer detail. A signed-in member with none sees **Add a Computer**
+and reaches the normal setup path, while another member sees only **No computer
+connected**. The Add card remains available alongside existing Computers only
+for the signed-in member. This answers only whether at least one current OpenMeld Service
 session for the member can carry Wake work; it does not claim that the member
 is online or that any Agent Profile is ready. Every current Organization member
 may see this coarse state. The card never exposes another member's device id,
 executable paths, credentials, private setup instructions, or management
-controls.
+controls. The Profile detail reuses the existing Computer card and Computer
+detail components; People does not maintain a parallel Computer UI.
 
-Every Human Profile card footer shows the relevant Slack, Lark, and Feishu
-provider logos. A missing, unavailable, or unconfigured account is a muted
-logo-only state on the card; card copy does not announce **Set up**, **Connection
-unavailable**, or **No account connected**. A connected identity may show the
-provider account name or handle followed by the exact email, separated by a
-middle dot, when Core provides those fields. Missing account metadata is never
-inferred. The details surface keeps the corresponding neutral gray status and
+Each Human Profile sidebar item shows a Slack, Lark, or Feishu provider icon
+only for an identity that is actually mapped to that member. A missing,
+unavailable, unconfigured, or unmapped account adds no sidebar icon. The Profile
+detail may show the provider account name or handle followed by the exact email,
+separated by a middle dot, when Core provides those fields. Missing account
+metadata is never inferred. The detail keeps the corresponding neutral gray status and
 the permitted **Connect**, **Set up**, **Ask an admin**, or **Manage** action.
 Those actions start the existing authorization or private provider-proof flow;
-they do not bind an account by card selection alone. Another member's missing
+they do not bind an account by Profile selection alone. Another member's missing
 link remains non-actionable. The linked member
 may manage and disconnect their own identity;
 owners and admins may manage another member's wrong link without gaining the
 ability to assign a replacement. Provider account and member account values in
 the details surface remain text-selectable for ordinary copy and inspection.
 
-The first-level **Computers** home is a separate Organization member surface,
-not an expansion of this coarse Human Profile status. It groups Core's
-Organization-scoped, team-safe Computer projection by owner, including a
+Computers belong inside their owner's Human Profile detail rather than a
+separate first-level inventory. People groups Core's Organization-scoped,
+team-safe Computer projection by the selected owner, including a
 Service-connected Computer before its owner creates an Agent Profile. The
-signed-in member's group continues to use their complete account inventory.
+signed-in member continues to use their complete account inventory.
 Other members' groups are read-only and may show the owner, computer display
 name, device category, operating-system family and version, last-seen time,
 coarse Service state, team-safe local-agent availability, and
