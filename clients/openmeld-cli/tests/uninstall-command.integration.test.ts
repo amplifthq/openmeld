@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
@@ -307,27 +308,39 @@ describe("uninstall command", () => {
   it("blocks internal safe validation when OPENMELD_HOME is not under the temp root", async () => {
     process.env.OPENMELD_ENV_PRESET = "dev-local";
     process.env.OPENMELD_USER_FACING_CLI_COMMAND = "openmeld-dev";
-    const previousOpenMeldHome = process.env.OPENMELD_HOME;
 
-    try {
-      process.env.OPENMELD_HOME = join(process.cwd(), "unsafe-uninstall-home");
+    await withTempHome(async (home) => {
+      const previousOpenMeldHome = process.env.OPENMELD_HOME;
+      const previousTmpdir = process.env.TMPDIR;
+      const allowedTempRoot = join(home, "allowed-temp");
 
-      await expect(
-        runUninstall({
-          view: "agent",
-          yes: true,
-          internalSafeValidation: true,
-        })
-      ).rejects.toThrow(
-        "openmeld uninstall --internal-safe-validation requires the local OpenMeld home under"
-      );
-    } finally {
-      if (previousOpenMeldHome === undefined) {
-        Reflect.deleteProperty(process.env, "OPENMELD_HOME");
-      } else {
-        process.env.OPENMELD_HOME = previousOpenMeldHome;
+      try {
+        await mkdir(allowedTempRoot, { recursive: true });
+        process.env.TMPDIR = allowedTempRoot;
+        process.env.OPENMELD_HOME = join(home, "unsafe-uninstall-home");
+
+        await expect(
+          runUninstall({
+            view: "agent",
+            yes: true,
+            internalSafeValidation: true,
+          })
+        ).rejects.toThrow(
+          "openmeld uninstall --internal-safe-validation requires the local OpenMeld home under"
+        );
+      } finally {
+        if (previousOpenMeldHome === undefined) {
+          Reflect.deleteProperty(process.env, "OPENMELD_HOME");
+        } else {
+          process.env.OPENMELD_HOME = previousOpenMeldHome;
+        }
+        if (previousTmpdir === undefined) {
+          Reflect.deleteProperty(process.env, "TMPDIR");
+        } else {
+          process.env.TMPDIR = previousTmpdir;
+        }
       }
-    }
+    });
   });
 
   it("blocks internal safe validation when remove flags are requested", async () => {

@@ -6,7 +6,6 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runReset } from "../src/commands/reset";
@@ -252,12 +251,16 @@ describe("openmeld reset", () => {
   });
 
   it("still rejects non-temp OPENMELD_HOME when OPENMELD_RESET_ALLOW_UNSAFE_HOME=1", async () => {
-    await withTempHome(async () => {
+    await withTempHome(async (home) => {
       const previousOpenMeldHome = process.env.OPENMELD_HOME;
       const previousAllowUnsafeHome =
         process.env.OPENMELD_RESET_ALLOW_UNSAFE_HOME;
+      const previousTmpdir = process.env.TMPDIR;
+      const allowedTempRoot = join(home, "allowed-temp");
       try {
-        process.env.OPENMELD_HOME = join(process.cwd(), "unsafe-reset-home");
+        await mkdir(allowedTempRoot, { recursive: true });
+        process.env.TMPDIR = allowedTempRoot;
+        process.env.OPENMELD_HOME = join(home, "unsafe-reset-home");
         process.env.OPENMELD_RESET_ALLOW_UNSAFE_HOME = "1";
 
         await expect(
@@ -281,12 +284,17 @@ describe("openmeld reset", () => {
         } else {
           process.env.OPENMELD_HOME = previousOpenMeldHome;
         }
+        if (previousTmpdir === undefined) {
+          Reflect.deleteProperty(process.env, "TMPDIR");
+        } else {
+          process.env.TMPDIR = previousTmpdir;
+        }
       }
     });
   });
 
   it("rejects tmpdir symlink paths that resolve outside temp root", async () => {
-    await withTempHome(async () => {
+    await withTempHome(async (home) => {
       if (process.platform === "win32") {
         return;
       }
@@ -294,13 +302,14 @@ describe("openmeld reset", () => {
       const previousOpenMeldHome = process.env.OPENMELD_HOME;
       const previousAllowUnsafeHome =
         process.env.OPENMELD_RESET_ALLOW_UNSAFE_HOME;
-      const linkPath = join(
-        tmpdir(),
-        `openmeld-reset-link-${Date.now().toString(36)}`
-      );
+      const previousTmpdir = process.env.TMPDIR;
+      const allowedTempRoot = join(home, "allowed-temp");
+      const linkPath = join(allowedTempRoot, "openmeld-reset-link");
 
       try {
-        await symlink(process.cwd(), linkPath);
+        await mkdir(allowedTempRoot, { recursive: true });
+        process.env.TMPDIR = allowedTempRoot;
+        await symlink(home, linkPath);
         process.env.OPENMELD_HOME = join(linkPath, "sandbox-reset-home");
         process.env.OPENMELD_RESET_ALLOW_UNSAFE_HOME = "1";
 
@@ -325,6 +334,11 @@ describe("openmeld reset", () => {
           Reflect.deleteProperty(process.env, "OPENMELD_HOME");
         } else {
           process.env.OPENMELD_HOME = previousOpenMeldHome;
+        }
+        if (previousTmpdir === undefined) {
+          Reflect.deleteProperty(process.env, "TMPDIR");
+        } else {
+          process.env.TMPDIR = previousTmpdir;
         }
       }
     });
