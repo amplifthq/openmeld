@@ -114,7 +114,7 @@ test(
 );
 
 test(
-  "Linux empty-store install rebuilds and loads the repository-approved better-sqlite3 binary",
+  "Linux empty-store workspace install rebuilds and loads the repository-approved better-sqlite3 binary",
   { skip: !supportsLinuxCandidateInstall(), timeout: 180_000 },
   () => {
     const fixture = createLinuxInstallFixture();
@@ -140,7 +140,6 @@ test(
       writeFileSync(
         path.join(fixture.candidateRoot, "package.json"),
         `${JSON.stringify({
-          dependencies: { "better-sqlite3": "12.6.2" },
           private: true,
           scripts: {
             prepare: `node -e "require('node:fs').writeFileSync(${JSON.stringify(
@@ -148,6 +147,16 @@ test(
             )}, 'unsafe')"`,
           },
         })}\n`
+      );
+      writeFileSync(
+        path.join(fixture.candidateRoot, "pnpm-workspace.yaml"),
+        "packages:\n  - packages/*\n"
+      );
+      const appRoot = path.join(fixture.candidateRoot, "packages", "app");
+      mkdirSync(appRoot, { recursive: true });
+      writeFileSync(
+        path.join(appRoot, "package.json"),
+        '{"name":"fixture-app","private":true,"dependencies":{"better-sqlite3":"12.6.2"}}\n'
       );
       const lock = spawnSync(
         "pnpm",
@@ -175,7 +184,7 @@ test(
       const selectedCheck = runCandidateCommand(fixture, [
         "node",
         "-e",
-        "const Database=require('better-sqlite3'); const db=new Database(':memory:'); db.exec('select 1'); db.close();",
+        "const Database=require('./packages/app/node_modules/better-sqlite3'); const db=new Database(':memory:'); db.exec('select 1'); db.close();",
       ]);
       assert.equal(
         selectedCheck.status,

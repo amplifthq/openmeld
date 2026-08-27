@@ -409,6 +409,13 @@ explicit choice to let OpenMeld choose the working folder instead. A
 teammate-owned request does not read the requester's saved Default Project as
 if it belonged to the teammate.
 
+For a self-owned configured Agent, `--agent-controller <ref>` without
+`--computer` selects this computer only when that Local Agent is enabled and
+ready here. The CLI resolves the computer's existing Organization identity and
+passes it into the shared creation request; Core remains responsible for final
+Computer, Local Agent, Project, and Binding validation. Teammate-owned requests
+require an explicit `--computer`, and the CLI never guesses another computer.
+
 The executor completes new-Session identity creation, exact native Resume, and
 provider-native Fork after Agent Activity and the local Binding path verify the
 selected Session. The CLI must never replace either existing-Session strategy
