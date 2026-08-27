@@ -19,6 +19,7 @@ const POWERSHELL_ENCODED_COMMAND_RE =
 describe("cli-entry-command", () => {
 	afterEach(() => {
 		vi.unstubAllEnvs();
+		vi.unstubAllGlobals();
 	});
 
 	it("uses OPENMELD_AUTH_URL and OPENMELD_GATEWAY_URL prefixes for non-default web environments", () => {
@@ -205,6 +206,24 @@ describe("cli-entry-command", () => {
 			})
 		).toBe(
 			"curl -fsSL 'http://localhost:3000/setup?lane=dev-local&openMeldHome=%2Ftmp%2Fopenmeld+web+start+fresh' | sh -s -- setup --start-session preptok_demo --ott ott_demo --view human"
+		);
+	});
+
+	it("keeps staging canary setup on the staging binary channel", () => {
+		vi.stubGlobal("window", {
+			location: { origin: "https://staging.openmeld.ai" },
+		});
+
+		expect(
+			buildWebSetupCommand({
+				localAgents: "none",
+				oneTimeToken: "ott_staging_demo",
+				startSession: "start_staging_demo",
+				userFacingCommand: "openmeld-canary",
+				view: "agent",
+			})
+		).toBe(
+			"curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --local-agents none --ott ott_staging_demo --view agent"
 		);
 	});
 
