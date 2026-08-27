@@ -131,6 +131,24 @@ describe("openmeld upgrade in binary distribution", () => {
     vi.unstubAllEnvs();
   });
 
+  it("keeps the manual fallback inside the staging canary lane", async () => {
+    const { resolveBinaryManualOpenMeldUpgradeCommand } =
+      await loadUpgradeModules();
+
+    expect(
+      resolveBinaryManualOpenMeldUpgradeCommand({
+        OPENMELD_ENV_PRESET: "canary",
+        OPENMELD_CLI_BINARY_MANIFEST_URL:
+          "https://staging.openmeld.ai/cli/manifest.json",
+      })
+    ).toBe(
+      "curl -fsSL 'https://staging.openmeld.ai/setup?lane=canary&dist=binary' | sh"
+    );
+    expect(resolveBinaryManualOpenMeldUpgradeCommand({})).toBe(
+      "curl -fsSL 'https://openmeld.ai/setup?dist=binary' | sh"
+    );
+  });
+
   it("downloads the manifest artifact, verifies it, installs itself, and hands off to the managed binary", async () => {
     await withTempHome(async (home) => {
       await seedVersionState(home);
@@ -557,6 +575,7 @@ describe("openmeld upgrade in binary distribution", () => {
 async function loadUpgradeModules(): Promise<{
   runUpgrade: typeof import("../src/commands/upgrade").runUpgrade;
   UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG: typeof import("../src/commands/upgrade").UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG;
+  resolveBinaryManualOpenMeldUpgradeCommand: typeof import("../src/commands/upgrade").resolveBinaryManualOpenMeldUpgradeCommand;
   readVersionState: typeof import("../src/config/version-state").readVersionState;
 }> {
   const [upgrade, versionState] = await Promise.all([
@@ -567,6 +586,8 @@ async function loadUpgradeModules(): Promise<{
     runUpgrade: upgrade.runUpgrade,
     UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG:
       upgrade.UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG,
+    resolveBinaryManualOpenMeldUpgradeCommand:
+      upgrade.resolveBinaryManualOpenMeldUpgradeCommand,
     readVersionState: versionState.readVersionState,
   };
 }

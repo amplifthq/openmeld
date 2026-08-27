@@ -1,4 +1,3 @@
-import packageJson from "../../package.json";
 import type { OpenMeldEnvironmentTarget } from "../config/openmeld-environment-target";
 import {
   buildNextVersionState,
@@ -9,6 +8,9 @@ import {
   readVersionState,
   writeVersionState,
 } from "../config/version-state";
+import type { OpenMeldDistribution } from "../runtime/distribution";
+import { resolveOpenMeldDistribution } from "../runtime/distribution";
+import { OPENMELD_VERSION } from "../runtime/version";
 
 const OPENMELD_PACKAGE_NAME = "openmeld";
 const CLI_UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -38,11 +40,27 @@ export type CliUpdateAssessment = {
 };
 
 export function isCliUpdateCheckApplicable(
-  environmentTarget: OpenMeldEnvironmentTarget
+  environmentTarget: OpenMeldEnvironmentTarget,
+  input: {
+    distribution?: OpenMeldDistribution;
+    manifestUrl?: string | null;
+  } = {}
 ): boolean {
-  return (
+  const productionCheck =
     environmentTarget.preset === "prod" &&
-    environmentTarget.userFacingCommand === "openmeld"
+    environmentTarget.userFacingCommand === "openmeld";
+  if (productionCheck) {
+    return true;
+  }
+  return (
+    environmentTarget.preset === "canary" &&
+    environmentTarget.userFacingCommand === "openmeld-canary" &&
+    (input.distribution ?? resolveOpenMeldDistribution()) === "binary" &&
+    Boolean(
+      normalizeOptionalText(
+        input.manifestUrl ?? process.env.OPENMELD_CLI_BINARY_MANIFEST_URL
+      )
+    )
   );
 }
 
@@ -60,7 +78,7 @@ export async function assessCliUpdate(input: {
   environmentTarget: OpenMeldEnvironmentTarget;
   forceRefresh?: boolean;
 }): Promise<CliUpdateAssessment> {
-  const currentVersion = packageJson.version;
+  const currentVersion = OPENMELD_VERSION;
   const unchecked: CliUpdateAssessment = {
     checked: false,
     currentVersion,
@@ -100,6 +118,11 @@ export async function assessCliUpdate(input: {
     updateAvailable: compareSemver(currentVersion, info.version) < 0,
     floorBreached,
   };
+}
+
+function normalizeOptionalText(value: unknown): string | null {
+  const normalized = String(value ?? "").trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 async function resolveLatestPackageInfo(input: {
