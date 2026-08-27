@@ -84,6 +84,12 @@ test("keeps staging infrastructure isolated from production", () => {
     ),
     ["openmeld-db-stg"]
   );
+  assert.deepEqual(
+    OPENMELD_STAGING_RESOURCES.filter(
+      (resource) => resource.kind === "AI Gateway"
+    ),
+    []
+  );
 });
 
 test("requests every Durable Object namespace in one page", () => {

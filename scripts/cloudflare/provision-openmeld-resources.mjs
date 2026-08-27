@@ -105,7 +105,6 @@ export const OPENMELD_STAGING_RESOURCES = [
   r2("openmeld-desktop-downloads-stg", "web", "public", "staging"),
   queue("openmeld-daemon-dispatch-stg", "shared", "staging"),
   queue("openmeld-message-channel-events-stg", "shared", "staging"),
-  aiGateway("openmeld-remote-agent-stg", "remote-agent", "staging"),
 ];
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

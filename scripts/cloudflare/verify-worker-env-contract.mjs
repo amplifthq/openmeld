@@ -1264,6 +1264,17 @@ ensure(
     "openmeld-remote-agent-prod",
   "services/remote-agent/wrangler.jsonc env.dev must use the configured openmeld-remote-agent-prod gateway."
 );
+const remoteAgentStagingConfig = remoteAgentWrangler?.env?.stg;
+ensure(
+  remoteAgentStagingConfig?.vars?.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID ===
+    "openmeld-remote-agent-prod",
+  "services/remote-agent/wrangler.jsonc env.stg must reuse the operator-managed openmeld-remote-agent-prod gateway."
+);
+ensure(
+  remoteAgentStagingConfig?.vars
+    ?.OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS === "openrouter",
+  "services/remote-agent/wrangler.jsonc env.stg must select the configured OpenRouter BYOK alias."
+);
 const remoteAgentProductionConfig = remoteAgentWrangler?.env?.prod;
 ensure(
   remoteAgentProductionConfig?.vars?.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID ===

@@ -27,7 +27,7 @@ internal deployables as production:
 - Remote Agent
 
 It has separate Cloudflare Workers, D1, KV, R2 buckets, Queues, Durable Object
-namespaces, container identity, and AI Gateway. Its public entry points are:
+namespaces, and container identity. Its public entry points are:
 
 - `https://staging.openmeld.ai`
 - `https://auth.staging.openmeld.ai`
@@ -37,6 +37,13 @@ Staging never reads or copies production user data. It does not share
 production D1, KV, R2, Queues, Worker identities, Durable Object namespaces, or
 runtime containers. A staging deploy must not publish the production CLI,
 change a production Worker, or touch `~/.openmeld`.
+
+Remote Agent model traffic is the narrow exception to resource isolation.
+Staging uses the operator-managed `openmeld-remote-agent-prod` AI Gateway and
+its `openrouter` Provider Key because Provider Keys are gateway-scoped and the
+Organization has one OpenRouter key. Requests still carry the Staging Worker
+environment and Organization metadata. The Remote Agent Worker, conversation
+state, containers, and every OpenMeld-owned data store remain staging-only.
 
 The first staging baseline intentionally omits peripheral parity. Slack, Lark,
 Feishu, OpenConnector administration, production OAuth clients, billing, and
