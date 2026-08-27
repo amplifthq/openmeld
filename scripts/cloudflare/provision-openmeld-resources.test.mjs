@@ -96,8 +96,7 @@ test("requests every Durable Object namespace in one page", () => {
   assert.ok(
     durableObjects.every(
       (resource) =>
-        resource.listPath ===
-        "/workers/durable_objects/namespaces?per_page=100"
+        resource.listPath === "/workers/durable_objects/namespaces?per_page=100"
     )
   );
 });
