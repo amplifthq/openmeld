@@ -4075,7 +4075,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_center_agent_tasks",
       description:
-        "List the current verified requester's durable OpenMeld Center Agent Tasks (the same Tasks shown in OpenMeld's Tasks board): page with cursor/limit and optionally filter by status; results include nextCursor, and each Task has state, phase, outcome, title, goal, origin, and revision. This never lists local Codex or Claude Code controller tasks (use openmeld_list_agent_tasks for those). Read-only: it cannot create, update, stop, retry, or approve any Task.",
+        "List the current verified requester's durable OpenMeld Center Agent Tasks (the same Tasks shown in OpenMeld's Tasks board): page with cursor/limit and optionally filter by status; results include observedAt and nextCursor, and each Task has state, phase, outcome, title, goal, origin, and revision. This Task history proves only the recorded OpenMeld Task state at observedAt; it does not prove current repository, deployment, or other external state. This never lists local Codex or Claude Code controller tasks (use openmeld_list_agent_tasks for those). Read-only: it cannot create, update, stop, retry, or approve any Task.",
       input: centerAgentTaskListToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -4095,7 +4095,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             "Reading OpenMeld Center Agent Tasks requires a verified human member speaker."
           );
         }
-        return listCenterAgentTasksResponseSchema.parse(
+        const response = listCenterAgentTasksResponseSchema.parse(
           await callCoreRpc(
             input.coreWorker,
             "centerAgentListTasks",
@@ -4113,12 +4113,16 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             (binding, rpcInput) => binding.centerAgentListTasks?.(rpcInput)
           )
         );
+        return {
+          ...response,
+          observedAt: new Date().toISOString(),
+        };
       },
     }),
     toolDefinition({
       name: "openmeld_get_center_agent_task",
       description:
-        "Read one exact OpenMeld Center Agent Task the current requester owns, returning its canonical detail and history projection: full status/outcome, events timeline, and execution attempts. Use an id returned by openmeld_list_center_agent_tasks, never a guessed id or a Codex/Claude Code task handle. Read-only: it cannot change the Task.",
+        "Read one exact OpenMeld Center Agent Task the current requester owns, returning observedAt plus its canonical detail and history projection: full status/outcome, events timeline, and execution attempts. The Task history proves only the recorded OpenMeld Task state at observedAt; it does not prove current repository, deployment, or other external state. Use an id returned by openmeld_list_center_agent_tasks, never a guessed id or a Codex/Claude Code task handle. Read-only: it cannot change the Task.",
       input: centerAgentTaskGetToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -4138,7 +4142,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             "Reading an OpenMeld Center Agent Task requires a verified human member speaker."
           );
         }
-        return getCenterAgentTaskResponseSchema.parse(
+        const response = getCenterAgentTaskResponseSchema.parse(
           await callCoreRpc(
             input.coreWorker,
             "centerAgentGetTask",
@@ -4150,6 +4154,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             (binding, rpcInput) => binding.centerAgentGetTask?.(rpcInput)
           )
         );
+        return {
+          ...response,
+          observedAt: new Date().toISOString(),
+        };
       },
     }),
     toolDefinition({
