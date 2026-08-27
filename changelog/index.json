@@ -24,6 +24,27 @@
       "body": "The Center Agent now runs new turns on GLM 5.3 Flash instead of Grok 4.6.\nOrganizations that did not pick a specific model follow the default on their\nnext turn; organizations that explicitly selected a model keep that exact\nmodel, and Grok 4.6 stays selectable.\n\nCenter Agent settings now also describes the image path accurately: images use\nthe dedicated vision model before the selected primary model receives the\ndescription.\n\nOpenCode Agent Profiles also gain the current curated OpenCode Go, free-tier,\nand Zen model lineup, including GLM 5.3 Flash on OpenCode Go, with each\nmodel's official reasoning variants."
     },
     {
+      "id": "relevant-center-agent-actions",
+      "title": "Keep Center Agent actions relevant",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "navigation",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-27",
+      "evidence": [
+        "pr:369",
+        "commit:6d1375c8b9f80fe58f65d8f4fb4b06454fccb305",
+        "workflow:33061998100",
+        "workflow:33062520467"
+      ],
+      "body": "Center Agent replies no longer show an unrelated Computer setup, Space, or\nProject button merely because the agent checked one of those resources while\nworking. An action appears only when opening that destination is the useful\nnext step for the current request."
+    },
+    {
       "id": "nonblocking-browser-notification-prompt",
       "title": "Keep browser notification setup out of the way",
       "kind": "fixed",
