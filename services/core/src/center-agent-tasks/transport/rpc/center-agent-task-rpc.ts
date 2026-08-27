@@ -1,5 +1,7 @@
 import {
   centerAgentCreateTaskToolRpcInputSchema,
+  centerAgentGetTaskToolRpcInputSchema,
+  centerAgentListTasksToolRpcInputSchema,
   centerAgentTaskResponseV1Schema,
   centerAgentTaskResponseV2Schema,
   continueCenterAgentTaskRpcInputSchema,
@@ -18,6 +20,8 @@ import {
 } from "@openmeld/schemas";
 import type {
   CenterAgentCreateTaskToolRpcInput,
+  CenterAgentGetTaskToolRpcInput,
+  CenterAgentListTasksToolRpcInput,
   CenterAgentTask,
   CenterAgentTaskDetail,
   CenterAgentTaskDetailRpcResponse,
@@ -27,12 +31,14 @@ import type {
   ContinueCenterAgentTaskRpcInput,
   CreateCenterAgentTaskResponse,
   GetCenterAgentTaskRpcInput,
+  ListCenterAgentTasksResponse,
   ListCenterAgentTasksRpcInput,
   ListCenterAgentTasksRpcResponse,
   RetryCenterAgentTaskRpcInput,
   StopCenterAgentTaskRpcInput,
 } from "@openmeld/schemas/types";
 import { prepareCenterAgentRepresentedMemberRequest } from "../../../center-agent/application/represented-member-request";
+import { writeCenterAgentAuditEntry } from "../../../center-agent/center-agent-audit";
 import {
   type CoreBindings,
   inboxDb,
@@ -189,6 +195,81 @@ export async function rpcRetryCenterAgentTask(
       response,
       request.data.responseContractVersion
     );
+  } catch (error) {
+    throwTaskApplicationError(error);
+  }
+}
+
+/**
+ * Read-only model-visible canonical Task list for the verified represented
+ * member. Requester-private Phase 1 semantics: only the requester's own Tasks.
+ */
+export async function rpcCenterAgentListTasksTool(
+  env: CoreBindings,
+  input: CenterAgentListTasksToolRpcInput
+): Promise<ListCenterAgentTasksResponse> {
+  const request = centerAgentListTasksToolRpcInputSchema.safeParse(input);
+  if (!request.success) {
+    throw invalidInput("Task list request is invalid.");
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      request.data.context,
+      request.data.speakerMember
+    );
+  try {
+    const response = listCenterAgentTasksResponseSchema.parse(
+      await createTaskService(env).list({
+        ...(request.data.cursor ? { cursor: request.data.cursor } : {}),
+        limit: request.data.limit,
+        organizationId: authorization.activeOrganization.organizationId,
+        requesterUserId: representedHuman.userId,
+        status: request.data.status,
+      })
+    );
+    await writeCenterAgentAuditEntry({
+      action: "read_agent_tasks",
+      authorization,
+      onBehalfOfProfileId: representedHuman.profileId,
+      resource: null,
+    });
+    return response;
+  } catch (error) {
+    throwTaskApplicationError(error);
+  }
+}
+
+/** Read-only model-visible canonical Task detail/history projection. */
+export async function rpcCenterAgentGetTaskTool(
+  env: CoreBindings,
+  input: CenterAgentGetTaskToolRpcInput
+): Promise<CenterAgentTaskDetail> {
+  const request = centerAgentGetTaskToolRpcInputSchema.safeParse(input);
+  if (!request.success) {
+    throw invalidInput("Task request is invalid.");
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      request.data.context,
+      request.data.speakerMember
+    );
+  try {
+    const response = getCenterAgentTaskResponseSchema.parse(
+      await createTaskService(env).get({
+        organizationId: authorization.activeOrganization.organizationId,
+        requesterUserId: representedHuman.userId,
+        taskId: request.data.taskId,
+      })
+    );
+    await writeCenterAgentAuditEntry({
+      action: "read_agent_tasks",
+      authorization,
+      onBehalfOfProfileId: representedHuman.profileId,
+      resource: { type: "center_agent_task", id: request.data.taskId },
+    });
+    return response;
   } catch (error) {
     throwTaskApplicationError(error);
   }

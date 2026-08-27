@@ -326,6 +326,32 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it("lists only bounded Organization members without loading Agent Profiles", async () => {
+    const request = createSubmitTurnRequest();
+    const response = organizationMemberListResponse();
+    const centerAgentListOrganizationMembers = vi.fn(async () => response);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentListOrganizationMembers },
+      storage: await createStorageWithPendingContext(request),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_list_organization_members", {
+        cursor: "next-page",
+        limit: 25,
+      })
+    ).resolves.toEqual(response);
+    expect(response).not.toHaveProperty("agentProfiles");
+    expect(centerAgentListOrganizationMembers).toHaveBeenCalledWith({
+      context: expectedHostedCenterAgentContext(
+        request,
+        "openmeld_list_organization_members"
+      ),
+      cursor: "next-page",
+      limit: 25,
+    });
+  });
+
   it("invites Slack teammates named in chat only after resolving exact directory IDs", async () => {
     const baseRequest = createSubmitTurnRequest();
     if (baseRequest.turnEnvelope.sender.kind !== "member") {
@@ -3290,6 +3316,55 @@ describe("remote agent OpenMeld tool catalog", () => {
         "openmeld_list_agent_tasks"
       ),
       limit: 5,
+    });
+  });
+
+  it("reads canonical Center Agent Tasks separately from local controller tasks", async () => {
+    const request = createSubmitTurnRequest();
+    const task = centerAgentTask();
+    const centerAgentListTasks = vi.fn(async () => ({
+      nextCursor: null,
+      organizationId: request.organizationId,
+      tasks: [task],
+    }));
+    const centerAgentGetTask = vi.fn(async () => ({
+      attempts: [],
+      events: [],
+      task,
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentGetTask, centerAgentListTasks },
+      storage: await createStorageWithPendingContext(request),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_list_center_agent_tasks", {
+        limit: 10,
+        status: "queued",
+      })
+    ).resolves.toMatchObject({ tasks: [{ id: "task-1" }] });
+    expect(centerAgentListTasks).toHaveBeenCalledWith({
+      context: expectedHostedCenterAgentContext(
+        request,
+        "openmeld_list_center_agent_tasks"
+      ),
+      limit: 10,
+      speakerMember: { memberId: "member_123", userId: "user_1" },
+      status: "queued",
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_get_center_agent_task", {
+        taskId: "task-1",
+      })
+    ).resolves.toMatchObject({ task: { id: "task-1" } });
+    expect(centerAgentGetTask).toHaveBeenCalledWith({
+      context: expectedHostedCenterAgentContext(
+        request,
+        "openmeld_get_center_agent_task"
+      ),
+      speakerMember: { memberId: "member_123", userId: "user_1" },
+      taskId: "task-1",
     });
   });
 
@@ -6331,6 +6406,36 @@ function organizationDirectoryMember() {
       name: "Ari",
     },
     userId: "user_1",
+  };
+}
+
+function organizationMemberListResponse() {
+  return {
+    generatedAt: ISO_NOW,
+    members: [organizationDirectoryMember()],
+    nextCursor: "next-page",
+    organizationId: "org_123",
+    totalMembers: 2,
+  };
+}
+
+function centerAgentTask() {
+  return {
+    activeAttemptGeneration: null,
+    createdAt: ISO_NOW,
+    finishedAt: null,
+    goal: "Review the launch blocker.",
+    id: "task-1",
+    organizationId: "org_123",
+    origin: { kind: "open_meld" as const },
+    outcome: null,
+    phase: "queued" as const,
+    requesterUserId: "user_1",
+    state: "active" as const,
+    status: "queued" as const,
+    title: "Review launch blocker",
+    updatedAt: ISO_NOW,
+    version: 1,
   };
 }
 
