@@ -1394,6 +1394,29 @@ export function recordTerminalTurnFailure(input: {
 }
 
 /**
+ * Persist a recovered answer into the callback context so the durable delivery
+ * path can replay it to Core. Never overwrites an existing answer and never
+ * touches an already completed or rejected context, so repeated recovery calls
+ * cannot publish twice.
+ */
+export async function recordRemoteAgentRecoveredAnswer(input: {
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  text: string;
+}): Promise<RemoteAgentCallbackContext | null> {
+  return await updateRemoteAgentCallbackContext({
+    storage: input.storage,
+    submissionId: input.submissionId,
+    update: (current) =>
+      current.callbackStatus === "completed" ||
+      current.callbackStatus === "rejected" ||
+      current.completedText?.trim()
+        ? current
+        : { ...current, completedText: input.text.trim() },
+  }).catch(() => null);
+}
+
+/**
  * Deliver one stored successful answer to Core. Shared by the first completion
  * callback and every durable retry so both paths update state identically. The
  * assistant text is read from the persisted context (not a live turn result),

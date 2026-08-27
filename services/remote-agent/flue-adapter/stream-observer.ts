@@ -45,6 +45,7 @@ import { recordOrganizationSkillActivation } from "./organization-skills";
 import { createRemoteAgentSqlStorage } from "./storage";
 import {
   isRemoteAgentStreamEligible,
+  preserveRemoteAgentGeneratedText,
   type RemoteAgentStreamPublisher,
   resolveRemoteAgentStreamContext,
 } from "./streaming";
@@ -299,6 +300,22 @@ async function handleCenterAgentStreamDelta(input: {
     return;
   }
   if (!isRemoteAgentStreamEligible(context)) {
+    // Non-streaming surfaces (for example Slack) never publish deltas. Persist
+    // the generated text so execution reconciliation can replay it if the
+    // final callback never reaches Core.
+    await preserveRemoteAgentGeneratedText({
+      observedAtMs: input.streamDelta.observedAtMs,
+      storage,
+      submissionId: input.streamDelta.submissionId,
+      text: input.streamDelta.delta,
+    }).catch((error) => {
+      logRemoteAgentStreamFailure({
+        error,
+        eventIndex: input.eventIndex,
+        phase: "preserve",
+        submissionId: input.streamDelta.submissionId,
+      });
+    });
     return;
   }
   try {
@@ -807,7 +824,7 @@ function logRemoteAgentStreamFailure(input: {
   error?: unknown;
   errorName?: string;
   eventIndex: number;
-  phase: "close" | "flush" | "part" | "push";
+  phase: "close" | "flush" | "part" | "preserve" | "push";
   submissionId: string;
   deltaLength?: number;
 }): void {

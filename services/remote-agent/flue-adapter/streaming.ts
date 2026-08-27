@@ -158,6 +158,45 @@ export function isRemoteAgentStreamEligible(
   );
 }
 
+/**
+ * Durably keep generated assistant text for a submission so a later settled
+ * runtime can replay it if the final callback never reaches Core.
+ */
+export async function readPreservedRemoteAgentStreamText(input: {
+  storage: RemoteAgentStorage;
+  submissionId: string;
+}): Promise<string | null> {
+  const state = await readRemoteAgentStreamState(
+    input.storage,
+    input.submissionId
+  );
+  const text = [state?.textSnapshot ?? "", state?.pendingText ?? ""]
+    .join("")
+    .trim();
+  return text.length > 0 ? text : null;
+}
+
+export async function preserveRemoteAgentGeneratedText(input: {
+  observedAtMs: number;
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  text: string;
+}): Promise<string | null> {
+  if (input.text.length === 0) {
+    return await readPreservedRemoteAgentStreamText(input);
+  }
+  const existing = await readRemoteAgentStreamState(
+    input.storage,
+    input.submissionId
+  );
+  const state =
+    existing ??
+    createRemoteAgentStreamState(input.submissionId, input.observedAtMs);
+  state.pendingText += input.text;
+  await persistRemoteAgentStreamState(input.storage, state);
+  return await readPreservedRemoteAgentStreamText(input);
+}
+
 export async function resolveRemoteAgentStreamContext(input: {
   storage: RemoteAgentStorage;
   submissionId: string;

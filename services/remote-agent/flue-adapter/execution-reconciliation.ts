@@ -3,15 +3,19 @@ import type {
   RemoteAgentWorkerExecutionQueryResponse,
 } from "@openmeld/schemas/types";
 import {
+  attemptRemoteAgentCallbackDelivery,
   handleRemoteAgentChatResponse,
   listRemoteAgentCallbackContexts,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
+  readRemoteAgentCallbackContext,
+  recordRemoteAgentRecoveredAnswer,
 } from "../agent-core/callback-context";
 import {
   completeRemoteAgentExecutionState,
   readRemoteAgentExecutionState,
 } from "../agent-core/execution-state";
+import { readPreservedRemoteAgentStreamText } from "./streaming";
 
 export type FlueSubmissionLifecycle = {
   error?: string;
@@ -105,6 +109,21 @@ export async function reconcileRemoteAgentExecution(input: {
   }
 
   const nowMs = input.nowMs?.() ?? Date.now();
+
+  // Cancellation is a member decision and always wins: a preserved answer must
+  // never revive a cancelled execution.
+  if (!cancelled) {
+    const recovered = await replayPreservedSettledAnswer({
+      coreWorker: input.coreWorker,
+      identity: input.identity,
+      nowMs,
+      storage: input.storage,
+    });
+    if (recovered) {
+      return recovered;
+    }
+  }
+
   await completeRemoteAgentExecutionState({
     identity: input.identity,
     nowMs,
@@ -125,6 +144,80 @@ export async function reconcileRemoteAgentExecution(input: {
     },
     storage: input.storage,
   });
+
+  return await readRemoteAgentExecutionState({
+    identity: input.identity,
+    storage: input.storage,
+  });
+}
+
+/**
+ * Replay a durably preserved answer after a settled runtime whose final
+ * callback never reached Core. The answer is published through the same
+ * durable delivery path as the first completion callback, so repeated
+ * recovery cannot publish twice: the execution is completed first, the
+ * context only ever gains one answer, and Core rejects duplicate completions
+ * for a submission.
+ */
+async function replayPreservedSettledAnswer(input: {
+  coreWorker?: RemoteAgentCoreWorkerBinding;
+  identity: RemoteAgentWorkerExecutionQuery;
+  nowMs: number;
+  storage: RemoteAgentStorage;
+}): Promise<RemoteAgentWorkerExecutionQueryResponse | null> {
+  const context = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.identity.submissionId
+  );
+  if (!context) {
+    return null;
+  }
+  const preservedText =
+    context.completedText?.trim() ||
+    (await readPreservedRemoteAgentStreamText({
+      storage: input.storage,
+      submissionId: input.identity.submissionId,
+    }));
+  if (!preservedText) {
+    return null;
+  }
+
+  await completeRemoteAgentExecutionState({
+    identity: input.identity,
+    nowMs: input.nowMs,
+    status: "completed",
+    storage: input.storage,
+  });
+
+  if (
+    context.callbackStatus !== "completed" &&
+    context.callbackStatus !== "rejected"
+  ) {
+    const readyContext = await recordRemoteAgentRecoveredAnswer({
+      storage: input.storage,
+      submissionId: input.identity.submissionId,
+      text: preservedText,
+    });
+    console.info("[remote_agent.execution.answer_replayed]", {
+      dispatchId: context.dispatchId,
+      idempotencyKey: context.idempotencyKey,
+      spaceId: context.spaceId,
+      submissionId: context.submissionId,
+      triggerMessageId: context.triggerMessageId,
+    });
+    if (
+      readyContext &&
+      readyContext.callbackStatus !== "completed" &&
+      readyContext.callbackStatus !== "rejected"
+    ) {
+      await attemptRemoteAgentCallbackDelivery({
+        context: readyContext,
+        coreWorker: input.coreWorker,
+        nowMs: input.nowMs,
+        storage: input.storage,
+      });
+    }
+  }
 
   return await readRemoteAgentExecutionState({
     identity: input.identity,

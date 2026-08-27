@@ -5,13 +5,16 @@ import {
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
+  completeRemoteAgentExecutionState,
   initializeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
+  requestRemoteAgentExecutionCancellation,
 } from "../agent-core/execution-state";
 import {
   reconcileRemoteAgentExecution,
   reconcileSettledRemoteAgentExecutionFailures,
 } from "../flue-adapter/execution-reconciliation";
+import { preserveRemoteAgentGeneratedText } from "../flue-adapter/streaming";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -276,5 +279,239 @@ describe("remote agent execution reconciliation", () => {
       status: "found",
     });
     expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+  });
+
+  it("replays a preserved answer once when the runtime settled before the final callback", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const submissionId = "submission_settled_after_answer";
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId,
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: TEST_NOW_MS,
+      identity,
+      storage,
+    });
+    await putRemoteAgentCallbackContext(storage, {
+      ...createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: request.idempotencyKey,
+          requestId: submissionId,
+          status: "pending",
+          submissionId,
+        },
+        nowMs: TEST_NOW_MS,
+        request,
+      }),
+      callbackStatus: "failed",
+      completedText: "The release plan is ready.",
+    });
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_recovered_reply",
+      status: "accepted" as const,
+    }));
+    const readSubmission = vi.fn(async () => ({
+      error: "Connection closed before the final callback was sent.",
+      status: "settled" as const,
+    }));
+
+    const first = await reconcileRemoteAgentExecution({
+      coreWorker: { completeRemoteAgentSubmission },
+      identity,
+      nowMs: () => TEST_NOW_MS + 1000,
+      readSubmission,
+      storage,
+    });
+    const second = await reconcileRemoteAgentExecution({
+      coreWorker: { completeRemoteAgentSubmission },
+      identity,
+      nowMs: () => TEST_NOW_MS + 2000,
+      readSubmission,
+      storage,
+    });
+
+    expect(first).toMatchObject({
+      execution: { completedAtMs: TEST_NOW_MS + 1000, status: "completed" },
+      status: "found",
+    });
+    expect(second).toEqual(first);
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "completed",
+        submissionId,
+        text: "The release plan is ready.",
+      })
+    );
+    await expect(
+      readRemoteAgentCallbackContext(storage, submissionId)
+    ).resolves.toMatchObject({
+      callbackStatus: "completed",
+      completedText: "The release plan is ready.",
+    });
+  });
+
+  it("replays preserved stream text when no completed answer was recorded", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const submissionId = "submission_settled_with_stream_text";
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId,
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: TEST_NOW_MS,
+      identity,
+      storage,
+    });
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: request.idempotencyKey,
+          requestId: submissionId,
+          status: "pending",
+          submissionId,
+        },
+        nowMs: TEST_NOW_MS,
+        request,
+      })
+    );
+    await preserveRemoteAgentGeneratedText({
+      observedAtMs: TEST_NOW_MS + 400,
+      storage,
+      submissionId,
+      text: "Recovered draft answer.",
+    });
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_stream_recovered_reply",
+      status: "accepted" as const,
+    }));
+
+    await expect(
+      reconcileRemoteAgentExecution({
+        coreWorker: { completeRemoteAgentSubmission },
+        identity,
+        nowMs: () => TEST_NOW_MS + 1000,
+        readSubmission: async () => ({
+          error: "Stream settled before the final callback.",
+          status: "settled" as const,
+        }),
+        storage,
+      })
+    ).resolves.toMatchObject({
+      execution: { status: "completed" },
+      status: "found",
+    });
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "completed",
+        submissionId,
+        text: "Recovered draft answer.",
+      })
+    );
+    await expect(
+      readRemoteAgentCallbackContext(storage, submissionId)
+    ).resolves.toMatchObject({ callbackStatus: "completed" });
+  });
+
+  it("does not revive a cancelled execution even when an answer was preserved", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const submissionId = "submission_cancelled_after_answer";
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId,
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: TEST_NOW_MS,
+      identity,
+      storage,
+    });
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: request.idempotencyKey,
+          requestId: submissionId,
+          status: "pending",
+          submissionId,
+        },
+        nowMs: TEST_NOW_MS,
+        request,
+      })
+    );
+    await preserveRemoteAgentGeneratedText({
+      observedAtMs: TEST_NOW_MS + 400,
+      storage,
+      submissionId,
+      text: "An answer that arrived after cancellation.",
+    });
+    await requestRemoteAgentExecutionCancellation({
+      identity,
+      nowMs: TEST_NOW_MS + 600,
+      reason: "member stopped the wake",
+      storage,
+    });
+    await completeRemoteAgentExecutionState({
+      identity,
+      nowMs: TEST_NOW_MS + 700,
+      status: "aborted",
+      storage,
+    });
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_aborted",
+      status: "accepted" as const,
+    }));
+
+    await expect(
+      reconcileRemoteAgentExecution({
+        coreWorker: { completeRemoteAgentSubmission },
+        identity,
+        nowMs: () => TEST_NOW_MS + 1000,
+        readSubmission: async () => ({
+          error: "Cancelled by member.",
+          status: "settled" as const,
+        }),
+        storage,
+      })
+    ).resolves.toMatchObject({
+      execution: { status: "aborted" },
+      status: "found",
+    });
+    const deliveredBodies = (
+      completeRemoteAgentSubmission.mock.calls as unknown as [
+        { status?: string },
+      ][]
+    ).map(([body]) => body);
+    expect(deliveredBodies.length).toBeGreaterThan(0);
+    expect(deliveredBodies.some((body) => body.status === "completed")).toBe(
+      false
+    );
+    const recoveredContext = await readRemoteAgentCallbackContext(
+      storage,
+      submissionId
+    );
+    expect(recoveredContext?.completedText ?? undefined).toBeUndefined();
+    expect(recoveredContext?.terminalFailureFact).toMatchObject({
+      code: "remote_agent.execution_cancelled",
+    });
   });
 });
