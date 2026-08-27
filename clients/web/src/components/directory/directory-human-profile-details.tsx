@@ -61,18 +61,16 @@ export function DirectoryHumanProfileDetails(
 		input.member.profileStatus === "active" && !input.member.isCurrentUser;
 	return (
 		<div
-			className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
+			className="@container/profile-detail mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
 			data-testid="human-profile-details"
 		>
 			<ProfileHero
 				activityNowMs={input.activityNowMs}
+				canOpenDirectMessage={canOpenDirectMessage}
+				directMessageIsPending={input.directMessageIsPending}
 				editing={input.editing}
 				member={input.member}
 				onEditingChange={input.onEditingChange}
-			/>
-			<ProfileActions
-				canOpenDirectMessage={canOpenDirectMessage}
-				directMessageIsPending={input.directMessageIsPending}
 				onOpenDirectMessage={input.onOpenDirectMessage}
 				researchAction={input.researchAction}
 			/>
@@ -128,30 +126,26 @@ export function DirectoryHumanProfileDetails(
 }
 
 function ProfileActions(input: {
+	canEdit: boolean;
 	canOpenDirectMessage: boolean;
 	directMessageIsPending: boolean;
+	onEdit: () => void;
 	onOpenDirectMessage: () => void;
 	researchAction: DirectoryHumanProfileResearchAction | null;
 }) {
-	if (!(input.canOpenDirectMessage || input.researchAction)) {
+	if (!(input.canEdit || input.canOpenDirectMessage || input.researchAction)) {
 		return null;
 	}
-	const hasTwoActions =
-		input.canOpenDirectMessage && Boolean(input.researchAction);
 	return (
 		<div
-			className={cn(
-				"grid gap-2",
-				hasTwoActions ? "sm:grid-cols-2" : "grid-cols-1"
-			)}
-			data-testid="human-profile-primary-actions"
+			className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 self-end"
+			data-testid="human-profile-header-actions"
 		>
 			{input.canOpenDirectMessage ? (
 				<Button
-					className="w-full"
 					disabled={input.directMessageIsPending}
 					onClick={input.onOpenDirectMessage}
-					size="lg"
+					size="sm"
 					type="button"
 					variant="outline"
 				>
@@ -163,14 +157,25 @@ function ProfileActions(input: {
 				<Button
 					aria-description={input.researchAction.description}
 					aria-label={input.researchAction.label}
-					className="w-full"
 					disabled={input.researchAction.disabled}
 					onClick={input.researchAction.onSelect}
-					size="lg"
+					size="sm"
 					type="button"
+					variant="outline"
 				>
 					<UserFocusIcon aria-hidden="true" data-icon="inline-start" />
 					{input.researchAction.label}
+				</Button>
+			) : null}
+			{input.canEdit ? (
+				<Button
+					onClick={input.onEdit}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					<PencilSimpleIcon aria-hidden="true" data-icon="inline-start" />
+					Edit profile
 				</Button>
 			) : null}
 		</div>
@@ -179,9 +184,13 @@ function ProfileActions(input: {
 
 function ProfileHero(input: {
 	activityNowMs: number;
+	canOpenDirectMessage: boolean;
+	directMessageIsPending: boolean;
 	editing: boolean;
 	member: DirectoryHumanProfileRow;
 	onEditingChange: (editing: boolean) => void;
+	onOpenDirectMessage: () => void;
+	researchAction: DirectoryHumanProfileResearchAction | null;
 }) {
 	const activityLabel = resolveDirectoryHumanProfileActivityLabel({
 		lastActiveAt: input.member.lastActiveAt,
@@ -189,54 +198,55 @@ function ProfileHero(input: {
 		profileStatus: input.member.profileStatus,
 	});
 	return (
-		<div className="flex min-w-0 items-start gap-4">
-			<DirectoryHumanProfileAvatar context="detail" member={input.member} />
-			<div className="min-w-0 flex-1 pt-1">
-				{input.editing ? (
-					<HumanProfileNameEditor
-						onCancel={() => input.onEditingChange(false)}
-						onSaved={() => input.onEditingChange(false)}
-						profileName={input.member.name}
-					/>
-				) : (
-					<div className="flex min-w-0 items-start gap-2">
-						<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-							<h2 className="select-text break-words font-semibold text-xl leading-7">
-								{input.member.name}
-								{input.member.isCurrentUser ? " (you)" : ""}
-							</h2>
-							<DirectoryHumanProfileRoleBadge role={input.member.role} />
+		<div
+			className="flex min-w-0 @[42rem]/profile-detail:flex-row flex-col @[42rem]/profile-detail:items-start gap-4"
+			data-testid="human-profile-hero"
+		>
+			<div className="flex min-w-0 flex-1 items-start gap-4">
+				<DirectoryHumanProfileAvatar context="detail" member={input.member} />
+				<div className="min-w-0 flex-1 pt-1">
+					{input.editing ? (
+						<HumanProfileNameEditor
+							onCancel={() => input.onEditingChange(false)}
+							onSaved={() => input.onEditingChange(false)}
+							profileName={input.member.name}
+						/>
+					) : (
+						<div className="flex min-w-0 items-start gap-2">
+							<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+								<h2 className="select-text break-words font-semibold text-xl leading-7">
+									{input.member.name}
+									{input.member.isCurrentUser ? " (you)" : ""}
+								</h2>
+								<DirectoryHumanProfileRoleBadge role={input.member.role} />
+							</div>
 						</div>
-						{input.member.canEdit ? (
-							<Button
-								className="shrink-0"
-								onClick={() => input.onEditingChange(true)}
-								size="sm"
-								type="button"
-								variant="ghost"
-							>
-								<PencilSimpleIcon aria-hidden="true" />
-								Edit profile
-							</Button>
-						) : null}
-					</div>
-				)}
-				<p className="mt-1 select-text break-all text-muted-foreground text-sm">
-					{resolveDirectoryEmailLabel(input.member.email)}
-				</p>
-				{activityLabel ? (
-					<p
-						className={cn(
-							"mt-3 select-text text-sm",
-							input.member.profileStatus === "disabled"
-								? "text-destructive"
-								: "text-muted-foreground"
-						)}
-					>
-						{activityLabel}
+					)}
+					<p className="mt-1 select-text break-all text-muted-foreground text-sm">
+						{resolveDirectoryEmailLabel(input.member.email)}
 					</p>
-				) : null}
+					{activityLabel ? (
+						<p
+							className={cn(
+								"mt-3 select-text text-sm",
+								input.member.profileStatus === "disabled"
+									? "text-destructive"
+									: "text-muted-foreground"
+							)}
+						>
+							{activityLabel}
+						</p>
+					) : null}
+				</div>
 			</div>
+			<ProfileActions
+				canEdit={!input.editing && input.member.canEdit}
+				canOpenDirectMessage={input.canOpenDirectMessage}
+				directMessageIsPending={input.directMessageIsPending}
+				onEdit={() => input.onEditingChange(true)}
+				onOpenDirectMessage={input.onOpenDirectMessage}
+				researchAction={input.researchAction}
+			/>
 		</div>
 	);
 }

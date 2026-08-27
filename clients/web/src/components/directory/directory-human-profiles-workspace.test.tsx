@@ -310,12 +310,44 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(onResearch).toHaveBeenCalledWith("user-current");
 		expect(screen.getByRole("link", { name: "Open report" })).toBeTruthy();
 	});
+
+	it("groups low-emphasis profile actions at the trailing edge of the hero", () => {
+		renderWorkspace();
+
+		const hero = screen.getByTestId("human-profile-hero");
+		const actions = within(hero).getByTestId("human-profile-header-actions");
+		expect(
+			within(actions)
+				.getAllByRole("button")
+				.map((button) => button.textContent)
+		).toEqual(["Learn about Felix", "Edit profile"]);
+		for (const action of within(actions).getAllByRole("button")) {
+			expect(action.classList.contains("border-border")).toBe(true);
+			expect(action.classList.contains("bg-background")).toBe(true);
+			expect(action.classList.contains("bg-primary")).toBe(false);
+		}
+		expect(screen.queryByTestId("human-profile-primary-actions")).toBeNull();
+	});
+
+	it("keeps Direct Message before Learn About in another member's hero", () => {
+		renderWorkspace({ selectedProfileId: "profile-grace" });
+
+		const actions = within(
+			screen.getByTestId("human-profile-hero")
+		).getByTestId("human-profile-header-actions");
+		expect(
+			within(actions)
+				.getAllByRole("button")
+				.map((button) => button.textContent)
+		).toEqual(["Direct Message", "Learn about Grace Hopper"]);
+	});
 });
 
 function renderWorkspace(
 	input: {
 		onResearch?: (userId: string) => void;
 		onSelectProfile?: (profileId: string) => void;
+		selectedProfileId?: string;
 	} = {}
 ) {
 	const members = [
@@ -345,7 +377,7 @@ function renderWorkspace(
 			pendingResearch={undefined}
 			recovery={buildRecovery()}
 			researchErrorMessage={null}
-			selectedProfileId="profile-current"
+			selectedProfileId={input.selectedProfileId ?? "profile-current"}
 			sidebarLeadingContent={<button type="button">Invite Members</button>}
 			state={{
 				context: "organization",
