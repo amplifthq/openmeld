@@ -91,7 +91,8 @@
         "center-agent-dispatch:b4082b85-ceb5-4163-ad4d-d1959c3b9fdf",
         "center-agent-dispatch:27544c1c-f5eb-42af-8155-8198bde4c025",
         "center-agent-dispatch:9e35b24a-78e8-49f3-afbf-4794287c730e",
-        "center-agent-dispatch:10b284af-4e31-41d0-92ad-73649f0973d3"
+        "center-agent-dispatch:10b284af-4e31-41d0-92ad-73649f0973d3",
+        "center-agent-dispatch:3d575722-bbea-42c1-aff8-1fb0b5059c2e"
       ],
       "body": "The Center Agent can page through Organization members without loading\nunrelated Agent Profile readiness, and can read the requester's canonical\nOpenMeld Tasks separately from local coding-agent task handles."
     },
