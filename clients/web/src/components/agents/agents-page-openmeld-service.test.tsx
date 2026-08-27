@@ -112,7 +112,7 @@ describe("OpenMeldServiceCard", () => {
 		).toBeNull();
 	});
 
-	it("shows OpenMeld tools as one card with three component columns", () => {
+	it("shows OpenMeld tools as one card with a component list", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness:
 				buildCurrentLocalRuntimeReplyReadiness(),
@@ -132,11 +132,11 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.getAllByText("Installed v0.7.92")).toHaveLength(2);
 		expect(screen.getByText("OpenMeld skill")).toBeTruthy();
 		expect(screen.getByText("Installed")).toBeTruthy();
-		const skillDescription = screen.getByText(
-			"The OpenMeld skill is installed and up to date for local agents."
-		);
-		expect(skillDescription.className).toContain("max-lg:break-words");
-		expect(skillDescription.className).toContain("lg:truncate");
+		expect(
+			screen.getByText(
+				"The OpenMeld skill is installed and up to date for local agents."
+			).className
+		).not.toContain("lg:truncate");
 		expect(screen.queryByText("Installed · 1 skill")).toBeNull();
 		const skillHelp = screen.getByRole("button", {
 			name: "OpenMeld skill help",

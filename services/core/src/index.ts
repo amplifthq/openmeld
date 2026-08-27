@@ -36,6 +36,7 @@ import type {
   CenterAgentEnableAgentProfileResponse,
   CenterAgentGetOrganizationInviteLinkResponse,
   CenterAgentGetOrganizationInviteLinkToolRpcInput,
+  CenterAgentGetTaskToolRpcInput,
   CenterAgentInboxSummaryResponse,
   CenterAgentInstallOrganizationSkillResponse,
   CenterAgentInstallOrganizationSkillRpcInput,
@@ -46,12 +47,15 @@ import type {
   CenterAgentListComputersResponse,
   CenterAgentListLocalAgentConnectionCandidatesResponse,
   CenterAgentListLocalAgentInstallationsResponse,
+  CenterAgentListOrganizationMembersResponse,
+  CenterAgentListOrganizationMembersToolRpcInput,
   CenterAgentListProjectsToolResponse,
   CenterAgentListProjectsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
   CenterAgentListSlackChannelsResponse,
   CenterAgentListSpaceFilesResponse,
   CenterAgentListSpaceFilesRpcInput,
+  CenterAgentListTasksToolRpcInput,
   CenterAgentManageOrganizationDocumentsResponse,
   CenterAgentManageOrganizationDocumentsRpcInput,
   CenterAgentManageSpaceFilesResponse,
@@ -105,6 +109,7 @@ import type {
   CenterAgentSlackWorkspaceDisconnectResponse,
   CenterAgentSpaceAuthoringContractResponse,
   CenterAgentStartSelfMemberResearchToolRpcInput,
+  CenterAgentTaskDetail,
   CenterAgentTaskDetailRpcResponse,
   CenterAgentUpdateAgentProfileRuntimeSettingsResponse,
   CenterAgentUpdateProfileResponse,
@@ -211,6 +216,7 @@ import type {
   ListAgentProfileCreationRequestsResponse,
   ListCenterAgentAuditJournalResponse,
   ListCenterAgentRoutinesResponse,
+  ListCenterAgentTasksResponse,
   ListCenterAgentTasksRpcInput,
   ListCenterAgentTasksRpcResponse,
   ListCurrentUserAgentProfileOrganizationWakeAccessResponse,
@@ -382,6 +388,8 @@ import {
 } from "./center-agent-memory/core-memory-service";
 import {
   rpcCenterAgentCreateTask,
+  rpcCenterAgentGetTaskTool,
+  rpcCenterAgentListTasksTool,
   rpcContinueCenterAgentTask,
   rpcGetCenterAgentTask,
   rpcListCenterAgentTasks,
@@ -738,6 +746,7 @@ import {
   rpcCenterAgentListLocalAgentConnectionCandidates,
   rpcCenterAgentListLocalAgentInstallations,
   rpcCenterAgentListOpportunities,
+  rpcCenterAgentListOrganizationMembers,
   rpcCenterAgentListSlackChannels,
   rpcCenterAgentListSpaceFiles,
   rpcCenterAgentManageSpaceFiles,
@@ -4805,6 +4814,24 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentCreateTaskToolRpcInput
   ): Promise<CreateCenterAgentTaskResponse> {
     return rpcCenterAgentCreateTask(this.env, input);
+  }
+
+  centerAgentListTasks(
+    input: CenterAgentListTasksToolRpcInput
+  ): Promise<ListCenterAgentTasksResponse> {
+    return rpcCenterAgentListTasksTool(this.env, input);
+  }
+
+  centerAgentGetTask(
+    input: CenterAgentGetTaskToolRpcInput
+  ): Promise<CenterAgentTaskDetail> {
+    return rpcCenterAgentGetTaskTool(this.env, input);
+  }
+
+  centerAgentListOrganizationMembers(
+    input: CenterAgentListOrganizationMembersToolRpcInput
+  ): Promise<CenterAgentListOrganizationMembersResponse> {
+    return rpcCenterAgentListOrganizationMembers(this.env, input);
   }
 
   centerAgentAuthorizeAnonymousMemberTool(

@@ -275,6 +275,45 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     dependencies: ["openmeld_list_agent_tasks"],
     namespace: "spaces_and_tasks",
   },
+  openmeld_list_center_agent_tasks: {
+    aliases: [
+      "my tasks",
+      "OpenMeld Task board",
+      "OpenMeld Tasks",
+      "task progress",
+      "task status",
+      "我的任务",
+      "任务列表",
+      "任务状态",
+      "查看 OpenMeld 任务",
+    ],
+    namespace: "spaces_and_tasks",
+  },
+  openmeld_get_center_agent_task: {
+    aliases: [
+      "read one OpenMeld Task",
+      "task detail",
+      "task history",
+      "任务详情",
+      "查看任务详情",
+    ],
+    dependencies: ["openmeld_list_center_agent_tasks"],
+    namespace: "spaces_and_tasks",
+  },
+  openmeld_list_organization_members: {
+    aliases: [
+      "count Organization members",
+      "how many members",
+      "list the members",
+      "member list",
+      "organization member roster",
+      "who is in this organization",
+      "统计组织人数",
+      "组织成员名单",
+      "有哪些成员",
+    ],
+    namespace: "people_and_invitations",
+  },
 };
 
 export type RemoteAgentCapabilitySummary = {
