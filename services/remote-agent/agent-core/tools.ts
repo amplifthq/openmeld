@@ -49,6 +49,7 @@ import {
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
   centerAgentListLocalAgentInstallationsResponseSchema,
   centerAgentListOpportunitiesToolResponseSchema,
+  centerAgentListOrganizationMembersResponseSchema,
   centerAgentListProjectsToolResponseSchema,
   centerAgentListSlackChannelsBodySchema,
   centerAgentListSlackChannelsResponseSchema,
@@ -111,10 +112,12 @@ import {
   FEEDBACK_ISSUE_STATUSES,
   feedbackIssueRecordSchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
+  getCenterAgentTaskResponseSchema,
   inspectExecutionRecoveryResponseSchema,
   listAgentProfileCreationRequestsResponseSchema,
   listCenterAgentAuditJournalResponseSchema,
   listCenterAgentRoutinesResponseSchema,
+  listCenterAgentTasksResponseSchema,
   listFeedbackIssuesForOrganizationRequestSchema,
   listFeedbackIssuesForOrganizationResponseSchema,
   MAX_TEXT_LENGTH,
@@ -642,6 +645,28 @@ const centerAgentTaskCreateToolInputSchema = strictObject({
     minLength(1),
     maxLength(CENTER_AGENT_TASK_TITLE_MAX_CHARS)
   ),
+});
+const centerAgentTaskListToolInputSchema = strictObject({
+  cursor: optional(pipe(string(), trim(), minLength(1), maxLength(1024))),
+  limit: optional(pipe(number(), integer(), minValue(1), maxValue(100))),
+  status: optional(
+    picklist([
+      "queued",
+      "running",
+      "stopping",
+      "needs_attention",
+      "succeeded",
+      "failed",
+      "stopped",
+    ])
+  ),
+});
+const centerAgentTaskGetToolInputSchema = strictObject({
+  taskId: pipe(string(), trim(), minLength(1), maxLength(256)),
+});
+const organizationMembersListToolInputSchema = strictObject({
+  cursor: optional(pipe(string(), trim(), minLength(1), maxLength(1024))),
+  limit: optional(pipe(number(), integer(), minValue(1), maxValue(100))),
 });
 const routineListToolInputSchema = strictObject({});
 const routineUpdateToolInputSchema = strictObject({
@@ -1285,6 +1310,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_require_identity_for_action",
   "openmeld_get_navigation_action",
   "openmeld_read_organization_directory",
+  "openmeld_list_organization_members",
   "openmeld_read_member_computers",
   "openmeld_read_member_openmeld_service_status",
   "openmeld_read_slack_workspace_directory",
@@ -1340,6 +1366,8 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_post_space_message",
   "openmeld_wake_agent_profiles_in_space",
   "openmeld_list_agent_tasks",
+  "openmeld_list_center_agent_tasks",
+  "openmeld_get_center_agent_task",
   "openmeld_watch_agent_task",
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
@@ -1387,6 +1415,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "browser_extract",
   "browser_scrape",
   "openmeld_read_organization_directory",
+  "openmeld_list_organization_members",
   "openmeld_read_member_computers",
   "openmeld_read_member_openmeld_service_status",
   "openmeld_read_slack_workspace_directory",
@@ -1414,6 +1443,8 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_list_routines",
   "openmeld_list_feedback_issues",
   "openmeld_list_agent_tasks",
+  "openmeld_list_center_agent_tasks",
+  "openmeld_get_center_agent_task",
   "openmeld_inspect_execution_recovery",
   "openmeld_list_computers",
   "openmeld_list_local_agent_installations",
@@ -1461,6 +1492,7 @@ const CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAME_SET = new Set<string>(
 export const REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES = [
   ...REMOTE_AGENT_EXTERNAL_TOOL_NAMES,
   "openmeld_read_organization_directory",
+  "openmeld_list_organization_members",
   "openmeld_read_slack_workspace_directory",
   "openmeld_list_slack_channels",
   "openmeld_read_slack_channel_members",
@@ -1775,6 +1807,42 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           submissionId: input.submissionId,
         });
         return response;
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_list_organization_members",
+      description:
+        "List one bounded page of the current Organization's human members (name, role, email, Human Profile) for counting or finding people. Returns totalMembers plus a nextCursor; pass nextCursor back as cursor to page through everyone. This read-only listing never includes Agent Profiles, readiness, invitations, or setup actions.",
+      input: organizationMembersListToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          organizationMembersListToolInputSchema,
+          payload
+        );
+        const toolContext =
+          await buildAnonymousCompatibleOrganizationReadToolContext({
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_list_organization_members",
+          });
+        return centerAgentListOrganizationMembersResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentListOrganizationMembers",
+            {
+              context: toolContext.context,
+              ...(request.cursor === undefined
+                ? {}
+                : { cursor: request.cursor }),
+              ...(request.limit === undefined ? {} : { limit: request.limit }),
+              ...(toolContext.speakerMember
+                ? { speakerMember: toolContext.speakerMember }
+                : {}),
+            },
+            (binding, rpcInput) =>
+              binding.centerAgentListOrganizationMembers?.(rpcInput)
+          )
+        );
       },
     }),
     toolDefinition({
@@ -3976,7 +4044,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_agent_tasks",
       description:
-        "List a bounded set of recent Codex or Claude Code tasks registered for the current requester, including their exact OpenMeld Task Handles and supported watch conditions. Use this once to discover a task before openmeld_watch_agent_task; never poll it for status.",
+        "List a bounded set of recent LOCAL Agent Controller task handles (Codex, Claude Code, or other workstation agent tasks registered on the requester's Computers), including their exact OpenMeld Task Handles and supported watch conditions for openmeld_watch_agent_task. These are NOT OpenMeld Center Agent Tasks; use openmeld_list_center_agent_tasks to read those durable OpenMeld Tasks. Never poll this tool for status.",
       input: strictObject({
         agentControllerRef: optional(
           pipe(string(), trim(), minLength(1), maxLength(512))
@@ -4001,6 +4069,86 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             context,
             ...(payload.limit === undefined ? {} : { limit: payload.limit }),
           })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_list_center_agent_tasks",
+      description:
+        "List the current verified requester's durable OpenMeld Center Agent Tasks (the same Tasks shown in OpenMeld's Tasks board): page with cursor/limit and optionally filter by status; results include nextCursor, and each Task has state, phase, outcome, title, goal, origin, and revision. This never lists local Codex or Claude Code controller tasks (use openmeld_list_agent_tasks for those). Read-only: it cannot create, update, stop, retry, or approve any Task.",
+      input: centerAgentTaskListToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          centerAgentTaskListToolInputSchema,
+          payload
+        );
+        const toolContext = await buildOpenMeldToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_list_center_agent_tasks",
+        });
+        const speakerMember = resolveVerifiedTurnEnvelopeSpeaker(
+          toolContext.turnEnvelope
+        );
+        if (!speakerMember) {
+          throw new Error(
+            "Reading OpenMeld Center Agent Tasks requires a verified human member speaker."
+          );
+        }
+        return listCenterAgentTasksResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentListTasks",
+            {
+              ...(request.cursor === undefined
+                ? {}
+                : { cursor: request.cursor }),
+              context: toolContext.context,
+              ...(request.limit === undefined ? {} : { limit: request.limit }),
+              speakerMember,
+              ...(request.status === undefined
+                ? {}
+                : { status: request.status }),
+            },
+            (binding, rpcInput) => binding.centerAgentListTasks?.(rpcInput)
+          )
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_get_center_agent_task",
+      description:
+        "Read one exact OpenMeld Center Agent Task the current requester owns, returning its canonical detail and history projection: full status/outcome, events timeline, and execution attempts. Use an id returned by openmeld_list_center_agent_tasks, never a guessed id or a Codex/Claude Code task handle. Read-only: it cannot change the Task.",
+      input: centerAgentTaskGetToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          centerAgentTaskGetToolInputSchema,
+          payload
+        );
+        const toolContext = await buildOpenMeldToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_get_center_agent_task",
+        });
+        const speakerMember = resolveVerifiedTurnEnvelopeSpeaker(
+          toolContext.turnEnvelope
+        );
+        if (!speakerMember) {
+          throw new Error(
+            "Reading an OpenMeld Center Agent Task requires a verified human member speaker."
+          );
+        }
+        return getCenterAgentTaskResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentGetTask",
+            {
+              context: toolContext.context,
+              speakerMember,
+              taskId: request.taskId,
+            },
+            (binding, rpcInput) => binding.centerAgentGetTask?.(rpcInput)
+          )
         );
       },
     }),

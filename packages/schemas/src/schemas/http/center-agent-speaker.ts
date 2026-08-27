@@ -13,6 +13,7 @@ export const CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES = [
   "openmeld_require_identity_for_action",
   "openmeld_get_navigation_action",
   "openmeld_read_organization_directory",
+  "openmeld_list_organization_members",
   "openmeld_read_member_computers",
   "openmeld_read_member_openmeld_service_status",
   "openmeld_read_org_documents",

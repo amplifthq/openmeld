@@ -10,6 +10,12 @@ type OrganizationDirectoryAgentProfileIdentitySchema =
   typeof import("../../schemas/http/organization-directory")["organizationDirectoryAgentProfileIdentitySchema"];
 type OrganizationDirectoryResponseSchema =
   typeof import("../../schemas/http/organization-directory")["organizationDirectoryResponseSchema"];
+type CenterAgentListOrganizationMembersBodySchema =
+  typeof import("../../schemas/http/organization-directory")["centerAgentListOrganizationMembersBodySchema"];
+type CenterAgentListOrganizationMembersResponseSchema =
+  typeof import("../../schemas/http/organization-directory")["centerAgentListOrganizationMembersResponseSchema"];
+type CenterAgentListOrganizationMembersToolRpcInputSchema =
+  typeof import("../../schemas/http/organization-directory")["centerAgentListOrganizationMembersToolRpcInputSchema"];
 
 export type OrganizationDirectoryHumanProfile =
   z.infer<OrganizationDirectoryHumanProfileSchema>;
@@ -21,3 +27,9 @@ export type OrganizationDirectoryAgentProfileIdentity =
   z.infer<OrganizationDirectoryAgentProfileIdentitySchema>;
 export type OrganizationDirectoryResponse =
   z.infer<OrganizationDirectoryResponseSchema>;
+export type CenterAgentListOrganizationMembersBody =
+  z.infer<CenterAgentListOrganizationMembersBodySchema>;
+export type CenterAgentListOrganizationMembersResponse =
+  z.infer<CenterAgentListOrganizationMembersResponseSchema>;
+export type CenterAgentListOrganizationMembersToolRpcInput =
+  z.infer<CenterAgentListOrganizationMembersToolRpcInputSchema>;

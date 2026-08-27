@@ -1,6 +1,8 @@
 import * as z from "zod/v4";
+import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { agentProfileIdSchema, uuidProfileIdSchema } from "../protocol/profile";
 import { getAgentExecutionReadinessResponseSchema } from "./agent-execution-readiness";
+import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
 import { authProfileManagedRoleSchema } from "./profiles";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
@@ -65,4 +67,37 @@ export const organizationDirectoryResponseSchema = z.strictObject({
   generatedAt: ISO_DATE_TIME_SCHEMA,
   members: z.array(organizationDirectoryMemberSchema),
   agentProfiles: z.array(organizationDirectoryAgentProfileSchema),
+});
+
+export const CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_DEFAULT_LIMIT = 20;
+export const CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_MAX_LIMIT = 100;
+
+export const centerAgentListOrganizationMembersBodySchema = z.strictObject({
+  cursor: z.string().trim().min(1).max(1024).optional(),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_MAX_LIMIT)
+    .optional(),
+});
+
+export const centerAgentListOrganizationMembersToolRpcInputSchema =
+  centerAgentListOrganizationMembersBodySchema.extend({
+    context: openMeldRequestContextSchema,
+    speakerMember: centerAgentToolSpeakerSchema.optional(),
+  });
+
+/**
+ * Bounded, member-only Organization read projection for Center Agent tools.
+ * It intentionally never resolves or returns Agent Profiles or their readiness;
+ * the broad `organizationDirectoryResponseSchema` remains the authority for
+ * callers that need Agent Profile identity and readiness.
+ */
+export const centerAgentListOrganizationMembersResponseSchema = z.strictObject({
+  generatedAt: ISO_DATE_TIME_SCHEMA,
+  members: z.array(organizationDirectoryMemberSchema),
+  nextCursor: z.string().trim().min(1).max(1024).nullable(),
+  organizationId: trimmedNonEmptyStringSchema,
+  totalMembers: z.number().int().nonnegative(),
 });

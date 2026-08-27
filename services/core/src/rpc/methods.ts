@@ -36,6 +36,7 @@ import {
   buildSpaceFileRevisionIdForMutation,
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
+  CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_DEFAULT_LIMIT,
   CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
   CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
@@ -64,6 +65,8 @@ import {
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
   centerAgentListLocalAgentInstallationsBodySchema,
   centerAgentListLocalAgentInstallationsResponseSchema,
+  centerAgentListOrganizationMembersResponseSchema,
+  centerAgentListOrganizationMembersToolRpcInputSchema,
   centerAgentListSlackChannelsBodySchema,
   centerAgentListSpaceFilesResponseSchema,
   centerAgentListSpaceFilesRpcInputSchema,
@@ -355,6 +358,8 @@ import type {
   CenterAgentListLocalAgentInstallationsBody,
   CenterAgentListLocalAgentInstallationsResponse,
   CenterAgentListOpportunitiesToolRpcInput,
+  CenterAgentListOrganizationMembersResponse,
+  CenterAgentListOrganizationMembersToolRpcInput,
   CenterAgentListSlackChannelsBody,
   CenterAgentListSlackChannelsResponse,
   CenterAgentListSpaceFilesResponse,
@@ -11203,6 +11208,142 @@ export async function rpcCenterAgentGetOrganizationDirectory(
     sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
   });
   return response;
+}
+
+/**
+ * Bounded member-only Organization read for Center Agent tools. It reuses the
+ * Auth-owned Organization Directory projection as its only source and never
+ * resolves Agent Profiles or their readiness; `rpcCenterAgentGetOrganizationDirectory`
+ * remains the broad authority for callers that need Agent Profiles.
+ */
+export async function rpcCenterAgentListOrganizationMembers(
+  env: CoreBindings,
+  input: CenterAgentListOrganizationMembersToolRpcInput
+): Promise<CenterAgentListOrganizationMembersResponse> {
+  const parsed =
+    centerAgentListOrganizationMembersToolRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      reason:
+        parsed.error.issues[0]?.message ??
+        "invalid Organization member list payload",
+      code: "invalid_payload",
+    });
+  }
+  const prepared = await prepareCenterAgentOrganizationMemberRead(
+    env,
+    parsed.data
+  );
+  const { authorization } = prepared;
+  const members = await resolveOrganizationDirectoryMembers({
+    authWorker: env.OPENMELD_AUTH_WORKER,
+    organizationId: authorization.activeOrganization.organizationId,
+    requestId: authorization.context.actorContext.requestId,
+  });
+  const sortedMembers = [...members].sort(
+    (left, right) =>
+      left.user.name.localeCompare(right.user.name, undefined, {
+        sensitivity: "base",
+      }) || left.userId.localeCompare(right.userId)
+  );
+  const limit =
+    parsed.data.limit ?? CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_DEFAULT_LIMIT;
+  let startIndex = 0;
+  if (parsed.data.cursor !== undefined) {
+    const cursor = decodeOrganizationMembersListCursor(parsed.data.cursor);
+    startIndex =
+      sortedMembers.findIndex((member) => member.userId === cursor.id) + 1;
+    if (startIndex === 0) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        reason: "The Organization member list cursor is invalid.",
+        code: "center_agent.member_list_invalid_cursor",
+      });
+    }
+  }
+  const page = sortedMembers.slice(startIndex, startIndex + limit);
+  const lastMember = page.at(-1);
+  const nextCursor =
+    startIndex + limit < sortedMembers.length && lastMember
+      ? encodeOrganizationMembersListCursor({ id: lastMember.userId })
+      : null;
+  const response = centerAgentListOrganizationMembersResponseSchema.parse({
+    generatedAt: new Date().toISOString(),
+    members: page,
+    nextCursor,
+    organizationId: authorization.activeOrganization.organizationId,
+    totalMembers: members.length,
+  });
+  await writeCenterAgentAuditEntry({
+    action: "read_org_directory",
+    authorization,
+    onBehalfOfProfileId: null,
+    resource: {
+      type: "organization",
+      id: authorization.activeOrganization.organizationId,
+    },
+    sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+  });
+  return response;
+}
+
+type OrganizationMembersListCursor = { id: string };
+
+function encodeOrganizationMembersListCursor(
+  cursor: OrganizationMembersListCursor
+): string {
+  return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(cursor)));
+}
+
+function decodeOrganizationMembersListCursor(
+  value: string
+): OrganizationMembersListCursor {
+  try {
+    const parsed = JSON.parse(
+      new TextDecoder().decode(base64UrlToBytes(value))
+    ) as unknown;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      !("id" in parsed) ||
+      typeof parsed.id !== "string" ||
+      !parsed.id.trim()
+    ) {
+      throw new Error("Cursor payload is invalid");
+    }
+    return { id: parsed.id };
+  } catch {
+    throw createCoreRpcHttpError({
+      status: 400,
+      reason: "The Organization member list cursor is invalid.",
+      code: "center_agent.member_list_invalid_cursor",
+    });
+  }
+}
+
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/u;
+const BASE64URL_PADDING_PATTERN = /=+$/u;
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(BASE64URL_PADDING_PATTERN, "");
+}
+
+function base64UrlToBytes(value: string): Uint8Array {
+  if (!BASE64URL_PATTERN.test(value)) {
+    throw new Error("Cursor is not base64url");
+  }
+  const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(base64 + padding);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
 export async function rpcCenterAgentReadMemberComputers(

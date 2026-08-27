@@ -8,7 +8,11 @@ const WEB_TASK_METHODS = [
   "stopCenterAgentTask",
   "retryCenterAgentTask",
 ] as const;
-const MODEL_CREATE_METHOD = "centerAgentCreateTask";
+const MODEL_TASK_METHODS = [
+  "centerAgentCreateTask",
+  "centerAgentListTasks",
+  "centerAgentGetTask",
+] as const;
 
 describe("Center Agent Task RPC surface", () => {
   it("exposes requester Task reads and mutations through Gateway RPC", () => {
@@ -24,12 +28,16 @@ describe("Center Agent Task RPC surface", () => {
     }
   });
 
-  it("keeps model-only Task creation off the Gateway RPC surface", () => {
-    expect(
-      Object.getOwnPropertyNames(CenterAgentRpcEntrypoint.prototype)
-    ).toContain(MODEL_CREATE_METHOD);
-    expect(
-      Object.getOwnPropertyNames(GatewayRpcEntrypoint.prototype)
-    ).not.toContain(MODEL_CREATE_METHOD);
+  it("keeps model-only Task methods off the Gateway RPC surface", () => {
+    const centerAgentMethods = Object.getOwnPropertyNames(
+      CenterAgentRpcEntrypoint.prototype
+    );
+    const gatewayMethods = Object.getOwnPropertyNames(
+      GatewayRpcEntrypoint.prototype
+    );
+    for (const method of MODEL_TASK_METHODS) {
+      expect(centerAgentMethods).toContain(method);
+      expect(gatewayMethods).not.toContain(method);
+    }
   });
 });

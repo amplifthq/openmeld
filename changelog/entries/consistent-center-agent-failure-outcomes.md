@@ -7,5 +7,6 @@ audiences: ["members"]
 ---
 
 When Center Agent work ends in failure, OpenMeld now reports that same final
-outcome in the conversation, CLI, progress checks, and diagnostics. Agents no
-longer keep waiting or suggest that a failed response is still being published.
+outcome in the conversation, progress checks, diagnostics, and the CLI Wake
+trace summary. Agents no longer keep waiting, treat a failed turn as an
+ordinary reply, or suggest that a failed response is still being published.
