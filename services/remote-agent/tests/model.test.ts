@@ -24,10 +24,14 @@ import {
   resolveRemoteAgentModelRuntimeConfigForRegistration,
   resolveRemoteAgentOpenRouterModelMetadataUrl,
 } from "../flue-adapter/model";
-import { TEST_CENTER_AGENT_MODEL_ROUTE } from "./fixtures";
+import {
+  TEST_CENTER_AGENT_GLM_DEFAULT_MODEL_ROUTE,
+  TEST_CENTER_AGENT_MODEL_ROUTE,
+} from "./fixtures";
 import openAiGpt54MiniModel from "./fixtures/openrouter-model-openai-gpt-5.4-mini.json";
 import xAiGrok45Model from "./fixtures/openrouter-model-x-ai-grok-4.5.json";
 import xAiGrok46Model from "./fixtures/openrouter-model-x-ai-grok-4.6.json";
+import zAiGlm53FlashModel from "./fixtures/openrouter-model-z-ai-glm-5.3-flash.json";
 
 const CONFIGURED_AI_GATEWAY_ENV = {
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID: "account_123",
@@ -427,6 +431,85 @@ describe("remote agent model routing", () => {
     ).toBe("DeepSeek V4 Flash");
   });
 
+  it("sends the exact GLM 5.3 Flash default route with frozen reasoning and capacity", async () => {
+    const fetchModelMetadata = vi.fn();
+
+    await expect(
+      resolveRemoteAgentModelRuntimeConfigForRegistration({
+        env: {},
+        fetchModelMetadata,
+        modelRoute: TEST_CENTER_AGENT_GLM_DEFAULT_MODEL_ROUTE,
+      })
+    ).resolves.toEqual({
+      compaction: {
+        keepRecentTokens: 8000,
+        reserveTokens: 64_000,
+      },
+      contextWindow: 1_048_576,
+      maxTokens: 16_384,
+      modelId: "z-ai/glm-5.3-flash",
+      modelSpecifier: "openrouter/z-ai/glm-5.3-flash",
+    });
+    expect(fetchModelMetadata).not.toHaveBeenCalled();
+    expect(
+      resolveRemoteAgentOpenRouterModelId(
+        {},
+        TEST_CENTER_AGENT_GLM_DEFAULT_MODEL_ROUTE
+      )
+    ).toBe("z-ai/glm-5.3-flash");
+    expect(
+      resolveRemoteAgentModelDisplayName(
+        {},
+        TEST_CENTER_AGENT_GLM_DEFAULT_MODEL_ROUTE
+      )
+    ).toBe("GLM 5.3 Flash");
+
+    resetProviderRuntime();
+    try {
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        modelRoute: TEST_CENTER_AGENT_GLM_DEFAULT_MODEL_ROUTE,
+        organizationId: "org_glm_default",
+      });
+      const model = resolveModel(runtime.modelSpecifier);
+      let capturedPayload: unknown;
+      const stream = streamRegisteredModel(
+        model,
+        {
+          messages: [
+            {
+              content: "Ping.",
+              role: "user",
+              timestamp: 1,
+            },
+          ],
+        },
+        {
+          apiKey: "unused",
+          onPayload: (payload) => {
+            capturedPayload = payload;
+            throw new Error(
+              "Request payload captured before network dispatch."
+            );
+          },
+          reasoningEffort: "high",
+        }
+      );
+
+      await stream.result();
+
+      expect(capturedPayload).toMatchObject({
+        model: "z-ai/glm-5.3-flash",
+        reasoning: { effort: "high" },
+      });
+    } finally {
+      resetProviderRuntime();
+    }
+  });
+
   it("keeps model metadata fresh for at least one day", () => {
     expect(REMOTE_AGENT_MODEL_METADATA_CACHE_TTL_MS).toBeGreaterThanOrEqual(
       24 * 60 * 60 * 1000
@@ -683,6 +766,36 @@ describe("remote agent model routing", () => {
     });
     expect(fetchModelMetadata).toHaveBeenCalledWith(
       "https://openrouter.ai/api/v1/model/x-ai/grok-4.6",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
+
+  it("accepts the captured OpenRouter metadata contract for GLM 5.3 Flash", async () => {
+    const fetchModelMetadata = vi.fn(async () =>
+      Response.json(zAiGlm53FlashModel)
+    );
+
+    await expect(
+      resolveRemoteAgentModelRuntimeConfig({
+        env: {
+          OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID: "z-ai/glm-5.3-flash",
+        },
+        fetchModelMetadata,
+      })
+    ).resolves.toEqual({
+      compaction: {
+        keepRecentTokens: 8000,
+        // Compacts before the top provider's 1,048,576-token limit, not the
+        // larger catalog context length.
+        reserveTokens: 64_000,
+      },
+      contextWindow: 1_048_576,
+      maxTokens: 8192,
+      modelId: "z-ai/glm-5.3-flash",
+      modelSpecifier: "openrouter/z-ai/glm-5.3-flash",
+    });
+    expect(fetchModelMetadata).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/model/z-ai/glm-5.3-flash",
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
   });

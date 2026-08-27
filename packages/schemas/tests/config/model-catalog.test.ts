@@ -12,7 +12,7 @@ describe("model catalog schema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.schemaVersion).toBe(MODEL_CATALOG_SCHEMA_VERSION);
-      expect(result.data.updatedAt).toBe("2026-08-23T09:35:00.000Z");
+      expect(result.data.updatedAt).toBe("2026-08-27T00:00:00.000Z");
       expect(result.data.agentControllers.codex?.defaultModelId).toBe(
         "gpt-5.5"
       );
@@ -80,29 +80,42 @@ describe("model catalog schema", () => {
       }
 
       expect(result.data.agentControllers.opencode?.defaultModelId).toBe(
-        "opencode/north-mini-code-free"
+        "opencode-go/glm-5.3-flash"
       );
+      const opencodeModelIds =
+        result.data.agentControllers.opencode?.models.map(
+          (model) => model.id
+        ) ?? [];
+      for (const retiredId of [
+        "opencode/north-mini-code-free",
+        "opencode/deepseek-v4-flash-free",
+        "opencode/x-preview-f-free",
+      ]) {
+        expect(opencodeModelIds).not.toContain(retiredId);
+      }
       expect(
         result.data.agentControllers.opencode?.models.find(
-          (model) => model.id === "opencode/north-mini-code-free"
-        )?.supportedReasoningLevels
-      ).toEqual(["none", "high"]);
-      expect(
-        result.data.agentControllers.opencode?.models.find(
-          (model) => model.id === "opencode/deepseek-v4-flash-free"
-        )?.supportedReasoningLevels
-      ).toEqual(["low", "medium", "high", "max"]);
-      expect(
-        result.data.agentControllers.opencode?.models.find(
-          (model) => model.id === "opencode/x-preview-f-free"
+          (model) => model.id === "opencode-go/glm-5.3-flash"
         )
       ).toEqual({
-        id: "opencode/x-preview-f-free",
-        displayName: "OpenCode Ox Alpha Free",
+        id: "opencode-go/glm-5.3-flash",
+        displayName: "GLM 5.3 Flash",
         unavailable: false,
         supportedReasoningLevels: ["low", "high", "max"],
         minCliVersion: null,
       });
+      // Variant keys stay the exact OpenCode `--variant` strings, including
+      // vendor-specific ones like MiniMax's "thinking".
+      expect(
+        result.data.agentControllers.opencode?.models.find(
+          (model) => model.id === "opencode-go/minimax-m3"
+        )?.supportedReasoningLevels
+      ).toEqual(["none", "thinking"]);
+      expect(
+        result.data.agentControllers.opencode?.models.find(
+          (model) => model.id === "opencode/hy3-free"
+        )?.supportedReasoningLevels
+      ).toEqual(["low", "medium", "high"]);
 
       expect(result.data.agentControllers.cursor?.defaultModelId).toBe(
         "default[]"
@@ -118,16 +131,27 @@ describe("model catalog schema", () => {
       });
 
       expect(result.data.agentControllers["center-agent"]).toMatchObject({
-        defaultModelId: "x-ai/grok-4.6",
+        defaultModelId: "z-ai/glm-5.3-flash",
         hostedRuntimePolicy: {
           automaticModelFallback: false,
           imageUnderstandingModelId: "x-ai/grok-4.6",
         },
         models: [
           {
+            id: "z-ai/glm-5.3-flash",
+            displayName: "GLM 5.3 Flash",
+            badgeLabel: "New",
+            hostedRuntime: {
+              contextWindow: 1_048_576,
+              inputModalities: ["text", "image"],
+              maxOutputTokens: 16_384,
+              provider: "openrouter",
+              reasoningLevel: "high",
+            },
+          },
+          {
             id: "x-ai/grok-4.6",
             displayName: "Grok 4.6",
-            badgeLabel: "New",
             hostedRuntime: {
               contextWindow: 500_000,
               inputModalities: ["text", "image"],

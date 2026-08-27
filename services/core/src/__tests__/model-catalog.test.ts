@@ -10,6 +10,12 @@ describe("model catalog config", () => {
     expect(catalog.agentControllers["claude-code"]?.defaultModelId).toBe(
       "claude-opus-4-8"
     );
+    expect(catalog.agentControllers["center-agent"]?.defaultModelId).toBe(
+      "z-ai/glm-5.3-flash"
+    );
+    expect(catalog.agentControllers.opencode?.defaultModelId).toBe(
+      "opencode-go/glm-5.3-flash"
+    );
   });
 
   it("serves the model catalog as a public config route", async () => {
@@ -39,6 +45,12 @@ describe("model catalog config", () => {
         },
         cursor: {
           defaultModelId: "default[]",
+        },
+        opencode: {
+          defaultModelId: "opencode-go/glm-5.3-flash",
+        },
+        "center-agent": {
+          defaultModelId: "z-ai/glm-5.3-flash",
         },
       },
     });

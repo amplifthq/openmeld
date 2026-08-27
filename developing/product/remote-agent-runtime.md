@@ -2405,7 +2405,7 @@ Core-owned hosted readiness has exactly two product states in MVP:
   This operational evidence does not decide admission, retry, timeout, native
   delivery, or final result-surface truth.
 - New-turn default route: Cloudflare AI Gateway → OpenRouter BYOK
-  `x-ai/grok-4.6` with the environment-owned BYOK alias (`openrouter` in
+  `z-ai/glm-5.3-flash` with the environment-owned BYOK alias (`openrouter` in
   production). The legacy version-1
   environment fallback remains `x-ai/grok-4.5` for durable recovery
   compatibility (settled; see Implementation Base).
