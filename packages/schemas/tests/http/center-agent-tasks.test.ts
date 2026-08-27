@@ -3,6 +3,8 @@ import {
   CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION,
   CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER,
   centerAgentCreateTaskToolRpcInputSchema,
+  centerAgentGetTaskToolRpcInputSchema,
+  centerAgentListTasksToolRpcInputSchema,
   centerAgentTaskAttemptSchema,
   centerAgentTaskDetailSchema,
   centerAgentTaskEventSchema,
@@ -79,6 +81,44 @@ describe("Center Agent Task HTTP contracts", () => {
     ).toEqual({
       task: queuedTaskProjection,
     });
+  });
+
+  it("keeps model-visible Task reads requester-bound and rejects supplied identity", () => {
+    const speakerMember = { memberId: "member-1", userId: "user-1" };
+    const context = {
+      activeOrganizationId: "organization-1",
+      actorContext: {
+        agentControllerRef: "hosted:center-agent",
+        callerPrincipalId: "user-1",
+        ownerUserId: "user-1",
+        profileKind: "agent" as const,
+        requestId: "request-1",
+        openMeldProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      },
+    };
+
+    expect(
+      centerAgentListTasksToolRpcInputSchema.parse({
+        context,
+        limit: 10,
+        speakerMember,
+        status: "running",
+      })
+    ).toMatchObject({ limit: 10, speakerMember, status: "running" });
+    expect(
+      centerAgentGetTaskToolRpcInputSchema.parse({
+        context,
+        speakerMember,
+        taskId: "task-1",
+      })
+    ).toMatchObject({ speakerMember, taskId: "task-1" });
+    expect(
+      centerAgentListTasksToolRpcInputSchema.safeParse({
+        context,
+        requesterUserId: "user-2",
+        speakerMember,
+      }).success
+    ).toBe(false);
   });
 
   it("derives one canonical product state, phase, and outcome projection", () => {

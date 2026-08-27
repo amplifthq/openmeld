@@ -439,6 +439,8 @@ export type {
 } from "./center-agent-speaker";
 export type {
   CenterAgentCreateTaskToolRpcInput,
+  CenterAgentGetTaskToolRpcInput,
+  CenterAgentListTasksToolRpcInput,
   CenterAgentTask,
   CenterAgentTaskAttempt,
   CenterAgentTaskDetail,
@@ -648,6 +650,9 @@ export type {
   OrganizationComputersResponse,
 } from "./organization-computers";
 export type {
+  CenterAgentListOrganizationMembersBody,
+  CenterAgentListOrganizationMembersResponse,
+  CenterAgentListOrganizationMembersToolRpcInput,
   OrganizationDirectoryAgentProfile,
   OrganizationDirectoryAgentProfileIdentity,
   OrganizationDirectoryHumanProfile,
