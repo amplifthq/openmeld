@@ -57,7 +57,12 @@ type ControllerResolvedLatestLookup =
         BuiltinAgentControllerVersionMaintenanceDefinition["homebrewPackage"]
       >;
     }
-  | { kind: "homebrew-tap-formula"; name: string; tap: string }
+  | {
+      kind: "homebrew-tap-ruby";
+      name: string;
+      packageKind: "cask" | "formula";
+      tap: string;
+    }
   | { kind: "http-json"; url: string }
   | { kind: "http-text"; url: string }
   | { kind: "npm"; packageName: string };
@@ -176,7 +181,8 @@ export function buildHomebrewFormulaeApiUrl(input: {
   return `https://formulae.brew.sh/api/${input.kind}/${encodeURIComponent(input.name)}.json`;
 }
 
-export function buildHomebrewTapFormulaUrls(input: {
+export function buildHomebrewTapPackageUrls(input: {
+  kind: "cask" | "formula";
   name: string;
   tap: string;
 }): string[] {
@@ -185,10 +191,14 @@ export function buildHomebrewTapFormulaUrls(input: {
     return [];
   }
   const base = `https://raw.githubusercontent.com/${repository.owner}/${repository.repo}/HEAD`;
-  return [`${base}/${input.name}.rb`, `${base}/Formula/${input.name}.rb`];
+  const packageDirectory = input.kind === "cask" ? "Casks" : "Formula";
+  return [
+    `${base}/${input.name}.rb`,
+    `${base}/${packageDirectory}/${input.name}.rb`,
+  ];
 }
 
-export function parseHomebrewFormulaVersion(source: string): string | null {
+export function parseHomebrewRubyPackageVersion(source: string): string | null {
   const declaredVersion = source.match(HOMEBREW_FORMULA_VERSION_RE)?.[1];
   if (declaredVersion) {
     return declaredVersion.trim();
@@ -270,7 +280,7 @@ async function resolveHomebrewInstallIdentity(input: {
   for (const commandPath of input.commandPaths) {
     const cellarInstall = parseHomebrewPrefixInstall(commandPath, "formula");
     if (cellarInstall) {
-      const tap = await readHomebrewReceiptTap(cellarInstall.installDir);
+      const tap = await readHomebrewReceiptTap(cellarInstall.receiptDir);
       return {
         kind: "formula",
         name: cellarInstall.name,
@@ -279,7 +289,7 @@ async function resolveHomebrewInstallIdentity(input: {
     }
     const caskInstall = parseHomebrewPrefixInstall(commandPath, "cask");
     if (caskInstall) {
-      const tap = await readHomebrewReceiptTap(caskInstall.installDir);
+      const tap = await readHomebrewReceiptTap(caskInstall.receiptDir);
       return {
         kind: "cask",
         name: caskInstall.name,
@@ -301,20 +311,25 @@ async function resolveHomebrewInstallIdentity(input: {
 function parseHomebrewPrefixInstall(
   commandPath: string,
   kind: "cask" | "formula"
-): { installDir: string; name: string } | null {
+): { name: string; receiptDir: string } | null {
   const normalized = commandPath.replaceAll("\\", "/");
   const match =
     kind === "formula"
       ? HOMEBREW_CELLAR_RE.exec(normalized)
       : HOMEBREW_CASKROOM_RE.exec(normalized);
   const name = match?.[2];
+  const version = match?.[3];
   const matchedPrefix = match?.[0];
-  if (!(name && matchedPrefix)) {
+  if (!(name && version && matchedPrefix)) {
     return null;
   }
+  const installDir = normalized.slice(0, matchedPrefix.length - 1);
   return {
-    installDir: normalized.slice(0, matchedPrefix.length - 1),
     name,
+    receiptDir:
+      kind === "cask"
+        ? `${installDir.slice(0, -(version.length + 1))}/.metadata`
+        : installDir,
   };
 }
 
@@ -340,8 +355,9 @@ function resolveHomebrewLatestLookup(
 ): ControllerResolvedLatestLookup {
   if (install.tap && isThirdPartyHomebrewTap(install.tap)) {
     return {
-      kind: "homebrew-tap-formula",
+      kind: "homebrew-tap-ruby",
       name: install.name,
+      packageKind: install.kind,
       tap: install.tap,
     };
   }
@@ -386,8 +402,8 @@ function buildLatestCacheKey(latest: ControllerResolvedLatestLookup): string {
       return `github-release:${latest.repository}`;
     case "homebrew-api":
       return `brew-api:${latest.package.kind}:${latest.package.name}`;
-    case "homebrew-tap-formula":
-      return `brew-tap:${latest.tap}:${latest.name}`;
+    case "homebrew-tap-ruby":
+      return `brew-tap:${latest.packageKind}:${latest.tap}:${latest.name}`;
     case "http-json":
     case "http-text":
       return `${latest.kind}:${latest.url}`;
@@ -419,11 +435,15 @@ function fetchLatestForLookup(
         parse: (body) => parseHomebrewApiVersion(body, latest.package.kind),
         url: buildHomebrewFormulaeApiUrl(latest.package),
       });
-    case "homebrew-tap-formula":
+    case "homebrew-tap-ruby":
       return fetchFirstSuccessfulLatestVersion(
-        buildHomebrewTapFormulaUrls(latest).map((url) => ({
+        buildHomebrewTapPackageUrls({
+          kind: latest.packageKind,
+          name: latest.name,
+          tap: latest.tap,
+        }).map((url) => ({
           accept: "text/plain",
-          parse: parseHomebrewFormulaVersion,
+          parse: parseHomebrewRubyPackageVersion,
           url,
         }))
       );
