@@ -12,6 +12,10 @@ import type { OrganizationComputerGroup } from "#/components/computers/organizat
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
 import { DirectoryHumanProfilesWorkspace } from "./directory-human-profiles-workspace";
 
+const ENABLED_LOCAL_AGENT_SUMMARY_PATTERN =
+	/Claude Code enabled, Codex enabled, Cursor enabled/;
+const LOCAL_AGENT_LOGO_TEST_ID_PATTERN = /^local-agent-logo-/;
+
 afterEach(cleanup);
 
 vi.mock("@tanstack/react-router", () => ({
@@ -112,17 +116,33 @@ vi.mock("#/components/computers/computers-picker", () => ({
 }));
 
 describe("DirectoryHumanProfilesWorkspace", () => {
-	it("keeps email out of the sidebar while showing mapped Channel and enabled Local Agent icons", () => {
+	it("separates mapped Channel identity from a capped stack of enabled Local Agent icons", () => {
 		renderWorkspace();
 
 		const sidebar = screen.getByRole("navigation", { name: "People" });
 		expect(within(sidebar).getByText("Felix")).toBeTruthy();
 		expect(within(sidebar).queryByText("felix@example.com")).toBeNull();
-		expect(within(sidebar).getByRole("img", { name: "Slack" })).toBeTruthy();
-		const slackLogo = within(sidebar).getByTestId("app-logo-slack");
+		const felixItem = screen.getByRole("button", {
+			name: "Open Felix's profile",
+		});
+		const channelAccounts = felixItem.querySelector(
+			'[data-slot="human-profile-channel-identities"]'
+		);
+		expect(channelAccounts).not.toBeNull();
+		expect(
+			within(channelAccounts as HTMLElement).getByText(
+				"Felix · felix@slack.example"
+			)
+		).toBeTruthy();
+		expect(
+			within(channelAccounts as HTMLElement).getByRole("img", { name: "Slack" })
+		).toBeTruthy();
+		const slackLogo = within(channelAccounts as HTMLElement).getByTestId(
+			"app-logo-slack"
+		);
 		expect([...(slackLogo.parentElement?.classList ?? [])]).toEqual(
 			expect.arrayContaining([
-				"size-4",
+				"size-3.5",
 				"border-0",
 				"bg-transparent",
 				"p-0",
@@ -130,13 +150,32 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			])
 		);
 		expect(within(sidebar).queryByRole("img", { name: "Lark" })).toBeNull();
-		expect(within(sidebar).getByTestId("local-agent-logo-codex")).toBeTruthy();
+		const localAgents = within(sidebar).getByRole("img", {
+			name: ENABLED_LOCAL_AGENT_SUMMARY_PATTERN,
+		});
 		expect(
-			within(sidebar).queryByTestId("local-agent-logo-claude-code")
-		).toBeNull();
+			within(localAgents).getAllByTestId(LOCAL_AGENT_LOGO_TEST_ID_PATTERN)
+		).toHaveLength(4);
+		expect(within(localAgents).getByText("+2")).toBeTruthy();
 		expect(
 			within(screen.getByRole("main")).getAllByText("felix@example.com")
 		).toHaveLength(2);
+	});
+
+	it("reflows each profile item when the resizable sidebar becomes narrow", () => {
+		renderWorkspace();
+
+		const item = screen.getByRole("button", {
+			name: "Open Felix's profile",
+		});
+		expect(item.classList.contains("flex-col")).toBe(true);
+		expect(
+			item.classList.contains("@[12rem]/contextual-sidebar:flex-row")
+		).toBe(true);
+		const heading = item.querySelector(
+			'[data-slot="human-profile-sidebar-heading"]'
+		);
+		expect(heading?.classList.contains("flex-wrap")).toBe(true);
 	});
 
 	it("selects a Human Profile from the sidebar without opening a Drawer", () => {
@@ -293,16 +332,20 @@ function buildCurrentComputerGroup(): OrganizationComputerGroup {
 						buildLocalAgentEntry({ agentId: "codex", enabled: true }),
 						buildLocalAgentEntry({
 							agentId: "claude-code",
-							enabled: false,
+							enabled: true,
 						}),
+						buildLocalAgentEntry({ agentId: "cursor", enabled: true }),
+						buildLocalAgentEntry({ agentId: "grok-build", enabled: true }),
+						buildLocalAgentEntry({ agentId: "opencode", enabled: true }),
+						buildLocalAgentEntry({ agentId: "openclaw", enabled: true }),
 					],
 					summary: {
 						detectedNotSupportedYet: 0,
-						detectedSupported: 2,
+						detectedSupported: 6,
 						needsChoice: 0,
 						needsRepair: 0,
 						notDetected: 0,
-						totalBuiltins: 2,
+						totalBuiltins: 6,
 					},
 				},
 				status: "ready",
@@ -344,7 +387,7 @@ function buildLocalAgentEntry(input: { agentId: string; enabled: boolean }) {
 	return {
 		agentId: input.agentId,
 		detected: true,
-		displayName: input.agentId === "codex" ? "Codex" : "Claude Code",
+		displayName: formatTestLocalAgentName(input.agentId),
 		enabled: input.enabled,
 		launchStatus: "ready" as const,
 		lifecycleStatus: "active" as const,
@@ -352,6 +395,21 @@ function buildLocalAgentEntry(input: { agentId: string; enabled: boolean }) {
 		selectableReason: null,
 		targetKind: "builtin" as const,
 	};
+}
+
+function formatTestLocalAgentName(agentId: string): string {
+	switch (agentId) {
+		case "claude-code":
+			return "Claude Code";
+		case "grok-build":
+			return "Grok";
+		case "openclaw":
+			return "OpenClaw";
+		case "opencode":
+			return "OpenCode";
+		default:
+			return agentId.charAt(0).toUpperCase() + agentId.slice(1);
+	}
 }
 
 function buildRecovery(): Parameters<

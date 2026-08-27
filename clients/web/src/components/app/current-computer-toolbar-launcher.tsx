@@ -98,7 +98,7 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 					/>
 				) : null}
 			</TooltipTrigger>
-			<TooltipContent side="top">
+			<TooltipContent align="start" className="text-left" side="top">
 				{deviceLabel} · {statusLabel}
 			</TooltipContent>
 		</Tooltip>

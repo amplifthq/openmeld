@@ -39,7 +39,7 @@ import type {
 } from "#/components/directory/directory-human-profile-model";
 import {
 	DirectoryComputerSummary,
-	DirectoryIdentityLogo,
+	DirectoryIdentityAccountSummary,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DirectoryHumanProfileRoleBadge } from "#/components/directory/directory-human-profile-role-badge";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
@@ -61,6 +61,7 @@ export type DirectoryHumanProfilesViewState = {
 };
 
 const DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
+const MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS = 4;
 
 export function DirectoryHumanProfilesWorkspace(input: {
 	activeBatch: CenterAgentMemberResearchBatch | null;
@@ -117,6 +118,8 @@ export function DirectoryHumanProfilesWorkspace(input: {
 		isResearchPending: input.state.research === "pending",
 		pendingResearch: input.pendingResearch,
 	});
+	const compactLearnAllLabel =
+		learnAllLabel === "Learn about all members" ? "Learn all" : learnAllLabel;
 
 	useEffect(() => {
 		const intervalId = window.setInterval(
@@ -154,19 +157,36 @@ export function DirectoryHumanProfilesWorkspace(input: {
 					{input.sidebarLeadingContent}
 					{input.canCreateProfile ? (
 						<Button
-							className="w-full justify-start"
+							aria-label="Create Human Profile"
+							className="w-full min-w-0 justify-start overflow-hidden"
 							onClick={input.onCreateProfile}
 							size="sm"
 							type="button"
 							variant="ghost"
 						>
-							<PlusIcon aria-hidden="true" data-icon="inline-start" />
-							Create Human Profile
+							<PlusIcon
+								aria-hidden="true"
+								className="shrink-0"
+								data-icon="inline-start"
+							/>
+							<span
+								aria-hidden="true"
+								className="@[12rem]/contextual-sidebar:inline hidden truncate"
+							>
+								Create Human Profile
+							</span>
+							<span
+								aria-hidden="true"
+								className="@[12rem]/contextual-sidebar:hidden truncate"
+							>
+								Create
+							</span>
 						</Button>
 					) : null}
 					{input.state.context === "organization" ? (
 						<Button
-							className="w-full justify-start"
+							aria-label={learnAllLabel}
+							className="w-full min-w-0 justify-start overflow-hidden"
 							disabled={
 								Boolean(input.activeBatch) ||
 								input.state.research === "pending" ||
@@ -177,8 +197,23 @@ export function DirectoryHumanProfilesWorkspace(input: {
 							type="button"
 							variant="ghost"
 						>
-							<UserFocusIcon aria-hidden="true" data-icon="inline-start" />
-							{learnAllLabel}
+							<UserFocusIcon
+								aria-hidden="true"
+								className="shrink-0"
+								data-icon="inline-start"
+							/>
+							<span
+								aria-hidden="true"
+								className="@[12rem]/contextual-sidebar:inline hidden truncate"
+							>
+								{learnAllLabel}
+							</span>
+							<span
+								aria-hidden="true"
+								className="@[12rem]/contextual-sidebar:hidden truncate"
+							>
+								{compactLearnAllLabel}
+							</span>
 						</Button>
 					) : null}
 				</div>
@@ -388,13 +423,18 @@ function HumanProfileSidebarItem(input: {
 	const mappedAccounts = input.member.identityAccounts.filter(
 		(account) => account.id !== null
 	);
+	const visibleLocalAgents = localAgents.slice(
+		0,
+		MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS
+	);
+	const hiddenLocalAgentCount = localAgents.length - visibleLocalAgents.length;
 	return (
 		<FluidNavMenuItem index={input.index} value={input.member.id}>
 			<button
 				aria-current={input.isActive ? "page" : undefined}
 				aria-label={`Open ${input.member.name}'s profile`}
 				className={cn(
-					"flex min-h-20 w-full min-w-0 items-start gap-2 px-2 py-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
+					"flex min-h-20 w-full min-w-0 @[12rem]/contextual-sidebar:flex-row flex-col @[12rem]/contextual-sidebar:items-start items-stretch gap-2 px-2 py-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
 					input.isActive ? "text-sidebar-accent-foreground" : null
@@ -406,8 +446,11 @@ function HumanProfileSidebarItem(input: {
 				type="button"
 			>
 				<DirectoryHumanProfileAvatar context="sidebar" member={input.member} />
-				<span className="min-w-0 flex-1 space-y-1">
-					<span className="flex min-w-0 items-center gap-1.5">
+				<span className="flex min-w-0 flex-1 flex-col gap-1">
+					<span
+						className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1"
+						data-slot="human-profile-sidebar-heading"
+					>
 						<span className="truncate font-medium text-sm">
 							{input.member.name}
 						</span>
@@ -418,46 +461,56 @@ function HumanProfileSidebarItem(input: {
 						) : null}
 						<DirectoryHumanProfileRoleBadge role={input.member.role} />
 					</span>
+					{mappedAccounts.length > 0 ? (
+						<span
+							className="flex min-w-0 flex-col gap-0.5"
+							data-slot="human-profile-channel-identities"
+						>
+							{mappedAccounts.map((account) => (
+								<span className="min-w-0" key={account.provider}>
+									<DirectoryIdentityAccountSummary
+										account={account}
+										context="sidebar"
+									/>
+								</span>
+							))}
+						</span>
+					) : null}
 					{activityLabel ? (
 						<span className="block truncate text-muted-foreground text-xs">
 							{activityLabel}
 						</span>
 					) : null}
-					<span className="flex min-w-0 items-center justify-between gap-2">
+					<span className="min-w-0">
 						<DirectoryComputerSummary
 							interactive={false}
 							member={input.member}
 						/>
-						{mappedAccounts.length > 0 || localAgents.length > 0 ? (
+					</span>
+					{localAgents.length > 0 ? (
+						<span className="flex min-h-4 min-w-0 items-center">
 							<span
-								aria-label={buildProfileIntegrationSummary({
-									accounts: mappedAccounts,
-									localAgents,
-								})}
-								className="flex shrink-0 items-center gap-1"
+								aria-label={buildLocalAgentSummary(localAgents)}
+								className="flex shrink-0 items-center -space-x-1.5"
 								role="img"
 							>
-								{mappedAccounts.map((account) => (
-									<DirectoryIdentityLogo
-										account={account}
-										className="size-4 rounded-sm border-0 bg-transparent p-0 shadow-none"
-										key={account.provider}
-									/>
-								))}
-								{localAgents.map((agent) => (
+								{visibleLocalAgents.map((agent) => (
 									<span
-										aria-label={agent.displayName}
-										className="grid size-4 place-items-center overflow-hidden rounded-sm"
+										className="grid size-3.5 place-items-center overflow-hidden rounded-sm ring-1 ring-sidebar"
 										key={agent.agentId}
-										role="img"
 										title={agent.displayName}
 									>
-										<LocalAgentLogo agentId={agent.agentId} size="sm" />
+										<LocalAgentLogo agentId={agent.agentId} size="xs" />
 									</span>
 								))}
+								{hiddenLocalAgentCount > 0 ? (
+									<span className="z-10 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-0.5 font-medium text-[9px] text-muted-foreground ring-1 ring-sidebar">
+										+{hiddenLocalAgentCount}
+									</span>
+								) : null}
 							</span>
-						) : null}
-					</span>
+						</span>
+					) : null}
 				</span>
 			</button>
 		</FluidNavMenuItem>
@@ -535,16 +588,10 @@ function appendOrganizationComputerLocalAgents(
 	}
 }
 
-function buildProfileIntegrationSummary(input: {
-	accounts: readonly DirectoryIdentityAccount[];
-	localAgents: readonly LocalAgentIdentity[];
-}): string {
-	return [
-		...input.accounts.map(
-			(account) => `${account.providerLabel} account mapped`
-		),
-		...input.localAgents.map((agent) => `${agent.displayName} enabled`),
-	].join(", ");
+function buildLocalAgentSummary(
+	localAgents: readonly LocalAgentIdentity[]
+): string {
+	return localAgents.map((agent) => `${agent.displayName} enabled`).join(", ");
 }
 
 function HumanProfileComputers(input: {

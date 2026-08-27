@@ -50,7 +50,7 @@ export function DirectoryComputerSummary(input: {
 	const className = cn("inline-flex min-w-0 items-center gap-2", "text-xs");
 	if (input.interactive === false || !input.member.computer.path) {
 		return (
-			<div className={cn(className, "text-muted-foreground")}>{content}</div>
+			<span className={cn(className, "text-muted-foreground")}>{content}</span>
 		);
 	}
 	return (
@@ -225,31 +225,44 @@ export function DirectoryIdentityLogo(input: {
 
 export function DirectoryIdentityAccountSummary(input: {
 	account: DirectoryIdentityAccount;
-	context: "card" | "detail";
+	context: "card" | "detail" | "sidebar";
 }) {
 	const label =
 		input.context === "card"
 			? resolveDirectoryIdentityAccountCardLabel(input.account)
 			: resolveDirectoryIdentityAccountLabel(input.account);
 	return (
-		<div className="inline-flex min-w-0 items-center gap-2">
+		<span
+			className={cn(
+				"inline-flex min-w-0 items-center",
+				input.context === "sidebar" ? "w-full gap-1.5" : "gap-2"
+			)}
+		>
 			<DirectoryIdentityLogo
 				account={input.account}
-				className={input.context === "card" ? "size-5 rounded-sm" : undefined}
+				className={cn(
+					input.context === "card" ? "size-5 rounded-sm" : null,
+					input.context === "sidebar"
+						? "size-3.5 rounded-[3px] border-0 bg-transparent p-0 shadow-none"
+						: null
+				)}
 				muted={input.account.state !== "connected"}
 				size={input.context === "card" ? "sm" : "md"}
 			/>
 			{label ? (
 				<span
 					className={cn(
-						"min-w-0 select-text break-all text-muted-foreground",
-						input.context === "detail" ? "text-sm" : "text-xs"
+						"min-w-0 text-muted-foreground",
+						input.context === "detail" ? "select-text break-all text-sm" : null,
+						input.context === "card" ? "select-text break-all text-xs" : null,
+						input.context === "sidebar" ? "truncate text-xs" : null
 					)}
+					title={input.context === "sidebar" ? label : undefined}
 				>
 					{label}
 				</span>
 			) : null}
-		</div>
+		</span>
 	);
 }
 

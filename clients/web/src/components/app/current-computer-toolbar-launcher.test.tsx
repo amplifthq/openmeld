@@ -1,5 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { cloneElement, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CurrentComputerToolbarLauncher } from "./current-computer-toolbar-launcher";
 
@@ -14,6 +14,34 @@ vi.mock("@tanstack/react-router", () => ({
 			{children}
 		</a>
 	),
+}));
+
+vi.mock("@openmeld/ui/components/tooltip", () => ({
+	Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+	TooltipContent: ({
+		align,
+		children,
+		className,
+	}: {
+		align?: string;
+		children: ReactNode;
+		className?: string;
+	}) => (
+		<span
+			className={className}
+			data-align={align}
+			data-testid="toolbar-tooltip"
+		>
+			{children}
+		</span>
+	),
+	TooltipTrigger: ({
+		children,
+		render,
+	}: {
+		children: ReactNode;
+		render: ReactElement;
+	}) => cloneElement(render, undefined, children),
 }));
 
 vi.mock("#/components/agents/use-local-runtime-queries", () => ({
@@ -81,6 +109,9 @@ describe("CurrentComputerToolbarLauncher", () => {
 				name: "Open Felix's MacBook Pro details, OpenMeld Service is not connected",
 			})
 		).toBeTruthy();
+		const tooltip = screen.getByTestId("toolbar-tooltip");
+		expect(tooltip.getAttribute("data-align")).toBe("start");
+		expect(tooltip.classList.contains("text-left")).toBe(true);
 	});
 
 	it("offers Computer setup only when this account has no current device", () => {

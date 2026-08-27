@@ -525,14 +525,30 @@ function useDirectoryMembersOverviewModel(
 			selectedProfileId,
 			sidebarLeadingContent: (
 				<Button
-					className="w-full justify-start"
+					aria-label="Invite Members"
+					className="w-full min-w-0 justify-start overflow-hidden"
 					onClick={() => setIsInviteDialogOpen(true)}
 					size="sm"
 					type="button"
 					variant="outline"
 				>
-					<PlusIcon aria-hidden="true" data-icon="inline-start" />
-					Invite Members
+					<PlusIcon
+						aria-hidden="true"
+						className="shrink-0"
+						data-icon="inline-start"
+					/>
+					<span
+						aria-hidden="true"
+						className="@[12rem]/contextual-sidebar:inline hidden truncate"
+					>
+						Invite Members
+					</span>
+					<span
+						aria-hidden="true"
+						className="@[12rem]/contextual-sidebar:hidden truncate"
+					>
+						Invite
+					</span>
 				</Button>
 			),
 			state: profilesViewState,
