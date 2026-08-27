@@ -66,6 +66,7 @@ pnpm staging:verify
 pnpm staging:cli:plan
 pnpm staging:cli:publish
 pnpm staging:cli:verify
+pnpm staging:smoke:computer -- plan
 ```
 
 - `staging:plan` prints the exact order and changes nothing.
@@ -89,6 +90,8 @@ pnpm staging:cli:verify
   not wait for or publish a production version.
 - `staging:cli:verify` reads the public staging manifest and rejects any
   Production artifact URL or non-staging version.
+- `staging:smoke:computer -- plan` shows the repeatable Computer update smoke
+  without changing local or Staging state.
 
 Do not replace this workflow with raw `wrangler deploy`, Dashboard edits, or a
 Production release command. A clean worktree makes the exact deployed commit
@@ -100,6 +103,34 @@ The Staging Computer uses the `canary` OS-service identity and
 `https://staging.openmeld.ai/cli/manifest.json` as the only update source. This
 keeps launchd registration and local state separate from the published
 `openmeld` lane. Never point this lane at the Production manifest.
+
+## Run The Computer Update Smoke
+
+The Computer smoke is the reusable regression check for the highest-risk local
+update path. Sign in to `https://staging.openmeld.ai` with a magic link and copy
+a fresh Computer Setup command. Save that single command in a private file
+outside the repository, then run:
+
+```bash
+chmod 600 /tmp/openmeld-staging-setup.txt
+pnpm staging:smoke:computer -- run --setup-command-file /tmp/openmeld-staging-setup.txt
+```
+
+The runner accepts only the official Staging Canary binary Setup URL. It never
+executes the copied line as arbitrary shell, never prints its one-time tokens,
+and rejects Production, lookalike hosts, npm distribution, extra flags, and
+shell suffixes. It temporarily preserves an existing `~/.openmeld-canary` only
+when both Canary launchd labels are free, then restores that exact directory
+after the run.
+
+One run verifies the focused update safety contracts, connects a temporary
+Canary Computer, publishes a newer prerelease only to the Staging CLI channel,
+waits for automatic update to start, sends a manual Update through the same
+authenticated current-Computer API used by Web, and requires both requests to
+return one operation ID. It then verifies the managed CLI, restarted Service,
+and Staging Core all report the new version. Success output is a short list of
+`PASS` lines. Failure output includes the failed step; cleanup failures preserve
+their recovery directory under `dev-tmp/staging-computer-smoke/`.
 
 ## Deployment Order
 
