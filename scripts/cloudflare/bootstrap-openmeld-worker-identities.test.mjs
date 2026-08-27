@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   bootstrapOpenMeldWorkerIdentities,
   OPENMELD_BOOTSTRAP_WORKERS,
+  OPENMELD_STAGING_BOOTSTRAP_WORKERS,
   parseArgs,
 } from "./bootstrap-openmeld-worker-identities.mjs";
 
@@ -69,5 +70,28 @@ test("accepts pnpm's option separator before apply", () => {
       CLOUDFLARE_API_TOKEN: "token",
     }).apply,
     true
+  );
+});
+
+test("bootstraps staging Worker identities without touching production names", async () => {
+  const names = new Set();
+  const uploaded = [];
+  const result = await bootstrapOpenMeldWorkerIdentities({
+    apply: true,
+    environment: "staging",
+    client: {
+      listWorkerNames: async () => [...names],
+      uploadBootstrapWorker: (name) => {
+        uploaded.push(name);
+        names.add(name);
+      },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(uploaded, OPENMELD_STAGING_BOOTSTRAP_WORKERS);
+  assert.ok(uploaded.every((name) => name.endsWith("-stg")));
+  assert.ok(
+    uploaded.every((name) => !OPENMELD_BOOTSTRAP_WORKERS.includes(name))
   );
 });

@@ -1,0 +1,95 @@
+name: OpenMeld Merge Group Final Candidate
+run-name: Merge Group Final Candidate ${{ github.event.merge_group.head_ref }} @ ${{ github.event.merge_group.head_sha }}
+
+on:
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  final_candidate:
+    name: OpenMeld Final Candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      CANDIDATE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+      CANDIDATE_BRANCH: ${{ github.event.merge_group.head_ref }}
+      CANDIDATE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+      CANDIDATE_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Checkout trusted control from the exact merge-group base
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: trusted-control
+          persist-credentials: false
+          ref: ${{ env.CANDIDATE_BASE_SHA }}
+
+      - name: Checkout the exact merge-group candidate
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: untrusted-candidate
+          persist-credentials: false
+          ref: ${{ env.CANDIDATE_HEAD_SHA }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Install trusted evidence parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --ignore-scripts
+
+      - name: Install merge-group dependencies without repository scripts
+        env:
+          OPENMELD_AFFECTED_BASE: ${{ env.CANDIDATE_BASE_SHA }}
+          OPENMELD_CANDIDATE_HOME: ${{ runner.temp }}/merge-group-final-candidate-home
+          OPENMELD_CANDIDATE_ROOT: ${{ github.workspace }}/untrusted-candidate
+          OPENMELD_TRUSTED_CONTROL_ROOT: ${{ github.workspace }}/trusted-control
+        shell: bash
+        run: trusted-control/scripts/ci/install-isolated-candidate-dependencies.sh
+
+      - name: Validate the exact merge-group candidate without write credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENMELD_AFFECTED_BASE: ${{ env.CANDIDATE_BASE_SHA }}
+          OPENMELD_CANDIDATE_HOME: ${{ runner.temp }}/merge-group-final-candidate-home
+          OPENMELD_CANDIDATE_ROOT: ${{ github.workspace }}/untrusted-candidate
+          OPENMELD_TRUSTED_CONTROL_ROOT: ${{ github.workspace }}/trusted-control
+          OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL: ${{ github.server_url }}
+          OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node trusted-control/scripts/ci/final-candidate.mjs run \
+            --mode remote \
+            --candidate-kind merge-group \
+            --candidate-root "$GITHUB_WORKSPACE/untrusted-candidate" \
+            --command-wrapper "$GITHUB_WORKSPACE/trusted-control/scripts/ci/run-isolated-candidate-command.sh" \
+            --control-trust current-main \
+            --plan-source "$CANDIDATE_BASE_SHA" \
+            --repository "$CANDIDATE_REPOSITORY" \
+            --branch "$CANDIDATE_BRANCH" \
+            --head "$CANDIDATE_HEAD_SHA" \
+            --base "$CANDIDATE_BASE_SHA" \
+            --evidence "$RUNNER_TEMP/merge-group-final-candidate/final-candidate-evidence.json"
+
+      - name: Preserve exact merge-group evidence and command logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-group-final-candidate-evidence
+          if-no-files-found: error
+          path: ${{ runner.temp }}/merge-group-final-candidate/
+          retention-days: 14

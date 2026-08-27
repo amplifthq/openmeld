@@ -201,6 +201,142 @@
     }
   ],
   "env": {
+    "stg": {
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "triggers": {
+        "crons": ["* * * * *", "0 4 * * *", "0 5 * * 1"]
+      },
+      "workflows": [
+        {
+          "binding": "OPENMELD_ROUTINE_RUN_WORKFLOW",
+          "class_name": "RoutineRunWorkflow",
+          "name": "openmeld-routine-run-stg"
+        }
+      ],
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence_stg"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "OPENMELD_SPACE_ATTACHMENTS",
+          "bucket_name": "openmeld-space-attachments-stg",
+          "preview_bucket_name": "openmeld-space-attachments-stg"
+        },
+        {
+          "binding": "OPENMELD_ORGANIZATION_SKILLS",
+          "bucket_name": "openmeld-organization-skills-stg",
+          "preview_bucket_name": "openmeld-organization-skills-stg"
+        }
+      ],
+      "vars": {
+        "OPENMELD_WORKER_ENVIRONMENT": "stg",
+        "OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE": "direct",
+        "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
+        "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED": "true",
+        "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
+        "OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT": "200",
+        "OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED": "true",
+        "OPENMELD_LARK_CHANNEL_ENABLED": "false",
+        "OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS": "",
+        "OPENMELD_FEISHU_CHANNEL_ENABLED": "false",
+        "OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS": "",
+        "OPENMELD_GATEWAY_URL": "https://gateway.staging.openmeld.ai",
+        "OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED": "false",
+        "OPENMELD_ROUTINE_ENGINE_DEFAULT": "workflow",
+        "OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS": "",
+        "WEB_APP_URL": "https://staging.openmeld.ai",
+        "CORS_ORIGINS": "https://gateway.staging.openmeld.ai"
+      },
+      "d1_databases": [
+        {
+          "binding": "OPENMELD_DB",
+          "database_name": "openmeld-db-stg",
+          "database_id": "10da3483-0644-459a-8523-381a2a17ac39",
+          "migrations_dir": "../../packages/db/drizzle"
+        },
+        {
+          "binding": "OPENMELD_LOCAL_STATE_DB",
+          "database_name": "openmeld-db-stg",
+          "database_id": "10da3483-0644-459a-8523-381a2a17ac39"
+        },
+        {
+          "binding": "OPENMELD_WAKE_EVIDENCE_DB",
+          "database_name": "openmeld-db-stg",
+          "database_id": "10da3483-0644-459a-8523-381a2a17ac39"
+        },
+        {
+          "binding": "OPENMELD_PROJECTIONS_DB",
+          "database_name": "openmeld-db-stg",
+          "database_id": "10da3483-0644-459a-8523-381a2a17ac39"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "OPENMELD_SPACES",
+            "class_name": "Space"
+          },
+          {
+            "name": "OPENMELD_RUNTIME_TRANSPORT",
+            "class_name": "RuntimeTransportHub"
+          },
+          {
+            "name": "OPENMELD_PREPARE_SESSION_HUB",
+            "class_name": "PrepareSessionHub"
+          }
+        ]
+      },
+      "services": [
+        {
+          "binding": "OPENMELD_AUTH_WORKER",
+          "service": "openmeld-auth-stg"
+        },
+        {
+          "binding": "OPENMELD_REMOTE_AGENT_WORKER",
+          "service": "openmeld-remote-agent-stg"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "OPENMELD_DAEMON_DISPATCH_QUEUE",
+            "queue": "openmeld-daemon-dispatch-stg"
+          },
+          {
+            "binding": "OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE",
+            "queue": "openmeld-message-channel-events-stg"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "openmeld-daemon-dispatch-stg",
+            "max_batch_size": 20,
+            "max_batch_timeout": 0,
+            "max_retries": 3
+          },
+          {
+            "queue": "openmeld-message-channel-events-stg",
+            "max_batch_size": 20,
+            "max_batch_timeout": 0,
+            "max_retries": 3
+          }
+        ]
+      }
+    },
     "prod": {
       "observability": {
         "enabled": true,
