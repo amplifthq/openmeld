@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   api: {
     createAgentProfileCreationRequest: vi.fn(),
     getAgentProfileCreationDefaults: vi.fn(),
+    getCurrentComputers: vi.fn(),
     listAgentProfileCreationRequests: vi.fn(),
   },
   presenterData: vi.fn(),
@@ -33,6 +34,10 @@ vi.mock("../src/config/auth-session", () => ({
 
 vi.mock("../src/config/base-url", () => ({
   resolveBaseUrl: vi.fn(async () => "https://gateway.example.test"),
+}));
+
+vi.mock("../src/local-service/state/current-device-identity", () => ({
+  readCurrentLocalDeviceId: vi.fn(async () => "computer-1"),
 }));
 
 vi.mock("../src/org/auth-organization-api", () => ({
@@ -110,6 +115,46 @@ describe("Agent Profile creation request CLI", () => {
       reasoningLevel: "high",
       updatedAt: "2026-08-20T09:00:00.000Z",
       userId: "user-1",
+    });
+    mocks.api.getCurrentComputers.mockReset().mockResolvedValue({
+      computers: [
+        {
+          computerId: "computer-2",
+          deviceDisplayName: "Felix's Mac mini",
+          deviceType: "personal_computer",
+          lastSeenAtMs: 2,
+          localAgents: [
+            {
+              agentControllerRef: "builtin:codex",
+              enabled: true,
+              status: "ready",
+            },
+          ],
+          osVersion: "macOS 26.0",
+          ownerUserId: "user-1",
+          platformFamily: "macos",
+          serviceState: "connected",
+        },
+        {
+          computerId: "computer-1",
+          deviceDisplayName: "Felix's MacBook Pro",
+          deviceType: "personal_computer",
+          lastSeenAtMs: 1,
+          localAgents: [
+            {
+              agentControllerRef: "builtin:codex",
+              enabled: true,
+              status: "ready",
+            },
+          ],
+          osVersion: "macOS 26.0",
+          ownerUserId: "user-1",
+          platformFamily: "macos",
+          serviceState: "connected",
+        },
+      ],
+      generatedAt: "2026-08-20T09:00:00.000Z",
+      organizationId: "org-1",
     });
     mocks.presenterData.mockReset();
     mocks.api.createAgentProfileCreationRequest.mockResolvedValue({
@@ -217,6 +262,105 @@ describe("Agent Profile creation request CLI", () => {
         }),
       })
     );
+  });
+
+  it("uses the current user's ready Computer when --computer is omitted", async () => {
+    await runProfileCreationRequestCreate({
+      agentController: "builtin:codex",
+      idempotencyKey: "auto-computer-request-key",
+      organization: "amplift",
+      profileName: "Project Agent",
+      targetOwner: "self",
+      view: "agent",
+    });
+
+    expect(mocks.api.getCurrentComputers).toHaveBeenCalledOnce();
+    expect(mocks.api.getAgentProfileCreationDefaults).toHaveBeenCalledWith({
+      agentControllerRef: "builtin:codex",
+      organizationId: "org-1",
+    });
+    expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: expect.objectContaining({
+          agentControllerRef: "builtin:codex",
+          defaultProjectId: "project-saved",
+          targetComputerId: "computer-1",
+        }),
+      })
+    );
+  });
+
+  it("explains when the requested Local Agent is not ready on this computer", async () => {
+    mocks.api.getCurrentComputers.mockResolvedValueOnce({
+      computers: [
+        {
+          computerId: "computer-1",
+          deviceDisplayName: "Felix's MacBook Pro",
+          deviceType: "personal_computer",
+          lastSeenAtMs: 1,
+          localAgents: [
+            {
+              agentControllerRef: "builtin:codex",
+              enabled: true,
+              status: "not_ready",
+            },
+          ],
+          osVersion: "macOS 26.0",
+          ownerUserId: "user-1",
+          platformFamily: "macos",
+          serviceState: "connected",
+        },
+      ],
+      generatedAt: "2026-08-20T09:00:00.000Z",
+      organizationId: "org-1",
+    });
+
+    await runProfileCreationRequestCreate({
+      agentController: "builtin:codex",
+      profileName: "Project Agent",
+      targetOwner: "self",
+      view: "agent",
+    });
+
+    expect(mocks.api.createAgentProfileCreationRequest).not.toHaveBeenCalled();
+    expect(mocks.presenterData).toHaveBeenCalledWith({
+      code: "profile.creation_request.local_agent_unavailable",
+      payload: {
+        error: {
+          code: "profile.creation_request.local_agent_unavailable",
+          details: undefined,
+          message: "builtin:codex is not ready on this computer.",
+          nextStep:
+            "Run `openmeld computer current --view agent` and repair the Local Agent, then retry; or pass another ready `--computer <computer-id>`.",
+        },
+        status: "error",
+      },
+    });
+  });
+
+  it("requires an explicit Computer when creating for a teammate", async () => {
+    await runProfileCreationRequestCreate({
+      agentController: "builtin:codex",
+      profileName: "Teammate Agent",
+      targetOwner: "user-2",
+      view: "agent",
+    });
+
+    expect(mocks.api.getCurrentComputers).not.toHaveBeenCalled();
+    expect(mocks.api.createAgentProfileCreationRequest).not.toHaveBeenCalled();
+    expect(mocks.presenterData).toHaveBeenCalledWith({
+      code: "profile.creation_request.computer_required",
+      payload: {
+        error: {
+          code: "profile.creation_request.computer_required",
+          details: undefined,
+          message: "Creating an Agent for a teammate requires their Computer.",
+          nextStep:
+            "Run `openmeld org computers --view agent`, then pass `--computer <computer-id>`.",
+        },
+        status: "error",
+      },
+    });
   });
 
   it("keeps an explicitly selected Project instead of reading the saved default", async () => {

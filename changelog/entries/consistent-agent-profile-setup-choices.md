@@ -13,7 +13,8 @@ saved choices on every surface. Project folders remain private to each
 computer's existing Local Project Connection. The Center Agent now sends those
 choices through the same creation request and can create a working Agent
 without forcing it into a Space when the task does not need one. The CLI now
-reuses your saved Default Project when `--project` is omitted, while
-`--no-default-project` keeps the OpenMeld-managed workspace choice explicit.
+uses the current computer for your own Agent when the selected Local Agent is
+ready, reuses your saved Default Project when `--project` is omitted, and keeps
+the OpenMeld-managed workspace choice explicit with `--no-default-project`.
 Web also confirms your own successful Agent creation without incorrectly
 calling it a teammate request.

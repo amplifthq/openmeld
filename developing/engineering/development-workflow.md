@@ -486,7 +486,12 @@ checks, unit tests, integration tests, or release-ready verification.
 policy keeps this lane for executable changes because unit tests have
 independent defect-finding value. It does not run for a documentation-only or
 delivery-infrastructure-only candidate when the scoped contract suite proves
-that diff directly.
+that diff directly. Checks and unit tests run as two explicit phases: packages
+may still run in parallel within one phase, but a memory-heavy package never
+runs its type-check and unit-test processes at the same time on one runner. The
+isolated Final Candidate wrapper also gives Node processes one explicit 6 GiB
+heap ceiling so Core type-checking is not constrained by Node's smaller default
+heap on a hosted runner.
 
 `test:integration:affected` is selected when a shared package, service,
 runtime, or persistence boundary changes. `db:check` is added for database

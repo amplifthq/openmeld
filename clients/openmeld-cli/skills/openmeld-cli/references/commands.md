@@ -588,7 +588,7 @@ Create your own Agent Profile or request one for a teammate through the same
 entry, then manage requests separately:
 
 ```bash
-openmeld profiles create <profile-name> --kind agent --owner self --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create <profile-name> --kind agent --owner self --agent-controller builtin:codex --session new --source local-agent --request-key <stable-key> --view agent
 openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
 openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session resume --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
 openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session fork --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
@@ -600,6 +600,11 @@ openmeld profiles requests retry <request-id> --view agent
 openmeld profiles requests preferences get --view agent
 openmeld profiles requests preferences set --new-session automatically-allow --existing-session ask-every-time --view agent
 ```
+
+For `--owner self`, omit `--computer` to use this computer when the selected
+Local Agent is ready here. Pass an exact `--computer` when the user selected a
+different computer. Teammate-owned requests always require `--computer`; never
+guess which of the teammate's computers to use.
 
 Resume and Fork accept the exact provider-native Session ID. They fail clearly
 until OpenMeld Agent Activity can verify the selected Project Session. Approval

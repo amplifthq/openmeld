@@ -171,13 +171,13 @@ jobs:
             --evidence "$RUNNER_TEMP/final-candidate-control/final-candidate-evidence.json" \
             "${confidence_args[@]}"
 
-      - name: Preserve exact candidate evidence
+      - name: Preserve exact candidate evidence and command logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: final-candidate-evidence
           if-no-files-found: error
-          path: ${{ runner.temp }}/final-candidate-control/final-candidate-evidence.json
+          path: ${{ runner.temp }}/final-candidate-control/
           retention-days: 14
 
   publish_final:
