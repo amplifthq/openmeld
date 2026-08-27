@@ -14,6 +14,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
+import {
+  RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_POLL_INTERVAL_MS,
+  RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_TIMEOUT_MS,
+} from "../../strategy-constants";
 import { isDaemonExecutionCompatible } from "./daemon-execution-compatibility";
 import type {
   CompletedDispatchResultState,
@@ -57,6 +61,12 @@ type DispatchServiceDependencies = {
     response: WaitDispatchResultResponse
   ) => void;
   cleanupCompletedResults: (nowMs: number) => void;
+  profileConfigurationConvergence?: {
+    sleep: (ms: number) => Promise<void>;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+    now?: () => number;
+  };
 };
 
 type ExecutionIncompatibleDeliveryReason =
@@ -340,16 +350,133 @@ export const deliverDispatch = async (
     return sessionCompatibilityRejection;
   }
 
-  const sessionBoundRequest = resolveSessionBoundDispatchRequest({
+  // Delivery preparation contains asynchronous fences. Serialize the whole
+  // pre-send section by logical dispatch task so concurrent queue redrives
+  // cannot both pass the last pending check and execute the same local task.
+  // This transient claim is deliberately separate from `pendingDispatches`:
+  // pending means the delivery was actually sent, while callers sharing this
+  // claim receive no accepted outcome until the owning attempt really does.
+  const inFlightKey = buildInFlightDispatchDeliveryKey(request);
+  const existingInFlight = state.inFlightDispatchDeliveries.get(inFlightKey);
+  if (existingInFlight) {
+    const response = await existingInFlight.response;
+    return response.accepted
+      ? {
+          accepted: true,
+          existingAttemptId: existingInFlight.attemptId,
+          status: "already_pending",
+        }
+      : response;
+  }
+
+  const responsePromise = finalizeDeliveryAgainstSessionBoundRequest({
+    deps,
+    nowMs,
     request,
-    session,
+    state,
   });
+  const inFlight = {
+    attemptId: request.attemptId,
+    response: responsePromise,
+  };
+  state.inFlightDispatchDeliveries.set(inFlightKey, inFlight);
+  try {
+    return await responsePromise;
+  } finally {
+    if (state.inFlightDispatchDeliveries.get(inFlightKey) === inFlight) {
+      state.inFlightDispatchDeliveries.delete(inFlightKey);
+    }
+  }
+};
+
+const PROFILE_CONFIGURATION_CONVERGENCE_REFRESH_REASON =
+  "profile_configuration_convergence";
+
+// Canonical single-source profile configuration comparison for both the
+// admission/convergence path and the final fence. Deriving one explicit
+// assessment prevents semantic drift between "should we wait" and "may we
+// deliver".
+//
+// Observable states:
+// - stripped: the Service predates the revision capability; Core strips the
+//   additive identity fields and preserves legacy behavior.
+// - matched: applied identity equals the frozen dispatch identity.
+// - converging: same Binding id, older applied revision — the ordinary
+//   post-settings-write propagation race, safe to wait out in place.
+// - not_synced: genuine drift or missing evidence; fail closed immediately.
+type ProfileConfigurationSyncAssessment = {
+  appliedBindingId: string | null;
+  appliedConfigurationRevision: number | null;
+  expectedBindingId: string | null;
+  expectedConfigurationRevision: number | null;
+  state: "converging" | "matched" | "not_synced" | "stripped";
+};
+
+const assessProfileConfigurationSync = (input: {
+  request: RuntimeTransportDeliverDispatchRequest;
+  session: RuntimeTransportSessionState | undefined;
+}): ProfileConfigurationSyncAssessment => {
+  if (input.session?.capabilities.profileConfigurationRevision !== true) {
+    return {
+      appliedBindingId: null,
+      appliedConfigurationRevision: null,
+      expectedBindingId: null,
+      expectedConfigurationRevision: null,
+      state: "stripped",
+    };
+  }
+  const { bindingId, configurationRevision } =
+    input.request.payload.controllerSnapshot;
+  const appliedConfiguration =
+    input.session.localWakeRouteReport?.profileConfigurationRevisions?.find(
+      (candidate) => candidate.profileId === input.request.profileId
+    );
+  const base = {
+    appliedBindingId: appliedConfiguration?.bindingId ?? null,
+    appliedConfigurationRevision:
+      typeof appliedConfiguration?.configurationRevision === "number"
+        ? appliedConfiguration.configurationRevision
+        : null,
+    expectedBindingId: bindingId ?? null,
+    expectedConfigurationRevision: configurationRevision ?? null,
+  };
+  if (!(bindingId && configurationRevision && appliedConfiguration)) {
+    return { ...base, state: "not_synced" };
+  }
+  if (
+    appliedConfiguration.bindingId === bindingId &&
+    base.appliedConfigurationRevision !== null &&
+    base.appliedConfigurationRevision < configurationRevision
+  ) {
+    return { ...base, state: "converging" };
+  }
+  if (
+    appliedConfiguration.bindingId === bindingId &&
+    base.appliedConfigurationRevision === configurationRevision
+  ) {
+    return { ...base, state: "matched" };
+  }
+  return { ...base, state: "not_synced" };
+};
+
+const finalizeDeliveryAgainstSessionBoundRequest = async (input: {
+  deps: DispatchServiceDependencies;
+  nowMs: number;
+  request: RuntimeTransportDeliverDispatchRequest;
+  state: RuntimeTransportMutableState;
+}): Promise<RuntimeTransportDeliverDispatchResponse> => {
+  const sessionBoundRequest =
+    await resolveSessionBoundDispatchRequestWithConvergence({
+      deps: input.deps,
+      request: input.request,
+      state: input.state,
+    });
   if (!sessionBoundRequest.ok) {
     return sessionBoundRequest.response;
   }
 
-  const preparedDelivery = deps.prepareAcceptedDelivery
-    ? await deps.prepareAcceptedDelivery(sessionBoundRequest.request)
+  const preparedDelivery = input.deps.prepareAcceptedDelivery
+    ? await input.deps.prepareAcceptedDelivery(sessionBoundRequest.request)
     : { ok: true as const, request: sessionBoundRequest.request };
   if (!preparedDelivery.ok) {
     return {
@@ -359,10 +486,12 @@ export const deliverDispatch = async (
     };
   }
 
-  const currentSession = state.sessionsById.get(request.daemonSessionId);
+  const currentSession = input.state.sessionsById.get(
+    input.request.daemonSessionId
+  );
   if (
     !currentSession?.socket ||
-    currentSession.connectionGeneration !== request.connectionGeneration
+    currentSession.connectionGeneration !== input.request.connectionGeneration
   ) {
     return {
       accepted: false,
@@ -370,7 +499,7 @@ export const deliverDispatch = async (
       reasonCode: "daemon.session.connection_replaced",
     };
   }
-  const currentSessionBoundRequest = resolveSessionBoundDispatchRequest({
+  const currentSessionBoundRequest = resolveProfileConfigurationFence({
     request: preparedDelivery.request,
     session: currentSession,
   });
@@ -379,22 +508,30 @@ export const deliverDispatch = async (
   }
   const acceptedRequest = currentSessionBoundRequest.request;
 
-  state.pendingDispatches.set(
-    dispatchAttemptKey,
+  input.state.pendingDispatches.set(
+    buildDispatchAttemptKey(
+      acceptedRequest.dispatchId,
+      acceptedRequest.attemptId
+    ),
     buildPendingDispatchStateFromAcceptedRequest({
       acceptedRequest,
-      nowMs,
+      nowMs: input.nowMs,
     })
   );
 
   try {
-    deps.sendFrame(currentSession.socket, {
+    input.deps.sendFrame(currentSession.socket, {
       code: "daemon.dispatch.deliver",
       payload: acceptedRequest,
     });
-    deps.onAcceptedDeliverySent?.(acceptedRequest);
+    input.deps.onAcceptedDeliverySent?.(acceptedRequest);
   } catch {
-    state.pendingDispatches.delete(dispatchAttemptKey);
+    input.state.pendingDispatches.delete(
+      buildDispatchAttemptKey(
+        acceptedRequest.dispatchId,
+        acceptedRequest.attemptId
+      )
+    );
     return {
       accepted: false,
       status: "rejected",
@@ -408,9 +545,171 @@ export const deliverDispatch = async (
   };
 };
 
-const resolveSessionBoundDispatchRequest = (input: {
+const buildInFlightDispatchDeliveryKey = (
+  request: RuntimeTransportDeliverDispatchRequest
+): string =>
+  `${request.dispatchId}::${request.payload.taskId}::${request.profileId}`;
+
+const defaultConvergenceSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const sanitizeTransportErrorForLog = (error: unknown): string => {
+  const message =
+    error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return message.length > 200 ? `${message.slice(0, 200)}...` : message;
+};
+
+// The recorded socket failed a refresh send. Never relabel this as
+// configuration synchronization and never expose raw socket details: let the
+// live session record decide which existing route/session outcome applies.
+const resolveNudgeFailureResponse = (input: {
   request: RuntimeTransportDeliverDispatchRequest;
-  session: RuntimeTransportSessionState;
+  state: RuntimeTransportMutableState;
+}): Extract<RuntimeTransportDeliverDispatchResponse, { accepted: false }> => {
+  const liveSession = input.state.sessionsById.get(
+    input.request.daemonSessionId
+  );
+  if (!liveSession) {
+    return {
+      accepted: false,
+      status: "rejected",
+      reasonCode: "daemon.session.not_found",
+    };
+  }
+  if (liveSession.connectionGeneration !== input.request.connectionGeneration) {
+    return {
+      accepted: false,
+      status: "rejected",
+      reasonCode: "daemon.session.connection_replaced",
+    };
+  }
+  return {
+    accepted: false,
+    status: "rejected",
+    reasonCode: "daemon.profile.offline",
+  };
+};
+
+// An acknowledged settings write increments the Binding revision after the
+// dispatch identity was frozen. When a capability-aware Service still reports
+// an OLDER revision for the SAME binding, this is ordinary route-catalog
+// propagation, not drift: nudge the Service to re-sync its expected routes,
+// then hold delivery inside the bounded convergence window until its next
+// register report matches, or fail closed with the regular not-synced fence.
+// Nothing executes stale configuration while waiting; nothing mutates or
+// duplicates execution authority.
+const resolveSessionBoundDispatchRequestWithConvergence = async (input: {
+  deps: DispatchServiceDependencies;
+  request: RuntimeTransportDeliverDispatchRequest;
+  state: RuntimeTransportMutableState;
+}): Promise<
+  | { ok: true; request: RuntimeTransportDeliverDispatchRequest }
+  | { ok: false; response: RuntimeTransportDeliverDispatchResponse }
+> => {
+  const startSession = input.state.sessionsById.get(
+    input.request.daemonSessionId
+  );
+  const startAssessment = assessProfileConfigurationSync({
+    request: input.request,
+    session: startSession,
+  });
+  if (!startSession || startAssessment.state !== "converging") {
+    return resolveProfileConfigurationFence({
+      request: input.request,
+      session: startSession,
+    });
+  }
+
+  const timeoutMs =
+    input.deps.profileConfigurationConvergence?.timeoutMs ??
+    RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_TIMEOUT_MS;
+  const pollIntervalMs =
+    input.deps.profileConfigurationConvergence?.pollIntervalMs ??
+    RUNTIME_TRANSPORT_PROFILE_CONFIGURATION_CONVERGENCE_POLL_INTERVAL_MS;
+  const sleep =
+    input.deps.profileConfigurationConvergence?.sleep ??
+    defaultConvergenceSleep;
+  const nowMs = input.deps.profileConfigurationConvergence?.now ?? Date.now;
+
+  if (startSession.socket) {
+    try {
+      input.deps.sendFrame(startSession.socket, {
+        code: "daemon.route_catalog.changed",
+        payload: { reason: PROFILE_CONFIGURATION_CONVERGENCE_REFRESH_REASON },
+      });
+    } catch (nudgeError) {
+      const nudgeFailureResponse = resolveNudgeFailureResponse({
+        request: input.request,
+        state: input.state,
+      });
+      console.warn(
+        "[core.runtime_transport.profile_configuration_convergence_nudge_failed]",
+        {
+          dispatchId: input.request.dispatchId,
+          error: sanitizeTransportErrorForLog(nudgeError),
+          profileId: input.request.profileId,
+          reasonCode: nudgeFailureResponse.reasonCode ?? null,
+        }
+      );
+      // Fail fast on live transport evidence instead of waiting out the full
+      // window and misreporting a dead/replaced session as not-synced.
+      return {
+        ok: false,
+        response: nudgeFailureResponse,
+      };
+    }
+  }
+  console.info(
+    "[core.runtime_transport.profile_configuration_convergence_wait]",
+    {
+      appliedBindingId: startAssessment.appliedBindingId,
+      appliedConfigurationRevision:
+        startAssessment.appliedConfigurationRevision,
+      dispatchId: input.request.dispatchId,
+      expectedBindingId: startAssessment.expectedBindingId,
+      expectedConfigurationRevision:
+        startAssessment.expectedConfigurationRevision,
+      profileId: input.request.profileId,
+      timeoutMs,
+    }
+  );
+
+  const deadlineAtMs = nowMs() + timeoutMs;
+  for (;;) {
+    const remainingMs = deadlineAtMs - nowMs();
+    if (remainingMs <= 0) {
+      break;
+    }
+    await sleep(Math.min(pollIntervalMs, remainingMs));
+    const sessionNow = input.state.sessionsById.get(
+      input.request.daemonSessionId
+    );
+    if (!sessionNow) {
+      break;
+    }
+    if (
+      assessProfileConfigurationSync({
+        request: input.request,
+        session: sessionNow,
+      }).state !== "converging"
+    ) {
+      break;
+    }
+  }
+
+  // The fence owns the final verdict and diagnostics so a timed-out wait can
+  // never produce a different rejection shape than a plain not-synced check.
+  return resolveProfileConfigurationFence({
+    request: input.request,
+    session: input.state.sessionsById.get(input.request.daemonSessionId),
+  });
+};
+
+const resolveProfileConfigurationFence = (input: {
+  request: RuntimeTransportDeliverDispatchRequest;
+  session: RuntimeTransportSessionState | undefined;
 }):
   | {
       ok: true;
@@ -420,47 +719,47 @@ const resolveSessionBoundDispatchRequest = (input: {
       ok: false;
       response: RuntimeTransportDeliverDispatchResponse;
     } => {
-  if (input.session.capabilities.profileConfigurationRevision !== true) {
-    return {
-      ok: true,
-      request: stripProfileConfigurationIdentity(input.request),
-    };
-  }
-
-  const { bindingId, configurationRevision } =
-    input.request.payload.controllerSnapshot;
-  const appliedConfiguration =
-    input.session.localWakeRouteReport?.profileConfigurationRevisions?.find(
-      (candidate) => candidate.profileId === input.request.profileId
-    );
-  if (
-    !(bindingId && configurationRevision) ||
-    appliedConfiguration?.bindingId !== bindingId ||
-    appliedConfiguration.configurationRevision !== configurationRevision
-  ) {
-    console.warn("[core.runtime_transport.profile_configuration_not_synced]", {
-      appliedBindingId: appliedConfiguration?.bindingId ?? null,
-      appliedConfigurationRevision:
-        appliedConfiguration?.configurationRevision ?? null,
-      dispatchId: input.request.dispatchId,
-      expectedBindingId: bindingId ?? null,
-      expectedConfigurationRevision: configurationRevision ?? null,
-      profileId: input.request.profileId,
-      reasonCode: "daemon.profile.configuration_not_synced",
-    });
+  if (!input.session) {
     return {
       ok: false,
       response: {
         accepted: false,
-        reasonCode: "daemon.profile.configuration_not_synced",
+        reasonCode: "daemon.session.not_found",
         status: "rejected",
       },
     };
   }
 
+  const assessment = assessProfileConfigurationSync(input);
+  if (assessment.state === "stripped") {
+    return {
+      ok: true,
+      request: stripProfileConfigurationIdentity(input.request),
+    };
+  }
+  if (assessment.state === "matched") {
+    return {
+      ok: true,
+      request: input.request,
+    };
+  }
+
+  console.warn("[core.runtime_transport.profile_configuration_not_synced]", {
+    appliedBindingId: assessment.appliedBindingId,
+    appliedConfigurationRevision: assessment.appliedConfigurationRevision,
+    dispatchId: input.request.dispatchId,
+    expectedBindingId: assessment.expectedBindingId,
+    expectedConfigurationRevision: assessment.expectedConfigurationRevision,
+    profileId: input.request.profileId,
+    reasonCode: "daemon.profile.configuration_not_synced",
+  });
   return {
-    ok: true,
-    request: input.request,
+    ok: false,
+    response: {
+      accepted: false,
+      reasonCode: "daemon.profile.configuration_not_synced",
+      status: "rejected",
+    },
   };
 };
 
