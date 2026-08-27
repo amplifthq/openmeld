@@ -55,6 +55,12 @@ node scripts/release/build-cli-binary.mjs
   semantic-version directories are removed during `install-self`; unrecognized
   directories are preserved because the installer cannot prove that it owns
   them.
+- During migration from a legacy update-worker registration that names a
+  versioned executable, `install-self` temporarily protects that referenced
+  version in addition to the active and rollback versions. The update worker is
+  copied to a verified stable lane-owned carrier and its OS registration is
+  rewritten before cleanup runs again. Never delete a version still named by
+  the active worker registration.
 - On macOS, those version directories remain the verified update and rollback
   sources, while launchd runs OpenMeld Service from one stable physical
   executable path. Installing, upgrading, or rolling back atomically copies the

@@ -3124,6 +3124,12 @@ Web may create a Prepare Session handoff and show a setup command that carries
 an opaque session token. That handoff represents the user's intent to align this
 browser account with a local CLI or OpenMeld Service flow.
 
+Prepare and one-time credentials remain short-lived. Before a displayed command
+expires, Web mints a replacement Prepare token and one-time token and swaps in
+the new command. Copy also verifies freshness and refreshes first when needed,
+so the user never copies a command that Web already knows is expired. Expiry is
+not presented as a terminal-debugging task.
+
 When setup starts from `Reconnect OpenMeld Service` on an existing Computer,
 Web carries that stable `connectedComputerId` into the Prepare Session. A local
 service reinstall may report a new `deviceId`; Web still follows the session and
@@ -3157,6 +3163,14 @@ shows their current state without issuing a duplicate notification.
 
 Web does not decide whether the local machine is actually ready.
 
+Once the Prepare owner confirms persisted terminal authentication and aligned,
+connected OpenMeld Service identity, Web presents **Computer connected** as the
+primary outcome. Agent Controller discovery, controller sign-in or repair
+attention, Skills, diagnostics, update state, Project discovery, Binding, and
+Core readiness remain independent progressive facts. They may update after the
+user leaves the page and must not turn the connected Computer result back into
+generic setup failure.
+
 When setup completes with an OpenMeld Assistant bootstrap result, Web reads that
 result from the Prepare Session snapshot and may show an `Open OpenMeld Welcoming
 Space` action. The URL must come from the persisted bootstrap result, not from a
@@ -3177,8 +3191,9 @@ Service compatibility, controller capability, Binding, Core readiness, and claim
 eligibility.
 
 Web does not ask the user to select local agents during an ordinary setup
-handoff. The CLI detects newly installed supported local agents and connects
-them automatically while preserving every existing On or Off choice. Web owns
+handoff. The connected Service's background catalog refresh detects newly
+installed supported local agents and connects them automatically while
+preserving every existing On or Off choice. Web owns
 only the Computers controls that let the user change those choices later;
 Binding truth and final readiness still belong to their architecture owners.
 

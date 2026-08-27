@@ -138,6 +138,21 @@ Prepare may:
 - reconnect a service-reported device identity to an authenticated,
   owner-verified existing Computer selected by the Prepare Session
 
+For an ordinary Web computer handoff, authentication and verified OpenMeld
+Service alignment are the blocking path. Once that Service is connected, the
+product may report `Computer connected`; deep Agent Controller discovery,
+controller sign-in checks, Skills alignment, diagnostics, and Project discovery
+continue as non-blocking background work. An explicit terminal-side Agent
+selection still prepares and reports the selected controllers before that
+explicit request completes.
+
+A computer with no installed local Agent Controller is still a valid connected
+computer. OpenMeld Service remains in a low-resource idle state, keeps its cloud
+connection and update control plane, and periodically reconciles newly installed
+runnable built-in controllers. A newly discovered controller is registered and
+enabled once; an existing explicit On or Off choice is never rewritten. Missing
+controllers are never a reason to stop or unregister the Service.
+
 Lane isolation for OpenMeld-managed Agent Skills must not suppress this
 read-only Agent Controller discovery. A dev, canary, or custom
 `OPENMELD_HOME` may detect and register a runnable controller such as Codex
@@ -1365,6 +1380,14 @@ user-facing stop path must disable the LaunchAgent before booting it out, so
 explicitly stopping OpenMeld Service is respected instead of being immediately
 undone by launchd.
 
+The binary and npm distributions use different stable carrier files within the
+same lane. The active distribution is the only writer for its carrier and
+registration; an npm process must refuse to replace binary-managed state, and a
+binary migration must not keep using an npm wrapper as a parallel owner. Every
+Service-manager carrier mutation records timestamp, pid, executable, lane,
+preset, distribution, operation, and target path in the lifecycle journal so a
+later overwrite has one attributable writer.
+
 The npm Service bundle copies and fingerprints only its platform-neutral
 JavaScript runtime. CLI-only compiled artifacts, including the macOS secure
 storage addon, stay outside that bundle and remain covered by the CLI artifact's
@@ -1407,7 +1430,7 @@ continues the same repair on later passes. Because the OS registration is
 global per env preset, the repair marker and daemon lifecycle lock use one
 canonical preset-owned path that deliberately ignores `OPENMELD_HOME`
 overrides. Registration repair, install, start, stop, uninstall, alignment,
-auto-heal, idle auto-stop, and explicit autostart changes all reuse that one
+auto-heal, and explicit autostart changes all reuse that one
 lock identity. Nested registration work in the same lifecycle command reuses
 the held lock; competing commands or roots cannot enter until it is released.
 A successfully confirmed explicit autostart command clears the repair marker
@@ -1420,6 +1443,12 @@ journals the signal together with a best-effort snapshot of its supervisor
 registration, so an external `bootout`/uninstall that leaves no other lane
 evidence is provable from the lifecycle journal afterward; evidence collection
 must never block shutdown, and collection failure remains observable.
+
+The Service never auto-stops because the current route catalog is empty. Only
+an explicit Stop, logout/reset policy, or an operating-system policy may move
+the desired state to stopped. Empty-catalog operation must remain bounded and
+low-resource while preserving update, reconnect, and future controller
+discovery.
 
 Release policy decides whether that update action is advisory or blocking.
 `available` means a newer Service is available and current Wake work can
@@ -1534,6 +1563,13 @@ prove that an Agent Profile can reply in a specific Space or that a future Wake
 will succeed. Those questions belong to Agent Profile Binding, Space
 membership, Core readiness, a concrete Wake execution, and trace diagnostics.
 
+The Web Prepare handoff has a deliberately narrower user-visible milestone:
+`Computer connected` means terminal authentication was persisted and the local
+OpenMeld Service was aligned and connected for the intended account, device,
+and lane. It does not wait for or imply Agent Controller readiness. Controller
+discovery and per-controller attention continue in the background and update
+the Computer projection independently.
+
 Repair succeeds only for the component it repairs. It must not claim success
 just because a process started, local files were rewritten, or inventory was
 detected, and it must not project service health as final Wake availability.
@@ -1628,6 +1664,20 @@ verification failure must restore and verify the previous Service before the
 job records failure. Uninstall and reset remove the background update worker
 and its lane-owned disposable state.
 
+A previous binary is eligible as last-known-good only when its executable and
+fingerprint are still verifiable and its version is at or above Core's cached
+minimum supported Service version. A rollback below that floor is rejected and
+the current version is left in an explicit stopped-safe state; the system must
+not create a process that appears healthy locally but is known to be rejected
+by Core.
+
+The update worker itself runs from a stable lane-owned carrier, not from a
+version directory. Migration may temporarily protect a legacy worker's pinned
+version in addition to the current and rollback versions. The update transaction
+must copy and verify the stable worker, rewrite and verify the OS registration,
+and only then prune managed versions. After successful re-registration, pruning
+keeps the current version and one verified rollback version.
+
 Controlled update, reinstall, and repair use a quiesce-and-drain stop. The
 Service first rejects new dispatch admission with `service.draining` while
 preserving dedupe for already-owned work. It keeps the current Runtime
@@ -1702,6 +1752,13 @@ repair and update fail closed and explain the deliberate force command together
 with its no-active-work precondition. They must not infer that a missing control
 endpoint means no local Agent work is running or force-stop the process
 automatically.
+
+One narrow crash-loop recovery is deterministic rather than destructive: when
+the local control endpoint is missing, runtime state is not running, and process
+inventory finds no OpenMeld-owned Service process, a stale service-manager
+`running` flag is treated as already stopped so repair can replace the
+registration. If runtime or an owned process still exists, the same missing
+endpoint remains a hard stop and no automatic kill is allowed.
 
 Exact-controller recovery is capability-gated. A Service advertises
 `resumeControllerConversation` only when its carrier can validate the frozen
