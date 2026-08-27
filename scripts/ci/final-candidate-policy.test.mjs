@@ -49,6 +49,28 @@ test("selects a cheap documentation-only gate without pretending unit tests add 
   );
 });
 
+test("treats the complete generated Changelog projection as documentation only", () => {
+  const plan = createPlan([
+    "CHANGELOG.md",
+    "changelog/entries/compact-final-candidate-output.md",
+    "changelog/index.json",
+    "changelog/releases/v0.3.110.md",
+  ]);
+
+  assert.deepEqual(checkIds(plan), [
+    "diff-integrity",
+    "documentation-contracts",
+    "changelog-contract",
+  ]);
+  assert.deepEqual(plan.riskTags, ["documentation"]);
+  assert.match(
+    plan.skippedChecks.find(
+      (check) => check.id === "affected-checks-and-unit-tests"
+    ).reason,
+    NO_EXECUTABLE_SOURCE_PATTERN
+  );
+});
+
 test("keeps unit tests for ordinary executable changes", () => {
   const plan = createPlan(["clients/web/src/app.tsx"]);
 

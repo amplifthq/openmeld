@@ -489,11 +489,12 @@ export function formatCommand(command) {
 }
 
 function isDocumentationPath(path) {
-  return DOCUMENT_PATH_PATTERN.test(path);
+  return DOCUMENT_PATH_PATTERN.test(path) || isChangelogPath(path);
 }
 
 function isChangelogPath(path) {
   return (
+    path === "CHANGELOG.md" ||
     path.startsWith("changelog/") ||
     path === "developing/engineering/changelog.md"
   );

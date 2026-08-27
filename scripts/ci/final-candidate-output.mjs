@@ -72,6 +72,9 @@ export function renderEvidenceSummary(evidence, evidencePath, options = {}) {
     `- Risk: ${evidence.riskTags?.join(", ") || "unresolved"}`,
     `- Duration: ${formatDuration(durationMs)}`,
     `- Evidence file: \`${evidencePath}\``,
+    ...(options.commandLogsLocation
+      ? [`- Full command logs: ${options.commandLogsLocation}`]
+      : []),
     ...(evidence.pullRequestUrl
       ? [`- Pull request: ${evidence.pullRequestUrl}`]
       : []),
