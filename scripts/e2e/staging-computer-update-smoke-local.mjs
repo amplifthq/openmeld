@@ -91,6 +91,13 @@ export async function preserveCanaryHome(backupHome) {
 
 export function runFocusedUpdateContracts(input) {
   runCommand({
+    args: ["exec", "turbo", "run", "build", "--filter=@openmeld/api-client..."],
+    command: "pnpm",
+    label: "build the Staging smoke API dependencies",
+    sensitiveValues: input.sensitiveValues,
+    timeoutMs: 10 * 60 * 1000,
+  });
+  runCommand({
     args: [
       "--filter",
       "openmeld",
