@@ -47,11 +47,14 @@ development push, and Actions quota is not delivery authority.
    validation. Agents may push intermediate commits freely.
 2. A Final Candidate is explicit. Request it only after the agent believes one
    committed PR head is ready for final merge evaluation.
-3. Candidate evidence identifies one exact `head SHA + base SHA + tree SHA`.
-   Any change to one of those facts invalidates the evidence.
-4. Current `main` must equal the recorded base and must be an ancestor of the
-   candidate head both before and after validation. A green run does not survive
-   base drift.
+3. Candidate evidence identifies one exact `head SHA + validation base SHA +
+   tree SHA` and whether it proves a pull request or a merge group. It is never
+   reused for another head, base, or tree.
+4. A pull-request candidate must start on current `main`. If `main` advances
+   while its checks run, the completed evidence keeps its original base as an
+   explicit fact instead of discarding successful work. That evidence does not
+   prove the newer merge. The merge queue validates the exact merge-group SHA
+   against the then-current `main` before GitHub can merge it.
 5. A real selected-check failure blocks that candidate. The runner stops, records
    the failed command, and publishes failure. It never converts uncertainty,
    missing evidence, or unavailable GitHub state into green.
@@ -74,7 +77,8 @@ development push, and Actions quota is not delivery authority.
 
 The Final Candidate engine prints and records:
 
-- repository and PR number;
+- candidate kind (`pull-request` or `merge-group`), repository, and PR number
+  when one PR is the candidate;
 - exact head, base, and tree SHAs;
 - branch and changed paths;
 - confidence level and risk tags;
@@ -93,8 +97,10 @@ contract for JSON evidence and the GitHub PR facts it consumes. Producers,
 artifact consumers, local comments, and the hosted publisher runtime-parse that
 contract. Reuse is allowed only when candidate validation succeeded,
 publication has no recorded failure, and all three identity fields still match.
-Evidence is invalid for another SHA, another base, another tree, an unresolved
-candidate, a dirty worktree, or incomplete shared publication.
+Evidence is invalid for another SHA, another validation base, another tree, an
+unresolved candidate, a dirty worktree, or incomplete shared publication.
+Pull-request evidence and merge-group evidence are different facts and are not
+substitutable.
 
 The shared required status context is:
 
@@ -243,7 +249,10 @@ The workflow:
   jobs;
 - calls the same candidate engine as the local fallback;
 - validates live PR head, live PR base, current remote `main`, ancestry, and
-  worktree cleanliness before and after checks;
+  worktree cleanliness before checks;
+- after checks, rejects any PR-head or tree drift but preserves the completed
+  exact-base evidence when only `main` advanced; the required merge-group check
+  owns freshness against the newer base;
 - publishes `OpenMeld Final Candidate` on the exact head;
 - preserves the JSON evidence, complete redacted command logs, and a readable
   job summary in one artifact.
@@ -264,7 +273,39 @@ publishes failure for the same exact head instead of leaving a permanent
 pending status.
 
 A later push has a different head SHA and therefore has no valid status. A later
-`main` commit makes the branch out of date; sync it and request a new candidate.
+`main` commit does not rewrite what the exact pull-request candidate proved and
+does not require those successful checks to be repeated. The merge queue builds
+and validates a new exact merge-group SHA on the latest base.
+
+## Merge Queue Final Candidate
+
+After one pull-request candidate succeeds, enqueue that unchanged PR through
+GitHub's merge queue. Do not manually freeze unrelated work or repeatedly merge
+new `main` commits into an already-proven PR merely to chase freshness.
+
+GitHub creates a temporary merge-group commit containing the latest `main`, the
+queued PR, and any earlier compatible queue entries. The
+`OpenMeld Merge Group Final Candidate` workflow:
+
+- runs only for `merge_group: checks_requested`;
+- exposes one required check named `OpenMeld Final Candidate` on the exact
+  merge-group SHA;
+- checks out trusted control from the exact merge-group base and the candidate
+  tree into separate roots with credentials disabled;
+- uses the same transparent risk planner, isolated dependency installation,
+  compact output, command logs, and versioned evidence contract as the normal
+  pull-request candidate;
+- has read-only repository permission and relies on GitHub's own check result,
+  so candidate code receives no status-write credential;
+- requires the merge-group base to remain current before and after checks; an
+  obsolete group fails or is replaced without invalidating earlier PR evidence;
+  and
+- applies strict local-component release readiness to the actual merge tree.
+
+The check reports facts: exact identities, selected and skipped checks, reasons,
+durations, results, and evidence location. It does not tell an agent that a
+business change is "ready to merge," choose review behavior, or replace the
+responsible agent's engineering judgment.
 
 ## Actions-Unavailable Local Fallback
 
@@ -333,7 +374,8 @@ Repository protection for `main` must require:
 
 - changes through a pull request;
 - the `OpenMeld Final Candidate` status;
-- the branch to be up to date with `main` before merge;
+- GitHub's merge queue, whose exact merge-group commit must report the same
+  required status context;
 - no human approval count.
 
 Do not pin the required context to the GitHub Actions app because the guarded
@@ -342,13 +384,19 @@ unavailable. Agents with write access are trusted engineering principals; the
 exact evidence remains required, while review beyond the responsible agent's
 own evaluation is required only when the task explicitly calls for it.
 
-If the repository later enables merge queue, it must first provide an equivalent
-Final Candidate check for the exact merge-group SHA. Until then, the up-to-date
-branch rule is the base-drift authority; do not enable a queue that waits for a
-check this workflow cannot produce.
+Immediately before enqueueing, re-read the live PR head, candidate evidence,
+status, and mergeability. If the head differs from the evidence, stop and create
+a new pull-request candidate. A changed base is not hidden: GitHub records it in
+the new merge-group SHA and the merge-group Final Candidate validates that exact
+combination before merge.
 
-Immediately before merge, re-read live PR head, base, status, and mergeability.
-If the head or base differs from the evidence, stop and create a new candidate.
+When GitHub Actions cannot run merge-group checks, the queue cannot complete.
+Keep the existing trusted local pull-request fallback and exact evidence, but do
+not forge a merge-group result. An authorized operator may restore the captured
+pre-queue Ruleset temporarily, keep PR-only + strict up-to-date + the same
+required status, sync the PR to current `main`, and use the guarded local Final
+Candidate. Restore the queue Ruleset after Actions recovers. Repository settings
+and their rollback snapshot are operational facts and must be recorded.
 
 ## Deep Confidence
 
@@ -430,7 +478,9 @@ Do not collapse those lines into “deployed successfully.”
 
 - Candidate check failure: keep its command and error, fix the cause, commit a
   new head, sync current `main`, and create a new candidate.
-- Candidate state drift: do not reuse green checks. Sync the branch and rerun.
+- Candidate head or tree drift: do not reuse green checks; create a new
+  pull-request candidate. Main-only drift is handled by the exact merge-group
+  candidate without rerunning unchanged PR evidence.
 - Actions unavailable: use the trusted current-main local command; do not
   weaken the required status or invent a success comment.
 - Hosted release unavailable: use the guarded local lane at the same approved
