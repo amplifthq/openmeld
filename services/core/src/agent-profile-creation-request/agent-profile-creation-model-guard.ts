@@ -1,7 +1,7 @@
 import { resolveAgentControllerModelCompatibility } from "@openmeld/agent-runtime";
 import type { ModelCatalogAgentController } from "@openmeld/schemas/types";
 
-export type CenterAgentCreationModelGuard = {
+export type AgentProfileCreationModelGuard = {
   code: string;
   reason: string;
 };
@@ -17,13 +17,15 @@ export type CenterAgentCreationModelGuard = {
  * creation, so stale or partial Computer snapshots cannot deny a valid
  * request.
  */
-export function evaluateCenterAgentCreationModelGuard(input: {
+export function evaluateAgentProfileCreationModelGuard(input: {
+  agentDisplayName: string;
   catalogControllers: Record<string, ModelCatalogAgentController> | null;
   controllerId: string;
   controllerInterfaceVersion: string | null;
+  deviceDisplayName: string;
   modelId: string;
   reportedModelIds: readonly string[] | null;
-}): CenterAgentCreationModelGuard | null {
+}): AgentProfileCreationModelGuard | null {
   const controller = input.catalogControllers?.[input.controllerId];
   if (!controller) {
     return null;
@@ -37,13 +39,13 @@ export function evaluateCenterAgentCreationModelGuard(input: {
   if (compatibility.status === "not_offered") {
     return {
       code: "agent_profile_creation_request.model_not_offered",
-      reason: `${input.modelId} isn't available in ${input.controllerId} on that Computer. Choose another model or update the installation.`,
+      reason: `${input.modelId} isn't available for ${input.agentDisplayName} on ${input.deviceDisplayName}. Choose another model or update the local agent.`,
     };
   }
   if (compatibility.status === "requires_newer_controller") {
     return {
       code: "agent_profile_creation_request.model_requires_newer_controller",
-      reason: `${input.modelId} requires ${input.controllerId} ${compatibility.minimumVersion} or later, but that Computer has ${compatibility.currentVersion}. Update the local agent or choose another model.`,
+      reason: `${input.modelId} requires ${input.agentDisplayName} ${compatibility.minimumVersion} or later, but ${input.deviceDisplayName} has ${compatibility.currentVersion}. Update the local agent or choose another model.`,
     };
   }
   return null;

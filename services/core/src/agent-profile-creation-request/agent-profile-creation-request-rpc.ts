@@ -1,6 +1,7 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import {
   agentProfileCreationRequestMutationResponseSchema,
+  centerAgentCreateConfiguredAgentProfileBodySchema,
   centerAgentCreateConfiguredAgentProfileResponseSchema,
   createAgentProfileCreationRequestBodySchema,
   createAgentProfileCreationRequestResponseSchema,
@@ -21,6 +22,7 @@ import type {
   AgentProfileCreationSessionStrategy,
   CenterAgentCreateConfiguredAgentProfileResponse,
   CenterAgentOnBehalfOfInput,
+  CenterAgentProductOperationStep,
   CreateAgentProfileCreationRequestBody,
   CreateAgentProfileCreationRequestResponse,
   DecideAgentProfileCreationRequestBody,
@@ -29,6 +31,7 @@ import type {
   OpenMeldRequestContext,
   SetAgentProfileCreationApprovalPreferenceBody,
   SetAgentProfileCreationApprovalPreferenceResponse,
+  SetCurrentAgentProfileWorkspaceResponse,
 } from "@openmeld/schemas/types";
 import { resolveAgentActivitySessionInventoryExecutionSelection } from "../agent-activity/activity-session-inventory-repository";
 import { rememberAgentProfileCreationDefaults } from "../agent-profile-binding/application/agent-profile-creation-defaults-service";
@@ -49,7 +52,7 @@ import {
   rpcSetCurrentAgentProfileWorkspace,
   rpcUpdateAgentProfileDefaultProject,
 } from "../rpc/methods";
-import { evaluateCenterAgentCreationModelGuard } from "./agent-profile-creation-model-guard";
+import { evaluateAgentProfileCreationModelGuard } from "./agent-profile-creation-model-guard";
 import { runAgentProfileCreationPostBindingFollowUps } from "./agent-profile-creation-post-binding-follow-ups";
 import { createD1AgentProfileCreationRequestInboxProjectionService } from "./agent-profile-creation-request-inbox-projection";
 import { createD1AgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
@@ -214,16 +217,6 @@ async function resolveCenterAgentProfileCreationRequestConfiguration(input: {
       status: 409,
     });
   }
-  assertRequestedModelCompatibility({
-    configuration:
-      input.configuration ?? DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
-    deviceId: candidate.deviceId,
-    localRuntimes,
-    target: {
-      agentControllerRef: candidate.agentControllerRef,
-      deviceDisplayName: candidate.deviceDisplayName,
-    },
-  });
   return {
     ...(input.configuration ?? DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION),
     agentControllerRef: candidate.agentControllerRef,
@@ -242,6 +235,7 @@ function assertRequestedModelCompatibility(input: {
   deviceId: string;
   localRuntimes: Awaited<ReturnType<typeof rpcListLocalRuntimes>>;
   target: {
+    agentDisplayName: string;
     agentControllerRef: string;
     deviceDisplayName: string;
   };
@@ -273,10 +267,12 @@ function assertRequestedModelCompatibility(input: {
         input.target.agentControllerRef
     );
   const controllerInterface = capability?.agentControllerInterface ?? null;
-  const guard = evaluateCenterAgentCreationModelGuard({
+  const guard = evaluateAgentProfileCreationModelGuard({
+    agentDisplayName: input.target.agentDisplayName,
     catalogControllers: readModelCatalog().agentControllers,
     controllerId: controllerInterface?.controllerId ?? parsedRef.id,
     controllerInterfaceVersion: controllerInterface?.version ?? null,
+    deviceDisplayName: input.target.deviceDisplayName,
     modelId,
     reportedModelIds:
       controllerInterface?.models.flatMap((model) =>
@@ -928,6 +924,16 @@ async function prepareRequestedLocalAgentConnection(input: {
       `${candidate.agentDisplayName} on ${candidate.deviceDisplayName} is not ready to connect.`
     );
   }
+  assertRequestedModelCompatibility({
+    configuration,
+    deviceId: candidate.deviceId,
+    localRuntimes,
+    target: {
+      agentControllerRef: candidate.agentControllerRef,
+      agentDisplayName: candidate.agentDisplayName,
+      deviceDisplayName: candidate.deviceDisplayName,
+    },
+  });
   return { candidate, sessionExecutionSelection, targetContext };
 }
 
@@ -1180,19 +1186,76 @@ function translateDomainError(error: unknown) {
  * approval, admission model precheck, execution, recovery) as the Web, CLI,
  * and local-agent entries.
  */
-type CreateRequestShimReadiness = Awaited<
-  ReturnType<typeof rpcCenterAgentCheckAgentProfileReadiness>
-> | null;
-
 export async function rpcCenterAgentCreateConfiguredAgentProfile(
   env: CoreBindings,
   input: CenterAgentCreateConfiguredAgentProfileInput
 ): Promise<CenterAgentCreateConfiguredAgentProfileResponse> {
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
-    context: requireContext(input.context),
-    env,
+  const body = parseConfiguredShimBody(input);
+  const actor = await prepareConfiguredShimActor({ body, env, input });
+  const requestedConfiguration =
+    await resolveCenterAgentProfileCreationRequestConfiguration({
+      configuration: resolveUnifiedCreationRequestConfiguration(body),
+      env,
+      localAgentConnectionCandidateId: body.candidateId,
+      organizationId: actor.organizationId,
+      targetOwnerUserId: actor.representedUserId,
+    });
+  const response = await rpcCreateAgentProfileCreationRequest(env, {
+    configuration: requestedConfiguration,
+    context: actor.representedContext,
+    idempotencyKey: await buildConfiguredShimIdempotencyKey({
+      configuration: requestedConfiguration,
+      organizationId: actor.organizationId,
+      profileName: body.profileName,
+      representedUserId: actor.representedUserId,
+      spaceId: body.spaceId,
+      workspaceMode: body.workspaceMode ?? null,
+      workspacePath: body.workspacePath ?? null,
+    }),
+    nativeSessionId: null,
+    organizationId: actor.organizationId,
+    profileName: body.profileName,
+    requestedSpaceId: body.spaceId,
+    sessionStrategy: "new",
+    source: "center_agent",
+    targetOwnerUserId: actor.representedUserId,
   });
-  const onBehalfOfProfileId = input.onBehalfOf?.profileId ?? null;
+  return await projectConfiguredShimResponse({
+    authorizationContext: actor.authorizationContext,
+    body,
+    env,
+    organizationId: actor.organizationId,
+    representedContext: actor.representedContext,
+    request: response.request,
+  });
+}
+
+function parseConfiguredShimBody(
+  input: CenterAgentCreateConfiguredAgentProfileInput
+) {
+  const { context: _context, ...unparsedBody } = input;
+  const parsedBody =
+    centerAgentCreateConfiguredAgentProfileBodySchema.safeParse(unparsedBody);
+  if (!parsedBody.success) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_creation_request.invalid_compatibility_input",
+      reason: `Agent Profile creation input is invalid: ${parsedBody.error.issues[0]?.message ?? "unknown validation error"}`,
+      status: 400,
+    });
+  }
+  return parsedBody.data;
+}
+
+async function prepareConfiguredShimActor(input: {
+  body: ReturnType<typeof parseConfiguredShimBody>;
+  env: CoreBindings;
+  input: CenterAgentCreateConfiguredAgentProfileInput;
+}) {
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: requireContext(input.input.context),
+    env: input.env,
+  });
+  const onBehalfOfProfileId = input.body.onBehalfOf?.profileId ?? null;
   if (!onBehalfOfProfileId) {
     throw createCoreRpcHttpError({
       status: 403,
@@ -1215,63 +1278,182 @@ export async function rpcCenterAgentCreateConfiguredAgentProfile(
     });
   }
   const organizationId = authorization.activeOrganization.organizationId;
-  const response = await rpcCreateAgentProfileCreationRequest(env, {
-    configuration: resolveUnifiedCreationRequestConfiguration(input),
-    context: {
-      ...authorization.context,
-      actorContext: {
-        ...authorization.context.actorContext,
-        callerPrincipalId: representedUserId,
-        ownerUserId: representedUserId,
-      },
+  const representedContext: OpenMeldRequestContext = {
+    ...authorization.context,
+    actorContext: {
+      ...authorization.context.actorContext,
+      callerPrincipalId: representedUserId,
+      ownerUserId: representedUserId,
     },
-    idempotencyKey: await buildConfiguredShimIdempotencyKey({
-      configuration: {
-        defaultProjectId: input.configuration?.defaultProjectId ?? null,
-        modelId: input.modelId ?? input.configuration?.modelId ?? null,
-        profileName: input.profileName,
-        spaceId: input.spaceId,
-      },
-      organizationId,
-    }),
-    nativeSessionId: null,
+  };
+  return {
+    authorizationContext: authorization.context,
     organizationId,
-    profileName: input.profileName,
-    requestedSpaceId: input.spaceId,
-    sessionStrategy: "new",
-    source: "center_agent",
-    targetOwnerUserId: representedUserId,
-  });
+    representedContext,
+    representedUserId,
+  };
+}
 
-  const request = response.request;
+async function projectConfiguredShimResponse(input: {
+  authorizationContext: OpenMeldRequestContext;
+  body: ReturnType<typeof parseConfiguredShimBody>;
+  env: CoreBindings;
+  organizationId: string;
+  representedContext: OpenMeldRequestContext;
+  request: CreateAgentProfileCreationRequestResponse["request"];
+}): Promise<CenterAgentCreateConfiguredAgentProfileResponse> {
+  const { request } = input;
   const completed =
     request.status === "completed" && request.createdAgentProfileId !== null;
-  let readiness: CreateRequestShimReadiness | null = null;
-  if (completed) {
-    readiness = await rpcCenterAgentCheckAgentProfileReadiness(env, {
-      agentProfileId: request.createdAgentProfileId ?? "",
-      context: authorization.context,
-    }).catch(() => null);
-  }
+  const workspaceResult = await applyConfiguredShimWorkspace({
+    body: input.body,
+    completed,
+    env: input.env,
+    representedContext: input.representedContext,
+    request,
+  });
+  const readinessResult = await readConfiguredShimReadiness({
+    authorizationContext: input.authorizationContext,
+    completed,
+    env: input.env,
+    setupFailed: workspaceResult.failed,
+    request,
+  });
+  const canReply = Boolean(readinessResult.readiness?.canReply);
+  const steps: CenterAgentProductOperationStep[] = [
+    {
+      message:
+        request.failureMessage ??
+        CONFIGURED_PROFILE_STATUS_STEP_COPY[request.statusReason] ??
+        `Agent Profile creation request is ${request.status}.`,
+      name: "create_agent_profile",
+      status: resolveConfiguredShimCreationStepStatus({ completed, request }),
+    },
+    ...(workspaceResult.step ? [workspaceResult.step] : []),
+    readinessResult.step,
+  ];
   return centerAgentCreateConfiguredAgentProfileResponseSchema.parse({
     ...(completed
       ? { agentProfileId: request.createdAgentProfileId ?? undefined }
       : {}),
-    canReply: Boolean(readiness?.canReply),
-    ...(readiness ? { readiness } : {}),
-    organizationId,
-    spaceId: input.spaceId,
-    status: completed ? ("completed" as const) : ("blocked" as const),
-    steps: [
-      {
-        message:
-          CONFIGURED_PROFILE_STATUS_STEP_COPY[request.statusReason] ??
-          `Agent Profile creation request is ${request.status}.`,
-        name: "create_agent_profile_request",
-        status: completed ? ("completed" as const) : ("blocked" as const),
-      },
-    ],
+    canReply,
+    ...(readinessResult.readiness
+      ? { readiness: readinessResult.readiness }
+      : {}),
+    organizationId: input.organizationId,
+    spaceId: input.body.spaceId,
+    status: canReply ? "completed" : "blocked",
+    steps,
+    ...(workspaceResult.workspace
+      ? { workspace: workspaceResult.workspace }
+      : {}),
   });
+}
+
+function resolveConfiguredShimCreationStepStatus(input: {
+  completed: boolean;
+  request: CreateAgentProfileCreationRequestResponse["request"];
+}): CenterAgentProductOperationStep["status"] {
+  if (input.completed) {
+    return "completed";
+  }
+  return input.request.status === "failed" ? "failed" : "skipped";
+}
+
+async function applyConfiguredShimWorkspace(input: {
+  body: ReturnType<typeof parseConfiguredShimBody>;
+  completed: boolean;
+  env: CoreBindings;
+  representedContext: OpenMeldRequestContext;
+  request: CreateAgentProfileCreationRequestResponse["request"];
+}): Promise<{
+  failed: boolean;
+  step?: CenterAgentProductOperationStep;
+  workspace?: SetCurrentAgentProfileWorkspaceResponse;
+}> {
+  if (!(input.completed && input.body.workspaceMode)) {
+    return { failed: false };
+  }
+  try {
+    const workspace = await rpcSetCurrentAgentProfileWorkspace(input.env, {
+      agentProfileId: input.request.createdAgentProfileId ?? "",
+      context: input.representedContext,
+      workspaceMode: input.body.workspaceMode,
+      ...(input.body.workspacePath
+        ? { workspacePath: input.body.workspacePath }
+        : {}),
+    });
+    return {
+      failed: false,
+      step: {
+        message: "Agent Profile workspace was updated.",
+        name: "update_agent_profile_workspace",
+        status: "completed",
+      },
+      workspace,
+    };
+  } catch (error) {
+    return {
+      failed: true,
+      step: {
+        message: error instanceof Error ? error.message : String(error),
+        name: "update_agent_profile_workspace",
+        nextAction: "Fix the workspace setting, then retry this operation.",
+        status: "failed",
+      },
+    };
+  }
+}
+
+async function readConfiguredShimReadiness(input: {
+  authorizationContext: OpenMeldRequestContext;
+  completed: boolean;
+  env: CoreBindings;
+  request: CreateAgentProfileCreationRequestResponse["request"];
+  setupFailed: boolean;
+}): Promise<{
+  readiness?: Awaited<
+    ReturnType<typeof rpcCenterAgentCheckAgentProfileReadiness>
+  >;
+  step: CenterAgentProductOperationStep;
+}> {
+  if (!(input.completed && !input.setupFailed)) {
+    return {
+      step: {
+        message: input.completed
+          ? "Readiness was not checked because workspace setup failed."
+          : "Readiness will be checked after the creation request completes.",
+        name: "check_agent_profile_readiness",
+        status: "skipped",
+      },
+    };
+  }
+  try {
+    const readiness = await rpcCenterAgentCheckAgentProfileReadiness(
+      input.env,
+      {
+        agentProfileId: input.request.createdAgentProfileId ?? "",
+        context: input.authorizationContext,
+      }
+    );
+    return {
+      readiness,
+      step: {
+        message: readiness.summary,
+        name: "check_agent_profile_readiness",
+        status: "completed",
+      },
+    };
+  } catch (error) {
+    return {
+      step: {
+        message: error instanceof Error ? error.message : String(error),
+        name: "check_agent_profile_readiness",
+        nextAction: "Check this Agent Profile's status, then retry.",
+        status: "failed",
+      },
+    };
+  }
 }
 
 const CONFIGURED_PROFILE_STATUS_STEP_COPY: Partial<
@@ -1308,8 +1490,13 @@ function resolveUnifiedCreationRequestConfiguration(
 }
 
 async function buildConfiguredShimIdempotencyKey(input: {
-  configuration: Record<string, unknown>;
+  configuration: AgentProfileCreationConfiguration | undefined;
   organizationId: string;
+  profileName: string;
+  representedUserId: string;
+  spaceId: string;
+  workspaceMode: string | null;
+  workspacePath: string | null;
 }): Promise<string> {
   const payload = JSON.stringify({
     ...input,
