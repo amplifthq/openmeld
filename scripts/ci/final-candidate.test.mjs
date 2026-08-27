@@ -59,6 +59,9 @@ const CANDIDATE_VALIDATION_FAILURE_PATTERN = /Candidate validation failed/u;
 const EVIDENCE_PUBLICATION_FAILURE_PATTERN = /Evidence publication failed/u;
 const EXIT_CODE_SEVEN_PATTERN = /exit code 7/u;
 const ORIGINAL_SELECTED_CHECK_PATTERN = /original selected-check/u;
+const LARGE_STDOUT_LINE = "large-stdout-line";
+const LARGE_STDERR_LINE = "large-stderr-line";
+const FULL_COMMAND_LOGS_PATTERN = /Full command logs:/u;
 
 test(
   "an isolated selected command cannot rewrite trusted control or evidence",
@@ -219,6 +222,39 @@ test("the local fallback publishes shared success for one exact candidate", () =
   }
 });
 
+test("successful commands keep the terminal compact and preserve complete redacted logs", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const result = runCandidateFixture(fixture, {
+      pnpmStderr: `${`${LARGE_STDERR_LINE}\n`.repeat(8000)}token=super-secret-value\n`,
+      pnpmStdout: `${LARGE_STDOUT_LINE}\n`.repeat(8000),
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(
+      result.stdout.length < 30_000,
+      `stdout was ${result.stdout.length}`
+    );
+    assert.ok(
+      result.stderr.length < 30_000,
+      `stderr was ${result.stderr.length}`
+    );
+    assert.doesNotMatch(result.stdout, new RegExp(LARGE_STDOUT_LINE, "u"));
+    assert.doesNotMatch(result.stderr, new RegExp(LARGE_STDERR_LINE, "u"));
+    assert.match(result.stdout, FULL_COMMAND_LOGS_PATTERN);
+
+    const commandLog = readFileSync(
+      path.join(fixture.commandLogsPath, "documentation-contracts.log"),
+      "utf8"
+    );
+    assert.match(commandLog, new RegExp(LARGE_STDOUT_LINE, "u"));
+    assert.match(commandLog, new RegExp(LARGE_STDERR_LINE, "u"));
+    assert.doesNotMatch(commandLog, SECRET_VALUE_PATTERN);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("a selected command failure publishes failure and blocks the candidate", () => {
   const fixture = createCandidateFixture();
   try {
@@ -372,6 +408,7 @@ function createCandidateFixture() {
   const pnpmLogPath = path.join(root, "pnpm.log");
   const candidateEnvironmentLogPath = path.join(root, "candidate-env.log");
   const evidencePath = path.join(root, "evidence.json");
+  const commandLogsPath = `${evidencePath}.logs`;
   mkdirSync(repositoryPath);
   mkdirSync(binPath);
   writeFileSync(ghLogPath, "");
@@ -470,6 +507,9 @@ if (process.env.TEST_ADVANCE_MAIN_DURING_CHECK === "1" && !existsSync(process.en
 if (process.env.TEST_PNPM_STDERR) {
   process.stderr.write(process.env.TEST_PNPM_STDERR);
 }
+if (process.env.TEST_PNPM_STDOUT) {
+  process.stdout.write(process.env.TEST_PNPM_STDOUT);
+}
 if (process.env.TEST_ATTACK_TRUSTED_PATH && process.env.TEST_ATTACK_EVIDENCE_PATH) {
   let deniedWrites = 0;
   for (const target of [process.env.TEST_ATTACK_TRUSTED_PATH, process.env.TEST_ATTACK_EVIDENCE_PATH]) {
@@ -490,6 +530,7 @@ process.exit(Number(process.env.TEST_PNPM_EXIT_CODE ?? "0"));
     baseSha,
     binPath,
     candidateEnvironmentLogPath,
+    commandLogsPath,
     cleanup: () => rmSync(root, { force: true, recursive: true }),
     evidencePath,
     ghLogPath,
@@ -564,6 +605,7 @@ function runCandidateFixture(fixture, options = {}) {
         TEST_PNPM_EXIT_CODE: String(options.pnpmExitCode ?? 0),
         TEST_PNPM_LOG: fixture.pnpmLogPath,
         TEST_PNPM_STDERR: options.pnpmStderr ?? "",
+        TEST_PNPM_STDOUT: options.pnpmStdout ?? "",
         TEST_REMOTE_PATH: fixture.remotePath,
       },
     }
