@@ -8,10 +8,7 @@ import {
   FEEDBACK_ISSUE_INVALID_TRANSITION_ERROR_CODE,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
-import type {
-  CenterAgentCreateConfiguredAgentProfileResponse,
-  RemoteAgentWorkerSubmitTurnRequest,
-} from "@openmeld/schemas/types";
+import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
 import { safeParse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -2932,11 +2929,11 @@ describe("remote agent OpenMeld tool catalog", () => {
   });
 
   it("keeps one model-visible creation path for new working Agent Profiles", () => {
-    const descriptions = new Map(
+    const descriptions = new Map<string, string>(
       getRemoteAgentOpenMeldToolDefinitions({
         coreWorker: {},
         storage: new InMemoryDurableObjectStorage(),
-      }).map((tool) => [tool.name, tool.description])
+      }).map((tool) => [tool.name as string, tool.description ?? ""])
     );
 
     expect(descriptions.get("openmeld_enable_agent_profile")).toContain(
@@ -2949,8 +2946,10 @@ describe("remote agent OpenMeld tool catalog", () => {
       "single creation entry point"
     );
     expect(
-      descriptions.get("openmeld_create_configured_agent_profile")
-    ).toContain("Compatibility only");
+      [...descriptions.keys()].includes(
+        "openmeld_create_configured_agent_profile"
+      )
+    ).toBe(false);
     expect(descriptions.get("openmeld_add_members_to_space")).toContain(
       "active members of the current Organization"
     );
@@ -6159,40 +6158,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     },
     {
       expectedPayload: {
-        candidateId,
-        configuration: {
-          agentControllerCollaborationMode:
-            runtimeSettings.agentControllerCollaborationMode,
-          agentControllerPermissionMode:
-            runtimeSettings.agentControllerPermissionMode,
-          defaultProjectId: "project-1",
-          modelId: runtimeSettings.modelId,
-          openCodePermission: runtimeSettings.openCodePermission,
-          reasoningLevel: runtimeSettings.reasoningLevel,
-        },
-        onBehalfOf,
-        profileName: "Codex Agent",
-        spaceId: SPACE_ID,
-      },
-      input: {
-        agentControllerCollaborationMode:
-          runtimeSettings.agentControllerCollaborationMode,
-        agentControllerPermissionMode:
-          runtimeSettings.agentControllerPermissionMode,
-        candidateId,
-        defaultProjectId: "project-1",
-        modelId: runtimeSettings.modelId,
-        openCodePermission: runtimeSettings.openCodePermission,
-        profileName: "Codex Agent",
-        reasoningLevel: runtimeSettings.reasoningLevel,
-        spaceId: SPACE_ID,
-      },
-      response: createConfiguredAgentProfileResponse(),
-      rpcName: "centerAgentCreateConfiguredAgentProfile",
-      toolName: "openmeld_create_configured_agent_profile",
-    },
-    {
-      expectedPayload: {
         agentProfileIds: [AGENT_PROFILE_ID],
         onBehalfOf,
         password: "space-password",
@@ -7134,71 +7099,6 @@ function checkAgentProfileReadinessResponse() {
     readiness: readinessResponse(AGENT_PROFILE_ID),
     summary: "Ready for Wake",
   });
-}
-
-function createConfiguredAgentProfileResponse(): CenterAgentCreateConfiguredAgentProfileResponse {
-  const readiness = checkAgentProfileReadinessResponse();
-  return {
-    agentProfileId: AGENT_PROFILE_ID,
-    canReply: true,
-    connection: {
-      agentProfileId: AGENT_PROFILE_ID,
-      canReply: true,
-      organizationId: "org_123",
-      readiness,
-      status: "completed",
-      steps: [
-        {
-          name: "select_local_agent_connection_candidate",
-          status: "completed",
-        },
-        {
-          name: "connect_agent_profile_to_local_agent",
-          status: "completed",
-        },
-      ],
-    },
-    organizationId: "org_123",
-    readiness,
-    spaceId: SPACE_ID,
-    status: "completed",
-    steps: [
-      {
-        name: "create_agent_profile",
-        status: "completed",
-      },
-      {
-        name: "enable_agent_profile",
-        status: "completed",
-      },
-      {
-        name: "select_local_agent_connection_candidate",
-        status: "completed",
-      },
-      {
-        name: "connect_agent_profile_to_local_agent",
-        status: "completed",
-      },
-      {
-        name: "update_agent_profile_workspace",
-        status: "completed",
-      },
-      {
-        name: "add_agent_profile_to_space",
-        status: "completed",
-      },
-      {
-        name: "check_agent_profile_readiness",
-        status: "completed",
-      },
-    ],
-    workspace: {
-      agentProfileId: AGENT_PROFILE_ID,
-      status: "updated",
-      workspaceMode: "custom",
-      workspacePath: "/Users/felix/project",
-    },
-  };
 }
 
 function addAgentProfilesToSpaceResponse() {
