@@ -713,143 +713,180 @@ function OrganizationSwitcher(input: {
 				) : (
 					popoverTrigger
 				)}
-				<Popover.Portal>
-					<Popover.Positioner
-						align="start"
-						className="z-50"
-						collisionAvoidance={{
-							align: "shift",
-							fallbackAxisSide: "end",
-							side: "flip",
-						}}
-						collisionPadding={12}
-						side="right"
-						sideOffset={8}
-					>
-						<Popover.Popup
-							className="relative isolate w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
-							finalFocus={false}
-							role="menu"
-						>
-							<div className="px-2 py-2">
-								<p className="font-medium text-foreground text-xs">
-									Organization
-								</p>
-							</div>
-							<output
-								aria-atomic="true"
-								aria-live="polite"
-								className={cn(
-									errorMessage
-										? "mx-2 mb-2 block rounded-sm bg-destructive/10 px-2.5 py-2 text-destructive text-xs leading-snug"
-										: "sr-only"
-								)}
-							>
-								{errorMessage ?? ""}
-							</output>
-							<FluidActionList
-								aria-label="Organizations"
-								className="max-h-72 overflow-y-auto"
-								hoverIndicatorClassName="bg-muted"
-							>
-								{orderedOrganizations.map((organization, index) => {
-									const organizationDisplay = resolveOrganizationDisplay({
-										account: input.account,
-										organization,
-									});
-									const selected = organization.id === currentOrganization.id;
-									return (
-										<FluidActionListItem
-											aria-checked={selected}
-											aria-current={selected ? "true" : undefined}
-											className={cn(
-												"flex min-h-11 w-full min-w-0 items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm disabled:cursor-wait disabled:opacity-70",
-												selected
-													? "bg-muted text-foreground"
-													: "text-muted-foreground"
-											)}
-											disabled={isSwitching}
-											index={index}
-											key={organization.id}
-											onClick={() => switchOrganization(organization)}
-											role="menuitemradio"
-											type="button"
-										>
-											<OrganizationAvatar
-												account={input.account}
-												humanProfileAvatar={input.humanProfileAvatar}
-												organization={organization}
-												organizationDisplay={organizationDisplay}
-												placement="menu"
-											/>
-											<span className="grid min-w-0 flex-1 gap-0.5 leading-tight">
-												<span className="truncate font-medium">
-													{organizationDisplay.name}
-												</span>
-												<span className="truncate text-xs">
-													{organization.isPersonal
-														? "Personal workspace"
-														: "Organization"}
-												</span>
-											</span>
-										</FluidActionListItem>
-									);
-								})}
-							</FluidActionList>
-							<FluidActionList
-								aria-label="Organization actions"
-								className="mt-1 border-border border-t pt-1"
-								hoverIndicatorClassName="bg-muted"
-							>
-								<FluidActionListItem
-									className="flex min-h-12 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
-									disabled={isSwitching}
-									index={0}
-									onClick={openCreateOrganization}
-									role="menuitem"
-									type="button"
-								>
-									<PlusIcon aria-hidden="true" className="size-4 shrink-0" />
-									<span className="grid min-w-0 gap-0.5 leading-tight">
-										<span className="block font-medium text-foreground">
-											Create organization
-										</span>
-										<span className="block text-xs">
-											Set up shared work and Wake access.
-										</span>
-									</span>
-								</FluidActionListItem>
-								<FluidActionListItem
-									className="flex min-h-12 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
-									disabled={isSwitching}
-									index={1}
-									onClick={openManageOrganizations}
-									role="menuitem"
-									type="button"
-								>
-									<BuildingsIcon
-										aria-hidden="true"
-										className="size-4 shrink-0"
-									/>
-									<span className="grid min-w-0 gap-0.5 leading-tight">
-										<span className="block font-medium text-foreground">
-											Manage organizations
-										</span>
-										<span className="block text-xs">
-											Browse and manage your organizations.
-										</span>
-									</span>
-								</FluidActionListItem>
-							</FluidActionList>
-							<OrganizationSwitcherGlobalActions
-								disabled={isSwitching}
-								onOpenSettings={openSettings}
-							/>
-						</Popover.Popup>
-					</Popover.Positioner>
-				</Popover.Portal>
+				<OrganizationSwitcherPopover
+					account={input.account}
+					currentOrganization={currentOrganization}
+					errorMessage={errorMessage}
+					humanProfileAvatar={input.humanProfileAvatar}
+					isSwitching={isSwitching}
+					onCreateOrganization={openCreateOrganization}
+					onManageOrganizations={openManageOrganizations}
+					onOpenSettings={openSettings}
+					onSwitchOrganization={switchOrganization}
+					organizations={orderedOrganizations}
+				/>
 			</Popover.Root>
 		</div>
+	);
+}
+
+function OrganizationSwitcherPopover(input: {
+	account: AppOuterRailAccount;
+	currentOrganization: OrganizationSummary;
+	errorMessage: string | null;
+	humanProfileAvatar: HumanProfileAvatarIdentity | null;
+	isSwitching: boolean;
+	onCreateOrganization: () => void;
+	onManageOrganizations: () => void;
+	onOpenSettings: () => void;
+	onSwitchOrganization: (organization: OrganizationSummary) => void;
+	organizations: readonly OrganizationSummary[];
+}) {
+	return (
+		<Popover.Portal>
+			<Popover.Positioner
+				align="start"
+				className="z-50"
+				collisionAvoidance={{
+					align: "shift",
+					fallbackAxisSide: "end",
+					side: "flip",
+				}}
+				collisionPadding={12}
+				side="right"
+				sideOffset={8}
+			>
+				<Popover.Popup
+					className="relative isolate w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
+					finalFocus={false}
+					role="menu"
+				>
+					<div className="px-2 py-2">
+						<p className="font-medium text-foreground text-xs">Organization</p>
+					</div>
+					<output
+						aria-atomic="true"
+						aria-live="polite"
+						className={cn(
+							input.errorMessage
+								? "mx-2 mb-2 block rounded-sm bg-destructive/10 px-2.5 py-2 text-destructive text-xs leading-snug"
+								: "sr-only"
+						)}
+					>
+						{input.errorMessage ?? ""}
+					</output>
+					<FluidActionList
+						aria-label="Organizations"
+						className="max-h-72 overflow-y-auto"
+						hoverIndicatorClassName="bg-muted"
+					>
+						{input.organizations.map((organization, index) => {
+							const organizationDisplay = resolveOrganizationDisplay({
+								account: input.account,
+								organization,
+							});
+							const selected = organization.id === input.currentOrganization.id;
+							return (
+								<FluidActionListItem
+									aria-checked={selected}
+									aria-current={selected ? "true" : undefined}
+									className={cn(
+										"flex min-h-11 w-full min-w-0 items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm disabled:cursor-wait disabled:opacity-70",
+										selected
+											? "bg-muted text-foreground"
+											: "text-muted-foreground"
+									)}
+									disabled={input.isSwitching}
+									index={index}
+									key={organization.id}
+									onClick={() => input.onSwitchOrganization(organization)}
+									role="menuitemradio"
+									type="button"
+								>
+									<OrganizationAvatar
+										account={input.account}
+										humanProfileAvatar={input.humanProfileAvatar}
+										organization={organization}
+										organizationDisplay={organizationDisplay}
+										placement="menu"
+									/>
+									<span className="grid min-w-0 flex-1 gap-0.5 leading-tight">
+										<span className="truncate font-medium">
+											{organizationDisplay.name}
+										</span>
+										<span className="truncate text-xs">
+											{organization.isPersonal
+												? "Personal workspace"
+												: "Organization"}
+										</span>
+									</span>
+								</FluidActionListItem>
+							);
+						})}
+					</FluidActionList>
+					<OrganizationSwitcherActions
+						disabled={input.isSwitching}
+						onCreateOrganization={input.onCreateOrganization}
+						onManageOrganizations={input.onManageOrganizations}
+					/>
+					<OrganizationSwitcherGlobalActions
+						disabled={input.isSwitching}
+						onOpenSettings={input.onOpenSettings}
+					/>
+				</Popover.Popup>
+			</Popover.Positioner>
+		</Popover.Portal>
+	);
+}
+
+function OrganizationSwitcherActions(input: {
+	disabled: boolean;
+	onCreateOrganization: () => void;
+	onManageOrganizations: () => void;
+}) {
+	return (
+		<FluidActionList
+			aria-label="Organization actions"
+			className="mt-1 border-border border-t pt-1"
+			hoverIndicatorClassName="bg-muted"
+		>
+			<FluidActionListItem
+				className="flex min-h-12 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
+				disabled={input.disabled}
+				index={0}
+				onClick={input.onCreateOrganization}
+				role="menuitem"
+				type="button"
+			>
+				<PlusIcon aria-hidden="true" className="size-4 shrink-0" />
+				<span className="grid min-w-0 gap-0.5 leading-tight">
+					<span className="block font-medium text-foreground">
+						Create organization
+					</span>
+					<span className="block text-xs">
+						Set up shared work and Wake access.
+					</span>
+				</span>
+			</FluidActionListItem>
+			<FluidActionListItem
+				className="flex min-h-12 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
+				disabled={input.disabled}
+				index={1}
+				onClick={input.onManageOrganizations}
+				role="menuitem"
+				type="button"
+			>
+				<BuildingsIcon aria-hidden="true" className="size-4 shrink-0" />
+				<span className="grid min-w-0 gap-0.5 leading-tight">
+					<span className="block font-medium text-foreground">
+						Manage organizations
+					</span>
+					<span className="block text-xs">
+						Browse and manage your organizations.
+					</span>
+				</span>
+			</FluidActionListItem>
+		</FluidActionList>
 	);
 }
 
