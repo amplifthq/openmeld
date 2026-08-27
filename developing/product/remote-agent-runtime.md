@@ -1008,24 +1008,25 @@ worker sends the authenticated gateway token plus that exact
 tracked config. This is OpenMeld-operated provider configuration, not user
 BYOK.
 
-The repo-owned `center-agent` catalog exposes Grok 4.6, Grok 4.5, and DeepSeek
-V4 Flash, with Grok 4.6 as the OpenMeld default. Core resolves a complete
-immutable route for each new turn. The route contains the exact OpenRouter
-model id, friendly display name, input modalities, context window, output
-budget, reasoning level, catalog timestamp, preference kind, auxiliary
-image-understanding model, and `automaticModelFallback: false`. The Remote
-Agent executes that route; it does not consult a mutable Organization setting
-or silently substitute another primary model.
+The repo-owned `center-agent` catalog exposes GLM 5.3 Flash, Grok 4.6, Grok
+4.5, and DeepSeek V4 Flash, with GLM 5.3 Flash as the OpenMeld default since
+2026-08-27. Core resolves a complete immutable route for each new turn. The
+route contains the exact OpenRouter model id, friendly display name, input
+modalities, context window, output budget, reasoning level, catalog timestamp,
+preference kind, auxiliary image-understanding model, and
+`automaticModelFallback: false`. The Remote Agent executes that route; it does
+not consult a mutable Organization setting or silently substitute another
+primary model.
 
 Every main OpenRouter turn sends one exact frozen model id, and every
 model-backed helper sends one exact configured model id. None sends a
 model-fallback list. Each request also sends
 `provider.allow_fallbacks = true`, so OpenRouter may reroute that exact model
 across healthy providers when one provider is unavailable or rate-limited.
-Provider rerouting never authorizes switching between Grok 4.6, Grok 4.5,
-DeepSeek V4 Flash, or any other primary models. If all providers for the exact
-model fail, the turn still ends in one visible failure. Public-web research
-uses the same exact-model provider-rerouting rule.
+Provider rerouting never authorizes switching between GLM 5.3 Flash, Grok 4.6,
+Grok 4.5, DeepSeek V4 Flash, or any other primary models. If all providers for
+the exact model fail, the turn still ends in one visible failure. Public-web
+research uses the same exact-model provider-rerouting rule.
 
 Provider registration is scoped by Organization and frozen route identity.
 Flue/pi-ai capability metadata, AI Gateway headers, usage attribution, and
@@ -1059,9 +1060,9 @@ the effective primary model.
 The worker accepts legacy version-1 submissions during the mixed-deployment and
 recovery window. Those requests preserve the historical Grok 4.5 route because
 they contain no model route, including the historical image-input capability;
-the worker's environment fallback therefore remains Grok 4.5 even after the
-new-turn product default becomes Grok 4.6. This is wire compatibility for
-already-durable work, not automatic fallback.
+the worker's environment fallback therefore remains Grok 4.5 across later
+new-turn product-default changes. This is wire compatibility for already-
+durable work, not automatic fallback.
 An exact continuation or recovery derived from a durable version-1 request
 remains version 1. Core must not synthesize a current version-2 catalog route
 for that work, because doing so would change its frozen model semantics.
@@ -2405,7 +2406,7 @@ Core-owned hosted readiness has exactly two product states in MVP:
   This operational evidence does not decide admission, retry, timeout, native
   delivery, or final result-surface truth.
 - New-turn default route: Cloudflare AI Gateway → OpenRouter BYOK
-  `x-ai/grok-4.6` with the environment-owned BYOK alias (`openrouter` in
+  `z-ai/glm-5.3-flash` with the environment-owned BYOK alias (`openrouter` in
   production). The legacy version-1
   environment fallback remains `x-ai/grok-4.5` for durable recovery
   compatibility (settled; see Implementation Base).

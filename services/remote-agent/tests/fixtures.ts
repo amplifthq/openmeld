@@ -38,6 +38,32 @@ export const TEST_CENTER_AGENT_MODEL_ROUTE = {
   reasoningLevel: "high",
 } as const satisfies CenterAgentModelRoute;
 
+// Mirrors the shipped system-default route after GLM 5.3 Flash became the
+// Center Agent default on 2026-08-27.
+export const TEST_CENTER_AGENT_GLM_DEFAULT_MODEL_ROUTE = {
+  automaticModelFallback: false,
+  catalogUpdatedAt: "2026-08-27T00:00:00.000Z",
+  contextWindow: 1_048_576,
+  displayName: "GLM 5.3 Flash",
+  imageUnderstandingModel: {
+    contextWindow: 500_000,
+    displayName: "Grok 4.6",
+    inputModalities: ["text", "image"],
+    maxOutputTokens: 16_384,
+    modelId: "x-ai/grok-4.6",
+    provider: "openrouter",
+    reasoningLevel: "high",
+  },
+  inputModalities: ["text", "image"],
+  maxOutputTokens: 16_384,
+  modelId: "z-ai/glm-5.3-flash",
+  preference: {
+    kind: "system_default",
+  },
+  provider: "openrouter",
+  reasoningLevel: "high",
+} as const satisfies CenterAgentModelRoute;
+
 export function createSubmitTurnRequest(
   overrides: Partial<RemoteAgentWorkerSubmitTurnRequestV1> = {}
 ): RemoteAgentWorkerSubmitTurnRequestV1 {

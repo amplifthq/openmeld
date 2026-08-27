@@ -260,10 +260,10 @@ The same manifest now includes the code-owned `center-agent` controller. This
 is a hosted-runtime policy catalog, not a local Agent Profile controller:
 
 - `defaultModelId` is the system default resolved for each new Center Agent
-  turn. The current default is `x-ai/grok-4.6`.
-- The selectable models are `x-ai/grok-4.6`, `x-ai/grok-4.5`, and
-  `deepseek/deepseek-v4-flash`, presented as **Grok 4.6**, **Grok 4.5**,
-  and **DeepSeek V4 Flash**.
+  turn. The current default is `z-ai/glm-5.3-flash` (**GLM 5.3 Flash**).
+- The selectable models are `z-ai/glm-5.3-flash`, `x-ai/grok-4.6`,
+  `x-ai/grok-4.5`, and `deepseek/deepseek-v4-flash`, presented as
+  **GLM 5.3 Flash**, **Grok 4.6**, **Grok 4.5**, and **DeepSeek V4 Flash**.
 - A hosted model may declare one optional `badgeLabel` as catalog-owned
   selector presentation metadata. Core projects the same label onto the
   explicit model choice and the OpenMeld-default choice when that model is the
@@ -277,7 +277,10 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   that frozen value dynamically for each admitted route. It is not a separate
   Organization preference or Web setting in the current product.
 - `hostedRuntimePolicy.imageUnderstandingModelId` names the image-capable
-  auxiliary model used when the selected primary model is text-only.
+  auxiliary model used for every current-version image turn before persistent
+  primary-model admission. The auxiliary returns an untrusted text
+  description; the frozen primary model still owns semantic judgment and the
+  final answer.
 - The frozen primary model owns semantic judgment and completion for every
   ordinary Center Agent turn, including Task and Space creation requests. A
   worker-owned classifier or auxiliary completion model must not replace it for
@@ -297,6 +300,74 @@ id is no longer in the catalog, member-facing projections use the neutral
 Core rejects new work on that Binding until an owner or admin chooses an
 available model; it never routes the stale id or silently substitutes the
 default.
+
+### 5.6 GLM 5.3 Flash hosted verification
+
+The 2026-08-27 default change follows the official OpenRouter contract:
+
+- the pinned model id is `z-ai/glm-5.3-flash` (**Z.ai: GLM 5.3 Flash**);
+- OpenRouter reports input modalities text, image, and video with text output;
+  the Center Agent declares only `text` and `image` because the hosted runtime
+  never sends video parts and the schema bounds modalities to what the worker
+  actually consumes;
+- the supported reasoning efforts are `max`, `high`, and `low` with `max` as
+  the provider default; hosted reasoning stays frozen to the catalog-owned
+  `high` value that the worker reads per admitted route;
+- the frozen capacity caps are deliberate: the catalog `contextWindow` uses
+  OpenRouter's top-provider context length (`1,048,576`, below the larger
+  catalog-wide context length of `1,310,720` so compaction triggers before a
+  real provider limit), and `maxOutputTokens` stays at the shared hosted
+  budget of `16,384` used by every other hosted entry;
+- OpenRouter supports tools, tool choice, structured outputs, reasoning, and
+  reasoning effort for this model.
+
+Sources: the official OpenRouter models API response for `z-ai/glm-5.3-flash`
+captured on 2026-08-27 (`https://openrouter.ai/api/v1/models`; captured shape
+mirrored in `services/remote-agent/tests/fixtures/openrouter-model-z-ai-glm-5.3-flash.json`).
+
+`x-ai/grok-4.6` remains the dedicated `imageUnderstandingModelId`: the
+auxiliary image path stays on the production-proven model while the primary
+default changes independently. GLM 5.3 Flash is declared `["text", "image"]`
+to reflect the verified provider capability and selector contract, but the
+current version still sends every raw image through the frozen Grok 4.6
+auxiliary before GLM receives the bounded text description. Explicitly
+selected Grok 4.6 turns remain Grok 4.6 as the primary model as well.
+
+### 5.7 OpenCode controller catalog refresh
+
+The 2026-08-27 refresh re-authored the `opencode` local Agent Profile
+controller from live authenticated evidence instead of incrementally patching
+stale entries:
+
+- **One policy owner:** `release/vendor-models.json` remains the single
+  selectable-model authority; no dynamic catalog source was added.
+- **Authoring source:** the authenticated `opencode models <provider>
+  --verbose` CLI output (OpenCode 1.18.23) supplies exact ids, display names,
+  status, and per-model variant keys. Variant keys are copied verbatim into
+  `supportedReasoningLevels` because the adapter forwards them as exact
+  `--variant <level>` values; inference from names is prohibited.
+- **Provider scope:** the refresh covers OpenCode's first-party curated
+  providers — `opencode` (free tier), `opencode-go` (Go plan), and `openai`
+  (Zen-hosted OpenAI models). The third-party `openrouter` passthrough inside
+  OpenCode mirrors the volatile OpenRouter marketplace scoped to whatever the
+  user's own OpenRouter account can bill; cataloging hundreds of such ids
+  would claim usability OpenMeld cannot verify at authoring time, so those
+  models stay out of the manifest until they are individually curated.
+- **Compatibility fact:** Decision 12 still governs—when a Computer's ACI
+  model inventory lists a catalog id, that inventory is authoritative;
+  otherwise `minCliVersion` applies. Models absent from both the manifest and
+  the device inventory stay unknown/unavailable rather than usable-by-hope.
+- **Retired entries removed:** `opencode/x-preview-f-free`,
+  `opencode/north-mini-code-free`, and `opencode/deepseek-v4-flash-free` are
+  no longer reported by the authenticated CLI and were deleted rather than
+  marked unavailable; stale explicit selections project as
+  `Unavailable model` per §5.5.
+- **Controller default:** because the previous default
+  `opencode/north-mini-code-free` disappeared upstream, the default moved to
+  the currently reported free-tier model `opencode/mimo-v2.5-free`, not to a
+  paid-plan model that an OpenCode user may not have. A controller default must
+  always be a valid, maintained id (§8.2), and every non-empty
+  `supportedReasoningLevels` variant was verified against the same CLI output.
 
 ---
 

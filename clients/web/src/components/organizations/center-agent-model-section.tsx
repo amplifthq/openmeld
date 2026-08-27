@@ -123,10 +123,7 @@ export function CenterAgentModelSection(input: {
 								className="max-w-72 text-left leading-5"
 								side="bottom"
 							>
-								{modelBehaviorSummary({
-									configuration,
-									selectedChoice,
-								})}
+								{modelBehaviorSummary()}
 							</TooltipContent>
 						</Tooltip>
 					) : null}
@@ -269,18 +266,8 @@ function ModelConfigurationContent(input: {
 	);
 }
 
-function modelBehaviorSummary(input: {
-	configuration: CenterAgentModelConfigurationResponse;
-	selectedChoice: CenterAgentModelChoice | undefined;
-}): string {
-	const choice = input.selectedChoice;
-	const supportsImageInput =
-		choice?.supportsImageInput ??
-		input.configuration.effectiveModel.supportsImageInput;
-	const imageBehavior = supportsImageInput
-		? "Handles images directly."
-		: "Images use a vision model.";
-	return `${imageBehavior} New turns only. Doesn't switch on failure.`;
+function modelBehaviorSummary(): string {
+	return "Images use a vision model. New turns only. Doesn't switch on failure.";
 }
 
 function modelChoiceLabel(choice: CenterAgentModelChoice): string {

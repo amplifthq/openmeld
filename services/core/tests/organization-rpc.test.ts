@@ -3255,8 +3255,8 @@ describe("organization Core RPC", () => {
       canManage: false,
       configurationRevision: 4,
       effectiveModel: {
-        displayName: "Grok 4.6",
-        modelId: "x-ai/grok-4.6",
+        displayName: "GLM 5.3 Flash",
+        modelId: "z-ai/glm-5.3-flash",
       },
       preference: { kind: "system_default" },
     });

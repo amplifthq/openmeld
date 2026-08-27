@@ -5269,7 +5269,7 @@ describe("Remote Agent Slack signal service", () => {
           ...(sourceVersion === 4
             ? {
                 modelRoute: expect.objectContaining({
-                  modelId: "x-ai/grok-4.6",
+                  modelId: "z-ai/glm-5.3-flash",
                 }),
               }
             : {}),

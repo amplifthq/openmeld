@@ -170,7 +170,7 @@ describe("CenterAgentSettingsContent", () => {
 				"See which primary model the Center Agent uses for new work."
 			)
 		).toBeNull();
-		expect(await screen.findByText("Grok 4.6")).toBeTruthy();
+		expect(await screen.findByText("GLM 5.3 Flash")).toBeTruthy();
 		expect(screen.getByText("New").getAttribute("data-slot")).toBe("badge");
 		expect(screen.getByText("OpenMeld default")).toBeTruthy();
 		const modelBehaviorTrigger = screen.getByRole("button", {
@@ -179,14 +179,14 @@ describe("CenterAgentSettingsContent", () => {
 		expect(modelBehaviorTrigger.className).toContain("max-lg:size-11");
 		expect(
 			screen.queryByText(
-				"Handles images directly. New turns only. Doesn't switch on failure."
+				"Images use a vision model. New turns only. Doesn't switch on failure."
 			)
 		).toBeNull();
 		fireEvent.focus(modelBehaviorTrigger);
 		await waitFor(() => {
 			expect(
 				screen.getByText(
-					"Handles images directly. New turns only. Doesn't switch on failure."
+					"Images use a vision model. New turns only. Doesn't switch on failure."
 				)
 			).toBeTruthy();
 		});
@@ -235,17 +235,20 @@ describe("CenterAgentSettingsContent", () => {
 
 		fireEvent.click(trigger);
 		const defaultChoice = await screen.findByRole("option", {
-			name: "OpenMeld default (Grok 4.6) New",
+			name: "OpenMeld default (GLM 5.3 Flash) New",
 		});
-		const grok46Choice = screen.getByRole("option", {
-			name: "Grok 4.6 New",
+		const glmChoice = screen.getByRole("option", {
+			name: "GLM 5.3 Flash New",
 		});
 		expect(
 			within(defaultChoice).getByText("New").getAttribute("data-slot")
 		).toBe("badge");
+		expect(within(glmChoice).getByText("New").getAttribute("data-slot")).toBe(
+			"badge"
+		);
 		expect(
-			within(grok46Choice).getByText("New").getAttribute("data-slot")
-		).toBe("badge");
+			screen.getByRole("option", { name: "Grok 4.6" }).textContent
+		).not.toContain("New");
 		expect(
 			screen.getByRole("option", { name: "Grok 4.5" }).textContent
 		).not.toContain("New");
@@ -525,12 +528,22 @@ function buildModelConfiguration(
 			{
 				badgeLabel: "New",
 				displayName: "OpenMeld default",
-				effectiveModelDisplayName: "Grok 4.6",
+				effectiveModelDisplayName: "GLM 5.3 Flash",
 				preference: { kind: "system_default" as const },
 				supportsImageInput: true,
 			},
 			{
 				badgeLabel: "New",
+				displayName: "GLM 5.3 Flash",
+				effectiveModelDisplayName: "GLM 5.3 Flash",
+				preference: {
+					kind: "selected_model" as const,
+					modelId: "z-ai/glm-5.3-flash",
+				},
+				supportsImageInput: true,
+			},
+			{
+				badgeLabel: null,
 				displayName: "Grok 4.6",
 				effectiveModelDisplayName: "Grok 4.6",
 				preference: {
@@ -563,8 +576,8 @@ function buildModelConfiguration(
 		configurationRevision: overrides.configurationRevision ?? 7,
 		effectiveModel: overrides.effectiveModel ?? {
 			availability: "available" as const,
-			displayName: "Grok 4.6",
-			modelId: "x-ai/grok-4.6",
+			displayName: "GLM 5.3 Flash",
+			modelId: "z-ai/glm-5.3-flash",
 			supportsImageInput: true,
 		},
 		organizationId: ORGANIZATION_ID,

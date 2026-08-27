@@ -1041,11 +1041,11 @@ has two meanings:
   `center-agent.defaultModelId` when a new turn is admitted;
 - present means the Organization selected that exact available catalog model.
 
-The current OpenMeld default is **Grok 4.6**. The explicit choices are
-**Grok 4.6**, **Grok 4.5**, and **DeepSeek V4 Flash**. Changing the system
-default is intentionally scheme A: existing Organizations on OpenMeld default
-use the new default for their next admitted turn, without a migration or
-per-Organization rollout row.
+The current OpenMeld default is **GLM 5.3 Flash**. The explicit choices are
+**GLM 5.3 Flash**, **Grok 4.6**, **Grok 4.5**, and **DeepSeek V4 Flash**.
+Changing the system default is intentionally scheme A: existing Organizations
+on OpenMeld default use the new default for their next admitted turn, without
+a migration or per-Organization rollout row.
 
 Core resolves and freezes the complete model route exactly once at new-turn
 admission. The accepted native-delivery request, its recovery request, and any
@@ -1055,12 +1055,12 @@ system default. A later independent human or Routine turn resolves the current
 preference. This preserves in-progress work without making model selection
 another execution authority.
 
-Grok 4.6 and Grok 4.5 accept text and images directly. DeepSeek V4 Flash is
-text-only, so the frozen route names Grok 4.6 as an auxiliary
-image-understanding model. That model describes an image under an
-untrusted-content boundary and DeepSeek receives the description, not the
-image. An auxiliary or primary model failure fails the turn; OpenMeld never
-switches the primary model automatically.
+GLM 5.3 Flash, Grok 4.6, and Grok 4.5 are provider-declared as text-and-image
+models; DeepSeek V4 Flash is text-only. Regardless of the primary model's
+capability, every current-version image first uses frozen Grok 4.6 as the
+auxiliary image-understanding model. The primary receives its bounded
+untrusted description, not the raw image. An auxiliary or primary model
+failure fails the turn; OpenMeld never switches the primary automatically.
 
 Reasoning is part of the same frozen route, not a second mutable preference.
 The current catalog fixes hosted reasoning to `high`, and the Remote Agent

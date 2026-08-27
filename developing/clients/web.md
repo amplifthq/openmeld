@@ -746,23 +746,24 @@ request language unless stronger current context says otherwise.
 
 The **Model** section is readable by every active Organization member. It shows
 the effective friendly primary-model name and never exposes a raw OpenRouter
-model id. Owners and admins may choose **OpenMeld default**, **Grok 4.6**,
-**Grok 4.5**, or **DeepSeek V4 Flash** and save through the Binding-revision
-compare-and-set contract; members see the same effective configuration without
-enabled mutation controls. The OpenMeld-default option includes the current
-effective model so a future system-default change is understandable without
-duplicating it into browser state. A model choice's optional catalog-owned badge
-appears in both the closed selector and its matching options; Web does not infer
-badges from model names or the current default. Reasoning is catalog-owned at
-`high` and is not a separate Web control in this release.
+model id. Owners and admins may choose **OpenMeld default**, **GLM 5.3 Flash**,
+**Grok 4.6**, **Grok 4.5**, or **DeepSeek V4 Flash** and save through the
+Binding-revision compare-and-set contract; members see the same effective
+configuration without enabled mutation controls. The OpenMeld-default option
+includes the current effective model so a future system-default change is
+understandable without duplicating it into browser state. A model choice's
+optional catalog-owned badge appears in both the closed selector and its
+matching options; Web does not infer badges from model names or the current
+default. Reasoning is catalog-owned at `high` and is not a separate Web control
+in this release.
 
 Model behavior details use a compact info Tooltip instead of permanently
-expanded copy. It says whether images are handled directly or through a vision
-model, that the selection applies to new turns only, and that failure does not
-switch models automatically. `New turns only` is the concise statement that
-in-progress turns keep their admitted model; this settings surface does not
-enumerate the auxiliary model or its internal image-description handoff. A
-stale save reloads the configuration and tells the admin to review it rather
+expanded copy. It says that images use a vision model, that the selection
+applies to new turns only, and that failure does not switch models
+automatically. `New turns only` is the concise statement that in-progress turns
+keep their admitted model; this settings surface does not enumerate the
+auxiliary model or its internal image-description handoff. A stale save reloads
+the configuration and tells the admin to review it rather
 than overwriting a concurrent change.
 
 The **Model** section in Center Agent settings is the single Web read surface
