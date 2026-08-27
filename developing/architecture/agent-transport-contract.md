@@ -542,7 +542,11 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   monotonic `configurationRevision`. RuntimeCoordinator freezes the current
   `bindingId` and revision for each accepted dispatch. A capability-aware local
   Service reports the identity it has applied, and Runtime Transport must not
-  deliver the dispatch until both values match. This consistency fence does
+  deliver the dispatch until both values match. When the applied revision is
+  merely older for the same Binding id, Runtime Transport may hold delivery
+  inside a bounded convergence window while nudging the Service to re-sync, but
+  it never executes with a mismatched identity; an expired window fails closed
+  with `daemon.profile.configuration_not_synced`. This consistency fence does
   not make the projection or the Service an execution authority.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
