@@ -5,6 +5,9 @@ import { setConfiguredSkillsConfig } from "../src/config/runtime-config";
 import { ensureDispatchControllerOpenMeldSkill } from "../src/local-service/dispatch/ensure-dispatch-controller-openmeld-skill";
 import { withTempHome } from "./helpers/fs";
 
+const PREFERRED_SPACE_ACTION_TOOL_COPY =
+  /Prefer the dispatch-scoped OpenMeld Space\s+Action tool named in the Wake prompt\./;
+
 describe("ensureDispatchControllerOpenMeldSkill", () => {
   it("silently restores the OpenMeld skill for the current local agent", async () => {
     await withTempHome(async (home) => {
@@ -26,9 +29,15 @@ describe("ensureDispatchControllerOpenMeldSkill", () => {
         agentId: "codex",
         status: "repaired",
       });
-      expect(
-        await readFile(join(targetDir, "openmeld-cli", "SKILL.md"), "utf8")
-      ).toContain("name: openmeld-cli");
+      const installedSkill = await readFile(
+        join(targetDir, "openmeld-cli", "SKILL.md"),
+        "utf8"
+      );
+      expect(installedSkill).toContain("name: openmeld-cli");
+      expect(installedSkill).toMatch(PREFERRED_SPACE_ACTION_TOOL_COPY);
+      expect(installedSkill).toContain(
+        '`"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH"`'
+      );
       expect(second).toMatchObject({
         agentId: "codex",
         status: "not_needed",

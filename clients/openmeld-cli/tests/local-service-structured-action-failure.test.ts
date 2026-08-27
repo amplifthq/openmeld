@@ -688,7 +688,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
 
     expect(prompt).toContain("OpenMeld delivery repair: malformed JSON");
     expect(prompt).toContain(
-      "Do not redo the user's work or change the answer."
+      "Do not redo the user's work or change the intended public outcome."
     );
     expect(prompt).toContain(
       "Treat this Wake as the current source; tie other context to the claims it supports"
@@ -709,13 +709,19 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       "Use the dispatch-scoped Space Action reply for normal public replies, greetings, answers, and discussion."
     );
     expect(prompt).toContain(
-      'For a normal reply, call the OpenMeld Space Action `reply` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command `openmeld space action reply "corrected public message"` and wait for it to finish.'
+      'For a normal reply, call the dispatch-scoped OpenMeld Space Action `reply` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "corrected public message"` and wait for it to finish.'
     );
     expect(prompt).toContain(
       "If neither the tool nor the fallback command can record the action, stop. Do not print JSON or prose as a substitute."
     );
     expect(prompt).toContain(
       "Do not finish with an explanation of what you will do."
+    );
+    expect(prompt).toContain(
+      "Never publish a shell, CLI, MCP, or transport failure message as the user's normal Space reply."
+    );
+    expect(prompt).toContain(
+      "If the previous turn tried an action and that transport failed, retry the same intended action and message through the dispatch-scoped tool."
     );
     expect(prompt).toContain(
       "Any @name text in the body is only prose in the agent path; it does not define OpenMeld targets."
@@ -741,7 +747,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     expect(prompt).not.toContain("```openmeld-space-action");
   });
 
-  it("uses the dispatch CLI entry in the repair prompt", () => {
+  it("uses the dispatch-owned CLI path in the repair prompt", () => {
     const prompt = buildStructuredActionRepairPrompt({
       cliEntry: "openmeld-dev",
       parseError: "malformed JSON",
@@ -749,7 +755,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     });
 
     expect(prompt).toContain(
-      'For a normal reply, call the OpenMeld Space Action `reply` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command `openmeld-dev space action reply "corrected public message"` and wait for it to finish.'
+      'For a normal reply, call the dispatch-scoped OpenMeld Space Action `reply` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "corrected public message"` and wait for it to finish.'
     );
     expect(prompt).not.toContain("space history");
     expect(prompt).not.toContain("space guide");

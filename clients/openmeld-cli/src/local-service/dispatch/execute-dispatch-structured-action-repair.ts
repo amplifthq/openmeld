@@ -12,6 +12,7 @@ import {
   resolvePublicAgentFailureReason,
   resolveSpacePublicationRequirement,
 } from "@openmeld/space-mesh";
+import { DISPATCH_SPACE_ACTION_CLI_FALLBACK_COMMAND } from "../../runtime/dispatch-runtime-env";
 import { normalizeOptionalText } from "../core/logger";
 import {
   normalizeOptionalContextId,
@@ -100,7 +101,6 @@ export function buildStructuredActionRepairPrompt(input: {
   previousOutput?: string | null;
 }): string {
   const previousOutput = buildBoundedRepairOutputPreview(input.previousOutput);
-  const cliEntry = normalizeOptionalText(input.cliEntry) ?? "openmeld";
   const publicationRequirement = resolveSpacePublicationRequirement(
     input.spaceContractSnapshot
   );
@@ -109,7 +109,9 @@ export function buildStructuredActionRepairPrompt(input: {
     ...(previousOutput
       ? ["Your previous final answer was:", "```text", previousOutput, "```"]
       : []),
-    "Do not redo the user's work or change the answer.",
+    "Do not redo the user's work or change the intended public outcome.",
+    "Never publish a shell, CLI, MCP, or transport failure message as the user's normal Space reply.",
+    "If the previous turn tried an action and that transport failed, retry the same intended action and message through the dispatch-scoped tool.",
     ...SPACE_ACTION_CONTEXT_GUIDANCE_LINES,
     "Your answer text never selects an OpenMeld Space action.",
     "Call exactly one dispatch-scoped OpenMeld Space Action tool now.",
@@ -126,14 +128,12 @@ export function buildStructuredActionRepairPrompt(input: {
     ),
     "Use the official `openmeld-cli` skill for future OpenMeld work.",
     ...buildStructuredActionRepairCompletionLines({
-      cliEntry,
       publicationRequirement,
     }),
   ].join("\n");
 }
 
 function buildStructuredActionRepairCompletionLines(input: {
-  cliEntry: string;
   publicationRequirement: ReturnType<typeof resolveSpacePublicationRequirement>;
 }): string[] {
   return [
@@ -157,17 +157,16 @@ function buildBoundedRepairOutputPreview(value: unknown): string | null {
 }
 
 function buildStructuredActionRepairPrimaryCommandLine(input: {
-  cliEntry: string;
   publicationRequirement: ReturnType<typeof resolveSpacePublicationRequirement>;
 }): string {
   if (input.publicationRequirement.allowedActions.includes("post_message")) {
-    return `For a normal reply, call the OpenMeld Space Action \`reply\` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command \`${input.cliEntry} space action reply "corrected public message"\` and wait for it to finish.`;
+    return `For a normal reply, call the dispatch-scoped OpenMeld Space Action \`reply\` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command \`${DISPATCH_SPACE_ACTION_CLI_FALLBACK_COMMAND} space action reply "corrected public message"\` and wait for it to finish.`;
   }
   if (input.publicationRequirement.allowedActions.includes("post_status")) {
-    return `For a final status, call the OpenMeld Space Action \`status\` tool with a final-safe status and short update. If that tool is unavailable, run the fallback CLI command \`${input.cliEntry} space action status done "short completion update"\` and wait for it to finish.`;
+    return `For a final status, call the dispatch-scoped OpenMeld Space Action \`status\` tool with a final-safe status and short update. If that tool is unavailable, run the fallback CLI command \`${DISPATCH_SPACE_ACTION_CLI_FALLBACK_COMMAND} space action status done "short completion update"\` and wait for it to finish.`;
   }
   if (input.publicationRequirement.allowedActions.includes("stay_silent")) {
-    return `If no public reply is needed, call the OpenMeld Space Action \`stay_silent\` tool with your reason. If that tool is unavailable, run the fallback CLI command \`${input.cliEntry} space action silent --reason "reason"\` and wait for it to finish.`;
+    return `If no public reply is needed, call the dispatch-scoped OpenMeld Space Action \`stay_silent\` tool with your reason. If that tool is unavailable, run the fallback CLI command \`${DISPATCH_SPACE_ACTION_CLI_FALLBACK_COMMAND} space action silent --reason "reason"\` and wait for it to finish.`;
   }
   return "No permitted OpenMeld Space action is available. Do not invent one in answer text.";
 }

@@ -108,14 +108,12 @@ describe("local service dispatch bootstrap prompt", () => {
     expect(prompt).toContain(
       "Current Wake message:\nSummarize today's status.\n\nMandatory completion:"
     );
+    expect(prompt).toContain("- Plain text is not a Space reply.");
     expect(prompt).toContain(
-      "- Plain text stays local; it is never a public Space reply."
+      '- Normal completion: call dispatch-scoped Space Action `reply` with the exact public message. Only if unavailable: `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"` and wait for it to finish.'
     );
     expect(prompt).toContain(
-      '- Normal completion: call Space Action `reply` with your exact public message. CLI fallback if unavailable: `openmeld space action reply "your public message"` and wait for it to finish.'
-    );
-    expect(prompt).toContain(
-      "- Stop after one action is recorded; that action is the public outcome."
+      "- Stop after one action; it is the public outcome."
     );
     expect(prompt).not.toContain("Canonical post_message block:");
     expect(prompt).not.toContain("```openmeld-space-action");
@@ -231,10 +229,10 @@ describe("local service dispatch bootstrap prompt", () => {
       "Decide from the current Wake message and structured addressing before reading Space history or using any tool."
     );
     expect(prompt).toContain(
-      "If you are only named as a candidate, example, alternative, or possible helper while another Agent owns the request"
+      "If you are only a candidate, example, alternative, or possible helper while another Agent owns the request"
     );
     expect(prompt).toContain(
-      '`openmeld-dev space action silent --reason "activation_intent.referenced_or_candidate"`'
+      '`"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action silent --reason "activation_intent.referenced_or_candidate"`'
     );
     expect(prompt).toContain(
       "An explicit Wake target does not by itself prove that the words assign work to you."
@@ -257,10 +255,10 @@ describe("local service dispatch bootstrap prompt", () => {
       prompt.slice(prompt.indexOf("Mandatory completion:"))
     ).toMatchInlineSnapshot(`
         "Mandatory completion:
-        - Plain text stays local; it is never a public Space reply.
-        - Normal completion: call Space Action \`reply\` with your exact public message. CLI fallback if unavailable: \`openmeld space action reply "your public message"\` and wait for it to finish.
-        - Stop after one action is recorded; that action is the public outcome.
-        - If neither path can record it, stop. Do not substitute prose or JSON."
+        - Plain text is not a Space reply.
+        - Normal completion: call dispatch-scoped Space Action \`reply\` with the exact public message. Only if unavailable: \`"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"\` and wait for it to finish.
+        - Stop after one action; it is the public outcome.
+        - If both fail, stop; prose/JSON are not actions."
       `);
   });
 
@@ -400,7 +398,7 @@ describe("local service dispatch bootstrap prompt", () => {
       "- Need more: run `openmeld-dev space board space_dev` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at https://openmeld.ai/guide.md / run `openmeld-dev prompt space`."
     );
     expect(prompt).toContain(
-      'CLI fallback if unavailable: `openmeld-dev space action reply "your public message"`'
+      'Only if unavailable: `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"`'
     );
     expect(prompt).not.toContain("prompt space-action --raw");
     expect(prompt).not.toContain("npx -y openmeld@latest space action");
@@ -426,7 +424,7 @@ describe("local service dispatch bootstrap prompt", () => {
       "Run `openmeld-dev service update` after the current Wake finishes."
     );
     expect(prompt).toContain(
-      '- Normal completion: call Space Action `reply` with your exact public message. CLI fallback if unavailable: `openmeld-dev space action reply "your public message"` and wait for it to finish.'
+      '- Normal completion: call dispatch-scoped Space Action `reply` with the exact public message. Only if unavailable: `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"` and wait for it to finish.'
     );
   });
 
