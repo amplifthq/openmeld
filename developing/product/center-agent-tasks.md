@@ -178,6 +178,10 @@ The first implementation deliberately ships a smaller requester-private slice:
 - Task list reads are cursor-paginated. Task detail currently returns its full
   product event and attempt history; event pagination must land before this
   surface is used for unbounded, high-volume conversations.
+- Web and the Center Agent model-visible read tools use the same requester-private
+  Core list and detail service. The tool caller carries the verified current
+  speaker, Core derives the requester from that identity, and no model-supplied
+  requester id or Organization id can select another member's Tasks.
 - Web refreshes active Task detail every three seconds and the board every five
   seconds while in the foreground. No Task live-invalidation protocol ships in
   Phase 1, so no surface may claim realtime updates.

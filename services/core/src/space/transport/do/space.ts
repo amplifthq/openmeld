@@ -54,6 +54,7 @@ import {
   postSpaceThreadSignalBodySchema,
   postSpaceWakeStopInputSchema,
   postSpaceWakeStopResponseSchema,
+  projectSpaceDispatchTraceFinalVisibleOutcome,
   projectTargetWakeLifecycleIdentity,
   putSpaceContractBodySchema,
   REMOTE_AGENT_FAILURE_PURPOSE,
@@ -597,10 +598,7 @@ import {
   buildDirectMessageDispatchReadyDecisions,
 } from "../../rules/dispatch/direct-message-dispatch";
 import { resolveDispatchContinuitySnapshotForDecision } from "../../rules/dispatch/dispatch-continuity";
-import {
-  isFinalOutcomeTextPurpose,
-  projectSpaceDispatchTraceFinalVisibleOutcome,
-} from "../../rules/dispatch/space-final-outcome";
+import { isFinalOutcomeTextPurpose } from "../../rules/dispatch/space-final-outcome";
 import {
   resolveVisibleTimelineSignalTypes,
   VISIBLE_SPACE_TIMELINE_SIGNAL_TYPES,

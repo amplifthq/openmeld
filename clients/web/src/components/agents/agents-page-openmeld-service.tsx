@@ -1527,29 +1527,28 @@ function OpenMeldToolsComponentDetails(input: {
 	items: readonly OpenMeldToolsComponentDetailsItem[];
 }) {
 	return (
-		<div className="grid grid-cols-1 border-border/60 border-t pt-4 sm:grid-cols-3">
-			{input.items.map((item, index) => (
+		<div
+			className="flex flex-col border-border/60 border-t"
+			data-testid="openmeld-tools-component-details"
+		>
+			{input.items.map((item) => (
 				<div
-					className={cn(
-						"border-border/60 py-2",
-						index > 0 && "sm:border-l sm:pl-4",
-						index < input.items.length - 1
-							? "border-b pb-4 sm:border-b-0 sm:pr-4 sm:pb-2"
-							: null
-					)}
+					className="flex flex-col gap-1 border-border/60 border-b py-3 first:pt-4 last:border-b-0 last:pb-0"
 					key={item.label}
 				>
-					<OpenMeldToolsComponentLabel item={item} />
-					<p
-						className={cn(
-							"mt-1 font-medium text-sm",
-							resolveOpenMeldToolsComponentValueClassName(item.tone)
-						)}
-					>
-						{item.value}
-					</p>
+					<div className="flex items-center justify-between gap-3">
+						<OpenMeldToolsComponentLabel item={item} />
+						<p
+							className={cn(
+								"shrink-0 text-right font-medium text-sm",
+								resolveOpenMeldToolsComponentValueClassName(item.tone)
+							)}
+						>
+							{item.value}
+						</p>
+					</div>
 					{item.description ? (
-						<div className="mt-2 min-w-0 text-muted-foreground text-xs leading-5 max-lg:break-words lg:truncate">
+						<div className="text-muted-foreground text-xs leading-5">
 							{item.description}
 						</div>
 					) : null}
