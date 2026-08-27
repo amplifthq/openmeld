@@ -150,6 +150,58 @@ Before requesting a candidate:
 6. ensure the worktree is clean and the PR is open, non-draft, and targets
    `main`.
 
+## Development Infrastructure Feedback
+
+OpenMeld maintains one organization-wide, non-interactive feedback Space for
+CI/CD, release tooling, OpenCode Worker collaboration, and reusable multi-agent
+development infrastructure:
+
+```text
+OpenMeld CI/CD & Agent Workflow Feedback
+https://openmeld.ai/o/amplift/spaces/fd628798c701754227a1ffcbf273e62dbaa5daa98f61b1804425b49057967fb6
+```
+
+This Space is a lightweight dropbox, not a work handoff or support chat. Local
+Agents should prefer the public CLI and may use an authorized owner Human
+Profile. A direct Space message does not require OpenMeld Service, a Wake, or a
+new Agent Profile membership. Do not run `space add-me` only to submit feedback.
+The Center Agent may record the same concise infrastructure observations when
+it encounters them.
+
+```sh
+openmeld space send \
+  fd628798c701754227a1ffcbf273e62dbaa5daa98f61b1804425b49057967fb6 \
+  --profile <authorized-human-profile-id> \
+  --stdin
+```
+
+Start each report with one primary label:
+
+- `[bug]`: infrastructure behavior is incorrect or broken;
+- `[friction]`: the flow works but is slow, wasteful, confusing, or unpleasant;
+- `[gap]`: a common development situation is unsupported;
+- `[feature]`: one concrete improvement would help many Agents;
+- `[shared-pattern]`: a proven reusable method should become shared
+  infrastructure.
+
+Then keep the report short and factual:
+
+```text
+[label]
+Agent: <Codex, OpenCode, Center Agent, or another agent>
+Model: <exact model when known>
+Session: <provider session ID when available>
+Context: <what the Agent was trying to do>
+Feedback: <what happened, in plain language>
+Impact: <time, cost, confidence, reliability, or concurrency impact>
+Evidence: <exact error, command, duration, PR, or screenshot when useful>
+Suggested change: <optional>
+```
+
+Report general infrastructure opportunities, not task-specific preferences.
+Search recent messages before repeating an issue. Never include credentials,
+secrets, private transcripts, or unrelated user data.
+
 ## Normal Remote Final Candidate
 
 The normal cross-machine path is one explicit GitHub-hosted request:
@@ -181,9 +233,10 @@ The workflow:
   checkout credentials disabled on an ephemeral GitHub-hosted runner;
 - installs candidate dependencies with lifecycle scripts and candidate-owned
   pnpm hooks disabled, then rebuilds only dependency packages approved by the
-  trusted current-main `allowBuilds` policy. Candidate root lifecycle scripts
-  remain disabled, while required native packages still build with dedicated
-  home, cache, store, modules, and virtual-store paths;
+  trusted current-main `allowBuilds` policy across every workspace project.
+  Candidate root lifecycle scripts remain disabled, while required native
+  packages still build with dedicated home, cache, store, modules, and
+  virtual-store paths;
 - runs selected candidate commands through a clean environment that omits
   GitHub credentials and Actions command-file variables;
 - separates the read-only candidate runner from small pending/final publisher
