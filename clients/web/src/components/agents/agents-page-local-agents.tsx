@@ -5,7 +5,6 @@ import {
 	formatAgentControllerInterfaceSummary,
 	getAgentControllerVersionAdvisoryPresentation,
 	resolveAgentControllerInterfaceDescription,
-	shouldExpandAgentControllerInterface,
 } from "@openmeld/agent-runtime";
 import {
 	compareAgentControllerRefsForDisplay,
@@ -41,8 +40,8 @@ import {
 import { SettingsActionMenu } from "@openmeld/ui/components/settings-action-menu";
 import {
 	SettingsLocalAgentAdvisoryBadge,
+	SettingsLocalAgentCardGrid,
 	type SettingsLocalAgentRow,
-	SettingsLocalAgentRows,
 	SettingsLocalAgentUsageLimits,
 	SettingsLocalAgentUsageSummary,
 } from "@openmeld/ui/components/settings-computers";
@@ -60,6 +59,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowsClockwiseIcon,
 	CheckIcon,
+	CopyIcon,
 	RobotIcon,
 	WrenchIcon,
 } from "@phosphor-icons/react";
@@ -77,6 +77,7 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
+import { copyCliEntryCommand } from "#/lib/cli-entry-command";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
 	readCurrentLocalAgentInstallations,
@@ -147,7 +148,7 @@ function TeamLocalAgentsCard(input: {
 	return (
 		<LocalAgentsCardFrame description="See which local agents are available on this computer. Only the computer owner can change these settings.">
 			{rows.length > 0 ? (
-				<SettingsLocalAgentRows rows={rows} />
+				<SettingsLocalAgentCardGrid rows={rows} />
 			) : (
 				<p className="text-muted-foreground text-sm">
 					No local agents have been reported from this computer yet.
@@ -183,6 +184,7 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 			<div className="space-y-4">
 				<SettingsLocalAgentUsageLimits
 					agentName={agent.displayName}
+					fillColumns
 					limits={agent.details?.usageLimits}
 				/>
 				<SettingsDetailList rows={detailRows} />
@@ -191,6 +193,7 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 		displayName: agent.displayName,
 		id: agent.agentId,
 		logoAgentId: agent.agentId,
+		summaryStatus: resolveTeamLocalAgentSummaryStatus(agent),
 		summaryMeta: agent.details
 			? formatAgentControllerInterfaceOperationalSummary(agent.details)
 			: null,
@@ -201,6 +204,24 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 			/>
 		),
 	};
+}
+
+function resolveTeamLocalAgentSummaryStatus(
+	agent: TeamLocalAgent
+): SettingsLocalAgentRow["summaryStatus"] {
+	if (!agent.enabled) {
+		return { label: "Off", tone: "muted" };
+	}
+	switch (agent.status) {
+		case "ready":
+			return { label: "Ready", tone: "ready" };
+		case "not_ready":
+			return { label: "Error", tone: "danger" };
+		case "stale":
+			return { label: "Error", tone: "danger" };
+		default:
+			return { label: "Not confirmed", tone: "muted" };
+	}
 }
 
 function resolveTeamLocalAgentDescription(agent: TeamLocalAgent): string {
@@ -969,39 +990,33 @@ function LocalAgentCatalogList(input: {
 			{input.showInstallGuideLink ? <LocalAgentInstallGuideLink /> : null}
 			<div className="grid gap-3" data-testid="local-agent-catalog-list">
 				{/* Local agent search is intentionally hidden while the supported agent list is short. */}
-				<div
-					className="max-h-[28rem] overflow-y-auto pr-1"
-					data-testid="local-agent-catalog-scroll-area"
-				>
-					<div data-testid="local-agent-catalog-rows">
-						<SettingsLocalAgentRows
-							rows={visibleEntries.map((entry) => {
-								const effectiveEntry = applyLocalAgentEnabledOverride({
-									enabledOverrides,
-									entry,
-								});
-								return buildLocalAgentCatalogRow({
-									accountEmailRevealed: revealedAccountEmailAgentIds.has(
-										entry.agentId
-									),
-									canRefreshCatalog: input.capabilities.refreshCatalog,
-									canManageInstallations:
-										input.capabilities.manageInstallations,
-									canSetEnabled: input.capabilities.setEnabled,
-									entry: effectiveEntry,
-									isCheckingAgents: input.isCheckingAgents,
-									muted: input.muted,
-									onCheckAgents: input.onCheckAgents,
-									onRefresh: input.onRefresh,
-									onRevealAccountEmail: revealAccountEmail,
-									onSetEnabled: requestSetEnabled,
-									pending: pendingAgentId === entry.agentId,
-									target: input.target,
-									targetStatus: input.targetStatus,
-								});
-							})}
-						/>
-					</div>
+				<div data-testid="local-agent-catalog-rows">
+					<SettingsLocalAgentCardGrid
+						rows={visibleEntries.map((entry) => {
+							const effectiveEntry = applyLocalAgentEnabledOverride({
+								enabledOverrides,
+								entry,
+							});
+							return buildLocalAgentCatalogRow({
+								accountEmailRevealed: revealedAccountEmailAgentIds.has(
+									entry.agentId
+								),
+								canRefreshCatalog: input.capabilities.refreshCatalog,
+								canManageInstallations: input.capabilities.manageInstallations,
+								canSetEnabled: input.capabilities.setEnabled,
+								entry: effectiveEntry,
+								isCheckingAgents: input.isCheckingAgents,
+								muted: input.muted,
+								onCheckAgents: input.onCheckAgents,
+								onRefresh: input.onRefresh,
+								onRevealAccountEmail: revealAccountEmail,
+								onSetEnabled: requestSetEnabled,
+								pending: pendingAgentId === entry.agentId,
+								target: input.target,
+								targetStatus: input.targetStatus,
+							});
+						})}
+					/>
 				</div>
 				{errorMessage ? (
 					<p className="text-destructive text-sm leading-5">{errorMessage}</p>
@@ -1564,6 +1579,13 @@ function buildLocalAgentCatalogRow(
 	].filter(
 		(status): status is LocalAgentCatalogRowSummaryStatus => status !== null
 	);
+	if (summaryStatuses.length === 0) {
+		summaryStatuses.push(
+			enabled
+				? { label: "Ready", tone: "ready" }
+				: { label: "Off", tone: "muted" }
+		);
+	}
 	const summaryAccessory = renderLocalAgentCatalogRowSummaryAccessory({
 		displayName: input.entry.displayName,
 		enabled,
@@ -1571,6 +1593,7 @@ function buildLocalAgentCatalogRow(
 	});
 
 	return {
+		advisory: summaryAccessory.advisory,
 		badge: display.label ? (
 			<Badge variant={display.badgeVariant}>{display.label}</Badge>
 		) : null,
@@ -1584,8 +1607,6 @@ function buildLocalAgentCatalogRow(
 				}}
 			/>
 		),
-		defaultExpanded:
-			enabled && shouldExpandAgentControllerInterface(agentControllerInterface),
 		description,
 		detail: renderLocalAgentCatalogRowDetail({
 			canChangeInstallation,
@@ -1599,7 +1620,7 @@ function buildLocalAgentCatalogRow(
 			input.muted ||
 			!enabled ||
 			agentControllerInterface?.auth.status === "unauthenticated",
-		summaryAccessory,
+		summaryAccessory: summaryAccessory.usage,
 		summaryMeta:
 			enabled && agentControllerInterface
 				? renderAgentControllerInterfaceSummary({
@@ -1618,28 +1639,71 @@ function renderLocalAgentCatalogRowSummaryAccessory(input: {
 	displayName: string;
 	enabled: boolean;
 	snapshot: AgentControllerInterfaceSnapshot | null;
-}): ReactNode {
+}): { advisory: ReactNode; usage: ReactNode } {
 	if (!(input.enabled && input.snapshot)) {
-		return null;
+		return { advisory: null, usage: null };
 	}
 	const versionAdvisory = getAgentControllerVersionAdvisoryPresentation(
 		input.snapshot
 	);
-	return (
-		<span className="inline-flex items-center gap-1.5">
-			{versionAdvisory ? (
-				<SettingsLocalAgentAdvisoryBadge
-					detail={versionAdvisory.detail}
-					label={versionAdvisory.label}
-					tone={versionAdvisory.tone}
-					updateCommand={versionAdvisory.updateCommand}
-				/>
-			) : null}
+	return {
+		advisory: versionAdvisory ? (
+			<SettingsLocalAgentAdvisoryBadge
+				detail={versionAdvisory.detail}
+				label={versionAdvisory.label}
+				tone={versionAdvisory.tone}
+				updateCommand={versionAdvisory.updateCommand}
+			/>
+		) : null,
+		usage: (
 			<SettingsLocalAgentUsageSummary
 				agentName={input.displayName}
 				limits={input.snapshot.usageLimits}
 			/>
-		</span>
+		),
+	};
+}
+
+function LocalAgentUpdateBanner(input: { command: string; detail: string }) {
+	const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
+	const copyCommand = async () => {
+		const didCopy = await copyCliEntryCommand(input.command);
+		if (didCopy) {
+			setCopyStatus("copied");
+			toast.success("Command copied.");
+		}
+	};
+	return (
+		<div className="flex flex-col gap-2">
+			<p className="text-amber-600 text-xs leading-5 dark:text-amber-300">
+				{input.detail}
+			</p>
+			<div className="flex items-center justify-between gap-3">
+				<code className="min-w-0 overflow-x-auto font-mono text-xs leading-5">
+					{input.command}
+				</code>
+				<Button
+					aria-label={
+						copyStatus === "copied" ? "Command copied" : "Copy command"
+					}
+					className="shrink-0"
+					onClick={() => {
+						copyCommand().catch((error: unknown) => {
+							console.error("Failed to copy update command.", error);
+						});
+					}}
+					size="icon-sm"
+					type="button"
+					variant="ghost"
+				>
+					{copyStatus === "copied" ? (
+						<CheckIcon aria-hidden="true" weight="bold" />
+					) : (
+						<CopyIcon aria-hidden="true" />
+					)}
+				</Button>
+			</div>
+		</div>
 	);
 }
 
@@ -1651,10 +1715,20 @@ function renderLocalAgentCatalogRowDetail(input: {
 	if (!input.snapshot) {
 		return null;
 	}
+	const versionAdvisory = getAgentControllerVersionAdvisoryPresentation(
+		input.snapshot
+	);
 	return (
 		<div className="space-y-3">
+			{versionAdvisory?.updateCommand ? (
+				<LocalAgentUpdateBanner
+					command={versionAdvisory.updateCommand}
+					detail={versionAdvisory.detail}
+				/>
+			) : null}
 			<SettingsLocalAgentUsageLimits
 				agentName={input.rowInput.entry.displayName}
+				fillColumns
 				limits={input.snapshot.usageLimits}
 			/>
 			<SettingsDetailList
@@ -1975,7 +2049,7 @@ function resolveLocalAgentSetupSummaryStatus(
 	if (entry.launchStatus === "needs_choice") {
 		return { label: "Choose setup", tone: "warning" };
 	}
-	return { label: "Needs repair", tone: "danger" };
+	return { label: "Error", tone: "danger" };
 }
 
 function resolveAgentControllerInterfaceSummaryStatus(
@@ -1985,7 +2059,7 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		return null;
 	}
 	if (snapshot.check?.status === "failed") {
-		return { label: "Couldn't check", tone: "warning" };
+		return { label: "Error", tone: "danger" };
 	}
 	if (snapshot.auth.status === "unauthenticated") {
 		// Signing in is a routine account state, not a computer failure: keep it
@@ -1993,10 +2067,10 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		return { label: "Not signed in", tone: "muted" };
 	}
 	if (snapshot.status === "error") {
-		return { label: "Needs repair", tone: "danger" };
+		return { label: "Error", tone: "danger" };
 	}
 	if (snapshot.status === "warning" || snapshot.status === "unavailable") {
-		return { label: "Needs attention", tone: "warning" };
+		return { label: "Error", tone: "danger" };
 	}
 	return null;
 }
