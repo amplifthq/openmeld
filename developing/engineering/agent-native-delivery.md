@@ -81,6 +81,7 @@ The Final Candidate engine prints and records:
 - every selected check, reason, and exact command;
 - every skipped check and reason;
 - command duration and pass/fail result;
+- complete redacted stdout/stderr in separate per-check command logs;
 - a bounded, redacted stdout/stderr tail and the original spawn error for a
   failed command;
 - execution mode (`remote` or `local`);
@@ -104,6 +105,12 @@ OpenMeld Final Candidate
 The hosted workflow and guarded local fallback both publish this context. The
 status is a compact merge fact; the workflow summary, artifact, or local PR
 comment carries the inspectable evidence.
+
+Normal terminal output stays compact: the exact plan, current check, result,
+duration, bounded failure tails, evidence path, and command-log location. It
+does not replay successful command output into an agent's context. Hosted runs
+upload the complete redacted per-check logs with the canonical evidence; local
+runs store them beside the evidence file.
 
 ## Development And Planning
 
@@ -185,7 +192,8 @@ The workflow:
 - validates live PR head, live PR base, current remote `main`, ancestry, and
   worktree cleanliness before and after checks;
 - publishes `OpenMeld Final Candidate` on the exact head;
-- preserves the JSON evidence and a readable job summary.
+- preserves the JSON evidence, complete redacted command logs, and a readable
+  job summary in one artifact.
 
 The runner job has read-only repository and PR permissions. Its selected check
 subprocesses receive no `GH_TOKEN`, `GITHUB_TOKEN`, or status-write credential.
@@ -214,6 +222,10 @@ validation, merge, or release. Run the same engine locally:
 git show origin/main:scripts/ci/trusted-final-candidate.sh | \
   bash -s -- local --pr <number>
 ```
+
+This is a fallback only. When GitHub Actions is available, use the normal
+hosted request so shared CI compute carries the final gate instead of competing
+with concurrent coding agents for workstation CPU, memory, and disk.
 
 This is not a manual claim of success. The command fetches live `main`, reads the
 live PR, creates a detached control worktree from current `main`, and runs that
