@@ -63,6 +63,29 @@ describe("ensureDispatchControllerOpenMeldSkill", () => {
     });
   });
 
+  it("repairs the current OpenClaw dispatch even while new setup is suspended", async () => {
+    await withTempHome(async (home) => {
+      const targetDir = join(home, "openclaw-skills");
+      await setConfiguredSkillsConfig({
+        agents: {
+          openclaw: { globalSkillsDir: targetDir },
+        },
+      });
+
+      await expect(
+        ensureDispatchControllerOpenMeldSkill({
+          agentControllerRef: "builtin:openclaw",
+        })
+      ).resolves.toMatchObject({
+        agentId: "openclaw",
+        status: "repaired",
+      });
+      await expect(
+        readFile(join(targetDir, "openmeld-cli", "SKILL.md"), "utf8")
+      ).resolves.toContain("name: openmeld-cli");
+    });
+  });
+
   it("does nothing for a controller outside the managed agent registry", async () => {
     await withTempHome(async () => {
       await expect(

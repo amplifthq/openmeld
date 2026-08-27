@@ -45,11 +45,7 @@ export async function ensureDispatchControllerOpenMeldSkill(input: {
     const skillsConfig = await getConfiguredSkillsConfig();
     const registry = resolveSkillsAgentRegistry(skillsConfig);
     const agent = registry[agentId];
-    if (
-      !agent?.globalSkillsDir ||
-      agent.skillsInstallable !== true ||
-      agent.lifecycleStatus === "removed"
-    ) {
+    if (!agent?.globalSkillsDir || agent.skillsInstallable !== true) {
       return { agentId, status: "unsupported" };
     }
     if (
