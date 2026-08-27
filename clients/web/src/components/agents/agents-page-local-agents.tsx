@@ -59,6 +59,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowsClockwiseIcon,
 	CheckIcon,
+	CopyIcon,
 	RobotIcon,
 	WrenchIcon,
 } from "@phosphor-icons/react";
@@ -76,6 +77,7 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
+import { copyCliEntryCommand } from "#/lib/cli-entry-command";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
 	readCurrentLocalAgentInstallations,
@@ -1662,6 +1664,49 @@ function renderLocalAgentCatalogRowSummaryAccessory(input: {
 	};
 }
 
+function LocalAgentUpdateBanner(input: { command: string; detail: string }) {
+	const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
+	const copyCommand = async () => {
+		const didCopy = await copyCliEntryCommand(input.command);
+		if (didCopy) {
+			setCopyStatus("copied");
+			toast.success("Command copied.");
+		}
+	};
+	return (
+		<div className="flex flex-col gap-2">
+			<p className="text-amber-600 text-xs leading-5 dark:text-amber-300">
+				{input.detail}
+			</p>
+			<div className="flex items-center justify-between gap-3">
+				<code className="min-w-0 overflow-x-auto font-mono text-xs leading-5">
+					{input.command}
+				</code>
+				<Button
+					aria-label={
+						copyStatus === "copied" ? "Command copied" : "Copy command"
+					}
+					className="shrink-0"
+					onClick={() => {
+						copyCommand().catch((error: unknown) => {
+							console.error("Failed to copy update command.", error);
+						});
+					}}
+					size="icon-sm"
+					type="button"
+					variant="ghost"
+				>
+					{copyStatus === "copied" ? (
+						<CheckIcon aria-hidden="true" weight="bold" />
+					) : (
+						<CopyIcon aria-hidden="true" />
+					)}
+				</Button>
+			</div>
+		</div>
+	);
+}
+
 function renderLocalAgentCatalogRowDetail(input: {
 	canChangeInstallation: boolean;
 	rowInput: BuildLocalAgentCatalogRowInput;
@@ -1670,8 +1715,17 @@ function renderLocalAgentCatalogRowDetail(input: {
 	if (!input.snapshot) {
 		return null;
 	}
+	const versionAdvisory = getAgentControllerVersionAdvisoryPresentation(
+		input.snapshot
+	);
 	return (
 		<div className="space-y-3">
+			{versionAdvisory?.updateCommand ? (
+				<LocalAgentUpdateBanner
+					command={versionAdvisory.updateCommand}
+					detail={versionAdvisory.detail}
+				/>
+			) : null}
 			<SettingsLocalAgentUsageLimits
 				agentName={input.rowInput.entry.displayName}
 				fillColumns

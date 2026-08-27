@@ -1224,7 +1224,7 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
       onClick={hasDialog ? openDetails : undefined}
       role="listitem"
     >
-      <div className="flex h-full min-w-0 gap-4 px-5 pt-4 pb-2">
+      <div className="flex min-w-0 gap-4 px-5 pt-5 pb-4">
         {/* The quiet account states (Off, Not signed in) are the only ones that
             dim the card; a stale service snapshot still shows full-color
             content because the switch and the reported status stay real. */}
@@ -1292,7 +1292,7 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
         </div>
       </div>
       {hasDialog ? (
-        <div className="flex justify-end px-5 pb-2.5">
+        <div className="flex justify-end px-5 pb-3.5">
           <button
             aria-label={`${row.displayName} details`}
             className="inline-flex items-center gap-0.5 rounded-sm text-muted-foreground text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
@@ -1303,7 +1303,7 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
             }}
             type="button"
           >
-            More
+            Details
             <CaretRightIcon aria-hidden="true" className="size-3.5" />
           </button>
         </div>
@@ -1323,7 +1323,8 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
               <div className="flex min-w-0 items-center gap-3">
                 <SettingsLocalAgentIcon
                   agentId={row.logoAgentId ?? row.id}
-                  muted={row.muted === true}
+                  muted={status.tone === "muted"}
+                  size="lg"
                 />
                 <div className="min-w-0 space-y-1">
                   <DialogTitle className="font-medium text-base">
@@ -1377,13 +1378,13 @@ function SettingsLocalAgentIcon({
       <span
         aria-hidden="true"
         className={cn(
-          "grid size-12 shrink-0 place-items-center",
+          "grid size-10 shrink-0 place-items-center",
           muted ? "text-muted-foreground opacity-50" : "text-foreground"
         )}
       >
         <LocalAgentLogo
           agentId={agentId}
-          className="size-9"
+          className="size-10"
           size="md"
           variant="plain"
         />
