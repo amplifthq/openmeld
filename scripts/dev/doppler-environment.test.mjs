@@ -16,6 +16,7 @@ import {
   buildDopplerComponentCommand,
   buildInjectedComponentEnvironment,
   buildInjectedEnvironment,
+  buildInjectedStagingComponentEnvironment,
   buildNestedDopplerCommand,
   DEVELOPMENT_SECRET_SOURCES,
   findLocalShadowFiles,
@@ -225,6 +226,10 @@ test("keeps staging readiness scoped to the minimal stg secret set", () => {
       "openmeld-remote-agent",
     ]
   );
+  assert.deepEqual(STAGING_WORKER_SECRET_SOURCES[0].requiredSecrets, [
+    "CLOUDFLARE_ACCOUNT_ID",
+    "CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN",
+  ]);
 });
 
 test("gives each staging deployable only the secrets it needs", () => {
@@ -338,6 +343,23 @@ test("passes only one component's managed secrets into its runtime", () => {
       SLACK_OPENMELD_OAUTH_CLIENT_ID: "gateway-client-id",
       SLACK_OPENMELD_OAUTH_CLIENT_SECRET: "gateway-client-secret",
       SLACK_OPENMELD_SIGNING_SECRET: "gateway-signing-secret",
+    }
+  );
+});
+
+test("maps the stable OpenMeld release token name only at the staging command boundary", () => {
+  assert.deepEqual(
+    buildInjectedStagingComponentEnvironment("core", {
+      CLOUDFLARE_ACCOUNT_ID: "account-id",
+      CLOUDFLARE_API_TOKEN: "stale-native-token",
+      CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "must-not-reach-core",
+      CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: "staging-release-token",
+      EXISTING_VALUE: "kept",
+    }),
+    {
+      CLOUDFLARE_ACCOUNT_ID: "account-id",
+      CLOUDFLARE_API_TOKEN: "staging-release-token",
+      EXISTING_VALUE: "kept",
     }
   );
 });

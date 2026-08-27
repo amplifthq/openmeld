@@ -9,7 +9,11 @@ const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const INTERNAL_CHECK_SOURCE_COMMAND = "__check-source";
 const INTERNAL_RUN_COMPONENT_COMMAND = "__run-component";
+const INTERNAL_RUN_STAGING_COMPONENT_COMMAND = "__run-staging-component";
 const DOPPLER_CLI_INSTALL_URL = "https://docs.doppler.com/docs/install-cli";
+const CLOUDFLARE_NATIVE_API_TOKEN_VARIABLE = "CLOUDFLARE_API_TOKEN";
+const OPENMELD_RELEASE_API_TOKEN_VARIABLE =
+  "CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN";
 
 export const DEVELOPMENT_ENVIRONMENT_SOURCE_VARIABLE =
   "OPENMELD_DEV_ENVIRONMENT_SOURCE";
@@ -87,7 +91,10 @@ export const STAGING_WORKER_SECRET_SOURCES = [
     config: "stg",
     optionalSecrets: [],
     project: "openmeld-release",
-    requiredSecrets: ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"],
+    requiredSecrets: [
+      "CLOUDFLARE_ACCOUNT_ID",
+      OPENMELD_RELEASE_API_TOKEN_VARIABLE,
+    ],
   },
   {
     config: "stg",
@@ -234,17 +241,17 @@ async function main() {
         process.exitCode = readinessExitCode;
         return;
       }
-      process.exitCode =
-        sources.length === 0
-          ? await runCommand(targetArgs[0], targetArgs.slice(1), {
-              cwd: process.cwd(),
-              env: stripManagedSecrets(process.env, allManagedSecretSources()),
-            })
-          : await launchWithDoppler({
-              cwd: process.cwd(),
-              sources,
-              terminalArgs: targetArgs,
-            });
+      process.exitCode = await launchWithDoppler({
+        cwd: process.cwd(),
+        sources,
+        terminalArgs: [
+          process.execPath,
+          scriptPath,
+          INTERNAL_RUN_STAGING_COMPONENT_COMMAND,
+          component,
+          ...targetArgs,
+        ],
+      });
       return;
     }
     case INTERNAL_CHECK_SOURCE_COMMAND:
@@ -252,6 +259,9 @@ async function main() {
       return;
     case INTERNAL_RUN_COMPONENT_COMMAND:
       await runInjectedComponentCommand(args[0], args.slice(1));
+      return;
+    case INTERNAL_RUN_STAGING_COMPONENT_COMMAND:
+      await runInjectedStagingComponentCommand(args[0], args.slice(1));
       return;
     default:
       printHelp();
@@ -358,6 +368,33 @@ export function buildInjectedComponentEnvironment(
     }
   }
   injectedEnvironment[DOPPLER_DEVELOPMENT_COMPONENT_VARIABLE] = component;
+  return injectedEnvironment;
+}
+
+export function buildInjectedStagingComponentEnvironment(
+  component,
+  env = process.env
+) {
+  const sources = resolveStagingComponentSources(component);
+  const injectedEnvironment = stripManagedSecrets(
+    env,
+    allManagedSecretSources()
+  );
+  delete injectedEnvironment[CLOUDFLARE_NATIVE_API_TOKEN_VARIABLE];
+
+  for (const secretName of getSecretNames(sources)) {
+    if (
+      secretName in env &&
+      secretName !== OPENMELD_RELEASE_API_TOKEN_VARIABLE
+    ) {
+      injectedEnvironment[secretName] = env[secretName];
+    }
+  }
+
+  if (OPENMELD_RELEASE_API_TOKEN_VARIABLE in env) {
+    injectedEnvironment[CLOUDFLARE_NATIVE_API_TOKEN_VARIABLE] =
+      env[OPENMELD_RELEASE_API_TOKEN_VARIABLE];
+  }
   return injectedEnvironment;
 }
 
@@ -520,6 +557,27 @@ async function runInjectedComponentCommand(component, args) {
   const exitCode = await runCommand(args[0], args.slice(1), {
     cwd: process.cwd(),
     env: buildInjectedComponentEnvironment(component),
+  });
+  process.exitCode = exitCode;
+}
+
+async function runInjectedStagingComponentCommand(component, args) {
+  const sources = resolveStagingComponentSources(component);
+  const inspection = inspectEnvironment(sources);
+  if (inspection.missingRequiredSecrets.length > 0) {
+    throw new Error(
+      `${component} staging environment is missing: ${inspection.missingRequiredSecrets.join(", ")}`
+    );
+  }
+  if (args.length === 0) {
+    throw new Error(
+      `Doppler did not receive a ${component} staging command to run.`
+    );
+  }
+
+  const exitCode = await runCommand(args[0], args.slice(1), {
+    cwd: process.cwd(),
+    env: buildInjectedStagingComponentEnvironment(component),
   });
   process.exitCode = exitCode;
 }
