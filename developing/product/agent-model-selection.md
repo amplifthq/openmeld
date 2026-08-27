@@ -549,9 +549,15 @@ second copy of the settings. A Service that advertises
 it has applied. Runtime Transport delivers only when that report exactly matches
 the frozen dispatch identity; otherwise it rejects with
 `daemon.profile.configuration_not_synced` and the existing retry path waits for
-route-catalog convergence. Old Services do not advertise the capability, so
-Core strips the additive identity fields before delivery and preserves the
-previous behavior during rollout.
+route-catalog convergence. When the Service still reports an older revision for
+the same Binding id — ordinary post-settings-write propagation — Runtime
+Transport first holds delivery inside a bounded convergence window, nudges the
+Service to re-sync its expected routes, and delivers as soon as its next
+register report matches, so an immediate Wake does not need a manual retry. If
+the window expires or anything other than upward propagation is observed, it
+fails closed with the same reason code and diagnostics. Old Services do not
+advertise the capability, so Core strips the additive identity fields before
+delivery and preserves the previous behavior during rollout.
 
 ---
 

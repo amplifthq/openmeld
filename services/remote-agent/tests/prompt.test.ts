@@ -540,14 +540,20 @@ describe("remote agent system prompt", () => {
     );
   });
 
-  it("guides the Center Agent to link tool-returned Spaces through trusted navigation actions", () => {
+  it("makes navigation actions an explicit presentation choice", () => {
     const prompt = buildTestSystemPrompt();
 
     expect(prompt).toContain(
-      "Whenever an OpenMeld tool returns a navigationAction, rely on that exact structured action"
+      "Navigation Actions are explicit presentation choices, not automatic consequences of reading or changing a resource."
     );
     expect(prompt).toContain(
-      "OpenMeld Web renders the most recent top-level action as a clickable button"
+      "Do not present an action solely because a tool result contains a routable Space, Project, Projects list, App, or Computer recommendation."
+    );
+    expect(prompt).toContain(
+      "Call openmeld_get_navigation_action only when opening that exact destination is the one concrete next step that advances the user's current request, or the user explicitly asked to open it."
+    );
+    expect(prompt).toContain(
+      "OpenMeld Web renders that explicitly selected action as a clickable button"
     );
     expect(prompt).toContain(
       "Do not repeat those private identity-link URLs as Markdown or plain text"
@@ -559,7 +565,7 @@ describe("remote agent system prompt", () => {
       "When GitHub is not ready and the tool says the Open GitHub access action is available, direct the user to that action without inventing or repeating a URL"
     );
     expect(prompt).toContain(
-      "For computer setup, reconnect, or a required OpenMeld Service update"
+      "Copy the exact target ID, computer mode, and connectedComputerId from trusted OpenMeld results; never infer them."
     );
     expect(prompt).toContain(
       "Before offering to set up, reconnect, or update a computer, use openmeld_list_computers"

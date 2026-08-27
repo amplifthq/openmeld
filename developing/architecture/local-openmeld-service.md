@@ -1005,7 +1005,12 @@ When every route came from negotiated expected-routes `v3`, the Service also
 advertises `profileConfigurationRevision: true` and reports each route's
 `bindingId` and `configurationRevision`. Runtime Transport compares that applied
 identity with the identity frozen for the accepted dispatch. A mismatch returns
-`daemon.profile.configuration_not_synced` before local execution starts. The
+`daemon.profile.configuration_not_synced` before local execution starts. When
+the mismatch is ordinary propagation (an older revision for the same Binding
+id), Runtime Transport first holds delivery inside a bounded convergence window
+and nudges the Service to re-sync its route catalog, so an immediate Wake after
+an acknowledged settings write does not require a manual second Wake. An expired
+or non-propagating mismatch still fails closed with the same reason code. The
 Service omits the capability and revision report when it had to use an older
 expected-routes contract, so an old Core/Service pairing keeps the prior
 behavior instead of failing during a rolling upgrade.
