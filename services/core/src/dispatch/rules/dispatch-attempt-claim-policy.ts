@@ -1,4 +1,4 @@
-import type { OpenMeldDaemonDispatchDeliveryRecoveryReason as SharedOpenMeldDaemonDispatchDeliveryRecoveryReason } from "@openmeld/schemas/types";
+import type { OpenMeldDaemonDispatchQueueRecoveryReason } from "@openmeld/schemas/types";
 import {
   isDispatchLifecycleFresh,
   isTerminalDispatchState,
@@ -9,8 +9,7 @@ import {
 } from "./dispatch-lifecycle-contract";
 import { shouldDedupeWithinWindow } from "./dispatch-runtime-constants";
 
-export type OpenMeldDaemonDispatchDeliveryRecoveryReason =
-  SharedOpenMeldDaemonDispatchDeliveryRecoveryReason;
+type DispatchQueueRecoveryReason = OpenMeldDaemonDispatchQueueRecoveryReason;
 
 export type DispatchClaimExistingLedgerSnapshot = {
   attemptCount: number;
@@ -34,8 +33,13 @@ export type DispatchClaimLatestAttemptSnapshot = {
 export type DispatchAttemptClaimDecision =
   | { kind: "claim_new" }
   | {
+      attemptId: string;
+      attemptNo: number;
+      kind: "resume_hosted_admission";
+    }
+  | {
       kind: "claim_recovery";
-      deliveryRecoveryReason: OpenMeldDaemonDispatchDeliveryRecoveryReason;
+      deliveryRecoveryReason: DispatchQueueRecoveryReason;
     }
   | {
       kind: "continue_existing";
@@ -48,29 +52,29 @@ export type DispatchAttemptClaimDecision =
   | { kind: "dedupe" }
   | {
       kind: "reclaim_stale_queued";
-      deliveryRecoveryReason: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+      deliveryRecoveryReason: DispatchQueueRecoveryReason | null;
     }
   | {
       kind: "reclaim_stale_dispatching";
-      deliveryRecoveryReason: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+      deliveryRecoveryReason: DispatchQueueRecoveryReason | null;
     }
   | {
       kind: "claim_existing_inside_window";
-      deliveryRecoveryReason: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+      deliveryRecoveryReason: DispatchQueueRecoveryReason | null;
     }
   | {
       kind: "reset_existing";
-      deliveryRecoveryReason: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+      deliveryRecoveryReason: DispatchQueueRecoveryReason | null;
     };
 
 export const resolveDispatchDeliveryRecoveryReason = (input: {
-  requestedRecoveryReason?: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+  requestedRecoveryReason?: DispatchQueueRecoveryReason | null;
   existingStatus: OpenMeldDaemonDispatchState | null;
   latestAttempt: {
     errorCode: string | null;
     status: OpenMeldDaemonDispatchAttemptState | null;
   } | null;
-}): OpenMeldDaemonDispatchDeliveryRecoveryReason | null => {
+}): DispatchQueueRecoveryReason | null => {
   if (
     input.requestedRecoveryReason === "connection_replaced" ||
     input.requestedRecoveryReason === "route_lost"
@@ -103,11 +107,18 @@ export const resolveDispatchAttemptClaimDecision = (input: {
   existing: DispatchClaimExistingLedgerSnapshot;
   latestAttempt: DispatchClaimLatestAttemptSnapshot;
   nowMs: number;
-  requestedRecoveryReason?: OpenMeldDaemonDispatchDeliveryRecoveryReason | null;
+  requestedDispatchId?: string;
+  requestedRecoveryReason?: DispatchQueueRecoveryReason | null;
   staleReclaimMs: number;
 }): DispatchAttemptClaimDecision => {
   if (!input.existing) {
     return { kind: "claim_new" };
+  }
+
+  const hostedAdmissionRecoveryDecision =
+    resolveHostedAdmissionRecoveryDecision(input);
+  if (hostedAdmissionRecoveryDecision) {
+    return hostedAdmissionRecoveryDecision;
   }
 
   const deliveryRecoveryReason = resolveDispatchDeliveryRecoveryReason({
@@ -192,5 +203,31 @@ export const resolveDispatchAttemptClaimDecision = (input: {
   return {
     kind: "claim_existing_inside_window",
     deliveryRecoveryReason,
+  };
+};
+
+const resolveHostedAdmissionRecoveryDecision = (input: {
+  existing: DispatchClaimExistingLedgerSnapshot;
+  latestAttempt: DispatchClaimLatestAttemptSnapshot;
+  requestedDispatchId?: string;
+  requestedRecoveryReason?: DispatchQueueRecoveryReason | null;
+}): Extract<
+  DispatchAttemptClaimDecision,
+  { kind: "resume_hosted_admission" }
+> | null => {
+  if (
+    input.requestedRecoveryReason !== "hosted_admission_incomplete" ||
+    !input.existing ||
+    input.existing.dispatchId !== input.requestedDispatchId ||
+    !input.latestAttempt?.attemptId ||
+    input.latestAttempt.status !==
+      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching
+  ) {
+    return null;
+  }
+  return {
+    attemptId: input.latestAttempt.attemptId,
+    attemptNo: input.latestAttempt.attemptNo,
+    kind: "resume_hosted_admission",
   };
 };

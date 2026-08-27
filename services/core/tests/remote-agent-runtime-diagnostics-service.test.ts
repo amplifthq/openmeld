@@ -10,6 +10,39 @@ import {
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 
 describe("Remote Agent runtime diagnostics service", () => {
+  it("keeps pre-admission dispatch details readable before runtime identity exists", async () => {
+    const suffix = randomUUID();
+    const dispatchId = `dispatch-pre-admission-${suffix}`;
+    const idempotencyKey = `remote-agent:${dispatchId}`;
+    const spaceId = `space-${suffix}`;
+    const targetProfileId = "agt_22222222-2222-4222-8222-222222222222";
+    await upsertRemoteAgentNativeDeliveryRecord({
+      attemptId: `attempt-${suffix}`,
+      bindingId: `binding-${suffix}`,
+      db: env.OPENMELD_DB,
+      dispatchId,
+      idempotencyKey,
+      nowMs: Date.now(),
+      organizationId: `org-${suffix}`,
+      profileId: targetProfileId,
+      spaceId,
+      status: "submitted",
+      triggerMessageId: `signal-${suffix}`,
+    });
+    const readRuntimeDiagnostics = vi.fn();
+
+    await expect(
+      readRemoteAgentRuntimeDiagnosticsForDispatch({
+        db: env.OPENMELD_DB,
+        dispatchId,
+        remoteAgentWorker: { readRuntimeDiagnostics },
+        spaceId,
+        targetProfileId,
+      })
+    ).resolves.toBeNull();
+    expect(readRuntimeDiagnostics).not.toHaveBeenCalled();
+  });
+
   it("reads the exact runtime generation frozen on the dispatch", async () => {
     const suffix = randomUUID();
     const dispatchId = `dispatch-${suffix}`;

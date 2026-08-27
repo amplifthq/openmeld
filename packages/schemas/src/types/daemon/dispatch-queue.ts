@@ -3,6 +3,10 @@ export type OpenMeldDaemonDispatchDeliveryRecoveryReason =
     typeof import("../../schemas/daemon/dispatch-queue")["openMeldDaemonDispatchDeliveryRecoveryReasonSchema"]
   >;
 
+export type OpenMeldDaemonDispatchQueueRecoveryReason = import("zod/v4").infer<
+  typeof import("../../schemas/daemon/dispatch-queue")["openMeldDaemonDispatchQueueRecoveryReasonSchema"]
+>;
+
 export type OpenMeldDaemonDispatchReplyToSnapshot = import("zod/v4").infer<
   typeof import("../../schemas/daemon/dispatch-queue")["openMeldDaemonDispatchReplyToSnapshotSchema"]
 >;

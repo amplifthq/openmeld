@@ -1,12 +1,13 @@
-import type { OpenMeldDaemonDispatchDeliveryRecoveryReason } from "@openmeld/schemas/types";
+import type { OpenMeldDaemonDispatchQueueRecoveryReason } from "@openmeld/schemas/types";
 import {
   isActiveDispatchAttemptState,
   isInFlightDispatchState,
+  isTerminalDispatchState,
   OPENMELD_DAEMON_DISPATCH_STATE,
 } from "../../../dispatch/rules/dispatch-lifecycle-contract";
 
 export type ActiveAttemptWatchdogReason =
-  OpenMeldDaemonDispatchDeliveryRecoveryReason;
+  OpenMeldDaemonDispatchQueueRecoveryReason;
 export type ActiveAttemptWatchdogResumeReason = "still_owned_wait_stale";
 export type ActiveAttemptWatchdogSkipReason =
   | "accepted_attempt_waiting_result"
@@ -17,7 +18,7 @@ export type ActiveAttemptWatchdogSkipReason =
 export type ActiveAttemptRouteOwnershipState =
   | "still_owned"
   | "ownership_unknown"
-  | OpenMeldDaemonDispatchDeliveryRecoveryReason;
+  | OpenMeldDaemonDispatchQueueRecoveryReason;
 export type ActiveAttemptWatchdogDecision =
   | {
       kind: "submit";
@@ -42,20 +43,21 @@ export type DispatchOutboxLedgerStatusSnapshot = {
   leaseEpoch: number | null;
 };
 
+export type HostedNativeDeliveryHandoffState =
+  | "admission_incomplete"
+  | "durably_owned"
+  | "evidence_unavailable"
+  | "not_applicable";
+
 export type HandedOffOutboxCandidatePolicyDecision =
-  | { kind: "submit" }
+  | {
+      kind: "submit";
+      deliveryRecoveryReason?: ActiveAttemptWatchdogReason;
+      loopSuspected?: boolean;
+    }
   | { kind: "delete" }
   | { kind: "skip" }
-  | { kind: "check_active_attempt_watchdog" }
-  | {
-      kind: "submit";
-      deliveryRecoveryReason: ActiveAttemptWatchdogReason;
-      loopSuspected: boolean;
-    }
-  | {
-      kind: "submit";
-      loopSuspected: boolean;
-    };
+  | { kind: "check_active_attempt_watchdog" };
 
 export const resolveHandedOffOutboxCandidateRecoveryReason = (input: {
   latestAttemptErrorCode: string | null;
@@ -142,6 +144,7 @@ export const shouldSuspectOutboxRedriveLoop = (input: {
 };
 
 export const resolveHandedOffOutboxCandidatePolicyDecision = (input: {
+  hostedNativeDeliveryHandoffState?: HostedNativeDeliveryHandoffState;
   outboxStatus: string;
   ledgerRow: DispatchOutboxLedgerStatusSnapshot | null;
   nowMs: number;
@@ -151,8 +154,33 @@ export const resolveHandedOffOutboxCandidatePolicyDecision = (input: {
   if (input.outboxStatus !== "handed_off") {
     return { kind: "submit" };
   }
-  if (input.ledgerRow) {
+  if (!input.ledgerRow) {
+    return { kind: "skip" };
+  }
+  if (isTerminalDispatchState(input.ledgerRow.status)) {
     return { kind: "delete" };
   }
-  return { kind: "skip" };
+  const hostedHandoffState =
+    input.hostedNativeDeliveryHandoffState ?? "not_applicable";
+  if (hostedHandoffState === "evidence_unavailable") {
+    return { kind: "skip" };
+  }
+  if (hostedHandoffState === "admission_incomplete") {
+    if (
+      shouldSkipOutboxCandidateForRecentInflight({
+        lastAttemptAtMs: input.ledgerRow.lastAttemptAtMs,
+        nowMs: input.nowMs,
+        skipWithinMs: input.recentInflightSkipWithinMs,
+        status: input.ledgerRow.status,
+      })
+    ) {
+      return { kind: "skip" };
+    }
+    return {
+      deliveryRecoveryReason: "hosted_admission_incomplete",
+      kind: "submit",
+      loopSuspected: false,
+    };
+  }
+  return { kind: "delete" };
 };

@@ -1265,8 +1265,10 @@ Dispatch diagnostics resolve the exact runtime conversation from the native
 delivery's frozen worker request. They never address a Durable Object from the
 logical Space id after rollover and never copy Core's active-generation pointer
 into the Remote Agent. If the frozen worker and recovery requests disagree or
-the exact identity is unavailable, diagnostics fail closed instead of reading
-another generation.
+the exact identity is unavailable, worker-owned diagnostics fail closed instead
+of reading another generation. The Core-owned dispatch trace remains available
+and omits that worker-only subprojection; requesting details must not turn an
+admission that never reached a runtime conversation into an HTTP 502.
 
 At 12 MiB every protocol version fails closed before replay or model work with
 `remote_agent.conversation_history_limit_exceeded`. Version-1 through
@@ -2298,7 +2300,12 @@ but not trigger.
    then attempt direct native admission only when the current Binding preflight
    still resolves the target as `hosted_center_agent`. Any ineligible,
    retryable, or outcome-ambiguous result hands the same message to Queue for
-   recovery. Workstation targets never use this direct-first branch.
+   recovery. Dispatch intake alone does not complete this handoff: until the
+   native-delivery ledger contains a durable worker request or acknowledgement,
+   the Space outbox retains recovery responsibility and redrives the original
+   dispatch attempt after the direct grace period. A persisted worker request
+   is replayed exactly and is never rebuilt from newer Space context.
+   Workstation targets never use this direct-first branch.
 8. **Hosted image input:** for `web_dm` and `space_wake`, Core may copy up to
    ten canonical JPEG or PNG Space File references from the triggering signal
    into the worker turn message while preserving the legacy four-attachment
