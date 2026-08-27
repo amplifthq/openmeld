@@ -14195,6 +14195,7 @@ function createMissingCurrentComputerReadiness() {
       openMeldServiceRuntimeId: null,
       reasonCodes: [],
       runtimeLane: null,
+      signInOnlyBlockers: false,
     },
     service: {
       connected: false,
