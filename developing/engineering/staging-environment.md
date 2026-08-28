@@ -53,6 +53,8 @@ Use one guarded entry point from the repository root:
 pnpm staging:plan
 pnpm env:doctor:stg
 pnpm staging:deploy
+pnpm staging:deploy -- --scope web
+pnpm staging:deploy -- --scope remote-agent
 pnpm staging:verify
 pnpm staging:cli:plan
 pnpm staging:cli:publish
@@ -65,6 +67,11 @@ pnpm staging:cli:verify
 - `staging:deploy` requires a clean worktree, creates only missing staging
   prerequisites, applies staging D1 migrations, deploys the five Workers, and
   verifies resources and public entry points.
+- `staging:deploy -- --scope web` and `--scope remote-agent` deploy one
+  non-database Worker after verifying the existing Staging resources. Use these
+  narrow paths for component-only changes so an unrelated Worker cannot block
+  or enlarge the deploy. Database-backed component changes still use the full
+  deployment.
 - `staging:verify` is read-only. It verifies the checked-in environment
   contract, Doppler readiness, Cloudflare resource inventory, and public
   staging entry points.

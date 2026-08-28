@@ -9,6 +9,13 @@ const STAGING_ENTRY_POINTS = [
   "https://gateway.staging.openmeld.ai/health",
 ];
 const STAGING_COMMANDS = new Set(["deploy", "plan", "verify"]);
+const STAGING_SCOPED_WORKERS = new Map([
+  [
+    "remote-agent",
+    { label: "Remote Agent", packageName: "@openmeld/remote-agent" },
+  ],
+  ["web", { label: "Web", packageName: "openmeld-web" }],
+]);
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   runStagingRelease(parseStagingReleaseArgs(process.argv.slice(2))).catch(
@@ -24,13 +31,41 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 export function parseStagingReleaseArgs(argv) {
   const args = argv.filter((arg) => arg !== "--");
   const command = args[0];
-  if (!STAGING_COMMANDS.has(command) || args.length !== 1) {
+  if (!STAGING_COMMANDS.has(command)) {
     throw new Error("Staging release command must be plan, deploy, or verify.");
   }
-  return { command };
+  if (args.length === 1) {
+    return { command, scope: null };
+  }
+  if (command === "verify" || args.length !== 3 || args[1] !== "--scope") {
+    throw new Error(
+      "Staging deploy scope must use --scope web or --scope remote-agent."
+    );
+  }
+  const scope = args[2];
+  if (!STAGING_SCOPED_WORKERS.has(scope)) {
+    throw new Error(
+      "Staging deploy scope must be web or remote-agent. Use the full deploy for database-backed components."
+    );
+  }
+  return { command, scope };
 }
 
-export function buildStagingDeployStepSpecs() {
+export function buildStagingDeployStepSpecs(input = {}) {
+  if (input.scope) {
+    const worker = STAGING_SCOPED_WORKERS.get(input.scope);
+    if (!worker) {
+      throw new Error(`Unsupported scoped Staging Worker: ${input.scope}.`);
+    }
+    return [
+      environmentContractStep(),
+      stagingSecretCheckStep(),
+      stagingResourceVerificationStep(),
+      workerDeployStep(input.scope, worker.packageName, worker.label),
+      stagingResourceVerificationStep(),
+      stagingEntryPointVerificationStep(),
+    ];
+  }
   return [
     environmentContractStep(),
     stagingSecretCheckStep(),
@@ -102,10 +137,10 @@ export function buildStagingVerifyStepSpecs() {
 async function runStagingRelease(input) {
   const steps =
     input.command === "deploy"
-      ? buildStagingDeployStepSpecs()
+      ? buildStagingDeployStepSpecs({ scope: input.scope })
       : buildStagingVerifyStepSpecs();
   if (input.command === "plan") {
-    printPlan(buildStagingDeployStepSpecs());
+    printPlan(buildStagingDeployStepSpecs({ scope: input.scope }));
     return;
   }
   if (input.command === "deploy") {
