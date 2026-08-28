@@ -512,16 +512,45 @@ export async function beginAuthSessionTransition(
         throw new Error("auth session transition is already settled");
       }
     };
-    const assertCandidateSessionCurrent = async () => {
+    const isCandidateSessionCurrent = async () => {
       const currentPayload = await readSessionPayloadFile();
-      if (
+      return !(
         currentPayload?.v !== 1 ||
         buildAuthSessionPayloadKey(currentPayload) !==
           buildAuthSessionPayloadKey(nextPayload)
-      ) {
+      );
+    };
+    const assertCandidateSessionCurrent = async () => {
+      if (!(await isCandidateSessionCurrent())) {
         throw new Error(
           "auth session changed before the setup transition completed"
         );
+      }
+    };
+    const restoreMissingJournalTransition = async () => {
+      if (!(await isCandidateSessionCurrent())) {
+        activeAuthSessionTransitionIds.delete(journal.id);
+        throw new AuthSessionTransitionConflictError({
+          previousOwnerRestored: false,
+          reason: "journal_missing",
+        });
+      }
+
+      await claimAuthSessionTransitionJournal(journal);
+      try {
+        await restoreTransitionPreviousPayload(journal, previousSession);
+        settlement = "rolled_back";
+        await deleteAccessTokenOrRetainForCleanup(tokenRef).catch(
+          (error: unknown) => {
+            logDeferredAuthSessionTransitionCleanup({
+              error,
+              transitionId: journal.id,
+            });
+          }
+        );
+      } finally {
+        activeAuthSessionTransitionIds.delete(journal.id);
+        await removeAuthSessionTransitionJournalIfOwned(journal);
       }
     };
 
@@ -533,20 +562,7 @@ export async function beginAuthSessionTransition(
           const currentJournal =
             await readOwnedPendingAuthSessionTransition(journal);
           if (currentJournal.status === "missing") {
-            await claimAuthSessionTransitionJournal(journal);
-            await assertCandidateSessionCurrent();
-            await restoreTransitionPreviousPayload(journal, previousSession);
-            settlement = "rolled_back";
-            activeAuthSessionTransitionIds.delete(journal.id);
-            await deleteAccessTokenOrRetainForCleanup(tokenRef).catch(
-              (error: unknown) => {
-                logDeferredAuthSessionTransitionCleanup({
-                  error,
-                  transitionId: journal.id,
-                });
-              }
-            );
-            await removeAuthSessionTransitionJournalIfOwned(journal);
+            await restoreMissingJournalTransition();
             throw new AuthSessionTransitionConflictError({
               previousOwnerRestored: true,
               reason: "journal_missing",
@@ -588,20 +604,7 @@ export async function beginAuthSessionTransition(
           const currentJournal =
             await readOwnedPendingAuthSessionTransition(journal);
           if (currentJournal.status === "missing") {
-            await claimAuthSessionTransitionJournal(journal);
-            await assertCandidateSessionCurrent();
-            await restoreTransitionPreviousPayload(journal, previousSession);
-            settlement = "rolled_back";
-            activeAuthSessionTransitionIds.delete(journal.id);
-            await deleteAccessTokenOrRetainForCleanup(tokenRef).catch(
-              (error: unknown) => {
-                logDeferredAuthSessionTransitionCleanup({
-                  error,
-                  transitionId: journal.id,
-                });
-              }
-            );
-            await removeAuthSessionTransitionJournalIfOwned(journal);
+            await restoreMissingJournalTransition();
             return;
           }
           if (currentJournal.status !== "current") {

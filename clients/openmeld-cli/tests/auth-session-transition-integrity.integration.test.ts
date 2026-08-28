@@ -1,13 +1,22 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   beginAuthSessionTransition,
+  clearAuthSession,
   getAuthSessionState,
   setAuthSession,
+  updateAuthSessionActiveOrganization,
 } from "../src/config/auth-session";
 import { withTempHome } from "./helpers/fs";
 
@@ -174,6 +183,100 @@ describe("auth session transition integrity", () => {
     });
   });
 
+  it("does not resurrect a missing journal over a newer login", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      const transition = await beginTransitionWhoseJournalIsRemoved(home);
+
+      await setAuthSession({
+        accessToken: "new-login-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "new-login-owner" },
+      });
+
+      const commitError = await transition
+        .commit()
+        .catch((error: unknown) => error);
+      await expect(authSessionTransitionJournalExists(home)).resolves.toBe(
+        false
+      );
+      expect(commitError).toMatchObject({
+        name: "AuthSessionTransitionConflictError",
+        previousOwnerRestored: false,
+        reason: "journal_missing",
+      });
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "new-login-token",
+          user: { id: "new-login-owner" },
+        },
+      });
+    });
+  });
+
+  it("does not resurrect a missing journal over a newer logout", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      const transition = await beginTransitionWhoseJournalIsRemoved(home);
+
+      await clearAuthSession();
+
+      const rollbackError = await transition
+        .rollback()
+        .catch((error: unknown) => error);
+      await expect(authSessionTransitionJournalExists(home)).resolves.toBe(
+        false
+      );
+      expect(rollbackError).toMatchObject({
+        name: "AuthSessionTransitionConflictError",
+        previousOwnerRestored: false,
+        reason: "journal_missing",
+      });
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        state: "missing",
+        session: null,
+      });
+    });
+  });
+
+  it("does not resurrect a missing journal over a newer organization refresh", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      const transition = await beginTransitionWhoseJournalIsRemoved(home);
+
+      await updateAuthSessionActiveOrganization({
+        id: "new-organization-id",
+        name: "New Organization",
+        slug: "new-organization",
+      });
+
+      for (const settle of [transition.commit, transition.rollback]) {
+        const settlementError = await settle().catch((error: unknown) => error);
+        await expect(authSessionTransitionJournalExists(home)).resolves.toBe(
+          false
+        );
+        expect(settlementError).toMatchObject({
+          name: "AuthSessionTransitionConflictError",
+          previousOwnerRestored: false,
+          reason: "journal_missing",
+        });
+      }
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          activeOrganization: {
+            id: "new-organization-id",
+            name: "New Organization",
+            slug: "new-organization",
+          },
+          user: { id: "candidate-owner" },
+        },
+      });
+    });
+  });
+
   it("does not let a new transition claim between missing-journal recovery and previous-owner restore", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
@@ -292,6 +395,42 @@ describe("auth session transition integrity", () => {
     });
   });
 });
+
+async function beginTransitionWhoseJournalIsRemoved(home: string) {
+  await setAuthSession({
+    accessToken: "previous-token",
+    authBaseUrl: "https://auth.openmeld.invalid",
+    clientId: "openmeld-cli",
+    user: { id: "previous-owner" },
+  });
+  const transition = await beginAuthSessionTransition({
+    accessToken: "candidate-token",
+    authBaseUrl: "https://auth.openmeld.invalid",
+    clientId: "openmeld-cli",
+    user: { id: "candidate-owner" },
+  });
+  await rm(join(home, ".openmeld", "auth", "session-transition.json"), {
+    force: true,
+  });
+  return transition;
+}
+
+async function authSessionTransitionJournalExists(
+  home: string
+): Promise<boolean> {
+  return await access(
+    join(home, ".openmeld", "auth", "session-transition.json")
+  ).then(
+    () => true,
+    (error: unknown) =>
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+        ? false
+        : Promise.reject(error)
+  );
+}
 
 type RacingAuthSessionTransitionResult = {
   errorMessage?: string;
