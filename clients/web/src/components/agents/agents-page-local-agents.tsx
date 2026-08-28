@@ -192,7 +192,9 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 		),
 		displayName: agent.displayName,
 		id: agent.agentId,
+		identityMuted: !agent.enabled || agent.details?.status === "unavailable",
 		logoAgentId: agent.agentId,
+		muted: !agent.enabled || agent.details?.status === "unavailable",
 		summaryStatus: resolveTeamLocalAgentSummaryStatus(agent),
 		summaryMeta: agent.details
 			? formatAgentControllerInterfaceOperationalSummary(agent.details)
@@ -215,10 +217,17 @@ function resolveTeamLocalAgentSummaryStatus(
 	switch (agent.status) {
 		case "ready":
 			return { label: "Ready", tone: "ready" };
-		case "not_ready":
-			return { label: "Error", tone: "danger" };
+		case "not_ready": {
+			if (agent.details?.check?.status === "failed") {
+				return { label: "Couldn't check", tone: "warning" };
+			}
+			if (agent.details?.status === "error") {
+				return { label: "Error", tone: "danger" };
+			}
+			return { label: "Unavailable", tone: "warning" };
+		}
 		case "stale":
-			return { label: "Error", tone: "danger" };
+			return { label: "Not current", tone: "warning" };
 		default:
 			return { label: "Not confirmed", tone: "muted" };
 	}
@@ -232,7 +241,9 @@ function resolveTeamLocalAgentDescription(agent: TeamLocalAgent): string {
 		case "ready":
 			return "Available on this computer";
 		case "not_ready":
-			return "Needs attention from the computer owner";
+			return agent.details?.check?.status === "failed"
+				? "The latest local agent check did not finish"
+				: "Unavailable on this computer";
 		case "stale":
 			return "Needs a fresh check from this computer";
 		default:
@@ -1615,11 +1626,16 @@ function buildLocalAgentCatalogRow(
 		}),
 		displayName: input.entry.displayName,
 		id: input.entry.agentId,
+		identityMuted:
+			!enabled ||
+			agentControllerInterface?.auth.status === "unauthenticated" ||
+			agentControllerInterface?.status === "unavailable",
 		logoAgentId: input.entry.agentId,
 		muted:
 			input.muted ||
 			!enabled ||
-			agentControllerInterface?.auth.status === "unauthenticated",
+			agentControllerInterface?.auth.status === "unauthenticated" ||
+			agentControllerInterface?.status === "unavailable",
 		summaryAccessory: summaryAccessory.usage,
 		summaryMeta:
 			enabled && agentControllerInterface
@@ -2059,7 +2075,7 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		return null;
 	}
 	if (snapshot.check?.status === "failed") {
-		return { label: "Error", tone: "danger" };
+		return { label: "Couldn't check", tone: "warning" };
 	}
 	if (snapshot.auth.status === "unauthenticated") {
 		// Signing in is a routine account state, not a computer failure: keep it
@@ -2070,7 +2086,9 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		return { label: "Error", tone: "danger" };
 	}
 	if (snapshot.status === "warning" || snapshot.status === "unavailable") {
-		return { label: "Error", tone: "danger" };
+		return snapshot.status === "unavailable"
+			? { label: "Unavailable", tone: "warning" }
+			: { label: "Needs attention", tone: "warning" };
 	}
 	return null;
 }

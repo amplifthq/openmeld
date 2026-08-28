@@ -1,6 +1,7 @@
 import type {
   AdapterDispatchTelemetry,
   AdapterErrorType,
+  AdapterProviderAccessEvidence,
   AdapterRuntimeEventCallback,
   AdapterRuntimeProcessCallback,
   ConversationPolicy,
@@ -32,16 +33,19 @@ export type OpenCodeCliTransportResult = {
 export class OpenCodeCliTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    providerAccessEvidence?: AdapterProviderAccessEvidence;
   }) {
     super(input.message);
     this.name = "OpenCodeCliTransportError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.providerAccessEvidence = input.providerAccessEvidence;
   }
 }
 
@@ -180,6 +184,7 @@ export async function invokeOpenCodeCliTransport(input: {
       code: classifiedFailure.code,
       errorType: classifiedFailure.errorType,
       message: classifiedFailure.message,
+      providerAccessEvidence: classifiedFailure.providerAccessEvidence,
     });
   }
 
@@ -193,6 +198,7 @@ export async function invokeOpenCodeCliTransport(input: {
       code: classifiedFailure.code,
       errorType: classifiedFailure.errorType,
       message: classifiedFailure.message,
+      providerAccessEvidence: classifiedFailure.providerAccessEvidence,
     });
   }
 
@@ -217,6 +223,7 @@ export async function invokeOpenCodeCliTransport(input: {
         code: classifiedFailure.code,
         errorType: classifiedFailure.errorType,
         message: classifiedFailure.message,
+        providerAccessEvidence: classifiedFailure.providerAccessEvidence,
       });
     }
   }
@@ -233,6 +240,7 @@ export async function invokeOpenCodeCliTransport(input: {
         code: classifiedFailure.code,
         errorType: classifiedFailure.errorType,
         message: classifiedFailure.message,
+        providerAccessEvidence: classifiedFailure.providerAccessEvidence,
       });
     }
     throw new OpenCodeCliTransportError({
@@ -363,6 +371,7 @@ const toOpenCodeCliTransportError = (
         code: classifiedFailure.code,
         errorType: classifiedFailure.errorType,
         message: classifiedFailure.message,
+        providerAccessEvidence: classifiedFailure.providerAccessEvidence,
       });
     }
   }
@@ -384,6 +393,7 @@ const classifyOpenCodeFailure = (input: {
   code: string;
   errorType: AdapterErrorType;
   message: string;
+  providerAccessEvidence?: AdapterProviderAccessEvidence;
 } => {
   const providerMessage = resolveProviderFailureMessage(input);
   if (providerMessage) {

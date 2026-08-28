@@ -9,6 +9,7 @@ import type {
   AdapterInteractionCallback,
   AdapterInteractionRequest,
   AdapterPreviewCallback,
+  AdapterProviderAccessEvidence,
   AdapterRuntimeEvent,
   AdapterRuntimeEventCallback,
   AdapterRuntimeProcessCallback,
@@ -194,16 +195,19 @@ const DEFAULT_APP_SERVER_STARTUP_TIMEOUT_MS = 15_000;
 export class CodexAppServerTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    providerAccessEvidence?: AdapterProviderAccessEvidence;
   }) {
     super(input.message);
     this.name = "CodexAppServerTransportError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.providerAccessEvidence = input.providerAccessEvidence;
   }
 }
 
@@ -418,6 +422,7 @@ function requireSuccessfulCodexTurn(turn: AppServerTurn): void {
       code: providerFailure.code,
       errorType: providerFailure.errorType,
       message: failureMessage,
+      providerAccessEvidence: providerFailure.providerAccessEvidence,
     });
   }
   throw new CodexAppServerTransportError({
@@ -2483,6 +2488,7 @@ function toJsonRpcTransportError(
       code: providerFailure.code,
       errorType: providerFailure.errorType,
       message,
+      providerAccessEvidence: providerFailure.providerAccessEvidence,
     });
   }
   const lowered = message.toLowerCase();

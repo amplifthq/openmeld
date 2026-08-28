@@ -438,6 +438,28 @@ test("adapter-core dispatch failure preserves provider account evidence", async 
   });
 });
 
+test("adapter-core preserves provider-neutral hard capacity evidence", async () => {
+  const core = await import("../dist/index.js");
+  const error = Object.assign(new Error("OpenCode quota exhausted"), {
+    code: "quota.exceeded",
+    errorType: "adapter",
+    providerAccessEvidence: {
+      observedAtMs: 1_770_000_000_000,
+      provider: "opencode",
+      reasonCode: "provider_account.capacity_exhausted",
+      source: "wake_failure",
+    },
+  });
+
+  const failure = core.toAdapterDispatchFailure(error, "adapter");
+  assert.deepEqual(failure.providerAccessEvidence, {
+    observedAtMs: 1_770_000_000_000,
+    provider: "opencode",
+    reasonCode: "provider_account.capacity_exhausted",
+    source: "wake_failure",
+  });
+});
+
 test("adapter-core dispatch failure preserves only bounded model diagnostics", async () => {
   const core = await import("../dist/index.js");
   const modelNegotiation = {

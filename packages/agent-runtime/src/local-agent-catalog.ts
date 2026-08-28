@@ -168,9 +168,7 @@ function projectBuiltinLocalAgentCatalogEntry(input: {
       targetKind: "builtin",
     };
   }
-  if (
-    input.capability?.reasonCodes?.includes("controller.interface.check_failed")
-  ) {
+  if (hasNonLaunchControllerBlocker(input.capability?.reasonCodes)) {
     return {
       agentId: input.definition.agentId,
       detected: true,
@@ -207,6 +205,19 @@ function projectBuiltinLocalAgentCatalogEntry(input: {
     selectableReason: "not_detected",
     targetKind: "builtin",
   };
+}
+
+function hasNonLaunchControllerBlocker(
+  reasonCodes: readonly string[] | undefined
+): boolean {
+  return Boolean(
+    reasonCodes?.some(
+      (reasonCode) =>
+        reasonCode === "controller.interface.check_failed" ||
+        reasonCode === "controller.auth.unauthenticated" ||
+        reasonCode.startsWith("provider_account.")
+    )
+  );
 }
 
 function projectCustomLocalAgentCatalogEntries(input: {

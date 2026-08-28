@@ -1,4 +1,7 @@
-import type { AdapterErrorType } from "@openmeld/adapter-core";
+import type {
+  AdapterErrorType,
+  AdapterProviderAccessEvidence,
+} from "@openmeld/adapter-core";
 import { classifyRuntimePermissionDenialMessage } from "@openmeld/adapter-core";
 
 export function classifyOpenCodeFailureMessage(input: {
@@ -8,6 +11,7 @@ export function classifyOpenCodeFailureMessage(input: {
   code: string;
   errorType: AdapterErrorType;
   message: string;
+  providerAccessEvidence?: AdapterProviderAccessEvidence;
 } {
   const normalized = input.message.trim();
   const lowered = normalized.toLowerCase();
@@ -59,6 +63,20 @@ export function classifyOpenCodeFailureMessage(input: {
       code: "provider.insufficient_balance",
       errorType: "adapter",
       message: `provider.insufficient_balance: ${normalized}`,
+      providerAccessEvidence: buildProviderAccessEvidence(
+        "provider_account.capacity_exhausted"
+      ),
+    };
+  }
+
+  if (isSubscriptionAccessFailure(lowered)) {
+    return {
+      code: "provider.subscription_access_unavailable",
+      errorType: "adapter",
+      message: `provider.subscription_access_unavailable: ${normalized}`,
+      providerAccessEvidence: buildProviderAccessEvidence(
+        "provider_account.subscription_access_unavailable"
+      ),
     };
   }
 
@@ -70,7 +88,18 @@ export function classifyOpenCodeFailureMessage(input: {
     };
   }
 
-  if (lowered.includes("rate") || lowered.includes("quota")) {
+  if (isHardQuotaFailure(lowered)) {
+    return {
+      code: "quota.exceeded",
+      errorType: "adapter",
+      message: `quota.exceeded: ${normalized}`,
+      providerAccessEvidence: buildProviderAccessEvidence(
+        "provider_account.capacity_exhausted"
+      ),
+    };
+  }
+
+  if (isTransientRateLimitFailure(lowered)) {
     return {
       code: "provider.rate_limited",
       errorType: "network",
@@ -83,6 +112,46 @@ export function classifyOpenCodeFailureMessage(input: {
     errorType: "adapter",
     message: `upstream_unreachable: ${normalized}`,
   };
+}
+
+function buildProviderAccessEvidence(
+  reasonCode: AdapterProviderAccessEvidence["reasonCode"]
+): AdapterProviderAccessEvidence {
+  return {
+    observedAtMs: Date.now(),
+    provider: "opencode",
+    reasonCode,
+    source: "wake_failure",
+  };
+}
+
+function isHardQuotaFailure(value: string): boolean {
+  return (
+    value.includes("insufficient quota") ||
+    value.includes("insufficient_quota") ||
+    value.includes("quota exceeded") ||
+    value.includes("exceeded your current quota") ||
+    value.includes("usage limit") ||
+    value.includes("usage_limit")
+  );
+}
+
+function isSubscriptionAccessFailure(value: string): boolean {
+  return (
+    value.includes("not included in your subscription") ||
+    value.includes("not available on your plan") ||
+    value.includes("subscription does not include") ||
+    value.includes("subscription access") ||
+    value.includes("upgrade your plan")
+  );
+}
+
+function isTransientRateLimitFailure(value: string): boolean {
+  return (
+    value.includes("429") ||
+    value.includes("rate limit") ||
+    value.includes("too many requests")
+  );
 }
 
 function isInsufficientBalanceFailure(value: string): boolean {

@@ -175,6 +175,14 @@ with no `createdAgentProfileId`. Web, CLI, Local Agents, and the Center Agent do
 not create the Auth Profile first and then discover that the selected Computer
 cannot be used.
 
+When one Computer reports the same Agent Controller from multiple runtime
+lanes or OpenMeld Service Runtime identities, the Organization Computer
+projection selects one complete newest execution-target record before removing
+private fields. It must not combine readiness from one lane with ACI details,
+version, or controller identity from another. At the same observation time, a
+complete non-ready record wins over a ready record so ambiguous evidence fails
+closed instead of reviving an older runnable state.
+
 Approval authorizes the request's complete frozen creation intent. Core still
 uses the existing owner contracts for each operation: Auth creates the Agent
 Profile identity, Space membership uses the normal Space mutation, and Binding,
@@ -637,6 +645,13 @@ Public availability uses four states only: `Available for Wake`, `Checking`,
 `Offline`, and `Unavailable`. Concrete repair actions such as `Update OpenMeld
 Service`, `Reconnect OpenMeld Service`, or `Connect local agent` are owner guidance,
 not separate public states.
+
+`Offline` is reserved for stable Computer, OpenMeld Service, or route liveness
+loss. A signed-out controller, unavailable provider subscription, organization
+access block, or fresh proven hard quota exhaustion is `Unavailable`, with the
+provider-account next action. These account states do not become a red launch
+error or `needs_repair`; actual launch verification failure remains a distinct
+local setup error.
 
 Agent Profile surfaces must distinguish connection truth from temporary
 readiness recovery. When Core classifies a missing or stale local Agent

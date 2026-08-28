@@ -923,7 +923,7 @@ describe("SpaceMemberRow", () => {
 
 	it("keeps provider subscription indicator, tooltip, and detail copy aligned", () => {
 		const copy =
-			"Claude Smoke Agent is connected, but its Claude Code subscription needs attention before this agent can reply. Open Claude Code and check the Claude Code subscription for this local agent.";
+			"Claude Smoke Agent is connected, but its provider subscription does not include the access this agent needs. Review the provider plan or account on its computer before waking it again.";
 		renderSpaceMemberRow({
 			agentRecoveryPlan: buildProviderSubscriptionPlan(),
 			entry: buildAgentEntry({
@@ -1337,7 +1337,7 @@ function buildRouteReconnectPlan(): AgentProfileReplyRecoveryPlan {
 
 function buildProviderSubscriptionPlan(): AgentProfileReplyRecoveryPlan {
 	const copy =
-		"Claude Smoke Agent is connected, but its Claude Code subscription needs attention before this agent can reply. Open Claude Code and check the Claude Code subscription for this local agent.";
+		"Claude Smoke Agent is connected, but its provider subscription does not include the access this agent needs. Review the provider plan or account on its computer before waking it again.";
 	return {
 		body: copy,
 		kind: "review_provider_account",

@@ -1278,7 +1278,7 @@ describe("Core Agent Execution Readiness", () => {
       expiresAtMs: GENERATED_AT_MS + 60 * 60 * 1000,
       observedAtMs: GENERATED_AT_MS,
       provider: "codex",
-      reasonCode: "provider_account.subscription_access_unavailable",
+      reasonCode: "provider_account.capacity_exhausted",
       source: "wake_failure",
     });
 
@@ -1310,7 +1310,7 @@ describe("Core Agent Execution Readiness", () => {
         providerAccount: {
           blocked: true,
           provider: "codex",
-          reasonCodes: ["provider_account.subscription_access_unavailable"],
+          reasonCodes: ["provider_account.capacity_exhausted"],
           source: "wake_failure",
         },
       },
@@ -1327,7 +1327,7 @@ describe("Core Agent Execution Readiness", () => {
       action: "fix_provider_account",
       category: "unavailable",
       phase: "provider_blocked",
-      reasonCode: "provider_account.subscription_access_unavailable",
+      reasonCode: "provider_account.capacity_exhausted",
       status: "unavailable_for_wake",
     });
   });

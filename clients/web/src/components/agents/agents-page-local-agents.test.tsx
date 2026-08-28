@@ -1154,11 +1154,9 @@ describe("LocalAgentsCard", () => {
 		});
 
 		const row = screen.getByTestId("settings-local-agent-row-codex");
-		expect(
-			within(row)
-				.getAllByText("Error")
-				.some((element) => element.className.includes("text-destructive"))
-		).toBe(true);
+		const checkLabel = within(row).getByText("Couldn't check");
+		expect(checkLabel.className).toContain("text-amber");
+		expect(within(row).queryByText("Error")).toBeNull();
 		expect(within(row).queryByText("Needs setup")).toBeNull();
 		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
 		const agentDialog = screen.getByRole("dialog");
@@ -1175,19 +1173,85 @@ describe("LocalAgentsCard", () => {
 			agentControllerAuth: { status: "unauthenticated" },
 			agentControllerMessage:
 				"Codex CLI is installed, but this computer is not signed in to Codex.",
-			agentControllerStatus: "error",
+			agentControllerStatus: "unavailable",
 			includeAgentControllerInterface: true,
 			setEnabledSupported: true,
 		});
 
 		const row = screen.getByTestId("settings-local-agent-row-codex");
 		expect(within(row).getByText("Not signed in")).toBeTruthy();
+		expect(within(row).queryByText("Error")).toBeNull();
+		expect(
+			within(row)
+				.getByTestId("local-agent-logo-codex")
+				.parentElement?.classList.contains("text-muted-foreground")
+		).toBe(true);
+		expect(
+			within(row)
+				.getByTestId("settings-local-agent-row-trigger")
+				.querySelector("p")
+				?.classList.contains("text-muted-foreground")
+		).toBe(true);
 		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
 		expect(
 			within(screen.getByRole("dialog")).getAllByText(
 				"Codex CLI is installed, but this computer is not signed in to Codex."
 			).length
 		).toBeGreaterThan(0);
+	});
+
+	it("shows a teammate provider blocker as unavailable with a muted identity", () => {
+		const details: OrganizationComputerLocalAgentDetails = {
+			capabilities: {
+				approvals: true,
+				cancel: true,
+				interrupt: true,
+				modelSelection: true,
+				nativeEventStream: true,
+				permissionModes: true,
+				structuredUserInput: false,
+			},
+			checkedAt: "2026-08-20T08:00:00.000Z",
+			launch: { installChoiceCount: 1, status: "ready" },
+			models: [],
+			nativeInterface: "local-cli",
+			status: "unavailable",
+			version: "1.0.0",
+		};
+		render(
+			<TooltipProvider>
+				<LocalAgentsCard
+					computer={{
+						deviceDisplayName: "Maya's Mac",
+						localAgents: [
+							{
+								agentId: "opencode",
+								details,
+								displayName: "OpenCode",
+								enabled: true,
+								status: "not_ready",
+							},
+						],
+					}}
+					view="team"
+				/>
+			</TooltipProvider>
+		);
+
+		const row = screen.getByTestId("settings-local-agent-row-opencode");
+		expect(within(row).getByText("Unavailable")).toBeTruthy();
+		expect(within(row).queryByText("Error")).toBeNull();
+		expect(
+			within(row)
+				.getByTestId("local-agent-logo-opencode")
+				.parentElement?.classList.contains("text-muted-foreground")
+		).toBe(true);
+		expect(
+			within(row)
+				.getByTestId("settings-local-agent-row-trigger")
+				.querySelector("p")
+				?.classList.contains("text-muted-foreground")
+		).toBe(true);
 	});
 
 	it("hides a signed-in account email reported as the controller auth label", () => {

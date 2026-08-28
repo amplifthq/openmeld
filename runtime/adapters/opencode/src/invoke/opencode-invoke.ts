@@ -5,6 +5,7 @@ import type {
   AdapterInstructionPrompt,
   AdapterInteractionCallback,
   AdapterPreviewCallback,
+  AdapterProviderAccessEvidence,
   AdapterRuntimeEventCallback,
   AdapterRuntimeProcessCallback,
   AdapterStreamingMode,
@@ -25,16 +26,19 @@ export type OpenCodeInvokeResult = {
 export class OpenCodeRuntimeError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    providerAccessEvidence?: AdapterProviderAccessEvidence;
   }) {
     super(input.message);
     this.name = "OpenCodeRuntimeError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.providerAccessEvidence = input.providerAccessEvidence;
   }
 }
 
@@ -184,6 +188,9 @@ async function invokeOpenCodeOnce(input: {
         code: (error as { code: string }).code,
         errorType: (error as { errorType: AdapterErrorType }).errorType,
         message: error.message,
+        providerAccessEvidence: (
+          error as { providerAccessEvidence?: AdapterProviderAccessEvidence }
+        ).providerAccessEvidence,
       });
     }
 

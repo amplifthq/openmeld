@@ -289,8 +289,22 @@ provider account. An account change, signed-out state, or missing stable account
 identity fails closed to the current `unavailable` evidence instead of carrying
 capacity between accounts. A provider that has never returned usable evidence
 is `unavailable`. A controller with no supported native source is explicitly
-`unsupported`. These states do not alter Agent Profile readiness, Binding, Wake
-admission, RuntimeCoordinator, routing, or agent selection.
+`unsupported`. These passive Usage Limit states do not alter Agent Profile
+readiness, Binding, Wake admission, RuntimeCoordinator, routing, or agent
+selection. A separate structured provider-access evidence field may be emitted
+only after an ordinary Wake is accepted and returns a definitive account
+blocker: organization access disabled, subscription access unavailable, or
+exhausted hard quota/credit capacity. Authentication failure remains ACI
+authentication evidence. A generic quota percentage, low-capacity warning,
+ordinary `429`, or temporary provider failure must not create provider-access
+evidence or make a later Wake unavailable.
+
+Provider-access evidence is provider-neutral and carries its provider, stable
+reason code, observation time, and `wake_failure` source. The Service forwards
+it with the exact Agent Profile, Binding, device, runtime lane, OpenMeld Service
+Runtime, and Agent Controller execution identity already owned by the accepted
+Wake. It must not infer or substitute any identity from another local runtime
+or lane.
 
 The local keeper avoids replacing a successful observation during one Service
 process lifetime when the provider account remains proven. Core applies the

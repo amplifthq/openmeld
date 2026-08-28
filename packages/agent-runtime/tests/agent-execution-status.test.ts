@@ -136,6 +136,43 @@ describe("agent execution status projection", () => {
     );
   });
 
+  it("projects a fresh hard quota failure as provider unavailable", () => {
+    const projection = resolveAgentExecutionStatus({
+      agentProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      binding: createAgentProfileBindingDisplayProjection({
+        agentProfileId: "agt_11111111-1111-4111-8111-111111111111",
+        bindingId: "bind_11111111-1111-4111-8111-111111111111",
+        bindingState: "enabled_primary",
+        executionTarget: {
+          agentControllerRef: "builtin:opencode",
+          openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+        },
+      }),
+      providerAccount: {
+        blocked: true,
+        expiresAtMs: 1_770_003_600_000,
+        observedAtMs: 1_770_000_000_000,
+        provider: "opencode",
+        reasonCodes: ["provider_account.capacity_exhausted"],
+        source: "wake_failure",
+      },
+      route: onlineRoute,
+      runtimeReadiness: {
+        displayState: "ready",
+        ready: true,
+        reasonCodes: ["runtime.ready"],
+      },
+    });
+
+    expect(projection).toMatchObject({
+      displayState: "blocked",
+      primaryAction: "fix_provider_account",
+    });
+    expect(projection.reasonCodes).toContain(
+      "provider_account.capacity_exhausted"
+    );
+  });
+
   it("keeps failed provider conversation proof as diagnostics without blocking Wake readiness", () => {
     const projection = resolveAgentExecutionStatus({
       agentProfileId: "agt_11111111-1111-4111-8111-111111111111",

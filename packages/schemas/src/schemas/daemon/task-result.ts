@@ -36,6 +36,7 @@ export const openMeldDaemonProviderAccessEvidenceProviderSchema = z.enum([
 ]);
 
 export const openMeldDaemonProviderAccessEvidenceReasonCodeSchema = z.enum([
+  "provider_account.capacity_exhausted",
   "provider_account.organization_access_disabled",
   "provider_account.subscription_access_unavailable",
 ]);

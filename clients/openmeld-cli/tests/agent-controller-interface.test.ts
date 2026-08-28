@@ -391,7 +391,7 @@ describe("agent controller interface inventory", () => {
         message:
           "Grok Build is installed, but this computer is not signed in to Grok.",
         models: [],
-        status: "error",
+        status: "unavailable",
         version: "1.0.3",
       });
     } finally {
@@ -426,7 +426,7 @@ describe("agent controller interface inventory", () => {
         message:
           "Grok Build is installed, but this computer is not signed in to Grok.",
         models: [],
-        status: "error",
+        status: "unavailable",
         version: "1.0.3",
       });
     } finally {
@@ -737,11 +737,11 @@ describe("agent controller interface inventory", () => {
       });
 
       expect(snapshot).toMatchObject({
-        auth: { status: "unknown" },
+        auth: { status: "unauthenticated", type: "opencode" },
         message:
           "OpenCode is installed, but no connected provider was reported. Open OpenCode and sign in to a provider before OpenMeld can launch it.",
         models: [],
-        status: "error",
+        status: "unavailable",
         version: "1.17.11",
       });
     } finally {
@@ -915,7 +915,7 @@ describe("agent controller interface inventory", () => {
       expect(snapshot).toMatchObject({
         auth: { status: "unauthenticated" },
         controllerId: "openclaw",
-        status: "error",
+        status: "unavailable",
         version: "2026.3.13",
       });
     } finally {
@@ -992,7 +992,7 @@ describe("agent controller interface inventory", () => {
 
     expect(snapshot).toMatchObject({
       auth: { status: "unauthenticated" },
-      status: "error",
+      status: "unavailable",
     });
   });
 
@@ -1097,7 +1097,7 @@ describe("agent controller interface inventory", () => {
         auth: { status: "unauthenticated" },
         message:
           "Codex CLI is installed, but this computer is not signed in to Codex.",
-        status: "error",
+        status: "unavailable",
       });
     } finally {
       await rm(home, { force: true, recursive: true });

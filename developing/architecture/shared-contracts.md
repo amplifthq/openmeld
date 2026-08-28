@@ -4032,6 +4032,20 @@ evidence remain distinct; only account-bound last-known percentage evidence
 becomes stale. This projection does not change readiness, Wake, Binding,
 routing, Agent Activity, or RuntimeCoordinator contracts.
 
+Hard provider-account failure evidence is a separate optional task-result
+contract, not a reinterpretation of Usage Limits. It uses the shared
+provider-neutral provider enum and one of
+`provider_account.organization_access_disabled`,
+`provider_account.subscription_access_unavailable`, or
+`provider_account.capacity_exhausted`. Only an accepted ordinary Wake failure
+may produce it. Transient rate limits do not. Core stores it against the exact
+Agent Profile, Binding, OpenMeld Service Runtime, Agent Controller, and provider,
+orders writes and clears by Core's accepted-result time, and reads it through a
+bounded freshness window. Therefore an older failure cannot replace newer
+evidence, and an older success cannot clear it. Deploy schema/Core consumers
+before publishing Local Service and adapter producers that emit the added
+`capacity_exhausted` enum value.
+
 A redacted field is not negative evidence. Clients must omit local-only command
 paths that are null in the cloud projection instead of describing them as
 missing or broken.
@@ -4787,6 +4801,11 @@ stale progress-evidence diagnostics, malformed agent replies, invalid Space
 actions, and Space publication failures remain per-Wake outcome or diagnostic
 facts. They do not prove that the Agent Profile cannot currently be woken from
 this computer.
+
+Provider-account evidence follows the same exact-identity and monotonic-time
+rules but remains its own typed readiness input because its recovery action is
+provider account access, not local setup. It must never be synthesized from
+passive Usage Limits or an unclassified provider error.
 
 Evidence freshness is not a readiness blocker class. Stale agent controller
 reports and aged local evidence mirrors explain diagnostics; they must not

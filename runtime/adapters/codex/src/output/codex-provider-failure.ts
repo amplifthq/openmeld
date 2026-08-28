@@ -1,8 +1,12 @@
-import type { AdapterErrorType } from "@openmeld/adapter-core";
+import type {
+  AdapterErrorType,
+  AdapterProviderAccessEvidence,
+} from "@openmeld/adapter-core";
 
 export type CodexProviderFailureClassification = {
   code: string;
   errorType: AdapterErrorType;
+  providerAccessEvidence?: AdapterProviderAccessEvidence;
 };
 
 /**
@@ -52,6 +56,16 @@ export function isCodexAuthFailure(value: string): boolean {
   );
 }
 
+export function isCodexSubscriptionAccessFailure(value: string): boolean {
+  return (
+    value.includes("not included in your subscription") ||
+    value.includes("not available on your plan") ||
+    value.includes("subscription does not include") ||
+    value.includes("subscription access") ||
+    value.includes("upgrade your plan")
+  );
+}
+
 /**
  * Classify a Codex provider-account failure from the failure message and, when
  * available, the app-server structured `codexErrorInfo` enum. Only enum values
@@ -67,12 +81,24 @@ export function classifyCodexProviderAccountFailure(input: {
     input.codexErrorInfo
   )?.toLowerCase();
   if (codexErrorInfo === "usagelimitexceeded") {
-    return { code: "quota.exceeded", errorType: "adapter" };
+    return buildHardProviderFailure({
+      code: "quota.exceeded",
+      reasonCode: "provider_account.capacity_exhausted",
+    });
   }
 
   const lowered = input.message.toLowerCase();
+  if (isCodexSubscriptionAccessFailure(lowered)) {
+    return buildHardProviderFailure({
+      code: "provider.subscription_access_unavailable",
+      reasonCode: "provider_account.subscription_access_unavailable",
+    });
+  }
   if (isCodexQuotaFailure(lowered)) {
-    return { code: "quota.exceeded", errorType: "adapter" };
+    return buildHardProviderFailure({
+      code: "quota.exceeded",
+      reasonCode: "provider_account.capacity_exhausted",
+    });
   }
   if (isCodexAuthFailure(lowered)) {
     return { code: "auth.required", errorType: "auth" };
@@ -81,6 +107,22 @@ export function classifyCodexProviderAccountFailure(input: {
     return { code: "rate_limited", errorType: "adapter" };
   }
   return null;
+}
+
+function buildHardProviderFailure(input: {
+  code: string;
+  reasonCode: AdapterProviderAccessEvidence["reasonCode"];
+}): CodexProviderFailureClassification {
+  return {
+    code: input.code,
+    errorType: "adapter",
+    providerAccessEvidence: {
+      observedAtMs: Date.now(),
+      provider: "codex",
+      reasonCode: input.reasonCode,
+      source: "wake_failure",
+    },
+  };
 }
 
 function normalizeOptionalText(value: unknown): string | null {

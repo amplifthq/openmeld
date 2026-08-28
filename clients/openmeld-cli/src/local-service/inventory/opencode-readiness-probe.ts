@@ -68,7 +68,7 @@ export async function probeOpenCodeReadiness(input: {
       // A 401/403 is a real answer from a live server: the provider account
       // is proven not signed in. Anything else here means the check died.
       probeCompleted: auth.status === "unauthenticated",
-      status: "error",
+      status: auth.status === "unauthenticated" ? "unavailable" : "error",
     };
   } finally {
     if (server) {
@@ -283,12 +283,12 @@ function resolveOpenCodeReadinessFromProviderList(
   );
   if (connectedProviders.size === 0) {
     return {
-      auth: { status: "unknown" },
+      auth: { status: "unauthenticated", type: "opencode" },
       message:
         "OpenCode is installed, but no connected provider was reported. Open OpenCode and sign in to a provider before OpenMeld can launch it.",
       models: [],
       probeCompleted: true,
-      status: "error",
+      status: "unavailable",
     };
   }
 

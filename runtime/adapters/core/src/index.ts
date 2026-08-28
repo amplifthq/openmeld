@@ -12,6 +12,8 @@
 // - provider-native workspace semantics
 // - non-trivial parser/codec logic
 // - provider-specific failure/diagnostics mapping
+
+import { openMeldDaemonProviderAccessEvidenceSchema } from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
   AgentControllerPermissionMode,
@@ -361,6 +363,9 @@ export type AdapterDispatchFailure = {
   status: "failed";
   telemetry?: AdapterDispatchTelemetry;
 };
+
+export type AdapterProviderAccessEvidence =
+  OpenMeldDaemonProviderAccessEvidence;
 
 export type AdapterDispatchResult =
   | AdapterDispatchFailure
@@ -1272,33 +1277,8 @@ const extractProviderAccessEvidence = (
   if (!evidence || typeof evidence !== "object") {
     return null;
   }
-  const candidate = evidence as Partial<OpenMeldDaemonProviderAccessEvidence>;
-  if (
-    candidate.provider !== "claude-code" ||
-    candidate.source !== "wake_failure"
-  ) {
-    return null;
-  }
-  if (
-    candidate.reasonCode !== "provider_account.organization_access_disabled" &&
-    candidate.reasonCode !== "provider_account.subscription_access_unavailable"
-  ) {
-    return null;
-  }
-  const observedAtMs = candidate.observedAtMs;
-  if (
-    typeof observedAtMs !== "number" ||
-    !Number.isInteger(observedAtMs) ||
-    observedAtMs < 0
-  ) {
-    return null;
-  }
-  return {
-    observedAtMs,
-    provider: candidate.provider,
-    reasonCode: candidate.reasonCode,
-    source: candidate.source,
-  };
+  const parsed = openMeldDaemonProviderAccessEvidenceSchema.safeParse(evidence);
+  return parsed.success ? parsed.data : null;
 };
 
 const normalizeControlReason = (

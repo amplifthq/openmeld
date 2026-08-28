@@ -75,6 +75,7 @@ export const writeAcceptedProviderAccessFailureEvidence = async (input: {
           cleared_at_ms = NULL,
           cleared_by_dispatch_id = NULL,
           updated_at_ms = excluded.updated_at_ms
+        WHERE excluded.observed_at_ms >= openMeldDaemon_provider_access_evidence.observed_at_ms
       `
     )
     .bind(
@@ -125,6 +126,7 @@ export const clearProviderAccessFailureEvidenceForExecutionSuccess =
           AND agent_controller_ref = ?
           AND provider = ?
           AND cleared_at_ms IS NULL
+          AND observed_at_ms <= ?
       `
       )
       .bind(
@@ -135,7 +137,8 @@ export const clearProviderAccessFailureEvidenceForExecutionSuccess =
         input.executionIdentity.bindingId,
         input.executionIdentity.openMeldServiceRuntimeId,
         input.executionIdentity.agentControllerRef,
-        provider
+        provider,
+        clearedAtMs
       )
       .run();
     return "cleared";
@@ -242,6 +245,7 @@ function normalizeProviderAccessReasonCode(
   value: unknown
 ): OpenMeldDaemonProviderAccessEvidence["reasonCode"] | null {
   if (
+    value === "provider_account.capacity_exhausted" ||
     value === "provider_account.organization_access_disabled" ||
     value === "provider_account.subscription_access_unavailable"
   ) {

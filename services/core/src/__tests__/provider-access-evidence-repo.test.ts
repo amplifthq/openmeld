@@ -171,6 +171,103 @@ describe("provider access evidence repo", () => {
       })
     ).resolves.toBe("not_applicable");
   });
+
+  it("does not let an older accepted failure overwrite newer provider evidence", async () => {
+    const db = createProviderAccessEvidenceDb();
+    const executionIdentity = {
+      bindingId: "binding-1",
+      agentControllerRef: "builtin:codex",
+      openMeldServiceRuntimeId: "runtime-1",
+    };
+
+    await writeAcceptedProviderAccessFailureEvidence({
+      agentProfileId: "agt-1",
+      db,
+      evidence: {
+        observedAtMs: 2000,
+        provider: "codex",
+        reasonCode: "provider_account.organization_access_disabled",
+        source: "wake_failure",
+      },
+      executionIdentity,
+      observedAtMs: 2000,
+      sourceAttemptId: "attempt-new",
+      sourceDispatchId: "dispatch-new",
+    });
+    await writeAcceptedProviderAccessFailureEvidence({
+      agentProfileId: "agt-1",
+      db,
+      evidence: {
+        observedAtMs: 1000,
+        provider: "codex",
+        reasonCode: "provider_account.subscription_access_unavailable",
+        source: "wake_failure",
+      },
+      executionIdentity,
+      observedAtMs: 1000,
+      sourceAttemptId: "attempt-old",
+      sourceDispatchId: "dispatch-old",
+    });
+
+    await expect(
+      readFreshProviderAccessEvidenceForBinding({
+        agentProfileId: "agt-1",
+        bindingId: "binding-1",
+        agentControllerRef: "builtin:codex",
+        db,
+        nowMs: 2001,
+        openMeldServiceRuntimeId: "runtime-1",
+      })
+    ).resolves.toMatchObject({
+      observedAtMs: 2000,
+      reasonCode: "provider_account.organization_access_disabled",
+    });
+  });
+
+  it("does not let an older accepted success clear newer provider evidence", async () => {
+    const db = createProviderAccessEvidenceDb();
+    const executionIdentity = {
+      bindingId: "binding-1",
+      agentControllerRef: "builtin:opencode",
+      openMeldServiceRuntimeId: "runtime-1",
+    };
+
+    await writeAcceptedProviderAccessFailureEvidence({
+      agentProfileId: "agt-1",
+      db,
+      evidence: {
+        observedAtMs: 2000,
+        provider: "opencode",
+        reasonCode: "provider_account.subscription_access_unavailable",
+        source: "wake_failure",
+      },
+      executionIdentity,
+      observedAtMs: 2000,
+      sourceAttemptId: "attempt-new",
+      sourceDispatchId: "dispatch-new",
+    });
+    await clearProviderAccessFailureEvidenceForExecutionSuccess({
+      agentProfileId: "agt-1",
+      clearedAtMs: 1000,
+      db,
+      executionIdentity,
+      sourceDispatchId: "dispatch-old-success",
+    });
+
+    await expect(
+      readFreshProviderAccessEvidenceForBinding({
+        agentProfileId: "agt-1",
+        bindingId: "binding-1",
+        agentControllerRef: "builtin:opencode",
+        db,
+        nowMs: 2001,
+        openMeldServiceRuntimeId: "runtime-1",
+      })
+    ).resolves.toMatchObject({
+      observedAtMs: 2000,
+      reasonCode: "provider_account.subscription_access_unavailable",
+    });
+  });
 });
 
 type ProviderAccessEvidenceRow = {
@@ -234,7 +331,11 @@ function createProviderAccessEvidenceDb(): D1Database {
             sql.includes("INSERT INTO openMeldDaemon_provider_access_evidence")
           ) {
             const row = buildProviderAccessEvidenceRow(args);
-            rowsByKey.set(buildProviderAccessEvidenceKey(row), row);
+            const key = buildProviderAccessEvidenceKey(row);
+            const existing = rowsByKey.get(key);
+            if (!existing || row.observedAtMs >= existing.observedAtMs) {
+              rowsByKey.set(key, row);
+            }
             return { success: true };
           }
           if (sql.includes("UPDATE openMeldDaemon_provider_access_evidence")) {
@@ -247,6 +348,7 @@ function createProviderAccessEvidenceDb(): D1Database {
               openMeldServiceRuntimeId,
               agentControllerRef,
               provider,
+              maximumObservedAtMs,
             ] = args;
             const key = [
               agentProfileId,
@@ -256,7 +358,11 @@ function createProviderAccessEvidenceDb(): D1Database {
               provider,
             ].join("|");
             const row = rowsByKey.get(key);
-            if (row && row.clearedAtMs === null) {
+            if (
+              row &&
+              row.clearedAtMs === null &&
+              row.observedAtMs <= Number(maximumObservedAtMs)
+            ) {
               rowsByKey.set(key, {
                 ...row,
                 clearedAtMs: Number(clearedAtMs),

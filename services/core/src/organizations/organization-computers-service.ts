@@ -151,33 +151,36 @@ function projectTeamSafeLocalAgents(
   includeUsageLimits: boolean,
   publicModelIdsByAgentControllerRef: ReadonlyMap<string, ReadonlySet<string>>
 ): OrganizationComputerRecord["localAgents"] {
-  const byRef = new Map<
+  const currentTargetByRef = new Map<
     string,
-    OrganizationComputerRecord["localAgents"][number]
+    OwnedDeviceExecutionTargetRecord
   >();
   for (const target of targets) {
     if (!target.agentControllerRef) {
       continue;
     }
-    const details = projectTeamSafeLocalAgentDetails(
-      target,
-      includeUsageLimits,
-      publicModelIdsByAgentControllerRef
-    );
-    const candidate: OrganizationComputerRecord["localAgents"][number] = {
-      agentControllerRef: target.agentControllerRef,
-      ...(details ? { details } : {}),
-      enabled: target.capabilityEnabled,
-      status: target.capabilityStatus,
-    };
-    const existing = byRef.get(target.agentControllerRef);
-    if (!existing || compareLocalAgentEvidence(candidate, existing) > 0) {
-      byRef.set(target.agentControllerRef, candidate);
+    const existing = currentTargetByRef.get(target.agentControllerRef);
+    if (!existing || compareExecutionTargetEvidence(target, existing) > 0) {
+      currentTargetByRef.set(target.agentControllerRef, target);
     }
   }
-  return [...byRef.values()].sort((left, right) =>
-    left.agentControllerRef.localeCompare(right.agentControllerRef)
-  );
+  return [...currentTargetByRef.values()]
+    .map((target) => {
+      const details = projectTeamSafeLocalAgentDetails(
+        target,
+        includeUsageLimits,
+        publicModelIdsByAgentControllerRef
+      );
+      return {
+        agentControllerRef: target.agentControllerRef as string,
+        ...(details ? { details } : {}),
+        enabled: target.capabilityEnabled,
+        status: target.capabilityStatus,
+      };
+    })
+    .sort((left, right) =>
+      left.agentControllerRef.localeCompare(right.agentControllerRef)
+    );
 }
 
 function projectTeamSafeLocalAgentDetails(
@@ -224,24 +227,42 @@ function buildPublicModelIdsByAgentControllerRef(
   );
 }
 
-function compareLocalAgentEvidence(
-  left: OrganizationComputerRecord["localAgents"][number],
-  right: OrganizationComputerRecord["localAgents"][number]
+function compareExecutionTargetEvidence(
+  left: OwnedDeviceExecutionTargetRecord,
+  right: OwnedDeviceExecutionTargetRecord
 ): number {
-  const rank = { unknown: 0, stale: 1, not_ready: 2, ready: 3 } as const;
+  const sameObservedTimeFailClosedRank = {
+    ready: 0,
+    unknown: 1,
+    stale: 2,
+    not_ready: 3,
+  } as const;
   return (
-    Number(left.enabled) - Number(right.enabled) ||
-    rank[left.status] - rank[right.status] ||
-    Number(Boolean(left.details)) - Number(Boolean(right.details)) ||
-    readAgentDetailsCheckedAtMs(left) - readAgentDetailsCheckedAtMs(right)
+    readExecutionTargetObservedAtMs(left) -
+      readExecutionTargetObservedAtMs(right) ||
+    sameObservedTimeFailClosedRank[left.capabilityStatus] -
+      sameObservedTimeFailClosedRank[right.capabilityStatus] ||
+    Number(Boolean(left.agentControllerInterface)) -
+      Number(Boolean(right.agentControllerInterface)) ||
+    buildExecutionTargetIdentity(left).localeCompare(
+      buildExecutionTargetIdentity(right)
+    )
   );
 }
 
-function readAgentDetailsCheckedAtMs(
-  agent: OrganizationComputerRecord["localAgents"][number]
+function readExecutionTargetObservedAtMs(
+  target: OwnedDeviceExecutionTargetRecord
 ): number {
-  const checkedAtMs = agent.details
-    ? Date.parse(agent.details.checkedAt)
-    : Number.NaN;
-  return Number.isFinite(checkedAtMs) ? checkedAtMs : 0;
+  return target.lastObservedAtMs ?? 0;
+}
+
+function buildExecutionTargetIdentity(
+  target: OwnedDeviceExecutionTargetRecord
+): string {
+  return [
+    target.deviceId,
+    target.runtimeLane,
+    target.openMeldServiceRuntimeId,
+    target.agentControllerRef ?? "",
+  ].join("\u0000");
 }
