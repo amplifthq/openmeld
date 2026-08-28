@@ -1,6 +1,7 @@
 {
   "extends": "../../tooling/typescript-config/base.jsonc",
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "noEmit": true,
     "types": ["node"]
   },
