@@ -314,6 +314,55 @@ describe("Remote Agent model reasoning", () => {
     });
   });
 
+  it("keeps foundational OpenMeld reads available without exposing writes", async () => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
+    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
+      (name) => ({ function: { name }, type: "function" })
+    );
+    const foundationalReads = [
+      "openmeld_list_organization_members",
+      "openmeld_list_center_agent_tasks",
+      "openmeld_get_center_agent_task",
+    ].map((name) => ({ function: { name }, type: "function" }));
+    const createTask = {
+      function: { name: "openmeld_create_task" },
+      type: "function",
+    };
+    const codemode = {
+      function: { name: "codemode" },
+      type: "function",
+    };
+
+    const payload = await options.onPayload?.(
+      {
+        messages: [
+          {
+            content: "List my current OpenMeld Tasks without changing them.",
+            role: "user",
+          },
+        ],
+        tools: [
+          ...Array.from({ length: 65 }, (_, index) => ({
+            function: { name: `tool_${String(index)}` },
+            type: "function",
+          })),
+          ...discoveryTools,
+          ...foundationalReads,
+          createTask,
+          codemode,
+        ],
+      },
+      { ...TEXT_ONLY_MODEL, id: "z-ai/glm-5.3-flash" }
+    );
+
+    expect(payload).toMatchObject({
+      tools: [...discoveryTools, ...foundationalReads, codemode],
+    });
+    expect(payload).not.toMatchObject({
+      tools: expect.arrayContaining([createTask]),
+    });
+  });
+
   it("keeps the generic Connected App bootstrap direct for provider-specific goals", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
