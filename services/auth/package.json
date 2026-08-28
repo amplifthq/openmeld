@@ -44,6 +44,8 @@
     "db:studio": "pnpm -C ../.. db:studio"
   },
   "dependencies": {
+    "@better-auth/core": "1.6.30",
+    "@better-auth/utils": "0.4.2",
     "@openmeld/auth": "workspace:*",
     "@openmeld/db": "workspace:*",
     "@openmeld/gateway-contract": "workspace:*",

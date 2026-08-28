@@ -1,1 +1,4 @@
-export { createAuth } from "../lib/better-auth";
+export {
+  createAuth,
+  runWithAuthRequestState,
+} from "../lib/better-auth";

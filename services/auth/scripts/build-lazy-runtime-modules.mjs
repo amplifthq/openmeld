@@ -47,8 +47,14 @@ export async function buildLazyRuntimeModules(
     );
   }
   const outputMetadata = Object.values(result.metafile?.outputs ?? {})[0];
-  if (!outputMetadata?.exports.includes("createAuth")) {
-    throw new Error("Lazy Better Auth runtime does not export createAuth");
+  const requiredExports = ["createAuth", "runWithAuthRequestState"];
+  const missingExports = requiredExports.filter(
+    (exportName) => !outputMetadata?.exports.includes(exportName)
+  );
+  if (missingExports.length > 0) {
+    throw new Error(
+      `Lazy Better Auth runtime is missing exports: ${missingExports.join(", ")}`
+    );
   }
 
   const output = result.outputFiles[0].contents;

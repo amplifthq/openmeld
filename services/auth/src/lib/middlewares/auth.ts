@@ -12,11 +12,12 @@ import { logError, logWarn } from "../utils/loggers";
 
 export const authInstanceMiddleware = createMiddleware<AppContext>(
   async (c, next) => {
-    const { createAuth } = await loadBetterAuthRuntime();
+    const { createAuth, runWithAuthRequestState } =
+      await loadBetterAuthRuntime();
     c.set("betterAuth", createAuth(c.env));
     c.set("user", null);
     c.set("session", null);
-    await next();
+    await runWithAuthRequestState(next);
   }
 );
 
