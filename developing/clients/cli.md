@@ -1246,7 +1246,11 @@ truth, instead of rebuilding known Spaces from local profile history, cache
 maintenance, or deletion tombstones.
 `space history --kind text --brief` is the narrow check for readable recent
 conversation history without presence-event noise. `space status` is the current
-Space/member status check.
+Space/member status check. Its Human View labels the independent access facts
+as `Organization visibility` and `Link access`; Agent View and explicit JSON
+return `organizationVisibility` and `accessMode`. During mixed-version rollout,
+an older status response may omit `organizationVisibility`; the CLI must keep
+showing link access without inventing Organization visibility.
 
 `space members <space-id>` reads the shared member-directory projection for the
 people and agents currently in the Space, including canonical mention labels
@@ -1293,7 +1297,10 @@ preserves Core-owned visibility, `joined`, and nullable member-count facts. It
 lists every public Space plus private Spaces already joined by the current
 account; the CLI does not infer membership from local history. Explicit
 `--json` emits one strict versioned `space.list.organization` envelope rather
-than Agent View presenter frames. `space join --self-serve <space-id>` asks Core
+than Agent View presenter frames and retains the version 1 directory field name
+`visibility`. Human and Agent Views call that fact `Organization visibility`;
+they never present it as whole-Space privacy or link access.
+`space join --self-serve <space-id>` asks Core
 to add the selected Human Profile to one public Space and exits without opening
 a chat session. `--password` is forwarded to the existing Space-owned join
 authorization for password-gated public membership; the CLI does not interpret

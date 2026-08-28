@@ -9,6 +9,7 @@ import { emitCliErrorJson } from "../runtime/cli-error-json";
 import { emitCliJsonEnvelope } from "../runtime/cli-json-output";
 import { renderHumanErrorCard } from "../ui/human-error-card";
 import { renderInfoCard } from "../ui/info-card";
+import { resolveOrganizationVisibilityLabel } from "./access-presentation";
 import { createCliApiClientFoundation } from "./api-client-foundation";
 import { createCliSpaceApi } from "./cli-space-api";
 import {
@@ -79,7 +80,7 @@ export async function runSpaceOrganizationList(input: {
   if (runtime.resolvedView === "agent") {
     presenter.data({
       code: "space.list.organization",
-      payload,
+      payload: buildOrganizationSpaceListAgentPayload(payload),
     });
     return;
   }
@@ -87,6 +88,18 @@ export async function runSpaceOrganizationList(input: {
     presenter,
     spaces: payload.spaces,
   });
+}
+
+function buildOrganizationSpaceListAgentPayload(
+  payload: ReturnType<typeof buildOrganizationSpaceListPayload>
+) {
+  return {
+    ...payload,
+    spaces: payload.spaces.map(({ visibility, ...space }) => ({
+      ...space,
+      organizationVisibility: visibility,
+    })),
+  };
 }
 
 export async function runSpaceSelfServeJoin(input: {
@@ -227,7 +240,7 @@ function renderOrganizationSpaceListHumanOutput(input: {
       input.spaces.length > 0
         ? input.spaces.map((space) => ({
             label: space.name,
-            value: `${space.spaceId} · ${space.visibility} · ${
+            value: `${space.spaceId} · Organization visibility: ${resolveOrganizationVisibilityLabel(space.visibility)} · ${
               space.joined ? "joined" : "not joined"
             } · ${formatOrganizationSpaceMemberCount(space.activeMemberCount)}`,
           }))
@@ -242,7 +255,7 @@ function renderOrganizationSpaceListHumanOutput(input: {
   });
   input.presenter.line({
     code: "space.list.organization.join_hint",
-    text: "Use `openmeld space join --self-serve <space-id>` to join a public Organization Space. This only adds membership; omit `--self-serve` to open the interactive Space session.",
+    text: "Organization visibility does not describe access for people who have the link. Run `openmeld space status <space-id> --json` to read both Organization visibility and link access. Use `openmeld space join --self-serve <space-id>` to join a discoverable Organization Space.",
   });
 }
 

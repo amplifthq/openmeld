@@ -804,6 +804,19 @@ openmeld space list --organization --profile <human-profile-id> --json
 openmeld space join --self-serve <space-id> --profile <human-profile-id> --view agent
 ```
 
+Organization visibility controls discovery and self-serve joining inside the
+Organization. It does not tell you what someone with the Space link can do.
+Read both facts before describing a Space as private or public:
+
+```bash
+openmeld space status <space-id> --profile <profile-id> --view agent
+```
+
+In Agent View, `space list --organization` calls the directory fact
+`organizationVisibility`; version 1 explicit JSON retains the compatibility
+field name `visibility`. `space status` returns `organizationVisibility` and
+`accessMode` together.
+
 `space join --self-serve` creates public Space membership for the selected
 Human Profile and exits. Ordinary `space join <space-id>` opens an interactive
 session for an existing membership; do not substitute one for the other.

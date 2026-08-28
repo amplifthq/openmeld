@@ -794,7 +794,12 @@ describe("Space collaboration control commands", () => {
           generatedAt: ORGANIZATION_SPACE_DIRECTORY_FIXTURE.generatedAt,
           total: 2,
           returned: 2,
-          spaces: ORGANIZATION_SPACE_DIRECTORY_FIXTURE.spaces,
+          spaces: ORGANIZATION_SPACE_DIRECTORY_FIXTURE.spaces.map(
+            ({ visibility, ...space }) => ({
+              ...space,
+              organizationVisibility: visibility,
+            })
+          ),
         },
       });
       const [request, init] = fetchSpy.mock.calls[0] ?? [];
@@ -848,6 +853,37 @@ describe("Space collaboration control commands", () => {
         "returned",
         "spaces",
       ]);
+    });
+  });
+
+  it("labels Organization visibility without implying link privacy", async () => {
+    await withTempHome(async () => {
+      await initializeProfile();
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify(ORGANIZATION_SPACE_DIRECTORY_FIXTURE), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      );
+
+      const { plainStdout } = await withCapturedStdio(async () => {
+        await runSpaceOrganizationList({
+          entryChecksHandled: true,
+          profile: PROFILE.openMeldProfileId,
+          baseUrl: "http://localhost",
+          limit: 20,
+          view: "human",
+        });
+      });
+
+      expect(plainStdout).toContain(
+        "Organization visibility: discoverable; Organization members can join"
+      );
+      expect(plainStdout).toContain("Organization visibility: invite only");
+      expect(plainStdout).toContain(
+        "Organization visibility does not describe access for people who have the link."
+      );
+      expect(plainStdout).toContain("openmeld space status <space-id> --json");
     });
   });
 

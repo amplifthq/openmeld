@@ -12,6 +12,7 @@ import {
 import { resultArchivePolicySchema } from "../space-mesh/result-archive-policy";
 import { spaceAccessModeSchema } from "./space-access-mode";
 import { spaceMembersSummarySchema } from "./space-members";
+import { spaceOrganizationVisibilitySchema } from "./space-meta";
 import { spaceRouteParamsSchema } from "./space-route-params";
 
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
@@ -45,6 +46,7 @@ export const getSpaceStatusResponseSchema = z.object({
   name: optionalTrimmedStringSchema,
   spacePurpose: optionalTrimmedStringSchema,
   directMessageConvertedAt: isoDateTimeSchema.optional(),
+  organizationVisibility: spaceOrganizationVisibilitySchema.optional(),
   accessMode: spaceAccessModeSchema,
   passwordProtected: z.boolean(),
   dispatchPolicy: spaceDispatchPolicySchema,

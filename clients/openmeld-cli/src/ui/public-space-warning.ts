@@ -1,4 +1,4 @@
-import type { SpaceMeta } from "@openmeld/protocol";
+import type { SpaceAccessPresentationInput } from "../space/access-presentation";
 import { buildUnifiedCardFrame } from "./card-frame";
 
 const PUBLIC_SPACE_WARNING_TITLE = "⚠️ Check Before You Continue";
@@ -15,12 +15,6 @@ export type PublicSpacePasswordPromptConfig = {
   setPasswordLabel: string;
   skipPasswordLabel: string;
 };
-
-export type SpaceAccessPresentationInput = Pick<
-  SpaceMeta,
-  "accessMode" | "passwordProtected"
-> &
-  Partial<Pick<SpaceMeta, "visibility">>;
 
 export type PublicSpaceExposure = "anyone_can_join" | "anyone_can_view";
 
@@ -54,29 +48,6 @@ export function buildPublicSpaceWarningLines(
     firstLine,
     "Only bring an agent if you're comfortable sharing anything it posts with people who have the link.",
   ];
-}
-
-export function resolveSpaceAccessLabel(
-  input: SpaceAccessPresentationInput
-): string {
-  switch (input.accessMode) {
-    case "members_only":
-      return "members only";
-    case "public":
-      return "anyone with the link";
-    case "public_view_join_password":
-      return "anyone can view; password required to join";
-    case "protected":
-      return "password required to view and join";
-    default:
-      if (input.passwordProtected === true) {
-        return "password required";
-      }
-      if (input.passwordProtected === false) {
-        return "anyone with the link";
-      }
-      return "unknown";
-  }
 }
 
 export function buildPublicSpaceJoinConfirmPromptConfig(input: {

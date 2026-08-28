@@ -97,6 +97,7 @@ export async function readSpaceStatusSummaryUseCase(input: {
 
   return buildSpaceStatusSummaryResponse({
     accessMode: input.metaRecord.accessMode,
+    organizationVisibility: input.metaRecord.visibility,
     centerAgentProfileId: await centerAgentProfileIdPromise,
     contract,
     generatedAt,
@@ -167,6 +168,7 @@ export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
 
   return buildSpaceStatusSummaryResponse({
     accessMode: input.metaRecord.accessMode,
+    organizationVisibility: input.metaRecord.visibility,
     centerAgentProfileId: await centerAgentProfileIdPromise,
     contract,
     generatedAt,
@@ -181,6 +183,7 @@ export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
 
 function buildSpaceStatusSummaryResponse(input: {
   accessMode: SpaceMetaRecord["accessMode"];
+  organizationVisibility: SpaceMetaRecord["visibility"];
   centerAgentProfileId: GetSpaceStatusResponse["centerAgentProfileId"];
   contract: SpaceContract;
   generatedAt: string;
@@ -202,6 +205,7 @@ function buildSpaceStatusSummaryResponse(input: {
     ...(input.directMessageConvertedAt
       ? { directMessageConvertedAt: input.directMessageConvertedAt }
       : {}),
+    organizationVisibility: input.organizationVisibility,
     accessMode: input.accessMode,
     passwordProtected: input.accessMode === "protected",
     dispatchPolicy: input.contract.dispatchPolicy,

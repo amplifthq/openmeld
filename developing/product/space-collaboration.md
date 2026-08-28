@@ -383,6 +383,10 @@ Space. Organization visibility and link access are separate controls:
 `visibility = private` makes the Space invite-only in the Organization, while
 `accessMode = members_only` prevents a link visitor from viewing or joining.
 Privacy-sensitive creation must set both values; neither one implies the other.
+Any surface that presents both facts must label them as **Organization
+visibility** and **link access**. A bare `private` or `public` label must not be
+presented as the privacy state of the whole Space because it answers only one
+of those two questions.
 
 OpenMeld has four access modes:
 
