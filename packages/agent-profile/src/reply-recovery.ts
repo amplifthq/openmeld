@@ -69,6 +69,7 @@ const PRIMARY_RECOVERY_REASON_CODES = [
   "route.unavailable",
   "provider_account.organization_access_disabled",
   "provider_account.subscription_access_unavailable",
+  "provider_account.capacity_exhausted",
 ] satisfies readonly AgentProfileReplyRecoveryReasonCode[];
 
 const AGENT_PROFILE_PREPARATION_REASON_CODES = new Set<string>([

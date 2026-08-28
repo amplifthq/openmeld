@@ -781,7 +781,7 @@ async function resolveOpenClawInterfaceSnapshot(input: {
   }
   let status = input.baseSnapshot.status;
   if (!authResult.probeCompleted) {
-    status = "error";
+    status = "unknown";
   }
   if (authResult.auth.status === "unauthenticated") {
     status = "unavailable";

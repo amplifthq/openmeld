@@ -890,7 +890,7 @@ describe("planAgentProfileReplyRecovery", () => {
     ],
     [
       "provider_account.capacity_exhausted",
-      "Codex is connected, but its provider quota or credit balance is exhausted. Add credits, update billing, or wait for the displayed reset time before waking it again.",
+      "Codex is connected, but its provider quota or credit balance is exhausted. Review the provider plan, billing, or credits before waking it again.",
     ],
   ] as const)("uses shared recovery copy for provider reason %s", (reasonCode, copy) => {
     const plan = planAgentProfileReplyRecovery({

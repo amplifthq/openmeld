@@ -676,8 +676,11 @@ unavailable, and exhausted hard quota/credit capacity may project
 wording, or ordinary transient `429` remains diagnostic evidence for that Wake
 and must not become a durable availability blocker. A later accepted success
 for the same exact execution identity may clear only evidence no newer than
-that success; delayed failures and successes cannot overwrite newer accepted
-facts.
+that success. Core durably retains the latest accepted-result watermark even
+when no failure row existed, so a delayed older failure cannot reopen cleared
+evidence. Accepted-result time is the persisted ordering key; an exact-time
+success/failure tie fails closed in favor of the hard failure, while delayed
+failures and successes cannot overwrite newer accepted facts.
 
 The canonical read paths are:
 

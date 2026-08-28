@@ -918,12 +918,33 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "provider_account.capacity_exhausted",
-      "Runner is connected, but its provider quota or credit balance is exhausted. Add credits, update billing, or wait for the displayed reset time before waking it again.",
+      "Runner is connected, but its provider quota or credit balance is exhausted. Review the provider plan, billing, or credits before waking it again.",
     ],
   ] as const)("maps reply-recovery reason %s to specific shared copy", (reasonCode, body) => {
     expect(resolveMappedPublicAgentFailureReason(reasonCode, "Runner")).toBe(
       body
     );
+  });
+
+  it.each([
+    "provider.subscription_access_unavailable",
+    "provider_account.subscription_access_unavailable",
+    "provider_account.organization_access_disabled",
+    "provider_account.capacity_exhausted",
+    "provider_account.access_required",
+  ])("routes provider-account blocker %s to account review", (reasonCode) => {
+    const recovery = resolvePublicAgentFailureRecovery({
+      errorCode: reasonCode,
+      targetLabel: "Runner",
+    });
+
+    expect(recovery).toMatchObject({
+      kind: "account_access",
+      primaryActionId: "review_agent_settings",
+      primaryActionLabel: "Review agent settings",
+      recoveryTarget: "agents",
+    });
+    expect(recovery?.body).not.toContain("displayed reset time");
   });
 
   it.each([

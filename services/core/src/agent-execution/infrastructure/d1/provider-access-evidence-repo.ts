@@ -22,6 +22,10 @@ export type FreshProviderAccessEvidence = {
   source: "wake_failure";
 };
 
+const PROVIDER_ACCESS_SUCCESS_WATERMARK_REASON_CODE =
+  "provider_account.access_confirmed";
+const PROVIDER_ACCESS_SUCCESS_WATERMARK_SOURCE = "wake_success";
+
 export const writeAcceptedProviderAccessFailureEvidence = async (input: {
   agentProfileId: string;
   db: D1Database;
@@ -75,7 +79,24 @@ export const writeAcceptedProviderAccessFailureEvidence = async (input: {
           cleared_at_ms = NULL,
           cleared_by_dispatch_id = NULL,
           updated_at_ms = excluded.updated_at_ms
-        WHERE excluded.observed_at_ms >= openMeldDaemon_provider_access_evidence.observed_at_ms
+        WHERE
+          excluded.observed_at_ms > MAX(
+            openMeldDaemon_provider_access_evidence.observed_at_ms,
+            COALESCE(
+              openMeldDaemon_provider_access_evidence.cleared_at_ms,
+              openMeldDaemon_provider_access_evidence.observed_at_ms
+            )
+          )
+          OR (
+            excluded.observed_at_ms = MAX(
+              openMeldDaemon_provider_access_evidence.observed_at_ms,
+              COALESCE(
+                openMeldDaemon_provider_access_evidence.cleared_at_ms,
+                openMeldDaemon_provider_access_evidence.observed_at_ms
+              )
+            )
+            AND openMeldDaemon_provider_access_evidence.cleared_at_ms IS NOT NULL
+          )
       `
     )
     .bind(
@@ -105,6 +126,7 @@ export const clearProviderAccessFailureEvidenceForExecutionSuccess =
     clearedAtMs: number;
     db: D1Database;
     executionIdentity: ProviderAccessExecutionIdentity;
+    sourceAttemptId: string;
     sourceDispatchId: string;
   }): Promise<"cleared" | "not_applicable"> => {
     const provider = providerForExecutionIdentity(input.executionIdentity);
@@ -112,32 +134,69 @@ export const clearProviderAccessFailureEvidenceForExecutionSuccess =
       return "not_applicable";
     }
     const clearedAtMs = normalizeTimestampMs(input.clearedAtMs);
+    const evidenceId = buildProviderAccessEvidenceId({
+      agentProfileId: input.agentProfileId,
+      executionIdentity: input.executionIdentity,
+      provider,
+    });
     await input.db
       .prepare(
         `
-        UPDATE openMeldDaemon_provider_access_evidence
-        SET
-          cleared_at_ms = ?,
-          cleared_by_dispatch_id = ?,
-          updated_at_ms = ?
-        WHERE agent_profile_id = ?
-          AND binding_id = ?
-          AND openmeld_service_runtime_id = ?
-          AND agent_controller_ref = ?
-          AND provider = ?
-          AND cleared_at_ms IS NULL
-          AND observed_at_ms <= ?
+        INSERT INTO openMeldDaemon_provider_access_evidence (
+          evidence_id,
+          provider,
+          agent_profile_id,
+          binding_id,
+          openmeld_service_runtime_id,
+          agent_controller_ref,
+          reason_code,
+          source,
+          source_dispatch_id,
+          source_attempt_id,
+          observed_at_ms,
+          expires_at_ms,
+          cleared_at_ms,
+          cleared_by_dispatch_id,
+          created_at_ms,
+          updated_at_ms
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(agent_profile_id, binding_id, openmeld_service_runtime_id, agent_controller_ref, provider)
+        DO UPDATE SET
+          reason_code = excluded.reason_code,
+          source = excluded.source,
+          source_dispatch_id = excluded.source_dispatch_id,
+          source_attempt_id = excluded.source_attempt_id,
+          observed_at_ms = excluded.observed_at_ms,
+          expires_at_ms = excluded.expires_at_ms,
+          cleared_at_ms = excluded.cleared_at_ms,
+          cleared_by_dispatch_id = excluded.cleared_by_dispatch_id,
+          updated_at_ms = excluded.updated_at_ms
+        WHERE excluded.cleared_at_ms > MAX(
+          openMeldDaemon_provider_access_evidence.observed_at_ms,
+          COALESCE(
+            openMeldDaemon_provider_access_evidence.cleared_at_ms,
+            openMeldDaemon_provider_access_evidence.observed_at_ms
+          )
+        )
       `
       )
       .bind(
-        clearedAtMs,
-        input.sourceDispatchId,
-        clearedAtMs,
+        evidenceId,
+        provider,
         input.agentProfileId,
         input.executionIdentity.bindingId,
         input.executionIdentity.openMeldServiceRuntimeId,
         input.executionIdentity.agentControllerRef,
-        provider,
+        PROVIDER_ACCESS_SUCCESS_WATERMARK_REASON_CODE,
+        PROVIDER_ACCESS_SUCCESS_WATERMARK_SOURCE,
+        input.sourceDispatchId,
+        input.sourceAttemptId,
+        clearedAtMs,
+        clearedAtMs,
+        clearedAtMs,
+        input.sourceDispatchId,
+        clearedAtMs,
         clearedAtMs
       )
       .run();

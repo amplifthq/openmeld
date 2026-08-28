@@ -649,9 +649,12 @@ not separate public states.
 `Offline` is reserved for stable Computer, OpenMeld Service, or route liveness
 loss. A signed-out controller, unavailable provider subscription, organization
 access block, or fresh proven hard quota exhaustion is `Unavailable`, with the
-provider-account next action. These account states do not become a red launch
-error or `needs_repair`; actual launch verification failure remains a distinct
-local setup error.
+provider-account next action. That action reviews the Agent Profile and provider
+account; it does not send the user through local-agent reconnect or Prepare.
+Quota copy names a reset time only when current authoritative evidence actually
+provides one. These account states do not become a red launch error or
+`needs_repair`; actual launch verification failure remains a distinct local
+setup error.
 
 Agent Profile surfaces must distinguish connection truth from temporary
 readiness recovery. When Core classifies a missing or stale local Agent

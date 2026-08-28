@@ -57,6 +57,13 @@ test("codex distinguishes subscription access from a transient rate limit", asyn
   });
   assert.equal(transientRateLimit.code, "rate_limited");
   assert.equal(transientRateLimit.providerAccessEvidence, undefined);
+
+  const overlappingTransientRateLimit = classifyCodexProviderAccountFailure({
+    message:
+      "429 Too Many Requests: usage limit reached for this billing window",
+  });
+  assert.equal(overlappingTransientRateLimit.code, "rate_limited");
+  assert.equal(overlappingTransientRateLimit.providerAccessEvidence, undefined);
 });
 
 const CODEX_PLATFORM_LAYOUTS = {

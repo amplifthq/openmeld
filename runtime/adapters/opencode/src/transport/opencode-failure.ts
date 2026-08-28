@@ -69,6 +69,25 @@ export function classifyOpenCodeFailureMessage(input: {
     };
   }
 
+  if (isDefinitiveHardQuotaFailure(lowered)) {
+    return {
+      code: "quota.exceeded",
+      errorType: "adapter",
+      message: `quota.exceeded: ${normalized}`,
+      providerAccessEvidence: buildProviderAccessEvidence(
+        "provider_account.capacity_exhausted"
+      ),
+    };
+  }
+
+  if (isTransientRateLimitFailure(lowered)) {
+    return {
+      code: "provider.rate_limited",
+      errorType: "network",
+      message: `provider.rate_limited: ${normalized}`,
+    };
+  }
+
   if (isSubscriptionAccessFailure(lowered)) {
     return {
       code: "provider.subscription_access_unavailable",
@@ -99,14 +118,6 @@ export function classifyOpenCodeFailureMessage(input: {
     };
   }
 
-  if (isTransientRateLimitFailure(lowered)) {
-    return {
-      code: "provider.rate_limited",
-      errorType: "network",
-      message: `provider.rate_limited: ${normalized}`,
-    };
-  }
-
   return {
     code: "upstream_unreachable",
     errorType: "adapter",
@@ -127,12 +138,18 @@ function buildProviderAccessEvidence(
 
 function isHardQuotaFailure(value: string): boolean {
   return (
+    isDefinitiveHardQuotaFailure(value) ||
+    value.includes("usage limit") ||
+    value.includes("usage_limit")
+  );
+}
+
+function isDefinitiveHardQuotaFailure(value: string): boolean {
+  return (
     value.includes("insufficient quota") ||
     value.includes("insufficient_quota") ||
     value.includes("quota exceeded") ||
-    value.includes("exceeded your current quota") ||
-    value.includes("usage limit") ||
-    value.includes("usage_limit")
+    value.includes("exceeded your current quota")
   );
 }
 

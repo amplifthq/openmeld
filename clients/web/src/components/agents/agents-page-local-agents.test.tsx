@@ -1148,7 +1148,7 @@ describe("LocalAgentsCard", () => {
 				lastSucceededAt: "2026-06-28T11:55:00.000Z",
 				status: "failed",
 			},
-			agentControllerStatus: "unknown",
+			agentControllerStatus: "error",
 			includeAgentControllerInterface: true,
 			setEnabledSupported: true,
 		});
@@ -1166,6 +1166,54 @@ describe("LocalAgentsCard", () => {
 			)
 		).toBeTruthy();
 		expect(within(agentDialog).getByText("Last successful check")).toBeTruthy();
+	});
+
+	it("shows a teammate failed controller check as amber even if the raw snapshot says error", () => {
+		const details: OrganizationComputerLocalAgentDetails = {
+			capabilities: {
+				approvals: true,
+				cancel: true,
+				interrupt: true,
+				modelSelection: true,
+				nativeEventStream: true,
+				permissionModes: true,
+				structuredUserInput: false,
+			},
+			check: {
+				lastSucceededAt: "2026-08-20T07:55:00.000Z",
+				status: "failed",
+			},
+			checkedAt: "2026-08-20T08:00:00.000Z",
+			launch: { installChoiceCount: 1, status: "ready" },
+			models: [],
+			nativeInterface: "local-cli",
+			status: "error",
+			version: "1.0.0",
+		};
+		render(
+			<TooltipProvider>
+				<LocalAgentsCard
+					computer={{
+						deviceDisplayName: "Maya's Mac",
+						localAgents: [
+							{
+								agentId: "openclaw",
+								details,
+								displayName: "OpenClaw",
+								enabled: true,
+								status: "not_ready",
+							},
+						],
+					}}
+					view="team"
+				/>
+			</TooltipProvider>
+		);
+
+		const row = screen.getByTestId("settings-local-agent-row-openclaw");
+		const checkLabel = within(row).getByText("Couldn't check");
+		expect(checkLabel.className).toContain("text-amber");
+		expect(within(row).queryByText("Error")).toBeNull();
 	});
 
 	it("shows the controller-specific not-signed-in guidance for an unauthenticated Codex controller", () => {

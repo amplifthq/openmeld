@@ -68,7 +68,7 @@ export async function probeOpenCodeReadiness(input: {
       // A 401/403 is a real answer from a live server: the provider account
       // is proven not signed in. Anything else here means the check died.
       probeCompleted: auth.status === "unauthenticated",
-      status: auth.status === "unauthenticated" ? "unavailable" : "error",
+      status: auth.status === "unauthenticated" ? "unavailable" : "unknown",
     };
   } finally {
     if (server) {

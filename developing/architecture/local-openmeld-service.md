@@ -297,7 +297,10 @@ blocker: organization access disabled, subscription access unavailable, or
 exhausted hard quota/credit capacity. Authentication failure remains ACI
 authentication evidence. A generic quota percentage, low-capacity warning,
 ordinary `429`, or temporary provider failure must not create provider-access
-evidence or make a later Wake unavailable.
+evidence or make a later Wake unavailable. Classifiers evaluate an explicit
+transient `429` or rate-limit signal before broad textual matches such as
+`usage limit` or `billing`; only structured or otherwise definitive hard
+capacity evidence may override that transient classification.
 
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards

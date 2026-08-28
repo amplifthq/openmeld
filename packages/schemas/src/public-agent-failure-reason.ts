@@ -641,8 +641,8 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       mappedReasonBody: (targetName) =>
         `${targetName}'s provider subscription does not include the access this agent needs. Review the provider plan or account on its computer before waking it again.`,
       patterns: ["provider.subscription_access_unavailable"],
-      primaryActionId: "reconnect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
     },
     {
       body: (targetName) =>
@@ -663,10 +663,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       availabilityTooltip: "Provider access needed",
       body: (targetName) =>
         `${targetName} is connected, but its provider subscription does not include the access this agent needs. Review the provider plan or account on its computer before waking it again.`,
-      kind: "local_service",
+      kind: "account_access",
       patterns: ["=provider_account.subscription_access_unavailable"],
-      primaryActionId: "reconnect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
     },
     {
       availabilityBadgeLabel: "Unavailable",
@@ -674,22 +674,21 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       availabilityTooltip: "Provider access needed",
       body: (targetName) =>
         `${targetName} is connected, but its organization has disabled the provider access this agent needs. Ask the provider account admin to enable access before waking it again.`,
-      kind: "local_service",
+      kind: "account_access",
       patterns: ["=provider_account.organization_access_disabled"],
-      primaryActionId: "reconnect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
     },
     {
       availabilityBadgeLabel: "Unavailable",
-      availabilitySummary:
-        "Add credits, update billing, or wait for the displayed reset time.",
+      availabilitySummary: "Review the provider plan, billing, or credits.",
       availabilityTooltip: "Provider quota exhausted",
       body: (targetName) =>
-        `${targetName} is connected, but its provider quota or credit balance is exhausted. Add credits, update billing, or wait for the displayed reset time before waking it again.`,
-      kind: "local_service",
+        `${targetName} is connected, but its provider quota or credit balance is exhausted. Review the provider plan, billing, or credits before waking it again.`,
+      kind: "account_access",
       patterns: ["=provider_account.capacity_exhausted"],
-      primaryActionId: "reconnect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
     },
     {
       availabilityBadgeLabel: "Unavailable",
@@ -697,10 +696,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       availabilityTooltip: "Provider access needed",
       body: (targetName) =>
         `${targetName}'s provider account needs attention on its computer. Fix access with the provider there, then check its status here.`,
-      kind: "local_service",
+      kind: "account_access",
       patterns: ["provider_account."],
-      primaryActionId: "reconnect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
     },
     {
       availabilityBadgeLabel: "Unavailable",

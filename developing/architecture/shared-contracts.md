@@ -4042,9 +4042,11 @@ may produce it. Transient rate limits do not. Core stores it against the exact
 Agent Profile, Binding, OpenMeld Service Runtime, Agent Controller, and provider,
 orders writes and clears by Core's accepted-result time, and reads it through a
 bounded freshness window. Therefore an older failure cannot replace newer
-evidence, and an older success cannot clear it. Deploy schema/Core consumers
-before publishing Local Service and adapter producers that emit the added
-`capacity_exhausted` enum value.
+evidence, an older success cannot clear it, and a persisted success watermark
+prevents a delayed older failure from reopening it even when no failure existed
+at success time. An exact accepted-result timestamp tie fails closed in favor of
+the hard failure. Deploy schema/Core consumers before publishing Local Service
+and adapter producers that emit the added `capacity_exhausted` enum value.
 
 A redacted field is not negative evidence. Clients must omit local-only command
 paths that are null in the cloud projection instead of describing them as

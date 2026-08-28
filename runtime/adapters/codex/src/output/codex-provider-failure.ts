@@ -38,6 +38,22 @@ export function isCodexQuotaFailure(value: string): boolean {
   );
 }
 
+function isDefinitiveCodexCapacityFailure(value: string): boolean {
+  return (
+    value.includes("purchase more credits") ||
+    value.includes("insufficient_quota") ||
+    value.includes("insufficient balance") ||
+    value.includes("insufficient_balance") ||
+    value.includes("quota exceeded") ||
+    value.includes("exceeded your current quota") ||
+    value.includes("not enough credits") ||
+    value.includes("out of credits") ||
+    value.includes("credits exhausted") ||
+    value.includes("balance is too low") ||
+    value.includes("payment required")
+  );
+}
+
 export function isCodexRateLimitFailure(value: string): boolean {
   return (
     value.includes("429") ||
@@ -88,6 +104,15 @@ export function classifyCodexProviderAccountFailure(input: {
   }
 
   const lowered = input.message.toLowerCase();
+  if (isDefinitiveCodexCapacityFailure(lowered)) {
+    return buildHardProviderFailure({
+      code: "quota.exceeded",
+      reasonCode: "provider_account.capacity_exhausted",
+    });
+  }
+  if (isCodexRateLimitFailure(lowered)) {
+    return { code: "rate_limited", errorType: "adapter" };
+  }
   if (isCodexSubscriptionAccessFailure(lowered)) {
     return buildHardProviderFailure({
       code: "provider.subscription_access_unavailable",
@@ -102,9 +127,6 @@ export function classifyCodexProviderAccountFailure(input: {
   }
   if (isCodexAuthFailure(lowered)) {
     return { code: "auth.required", errorType: "auth" };
-  }
-  if (isCodexRateLimitFailure(lowered)) {
-    return { code: "rate_limited", errorType: "adapter" };
   }
   return null;
 }

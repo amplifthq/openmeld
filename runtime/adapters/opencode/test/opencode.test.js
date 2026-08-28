@@ -580,6 +580,13 @@ test("opencode distinguishes subscription access from a transient rate limit", a
   });
   assert.equal(transientRateLimit.code, "provider.rate_limited");
   assert.equal(transientRateLimit.providerAccessEvidence, undefined);
+
+  const overlappingTransientRateLimit = classifyOpenCodeFailureMessage({
+    isContextLost,
+    message: "429 Too Many Requests: usage limit reached for this request",
+  });
+  assert.equal(overlappingTransientRateLimit.code, "provider.rate_limited");
+  assert.equal(overlappingTransientRateLimit.providerAccessEvidence, undefined);
 });
 
 test("opencode cli transport maps raw permission auto-reject stdout to public runtime permission copy", async () => {
