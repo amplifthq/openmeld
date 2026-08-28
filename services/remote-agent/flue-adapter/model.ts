@@ -853,9 +853,11 @@ function enforceRemoteAgentProviderContextCapacity(input: {
 }
 
 const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
+const REMOTE_AGENT_SKILL_ACTIVATION_TOOL_NAME = "activate_skill";
 const REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET = new Set<string>([
   ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
   ...REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
+  REMOTE_AGENT_SKILL_ACTIVATION_TOOL_NAME,
 ]);
 
 function exposeRemoteAgentBootstrapTools(tools: unknown): unknown {

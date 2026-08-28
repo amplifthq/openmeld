@@ -276,6 +276,44 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
+  it("keeps Flue skill activation available beside the OpenMeld bootstrap", async () => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
+    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
+      (name) => ({ function: { name }, type: "function" })
+    );
+    const activateSkill = {
+      function: {
+        description: "Load one mounted Organization Skill.",
+        name: "activate_skill",
+      },
+      type: "function",
+    };
+    const codemode = {
+      function: { name: "codemode" },
+      type: "function",
+    };
+
+    const payload = await options.onPayload?.(
+      {
+        messages: [{ content: "Use the release skill.", role: "user" }],
+        tools: [
+          ...Array.from({ length: 65 }, (_, index) => ({
+            function: { name: `tool_${String(index)}` },
+            type: "function",
+          })),
+          ...discoveryTools,
+          activateSkill,
+          codemode,
+        ],
+      },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(payload).toMatchObject({
+      tools: [...discoveryTools, activateSkill, codemode],
+    });
+  });
+
   it("keeps the generic Connected App bootstrap direct for provider-specific goals", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
