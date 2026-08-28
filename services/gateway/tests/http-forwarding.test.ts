@@ -18,6 +18,7 @@ type CoreRpcMock = {
   inspectDispatchStorageReadiness: ReturnType<typeof vi.fn>;
   createSpace: ReturnType<typeof vi.fn>;
   getCurrentOrganizationDirectory: ReturnType<typeof vi.fn>;
+  recordCurrentOrganizationWebActivity: ReturnType<typeof vi.fn>;
   getCurrentOrganizationMemberOpenMeldServiceStatuses: ReturnType<typeof vi.fn>;
   getCurrentOrganizationSpaceDirectory: ReturnType<typeof vi.fn>;
   getCurrentOrganizationSpaceDirectoryWithMemberCounts: ReturnType<
@@ -432,6 +433,11 @@ function makeEnv(input?: {
       generatedAt: "2026-07-04T00:00:00.000Z",
       members: [],
       agentProfiles: [],
+    })),
+    recordCurrentOrganizationWebActivity: vi.fn(async () => ({
+      lastActiveAt: "2026-08-28T03:00:00.000Z",
+      organizationId: "org-1",
+      userId: "owner-001",
     })),
     getCurrentOrganizationMemberOpenMeldServiceStatuses: vi.fn(async () => ({
       generatedAt: "2026-07-21T00:00:00.000Z",
@@ -1057,6 +1063,8 @@ function makeEnv(input?: {
       inspectDispatchStorageReadiness: rpc.inspectDispatchStorageReadiness,
       createSpace: rpc.createSpace,
       getCurrentOrganizationDirectory: rpc.getCurrentOrganizationDirectory,
+      recordCurrentOrganizationWebActivity:
+        rpc.recordCurrentOrganizationWebActivity,
       getCurrentOrganizationMemberOpenMeldServiceStatuses:
         rpc.getCurrentOrganizationMemberOpenMeldServiceStatuses,
       getCurrentOrganizationSpaceDirectory:
@@ -1581,6 +1589,26 @@ describe("gateway http forwarding", () => {
       agentProfiles: [],
     });
     expect(rpc.getCurrentOrganizationDirectory).toHaveBeenCalledWith({
+      context: EXPECTED_CORE_CONTEXT,
+    });
+  });
+
+  it("forwards explicit Web member activity to core RPC", async () => {
+    const { env, rpc } = makeEnv();
+    const request = new Request(
+      "http://local/v1/organizations/current/member-activity/web",
+      { method: "POST" }
+    );
+
+    const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      lastActiveAt: "2026-08-28T03:00:00.000Z",
+      organizationId: "org-1",
+      userId: "owner-001",
+    });
+    expect(rpc.recordCurrentOrganizationWebActivity).toHaveBeenCalledWith({
       context: EXPECTED_CORE_CONTEXT,
     });
   });

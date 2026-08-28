@@ -1562,6 +1562,7 @@ export {
   organizationDirectoryHumanProfileSchema,
   organizationDirectoryMemberSchema,
   organizationDirectoryResponseSchema,
+  organizationMemberWebActivityResponseSchema,
 } from "./http/organization-directory";
 export {
   approveOrganizationDocumentDraftBodySchema,

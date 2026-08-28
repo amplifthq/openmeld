@@ -730,13 +730,6 @@ function resolveIdentityAccountAction(input: {
 	};
 }
 
-const DIRECTORY_ROLE_PRIORITY: Record<DirectoryHumanProfileRole, number> = {
-	owner: 0,
-	admin: 1,
-	member: 2,
-	unknown: 3,
-};
-
 function compareDirectoryHumanProfileRows(
 	left: DirectoryHumanProfileRow,
 	right: DirectoryHumanProfileRow
@@ -744,10 +737,12 @@ function compareDirectoryHumanProfileRows(
 	if (left.isCurrentUser !== right.isCurrentUser) {
 		return left.isCurrentUser ? -1 : 1;
 	}
-	const roleComparison =
-		resolveRolePriority(left.role) - resolveRolePriority(right.role);
-	if (roleComparison !== 0) {
-		return roleComparison;
+	const activityComparison = compareLastActiveAt(
+		left.lastActiveAt,
+		right.lastActiveAt
+	);
+	if (activityComparison !== 0) {
+		return activityComparison;
 	}
 	const nameComparison = left.name.localeCompare(right.name, "en", {
 		numeric: true,
@@ -758,10 +753,17 @@ function compareDirectoryHumanProfileRows(
 		: nameComparison;
 }
 
-function resolveRolePriority(role: DirectoryHumanProfileRole | null): number {
-	return role === null
-		? DIRECTORY_ROLE_PRIORITY.unknown
-		: DIRECTORY_ROLE_PRIORITY[role];
+function compareLastActiveAt(
+	left: string | null,
+	right: string | null
+): number {
+	if (left === null || right === null) {
+		if (left === right) {
+			return 0;
+		}
+		return left === null ? 1 : -1;
+	}
+	return Date.parse(right) - Date.parse(left);
 }
 
 function resolveProviderLabel(

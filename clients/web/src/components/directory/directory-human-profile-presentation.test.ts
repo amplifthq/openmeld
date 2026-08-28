@@ -12,19 +12,19 @@ describe("formatDirectoryActivity", () => {
 		expect(formatDirectoryActivity(null, nowMs)).toBeNull();
 		expect(formatDirectoryActivity("not-a-date", nowMs)).toBeNull();
 		expect(formatDirectoryActivity("2026-08-20T11:59:40.000Z", nowMs)).toBe(
-			"Last active just now"
+			"just now"
 		);
 		expect(formatDirectoryActivity("2026-08-20T11:46:00.000Z", nowMs)).toBe(
-			"Last active 14 minutes ago"
+			"14 minutes ago"
 		);
 		expect(formatDirectoryActivity("2026-08-19T12:00:00.000Z", nowMs)).toBe(
-			"Last active yesterday"
+			"yesterday"
 		);
 	});
 
 	it("uses an exact date once relative activity is no longer recent", () => {
 		expect(formatDirectoryActivity("2026-08-12T12:00:00.000Z", nowMs)).toBe(
-			"Last active Aug 12, 2026"
+			"Aug 12, 2026"
 		);
 	});
 });

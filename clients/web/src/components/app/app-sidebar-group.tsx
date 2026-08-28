@@ -6,6 +6,11 @@ import {
 	SidebarGroupContent,
 	SidebarGroupLabel,
 } from "@openmeld/ui/components/sidebar";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import {
@@ -77,6 +82,7 @@ export function AppSidebarGroup(input: {
 	labelAccessory?: ReactNode;
 	labelClassName?: string;
 	labelText: string;
+	labelTooltip?: string;
 }) {
 	const state = useContext(AppSidebarGroupStateContext);
 	const rootStateProps = state
@@ -85,6 +91,20 @@ export function AppSidebarGroup(input: {
 				open: state.isOpen(input.groupId),
 			}
 		: { defaultOpen: true };
+
+	const trigger = (
+		<Collapsible.Trigger
+			aria-label={input.labelText}
+			className="group/sidebar-group-trigger inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+		>
+			<span className="min-w-0">{input.label}</span>
+			<CaretRightIcon
+				aria-hidden="true"
+				className="size-3 shrink-0 transition-transform duration-150 ease-[cubic-bezier(0.645,0.045,0.355,1)] group-data-[panel-open]/sidebar-group-trigger:rotate-90 motion-reduce:transition-none"
+				data-slot="sidebar-group-caret"
+			/>
+		</Collapsible.Trigger>
+	);
 
 	return (
 		<Collapsible.Root
@@ -100,17 +120,14 @@ export function AppSidebarGroup(input: {
 						input.labelClassName
 					)}
 				>
-					<Collapsible.Trigger
-						aria-label={input.labelText}
-						className="group/sidebar-group-trigger inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
-					>
-						<span className="min-w-0">{input.label}</span>
-						<CaretRightIcon
-							aria-hidden="true"
-							className="size-3 shrink-0 transition-transform duration-150 ease-[cubic-bezier(0.645,0.045,0.355,1)] group-data-[panel-open]/sidebar-group-trigger:rotate-90 motion-reduce:transition-none"
-							data-slot="sidebar-group-caret"
-						/>
-					</Collapsible.Trigger>
+					{input.labelTooltip ? (
+						<Tooltip>
+							<TooltipTrigger render={trigger} />
+							<TooltipContent side="top">{input.labelTooltip}</TooltipContent>
+						</Tooltip>
+					) : (
+						trigger
+					)}
 					{input.labelAccessory ? (
 						<span className="ml-auto flex shrink-0 items-center">
 							{input.labelAccessory}

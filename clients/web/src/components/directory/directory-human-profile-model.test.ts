@@ -38,6 +38,73 @@ describe("directory Human Profile model", () => {
 		expect(member?.lastActiveAt).toBe("2026-08-20T11:00:00.000Z");
 	});
 
+	it("keeps the current member first and then sorts by most recent activity instead of role", () => {
+		const directory = organizationDirectoryResponseSchema.parse({
+			agentProfiles: [],
+			generatedAt: "2026-08-20T00:00:00.000Z",
+			members: [
+				buildDirectoryMember({
+					lastActiveAt: "2026-08-01T00:00:00.000Z",
+					memberId: "member-self",
+					name: "Self",
+					role: "member",
+					userId: "user-self",
+				}),
+				buildDirectoryMember({
+					lastActiveAt: "2026-08-20T12:00:00.000Z",
+					memberId: "member-recent",
+					name: "Recent member",
+					role: "member",
+					userId: "user-recent",
+				}),
+				buildDirectoryMember({
+					lastActiveAt: "2026-08-19T12:00:00.000Z",
+					memberId: "member-owner",
+					name: "Older owner",
+					role: "owner",
+					userId: "user-owner",
+				}),
+				buildDirectoryMember({
+					lastActiveAt: null,
+					memberId: "member-admin",
+					name: "Inactive admin",
+					role: "admin",
+					userId: "user-admin",
+				}),
+			],
+			organizationId: "org-a",
+		});
+		const rows = buildOrganizationHumanProfileRows({
+			agentProfiles: [],
+			canManageConnectedAccounts: true,
+			canManageMessageChannels: true,
+			computerGroups: resolveOrganizationComputerGroups({
+				currentUserId: "user-self",
+				directory,
+				ownedComputers: [],
+			}),
+			computersStatus: "ready",
+			currentUserComputersStatus: "ready",
+			currentUserId: "user-self",
+			documents: [],
+			documentsStatus: "ready",
+			members: directory.members,
+			messageChannels: buildMessageChannels({
+				connections: [],
+				identityLinks: [],
+			}),
+			messageChannelsStatus: "ready",
+			orgSlug: "acme",
+		});
+
+		expect(rows.map((row) => row.userId)).toEqual([
+			"user-self",
+			"user-recent",
+			"user-owner",
+			"user-admin",
+		]);
+	});
+
 	it.each([
 		"loading",
 		"failed",
@@ -468,10 +535,17 @@ function buildPersonalAgentProfile(input: {
 }
 
 function buildDirectoryMember(input: {
+	lastActiveAt?: string | null;
 	memberId: string;
+	name?: string;
 	role: string;
 	userId: string;
 }) {
+	let lastActiveAt = input.lastActiveAt;
+	if (lastActiveAt === undefined) {
+		lastActiveAt =
+			input.userId === "user-a" ? "2026-08-20T11:00:00.000Z" : null;
+	}
 	return {
 		humanProfile: {
 			lastUsedAt: "2026-08-20T12:00:00.000Z",
@@ -484,7 +558,7 @@ function buildDirectoryMember(input: {
 			status: "active",
 		},
 		joinedAt: "2026-08-20T00:00:00.000Z",
-		lastActiveAt: input.userId === "user-a" ? "2026-08-20T11:00:00.000Z" : null,
+		lastActiveAt,
 		memberId: input.memberId,
 		organizationId: "org-a",
 		role: input.role,
@@ -492,7 +566,7 @@ function buildDirectoryMember(input: {
 			email: `${input.userId}@example.com`,
 			id: input.userId,
 			image: null,
-			name: input.userId,
+			name: input.name ?? input.userId,
 		},
 		userId: input.userId,
 	};

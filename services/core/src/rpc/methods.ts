@@ -227,6 +227,7 @@ import {
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationMemberOpenMeldServiceStatusesResponseSchema,
+  organizationMemberWebActivityResponseSchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   ownerComputerDiagnosticsSchema,
@@ -559,6 +560,7 @@ import type {
   OrganizationDirectoryResponse,
   OrganizationInformationProtectionPolicyResponse,
   OrganizationMemberOpenMeldServiceStatusesResponse,
+  OrganizationMemberWebActivityResponse,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
   OrganizationUsageOverviewRpcInput,
@@ -941,7 +943,10 @@ import {
   readOrganizationInformationProtectionPolicy,
   saveOrganizationInformationProtectionPolicy,
 } from "../organizations/organization-information-protection-repository";
-import { listOrganizationMemberActivity } from "../organizations/organization-member-activity-repository";
+import {
+  listOrganizationMemberActivity,
+  recordOrganizationMemberActivity,
+} from "../organizations/organization-member-activity-repository";
 import { listOrganizationMemberOpenMeldServiceStatuses } from "../organizations/organization-member-openmeld-service-status-service";
 import { updateAgentProfileDefaultProjectForAuthority } from "../projects/agent-profile-default-project-service";
 import {
@@ -2554,6 +2559,10 @@ export type SaveOrganizationWakeAccessChoiceInput =
 export type GetCurrentOrganizationDirectoryInput = {
   context?: CoreRpcContextInput;
   includeMemberLastActiveAt?: boolean;
+};
+
+export type RecordCurrentOrganizationWebActivityInput = {
+  context?: CoreRpcContextInput;
 };
 
 export type GetCurrentOrganizationComputersInput = {
@@ -5684,6 +5693,83 @@ export async function rpcGetCurrentOrganizationDirectory(
     requestId,
   });
   return validated.data;
+}
+
+export async function rpcRecordCurrentOrganizationWebActivity(
+  env: CoreBindings,
+  input: RecordCurrentOrganizationWebActivityInput
+): Promise<OrganizationMemberWebActivityResponse> {
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const humanProfileId = normalizeOptionalText(
+    context.actorContext.openMeldProfileId
+  );
+  if (!humanProfileId || context.actorContext.profileKind !== "human") {
+    throw createCoreRpcHttpError({
+      code: "organization.context_required",
+      reason: "Web activity requires an authenticated Human Profile.",
+      status: 403,
+    });
+  }
+  const members = await resolveOrganizationDirectoryMembers({
+    authWorker: env.OPENMELD_AUTH_WORKER,
+    organizationId: activeOrganization.organizationId,
+    requestId: context.actorContext.requestId,
+  });
+  const currentMember = members.find(
+    (member) => member.userId === activeOrganization.userId
+  );
+  if (
+    currentMember?.humanProfile?.profileId !== humanProfileId ||
+    currentMember.humanProfile.status !== "active"
+  ) {
+    throw createCoreRpcHttpError({
+      code: "organization.context_unavailable",
+      reason: "Web activity requires the member's current Human Profile.",
+      status: 409,
+    });
+  }
+
+  const nowMs = Date.now();
+  try {
+    await recordOrganizationMemberActivity({
+      db: requireIdentityDb(env),
+      humanProfileId,
+      lastActiveAtMs: nowMs,
+      organizationId: activeOrganization.organizationId,
+      updatedAtMs: nowMs,
+      userId: activeOrganization.userId,
+    });
+  } catch (error) {
+    console.warn("[core.organization_member_activity.record_failed]", {
+      error: error instanceof Error ? error.message : String(error),
+      event: "organization_member_activity.record_failed",
+      organizationId: activeOrganization.organizationId,
+      profileId: humanProfileId,
+      requestId: context.actorContext.requestId,
+      source: "web",
+      userId: activeOrganization.userId,
+    });
+    throw error;
+  }
+  const response = organizationMemberWebActivityResponseSchema.parse({
+    lastActiveAt: new Date(nowMs).toISOString(),
+    organizationId: activeOrganization.organizationId,
+    userId: activeOrganization.userId,
+  });
+  console.info("[core.organization_member_activity.recorded]", {
+    event: "organization_member_activity.recorded",
+    lastActiveAt: response.lastActiveAt,
+    organizationId: response.organizationId,
+    profileId: humanProfileId,
+    requestId: context.actorContext.requestId,
+    source: "web",
+    userId: response.userId,
+  });
+  return response;
 }
 
 export async function rpcGetCurrentOrganizationMemberOpenMeldServiceStatuses(

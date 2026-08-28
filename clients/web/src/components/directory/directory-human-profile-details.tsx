@@ -2,6 +2,11 @@
 
 import type { ProfileDetailsField } from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
@@ -18,6 +23,7 @@ import {
 	formatDirectoryDate,
 	resolveDirectoryEmailLabel,
 	resolveDirectoryHumanProfileActivityLabel,
+	resolveDirectoryHumanProfileActivityTooltipLabel,
 	resolveDirectoryRoleLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
@@ -221,6 +227,13 @@ function ProfileHero(input: {
 		nowMs: input.activityNowMs,
 		profileStatus: input.member.profileStatus,
 	});
+	const activityTooltipLabel = resolveDirectoryHumanProfileActivityTooltipLabel(
+		{
+			lastActiveAt: input.member.lastActiveAt,
+			nowMs: input.activityNowMs,
+			profileStatus: input.member.profileStatus,
+		}
+	);
 	return (
 		<div
 			className="flex min-w-0 @[42rem]/profile-detail:flex-row flex-col @[42rem]/profile-detail:items-start gap-4"
@@ -258,7 +271,18 @@ function ProfileHero(input: {
 									: "text-muted-foreground"
 							)}
 						>
-							{activityLabel}
+							{activityTooltipLabel ? (
+								<Tooltip>
+									<TooltipTrigger render={<span />}>
+										{activityLabel}
+									</TooltipTrigger>
+									<TooltipContent side="top">
+										{activityTooltipLabel}
+									</TooltipContent>
+								</Tooltip>
+							) : (
+								activityLabel
+							)}
 						</p>
 					) : null}
 				</div>

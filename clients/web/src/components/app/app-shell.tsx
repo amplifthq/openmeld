@@ -21,6 +21,7 @@ import {
 	resolveAppShellFrameClassName,
 	resolveAppShellSectionFromMatches,
 } from "./shell-layout";
+import { WebMemberActivityReporter } from "./web-member-activity-reporter";
 
 export function AppShell(input: {
 	account: AppShellAccount;
@@ -34,6 +35,10 @@ export function AppShell(input: {
 	return (
 		<AppShellAccountContext.Provider value={input.account}>
 			<AppOrganizationProvider scope={input.organizationScope}>
+				<WebMemberActivityReporter
+					currentUserId={input.organizationScope.currentUserId}
+					organizationId={input.organizationScope.currentOrganization.id}
+				/>
 				<StartFlowStateProvider storageScope={input.storageScope}>
 					<InboxVisibleConversationProvider>
 						<AppReadinessInvalidationListener

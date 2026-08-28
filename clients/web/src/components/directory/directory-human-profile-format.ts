@@ -30,27 +30,42 @@ export function formatDirectoryActivity(
 	}
 	const elapsedMs = nowMs - timestamp.getTime();
 	if (elapsedMs < MINUTE_IN_MS) {
-		return "Last active just now";
+		return "just now";
 	}
 	if (elapsedMs < HOUR_IN_MS) {
-		return `Last active ${DIRECTORY_RELATIVE_TIME_FORMATTER.format(
+		return DIRECTORY_RELATIVE_TIME_FORMATTER.format(
 			-Math.round(elapsedMs / MINUTE_IN_MS),
 			"minute"
-		)}`;
+		);
 	}
 	if (elapsedMs < DAY_IN_MS) {
-		return `Last active ${DIRECTORY_RELATIVE_TIME_FORMATTER.format(
+		return DIRECTORY_RELATIVE_TIME_FORMATTER.format(
 			-Math.round(elapsedMs / HOUR_IN_MS),
 			"hour"
-		)}`;
+		);
 	}
 	if (elapsedMs < 7 * DAY_IN_MS) {
-		return `Last active ${DIRECTORY_RELATIVE_TIME_FORMATTER.format(
+		return DIRECTORY_RELATIVE_TIME_FORMATTER.format(
 			-Math.round(elapsedMs / DAY_IN_MS),
 			"day"
-		)}`;
+		);
 	}
-	return `Last active ${DIRECTORY_DATE_FORMATTER.format(timestamp)}`;
+	return DIRECTORY_DATE_FORMATTER.format(timestamp);
+}
+
+export function resolveDirectoryHumanProfileActivityTooltipLabel(input: {
+	lastActiveAt: string | null;
+	nowMs?: number;
+	profileStatus: DirectoryHumanProfileRow["profileStatus"];
+}): string | null {
+	if (input.profileStatus !== "active") {
+		return null;
+	}
+	const activityLabel = formatDirectoryActivity(
+		input.lastActiveAt,
+		input.nowMs
+	);
+	return activityLabel ? `Last seen ${activityLabel}` : null;
 }
 
 export function resolveDirectoryHumanProfileActivityLabel(input: {

@@ -37,7 +37,10 @@ import {
 	DirectoryHumanProfileDetails,
 	type DirectoryHumanProfileResearchAction,
 } from "#/components/directory/directory-human-profile-details";
-import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
+import {
+	resolveDirectoryHumanProfileActivityLabel,
+	resolveDirectoryHumanProfileActivityTooltipLabel,
+} from "#/components/directory/directory-human-profile-format";
 import type {
 	DirectoryHumanProfileRow,
 	DirectoryIdentityAccount,
@@ -127,6 +130,11 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	});
 	const compactLearnAllLabel =
 		learnAllLabel === "Learn about all members" ? "Learn all" : learnAllLabel;
+	const sidebarGroups = resolveHumanProfileSidebarGroups({
+		errorMessage: input.errorMessage,
+		members: input.members,
+		state: input.state,
+	});
 
 	useEffect(() => {
 		const intervalId = window.setInterval(
@@ -140,25 +148,25 @@ export function DirectoryHumanProfilesWorkspace(input: {
 		<AppContextualSidebarNav
 			activeItemId={selectedMember?.id ?? null}
 			ariaLabel="People"
-			groups={[
-				{
-					ariaLabel: "Human Profiles",
-					content: (
-						<HumanProfileSidebarList
-							activityNowMs={activityNowMs}
-							computerGroups={input.computerGroups}
-							emptyMessage={input.emptyMessage}
-							errorMessage={input.errorMessage}
-							members={input.members}
-							onSelect={input.onSelectProfile}
-							selectedProfileId={selectedMember?.id ?? null}
-							state={input.state}
-						/>
-					),
-					id: "human-profiles",
-					label: "Human Profiles",
-				},
-			]}
+			groups={sidebarGroups.map((group) => ({
+				ariaLabel: group.label,
+				content: (
+					<HumanProfileSidebarList
+						activityNowMs={activityNowMs}
+						ariaLabel={group.label}
+						computerGroups={input.computerGroups}
+						emptyMessage={input.emptyMessage}
+						errorMessage={input.errorMessage}
+						members={group.members}
+						onSelect={input.onSelectProfile}
+						selectedProfileId={selectedMember?.id ?? null}
+						state={input.state}
+					/>
+				),
+				id: group.id,
+				label: group.label,
+				labelTooltip: group.tooltip,
+			}))}
 			leadingContent={
 				<div className="space-y-2">
 					{input.sidebarLeadingContent}
@@ -357,6 +365,7 @@ function SelectedHumanProfileWorkspace(input: {
 
 function HumanProfileSidebarList(input: {
 	activityNowMs: number;
+	ariaLabel: string;
 	computerGroups: readonly OrganizationComputerGroup[];
 	emptyMessage: string;
 	errorMessage: string | null;
@@ -396,7 +405,7 @@ function HumanProfileSidebarList(input: {
 		<FluidNavMenu
 			activeIndicatorClassName="bg-sidebar-accent"
 			activeValue={input.selectedProfileId}
-			aria-label="Human Profiles"
+			aria-label={input.ariaLabel}
 			focusIndicatorClassName="border-sidebar-ring"
 			hoverIndicatorClassName="bg-sidebar-accent"
 		>
@@ -419,6 +428,78 @@ function HumanProfileSidebarList(input: {
 	);
 }
 
+type HumanProfileSidebarGroup = {
+	id: string;
+	label: string;
+	members: readonly DirectoryHumanProfileRow[];
+	tooltip: string;
+};
+
+const CONNECTED_GROUP = {
+	id: "computer-connected",
+	label: "Connected",
+	tooltip: "Computer connected",
+} as const;
+
+const NOT_CONNECTED_GROUP = {
+	id: "computer-not-connected",
+	label: "Not Connected",
+	tooltip: "Computer not connected",
+} as const;
+
+function resolveHumanProfileSidebarGroups(input: {
+	errorMessage: string | null;
+	members: readonly DirectoryHumanProfileRow[];
+	state: DirectoryHumanProfilesViewState;
+}): HumanProfileSidebarGroup[] {
+	if (
+		input.state.profiles === "loading" ||
+		input.errorMessage !== null ||
+		input.members.length === 0
+	) {
+		return [
+			{
+				id: "computer-connection",
+				label: "Computer Connection",
+				members: input.members,
+				tooltip: "Computer connection",
+			},
+		];
+	}
+
+	const groups = [CONNECTED_GROUP, NOT_CONNECTED_GROUP].flatMap((group) => {
+		const expectsComputer = group.id === CONNECTED_GROUP.id;
+		const members = input.members.filter(
+			(member) => member.computer.count > 0 === expectsComputer
+		);
+		return members.length === 0
+			? []
+			: [
+					{
+						id: group.id,
+						label: group.label,
+						members,
+						tooltip: group.tooltip,
+					},
+				];
+	});
+	const currentMemberGroupIndex = groups.findIndex((group) =>
+		group.members.some((member) => member.isCurrentUser)
+	);
+	if (currentMemberGroupIndex <= 0) {
+		return groups;
+	}
+	const currentMemberGroup = groups[currentMemberGroupIndex];
+	if (!currentMemberGroup) {
+		return groups;
+	}
+	return [
+		currentMemberGroup,
+		...groups.slice(0, currentMemberGroupIndex),
+		...groups.slice(currentMemberGroupIndex + 1),
+	];
+}
+
 function HumanProfileSidebarItem(input: {
 	activityNowMs: number;
 	computerGroup: OrganizationComputerGroup | null;
@@ -433,6 +514,13 @@ function HumanProfileSidebarItem(input: {
 		nowMs: input.activityNowMs,
 		profileStatus: input.member.profileStatus,
 	});
+	const activityTooltipLabel = resolveDirectoryHumanProfileActivityTooltipLabel(
+		{
+			lastActiveAt: input.member.lastActiveAt,
+			nowMs: input.activityNowMs,
+			profileStatus: input.member.profileStatus,
+		}
+	);
 	const localAgents = useMemo(
 		() => resolveEnabledLocalAgents(input.computerGroup),
 		[input.computerGroup]
@@ -445,6 +533,30 @@ function HumanProfileSidebarItem(input: {
 		MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS
 	);
 	const hiddenLocalAgentCount = localAgents.length - visibleLocalAgents.length;
+	let activityContent: ReactNode = null;
+	if (activityLabel) {
+		activityContent = activityTooltipLabel ? (
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<span
+							className="min-w-0 truncate text-muted-foreground text-xs"
+							data-slot="human-profile-last-seen"
+						/>
+					}
+				>
+					{activityLabel}
+				</TooltipTrigger>
+				<TooltipContent side="top" sideOffset={6}>
+					{activityTooltipLabel}
+				</TooltipContent>
+			</Tooltip>
+		) : (
+			<span className="min-w-0 truncate text-muted-foreground text-xs">
+				{activityLabel}
+			</span>
+		);
+	}
 	return (
 		<FluidNavMenuItem index={input.index} value={input.member.id}>
 			<button
@@ -496,65 +608,66 @@ function HumanProfileSidebarItem(input: {
 							))}
 						</span>
 					) : null}
-					{activityLabel ? (
-						<span className="block truncate text-muted-foreground text-xs">
-							{activityLabel}
-						</span>
-					) : null}
-					{localAgents.length > 0 ? (
-						<span className="flex min-h-4 min-w-0 items-center justify-end">
-							<span
-								aria-label={buildLocalAgentSummary(localAgents)}
-								className="ml-auto flex shrink-0 items-center justify-end -space-x-1.5"
-								role="img"
-							>
-								{visibleLocalAgents.map((agent) => (
-									<Tooltip key={agent.agentId}>
-										<TooltipTrigger
-											render={
-												<span
-													aria-hidden="true"
-													className="group/local-agent relative z-0 grid size-4 shrink-0 place-items-center hover:z-20"
-													data-testid="human-profile-local-agent"
-												/>
-											}
-										>
-											<span
-												className="relative isolate inline-grid size-4 overflow-hidden rounded-sm bg-sidebar p-px transition-transform duration-150 ease-[cubic-bezier(0.19,1,0.22,1)] before:absolute before:inset-0 before:bg-sidebar-accent before:content-[''] group-hover/local-agent:-translate-y-1 group-hover/local-agent:scale-[1.14] motion-reduce:transform-none motion-reduce:transition-none"
-												data-slot="human-profile-local-agent-logo"
+					{activityLabel || localAgents.length > 0 ? (
+						<span
+							className="flex min-h-4 min-w-0 items-center justify-between gap-2"
+							data-slot="human-profile-activity-and-local-agents"
+						>
+							{activityContent}
+							{localAgents.length > 0 ? (
+								<span
+									aria-label={buildLocalAgentSummary(localAgents)}
+									className="ml-auto flex shrink-0 items-center justify-end -space-x-1.5"
+									role="img"
+								>
+									{visibleLocalAgents.map((agent) => (
+										<Tooltip key={agent.agentId}>
+											<TooltipTrigger
+												render={
+													<span
+														aria-hidden="true"
+														className="group/local-agent relative z-0 grid size-4 shrink-0 place-items-center hover:z-20"
+														data-testid="human-profile-local-agent"
+													/>
+												}
 											>
-												<LocalAgentLogo
-													agentId={agent.agentId}
-													className="relative z-10"
-													size="xs"
-												/>
-											</span>
-										</TooltipTrigger>
-										<TooltipContent side="top" sideOffset={6}>
-											{agent.displayName}
-										</TooltipContent>
-									</Tooltip>
-								))}
-								{hiddenLocalAgentCount > 0 ? (
-									<Tooltip>
-										<TooltipTrigger
-											render={
-												<span className="relative isolate z-10 inline-flex h-4 min-w-4 items-center justify-center overflow-hidden rounded-full bg-sidebar px-0.5 font-medium text-[9px] text-muted-foreground before:absolute before:inset-0 before:bg-sidebar-accent before:content-['']" />
-											}
-										>
-											<span className="relative z-10">
-												+{hiddenLocalAgentCount}
-											</span>
-										</TooltipTrigger>
-										<TooltipContent side="top" sideOffset={6}>
-											{localAgents
-												.slice(MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS)
-												.map((agent) => agent.displayName)
-												.join(", ")}
-										</TooltipContent>
-									</Tooltip>
-								) : null}
-							</span>
+												<span
+													className="relative isolate inline-grid size-4 overflow-hidden rounded-sm bg-sidebar p-px transition-transform duration-150 ease-[cubic-bezier(0.19,1,0.22,1)] before:absolute before:inset-0 before:bg-sidebar-accent before:content-[''] group-hover/local-agent:-translate-y-1 group-hover/local-agent:scale-[1.14] motion-reduce:transform-none motion-reduce:transition-none"
+													data-slot="human-profile-local-agent-logo"
+												>
+													<LocalAgentLogo
+														agentId={agent.agentId}
+														className="relative z-10"
+														size="xs"
+													/>
+												</span>
+											</TooltipTrigger>
+											<TooltipContent side="top" sideOffset={6}>
+												{agent.displayName}
+											</TooltipContent>
+										</Tooltip>
+									))}
+									{hiddenLocalAgentCount > 0 ? (
+										<Tooltip>
+											<TooltipTrigger
+												render={
+													<span className="relative isolate z-10 inline-flex h-4 min-w-4 items-center justify-center overflow-hidden rounded-full bg-sidebar px-0.5 font-medium text-[9px] text-muted-foreground before:absolute before:inset-0 before:bg-sidebar-accent before:content-['']" />
+												}
+											>
+												<span className="relative z-10">
+													+{hiddenLocalAgentCount}
+												</span>
+											</TooltipTrigger>
+											<TooltipContent side="top" sideOffset={6}>
+												{localAgents
+													.slice(MAX_VISIBLE_SIDEBAR_LOCAL_AGENTS)
+													.map((agent) => agent.displayName)
+													.join(", ")}
+											</TooltipContent>
+										</Tooltip>
+									) : null}
+								</span>
+							) : null}
 						</span>
 					) : null}
 				</span>

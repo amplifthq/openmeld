@@ -16,7 +16,10 @@ const ENABLED_LOCAL_AGENT_SUMMARY_PATTERN =
 	/Claude Code enabled, Codex enabled, Cursor enabled/;
 const LOCAL_AGENT_LOGO_TEST_ID_PATTERN = /^local-agent-logo-/;
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	vi.useRealTimers();
+});
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -84,7 +87,11 @@ vi.mock("@openmeld/ui/components/tooltip", () => ({
 vi.mock("#/components/app/app-contextual-layout", () => ({
 	AppContextualSidebarNav: (props: {
 		ariaLabel: string;
-		groups: readonly { content: ReactNode; label: string }[];
+		groups: readonly {
+			content: ReactNode;
+			label: string;
+			labelTooltip?: string;
+		}[];
 		leadingContent?: ReactNode;
 		title: string;
 	}) => (
@@ -93,6 +100,9 @@ vi.mock("#/components/app/app-contextual-layout", () => ({
 			{props.leadingContent}
 			{props.groups.map((group) => (
 				<section aria-label={group.label} key={group.label}>
+					{group.labelTooltip ? (
+						<span data-testid="group-tooltip">{group.labelTooltip}</span>
+					) : null}
 					{group.content}
 				</section>
 			))}
@@ -150,7 +160,106 @@ vi.mock("#/components/computers/computers-picker", () => ({
 }));
 
 describe("DirectoryHumanProfilesWorkspace", () => {
+	it("groups people by Computer connection with novice-friendly tooltips", () => {
+		renderWorkspace();
+
+		const connectedGroup = screen.getByRole("region", {
+			name: "Connected",
+		});
+		expect(within(connectedGroup).getByText("Computer connected")).toBeTruthy();
+		expect(
+			within(connectedGroup).getByRole("button", {
+				name: "Open Felix's profile",
+			})
+		).toBeTruthy();
+		expect(
+			within(connectedGroup).queryByRole("button", {
+				name: "Open Grace Hopper's profile",
+			})
+		).toBeNull();
+
+		const notConnectedGroup = screen.getByRole("region", {
+			name: "Not Connected",
+		});
+		expect(
+			within(notConnectedGroup).getByText("Computer not connected")
+		).toBeTruthy();
+		expect(
+			within(notConnectedGroup).getByRole("button", {
+				name: "Open Grace Hopper's profile",
+			})
+		).toBeTruthy();
+		expect(screen.queryByRole("region", { name: "Human Profiles" })).toBeNull();
+	});
+
+	it("groups every registered Computer as Connected without hiding its detailed state", () => {
+		const needsAttentionMember = {
+			...buildMember({ current: true }),
+			computer: {
+				count: 1,
+				label: "Computer needs attention",
+				path: null,
+				state: "needs_attention" as const,
+			},
+		};
+		const unknownMember = {
+			...buildMember({ current: false }),
+			computer: {
+				count: 1,
+				label: "Computer status unavailable",
+				path: null,
+				state: "unknown" as const,
+			},
+		};
+		renderWorkspace({ members: [needsAttentionMember, unknownMember] });
+
+		expect(
+			within(screen.getByRole("region", { name: "Connected" })).getByRole(
+				"button",
+				{ name: "Open Felix's profile" }
+			)
+		).toBeTruthy();
+		expect(
+			within(screen.getByRole("region", { name: "Connected" })).getByRole(
+				"button",
+				{ name: "Open Grace Hopper's profile" }
+			)
+		).toBeTruthy();
+		expect(screen.queryByRole("region", { name: "Not Connected" })).toBeNull();
+	});
+
+	it("keeps the current member's Computer group first", () => {
+		const currentMember = {
+			...buildMember({ current: true }),
+			computer: {
+				count: 0,
+				label: "Connect a computer",
+				path: null,
+				state: "not_connected" as const,
+			},
+		};
+		const connectedTeammate = {
+			...buildMember({ current: false }),
+			computer: {
+				count: 1,
+				label: "Computer connected",
+				path: null,
+				state: "connected" as const,
+			},
+		};
+		renderWorkspace({ members: [currentMember, connectedTeammate] });
+
+		const groupNames = within(
+			screen.getByRole("navigation", { name: "People" })
+		)
+			.getAllByRole("region")
+			.map((group) => group.getAttribute("aria-label"));
+		expect(groupNames).toEqual(["Not Connected", "Connected"]);
+	});
+
 	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-08-28T03:00:00.000Z"));
 		renderWorkspace();
 
 		const sidebar = screen.getByRole("navigation", { name: "People" });
@@ -201,6 +310,15 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		const localAgents = within(sidebar).getByRole("img", {
 			name: ENABLED_LOCAL_AGENT_SUMMARY_PATTERN,
 		});
+		const activityAndAgents = felixItem.querySelector(
+			'[data-slot="human-profile-activity-and-local-agents"]'
+		);
+		expect(activityAndAgents).not.toBeNull();
+		expect(activityAndAgents?.contains(localAgents)).toBe(true);
+		expect(
+			within(activityAndAgents as HTMLElement).getByText("yesterday")
+		).toBeTruthy();
+		expect(felixItem.textContent).not.toContain("Last active");
 		expect(localAgents.classList.contains("justify-end")).toBe(true);
 		const localAgentLogos = within(localAgents).getAllByTestId(
 			LOCAL_AGENT_LOGO_TEST_ID_PATTERN
@@ -255,8 +373,15 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				"Codex",
 				"Cursor",
 				"Grok",
+				"Last seen yesterday",
 			])
 		);
+		const graceItem = screen.getByRole("button", {
+			name: "Open Grace Hopper's profile",
+		});
+		expect(
+			graceItem.querySelector('[data-slot="human-profile-channel-identities"]')
+		).toBeNull();
 		expect(
 			within(screen.getByRole("main")).getAllByText("felix@example.com")
 		).toHaveLength(2);
@@ -411,6 +536,7 @@ function renderWorkspace(
 		currentNotice?: string;
 		directoryError?: string | null;
 		directoryIsPending?: boolean;
+		members?: readonly DirectoryHumanProfileRow[];
 		memberResearchError?: { message: string; subjectUserId: string } | null;
 		onResearch?: (userId: string) => void;
 		onRetryProfileReports?: () => void;
@@ -419,7 +545,7 @@ function renderWorkspace(
 		selectedProfileId?: string;
 	} = {}
 ) {
-	const members = [
+	const members = input.members ?? [
 		buildMember({ current: true, notice: input.currentNotice }),
 		buildMember({ current: false }),
 	];

@@ -69,6 +69,12 @@ export const organizationDirectoryResponseSchema = z.strictObject({
   agentProfiles: z.array(organizationDirectoryAgentProfileSchema),
 });
 
+export const organizationMemberWebActivityResponseSchema = z.strictObject({
+  lastActiveAt: ISO_DATE_TIME_SCHEMA,
+  organizationId: trimmedNonEmptyStringSchema,
+  userId: trimmedNonEmptyStringSchema,
+});
+
 export const CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_DEFAULT_LIMIT = 20;
 export const CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_MAX_LIMIT = 100;
 

@@ -1541,19 +1541,33 @@ People is a two-pane workspace. Its secondary sidebar lists one Human Profile
 per current member and the main content renders the selected person's complete
 Profile detail. A sidebar item may show only the high-frequency scan signals:
 the Human Profile avatar, name, explicit `(you)` marker, Organization role,
-Core-owned **Last active {time}**, coarse Computer state, actually linked Slack,
+Core-owned relative last-seen time, coarse Computer state, actually linked Slack,
 Lark, or Feishu identity icons, and each enabled reported Local Agent icon. It
 does not show email, provider account text, disabled Local Agents, unavailable
 identity mappings, or placeholder icons for providers the person has not linked.
-All logo-only signals have accessible names and tooltips. Local Agent identity
+If no mapped Channel identity exists, Web renders no identity row. The relative
+time uses compact body copy such as **3 hours ago** and a tooltip such as **Last
+seen 3 hours ago**. It shares one row with Local Agent icons, with the time on
+the left and icons on the right. All logo-only signals have accessible names and
+tooltips. Local Agent identity
 uses the same catalog-owned logo and name as Computer detail; Web never creates
 a second name or logo map for People.
 
-Last active comes only from the Core-owned, Organization-scoped Human activity
-projection; Auth Profile use, session refreshes, Computer heartbeats, and Agent
-Activity are not substitutes. Undefined activity is omitted instead of
-rendering a placeholder. The signed-in member sorts first; remaining items sort
-owner, admin, member, and unknown, then by name and user ID.
+Last-seen time comes only from the Core-owned, Organization-scoped Human activity
+projection. Web explicitly reports entry, return to the foreground, and a
+bounded visible-session heartbeat; Core re-verifies the active member and that
+member's current active Human Profile before advancing the projection. CLI use,
+Auth session refreshes, Computer heartbeats, and Agent Activity are not
+substitutes. Undefined activity is omitted instead of rendering a placeholder,
+and relative last-seen text never claims live online presence.
+
+The sidebar groups members with one or more registered Computers under
+**Connected** and members without a Computer under **Not Connected**. Hovering
+or focusing those labels explains **Computer connected** and **Computer not
+connected**. The signed-in member's group appears first and the signed-in member
+remains first inside it. Everyone else sorts within their group by descending
+last-seen time; missing activity sorts last, then name and user ID provide stable
+tie breakers.
 
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,

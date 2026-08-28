@@ -379,9 +379,14 @@ default Human Profile, and Agent Profile identity projections. Core owns the
 Organization Binding authorization profile-id set, Center Agent designation,
 readiness overlay, and the optional Organization Member Activity overlay.
 Core records the activity overlay only after Space accepts and persists a text
-Signal from an active Human Profile, and advances it monotonically. The write
-emits `organization_member_activity.recorded`; missing authority inputs and
-write failures emit explicit `not_recorded` or `record_failed` diagnostics.
+Signal from an active Human Profile or after an authenticated Web request proves
+the active Organization member and that member's current active Human Profile.
+Both paths advance the projection monotonically. Web reports the explicit
+source as `web`; CLI use, session refreshes, Computer heartbeats, and Agent
+Activity do not infer or advance member activity. A successful write emits
+`organization_member_activity.recorded`; missing authority inputs and write
+failures emit explicit rejection or `not_recorded` / `record_failed`
+diagnostics.
 Directory reads emit `organization_directory.read` with the actor kind,
 Organization, request id, projection flag, and result counts, without message
 content or personal identifiers. Sharing one physical D1 binding does not authorize Core

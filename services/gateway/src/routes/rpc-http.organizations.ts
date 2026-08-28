@@ -21,6 +21,7 @@ import {
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationMemberOpenMeldServiceStatusesResponseSchema,
+  organizationMemberWebActivityResponseSchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   saveOrganizationWakeAccessChoiceBodySchema,
@@ -51,6 +52,8 @@ const CURRENT_ORGANIZATION_COMPUTERS_ROUTE =
   "/v1/organizations/current/computers";
 const CURRENT_ORGANIZATION_MEMBER_OPENMELD_SERVICE_STATUSES_ROUTE =
   "/v1/organizations/current/member-openmeld-service-statuses";
+const CURRENT_ORGANIZATION_MEMBER_WEB_ACTIVITY_ROUTE =
+  "/v1/organizations/current/member-activity/web";
 const CURRENT_ORGANIZATION_SPACES_ROUTE = "/v1/organizations/current/spaces";
 const CURRENT_ORGANIZATION_SPACES_WITH_MEMBER_COUNTS_ROUTE =
   "/v1/organizations/current/spaces-with-member-counts";
@@ -333,6 +336,19 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
         }),
     });
   });
+
+  app.post(CURRENT_ORGANIZATION_MEMBER_WEB_ACTIVITY_ROUTE, (c) =>
+    executeRpcRoute({
+      c,
+      route: CURRENT_ORGANIZATION_MEMBER_WEB_ACTIVITY_ROUTE,
+      method: "POST",
+      responseSchema: organizationMemberWebActivityResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.recordCurrentOrganizationWebActivity({
+          context: buildCoreRpcContext(c),
+        }),
+    })
+  );
 
   app.get(CURRENT_ORGANIZATION_COMPUTERS_ROUTE, (c) =>
     executeRpcRoute({

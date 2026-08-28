@@ -258,6 +258,7 @@ import type {
   OrganizationDocumentPromptContextRpcInput,
   OrganizationInformationProtectionPolicyResponse,
   OrganizationMemberOpenMeldServiceStatusesResponse,
+  OrganizationMemberWebActivityResponse,
   OrganizationSkillRuntimeSnapshotResponse,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
@@ -703,6 +704,7 @@ import {
   type ReadSpaceFileContentRpcResponse,
   type ReconcileCurrentOrganizationConnectorConnectionsInput,
   type RecordCenterAgentAuditInput,
+  type RecordCurrentOrganizationWebActivityInput,
   type RecordSpaceAttachmentInput,
   type RefreshCurrentLocalAgentCatalogInput,
   type RemoveConnectionInput,
@@ -914,6 +916,7 @@ import {
   rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
   rpcRecordCenterAgentAudit,
+  rpcRecordCurrentOrganizationWebActivity,
   rpcRecordSpaceAttachment,
   rpcRefreshCurrentLocalAgentCatalog,
   rpcRemoveConnection,
@@ -2349,6 +2352,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetCurrentOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return rpcGetCurrentOrganizationDirectory(this.env, input);
+  }
+
+  recordCurrentOrganizationWebActivity(
+    input: RecordCurrentOrganizationWebActivityInput
+  ): Promise<OrganizationMemberWebActivityResponse> {
+    return rpcRecordCurrentOrganizationWebActivity(this.env, input);
   }
 
   getCurrentOrganizationComputers(
@@ -4236,6 +4245,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetCurrentOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return super.getCurrentOrganizationDirectory(input);
+  }
+
+  recordCurrentOrganizationWebActivity(
+    input: RecordCurrentOrganizationWebActivityInput
+  ): Promise<OrganizationMemberWebActivityResponse> {
+    return super.recordCurrentOrganizationWebActivity(input);
   }
 
   getCurrentOrganizationComputers(
