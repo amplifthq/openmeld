@@ -877,6 +877,7 @@ function buildCurrentLocalRuntimeReplyReadiness(input?: {
 			lastObservedAtMs: 1_712_700_000_000,
 			reasonCodes: [],
 			runtimeLane,
+			signInOnlyBlockers: false,
 		},
 		service: {
 			connected: true,

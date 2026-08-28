@@ -41,9 +41,12 @@ describe("Owner Computer diagnostics contract", () => {
       currentLocalRuntimeReplyReadiness: createReplyReadiness(),
       localRuntimes: createLocalRuntimes(),
     };
+    const parsedDiagnostics =
+      ownerComputerDiagnosticsSchema.parse(validDiagnostics);
     expect(
-      ownerComputerDiagnosticsSchema.safeParse(validDiagnostics).success
-    ).toBe(true);
+      parsedDiagnostics.currentLocalRuntimeReplyReadiness.runtime
+        .signInOnlyBlockers
+    ).toBe(false);
     expect(
       ownerComputerDiagnosticsSchema.safeParse({
         ...validDiagnostics,

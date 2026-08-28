@@ -2555,6 +2555,7 @@ function buildCurrentLocalRuntimeReplyReadinessResponse(input?: {
 			lastObservedAtMs: 1_768_000_000_000,
 			reasonCodes: [],
 			runtimeLane: "dev-local",
+			signInOnlyBlockers: false,
 		},
 		service: {
 			connected: true,
