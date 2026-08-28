@@ -352,6 +352,36 @@ describe("SpacePendingAgentActions", () => {
 		).toBeNull();
 	});
 
+	it("does not reclaim focus after the user manually collapses the surface", async () => {
+		const scenario = renderFocusScenario("interaction-collapsed-before-clear");
+
+		const trigger = screen.getByRole("button", { name: "1 action needs you" });
+		fireEvent.click(trigger);
+		const allowChoice = screen.getByRole("radio", { name: "Allow once" });
+		allowChoice.focus();
+		fireEvent.click(trigger);
+		scenario.outsideFocusRef.current?.focus();
+		scenario.clearRequest();
+
+		await waitFor(() => {
+			expect(document.activeElement).toBe(scenario.outsideFocusRef.current);
+		});
+	});
+
+	it("does not reclaim focus after the user moves outside the open surface", async () => {
+		const scenario = renderFocusScenario("interaction-unfocused-before-clear");
+
+		fireEvent.click(screen.getByRole("button", { name: "1 action needs you" }));
+		const allowChoice = screen.getByRole("radio", { name: "Allow once" });
+		allowChoice.focus();
+		scenario.outsideFocusRef.current?.focus();
+		scenario.clearRequest();
+
+		await waitFor(() => {
+			expect(document.activeElement).toBe(scenario.outsideFocusRef.current);
+		});
+	});
+
 	it("returns focus when the focused request clears but another request remains", async () => {
 		const returnFocusRef = createRef<HTMLButtonElement>();
 		const firstItem = createPermissionItem({
@@ -448,6 +478,34 @@ describe("resolveSpacePendingAgentActionSurfacePlacement", () => {
 		).toBe("thread");
 	});
 });
+
+function renderFocusScenario(interactionId: string) {
+	const returnFocusRef = createRef<HTMLButtonElement>();
+	const outsideFocusRef = createRef<HTMLButtonElement>();
+	const renderScenario = (items: readonly WakeProgressItem[]) => (
+		<>
+			<button ref={returnFocusRef} type="button">
+				Composer fallback
+			</button>
+			<button ref={outsideFocusRef} type="button">
+				Outside focus
+			</button>
+			<SpacePendingAgentActions
+				items={items}
+				onRespond={vi.fn().mockResolvedValue(undefined)}
+				returnFocusRef={returnFocusRef}
+			/>
+		</>
+	);
+	const view = render(
+		renderScenario([createPermissionItem({ interactionId })])
+	);
+
+	return {
+		clearRequest: () => view.rerender(renderScenario([])),
+		outsideFocusRef,
+	};
+}
 
 function createPermissionItem(input: {
 	canRespond?: boolean;

@@ -132,6 +132,7 @@ import {
 	SpaceOutcomeRow,
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
+import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	resolveAnchoredSpaceWakeRetryRequest,
@@ -1263,10 +1264,9 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								interactionItem.pendingInteraction?.canRespond ? null : (
 									<SpaceAgentInteractionCard
 										item={interactionItem}
-										key={
-											interactionItem.pendingInteraction?.interactionId ??
-											`${interactionItem.targetProfileId}:interaction`
-										}
+										key={resolveSpacePendingAgentActionIdentity(
+											interactionItem
+										)}
 										onEditAgentProfile={
 											input.editableAgentProfileIds?.has(
 												interactionItem.targetProfileId

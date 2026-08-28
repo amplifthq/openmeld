@@ -49,7 +49,7 @@ export function SpacePendingAgentActions(input: {
 		null
 	);
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const surfaceHadFocusRef = useRef(false);
+	const surfaceHasFocusRef = useRef(false);
 	const panelId = useId();
 	const selectedIndex = Math.max(
 		0,
@@ -78,9 +78,9 @@ export function SpacePendingAgentActions(input: {
 	const isSurfaceOpen = isOpen && selectedInteractionIsActionable;
 
 	useEffect(() => {
-		if (!selectedInteractionIsActionable && surfaceHadFocusRef.current) {
+		if (!selectedInteractionIsActionable && surfaceHasFocusRef.current) {
 			input.returnFocusRef?.current?.focus();
-			surfaceHadFocusRef.current = false;
+			surfaceHasFocusRef.current = false;
 		}
 	}, [input.returnFocusRef, selectedInteractionIsActionable]);
 	useEffect(() => {
@@ -88,11 +88,22 @@ export function SpacePendingAgentActions(input: {
 			return;
 		}
 		const markSurfaceFocused = () => {
-			surfaceHadFocusRef.current = true;
+			surfaceHasFocusRef.current = true;
+		};
+		const clearSurfaceFocus = (event: FocusEvent) => {
+			const nextTarget = event.relatedTarget;
+			if (
+				!(nextTarget instanceof Node && surfaceElement.contains(nextTarget))
+			) {
+				surfaceHasFocusRef.current = false;
+			}
 		};
 		surfaceElement.addEventListener("focusin", markSurfaceFocused);
-		return () =>
+		surfaceElement.addEventListener("focusout", clearSurfaceFocus);
+		return () => {
 			surfaceElement.removeEventListener("focusin", markSurfaceFocused);
+			surfaceElement.removeEventListener("focusout", clearSurfaceFocus);
+		};
 	}, [surfaceElement]);
 	useEffect(() => {
 		if (!(surfaceElement && isSurfaceOpen)) {
@@ -103,6 +114,7 @@ export function SpacePendingAgentActions(input: {
 				return;
 			}
 			event.preventDefault();
+			surfaceHasFocusRef.current = false;
 			setIsOpen(false);
 			triggerRef.current?.focus();
 		};
@@ -128,6 +140,7 @@ export function SpacePendingAgentActions(input: {
 	};
 	const toggleSurface = () => {
 		if (isSurfaceOpen) {
+			surfaceHasFocusRef.current = false;
 			setIsOpen(false);
 			return;
 		}

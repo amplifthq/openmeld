@@ -3275,6 +3275,7 @@ function AgentProfileEditDialogContent(
 	const confirmationId = useId();
 	const profileNameInputId = useId();
 	const permissionControlRef = useRef<HTMLButtonElement>(null);
+	const didFocusInitialPermissionsRef = useRef(false);
 	const draftKey = input.draftInput.draftKey;
 	const [draft, setDraft] = useState<AgentProfileEditDraft>(() =>
 		createAgentProfileEditDraft(input.draftInput)
@@ -3287,6 +3288,7 @@ function AgentProfileEditDialogContent(
 	});
 	const controllerPermissionMode =
 		activeEditState?.controllerPermissionMode ?? null;
+	const hasControllerPermissionMode = controllerPermissionMode !== null;
 	const controllerCollaborationMode =
 		activeEditState?.controllerCollaborationMode ?? null;
 	const modelSelection = activeEditState?.modelSelection ?? null;
@@ -3305,12 +3307,16 @@ function AgentProfileEditDialogContent(
 		profileName: input.profileName,
 	});
 	useEffect(() => {
+		if (!input.open) {
+			didFocusInitialPermissionsRef.current = false;
+			return;
+		}
 		if (
-			!input.open ||
+			didFocusInitialPermissionsRef.current ||
 			input.initialSection !== "permissions" ||
 			input.isLoading ||
 			input.loadErrorMessage ||
-			!controllerPermissionMode
+			!hasControllerPermissionMode
 		) {
 			return;
 		}
@@ -3319,12 +3325,13 @@ function AgentProfileEditDialogContent(
 			if (!control) {
 				return;
 			}
+			didFocusInitialPermissionsRef.current = true;
 			control.focus({ preventScroll: true });
 			control.scrollIntoView?.({ block: "nearest" });
 		});
 		return () => window.cancelAnimationFrame(frameId);
 	}, [
-		controllerPermissionMode,
+		hasControllerPermissionMode,
 		input.initialSection,
 		input.isLoading,
 		input.loadErrorMessage,

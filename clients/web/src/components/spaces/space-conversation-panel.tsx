@@ -180,6 +180,7 @@ import {
 	SpaceOutcomeRow,
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
+import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
@@ -2393,11 +2394,9 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 														?.canRespond ? null : (
 														<SpaceAgentInteractionCard
 															item={interactionItem}
-															key={
-																interactionItem.pendingInteraction
-																	?.interactionId ??
-																`${interactionItem.targetProfileId}:interaction`
-															}
+															key={resolveSpacePendingAgentActionIdentity(
+																interactionItem
+															)}
 															onEditAgentProfile={
 																input.editableAgentProfileIds?.has(
 																	interactionItem.targetProfileId
