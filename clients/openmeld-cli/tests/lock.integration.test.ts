@@ -20,6 +20,7 @@ import {
   runWithHeldLock,
   tryCleanupStaleLock,
 } from "../src/config/lock";
+import { CURRENT_PROCESS_START_IDENTITY } from "../src/system/process-identity";
 import { withTempHome } from "./helpers/fs";
 
 const PROFILE_KEY = "aaaaaaaa-0000-0000-0000-000000000000";
@@ -259,6 +260,63 @@ describe("lock recovery", () => {
       } finally {
         killSpy.mockRestore();
       }
+    });
+  });
+
+  it("reclaims a directory lock whose pid belongs to a different process identity", async () => {
+    await withTempHome(async (home) => {
+      const lockPath = join(
+        home,
+        ".openmeld",
+        "runtime",
+        "locks",
+        PROFILE_KEY,
+        "demo.lock"
+      );
+      await mkdir(lockPath, { recursive: true });
+      await writeFile(
+        join(lockPath, "reused-pid-owner.owner.json"),
+        `${JSON.stringify({
+          ownerId: "reused-pid-owner",
+          ownerProcessStartedAt: "ps:definitely-not-the-current-process",
+          pid: process.pid,
+        })}\n`,
+        "utf8"
+      );
+
+      const lock = await acquireLock({
+        openMeldProfileId: PROFILE_KEY,
+        key: "demo",
+      });
+
+      await expect(readdir(lock.path)).resolves.toEqual([
+        `${lock.ownerId}.owner.json`,
+      ]);
+      await releaseLock(lock);
+    });
+  });
+
+  it("keeps a directory lock owned by the current process identity", async () => {
+    await withTempHome(async () => {
+      const lock = await acquireLock({
+        openMeldProfileId: PROFILE_KEY,
+        key: "demo",
+      });
+
+      await expect(
+        readLockMeta({ openMeldProfileId: PROFILE_KEY, key: "demo" })
+      ).resolves.toMatchObject({
+        ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
+        pid: process.pid,
+      });
+      await expect(
+        acquireLock({ openMeldProfileId: PROFILE_KEY, key: "demo" })
+      ).rejects.toMatchObject({ contentionState: "active" });
+      await expect(readdir(lock.path)).resolves.toEqual([
+        `${lock.ownerId}.owner.json`,
+      ]);
+
+      await releaseLock(lock);
     });
   });
 

@@ -9,10 +9,12 @@ import type {
   SpaceMembersSnapshot,
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setAuthSession } from "../src/config/auth-session";
 import { resolveSpaceJoinReadModelSeed } from "../src/space/join-read-model-seed";
 import { buildFormalSignalReadPayload } from "../src/space/read-projection/formal-message-read-output";
 import { buildSpaceSessionProfileIdentity } from "../src/space/session-profile";
 import { buildHumanTranscriptItemFromEvent } from "../src/space/transcript/transcript-item-builder";
+import { withTempHome } from "./helpers/fs";
 import { createTestOpenMeldProfile } from "./helpers/openmeld-profile-fixture";
 
 const SPACE_ID = "ops-room";
@@ -127,54 +129,60 @@ afterEach(() => {
 
 describe("space join read model seed", () => {
   it("enriches owner names before seeding the initial members snapshot", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      createMembersResponse(
-        createMembersSnapshot({
-          humanOwnerName: null,
-          agentOwnerName: null,
-        })
-      )
-    );
+    await withAuthenticatedTempHome(async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        createMembersResponse(
+          createMembersSnapshot({
+            humanOwnerName: null,
+            agentOwnerName: null,
+          })
+        )
+      );
 
-    const seed = createSeed();
-    const snapshot = await seed.ensureMembersSnapshotLoaded();
+      const seed = createSeed();
+      const snapshot = await seed.ensureMembersSnapshotLoaded();
 
-    expect(snapshot?.humans[0]?.ownerName).toBe("Felix");
-    expect(snapshot?.agents[0]?.ownerName).toBe("Felix");
-    expect(seed.getMembersSnapshot()?.humans[0]?.ownerName).toBe("Felix");
-    expect(seed.getMembersSnapshot()?.agents[0]?.ownerName).toBe("Felix");
-    expect(seed.getMentionHighlightIndex()).not.toBeNull();
+      expect(snapshot?.humans[0]?.ownerName).toBe("Felix");
+      expect(snapshot?.agents[0]?.ownerName).toBe("Felix");
+      expect(seed.getMembersSnapshot()?.humans[0]?.ownerName).toBe("Felix");
+      expect(seed.getMembersSnapshot()?.agents[0]?.ownerName).toBe("Felix");
+      expect(seed.getMentionHighlightIndex()).not.toBeNull();
+    });
   });
 
   it("keeps an empty seed state when the initial snapshot fetch fails", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("boom"));
+    await withAuthenticatedTempHome(async () => {
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("boom"));
 
-    const seed = createSeed();
+      const seed = createSeed();
 
-    await expect(seed.ensureMembersSnapshotLoaded()).rejects.toThrow("boom");
-    expect(seed.getMembersSnapshot()).toBeNull();
-    expect(seed.getMentionHighlightIndex()).toBeNull();
-    expect([...seed.getSignalIndex().values()]).toEqual([]);
+      await expect(seed.ensureMembersSnapshotLoaded()).rejects.toThrow("boom");
+      expect(seed.getMembersSnapshot()).toBeNull();
+      expect(seed.getMentionHighlightIndex()).toBeNull();
+      expect([...seed.getSignalIndex().values()]).toEqual([]);
+    });
   });
 
   it("loads the startup members snapshot only once until an explicit refresh is requested", async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async () =>
-        createMembersResponse(createMembersSnapshot())
-      );
+    await withAuthenticatedTempHome(async () => {
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(async () =>
+          createMembersResponse(createMembersSnapshot())
+        );
 
-    const seed = createSeed();
+      const seed = createSeed();
 
-    const firstSnapshot = await seed.ensureMembersSnapshotLoaded();
-    const secondSnapshot = await seed.ensureMembersSnapshotLoaded();
+      const firstSnapshot = await seed.ensureMembersSnapshotLoaded();
+      const secondSnapshot = await seed.ensureMembersSnapshotLoaded();
 
-    expect(firstSnapshot).toBe(secondSnapshot);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(firstSnapshot).toBe(secondSnapshot);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    await seed.refreshMembersSnapshot();
+      await seed.refreshMembersSnapshot();
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("updates the snapshot and mention highlight index together", () => {
@@ -281,3 +289,17 @@ describe("space join read model seed", () => {
     expect(afterRefresh?.profile?.ownerName).toBe("Alicia");
   });
 });
+
+async function withAuthenticatedTempHome<T>(run: () => Promise<T>): Promise<T> {
+  return await withTempHome(async () => {
+    process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+    await setAuthSession({
+      accessToken: "read-model-test-token",
+      authBaseUrl: "https://example.com",
+      clientId: "openmeld-cli",
+      expiresAt: "2999-01-01T00:00:00.000Z",
+      tokenType: "Bearer",
+    });
+    return await run();
+  });
+}

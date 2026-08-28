@@ -100,13 +100,6 @@ export function resolveAuthRequestCompatibility(input: {
   };
 }
 
-export function canUseAuthSessionForRequest(input: {
-  session: StoredAuthSession;
-  requestUrl: string;
-}): boolean {
-  return resolveAuthRequestCompatibility(input).compatible;
-}
-
 export function deriveAuthBaseUrlFromGatewayUrl(
   gatewayUrl: string
 ): string | null {

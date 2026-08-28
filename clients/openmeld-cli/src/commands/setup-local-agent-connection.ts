@@ -39,6 +39,10 @@ import { renderInfoCard } from "../ui/info-card";
 import { runAgentsRepair } from "./agents";
 import { runAuthLogin } from "./auth";
 import {
+  runComputerAuthorizationHandoff,
+  runOneTimeTokenComputerHandoff,
+} from "./computer-auth-handoff";
+import {
   type PrepareSessionExecutorResult,
   type PrepareSessionLocalAgentSelection,
   runPrepareSessionExecutor,
@@ -88,6 +92,7 @@ export async function runSetupLocalAgentConnection(input: {
   profile?: string;
   humanProfile?: string;
   agent?: string[];
+  deviceCode?: string;
   localAgent?: string[];
   localAgents?: string;
   ott?: string;
@@ -114,6 +119,36 @@ export async function runSetupLocalAgentConnection(input: {
 
   if (input.humanProfile) {
     throw new Error(RETIRED_HUMAN_PROFILE_SETUP_MESSAGE);
+  }
+
+  const deviceCode = normalizeOptionalString(input.deviceCode);
+  if (input.startSession && deviceCode) {
+    return buildPrepareSessionSetupResult(
+      await runComputerAuthorizationHandoff({
+        deviceCode,
+        interactive,
+        localAgentSelection: resolvePrepareSessionLocalAgentSelection(input),
+        presenter,
+        runtime,
+        startSession: input.startSession,
+        view: input.view,
+      })
+    );
+  }
+
+  const oneTimeToken = normalizeOptionalString(input.ott);
+  if (input.startSession && oneTimeToken) {
+    return buildPrepareSessionSetupResult(
+      await runOneTimeTokenComputerHandoff({
+        oneTimeToken,
+        interactive,
+        localAgentSelection: resolvePrepareSessionLocalAgentSelection(input),
+        presenter,
+        runtime,
+        startSession: input.startSession,
+        view: input.view,
+      })
+    );
   }
 
   // OPENMELD_SETUP_TO_WAKE_PATH: HIGHEST_FACT local-auth
@@ -156,10 +191,7 @@ export async function runSetupLocalAgentConnection(input: {
       localAgentSelection: resolvePrepareSessionLocalAgentSelection(input),
       view: input.view,
     });
-    if (sessionResult.status !== "completed") {
-      return resolveIncompletePrepareSessionSetupResult(sessionResult);
-    }
-    return buildCompletedSetupSessionResult(sessionResult);
+    return buildPrepareSessionSetupResult(sessionResult);
   }
 
   if (input.agent && input.agent.length > 0) {
@@ -291,6 +323,14 @@ function resolveIncompletePrepareSessionSetupResult(
   };
 }
 
+function buildPrepareSessionSetupResult(
+  sessionResult: PrepareSessionExecutorResult
+): SetupLocalAgentConnectionResult {
+  return sessionResult.status === "completed"
+    ? buildCompletedSetupSessionResult(sessionResult)
+    : resolveIncompletePrepareSessionSetupResult(sessionResult);
+}
+
 function buildCompletedSetupSessionResult(
   sessionResult: Extract<PrepareSessionExecutorResult, { status: "completed" }>
 ): Extract<SetupLocalAgentConnectionResult, { status: "completed" }> {
@@ -347,6 +387,7 @@ function assertValidSetupLocalAgentConnectionInput(input: {
   profile?: string;
   humanProfile?: string;
   agent?: string[];
+  deviceCode?: string;
   localAgent?: string[];
   localAgents?: string;
   ott?: string;
@@ -354,6 +395,16 @@ function assertValidSetupLocalAgentConnectionInput(input: {
   startSession?: string;
 }): void {
   const facts = resolveSetupLocalAgentConnectionInputFacts(input);
+
+  if (normalizeOptionalString(input.deviceCode) && !facts.hasStartSession) {
+    throw new Error("--device-code requires --start-session.");
+  }
+  if (
+    normalizeOptionalString(input.deviceCode) &&
+    normalizeOptionalString(input.ott)
+  ) {
+    throw new Error("use either --device-code or --ott, not both");
+  }
 
   if (
     facts.hasStartSession &&

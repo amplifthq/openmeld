@@ -212,10 +212,16 @@ describe("start next-action create flow", () => {
       state: "valid",
       session: {
         v: 1,
+        accessToken: "start-test-token",
         tokenType: "Bearer",
         authBaseUrl: "https://auth.openmeld.invalid",
         clientId: "openmeld-cli",
         createdAt: "2026-02-20T00:00:00.000Z",
+        expiresAt: "2999-01-01T00:00:00.000Z",
+        user: {
+          id: "user-1",
+          name: "Felix",
+        },
       },
     });
     resolveOpenMeldProfileMock.mockResolvedValue({

@@ -87,6 +87,7 @@ import {
   runComputerList,
   runComputerRename,
 } from "./commands/computer";
+import { recoverInterruptedComputerAuthHandoff } from "./commands/computer-auth-handoff-recovery";
 import { runDoctor } from "./commands/doctor";
 import { runFeedback } from "./commands/feedback";
 import { runInstallSelf } from "./commands/install-self";
@@ -535,6 +536,10 @@ program
     "One-time token to sign in on this device before setup"
   )
   .option(
+    "--device-code <code>",
+    "Browser-approved code used to create this computer's independent sign-in session"
+  )
+  .option(
     "--start-session <opaque-token>",
     "Continue an OpenMeld Web Prepare setup command on this device"
   )
@@ -561,6 +566,7 @@ program
   .action(
     async (opts: {
       agent?: string[];
+      deviceCode?: string;
       humanProfile?: string;
       localAgent?: string[];
       localAgents?: string;
@@ -577,6 +583,7 @@ program
         run: async () => {
           await runSetup({
             agent: opts.agent,
+            deviceCode: opts.deviceCode,
             humanProfile: opts.humanProfile,
             localAgent: opts.localAgent,
             localAgents: opts.localAgents,
@@ -5229,6 +5236,20 @@ function isDispatchSpaceActionToolServerArgv(argv: readonly string[]): boolean {
 async function runLocalCli(argv: string[]): Promise<void> {
   try {
     await ensureSystemLayout();
+    const [startupCommand, startupSubcommand] =
+      parseLeadingCommandTokensFromArgv(argv, 2);
+    if (!(startupCommand === "service" && startupSubcommand === "run")) {
+      const recoveryRuntime = {
+        interactive: false,
+        resolvedView: "agent",
+        viewMode: "agent",
+      } as const;
+      await recoverInterruptedComputerAuthHandoff({
+        presenter: createSilentPresenter("agent"),
+        runtime: recoveryRuntime,
+        view: "agent",
+      });
+    }
 
     const removedCcInputMessage = getRemovedCcCliInputMessage(argv);
     if (removedCcInputMessage) {

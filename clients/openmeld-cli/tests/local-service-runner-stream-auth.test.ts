@@ -102,6 +102,53 @@ describe("resolveDaemonStreamAuthContext", () => {
     expect(context.credentialFailure?.reason).toBe("empty_token");
   });
 
+  it("uses the shared request owner to reject an expired stored session", async () => {
+    getAuthSessionStateMock.mockResolvedValue({
+      reasonCode: "session_expired",
+      state: "expired",
+      session: sessionWith({}),
+    });
+
+    const context = await resolveDaemonStreamAuthContext({
+      requestUrl: DAEMON_STREAM_URL,
+      selectedOpenMeldProfile: null,
+    });
+
+    expect(context).toMatchObject({
+      authState: "expired",
+      credentialFailure: {
+        reason: "session_expired",
+        requestHost: "gateway.openmeld.invalid",
+        status: "dropped",
+      },
+      status: "authentication_required",
+    });
+  });
+
+  it("uses the shared request owner to reject malformed session metadata", async () => {
+    getAuthSessionStateMock.mockResolvedValue({
+      errorMessage: "session metadata is corrupt",
+      reasonCode: "session_metadata_invalid",
+      state: "invalid",
+      session: null,
+    });
+
+    const context = await resolveDaemonStreamAuthContext({
+      requestUrl: DAEMON_STREAM_URL,
+      selectedOpenMeldProfile: null,
+    });
+
+    expect(context).toMatchObject({
+      authState: "invalid",
+      credentialFailure: {
+        reason: "session_metadata_invalid",
+        requestHost: "gateway.openmeld.invalid",
+        status: "dropped",
+      },
+      status: "authentication_required",
+    });
+  });
+
   it("keeps the plain authentication_required shape when no session exists", async () => {
     getAuthSessionStateMock.mockResolvedValue({
       state: "missing",

@@ -5,6 +5,7 @@ import type {
 } from "../src/agent-activity/integration-refresh";
 import type { startLocalAgentActivitySyncLoop } from "../src/agent-activity/local-sync";
 import type { StoredAuthSession } from "../src/config/auth-session";
+import { AuthRequestCredentialError } from "../src/config/request-headers";
 import { runDaemonServiceLoop } from "../src/local-service/carrier/service-runner";
 import { DAEMON_STREAM_CONNECT_TIMEOUT_MS } from "../src/local-service/core/constants";
 import { withTempHome } from "./helpers/fs";
@@ -979,26 +980,25 @@ describe("local service runner dual-write", () => {
       line: vi.fn(),
       data: vi.fn(),
     };
-    const expiredSession = {
-      state: "expired" as const,
-      session: createAuthSession({
-        accessToken: "expired-token",
-        createdAt: "2026-07-01T00:00:00.000Z",
-        expiresAt: "2026-07-01T01:00:00.000Z",
-      }),
-    };
     const validSession = {
       state: "valid" as const,
       session: createAuthSession({
         accessToken: "valid-token",
-        expiresAt: "2026-07-03T01:00:00.000Z",
+        expiresAt: "2999-01-01T00:00:00.000Z",
       }),
     };
-    getAuthSessionStateMock
+    getAuthSessionStateMock.mockReset().mockResolvedValue(validSession);
+    buildRequestAuthHeadersMock
       .mockReset()
-      .mockResolvedValueOnce(expiredSession)
-      .mockResolvedValueOnce(expiredSession)
-      .mockResolvedValue(validSession);
+      .mockRejectedValueOnce(
+        new AuthRequestCredentialError({
+          authHost: "localhost:8080",
+          expectedGatewayHost: null,
+          reason: "session_expired",
+          requestHost: "localhost:8080",
+        })
+      )
+      .mockResolvedValue({ Authorization: "Bearer valid-token" });
     connectWebSocketMock.mockReset().mockResolvedValue({
       close: vi.fn(),
     });
@@ -1070,7 +1070,6 @@ describe("local service runner dual-write", () => {
     });
     expect(stopLocalAgentActivitySyncLoopMock).toHaveBeenCalledTimes(1);
     expect(buildRequestAuthHeadersMock).toHaveBeenCalledWith({
-      authSession: validSession.session,
       requestUrl: "ws://localhost:8080/v1/daemon/stream",
     });
     expect(

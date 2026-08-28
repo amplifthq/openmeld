@@ -88,6 +88,7 @@ type WebSetupCommandInput = {
 	agentProfileId?: string;
 	openMeldHome?: string;
 	authUrl?: string;
+	deviceCode?: string;
 	gatewayUrl?: string;
 	humanProfileId?: string;
 	localAgentIds?: readonly string[];
@@ -180,9 +181,14 @@ export function buildWebSetupCommand(input: WebSetupCommandInput = {}): string {
 	}
 
 	const oneTimeToken = normalizeOptionalString(setupInput.oneTimeToken);
+	const deviceCode = normalizeOptionalString(setupInput.deviceCode);
+	if (oneTimeToken && deviceCode) {
+		throw new Error("OpenMeld can only use one setup sign-in grant at a time.");
+	}
 	const bootstrapCommand = resolveSetupBootstrapCommand(
 		setupInput,
-		oneTimeToken
+		oneTimeToken,
+		deviceCode
 	);
 	if (bootstrapCommand) {
 		return bootstrapCommand;
@@ -195,7 +201,7 @@ export function buildWebSetupCommand(input: WebSetupCommandInput = {}): string {
 			gatewayUrl: setupInput.gatewayUrl,
 			userFacingCommand: setupInput.userFacingCommand,
 		}),
-		...buildSetupArguments(setupInput, oneTimeToken),
+		...buildSetupArguments(setupInput, oneTimeToken, deviceCode),
 	]
 		.filter(Boolean)
 		.join(" ");
@@ -320,12 +326,13 @@ function resolveDefaultAuthUrl(input: { isDevCommand: boolean }): string {
 
 function resolveSetupBootstrapCommand(
 	input: WebSetupCommandInput,
-	oneTimeToken: string | null
+	oneTimeToken: string | null,
+	deviceCode: string | null
 ): string | null {
 	// OPENMELD_SETUP_TO_WAKE_PATH: HIGHEST_FACT setup-handoff-token
-	// The start-session token and one-time sign-in token are the narrow handoff
-	// facts that let Web pass setup to a local terminal, human, or agent.
-	if (!(input.startSession && oneTimeToken)) {
+	// The Prepare token and short-lived sign-in grant are the narrow handoff
+	// facts that let Web pass setup to a local Terminal, human, or agent.
+	if (!(input.startSession && (oneTimeToken || deviceCode))) {
 		return null;
 	}
 	const lane = resolveSetupBootstrapLane(input);
@@ -334,7 +341,10 @@ function resolveSetupBootstrapCommand(
 	}
 
 	const platform = input.setupPlatform ?? "posix";
-	const args = ["setup", ...buildSetupArguments(input, oneTimeToken)];
+	const args = [
+		"setup",
+		...buildSetupArguments(input, oneTimeToken, deviceCode),
+	];
 	const setupUrl = buildSetupBootstrapUrl({
 		openMeldHome: input.openMeldHome,
 		lane,
@@ -498,7 +508,8 @@ function base64EncodeBytes(bytes: readonly number[]): string {
 
 function buildSetupArguments(
 	input: WebSetupCommandInput,
-	oneTimeToken: string | null
+	oneTimeToken: string | null,
+	deviceCode: string | null
 ): string[] {
 	const args: string[] = [];
 	if (input.humanProfileId) {
@@ -534,6 +545,9 @@ function buildSetupArguments(
 
 	if (oneTimeToken) {
 		args.push("--ott", oneTimeToken);
+	}
+	if (deviceCode) {
+		args.push("--device-code", deviceCode);
 	}
 
 	args.push("--view", input.view ?? "human");

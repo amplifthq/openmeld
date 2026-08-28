@@ -254,7 +254,7 @@ async function bootstrapAuthSession(): Promise<void> {
   await setAuthSession({
     accessToken: "token-1",
     tokenType: "Bearer",
-    authBaseUrl: "https://auth.openmeld.invalid",
+    authBaseUrl: "https://auth.openmeld.ai",
     clientId: "openmeld-cli",
   });
 }

@@ -32,7 +32,6 @@ import {
 	APP_PAGE_FRAME_CLASS_NAME,
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 } from "#/components/app/shell-layout";
-import { useGenerateOneTimeToken } from "#/hooks/account.hooks";
 import { buildAgentInterfacePrompt } from "#/lib/agent-interface-guide";
 import {
 	buildWebSetupCommand,
@@ -40,10 +39,11 @@ import {
 	resolveWebSetupFollowUpCliCommandPrefix,
 } from "#/lib/cli-entry-command";
 import { copyTextToClipboard } from "#/lib/clipboard";
+import { resolveComputerAuthorizationHandoffExpiresAt } from "#/lib/computer-authorization-expiry";
 import { Elevated } from "#/lib/elevated";
-import { DEFAULT_ONE_TIME_TOKEN_EXPIRES_IN_SECONDS } from "#/lib/one-time-token-expiry";
 import { listStartProfiles } from "#/lib/profiles/existing-profiles";
 import { listActiveProfilesByKind } from "#/lib/profiles/human-profiles";
+import { createComputerAuthorizationGrant } from "#/query/auth-query";
 import { createPrepareSession } from "#/query/connect/prepare-session";
 import { baseQueryOptions } from "#/query/query-config";
 
@@ -75,7 +75,6 @@ export function AgentInterfacePage({
 	const [actionPreviewIndex, setActionPreviewIndex] = useState(0);
 	const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
 	const [now, setNow] = useState(() => Date.now());
-	const generateOneTimeToken = useGenerateOneTimeToken();
 	const profilesQuery = useQuery({
 		queryKey: ["agent-interface", "profiles"],
 		queryFn: async () => await listStartProfiles(),
@@ -125,7 +124,7 @@ export function AgentInterfacePage({
 		setCopyState("idle");
 		try {
 			const humanProfile = await resolveBestHumanProfile(defaultHumanProfile);
-			const [prepareSession, oneTimeToken] = await Promise.all([
+			const [prepareSession, computerAuthorization] = await Promise.all([
 				createPrepareSession({
 					deviceId: null,
 					humanProfileId: humanProfile?.openMeldProfileId ?? null,
@@ -133,11 +132,11 @@ export function AgentInterfacePage({
 					targetSpaceId: null,
 					selectedLocalAgentIds: [],
 				}),
-				generateOneTimeToken.mutateAsync(),
+				createComputerAuthorizationGrant(),
 			]);
 			const command = buildWebSetupCommand({
 				startSession: prepareSession.opaqueToken,
-				oneTimeToken: oneTimeToken.token,
+				deviceCode: computerAuthorization.deviceCode,
 				localAgents: "all",
 				setupPlatform: resolveBrowserSetupCommandPlatform(),
 				view: "agent",
@@ -147,8 +146,8 @@ export function AgentInterfacePage({
 				command,
 				skillUrl,
 			});
-			const expiresAt = resolveGeneratedPromptExpiresAt({
-				oneTimeTokenExpiresInSeconds: oneTimeToken.expiresIn,
+			const expiresAt = resolveComputerAuthorizationHandoffExpiresAt({
+				authorizationExpiresInSeconds: computerAuthorization.expiresIn,
 				prepareSessionExpiresAt: prepareSession.opaqueTokenExpiresAt,
 			});
 			setGenerated({
@@ -543,30 +542,6 @@ function resolveGenerateActionLabel(input: {
 		return "Refresh expired prompt";
 	}
 	return "Refresh agent prompt";
-}
-
-function resolveGeneratedPromptExpiresAt(input: {
-	oneTimeTokenExpiresInSeconds?: number;
-	prepareSessionExpiresAt?: null | string;
-}): string {
-	const now = Date.now();
-	const candidates: number[] = [];
-	const prepareSessionExpiresAtMs = input.prepareSessionExpiresAt
-		? Date.parse(input.prepareSessionExpiresAt)
-		: Number.NaN;
-
-	if (Number.isFinite(prepareSessionExpiresAtMs)) {
-		candidates.push(prepareSessionExpiresAtMs);
-	}
-
-	const oneTimeTokenExpiresInSeconds =
-		typeof input.oneTimeTokenExpiresInSeconds === "number" &&
-		input.oneTimeTokenExpiresInSeconds > 0
-			? input.oneTimeTokenExpiresInSeconds
-			: DEFAULT_ONE_TIME_TOKEN_EXPIRES_IN_SECONDS;
-	candidates.push(now + oneTimeTokenExpiresInSeconds * 1000);
-
-	return new Date(Math.min(...candidates)).toISOString();
 }
 
 function resolveRemainingSeconds(

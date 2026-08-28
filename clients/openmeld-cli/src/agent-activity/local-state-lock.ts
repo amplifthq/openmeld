@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   chmod,
@@ -11,12 +10,13 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { resolveOpenMeldRootDir } from "../config/paths";
+import {
+  CURRENT_PROCESS_START_IDENTITY,
+  isProcessIdentityAlive,
+} from "../system/process-identity";
 
 const POLL_MS = 20;
 const OWNER_INITIALIZATION_GRACE_MS = 1000;
-const PROCESS_START_IDENTITY =
-  readProcessStartIdentity(process.pid) ??
-  `fallback:${process.pid}:${Math.floor(Date.now() - process.uptime() * 1000)}`;
 
 type LeaseOwner = {
   expiresAtMs: number;
@@ -242,7 +242,7 @@ function currentLeaseOwner(token: string, leaseMs: number): LeaseOwner {
   return {
     expiresAtMs: Date.now() + leaseMs,
     ownerPid: process.pid,
-    ownerProcessStartedAt: PROCESS_START_IDENTITY,
+    ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
     token,
     version: 1,
   };
@@ -253,51 +253,12 @@ function isCurrentOwner(owner: LeaseOwner | null, token: string) {
     owner &&
       owner.token === token &&
       owner.ownerPid === process.pid &&
-      owner.ownerProcessStartedAt === PROCESS_START_IDENTITY
+      owner.ownerProcessStartedAt === CURRENT_PROCESS_START_IDENTITY
   );
 }
 
 function isLeaseOwnerStillRunning(owner: LeaseOwner) {
-  if (!isProcessAlive(owner.ownerPid)) {
-    return false;
-  }
-  const observedIdentity = readProcessStartIdentity(owner.ownerPid);
-  if (
-    observedIdentity?.startsWith("ps:") &&
-    owner.ownerProcessStartedAt.startsWith("ps:")
-  ) {
-    return observedIdentity === owner.ownerProcessStartedAt;
-  }
-  // Correctness wins over liveness when process identity cannot be verified.
-  // Stealing from a still-live owner could let an older upload continue after
-  // a user has opted out. `activity health` can surface a genuinely stuck row.
-  return true;
-}
-
-function readProcessStartIdentity(pid: number): string | null {
-  if (!(Number.isSafeInteger(pid) && pid > 0)) {
-    return null;
-  }
-  try {
-    const output = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1000,
-      windowsHide: true,
-    }).trim();
-    return output.length > 0 ? `ps:${output}` : null;
-  } catch {
-    return null;
-  }
-}
-
-function isProcessAlive(pid: number) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return !isNodeError(error, "ESRCH");
-  }
+  return isProcessIdentityAlive(owner);
 }
 
 function isNodeError(error: unknown, code: string) {

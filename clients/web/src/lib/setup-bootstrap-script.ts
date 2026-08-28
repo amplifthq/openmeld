@@ -6,7 +6,7 @@ const OPENMELD_SETUP_PACKAGE_SPEC = `${OPENMELD_SETUP_PACKAGE_NAME}@latest`;
 // trailing "npm error" block without flooding the terminal.
 const OPENMELD_SETUP_PACKAGE_PROBE_TAIL_LINES = 15;
 const OPENMELD_SETUP_PREPARE_COMMAND_HINT =
-	"Use this setup script only with an OpenMeld Web setup command. It must include --start-session, --ott, and either --view human or --view agent.";
+	"Use this setup script only with an OpenMeld Web setup command. It must include --start-session, either --device-code or --ott, and either --view human or --view agent.";
 const OPENMELD_SETUP_PACKAGE_DOWNLOAD_NOTICE =
 	"Downloading OpenMeld CLI (first run may take up to a minute)...";
 const DEFAULT_MIN_NODE_MAJOR_VERSION = 20;
@@ -243,15 +243,17 @@ validate_setup_args() {
 
   OPENMELD_SETUP_HAS_START_SESSION=0
   OPENMELD_SETUP_HAS_OTT=0
+  OPENMELD_SETUP_HAS_DEVICE_CODE=0
   for OPENMELD_SETUP_ARG in "$@"; do
     case "$OPENMELD_SETUP_ARG" in
       --start-session|--start-session=*) OPENMELD_SETUP_HAS_START_SESSION=1 ;;
       --ott|--ott=*) OPENMELD_SETUP_HAS_OTT=1 ;;
+      --device-code|--device-code=*) OPENMELD_SETUP_HAS_DEVICE_CODE=1 ;;
     esac
   done
 
-  if [ "$OPENMELD_SETUP_HAS_START_SESSION" -ne 1 ] || [ "$OPENMELD_SETUP_HAS_OTT" -ne 1 ]; then
-    die "This setup script needs both --start-session and --ott from OpenMeld Web. Copy the latest setup command from OpenMeld Web and run it again."
+  if [ "$OPENMELD_SETUP_HAS_START_SESSION" -ne 1 ] || { [ "$OPENMELD_SETUP_HAS_DEVICE_CODE" -ne 1 ] && [ "$OPENMELD_SETUP_HAS_OTT" -ne 1 ]; }; then
+    die "This setup script needs --start-session and either --device-code or --ott from OpenMeld Web. Copy the latest setup command from OpenMeld Web and run it again."
   fi
 }
 
@@ -916,6 +918,7 @@ function Validate-SetupArgs {
 
   $hasStartSession = $false
   $hasOneTimeToken = $false
+  $hasDeviceCode = $false
   foreach ($arg in $OpenMeldArgs) {
     if ($arg -eq '--start-session' -or $arg.StartsWith('--start-session=')) {
       $hasStartSession = $true
@@ -923,10 +926,13 @@ function Validate-SetupArgs {
     if ($arg -eq '--ott' -or $arg.StartsWith('--ott=')) {
       $hasOneTimeToken = $true
     }
+    if ($arg -eq '--device-code' -or $arg.StartsWith('--device-code=')) {
+      $hasDeviceCode = $true
+    }
   }
 
-  if (-not $hasStartSession -or -not $hasOneTimeToken) {
-    Die 'This setup script needs both --start-session and --ott from OpenMeld Web. Copy the latest setup command from OpenMeld Web and run it again.'
+  if (-not $hasStartSession -or (-not $hasDeviceCode -and -not $hasOneTimeToken)) {
+    Die 'This setup script needs --start-session and either --device-code or --ott from OpenMeld Web. Copy the latest setup command from OpenMeld Web and run it again.'
   }
 }
 

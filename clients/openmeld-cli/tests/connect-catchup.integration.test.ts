@@ -1,6 +1,5 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { setAuthSession } from "../src/config/auth-session";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   processIgnoredOlderThanLiveFloorSignal,
   replayMissedSignals,
@@ -8,7 +7,18 @@ import {
   resolveInitialLiveFloorTs,
   shouldIgnoreIncomingSignal,
 } from "../src/space/connect-catchup";
-import { withTempHome } from "./helpers/fs";
+
+const getAuthSessionStateMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../src/config/auth-session", async () => {
+  const actual = await vi.importActual<
+    typeof import("../src/config/auth-session")
+  >("../src/config/auth-session");
+  return {
+    ...actual,
+    getAuthSessionState: getAuthSessionStateMock,
+  };
+});
 
 const TEXT_SIGNAL_1 = {
   v: 1,
@@ -27,6 +37,13 @@ const SESSION_PROFILE_IDENTITY = {
 };
 
 describe("connect catch-up dedupe state", () => {
+  beforeEach(() => {
+    getAuthSessionStateMock.mockReset().mockResolvedValue({
+      session: null,
+      state: "missing",
+    });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -281,61 +298,51 @@ describe("connect catch-up dedupe state", () => {
   });
 
   it("adds Authorization header when session exists", async () => {
-    await withTempHome(async () => {
-      const previousForceInsecure =
-        process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN;
-      try {
-        process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
-        await setAuthSession({
-          accessToken: "connect-token",
-          tokenType: "Bearer",
-          authBaseUrl: "https://auth.openmeld.invalid",
-          clientId: "openmeld-cli",
-        });
-
-        const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              signals: [
-                {
-                  ...TEXT_SIGNAL_1,
-                },
-              ],
-            }),
-            { status: 200 }
-          )
-        );
-
-        const seenSignalIds = new Set<string>();
-        const events: unknown[] = [];
-
-        await replayMissedSignals({
-          profileIdentity: SESSION_PROFILE_IDENTITY,
-          baseUrl: "https://gateway.openmeld.invalid",
-          space: "room-1",
-          afterSignalId: "signal-anchor",
-          seenSignalIds,
-          onEvent: (event) => {
-            events.push(event);
-          },
-        });
-
-        const requestInit = fetchSpy.mock.calls[0]?.[1] as
-          | RequestInit
-          | undefined;
-        expect(requestInit).toBeDefined();
-        const headers = (requestInit?.headers ?? {}) as Record<string, string>;
-        expect(headers.Authorization).toBe("Bearer connect-token");
-        expect(events).toHaveLength(1);
-      } finally {
-        if (previousForceInsecure === undefined) {
-          process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = undefined;
-        } else {
-          process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN =
-            previousForceInsecure;
-        }
-      }
+    getAuthSessionStateMock.mockResolvedValue({
+      state: "valid",
+      session: {
+        accessToken: "connect-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2999-01-01T00:00:00.000Z",
+        tokenType: "Bearer",
+        v: 1,
+      },
     });
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          signals: [
+            {
+              ...TEXT_SIGNAL_1,
+            },
+          ],
+        }),
+        { status: 200 }
+      )
+    );
+
+    const seenSignalIds = new Set<string>();
+    const events: unknown[] = [];
+
+    await replayMissedSignals({
+      profileIdentity: SESSION_PROFILE_IDENTITY,
+      baseUrl: "https://gateway.openmeld.invalid",
+      space: "room-1",
+      afterSignalId: "signal-anchor",
+      seenSignalIds,
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(requestInit).toBeDefined();
+    const headers = (requestInit?.headers ?? {}) as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer connect-token");
+    expect(events).toHaveLength(1);
   });
 
   it("ignores non-hint websocket signals that are older than live floor ts", () => {

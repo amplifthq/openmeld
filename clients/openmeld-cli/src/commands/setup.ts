@@ -74,6 +74,7 @@ const NON_INTERACTIVE_DEFAULT_LOCAL_AGENTS_NOTICE =
 
 export async function runSetup(input: {
   agent?: string[];
+  deviceCode?: string;
   humanProfile?: string;
   localAgent?: string[];
   localAgents?: string;
@@ -109,6 +110,7 @@ export async function runSetup(input: {
 
 async function runSetupUnlocked(input: {
   agent?: string[];
+  deviceCode?: string;
   humanProfile?: string;
   localAgent?: string[];
   localAgents?: string;

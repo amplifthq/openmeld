@@ -69,13 +69,13 @@ import {
 } from "#/components/connect/start-bring-agents-error-state";
 import { StartChoicePage } from "#/components/connect/start-choice-page";
 import { StartSetupCommandCard } from "#/components/connect/start-setup-command-card";
-import { useGenerateOneTimeToken } from "#/hooks/account.hooks";
 import {
 	buildWebSetupCommand,
 	copyCliEntryCommand,
 	resolveBrowserSetupCommandPlatform,
 	type WebSetupCommandPlatform,
 } from "#/lib/cli-entry-command";
+import { resolveComputerAuthorizationHandoffExpiresAt } from "#/lib/computer-authorization-expiry";
 import {
 	buildConnectRouteSearch,
 	type ConnectRouteSearch,
@@ -83,7 +83,7 @@ import {
 	resolveConnectCompletionTarget,
 } from "#/lib/connect/connect-route";
 import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
-import { DEFAULT_ONE_TIME_TOKEN_EXPIRES_IN_SECONDS } from "#/lib/one-time-token-expiry";
+import { createComputerAuthorizationGrant } from "#/query/auth-query";
 import {
 	createPrepareSession,
 	mintPrepareSessionToken,
@@ -1726,9 +1726,6 @@ function usePrepareSession(input: {
 		request: object;
 		task: Promise<string | null>;
 	} | null>(null);
-	const generateOneTimeToken = useGenerateOneTimeToken();
-	const generateOneTimeTokenRef = useRef(generateOneTimeToken.mutateAsync);
-	generateOneTimeTokenRef.current = generateOneTimeToken.mutateAsync;
 	const onFreshSessionLoadedRef = useRef(input.onFreshSessionLoaded);
 	onFreshSessionLoadedRef.current = input.onFreshSessionLoaded;
 	const onNavigationActionAlreadyStartedRef = useRef(
@@ -1856,20 +1853,20 @@ function usePrepareSession(input: {
 			opaqueToken: string;
 			opaqueTokenExpiresAt: string | null;
 		}) => {
-			const [gatewayUrl, oneTimeToken] = await Promise.all([
+			const [gatewayUrl, computerAuthorization] = await Promise.all([
 				loadGatewayUrl(),
-				generateOneTimeTokenRef.current(),
+				createComputerAuthorizationGrant(),
 			]);
 			return {
 				command: buildWebSetupCommand({
 					setupPlatform: commandPlatform,
 					gatewayUrl,
 					startSession: input.opaqueToken,
-					oneTimeToken: oneTimeToken.token,
+					deviceCode: computerAuthorization.deviceCode,
 				}),
-				expiresAt: resolveSetupCommandExpiresAt({
-					opaqueTokenExpiresAt: input.opaqueTokenExpiresAt,
-					oneTimeTokenExpiresIn: oneTimeToken.expiresIn,
+				expiresAt: resolveComputerAuthorizationHandoffExpiresAt({
+					prepareSessionExpiresAt: input.opaqueTokenExpiresAt,
+					authorizationExpiresInSeconds: computerAuthorization.expiresIn,
 				}),
 			};
 		},
@@ -2423,28 +2420,6 @@ type PrepareSessionLoadResult = {
 	opaqueTokenExpiresAt: string | null;
 	snapshot: PrepareSessionSnapshot;
 };
-
-function resolveSetupCommandExpiresAt(input: {
-	opaqueTokenExpiresAt: string | null;
-	oneTimeTokenExpiresIn: number | undefined;
-}): string | null {
-	const expiresAtCandidates: number[] = [];
-	const opaqueTokenExpiresAtMs = Date.parse(input.opaqueTokenExpiresAt ?? "");
-	if (Number.isFinite(opaqueTokenExpiresAtMs)) {
-		expiresAtCandidates.push(opaqueTokenExpiresAtMs);
-	}
-
-	const oneTimeTokenExpiresIn =
-		typeof input.oneTimeTokenExpiresIn === "number" &&
-		input.oneTimeTokenExpiresIn > 0
-			? input.oneTimeTokenExpiresIn
-			: DEFAULT_ONE_TIME_TOKEN_EXPIRES_IN_SECONDS;
-	expiresAtCandidates.push(Date.now() + oneTimeTokenExpiresIn * 1000);
-
-	return expiresAtCandidates.length > 0
-		? new Date(Math.min(...expiresAtCandidates)).toISOString()
-		: null;
-}
 
 async function loadPrepareSessionForInput(
 	input: PrepareSessionInput,
