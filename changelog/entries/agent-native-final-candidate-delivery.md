@@ -17,6 +17,9 @@ run, and an explicit recorded bootstrap covers intentional delivery control
 changes. Each responsible agent can use those transparent facts to complete its
 own review, merge, release, and smoke path; CI/CD does not appoint a central
 coordinator, require another Agent reviewer, or freeze unrelated work.
+When a real dependency does require coordination, coding agents can use the
+callback transport available in their environment without making Codex App or
+any other vendor-specific tool mandatory.
 Production releases remain scoped and available through either the hosted or
 guarded local lane. Both release lanes use the same authenticated cross-machine
 component lease, while historical release sources use current trusted release
