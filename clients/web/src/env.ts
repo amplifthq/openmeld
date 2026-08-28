@@ -31,6 +31,9 @@ const runtimeEnv = {
 		import.meta.env.VITE_BETTER_AUTH_URL ??
 		nodeProcessEnv.VITE_BETTER_AUTH_URL ??
 		nodeProcessEnv.BETTER_AUTH_URL,
+	VITE_OPENMELD_SETUP_USER_FACING_COMMAND:
+		import.meta.env.VITE_OPENMELD_SETUP_USER_FACING_COMMAND ??
+		nodeProcessEnv.VITE_OPENMELD_SETUP_USER_FACING_COMMAND,
 	VITE_OPENMELD_HOME:
 		import.meta.env.VITE_OPENMELD_HOME ??
 		nodeProcessEnv.VITE_OPENMELD_HOME ??
@@ -79,6 +82,9 @@ export const env = createEnv({
 		VITE_APP_TITLE: z.string().min(1).optional(),
 		VITE_OPENMELD_HOME: z.string().min(1).optional(),
 		VITE_BETTER_AUTH_URL: z.string().url().optional(),
+		VITE_OPENMELD_SETUP_USER_FACING_COMMAND: z
+			.enum(["openmeld", "openmeld-dev", "openmeld-canary"])
+			.optional(),
 	},
 
 	/**

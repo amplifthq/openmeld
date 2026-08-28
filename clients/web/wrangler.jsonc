@@ -90,7 +90,8 @@
         "WEB_APP_URL": "https://staging.openmeld.ai",
         "BETTER_AUTH_URL": "https://auth.staging.openmeld.ai",
         "VITE_BETTER_AUTH_URL": "https://auth.staging.openmeld.ai",
-        "VITE_APP_TITLE": "OpenMeld Staging"
+        "VITE_APP_TITLE": "OpenMeld Staging",
+        "VITE_OPENMELD_SETUP_USER_FACING_COMMAND": "openmeld-canary"
       }
     },
     "prod": {

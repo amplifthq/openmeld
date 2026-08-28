@@ -227,6 +227,30 @@ describe("cli-entry-command", () => {
 		);
 	});
 
+	it("defaults fresh Staging computers to the canary binary channel", async () => {
+		vi.stubEnv("DEV", false);
+		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld-canary");
+		vi.stubGlobal("window", {
+			location: { origin: "https://staging.openmeld.ai" },
+		});
+		vi.resetModules();
+		const { buildWebSetupCommand: buildConfiguredSetupCommand } = await import(
+			"./cli-entry-command"
+		);
+
+		expect(
+			buildConfiguredSetupCommand({
+				localAgents: "none",
+				oneTimeToken: "ott_staging_demo",
+				startSession: "start_staging_demo",
+				view: "agent",
+			})
+		).toBe(
+			"curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --local-agents none --ott ott_staging_demo --view agent"
+		);
+	});
+
 	it("builds a local Windows bootstrap for dev Prepare Session commands", () => {
 		const command = buildWebSetupCommand({
 			openMeldHome: "/tmp/openmeld web start fresh",

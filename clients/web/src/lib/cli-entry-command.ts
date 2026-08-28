@@ -156,11 +156,16 @@ export function buildWebSetupCommand(input: WebSetupCommandInput = {}): string {
 	// OPENMELD_SETUP_TO_WAKE_PATH: RECOMMENDED_ENTRY generated-setup-command
 	// This is the Web-generated command handoff. It is a convenience surface;
 	// the canonical path begins when a human or agent runs the command locally.
+	const setupInput: WebSetupCommandInput = {
+		...input,
+		userFacingCommand:
+			input.userFacingCommand ?? env.VITE_OPENMELD_SETUP_USER_FACING_COMMAND,
+	};
 	const modeCount = [
-		input.humanProfileId ? 1 : 0,
-		input.startSession ? 1 : 0,
-		input.agentIds?.length ? 1 : 0,
-		input.agentProfileId ? 1 : 0,
+		setupInput.humanProfileId ? 1 : 0,
+		setupInput.startSession ? 1 : 0,
+		setupInput.agentIds?.length ? 1 : 0,
+		setupInput.agentProfileId ? 1 : 0,
 	].reduce((total, value) => total + value, 0);
 
 	if (modeCount > 1) {
@@ -168,26 +173,29 @@ export function buildWebSetupCommand(input: WebSetupCommandInput = {}): string {
 			"OpenMeld can only build one setup command mode at a time."
 		);
 	}
-	if (input.localAgents && input.localAgentIds?.length) {
+	if (setupInput.localAgents && setupInput.localAgentIds?.length) {
 		throw new Error(
 			"OpenMeld can only build one local agent selection mode at a time."
 		);
 	}
 
-	const oneTimeToken = normalizeOptionalString(input.oneTimeToken);
-	const bootstrapCommand = resolveSetupBootstrapCommand(input, oneTimeToken);
+	const oneTimeToken = normalizeOptionalString(setupInput.oneTimeToken);
+	const bootstrapCommand = resolveSetupBootstrapCommand(
+		setupInput,
+		oneTimeToken
+	);
 	if (bootstrapCommand) {
 		return bootstrapCommand;
 	}
 
 	return [
 		resolveWebSetupCommand({
-			openMeldHome: input.openMeldHome,
-			authUrl: input.authUrl,
-			gatewayUrl: input.gatewayUrl,
-			userFacingCommand: input.userFacingCommand,
+			openMeldHome: setupInput.openMeldHome,
+			authUrl: setupInput.authUrl,
+			gatewayUrl: setupInput.gatewayUrl,
+			userFacingCommand: setupInput.userFacingCommand,
 		}),
-		...buildSetupArguments(input, oneTimeToken),
+		...buildSetupArguments(setupInput, oneTimeToken),
 	]
 		.filter(Boolean)
 		.join(" ");
