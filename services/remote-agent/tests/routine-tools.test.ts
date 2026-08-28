@@ -70,13 +70,24 @@ describe("Remote Agent Routine management tools", () => {
     expect(routineNames).toContain("openmeld_list_agent_activity_sessions");
   });
 
-  it("keeps explicit organization memory unavailable to Routine turns without an original conversation", () => {
-    const interactiveNames = getRemoteAgentOpenMeldToolDefinitions({
+  it("exposes explicit organization memory only to organization-shared conversations", () => {
+    const baseEnvelope = createSubmitTurnRequest().turnEnvelope;
+    const organizationSharedEnvelope = {
+      ...baseEnvelope,
+      interactionEnvironment: "organization_shared" as const,
+      space: {
+        ...baseEnvelope.space,
+        isCenterAgentDm: false,
+        kind: "space" as const,
+      },
+      trigger: { source: "space_wake" as const },
+    };
+    const organizationSharedNames = getRemoteAgentOpenMeldToolDefinitions({
       agentActivityReadEnabled: true,
       coreWorker: {},
       storage: new InMemoryDurableObjectStorage(),
-      submissionId: "submission_interactive_memory_tools",
-      turnEnvelope: createSubmitTurnRequest().turnEnvelope,
+      submissionId: "submission_shared_memory_tools",
+      turnEnvelope: organizationSharedEnvelope,
     }).map((tool) => tool.name);
     const routineNames = getRemoteAgentOpenMeldToolDefinitions({
       agentActivityReadEnabled: true,
@@ -86,16 +97,126 @@ describe("Remote Agent Routine management tools", () => {
       turnEnvelope: createRoutineTurnEnvelope(),
     }).map((tool) => tool.name);
 
-    expect(interactiveNames).toContain("openmeld_remember_for_organization");
+    expect(organizationSharedNames).toContain(
+      "openmeld_remember_for_organization"
+    );
     expect(routineNames).not.toContain("openmeld_remember_for_organization");
-    expect(interactiveNames).toContain("openmeld_request_member_attention");
+    expect(organizationSharedNames).toContain(
+      "openmeld_request_member_attention"
+    );
     expect(routineNames).not.toContain("openmeld_request_member_attention");
-    expect(interactiveNames).toContain(
+    expect(organizationSharedNames).toContain(
       "openmeld_read_center_agent_turn_diagnostics"
     );
     expect(routineNames).not.toContain(
       "openmeld_read_center_agent_turn_diagnostics"
     );
+
+    const privateAndUnverifiedEnvelopes = [
+      {
+        label: "private Web DM",
+        turnEnvelope: {
+          ...baseEnvelope,
+          interactionEnvironment: "requester_private" as const,
+        },
+      },
+      {
+        label: "private Slack DM",
+        turnEnvelope: {
+          ...baseEnvelope,
+          interactionEnvironment: "requester_private" as const,
+          trigger: { source: "slack" as const },
+        },
+      },
+      {
+        label: "private Lark DM",
+        turnEnvelope: {
+          ...baseEnvelope,
+          interactionEnvironment: "requester_private" as const,
+          trigger: {
+            connectionId: "connection_1",
+            conversationId: "lark:connection_1:chat_1:message_1",
+            provider: "lark" as const,
+            source: "message_channel" as const,
+          },
+        },
+      },
+      {
+        label: "private Feishu DM",
+        turnEnvelope: {
+          ...baseEnvelope,
+          interactionEnvironment: "requester_private" as const,
+          trigger: {
+            connectionId: "connection_1",
+            conversationId: "feishu:connection_1:chat_1:message_1",
+            provider: "feishu" as const,
+            source: "message_channel" as const,
+          },
+        },
+      },
+      {
+        label: "externally shared channel",
+        turnEnvelope: {
+          ...baseEnvelope,
+          interactionEnvironment: "externally_shared" as const,
+          trigger: { source: "slack" as const },
+        },
+      },
+      {
+        label: "missing frozen scope",
+        turnEnvelope: baseEnvelope,
+      },
+      {
+        label: "conflicting frozen scope",
+        turnEnvelope: {
+          ...organizationSharedEnvelope,
+          contextScopePlan: {
+            authenticationSecrets: "never_available" as const,
+            interactionEnvironment: "requester_private" as const,
+            memberMemory: "use_and_share" as const,
+            organizationDocuments: "share_when_authorized" as const,
+            organizationMemory: "share_when_authorized" as const,
+            organizationSkills: "share_when_authorized" as const,
+            protectedInformation: "share_when_authorized" as const,
+            requesterIdentity: "verified_member" as const,
+            resultAudience: "requester_only" as const,
+            v: 1 as const,
+          },
+        },
+      },
+      {
+        label: "unverified sender in organization-shared channel",
+        turnEnvelope: {
+          ...organizationSharedEnvelope,
+          sender: {
+            displayName: "Connected guest",
+            id: "slack:T123:U_GUEST",
+            kind: "member" as const,
+            messageChannelIdentity: {
+              connectionId: "T123",
+              provider: "slack" as const,
+              providerUserId: "U_GUEST",
+            },
+            verified: false as const,
+          },
+          trigger: { source: "slack" as const },
+        },
+      },
+    ];
+
+    for (const testCase of privateAndUnverifiedEnvelopes) {
+      const names = getRemoteAgentOpenMeldToolDefinitions({
+        agentActivityReadEnabled: true,
+        coreWorker: {},
+        storage: new InMemoryDurableObjectStorage(),
+        submissionId: `submission_hidden_memory_tool_${testCase.label}`,
+        turnEnvelope: testCase.turnEnvelope,
+      }).map((tool) => tool.name);
+
+      expect(names, testCase.label).not.toContain(
+        "openmeld_remember_for_organization"
+      );
+    }
   });
 
   it("keeps Routine descriptions effect-focused under the Kernel policy", () => {
