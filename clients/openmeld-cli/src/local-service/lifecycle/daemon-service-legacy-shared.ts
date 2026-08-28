@@ -38,7 +38,7 @@ export function shouldInspectLegacySharedDaemonService(
   if (String(env[OPENMELD_HOME_ENV_KEY] ?? "").trim()) {
     return false;
   }
-  return resolveOpenMeldEnvPreset(input) !== PROD_ENV_PRESET;
+  return resolveOpenMeldEnvPreset(input) === PROD_ENV_PRESET;
 }
 
 export function resolveLegacySharedDaemonPathInput(
