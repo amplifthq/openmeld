@@ -1489,6 +1489,14 @@ receive new Wake work, even when the latest release itself is advisory. This
 keeps healthy supported Services eligible without allowing a later optional
 release to re-enable a known-broken Service.
 
+The current monotonic floor is OpenMeld Service `0.3.126`. It is the first
+supported baseline that carries the required startup recovery, managed-update,
+active Permission/Wake behavior, and pre-accept Wake recovery across a
+controlled Service replacement. Core projects every connected older Service as
+`update_required`, sets `requiredVersion` to `0.3.126`, and blocks new Wake
+admission. A later advisory release may raise the latest available version, but
+it must not lower or bypass this floor.
+
 Wake Stop local control is an affected Service capability. A Core/Web deployment
 that exposes Wake Stop must use a local-components manifest whose Service bundle
 hash matches the carrier that understands the Wake Stop control frame and local

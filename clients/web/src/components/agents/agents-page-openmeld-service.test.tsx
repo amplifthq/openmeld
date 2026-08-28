@@ -145,7 +145,7 @@ describe("OpenMeldServiceCard", () => {
 		expect(skillHelp.className).toContain("max-lg:size-11");
 	});
 
-	it("uses one OpenMeld Tools action for a required service update", () => {
+	it("shows only the manual update path when an older Service cannot manage its own update", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
 				{
@@ -164,7 +164,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		const updateLink = screen.getByRole("link", {
-			name: "Update OpenMeld Tools",
+			name: "Update manually",
 		});
 
 		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
@@ -174,8 +174,9 @@ describe("OpenMeldServiceCard", () => {
 			"?connectedComputerId=computer-macbook-pro&serviceAction=update_service&session=fresh"
 		);
 		expect(
-			screen.getAllByRole("link", { name: "Update OpenMeld Tools" })
+			screen.getAllByRole("link", { name: "Update manually" })
 		).toHaveLength(1);
+		expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
 		expect(screen.queryByText("Update OpenMeld Service")).toBeNull();
 	});
 
@@ -198,7 +199,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		const updateLink = screen.getByRole("link", {
-			name: "Update OpenMeld Tools",
+			name: "Update manually",
 		});
 
 		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
@@ -214,7 +215,7 @@ describe("OpenMeldServiceCard", () => {
 			"?connectedComputerId=computer-macbook-pro&serviceAction=update_service&session=fresh"
 		);
 		expect(
-			screen.getAllByRole("link", { name: "Update OpenMeld Tools" })
+			screen.getAllByRole("link", { name: "Update manually" })
 		).toHaveLength(1);
 	});
 
@@ -259,6 +260,14 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		fireEvent.click(screen.getByRole("button", { name: "Update" }));
+		const manualUpdateLink = screen.getByRole("link", {
+			name: "Update manually",
+		});
+		expect(manualUpdateLink).toHaveProperty("pathname", "/o/acme/connect");
+		expect(manualUpdateLink).toHaveProperty(
+			"search",
+			"?connectedComputerId=computer-macbook-pro&serviceAction=update_service&session=fresh"
+		);
 		expect(
 			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
 				.disabled
@@ -270,7 +279,49 @@ describe("OpenMeldServiceCard", () => {
 		await waitFor(() => {
 			expect(setQueryDataMock).toHaveBeenCalledTimes(1);
 		});
+		expect(
+			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
 		expect(toastSuccessMock).not.toHaveBeenCalled();
+	});
+
+	it("waits for observed component truth before reporting an update as complete", async () => {
+		requestCurrentOpenMeldToolsUpdateMock.mockResolvedValueOnce({
+			currentVersion: "0.8.0",
+			status: "current",
+		});
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Update" }));
+
+		await waitFor(() => {
+			expect(refreshSharedCachesMock).toHaveBeenCalled();
+		});
+		expect(toastSuccessMock).not.toHaveBeenCalled();
+		expect(
+			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
 	});
 
 	it("keeps a failed update visible and lets the user try again", async () => {
@@ -578,7 +629,7 @@ describe("OpenMeldServiceCard", () => {
 			screen.getByText("A newer OpenMeld skill is available.")
 		).toBeTruthy();
 		const updateLink = screen.getByRole("link", {
-			name: "Update OpenMeld Tools",
+			name: "Update manually",
 		});
 		expect(updateLink).toHaveProperty("pathname", "/o/acme/connect");
 		expect(updateLink).toHaveProperty(
@@ -614,9 +665,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getByText("Checking OpenMeld tools status...")).toBeTruthy();
 		expect(screen.queryByText("Update available")).toBeNull();
-		expect(
-			screen.queryByRole("link", { name: "Update OpenMeld Tools" })
-		).toBeNull();
+		expect(screen.queryByRole("link", { name: "Update manually" })).toBeNull();
 	});
 
 	it("uses the aggregate setup action for required OpenMeld skills", () => {
@@ -642,9 +691,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
 		expect(screen.getByText("Update required")).toBeTruthy();
-		expect(
-			screen.getByRole("link", { name: "Update OpenMeld Tools" })
-		).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Update manually" })).toBeTruthy();
 	});
 
 	it("shows one setup action when CLI and skills updates overlap", () => {
@@ -680,7 +727,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		expect(
-			screen.getAllByRole("link", { name: "Update OpenMeld Tools" })
+			screen.getAllByRole("link", { name: "Update manually" })
 		).toHaveLength(1);
 		expect(
 			screen.queryByRole("button", { name: "Update OpenMeld Tools" })

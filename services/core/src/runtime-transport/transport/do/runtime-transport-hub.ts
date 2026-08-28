@@ -11894,8 +11894,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       if (
         previousDaemonSessionId === currentReplacementSession.daemonSessionId ||
         commandState.ownerUserId !== currentReplacementSession.ownerUserId ||
-        commandState.localProgress.phase === "result_received" ||
-        !hasRuntimeCoordinatorDurableLocalProgress(commandState.localProgress)
+        commandState.localProgress.phase === "result_received"
       ) {
         continue;
       }
@@ -11941,7 +11940,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       previousDaemonSessionId === currentReplacementSession.daemonSessionId ||
       commandState.ownerUserId !== currentReplacementSession.ownerUserId ||
       commandState.localProgress.phase === "result_received" ||
-      !hasRuntimeCoordinatorDurableLocalProgress(commandState.localProgress) ||
       !previousSession ||
       previousSession.socket !== null ||
       previousSession.deliveryDisconnectedAtMs === null ||
@@ -11951,6 +11949,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       currentLease?.daemonSessionId !==
         currentReplacementSession.daemonSessionId
     ) {
+      return;
+    }
+    if (
+      !hasRuntimeCoordinatorDurableLocalProgress(commandState.localProgress)
+    ) {
+      await this.decideRuntimeCoordinatorExecutionProgress({
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        attemptId: commandState.attemptId,
+        dispatchId: commandState.dispatchId,
+        eventKind: "reclaim",
+        idempotencyKey: `runtime_coordinator_pre_accept_service_replacement:${commandState.runtimeCoordinatorExecutionId}:${commandState.activeRunId}:${currentReplacementSession.daemonSessionId}`,
+        observedRunId: commandState.activeRunId,
+        reasonCode: "runtime_coordinator.pre_accept_service_replacement",
+        runtimeCoordinatorExecutionId:
+          commandState.runtimeCoordinatorExecutionId,
+        sourceClientMessageId: commandState.sourceClientMessageId,
+        spaceId: commandState.sanitizedDeliveryRequest.payload.spaceId,
+        targetProfileId: commandState.targetProfileId,
+        trigger: "daemon",
+      });
       return;
     }
     const [authority, projection] = await Promise.all([

@@ -4200,9 +4200,13 @@ Service projection `required` even when the latest artifact is advisory:
   `update_required`, the floor as `requiredVersion`, and `wakeBlocked=true`.
   Raising this floor requires concrete compatibility evidence plus Core behavior
   tests; an ordinary advisory release cannot lower or bypass it. The initial
-  floor is `0.3.15`: Service `0.3.14` can report an online heartbeat without
-  registering execution routes. A supported version below the latest release
-  remains advisory when `components.service.updatePolicy=available`.
+  floor was `0.3.15`: Service `0.3.14` can report an online heartbeat without
+  registering execution routes. The current floor is `0.3.126`: earlier
+  Services lack the complete startup recovery, managed-update, and active
+  Permission/Wake behavior required by the current workstation runtime, and
+  `0.3.125` can strand a newly delivered Wake during a controlled Service
+  replacement. A supported version below the latest release remains advisory
+  when `components.service.updatePolicy=available`.
 - CLI policy is projected at release time into the published npm package as
   `openmeld.minRequiredCliVersion` (the forced-update floor), because npm is the only
   channel a CLI can read before sign-in or device enrollment. The release tool

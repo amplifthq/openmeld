@@ -3456,22 +3456,27 @@ Update OpenMeld Tools
 ```
 
 When the current Service advertises OpenMeld Tools control, **Update** sends one
-owner-scoped request to the Service's background coordinator. The user may
-close the page immediately and never sees or copies a command. This direct
-action remains available when automatic updates are off. The same card shows
-one capability-gated **Keep OpenMeld Tools up to date** switch and reads its
-value from the Service-owned maintenance projection. It never keeps a browser
+owner-scoped request to the Service's background coordinator. A quiet **Update
+manually** link remains immediately beside it and opens the deterministic CLI
+setup path. The user may close the page immediately and never needs to copy a
+command unless they choose that fallback. This direct action remains available
+when automatic updates are off. An older Service that does not report managed
+update capability shows only **Update manually**; Web must never offer an
+action that the installed Service cannot perform. The same card shows one
+capability-gated **Keep OpenMeld Tools up to date** switch and reads its value
+from the Service-owned maintenance projection. It never keeps a browser
 preference.
 
 The card renders the canonical operation phase as one short status:
 **Finishing current work**, **Updating**, **Up to date**, or **Update failed.
 Try again.** Clicking **Update** changes the action to **Updating** immediately,
-then caches the Service-returned operation and polls the same Computer
-projection until it becomes terminal. Request completion is not update
-completion. An older Service without the control capability keeps the existing
-Setup guidance. Service connection recovery remains explicitly **Connect
-OpenMeld Service** or **Reconnect OpenMeld Service**, and the Reconnect action
-remains the CLI fallback.
+then retains the Service-returned operation and polls the same Computer
+projection until it becomes terminal. A stale refetch must not erase the local
+accepted-operation evidence, and a `current` control response must not produce
+an **Up to date** toast until the component projection agrees. Request
+completion is not update completion. Service connection recovery remains
+explicitly **Connect OpenMeld Service** or **Reconnect OpenMeld Service**, and
+the Reconnect action remains the CLI fallback.
 
 For an `update_service` setup run, terminal completion proves only that the CLI
 flow ended. Web must keep the result in a bounded confirming state until both
