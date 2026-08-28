@@ -13,9 +13,10 @@ import {
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	resolveSpacePendingAgentActionSurfacePlacement,
 	resolveSpacePermissionModeShortcut,
-	SpacePendingAgentActions,
-} from "./space-pending-agent-actions";
+} from "./space-pending-agent-action-model";
+import { SpacePendingAgentActions } from "./space-pending-agent-actions";
 
 const APPROVE_ALL_PATTERN = /approve all/i;
 const ACTION_NEEDS_YOU_PATTERN = /action needs you/i;
@@ -90,6 +91,121 @@ describe("SpacePendingAgentActions", () => {
 		expect(screen.getByText("Allow the first command?")).toBeTruthy();
 	});
 
+	it("keeps each request form fresh while moving between pending actions", () => {
+		render(
+			<SpacePendingAgentActions
+				items={[
+					createPermissionItem({
+						interactionId: "interaction-first",
+						title: "Allow the first command?",
+					}),
+					createPermissionItem({
+						interactionId: "interaction-second",
+						title: "Allow the second command?",
+					}),
+				]}
+				onRespond={vi.fn().mockResolvedValue(undefined)}
+				permissionModeShortcutsByProfileId={createPermissionModeShortcuts()}
+			/>
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "2 actions need you" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		fireEvent.click(
+			screen.getByRole("checkbox", {
+				name: "Also use Auto mode for future requests",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Next action" }));
+
+		expect(screen.getByText("Allow the second command?")).toBeTruthy();
+		expect(
+			screen
+				.getByRole("radio", { name: "Allow once" })
+				.getAttribute("aria-checked")
+		).toBe("false");
+		expect(
+			screen.queryByRole("checkbox", {
+				name: "Also use Auto mode for future requests",
+			})
+		).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Previous action" }));
+		expect(
+			screen
+				.getByRole("radio", { name: "Allow once" })
+				.getAttribute("aria-checked")
+		).toBe("false");
+	});
+
+	it("does not carry a question draft into another request", () => {
+		render(
+			<SpacePendingAgentActions
+				items={[
+					createPermissionItem({
+						interactionId: "question-first",
+						request: createQuestionRequest({
+							interactionId: "question-first",
+							prompt: "What should the first Wake do?",
+							title: "Answer the first Wake",
+						}),
+					}),
+					createPermissionItem({
+						interactionId: "question-second",
+						request: createQuestionRequest({
+							interactionId: "question-second",
+							prompt: "What should the second Wake do?",
+							title: "Answer the second Wake",
+						}),
+					}),
+				]}
+				onRespond={vi.fn().mockResolvedValue(undefined)}
+			/>
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "2 actions need you" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Other" }));
+		fireEvent.change(screen.getByLabelText("Your answer"), {
+			target: { value: "Keep this draft with the first Wake" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Next action" }));
+
+		expect(screen.getByText("Answer the second Wake")).toBeTruthy();
+		expect(screen.queryByLabelText("Your answer")).toBeNull();
+		expect(
+			screen.getByRole("radio", { name: "Other" }).getAttribute("aria-checked")
+		).toBe("false");
+		fireEvent.click(screen.getByRole("radio", { name: "Other" }));
+		expect(
+			(screen.getByLabelText("Your answer") as HTMLInputElement).value
+		).toBe("");
+	});
+
+	it("keeps two Wakes with the same provider interaction id separately actionable", () => {
+		render(
+			<SpacePendingAgentActions
+				items={[
+					createPermissionItem({
+						interactionId: "provider-interaction",
+						runtimeCoordinatorExecutionId: "execution-first",
+						title: "Allow the first Wake?",
+					}),
+					createPermissionItem({
+						interactionId: "provider-interaction",
+						runtimeCoordinatorExecutionId: "execution-second",
+						title: "Allow the second Wake?",
+					}),
+				]}
+				onRespond={vi.fn().mockResolvedValue(undefined)}
+			/>
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "2 actions need you" }));
+		expect(screen.getByText("Allow the first Wake?")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Next action" }));
+		expect(screen.getByText("Allow the second Wake?")).toBeTruthy();
+	});
+
 	it("closes on Escape and returns focus to its trigger", () => {
 		render(
 			<SpacePendingAgentActions
@@ -161,6 +277,39 @@ describe("SpacePendingAgentActions", () => {
 		});
 	});
 
+	it("keeps the next request actionable after the previous request was submitted", async () => {
+		const onRespond = vi.fn().mockResolvedValue(undefined);
+
+		render(
+			<SpacePendingAgentActions
+				items={[
+					createPermissionItem({
+						interactionId: "interaction-submitted",
+						title: "Allow the submitted command?",
+					}),
+					createPermissionItem({
+						interactionId: "interaction-next",
+						title: "Allow the next command?",
+					}),
+				]}
+				onRespond={onRespond}
+			/>
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "2 actions need you" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Approve and continue" })
+		);
+		expect(
+			await screen.findByText("@Runner is resuming this Wake.")
+		).toBeTruthy();
+
+		fireEvent.click(screen.getByRole("button", { name: "Next action" }));
+		expect(screen.getByText("Allow the next command?")).toBeTruthy();
+		expect(screen.getByRole("radio", { name: "Allow once" })).toBeTruthy();
+	});
+
 	it("returns focus to the supplied fallback when authoritative state clears", async () => {
 		const returnFocusRef = createRef<HTMLButtonElement>();
 		const item = createPermissionItem({ interactionId: "interaction-cleared" });
@@ -202,6 +351,56 @@ describe("SpacePendingAgentActions", () => {
 			screen.queryByRole("button", { name: ACTION_NEEDS_YOU_PATTERN })
 		).toBeNull();
 	});
+
+	it("returns focus when the focused request clears but another request remains", async () => {
+		const returnFocusRef = createRef<HTMLButtonElement>();
+		const firstItem = createPermissionItem({
+			interactionId: "interaction-cleared-first",
+			title: "Allow the first command?",
+		});
+		const secondItem = createPermissionItem({
+			interactionId: "interaction-cleared-second",
+			title: "Allow the second command?",
+		});
+		const view = render(
+			<>
+				<button ref={returnFocusRef} type="button">
+					Composer fallback
+				</button>
+				<SpacePendingAgentActions
+					items={[firstItem, secondItem]}
+					onRespond={vi.fn().mockResolvedValue(undefined)}
+					returnFocusRef={returnFocusRef}
+				/>
+			</>
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "2 actions need you" }));
+		const allowChoice = screen.getByRole("radio", { name: "Allow once" });
+		fireEvent.click(allowChoice);
+		allowChoice.focus();
+
+		view.rerender(
+			<>
+				<button ref={returnFocusRef} type="button">
+					Composer fallback
+				</button>
+				<SpacePendingAgentActions
+					items={[secondItem]}
+					onRespond={vi.fn().mockResolvedValue(undefined)}
+					returnFocusRef={returnFocusRef}
+				/>
+			</>
+		);
+
+		await waitFor(() => {
+			expect(document.activeElement).toBe(returnFocusRef.current);
+		});
+		expect(
+			screen.getByText("@Runner is waiting for your response")
+		).toBeTruthy();
+		expect(screen.queryByText("Allow the second command?")).toBeNull();
+	});
 });
 
 describe("resolveSpacePermissionModeShortcut", () => {
@@ -239,10 +438,22 @@ describe("resolveSpacePermissionModeShortcut", () => {
 	});
 });
 
+describe("resolveSpacePendingAgentActionSurfacePlacement", () => {
+	it("uses exactly the panel whose composer is currently visible", () => {
+		expect(
+			resolveSpacePendingAgentActionSurfacePlacement({ hasActiveThread: false })
+		).toBe("conversation");
+		expect(
+			resolveSpacePendingAgentActionSurfacePlacement({ hasActiveThread: true })
+		).toBe("thread");
+	});
+});
+
 function createPermissionItem(input: {
 	canRespond?: boolean;
 	interactionId: string;
 	request?: AgentInteractionRequest | null;
+	runtimeCoordinatorExecutionId?: string;
 	targetLabel?: string;
 	title?: string;
 }): WakeProgressItem {
@@ -289,11 +500,51 @@ function createPermissionItem(input: {
 			requestedAtMs: request?.requestedAtMs ?? Date.UTC(2026, 7, 29),
 		},
 		phase: "running",
-		runtimeCoordinatorExecutionId: `rce-${input.interactionId}`,
+		runtimeCoordinatorExecutionId:
+			input.runtimeCoordinatorExecutionId ?? `rce-${input.interactionId}`,
 		sourceSignalId: `signal-${input.interactionId}`,
 		targetLabel: input.targetLabel ?? "@Runner",
 		targetProfileId: "agent-runner",
 		terminal: false,
 		updatedAtMs: Date.UTC(2026, 7, 29),
+	};
+}
+
+function createPermissionModeShortcuts() {
+	return new Map([
+		[
+			"agent-runner",
+			{
+				description:
+					"Let Claude Code automatically run actions it considers safe.",
+				label: "Auto mode",
+				permissionMode: "claude-code:auto" as const,
+			},
+		],
+	]);
+}
+
+function createQuestionRequest(input: {
+	interactionId: string;
+	prompt: string;
+	title: string;
+}): AgentInteractionRequest {
+	return {
+		expiresAtMs: Date.UTC(2026, 7, 30),
+		interactionId: input.interactionId,
+		kind: "question",
+		questions: [
+			{
+				allowOther: true,
+				header: "Direction",
+				multiple: false,
+				options: [],
+				prompt: input.prompt,
+				questionId: "direction",
+			},
+		],
+		requestedAtMs: Date.UTC(2026, 7, 29),
+		title: input.title,
+		v: 1,
 	};
 }

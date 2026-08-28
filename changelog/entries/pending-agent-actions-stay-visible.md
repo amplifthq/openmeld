@@ -7,5 +7,5 @@ audiences: ["members"]
 ---
 
 Agent owners can handle pending permissions, questions, and plan reviews from a
-quiet action surface above the Space composer, so required input no longer gets
-buried in message history.
+quiet action surface above the currently visible Space or Thread composer, so
+required input no longer gets buried in message history or behind an open Thread.

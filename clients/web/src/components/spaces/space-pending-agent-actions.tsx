@@ -1,11 +1,4 @@
-import {
-	listAgentControllerPermissionModeOptions,
-	parseAgentControllerRef,
-} from "@openmeld/agent-runtime";
-import type {
-	AgentControllerPermissionMode,
-	WakeProgressItem,
-} from "@openmeld/schemas/types";
+import type { WakeProgressItem } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
@@ -29,15 +22,10 @@ import {
 	type SpaceAgentPermissionModeUpdateHandler,
 	type SpaceAgentProfileEditHandler,
 } from "./space-agent-interaction-card";
-
-const LOW_INTERRUPTION_PERMISSION_MODE_BY_CONTROLLER_ID: Readonly<
-	Record<string, AgentControllerPermissionMode>
-> = {
-	"claude-code": "claude-code:auto",
-	codex: "codex:approveForMe",
-	cursor: "cursor:autoReview",
-	"grok-build": "grok-build:auto",
-};
+import {
+	listActionablePendingAgentInteractions,
+	resolveSpacePendingAgentActionIdentity,
+} from "./space-pending-agent-action-model";
 
 export function SpacePendingAgentActions(input: {
 	items: readonly WakeProgressItem[];
@@ -55,9 +43,8 @@ export function SpacePendingAgentActions(input: {
 		[input.items]
 	);
 	const [isOpen, setIsOpen] = useState(false);
-	const [selectedInteractionId, setSelectedInteractionId] = useState<
-		string | null
-	>(null);
+	const [selectedInteractionIdentity, setSelectedInteractionIdentity] =
+		useState<string | null>(null);
 	const [surfaceElement, setSurfaceElement] = useState<HTMLElement | null>(
 		null
 	);
@@ -67,33 +54,35 @@ export function SpacePendingAgentActions(input: {
 	const selectedIndex = Math.max(
 		0,
 		actionableItems.findIndex(
-			(item) => item.pendingInteraction?.interactionId === selectedInteractionId
+			(item) =>
+				resolveSpacePendingAgentActionIdentity(item) ===
+				selectedInteractionIdentity
 		)
 	);
 	const selectedItem = actionableItems[selectedIndex] ?? null;
-	const selectedItemId =
-		selectedItem?.pendingInteraction?.interactionId ?? null;
+	const selectedItemIdentity = selectedItem
+		? resolveSpacePendingAgentActionIdentity(selectedItem)
+		: null;
+	const actionableInteractionIdentities = useMemo(
+		() =>
+			new Set(
+				actionableItems.map((item) =>
+					resolveSpacePendingAgentActionIdentity(item)
+				)
+			),
+		[actionableItems]
+	);
+	const selectedInteractionIsActionable =
+		selectedInteractionIdentity !== null &&
+		actionableInteractionIdentities.has(selectedInteractionIdentity);
+	const isSurfaceOpen = isOpen && selectedInteractionIsActionable;
 
 	useEffect(() => {
-		if (actionableItems.length > 0) {
-			if (selectedInteractionId !== selectedItemId) {
-				setSelectedInteractionId(selectedItemId);
-			}
-			return;
-		}
-
-		setIsOpen(false);
-		setSelectedInteractionId(null);
-		if (surfaceHadFocusRef.current) {
+		if (!selectedInteractionIsActionable && surfaceHadFocusRef.current) {
 			input.returnFocusRef?.current?.focus();
+			surfaceHadFocusRef.current = false;
 		}
-		surfaceHadFocusRef.current = false;
-	}, [
-		actionableItems.length,
-		input.returnFocusRef,
-		selectedInteractionId,
-		selectedItemId,
-	]);
+	}, [input.returnFocusRef, selectedInteractionIsActionable]);
 	useEffect(() => {
 		if (!surfaceElement) {
 			return;
@@ -106,7 +95,7 @@ export function SpacePendingAgentActions(input: {
 			surfaceElement.removeEventListener("focusin", markSurfaceFocused);
 	}, [surfaceElement]);
 	useEffect(() => {
-		if (!(surfaceElement && isOpen)) {
+		if (!(surfaceElement && isSurfaceOpen)) {
 			return;
 		}
 		const closeOnEscape = (event: globalThis.KeyboardEvent) => {
@@ -119,7 +108,7 @@ export function SpacePendingAgentActions(input: {
 		};
 		surfaceElement.addEventListener("keydown", closeOnEscape);
 		return () => surfaceElement.removeEventListener("keydown", closeOnEscape);
-	}, [isOpen, surfaceElement]);
+	}, [isSurfaceOpen, surfaceElement]);
 
 	if (!selectedItem) {
 		return null;
@@ -130,9 +119,20 @@ export function SpacePendingAgentActions(input: {
 		count === 1 ? "1 action needs you" : `${count} actions need you`;
 	const selectIndex = (nextIndex: number) => {
 		const nextItem = actionableItems[nextIndex];
-		if (nextItem?.pendingInteraction) {
-			setSelectedInteractionId(nextItem.pendingInteraction.interactionId);
+		const nextIdentity = nextItem
+			? resolveSpacePendingAgentActionIdentity(nextItem)
+			: null;
+		if (nextIdentity) {
+			setSelectedInteractionIdentity(nextIdentity);
 		}
+	};
+	const toggleSurface = () => {
+		if (isSurfaceOpen) {
+			setIsOpen(false);
+			return;
+		}
+		setSelectedInteractionIdentity(selectedItemIdentity);
+		setIsOpen(true);
 	};
 
 	return (
@@ -146,10 +146,10 @@ export function SpacePendingAgentActions(input: {
 				<div className="overflow-hidden rounded-md border border-amber-500/35 bg-amber-500/6 shadow-sm">
 					<Button
 						aria-controls={panelId}
-						aria-expanded={isOpen}
+						aria-expanded={isSurfaceOpen}
 						aria-label={triggerLabel}
 						className="min-h-11 w-full justify-start gap-3 rounded-none px-3 py-2 text-left hover:bg-amber-500/8"
-						onClick={() => setIsOpen((current) => !current)}
+						onClick={toggleSurface}
 						ref={triggerRef}
 						type="button"
 						variant="ghost"
@@ -169,10 +169,10 @@ export function SpacePendingAgentActions(input: {
 						</span>
 						<CaretDownIcon
 							aria-hidden="true"
-							className={cn("size-4 shrink-0", isOpen && "rotate-180")}
+							className={cn("size-4 shrink-0", isSurfaceOpen && "rotate-180")}
 						/>
 					</Button>
-					{isOpen ? (
+					{isSurfaceOpen ? (
 						<fieldset
 							aria-label="Current pending action"
 							className="max-h-[min(60dvh,34rem)] min-w-0 overflow-y-auto border-0 border-amber-500/25 border-t p-3 sm:p-4"
@@ -209,6 +209,7 @@ export function SpacePendingAgentActions(input: {
 							) : null}
 							<SpaceAgentInteractionCard
 								item={selectedItem}
+								key={selectedItemIdentity}
 								onEditAgentProfile={input.onEditAgentProfile}
 								onPermissionModeUpdate={input.onPermissionModeUpdate}
 								onRespond={input.onRespond}
@@ -223,51 +224,4 @@ export function SpacePendingAgentActions(input: {
 			</div>
 		</section>
 	);
-}
-
-export function listActionablePendingAgentInteractions(
-	items: readonly WakeProgressItem[]
-): WakeProgressItem[] {
-	const byInteractionId = new Map<string, WakeProgressItem>();
-	for (const item of items) {
-		const pendingInteraction = item.pendingInteraction;
-		if (!(pendingInteraction?.canRespond && pendingInteraction.request)) {
-			continue;
-		}
-		byInteractionId.set(pendingInteraction.interactionId, item);
-	}
-	return [...byInteractionId.values()].sort(
-		(left, right) =>
-			(left.pendingInteraction?.requestedAtMs ?? left.updatedAtMs) -
-			(right.pendingInteraction?.requestedAtMs ?? right.updatedAtMs)
-	);
-}
-
-export function resolveSpacePermissionModeShortcut(input: {
-	agentControllerPermissionMode?: AgentControllerPermissionMode | null;
-	agentControllerRef: string | null;
-}): SpaceAgentPermissionModeShortcut | null {
-	const controller = parseAgentControllerRef(input.agentControllerRef);
-	if (controller?.kind !== "builtin") {
-		return null;
-	}
-	const permissionMode =
-		LOW_INTERRUPTION_PERMISSION_MODE_BY_CONTROLLER_ID[controller.id];
-	if (
-		!permissionMode ||
-		input.agentControllerPermissionMode === permissionMode
-	) {
-		return null;
-	}
-	const option = listAgentControllerPermissionModeOptions({
-		agentControllerRef: controller.ref,
-	}).find((candidate) => candidate.value === permissionMode);
-	if (!option || option.requiresExplicitConfirmation) {
-		return null;
-	}
-	return {
-		description: option.description,
-		label: option.label,
-		permissionMode,
-	};
 }

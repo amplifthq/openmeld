@@ -236,6 +236,7 @@ export function SpaceThreadPanel(input: {
 	composerText: string;
 	composerFiles: readonly SpaceComposerFile[];
 	composerFileLimitReached: boolean;
+	pendingActionSurface?: ReactNode;
 	profileControl?: ReactNode;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	editableAgentProfileIds?: ReadonlySet<string>;
@@ -628,6 +629,7 @@ export function SpaceThreadPanel(input: {
 				}
 				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
 			/>
+			{input.pendingActionSurface}
 			{input.readOnly ? null : (
 				<ThreadComposer
 					agentDirectConversationKind={input.agentDirectConversationKind}

@@ -128,6 +128,25 @@ describe("SpaceThreadPanel", () => {
 		expect(composer?.className).not.toContain("border-border");
 	});
 
+	it("places the current Space pending actions above the visible thread composer", () => {
+		renderThreadPanel({
+			pendingActionSurface: (
+				<section data-testid="pending-agent-actions">Pending actions</section>
+			),
+		});
+
+		const pendingActions = screen.getByTestId("pending-agent-actions");
+		const composer = document.querySelector('[data-slot="thread-composer"]');
+
+		expect(composer).toBeInstanceOf(HTMLElement);
+		if (!composer) {
+			throw new Error("Expected the visible thread composer.");
+		}
+		expect(pendingActions.compareDocumentPosition(composer)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+	});
+
 	it("explains that sending a Thread reply wakes the agent in an Agent DM", () => {
 		renderThreadPanel({
 			agentDirectConversationKind: "direct_message",
