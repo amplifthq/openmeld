@@ -59,15 +59,16 @@ staging-only resource:
 | KV | `openmeld-auth-kv-stg` |
 | Queues | `openmeld-daemon-dispatch-stg`, `openmeld-message-channel-events-stg` |
 | R2 | `openmeld-space-attachments-stg`, `openmeld-organization-skills-stg`, `openmeld-organization-logos-stg`, `openmeld-desktop-downloads-stg` |
-| AI Gateway | `openmeld-remote-agent-stg` |
+| AI Gateway | Shared operator gateway `openmeld-remote-agent-prod`; request metadata retains the Staging environment and Organization |
 | Remote Agent container | `openmeld-agent-computer-stg` |
 | Public routes | `staging.openmeld.ai`, `auth.staging.openmeld.ai`, `gateway.staging.openmeld.ai` |
 
 Durable Object namespaces, Workflow identity, Analytics Engine environment
 metadata, and Worker versions are created by the staging Worker deployments.
 No staging binding may point at a `-prod` D1, KV, R2, Queue, Worker, Durable
-Object, or container resource. The checked-in contract verifier rejects those
-cross-environment references.
+Object, or container resource. The only allowed `-prod` reference is the
+operator-managed AI Gateway above. The checked-in contract verifier rejects
+every other cross-environment reference.
 
 `OPENMELD_LARK_CHANNEL_ENABLED` and `OPENMELD_FEISHU_CHANNEL_ENABLED` are false
 in staging. OpenConnector endpoints are empty. These external integrations are

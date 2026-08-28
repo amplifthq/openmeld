@@ -42,7 +42,16 @@ test("declares one isolated staging environment for every internal Worker", () =
     assert.ok(staging, `${component} must declare env.stg`);
     assert.equal(staging.vars?.OPENMELD_WORKER_ENVIRONMENT, "stg");
     assert.doesNotMatch(JSON.stringify(staging), PRODUCTION_URL_PATTERN);
-    assert.doesNotMatch(JSON.stringify(staging), PRODUCTION_RESOURCE_PATTERN);
+    const isolatedStaging = structuredClone(staging);
+    isolatedStaging.vars = Object.fromEntries(
+      Object.entries(isolatedStaging.vars ?? {}).filter(
+        ([key]) => key !== "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID"
+      )
+    );
+    assert.doesNotMatch(
+      JSON.stringify(isolatedStaging),
+      PRODUCTION_RESOURCE_PATTERN
+    );
   }
 });
 
@@ -119,6 +128,18 @@ test("disables external message channels in staging", () => {
   assert.equal(
     configs.remoteAgent.env.stg.vars.OPENMELD_CONNECTORS_BASE_URL,
     ""
+  );
+});
+
+test("reuses the operator-managed OpenRouter gateway in staging", () => {
+  assert.equal(
+    configs.remoteAgent.env.stg.vars.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID,
+    "openmeld-remote-agent-prod"
+  );
+  assert.equal(
+    configs.remoteAgent.env.stg.vars
+      .OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS,
+    "openrouter"
   );
 });
 
