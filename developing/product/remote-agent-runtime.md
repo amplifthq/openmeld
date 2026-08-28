@@ -1078,29 +1078,32 @@ large provider or schema object, and overlapping them raises peak isolate
 memory without improving the resulting prompt or capability set.
 
 The complete authorized direct-tool catalog remains the single source for
-direct execution, capability discovery, and Code Mode. For a bounded catalog
-of at most 64 direct tool schemas, the provider receives those direct tools
-plus `codemode`. Above that threshold, the provider receives `codemode`, the
-always-direct capability search and describe tools, the three generic Connected
-App bootstrap tools, and a bounded direct slice ranked against the latest user
-request. The generic tools remain direct because a provider-specific request
-such as Gmail may not name OpenMeld's Apps vocabulary before discovery begins.
-The slice expands every selected capability's declared prerequisites, so a
-goal-relevant action is never exposed without the exact lookup or discovery
-capability required to supply its input. Dedicated GitHub and all other
-capabilities remain fully available inside the exact same Code Mode catalog
-instead of duplicating all descriptions and schemas at the provider boundary.
+execution, capability discovery, and Code Mode. Whenever that catalog includes
+progressive discovery and Code Mode, every tool-capable primary model receives
+the same stable provider bootstrap: `codemode`, the always-direct capability
+search and describe tools, and the three generic Connected App tools. The
+worker never reads the latest user request to preselect business tools and
+never branches this policy by model id or a fixed schema count. The generic
+Connected App tools remain direct because a provider-specific request such as
+Gmail may not name OpenMeld's Apps vocabulary before discovery begins.
+Dedicated GitHub and all other capabilities remain fully available inside the
+exact same Code Mode catalog instead of duplicating their descriptions and
+schemas at the provider boundary. The primary model chooses a search query,
+loads the exact schemas it needs, and then calls them through Code Mode.
 Capability search and describe report only the frozen catalog's existence,
 schemas, dependencies, and authorization hints; they do not grant authority or
-bypass execution-time policy. The required direct subset must itself remain
-within the same 64-schema limit and fails fast if it exceeds that boundary.
+bypass execution-time policy. Multilingual aliases and deterministic ranking
+apply only after the model explicitly searches; they never classify the raw
+user request or become a second semantic owner.
 The generated Code Mode catalog still contains every active direct tool,
-including that subset, and every direct or inner call re-enters the same
+and every direct or inner call re-enters the same
 cancellation, authorization, confirmation, audit, usage, and result-bounding
 paths. This is provider-payload compaction, not capability removal or a second
-tool policy. A large catalog without exactly one valid `codemode` tool fails
-fast instead of silently dropping tools. The source tool list is never mutated,
-so retries and diagnostics retain the admitted capability evidence.
+tool policy. Provider context capacity is checked against the frozen model
+route rather than a universal tool-count limit. A generic payload without Code
+Mode is left intact, while a progressive catalog with more than one Code Mode
+entry fails fast. The source tool list is never mutated, so retries and
+diagnostics retain the admitted capability evidence.
 
 For a task with multiple external effects, direct calls or Code Mode await each
 write in the requested or dependency order. Each distinct write receives its
@@ -1420,12 +1423,12 @@ surface adopts official features where they are free**:
     SandboxApi contract.
     The stateless Code Mode increment adds one model-visible
     `codemode` tool that can compose the exact capability definitions already
-    active for that turn inside an isolated Dynamic Worker. Direct tools remain
-    available for simple calls while the direct schema catalog is within its
-    provider-payload budget; larger catalogs keep capability search, describe,
-    and the three generic Connected App bootstrap tools direct, add a bounded
-    goal-relevant direct slice with declared prerequisites, and retain every
-    other capability through `codemode`.
+    active for that turn inside an isolated Dynamic Worker. Every tool-capable
+    primary model receives the same direct bootstrap: capability search,
+    describe, the three generic Connected App tools, and `codemode`. The model
+    chooses what to search and load; the worker does not select business tools
+    by matching the user's wording or by applying a model-specific tool-count
+    rule. Every other capability remains available through `codemode`.
     Generated code receives no
     OpenMeld secrets,
     Worker bindings, Node.js APIs, host filesystem, or unrestricted outbound

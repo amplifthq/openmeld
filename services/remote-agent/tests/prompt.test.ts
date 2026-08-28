@@ -137,6 +137,21 @@ describe("remote agent system prompt", () => {
     );
   });
 
+  it("requires a fresh authoritative read for mutable current facts", () => {
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "When the user asks what is current, latest, or true now for mutable state"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "read the narrowest authoritative source again in this turn"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "state the exact observation time and what remains unknown"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "A historical OpenMeld Task record never proves current repository, deployment, or external-system state"
+    );
+  });
+
   it("routes work from live capability signals instead of a fixed organization matrix", () => {
     const prompt = buildTestSystemPrompt();
 
