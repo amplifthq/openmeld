@@ -2755,6 +2755,17 @@ resolve it through an owning identity contract. Native-delivery callback code
 must not reconstruct `memberId` or profile ownership by directly reading Better
 Auth or Profile private tables.
 
+Automatic completed-turn writes also consume the frozen Core-owned
+`interactionEnvironment` from the stored native-delivery request. Before
+writing, Core verifies that the stored Organization, conversation, and sender
+still align with the delivery and the owning current-membership projection.
+`requester_private` writes the verified member subject,
+`organization_shared` may write the enabled Organization subject, and
+`externally_shared` writes neither automatically. Source values such as
+`slack_conversation` and `message_channel_conversation` remain provenance and
+must not choose the memory subject. Missing or conflicting frozen scope fails
+closed.
+
 ### Information Protection Contracts
 
 `packages/agent-runtime/src/information-protection-prompt.ts` is the single

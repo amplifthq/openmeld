@@ -1,6 +1,7 @@
 import { REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS } from "@openmeld/schemas";
 import type {
   MessageChannelProvider,
+  RemoteAgentTurnEnvelope,
   RemoteAgentTurnEnvelopeMemory,
 } from "@openmeld/schemas/types";
 
@@ -147,6 +148,9 @@ export type CenterAgentMemoryLogger = Pick<Console, "warn">;
 
 export type RememberCenterAgentTurnInput = {
   assistantMessage: string;
+  interactionEnvironment: NonNullable<
+    RemoteAgentTurnEnvelope["interactionEnvironment"]
+  >;
   messageChannelProvider?: MessageChannelProvider;
   occurredAtMs: number;
   organizationId: string;

@@ -17,15 +17,26 @@ import {
 import { createCenterAgentMemoryService } from "../src/center-agent-memory/memory-service";
 
 describe("Center Agent memory service", () => {
-  it("writes CA-DM turns only to the speaker member graph", async () => {
+  it.each([
+    ["Web DM", "ca_dm", undefined],
+    ["Slack DM", "slack_conversation", undefined],
+    ["Lark DM", "message_channel_conversation", "lark"],
+    ["Feishu DM", "message_channel_conversation", "feishu"],
+  ] as const)("writes a private %s turn only to the verified member while preserving provenance", async (_surface, source, messageChannelProvider) => {
     const adapter = createAdapter();
     const service = createCenterAgentMemoryService({
       adapter,
       nowMs: () => 1000,
-      repository: createRepository({ organizationMemoryOptIn: true }),
+      repository: createRepository({ organizationMemoryOptIn: false }),
     });
 
-    await service.rememberTurn(createRememberInput({ source: "ca_dm" }));
+    await service.rememberTurn(
+      createRememberInput({
+        interactionEnvironment: "requester_private",
+        ...(messageChannelProvider ? { messageChannelProvider } : {}),
+        source,
+      })
+    );
 
     expect(adapter.ensureMemberUser).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -35,6 +46,10 @@ describe("Center Agent memory service", () => {
     expect(adapter.ensureOrganizationGraph).not.toHaveBeenCalled();
     expect(adapter.addEpisode).toHaveBeenCalledWith(
       expect.objectContaining({
+        episode: expect.objectContaining({
+          ...(messageChannelProvider ? { messageChannelProvider } : {}),
+          source,
+        }),
         ref: expect.objectContaining({
           subject: expect.objectContaining({ kind: "member" }),
         }),
@@ -51,7 +66,10 @@ describe("Center Agent memory service", () => {
     });
 
     await service.rememberTurn(
-      createRememberInput({ source: "space_conversation" })
+      createRememberInput({
+        interactionEnvironment: "organization_shared",
+        source: "space_conversation",
+      })
     );
     const memory = await service.recallForTurn(createRecallInput());
 
@@ -112,7 +130,12 @@ describe("Center Agent memory service", () => {
     );
   });
 
-  it("writes Slack turns only to organization memory when org opt-in is on", async () => {
+  it.each([
+    ["shared Space", "space_conversation", undefined],
+    ["organization Slack channel", "slack_conversation", undefined],
+    ["organization Lark channel", "message_channel_conversation", "lark"],
+    ["organization Feishu channel", "message_channel_conversation", "feishu"],
+  ] as const)("writes a completed %s turn only to enabled Organization memory", async (_surface, source, messageChannelProvider) => {
     const adapter = createAdapter();
     const service = createCenterAgentMemoryService({
       adapter,
@@ -121,7 +144,11 @@ describe("Center Agent memory service", () => {
     });
 
     await service.rememberTurn(
-      createRememberInput({ source: "slack_conversation" })
+      createRememberInput({
+        interactionEnvironment: "organization_shared",
+        ...(messageChannelProvider ? { messageChannelProvider } : {}),
+        source,
+      })
     );
 
     expect(adapter.ensureMemberUser).not.toHaveBeenCalled();
@@ -132,7 +159,10 @@ describe("Center Agent memory service", () => {
     );
     expect(adapter.addEpisode).toHaveBeenCalledWith(
       expect.objectContaining({
-        episode: expect.objectContaining({ source: "slack_conversation" }),
+        episode: expect.objectContaining({
+          ...(messageChannelProvider ? { messageChannelProvider } : {}),
+          source,
+        }),
         ref: expect.objectContaining({
           subject: expect.objectContaining({ kind: "organization" }),
         }),
@@ -140,7 +170,7 @@ describe("Center Agent memory service", () => {
     );
   });
 
-  it("does not write Slack turns when org opt-in is off", async () => {
+  it("does not write a shared turn when Organization memory is off", async () => {
     const adapter = createAdapter();
     const service = createCenterAgentMemoryService({
       adapter,
@@ -149,9 +179,39 @@ describe("Center Agent memory service", () => {
     });
 
     await service.rememberTurn(
-      createRememberInput({ source: "slack_conversation" })
+      createRememberInput({
+        interactionEnvironment: "organization_shared",
+        source: "slack_conversation",
+      })
     );
 
+    expect(adapter.ensureMemberUser).not.toHaveBeenCalled();
+    expect(adapter.ensureOrganizationGraph).not.toHaveBeenCalled();
+    expect(adapter.addEpisode).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["Slack Connect", "slack_conversation", undefined],
+    ["externally shared Lark", "message_channel_conversation", "lark"],
+    ["externally shared Feishu", "message_channel_conversation", "feishu"],
+  ] as const)("does not automatically remember a completed %s turn", async (_surface, source, messageChannelProvider) => {
+    const adapter = createAdapter();
+    const repository = createRepository({ organizationMemoryOptIn: true });
+    const service = createCenterAgentMemoryService({
+      adapter,
+      nowMs: () => 1000,
+      repository,
+    });
+
+    await service.rememberTurn(
+      createRememberInput({
+        interactionEnvironment: "externally_shared",
+        ...(messageChannelProvider ? { messageChannelProvider } : {}),
+        source,
+      })
+    );
+
+    expect(repository.readPolicy).not.toHaveBeenCalled();
     expect(adapter.ensureMemberUser).not.toHaveBeenCalled();
     expect(adapter.ensureOrganizationGraph).not.toHaveBeenCalled();
     expect(adapter.addEpisode).not.toHaveBeenCalled();
@@ -604,6 +664,7 @@ function createRememberInput(
 ): RememberCenterAgentTurnInput {
   return {
     assistantMessage: "I will remember that.",
+    interactionEnvironment: "requester_private",
     occurredAtMs: 1000,
     organizationId: "org_1",
     source: "ca_dm",
