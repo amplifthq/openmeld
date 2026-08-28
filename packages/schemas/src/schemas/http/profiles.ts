@@ -93,16 +93,18 @@ export const updateAgentProfileDefaultProjectBodySchema = z.strictObject({
   defaultProjectId: z.string().trim().min(1).nullable(),
 });
 
+const updateAgentProfileDefaultProjectRouteParamsShape = {
+  agentProfileId: z.string().trim().min(1),
+};
+
 export const updateAgentProfileDefaultProjectRouteParamsSchema = z.strictObject(
-  {
-    agentProfileId: z.string().trim().min(1),
-  }
+  updateAgentProfileDefaultProjectRouteParamsShape
 );
 
 export const updateAgentProfileDefaultProjectRpcInputSchema =
   updateAgentProfileDefaultProjectBodySchema.extend({
     agentProfileId:
-      updateAgentProfileDefaultProjectRouteParamsSchema.shape.agentProfileId,
+      updateAgentProfileDefaultProjectRouteParamsShape.agentProfileId,
     context: openMeldRequestContextSchema,
   });
 

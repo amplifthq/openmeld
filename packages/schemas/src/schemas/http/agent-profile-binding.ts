@@ -228,7 +228,7 @@ export const agentProfileCreationPreferenceSelectionSchema = z
 
 export const setAgentProfileCreationDefaultsBodySchema = z
   .strictObject({
-    ...agentProfileCreationPreferenceSelectionSchema.shape,
+    ...agentProfileCreationDefaultsFields,
     agentControllerCollaborationMode: agentControllerCollaborationModeSchema
       .nullable()
       .optional(),

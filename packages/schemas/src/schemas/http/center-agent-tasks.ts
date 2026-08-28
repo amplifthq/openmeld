@@ -446,20 +446,32 @@ export const getCenterAgentTaskResponseV1Schema =
 export const getCenterAgentTaskResponseV2Schema =
   centerAgentTaskDetailResponseV2Schema;
 
-export const continueCenterAgentTaskBodySchema = z.strictObject({
+const continueCenterAgentTaskBodyShape = {
   expectedVersion: z.number().int().positive(),
   idempotencyKey: idempotencyKeySchema,
   text: taskTextSchema.max(CENTER_AGENT_TASK_EVENT_TEXT_MAX_CHARS),
-});
+};
 
-export const stopCenterAgentTaskBodySchema = z.strictObject({
+export const continueCenterAgentTaskBodySchema = z.strictObject(
+  continueCenterAgentTaskBodyShape
+);
+
+const stopCenterAgentTaskBodyShape = {
   expectedVersion: z.number().int().positive(),
-});
+};
 
-export const retryCenterAgentTaskBodySchema = z.strictObject({
+export const stopCenterAgentTaskBodySchema = z.strictObject(
+  stopCenterAgentTaskBodyShape
+);
+
+const retryCenterAgentTaskBodyShape = {
   expectedVersion: z.number().int().positive(),
   idempotencyKey: idempotencyKeySchema,
-});
+};
+
+export const retryCenterAgentTaskBodySchema = z.strictObject(
+  retryCenterAgentTaskBodyShape
+);
 
 export const listCenterAgentTasksRpcInputSchema =
   listCenterAgentTasksQuerySchema.extend({
@@ -477,7 +489,7 @@ export const getCenterAgentTaskRpcInputSchema =
 
 export const continueCenterAgentTaskRpcInputSchema =
   centerAgentTaskRouteParamsSchema
-    .extend(continueCenterAgentTaskBodySchema.shape)
+    .extend(continueCenterAgentTaskBodyShape)
     .extend({
       context: openMeldRequestContextSchema,
       responseContractVersion:
@@ -485,17 +497,15 @@ export const continueCenterAgentTaskRpcInputSchema =
     });
 
 export const stopCenterAgentTaskRpcInputSchema =
-  centerAgentTaskRouteParamsSchema
-    .extend(stopCenterAgentTaskBodySchema.shape)
-    .extend({
-      context: openMeldRequestContextSchema,
-      responseContractVersion:
-        centerAgentTaskResponseContractVersionSchema.optional(),
-    });
+  centerAgentTaskRouteParamsSchema.extend(stopCenterAgentTaskBodyShape).extend({
+    context: openMeldRequestContextSchema,
+    responseContractVersion:
+      centerAgentTaskResponseContractVersionSchema.optional(),
+  });
 
 export const retryCenterAgentTaskRpcInputSchema =
   centerAgentTaskRouteParamsSchema
-    .extend(retryCenterAgentTaskBodySchema.shape)
+    .extend(retryCenterAgentTaskBodyShape)
     .extend({
       context: openMeldRequestContextSchema,
       responseContractVersion:

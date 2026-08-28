@@ -260,14 +260,18 @@ export const agentActivityEventRejectionReasonSchema = z.enum([
   "openmeld_service_runtime_identity_invalid",
 ]);
 
-export const submitAgentActivityEventsBodySchema = z.strictObject({
+const submitAgentActivityEventsBodyShape = {
   events: z.array(z.unknown()).min(1).max(AGENT_ACTIVITY_EVENT_BATCH_LIMIT),
   lane: boundedIdentifierSchema,
   openMeldServiceRuntimeId: z.strictObject({
     source: z.literal("runtime_registry_authority"),
     value: z.string().trim().min(1).max(512),
   }),
-});
+};
+
+export const submitAgentActivityEventsBodySchema = z.strictObject(
+  submitAgentActivityEventsBodyShape
+);
 
 export const submitAgentActivityEventResultSchema = z
   .strictObject({
@@ -327,17 +331,21 @@ export const submitAgentActivityEventsResponseSchema = z
 
 export const submitAgentActivityEventsRpcInputSchema = z.strictObject({
   ...agentActivityRpcContextShape,
-  ...submitAgentActivityEventsBodySchema.shape,
+  ...submitAgentActivityEventsBodyShape,
   deviceId: boundedIdentifierSchema,
 });
 
-export const agentActivitySnapshotQuerySchema = z.strictObject({
+const agentActivitySnapshotQueryShape = {
   includeProviderMetadata: optionalBooleanQuerySchema,
   memberUserId: boundedIdentifierSchema.optional(),
   projectId: boundedIdentifierSchema.optional(),
   provider: agentActivityProviderSchema.optional(),
   status: agentActivitySessionStatusSchema.optional(),
-});
+};
+
+export const agentActivitySnapshotQuerySchema = z.strictObject(
+  agentActivitySnapshotQueryShape
+);
 
 const agentActivityPublicSessionCommonShape = {
   expiresAtMs: timestampMsSchema,
@@ -535,7 +543,7 @@ export const agentActivitySnapshotResponseSchema = z.strictObject({
 
 export const agentActivitySnapshotRpcInputSchema = z.strictObject({
   ...agentActivityRpcContextShape,
-  ...agentActivitySnapshotQuerySchema.shape,
+  ...agentActivitySnapshotQueryShape,
 });
 
 export const agentActivityStatsDailySchema = z.strictObject({
@@ -544,9 +552,13 @@ export const agentActivityStatsDailySchema = z.strictObject({
   utcDate: z.iso.date(),
 });
 
-export const agentActivityStatsQuerySchema = z.strictObject({
+const agentActivityStatsQueryShape = {
   projectId: boundedIdentifierSchema.optional(),
-});
+};
+
+export const agentActivityStatsQuerySchema = z.strictObject(
+  agentActivityStatsQueryShape
+);
 
 export const agentActivityStatsResponseSchema = z.strictObject({
   daily: z
@@ -561,11 +573,11 @@ export const agentActivityStatsResponseSchema = z.strictObject({
 
 export const agentActivityStatsRpcInputSchema = z.strictObject({
   ...agentActivityRpcContextShape,
-  ...agentActivityStatsQuerySchema.shape,
+  ...agentActivityStatsQueryShape,
 });
 
 export const centerAgentReadAgentActivityToolRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
-  ...agentActivitySnapshotQuerySchema.shape,
+  ...agentActivitySnapshotQueryShape,
   speakerMember: centerAgentToolSpeakerSchema,
 });

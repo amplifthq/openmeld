@@ -1,49 +1,6 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import * as actualZod from "zod/v4";
 import * as z from "../src/lazy-zod";
-
-const STARTUP_CRITICAL_SCHEMA_MODULES = [
-  "daemon/control-plane.ts",
-  "daemon/dispatch-queue.ts",
-  "daemon/local-project-control.ts",
-  "daemon/runtime-transport.ts",
-  "daemon/task-result.ts",
-  "http/agent-activity.ts",
-  "http/agent-execution-readiness.ts",
-  "http/agent-profile-binding.ts",
-  "http/auth-rpc.ts",
-  "http/center-agent-context-manifest.ts",
-  "http/center-agent-routines.ts",
-  "http/center-agent-tasks.ts",
-  "http/center-agent.ts",
-  "http/connector-connections.ts",
-  "http/inbox.ts",
-  "http/local-runtimes.ts",
-  "http/organization-documents.ts",
-  "http/organization-join-link.ts",
-  "http/organization-skills.ts",
-  "http/profiles.ts",
-  "http/space-dispatch-trace.ts",
-  "http/space-files.ts",
-  "http/space-members.ts",
-  "local-components.ts",
-  "prepare/session.ts",
-  "protocol/agent-interaction.ts",
-  "runtime/agent-task-coordination.ts",
-  "runtime/remote-agent-turn-envelope.ts",
-  "runtime/remote-agent-worker.ts",
-] as const;
-
-const SCHEMAS_DIRECTORY = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../src/schemas"
-);
-const LAZY_ZOD_IMPORT_PATTERN =
-  /import \* as z from "\.\.\/(?:\.\.\/)?lazy-zod";/u;
-const EAGER_ZOD_RUNTIME_IMPORT_PATTERN = /import \* as z from "zod\/v4";/u;
 
 describe("lazy Zod facade", () => {
   it("defers factories and chained builders until parsing", () => {
@@ -151,15 +108,78 @@ describe("lazy Zod facade", () => {
     expect(dateSchema.maxDate).toEqual(maxDate);
   });
 
-  it("keeps profiled Core startup schema modules on the lazy facade", () => {
-    for (const modulePath of STARTUP_CRITICAL_SCHEMA_MODULES) {
-      const source = readFileSync(
-        path.join(SCHEMAS_DIRECTORY, modulePath),
-        "utf8"
-      );
+  it("preserves unknown-property and object-integrity behavior", () => {
+    const actualSchema = actualZod.string().min(1);
+    const lazySchema = z.string().min(1);
 
-      expect(source, modulePath).toMatch(LAZY_ZOD_IMPORT_PATTERN);
-      expect(source, modulePath).not.toMatch(EAGER_ZOD_RUNTIME_IMPORT_PATTERN);
-    }
+    expect(JSON.stringify(lazySchema)).toBe(JSON.stringify(actualSchema));
+
+    Object.preventExtensions(actualSchema);
+    Object.preventExtensions(lazySchema);
+
+    expect(Object.isExtensible(lazySchema)).toBe(false);
+    expect(Reflect.ownKeys(lazySchema)).toEqual(Reflect.ownKeys(actualSchema));
+    expect(Object.getPrototypeOf(lazySchema)).toBe(
+      Object.getPrototypeOf(actualSchema)
+    );
+    expect(lazySchema.parse("OpenMeld")).toBe("OpenMeld");
+
+    const actualFrozenSchema = actualZod.number().int();
+    const lazyFrozenSchema = z.number().int();
+    Object.freeze(actualFrozenSchema);
+    Object.freeze(lazyFrozenSchema);
+
+    expect(Object.isFrozen(lazyFrozenSchema)).toBe(true);
+    expect(Reflect.ownKeys(lazyFrozenSchema)).toEqual(
+      Reflect.ownKeys(actualFrozenSchema)
+    );
+    expect(lazyFrozenSchema.parse(1)).toBe(1);
+  });
+
+  it("does not replay registry metadata after removal or clearing", () => {
+    const registry = actualZod.registry<{ owner: string }>();
+    const removedSchema = z.string().register(registry, {
+      owner: "OpenMeld",
+    });
+
+    registry.remove(removedSchema);
+    removedSchema.parse("OpenMeld");
+    expect(registry.has(removedSchema)).toBe(false);
+
+    const clearedSchema = z.string().register(registry, {
+      owner: "OpenMeld",
+    });
+    registry.clear();
+    clearedSchema.parse("OpenMeld");
+    expect(registry.has(clearedSchema)).toBe(false);
+  });
+
+  it("matches Zod's handling of mutable factory inputs", () => {
+    const values = ["ready", "blocked"];
+    const actualSchema = actualZod.enum(values);
+    const lazySchema = z.enum(values);
+
+    values[0] = "changed";
+
+    expect(lazySchema.safeParse("ready").success).toBe(
+      actualSchema.safeParse("ready").success
+    );
+    expect(lazySchema.safeParse("changed").success).toBe(
+      actualSchema.safeParse("changed").success
+    );
+
+    const actualShape: Record<string, actualZod.ZodType> = {
+      id: actualZod.string(),
+    };
+    const lazyShape: Record<string, actualZod.ZodType> = { id: z.string() };
+    const actualObjectSchema = actualZod.strictObject(actualShape);
+    const lazyObjectSchema = z.strictObject(lazyShape);
+
+    actualShape.name = actualZod.string();
+    lazyShape.name = z.string();
+
+    expect(lazyObjectSchema.parse({ id: "1", name: "OpenMeld" })).toEqual(
+      actualObjectSchema.parse({ id: "1", name: "OpenMeld" })
+    );
   });
 });

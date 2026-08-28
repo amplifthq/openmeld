@@ -3,59 +3,107 @@ import * as zod from "zod/v4";
 export const NEVER = zod.NEVER;
 export const ZodIssueCode = zod.ZodIssueCode;
 
-const TERMINAL_METHODS = new Set<PropertyKey>([
-  "decode",
-  "decodeAsync",
-  "encode",
-  "encodeAsync",
-  "implement",
-  "implementAsync",
-  "isNullable",
-  "isOptional",
-  "parse",
-  "parseAsync",
-  "safeDecode",
-  "safeDecodeAsync",
-  "safeEncode",
-  "safeEncodeAsync",
-  "safeParse",
-  "safeParseAsync",
-  "spa",
-  "toJSONSchema",
-]);
-
-const EAGER_PROPERTIES = new Set<PropertyKey>([
-  "_def",
-  "_input",
-  "_output",
-  "_zod",
-  "def",
-  "element",
-  "entries",
-  "enum",
-  "format",
-  "in",
-  "isFinite",
-  "isInt",
-  "keyType",
-  "maxDate",
-  "maxLength",
-  "maxValue",
-  "minDate",
-  "minLength",
-  "minValue",
-  "options",
-  "out",
-  "shape",
-  "then",
-  "type",
-  "value",
-  "valueType",
-  "values",
-  "~standard",
+const DEFERRED_SCHEMA_METHODS = new Set<PropertyKey>([
+  "and",
+  "array",
+  "base64",
+  "base64url",
+  "catch",
+  "catchall",
+  "check",
+  "cidrv4",
+  "cidrv6",
+  "clone",
+  "cuid",
+  "cuid2",
+  "date",
+  "datetime",
+  "default",
+  "duration",
+  "e164",
+  "email",
+  "emoji",
+  "endsWith",
+  "exactOptional",
+  "exclude",
+  "extend",
+  "extract",
+  "gt",
+  "gte",
+  "guid",
+  "includes",
+  "input",
+  "int",
+  "ipv4",
+  "ipv6",
+  "jwt",
+  "keyof",
+  "ksuid",
+  "length",
+  "loose",
+  "lowercase",
+  "lt",
+  "lte",
+  "max",
+  "merge",
+  "mime",
+  "min",
+  "multipleOf",
+  "nanoid",
+  "negative",
+  "nonempty",
+  "nonnegative",
+  "nonoptional",
+  "nonpositive",
+  "normalize",
+  "nullable",
+  "nullish",
+  "omit",
+  "optional",
+  "or",
+  "output",
+  "overwrite",
+  "partial",
+  "passthrough",
+  "pick",
+  "pipe",
+  "positive",
+  "prefault",
+  "readonly",
+  "refine",
+  "regex",
+  "removeCatch",
+  "removeDefault",
+  "required",
+  "rest",
+  "safe",
+  "safeExtend",
+  "size",
+  "slugify",
+  "startsWith",
+  "step",
+  "strict",
+  "strip",
+  "superRefine",
+  "time",
+  "toLowerCase",
+  "toUpperCase",
+  "transform",
+  "trim",
+  "ulid",
+  "unwrap",
+  "uppercase",
+  "url",
+  "uuid",
+  "uuidv4",
+  "uuidv6",
+  "uuidv7",
+  "with",
+  "xid",
 ]);
 
 const SELF_RETURNING_METHODS = new Set<PropertyKey>(["brand", "finite"]);
+const UNHANDLED_PROPERTY = Symbol("unhandled lazy Zod property");
 
 type ZodRegistryLike = {
   add(schema: zod.ZodType, ...metadata: unknown[]): unknown;
@@ -69,18 +117,10 @@ export function lazySchema<TSchema extends zod.ZodType>(
 ): TSchema {
   let schema: TSchema | undefined;
   let proxy: TSchema;
-  const registrations: Array<{
-    metadata: unknown[];
-    registry: ZodRegistryLike;
-  }> = [];
+  const target = Object.create(null) as object;
+  let targetIsMaterialized = false;
   const resolveSchema = (): TSchema => {
-    if (!schema) {
-      schema = createSchema();
-      for (const registration of registrations) {
-        registration.registry.add(schema, ...registration.metadata);
-        registration.registry.add(proxy, ...registration.metadata);
-      }
-    }
+    schema ??= createSchema();
     return schema;
   };
   const readResolvedProperty = (property: PropertyKey): unknown => {
@@ -108,29 +148,37 @@ export function lazySchema<TSchema extends zod.ZodType>(
       }
       return result;
     });
-
-  proxy = new Proxy(Object.create(null) as object, {
-    get(_target, property) {
-      if (property === "description") {
+  const materializeTarget = (): TSchema => {
+    const resolved = resolveSchema();
+    if (targetIsMaterialized) {
+      return resolved;
+    }
+    Reflect.setPrototypeOf(target, Reflect.getPrototypeOf(resolved));
+    for (const property of Reflect.ownKeys(resolved)) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(resolved, property);
+      if (descriptor) {
+        Reflect.defineProperty(target, property, descriptor);
+      }
+    }
+    targetIsMaterialized = true;
+    return resolved;
+  };
+  const readSpecialProperty = (property: PropertyKey): unknown => {
+    switch (property) {
+      case "description": {
         const metadata = globalRegistry.get(proxy);
         return metadata && typeof metadata === "object"
           ? Reflect.get(metadata, "description")
           : undefined;
       }
-      if (property === "apply") {
+      case "apply":
         return (operation: (schema: TSchema) => unknown) => operation(proxy);
-      }
-      if (property === "register") {
+      case "register":
         return (registry: ZodRegistryLike, ...metadata: unknown[]) => {
-          registrations.push({ metadata, registry });
-          if (schema) {
-            registry.add(schema, ...metadata);
-          }
           registry.add(proxy, ...metadata);
           return proxy;
         };
-      }
-      if (property === "meta") {
+      case "meta":
         return (...metadata: unknown[]) => {
           if (metadata.length === 0) {
             return globalRegistry.get(proxy);
@@ -139,28 +187,57 @@ export function lazySchema<TSchema extends zod.ZodType>(
           globalRegistry.add(registered, ...metadata);
           return registered;
         };
-      }
-      if (property === "describe") {
+      case "describe":
         return (description: string) => {
           const described = deferSchemaMethod(property, [description]);
           globalRegistry.add(described, { description });
           return described;
         };
+      case "toJSONSchema":
+        return (...args: unknown[]) =>
+          Reflect.apply(zod.toJSONSchema, zod, [proxy, ...args]);
+      default:
+        return UNHANDLED_PROPERTY;
+    }
+  };
+
+  proxy = new Proxy(target, {
+    deleteProperty(_target, property) {
+      const deletedFromTarget = Reflect.deleteProperty(target, property);
+      const deletedFromSchema = Reflect.deleteProperty(
+        resolveSchema(),
+        property
+      );
+      return deletedFromTarget && deletedFromSchema;
+    },
+    get(_target, property, receiver) {
+      const specialProperty = readSpecialProperty(property);
+      if (specialProperty !== UNHANDLED_PROPERTY) {
+        return specialProperty;
       }
       if (SELF_RETURNING_METHODS.has(property)) {
         return () => proxy;
       }
-      if (
-        typeof property === "symbol" ||
-        EAGER_PROPERTIES.has(property) ||
-        TERMINAL_METHODS.has(property)
-      ) {
-        return readResolvedProperty(property);
+      if (DEFERRED_SCHEMA_METHODS.has(property)) {
+        return (...args: unknown[]) => deferSchemaMethod(property, args);
       }
 
-      return (...args: unknown[]) => deferSchemaMethod(property, args);
+      const targetDescriptor = Reflect.getOwnPropertyDescriptor(
+        target,
+        property
+      );
+      return targetDescriptor
+        ? Reflect.get(target, property, receiver)
+        : readResolvedProperty(property);
     },
     getOwnPropertyDescriptor(_target, property) {
+      const targetDescriptor = Reflect.getOwnPropertyDescriptor(
+        target,
+        property
+      );
+      if (targetDescriptor || targetIsMaterialized) {
+        return targetDescriptor;
+      }
       const descriptor = Reflect.getOwnPropertyDescriptor(
         resolveSchema(),
         property
@@ -168,27 +245,58 @@ export function lazySchema<TSchema extends zod.ZodType>(
       return descriptor ? { ...descriptor, configurable: true } : undefined;
     },
     getPrototypeOf() {
-      return Reflect.getPrototypeOf(resolveSchema());
+      return targetIsMaterialized
+        ? Reflect.getPrototypeOf(target)
+        : Reflect.getPrototypeOf(resolveSchema());
     },
     has(_target, property) {
-      return Reflect.has(resolveSchema(), property);
+      return (
+        Reflect.has(target, property) || Reflect.has(resolveSchema(), property)
+      );
     },
     ownKeys() {
-      return Reflect.ownKeys(resolveSchema());
+      if (targetIsMaterialized) {
+        return Reflect.ownKeys(target);
+      }
+      return [
+        ...new Set([
+          ...Reflect.ownKeys(target),
+          ...Reflect.ownKeys(resolveSchema()),
+        ]),
+      ];
+    },
+    preventExtensions() {
+      const resolved = materializeTarget();
+      return (
+        Reflect.preventExtensions(resolved) && Reflect.preventExtensions(target)
+      );
     },
     set(_target, property, value) {
-      return Reflect.set(resolveSchema(), property, value);
+      const resolved = resolveSchema();
+      if (!targetIsMaterialized) {
+        return Reflect.set(resolved, property, value);
+      }
+      return (
+        Reflect.set(resolved, property, value) &&
+        Reflect.set(target, property, value)
+      );
     },
   }) as TSchema;
   return proxy;
+}
+
+function snapshotFactoryArgument(value: unknown): unknown {
+  return Array.isArray(value) ? [...value] : value;
 }
 
 function lazyFactory<TFactory extends (...args: never[]) => zod.ZodType>(
   factory: TFactory
 ): TFactory {
   const invoke = factory as unknown as (...args: unknown[]) => zod.ZodType;
-  return ((...args: unknown[]) =>
-    lazySchema(() => invoke(...args))) as unknown as TFactory;
+  return ((...args: unknown[]) => {
+    const declaredArgs = args.map(snapshotFactoryArgument);
+    return lazySchema(() => invoke(...declaredArgs));
+  }) as unknown as TFactory;
 }
 
 export const array = lazyFactory(zod.array);
