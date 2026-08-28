@@ -336,14 +336,39 @@ describe("DirectoryMembersOverview", () => {
 		});
 	});
 
-	it("uses the same current-member Computer projection in the sidebar and detail", async () => {
+	it("does not treat a registered current Computer as connected while its Service is offline", async () => {
+		readCurrentOrganizationComputersMock.mockResolvedValue({
+			computers: [
+				{
+					computerId: "computer-current",
+					deviceDisplayName: "Felix's MacBook Pro",
+					deviceType: "laptop",
+					lastSeenAtMs: 1_788_000_000_000,
+					localAgents: [],
+					osVersion: "25.5.0",
+					ownerUserId: "user-current",
+					platformFamily: "macOS",
+					serviceState: "not_connected",
+				},
+			],
+			generatedAt: "2026-08-27T00:00:00.000Z",
+			organizationId: "org-acme",
+		});
 		renderOverview({
 			recovery: buildRecovery({
+				connectedComputerId: "computer-current",
 				currentDeviceId: "device-current",
 				deviceDisplayName: "Felix's MacBook Pro",
 			}),
 		});
 		await screen.findByTestId("people-workspace");
+		await waitFor(() => {
+			const latestProps = workspacePropsMock.mock.lastCall?.[0];
+			const currentGroup = latestProps?.computerGroups.find(
+				(group: { ownerUserId: string }) => group.ownerUserId === "user-current"
+			);
+			expect(currentGroup?.computers[0]?.serviceState).toBe("not_connected");
+		});
 
 		const props = workspacePropsMock.mock.lastCall?.[0];
 		const currentMember = props?.members.find(
@@ -356,9 +381,9 @@ describe("DirectoryMembersOverview", () => {
 		expect(currentGroup?.computers).toHaveLength(1);
 		expect(currentMember?.computer).toMatchObject({
 			count: 1,
-			label: "Computer connected",
+			label: "Computer offline",
 			path: "/o/acme/computers/device-current",
-			state: "connected",
+			state: "not_connected",
 		});
 	});
 
@@ -489,11 +514,16 @@ function buildHumanProfile(): AuthProfileView {
 }
 
 function buildRecovery(
-	input: { currentDeviceId?: string; deviceDisplayName?: string } = {}
+	input: {
+		connectedComputerId?: string;
+		currentDeviceId?: string;
+		deviceDisplayName?: string;
+	} = {}
 ): Parameters<typeof DirectoryMembersOverview>[0]["recovery"] {
 	const localRuntimes = input.currentDeviceId
 		? [
 				{
+					connectedComputerId: input.connectedComputerId,
 					connectionStatus: "connected",
 					deviceDisplayName: input.deviceDisplayName,
 					deviceId: input.currentDeviceId,

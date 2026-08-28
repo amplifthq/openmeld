@@ -470,11 +470,9 @@ function resolveHumanProfileComputerGroup(input: {
 	return resolveHumanProfileComputerRecords({
 		computers: (input.computerGroup?.computers ?? []).map((computer) => ({
 			routeId: computer.routeId,
-			serviceState:
-				computer.serviceState ??
-				(computer.ownedComputer?.connectionStatus === "connected"
-					? "connected"
-					: "unknown"),
+			// Inventory connection identity means this Computer is registered as one
+			// current record. It is not OpenMeld Service liveness.
+			serviceState: computer.serviceState ?? "unknown",
 		})),
 		isCurrentUser: input.isCurrentUser,
 		orgSlug: input.orgSlug,

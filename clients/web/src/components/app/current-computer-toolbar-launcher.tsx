@@ -69,9 +69,11 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 			) ?? null)
 		: null;
 	const readiness = readinessDeviceId === deviceId ? readinessQuery.data : null;
-	const isReconciling =
-		readinessQuery.isFetching &&
-		(!readinessQuery.isFetchedAfterMount || readinessDeviceId !== deviceId);
+	const isReconciling = Boolean(
+		runtimeQueries.localRuntimesQuery.isFetching ||
+			(readinessQuery.isFetching &&
+				(!readiness || readiness.service.connected === true))
+	);
 	const status = resolveCurrentLocalRuntimeComputerSummaryStatus({
 		isReconcilingStatus: isReconciling,
 		readiness,

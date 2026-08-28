@@ -35,6 +35,11 @@ export type OrganizationComputerGroup = {
 	ownerUserId: string;
 };
 
+export type CurrentOrganizationComputerServiceState = {
+	deviceId: string;
+	state: NonNullable<OrganizationComputer["serviceState"]>;
+};
+
 type DirectoryAgentProfile =
 	OrganizationDirectoryResponse["agentProfiles"][number];
 type VisibleOrganizationComputerProfile = DirectoryAgentProfile & {
@@ -83,6 +88,7 @@ export function formatOrganizationComputerPlatform(
 }
 
 export function resolveOrganizationComputerGroups(input: {
+	currentComputerServiceState?: CurrentOrganizationComputerServiceState | null;
 	currentUserId: string;
 	directory: OrganizationDirectoryResponse | null;
 	organizationComputers?: OrganizationComputersResponse | null;
@@ -98,8 +104,10 @@ export function resolveOrganizationComputerGroups(input: {
 		memberNameByUserId.get(input.currentUserId)?.trim() || "Your computers";
 	return [
 		resolveOwnedComputerGroup({
+			currentComputerServiceState: input.currentComputerServiceState ?? null,
 			currentUserId: input.currentUserId,
 			directory: input.directory,
+			organizationComputers: input.organizationComputers ?? null,
 			ownedComputers: input.ownedComputers,
 			ownerLabel: currentUserLabel,
 		}),
@@ -113,8 +121,10 @@ export function resolveOrganizationComputerGroups(input: {
 }
 
 function resolveOwnedComputerGroup(input: {
+	currentComputerServiceState: CurrentOrganizationComputerServiceState | null;
 	currentUserId: string;
 	directory: OrganizationDirectoryResponse | null;
+	organizationComputers: OrganizationComputersResponse | null;
 	ownedComputers: readonly LocalRuntimeComputer[];
 	ownerLabel: string;
 }): OrganizationComputerGroup {
@@ -150,12 +160,59 @@ function resolveOwnedComputerGroup(input: {
 			ownerUserId: input.currentUserId,
 			platformFamily: computer.platformFamily,
 			routeId: computer.deviceId,
-			serviceState: null,
+			serviceState: resolveOwnedComputerServiceState({
+				computer,
+				currentComputerServiceState: input.currentComputerServiceState,
+				currentUserId: input.currentUserId,
+				organizationComputers: input.organizationComputers,
+			}),
 		})),
 		isCurrentUser: true,
 		ownerLabel: input.ownerLabel,
 		ownerUserId: input.currentUserId,
 	};
+}
+
+function resolveOwnedComputerServiceState(input: {
+	computer: LocalRuntimeComputer;
+	currentComputerServiceState: CurrentOrganizationComputerServiceState | null;
+	currentUserId: string;
+	organizationComputers: OrganizationComputersResponse | null;
+}): OrganizationComputer["serviceState"] {
+	if (
+		input.currentComputerServiceState &&
+		ownedComputerIncludesDevice(
+			input.computer,
+			input.currentComputerServiceState.deviceId
+		)
+	) {
+		return input.currentComputerServiceState.state;
+	}
+	const computerIds = new Set(
+		[
+			input.computer.connectedComputerId,
+			input.computer.deviceId,
+			...(input.computer.legacyDeviceIds ?? []),
+		].filter((computerId): computerId is string => Boolean(computerId))
+	);
+	return (
+		input.organizationComputers?.computers.find(
+			(computer) =>
+				computer.ownerUserId === input.currentUserId &&
+				computerIds.has(computer.computerId)
+		)?.serviceState ?? null
+	);
+}
+
+function ownedComputerIncludesDevice(
+	computer: LocalRuntimeComputer,
+	deviceId: string
+): boolean {
+	return (
+		computer.deviceId === deviceId ||
+		computer.legacyDeviceIds?.includes(deviceId) === true ||
+		computer.executionTargets.some((target) => target.deviceId === deviceId)
+	);
 }
 
 function resolveOtherMemberComputerGroups(input: {
