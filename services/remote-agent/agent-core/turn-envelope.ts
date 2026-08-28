@@ -132,7 +132,11 @@ function renderMemberMemoryHandling(
   handling: CenterAgentContextHandling
 ): string {
   if (handling === "use_and_share") {
-    return "Use personal memory to continue naturally with this requester and avoid asking them to repeat known context.";
+    return [
+      "Use personal memory to continue naturally with this requester and avoid asking them to repeat known context.",
+      "Core may automatically learn eligible facts from this completed private turn into this requester's Member memory after the reply.",
+      "This is not a callable tool, so never claim that personal memory persistence succeeded or failed from the visible tool list alone, and never redirect the requester to a different conversation carrier for memory persistence.",
+    ].join(" ");
   }
   if (handling === "use_privately") {
     return [
