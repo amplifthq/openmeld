@@ -19,6 +19,16 @@ failure.
 
 Evidence: pr:390, commit:7e1a3dfeb5c1a1163c3a58eb2550ff0323965f96, workflow:33136998522, pr:405, commit:8e5cf5b1f951fe5fbe4358be2ab2340e684f52d2, workflow:33138357102, pr:410, commit:df9afbf47793b7c33bdb1d64f24e604d4c78957a, workflow:33140131742, smoke:c7af15f4-8d2e-4d89-989b-8540d3da1097,61827927-6abe-45a8-b208-89e2f5312f2f,cb90479e-ccc4-49e4-a8dc-5a807c966d33
 
+### Setup recovers from interrupted downloads
+
+Fixed · computers · setup
+
+Computer setup now retries a temporarily interrupted OpenMeld download inside
+the same command, instead of making the user copy and run the setup command
+again.
+
+Evidence: pr:439, commit:13de29ecb66e0b8a594e2b7ca7a8f5adff4d8fcc, cloudflare:web:84b94eea-ed8c-42d0-b3a1-ff1bf632974f
+
 ## August 27, 2026
 
 ### GLM 5.3 Flash is the new Center Agent default
