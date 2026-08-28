@@ -216,9 +216,11 @@ catalog to Web and online CLI.
    change a controller default, update reasoning options).
 2. Open a PR. Review is the safety gate for the high-blast-radius default-model
    value. CI validates against the catalog schema in `packages/schemas`.
-3. Merge to main, stamp on a clean `main` worktree (`pnpm release:local-components
-   stamp --next --cli available --service available --skills available`), and push
-   the stamp commit directly to `main`. Feature and PR branches must keep the base
+3. Merge to main, inspect the local-component release facts on a clean release
+   worktree with `pnpm release:local-components plan --next`, then stamp the
+   exact touched components with the explicit policy and reason required by
+   `developing/engineering/production-release.md`. Land the stamp through its
+   versioned release PR. Feature and ordinary PR branches must keep the base
    package version and manifest unchanged; the pre-push gate enforces this with
    deferred-release verification against the PR base.
 4. Dispatch the CLI Release workflow at that commit. It publishes npm, R2, the

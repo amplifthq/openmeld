@@ -727,6 +727,13 @@ OpenMeld-managed local helper skills, Organization Skill delivery,
 daemon/runtime schemas, Prepare Session schemas, shared HTTP/RPC/WebSocket
 schemas, or `release/local-components.json`.
 
+This includes Wake, setup, reconnect, auto-update, permission or approval,
+structured-reply, runtime-transport, and other critical user-path fixes when
+their behavior crosses a local-component boundary. The audit questions below
+own the engineering judgment. The explicit release command and monotonic floor
+behavior are defined once in `production-release.md`; do not copy a second
+policy table here.
+
 This is a design judgment, not a release-tool result. The release-ready gate can
 detect stale artifacts, changed sensitive paths, and contract constants that
 already changed. It cannot decide whether an implementation forgot to bump a
@@ -1556,12 +1563,16 @@ pull request's exact base SHA and chooses deferred or strict release readiness
 from the branch contract. Release preflight, publish, Core deploy, and every
 actual release path remain strict.
 
-For an advisory local update that should show as available without blocking
-Wake:
+Inspect the exact local-component changes before choosing an advisory or
+required update:
 
 ```text
-pnpm release:local-components stamp --next --cli available --service available --skills available
+pnpm release:local-components plan --next
 ```
+
+Use the printed command shape with a component-specific policy and reason for
+every touched component. `production-release.md` owns the policy meanings and
+floor behavior.
 
 Verify the tracked manifest against a freshly rebuilt package, Service bundle,
 skill bundle, and changed paths with the release-ready gate. The base resolves

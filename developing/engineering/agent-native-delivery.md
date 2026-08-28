@@ -249,6 +249,13 @@ local entrypoint selected there. Git-backed scope leases serialize only the
 same production scope; they do not block unrelated development, merges, or
 compatible releases.
 
+When the exact release includes changed CLI, OpenMeld Service, or bundled
+skills, run the local-component plan and supply the explicit policy and reason
+required by `production-release.md`. Delivery tooling exposes the changed
+components, versions, floors, and missing decisions; it does not guess
+`available`, choose `required`, or replace the responsible agent's Contract
+Impact Audit.
+
 ## Health And Real-User Smoke
 
 Health proves component reachability. Release completion also needs the

@@ -667,24 +667,48 @@ CLI publication is a separate immutable release, not another Worker scope.
 Read `developing/engineering/cli-binary-release.md` for artifact and Apple
 credential details.
 
-Before publication, run `pnpm run release:preflight`, then let the base-aware
-stamp command select the next immutable patch from npm `latest` and the R2
-stable manifest while choosing the real policy:
+Before publication, run `pnpm run release:preflight`, then inspect the
+base-aware local-component plan:
+
+```sh
+pnpm release:local-components plan --next
+```
+
+The plan prints both channel versions, the current CLI and Service floors, the
+selected patch, the exact components changed since the last published tag, and
+any missing policy decisions. For every changed component, the release agent
+must explicitly choose `available` or `required` and provide a component-specific
+reason. The stamp command fails before building or writing when either fact is
+missing; it never silently chooses `available`.
+
+For example, after the Contract Impact Audit has established that both changed
+components remain backward-compatible:
 
 ```sh
 pnpm release:local-components stamp --next \
-  --cli available --service available --skills available
+  --cli available \
+  --cli-reason "Existing CLI commands remain compatible with both cloud versions." \
+  --service available \
+  --service-reason "Existing Services can safely continue current and new Wake work."
 ```
 
-The command prints both channel versions, the higher version, and the selected
-patch. Channel drift is a warning and still selects the higher patch plus one.
+Channel drift is a warning and still selects the higher patch plus one.
 If either channel cannot be read, `--next` fails without changing or guessing a
 version. Use `--version X.Y.Z` instead only when an operator has already
 approved that exact version; `--version` and `--next` are mutually exclusive.
 
-- `available` advertises the patch without blocking existing Wake work;
-- `required` is reserved for an incompatible contract or a concrete unsafe old
-  version.
+- Choose `available` only when old cloud to new local and new cloud to old local
+  remain safe for the affected behavior.
+- Choose `required` when an old local component cannot safely accept new Wake
+  work, including a critical Wake, setup, reconnect, auto-update, permission,
+  structured-reply, runtime-transport, or other main-path fix that users must
+  receive before continuing.
+- A required release blocks new unsafe Wake work below the monotonic CLI or
+  Service floor. It must still preserve update and self-rescue commands and must
+  not cancel an already accepted dispatch. A later `available` release carries
+  both floors forward and cannot reopen an installation below them.
+- Required is sometimes the least harmful user choice, but it is not the
+  default and must not be applied to every release.
 
 The stamp command rebuilds the packaged CLI before recording its Service hash,
 rejects source drift, and verifies the result. Never hand-edit the hash, reuse

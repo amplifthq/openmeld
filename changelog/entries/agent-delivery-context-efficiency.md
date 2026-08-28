@@ -10,4 +10,6 @@ OpenMeld delivery tooling can now wait for Final Candidate without streaming
 full workflow logs into an agent's context, identify GitHub Actions budget
 refusals before blaming candidate code, summarize local development resource
 use by worktree, and separate one merged change's release scopes from unrelated
-production backlog.
+production backlog. Local-component releases also show changed components,
+public versions, compatibility floors, and require an explicit `available` or
+`required` decision with a concrete reason instead of silently choosing one.

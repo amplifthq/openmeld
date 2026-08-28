@@ -287,8 +287,8 @@ export function assertCliReleaseVersionTarget(input = {}) {
   throw new Error(
     [
       `CLI release version guard failed: selected ${input.targetVersion}; package ${String(packageVersion)}; manifest CLI ${String(manifestCliVersion)}; manifest Service ${String(manifestServiceVersion)}.`,
-      "Next: prepare one aligned release target with the base-aware stamp command, then rerun preflight:",
-      `pnpm release:local-components stamp --version ${input.targetVersion} --cli available --service available --skills available`,
+      "Next: inspect the touched local components and declare each real compatibility decision; the release path will not guess available:",
+      `pnpm release:local-components plan --version ${input.targetVersion}`,
       "pnpm run release:preflight",
     ].join("\n")
   );
