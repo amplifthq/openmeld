@@ -4956,6 +4956,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
   const slackSearchAvailable =
     input.turnEnvelope?.trigger.source === "slack" &&
     Boolean(input.turnEnvelope.trigger.searchAuthorization);
+  const organizationMemoryWriteAvailable =
+    Boolean(
+      resolveVerifiedTurnEnvelopeSpeaker(input.turnEnvelope ?? undefined)
+    ) && hasFrozenOrganizationSharedInteractionEnvironment(input.turnEnvelope);
   const exposedDefinitions = definitions.filter(
     (definition) =>
       (input.agentActivityReadEnabled ||
@@ -4965,6 +4969,8 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         definition.name !== "openmeld_search_slack_messages") &&
       (input.turnEnvelope?.trigger.source !== "routine" ||
         !REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAME_SET.has(definition.name)) &&
+      (organizationMemoryWriteAvailable ||
+        definition.name !== "openmeld_remember_for_organization") &&
       (!(organizationMemberSpeaker && "kind" in organizationMemberSpeaker) ||
         CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAME_SET.has(definition.name))
   );
@@ -4995,6 +5001,22 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     );
   }
   return policyEnforcedDefinitions;
+}
+
+function hasFrozenOrganizationSharedInteractionEnvironment(
+  turnEnvelope: RemoteAgentTurnEnvelope | null | undefined
+): boolean {
+  const directEnvironment = turnEnvelope?.interactionEnvironment;
+  const plannedEnvironment =
+    turnEnvelope?.contextScopePlan?.interactionEnvironment;
+  if (
+    directEnvironment &&
+    plannedEnvironment &&
+    directEnvironment !== plannedEnvironment
+  ) {
+    return false;
+  }
+  return (directEnvironment ?? plannedEnvironment) === "organization_shared";
 }
 
 async function buildComputerFileWakeText(input: {

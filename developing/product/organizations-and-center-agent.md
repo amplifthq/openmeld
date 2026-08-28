@@ -2128,7 +2128,9 @@ than by the model provider:
   shared Channels also do not write it automatically unless a future explicit
   owner policy authorizes that environment. The Center Agent may save an
   explicit Organization fact only from an `organization_shared` conversation
-  while Organization memory is enabled. Core rejects a call from a
+  while Organization memory is enabled. Remote Agent offers that explicit tool
+  only when the frozen environment is present, non-conflicting, and
+  `organization_shared`. Core still owns the decision and rejects a call from a
   requester-private or externally shared environment even when an old or
   compromised worker attempts it.
 - For automatic completed-turn capture, Core selects the memory subject from

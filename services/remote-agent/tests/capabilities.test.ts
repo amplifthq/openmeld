@@ -44,8 +44,24 @@ async function getRemoteAgentFlueTools(
   });
 }
 
-async function createCapabilityInventoryStorage() {
-  const request = createSubmitTurnRequest();
+function createOrganizationSharedTurnEnvelope() {
+  const privateEnvelope = createSubmitTurnRequest().turnEnvelope;
+  return {
+    ...privateEnvelope,
+    interactionEnvironment: "organization_shared" as const,
+    space: {
+      ...privateEnvelope.space,
+      isCenterAgentDm: false,
+      kind: "space" as const,
+    },
+    trigger: { source: "space_wake" as const },
+  };
+}
+
+async function createCapabilityInventoryStorage(
+  turnEnvelope = createSubmitTurnRequest().turnEnvelope
+) {
+  const request = createSubmitTurnRequest({ turnEnvelope });
   const storage = new InMemoryDurableObjectStorage();
   await putRemoteAgentCallbackContext(
     storage,
@@ -66,10 +82,12 @@ async function createCapabilityInventoryStorage() {
 }
 
 describe("remote agent Flue capability inventory", () => {
-  it("exposes the complete first-phase explicit tool surface", async () => {
+  it("exposes the complete first-phase explicit tool surface in an organization-shared turn", async () => {
+    const turnEnvelope = createOrganizationSharedTurnEnvelope();
     const tools = await getRemoteAgentFlueTools({
       coreWorker: {},
-      storage: await createCapabilityInventoryStorage(),
+      storage: await createCapabilityInventoryStorage(turnEnvelope),
+      turnEnvelope,
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
@@ -498,22 +516,47 @@ describe("remote agent Flue capability inventory", () => {
   });
 
   it.each([
-    "web_dm",
-    "space_wake",
-    "slack",
-  ] as const)("keeps the full existing tool surface for %s turns", async (source) => {
+    {
+      exposesOrganizationMemoryWrite: false,
+      interactionEnvironment: "requester_private",
+      label: "Web DM",
+      source: "web_dm",
+    },
+    {
+      exposesOrganizationMemoryWrite: true,
+      interactionEnvironment: "organization_shared",
+      label: "OpenMeld Space",
+      source: "space_wake",
+    },
+    {
+      exposesOrganizationMemoryWrite: false,
+      interactionEnvironment: "requester_private",
+      label: "Slack DM",
+      source: "slack",
+    },
+  ] as const)("keeps the existing tool surface for $label while scoping Organization memory by frozen environment", async ({
+    exposesOrganizationMemoryWrite,
+    interactionEnvironment,
+    source,
+  }) => {
     const baseEnvelope = createSubmitTurnRequest().turnEnvelope;
     const tools = await getRemoteAgentFlueTools({
       coreWorker: {},
       storage: new InMemoryDurableObjectStorage(),
       turnEnvelope: {
         ...baseEnvelope,
+        interactionEnvironment,
         trigger: { source },
       },
     });
+    const expectedOpenMeldToolNames = REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
+      (name) =>
+        exposesOrganizationMemoryWrite ||
+        name !== "openmeld_remember_for_organization"
+    );
 
     expect(tools.map((tool) => tool.name)).toEqual([
-      ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
+      ...expectedOpenMeldToolNames,
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);
@@ -526,6 +569,7 @@ describe("remote agent Flue capability inventory", () => {
       storage: new InMemoryDurableObjectStorage(),
       turnEnvelope: {
         ...baseEnvelope,
+        interactionEnvironment: "requester_private",
         space: {
           id: "lark:cli_123:oc_chat_123:om_message_123",
           name: "Lark conversation",
@@ -542,7 +586,9 @@ describe("remote agent Flue capability inventory", () => {
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
-      ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
+      ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
+        (name) => name !== "openmeld_remember_for_organization"
+      ),
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);

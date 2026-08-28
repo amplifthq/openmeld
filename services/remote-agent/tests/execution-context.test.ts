@@ -117,7 +117,11 @@ describe("Remote Agent submission execution context", () => {
     );
     for (const hiddenName of REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES) {
       expect(routineToolNames).not.toContain(hiddenName);
-      expect(ordinaryToolNames).toContain(hiddenName);
+      if (hiddenName === "openmeld_remember_for_organization") {
+        expect(ordinaryToolNames).not.toContain(hiddenName);
+      } else {
+        expect(ordinaryToolNames).toContain(hiddenName);
+      }
     }
     expect(ordinaryToolNames).toContain("openmeld_post_slack_channel_message");
     expect(ordinaryToolNames).toContain("openmeld_post_space_message");

@@ -2583,9 +2583,11 @@ contract in Core, with Zep Cloud behind a provider adapter:
   Organization membership, and fails closed when those facts are missing,
   conflicting, or mismatched. Carrier and source names remain provenance only.
 - The explicit `centerAgentRememberForOrganization` tool is designation-gated.
-  Core accepts it only for a frozen `organization_shared` turn while
-  organization memory is enabled, and rejects stale or forged calls from
-  requester-private and externally shared environments.
+  The worker projects it only when the turn carries one non-conflicting frozen
+  `organization_shared` environment. Core remains the policy owner and accepts
+  the call only while organization memory is enabled; it rejects stale or
+  forged calls from requester-private and externally shared environments even
+  if an old or compromised worker attempts the RPC.
 - Core projects bounded memory items into the shared turn envelope before
   worker submission. The worker and Flue session must not query Zep, infer the
   enabled state, or create a parallel memory policy.
