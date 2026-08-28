@@ -927,32 +927,40 @@ describe("local service lifecycle", () => {
   });
 
   it("keeps the wait_stopped failure when the stuck daemon heartbeat is fresh", async () => {
-    waitForDaemonSystemServiceToStopMock.mockReset().mockResolvedValue(false);
-    readCurrentObservedDaemonRuntimeStatusMock
-      .mockReset()
-      .mockResolvedValue(buildRuntimeStatus("running"));
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    try {
+      waitForDaemonSystemServiceToStopMock.mockReset().mockResolvedValue(false);
+      readCurrentObservedDaemonRuntimeStatusMock
+        .mockReset()
+        .mockResolvedValue(buildRuntimeStatus("running"));
 
-    const result = await runDaemonServiceLifecycle({
-      expectedVersion: EXPECTED_VERSION,
-      operation: "reinstall",
-      installSource: "daemon.command.install",
-      desiredState: "stopped",
-      shouldStartAfterLifecycle: false,
-      forceReinstall: true,
-    });
+      const resultPromise = runDaemonServiceLifecycle({
+        expectedVersion: EXPECTED_VERSION,
+        operation: "reinstall",
+        installSource: "daemon.command.install",
+        desiredState: "stopped",
+        shouldStartAfterLifecycle: false,
+        forceReinstall: true,
+      });
+      const result = await settleLifecyclePromiseWithFakeTimers(resultPromise);
 
-    // The existing failure path stays intact: the lifecycle records the
-    // wait_stopped failure and falls into its stopped-safe recovery instead
-    // of killing a daemon with fresh heartbeats.
-    expect(result.status).toBe("stopped_safe");
-    if (result.status !== "stopped_safe") {
-      return;
+      expect(result.status).toBe("failed");
+      if (result.status !== "failed") {
+        throw new Error(
+          `Expected lifecycle failure, received ${result.status}.`
+        );
+      }
+      expect(result.failureStage).toBe("wait_stopped");
+      expect(result.errorMessage).toContain("still running after stop phase");
+      expect(result.errorMessage).toContain("stopped-safe recovery failed");
+      expect(forceKillStalledDaemonAfterStopTimeoutMock).toHaveBeenCalledWith({
+        stage: "wait_stopped",
+      });
+      expect(installDaemonMock).not.toHaveBeenCalled();
+      expect(serviceManager.install).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
     }
-    expect(result.failureStage).toBe("wait_stopped");
-    expect(result.errorMessage).toContain("still running after stop phase");
-    expect(forceKillStalledDaemonAfterStopTimeoutMock).toHaveBeenCalledWith({
-      stage: "wait_stopped",
-    });
   });
 
   it("keeps the inferred background intent when an old-version process exits during the second absence window", async () => {
@@ -1129,6 +1137,40 @@ describe("local service lifecycle", () => {
     expect(result.completedPhases).not.toContain("write_contract");
     expect(result.completedPhases).not.toContain("start_if_desired");
     expect(serviceManager.start).not.toHaveBeenCalled();
+  });
+
+  it("does not rewrite the stopped-safe carrier when process inventory is unavailable", async () => {
+    serviceManager.waitUntilAbsent = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("first absence window expired"))
+      .mockRejectedValueOnce(new Error("second absence window expired"))
+      .mockResolvedValue(undefined);
+    listDaemonOwnedProcessesMock.mockRejectedValue(
+      new Error("process inventory unavailable")
+    );
+    inspectDaemonServiceInventoryMock
+      .mockReset()
+      .mockResolvedValueOnce(
+        buildInitialInventory(serviceManager, {
+          activeBundleSourceAvailable: false,
+          installedVersion: PREVIOUS_VERSION,
+        })
+      )
+      .mockResolvedValue(buildFinalInventory(serviceManager));
+
+    const result = await runDaemonServiceLifecycle({
+      expectedVersion: EXPECTED_VERSION,
+      operation: "upgrade_reconcile",
+      installSource: "daemon.command.install",
+      forceReinstall: true,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.errorMessage).toContain("process inventory unavailable");
+    expect(prepareDaemonServiceBundleMock).toHaveBeenCalledTimes(1);
+    expect(installDaemonMock).not.toHaveBeenCalled();
+    expect(serviceManager.install).not.toHaveBeenCalled();
+    expect(upsertDaemonServiceContractMock).not.toHaveBeenCalled();
   });
 
   it("fails at write_contract when required contract fields are missing", async () => {

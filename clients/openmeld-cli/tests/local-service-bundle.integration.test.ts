@@ -35,6 +35,7 @@ import {
   resolveCurrentDaemonSourceDistFingerprint,
   resolveDaemonBundleRootPath,
   verifyDaemonActiveBundleIntegrity,
+  writeDaemonServiceExecutableWrapper,
 } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { ensureDaemonSystemServiceCommandFiles } from "../src/local-service/lifecycle/daemon-service-command-spec";
 import { withTempHome } from "./helpers/fs";
@@ -730,6 +731,11 @@ describe("local service bundle", () => {
           distribution: "npm",
         })
       ).rejects.toThrow("binary-managed OpenMeld Service");
+      await expect(readFile(stableExecutablePath, "utf8")).resolves.toBe(
+        managedBinaryContent
+      );
+
+      await writeDaemonServiceExecutableWrapper();
       await expect(readFile(stableExecutablePath, "utf8")).resolves.toBe(
         managedBinaryContent
       );

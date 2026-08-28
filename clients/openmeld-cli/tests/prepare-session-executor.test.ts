@@ -178,7 +178,17 @@ describe("prepare session executor", () => {
   });
 
   it("does not run Terminal-owned work when no local agents are selected", () => {
-    expect(resolveNextTerminalPrepareStep(buildSnapshot({}, []))).toBeNull();
+    expect(resolveNextTerminalPrepareStep(buildSnapshot({}, []))).toBe(
+      "refresh_service"
+    );
+  });
+
+  it("finishes after Service alignment when no local agents are selected", () => {
+    expect(
+      resolveNextTerminalPrepareStep(
+        buildSnapshot({ refresh_service: "complete" }, [])
+      )
+    ).toBeNull();
   });
 
   it("stops once all Terminal-owned steps are complete", () => {

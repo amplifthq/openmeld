@@ -76,8 +76,8 @@ const REPORT_RUNTIME_CONNECTION_MAX_ATTEMPTS = 9;
 const WAITING_PROGRESS_DELAY_MS = 500;
 
 const TERMINAL_PREPARE_STEP_ORDER: readonly PrepareStepId[] = [
-  "prepare_selected_agents",
   "refresh_service",
+  "prepare_selected_agents",
   "report_runtime",
   "verify_setup",
 ];
@@ -323,6 +323,7 @@ async function runPrepareSessionExecutorOnce(input: {
     const serviceConnected = await connectOpenMeldServiceForPrepare({
       input: input.input,
       snapshot: connected,
+      stream,
     });
     const selected = await resolveAgentSelectionAfterServiceConnect({
       input: input.input,
@@ -352,31 +353,30 @@ async function runPrepareSessionExecutorOnce(input: {
 async function connectOpenMeldServiceForPrepare(input: {
   input: PrepareSessionExecutorInput;
   snapshot: PrepareSessionSnapshot;
+  stream: PrepareSessionStream;
 }): Promise<PrepareSessionSnapshot> {
   const step = findStep(input.snapshot, "refresh_service");
   if (step?.state === "complete") {
     return input.snapshot;
   }
-  const progress = startPrepareProgressStep(input.input, {
-    code: "prepare.session.progress.refresh_service",
-    text: getSetupFlowCopy("setup").cliProgressStartingService,
-  });
-  const terminalStepInput = {
+  const terminalStep = buildTerminalStep({
     connectedComputerId: input.snapshot.connectedComputerId,
+    openMeldServiceRuntimeIdentity:
+      resolveRuntimeIdentityFromPrepareSessionSnapshot(input.snapshot),
     humanProfileId: input.snapshot.humanProfileId,
     input: input.input,
     localAgentIds: input.snapshot.selectedLocalAgentIds,
     ownerUserId: input.snapshot.ownerUserId,
     stepId: "refresh_service",
-  } as const;
-  try {
-    await runRefreshServiceTerminalStep(terminalStepInput, progress);
-    progress.complete(formatTerminalStepCompleteMessage("refresh_service"));
-    return input.snapshot;
-  } catch (error) {
-    progress.fail("Setup stopped.");
-    throw error;
-  }
+  });
+  return await runTerminalStep({
+    connectionEpoch: requireConnectionEpoch(input.snapshot),
+    input: input.input,
+    snapshot: input.snapshot,
+    stepId: "refresh_service",
+    stream: input.stream,
+    ...terminalStep,
+  });
 }
 
 async function resolveAgentSelectionAfterServiceConnect(input: {
@@ -1089,6 +1089,9 @@ function assertTerminalStepCompletedOrThrow(input: {
 export function resolveNextTerminalPrepareStep(
   snapshot: PrepareSessionSnapshot
 ): PrepareStepId | null {
+  if (findStep(snapshot, "refresh_service")?.state !== "complete") {
+    return "refresh_service";
+  }
   if (snapshot.selectedLocalAgentIds.length === 0) {
     return null;
   }

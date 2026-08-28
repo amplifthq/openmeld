@@ -35,7 +35,13 @@ import {
 import { CheckCircleIcon, CircleNotchIcon } from "@phosphor-icons/react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { useBringAgentsSetupContext } from "#/components/connect/bring-agents-setup-context";
 import {
@@ -1331,6 +1337,17 @@ function resolvePrepareCompletionRefreshKey(
 	return `${snapshot.prepareSessionId}:${snapshot.sessionRevision}`;
 }
 
+function buildPrepareCommandRefreshKey(input: {
+	generation: number;
+	prepareSessionId: string | null;
+	sessionKey: string | null;
+}): string | null {
+	if (input.sessionKey === null || input.prepareSessionId === null) {
+		return null;
+	}
+	return `${input.sessionKey}:${input.prepareSessionId}:${input.generation}`;
+}
+
 // Watches the local-components readiness projection after an update_service
 // terminal session completes, re-fetching it until OpenMeld Service and CLI
 // both clear `update_required`. Reaching the timeout window only flips the
@@ -1676,10 +1693,11 @@ function usePrepareSession(input: {
 	);
 	const [webSocketStatus, setWebSocketStatus] =
 		useState<PrepareWebSocketStatus>("idle");
-	const [refreshingCommandSessionKey, setRefreshingCommandSessionKey] =
+	const [refreshingCommandRefreshKey, setRefreshingCommandRefreshKey] =
 		useState<string | null>(null);
 	const socketRef = useRef<WebSocket | null>(null);
 	const commandGenerationKeyRef = useRef<string | null>(null);
+	const [commandRefreshGeneration, setCommandRefreshGeneration] = useState(0);
 	const activePrepareSessionId = state.snapshot?.prepareSessionId ?? null;
 	const sessionKey = buildPrepareSessionKey({
 		connectedComputerId,
@@ -1688,13 +1706,19 @@ function usePrepareSession(input: {
 		runtimeLane,
 		targetSpaceId,
 	});
-	const activeCommandSessionKeyRef = useRef<string | null>(sessionKey);
+	const commandRefreshKey = buildPrepareCommandRefreshKey({
+		generation: commandRefreshGeneration,
+		prepareSessionId: activePrepareSessionId,
+		sessionKey,
+	});
+	const activeCommandRefreshKeyRef = useRef<string | null>(commandRefreshKey);
 	const isRefreshingCommand =
-		sessionKey !== null && refreshingCommandSessionKey === sessionKey;
+		commandRefreshKey !== null &&
+		refreshingCommandRefreshKey === commandRefreshKey;
 	const isPrepareSessionMountedRef = useRef(true);
 	const commandRefreshRef = useRef<{
+		key: string;
 		request: object;
-		sessionKey: string;
 		task: Promise<string | null>;
 	} | null>(null);
 	const generateOneTimeToken = useGenerateOneTimeToken();
@@ -1718,10 +1742,10 @@ function usePrepareSession(input: {
 		};
 	}, []);
 
-	useEffect(() => {
-		activeCommandSessionKeyRef.current = sessionKey;
+	useLayoutEffect(() => {
+		activeCommandRefreshKeyRef.current = commandRefreshKey;
 		commandRefreshRef.current = null;
-	}, [sessionKey]);
+	}, [commandRefreshKey]);
 
 	useEffect(() => {
 		if (!sessionKey) {
@@ -1931,6 +1955,10 @@ function usePrepareSession(input: {
 		};
 
 		const replaceMissingActiveSession = async () => {
+			setCommandRefreshGeneration((current) => current + 1);
+			activeCommandRefreshKeyRef.current = null;
+			commandRefreshRef.current = null;
+			setRefreshingCommandRefreshKey(null);
 			clearPrepareSessionPointer();
 			clearCompletedPrepareSessionPointer();
 			setState({
@@ -2148,6 +2176,10 @@ function usePrepareSession(input: {
 			return;
 		}
 
+		setCommandRefreshGeneration((current) => current + 1);
+		activeCommandRefreshKeyRef.current = null;
+		commandRefreshRef.current = null;
+		setRefreshingCommandRefreshKey(null);
 		setState((current) => ({
 			error: null,
 			opaqueToken: current.opaqueToken,
@@ -2196,17 +2228,17 @@ function usePrepareSession(input: {
 
 	const refreshCommandAndReturn = useCallback((): Promise<string | null> => {
 		const snapshot = state.snapshot;
-		if (snapshot === null || sessionKey === null) {
+		if (snapshot === null || commandRefreshKey === null) {
 			return Promise.resolve(null);
 		}
 		const existingRefresh = commandRefreshRef.current;
-		if (existingRefresh?.sessionKey === sessionKey) {
+		if (existingRefresh?.key === commandRefreshKey) {
 			return existingRefresh.task;
 		}
-		const refreshSessionKey = sessionKey;
+		const refreshKey = commandRefreshKey;
 		const isCurrentRefreshSession = () =>
 			isPrepareSessionMountedRef.current &&
-			activeCommandSessionKeyRef.current === refreshSessionKey;
+			activeCommandRefreshKeyRef.current === refreshKey;
 
 		const refreshRequest = {};
 		const reportRefreshError = (error: unknown) => {
@@ -2219,7 +2251,7 @@ function usePrepareSession(input: {
 			}));
 		};
 		const refreshTask = (async () => {
-			setRefreshingCommandSessionKey(refreshSessionKey);
+			setRefreshingCommandRefreshKey(refreshKey);
 			try {
 				const session = await mintPrepareSessionToken({
 					prepareSessionId: snapshot.prepareSessionId,
@@ -2261,25 +2293,25 @@ function usePrepareSession(input: {
 				if (commandRefreshRef.current?.request === refreshRequest) {
 					commandRefreshRef.current = null;
 					if (isCurrentRefreshSession()) {
-						setRefreshingCommandSessionKey(null);
+						setRefreshingCommandRefreshKey(null);
 					}
 				}
 			}
 		})();
 		commandRefreshRef.current = {
+			key: refreshKey,
 			request: refreshRequest,
-			sessionKey: refreshSessionKey,
 			task: refreshTask,
 		};
 		return refreshTask;
 	}, [
 		commandPlatform,
+		commandRefreshKey,
 		connectedComputerId,
 		deviceId,
 		generateSetupCommand,
 		humanProfileId,
 		runtimeLane,
-		sessionKey,
 		state.snapshot,
 		targetSpaceId,
 	]);

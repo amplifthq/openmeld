@@ -3130,6 +3130,14 @@ the new command. Copy also verifies freshness and refreshes first when needed,
 so the user never copies a command that Web already knows is expired. Expiry is
 not presented as a terminal-debugging task.
 
+Every command refresh is fenced to both the stable Computer setup key and the
+current Prepare Session ID. If starting over or recovery replaces the Prepare
+Session while an older refresh is in flight, the older result must not replace
+the visible command, overwrite the persisted session pointer, or satisfy refresh
+deduplication for the new session. Choosing `Set up again` increments that fence
+before Web requests the replacement session, so the invalidation does not depend
+on a later React render or network response.
+
 When setup starts from `Reconnect OpenMeld Service` on an existing Computer,
 Web carries that stable `connectedComputerId` into the Prepare Session. A local
 service reinstall may report a new `deviceId`; Web still follows the session and

@@ -146,6 +146,19 @@ continue as non-blocking background work. An explicit terminal-side Agent
 selection still prepares and reports the selected controllers before that
 explicit request completes.
 
+The Prepare owner must persist the successful Service-alignment step, including
+the connected device and Runtime lane evidence, before it can complete the
+session. An empty Agent Controller selection is not Service evidence and must
+never skip, replace, or imply that step. A CLI-local lifecycle operation that
+was not written back to the same Prepare Session cannot authorize the
+`Computer connected` result.
+
+Service-alignment evidence belongs to the Terminal connection epoch that
+reported it. If a newer Terminal connection replaces or reconnects an active
+Prepare Session, every Terminal-owned step is pending again and the new
+connection must report its own Service identity before setup can resume. This
+prevents one computer from inheriting another computer's device or lane proof.
+
 A computer with no installed local Agent Controller is still a valid connected
 computer. OpenMeld Service remains in a low-resource idle state, keeps its cloud
 connection and update control plane, and periodically reconciles newly installed
@@ -1584,6 +1597,12 @@ effective running state. When those facts are already aligned, repair succeeds
 without stopping or rewriting the Service. Only a decision that requires
 mutation enters the controlled lifecycle below; an explicit forced repair may
 enter it for diagnostic recovery.
+
+Process inventory is mandatory stop-safety evidence. If the platform process
+scan or service-manager status cannot be read, that unknown state is never
+treated as `not_running` or as permission to uninstall, replace, prune, or
+register a carrier. Lifecycle mutation stops with the preserved diagnostic
+error; read-only product surfaces may present the state as unknown.
 
 Before a controlled lifecycle stops or drains the current Service, it must
 fully prepare and validate the replacement bundle without changing the active

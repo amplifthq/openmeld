@@ -1021,6 +1021,18 @@ During Web setup handoff, the CLI receives an opaque Prepare Session token. That
 token represents user intent to align this terminal and local OpenMeld Service with
 the browser account that started setup.
 
+The CLI aligns OpenMeld Service first and writes that successful step, with its
+device and Runtime lane evidence, to the same Prepare Session before it resolves
+or writes Agent Controller selection. It reuses that recorded result for
+explicit selections; it must not run a second forced Service refresh for the
+same handoff. Selecting no Agent Controllers still requires the recorded Service
+step before Prepare can complete.
+
+That result is valid only for the Terminal connection epoch that wrote it. A
+replacement or reconnected Terminal repeats Service alignment and the remaining
+Terminal-owned work instead of inheriting device or lane evidence from the
+previous connection.
+
 When the handoff also includes a Web-issued one-time token, that token is a
 login method for this computer. The token itself stays short-lived and
 single-use, but a successful exchange must persist a normal local CLI auth

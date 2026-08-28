@@ -26,13 +26,14 @@ import {
   daemonRuntimeStateRootPath,
   daemonServiceActiveBundleStatePath,
   daemonServiceLegacyExecutableWrapperPath,
-  daemonServiceRecognizedExecutableWrapperPaths,
   daemonServiceStableBinaryExecutablePath,
   daemonServiceStableExecutableWrapperPath,
   daemonServiceStableLauncherPath,
   daemonServiceUpdateWorkerBinaryExecutablePath,
   daemonStatePath,
   getDaemonStatus,
+  daemonServiceExecutableWrapperPaths as resolveDaemonServiceExecutableWrapperPaths,
+  daemonServiceRecognizedExecutablePaths as resolveDaemonServiceRecognizedExecutablePaths,
 } from "../../config/daemon-state";
 import {
   type OpenMeldPathResolutionInput,
@@ -118,13 +119,13 @@ export function daemonServiceUpdateWorkerBinaryPath(
 export function daemonServiceExecutableWrapperPaths(
   pathInput: OpenMeldPathResolutionInput = {}
 ): string[] {
-  return daemonServiceRecognizedExecutableWrapperPaths(pathInput);
+  return resolveDaemonServiceExecutableWrapperPaths(pathInput);
 }
 
 export function daemonServiceRecognizedExecutablePaths(
   pathInput: OpenMeldPathResolutionInput = {}
 ): string[] {
-  return daemonServiceRecognizedExecutableWrapperPaths(pathInput);
+  return resolveDaemonServiceRecognizedExecutablePaths(pathInput);
 }
 
 export function daemonServiceLegacyWrapperPath(

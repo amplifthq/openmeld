@@ -130,8 +130,32 @@ class ClosingMockWebSocket extends MockWebSocket {
 	}
 }
 
+class ControlledMockWebSocket extends MockWebSocket {
+	static latest: ControlledMockWebSocket | null = null;
+
+	constructor(url: string) {
+		super(url);
+		ControlledMockWebSocket.latest = this;
+		window.queueMicrotask(() => this.onopen?.());
+	}
+
+	disconnectFromServer() {
+		this.onclose?.();
+	}
+
+	emitSnapshot(snapshot: PrepareSessionSnapshot) {
+		this.onmessage?.({
+			data: JSON.stringify({
+				payload: { snapshot },
+				type: "snapshot_changed",
+			}),
+		});
+	}
+}
+
 describe("StartBringAgentsSetupPage completion actions", () => {
 	beforeEach(() => {
+		ControlledMockWebSocket.latest = null;
 		navigateMock.mockReset().mockResolvedValue(undefined);
 		createPrepareSessionMock
 			.mockReset()
@@ -1929,6 +1953,206 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 			window.localStorage.getItem("openmeld.prepare.session.pointer") ?? "null"
 		) as { prepareSessionId?: string } | null;
 		expect(persistedPointer?.prepareSessionId).toBe("prepare-current");
+	});
+
+	it("does not let an old command refresh overwrite a replacement Prepare Session on the same computer", async () => {
+		vi.stubGlobal("WebSocket", ControlledMockWebSocket);
+		const oldSnapshot = {
+			...createTerminalDisconnectedSnapshot(),
+			prepareSessionId: "prepare-old",
+			targetSpaceId: null,
+		};
+		const currentSnapshot = {
+			...createTerminalDisconnectedSnapshot(),
+			prepareSessionId: "prepare-current",
+			targetSpaceId: null,
+		};
+		let resolveOldRefresh: (value: {
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}) => void = () => undefined;
+		const oldRefresh = new Promise<{
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}>((resolve) => {
+			resolveOldRefresh = resolve;
+		});
+		readPrepareSessionMock
+			.mockResolvedValueOnce({ snapshot: oldSnapshot })
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Prepare Session not found."), {
+					code: "prepare.session.not_found",
+				})
+			);
+		mintPrepareSessionTokenMock.mockReturnValueOnce(oldRefresh);
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_current",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot: currentSnapshot,
+		});
+		window.localStorage.setItem(
+			"openmeld.prepare.session.pointer",
+			JSON.stringify({
+				deviceId: "device-current",
+				humanProfileId: "11111111-1111-4111-8111-111111111111",
+				opaqueToken: null,
+				opaqueTokenExpiresAt: null,
+				prepareSessionId: oldSnapshot.prepareSessionId,
+				runtimeLane: "dev-local",
+				targetSpaceId: null,
+			})
+		);
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{ kind: "account_computer_setup", resetThisComputer: false },
+				{ deviceId: "device-current", runtimeLane: "dev-local" }
+			)
+		);
+
+		renderPreparePage();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Refresh command" })
+		);
+		await waitFor(() => {
+			expect(mintPrepareSessionTokenMock).toHaveBeenCalledWith({
+				prepareSessionId: "prepare-old",
+			});
+		});
+
+		ControlledMockWebSocket.latest?.disconnectFromServer();
+		await waitFor(() => {
+			expect(buildWebSetupCommandMock).toHaveBeenCalledWith(
+				expect.objectContaining({ startSession: "preptok_current" })
+			);
+		});
+
+		await act(async () => {
+			resolveOldRefresh({
+				opaqueToken: "preptok_old_refreshed",
+				opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+				snapshot: oldSnapshot,
+			});
+			await oldRefresh;
+		});
+
+		expect(buildWebSetupCommandMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ startSession: "preptok_old_refreshed" })
+		);
+		const persistedPointer = JSON.parse(
+			window.localStorage.getItem("openmeld.prepare.session.pointer") ?? "null"
+		) as { prepareSessionId?: string } | null;
+		expect(persistedPointer?.prepareSessionId).toBe("prepare-current");
+	});
+
+	it("invalidates an old command refresh as soon as Set up again starts", async () => {
+		vi.stubGlobal("WebSocket", ControlledMockWebSocket);
+		const oldSnapshot = {
+			...createTerminalDisconnectedSnapshot(),
+			prepareSessionId: "prepare-old",
+			targetSpaceId: null,
+		};
+		const completedOldSnapshot = createReadySnapshot({
+			prepareSessionId: "prepare-old",
+			targetSpaceId: null,
+		});
+		const currentSnapshot = {
+			...createTerminalDisconnectedSnapshot(),
+			prepareSessionId: "prepare-current",
+			targetSpaceId: null,
+		};
+		let resolveOldRefresh: (value: {
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}) => void = () => undefined;
+		const oldRefresh = new Promise<{
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}>((resolve) => {
+			resolveOldRefresh = resolve;
+		});
+		let resolveNewSession: (value: {
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}) => void = () => undefined;
+		const newSession = new Promise<{
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}>((resolve) => {
+			resolveNewSession = resolve;
+		});
+		readPrepareSessionMock.mockResolvedValueOnce({ snapshot: oldSnapshot });
+		mintPrepareSessionTokenMock.mockReturnValueOnce(oldRefresh);
+		createPrepareSessionMock.mockReturnValueOnce(newSession);
+		window.localStorage.setItem(
+			"openmeld.prepare.session.pointer",
+			JSON.stringify({
+				deviceId: "device-current",
+				humanProfileId: "11111111-1111-4111-8111-111111111111",
+				opaqueToken: null,
+				opaqueTokenExpiresAt: null,
+				prepareSessionId: oldSnapshot.prepareSessionId,
+				runtimeLane: "dev-local",
+				targetSpaceId: null,
+			})
+		);
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{ kind: "account_computer_setup", resetThisComputer: false },
+				{ deviceId: "device-current", runtimeLane: "dev-local" }
+			)
+		);
+
+		renderPreparePage();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Refresh command" })
+		);
+		await waitFor(() => {
+			expect(mintPrepareSessionTokenMock).toHaveBeenCalledWith({
+				prepareSessionId: "prepare-old",
+			});
+		});
+		act(() => {
+			ControlledMockWebSocket.latest?.emitSnapshot(completedOldSnapshot);
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Set up again" })
+		);
+
+		await act(async () => {
+			resolveOldRefresh({
+				opaqueToken: "preptok_old_refreshed",
+				opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+				snapshot: oldSnapshot,
+			});
+			await oldRefresh;
+		});
+
+		expect(buildWebSetupCommandMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ startSession: "preptok_old_refreshed" })
+		);
+		expect(
+			window.localStorage.getItem("openmeld.prepare.session.pointer")
+		).toBeNull();
+
+		await act(async () => {
+			resolveNewSession({
+				opaqueToken: "preptok_current",
+				opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+				snapshot: currentSnapshot,
+			});
+			await newSession;
+		});
+		await waitFor(() => {
+			expect(buildWebSetupCommandMock).toHaveBeenCalledWith(
+				expect.objectContaining({ startSession: "preptok_current" })
+			);
+		});
 	});
 
 	it("prefers the completed direct setup session over a newer active setup session", async () => {

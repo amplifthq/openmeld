@@ -717,13 +717,21 @@ export function daemonServiceLegacyExecutableWrapperPath(
   );
 }
 
-export function daemonServiceRecognizedExecutableWrapperPaths(
+export function daemonServiceExecutableWrapperPaths(
+  pathInput: OpenMeldPathResolutionInput = {}
+): string[] {
+  return [
+    daemonServiceStableExecutableWrapperPath(pathInput),
+    daemonServiceLegacyExecutableWrapperPath(pathInput),
+  ];
+}
+
+export function daemonServiceRecognizedExecutablePaths(
   pathInput: OpenMeldPathResolutionInput = {}
 ): string[] {
   return [
     daemonServiceStableBinaryExecutablePath(pathInput),
-    daemonServiceStableExecutableWrapperPath(pathInput),
-    daemonServiceLegacyExecutableWrapperPath(pathInput),
+    ...daemonServiceExecutableWrapperPaths(pathInput),
   ];
 }
 

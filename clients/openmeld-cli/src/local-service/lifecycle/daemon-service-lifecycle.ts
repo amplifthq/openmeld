@@ -899,7 +899,7 @@ async function recoverLifecycleFailure(input: {
       evidencePath: input.state.evidencePath,
       recoveryStatus: "failed_before_safe_state",
       errorCode: originalErrorCode,
-      errorMessage: recoveryErrorMessage,
+      errorMessage: `${recoveryErrorMessage}; stopped-safe recovery failed: ${toErrorMessage(stoppedSafe.safeStopError)}`,
     };
   }
 
@@ -1020,7 +1020,7 @@ async function transitionLifecycleToStoppedSafeCurrentVersion(input: {
 }): Promise<DaemonServiceInventory> {
   await input.serviceManager.uninstall().catch(() => undefined);
   await input.serviceManager.waitUntilAbsent().catch(() => undefined);
-  await ensureNoOwnedProcessesRemain().catch(() => undefined);
+  await ensureNoOwnedProcessesRemain();
   const preparedBundle = await prepareDaemonServiceBundle({
     daemonVersion: input.expectedVersion,
     ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),
