@@ -163,22 +163,25 @@ use progressive disclosure so the same general Agent can remain capable
 without loading every schema or transcript on every turn.
 
 The hosted Center Agent freezes one executable capability catalog at turn
-start. A large catalog gives the model one small goal-relevant direct slice,
-typed search and describe tools, and Code Mode. The direct slice and search use
-the same code-owned capability catalog, stable namespaces, multilingual search
-aliases, and deterministic ranking; a selected capability's declared
-prerequisites are included with it. Search returns bounded names, namespaces,
-and summaries, describe returns the selected capabilities' model-visible JSON
-schemas and descriptions, and Code Mode executes only members of the frozen
+start. When that catalog has progressive discovery and Code Mode, every
+tool-capable primary model receives the same small bootstrap: typed search and
+describe tools, Code Mode, and the generic Connected App entry points. The
+worker never reads the user's words to preselect a hidden business-tool slice,
+and it does not maintain per-model tool-count rules. The primary model decides
+what to search for. That explicit search uses the same code-owned capability
+catalog, stable namespaces, multilingual search aliases, and deterministic
+ranking. Search returns bounded names, namespaces, and summaries, describe
+returns the selected capabilities' model-visible JSON schemas, descriptions,
+and declared prerequisites, and Code Mode executes only members of the frozen
 catalog. A catalog match proves only that the capability exists in this turn.
 The capability owner still decides current authorization, eligibility, and the
 execution outcome. Runtime validation remains authoritative for normalization
 and custom constraints that JSON Schema cannot express. Discovery does not add
 permissions, mutate the catalog, persist a second capability state, or make the
-model guess an undeclared field. The ranking layer narrows presentation only;
-it never interprets authority or becomes a second task router. Small catalogs
-may remain directly visible when progressive disclosure would not materially
-reduce context.
+model guess an undeclared field. The ranking layer answers an explicit model
+search only; it never interprets the raw user request, authority, or task intent
+and never becomes a second task router. Provider context capacity is enforced
+from the frozen model route rather than a universal tool-count constant.
 
 All model-visible tools use structured calls and strict structured results.
 Malformed, parallel, incomplete, or unknown tool protocol fails closed inside
