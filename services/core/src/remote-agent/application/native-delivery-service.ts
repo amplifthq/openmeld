@@ -7060,6 +7060,10 @@ async function rememberCenterAgentCompletedTurn(input: {
   env: CoreBindings;
   memoryService: CenterAgentMemoryService;
 }): Promise<void> {
+  const frozenContext = resolveCenterAgentMemoryFrozenContext(input.delivery);
+  if (!frozenContext) {
+    return;
+  }
   const [source, speakerMember, userMessage] = await Promise.all([
     resolveCenterAgentMemorySource({
       conversationKind: input.delivery.conversationKind,
@@ -7070,6 +7074,7 @@ async function rememberCenterAgentCompletedTurn(input: {
     resolveDeliveryMemorySpeaker({
       delivery: input.delivery,
       env: input.env,
+      sender: frozenContext.sender,
     }),
     readRemoteAgentSourceSignalText({
       body: input.body,
@@ -7092,6 +7097,7 @@ async function rememberCenterAgentCompletedTurn(input: {
 
   await input.memoryService.rememberTurn({
     assistantMessage: input.body.text,
+    interactionEnvironment: frozenContext.interactionEnvironment,
     ...(messageChannelProvider ? { messageChannelProvider } : {}),
     occurredAtMs: Date.now(),
     organizationId: input.delivery.organizationId,
@@ -7103,16 +7109,54 @@ async function rememberCenterAgentCompletedTurn(input: {
   });
 }
 
+function resolveCenterAgentMemoryFrozenContext(
+  delivery: NativeDeliveryPublishRecord
+): {
+  interactionEnvironment: NonNullable<
+    RemoteAgentTurnEnvelope["interactionEnvironment"]
+  >;
+  sender: RemoteAgentTurnEnvelope["sender"];
+} | null {
+  const turnEnvelope =
+    delivery.executionRecoverySubmitRequest?.turnEnvelope ?? null;
+  if (
+    !turnEnvelope ||
+    turnEnvelope.organization.id !== delivery.organizationId ||
+    turnEnvelope.space.id !== delivery.spaceId
+  ) {
+    return null;
+  }
+
+  const directEnvironment = turnEnvelope.interactionEnvironment;
+  const plannedEnvironment =
+    turnEnvelope.contextScopePlan?.interactionEnvironment;
+  if (
+    directEnvironment &&
+    plannedEnvironment &&
+    directEnvironment !== plannedEnvironment
+  ) {
+    return null;
+  }
+  const interactionEnvironment = directEnvironment ?? plannedEnvironment;
+  return interactionEnvironment
+    ? { interactionEnvironment, sender: turnEnvelope.sender }
+    : null;
+}
+
 async function resolveDeliveryMemorySpeaker(input: {
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
+  sender: RemoteAgentTurnEnvelope["sender"];
 }): Promise<{ memberId: string; userId: string } | null> {
+  if (input.sender.kind !== "member" || !input.sender.verified) {
+    return null;
+  }
   if (
     input.delivery.conversationKind === "slack" ||
     input.delivery.conversationKind === "message_channel"
   ) {
     const sourceUserId = normalizeOptionalText(input.delivery.onBehalfOfUserId);
-    if (!sourceUserId) {
+    if (!sourceUserId || input.sender.ownerUserId !== sourceUserId) {
       return null;
     }
     const identity = await readOrganizationAccountIdentityProjection({
@@ -7121,15 +7165,20 @@ async function resolveDeliveryMemorySpeaker(input: {
       organizationId: input.delivery.organizationId,
     });
     const account = identity?.ok ? identity.account : null;
-    return account?.membership
-      ? { memberId: account.membership.memberId, userId: account.userId }
-      : null;
+    if (
+      !account?.membership ||
+      account.membership.memberId !== input.sender.id ||
+      account.userId !== sourceUserId
+    ) {
+      return null;
+    }
+    return { memberId: account.membership.memberId, userId: account.userId };
   }
 
   const sourceProfileId = normalizeOptionalText(
     input.delivery.onBehalfOfProfileId
   );
-  if (!sourceProfileId) {
+  if (!sourceProfileId || input.sender.profileId !== sourceProfileId) {
     return null;
   }
   const identity = await readOrganizationAccountIdentityProjection({
@@ -7138,9 +7187,14 @@ async function resolveDeliveryMemorySpeaker(input: {
     organizationId: input.delivery.organizationId,
   });
   const account = identity?.ok ? identity.account : null;
-  return account?.membership
-    ? { memberId: account.membership.memberId, userId: account.userId }
-    : null;
+  if (
+    !account?.membership ||
+    account.membership.memberId !== input.sender.id ||
+    account.userId !== input.sender.ownerUserId
+  ) {
+    return null;
+  }
+  return { memberId: account.membership.memberId, userId: account.userId };
 }
 
 async function resolveCenterAgentMemorySource(input: {

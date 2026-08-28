@@ -2117,13 +2117,25 @@ Center Agent memory has two product scopes, both owned by Core policy rather
 than by the model provider:
 
 - **Member memory** is scoped to one member inside one organization. Completed
-  Center Agent DM turns may build that member memory, and the member can wipe it
-  without deleting messages, Spaces, or shared organization memory.
+  requester-private Center Agent turns may build that member memory for the
+  verified requesting member, whether the private conversation is an OpenMeld
+  DM, Slack DM, Lark DM, or Feishu DM. The member can wipe it without deleting
+  messages, Spaces, or shared organization memory.
 - **Organization memory** is on by default. Completed Center Agent turns in
-  shared Spaces and connected Channels can be used as Organization memory until
-  an organization owner or admin turns it off. Private Center Agent DMs never
-  write to Organization memory automatically. The Center Agent may save an
+  shared Spaces and Organization-shared Channels can be used as Organization
+  memory until an organization owner or admin turns it off. Requester-private
+  conversations never write to Organization memory automatically. Externally
+  shared Channels also do not write it automatically unless a future explicit
+  owner policy authorizes that environment. The Center Agent may save an
   explicit Organization fact only while Organization memory is enabled.
+- For automatic completed-turn capture, Core selects the memory subject from
+  the frozen `interactionEnvironment` and a currently verified requester/member
+  identity. `requester_private` selects Member memory,
+  `organization_shared` selects enabled Organization memory, and
+  `externally_shared` selects neither. A carrier or provenance source such as
+  `slack_conversation` or `message_channel_conversation` never selects the
+  subject. Missing, conflicting, or mismatched environment and identity
+  evidence fails closed without a memory write.
 - Recalled memory keeps the source surface and occurrence time of the episode
   that produced it. Entering through a different DM, Space, Slack, Lark, or
   Feishu conversation must not relabel the memory as if it came from the
