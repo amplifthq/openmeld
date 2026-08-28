@@ -123,4 +123,16 @@ describe("legacy shared local service cleanup", () => {
     expect(uninstallDaemonMock).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ removed: true });
   });
+
+  it("never uninstalls the production service from canary", async () => {
+    const result = await cleanupLegacySharedDaemonServiceState({
+      env: {
+        OPENMELD_ENV_PRESET: "canary",
+      },
+    });
+
+    expect(resolveDaemonServiceManagerMock).not.toHaveBeenCalled();
+    expect(uninstallDaemonMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ removed: false });
+  });
 });
