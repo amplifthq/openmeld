@@ -195,10 +195,10 @@ describe("auth login/logout commands", () => {
   });
 
   it("fails closed when one-time token sign-in cannot be reloaded as a local account session", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        createJsonResponse(
+    const fetchMock = vi.fn((request: string | URL | Request) => {
+      const url = String(request);
+      if (url.endsWith("/api/auth/one-time-token/verify")) {
+        return createJsonResponse(
           {
             session: {
               id: "session-ott-missing-user",
@@ -209,16 +209,21 @@ describe("auth login/logout commands", () => {
           {
             "set-auth-token": "access-token-ott-missing-user",
           }
-        )
-      )
-      .mockResolvedValueOnce(
-        createJsonResponse({
+        );
+      }
+      if (url.endsWith("/api/auth/get-session")) {
+        return createJsonResponse({
           session: {
             id: "session-ott-missing-user",
             expiresAt: "2099-02-23T00:00:00.000Z",
           },
-        })
-      );
+        });
+      }
+      if (url.endsWith("/api/auth/sign-out")) {
+        return createJsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected auth request: ${url}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     let thrown: unknown = null;
@@ -250,7 +255,77 @@ describe("auth login/logout commands", () => {
     expect(message).toContain(
       "computer authorization account response was invalid"
     );
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(thrown).toMatchObject({
+      endpoint: "https://auth.openmeld.invalid/api/auth/get-session",
+      name: "AuthDeviceSessionClientError",
+      operation: "read_auth_session",
+      status: 200,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.map(([request]) => String(request))).toEqual([
+      "https://auth.openmeld.invalid/api/auth/one-time-token/verify",
+      "https://auth.openmeld.invalid/api/auth/get-session",
+      "https://auth.openmeld.invalid/api/auth/sign-out",
+    ]);
+  });
+
+  it("preserves the one-time-token account error when candidate revocation also fails", async () => {
+    const fetchMock = vi.fn((request: string | URL | Request) => {
+      const url = String(request);
+      if (url.endsWith("/api/auth/one-time-token/verify")) {
+        return createJsonResponse(
+          { session: { id: "session-ott-cleanup-failure" } },
+          200,
+          { "set-auth-token": "access-token-ott-cleanup-failure" }
+        );
+      }
+      if (url.endsWith("/api/auth/get-session")) {
+        return createJsonResponse(
+          { message: "Auth session lookup unavailable" },
+          503
+        );
+      }
+      if (url.endsWith("/api/auth/sign-out")) {
+        return createJsonResponse({ message: "Auth cleanup unavailable" }, 503);
+      }
+      throw new Error(`Unexpected auth request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let thrown: unknown = null;
+    await withCapturedStdio(async () => {
+      try {
+        await runAuthLogin({
+          view: "human",
+          authUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          method: "ott",
+          ott: "OTT_TOKEN_WITH_FAILED_CLEANUP",
+        });
+      } catch (error) {
+        thrown = error;
+      }
+    });
+
+    expect(thrown).toMatchObject({
+      cause: {
+        endpoint: "https://auth.openmeld.invalid/api/auth/get-session",
+        name: "AuthDeviceSessionClientError",
+        operation: "read_auth_session",
+        status: 503,
+      },
+      cleanup: {
+        endpoint: "https://auth.openmeld.invalid/api/auth/sign-out",
+        status: 503,
+      },
+      name: "OneTimeTokenCandidateSessionCleanupError",
+    });
+    const message = thrown instanceof Error ? thrown.message : "";
+    expect(message).toContain("computer authorization account request failed");
+    expect(message).toContain(
+      "cleanup failed at https://auth.openmeld.invalid/api/auth/sign-out (HTTP 503)"
+    );
+    expect(message).not.toContain("access-token-ott-cleanup-failure");
   });
 
   it("accepts ott-only login in agent view", async () => {

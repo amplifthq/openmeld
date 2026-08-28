@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -288,6 +288,149 @@ describe("auth session storage", () => {
           "utf8"
         )
       ).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("finishes recovery after the candidate token was deleted but journal unlink failed", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+
+      vi.resetModules();
+      const interruptedProcess = await import("../src/config/auth-session");
+      const recovery =
+        await interruptedProcess.getInterruptedComputerAuthSessionRecovery();
+      expect(recovery).not.toBeNull();
+      await interruptedProcess.markInterruptedComputerAuthSessionRecovery({
+        id: recovery?.id ?? "",
+        phase: "service",
+      });
+      await interruptedProcess.markInterruptedComputerAuthSessionRecovery({
+        id: recovery?.id ?? "",
+        phase: "remote_session",
+      });
+
+      const authDirectory = join(home, ".openmeld", "auth");
+      await chmod(authDirectory, 0o500);
+      try {
+        await expect(
+          interruptedProcess.completeInterruptedComputerAuthSessionRecovery(
+            recovery?.id ?? ""
+          )
+        ).resolves.toBe(false);
+      } finally {
+        await chmod(authDirectory, 0o700);
+      }
+
+      vi.resetModules();
+      const restartedProcess = await import("../src/config/auth-session");
+      await expect(
+        restartedProcess.getInterruptedComputerAuthSessionRecovery()
+      ).resolves.toBeNull();
+      await expect(
+        restartedProcess.getAuthSessionState()
+      ).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "previous-token",
+          user: { id: "previous-owner" },
+        },
+      });
+      await expect(
+        readFile(join(authDirectory, "session-transition.json"), "utf8")
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("keeps login and logout from invalidating a deferred Computer recovery", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+
+      vi.resetModules();
+      const interruptedProcess = await import("../src/config/auth-session");
+      const recovery =
+        await interruptedProcess.getInterruptedComputerAuthSessionRecovery();
+      expect(recovery).not.toBeNull();
+      await interruptedProcess.markInterruptedComputerAuthSessionRecovery({
+        id: recovery?.id ?? "",
+        phase: "service",
+      });
+      await interruptedProcess.recordInterruptedComputerAuthSessionRecoveryFailure(
+        {
+          endpoint: "https://auth.openmeld.invalid/api/auth/sign-out",
+          id: recovery?.id ?? "",
+          message: "Auth Worker unavailable",
+          phase: "remote_session",
+          status: 503,
+        }
+      );
+
+      await expect(
+        interruptedProcess.setAuthSession({
+          accessToken: "unrelated-login-token",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "unrelated-owner" },
+        })
+      ).rejects.toMatchObject({
+        name: "AuthSessionRecoveryInProgressError",
+      });
+      await expect(interruptedProcess.clearAuthSession()).rejects.toMatchObject(
+        {
+          name: "AuthSessionRecoveryInProgressError",
+        }
+      );
+
+      vi.resetModules();
+      const restartedProcess = await import("../src/config/auth-session");
+      await expect(
+        restartedProcess.getInterruptedComputerAuthSessionRecovery()
+      ).resolves.toMatchObject({
+        candidateSession: {
+          accessToken: "candidate-token",
+          user: { id: "candidate-owner" },
+        },
+        previousSession: {
+          accessToken: "previous-token",
+          user: { id: "previous-owner" },
+        },
+        remoteSessionRevoked: false,
+        serviceReconciled: true,
+      });
+      await expect(
+        restartedProcess.getAuthSessionState()
+      ).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "previous-token",
+          user: { id: "previous-owner" },
+        },
+      });
     });
   });
 

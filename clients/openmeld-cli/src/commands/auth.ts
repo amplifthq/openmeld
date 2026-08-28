@@ -16,6 +16,7 @@ import {
 } from "../auth/auth-guidance";
 import {
   type AuthSessionState,
+  assertAuthSessionMutationAvailable,
   clearAuthSession,
   getAuthSessionState,
   setAuthSession,
@@ -145,6 +146,7 @@ export async function runAuthLogin(input: {
   agentOverviewHandled?: boolean;
   allowBackToCaller?: boolean;
 }): Promise<AuthLoginNavigationResult> {
+  await assertAuthSessionMutationAvailable();
   const runtime = await resolveRuntimeContext({ view: input.view });
   const presenter = createPresenter(runtime);
   emitAuthOverviewIfNeeded({
@@ -929,6 +931,7 @@ export async function runAuthLogout(input?: {
   view?: string;
   agentOverviewHandled?: boolean;
 }): Promise<void> {
+  await assertAuthSessionMutationAvailable();
   const runtime = await resolveRuntimeContext({ view: input?.view });
   const presenter = createPresenter(runtime);
   emitAuthOverviewIfNeeded({

@@ -86,6 +86,15 @@ class AuthSessionStorageError extends Error {
   }
 }
 
+export class AuthSessionRecoveryInProgressError extends Error {
+  constructor() {
+    super(
+      "OpenMeld is still finishing an interrupted Computer sign-in recovery. The current sign-in was not changed; retry after the recovery cleanup succeeds."
+    );
+    this.name = "AuthSessionRecoveryInProgressError";
+  }
+}
+
 export type ClearAuthSessionResult = {
   hadLocalSession: boolean;
 };
@@ -336,6 +345,7 @@ export async function setAuthSession(input: AuthSessionInput): Promise<void> {
     throw new Error("client_id is required");
   }
 
+  await assertAuthSessionMutationAvailable();
   await retryPendingTokenCleanup();
 
   const previousPayload = await readSessionPayload();
@@ -538,9 +548,22 @@ export async function getInterruptedComputerAuthSessionRecovery(): Promise<Inter
     return null;
   }
 
-  const candidateSession = await readStoredAuthSessionFromPayload(
+  const candidateSession = await readStoredAuthSessionFromPayloadIfPresent(
     journal.candidatePayload
   );
+  if (!candidateSession) {
+    if (
+      journal.computerHandoff.serviceReconciledAt &&
+      journal.computerHandoff.remoteSessionRevokedAt
+    ) {
+      await removeAuthSessionTransitionJournal();
+      return null;
+    }
+    throw new AuthSessionStorageError({
+      message: "auth session recovery token is missing",
+      reason: "corrupt",
+    });
+  }
   const candidateOwnerUserId = normalizeOptionalString(
     candidateSession.user?.id
   );
@@ -725,6 +748,7 @@ export async function updateAuthSessionActiveOrganization(
 }
 
 export async function clearAuthSession(): Promise<ClearAuthSessionResult> {
+  await assertAuthSessionMutationAvailable();
   cachedAuthSession = null;
   await retryPendingTokenCleanup();
   const hadLocalSession = await authSessionFileExists();
@@ -734,6 +758,13 @@ export async function clearAuthSession(): Promise<ClearAuthSessionResult> {
   }
   await removeSessionFile();
   return { hadLocalSession };
+}
+
+export async function assertAuthSessionMutationAvailable(): Promise<void> {
+  await recoverInterruptedAuthSessionTransition();
+  if (await readAuthSessionTransitionJournal()) {
+    throw new AuthSessionRecoveryInProgressError();
+  }
 }
 
 async function retryPendingTokenCleanup(): Promise<void> {
@@ -1383,12 +1414,22 @@ function isCurrentProcessCandidateService(): boolean {
 async function readStoredAuthSessionFromPayload(
   payload: AuthSessionV1
 ): Promise<StoredAuthSession> {
-  const accessToken = await readAccessToken(payload.tokenRef);
-  if (accessToken.status === "missing") {
+  const session = await readStoredAuthSessionFromPayloadIfPresent(payload);
+  if (!session) {
     throw new AuthSessionStorageError({
       message: "auth session recovery token is missing",
       reason: "corrupt",
     });
+  }
+  return session;
+}
+
+async function readStoredAuthSessionFromPayloadIfPresent(
+  payload: AuthSessionV1
+): Promise<StoredAuthSession | null> {
+  const accessToken = await readAccessToken(payload.tokenRef);
+  if (accessToken.status === "missing") {
+    return null;
   }
   if (accessToken.status === "unavailable") {
     throw new AuthSessionStorageError({

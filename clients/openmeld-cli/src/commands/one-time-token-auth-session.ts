@@ -1,7 +1,9 @@
 import {
+  type AuthDeviceSessionClientError,
   extractAuthApiErrorMessage,
   fetchAuthUserSnapshot,
   readAuthUserFromSessionPayload,
+  revokeAuthAccessToken,
 } from "./auth-device-session-client";
 import type { PreparedAuthSession } from "./prepared-auth-session";
 
@@ -15,10 +17,45 @@ export type OneTimeTokenAuthFailureCode =
 export class OneTimeTokenAuthError extends Error {
   readonly code: OneTimeTokenAuthFailureCode;
 
-  constructor(code: OneTimeTokenAuthFailureCode, message: string) {
-    super(message);
+  constructor(
+    code: OneTimeTokenAuthFailureCode,
+    message: string,
+    options?: ErrorOptions
+  ) {
+    super(message, options);
     this.name = "OneTimeTokenAuthError";
     this.code = code;
+  }
+}
+
+export class OneTimeTokenCandidateSessionCleanupError extends OneTimeTokenAuthError {
+  readonly cleanup: {
+    endpoint: string;
+    message: string;
+    status: number | null;
+  };
+
+  constructor(input: {
+    cause: unknown;
+    cleanupError: AuthDeviceSessionClientError;
+  }) {
+    const status =
+      input.cleanupError.status === null
+        ? "network error"
+        : `HTTP ${input.cleanupError.status}`;
+    super(
+      input.cause instanceof OneTimeTokenAuthError
+        ? input.cause.code
+        : "unknown",
+      `${toErrorMessage(input.cause)}; cleanup failed at ${input.cleanupError.endpoint} (${status}): ${input.cleanupError.message}`,
+      { cause: input.cause }
+    );
+    this.name = "OneTimeTokenCandidateSessionCleanupError";
+    this.cleanup = {
+      endpoint: input.cleanupError.endpoint,
+      message: input.cleanupError.message,
+      status: input.cleanupError.status,
+    };
   }
 }
 
@@ -62,31 +99,46 @@ export async function exchangeOneTimeTokenAuthSession(input: {
     );
   }
 
-  const user =
-    readAuthUserFromSessionPayload(payload) ??
-    (await fetchAuthUserSnapshot({
-      authBaseUrl: input.authBaseUrl,
-      accessToken,
-    }));
-  const userId = normalizeOptionalString(user.id);
-  if (!userId) {
-    throw new OneTimeTokenAuthError(
-      "unknown",
-      "one-time token account response did not include a user id"
-    );
-  }
+  try {
+    const user =
+      readAuthUserFromSessionPayload(payload) ??
+      (await fetchAuthUserSnapshot({
+        authBaseUrl: input.authBaseUrl,
+        accessToken,
+      }));
+    const userId = normalizeOptionalString(user.id);
+    if (!userId) {
+      throw new OneTimeTokenAuthError(
+        "unknown",
+        "one-time token account response did not include a user id"
+      );
+    }
 
-  return {
-    accessToken,
-    tokenType: "Bearer",
-    authBaseUrl: input.authBaseUrl,
-    clientId: input.clientId,
-    ...readSessionExpiresAtFromPayload(payload),
-    user: {
-      ...user,
-      id: userId,
-    },
-  };
+    return {
+      accessToken,
+      tokenType: "Bearer",
+      authBaseUrl: input.authBaseUrl,
+      clientId: input.clientId,
+      ...readSessionExpiresAtFromPayload(payload),
+      user: {
+        ...user,
+        id: userId,
+      },
+    };
+  } catch (error) {
+    const cleanup = await revokeAuthAccessToken({
+      accessToken,
+      authBaseUrl: input.authBaseUrl,
+      tokenType: "Bearer",
+    });
+    if (cleanup.ok) {
+      throw error;
+    }
+    throw new OneTimeTokenCandidateSessionCleanupError({
+      cause: error,
+      cleanupError: cleanup.error,
+    });
+  }
 }
 
 function mapOneTimeTokenHttpError(
