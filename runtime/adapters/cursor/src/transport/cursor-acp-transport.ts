@@ -46,7 +46,11 @@ type CursorAcpSessionDescriptor = {
 };
 
 export type CursorAcpActiveTurnRegistration = {
+  agentControllerPermissionMode: AgentControllerPermissionMode;
   cancel: () => Promise<void>;
+  setPermissionMode: (
+    permissionMode: AgentControllerPermissionMode
+  ) => Promise<void>;
   sessionId: string;
   taskId: string;
 };
@@ -185,11 +189,20 @@ async function runCursorAcpTurn(input: {
     session: input.session,
   });
   const unregisterActiveTurn = input.input.onActiveTurn?.({
+    agentControllerPermissionMode: resolveCursorPermissionMode(
+      input.input.agentControllerPermissionMode
+    ),
     cancel: () => {
       input.session.notify("session/cancel", {
         sessionId: descriptor.sessionId,
       });
       return Promise.resolve();
+    },
+    setPermissionMode: async (permissionMode) => {
+      await input.session.request("session/set_mode", {
+        modeId: resolveCursorAcpMode(permissionMode),
+        sessionId: descriptor.sessionId,
+      });
     },
     sessionId: descriptor.sessionId,
     taskId: input.input.taskId,

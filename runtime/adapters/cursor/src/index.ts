@@ -8,6 +8,8 @@ import {
   type AdapterDispatchTelemetry,
   type AdapterInterruptRequest,
   type AdapterInterruptResult,
+  type AdapterPermissionModeUpdateRequest,
+  type AdapterPermissionModeUpdateResult,
   type AdapterPreviewCallback,
   type AdapterRuntimeProcessEvent,
   type AdapterTransportMode,
@@ -60,7 +62,7 @@ export type CursorAdapterOptions = {
 
 type ActiveCursorAcpTurn = Pick<
   CursorAcpActiveTurnRegistration,
-  "cancel" | "sessionId"
+  "agentControllerPermissionMode" | "cancel" | "sessionId" | "setPermissionMode"
 >;
 
 const CURSOR_CONVERSATION_BRIDGE_SPEC =
@@ -91,7 +93,9 @@ export function createCursorAdapter(
   const activeTurns = new Map<string, ActiveCursorAcpTurn>();
   const registerActiveTurn: CursorAcpActiveTurnRegistrar = (registration) => {
     const turn = {
+      agentControllerPermissionMode: registration.agentControllerPermissionMode,
       cancel: registration.cancel,
+      setPermissionMode: registration.setPermissionMode,
       sessionId: registration.sessionId,
     };
     activeTurns.set(registration.taskId, turn);
@@ -124,7 +128,69 @@ export function createCursorAdapter(
     cancel: (request) => cancelActiveCursorTurn({ activeTurns, request }),
     dispatch,
     interrupt: (request) => interruptActiveCursorTurn({ activeTurns, request }),
+    updatePermissionMode: (request) =>
+      updateCursorActivePermissionMode({ activeTurns, request }),
   };
+}
+
+async function updateCursorActivePermissionMode(input: {
+  activeTurns: ReadonlyMap<string, ActiveCursorAcpTurn>;
+  request: AdapterPermissionModeUpdateRequest;
+}): Promise<AdapterPermissionModeUpdateResult> {
+  if (!input.request.agentControllerPermissionMode.startsWith("cursor:")) {
+    return {
+      reasonCode: "adapter.permission_mode_incompatible",
+      status: "not_applied",
+      taskId: input.request.taskId,
+    };
+  }
+
+  const activeTurn = input.activeTurns.get(input.request.taskId);
+  if (!activeTurn) {
+    return {
+      reasonCode: "adapter.task_not_active",
+      status: "not_applied",
+      taskId: input.request.taskId,
+    };
+  }
+
+  if (
+    !(
+      isCursorAcpSessionPermissionMode(
+        activeTurn.agentControllerPermissionMode
+      ) &&
+      isCursorAcpSessionPermissionMode(
+        input.request.agentControllerPermissionMode
+      )
+    )
+  ) {
+    return {
+      reasonCode: "adapter.permission_mode_update_unsupported",
+      status: "not_applied",
+      taskId: input.request.taskId,
+    };
+  }
+
+  await activeTurn.setPermissionMode(
+    input.request.agentControllerPermissionMode
+  );
+  activeTurn.agentControllerPermissionMode =
+    input.request.agentControllerPermissionMode;
+  return {
+    effectiveFrom: "subsequent_tool_requests",
+    status: "applied",
+    taskId: input.request.taskId,
+  };
+}
+
+function isCursorAcpSessionPermissionMode(
+  permissionMode: AdapterPermissionModeUpdateRequest["agentControllerPermissionMode"]
+): permissionMode is "cursor:ask" | "cursor:default" | "cursor:plan" {
+  return (
+    permissionMode === "cursor:ask" ||
+    permissionMode === "cursor:default" ||
+    permissionMode === "cursor:plan"
+  );
 }
 
 function createDefaultCursorInvoke(input: {

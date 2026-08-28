@@ -288,17 +288,25 @@ enforcement models. Grok Build uses its native `default`, `acceptEdits`, `plan`,
 `auto`, `dontAsk`, and `bypassPermissions` modes. Plan remains a controller
 execution mode, not proof of a filesystem boundary.
 
-Owners may edit Binding-level runtime settings while a Wake is running. Saving
-must never mutate or invalidate an execution that RuntimeCoordinator already
-accepted: that Wake continues with the settings revision it started with. New
-work waits until the local OpenMeld Service has applied the saved revision
-before it starts. Product surfaces must distinguish **saved** from **applied**
-and explain both facts directly; a successful cloud write must not imply that
-the local controller changed immediately. The inverse is equally important:
-pending route-catalog or readiness convergence after an accepted Binding write
-must not turn that saved write into a visible failure. Web shows the saved
-outcome, refreshes canonical Core readiness, and lets that readiness projection
-decide whether the Agent Profile is Available, Checking, Offline, or Unavailable.
+Owners may edit Binding-level runtime settings while a Wake is running. The
+accepted Binding id and configuration revision remain the dispatch's immutable
+starting identity, so changing model, reasoning, collaboration, or
+controller-specific structured permission data never rewrites that accepted
+execution. Agent Controller Permission Mode is the narrow
+capability-driven exception: after Core saves the Binding and the local
+OpenMeld Service receives the canonical route-catalog update, the Service may
+apply the new mode to an active controller session only when that adapter
+explicitly acknowledges a native live update. The effect begins with later tool
+requests; it never retroactively answers a permission request that is already
+waiting. Unsupported controllers and launch-only modes keep the active
+session's starting mode, while new work waits until the Service has applied the
+saved revision before it starts. Product surfaces must distinguish **saved**
+from **applied** and must not claim that a particular active session changed
+without capability acknowledgement. Pending route-catalog or readiness
+convergence after an accepted Binding write must not turn that saved write into
+a visible failure. Web shows the saved outcome, refreshes canonical Core
+readiness, and lets that readiness projection decide whether the Agent Profile
+is Available, Checking, Offline, or Unavailable.
 Changing or unbinding the Agent Controller and changing the local working folder
 are different because they change the execution target underneath future work
 and can interrupt an accepted Wake. Every maintenance surface must read the

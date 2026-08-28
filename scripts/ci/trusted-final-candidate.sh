@@ -159,6 +159,8 @@ fi
 
 trusted_git -C "$candidate_root" worktree add --detach --quiet "$control_root" "$control_sha"
 readonly bootstrap_path="$(cd "$control_root" && pwd -P)/$bootstrap_relative_path"
+readonly observer_path="$(cd "$control_root" && pwd -P)/scripts/ci/final-candidate-observer.mjs"
+readonly readiness_path="$(cd "$control_root" && pwd -P)/scripts/ci/local-final-candidate-readiness.mjs"
 if [ ! -f "$bootstrap_path" ]; then
   echo "Selected Final Candidate control does not contain the bootstrap: $control_sha" >&2
   exit 66
@@ -176,13 +178,25 @@ printf '%s\n' \
 cd "$candidate_root"
 case "$command" in
   local)
+    if [ -f "$readiness_path" ]; then
+      node "$readiness_path" --candidate-root "$candidate_root"
+    else
+      echo "Local Final Candidate resource preflight is not present in the selected trusted control; continuing only for this explicit control bootstrap." >&2
+    fi
     node "$bootstrap_path" run --mode local --publish-status "$@"
+    ;;
+  status | wait)
+    if [ ! -f "$observer_path" ]; then
+      echo "Selected Final Candidate control does not contain the quiet status observer: $control_sha" >&2
+      exit 66
+    fi
+    node "$observer_path" "$command" "$@"
     ;;
   plan | request | help)
     node "$bootstrap_path" "$command" "$@"
     ;;
   *)
-    echo "Trusted Final Candidate command must be plan, request, local, or help." >&2
+    echo "Trusted Final Candidate command must be plan, request, status, wait, local, or help." >&2
     exit 64
     ;;
 esac

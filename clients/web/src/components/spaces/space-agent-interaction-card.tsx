@@ -233,8 +233,9 @@ function PermissionInteraction(input: {
 			{input.onEditAgentProfile ? (
 				<div className="grid gap-2 border-border border-t pt-3">
 					<p className="text-muted-foreground text-xs leading-5">
-						This changes future work only. Respond to this request separately to
-						continue the current Wake.
+						New permission settings can affect later tool requests in this Wake
+						when the local agent supports live updates. This request was already
+						waiting, so respond to it separately.
 					</p>
 					<div>
 						<Button

@@ -2367,8 +2367,13 @@ after Web's eligibility read still blocks the disruptive change. A working-
 folder timeout remains an unknown outcome until the lease expires; Web shows
 the failed save and must not imply that a concurrent Wake is safe. Model,
 reasoning, collaboration, permission, and OpenCode permission controls remain
-editable while an Agent is working because they apply to future work after
-local synchronization.
+editable while an Agent is working. Model, reasoning, collaboration, and
+OpenCode permission changes apply to future work after local synchronization.
+Agent Controller Permission Mode may also affect later tool requests in an
+active session when the local adapter supports a native live update, but Web
+must not claim that a specific session changed because it does not own the
+adapter acknowledgement. A permission request that was already waiting remains
+separate and still needs its own response.
 
 For Codex Bindings, the same edit surface also renders a separate
 `Codex collaboration mode` control with `Default` and `Plan`. Its copy must

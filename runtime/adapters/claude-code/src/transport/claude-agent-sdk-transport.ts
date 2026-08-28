@@ -66,10 +66,11 @@ export type ClaudeAgentSdkQueryFactory = (input: {
 
 export type ClaudeAgentSdkActiveQuery = Pick<
   ClaudeAgentQuery,
-  "close" | "interrupt"
+  "close" | "interrupt" | "setPermissionMode"
 >;
 
 export type ClaudeAgentSdkQueryRegistration = (input: {
+  permissionModeUpdatesAllowed: boolean;
   query: ClaudeAgentSdkActiveQuery;
   taskId: string;
 }) => () => void;
@@ -217,6 +218,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
 
     if (input.taskId) {
       unregisterQuery = input.registerQuery?.({
+        permissionModeUpdatesAllowed: input.executionMode !== "repair",
         query: queryRuntime,
         taskId: input.taskId,
       });

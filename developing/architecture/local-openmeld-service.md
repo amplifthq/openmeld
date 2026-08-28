@@ -1110,6 +1110,14 @@ Catalog consumption rules:
 - Carrier startup and periodic catalog refresh only check existing local
   projection and workspace state. Setup and explicit repair own mutations;
   catalog reads must not run repair work or block healthy routes behind it.
+- After a successful catalog refresh, the Service reconciles a changed Agent
+  Controller Permission Mode into matching in-flight tasks. It may mark the new
+  mode on a task only after the active adapter explicitly reports `applied` for
+  later tool requests. Missing adapter capability, a launch-only mode, an
+  inactive-task race, and repair-only constraints are explicit `not_applied`
+  diagnostic outcomes: they do not fail route registration, roll back the saved
+  Binding, or pretend the active controller changed. A pending Agent
+  Interaction remains separate and still requires its own response.
 - One catalog load has one bounded total deadline. A phase that does not settle
   must fail with its phase name and measured duration so startup can recover
   from the last accepted cache, or start empty and retry when no cache exists.

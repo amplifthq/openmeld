@@ -152,6 +152,14 @@ environment callback, or no coordination best fits the actual work.
 
 - A background command attached to Codex must redirect standard input explicitly
   with `< /dev/null` so it cannot wait on the agent session.
+- Before starting a heavy local fallback, handing off a worktree, or leaving a
+  localhost stack unattended, inspect bounded machine facts with
+  `pnpm dev:status`. It groups active processes by exact worktree instead of
+  dumping every process into agent context.
+- When this worktree no longer needs its localhost stack, preview its exact
+  owned processes with `pnpm dev:stop -- --dry-run`, then run `pnpm dev:stop`.
+  The command is worktree-scoped. Never stop another worktree merely to create
+  headroom; contact its owner only when measured pressure blocks useful work.
 - Do not ask unrelated agents to freeze `main` while one Final Candidate runs.
   A successful exact PR candidate keeps its immutable evidence. Merge queue owns
   the latest-main combination when available; strict up-to-date protection owns
@@ -719,6 +727,13 @@ OpenMeld-managed local helper skills, Organization Skill delivery,
 daemon/runtime schemas, Prepare Session schemas, shared HTTP/RPC/WebSocket
 schemas, or `release/local-components.json`.
 
+This includes Wake, setup, reconnect, auto-update, permission or approval,
+structured-reply, runtime-transport, and other critical user-path fixes when
+their behavior crosses a local-component boundary. The audit questions below
+own the engineering judgment. The explicit release command and monotonic floor
+behavior are defined once in `production-release.md`; do not copy a second
+policy table here.
+
 This is a design judgment, not a release-tool result. The release-ready gate can
 detect stale artifacts, changed sensitive paths, and contract constants that
 already changed. It cannot decide whether an implementation forgot to bump a
@@ -810,6 +825,30 @@ local Agent Controller adapter.
   keep designation disabled and roll Core forward with a compatible fix. Web
   can roll back independently because it does not own Binding or execution
   truth. Never delete or rewrite legacy Binding rows as a rollback shortcut.
+
+#### Live permission-mode reconciliation
+
+Live permission-mode reconciliation changes the CLI-carried local Service and
+the process-internal `RuntimeAdapter` contract. It reuses the existing
+`daemon.route_catalog.changed` signal, expected-routes projection, Binding
+schema, Wake dispatch frame, Agent Interaction response path, and diagnostics
+transport; it adds no cloud-to-Service frame or shared schema field.
+
+- Old cloud can talk to the new local component because Core already sends the
+  catalog invalidation and canonical expected routes. New cloud can talk to an
+  old local component because the old Service keeps the established
+  future-work-only behavior. Mixed versions remain safe and explicit.
+- The new local component applies a mode to an active task only after a
+  controller adapter acknowledges native support. Unsupported providers and
+  modes keep the starting mode and do not block catalog convergence, existing
+  Wake work, setup, status, Space Actions, trace, or diagnostics.
+- No Runtime Transport epoch, OpenMeld Service contract, CLI command contract,
+  or shared schema constant changes. At publication time, stamp the touched
+  CLI/Service artifact as advisory `available`; no cloud deploy order or forced
+  local update is required.
+- Rollback removes the local live-update capability and returns to the previous
+  future-work-only behavior. It must not rewrite Binding state, active Wake
+  state, or pending Agent Interactions.
 
 ### Local Agent Interaction Contract Impact Audit
 
@@ -1524,12 +1563,16 @@ pull request's exact base SHA and chooses deferred or strict release readiness
 from the branch contract. Release preflight, publish, Core deploy, and every
 actual release path remain strict.
 
-For an advisory local update that should show as available without blocking
-Wake:
+Inspect the exact local-component changes before choosing an advisory or
+required update:
 
 ```text
-pnpm release:local-components stamp --next --cli available --service available --skills available
+pnpm release:local-components plan --next
 ```
+
+Use the printed command shape with a component-specific policy and reason for
+every touched component. `production-release.md` owns the policy meanings and
+floor behavior.
 
 Verify the tracked manifest against a freshly rebuilt package, Service bundle,
 skill bundle, and changed paths with the release-ready gate. The base resolves
@@ -1651,6 +1694,10 @@ Validation handoff should include:
 - whether fresh user, stale state, and retry paths were covered when relevant
 - trace or Diagnostic Report pointers when relevant
 - remaining user-visible or agent-visible gaps
+
+Before the handoff, stop only this worktree's no-longer-needed dev stack. Keep
+it running when the handoff explicitly needs live localhost state, and state
+that fact instead of leaving an invisible background owner.
 
 Do not mark a user-facing flow as passed if only internal service calls,
 hand-built API requests, seeded state, or direct DB/projection edits were tested.

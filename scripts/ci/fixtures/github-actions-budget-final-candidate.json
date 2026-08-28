@@ -1,0 +1,56 @@
+{
+  "capturedAt": "2026-08-29T00:35:00+08:00",
+  "source": {
+    "annotationsEndpoint": "repos/amplifthq/openmeld/check-runs/98908605927/annotations",
+    "jobsEndpoint": "repos/amplifthq/openmeld/actions/runs/33188784767/jobs",
+    "runEndpoint": "repos/amplifthq/openmeld/actions/runs/33188784767"
+  },
+  "run": {
+    "conclusion": "failure",
+    "head_sha": "02cdbcfc04cee08b8ab499b8ad7804bb2e53b1e6",
+    "html_url": "https://github.com/amplifthq/openmeld/actions/runs/33188784767",
+    "id": 33188784767,
+    "status": "completed"
+  },
+  "jobs": [
+    {
+      "conclusion": "failure",
+      "id": 98908605927,
+      "name": "Publish Exact Pending Candidate",
+      "status": "completed",
+      "steps": []
+    },
+    {
+      "conclusion": "failure",
+      "id": 98908618818,
+      "name": "Publish Validated Final Candidate Result",
+      "status": "completed",
+      "steps": []
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98908619422,
+      "name": "Final Candidate Runner",
+      "status": "completed",
+      "steps": []
+    }
+  ],
+  "annotationsByCheckRunId": {
+    "98908605927": [
+      {
+        "annotation_level": "failure",
+        "message": "The job was not started because an Actions budget is preventing further use.",
+        "raw_details": "",
+        "title": ""
+      }
+    ],
+    "98908618818": [
+      {
+        "annotation_level": "failure",
+        "message": "The job was not started because an Actions budget is preventing further use.",
+        "raw_details": "",
+        "title": ""
+      }
+    ]
+  }
+}

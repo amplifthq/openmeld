@@ -450,6 +450,26 @@ export type AdapterCancelResult = AdapterControlResultBase & {
   signalDelivery: "not_sent" | "sent";
 };
 
+export type AdapterPermissionModeUpdateRequest = {
+  agentControllerPermissionMode: AgentControllerPermissionMode;
+  taskId: string;
+};
+
+export type AdapterPermissionModeUpdateResult =
+  | {
+      effectiveFrom: "subsequent_tool_requests";
+      status: "applied";
+      taskId: string;
+    }
+  | {
+      reasonCode:
+        | "adapter.permission_mode_incompatible"
+        | "adapter.permission_mode_update_unsupported"
+        | "adapter.task_not_active";
+      status: "not_applied";
+      taskId: string;
+    };
+
 export type WaitForMs = (delayMs: number) => Promise<void>;
 
 export type RuntimeAdapter = {
@@ -459,6 +479,9 @@ export type RuntimeAdapter = {
   cancel?(input: AdapterCancelRequest): Promise<AdapterCancelResult>;
   dispatch(input: AdapterDispatchRequest): Promise<AdapterDispatchResult>;
   interrupt(input: AdapterInterruptRequest): Promise<AdapterInterruptResult>;
+  updatePermissionMode?(
+    input: AdapterPermissionModeUpdateRequest
+  ): Promise<AdapterPermissionModeUpdateResult>;
   verifyComputerFileAccessBoundary?(
     input: AdapterComputerFileAccessVerificationRequest
   ): Promise<AdapterComputerFileAccessVerificationResult>;

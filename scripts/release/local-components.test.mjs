@@ -24,8 +24,10 @@ import {
   OPENMELD_GREENFIELD_RELEASE_LINE,
   resolveCliRequiredFloorVerificationErrors,
   resolveEffectiveReleaseBase,
+  resolveExplicitLocalComponentPolicyDecisionErrors,
   resolveLatestReleaseTag,
   resolveReleasePolicyVerificationErrors,
+  resolveServiceRequiredFloorVerificationErrors,
   runLocalComponentsReleaseTool,
 } from "./local-components.mjs";
 import {
@@ -37,7 +39,7 @@ import {
 
 const SHA256_HEX_REGEX = /^[a-f0-9]{64}$/u;
 const SKILLS_POLICY_REQUIRED_RE =
-  /OpenMeld skills changed, so skills\.updatePolicy must be available or required/u;
+  /OpenMeld skills changed, so choose --skills available or --skills required/u;
 const STAMP_SOURCE_CHANGED_RE =
   /Release source changed while rebuilding the packaged OpenMeld CLI/u;
 const STAMP_BUILD_EXPLODED_RE = /build exploded/u;
@@ -114,6 +116,7 @@ test("collects local component release facts from the workspace shape", async ()
     assert.equal(facts.service.bundleVersion, "1.2.3");
     assert.equal(facts.service.runtimeContractEpoch, "daemon-epoch-v1");
     assert.equal(facts.service.serviceContractVersion, "daemon-epoch-v1");
+    assert.equal(facts.serviceRequiredFloor, "1.2.3");
     assert.match(facts.service.bundleHash, SHA256_HEX_REGEX);
     assert.equal(facts.skills.skillContractVersion, "skills-contract-v1");
     assert.deepEqual(facts.skills.skillIds, ["openmeld-cli"]);
@@ -327,6 +330,47 @@ test("verification requires policy intent for changed local component artifacts"
   );
 });
 
+test("stamp decisions fail when a touched component lacks an explicit policy or concrete reason", () => {
+  assert.deepEqual(
+    resolveExplicitLocalComponentPolicyDecisionErrors({
+      changedPaths: [
+        "clients/openmeld-cli/src/commands/service.ts",
+        "clients/openmeld-cli/skills/openmeld-cli/SKILL.md",
+      ],
+      policies: { cli: "available" },
+      reasons: { cli: "Existing CLI commands remain backward-compatible." },
+    }),
+    [
+      "OpenMeld Service changed, so choose --service available or --service required.",
+      "OpenMeld Service changed, so add --service-reason with a concrete compatibility reason.",
+      "OpenMeld skills changed, so choose --skills available or --skills required.",
+      "OpenMeld skills changed, so add --skills-reason with a concrete compatibility reason.",
+    ]
+  );
+});
+
+test("stamp decisions accept available and required only with component-specific reasons", () => {
+  assert.deepEqual(
+    resolveExplicitLocalComponentPolicyDecisionErrors({
+      changedPaths: [
+        "clients/openmeld-cli/src/commands/service.ts",
+        "clients/openmeld-cli/skills/openmeld-cli/SKILL.md",
+      ],
+      policies: {
+        cli: "available",
+        service: "required",
+        skills: "available",
+      },
+      reasons: {
+        cli: "Existing CLI commands remain backward-compatible.",
+        service: "Older Services cannot safely execute the new Wake contract.",
+        skills: "Existing installed skills keep their current commands.",
+      },
+    }),
+    []
+  );
+});
+
 test("working-language prompt changes require CLI and Service release intent", () => {
   const facts = createFacts();
   const manifest = buildReleasePolicyManifest({
@@ -359,6 +403,7 @@ test("working-language prompt changes require CLI and Service release intent", (
 
 test("stamp refuses to preserve ok policy when changed paths require policy intent", async () => {
   const repoRoot = await createFixtureRepo();
+  let buildCalled = false;
   try {
     const facts = await collectLocalComponentFacts({
       repoRoot,
@@ -398,9 +443,57 @@ test("stamp refuses to preserve ok policy when changed paths require policy inte
           "--now",
           "2026-06-01T00:00:00.000Z",
         ],
-        FIXTURE_STAMP_DEPENDENCIES
+        {
+          buildPackagedOpenMeldCli: () => {
+            buildCalled = true;
+          },
+        }
       ),
       SKILLS_POLICY_REQUIRED_RE
+    );
+    assert.equal(buildCalled, false);
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("stamp accepts an explicit policy and component-specific reason for a touched component", async () => {
+  const repoRoot = await createFixtureRepo();
+  try {
+    await initFixtureGitRepo(repoRoot);
+    const base = await readGitHead(repoRoot);
+    await writeFixtureFile(
+      repoRoot,
+      "clients/openmeld-cli/skills/openmeld-cli/SKILL.md",
+      "# OpenMeld CLI\n\nUpdated backward-compatible instructions.\n"
+    );
+    await execGit(repoRoot, ["add", "."]);
+    await execGit(repoRoot, ["commit", "-m", "Update skills"]);
+
+    await runLocalComponentsReleaseTool(
+      [
+        "stamp",
+        "--repo-root",
+        repoRoot,
+        "--base",
+        base,
+        "--skills",
+        "available",
+        "--skills-reason",
+        "Existing installed skills keep their current commands.",
+        "--now",
+        "2026-06-01T00:00:00.000Z",
+      ],
+      FIXTURE_STAMP_DEPENDENCIES
+    );
+
+    const manifest = JSON.parse(
+      await readFile(join(repoRoot, "release/local-components.json"), "utf8")
+    );
+    assert.equal(manifest.components.skills.updatePolicy, "available");
+    assert.equal(
+      manifest.components.skills.reason,
+      "Existing installed skills keep their current commands."
     );
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
@@ -1327,6 +1420,52 @@ test("the CLI floor never regresses below the base floor (monotonicity)", () => 
   );
 });
 
+test("a required Service release must project its target into the Core-owned floor", () => {
+  assert.deepEqual(
+    resolveServiceRequiredFloorVerificationErrors({
+      baseFloor: "1.1.0",
+      bundleVersion: "1.2.3",
+      floor: "1.1.0",
+      updatePolicy: "required",
+    }),
+    [
+      "service.updatePolicy is required, so MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION (1.1.0) must be at least the released service.bundleVersion (1.2.3).",
+    ]
+  );
+  assert.deepEqual(
+    resolveServiceRequiredFloorVerificationErrors({
+      baseFloor: "1.1.0",
+      bundleVersion: "1.2.3",
+      floor: "1.2.3",
+      updatePolicy: "required",
+    }),
+    []
+  );
+});
+
+test("a later available Service release cannot reopen versions below an existing floor", () => {
+  assert.deepEqual(
+    resolveServiceRequiredFloorVerificationErrors({
+      baseFloor: "1.2.3",
+      bundleVersion: "1.2.4",
+      floor: "1.1.0",
+      updatePolicy: "available",
+    }),
+    [
+      "MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION (1.1.0) must not regress below the base floor (1.2.3).",
+    ]
+  );
+  assert.deepEqual(
+    resolveServiceRequiredFloorVerificationErrors({
+      baseFloor: "1.2.3",
+      bundleVersion: "1.2.4",
+      floor: "1.2.3",
+      updatePolicy: "available",
+    }),
+    []
+  );
+});
+
 test("the CLI floor may reset only for the initial OpenMeld release line", () => {
   const facts = {
     ...createFacts(),
@@ -1481,6 +1620,11 @@ async function createFixtureRepo() {
     repoRoot,
     "packages/schemas/src/schemas/daemon/runtime-transport.ts",
     'export const CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH = "daemon-epoch-v1" as const;\n'
+  );
+  await writeFixtureFile(
+    repoRoot,
+    "services/core/src/local-components/update-projection.ts",
+    'const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "1.2.3";\n'
   );
   await writeFixtureFile(
     repoRoot,

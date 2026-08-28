@@ -8,24 +8,36 @@ import {
 } from "./production-release-status.mjs";
 
 const SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+const CHANGE_BASE_SHA = "06fd4b88b75ef576db88289305a550c9e85efad5";
 const WEB_SHA = "c20057269eba7a1505fe3374d2c8c6e6b903bb00";
 const CORE_SHA = "dabcc83d83747b50c4756c5ceb3190012baf5c69";
 const CLI_SHA = "19c16cee2acbddddff77b8fac9afdbfb14c11b86";
 const GATEWAY_REMOTE_SHA = "9683abd4aeed3f13a8df79e4e7b3763f75faec14";
 const DATABASE_AUTH_SHA = "e82eaa4ebd1d023da2e8446c91db1a90abdeb011";
-const BLOCKED_STATE_REGEX = /Deployment state: blocked/u;
-const READY_STATE_REGEX = /Deployment state: ready/u;
+const RELEASE_SCOPES_FOR_TEST = [
+  "db",
+  "web",
+  "gateway",
+  "auth",
+  "cli",
+  "core",
+  "remote-agent",
+];
+const BLOCKED_STATE_REGEX = /Deployment state \(global-backlog\): blocked/u;
+const READY_STATE_REGEX = /Deployment state \(global-backlog\): ready/u;
 const FULL_PENDING_SCOPES_REGEX =
-  /Pending scopes: db, web, gateway, auth, cli, core, remote-agent/u;
+  /Global pending scopes: db, web, gateway, auth, cli, core, remote-agent/u;
 const PUSH_GUARD_FAILURE_REGEX = /Historical Push Guard: failure/u;
 const FULL_RELEASE_RECOMMENDATION_REGEX =
-  /CLI Release: run CLI release directly; Scoped Production Release separate runs: database, then web, then gateway, then auth, then remote-agent/u;
+  /CLI Release owns the CLI and required Core projection; Scoped Production Release inputs are separate: database, web, gateway, auth, remote-agent/u;
 const DATABASE_RELEASE_RECOMMENDATION_REGEX =
-  /Scoped Production Release: database/u;
+  /Scoped Production Release input: database/u;
 const EXTERNAL_VALIDATION_REGEX =
   /Source validation: no push check evidence; confirm exact Final Candidate evidence/u;
 const RECORDED_VALIDATION_REGEX =
   /Source validation: recorded push checks passed/u;
+const WEB_SCOPE_PATTERN = /web/u;
+const UNRELATED_MISSING_SCOPES_PATTERN = /db, gateway, auth, cli, core/u;
 
 const RELEASE_RUNS = [
   releaseRun({
@@ -129,11 +141,72 @@ test("parses the read-only remote release status command", () => {
       "--json",
     ]),
     {
+      changeBase: undefined,
       deployed: new Map([["web", WEB_SHA]]),
       json: true,
       ref: "origin/main",
       repo: "amplifthq/openmeld",
     }
+  );
+});
+
+test("separates the exact current-change scopes from the global deployment backlog", async () => {
+  let output = "";
+  const adapters = releaseStatusAdapters({ pushChecks: [] });
+  adapters.resolveRef = (ref) =>
+    ref === "change-base" ? CHANGE_BASE_SHA : SOURCE_SHA;
+  adapters.buildPlan = ({ base }) => ({
+    changedPaths:
+      base === CHANGE_BASE_SHA
+        ? ["clients/web/src/routes/people.tsx"]
+        : ["historical-backlog"],
+    scopes: base === CHANGE_BASE_SHA ? ["web"] : [...RELEASE_SCOPES_FOR_TEST],
+  });
+
+  const exitCode = await runProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", "origin/main", "--change-base", "change-base", "--json"],
+    write: (value) => {
+      output += value;
+    },
+  });
+
+  assert.equal(exitCode, 0, output);
+  const result = JSON.parse(output);
+  assert.deepEqual(result.currentChange.scopes, ["web"]);
+  assert.deepEqual(result.currentChange.pendingScopes, ["web"]);
+  assert.deepEqual(result.globalPendingScopes, RELEASE_SCOPES_FOR_TEST);
+  assert.equal(result.scopeBasis, "current-change");
+  assert.match(result.workflowMapping, WEB_SCOPE_PATTERN);
+});
+
+test("does not block one current-change scope on unrelated missing deployment history", async () => {
+  let output = "";
+  const adapters = releaseStatusAdapters({ pushChecks: [] });
+  adapters.resolveRef = (ref) =>
+    ref === "change-base" ? CHANGE_BASE_SHA : SOURCE_SHA;
+  adapters.buildPlan = ({ base }) => ({
+    changedPaths: base === CHANGE_BASE_SHA ? ["clients/web/src/app.tsx"] : [],
+    scopes: ["web"],
+  });
+  adapters.readReleaseRuns = async () => [RELEASE_RUNS[1]];
+
+  const exitCode = await runProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", "origin/main", "--change-base", "change-base", "--json"],
+    write: (value) => {
+      output += value;
+    },
+  });
+
+  assert.equal(exitCode, 0, output);
+  const result = JSON.parse(output);
+  assert.deepEqual(result.blockers, []);
+  assert.equal(result.state, "ready");
+  assert.equal(result.globalState, "blocked");
+  assert.match(
+    result.globalBlockers[0].detail,
+    UNRELATED_MISSING_SCOPES_PATTERN
   );
 });
 
