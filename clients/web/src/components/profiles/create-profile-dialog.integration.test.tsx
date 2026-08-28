@@ -2416,7 +2416,7 @@ describe("CreateProfileDialog", () => {
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "OpenClaw Agent" },
 		});
-		fireEvent.click(screen.getByRole("radio", { name: "Openclaw" }));
+		fireEvent.click(screen.getByRole("radio", { name: "OpenClaw" }));
 
 		await waitFor(() => {
 			expect(
