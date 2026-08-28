@@ -14,12 +14,10 @@ export function useAccountSpaceIndicators(input: {
 	organizationId: string;
 	profileId: string;
 }) {
-	const unreadSummaryQuery = useQuery(
-		spaceInboxSummaryQueryOptions({
-			enabled: input.enabled && input.organizationId.trim().length > 0,
-			organizationId: input.organizationId,
-		})
-	);
+	const unreadBySpaceId = useSpaceInboxUnreadById({
+		enabled: input.enabled,
+		organizationId: input.organizationId,
+	});
 	const activeWakeSummaryQuery = useQuery(
 		accountSpaceActiveWakeSummaryQueryOptions({
 			enabled: input.enabled && input.profileId.trim().length > 0,
@@ -31,19 +29,6 @@ export function useAccountSpaceIndicators(input: {
 			data: activeWakeSummaryQuery.data,
 			isError: activeWakeSummaryQuery.isError,
 		});
-	const unreadBySpaceId: SpaceUnreadById = useMemo(
-		() =>
-			new Map(
-				(unreadSummaryQuery.data?.spaces ?? []).map((item) => [
-					item.spaceId,
-					{
-						latestUnreadOccurredAtMs: item.latestUnreadOccurredAtMs,
-						unreadCount: item.unreadCount,
-					},
-				])
-			),
-		[unreadSummaryQuery.data?.spaces]
-	);
 	const activeWakeSpaceIds = useMemo(
 		() => new Set(usableActiveWakeSummaryItems.map((item) => item.spaceId)),
 		[usableActiveWakeSummaryItems]
@@ -59,4 +44,30 @@ export function useAccountSpaceIndicators(input: {
 		activeWakeSummaryBySpaceId,
 		unreadBySpaceId,
 	};
+}
+
+export function useSpaceInboxUnreadById(input: {
+	enabled: boolean;
+	organizationId: string;
+}): SpaceUnreadById {
+	const unreadSummaryQuery = useQuery(
+		spaceInboxSummaryQueryOptions({
+			enabled: input.enabled && input.organizationId.trim().length > 0,
+			organizationId: input.organizationId,
+		})
+	);
+	const unreadBySpaceId: SpaceUnreadById = useMemo(
+		() =>
+			new Map(
+				(unreadSummaryQuery.data?.spaces ?? []).map((item) => [
+					item.spaceId,
+					{
+						latestUnreadOccurredAtMs: item.latestUnreadOccurredAtMs,
+						unreadCount: item.unreadCount,
+					},
+				])
+			),
+		[unreadSummaryQuery.data?.spaces]
+	);
+	return unreadBySpaceId;
 }

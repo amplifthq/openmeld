@@ -8,7 +8,7 @@ export function useSpaceInboxReadPosition(input: {
 	spaceId: string;
 }) {
 	const queryClient = useQueryClient();
-	return useCallback(
+	const persist = useCallback(
 		async (throughOccurredAtMs: number) => {
 			if (!(input.organizationId && throughOccurredAtMs > 0)) {
 				return;
@@ -25,4 +25,5 @@ export function useSpaceInboxReadPosition(input: {
 		},
 		[input.organizationId, input.spaceId, queryClient]
 	);
+	return input.organizationId ? persist : undefined;
 }
