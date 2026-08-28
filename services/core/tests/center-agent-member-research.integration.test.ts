@@ -453,6 +453,7 @@ describe("Center Agent member research", () => {
     const fixture = await seedResearchFixture();
     const coreEnv = buildResearchDeliveryEnv(fixture);
     const startedAtMs = Date.now() + 1000;
+    let documentNowMs = startedAtMs + 2;
     const accepted = await startCenterAgentMemberResearch(
       coreEnv,
       {
@@ -514,7 +515,7 @@ describe("Center Agent member research", () => {
     });
     const documentService = createOrganizationDocumentService({
       db: env.OPENMELD_DB,
-      now: () => startedAtMs + 2,
+      now: () => documentNowMs,
     });
     const draftInput = {
       draftContent: "",
@@ -663,6 +664,9 @@ describe("Center Agent member research", () => {
     if (!draftVersion) {
       throw new Error("Expected the member research draft version.");
     }
+    // The RPC uses the real clock, while this direct service keeps an injected
+    // clock. Advance it to the persisted draft before resolving that draft.
+    documentNowMs = Math.max(documentNowMs, draftVersion.draft_created_at + 1);
     const renderedDraft = await env.OPENMELD_DB.prepare(
       "SELECT draft_content FROM organization_documents WHERE id = ?"
     )
