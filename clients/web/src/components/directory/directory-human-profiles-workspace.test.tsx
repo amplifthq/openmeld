@@ -406,6 +406,28 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(heading?.classList.contains("whitespace-nowrap")).toBe(true);
 	});
 
+	it("does not reserve an empty row when a member has no optional sidebar content", () => {
+		const member = {
+			...buildMember({ current: false }),
+			lastActiveAt: null,
+		};
+		renderWorkspace({ members: [member] });
+
+		const item = screen.getByRole("button", {
+			name: "Open Grace Hopper's profile",
+		});
+		expect(
+			item.querySelector('[data-slot="human-profile-channel-identities"]')
+		).toBeNull();
+		expect(
+			item.querySelector(
+				'[data-slot="human-profile-activity-and-local-agents"]'
+			)
+		).toBeNull();
+		expect(item.classList.contains("min-h-20")).toBe(false);
+		expect(item.classList.contains("py-2")).toBe(true);
+	});
+
 	it("selects a Human Profile from the sidebar without opening a Drawer", () => {
 		const onSelectProfile = vi.fn();
 		renderWorkspace({ onSelectProfile });

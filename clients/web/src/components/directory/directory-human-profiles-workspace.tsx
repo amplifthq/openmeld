@@ -563,7 +563,7 @@ function HumanProfileSidebarItem(input: {
 				aria-current={input.isActive ? "page" : undefined}
 				aria-label={`Open ${input.member.name}'s profile`}
 				className={cn(
-					"flex min-h-20 w-full min-w-0 flex-row items-start gap-2 px-2 py-2 text-left outline-none",
+					"flex w-full min-w-0 flex-row items-start gap-2 px-2 py-2 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
 					input.isActive ? "text-sidebar-accent-foreground" : null
