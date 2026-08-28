@@ -102,6 +102,20 @@ describe("cli-entry-command", () => {
 		).toBe("npx -y openmeld@latest service stop");
 	});
 
+	it("hands Connect Computer an approved device code instead of the browser session", () => {
+		vi.stubEnv("DEV", false);
+		vi.stubEnv("PROD", true);
+
+		expect(
+			buildWebSetupCommand({
+				deviceCode: "device-secret",
+				startSession: "starttok_demo",
+			})
+		).toBe(
+			"curl -fsSL https://openmeld.ai/setup | sh -s -- setup --start-session starttok_demo --device-code device-secret --view human"
+		);
+	});
+
 	it("uses npx latest for selected production execution targets", () => {
 		expect(resolveWebCliEntryCommand({ userFacingCommand: "openmeld" })).toBe(
 			"npx -y openmeld@latest"

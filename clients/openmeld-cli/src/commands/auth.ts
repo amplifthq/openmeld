@@ -30,6 +30,16 @@ import { canUseInteractivePrompts } from "../runtime/interaction";
 import { createPresenter } from "../runtime/presenter";
 import { promptTextEntry } from "../ui/text-entry";
 import {
+  type AuthUserSnapshot,
+  type DeviceTokenSuccessResponse,
+  extractAuthApiErrorMessage,
+  fetchAuthUserSnapshot,
+  readAuthUserFromSessionPayload,
+  requestDeviceToken,
+  resolveDeviceAuthClientId,
+  resolveDeviceTokenExpiresAt,
+} from "./auth-device-session-client";
+import {
   type AuthStatusSnapshot,
   buildAuthStatusSnapshot,
   renderAuthStatusCard,
@@ -37,7 +47,6 @@ import {
 } from "./auth-status-shared";
 import { bestEffortStopCurrentLaneDaemonService } from "./service";
 
-const DEFAULT_DEVICE_CLIENT_ID = "openmeld-cli";
 const LOGIN_METHOD_DEVICE = "device";
 const LOGIN_METHOD_OTT = "ott";
 const LOGIN_METHOD_CANCEL = "__auth_login_method_cancel__";
@@ -48,8 +57,6 @@ const DEFAULT_POLL_INTERVAL_SECONDS = 5;
 const MAX_POLL_INTERVAL_SECONDS = 60;
 const MIN_POLL_INTERVAL_SECONDS = 1;
 const POLL_PROGRESS_EMIT_INTERVAL_MS = 15_000;
-const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
-const DEVICE_CLIENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$/;
 const TRAILING_SLASH_PATTERN = /\/+$/;
 
 type AuthLoginMethod = typeof LOGIN_METHOD_DEVICE | typeof LOGIN_METHOD_OTT;
@@ -60,25 +67,6 @@ type DeviceCodeResponse = {
   verification_uri_complete?: string;
   expires_in?: number;
   interval?: number;
-};
-
-type DeviceTokenSuccessResponse = {
-  access_token: string;
-  token_type?: string;
-  expires_in?: number;
-  scope?: string;
-};
-
-type AuthUserSnapshot = {
-  id?: string;
-  email?: string;
-  name?: string;
-};
-
-type DeviceTokenErrorResponse = {
-  error?: string;
-  error_description?: string;
-  message?: string;
 };
 
 type DevicePollProgressEvent = "authorization_pending" | "slow_down";
@@ -649,7 +637,7 @@ async function runDeviceLoginFlow(input: {
     tokenType: token.token_type ?? "Bearer",
     authBaseUrl: input.authBaseUrl,
     clientId: input.clientId,
-    expiresAt: resolveExpiresAt(token.expires_in),
+    expiresAt: resolveDeviceTokenExpiresAt(token.expires_in),
     scope: normalizeOptionalString(token.scope) ?? undefined,
     user: authUser ?? undefined,
   });
@@ -832,7 +820,7 @@ function resolveClientIdForLogin(
   resolvedView: "human" | "agent"
 ): string {
   try {
-    return resolveClientId(value);
+    return resolveDeviceAuthClientId(value);
   } catch (error) {
     if (resolvedView === "agent") {
       throw createAuthLoginGuideError(toErrorMessage(error));
@@ -1410,67 +1398,6 @@ async function requestDeviceCode(input: {
   };
 }
 
-async function requestDeviceToken(input: {
-  authBaseUrl: string;
-  clientId: string;
-  deviceCode: string;
-}): Promise<
-  | { ok: true; data: DeviceTokenSuccessResponse }
-  | { ok: false; error: DeviceTokenErrorResponse; status: number }
-> {
-  const endpoint = toAuthEndpoint(input.authBaseUrl, "/api/auth/device/token");
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      grant_type: DEVICE_GRANT_TYPE,
-      device_code: input.deviceCode,
-      client_id: input.clientId,
-    }),
-    signal: AbortSignal.timeout(10_000),
-  });
-
-  const payload = await parseResponseJson(response);
-  if (response.ok) {
-    const accessToken = normalizeRequiredString(
-      readStringField(payload, "access_token"),
-      "missing access_token in device token response"
-    );
-
-    return {
-      ok: true,
-      data: {
-        access_token: accessToken,
-        token_type:
-          normalizeOptionalString(readStringField(payload, "token_type")) ??
-          undefined,
-        expires_in: readNumberField(payload, "expires_in"),
-        scope:
-          normalizeOptionalString(readStringField(payload, "scope")) ??
-          undefined,
-      },
-    };
-  }
-
-  return {
-    ok: false,
-    error: {
-      error:
-        normalizeOptionalString(readStringField(payload, "error")) ?? undefined,
-      error_description:
-        normalizeOptionalString(
-          readStringField(payload, "error_description")
-        ) ?? undefined,
-      message:
-        normalizeOptionalString(readStringField(payload, "message")) ??
-        undefined,
-    },
-    status: response.status,
-  };
-}
-
 async function pollForDeviceToken(input: {
   authBaseUrl: string;
   clientId: string;
@@ -1547,7 +1474,7 @@ async function pollForDeviceToken(input: {
 
     throw new DeviceAuthError(
       "unknown",
-      `browser sign-in failed: ${extractApiErrorMessage(result.error, result.status)}`
+      `browser sign-in failed: ${extractAuthApiErrorMessage(result.error, result.status)}`
     );
   }
 
@@ -1609,48 +1536,8 @@ function resolveExpiresInSeconds(value: number | undefined): number {
   return clampInteger(value, 60, 24 * 60 * 60);
 }
 
-function resolveExpiresAt(expiresIn: number | undefined): string | undefined {
-  if (
-    typeof expiresIn !== "number" ||
-    !Number.isFinite(expiresIn) ||
-    expiresIn <= 0
-  ) {
-    return undefined;
-  }
-
-  const now = Date.now();
-  const MAX_DATE_MS = 8_640_000_000_000_000;
-  const maxFutureMs = Math.max(
-    0,
-    Math.min(Number.MAX_SAFE_INTEGER, MAX_DATE_MS) - now
-  );
-  const maxFutureSeconds = Math.floor(maxFutureMs / 1000);
-  const safeExpiresInSeconds = Math.min(
-    Math.floor(expiresIn),
-    maxFutureSeconds
-  );
-  if (safeExpiresInSeconds <= 0) {
-    return undefined;
-  }
-
-  return new Date(now + safeExpiresInSeconds * 1000).toISOString();
-}
-
 function clampInteger(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.floor(value)));
-}
-
-function resolveClientId(value: string | undefined): string {
-  const clientId =
-    normalizeOptionalString(value) ??
-    normalizeOptionalString(process.env.OPENMELD_AUTH_CLIENT_ID) ??
-    DEFAULT_DEVICE_CLIENT_ID;
-  if (!DEVICE_CLIENT_ID_PATTERN.test(clientId)) {
-    throw new Error(
-      `invalid client_id "${clientId}" (allowed: letters, numbers, . _ : -)`
-    );
-  }
-  return clientId;
 }
 
 function normalizeRequiredString(
@@ -1794,55 +1681,6 @@ function emitLineWithHumanSpacer(input: {
     code: `${input.code}.spacer`,
     text: "",
   });
-}
-
-async function fetchAuthUserSnapshot(input: {
-  authBaseUrl: string;
-  accessToken: string;
-}): Promise<AuthUserSnapshot | null> {
-  const endpoint = toAuthEndpoint(input.authBaseUrl, "/api/auth/get-session");
-  try {
-    const response = await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        authorization: `Bearer ${input.accessToken}`,
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) {
-      return null;
-    }
-    const payload = await parseResponseJson(response);
-    return readAuthUserFromSessionPayload(payload);
-  } catch {
-    return null;
-  }
-}
-
-function readAuthUserFromSessionPayload(
-  payload: unknown
-): AuthUserSnapshot | null {
-  if (!(payload && typeof payload === "object" && "user" in payload)) {
-    return null;
-  }
-
-  const user = (payload as Record<string, unknown>).user;
-  if (!(user && typeof user === "object")) {
-    return null;
-  }
-
-  const userRecord = user as Record<string, unknown>;
-  const id = readOptionalStringField(userRecord, "id");
-  const email = readOptionalStringField(userRecord, "email");
-  const name = readOptionalStringField(userRecord, "name");
-  if (!(id || email || name)) {
-    return null;
-  }
-  return {
-    ...(id ? { id } : {}),
-    ...(email ? { email } : {}),
-    ...(name ? { name } : {}),
-  };
 }
 
 function resolveHumanLoginSuccessText(user: AuthUserSnapshot | null): string {

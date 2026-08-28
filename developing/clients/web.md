@@ -3115,7 +3115,8 @@ If Web stores browser-side diagnostic pointers, they must be sanitized:
 - `openmeld.space.last-diagnostic-report` may store the report ID and derived
   diagnostic pointers.
 - neither record may include message text, protected Space passwords, access
-  tokens, one-time tokens, cookies, secrets, or raw payloads.
+  tokens, one-time tokens, Computer authorization codes, cookies, secrets, or
+  raw payloads.
 
 These records help users and support return to the right evidence. They do not
 create new truth.
@@ -3129,11 +3130,12 @@ Web may create a Prepare Session handoff and show a setup command that carries
 an opaque session token. That handoff represents the user's intent to align this
 browser account with a local CLI or OpenMeld Service flow.
 
-Prepare and one-time credentials remain short-lived. Before a displayed command
-expires, Web mints a replacement Prepare token and one-time token and swaps in
-the new command. Copy also verifies freshness and refreshes first when needed,
-so the user never copies a command that Web already knows is expired. Expiry is
-not presented as a terminal-debugging task.
+Prepare and Computer authorization credentials remain short-lived. Before a
+displayed command expires, Web mints a replacement Prepare token and
+browser-approved Device Authorization grant and swaps in the new command. Copy
+also verifies freshness and refreshes first when needed, so the user never
+copies a command that Web already knows is expired. Expiry is not presented as
+a terminal-debugging task.
 
 Every command refresh is fenced to both the stable Computer setup key and the
 current Prepare Session ID. If starting over or recovery replaces the Prepare
@@ -3262,14 +3264,15 @@ The page may be visible before sign-in. The Agent-readable public contract at
 `/SKILL.md` must be public and must not require authentication. The older
 `/agent-interface/guide.md` path is a compatibility entry to the same public
 contract, not a second source of truth. Private setup access belongs only in the
-generated prompt, where Web mints a Prepare Session token and one-time auth
-token for the signed-in user.
+generated prompt, where Web mints a Prepare Session token and approves a Device
+Authorization grant for the signed-in user. The grant creates a separate
+Computer session; it never transfers or reuses the browser session.
 
 The generated setup command should prefer Agent View and terminal-owned local
 agent selection:
 
 ```text
-<setup bootstrap> setup --start-session <opaque-token> --local-agents all --ott <one-time-token> --view agent
+<setup bootstrap> setup --start-session <opaque-token> --local-agents all --device-code <browser-approved-code> --view agent
 ```
 
 This lets the user's current AI agent run setup without requiring the user to

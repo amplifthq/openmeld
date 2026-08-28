@@ -5,7 +5,6 @@ import {
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import {
   type AuthRequestCompatibilityReason,
-  canUseAuthSessionForRequest,
   resolveAuthRequestCompatibility,
 } from "./auth-request-compatibility";
 import { getAuthSessionState, type StoredAuthSession } from "./auth-session";
@@ -38,7 +37,11 @@ export type AuthTokenAttachment =
     }
   | {
       status: "dropped";
-      reason: "empty_token" | AuthRequestCompatibilityReason;
+      reason:
+        | "empty_token"
+        | "session_expired"
+        | "session_expiry_invalid"
+        | AuthRequestCompatibilityReason;
       requestHost: string | null;
       authHost: string | null;
       expectedGatewayHost: string | null;
@@ -147,6 +150,16 @@ export function resolveAuthTokenAttachment(input: {
       expectedGatewayHost: compatibility.expectedGatewayHost,
     };
   }
+  const expiryReason = resolveSessionExpiryReason(input.session);
+  if (expiryReason) {
+    return {
+      status: "dropped",
+      reason: expiryReason,
+      requestHost: compatibility.requestHost,
+      authHost: compatibility.authHost,
+      expectedGatewayHost: compatibility.expectedGatewayHost,
+    };
+  }
   return {
     status: "attachable",
     token,
@@ -213,12 +226,28 @@ function normalizeTokenType(tokenType: string | undefined): string {
   return normalized.length > 0 ? normalized : DEFAULT_TOKEN_TYPE;
 }
 
+function resolveSessionExpiryReason(
+  session: StoredAuthSession
+): "session_expired" | "session_expiry_invalid" | null {
+  const expiresAt = String(session.expiresAt ?? "").trim();
+  if (!expiresAt) {
+    return null;
+  }
+  const expiresAtMs = Date.parse(expiresAt);
+  if (Number.isNaN(expiresAtMs)) {
+    return "session_expiry_invalid";
+  }
+  return expiresAtMs <= Date.now() ? "session_expired" : null;
+}
+
 export function canAttachAuthTokenToRequest(
   session: StoredAuthSession,
   requestUrl: string
 ): boolean {
-  return canUseAuthSessionForRequest({
-    session,
-    requestUrl,
-  });
+  return (
+    resolveAuthTokenAttachment({
+      session,
+      requestUrl,
+    }).status === "attachable"
+  );
 }

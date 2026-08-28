@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoredAuthSession } from "../src/config/auth-session";
 import {
   buildRequestAuthHeaders,
+  canAttachAuthTokenToRequest,
   resolveAuthTokenAttachment,
 } from "../src/config/request-headers";
 
@@ -10,6 +11,7 @@ const DAEMON_STREAM_URL = "wss://gateway.openmeld.invalid/v1/daemon/stream";
 function sessionWith(input: {
   accessToken?: string;
   authBaseUrl?: string;
+  expiresAt?: string;
 }): StoredAuthSession {
   return {
     v: 1,
@@ -18,6 +20,7 @@ function sessionWith(input: {
     authBaseUrl: input.authBaseUrl ?? "https://auth.openmeld.invalid",
     clientId: "openmeld-cli",
     createdAt: "2026-07-01T00:00:00.000Z",
+    ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
   };
 }
 
@@ -64,6 +67,67 @@ describe("resolveAuthTokenAttachment", () => {
       expectedGatewayHost: null,
     });
   });
+
+  it("reports session_expired for an explicitly supplied expired session", () => {
+    const attachment = resolveAuthTokenAttachment({
+      session: sessionWith({
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+      requestUrl: DAEMON_STREAM_URL,
+    });
+
+    expect(attachment).toEqual({
+      status: "dropped",
+      reason: "session_expired",
+      requestHost: "gateway.openmeld.invalid",
+      authHost: "auth.openmeld.invalid",
+      expectedGatewayHost: "gateway.openmeld.invalid",
+    });
+  });
+
+  it("fails closed when an explicitly supplied session expiry is invalid", () => {
+    const attachment = resolveAuthTokenAttachment({
+      session: sessionWith({ expiresAt: "not-a-date" }),
+      requestUrl: DAEMON_STREAM_URL,
+    });
+
+    expect(attachment).toEqual({
+      status: "dropped",
+      reason: "session_expiry_invalid",
+      requestHost: "gateway.openmeld.invalid",
+      authHost: "auth.openmeld.invalid",
+      expectedGatewayHost: "gateway.openmeld.invalid",
+    });
+  });
+
+  it("preserves host mismatch diagnostics before checking expiry", () => {
+    const attachment = resolveAuthTokenAttachment({
+      session: sessionWith({
+        authBaseUrl: "http://localhost:8788",
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+      requestUrl: DAEMON_STREAM_URL,
+    });
+
+    expect(attachment).toEqual({
+      status: "dropped",
+      reason: "host_mismatch",
+      requestHost: "gateway.openmeld.invalid",
+      authHost: "localhost:8788",
+      expectedGatewayHost: null,
+    });
+  });
+
+  it("uses the same expiry decision for non-header request gates", () => {
+    expect(
+      canAttachAuthTokenToRequest(
+        sessionWith({
+          expiresAt: new Date(Date.now() - 60_000).toISOString(),
+        }),
+        DAEMON_STREAM_URL
+      )
+    ).toBe(false);
+  });
 });
 
 describe("buildRequestAuthHeaders drop diagnostics", () => {
@@ -101,6 +165,27 @@ describe("buildRequestAuthHeaders drop diagnostics", () => {
         authHost: "localhost:8788",
         expectedGatewayHost: null,
         reason: "host_mismatch",
+        requestHost: "gateway.openmeld.invalid",
+      }
+    );
+  });
+
+  it("does not attach an explicitly supplied expired token", async () => {
+    const headers = await buildRequestAuthHeaders({
+      authSession: sessionWith({
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+      requestUrl: DAEMON_STREAM_URL,
+    });
+
+    expect(headers.Authorization).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[openmeld.auth.request_token_dropped]",
+      {
+        authHost: "auth.openmeld.invalid",
+        expectedGatewayHost: "gateway.openmeld.invalid",
+        reason: "session_expired",
         requestHost: "gateway.openmeld.invalid",
       }
     );

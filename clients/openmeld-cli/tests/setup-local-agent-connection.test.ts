@@ -4,6 +4,7 @@ const {
   createAgentProfileBindingApiMock,
   createCliApiClientFoundationMock,
   canUseInteractivePromptsMock,
+  runComputerAuthorizationHandoffMock,
   createPresenterMock,
   inspectDaemonServiceInventoryMock,
   prepareLocalAgentReadinessMock,
@@ -26,6 +27,7 @@ const {
   createAgentProfileBindingApiMock: vi.fn(),
   createCliApiClientFoundationMock: vi.fn(),
   canUseInteractivePromptsMock: vi.fn(),
+  runComputerAuthorizationHandoffMock: vi.fn(),
   createPresenterMock: vi.fn(),
   inspectDaemonServiceInventoryMock: vi.fn(),
   prepareLocalAgentReadinessMock: vi.fn(),
@@ -107,6 +109,10 @@ vi.mock("../src/local-service/lifecycle/daemon-service-inventory", () => ({
 
 vi.mock("../src/commands/auth", () => ({
   runAuthLogin: runAuthLoginMock,
+}));
+
+vi.mock("../src/commands/computer-auth-handoff", () => ({
+  runComputerAuthorizationHandoff: runComputerAuthorizationHandoffMock,
 }));
 
 vi.mock("../src/commands/service", () => ({
@@ -210,6 +216,10 @@ describe("local setup executor", () => {
       profiles: [],
     });
     runAuthLoginMock.mockResolvedValue("completed");
+    runComputerAuthorizationHandoffMock.mockResolvedValue({
+      snapshot: { selectedLocalAgentIds: [] },
+      status: "completed",
+    });
     runPrepareSessionExecutorMock.mockResolvedValue({
       snapshot: {
         selectedLocalAgentIds: [],
@@ -427,6 +437,31 @@ describe("local setup executor", () => {
       reason: "cancelled",
       status: "not_completed",
     });
+  });
+
+  it("delegates an authorized Web handoff to the Computer auth owner", async () => {
+    const { runSetupLocalAgentConnection } = await import(
+      "../src/commands/setup-local-agent-connection"
+    );
+
+    await expect(
+      runSetupLocalAgentConnection({
+        deviceCode: "approved-device-code",
+        localAgents: "all",
+        startSession: "starttok_demo",
+        view: "agent",
+      })
+    ).resolves.toMatchObject({ status: "completed" });
+
+    expect(runComputerAuthorizationHandoffMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deviceCode: "approved-device-code",
+        localAgentSelection: { mode: "all" },
+        startSession: "starttok_demo",
+        view: "agent",
+      })
+    );
+    expect(runPrepareSessionExecutorMock).not.toHaveBeenCalled();
   });
 
   it("keeps the setup logo out of agent-view start-session output", async () => {

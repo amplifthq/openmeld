@@ -99,6 +99,7 @@ export class PrepareSessionCancelledError extends Error {
 type PrepareSessionExecutorInput = {
   gatewayUrl: string;
   startSession: string;
+  initialSnapshot?: PrepareSessionSnapshot;
   localAgentSelection?: PrepareSessionLocalAgentSelection;
   runtime: RuntimeContext;
   presenter: ReturnType<typeof createPresenter>;
@@ -141,10 +142,12 @@ export type PrepareSessionLocalAgentSelection =
 export async function runPrepareSessionExecutor(
   input: PrepareSessionExecutorInput
 ): Promise<PrepareSessionExecutorResult> {
-  let initial = await resolvePrepareSessionToken({
-    gatewayUrl: input.gatewayUrl,
-    opaqueToken: input.startSession,
-  });
+  let initial =
+    input.initialSnapshot ??
+    (await resolvePrepareSessionForHandoff({
+      gatewayUrl: input.gatewayUrl,
+      opaqueToken: input.startSession,
+    }));
   const alreadyCompleted = finishIfPrepareSessionAlreadyCompleted({
     input,
     snapshot: initial,
@@ -231,7 +234,7 @@ async function reconnectPrepareSession(input: {
     }
     let snapshot: PrepareSessionSnapshot;
     try {
-      snapshot = await resolvePrepareSessionToken({
+      snapshot = await resolvePrepareSessionForHandoff({
         gatewayUrl: input.input.gatewayUrl,
         opaqueToken: input.input.startSession,
       });
@@ -2331,7 +2334,7 @@ async function connectPrepareSessionStream(input: {
   };
 }
 
-async function resolvePrepareSessionToken(input: {
+export async function resolvePrepareSessionForHandoff(input: {
   gatewayUrl: string;
   opaqueToken: string;
 }): Promise<PrepareSessionSnapshot> {

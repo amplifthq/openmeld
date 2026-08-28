@@ -65,6 +65,27 @@ export type StoredAuthSession = {
   activeOrganization?: StoredActiveOrganization;
 };
 
+export type AuthSessionInput = {
+  accessToken: string;
+  tokenType?: string;
+  authBaseUrl: string;
+  clientId: string;
+  expiresAt?: string;
+  scope?: string;
+  user?: {
+    id?: string;
+    email?: string;
+    name?: string;
+  };
+  activeOrganization?: StoredActiveOrganization | null;
+};
+
+export type AuthSessionTransition = {
+  previousSession: StoredAuthSession | null;
+  commit: () => Promise<void>;
+  rollback: () => Promise<void>;
+};
+
 export type AuthSessionState =
   | "missing"
   | "valid"
@@ -201,8 +222,9 @@ export async function getAuthSessionState(
   }
   if (remoteValidation.state === "unknown") {
     if (localState.state === "expired" && options.refreshExpired === true) {
-      // A stale local timestamp is not authorization truth. Keep sending the
-      // existing credential so the protected service can accept or reject it.
+      // A stale local timestamp is not authorization truth. Preserve the
+      // session so the shared request-attachment owner can reject the known
+      // expiry without discarding credentials that a later refresh may renew.
       return {
         state: "valid",
         session: localState.session,
@@ -229,20 +251,7 @@ export async function getCurrentAuthOwnerUserId(): Promise<string | null> {
   return ownerUserId.length > 0 ? ownerUserId : null;
 }
 
-export async function setAuthSession(input: {
-  accessToken: string;
-  tokenType?: string;
-  authBaseUrl: string;
-  clientId: string;
-  expiresAt?: string;
-  scope?: string;
-  user?: {
-    id?: string;
-    email?: string;
-    name?: string;
-  };
-  activeOrganization?: StoredActiveOrganization | null;
-}): Promise<void> {
+export async function setAuthSession(input: AuthSessionInput): Promise<void> {
   const accessToken = String(input.accessToken ?? "").trim();
   if (!accessToken) {
     throw new Error("access token is required");
@@ -282,7 +291,7 @@ export async function setAuthSession(input: {
   };
 
   const path = authSessionPath();
-  await mkdir(join(openMeldRootDir(), "auth"), { recursive: true });
+  await ensureAuthSessionDirectory();
 
   try {
     await assertStoredAccessTokenReloads({ accessToken, tokenRef });
@@ -302,6 +311,109 @@ export async function setAuthSession(input: {
   ) {
     await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
   }
+}
+
+export async function beginAuthSessionTransition(
+  input: AuthSessionInput
+): Promise<AuthSessionTransition> {
+  const accessToken = String(input.accessToken ?? "").trim();
+  if (!accessToken) {
+    throw new Error("access token is required");
+  }
+  const authBaseUrl = String(input.authBaseUrl ?? "").trim();
+  if (!authBaseUrl) {
+    throw new Error("auth base URL is required");
+  }
+  const clientId = String(input.clientId ?? "").trim();
+  if (!clientId) {
+    throw new Error("client_id is required");
+  }
+
+  await retryPendingTokenCleanup();
+  await ensureAuthSessionDirectory();
+  const previousPayload = await readSessionPayload();
+  const previousTokenRef = normalizeTokenRef(previousPayload?.tokenRef);
+  const previousState = await getLocalAuthSessionState();
+  const previousSession =
+    previousState.state === "valid" || previousState.state === "expired"
+      ? previousState.session
+      : null;
+  const tokenRef = await storeAccessToken({
+    accessToken,
+    authBaseUrl,
+    clientId,
+    unique: true,
+  });
+  const nextPayload: AuthSessionV1 = {
+    v: 1,
+    tokenRef,
+    tokenType: String(input.tokenType ?? "Bearer").trim() || "Bearer",
+    authBaseUrl,
+    clientId,
+    createdAt: new Date().toISOString(),
+    ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+    ...(input.scope ? { scope: input.scope } : {}),
+    ...buildAuthUserPayload(input.user),
+    ...buildActiveOrganizationPayload(input.activeOrganization),
+  };
+  try {
+    await assertStoredAccessTokenReloads({ accessToken, tokenRef });
+    await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
+  } catch (error) {
+    await deleteAccessTokenOrRetainForCleanup(tokenRef);
+    throw error;
+  }
+  cacheAuthSession({
+    payload: nextPayload,
+    session: buildStoredAuthSession({ accessToken, payload: nextPayload }),
+  });
+
+  let settled = false;
+  const assertTransitionCurrent = async () => {
+    if (settled) {
+      throw new Error("auth session transition is already settled");
+    }
+    const currentPayload = await readSessionPayload();
+    if (
+      currentPayload?.v !== 1 ||
+      buildAuthSessionPayloadKey(currentPayload) !==
+        buildAuthSessionPayloadKey(nextPayload)
+    ) {
+      throw new Error(
+        "auth session changed before the setup transition completed"
+      );
+    }
+  };
+
+  return {
+    previousSession,
+    commit: async () => {
+      await assertTransitionCurrent();
+      settled = true;
+      if (
+        previousTokenRef &&
+        !areStoredTokenRefsEqual(previousTokenRef, tokenRef)
+      ) {
+        await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
+      }
+    },
+    rollback: async () => {
+      await assertTransitionCurrent();
+      if (previousPayload?.v === 1 && previousSession) {
+        const restoredPayload = previousPayload as AuthSessionV1;
+        await writeSessionPayloadAtomically(authSessionPath(), restoredPayload);
+        cacheAuthSession({
+          payload: restoredPayload,
+          session: previousSession,
+        });
+      } else {
+        cachedAuthSession = null;
+        await removeSessionFile();
+      }
+      settled = true;
+      await deleteAccessTokenOrRetainForCleanup(tokenRef);
+    },
+  };
 }
 
 export async function getAuthSession(): Promise<StoredAuthSession | null> {
@@ -872,6 +984,10 @@ async function readSessionPayload(): Promise<Partial<AuthSessionV1> | null> {
 
 function authSessionPath(): string {
   return join(openMeldRootDir(), "auth", "session.json");
+}
+
+async function ensureAuthSessionDirectory(): Promise<void> {
+  await mkdir(join(openMeldRootDir(), "auth"), { recursive: true });
 }
 
 async function writeSessionPayloadAtomically(

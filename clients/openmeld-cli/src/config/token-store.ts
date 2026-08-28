@@ -65,6 +65,7 @@ type StoreTokenInput = {
   accessToken: string;
   authBaseUrl: string;
   clientId: string;
+  unique?: boolean;
 };
 
 export async function storeAccessToken(
@@ -74,15 +75,16 @@ export async function storeAccessToken(
     authBaseUrl: input.authBaseUrl,
     clientId: input.clientId,
   });
+  const storageKey = input.unique ? buildUniqueTokenFileKey(key) : key;
 
   if (shouldForceInsecureStore()) {
     await setInsecureFileToken({
-      key,
+      key: storageKey,
       accessToken: input.accessToken,
     });
     return {
       provider: "insecure-file",
-      key,
+      key: storageKey,
     };
   }
 
@@ -106,12 +108,12 @@ export async function storeAccessToken(
     } catch (error) {
       if (allowInsecureFallback()) {
         await setInsecureFileToken({
-          key,
+          key: storageKey,
           accessToken: input.accessToken,
         });
         return {
           provider: "insecure-file",
-          key,
+          key: storageKey,
         };
       }
       const privateKey = buildUniqueTokenFileKey(key);
@@ -127,22 +129,22 @@ export async function storeAccessToken(
   if (process.platform === "win32") {
     try {
       await setWindowsDpapiToken({
-        key,
+        key: storageKey,
         accessToken: input.accessToken,
       });
       return {
         provider: "windows-dpapi",
-        key,
+        key: storageKey,
       };
     } catch (error) {
       if (allowInsecureFallback()) {
         await setInsecureFileToken({
-          key,
+          key: storageKey,
           accessToken: input.accessToken,
         });
         return {
           provider: "insecure-file",
-          key,
+          key: storageKey,
         };
       }
       throw new Error(
@@ -153,12 +155,12 @@ export async function storeAccessToken(
 
   if (allowInsecureFallback()) {
     await setInsecureFileToken({
-      key,
+      key: storageKey,
       accessToken: input.accessToken,
     });
     return {
       provider: "insecure-file",
-      key,
+      key: storageKey,
     };
   }
 

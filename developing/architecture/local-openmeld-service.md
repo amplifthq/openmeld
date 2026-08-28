@@ -808,10 +808,14 @@ that decision.
   surface that holds the information owns the action.
 - The current bootstrap that hands a web token to the CLI
   (`openmeld setup --start-session <token>`) initiates and authenticates a local
-  setup. When the command includes a Web-issued one-time token, the CLI must
-  exchange it for a durable local CLI sign-in session for the same OpenMeld account;
-  OpenMeld Service uses that local session when it starts at login. The handoff must
-  not be used to add an agent-selection step to Web.
+  setup. The command carries a browser-approved Device Authorization code that
+  the CLI exchanges for a new, independently revocable Computer session for the
+  same OpenMeld user. The CLI must validate Prepare ownership before changing
+  the active local session. A failed or cancelled handoff restores the previous
+  session and Service account alignment; a cross-account switch requires
+  explicit interactive confirmation. OpenMeld Service uses the committed
+  Computer session when it starts at login. The handoff must not be used to add
+  an agent-selection step to Web.
   Keeping the legacy Web selector retired is a setup-flow
   consolidation owned by this document; it has no ordering dependency on the
   onboarding planner (`developing/product/onboarding.md`), which treats

@@ -18,6 +18,7 @@ vi.mock("#/lib/openmeld-api/client", () => ({
 }));
 
 import {
+	createComputerAuthorizationGrant,
 	generateOneTimeToken,
 	getAccountAvatar,
 	getSession,
@@ -170,6 +171,72 @@ describe("auth-query", () => {
 			expect.objectContaining({
 				credentials: "include",
 				method: "GET",
+			})
+		);
+	});
+
+	it("creates a browser-approved grant that lets a computer create its own session", async () => {
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						device_code: "device-secret",
+						user_code: "MELD-1234",
+						expires_in: 300,
+					}),
+					{
+						status: 200,
+						headers: { "content-type": "application/json" },
+					}
+				)
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({ user_code: "MELD-1234", status: "pending" }),
+					{
+						status: 200,
+						headers: { "content-type": "application/json" },
+					}
+				)
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ success: true }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				})
+			);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(createComputerAuthorizationGrant()).resolves.toEqual({
+			deviceCode: "device-secret",
+			expiresIn: 300,
+		});
+
+		expect(fetchMock).toHaveBeenNthCalledWith(
+			1,
+			"/api/auth/device/code",
+			expect.objectContaining({
+				body: JSON.stringify({ client_id: "openmeld-cli" }),
+				credentials: "include",
+				method: "POST",
+			})
+		);
+		expect(fetchMock).toHaveBeenNthCalledWith(
+			2,
+			"/api/auth/device?user_code=MELD-1234",
+			expect.objectContaining({
+				credentials: "include",
+				method: "GET",
+			})
+		);
+		expect(fetchMock).toHaveBeenNthCalledWith(
+			3,
+			"/api/auth/device/approve",
+			expect.objectContaining({
+				body: JSON.stringify({ userCode: "MELD-1234" }),
+				credentials: "include",
+				method: "POST",
 			})
 		);
 	});

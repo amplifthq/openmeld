@@ -44,6 +44,13 @@ type OneTimeTokenPayload = {
 	expiresIn?: number;
 };
 
+export type ComputerAuthorizationGrant = {
+	deviceCode: string;
+	expiresIn?: number;
+};
+
+const OPENMELD_CLI_AUTH_CLIENT_ID = "openmeld-cli";
+
 type AuthClientWithAccountApi = {
 	listAccounts?: () => Promise<unknown>;
 	listSessions?: () => Promise<unknown>;
@@ -497,5 +504,59 @@ export async function generateOneTimeToken(): Promise<OneTimeTokenPayload> {
 			typeof response.data?.expiresIn === "number"
 				? response.data.expiresIn
 				: undefined,
+	};
+}
+
+export async function createComputerAuthorizationGrant(): Promise<ComputerAuthorizationGrant> {
+	const codeResponse = await requestAuthEndpoint<{
+		device_code?: string;
+		user_code?: string;
+		expires_in?: number;
+	}>({
+		path: "/device/code",
+		request: {
+			method: "POST",
+			body: JSON.stringify({ client_id: OPENMELD_CLI_AUTH_CLIENT_ID }),
+		},
+		fallbackMessage: "Failed to authorize this computer.",
+	});
+	if (codeResponse.error) {
+		throwAuthError(codeResponse.error, "Failed to authorize this computer.");
+	}
+
+	const deviceCode = codeResponse.data?.device_code;
+	const userCode = codeResponse.data?.user_code;
+	if (!(deviceCode && userCode)) {
+		throw new Error(
+			"Auth response did not include a computer authorization code."
+		);
+	}
+
+	const claimResponse = await requestAuthEndpoint({
+		path: `/device?user_code=${encodeURIComponent(userCode)}`,
+		request: { method: "GET" },
+		fallbackMessage: "Failed to authorize this computer.",
+	});
+	if (claimResponse.error) {
+		throwAuthError(claimResponse.error, "Failed to authorize this computer.");
+	}
+
+	const approvalResponse = await requestAuthEndpoint({
+		path: "/device/approve",
+		request: {
+			method: "POST",
+			body: JSON.stringify({ userCode }),
+		},
+		fallbackMessage: "Failed to approve this computer.",
+	});
+	if (approvalResponse.error) {
+		throwAuthError(approvalResponse.error, "Failed to approve this computer.");
+	}
+
+	return {
+		deviceCode,
+		...(typeof codeResponse.data?.expires_in === "number"
+			? { expiresIn: codeResponse.data.expires_in }
+			: {}),
 	};
 }

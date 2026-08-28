@@ -114,7 +114,7 @@ describe("setup-bootstrap-script", () => {
 			"Replace it with OpenMeld CLI v$OPENMELD_SETUP_LATEST_VERSION for future openmeld commands?"
 		);
 		expect(script).toContain(
-			"Use this setup script only with an OpenMeld Web setup command. It must include --start-session, --ott, and either --view human or --view agent."
+			"Use this setup script only with an OpenMeld Web setup command. It must include --start-session, either --device-code or --ott, and either --view human or --view agent."
 		);
 		expect(script).toContain(
 			"Downloading OpenMeld CLI (first run may take up to a minute)..."
@@ -172,16 +172,16 @@ describe("setup-bootstrap-script", () => {
 		expect(script).toContain("OPENMELD_SETUP_RUN_STDIN=/dev/null");
 	});
 
-	it("requires a Prepare Session command with a one-time token", () => {
+	it("requires a Prepare Session command with an approved computer grant", () => {
 		const script = buildOpenMeldSetupBootstrapScript({
 			lane: "prod",
 		});
 
 		expect(script).toContain(
-			'if [ "$OPENMELD_SETUP_HAS_START_SESSION" -ne 1 ] || [ "$OPENMELD_SETUP_HAS_OTT" -ne 1 ]; then'
+			'if [ "$OPENMELD_SETUP_HAS_START_SESSION" -ne 1 ] || { [ "$OPENMELD_SETUP_HAS_DEVICE_CODE" -ne 1 ] && [ "$OPENMELD_SETUP_HAS_OTT" -ne 1 ]; }; then'
 		);
 		expect(script).toContain(
-			"This setup script needs both --start-session and --ott from OpenMeld Web."
+			"This setup script needs --start-session and either --device-code or --ott from OpenMeld Web."
 		);
 	});
 
@@ -203,10 +203,10 @@ describe("setup-bootstrap-script", () => {
 		expect(script).toContain("Run-OpenMeld $OpenMeldArgs");
 		expect(script).not.toContain("Emit-SetupComplete");
 		expect(script).toContain(
-			"Die 'This setup script needs both --start-session and --ott from OpenMeld Web."
+			"Die 'This setup script needs --start-session and either --device-code or --ott from OpenMeld Web."
 		);
 		expect(script).toContain(
-			"$OpenMeldSetupPrepareCommandHint = 'Use this setup script only with an OpenMeld Web setup command. It must include --start-session, --ott, and either --view human or --view agent.'"
+			"$OpenMeldSetupPrepareCommandHint = 'Use this setup script only with an OpenMeld Web setup command. It must include --start-session, either --device-code or --ott, and either --view human or --view agent.'"
 		);
 		expect(script).not.toContain(
 			"Die 'Use this setup script only with: setup --start-session <token> --ott <token> --view human'"
@@ -1384,8 +1384,8 @@ describe("setup-bootstrap-script", () => {
 						"preptok_demo",
 						"--local-agents",
 						"all",
-						"--ott",
-						"ott_demo",
+						"--device-code",
+						"device_code_demo",
 						"--view",
 						"agent",
 					],
@@ -1414,7 +1414,7 @@ describe("setup-bootstrap-script", () => {
 				]);
 				expect(readFileSync(callsPath, "utf8")).toBe(
 					[
-						"setup --start-session preptok_demo --local-agents all --ott ott_demo --view agent",
+						"setup --start-session preptok_demo --local-agents all --device-code device_code_demo --view agent",
 						"",
 					].join("\n")
 				);
