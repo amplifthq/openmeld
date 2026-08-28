@@ -200,6 +200,10 @@ forking its command, PrepareSession, or live-status behavior.
     and the Copy action refreshes before copying. The user is never asked to
     diagnose token expiry or manually reload the page to obtain a valid
     command.
+18. **A temporary download interruption recovers inside the same command.** The
+    setup bootstrap retries manifest and CLI artifact downloads within a small,
+    bounded window and discards partial output before each retry. One incomplete
+    transfer must not make the user copy or run the setup command again.
 
 ## The Start Planner (`packages/start`)
 

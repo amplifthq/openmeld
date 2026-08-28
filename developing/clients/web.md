@@ -3288,9 +3288,12 @@ verifies the final executable, runs `install-self`, and then runs setup through
 the managed binary path. Before downloading an artifact, it compares the
 existing lane-managed executable's exact byte size and sha256 with the manifest;
 an exact match is reused, while any missing or mismatched executable follows the
-normal verified download and repair path. A legacy manifest without archive
-fields still uses the verified raw executable. Windows and explicit `?dist=npm`
-setup use the npm distribution. The bootstrap is only the
+normal verified download and repair path. Manifest and artifact downloads retry
+temporary transfer failures within a small bounded window, deleting partial
+output before each retry; integrity verification still decides whether the
+download is accepted. A legacy manifest without archive fields still uses the
+verified raw executable. Windows and explicit `?dist=npm` setup use the npm
+distribution. The bootstrap is only the
 setup entry, not necessarily the long-term command prefix. The final
 `setup.complete` event is the owner for follow-up commands:
 
