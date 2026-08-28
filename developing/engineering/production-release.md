@@ -89,6 +89,28 @@ pnpm run release:status -- --ref origin/main \
 Repeat `--deployed` for multiple local releases. The command accepts an
 override only when that commit is an ancestor of the selected ref.
 
+When closing one exact merged change, also pass its exact merge parent:
+
+```sh
+pnpm run release:status -- \
+  --ref <exact-merge-sha> \
+  --change-base <exact-merge-parent-sha>
+```
+
+The result keeps two facts separate:
+
+- `Current-change scopes` are the scopes selected by that exact diff.
+- `Global pending scopes` are older or unrelated deployment backlog visible in
+  GitHub history.
+
+The workflow mapping uses the current-change scopes when `--change-base` is
+present. Without it, the mapping is explicitly global-backlog information.
+Neither form authorizes a release or expands the responsible agent's business
+scope; it prevents an unrelated historical backlog from looking like work this
+merge must deploy. Missing deployment history blocks the current delivery only
+when it belongs to a current-change scope; the same missing fact remains visible
+under the global backlog without changing the scoped command's exit result.
+
 ## Release Scopes
 
 The local release tool accepts these direct scopes:
@@ -645,24 +667,48 @@ CLI publication is a separate immutable release, not another Worker scope.
 Read `developing/engineering/cli-binary-release.md` for artifact and Apple
 credential details.
 
-Before publication, run `pnpm run release:preflight`, then let the base-aware
-stamp command select the next immutable patch from npm `latest` and the R2
-stable manifest while choosing the real policy:
+Before publication, run `pnpm run release:preflight`, then inspect the
+base-aware local-component plan:
+
+```sh
+pnpm release:local-components plan --next
+```
+
+The plan prints both channel versions, the current CLI and Service floors, the
+selected patch, the exact components changed since the last published tag, and
+any missing policy decisions. For every changed component, the release agent
+must explicitly choose `available` or `required` and provide a component-specific
+reason. The stamp command fails before building or writing when either fact is
+missing; it never silently chooses `available`.
+
+For example, after the Contract Impact Audit has established that both changed
+components remain backward-compatible:
 
 ```sh
 pnpm release:local-components stamp --next \
-  --cli available --service available --skills available
+  --cli available \
+  --cli-reason "Existing CLI commands remain compatible with both cloud versions." \
+  --service available \
+  --service-reason "Existing Services can safely continue current and new Wake work."
 ```
 
-The command prints both channel versions, the higher version, and the selected
-patch. Channel drift is a warning and still selects the higher patch plus one.
+Channel drift is a warning and still selects the higher patch plus one.
 If either channel cannot be read, `--next` fails without changing or guessing a
 version. Use `--version X.Y.Z` instead only when an operator has already
 approved that exact version; `--version` and `--next` are mutually exclusive.
 
-- `available` advertises the patch without blocking existing Wake work;
-- `required` is reserved for an incompatible contract or a concrete unsafe old
-  version.
+- Choose `available` only when old cloud to new local and new cloud to old local
+  remain safe for the affected behavior.
+- Choose `required` when an old local component cannot safely accept new Wake
+  work, including a critical Wake, setup, reconnect, auto-update, permission,
+  structured-reply, runtime-transport, or other main-path fix that users must
+  receive before continuing.
+- A required release blocks new unsafe Wake work below the monotonic CLI or
+  Service floor. It must still preserve update and self-rescue commands and must
+  not cancel an already accepted dispatch. A later `available` release carries
+  both floors forward and cannot reopen an installation below them.
+- Required is sometimes the least harmful user choice, but it is not the
+  default and must not be applied to every release.
 
 The stamp command rebuilds the packaged CLI before recording its Service hash,
 rejects source drift, and verifies the result. Never hand-edit the hash, reuse
@@ -867,6 +913,12 @@ change and its handover checklist. Examples:
 - a CLI command fix: run that command through the published `openmeld` lane;
 - an unrelated Worker refactor: confirm its page or public entrypoint and no
   5xx response.
+
+After that exact changed path succeeds once and the visible result plus any
+required trace is recorded, stop. Repeat only after another deployment or
+relevant state change, when the task names another case, or when the smoke
+fails. Repeating an unchanged successful Wake or browser path consumes product,
+machine, and agent capacity without creating new release evidence.
 
 Smoke failure is a release failure. Keep the deployed SHA and diagnostic
 evidence, stop the remaining rollout, and choose a forward fix or explicit

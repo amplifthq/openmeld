@@ -37,6 +37,8 @@ const CLI_LOCAL_COMPONENTS_SOURCE_PATH =
   "clients/openmeld-cli/src/local-components/manifest.ts";
 const RUNTIME_TRANSPORT_SCHEMA_SOURCE_PATH =
   "packages/schemas/src/schemas/daemon/runtime-transport.ts";
+const CORE_LOCAL_COMPONENTS_UPDATE_PROJECTION_PATH =
+  "services/core/src/local-components/update-projection.ts";
 const CLI_DIST_ROOT_PATH = "clients/openmeld-cli/dist";
 // Platform-specific CLI artifacts have their own signed release integrity.
 // They are not copied into the npm Service bundle and must not make its
@@ -48,6 +50,13 @@ const POLICY_VALUES = new Set(["ok", "available", "required"]);
 const SERVICE_POLICIES = new Set(["ok", "available", "required"]);
 const SKILLS_POLICIES = new Set(["ok", "available", "required"]);
 const COMPONENTS = ["cli", "service", "skills"];
+const RELEASE_DECISION_POLICIES = new Set(["available", "required"]);
+const MINIMUM_POLICY_REASON_LENGTH = 20;
+const COMPONENT_LABELS = {
+  cli: "OpenMeld CLI",
+  service: "OpenMeld Service",
+  skills: "OpenMeld skills",
+};
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const DEFAULT_RELEASE_BASE_ENV_VAR = "OPENMELD_AFFECTED_BASE";
 export const OPENMELD_GREENFIELD_RELEASE_LINE = "openmeld-greenfield-2026-07";
@@ -89,12 +98,20 @@ async function execGit(args, options = {}) {
 
 export async function collectLocalComponentFacts(input = {}) {
   const repoRoot = resolve(input.repoRoot ?? process.cwd());
-  const [packageJson, localComponentsSource, runtimeTransportSource] =
-    await Promise.all([
-      readJson(join(repoRoot, CLI_PACKAGE_JSON_PATH)),
-      readFile(join(repoRoot, CLI_LOCAL_COMPONENTS_SOURCE_PATH), "utf8"),
-      readFile(join(repoRoot, RUNTIME_TRANSPORT_SCHEMA_SOURCE_PATH), "utf8"),
-    ]);
+  const [
+    packageJson,
+    localComponentsSource,
+    runtimeTransportSource,
+    coreLocalComponentsSource,
+  ] = await Promise.all([
+    readJson(join(repoRoot, CLI_PACKAGE_JSON_PATH)),
+    readFile(join(repoRoot, CLI_LOCAL_COMPONENTS_SOURCE_PATH), "utf8"),
+    readFile(join(repoRoot, RUNTIME_TRANSPORT_SCHEMA_SOURCE_PATH), "utf8"),
+    readFile(
+      join(repoRoot, CORE_LOCAL_COMPONENTS_UPDATE_PROJECTION_PATH),
+      "utf8"
+    ),
+  ]);
 
   const packageVersion = normalizeNonEmptyString(
     packageJson.version,
@@ -145,6 +162,10 @@ export async function collectLocalComponentFacts(input = {}) {
       runtimeContractEpoch,
       serviceContractVersion,
     },
+    serviceRequiredFloor: parseDeclaredStringConstant(
+      coreLocalComponentsSource,
+      "MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION"
+    ),
     skills: {
       bundleHash: await computeSkillsBundleHash({
         rootDir: join(repoRoot, SKILLS_ROOT_PATH),
@@ -158,6 +179,7 @@ export async function collectLocalComponentFacts(input = {}) {
 export function buildReleasePolicyManifest(input) {
   const previous = input.previous ?? null;
   const policies = input.policies ?? {};
+  const reasons = input.reasons ?? {};
   const reason = normalizeOptionalString(input.reason);
   const now = input.now ?? new Date().toISOString();
   const cliPolicy = resolveComponentPolicy({
@@ -187,7 +209,7 @@ export function buildReleasePolicyManifest(input) {
           component: "cli",
           policy: cliPolicy,
           previous: previous?.components.cli,
-          reason,
+          reason: normalizeOptionalString(reasons.cli) ?? reason,
           touched: Object.hasOwn(policies, "cli"),
         }),
       },
@@ -198,7 +220,7 @@ export function buildReleasePolicyManifest(input) {
           component: "service",
           policy: servicePolicy,
           previous: previous?.components.service,
-          reason,
+          reason: normalizeOptionalString(reasons.service) ?? reason,
           touched: Object.hasOwn(policies, "service"),
         }),
       },
@@ -209,7 +231,7 @@ export function buildReleasePolicyManifest(input) {
           component: "skills",
           policy: skillsPolicy,
           previous: previous?.components.skills,
-          reason,
+          reason: normalizeOptionalString(reasons.skills) ?? reason,
           touched: Object.hasOwn(policies, "skills"),
         }),
       },
@@ -346,11 +368,80 @@ export function resolveReleasePolicyVerificationErrors(input) {
       "OpenMeld skills contract changed, so skills.updatePolicy must be required."
     );
   }
+  errors.push(
+    ...resolveServiceRequiredFloorVerificationErrors({
+      baseFloor: input.baseServiceRequiredFloor,
+      bundleVersion: facts.service.bundleVersion,
+      floor: facts.serviceRequiredFloor,
+      updatePolicy: manifest.components.service.updatePolicy,
+    })
+  );
   return errors;
 }
 
 function isUpdatePolicyAtLeastAvailable(policy) {
   return policy === "available" || policy === "required";
+}
+
+export function resolveTouchedLocalComponents(changedPaths = []) {
+  const touched = new Set();
+  for (const path of changedPaths) {
+    if (isCliReleasePath(path)) {
+      touched.add("cli");
+    }
+    if (isServiceReleasePath(path)) {
+      touched.add("service");
+    }
+    if (isSkillsReleasePath(path)) {
+      touched.add("skills");
+    }
+  }
+  return COMPONENTS.filter((component) => touched.has(component));
+}
+
+export function resolveExplicitLocalComponentPolicyDecisionErrors(input = {}) {
+  const errors = [];
+  const policies = input.policies ?? {};
+  const reasons = input.reasons ?? {};
+  for (const component of resolveTouchedLocalComponents(input.changedPaths)) {
+    const label = COMPONENT_LABELS[component];
+    const policy = policies[component];
+    const reason = normalizeOptionalString(reasons[component]);
+    if (!RELEASE_DECISION_POLICIES.has(policy)) {
+      errors.push(
+        `${label} changed, so choose --${component} available or --${component} required.`
+      );
+    }
+    if (!reason || reason.length < MINIMUM_POLICY_REASON_LENGTH) {
+      errors.push(
+        `${label} changed, so add --${component}-reason with a concrete compatibility reason.`
+      );
+    }
+  }
+  return errors;
+}
+
+export function resolveServiceRequiredFloorVerificationErrors(input = {}) {
+  const floor = normalizeOptionalString(input.floor);
+  const baseFloor = normalizeOptionalString(input.baseFloor);
+  const bundleVersion = normalizeOptionalString(input.bundleVersion);
+  const errors = [];
+  if (baseFloor && (!floor || compareSemverCore(floor, baseFloor) < 0)) {
+    errors.push(
+      `MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION (${floor ?? "unset"}) must not regress below the base floor (${baseFloor}).`
+    );
+    return errors;
+  }
+  if (
+    input.updatePolicy === "required" &&
+    bundleVersion &&
+    (!floor || compareSemverCore(floor, bundleVersion) < 0)
+  ) {
+    errors.push(
+      `service.updatePolicy is required, so MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION (${floor ?? "unset"}) must be at least the released service.bundleVersion (${bundleVersion}).`
+    );
+  }
+  return errors;
 }
 
 function validateReleasePolicies(manifest) {
@@ -398,12 +489,29 @@ export async function runLocalComponentsReleaseTool(
       writeOutput(payload, parsed.options.json, formatStatus);
       return;
     }
+    case "plan": {
+      await runLocalComponentReleaseDecisionPlan({
+        dependencies,
+        parsed,
+        repoRoot,
+      });
+      return;
+    }
     case "stamp": {
       assertStampUsesReleaseBase(parsed);
+      const decisionPlan = await collectLocalComponentReleaseDecisionPlan({
+        dependencies,
+        parsed,
+        repoRoot,
+      });
+      if (decisionPlan.decisionErrors.length > 0) {
+        throw new Error(formatLocalComponentDecisionFailure(decisionPlan));
+      }
       const stampedAt = parsed.options.now ?? new Date().toISOString();
       const versionWrite = await prepareStampCliVersion({
         dependencies,
         parsed,
+        resolution: decisionPlan.versionResolution,
         stampedAt,
         repoRoot,
       });
@@ -425,6 +533,7 @@ export async function runLocalComponentsReleaseTool(
           policies: parsed.options.policies,
           previous,
           reason: parsed.options.reason,
+          reasons: parsed.options.reasons,
         });
         await assertReleaseManifestPolicy({
           facts,
@@ -452,7 +561,7 @@ export async function runLocalComponentsReleaseTool(
         },
         parsed.options.json,
         ({ manifest: writtenManifest, versionResolution }) =>
-          `${formatVersionResolutionPrefix(versionResolution)}Stamped and verified ${relative(repoRoot, manifestPath)}\n${formatPolicySummary(writtenManifest)}${formatFloorProjectionSuffix(stampResult.stampFloor)}`
+          `${formatLocalComponentDecisionPlan(decisionPlan)}\n\n${formatVersionResolutionPrefix(versionResolution)}Stamped and verified ${relative(repoRoot, manifestPath)}\n${formatPolicySummary(writtenManifest)}${formatFloorProjectionSuffix(stampResult.stampFloor)}`
       );
       return;
     }
@@ -491,6 +600,7 @@ export async function runLocalComponentsReleaseTool(
         policies,
         previous,
         reason: parsed.options.reason,
+        reasons: parsed.options.reasons,
       });
       await assertReleaseManifestPolicy({
         facts,
@@ -530,13 +640,174 @@ export async function runLocalComponentsReleaseTool(
   }
 }
 
-async function prepareStampCliVersion(input) {
-  const resolution = await resolveCliReleaseVersion({
-    cwd: input.repoRoot,
-    explicitVersion: input.parsed.options.version,
-    next: input.parsed.options.next,
-    readChannels: input.dependencies.readCliReleaseChannels,
+async function runLocalComponentReleaseDecisionPlan(input) {
+  const plan = await collectLocalComponentReleaseDecisionPlan(input);
+  writeOutput(
+    plan,
+    input.parsed.options.json,
+    formatLocalComponentDecisionPlan
+  );
+  if (plan.decisionErrors.length > 0) {
+    process.exitCode = 1;
+  }
+}
+
+async function collectLocalComponentReleaseDecisionPlan(input) {
+  const facts = await collectLocalComponentFacts({ repoRoot: input.repoRoot });
+  const latestReleaseTag = await resolveLatestReleaseTag({
+    repoRoot: input.repoRoot,
   });
+  const base = resolveEffectiveReleaseBase({
+    base: input.parsed.options.base,
+    currentReleaseLine: facts.cliReleaseLine,
+    currentOnly: input.parsed.options.currentOnly,
+    env: process.env,
+    latestReleaseTag,
+  });
+  const [changedPaths, baseContracts, versionResolution] = await Promise.all([
+    base
+      ? resolveChangedPaths({ base, repoRoot: input.repoRoot })
+      : Promise.resolve([]),
+    base
+      ? readBaseReleaseContracts({ base, repoRoot: input.repoRoot })
+      : Promise.resolve({}),
+    resolveCliReleaseVersion({
+      cwd: input.repoRoot,
+      explicitVersion: input.parsed.options.version,
+      next: input.parsed.options.next,
+      readChannels: input.dependencies.readCliReleaseChannels,
+    }),
+  ]);
+  const touchedComponents = resolveTouchedLocalComponents(changedPaths);
+  const decisionErrors = resolveExplicitLocalComponentPolicyDecisionErrors({
+    changedPaths,
+    policies: input.parsed.options.policies,
+    reasons: input.parsed.options.reasons,
+  });
+  return {
+    base,
+    changedPaths,
+    currentPublic: {
+      cliVersion:
+        versionResolution?.npmVersion ??
+        baseContracts.baseLocalComponentsManifest?.components?.cli
+          ?.packageVersion ??
+        null,
+      cliRequiredFloor: baseContracts.baseCliRequiredFloor ?? null,
+      r2Version: versionResolution?.r2Version ?? null,
+      serviceRequiredFloor: baseContracts.baseServiceRequiredFloor ?? null,
+      serviceVersion:
+        baseContracts.baseLocalComponentsManifest?.components?.service
+          ?.bundleVersion ?? null,
+    },
+    decisionErrors,
+    decisions: Object.fromEntries(
+      touchedComponents.map((component) => [
+        component,
+        {
+          compatibility: resolveDeclaredCompatibility(
+            input.parsed.options.policies[component]
+          ),
+          policy: input.parsed.options.policies[component] ?? null,
+          reason:
+            normalizeOptionalString(input.parsed.options.reasons[component]) ??
+            null,
+        },
+      ])
+    ),
+    targetVersion: versionResolution?.targetVersion ?? facts.cli.packageVersion,
+    touchedComponents,
+    versionResolution,
+  };
+}
+
+function resolveDeclaredCompatibility(policy) {
+  if (policy === "available") {
+    return {
+      newCloudToOldLocal: "declared compatible",
+      oldCloudToNewLocal: "declared compatible",
+    };
+  }
+  if (policy === "required") {
+    return {
+      newCloudToOldLocal: "declared unsafe for new Wake below the floor",
+      oldCloudToNewLocal:
+        "must remain compatible for update, self-rescue, and accepted work",
+    };
+  }
+  return {
+    newCloudToOldLocal: "not declared",
+    oldCloudToNewLocal: "not declared",
+  };
+}
+
+function formatLocalComponentDecisionPlan(plan) {
+  const touched =
+    plan.touchedComponents.length > 0
+      ? plan.touchedComponents
+          .map((component) => COMPONENT_LABELS[component])
+          .join(", ")
+      : "none";
+  const lines = [
+    "Local component release facts",
+    `Baseline: ${plan.base ?? "no published local-component baseline"}`,
+    `Current public CLI: ${plan.currentPublic.cliVersion ?? "unknown"}`,
+    `Current R2 stable CLI: ${plan.currentPublic.r2Version ?? "not queried"}`,
+    `Current CLI required floor: ${plan.currentPublic.cliRequiredFloor ?? "none"}`,
+    `Current public Service: ${plan.currentPublic.serviceVersion ?? "unknown"}`,
+    `Current Service required floor: ${plan.currentPublic.serviceRequiredFloor ?? "none"}`,
+    `Target CLI/Service version: ${plan.targetVersion}`,
+    `Changed local components: ${touched}`,
+  ];
+  for (const component of plan.touchedComponents) {
+    const decision = plan.decisions[component];
+    lines.push(
+      "",
+      `${COMPONENT_LABELS[component]} decision: ${decision.policy ?? "not selected"}`,
+      `  reason: ${decision.reason ?? "not provided"}`,
+      `  old cloud -> new local: ${decision.compatibility.oldCloudToNewLocal}`,
+      `  new cloud -> old local: ${decision.compatibility.newCloudToOldLocal}`
+    );
+  }
+  if (plan.decisionErrors.length > 0) {
+    lines.push(
+      "",
+      "Missing explicit release facts:",
+      ...plan.decisionErrors.map((error) => `- ${error}`)
+    );
+  }
+  return lines.join("\n");
+}
+
+function formatLocalComponentDecisionFailure(plan) {
+  const versionFlag =
+    plan.versionResolution?.source === "explicit"
+      ? `--version ${plan.targetVersion}`
+      : "--next";
+  const decisionFlags = plan.touchedComponents
+    .map(
+      (component) =>
+        `--${component} <available|required> --${component}-reason "<specific compatibility reason>"`
+    )
+    .join(" ");
+  return [
+    formatLocalComponentDecisionPlan(plan),
+    "",
+    "Choose the policy from the Contract Impact Audit; the tool will not guess it.",
+    "Then rerun this exact command shape:",
+    `pnpm release:local-components stamp ${versionFlag} ${decisionFlags}`.trim(),
+  ].join("\n");
+}
+
+async function prepareStampCliVersion(input) {
+  const resolution =
+    input.resolution ??
+    (await resolveCliReleaseVersion({
+      cwd: input.repoRoot,
+      explicitVersion: input.parsed.options.version,
+      next: input.parsed.options.next,
+      readChannels: input.dependencies.readCliReleaseChannels,
+    }));
   const packageJsonPath = join(input.repoRoot, CLI_PACKAGE_JSON_PATH);
   const original = await readOptionalFile(packageJsonPath);
   if (!resolution) {
@@ -891,6 +1162,7 @@ async function readBaseReleaseContracts(input) {
     baseRuntimeContractEpoch,
     baseSkillContractVersion,
     baseCliRequiredFloor,
+    baseServiceRequiredFloor,
     baseCliReleaseLine,
     baseLocalComponentsManifest,
   ] = await Promise.all([
@@ -898,6 +1170,7 @@ async function readBaseReleaseContracts(input) {
     readBaseRuntimeContractEpoch(input),
     readBaseSkillContractVersion(input),
     readBaseCliRequiredFloor(input),
+    readBaseServiceRequiredFloor(input),
     readBaseCliReleaseLine(input),
     readBaseLocalComponentsReleaseManifest(input),
   ]);
@@ -906,16 +1179,34 @@ async function readBaseReleaseContracts(input) {
     baseCliReleaseLine,
     baseCommandContractVersion,
     baseRuntimeContractEpoch,
+    baseServiceRequiredFloor,
     baseServiceBundleHash:
       baseLocalComponentsManifest?.components?.service?.bundleHash ?? null,
     baseServiceBundleVersion:
       baseLocalComponentsManifest?.components?.service?.bundleVersion ?? null,
+    baseLocalComponentsManifest,
     baseServiceContractVersion: await readBaseServiceContractVersion({
       ...input,
       baseRuntimeContractEpoch,
     }),
     baseSkillContractVersion,
   };
+}
+
+async function readBaseServiceRequiredFloor(input) {
+  const basePath = `${input.base}:${CORE_LOCAL_COMPONENTS_UPDATE_PROJECTION_PATH}`;
+  try {
+    const result = await execGit(["show", basePath], {
+      maxBuffer: 1024 * 1024,
+      repoRoot: input.repoRoot,
+    });
+    return parseDeclaredStringConstant(
+      result.stdout,
+      "MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION"
+    );
+  } catch {
+    return null;
+  }
 }
 
 async function readBaseLocalComponentsReleaseManifest(input) {
@@ -968,6 +1259,7 @@ function parseArgs(argv) {
     now: undefined,
     policies: {},
     reason: null,
+    reasons: {},
     repoRoot: process.cwd(),
     version: null,
   };
@@ -1020,6 +1312,10 @@ function parseArgs(argv) {
           readRequiredOption(args, index, arg)
         );
         break;
+      case "--cli-reason":
+        index += 1;
+        options.reasons.cli = readRequiredOption(args, index, arg);
+        break;
       case "--service":
         index += 1;
         options.policies.service = normalizePolicy(
@@ -1027,12 +1323,20 @@ function parseArgs(argv) {
           readRequiredOption(args, index, arg)
         );
         break;
+      case "--service-reason":
+        index += 1;
+        options.reasons.service = readRequiredOption(args, index, arg);
+        break;
       case "--skills":
         index += 1;
         options.policies.skills = normalizePolicy(
           "skills",
           readRequiredOption(args, index, arg)
         );
+        break;
+      case "--skills-reason":
+        index += 1;
+        options.reasons.skills = readRequiredOption(args, index, arg);
         break;
       default:
         if (arg.startsWith("--")) {
@@ -1048,8 +1352,13 @@ function parseArgs(argv) {
       "--next and --version are mutually exclusive. Choose one release version mode."
     );
   }
-  if (command !== "stamp" && (options.next || options.version)) {
-    throw new Error("--next and --version are only available for stamp.");
+  if (
+    !["plan", "stamp"].includes(command) &&
+    (options.next || options.version)
+  ) {
+    throw new Error(
+      "--next and --version are only available for plan or stamp."
+    );
   }
   return { command, options, positionals };
 }
@@ -1130,27 +1439,32 @@ function formatStatus(payload) {
     "",
     `CLI: v${payload.facts.cli.packageVersion}`,
     `  command contract: ${payload.facts.cli.commandContractVersion}`,
+    `  required floor: ${payload.facts.cliRequiredFloor ?? "none"}`,
     `  policy: ${manifest?.components.cli.updatePolicy ?? "not stamped"}`,
+    `  reason: ${manifest?.components.cli.reason ?? "not stamped"}`,
     "",
     `OpenMeld Service: v${payload.facts.service.bundleVersion}`,
     `  runtime epoch: ${payload.facts.service.runtimeContractEpoch}`,
     `  service contract: ${payload.facts.service.serviceContractVersion}`,
+    `  required floor: ${payload.facts.serviceRequiredFloor}`,
     `  bundle hash: ${formatHash(payload.facts.service.bundleHash)}`,
     `  policy: ${manifest?.components.service.updatePolicy ?? "not stamped"}`,
+    `  reason: ${manifest?.components.service.reason ?? "not stamped"}`,
     "",
     "OpenMeld skills",
     `  skill contract: ${payload.facts.skills.skillContractVersion}`,
     `  bundle hash: ${formatHash(payload.facts.skills.bundleHash)}`,
     `  policy: ${manifest?.components.skills.updatePolicy ?? "not stamped"}`,
+    `  reason: ${manifest?.components.skills.reason ?? "not stamped"}`,
   ];
   return lines.join("\n");
 }
 
 function formatPolicySummary(manifest) {
   return [
-    `CLI: ${manifest.components.cli.updatePolicy}`,
-    `OpenMeld Service: ${manifest.components.service.updatePolicy}`,
-    `OpenMeld skills: ${manifest.components.skills.updatePolicy}`,
+    `CLI: ${manifest.components.cli.updatePolicy} — ${manifest.components.cli.reason}`,
+    `OpenMeld Service: ${manifest.components.service.updatePolicy} — ${manifest.components.service.reason}`,
+    `OpenMeld skills: ${manifest.components.skills.updatePolicy} — ${manifest.components.skills.reason}`,
   ].join("\n");
 }
 
@@ -1463,6 +1777,18 @@ function parseExportedStringConstant(source, name, input = {}) {
     return null;
   }
   throw new Error(`Could not find exported string constant ${name}.`);
+}
+
+function parseDeclaredStringConstant(source, name) {
+  const pattern = new RegExp(
+    `(?:export\\s+)?const\\s+${escapeRegex(name)}\\s*=\\s*["']([^"']+)["']`,
+    "u"
+  );
+  const match = source.match(pattern);
+  if (match?.[1]) {
+    return match[1];
+  }
+  throw new Error(`Could not find string constant ${name}.`);
 }
 
 async function computeSkillsBundleHash(input) {

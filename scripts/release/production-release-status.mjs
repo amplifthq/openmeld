@@ -52,6 +52,7 @@ const SUCCESSFUL_JOB_SCOPES = [
 
 export function parseProductionReleaseStatusArgs(argv) {
   const options = {
+    changeBase: undefined,
     deployed: new Map(),
     json: false,
     ref: DEFAULT_REF,
@@ -65,6 +66,11 @@ export function parseProductionReleaseStatusArgs(argv) {
     if (arg === "--ref") {
       index += 1;
       options.ref = readRequiredArgument(argv, index, arg);
+      continue;
+    }
+    if (arg === "--change-base") {
+      index += 1;
+      options.changeBase = readRequiredArgument(argv, index, arg);
       continue;
     }
     if (arg === "--repo") {
@@ -116,6 +122,11 @@ export async function runProductionReleaseStatus(input = {}) {
   const write = input.write ?? ((value) => process.stdout.write(value));
   const repo = options.repo ?? adapters.resolveRepo();
   const sourceSha = adapters.resolveRef(options.ref);
+  const changeBaseSha = resolveChangeBaseSha({
+    adapters,
+    changeBase: options.changeBase,
+    sourceSha,
+  });
   const runs = (await adapters.readReleaseRuns(repo)).filter((run) =>
     RELEASE_WORKFLOW_PATTERNS.some((pattern) => pattern.test(run.workflowName))
   );
@@ -178,25 +189,46 @@ export async function runProductionReleaseStatus(input = {}) {
       name: check.workflowName,
       url: check.url,
     }));
-  const blockers = [...pushCheckBlockers];
-  if (missingSources.length > 0) {
-    blockers.push({
-      detail: `missing successful deployment history for ${missingSources.join(", ")}`,
-      name: "Deployment history",
-      url: undefined,
-    });
-  }
+  const currentChange = changeBaseSha
+    ? buildCurrentChangeFacts({
+        baseRef: options.changeBase,
+        baseSha: changeBaseSha,
+        buildPlan: adapters.buildPlan,
+        globalPendingScopes: pendingScopes,
+        sourceSha,
+      })
+    : null;
+  const scopeBasis = currentChange ? "current-change" : "global-backlog";
+  const relevantMissingSources = currentChange
+    ? missingSources.filter((scope) => currentChange.scopes.includes(scope))
+    : missingSources;
+  const blockers = buildReleaseStatusBlockers({
+    missingSources: relevantMissingSources,
+    pushCheckBlockers,
+  });
+  const globalBlockers = buildReleaseStatusBlockers({
+    missingSources,
+    pushCheckBlockers,
+  });
+  const scopedPendingScopes = currentChange?.pendingScopes ?? pendingScopes;
+  const workflowMapping = releaseWorkflowMapping(scopedPendingScopes);
 
   const result = {
     blockers,
     components,
+    currentChange,
+    globalBlockers,
+    globalPendingScopes: pendingScopes,
+    globalState: resolveReleaseState(globalBlockers, pendingScopes),
     pendingScopes,
-    recommendation: releaseRecommendation(pendingScopes),
+    recommendation: workflowMapping,
     ref: options.ref,
     repo,
+    scopeBasis,
     sourceSha,
     sourceValidation: describeSourceValidation(pushChecks, pushCheckBlockers),
-    state: resolveReleaseState(blockers, pendingScopes),
+    state: resolveReleaseState(blockers, scopedPendingScopes),
+    workflowMapping,
   };
   write(
     options.json
@@ -204,6 +236,47 @@ export async function runProductionReleaseStatus(input = {}) {
       : formatReleaseStatus(result)
   );
   return blockers.length > 0 ? 1 : 0;
+}
+
+function buildReleaseStatusBlockers(input) {
+  const blockers = [...input.pushCheckBlockers];
+  if (input.missingSources.length > 0) {
+    blockers.push({
+      detail: `missing successful deployment history for ${input.missingSources.join(", ")}`,
+      name: "Deployment history",
+      url: undefined,
+    });
+  }
+  return blockers;
+}
+
+function resolveChangeBaseSha(input) {
+  if (!input.changeBase) {
+    return null;
+  }
+  const changeBaseSha = input.adapters.resolveRef(input.changeBase);
+  if (!input.adapters.sourceIsAncestor(changeBaseSha, input.sourceSha)) {
+    throw new Error(
+      `Current-change base ${changeBaseSha} is not an ancestor of ${input.sourceSha}.`
+    );
+  }
+  return changeBaseSha;
+}
+
+function buildCurrentChangeFacts(input) {
+  const plan = input.buildPlan({
+    base: input.baseSha,
+    sourceSha: input.sourceSha,
+  });
+  return {
+    baseRef: input.baseRef,
+    baseSha: input.baseSha,
+    changedPaths: plan.changedPaths,
+    pendingScopes: plan.scopes.filter((scope) =>
+      input.globalPendingScopes.includes(scope)
+    ),
+    scopes: plan.scopes,
+  };
 }
 
 async function readLatestSuccessfulReleaseSources(input) {
@@ -429,43 +502,43 @@ function pushCheckPassed(check) {
   return check.status === "completed" && check.conclusion === "success";
 }
 
-function releaseRecommendation(pendingScopes) {
+function releaseWorkflowMapping(pendingScopes) {
   if (pendingScopes.length === 0) {
-    return "No production release is needed.";
+    return "No matching production scope remains pending.";
   }
   if (pendingScopes.includes("cli")) {
     const remaining = pendingScopes.filter(
       (scope) => scope !== "cli" && scope !== "core"
     );
     return remaining.length === 0
-      ? "CLI Release: run CLI release directly."
-      : `CLI Release: run CLI release directly; ${scopedReleaseRecommendation(remaining)}`;
+      ? "CLI Release owns the CLI and required Core projection."
+      : `CLI Release owns the CLI and required Core projection; ${scopedReleaseWorkflowMapping(remaining)}`;
   }
-  return scopedReleaseRecommendation(pendingScopes);
+  return scopedReleaseWorkflowMapping(pendingScopes);
 }
 
-function scopedReleaseRecommendation(scopes) {
+function scopedReleaseWorkflowMapping(scopes) {
   if (
     hasExactly(scopes, ["db", "web", "gateway", "auth", "core", "remote-agent"])
   ) {
-    return "Scoped Production Release: full.";
+    return "Scoped Production Release input: full.";
   }
   if (hasExactly(scopes, ["web", "gateway", "auth", "core", "remote-agent"])) {
-    return "Scoped Production Release: cloud.";
+    return "Scoped Production Release input: cloud.";
   }
   if (hasExactly(scopes, ["db", "auth"])) {
-    return "Scoped Production Release: database-auth.";
+    return "Scoped Production Release input: database-auth.";
   }
   if (hasExactly(scopes, ["db", "core"])) {
-    return "Scoped Production Release: database-core.";
+    return "Scoped Production Release input: database-core.";
   }
   const githubScopes = scopes.map((scope) =>
     scope === "db" ? "database" : scope
   );
   if (githubScopes.length === 1) {
-    return `Scoped Production Release: ${githubScopes[0]}.`;
+    return `Scoped Production Release input: ${githubScopes[0]}.`;
   }
-  return `Scoped Production Release separate runs: ${githubScopes.join(", then ")}.`;
+  return `Scoped Production Release inputs are separate: ${githubScopes.join(", ")}.`;
 }
 
 function hasExactly(actual, expected) {
@@ -480,10 +553,21 @@ function formatReleaseStatus(result) {
     "Production release status",
     `Source: ${result.sourceSha}`,
     `Repository: ${result.repo}`,
-    `Deployment state: ${result.state}`,
+    `Deployment state (${result.scopeBasis}): ${result.state}`,
+    `Global deployment backlog state: ${result.globalState}`,
     `Source validation: ${result.sourceValidation}`,
-    `Pending scopes: ${result.pendingScopes.length > 0 ? result.pendingScopes.join(", ") : "none"}`,
-    `Recommended CI: ${result.recommendation}`,
+    `Scope basis: ${result.scopeBasis}`,
+    ...(result.currentChange
+      ? [
+          `Current change: ${result.currentChange.baseSha}...${result.sourceSha}`,
+          `Current-change scopes: ${result.currentChange.scopes.length > 0 ? result.currentChange.scopes.join(", ") : "none"}`,
+          `Current-change scopes still pending: ${result.currentChange.pendingScopes.length > 0 ? result.currentChange.pendingScopes.join(", ") : "none"}`,
+        ]
+      : [
+          "Current change: not specified; pass --change-base <exact-merge-parent> to separate this delivery from historical backlog.",
+        ]),
+    `Global pending scopes: ${result.globalPendingScopes.length > 0 ? result.globalPendingScopes.join(", ") : "none"}`,
+    `Workflow mapping (facts only): ${result.workflowMapping}`,
     "",
     "Components:",
   ];
