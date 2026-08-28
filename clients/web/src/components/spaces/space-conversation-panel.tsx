@@ -110,6 +110,10 @@ import {
 	type SpaceAgentProfileEditHandler,
 } from "./space-agent-interaction-card";
 import {
+	resolveSpaceAgentInteractionPlacement,
+	type SpaceAgentInteractionPlacement,
+} from "./space-agent-interaction-placement";
+import {
 	type SpaceAgentProfileBindingRecoveryPlan,
 	SpaceAgentRecoveryActionControl,
 } from "./space-agent-recovery-action";
@@ -236,6 +240,7 @@ type SpaceConversationPanelProps = {
 	historyActionErrorMessage: string | null;
 	historyErrorMessage: string | null;
 	historyIsPending: boolean;
+	actionableAgentInteractionPlacement?: SpaceAgentInteractionPlacement;
 	initialFocusInteractionId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
@@ -288,6 +293,7 @@ type SpaceConversationPanelProps = {
 	// the unread watermark only advances while the user is actually at the bottom.
 	onViewingLatestChange?: (isViewingLatest: boolean) => void;
 	prepareSetupHref?: string;
+	pendingActionSurface?: ReactNode;
 	readOnly?: boolean;
 	readOnlyComposerPlaceholder?: string;
 	renderSetupGuidance?: (
@@ -736,6 +742,9 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		ephemeralActivityItems: input.ephemeralActivityItems,
 		firstUnreadSignalId: input.firstUnreadSignalId,
 		historyIsPending: input.historyIsPending,
+		actionableAgentInteractionPlacement: resolveSpaceAgentInteractionPlacement(
+			input.actionableAgentInteractionPlacement
+		),
 		isAgentRecoveryPending: input.isAgentRecoveryPending,
 		isCenterAgentDirectMessage:
 			messageStateTuningVisibility.isCenterAgentDirectMessage,
@@ -1062,16 +1071,19 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 			/>
 
 			{showComposer ? (
-				<SpaceComposerSection
-					canSendMessage={canSendMessage}
-					composerPlaceholder={composerPlaceholder}
-					composerSendBlocked={composerSendBlocked}
-					handleComposerKeyDown={handleComposerKeyDown}
-					input={input}
-					sendButtonLabel={sendButtonLabel}
-					submitComposer={submitComposer}
-					wakeTextHint={wakeTextHint}
-				/>
+				<>
+					{input.pendingActionSurface}
+					<SpaceComposerSection
+						canSendMessage={canSendMessage}
+						composerPlaceholder={composerPlaceholder}
+						composerSendBlocked={composerSendBlocked}
+						handleComposerKeyDown={handleComposerKeyDown}
+						input={input}
+						sendButtonLabel={sendButtonLabel}
+						submitComposer={submitComposer}
+						wakeTextHint={wakeTextHint}
+					/>
+				</>
 			) : null}
 			{messageDetailsItem && input.spaceId ? (
 				<SpaceMessageDetailsDrawer
@@ -1621,6 +1633,7 @@ function renderConversationBody(input: {
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	firstUnreadSignalId: string | null;
 	historyIsPending: boolean;
+	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	isAgentRecoveryPending: (profileId: string) => boolean;
 	isCenterAgentDirectMessage: boolean;
 	isCreatingThread: boolean;
@@ -1830,6 +1843,9 @@ function renderConversationBody(input: {
 				}
 				return wrapEntry(
 					<ConversationBubbleRun
+						actionableAgentInteractionPlacement={
+							input.actionableAgentInteractionPlacement
+						}
 						agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 						anchoredOutcomeNoticesBySourceSignalId={
 							input.anchoredOutcomeNoticesBySourceSignalId
@@ -2026,6 +2042,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	editableAgentProfileIds?: ReadonlySet<string>;
 	highlightedSignalId: string | null;
+	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	inlineComputerSetupActionSignalId: string | null;
 	isAgentRecoveryPending: (profileId: string) => boolean;
 	isCenterAgentDirectMessage: boolean;
@@ -2369,28 +2386,33 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 												<SpaceMessageInteractionSource
 													source={item.centerAgentInteractionSource}
 												/>
-												{agentInteractionItems.map((interactionItem) => (
-													<SpaceAgentInteractionCard
-														item={interactionItem}
-														key={
-															interactionItem.pendingInteraction
-																?.interactionId ??
-															`${interactionItem.targetProfileId}:interaction`
-														}
-														onEditAgentProfile={
-															input.editableAgentProfileIds?.has(
-																interactionItem.targetProfileId
-															)
-																? input.onEditAgentProfile
-																: undefined
-														}
-														onRespond={
-															input.readOnly
-																? undefined
-																: input.onAgentInteractionResponse
-														}
-													/>
-												))}
+												{agentInteractionItems.map((interactionItem) =>
+													input.actionableAgentInteractionPlacement ===
+														"pending-surface" &&
+													interactionItem.pendingInteraction
+														?.canRespond ? null : (
+														<SpaceAgentInteractionCard
+															item={interactionItem}
+															key={
+																interactionItem.pendingInteraction
+																	?.interactionId ??
+																`${interactionItem.targetProfileId}:interaction`
+															}
+															onEditAgentProfile={
+																input.editableAgentProfileIds?.has(
+																	interactionItem.targetProfileId
+																)
+																	? input.onEditAgentProfile
+																	: undefined
+															}
+															onRespond={
+																input.readOnly
+																	? undefined
+																	: input.onAgentInteractionResponse
+															}
+														/>
+													)
+												)}
 												{renderDurableAgentActivity({
 													item,
 													onOpenDetails: getOpenMessageDetailsHandler({

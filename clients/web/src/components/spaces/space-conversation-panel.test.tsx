@@ -573,9 +573,7 @@ describe("SpaceConversationPanel", () => {
 		expect(sourceMessage).not.toBeNull();
 		const source = within(sourceMessage as HTMLElement);
 		expect(source.getByText("Allow this command?")).toBeTruthy();
-		fireEvent.click(
-			source.getByRole("button", { name: "Edit Agent permissions" })
-		);
+		fireEvent.click(source.getByRole("button", { name: "Edit Agent Profile" }));
 		expect(onEditAgentProfile).toHaveBeenCalledWith(TARGET_PROFILE_ID);
 		expect(onAgentInteractionResponse).not.toHaveBeenCalled();
 		fireEvent.click(source.getByRole("radio", { name: "Allow once" }));
@@ -593,6 +591,65 @@ describe("SpaceConversationPanel", () => {
 				runtimeCoordinatorExecutionId: "rce_inline",
 			});
 		});
+	});
+
+	it("mounts the pending action surface above the composer without duplicating owner actions in history", () => {
+		renderSpaceConversationPanel({
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem({ sourceSignalId: "sig-wake" }),
+					pendingInteraction: {
+						canRespond: true,
+						expiresAtMs: Date.UTC(2026, 6, 29),
+						interactionId: "interaction-surface",
+						kind: "permission",
+						request: {
+							expiresAtMs: Date.UTC(2026, 6, 29),
+							interactionId: "interaction-surface",
+							kind: "permission",
+							options: [
+								{
+									intent: "allow_once",
+									label: "Allow once",
+									optionId: "allow-once",
+								},
+							],
+							requestedAtMs: Date.UTC(2026, 6, 28),
+							subject: {
+								command: "pnpm test",
+								type: "command",
+							},
+							title: "History must not duplicate this request",
+							v: 1,
+						},
+						requestedAtMs: Date.UTC(2026, 6, 28),
+					},
+					runtimeCoordinatorExecutionId: "rce_surface",
+				},
+			],
+			actionableAgentInteractionPlacement: "pending-surface",
+			pendingActionSurface: (
+				<div data-testid="pending-action-surface">1 action needs you</div>
+			),
+			readOnly: false,
+			timelineItems: [
+				createTimelineItem({
+					id: "sig-wake",
+					text: "@Runner(wake) validate this change",
+					wakeTargetProfileIds: [TARGET_PROFILE_ID],
+				}),
+			],
+		});
+
+		expect(
+			screen.queryByText("History must not duplicate this request")
+		).toBeNull();
+		const surface = screen.getByTestId("pending-action-surface");
+		const composer = document.querySelector(
+			'[data-slot="space-composer-section"]'
+		);
+		expect(composer).not.toBeNull();
+		expect(surface.nextElementSibling).toBe(composer);
 	});
 
 	it("anchors the earlier-history loading header to the conversation content rail", () => {

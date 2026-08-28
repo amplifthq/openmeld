@@ -3030,14 +3030,31 @@ Web shows elapsed running time, it uses the optional authoritative
 reinterpret it as the execution start time. A mixed-version response without
 `startedAtMs` omits elapsed time instead of inventing a browser-local timer.
 
-When active Wake progress includes a pending Agent Interaction, Web renders one
-inline card in the same Space or thread placement. Permission cards show the
-native choices; question cards collect every answer in bounded steps; plan
-cards show the bounded plan and support approval or change feedback. Web posts
-the shared response to the Space interaction endpoint, disables duplicate
-submission while it is pending, keeps a failed submission retryable, and
-refreshes authoritative progress after success. It does not continue the Agent
-from browser state.
+When active Wake progress includes a pending Agent Interaction for the current
+Binding owner, Web projects it into one collapsed Pending Action Surface above
+the current Space Composer. The surface reuses the existing Permission,
+Question, and Plan Review cards, includes the active thread, stays closed until
+the owner opens it, and presents multiple requests one at a time. Web does not
+create a cross-Space approval center, duplicate pending state, batch approval,
+or an automatic popover. The originating message or thread remains context,
+not the location the owner must rediscover to respond. Other members continue
+to see only the safe inline waiting indication.
+
+Permission cards show the native choices; question cards collect every answer
+in bounded steps; plan cards show the bounded plan and support approval or
+change feedback. Web posts the shared response to the Space interaction
+endpoint, disables duplicate submission while it is pending, keeps a failed
+submission retryable, and refreshes authoritative progress after success. It
+does not continue the Agent from browser state.
+
+For controllers with a native low-interruption Permission Mode, a permission
+card may also offer to save that mode for future requests. Web sends the current
+response first so the Wake resumes immediately, then saves the Profile setting
+as a non-blocking follow-up. A failed setting save does not undo or delay the
+response: Web shows a concise error with an `Edit Agent Profile` action that
+opens the Profile dialog focused on Permissions. Web does not invent a generic
+mode for controllers such as OpenCode that own a different permission contract,
+and it never offers a dangerous mode through this shortcut.
 
 Only `canRespond=true` plus a non-null private request may render details or
 controls. A content-free summary renders only that the Agent Profile is waiting
@@ -3051,8 +3068,10 @@ interaction remains visible and polled beyond the ordinary 30-minute working
 presentation window, up to its server-provided expiry. Refresh, route
 navigation, or a temporary socket replacement must therefore recover the card
 from Core. Answered, cancelled, expired, or terminal requests disappear from
-the authoritative projection; Web must not retain a local approval history or
-build a second notification system to own this state.
+the authoritative projection and therefore disappear from the Pending Action
+Surface on every client. Web returns focus to the Composer when a focused
+request disappears, but it must not retain a local approval history or build a
+second notification system to own this state.
 
 A permanent hosted-publication ambiguity is presented as
 `publication_unknown`, not as active retry progress. Web removes the optimistic

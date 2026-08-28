@@ -870,6 +870,45 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toContain("Plan");
 	});
 
+	it("focuses the Permissions section when approval recovery opens the Agent Profile", async () => {
+		const primaryBinding = createPrimaryBindingResponse("codex:askForApproval")
+			.binding as GetAgentProfilePrimaryBindingResponse["binding"];
+
+		render(
+			<AgentProfileEditDialog
+				controllerChangeOptions={[]}
+				editState={resolveAgentProfileEditState({
+					binding: primaryBinding,
+					modelCatalog: null,
+				})}
+				initialSection="permissions"
+				isPending={false}
+				modelCatalog={null}
+				onControllerChange={() => Promise.resolve()}
+				onControllerCollaborationModeUpdate={() => Promise.resolve()}
+				onControllerPermissionModeUpdate={() => Promise.resolve()}
+				onModelSelectionUpdate={() => Promise.resolve()}
+				onOpenChange={() => undefined}
+				onOpenCodePermissionUpdate={() => Promise.resolve()}
+				onRenameProfile={() => Promise.resolve()}
+				open={true}
+				profileName="Research Agent"
+			/>
+		);
+
+		const permissionsControl = screen.getByRole("combobox", {
+			name: PERMISSIONS_MODE_NAME_PATTERN,
+		});
+		expect(
+			permissionsControl.closest(
+				'[data-slot="agent-profile-permission-mode-section"]'
+			)
+		).not.toBeNull();
+		await waitFor(() => {
+			expect(document.activeElement).toBe(permissionsControl);
+		});
+	});
+
 	it("refreshes completed Agent changes when a later field fails to save", async () => {
 		const onControllerCollaborationModeUpdate = vi.fn(() =>
 			Promise.reject(new Error("Collaboration Mode update failed"))

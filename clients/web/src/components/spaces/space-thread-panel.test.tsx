@@ -1474,7 +1474,7 @@ describe("SpaceThreadPanel", () => {
 		expect(sourceMessage).not.toBeNull();
 		fireEvent.click(
 			within(sourceMessage as HTMLElement).getByRole("button", {
-				name: "Edit Agent permissions",
+				name: "Edit Agent Profile",
 			})
 		);
 
