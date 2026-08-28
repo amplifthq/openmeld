@@ -1081,11 +1081,15 @@ The complete authorized direct-tool catalog remains the single source for
 execution, capability discovery, and Code Mode. Whenever that catalog includes
 progressive discovery and Code Mode, every tool-capable primary model receives
 the same stable provider bootstrap: `codemode`, the always-direct capability
-search and describe tools, and the three generic Connected App tools. The
-worker never reads the latest user request to preselect business tools and
-never branches this policy by model id or a fixed schema count. The generic
-Connected App tools remain direct because a provider-specific request such as
-Gmail may not name OpenMeld's Apps vocabulary before discovery begins.
+search and describe tools, the three generic Connected App tools, and the
+bounded read-only member and Center Agent Task list/detail tools. These
+foundational reads stay direct because supported models must be able to inspect
+the requester's current OpenMeld state even when they do not first invoke a
+meta-discovery tool. The worker never reads the latest user request to preselect
+business tools and never branches this policy by model id or a fixed schema
+count. The generic Connected App tools remain direct because a provider-specific
+request such as Gmail may not name OpenMeld's Apps vocabulary before discovery
+begins.
 Dedicated GitHub and all other capabilities remain fully available inside the
 exact same Code Mode catalog instead of duplicating their descriptions and
 schemas at the provider boundary. The primary model chooses a search query,
@@ -1425,10 +1429,12 @@ surface adopts official features where they are free**:
     `codemode` tool that can compose the exact capability definitions already
     active for that turn inside an isolated Dynamic Worker. Every tool-capable
     primary model receives the same direct bootstrap: capability search,
-    describe, the three generic Connected App tools, and `codemode`. The model
-    chooses what to search and load; the worker does not select business tools
-    by matching the user's wording or by applying a model-specific tool-count
-    rule. Every other capability remains available through `codemode`.
+    describe, the three generic Connected App tools, the bounded read-only
+    member and Center Agent Task list/detail tools, and `codemode`. The model
+    chooses whether to use those foundational reads or what else to search and
+    load; the worker does not select business tools by matching the user's
+    wording or by applying a model-specific tool-count rule. Every other
+    capability remains available through `codemode`.
     Generated code receives no
     OpenMeld secrets,
     Worker bindings, Node.js APIs, host filesystem, or unrestricted outbound
