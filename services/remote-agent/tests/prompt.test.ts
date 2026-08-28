@@ -21,6 +21,21 @@ function buildTestSystemPrompt(
 }
 
 describe("remote agent system prompt", () => {
+  it("keeps private automatic memory capture authoritative over tools and prior replies", () => {
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Requester-private turns have a Core-owned automatic Member Memory capture path after the reply even when no memory write tool is visible."
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Do not use tool availability, prior assistant claims, or the conversation carrier to decide or report whether automatic capture can run."
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "When the requester merely states a durable personal fact, acknowledge it naturally without claiming that it was saved or failed; only describe persistence as verified after a later authoritative memory recall."
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Never direct them to Web, Slack, Lark, or Feishu as a workaround for another private carrier."
+    );
+  });
+
   it("assembles prompt modules in the fixed controller order", () => {
     const prompt = buildTestSystemPrompt({
       organizationBrief: "We serve independent repair shops.",
