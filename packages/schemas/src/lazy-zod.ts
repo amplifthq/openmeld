@@ -59,6 +59,10 @@ const EAGER_PROPERTIES = new Set<PropertyKey>([
   "~standard",
 ]);
 
+type ZodRegistryLike = {
+  add(schema: zod.ZodType, ...metadata: unknown[]): unknown;
+};
+
 export function lazySchema<TSchema extends zod.ZodType>(
   createSchema: () => TSchema
 ): TSchema {
@@ -73,8 +77,18 @@ export function lazySchema<TSchema extends zod.ZodType>(
     return typeof value === "function" ? value.bind(resolved) : value;
   };
 
-  return new Proxy(Object.create(null) as object, {
+  let proxy: TSchema;
+  proxy = new Proxy(Object.create(null) as object, {
     get(_target, property) {
+      if (property === "apply") {
+        return (operation: (schema: TSchema) => unknown) => operation(proxy);
+      }
+      if (property === "register") {
+        return (registry: ZodRegistryLike, ...metadata: unknown[]) => {
+          registry.add(proxy, ...metadata);
+          return proxy;
+        };
+      }
       if (
         typeof property === "symbol" ||
         EAGER_PROPERTIES.has(property) ||
@@ -121,6 +135,7 @@ export function lazySchema<TSchema extends zod.ZodType>(
       return Reflect.set(resolveSchema(), property, value);
     },
   }) as TSchema;
+  return proxy;
 }
 
 function lazyFactory<TFactory extends (...args: never[]) => zod.ZodType>(

@@ -83,6 +83,7 @@ describe("lazy Zod facade", () => {
   });
 
   it("preserves object methods, metadata properties, and identity checks", () => {
+    const registry = actualZod.registry<{ owner: string }>();
     const schema = z
       .strictObject({ id: z.string() })
       .extend({ name: z.string() })
@@ -92,6 +93,9 @@ describe("lazy Zod facade", () => {
     expect(schema.shape).toHaveProperty("name");
     expect(schema).toBeInstanceOf(actualZod.ZodObject);
     expect(schema.meta()).toMatchObject({ description: "member" });
+    expect(schema.register(registry, { owner: "OpenMeld" })).toBe(schema);
+    expect(registry.get(schema)).toEqual({ owner: "OpenMeld" });
+    expect(schema.apply((value) => value)).toBe(schema);
     expect(schema.apply((value) => value.description)).toBe("member");
     expect(schema.toJSONSchema()).toMatchObject({
       properties: {
