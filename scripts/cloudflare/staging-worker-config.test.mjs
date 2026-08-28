@@ -68,6 +68,10 @@ test("routes staging public Workers through staging.openmeld.ai", () => {
     custom_domain: true,
     pattern: "gateway.staging.openmeld.ai",
   });
+  assert.equal(
+    configs.web.env.stg.vars.VITE_OPENMELD_SETUP_USER_FACING_COMMAND,
+    "openmeld-canary"
+  );
 });
 
 test("binds Auth and Core only to the staging database", () => {
