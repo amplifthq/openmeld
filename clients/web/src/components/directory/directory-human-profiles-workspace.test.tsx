@@ -311,6 +311,22 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.getByRole("link", { name: "Open report" })).toBeTruthy();
 	});
 
+	it("keeps a Documents failure visible and retryable in Profile Report", () => {
+		const onRetryProfileReports = vi.fn();
+		renderWorkspace({
+			onRetryProfileReports,
+			profileReportsErrorMessage:
+				"Report links are unavailable because Documents could not be loaded.",
+		});
+
+		expect(screen.getByRole("alert").textContent).toContain(
+			"Report links are unavailable because Documents could not be loaded."
+		);
+		expect(screen.queryByText("Profile Report status unavailable")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(onRetryProfileReports).toHaveBeenCalledOnce();
+	});
+
 	it("groups low-emphasis profile actions at the trailing edge of the hero", () => {
 		renderWorkspace();
 
@@ -397,7 +413,9 @@ function renderWorkspace(
 		directoryIsPending?: boolean;
 		memberResearchError?: { message: string; subjectUserId: string } | null;
 		onResearch?: (userId: string) => void;
+		onRetryProfileReports?: () => void;
 		onSelectProfile?: (profileId: string) => void;
+		profileReportsErrorMessage?: string | null;
 		selectedProfileId?: string;
 	} = {}
 ) {
@@ -423,9 +441,12 @@ function renderWorkspace(
 			onRequestChannelSetup={vi.fn().mockResolvedValue(undefined)}
 			onResearch={input.onResearch ?? vi.fn()}
 			onResearchAll={vi.fn()}
+			onRetryProfileReports={input.onRetryProfileReports ?? vi.fn()}
 			onSelectProfile={input.onSelectProfile ?? vi.fn()}
 			orgSlug="acme"
 			pendingResearch={undefined}
+			profileReportsAreRetrying={false}
+			profileReportsErrorMessage={input.profileReportsErrorMessage ?? null}
 			recovery={buildRecovery()}
 			researchErrorMessage={null}
 			selectedProfileId={input.selectedProfileId ?? "profile-current"}

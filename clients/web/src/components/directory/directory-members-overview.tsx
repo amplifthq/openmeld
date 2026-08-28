@@ -150,6 +150,9 @@ type DirectoryInvitationAccess =
 	| { kind: "personal" }
 	| { kind: "unavailable" };
 
+const PROFILE_REPORT_DOCUMENTS_ERROR_MESSAGE =
+	"Report links are unavailable because Documents could not be loaded.";
+
 function useDirectoryMemberResearch(organizationId: string) {
 	const queryClient = useQueryClient();
 	const memberResearchQuery = useQuery(
@@ -505,6 +508,14 @@ function useDirectoryMembersOverviewModel(
 			onDisconnectConnectedAccount: (identityLinkId) =>
 				disconnectConnectedAccountMutation.mutate(identityLinkId),
 			onOpenDirectMessage: openHumanDirectMessage,
+			onRetryProfileReports: () => {
+				documentsQuery.refetch({ throwOnError: true }).catch((error: unknown) =>
+					reportMemberResearchDocumentRefreshFailure({
+						error,
+						organizationId: input.currentOrganization.id,
+					})
+				);
+			},
 			onRequestChannelSetup: async (provider) => {
 				await requestMessageChannelSetupMutation.mutateAsync(provider);
 			},
@@ -524,6 +535,10 @@ function useDirectoryMembersOverviewModel(
 			},
 			orgSlug: input.currentOrganization.slug,
 			pendingResearch: researchMutation.variables,
+			profileReportsAreRetrying: documentsQuery.isFetching,
+			profileReportsErrorMessage: documentsQuery.isError
+				? PROFILE_REPORT_DOCUMENTS_ERROR_MESSAGE
+				: null,
 			recovery: input.recovery,
 			researchErrorMessage: researchErrors.section,
 			selectedProfileId,

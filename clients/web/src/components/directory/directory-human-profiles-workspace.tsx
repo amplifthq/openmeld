@@ -82,6 +82,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	onCreateProfile: () => void;
 	onDisconnectConnectedAccount: (identityLinkId: string) => void;
 	onOpenDirectMessage: (profileId: string) => Promise<void>;
+	onRetryProfileReports: () => void;
 	onRequestChannelSetup: (
 		provider: DirectoryIdentityAccount["provider"]
 	) => Promise<void>;
@@ -90,6 +91,8 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	onSelectProfile: (profileId: string) => void;
 	orgSlug: string;
 	pendingResearch: DirectoryMemberResearchRequest | undefined;
+	profileReportsAreRetrying: boolean;
+	profileReportsErrorMessage: string | null;
 	recovery: LocalAgentRecoveryController;
 	researchErrorMessage: string | null;
 	selectedProfileId: string | null;
@@ -269,6 +272,9 @@ export function DirectoryHumanProfilesWorkspace(input: {
 						});
 					}}
 					onRequestChannelSetup={input.onRequestChannelSetup}
+					onRetryProfileReports={input.onRetryProfileReports}
+					profileReportsAreRetrying={input.profileReportsAreRetrying}
+					profileReportsErrorMessage={input.profileReportsErrorMessage}
 					researchAction={researchAction}
 				/>
 			) : (
@@ -292,6 +298,9 @@ function SelectedHumanProfileWorkspace(input: {
 	onRequestChannelSetup: (
 		provider: DirectoryIdentityAccount["provider"]
 	) => Promise<void>;
+	onRetryProfileReports: () => void;
+	profileReportsAreRetrying: boolean;
+	profileReportsErrorMessage: string | null;
 	researchAction: DirectoryHumanProfileResearchAction | null;
 }) {
 	const [editing, setEditing] = useState(false);
@@ -313,6 +322,9 @@ function SelectedHumanProfileWorkspace(input: {
 				onEditingChange={setEditing}
 				onManageAccount={setConnectedAccount}
 				onOpenDirectMessage={input.onOpenDirectMessage}
+				onRetryProfileReports={input.onRetryProfileReports}
+				profileReportsAreRetrying={input.profileReportsAreRetrying}
+				profileReportsErrorMessage={input.profileReportsErrorMessage}
 				researchAction={input.researchAction}
 			/>
 			<ConnectChannelAccountDialog

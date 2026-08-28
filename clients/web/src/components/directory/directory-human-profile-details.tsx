@@ -52,6 +52,9 @@ export type DirectoryHumanProfileDetailsProps = {
 	onEditingChange: (editing: boolean) => void;
 	onManageAccount: (account: DirectoryIdentityAccount) => void;
 	onOpenDirectMessage: () => void;
+	onRetryProfileReports: () => void;
+	profileReportsAreRetrying: boolean;
+	profileReportsErrorMessage: string | null;
 	researchAction: DirectoryHumanProfileResearchAction | null;
 };
 
@@ -118,7 +121,12 @@ export function DirectoryHumanProfileDetails(
 				onManageAccount={input.onManageAccount}
 			/>
 
-			<ProfileReportSection member={input.member} />
+			<ProfileReportSection
+				errorMessage={input.profileReportsErrorMessage}
+				isRetrying={input.profileReportsAreRetrying}
+				member={input.member}
+				onRetry={input.onRetryProfileReports}
+			/>
 
 			{input.member.details?.sections.map((section) => (
 				<DetailSection key={section.id} title={section.title}>
@@ -344,10 +352,32 @@ function ConnectedIdentityAction(input: {
 	);
 }
 
-function ProfileReportSection(input: { member: DirectoryHumanProfileRow }) {
+function ProfileReportSection(input: {
+	errorMessage: string | null;
+	isRetrying: boolean;
+	member: DirectoryHumanProfileRow;
+	onRetry: () => void;
+}) {
 	const report = input.member.profileReport;
 	let content: React.ReactNode;
-	if (report.state === "available") {
+	if (input.errorMessage) {
+		content = (
+			<div className="flex min-w-0 items-center gap-3 px-4 py-3" role="alert">
+				<p className="min-w-0 flex-1 text-destructive text-sm">
+					{input.errorMessage}
+				</p>
+				<Button
+					disabled={input.isRetrying}
+					onClick={input.onRetry}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					{input.isRetrying ? "Retrying…" : "Retry"}
+				</Button>
+			</div>
+		);
+	} else if (report.state === "available") {
 		content = (
 			<div className="flex min-w-0 items-center gap-3 px-4 py-3">
 				<div className="min-w-0 flex-1 space-y-1">

@@ -44,7 +44,9 @@ vi.mock("#/components/directory/directory-human-profiles-workspace", () => ({
 		members: readonly { id: string; name: string }[];
 		onOpenDirectMessage: (profileId: string) => Promise<void>;
 		onResearch: (userId: string) => void;
+		onRetryProfileReports: () => void;
 		onSelectProfile: (profileId: string) => void;
+		profileReportsErrorMessage: string | null;
 		selectedProfileId: string | null;
 		sidebarLeadingContent?: ReactNode;
 	}) => {
@@ -71,6 +73,14 @@ vi.mock("#/components/directory/directory-human-profiles-workspace", () => ({
 				>
 					Message Grace
 				</button>
+				{props.profileReportsErrorMessage ? (
+					<div role="alert">
+						{props.profileReportsErrorMessage}
+						<button onClick={props.onRetryProfileReports} type="button">
+							Retry reports
+						</button>
+					</div>
+				) : null}
 			</div>
 		);
 	},
@@ -298,6 +308,31 @@ describe("DirectoryMembersOverview", () => {
 		});
 		expect(navigateMock).toHaveBeenCalledWith({
 			to: "/o/acme/direct-messages/space-grace-dm?profileId=22222222-2222-4222-8222-222222222222",
+		});
+	});
+
+	it("preserves the Documents failure and retry surface inside People", async () => {
+		listCurrentOrganizationDocumentsMock.mockRejectedValue(
+			new Error("Documents are unavailable.")
+		);
+		renderOverview();
+
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"Report links are unavailable because Documents could not be loaded."
+		);
+		const failedRequestCount =
+			listCurrentOrganizationDocumentsMock.mock.calls.length;
+		listCurrentOrganizationDocumentsMock.mockResolvedValue({
+			canManage: true,
+			currentUserId: "user-current",
+			documents: [],
+			organizationId: "org-acme",
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Retry reports" }));
+		await waitFor(() => {
+			expect(listCurrentOrganizationDocumentsMock).toHaveBeenCalledTimes(
+				failedRequestCount + 1
+			);
 		});
 	});
 
