@@ -10,6 +10,11 @@ import type { Presenter } from "../runtime/presenter/index";
 import type { RuntimeContext } from "../runtime/types";
 import { runDaemonServiceParticipationGate } from "../system/local-service-participation-gate";
 import {
+  emitUnusedSetupSessionCleanupWarning,
+  formatComputerAuthCleanupFailureSuffix,
+  recoverInterruptedComputerAuthHandoff,
+} from "./computer-auth-handoff-recovery";
+import {
   exchangeComputerAuthorizationGrant,
   type PreparedAuthSession,
   revokePreparedAuthSession,
@@ -22,9 +27,6 @@ import {
   runPrepareSessionExecutor,
 } from "./prepare-session-executor";
 import { bestEffortStopCurrentLaneDaemonService } from "./service";
-
-const UNUSED_SETUP_SESSION_CLEANUP_SUFFIX =
-  " OpenMeld also could not revoke the unused setup session.";
 
 type ComputerAuthHandoffInput = {
   interactive: boolean;
@@ -66,6 +68,11 @@ async function runPreparedComputerAuthHandoff(
     exchangeCandidate: () => Promise<PreparedAuthSession>;
   }
 ): Promise<PrepareSessionExecutorResult> {
+  await recoverInterruptedComputerAuthHandoff({
+    presenter: input.presenter,
+    runtime: input.runtime,
+    view: input.view,
+  });
   const gatewayUrl = await resolveBaseUrl();
   const initialSnapshot = await resolvePrepareSessionForHandoff({
     gatewayUrl,
@@ -95,7 +102,10 @@ async function runPreparedComputerAuthHandoff(
     };
   }
 
-  const transition = await beginComputerSessionTransition(candidate);
+  const transition = await beginComputerSessionTransition({
+    candidate,
+    gatewayUrl,
+  });
 
   try {
     const sessionResult = await runPrepareSessionExecutor({
@@ -152,7 +162,7 @@ async function assertPrepareSessionOwner(input: {
   }
   const revoked = await revokePreparedAuthSession(input.candidate);
   throw new Error(
-    `This setup command and its computer authorization belong to different OpenMeld accounts. Copy a fresh setup command from OpenMeld Web and try again.${formatCleanupFailureSuffix(
+    `This setup command and its computer authorization belong to different OpenMeld accounts. Copy a fresh setup command from OpenMeld Web and try again.${formatComputerAuthCleanupFailureSuffix(
       revoked
     )}`
   );
@@ -169,7 +179,7 @@ async function resolveCurrentComputerSession(
   } catch (error) {
     const revoked = await revokePreparedAuthSession(candidate);
     throw new Error(
-      `OpenMeld could not inspect the current Computer sign-in. The current Computer connection was not changed. ${toErrorMessage(error)}${formatCleanupFailureSuffix(
+      `OpenMeld could not inspect the current Computer sign-in. The current Computer connection was not changed. ${toErrorMessage(error)}${formatComputerAuthCleanupFailureSuffix(
         revoked
       )}`,
       { cause: error }
@@ -186,20 +196,23 @@ async function resolveCurrentComputerSession(
   throw new Error(
     `OpenMeld could not inspect the current Computer sign-in. The current Computer connection was not changed.${
       detail ? ` ${detail}` : ""
-    }${formatCleanupFailureSuffix(revoked)}`
+    }${formatComputerAuthCleanupFailureSuffix(revoked)}`
   );
 }
 
-async function beginComputerSessionTransition(
-  candidate: PreparedAuthSession
-): Promise<Awaited<ReturnType<typeof beginAuthSessionTransition>>> {
+async function beginComputerSessionTransition(input: {
+  candidate: PreparedAuthSession;
+  gatewayUrl: string;
+}): Promise<Awaited<ReturnType<typeof beginAuthSessionTransition>>> {
   try {
-    return await beginAuthSessionTransition(candidate);
+    return await beginAuthSessionTransition(input.candidate, {
+      computerHandoff: { gatewayUrl: input.gatewayUrl },
+    });
   } catch (error) {
-    const revoked = await revokePreparedAuthSession(candidate);
+    const revoked = await revokePreparedAuthSession(input.candidate);
     if (!revoked.ok) {
       throw new Error(
-        `OpenMeld could not save the new Computer sign-in.${formatCleanupFailureSuffix(revoked)} ${toErrorMessage(
+        `OpenMeld could not save the new Computer sign-in.${formatComputerAuthCleanupFailureSuffix(revoked)} ${toErrorMessage(
           error
         )}`,
         { cause: error }
@@ -223,7 +236,7 @@ async function confirmComputerAccountSwitch(input: {
   if (!currentUserId) {
     const revoked = await revokePreparedAuthSession(input.candidate);
     throw new Error(
-      `OpenMeld could not verify the account currently connected to this Computer. The current Computer connection was not changed.${formatCleanupFailureSuffix(
+      `OpenMeld could not verify the account currently connected to this Computer. The current Computer connection was not changed.${formatComputerAuthCleanupFailureSuffix(
         revoked
       )}`
     );
@@ -240,7 +253,7 @@ async function confirmComputerAccountSwitch(input: {
   if (!input.interactive || input.resolvedView !== "human") {
     const revoked = await revokePreparedAuthSession(input.candidate);
     throw new Error(
-      `This computer is signed in as ${currentAccount}, but the setup command uses ${nextAccount}. Run the setup command in an interactive Terminal to review and confirm the account switch. The current Computer connection was not changed.${formatCleanupFailureSuffix(
+      `This computer is signed in as ${currentAccount}, but the setup command uses ${nextAccount}. Run the setup command in an interactive Terminal to review and confirm the account switch. The current Computer connection was not changed.${formatComputerAuthCleanupFailureSuffix(
         revoked
       )}`
     );
@@ -260,21 +273,6 @@ async function confirmComputerAccountSwitch(input: {
   return true;
 }
 
-function emitUnusedSetupSessionCleanupWarning(
-  presenter: Presenter,
-  cleanupError: Error & { endpoint?: string; status?: number | null }
-): void {
-  presenter.line({
-    code: "setup.computer_authorization.cleanup_warning",
-    text: "OpenMeld kept the current Computer sign-in, but could not revoke the unused setup session. You can remove it later from Account sessions.",
-    data: {
-      endpoint: cleanupError.endpoint ?? null,
-      status: cleanupError.status ?? null,
-      error: cleanupError.message,
-    },
-  });
-}
-
 async function restorePreviousComputerAfterFailedHandoff(input: {
   candidate: PreparedAuthSession;
   gatewayUrl: string;
@@ -284,6 +282,24 @@ async function restorePreviousComputerAfterFailedHandoff(input: {
   view?: string;
 }): Promise<void> {
   await input.transition.rollback();
+  const recovered = await recoverInterruptedComputerAuthHandoff({
+    presenter: input.presenter,
+    runtime: input.runtime,
+    view: input.view,
+  });
+  if (!recovered) {
+    await restoreLegacyComputerAuthTransition(input);
+  }
+}
+
+async function restoreLegacyComputerAuthTransition(input: {
+  candidate: PreparedAuthSession;
+  gatewayUrl: string;
+  presenter: Presenter;
+  runtime: RuntimeContext;
+  transition: Awaited<ReturnType<typeof beginAuthSessionTransition>>;
+  view?: string;
+}): Promise<void> {
   const revoked = await revokePreparedAuthSession(input.candidate);
   if (!revoked.ok) {
     emitUnusedSetupSessionCleanupWarning(input.presenter, revoked.error);
@@ -313,6 +329,7 @@ async function restorePreviousComputerAfterFailedHandoff(input: {
     autoRepair: true,
     expectedOwnerUserId: previousOwnerUserId,
     forcePrompt: true,
+    forceRefresh: true,
     gatewayUrl: input.gatewayUrl,
     suppressRefreshHumanResultCard: true,
     suppressStartSpinner: true,
@@ -338,17 +355,4 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim()
     ? error.message.trim()
     : String(error ?? "unknown error");
-}
-
-function formatCleanupFailureSuffix(
-  result: Awaited<ReturnType<typeof revokePreparedAuthSession>>
-): string {
-  if (result.ok) {
-    return "";
-  }
-  const status =
-    result.error.status === null
-      ? "network error"
-      : `HTTP ${result.error.status}`;
-  return `${UNUSED_SETUP_SESSION_CLEANUP_SUFFIX} Cleanup endpoint ${result.error.endpoint} returned ${status}: ${result.error.message}`;
 }

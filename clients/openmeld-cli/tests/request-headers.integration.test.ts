@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { setAuthSession } from "../src/config/auth-session";
+import {
+  getAuthSessionState,
+  setAuthSession,
+} from "../src/config/auth-session";
 import { buildOpenMeldRequestContextHeadersWithAuth } from "../src/config/request-headers";
 import { withTempHome } from "./helpers/fs";
 
@@ -85,6 +88,49 @@ describe("buildOpenMeldRequestContextHeadersWithAuth", () => {
         ).rejects.toMatchObject({
           name: "AuthRequestCredentialError",
           reason: "session_expired",
+        });
+      } finally {
+        if (previousForceInsecureToken === undefined) {
+          Reflect.deleteProperty(
+            process.env,
+            "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+          );
+        } else {
+          process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN =
+            previousForceInsecureToken;
+        }
+      }
+    });
+  });
+
+  it("uses the same invalid-expiry verdict for session status and request attachment", async () => {
+    await withTempHome(async () => {
+      const previousForceInsecureToken =
+        process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN;
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      try {
+        await setAuthSession({
+          accessToken: "stored-token-invalid-expiry",
+          tokenType: "Bearer",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          expiresAt: "not-a-date",
+        });
+
+        await expect(getAuthSessionState()).resolves.toMatchObject({
+          reasonCode: "session_expiry_invalid",
+          state: "invalid",
+          session: null,
+        });
+        await expect(
+          buildOpenMeldRequestContextHeadersWithAuth({
+            requestUrl:
+              "https://gateway.openmeld.invalid/v1/spaces/demo/signals",
+            requestContext: REQUEST_CONTEXT,
+          })
+        ).rejects.toMatchObject({
+          name: "AuthRequestCredentialError",
+          reason: "session_expiry_invalid",
         });
       } finally {
         if (previousForceInsecureToken === undefined) {

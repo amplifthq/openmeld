@@ -173,11 +173,14 @@ describe("auth session renewal", () => {
         expiresAt: new Date(Date.now() - 60_000).toISOString(),
       });
 
-      const headers = await buildRequestAuthHeaders({
-        requestUrl: GATEWAY_URL,
+      await expect(
+        buildRequestAuthHeaders({
+          requestUrl: GATEWAY_URL,
+        })
+      ).rejects.toMatchObject({
+        name: "AuthRequestCredentialError",
+        reason: "session_expired",
       });
-
-      expect(headers.Authorization).toBeUndefined();
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });

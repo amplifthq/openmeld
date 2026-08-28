@@ -12,6 +12,7 @@ import {
   getAuthSessionState,
   type StoredAuthSession,
 } from "./auth-session";
+import { resolveAuthSessionExpiryEligibility } from "./auth-session-expiry";
 import type { OpenMeldProfile } from "./openmeld-profiles-api";
 import {
   buildOpenMeldRequestContextFromProfile,
@@ -312,15 +313,11 @@ function normalizeTokenType(tokenType: string | undefined): string {
 function resolveSessionExpiryReason(
   session: StoredAuthSession
 ): "session_expired" | "session_expiry_invalid" | null {
-  const expiresAt = String(session.expiresAt ?? "").trim();
-  if (!expiresAt) {
-    return null;
-  }
-  const expiresAtMs = Date.parse(expiresAt);
-  if (Number.isNaN(expiresAtMs)) {
+  const eligibility = resolveAuthSessionExpiryEligibility(session.expiresAt);
+  if (eligibility.status === "invalid") {
     return "session_expiry_invalid";
   }
-  return expiresAtMs <= Date.now() ? "session_expired" : null;
+  return eligibility.status === "expired" ? "session_expired" : null;
 }
 
 export function canAttachAuthTokenToRequest(

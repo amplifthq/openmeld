@@ -109,11 +109,24 @@ const REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER = [
   "core",
   "cli",
 ];
+const REMOTE_AGENT_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER = [
+  "db",
+  "remote-agent",
+  "auth",
+  "cli",
+  "web",
+  "gateway",
+  "core",
+];
+const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
+  CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
   "center-agent-cli-receiver-first":
     CENTER_AGENT_CLI_RECEIVER_FIRST_SCOPE_ORDER,
   "connect-computer-cli-receiver-first":
     CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER,
+  "core-worker-response-and-connect-computer-receivers-first":
+    CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER,
   "core-worker-response-reader-first":
     CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "default-auth-receiver-first": SCOPE_ORDER,
@@ -123,6 +136,8 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER,
   "remote-agent-and-inbox-receivers-first":
     REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER,
+  "remote-agent-and-connect-computer-receivers-first":
+    REMOTE_AGENT_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER,
   "remote-agent-receiver-first": REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER,
 };
 const INBOX_SOURCE_TARGET_SCHEMA_PATH =
@@ -548,10 +563,7 @@ function appendProductionDeployScopeSteps(input) {
   }
   if (input.scope === "core") {
     if (input.selected.has("cli")) {
-      if (
-        input.deployOrderProfile !== "default-auth-receiver-first" &&
-        input.deployOrderProfile !== "connect-computer-cli-receiver-first"
-      ) {
+      if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
         input.steps.push(
           {
             args: [
@@ -630,29 +642,59 @@ function resolveProductionDeployScopeOrder(scopes, changedPaths) {
 }
 
 function resolveProductionDeployOrderProfile(changedPaths) {
-  if (isConnectComputerCliReceiverFirstDiff(changedPaths)) {
-    return "connect-computer-cli-receiver-first";
-  }
+  const isConnectComputerReceiverFirst =
+    isConnectComputerCliReceiverFirstDiff(changedPaths);
   const isInboxReceiverFirst =
     isInboxSourceTargetReceiverFirstDiff(changedPaths);
   const isRemoteAgentRequestReceiverFirst =
     isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths);
+  const isRemoteAgentReceiverFirst = changedPaths.some(
+    isRemoteAgentReceiverFirstContractPath
+  );
+  const isLocalServiceReceiverFirst =
+    isLocalServiceRuntimeReceiverFirstDiff(changedPaths);
+  const isCoreWorkerResponseReaderFirst =
+    isCoreWorkerResponseReaderFirstDiff(changedPaths);
+  const isCenterAgentCliReceiverFirst = changedPaths.some(
+    isCenterAgentCliReceiverFirstContractPath
+  );
+  if (isConnectComputerReceiverFirst && isInboxReceiverFirst) {
+    throw new Error(
+      "Connect Computer and Inbox receiver-first contracts cannot ship in one release because they require Core on opposite sides of the Web deployment. Split them into independently releasable changes."
+    );
+  }
+  if (isConnectComputerReceiverFirst && isLocalServiceReceiverFirst) {
+    throw new Error(
+      "Connect Computer and Local Service receiver-first contracts cannot ship in one release because they require Core on opposite sides of the CLI publication. Split them into independently releasable changes."
+    );
+  }
+  if (isConnectComputerReceiverFirst && isCenterAgentCliReceiverFirst) {
+    throw new Error(
+      "Connect Computer and Center Agent CLI receiver-first contracts cannot ship in one release because they require the CLI on opposite sides of the Web and Core deployments. Split them into independently releasable changes."
+    );
+  }
+  if (
+    isConnectComputerReceiverFirst &&
+    (isRemoteAgentRequestReceiverFirst || isRemoteAgentReceiverFirst)
+  ) {
+    return "remote-agent-and-connect-computer-receivers-first";
+  }
+  if (isConnectComputerReceiverFirst && isCoreWorkerResponseReaderFirst) {
+    return "core-worker-response-and-connect-computer-receivers-first";
+  }
+  if (isConnectComputerReceiverFirst) {
+    return "connect-computer-cli-receiver-first";
+  }
   if (isRemoteAgentRequestReceiverFirst) {
     return isInboxReceiverFirst
       ? "remote-agent-and-inbox-receivers-first"
       : "remote-agent-receiver-first";
   }
-  if (isCoreWorkerResponseReaderFirstDiff(changedPaths)) {
+  if (isCoreWorkerResponseReaderFirst) {
     return isInboxReceiverFirst
       ? "inbox-source-target-receiver-first"
       : "core-worker-response-reader-first";
   }
-  const isRemoteAgentReceiverFirst = changedPaths.some(
-    isRemoteAgentReceiverFirstContractPath
-  );
-  const isCenterAgentCliReceiverFirst = changedPaths.some(
-    isCenterAgentCliReceiverFirstContractPath
-  );
   if (
     isInboxReceiverFirst &&
     (isRemoteAgentReceiverFirst || isCenterAgentCliReceiverFirst)
@@ -668,10 +710,20 @@ function resolveProductionDeployOrderProfile(changedPaths) {
   if (isCenterAgentCliReceiverFirst) {
     return "center-agent-cli-receiver-first";
   }
-  if (isLocalServiceRuntimeReceiverFirstDiff(changedPaths)) {
+  if (isLocalServiceReceiverFirst) {
     return "local-service-runtime-receiver-first";
   }
   return "default-auth-receiver-first";
+}
+
+function doesCliReleaseOwnCoreProjection(profile) {
+  return (
+    profile === "default-auth-receiver-first" ||
+    profile === "connect-computer-cli-receiver-first" ||
+    profile ===
+      "core-worker-response-and-connect-computer-receivers-first" ||
+    profile === "remote-agent-and-connect-computer-receivers-first"
+  );
 }
 
 function isConnectComputerCliReceiverFirstDiff(changedPaths) {

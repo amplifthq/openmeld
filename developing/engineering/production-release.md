@@ -197,6 +197,15 @@ time or run the CLI-last profile's temporary current-version projection stage.
 This order protects users who copy a newly generated command from receiving
 syntax that the production CLI cannot parse.
 
+Receiver-first constraints compose across one diff; the planner must never pick
+the first matching profile and silently discard the rest. A Remote Agent request
+receiver deploys before the Connect Computer CLI/Core receiver, while a Core
+worker-response reader is satisfied by that same CLI-owned Core projection
+before its Remote Agent producer. Constraints that require the same component
+on opposite sides of another deployment fail closed and require separate
+releases. This includes Connect Computer combined with Inbox source-target,
+Local Service runtime, or Center Agent CLI receiver-first contracts.
+
 When any receiver-first profile includes both Core and CLI, the first Core
 deploy reads the stable production CLI version, loads that version's
 `release/local-components.json` from its immutable `v<version>` Git tag, and

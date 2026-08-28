@@ -87,6 +87,7 @@ import {
   runComputerList,
   runComputerRename,
 } from "./commands/computer";
+import { recoverInterruptedComputerAuthHandoff } from "./commands/computer-auth-handoff-recovery";
 import { runDoctor } from "./commands/doctor";
 import { runFeedback } from "./commands/feedback";
 import { runInstallSelf } from "./commands/install-self";
@@ -5235,6 +5236,20 @@ function isDispatchSpaceActionToolServerArgv(argv: readonly string[]): boolean {
 async function runLocalCli(argv: string[]): Promise<void> {
   try {
     await ensureSystemLayout();
+    const [startupCommand, startupSubcommand] =
+      parseLeadingCommandTokensFromArgv(argv, 2);
+    if (!(startupCommand === "service" && startupSubcommand === "run")) {
+      const recoveryRuntime = {
+        interactive: false,
+        resolvedView: "agent",
+        viewMode: "agent",
+      } as const;
+      await recoverInterruptedComputerAuthHandoff({
+        presenter: createSilentPresenter("agent"),
+        runtime: recoveryRuntime,
+        view: "agent",
+      });
+    }
 
     const removedCcInputMessage = getRemovedCcCliInputMessage(argv);
     if (removedCcInputMessage) {

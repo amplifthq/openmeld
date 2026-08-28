@@ -1,14 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Presenter } from "../src/runtime/presenter";
 import type { RuntimeContext } from "../src/runtime/types";
 
 const {
   beginAuthSessionTransitionMock,
   bestEffortStopCurrentLaneDaemonServiceMock,
+  completeInterruptedComputerAuthSessionRecoveryMock,
   confirmMock,
   exchangeComputerAuthorizationGrantMock,
   exchangeOneTimeTokenAuthSessionMock,
   getAuthSessionStateMock,
+  getInterruptedComputerAuthSessionRecoveryMock,
+  markInterruptedComputerAuthSessionRecoveryMock,
+  recordInterruptedComputerAuthSessionRecoveryFailureMock,
   resolveBaseUrlMock,
   resolvePrepareSessionForHandoffMock,
   revokePreparedAuthSessionMock,
@@ -17,10 +21,14 @@ const {
 } = vi.hoisted(() => ({
   beginAuthSessionTransitionMock: vi.fn(),
   bestEffortStopCurrentLaneDaemonServiceMock: vi.fn(),
+  completeInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
   confirmMock: vi.fn(),
   exchangeComputerAuthorizationGrantMock: vi.fn(),
   exchangeOneTimeTokenAuthSessionMock: vi.fn(),
   getAuthSessionStateMock: vi.fn(),
+  getInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
+  markInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
+  recordInterruptedComputerAuthSessionRecoveryFailureMock: vi.fn(),
   resolveBaseUrlMock: vi.fn(),
   resolvePrepareSessionForHandoffMock: vi.fn(),
   revokePreparedAuthSessionMock: vi.fn(),
@@ -35,7 +43,15 @@ vi.mock("@clack/prompts", () => ({
 
 vi.mock("../src/config/auth-session", () => ({
   beginAuthSessionTransition: beginAuthSessionTransitionMock,
+  completeInterruptedComputerAuthSessionRecovery:
+    completeInterruptedComputerAuthSessionRecoveryMock,
   getAuthSessionState: getAuthSessionStateMock,
+  getInterruptedComputerAuthSessionRecovery:
+    getInterruptedComputerAuthSessionRecoveryMock,
+  markInterruptedComputerAuthSessionRecovery:
+    markInterruptedComputerAuthSessionRecoveryMock,
+  recordInterruptedComputerAuthSessionRecoveryFailure:
+    recordInterruptedComputerAuthSessionRecoveryFailureMock,
 }));
 
 vi.mock("../src/config/base-url", () => ({
@@ -69,6 +85,7 @@ import {
   runComputerAuthorizationHandoff,
   runOneTimeTokenComputerHandoff,
 } from "../src/commands/computer-auth-handoff";
+import { recoverInterruptedComputerAuthHandoff } from "../src/commands/computer-auth-handoff-recovery";
 
 const candidateSession = {
   accessToken: "candidate-token",
@@ -108,6 +125,10 @@ const presenter = {
 } satisfies Presenter;
 
 describe("Computer authorization handoff", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     resolveBaseUrlMock.mockResolvedValue("https://gateway.openmeld.test");
@@ -121,6 +142,12 @@ describe("Computer authorization handoff", () => {
       state: "valid",
       session: existingSession,
     });
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValue(null);
+    markInterruptedComputerAuthSessionRecoveryMock.mockResolvedValue(undefined);
+    recordInterruptedComputerAuthSessionRecoveryFailureMock.mockResolvedValue(
+      undefined
+    );
+    completeInterruptedComputerAuthSessionRecoveryMock.mockResolvedValue(true);
     beginAuthSessionTransitionMock.mockResolvedValue({
       previousSession: existingSession,
       commit: vi.fn().mockResolvedValue(undefined),
@@ -188,6 +215,127 @@ describe("Computer authorization handoff", () => {
     expect(rollback).not.toHaveBeenCalled();
     expect(commit.mock.invocationCallOrder[0]).toBeGreaterThan(
       runPrepareSessionExecutorMock.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(beginAuthSessionTransitionMock).toHaveBeenCalledWith(
+      candidateSession,
+      {
+        computerHandoff: {
+          gatewayUrl: "https://gateway.openmeld.test",
+        },
+      }
+    );
+  });
+
+  it("reconciles a crashed candidate Service and revokes its remote session before clearing recovery", async () => {
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-1",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: false,
+    });
+
+    await expect(
+      recoverInterruptedComputerAuthHandoff({
+        presenter,
+        runtime: agentRuntime,
+        view: "agent",
+      })
+    ).resolves.toBe(true);
+
+    expect(bestEffortStopCurrentLaneDaemonServiceMock).toHaveBeenCalledTimes(1);
+    expect(runDaemonServiceParticipationGateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOwnerUserId: "user-1",
+        forceRefresh: true,
+        gatewayUrl: "https://gateway.openmeld.test",
+      })
+    );
+    expect(markInterruptedComputerAuthSessionRecoveryMock).toHaveBeenCalledWith(
+      { id: "transition-1", phase: "service" }
+    );
+    expect(revokePreparedAuthSessionMock).toHaveBeenCalledWith(
+      candidateSession
+    );
+    expect(markInterruptedComputerAuthSessionRecoveryMock).toHaveBeenCalledWith(
+      { id: "transition-1", phase: "remote_session" }
+    );
+    expect(
+      completeInterruptedComputerAuthSessionRecoveryMock
+    ).toHaveBeenCalledWith("transition-1");
+  });
+
+  it("stops an incomplete first Computer and does not restart a Service", async () => {
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-first-sign-in",
+      previousSession: null,
+      remoteSessionRevoked: false,
+      serviceReconciled: false,
+    });
+
+    await recoverInterruptedComputerAuthHandoff({
+      presenter,
+      runtime: agentRuntime,
+    });
+
+    expect(bestEffortStopCurrentLaneDaemonServiceMock).toHaveBeenCalledTimes(1);
+    expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
+    expect(revokePreparedAuthSessionMock).toHaveBeenCalledWith(
+      candidateSession
+    );
+  });
+
+  it("keeps failed candidate revocation durable without redoing Service recovery", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-cleanup-retry",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: true,
+    });
+    revokePreparedAuthSessionMock.mockResolvedValueOnce({
+      ok: false,
+      error: Object.assign(new Error("Auth Worker unavailable"), {
+        endpoint: "https://auth.openmeld.test/api/auth/revoke-token",
+        status: 503,
+      }),
+    });
+
+    await expect(
+      recoverInterruptedComputerAuthHandoff({
+        presenter,
+        runtime: agentRuntime,
+      })
+    ).resolves.toBe(true);
+
+    expect(bestEffortStopCurrentLaneDaemonServiceMock).not.toHaveBeenCalled();
+    expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
+    expect(
+      recordInterruptedComputerAuthSessionRecoveryFailureMock
+    ).toHaveBeenCalledWith({
+      endpoint: "https://auth.openmeld.test/api/auth/revoke-token",
+      id: "transition-cleanup-retry",
+      message: "Auth Worker unavailable",
+      phase: "remote_session",
+      status: 503,
+    });
+    expect(
+      completeInterruptedComputerAuthSessionRecoveryMock
+    ).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      "[openmeld.auth.computer_handoff_recovery_deferred]",
+      {
+        endpoint: "https://auth.openmeld.test/api/auth/revoke-token",
+        error: "Auth Worker unavailable",
+        phase: "remote_session",
+        status: 503,
+        transitionId: "transition-cleanup-retry",
+      }
     );
   });
 

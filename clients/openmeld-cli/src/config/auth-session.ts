@@ -9,6 +9,7 @@ import {
   CURRENT_PROCESS_START_IDENTITY,
   isProcessIdentityAlive,
 } from "../system/process-identity";
+import { resolveAuthSessionExpiryEligibility } from "./auth-session-expiry";
 import { openMeldRootDir } from "./paths";
 import {
   deleteAccessToken,
@@ -43,11 +44,29 @@ type PendingTokenCleanupV1 = {
 type AuthSessionTransitionJournalV1 = {
   v: 1;
   id: string;
-  state: "pending" | "committed";
+  state: "pending" | "recovery_required" | "committed";
   ownerPid: number;
   ownerProcessStartedAt: string;
   previousPayload: AuthSessionV1 | null;
   candidatePayload: AuthSessionV1;
+  candidateServiceProcess?: ProcessIdentity;
+  computerHandoff?: {
+    gatewayUrl: string;
+    serviceReconciledAt?: string;
+    remoteSessionRevokedAt?: string;
+    lastRecoveryFailure?: {
+      at: string;
+      message: string;
+      phase: "service" | "remote_session" | "local_cleanup";
+      endpoint?: string;
+      status?: number | null;
+    };
+  };
+};
+
+type ProcessIdentity = {
+  ownerPid: number;
+  ownerProcessStartedAt: string;
 };
 
 class AuthSessionStorageError extends Error {
@@ -117,6 +136,23 @@ export type AuthSessionTransition = {
   rollback: () => Promise<void>;
 };
 
+export type AuthSessionTransitionContext = {
+  computerHandoff?: {
+    gatewayUrl: string;
+  };
+};
+
+export type InterruptedComputerAuthSessionRecovery = {
+  candidateSession: StoredAuthSession & {
+    user: NonNullable<StoredAuthSession["user"]> & { id: string };
+  };
+  gatewayUrl: string;
+  id: string;
+  previousSession: StoredAuthSession | null;
+  remoteSessionRevoked: boolean;
+  serviceReconciled: boolean;
+};
+
 export type AuthSessionState =
   | "missing"
   | "valid"
@@ -128,6 +164,7 @@ export type AuthSessionStateReasonCode =
   | "remote_session_invalid"
   | "remote_session_revoked"
   | "session_expired"
+  | "session_expiry_invalid"
   | "session_metadata_invalid"
   | "session_missing"
   | "session_token_missing"
@@ -346,7 +383,8 @@ export async function setAuthSession(input: AuthSessionInput): Promise<void> {
 }
 
 export async function beginAuthSessionTransition(
-  input: AuthSessionInput
+  input: AuthSessionInput,
+  context: AuthSessionTransitionContext = {}
 ): Promise<AuthSessionTransition> {
   const accessToken = String(input.accessToken ?? "").trim();
   if (!accessToken) {
@@ -364,7 +402,6 @@ export async function beginAuthSessionTransition(
   await retryPendingTokenCleanup();
   await ensureAuthSessionDirectory();
   const previousPayload = await readSessionPayload();
-  const previousTokenRef = normalizeTokenRef(previousPayload?.tokenRef);
   const previousState = await getLocalAuthSessionState();
   const previousSession =
     previousState.state === "valid" || previousState.state === "expired"
@@ -397,6 +434,13 @@ export async function beginAuthSessionTransition(
     previousPayload:
       previousPayload?.v === 1 ? (previousPayload as AuthSessionV1) : null,
     candidatePayload: nextPayload,
+    ...(context.computerHandoff
+      ? {
+          computerHandoff: {
+            gatewayUrl: context.computerHandoff.gatewayUrl,
+          },
+        }
+      : {}),
   };
   try {
     await assertStoredAccessTokenReloads({ accessToken, tokenRef });
@@ -436,29 +480,163 @@ export async function beginAuthSessionTransition(
     previousSession,
     commit: async () => {
       await assertTransitionCurrent();
-      await writeAuthSessionTransitionJournal({
-        ...journal,
+      const currentJournal = await readCurrentPendingAuthSessionTransition(
+        journal.id
+      );
+      const committedJournal: AuthSessionTransitionJournalV1 = {
+        ...currentJournal,
         state: "committed",
-      });
+      };
+      await writeAuthSessionTransitionJournal(committedJournal);
       settled = true;
       activeAuthSessionTransitionIds.delete(journal.id);
-      if (
-        previousTokenRef &&
-        !areStoredTokenRefsEqual(previousTokenRef, tokenRef)
-      ) {
-        await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
-      }
-      await removeAuthSessionTransitionJournal();
+      await finalizeCommittedAuthSessionTransition(committedJournal).catch(
+        (error: unknown) => {
+          logDeferredAuthSessionTransitionCleanup({
+            error,
+            transitionId: journal.id,
+          });
+        }
+      );
     },
     rollback: async () => {
       await assertTransitionCurrent();
-      await restoreTransitionPreviousPayload(journal, previousSession);
+      const currentJournal = await readCurrentPendingAuthSessionTransition(
+        journal.id
+      );
+      await restoreTransitionPreviousPayload(currentJournal, previousSession);
       settled = true;
       activeAuthSessionTransitionIds.delete(journal.id);
+      stopRegisteredCandidateService(currentJournal);
+      if (currentJournal.computerHandoff) {
+        await writeAuthSessionTransitionJournal({
+          ...currentJournal,
+          state: "recovery_required",
+        });
+        return;
+      }
       await deleteAccessTokenOrRetainForCleanup(tokenRef);
       await removeAuthSessionTransitionJournal();
     },
   };
+}
+
+async function readCurrentPendingAuthSessionTransition(
+  id: string
+): Promise<AuthSessionTransitionJournalV1> {
+  const currentJournal = await readAuthSessionTransitionJournal();
+  if (currentJournal?.id !== id || currentJournal.state !== "pending") {
+    throw new Error("auth session transition is no longer pending");
+  }
+  return currentJournal;
+}
+
+export async function getInterruptedComputerAuthSessionRecovery(): Promise<InterruptedComputerAuthSessionRecovery | null> {
+  await recoverInterruptedAuthSessionTransition();
+  const journal = await readAuthSessionTransitionJournal();
+  if (!(journal?.state === "recovery_required" && journal.computerHandoff)) {
+    return null;
+  }
+
+  const candidateSession = await readStoredAuthSessionFromPayload(
+    journal.candidatePayload
+  );
+  const candidateOwnerUserId = normalizeOptionalString(
+    candidateSession.user?.id
+  );
+  if (!candidateOwnerUserId) {
+    throw new AuthSessionStorageError({
+      message: "computer auth recovery candidate is missing its owner user id",
+      reason: "corrupt",
+    });
+  }
+
+  return {
+    candidateSession: {
+      ...candidateSession,
+      user: { ...candidateSession.user, id: candidateOwnerUserId },
+    },
+    gatewayUrl: journal.computerHandoff.gatewayUrl,
+    id: journal.id,
+    previousSession: journal.previousPayload
+      ? await readStoredAuthSessionFromPayload(journal.previousPayload)
+      : null,
+    remoteSessionRevoked: Boolean(
+      journal.computerHandoff.remoteSessionRevokedAt
+    ),
+    serviceReconciled: Boolean(journal.computerHandoff.serviceReconciledAt),
+  };
+}
+
+export async function markInterruptedComputerAuthSessionRecovery(input: {
+  id: string;
+  phase: "service" | "remote_session";
+}): Promise<void> {
+  const journal = await readRequiredComputerAuthRecoveryJournal(input.id);
+  await writeAuthSessionTransitionJournal({
+    ...journal,
+    computerHandoff: {
+      ...journal.computerHandoff,
+      ...(input.phase === "service"
+        ? { serviceReconciledAt: new Date().toISOString() }
+        : { remoteSessionRevokedAt: new Date().toISOString() }),
+      lastRecoveryFailure: undefined,
+    },
+  });
+}
+
+export async function recordInterruptedComputerAuthSessionRecoveryFailure(input: {
+  endpoint?: string;
+  id: string;
+  message: string;
+  phase: "service" | "remote_session" | "local_cleanup";
+  status?: number | null;
+}): Promise<void> {
+  const journal = await readRequiredComputerAuthRecoveryJournal(input.id);
+  await writeAuthSessionTransitionJournal({
+    ...journal,
+    computerHandoff: {
+      ...journal.computerHandoff,
+      lastRecoveryFailure: {
+        at: new Date().toISOString(),
+        message: input.message,
+        phase: input.phase,
+        ...(input.endpoint ? { endpoint: input.endpoint } : {}),
+        ...(input.status === undefined ? {} : { status: input.status }),
+      },
+    },
+  });
+}
+
+export async function completeInterruptedComputerAuthSessionRecovery(
+  id: string
+): Promise<boolean> {
+  const journal = await readRequiredComputerAuthRecoveryJournal(id);
+  if (
+    !(
+      journal.computerHandoff.serviceReconciledAt &&
+      journal.computerHandoff.remoteSessionRevokedAt
+    )
+  ) {
+    throw new Error(
+      "computer auth recovery cannot complete before service and remote-session cleanup"
+    );
+  }
+  try {
+    await deleteAccessTokenOrRetainForCleanup(
+      journal.candidatePayload.tokenRef
+    );
+    await removeAuthSessionTransitionJournal();
+    return true;
+  } catch (error) {
+    await recordInterruptedComputerAuthSessionRecoveryFailure({
+      id,
+      message: toErrorMessage(error),
+      phase: "local_cleanup",
+    }).catch(() => undefined);
+    logDeferredAuthSessionTransitionCleanup({ error, transitionId: id });
+    return false;
+  }
 }
 
 export async function getAuthSession(): Promise<StoredAuthSession | null> {
@@ -727,7 +905,17 @@ async function getLocalAuthSessionState(): Promise<LocalAuthSessionState> {
     cacheAuthSession({ payload, session });
   }
 
-  if (isExpired(session.expiresAt)) {
+  const expiryEligibility = resolveAuthSessionExpiryEligibility(
+    session.expiresAt
+  );
+  if (expiryEligibility.status === "invalid") {
+    return {
+      reasonCode: "session_expiry_invalid",
+      state: "invalid",
+      session: null,
+    };
+  }
+  if (expiryEligibility.status === "expired") {
     return {
       reasonCode: "session_expired",
       state: "expired",
@@ -1001,14 +1189,7 @@ function hasActiveSessionPayload(payload: unknown): boolean {
 }
 
 function isExpired(expiresAt: string | undefined): boolean {
-  if (!expiresAt) {
-    return false;
-  }
-  const expiresAtMs = Date.parse(expiresAt);
-  if (Number.isNaN(expiresAtMs)) {
-    return false;
-  }
-  return expiresAtMs <= Date.now();
+  return resolveAuthSessionExpiryEligibility(expiresAt).status === "expired";
 }
 
 function resolveRemoteAuthSessionReasonCode(
@@ -1060,7 +1241,7 @@ async function readSessionPayloadFile(): Promise<Partial<AuthSessionV1> | null> 
 }
 
 async function recoverInterruptedAuthSessionTransition(): Promise<void> {
-  const journal = await readAuthSessionTransitionJournal();
+  let journal = await readAuthSessionTransitionJournal();
   if (!journal) {
     return;
   }
@@ -1074,15 +1255,32 @@ async function recoverInterruptedAuthSessionTransition(): Promise<void> {
       ownerProcessStartedAt: journal.ownerProcessStartedAt,
     })
   ) {
+    journal = await registerCurrentCandidateServiceProcess(journal);
     return;
   }
 
   if (journal.state === "pending") {
     await restoreTransitionPreviousPayload(journal);
+    stopRegisteredCandidateService(journal);
+    if (journal.computerHandoff) {
+      await writeAuthSessionTransitionJournal({
+        ...journal,
+        state: "recovery_required",
+      });
+      return;
+    }
     await deleteAccessTokenOrRetainForCleanup(
       journal.candidatePayload.tokenRef
     );
-  } else {
+    await removeAuthSessionTransitionJournal();
+    return;
+  }
+  if (journal.state === "recovery_required") {
+    stopRegisteredCandidateService(journal);
+    return;
+  }
+
+  if (journal.state === "committed") {
     const currentPayload = await readSessionPayloadFile();
     if (
       currentPayload?.v !== 1 ||
@@ -1095,20 +1293,145 @@ async function recoverInterruptedAuthSessionTransition(): Promise<void> {
         reason: "corrupt",
       });
     }
-    const previousTokenRef = normalizeTokenRef(
-      journal.previousPayload?.tokenRef
+    await finalizeCommittedAuthSessionTransition(journal).catch(
+      (error: unknown) => {
+        logDeferredAuthSessionTransitionCleanup({
+          error,
+          transitionId: journal.id,
+        });
+      }
     );
-    if (
-      previousTokenRef &&
-      !areStoredTokenRefsEqual(
-        previousTokenRef,
-        journal.candidatePayload.tokenRef
-      )
-    ) {
-      await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
-    }
+  }
+}
+
+async function finalizeCommittedAuthSessionTransition(
+  journal: AuthSessionTransitionJournalV1
+): Promise<void> {
+  const previousTokenRef = normalizeTokenRef(journal.previousPayload?.tokenRef);
+  if (
+    previousTokenRef &&
+    !areStoredTokenRefsEqual(
+      previousTokenRef,
+      journal.candidatePayload.tokenRef
+    )
+  ) {
+    await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
   }
   await removeAuthSessionTransitionJournal();
+}
+
+async function registerCurrentCandidateServiceProcess(
+  journal: AuthSessionTransitionJournalV1
+): Promise<AuthSessionTransitionJournalV1> {
+  if (!isCurrentProcessCandidateService()) {
+    return journal;
+  }
+  const currentProcess: ProcessIdentity = {
+    ownerPid: process.pid,
+    ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
+  };
+  if (
+    journal.candidateServiceProcess?.ownerPid === currentProcess.ownerPid &&
+    journal.candidateServiceProcess.ownerProcessStartedAt ===
+      currentProcess.ownerProcessStartedAt
+  ) {
+    return journal;
+  }
+  const currentJournal = await readAuthSessionTransitionJournal();
+  if (currentJournal?.id !== journal.id || currentJournal.state !== "pending") {
+    return currentJournal ?? journal;
+  }
+  const updatedJournal = {
+    ...currentJournal,
+    candidateServiceProcess: currentProcess,
+  };
+  await writeAuthSessionTransitionJournal(updatedJournal);
+  return updatedJournal;
+}
+
+function stopRegisteredCandidateService(
+  journal: AuthSessionTransitionJournalV1
+): void {
+  const candidateServiceProcess = journal.candidateServiceProcess;
+  if (
+    !(
+      candidateServiceProcess && isProcessIdentityAlive(candidateServiceProcess)
+    )
+  ) {
+    return;
+  }
+  try {
+    process.kill(candidateServiceProcess.ownerPid, "SIGTERM");
+  } catch (error) {
+    if (!isFileNotFoundErrorCode(error, "ESRCH")) {
+      throw new AuthSessionStorageError({
+        message: `candidate OpenMeld Service process ${String(candidateServiceProcess.ownerPid)} could not be stopped: ${toErrorMessage(error)}`,
+        reason: "unreadable",
+        cause: error,
+      });
+    }
+  }
+}
+
+function isCurrentProcessCandidateService(): boolean {
+  const runtimeMode = String(
+    process.env.OPENMELD_DAEMON_RUNTIME_MODE ?? ""
+  ).trim();
+  return runtimeMode === "background" || runtimeMode === "foreground";
+}
+
+async function readStoredAuthSessionFromPayload(
+  payload: AuthSessionV1
+): Promise<StoredAuthSession> {
+  const accessToken = await readAccessToken(payload.tokenRef);
+  if (accessToken.status === "missing") {
+    throw new AuthSessionStorageError({
+      message: "auth session recovery token is missing",
+      reason: "corrupt",
+    });
+  }
+  if (accessToken.status === "unavailable") {
+    throw new AuthSessionStorageError({
+      message: accessToken.errorMessage,
+      reason: "unreadable",
+    });
+  }
+  return buildStoredAuthSession({
+    accessToken: accessToken.accessToken,
+    payload,
+  });
+}
+
+async function readRequiredComputerAuthRecoveryJournal(id: string): Promise<
+  AuthSessionTransitionJournalV1 & {
+    computerHandoff: NonNullable<
+      AuthSessionTransitionJournalV1["computerHandoff"]
+    >;
+  }
+> {
+  const journal = await readAuthSessionTransitionJournal();
+  if (
+    journal?.id !== id ||
+    journal.state !== "recovery_required" ||
+    !journal.computerHandoff
+  ) {
+    throw new Error("computer auth recovery is no longer current");
+  }
+  return journal as AuthSessionTransitionJournalV1 & {
+    computerHandoff: NonNullable<
+      AuthSessionTransitionJournalV1["computerHandoff"]
+    >;
+  };
+}
+
+function logDeferredAuthSessionTransitionCleanup(input: {
+  error: unknown;
+  transitionId: string;
+}): void {
+  console.warn("[openmeld.auth.session_transition_cleanup_deferred]", {
+    error: toErrorMessage(input.error),
+    transitionId: input.transitionId,
+  });
 }
 
 async function restoreTransitionPreviousPayload(
@@ -1176,14 +1499,61 @@ function isAuthSessionTransitionJournal(
     value.v === 1 &&
     typeof value.id === "string" &&
     value.id.length > 0 &&
-    (value.state === "pending" || value.state === "committed") &&
+    (value.state === "pending" ||
+      value.state === "recovery_required" ||
+      value.state === "committed") &&
     Number.isSafeInteger(value.ownerPid) &&
     Number(value.ownerPid) > 0 &&
     typeof value.ownerProcessStartedAt === "string" &&
     value.ownerProcessStartedAt.length > 0 &&
     (value.previousPayload === null ||
       isAuthSessionPayload(value.previousPayload)) &&
-    isAuthSessionPayload(value.candidatePayload)
+    isAuthSessionPayload(value.candidatePayload) &&
+    isOptionalProcessIdentity(value.candidateServiceProcess) &&
+    isOptionalComputerHandoffRecovery(value.computerHandoff)
+  );
+}
+
+function isOptionalProcessIdentity(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (isRecord(value) &&
+      Number.isSafeInteger(value.ownerPid) &&
+      Number(value.ownerPid) > 0 &&
+      typeof value.ownerProcessStartedAt === "string" &&
+      value.ownerProcessStartedAt.length > 0)
+  );
+}
+
+function isOptionalComputerHandoffRecovery(value: unknown): boolean {
+  if (value === undefined) {
+    return true;
+  }
+  if (!(isRecord(value) && typeof value.gatewayUrl === "string")) {
+    return false;
+  }
+  return (
+    (value.serviceReconciledAt === undefined ||
+      typeof value.serviceReconciledAt === "string") &&
+    (value.remoteSessionRevokedAt === undefined ||
+      typeof value.remoteSessionRevokedAt === "string") &&
+    (value.lastRecoveryFailure === undefined ||
+      isComputerHandoffRecoveryFailure(value.lastRecoveryFailure))
+  );
+}
+
+function isComputerHandoffRecoveryFailure(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.at === "string" &&
+    typeof value.message === "string" &&
+    (value.phase === "service" ||
+      value.phase === "remote_session" ||
+      value.phase === "local_cleanup") &&
+    (value.endpoint === undefined || typeof value.endpoint === "string") &&
+    (value.status === undefined ||
+      value.status === null ||
+      typeof value.status === "number")
   );
 }
 
@@ -1247,6 +1617,12 @@ function isFileNotFoundError(error: unknown): boolean {
       typeof error === "object" &&
       "code" in error &&
       error.code === "ENOENT"
+  );
+}
+
+function isFileNotFoundErrorCode(error: unknown, code: string): boolean {
+  return Boolean(
+    error && typeof error === "object" && "code" in error && error.code === code
   );
 }
 

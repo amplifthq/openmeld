@@ -15,6 +15,8 @@ import {
 } from "../src/config/auth-session";
 import { withTempHome } from "./helpers/fs";
 
+const LINE_BREAK_RE = /\r?\n/u;
+
 describe("auth session storage", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -178,6 +180,117 @@ describe("auth session storage", () => {
     });
   });
 
+  it("stops the candidate service process before a restarted service reads the recovered owner", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      const candidateServicePid = await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        startCandidateService: true,
+        user: { id: "candidate-owner" },
+      });
+
+      try {
+        vi.resetModules();
+        const { getAuthSessionState: getRestartedAuthSessionState } =
+          await import("../src/config/auth-session");
+
+        await expect(getRestartedAuthSessionState()).resolves.toMatchObject({
+          state: "valid",
+          session: {
+            accessToken: "previous-token",
+            user: { id: "previous-owner" },
+          },
+        });
+        await waitForProcessExit(candidateServicePid);
+        await expect(readOwnerFromRestartedServiceProcess()).resolves.toBe(
+          "previous-owner"
+        );
+      } finally {
+        stopProcessIfAlive(candidateServicePid);
+      }
+    });
+  });
+
+  it("keeps crash recovery durable until the candidate remote session is revoked", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+
+      vi.resetModules();
+      const restartedAuthSession = await import("../src/config/auth-session");
+      const recovery =
+        await restartedAuthSession.getInterruptedComputerAuthSessionRecovery();
+
+      expect(recovery).toMatchObject({
+        candidateSession: {
+          accessToken: "candidate-token",
+          user: { id: "candidate-owner" },
+        },
+        previousSession: {
+          accessToken: "previous-token",
+          user: { id: "previous-owner" },
+        },
+        remoteSessionRevoked: false,
+        serviceReconciled: false,
+      });
+      await expect(
+        readFile(
+          join(home, ".openmeld", "auth", "session-transition.json"),
+          "utf8"
+        )
+      ).resolves.toContain('"state": "recovery_required"');
+
+      await restartedAuthSession.markInterruptedComputerAuthSessionRecovery({
+        id: recovery?.id ?? "",
+        phase: "service",
+      });
+      await restartedAuthSession.markInterruptedComputerAuthSessionRecovery({
+        id: recovery?.id ?? "",
+        phase: "remote_session",
+      });
+      await expect(
+        restartedAuthSession.completeInterruptedComputerAuthSessionRecovery(
+          recovery?.id ?? ""
+        )
+      ).resolves.toBe(true);
+      await expect(
+        restartedAuthSession.getAuthSessionState()
+      ).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "previous-token",
+          user: { id: "previous-owner" },
+        },
+      });
+      await expect(
+        readFile(
+          join(home, ".openmeld", "auth", "session-transition.json"),
+          "utf8"
+        )
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
   it("clears an incomplete first sign-in after a setup process crashes", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
@@ -246,6 +359,68 @@ describe("auth session storage", () => {
       });
       await expect(readFile(transitionPath, "utf8")).rejects.toMatchObject({
         code: "ENOENT",
+      });
+    });
+  });
+
+  it("treats durable commit as successful when post-commit cleanup must be retried", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      const previousPayload = JSON.parse(
+        await readFile(join(home, ".openmeld", "auth", "session.json"), "utf8")
+      ) as { tokenRef: { key: string } };
+      const transition = await beginAuthSessionTransition({
+        accessToken: "committed-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "committed-owner" },
+      });
+      const pendingCleanupPath = join(
+        home,
+        ".openmeld",
+        "auth",
+        "pending-token-cleanup.json"
+      );
+      const previousTokenPath = join(
+        home,
+        ".openmeld",
+        "auth",
+        "tokens",
+        `${previousPayload.tokenRef.key}.token`
+      );
+      await rm(previousTokenPath, { force: true });
+      await mkdir(previousTokenPath);
+      await writeFile(pendingCleanupPath, "{not-json\n", "utf8");
+
+      await expect(transition.commit()).resolves.toBeUndefined();
+
+      const transitionPath = join(
+        home,
+        ".openmeld",
+        "auth",
+        "session-transition.json"
+      );
+      await expect(readFile(transitionPath, "utf8")).resolves.toContain(
+        '"state": "committed"'
+      );
+
+      await rm(pendingCleanupPath, { force: true });
+      await rm(previousTokenPath, { recursive: true });
+      vi.resetModules();
+      const { getAuthSessionState: getRestartedAuthSessionState } =
+        await import("../src/config/auth-session");
+      await expect(getRestartedAuthSessionState()).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "committed-token",
+          user: { id: "committed-owner" },
+        },
       });
     });
   });
@@ -372,6 +547,24 @@ describe("auth session storage", () => {
         process.env,
         "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
       );
+    });
+  });
+
+  it("reports malformed session expiry as invalid credentials", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "token-invalid-expiry",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        expiresAt: "not-a-date",
+      });
+
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        reasonCode: "session_expiry_invalid",
+        state: "invalid",
+        session: null,
+      });
     });
   });
 
@@ -742,8 +935,10 @@ async function beginThenCrashAuthSessionTransition(input: {
   accessToken: string;
   authBaseUrl: string;
   clientId: string;
+  computerHandoff?: boolean;
+  startCandidateService?: boolean;
   user: { id: string };
-}): Promise<void> {
+}): Promise<number> {
   const testRequire = createRequire(import.meta.url);
   const vitestRequire = createRequire(
     testRequire.resolve("vitest/package.json")
@@ -754,9 +949,42 @@ async function beginThenCrashAuthSessionTransition(input: {
     "../src/config/auth-session.ts",
     import.meta.url
   ).href;
+  const transitionInput = {
+    accessToken: input.accessToken,
+    authBaseUrl: input.authBaseUrl,
+    clientId: input.clientId,
+    user: input.user,
+  };
+  const transitionContext =
+    input.startCandidateService || input.computerHandoff
+      ? { computerHandoff: { gatewayUrl: "https://gateway.openmeld.invalid" } }
+      : {};
+  const candidateServiceScript = `
+    import { getAuthSessionState } from ${JSON.stringify(authSessionModuleUrl)};
+    const auth = await getAuthSessionState();
+    process.stdout.write(
+      "AUTH_CANDIDATE_SERVICE " +
+        JSON.stringify({ ownerUserId: auth.session?.user?.id ?? null, pid: process.pid }) +
+        "\\n"
+    );
+    process.on("SIGTERM", () => process.exit(0));
+    setInterval(() => undefined, 60_000);
+  `;
   const script = `
+    import { spawn } from "node:child_process";
     import { beginAuthSessionTransition } from ${JSON.stringify(authSessionModuleUrl)};
-    await beginAuthSessionTransition(${JSON.stringify(input)});
+    await beginAuthSessionTransition(${JSON.stringify(transitionInput)}, ${JSON.stringify(transitionContext)});
+    if (${JSON.stringify(input.startCandidateService === true)}) {
+      const service = spawn(
+        process.execPath,
+        ["--import", ${JSON.stringify(tsxLoaderPath)}, "--input-type=module", "--eval", ${JSON.stringify(candidateServiceScript)}],
+        {
+          env: { ...process.env, OPENMELD_DAEMON_RUNTIME_MODE: "background" },
+          stdio: ["ignore", "pipe", "inherit"],
+        }
+      );
+      service.stdout.pipe(process.stdout);
+    }
     process.stdout.write("AUTH_TRANSITION_PENDING\\n");
     setInterval(() => undefined, 60_000);
   `;
@@ -769,8 +997,26 @@ async function beginThenCrashAuthSessionTransition(input: {
     }
   );
 
+  let candidateServicePid = 0;
   try {
-    await waitForChildOutput(child, "AUTH_TRANSITION_PENDING");
+    const output = await waitForChildOutput(
+      child,
+      input.startCandidateService
+        ? "AUTH_CANDIDATE_SERVICE"
+        : "AUTH_TRANSITION_PENDING"
+    );
+    if (input.startCandidateService) {
+      const payload = JSON.parse(output.slice(output.indexOf("{"))) as {
+        ownerUserId: string | null;
+        pid: number;
+      };
+      if (payload.ownerUserId !== "candidate-owner") {
+        throw new Error(
+          `candidate Service loaded unexpected owner ${String(payload.ownerUserId)}`
+        );
+      }
+      candidateServicePid = payload.pid;
+    }
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill("SIGKILL");
@@ -779,13 +1025,14 @@ async function beginThenCrashAuthSessionTransition(input: {
       await once(child, "exit");
     }
   }
+  return candidateServicePid;
 }
 
 async function waitForChildOutput(
   child: ChildProcessWithoutNullStreams,
   expected: string
-): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
+): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
     let stdout = "";
     let stderr = "";
     const timeout = setTimeout(() => {
@@ -800,7 +1047,10 @@ async function waitForChildOutput(
       stdout += chunk.toString("utf8");
       if (stdout.includes(expected)) {
         cleanup();
-        resolve();
+        const matchingLine = stdout
+          .split(LINE_BREAK_RE)
+          .find((line) => line.includes(expected));
+        resolve(matchingLine ?? stdout);
       }
     };
     const onStderr = (chunk: Buffer) => {
@@ -824,4 +1074,69 @@ async function waitForChildOutput(
     child.stderr.on("data", onStderr);
     child.once("exit", onExit);
   });
+}
+
+async function waitForProcessExit(pid: number): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`candidate service process ${String(pid)} is still running`);
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function stopProcessIfAlive(pid: number): void {
+  if (pid > 0 && isProcessAlive(pid)) {
+    process.kill(pid, "SIGKILL");
+  }
+}
+
+async function readOwnerFromRestartedServiceProcess(): Promise<string | null> {
+  const testRequire = createRequire(import.meta.url);
+  const vitestRequire = createRequire(
+    testRequire.resolve("vitest/package.json")
+  );
+  const tsxPackagePath = vitestRequire.resolve("tsx/package.json");
+  const tsxLoaderPath = join(tsxPackagePath, "..", "dist", "loader.mjs");
+  const authSessionModuleUrl = new URL(
+    "../src/config/auth-session.ts",
+    import.meta.url
+  ).href;
+  const script = `
+    import { getAuthSessionState } from ${JSON.stringify(authSessionModuleUrl)};
+    const auth = await getAuthSessionState();
+    process.stdout.write(JSON.stringify({ ownerUserId: auth.session?.user?.id ?? null }));
+  `;
+  const child = spawn(
+    process.execPath,
+    ["--import", tsxLoaderPath, "--input-type=module", "--eval", script],
+    {
+      env: { ...process.env, OPENMELD_DAEMON_RUNTIME_MODE: "background" },
+      stdio: ["ignore", "pipe", "pipe"],
+    }
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString("utf8");
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString("utf8");
+  });
+  const [code] = (await once(child, "exit")) as [number | null];
+  if (code !== 0) {
+    throw new Error(`restarted service fixture failed: ${stderr}`);
+  }
+  return (JSON.parse(stdout) as { ownerUserId: string | null }).ownerUserId;
 }
