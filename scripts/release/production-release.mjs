@@ -658,21 +658,12 @@ function resolveProductionDeployOrderProfile(changedPaths) {
   const isCenterAgentCliReceiverFirst = changedPaths.some(
     isCenterAgentCliReceiverFirstContractPath
   );
-  if (isConnectComputerReceiverFirst && isInboxReceiverFirst) {
-    throw new Error(
-      "Connect Computer and Inbox receiver-first contracts cannot ship in one release because they require Core on opposite sides of the Web deployment. Split them into independently releasable changes."
-    );
-  }
-  if (isConnectComputerReceiverFirst && isLocalServiceReceiverFirst) {
-    throw new Error(
-      "Connect Computer and Local Service receiver-first contracts cannot ship in one release because they require Core on opposite sides of the CLI publication. Split them into independently releasable changes."
-    );
-  }
-  if (isConnectComputerReceiverFirst && isCenterAgentCliReceiverFirst) {
-    throw new Error(
-      "Connect Computer and Center Agent CLI receiver-first contracts cannot ship in one release because they require the CLI on opposite sides of the Web and Core deployments. Split them into independently releasable changes."
-    );
-  }
+  assertComposableConnectComputerReleaseProfile({
+    isCenterAgentCliReceiverFirst,
+    isConnectComputerReceiverFirst,
+    isInboxReceiverFirst,
+    isLocalServiceReceiverFirst,
+  });
   if (
     isConnectComputerReceiverFirst &&
     (isRemoteAgentRequestReceiverFirst || isRemoteAgentReceiverFirst)
@@ -716,12 +707,32 @@ function resolveProductionDeployOrderProfile(changedPaths) {
   return "default-auth-receiver-first";
 }
 
+function assertComposableConnectComputerReleaseProfile(input) {
+  if (!input.isConnectComputerReceiverFirst) {
+    return;
+  }
+  if (input.isInboxReceiverFirst) {
+    throw new Error(
+      "Connect Computer and Inbox receiver-first contracts cannot ship in one release because they require Core on opposite sides of the Web deployment. Split them into independently releasable changes."
+    );
+  }
+  if (input.isLocalServiceReceiverFirst) {
+    throw new Error(
+      "Connect Computer and Local Service receiver-first contracts cannot ship in one release because they require Core on opposite sides of the CLI publication. Split them into independently releasable changes."
+    );
+  }
+  if (input.isCenterAgentCliReceiverFirst) {
+    throw new Error(
+      "Connect Computer and Center Agent CLI receiver-first contracts cannot ship in one release because they require the CLI on opposite sides of the Web and Core deployments. Split them into independently releasable changes."
+    );
+  }
+}
+
 function doesCliReleaseOwnCoreProjection(profile) {
   return (
     profile === "default-auth-receiver-first" ||
     profile === "connect-computer-cli-receiver-first" ||
-    profile ===
-      "core-worker-response-and-connect-computer-receivers-first" ||
+    profile === "core-worker-response-and-connect-computer-receivers-first" ||
     profile === "remote-agent-and-connect-computer-receivers-first"
   );
 }
