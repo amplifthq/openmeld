@@ -25,6 +25,11 @@ import {
   resolveFinalCandidateLabel,
 } from "./final-candidate-policy.mjs";
 import {
+  readPriorEvidenceCandidates,
+  resolveReusableCheckInput,
+} from "./final-candidate-reuse.mjs";
+import {
+  isCommitAncestor,
   publishCommitStatus,
   publishPullRequestComment,
   resolveBranchName,
@@ -240,6 +245,7 @@ function createRunContext(options) {
     options,
     execution: null,
     plan: null,
+    priorEvidenceCandidates: [],
     publicationErrors: [],
     publishStatus: options.publishStatus ?? false,
     pullRequestNumber,
@@ -293,6 +299,9 @@ function prepareCandidateRun(context) {
   context.commandLogsPath = `${context.evidencePath}.logs`;
   rmSync(context.commandLogsPath, { force: true, recursive: true });
   mkdirSync(context.commandLogsPath, { recursive: true });
+  context.priorEvidenceCandidates = readPriorEvidenceCandidates(
+    context.options.priorEvidenceRoot
+  );
   printPlan(context.plan, []);
   context.targetUrl = resolveTargetUrl(
     context.mode,
@@ -321,6 +330,13 @@ function publishPendingEvidence(context) {
 function executePreparedCandidate(context) {
   const execution = executeCandidateChecks(context.plan.selectedChecks, {
     now: () => Date.now(),
+    onReuse: (selectedCheck, reusedFrom) => {
+      process.stdout.write(
+        `Reused ${selectedCheck.id}: identical task inputs already passed at ${shortSha(reusedFrom.headSha)} on ${shortSha(reusedFrom.baseSha)}.\n`
+      );
+    },
+    resolveReuse: (selectedCheck) =>
+      resolveCandidateCheckReuse(selectedCheck, context),
     runCommand: (command, selectedCheck) =>
       runCandidateCommand(command, selectedCheck, context),
   });
@@ -367,6 +383,28 @@ function executePreparedCandidate(context) {
     repository: context.repository,
     startedAt: context.startedAt,
   });
+}
+
+function resolveCandidateCheckReuse(selectedCheck, context) {
+  try {
+    return resolveReusableCheckInput({
+      candidateRoot: context.candidateRoot,
+      check: selectedCheck,
+      commandWrapper: context.options.commandWrapper,
+      environment: createCandidateCommandEnvironment(),
+      evidenceCandidates: context.priorEvidenceCandidates,
+      isAncestor: (ancestorSha, descendantSha) =>
+        isCommitAncestor(ancestorSha, descendantSha, context.candidateRoot),
+      plan: context.plan,
+      pullRequestNumber: context.pullRequestNumber,
+      repository: context.repository,
+    });
+  } catch (error) {
+    process.stdout.write(
+      `Reuse unavailable for ${selectedCheck.id}; running it normally (${sanitizeEvidenceText(error instanceof Error ? error.message : String(error))}).\n`
+    );
+    return null;
+  }
 }
 
 function createFailureEvidence(context, error) {
@@ -526,22 +564,7 @@ function runCandidateCommand(command, selectedCheck, context) {
     `Running ${selectedCheck.id}: ${formatCommand(executionCommand)}\n`
   );
   const [binary, ...args] = executionCommand;
-  const commandEnvironment = { ...process.env };
-  for (const credentialName of [
-    "GH_ENTERPRISE_TOKEN",
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL",
-    "OPENMELD_TRUSTED_GIT_GITHUB_TOKEN",
-    "OPENMELD_TRUSTED_GIT_LOCAL_REMOTE_URL",
-  ]) {
-    delete commandEnvironment[credentialName];
-  }
-  for (const variableName of Object.keys(commandEnvironment)) {
-    if (GIT_CONFIG_ENV_PATTERN.test(variableName)) {
-      delete commandEnvironment[variableName];
-    }
-  }
+  const commandEnvironment = createCandidateCommandEnvironment();
   const result = spawnSync(binary, args, {
     cwd:
       selectedCheck.id === "trusted-control-entrypoints"
@@ -575,6 +598,26 @@ function runCandidateCommand(command, selectedCheck, context) {
     stderrTail: failed ? tail(stderr) : "",
     stdoutTail: failed ? tail(stdout) : "",
   };
+}
+
+function createCandidateCommandEnvironment() {
+  const commandEnvironment = { ...process.env };
+  for (const credentialName of [
+    "GH_ENTERPRISE_TOKEN",
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL",
+    "OPENMELD_TRUSTED_GIT_GITHUB_TOKEN",
+    "OPENMELD_TRUSTED_GIT_LOCAL_REMOTE_URL",
+  ]) {
+    delete commandEnvironment[credentialName];
+  }
+  for (const variableName of Object.keys(commandEnvironment)) {
+    if (GIT_CONFIG_ENV_PATTERN.test(variableName)) {
+      delete commandEnvironment[variableName];
+    }
+  }
+  return commandEnvironment;
 }
 
 function writeCommandLog(input) {
@@ -650,6 +693,7 @@ function parseOptions(args) {
       mode: "mode",
       plan_source: "planSourceSha",
       pr: "pr",
+      prior_evidence_root: "priorEvidenceRoot",
       repo: "repository",
       repository: "repository",
     }[name];

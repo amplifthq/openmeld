@@ -252,6 +252,35 @@ export function resolveDirtyPaths(cwd = process.cwd()) {
     .map((line) => line.slice(3));
 }
 
+export function isCommitAncestor(
+  ancestorSha,
+  descendantSha,
+  cwd = process.cwd()
+) {
+  if (
+    !(
+      EXACT_SHA_PATTERN.test(String(ancestorSha ?? "")) &&
+      EXACT_SHA_PATTERN.test(String(descendantSha ?? ""))
+    )
+  ) {
+    return false;
+  }
+  const result = spawnSync(
+    gitBinary,
+    ["merge-base", "--is-ancestor", ancestorSha, descendantSha],
+    { cwd, encoding: "utf8", env: trustedLocalGitEnvironment() }
+  );
+  if (result.status === 0) {
+    return true;
+  }
+  if (result.status === 1) {
+    return false;
+  }
+  throw new Error(
+    `Could not verify prior candidate base ancestry: ${result.stderr.trim()}`
+  );
+}
+
 function fetchCurrentMain(cwd, repository) {
   const localRemoteUrl =
     process.env.OPENMELD_TRUSTED_GIT_LOCAL_REMOTE_URL?.trim();

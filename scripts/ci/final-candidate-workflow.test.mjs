@@ -92,6 +92,7 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(workflow.includes("pull_request_target:"));
   assert.ok(!workflow.includes("\n  pull_request:\n"));
   assert.ok(candidateJob.includes("contents: read"));
+  assert.ok(candidateJob.includes("actions: read"));
   assert.ok(candidateJob.includes("pull-requests: read"));
   assert.ok(!candidateJob.includes("statuses: write"));
   assert.ok(!candidateJob.includes("--publish-status"));
@@ -120,6 +121,16 @@ test("keeps status credentials out of candidate commands", () => {
     )
   );
   assert.ok(candidateJob.includes("--ignore-scripts"));
+  assert.ok(
+    candidateJob.includes(
+      "trusted-control/scripts/ci/download-prior-final-candidate-evidence.sh"
+    )
+  );
+  assert.ok(
+    candidateJob.includes(
+      '--prior-evidence-root "$RUNNER_TEMP/prior-final-candidate"'
+    )
+  );
   assert.ok(dependencyInstall.includes("--config.ignore-pnpmfile=true"));
   assert.ok(dependencyInstall.includes(" --recursive rebuild \\".trimEnd()));
   assert.ok(dependencyInstall.includes("resolve-approved-native-builds.mjs"));

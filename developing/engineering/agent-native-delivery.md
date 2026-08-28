@@ -142,8 +142,21 @@ evidence path.
 
 Canonical evidence includes exact identities, changed paths, risk tags,
 selected and skipped checks with reasons, commands, durations, results,
-execution mode, conclusion, and publication errors. The schema owner is
+execution mode, conclusion, publication errors, and whether a check executed
+or reused an earlier exact input fingerprint. The schema owner is
 `packages/schemas/src/schemas/ci/final-candidate.ts`.
+
+Hosted Final Candidate may reuse only the deterministic affected workspace
+check-and-unit-test result from an earlier successful run of the same PR and
+branch. Reuse requires the earlier validation base to be an ancestor of the
+current base, identical changed paths, confidence, command, reason, and exact
+Turborepo task IDs and task hashes for both `check` and `test`. Trusted control
+still rechecks the current candidate identity and records the prior exact
+head/base/tree in new evidence. Missing, invalid, stale, differently scoped, or
+unprovable evidence simply causes the check to run normally. Integration,
+database, release-ready, signing, deploy, health, and smoke evidence is never
+reused by this optimization. This is compute reuse, not merge advice, approval,
+or a manual bypass.
 
 ### Actions-unavailable fallback
 

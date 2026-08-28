@@ -448,6 +448,28 @@ export function executeCandidateChecks(checks, dependencies) {
   const results = [];
   for (const selectedCheck of checks) {
     const startedAt = dependencies.now();
+    const reuse = dependencies.resolveReuse?.(selectedCheck) ?? null;
+    if (reuse?.reusedFrom) {
+      const finishedAt = dependencies.now();
+      results.push({
+        command: selectedCheck.command,
+        durationMs: Math.max(0, finishedAt - startedAt),
+        execution: {
+          inputFingerprint: reuse.inputFingerprint,
+          kind: "reused",
+          source: reuse.reusedFrom,
+        },
+        exitCode: 0,
+        id: selectedCheck.id,
+        reason: selectedCheck.reason,
+        spawnError: null,
+        status: "passed",
+        stderrTail: "",
+        stdoutTail: "",
+      });
+      dependencies.onReuse?.(selectedCheck, reuse.reusedFrom);
+      continue;
+    }
     let result;
     try {
       result = dependencies.runCommand(selectedCheck.command, selectedCheck);
@@ -466,6 +488,10 @@ export function executeCandidateChecks(checks, dependencies) {
     const checkResult = {
       command: selectedCheck.command,
       durationMs: Math.max(0, finishedAt - startedAt),
+      execution: {
+        inputFingerprint: reuse?.inputFingerprint ?? null,
+        kind: "executed",
+      },
       exitCode: Number.isInteger(result.status) ? result.status : null,
       id: selectedCheck.id,
       reason: selectedCheck.reason,

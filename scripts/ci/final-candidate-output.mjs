@@ -86,7 +86,12 @@ export function renderEvidenceSummary(evidence, evidencePath, options = {}) {
     "",
     ...(evidence.results?.length > 0
       ? evidence.results.flatMap((result) => [
-          `- **${result.status}** \`${formatCommand(result.command)}\` (${formatDuration(result.durationMs)}) — ${result.reason}`,
+          `- **${result.status}${result.execution.kind === "reused" ? " (reused)" : ""}** \`${formatCommand(result.command)}\` (${formatDuration(result.durationMs)}) — ${result.reason}`,
+          ...(result.execution.kind === "reused"
+            ? [
+                `  Identical task inputs previously passed at \`${shortSha(result.execution.source.headSha)}\` on base \`${shortSha(result.execution.source.baseSha)}\`; original duration ${formatDuration(result.execution.source.durationMs)}.`,
+              ]
+            : []),
           ...(result.exitCode === null
             ? []
             : [`  Exit code: \`${String(result.exitCode)}\``]),
