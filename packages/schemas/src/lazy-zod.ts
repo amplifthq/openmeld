@@ -4,7 +4,6 @@ export const NEVER = zod.NEVER;
 export const ZodIssueCode = zod.ZodIssueCode;
 
 const TERMINAL_METHODS = new Set<PropertyKey>([
-  "apply",
   "decode",
   "decodeAsync",
   "encode",
@@ -13,10 +12,8 @@ const TERMINAL_METHODS = new Set<PropertyKey>([
   "implementAsync",
   "isNullable",
   "isOptional",
-  "meta",
   "parse",
   "parseAsync",
-  "register",
   "safeDecode",
   "safeDecodeAsync",
   "safeEncode",
@@ -33,7 +30,6 @@ const EAGER_PROPERTIES = new Set<PropertyKey>([
   "_output",
   "_zod",
   "def",
-  "description",
   "element",
   "entries",
   "enum",
@@ -59,16 +55,32 @@ const EAGER_PROPERTIES = new Set<PropertyKey>([
   "~standard",
 ]);
 
+const SELF_RETURNING_METHODS = new Set<PropertyKey>(["brand", "finite"]);
+
 type ZodRegistryLike = {
   add(schema: zod.ZodType, ...metadata: unknown[]): unknown;
+  get(schema: zod.ZodType): unknown;
 };
+
+const globalRegistry = zod.globalRegistry as ZodRegistryLike;
 
 export function lazySchema<TSchema extends zod.ZodType>(
   createSchema: () => TSchema
 ): TSchema {
   let schema: TSchema | undefined;
+  let proxy: TSchema;
+  const registrations: Array<{
+    metadata: unknown[];
+    registry: ZodRegistryLike;
+  }> = [];
   const resolveSchema = (): TSchema => {
-    schema ??= createSchema();
+    if (!schema) {
+      schema = createSchema();
+      for (const registration of registrations) {
+        registration.registry.add(schema, ...registration.metadata);
+        registration.registry.add(proxy, ...registration.metadata);
+      }
+    }
     return schema;
   };
   const readResolvedProperty = (property: PropertyKey): unknown => {
@@ -76,18 +88,67 @@ export function lazySchema<TSchema extends zod.ZodType>(
     const value = Reflect.get(resolved, property, resolved);
     return typeof value === "function" ? value.bind(resolved) : value;
   };
+  const deferSchemaMethod = (
+    property: PropertyKey,
+    args: unknown[]
+  ): zod.ZodType =>
+    lazySchema(() => {
+      const resolved = resolveSchema();
+      const method = Reflect.get(resolved, property, resolved);
+      if (typeof method !== "function") {
+        throw new TypeError(
+          `Lazy Zod property ${String(property)} is not callable`
+        );
+      }
+      const result = Reflect.apply(method, resolved, args);
+      if (!(result instanceof zod.ZodType)) {
+        throw new TypeError(
+          `Lazy Zod method ${String(property)} did not return a schema`
+        );
+      }
+      return result;
+    });
 
-  let proxy: TSchema;
   proxy = new Proxy(Object.create(null) as object, {
     get(_target, property) {
+      if (property === "description") {
+        const metadata = globalRegistry.get(proxy);
+        return metadata && typeof metadata === "object"
+          ? Reflect.get(metadata, "description")
+          : undefined;
+      }
       if (property === "apply") {
         return (operation: (schema: TSchema) => unknown) => operation(proxy);
       }
       if (property === "register") {
         return (registry: ZodRegistryLike, ...metadata: unknown[]) => {
+          registrations.push({ metadata, registry });
+          if (schema) {
+            registry.add(schema, ...metadata);
+          }
           registry.add(proxy, ...metadata);
           return proxy;
         };
+      }
+      if (property === "meta") {
+        return (...metadata: unknown[]) => {
+          if (metadata.length === 0) {
+            return globalRegistry.get(proxy);
+          }
+          const registered = deferSchemaMethod(property, metadata);
+          globalRegistry.add(registered, ...metadata);
+          return registered;
+        };
+      }
+      if (property === "describe") {
+        return (description: string) => {
+          const described = deferSchemaMethod(property, [description]);
+          globalRegistry.add(described, { description });
+          return described;
+        };
+      }
+      if (SELF_RETURNING_METHODS.has(property)) {
+        return () => proxy;
       }
       if (
         typeof property === "symbol" ||
@@ -97,23 +158,7 @@ export function lazySchema<TSchema extends zod.ZodType>(
         return readResolvedProperty(property);
       }
 
-      return (...args: unknown[]) =>
-        lazySchema(() => {
-          const resolved = resolveSchema();
-          const method = Reflect.get(resolved, property, resolved);
-          if (typeof method !== "function") {
-            throw new TypeError(
-              `Lazy Zod property ${String(property)} is not callable`
-            );
-          }
-          const result = Reflect.apply(method, resolved, args);
-          if (!(result instanceof zod.ZodType)) {
-            throw new TypeError(
-              `Lazy Zod method ${String(property)} did not return a schema`
-            );
-          }
-          return result;
-        });
+      return (...args: unknown[]) => deferSchemaMethod(property, args);
     },
     getOwnPropertyDescriptor(_target, property) {
       const descriptor = Reflect.getOwnPropertyDescriptor(

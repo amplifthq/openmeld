@@ -93,6 +93,9 @@ describe("lazy Zod facade", () => {
     expect(schema.shape).toHaveProperty("name");
     expect(schema).toBeInstanceOf(actualZod.ZodObject);
     expect(schema.meta()).toMatchObject({ description: "member" });
+    expect(actualZod.globalRegistry.get(schema)).toMatchObject({
+      description: "member",
+    });
     expect(schema.register(registry, { owner: "OpenMeld" })).toBe(schema);
     expect(registry.get(schema)).toEqual({ owner: "OpenMeld" });
     expect(schema.apply((value) => value)).toBe(schema);
@@ -108,6 +111,27 @@ describe("lazy Zod facade", () => {
       id: "1",
       name: "OpenMeld",
     });
+
+    const registered = z.string();
+    registered.register(actualZod.globalRegistry, {
+      description: "registered",
+    });
+    expect(registered.meta()).toMatchObject({ description: "registered" });
+    expect(registered.description).toBe("registered");
+    expect(registered.toJSONSchema()).toMatchObject({
+      description: "registered",
+    });
+
+    const tagged = z.string().meta({ description: "tagged" });
+    expect(actualZod.globalRegistry.get(tagged)).toMatchObject({
+      description: "tagged",
+    });
+    expect(tagged.description).toBe("tagged");
+
+    const unbranded = z.string();
+    expect(unbranded.brand()).toBe(unbranded);
+    const finite = z.number();
+    expect(finite.finite()).toBe(finite);
   });
 
   it("forwards public number and date constraint properties", () => {
