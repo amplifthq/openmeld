@@ -94,7 +94,9 @@ describe("setup-bootstrap-script", () => {
 			`mktemp -d "\${TMPDIR:-/tmp}/openmeld-cli-binary.XXXXXX"`
 		);
 		expect(script).toContain("trap cleanup_binary_download EXIT");
-		expect(script).toContain("download_file_with_optional_progress");
+		expect(script).toContain("download_file_with_retry");
+		expect(script).toContain("OPENMELD_SETUP_DOWNLOAD_ATTEMPT=1");
+		expect(script).toContain("Download didn't finish. Retrying...");
 		expect(script).toContain("curl -fL --progress-bar");
 		expect(script).toContain("install_binary_openmeld");
 		expect(script).toContain(
@@ -315,6 +317,65 @@ describe("setup-bootstrap-script", () => {
 						name.startsWith("openmeld-cli-binary.")
 					)
 				).toEqual([]);
+			} finally {
+				rmSync(tempDir, { force: true, recursive: true });
+			}
+		},
+		SHELL_BOOTSTRAP_TEST_TIMEOUT_MS
+	);
+
+	it(
+		"retries an interrupted binary archive download without asking the user to rerun setup",
+		() => {
+			const tempDir = mkdtempSync(join(tmpdir(), "openmeld-setup-bootstrap-"));
+			const binDir = join(tempDir, "bin");
+			const callsPath = join(tempDir, "calls.txt");
+			const curlCallsPath = join(tempDir, "curl-calls.txt");
+			const failedOnceMarkerPath = join(tempDir, "curl-failed-once.txt");
+			try {
+				mkdirSync(binDir);
+				linkRealNodeRuntime(binDir);
+				linkFakeBootstrapCommand(binDir, "curl");
+				linkFakeBootstrapCommand(binDir, "shasum");
+				linkFakeBootstrapCommand(binDir, "uname");
+
+				const output = execBootstrapScript(
+					tempDir,
+					buildOpenMeldSetupBootstrapScript({ lane: "prod" }),
+					[
+						"-s",
+						"--",
+						"setup",
+						"--start-session",
+						"preptok_demo",
+						"--ott",
+						"ott_demo",
+						"--view",
+						"agent",
+					],
+					{
+						env: {
+							HOME: tempDir,
+							OPENMELD_TEST_CALLS_PATH: callsPath,
+							OPENMELD_TEST_CURL_CALLS_PATH: curlCallsPath,
+							OPENMELD_TEST_CURL_FAIL_ONCE_MARKER_PATH: failedOnceMarkerPath,
+							OPENMELD_TEST_CURL_FAIL_ONCE_SUFFIX: ".gz",
+							PATH: bootstrapTestPath(binDir),
+						},
+					}
+				);
+
+				expect(output).toContain("Download didn't finish. Retrying...");
+				expect(parseSetupCompleteEvent(output).payload).toMatchObject({
+					forceServiceRefresh: "1",
+					lane: "prod",
+				});
+				expect(
+					readFileSync(curlCallsPath, "utf8")
+						.trim()
+						.split("\n")
+						.filter((url) => url.endsWith(".gz"))
+				).toHaveLength(2);
 			} finally {
 				rmSync(tempDir, { force: true, recursive: true });
 			}
