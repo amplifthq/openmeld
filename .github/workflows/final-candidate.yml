@@ -89,6 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     env:
@@ -125,6 +126,13 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "24"
+
+      - name: Download prior trusted evidence when available
+        env:
+          CANDIDATE_RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: trusted-control/scripts/ci/download-prior-final-candidate-evidence.sh "$RUNNER_TEMP/prior-final-candidate"
 
       - name: Install trusted evidence parser
         shell: bash
@@ -165,6 +173,7 @@ jobs:
             --plan-source "$CANDIDATE_BASE_SHA" \
             --repository "$CANDIDATE_REPOSITORY" \
             --pr "$CANDIDATE_PR_NUMBER" \
+            --prior-evidence-root "$RUNNER_TEMP/prior-final-candidate" \
             --branch "$CANDIDATE_BRANCH" \
             --head "$CANDIDATE_HEAD_SHA" \
             --base "$CANDIDATE_BASE_SHA" \

@@ -106,6 +106,7 @@ function createEvidence() {
     results: trustedPlan.selectedChecks.map((selectedCheck) => ({
       ...selectedCheck,
       durationMs: 1,
+      execution: { inputFingerprint: null, kind: "executed" },
       exitCode: 0,
       spawnError: null,
       status: "passed",

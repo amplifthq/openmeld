@@ -1,6 +1,6 @@
 import * as z from "zod/v4";
 
-export const FINAL_CANDIDATE_EVIDENCE_VERSION = 4 as const;
+export const FINAL_CANDIDATE_EVIDENCE_VERSION = 5 as const;
 export const FINAL_CANDIDATE_KIND_VALUES = [
   "pull-request",
   "merge-group",
@@ -12,6 +12,7 @@ export const FINAL_CANDIDATE_CONTROL_TRUST_VALUES = [
 ] as const;
 
 const exactGitShaSchema = z.string().regex(/^[0-9a-f]{40}$/u);
+const inputFingerprintSchema = z.string().regex(/^[0-9a-f]{64}$/u);
 const nullableExactGitShaSchema = exactGitShaSchema.nullable();
 const boundedTextSchema = z.string().max(8192);
 const commandSchema = z.array(z.string().min(1).max(4096)).min(1).max(64);
@@ -35,9 +36,30 @@ export const finalCandidateSkippedCheckSchema = z.strictObject({
   reason: z.string().min(1).max(2000),
 });
 
+const finalCandidateReusedCheckSourceSchema = z.strictObject({
+  baseSha: exactGitShaSchema,
+  durationMs: z.number().int().nonnegative(),
+  finishedAt: z.iso.datetime(),
+  headSha: exactGitShaSchema,
+  treeSha: exactGitShaSchema,
+});
+
+export const finalCandidateCheckExecutionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    inputFingerprint: inputFingerprintSchema.nullable(),
+    kind: z.literal("executed"),
+  }),
+  z.strictObject({
+    inputFingerprint: inputFingerprintSchema,
+    kind: z.literal("reused"),
+    source: finalCandidateReusedCheckSourceSchema,
+  }),
+]);
+
 export const finalCandidateCheckResultSchema = z.strictObject({
   command: commandSchema,
   durationMs: z.number().int().nonnegative(),
+  execution: finalCandidateCheckExecutionSchema,
   exitCode: z.number().int().nullable(),
   id: z.string().min(1).max(160),
   reason: z.string().min(1).max(2000),
@@ -154,6 +176,31 @@ function validateSuccessfulCheckEvidence(
   }
 }
 
+function validateCheckExecutionEvidence(
+  evidence: FinalCandidateEvidenceRefinement,
+  context: FinalCandidateRefinementContext
+) {
+  for (const [index, result] of evidence.results.entries()) {
+    if (result.execution.kind !== "reused") {
+      continue;
+    }
+    if (
+      result.status !== "passed" ||
+      result.exitCode !== 0 ||
+      result.spawnError !== null ||
+      result.stderrTail !== "" ||
+      result.stdoutTail !== ""
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "A reused Final Candidate check must be a clean successful result.",
+        path: ["results", index, "execution"],
+      });
+    }
+  }
+}
+
 function validateSuccessfulTrustEvidence(
   evidence: FinalCandidateEvidenceRefinement,
   context: FinalCandidateRefinementContext
@@ -234,6 +281,7 @@ export const finalCandidateEvidenceSchema = z
   })
   .superRefine((evidence, context) => {
     validateCandidateAssociation(evidence, context);
+    validateCheckExecutionEvidence(evidence, context);
     if (evidence.conclusion !== "success") {
       return;
     }

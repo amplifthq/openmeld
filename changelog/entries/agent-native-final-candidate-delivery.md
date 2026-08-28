@@ -17,6 +17,11 @@ run, and an explicit recorded bootstrap covers intentional delivery control
 changes. Each responsible agent can use those transparent facts to complete its
 own review, merge, release, and smoke path; CI/CD does not appoint a central
 coordinator, require another Agent reviewer, or freeze unrelated work.
+When current main advances only through unrelated changes, hosted Final
+Candidate can now reuse an earlier successful affected workspace check from the
+same pull request after trusted control proves that every exact Turborepo task
+input is unchanged. Uncertain or changed inputs run normally, while integration,
+database, release, deployment, health, and smoke checks are never reused.
 When a real dependency does require coordination, coding agents can use the
 callback transport available in their environment without making Codex App or
 any other vendor-specific tool mandatory.

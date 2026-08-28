@@ -576,7 +576,10 @@ merge-group runner, workflow artifact, PR comment renderer, and status
 publisher. The contract
 keeps candidate validation and evidence-publication failures separate, bounds
 recorded command output, and makes head, base, and tree identity mandatory for
-success. Candidate kind explicitly distinguishes one pull request from GitHub's
+success. Each check result records whether it executed or reused an identical
+deterministic task-input fingerprint; reused evidence also names the earlier
+exact head, base, tree, completion time, and original duration. Candidate kind
+explicitly distinguishes one pull request from GitHub's
 synthetic merge group; a merge group cannot claim one PR identity. It also owns
 the runtime projection of GitHub's pull-request candidate facts; the repository
 fixture is captured from the GitHub REST API rather than shaped from runner

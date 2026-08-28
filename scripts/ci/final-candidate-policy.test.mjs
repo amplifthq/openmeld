@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
+import {
+  FINAL_CANDIDATE_EVIDENCE_VERSION,
+  finalCandidateEvidenceSchema,
+} from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 
 import {
   assertCandidateSnapshot,
@@ -438,6 +441,7 @@ test("evidence is reusable only for the same successful head, base, and tree", (
       {
         command: ["true"],
         durationMs: 1,
+        execution: { inputFingerprint: null, kind: "executed" },
         exitCode: 0,
         id: "proof",
         reason: "proof",
@@ -502,4 +506,103 @@ test("evidence is reusable only for the same successful head, base, and tree", (
     ),
     false
   );
+});
+
+test("a matching reusable check skips its command while preserving exact provenance", () => {
+  const executed = [];
+  let clock = 0;
+  const result = executeCandidateChecks(
+    [
+      {
+        command: ["pnpm", "run", "verify:pr"],
+        id: "affected",
+        reason: "proof",
+      },
+    ],
+    {
+      now: () => {
+        clock += 5;
+        return clock;
+      },
+      resolveReuse: () => ({
+        inputFingerprint: "a".repeat(64),
+        reusedFrom: {
+          baseSha: "1".repeat(40),
+          durationMs: 1234,
+          finishedAt: "2026-08-28T00:00:00.000Z",
+          headSha: "2".repeat(40),
+          treeSha: "3".repeat(40),
+        },
+      }),
+      runCommand: (command) => {
+        executed.push(command);
+        return { spawnError: null, status: 0, stderrTail: "", stdoutTail: "" };
+      },
+    }
+  );
+
+  assert.equal(result.conclusion, "success");
+  assert.deepEqual(executed, []);
+  assert.equal(result.results[0].execution.kind, "reused");
+  assert.equal(result.results[0].durationMs, 5);
+});
+
+test("canonical evidence rejects a reused check that claims a failure", () => {
+  const evidence = {
+    baseSha: BASE_SHA,
+    bootstrapReason: null,
+    branchName: "codex/example",
+    candidateKind: "pull-request",
+    changedPaths: ["clients/web/src/app.tsx"],
+    conclusion: "failure",
+    confidence: "standard",
+    controlTrust: "current-main",
+    error: "failed",
+    finishedAt: "2026-08-28T00:00:01.000Z",
+    headSha: HEAD_SHA,
+    mode: "remote",
+    planSourceSha: BASE_SHA,
+    publicationErrors: [],
+    pullRequestNumber: 1,
+    pullRequestUrl: "https://github.com/amplifthq/openmeld/pull/1",
+    repository: "amplifthq/openmeld",
+    results: [
+      {
+        command: ["pnpm", "run", "verify:pr"],
+        durationMs: 1,
+        execution: {
+          inputFingerprint: "a".repeat(64),
+          kind: "reused",
+          source: {
+            baseSha: BASE_SHA,
+            durationMs: 100,
+            finishedAt: "2026-08-27T00:00:00.000Z",
+            headSha: "4".repeat(40),
+            treeSha: "5".repeat(40),
+          },
+        },
+        exitCode: 7,
+        id: "affected-checks-and-unit-tests",
+        reason: "proof",
+        spawnError: null,
+        status: "failed",
+        stderrTail: "failure",
+        stdoutTail: "",
+      },
+    ],
+    riskTags: ["executable"],
+    schemaVersion: FINAL_CANDIDATE_EVIDENCE_VERSION,
+    selectedChecks: [
+      {
+        command: ["pnpm", "run", "verify:pr"],
+        id: "affected-checks-and-unit-tests",
+        reason: "proof",
+      },
+    ],
+    skippedChecks: [],
+    startedAt: "2026-08-28T00:00:00.000Z",
+    treeSha: TREE_SHA,
+  };
+
+  assert.equal(finalCandidateEvidenceSchema.safeParse(evidence).success, false);
 });
