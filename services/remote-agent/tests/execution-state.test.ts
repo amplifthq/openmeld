@@ -223,15 +223,50 @@ describe("remote agent execution state", () => {
       completedAtMs: 200,
       status: "completed",
     });
+  });
+
+  it("returns the authoritative completed winner after losing a success CAS", async () => {
+    const storage = new CompletedCasRaceStorage();
+    const request = createSubmitTurnRequest();
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId: "submission_success_race",
+      v: 1 as const,
+    };
+    const initial = await initializeRemoteAgentExecutionState({
+      acceptedAtMs: 100,
+      identity,
+      storage,
+    });
+    storage.winNextExecutionCas(
+      buildRemoteAgentExecutionStateKey(identity.submissionId),
+      {
+        ...initial,
+        completedAtMs: 200,
+        completedText: "The authoritative winner answer.",
+        lastProgressAtMs: 200,
+        lastProgressKind: "prompt_completed",
+        status: "completed",
+      }
+    );
+
     await expect(
       completeRemoteAgentExecutionState({
-        completedText: "A conflicting answer.",
+        completedText: "The losing observation answer.",
         identity,
-        nowMs: 400,
+        nowMs: 200,
         status: "completed",
         storage,
       })
-    ).rejects.toThrow("conflicting final answer");
+    ).resolves.toMatchObject({
+      completedAtMs: 200,
+      status: "completed",
+    });
+    await expect(
+      readRemoteAgentCompletedExecutionAnswer({ identity, storage })
+    ).resolves.toBe("The authoritative winner answer.");
   });
 
   it("fails closed when a query reuses a submission id with different authority", async () => {
@@ -261,3 +296,25 @@ describe("remote agent execution state", () => {
     });
   });
 });
+
+class CompletedCasRaceStorage extends InMemoryDurableObjectStorage {
+  private nextWinner: { key: string; value: unknown } | null = null;
+
+  winNextExecutionCas(key: string, value: unknown): void {
+    this.nextWinner = { key, value };
+  }
+
+  override async compareAndSet<T>(
+    key: string,
+    expectedValue: T,
+    nextValue: T
+  ): Promise<boolean> {
+    if (this.nextWinner?.key === key) {
+      const winner = this.nextWinner;
+      this.nextWinner = null;
+      await this.put(key, winner.value);
+      return false;
+    }
+    return await super.compareAndSet(key, expectedValue, nextValue);
+  }
+}

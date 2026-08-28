@@ -97,27 +97,6 @@ describe("dispatch attempt claim policy", () => {
     });
   });
 
-  it("resumes the exact hosted admission attempt from legacy waiting-result state", () => {
-    expect(
-      resolveDispatchAttemptClaimDecision({
-        existing: buildExisting({
-          status: OPENMELD_DAEMON_DISPATCH_STATE.dispatching,
-        }),
-        latestAttempt: buildLatestAttempt({
-          status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.waitingResult,
-        }),
-        nowMs: 5000,
-        requestedDispatchId: "dispatch-1",
-        requestedRecoveryReason: "hosted_admission_incomplete",
-        staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
-      })
-    ).toEqual({
-      attemptId: "attempt-1",
-      attemptNo: 1,
-      kind: "resume_hosted_admission",
-    });
-  });
-
   it("dedupes fresh queued and terminal dispatches inside the idempotency window", () => {
     expect(
       resolveDispatchAttemptClaimDecision({

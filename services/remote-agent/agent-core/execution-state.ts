@@ -32,11 +32,6 @@ type RemoteAgentStoredExecutionRead =
       status: "identity_mismatch";
     };
 
-type FoundRemoteAgentStoredExecution = Extract<
-  RemoteAgentStoredExecutionRead,
-  { status: "found" }
->;
-
 export type RemoteAgentTerminalExecutionOutcome =
   | {
       completedText: string;
@@ -261,11 +256,7 @@ export async function completeRemoteAgentExecutionState(
       );
     }
     if (isTerminalStatus(result.execution.status)) {
-      return resolveExistingTerminalExecution({
-        requestedCompletedText,
-        requestedStatus: input.status,
-        result,
-      });
+      return result.execution;
     }
     const settledStatus =
       result.execution.status === "cancellation_requested"
@@ -296,33 +287,6 @@ export async function completeRemoteAgentExecutionState(
       return next;
     }
   }
-}
-
-function resolveExistingTerminalExecution(input: {
-  requestedCompletedText: string | null;
-  requestedStatus: "completed" | "failed" | "aborted";
-  result: FoundRemoteAgentStoredExecution;
-}): RemoteAgentWorkerExecutionState {
-  if (
-    input.result.execution.status !== "completed" ||
-    input.requestedStatus !== "completed"
-  ) {
-    return input.result.execution;
-  }
-  if (!input.requestedCompletedText) {
-    throw new Error(
-      "Remote Agent completed execution requires a final answer."
-    );
-  }
-  if (
-    input.result.completedText &&
-    input.result.completedText !== input.requestedCompletedText
-  ) {
-    throw new Error(
-      "Remote Agent completed execution received a conflicting final answer."
-    );
-  }
-  return input.result.execution;
 }
 
 export async function repairRemoteAgentCompletedExecutionWithoutAnswer(input: {

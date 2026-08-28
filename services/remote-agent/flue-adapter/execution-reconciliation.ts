@@ -3,19 +3,19 @@ import type {
   RemoteAgentWorkerExecutionQueryResponse,
 } from "@openmeld/schemas/types";
 import {
-  attemptRemoteAgentCallbackDelivery,
-  handleRemoteAgentChatResponse,
   listRemoteAgentCallbackContexts,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
-  readRemoteAgentCallbackContext,
-  recordRemoteAgentCompletedAnswer,
 } from "../agent-core/callback-context";
 import {
   completeRemoteAgentExecutionState,
   readRemoteAgentExecutionState,
   resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
+import {
+  buildRemoteAgentTerminalCallbackResult,
+  projectRemoteAgentTerminalOutcomeToCallback,
+} from "../agent-core/terminal-callback-projection";
 
 export type FlueSubmissionLifecycle = {
   error?: string;
@@ -156,77 +156,17 @@ async function projectRemoteAgentTerminalExecution(input: {
     nowMs: input.nowMs,
     storage: input.storage,
   });
-  if (!outcome) {
-    return;
-  }
-  if (outcome.status === "completed") {
-    await replayDurableCompletedAnswer({
-      completedText: outcome.completedText,
-      coreWorker: input.coreWorker,
-      identity: input.identity,
-      nowMs: input.nowMs,
-      storage: input.storage,
-    });
-    return;
-  }
-  await handleRemoteAgentChatResponse({
-    coreWorker: input.coreWorker,
-    nowMs: () => input.nowMs,
-    result: {
-      continuation: false,
-      error:
-        outcome.status === "aborted"
-          ? new Error("Remote Agent execution was cancelled.")
-          : (input.failureError ??
-            new Error("Remote Agent execution failed before its callback.")),
-      message: { parts: [] },
-      requestId: input.identity.submissionId,
-      status: outcome.status === "aborted" ? "aborted" : "error",
-    },
-    storage: input.storage,
+  const result = buildRemoteAgentTerminalCallbackResult({
+    failureError: input.failureError,
+    outcome,
+    requestId: input.identity.submissionId,
   });
-}
-
-/**
- * Replay an authoritative answer only after the durable execution owner has
- * already recorded a successful completion. Partial stream text and failed
- * executions can never enter this path.
- */
-async function replayDurableCompletedAnswer(input: {
-  completedText: string;
-  coreWorker?: RemoteAgentCoreWorkerBinding;
-  identity: RemoteAgentWorkerExecutionQuery;
-  nowMs: number;
-  storage: RemoteAgentStorage;
-}): Promise<void> {
-  let context = await readRemoteAgentCallbackContext(
-    input.storage,
-    input.identity.submissionId
-  );
-  if (!context) {
-    return;
-  }
-  context = await recordRemoteAgentCompletedAnswer({
+  await projectRemoteAgentTerminalOutcomeToCallback({
+    coreWorker: input.coreWorker,
+    nowMs: input.nowMs,
+    outcome,
+    result,
     storage: input.storage,
     submissionId: input.identity.submissionId,
-    text: input.completedText,
   });
-  if (
-    context.callbackStatus !== "completed" &&
-    context.callbackStatus !== "rejected"
-  ) {
-    console.info("[remote_agent.execution.answer_replayed]", {
-      dispatchId: context.dispatchId,
-      idempotencyKey: context.idempotencyKey,
-      spaceId: context.spaceId,
-      submissionId: context.submissionId,
-      triggerMessageId: context.triggerMessageId,
-    });
-    await attemptRemoteAgentCallbackDelivery({
-      context,
-      coreWorker: input.coreWorker,
-      nowMs: input.nowMs,
-      storage: input.storage,
-    });
-  }
 }

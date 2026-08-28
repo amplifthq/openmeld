@@ -1371,10 +1371,16 @@ export function recordTerminalTurnFailure(input: {
     nowMs: input.nowMs,
     retryable: false,
   });
-  const { completedText: _completedText, ...contextWithoutCompletedText } =
-    input.context;
+  const {
+    callbackCompletedAt: _callbackCompletedAt,
+    callbackNextAttemptAt: _callbackNextAttemptAt,
+    completedText: _completedText,
+    lastCoreResponse: _lastCoreResponse,
+    workLoopCheckpoint: _workLoopCheckpoint,
+    ...contextWithoutStalePayload
+  } = input.context;
   return {
-    ...contextWithoutCompletedText,
+    ...contextWithoutStalePayload,
     callbackStatus: "failed",
     lastFailureFact: failureFact,
     terminalFailureFact: failureFact,
@@ -1382,14 +1388,16 @@ export function recordTerminalTurnFailure(input: {
 }
 
 /**
- * Persist the authoritative completed answer before its first Core callback.
- * The durable retry path can then replay the exact final answer after an
- * instance restart without treating partial stream text as a completed turn.
+ * Copy the execution owner's exact completed answer into its callback
+ * projection. This context remains rebuildable delivery state; it does not own
+ * or select the answer.
  */
-export async function recordRemoteAgentCompletedAnswer(input: {
+export async function projectRemoteAgentCompletedAnswer(input: {
+  modelId?: string | null;
   storage: RemoteAgentStorage;
   submissionId: string;
   text: string;
+  usage?: RemoteAgentTurnUsage | null;
 }): Promise<RemoteAgentCallbackContext> {
   const completedText = normalizeRemoteAgentCompletedAnswer(input.text);
   return await updateRemoteAgentCallbackContext({
@@ -1418,11 +1426,24 @@ export async function recordRemoteAgentCompletedAnswer(input: {
         return current;
       }
       const {
+        callbackCompletedAt: _callbackCompletedAt,
+        callbackNextAttemptAt: _callbackNextAttemptAt,
         lastFailureFact: _lastFailureFact,
+        lastCoreResponse: _lastCoreResponse,
         terminalFailureFact: _terminalFailureFact,
-        ...contextWithoutFailure
+        workLoopCheckpoint: _workLoopCheckpoint,
+        ...contextWithoutStalePayload
       } = current;
-      return { ...contextWithoutFailure, completedText };
+      return {
+        ...contextWithoutStalePayload,
+        callbackStatus:
+          current.callbackStatus === "failed"
+            ? "retryable"
+            : current.callbackStatus,
+        completedText,
+        lastUsage: input.usage ?? current.lastUsage,
+        modelId: input.modelId ?? current.modelId ?? null,
+      };
     },
   });
 }
@@ -1622,15 +1643,20 @@ export async function handleRemoteAgentChatResponse(input: {
   result: RemoteAgentAssistantCompletionResult;
   storage: RemoteAgentStorage;
 }): Promise<RemoteAgentCallbackContext | null> {
-  const pendingContexts = (
-    await listRemoteAgentCallbackContexts(input.storage, ["failed", "pending"])
+  const projectableContexts = (
+    await listRemoteAgentCallbackContexts(input.storage, [
+      "failed",
+      "pending",
+      "retryable",
+    ])
   ).filter(
     (context) =>
       context.callbackStatus === "pending" ||
+      context.callbackStatus === "retryable" ||
       isUndeliveredTerminalFailureContext(context)
   );
   const context = selectCallbackContextForChatResponse({
-    contexts: pendingContexts,
+    contexts: projectableContexts,
     requestId: input.result.requestId,
   });
   if (!context) {
@@ -1638,7 +1664,7 @@ export async function handleRemoteAgentChatResponse(input: {
   }
 
   const nowMs = input.nowMs?.() ?? Date.now();
-  if (context.workLoopCheckpoint) {
+  if (context.workLoopCheckpoint && input.result.continuation) {
     const checkpointContext = await updateRemoteAgentCallbackContext({
       storage: input.storage,
       submissionId: context.submissionId,

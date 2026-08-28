@@ -4,12 +4,14 @@ import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
+  redeliverDueRemoteAgentCallbacks,
 } from "../agent-core/callback-context";
 import {
   buildRemoteAgentExecutionStateKey,
   completeRemoteAgentExecutionState,
   initializeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
+  readRemoteAgentCompletedExecutionAnswer,
   requestRemoteAgentExecutionCancellation,
 } from "../agent-core/execution-state";
 import {
@@ -866,6 +868,161 @@ describe("remote agent execution reconciliation", () => {
         status: "completed",
         submissionId,
         text: "The reconciliation CAS winner answer.",
+      })
+    );
+  });
+
+  it("replaces a stale retryable success projection with the failed owner after restart", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const submissionId = "submission_failed_owner_stale_retryable_success";
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId,
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: TEST_NOW_MS,
+      identity,
+      storage,
+    });
+    await completeRemoteAgentExecutionState({
+      identity,
+      nowMs: TEST_NOW_MS + 500,
+      status: "failed",
+      storage,
+    });
+    await putRemoteAgentCallbackContext(storage, {
+      ...createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: request.idempotencyKey,
+          requestId: submissionId,
+          status: "pending",
+          submissionId,
+        },
+        nowMs: TEST_NOW_MS,
+        request,
+      }),
+      callbackAttempts: 1,
+      callbackNextAttemptAt: new Date(TEST_NOW_MS + 600).toISOString(),
+      callbackStatus: "retryable",
+      completedText: "This stale success must never publish.",
+      lastFailureFact: {
+        code: "remote_agent.core_callback_failed",
+        detail: "The process stopped after the first callback attempt.",
+        occurredAt: new Date(TEST_NOW_MS + 500).toISOString(),
+        retryable: true,
+      },
+    });
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_failed_owner_after_restart",
+      status: "accepted" as const,
+    }));
+
+    await reconcileRemoteAgentExecution({
+      coreWorker: { completeRemoteAgentSubmission },
+      identity,
+      nowMs: () => TEST_NOW_MS + 1000,
+      readSubmission: async () => ({ status: "settled" }),
+      storage,
+    });
+    await redeliverDueRemoteAgentCallbacks({
+      coreWorker: { completeRemoteAgentSubmission },
+      nowMs: () => TEST_NOW_MS + 2000,
+      storage,
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", submissionId })
+    );
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.not.objectContaining({ text: expect.any(String) })
+    );
+    await expect(
+      readRemoteAgentCallbackContext(storage, submissionId)
+    ).resolves.not.toHaveProperty("completedText");
+  });
+
+  it("raises a recoverable named failure when a terminal owner has no callback projection", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const submissionId = "submission_terminal_owner_missing_projection";
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId,
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: TEST_NOW_MS,
+      identity,
+      storage,
+    });
+    await completeRemoteAgentExecutionState({
+      completedText: "The owner answer still exists.",
+      identity,
+      nowMs: TEST_NOW_MS + 500,
+      status: "completed",
+      storage,
+    });
+
+    await expect(
+      reconcileRemoteAgentExecution({
+        identity,
+        readSubmission: async () => ({ status: "settled" }),
+        storage,
+      })
+    ).rejects.toThrow(
+      "remote_agent.terminal_callback_projection_missing:submission_terminal_owner_missing_projection"
+    );
+    await expect(
+      readRemoteAgentCompletedExecutionAnswer({ identity, storage })
+    ).resolves.toBe("The owner answer still exists.");
+
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: request.idempotencyKey,
+          requestId: submissionId,
+          status: "pending",
+          submissionId,
+        },
+        nowMs: TEST_NOW_MS,
+        request,
+      })
+    );
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_rebuilt_terminal_projection",
+      status: "accepted" as const,
+    }));
+    await reconcileRemoteAgentExecution({
+      coreWorker: { completeRemoteAgentSubmission },
+      identity,
+      readSubmission: async () => ({ status: "settled" }),
+      storage,
+    });
+    await reconcileRemoteAgentExecution({
+      coreWorker: { completeRemoteAgentSubmission },
+      identity,
+      readSubmission: async () => ({ status: "settled" }),
+      storage,
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "completed",
+        submissionId,
+        text: "The owner answer still exists.",
       })
     );
   });

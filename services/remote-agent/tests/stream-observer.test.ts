@@ -762,6 +762,29 @@ describe("Center Agent stream observation", () => {
     );
   });
 
+  it("publishes the owner answer when a different success wins the CAS", async () => {
+    const harness = await createTerminalCasRaceHarness("completed");
+    const input = {
+      event: completedPromptObservation(
+        "This successful observation lost the owner CAS."
+      ),
+      resolveDependencies: harness.resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    };
+
+    await handleCenterAgentObservation(input);
+    await handleCenterAgentObservation(input);
+
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "completed",
+        submissionId: SUBMISSION_ID,
+        text: "The durable owner answer won.",
+      })
+    );
+  });
+
   it("publishes stopped when aborted wins the CAS against a success observation", async () => {
     const harness = await createTerminalCasRaceHarness("aborted");
     const input = {

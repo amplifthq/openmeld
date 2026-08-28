@@ -2891,10 +2891,7 @@ describe("Remote Agent native delivery callback service", () => {
           message: createDispatchMessage(),
           nowMs: firstNowMs,
         })
-      ).resolves.toEqual({
-        shouldAck: false,
-        status: "admission_incomplete",
-      });
+      ).resolves.toEqual({ shouldAck: false, status: "submitted" });
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
           db: harness.db,

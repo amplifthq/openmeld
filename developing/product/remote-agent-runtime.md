@@ -2216,12 +2216,7 @@ but not trigger.
    cancellation, or a diagnosed stale-progress policy. Core must persist a
    real worker ACK without waiting for an independently started watchdog
    enqueue to finish; a delayed or failed watchdog must never leave running
-   work projected as merely submitted. Conversely, a worker RPC whose outcome
-   is unknown remains admission-incomplete and must not move the Dispatch
-   attempt to `waiting_result`. Hosted recovery reuses the original attempt and
-   exact persisted worker request; during rollout it also repairs an older
-   `waiting_result` attempt when the native-delivery row still proves that no
-   worker ACK was persisted. When the admission watchdog does
+   work projected as merely submitted. When the admission watchdog does
    terminalize a delivery, it must use the same Agent Task Coordination
    terminal projection as every other Native Delivery ending. Replaying a
    durable `published` or `outcome_unknown` watchdog result must rerun that
@@ -2275,6 +2270,10 @@ but not trigger.
    the owner's exact normalized answer, but never trusts callback-only text to
    fill a missing owner answer. Both the terminal repair and its callback
    projection are repeatable after a restart and remain idempotent at Core.
+   Observation and reconciliation share one terminal-to-callback projector.
+   A missing callback projection raises the named retryable reconciliation
+   failure `remote_agent.terminal_callback_projection_missing`; it never turns
+   a terminal owner into a silent success.
 4. **Presence is honest and Core-owned.** Core is itself the deliverer, so
    remote-runtime health is first-party state, not inferred evidence — no
    `remote_runtime` evidence channel, no daemon-style readiness chain. But

@@ -8566,7 +8566,7 @@ describe("handleDispatchQueueBatch", () => {
       )
       .mockResolvedValue({
         shouldAck: false,
-        status: "admission_incomplete",
+        status: "submitted",
       });
     const targetProfileId = normalizeAgentProfileIdForTest(
       "agt-hosted-native-delivery-retry"
@@ -8609,9 +8609,6 @@ describe("handleDispatchQueueBatch", () => {
     );
     expect(message.ack).not.toHaveBeenCalled();
     expect(message.retry).toHaveBeenCalledTimes(1);
-    expect(markDispatchAttemptWaitingForResult).not.toHaveBeenCalledWith(
-      expect.objectContaining({ idempotencyKey })
-    );
   });
 
   it("emits split dispatch timing evidence for auth and delivery", async () => {
