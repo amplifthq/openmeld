@@ -248,7 +248,7 @@ export function createCenterAgentMemoryService(input: {
         userMessage: rememberInput.userMessage,
       };
 
-      if (rememberInput.source === "ca_dm") {
+      if (rememberInput.interactionEnvironment === "requester_private") {
         const memberRef = await input.repository.upsertMemberSubject({
           memberId: rememberInput.speakerMember.memberId,
           nowMs: nowMs(),
@@ -265,6 +265,10 @@ export function createCenterAgentMemoryService(input: {
           writeTimeoutMs,
           "center_agent_memory.member_write_timeout"
         );
+        return;
+      }
+
+      if (rememberInput.interactionEnvironment === "externally_shared") {
         return;
       }
 

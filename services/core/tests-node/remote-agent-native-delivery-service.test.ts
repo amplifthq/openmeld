@@ -6158,8 +6158,14 @@ describe("Remote Agent native delivery callback service", () => {
         onBehalfOfProfileId: HUMAN_PROFILE_ID,
         submissionId: "sub_remember",
         spaceId: SPACE_ID,
+        turnEnvelope: createCenterAgentDmTurnEnvelope(),
       });
-      const memoryService = createTestMemoryService();
+      const memoryAdapter = createMemoryAdapter({ searchText: "unused" });
+      const memoryService = createCenterAgentMemoryService({
+        adapter: memoryAdapter,
+        nowMs: () => 1000,
+        repository: createMemoryRepository({ organizationMemoryOptIn: true }),
+      });
       const pendingWrites: Promise<unknown>[] = [];
       const env = buildEnv(harness.db, { postSignalId: "signal_reply_1" });
 
@@ -6188,15 +6194,28 @@ describe("Remote Agent native delivery callback service", () => {
       });
       await Promise.all(pendingWrites);
 
-      expect(memoryService.rememberTurn).toHaveBeenCalledWith(
+      expect(memoryAdapter.ensureOrganizationGraph).not.toHaveBeenCalled();
+      expect(memoryAdapter.ensureMemberUser).toHaveBeenCalledWith(
         expect.objectContaining({
-          assistantMessage: "Done.",
-          organizationId: "org_1",
-          source: "ca_dm",
-          sourceConversationId: SPACE_ID,
-          sourceMessageId: "signal_1",
-          speakerMember: { memberId: "member_1", userId: "user_1" },
-          userMessage: "Please help.",
+          subject: expect.objectContaining({
+            kind: "member",
+            memberId: "member_1",
+            userId: "user_1",
+          }),
+        })
+      );
+      expect(memoryAdapter.addEpisode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          episode: expect.objectContaining({
+            assistantMessage: "Done.",
+            source: "ca_dm",
+            sourceConversationId: SPACE_ID,
+            sourceMessageId: "signal_1",
+            userMessage: "Please help.",
+          }),
+          ref: expect.objectContaining({
+            subject: expect.objectContaining({ kind: "member" }),
+          }),
         })
       );
     } finally {
@@ -6204,7 +6223,171 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("remembers completed Slack turns only to organization memory", async () => {
+  it("fails closed when a completed turn has no frozen interaction environment", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "idem_missing_memory_environment",
+        onBehalfOfProfileId: HUMAN_PROFILE_ID,
+        submissionId: "sub_missing_memory_environment",
+        spaceId: SPACE_ID,
+      });
+      const memoryService = createTestMemoryService();
+      const pendingWrites: Promise<unknown>[] = [];
+
+      await expect(
+        completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db, {
+            postSignalId: "signal_missing_memory_environment_reply",
+          }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            bindingId: "binding_1",
+            dispatchId: "dispatch_1",
+            idempotencyKey: "idem_missing_memory_environment",
+            organizationId: "org_1",
+            spaceId: SPACE_ID,
+            submissionId: "sub_missing_memory_environment",
+            text: "Done.",
+            triggerMessageId: "signal_1",
+          },
+          {
+            memoryService,
+            waitUntil: (promise) => pendingWrites.push(promise),
+          }
+        )
+      ).resolves.toEqual({
+        publishedSignalId: "signal_missing_memory_environment_reply",
+        status: "accepted",
+      });
+      await Promise.all(pendingWrites);
+
+      expect(memoryService.rememberTurn).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("fails closed when frozen interaction environments conflict", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "idem_conflicting_memory_environment",
+        onBehalfOfProfileId: HUMAN_PROFILE_ID,
+        submissionId: "sub_conflicting_memory_environment",
+        spaceId: SPACE_ID,
+        turnEnvelope: {
+          ...createCenterAgentDmTurnEnvelope(),
+          contextScopePlan: {
+            authenticationSecrets: "never_available",
+            interactionEnvironment: "organization_shared",
+            memberMemory: "use_and_share",
+            organizationDocuments: "share_when_authorized",
+            organizationMemory: "share_when_authorized",
+            organizationSkills: "share_when_authorized",
+            protectedInformation: "share_when_authorized",
+            requesterIdentity: "verified_member",
+            resultAudience: "requester_only",
+            v: 1,
+          },
+        },
+      });
+      const memoryService = createTestMemoryService();
+      const pendingWrites: Promise<unknown>[] = [];
+
+      await expect(
+        completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db, {
+            postSignalId: "signal_conflicting_memory_environment_reply",
+          }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            bindingId: "binding_1",
+            dispatchId: "dispatch_1",
+            idempotencyKey: "idem_conflicting_memory_environment",
+            organizationId: "org_1",
+            spaceId: SPACE_ID,
+            submissionId: "sub_conflicting_memory_environment",
+            text: "Done.",
+            triggerMessageId: "signal_1",
+          },
+          {
+            memoryService,
+            waitUntil: (promise) => pendingWrites.push(promise),
+          }
+        )
+      ).resolves.toEqual({
+        publishedSignalId: "signal_conflicting_memory_environment_reply",
+        status: "accepted",
+      });
+      await Promise.all(pendingWrites);
+
+      expect(memoryService.rememberTurn).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("fails closed when the frozen requester does not match current membership", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    try {
+      const dmEnvelope = createCenterAgentDmTurnEnvelope();
+      if (dmEnvelope.sender.kind !== "member") {
+        throw new Error("Center Agent DM fixture requires a member sender");
+      }
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "idem_mismatched_memory_member",
+        onBehalfOfProfileId: HUMAN_PROFILE_ID,
+        submissionId: "sub_mismatched_memory_member",
+        spaceId: SPACE_ID,
+        turnEnvelope: {
+          ...dmEnvelope,
+          sender: { ...dmEnvelope.sender, id: "member_other" },
+        },
+      });
+      const memoryService = createTestMemoryService();
+      const pendingWrites: Promise<unknown>[] = [];
+
+      await expect(
+        completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db, {
+            postSignalId: "signal_mismatched_memory_member_reply",
+          }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            bindingId: "binding_1",
+            dispatchId: "dispatch_1",
+            idempotencyKey: "idem_mismatched_memory_member",
+            organizationId: "org_1",
+            spaceId: SPACE_ID,
+            submissionId: "sub_mismatched_memory_member",
+            text: "Done.",
+            triggerMessageId: "signal_1",
+          },
+          {
+            memoryService,
+            waitUntil: (promise) => pendingWrites.push(promise),
+          }
+        )
+      ).resolves.toEqual({
+        publishedSignalId: "signal_mismatched_memory_member_reply",
+        status: "accepted",
+      });
+      await Promise.all(pendingWrites);
+
+      expect(memoryService.rememberTurn).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("remembers completed verified Slack DM turns in member memory", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     const fetchMock = vi.fn(async () =>
@@ -6246,7 +6429,10 @@ describe("Remote Agent native delivery callback service", () => {
             slackThreadTs: "1700000000.000001",
             sourceText: "Remember that launch reviews happen on Fridays.",
             triggerMessageId: "slack:T123:C123:1700000000.000001",
-            turnEnvelope: createSlackTurnEnvelope(),
+            turnEnvelope: {
+              ...createSlackTurnEnvelope(),
+              interactionEnvironment: "requester_private",
+            },
           },
         })
       ).resolves.toEqual({ shouldAck: true, status: "submitted" });
@@ -6256,8 +6442,25 @@ describe("Remote Agent native delivery callback service", () => {
           v: 4,
         })
       );
+      await expect(
+        readRemoteAgentNativeDeliveryBySubmissionId({
+          db: harness.db,
+          submissionId: "sub_slack",
+        })
+      ).resolves.toMatchObject({
+        executionRecoverySubmitRequest: {
+          turnEnvelope: {
+            interactionEnvironment: "requester_private",
+          },
+        },
+      });
 
-      const memoryService = createTestMemoryService();
+      const memoryAdapter = createMemoryAdapter({ searchText: "unused" });
+      const memoryService = createCenterAgentMemoryService({
+        adapter: memoryAdapter,
+        nowMs: () => 1000,
+        repository: createMemoryRepository({ organizationMemoryOptIn: true }),
+      });
       const pendingWrites: Promise<unknown>[] = [];
       const env = buildEnv(harness.db, { slackBotToken: "xoxb-test" });
 
@@ -6286,15 +6489,28 @@ describe("Remote Agent native delivery callback service", () => {
       });
       await Promise.all(pendingWrites);
 
-      expect(memoryService.rememberTurn).toHaveBeenCalledWith(
+      expect(memoryAdapter.ensureOrganizationGraph).not.toHaveBeenCalled();
+      expect(memoryAdapter.ensureMemberUser).toHaveBeenCalledWith(
         expect.objectContaining({
-          assistantMessage: "Noted.",
-          organizationId: "org_1",
-          source: "slack_conversation",
-          sourceConversationId: "slack:T123:C123:1700000000.000001",
-          sourceMessageId: "slack:T123:C123:1700000000.000001",
-          speakerMember: { memberId: "member_1", userId: "user_1" },
-          userMessage: "Remember that launch reviews happen on Fridays.",
+          subject: expect.objectContaining({
+            kind: "member",
+            memberId: "member_1",
+            userId: "user_1",
+          }),
+        })
+      );
+      expect(memoryAdapter.addEpisode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          episode: expect.objectContaining({
+            assistantMessage: "Noted.",
+            source: "slack_conversation",
+            sourceConversationId: "slack:T123:C123:1700000000.000001",
+            sourceMessageId: "slack:T123:C123:1700000000.000001",
+            userMessage: "Remember that launch reviews happen on Fridays.",
+          }),
+          ref: expect.objectContaining({
+            subject: expect.objectContaining({ kind: "member" }),
+          }),
         })
       );
     } finally {
@@ -6393,8 +6609,17 @@ describe("Remote Agent native delivery callback service", () => {
         submissionId: "sub_message_channel_memory",
         triggerMessageId: "message_memory_trigger_1",
         triggerText: "Remember that launch reviews happen on Fridays.",
+        turnEnvelope: createMessageChannelTurnEnvelope({
+          conversationId,
+          interactionEnvironment: "requester_private",
+        }),
       });
-      const memoryService = createTestMemoryService();
+      const memoryAdapter = createMemoryAdapter({ searchText: "unused" });
+      const memoryService = createCenterAgentMemoryService({
+        adapter: memoryAdapter,
+        nowMs: () => 1000,
+        repository: createMemoryRepository({ organizationMemoryOptIn: true }),
+      });
       const pendingWrites: Promise<unknown>[] = [];
 
       await expect(
@@ -6425,12 +6650,27 @@ describe("Remote Agent native delivery callback service", () => {
       });
       await Promise.all(pendingWrites);
 
-      expect(memoryService.rememberTurn).toHaveBeenCalledWith(
+      expect(memoryAdapter.ensureOrganizationGraph).not.toHaveBeenCalled();
+      expect(memoryAdapter.ensureMemberUser).toHaveBeenCalledWith(
         expect.objectContaining({
-          messageChannelProvider: "lark",
-          source: "message_channel_conversation",
-          sourceConversationId: conversationId,
-          sourceMessageId: "message_memory_trigger_1",
+          subject: expect.objectContaining({
+            kind: "member",
+            memberId: "member_1",
+            userId: "user_1",
+          }),
+        })
+      );
+      expect(memoryAdapter.addEpisode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          episode: expect.objectContaining({
+            messageChannelProvider: "lark",
+            source: "message_channel_conversation",
+            sourceConversationId: conversationId,
+            sourceMessageId: "message_memory_trigger_1",
+          }),
+          ref: expect.objectContaining({
+            subject: expect.objectContaining({ kind: "member" }),
+          }),
         })
       );
     } finally {
@@ -11757,6 +11997,38 @@ function createSignalEnvelope(id: string, text = "Done."): SignalEnvelope {
   } as unknown as SignalEnvelope;
 }
 
+function createCenterAgentDmTurnEnvelope(): RemoteAgentTurnEnvelope {
+  return {
+    centerAgent: {
+      profileHandle: "center-agent",
+      profileName: "Center Agent",
+    },
+    interactionEnvironment: "requester_private",
+    organization: {
+      id: "org_1",
+      memberCount: 1,
+      name: "OpenMeld Labs",
+      personal: false,
+    },
+    sender: {
+      displayName: "Ari",
+      id: "member_1",
+      kind: "member",
+      ownerUserId: "user_1",
+      profileId: HUMAN_PROFILE_ID,
+      role: "owner",
+      verified: true,
+    },
+    space: {
+      id: SPACE_ID,
+      isCenterAgentDm: true,
+      kind: "dm",
+      name: "Ari and Center Agent",
+    },
+    trigger: { source: "space_wake" },
+  };
+}
+
 function createSlackTurnEnvelope(): RemoteAgentTurnEnvelope {
   return {
     sender: {
@@ -11790,8 +12062,16 @@ function createSlackTurnEnvelope(): RemoteAgentTurnEnvelope {
   };
 }
 
-function createMessageChannelTurnEnvelope(): RemoteAgentTurnEnvelope {
-  const conversationId = "lark:connection_1:chat_1:message_1";
+function createMessageChannelTurnEnvelope(
+  input: {
+    conversationId?: string;
+    interactionEnvironment?: NonNullable<
+      RemoteAgentTurnEnvelope["interactionEnvironment"]
+    >;
+  } = {}
+): RemoteAgentTurnEnvelope {
+  const conversationId =
+    input.conversationId ?? "lark:connection_1:chat_1:message_1";
   return {
     sender: {
       kind: "member",
@@ -11818,6 +12098,9 @@ function createMessageChannelTurnEnvelope(): RemoteAgentTurnEnvelope {
       profileName: "Center Agent",
       profileHandle: "center-agent",
     },
+    ...(input.interactionEnvironment
+      ? { interactionEnvironment: input.interactionEnvironment }
+      : {}),
     trigger: {
       source: "message_channel",
       provider: "lark",
@@ -12030,6 +12313,7 @@ async function createAcceptedDelivery(input: {
   threadContext?: OpenMeldDaemonDispatchQueueMessage["threadContext"];
   triggerMessageId?: string;
   triggerText?: string | null;
+  turnEnvelope?: RemoteAgentTurnEnvelope;
 }): Promise<void> {
   await upsertRemoteAgentNativeDeliveryRecord({
     db: input.db,
@@ -12058,7 +12342,7 @@ async function createAcceptedDelivery(input: {
     status: "submitted",
     threadContext: input.threadContext ?? null,
   });
-  if (input.modelRoute || input.centerAgentTaskId) {
+  if (input.modelRoute || input.centerAgentTaskId || input.turnEnvelope) {
     await persistTestCenterAgentWorkerSubmitRequest({
       bindingId: "binding_1",
       conversationId: input.centerAgentTaskId
@@ -12070,6 +12354,7 @@ async function createAcceptedDelivery(input: {
       modelRoute: input.modelRoute,
       spaceId: input.spaceId ?? "space_1",
       triggerMessageId: input.triggerMessageId ?? "signal_1",
+      turnEnvelope: input.turnEnvelope,
     });
   }
   await markRemoteAgentNativeDeliveryAck({
@@ -12092,6 +12377,7 @@ async function persistTestCenterAgentWorkerSubmitRequest(input: {
   requestVersion?: 2 | 4;
   spaceId: string;
   triggerMessageId: string;
+  turnEnvelope?: RemoteAgentTurnEnvelope;
 }): Promise<void> {
   const logicalConversationId = input.conversationId ?? input.spaceId;
   await persistRemoteAgentWorkerSubmitRequest({
@@ -12122,7 +12408,7 @@ async function persistTestCenterAgentWorkerSubmitRequest(input: {
       sourceClientMessageId: null,
       spaceId: input.spaceId,
       triggerMessageId: input.triggerMessageId,
-      turnEnvelope: {
+      turnEnvelope: input.turnEnvelope ?? {
         centerAgent: {
           profileHandle: "center-agent",
           profileName: "Center Agent",
