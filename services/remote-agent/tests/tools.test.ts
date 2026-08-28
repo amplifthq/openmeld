@@ -49,6 +49,7 @@ const AGENT_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 const FALLBACK_AGENT_PROFILE_ID = "agt_44444444-4444-4444-8444-444444444444";
 const CREATED_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/u;
+const ISO_INSTANT_PREFIX_PATTERN = /^\d{4}-\d{2}-\d{2}T/u;
 
 function getRemoteAgentOpenMeldToolDefinitions(
   input: Omit<
@@ -3357,7 +3358,10 @@ describe("remote agent OpenMeld tool catalog", () => {
         limit: 10,
         status: "queued",
       })
-    ).resolves.toMatchObject({ tasks: [{ id: "task-1" }] });
+    ).resolves.toMatchObject({
+      observedAt: expect.stringMatching(ISO_INSTANT_PREFIX_PATTERN),
+      tasks: [{ id: "task-1" }],
+    });
     expect(centerAgentListTasks).toHaveBeenCalledWith({
       context: expectedHostedCenterAgentContext(
         request,
@@ -3372,7 +3376,10 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_get_center_agent_task", {
         taskId: "task-1",
       })
-    ).resolves.toMatchObject({ task: { id: "task-1" } });
+    ).resolves.toMatchObject({
+      observedAt: expect.stringMatching(ISO_INSTANT_PREFIX_PATTERN),
+      task: { id: "task-1" },
+    });
     expect(centerAgentGetTask).toHaveBeenCalledWith({
       context: expectedHostedCenterAgentContext(
         request,

@@ -14,6 +14,7 @@ import {
   readJsonAtBase,
   readJsonFile,
   resolveChannelSyncCheckEnabled,
+  resolveReleaseManifestVerificationBase,
 } from "./verify-release-ready.mjs";
 
 const BASE_MANIFEST = {
@@ -223,6 +224,39 @@ test("parses release-ready options", () => {
       force: false,
       skipChannelSyncCheck: false,
     }
+  );
+});
+
+test("strict release verification compares with the latest published tag", () => {
+  assert.equal(
+    resolveReleaseManifestVerificationBase({
+      env: { OPENMELD_AFFECTED_BASE: "pull-request-base" },
+      latestReleaseTag: "v1.2.3",
+    }),
+    "v1.2.3"
+  );
+  assert.equal(
+    resolveReleaseManifestVerificationBase({
+      base: "operator-selected-base",
+      env: { OPENMELD_AFFECTED_BASE: "pull-request-base" },
+      latestReleaseTag: "v1.2.3",
+    }),
+    "operator-selected-base"
+  );
+  assert.equal(
+    resolveReleaseManifestVerificationBase({
+      env: { OPENMELD_AFFECTED_BASE: "pre-tag-base" },
+      latestReleaseTag: null,
+    }),
+    "pre-tag-base"
+  );
+  assert.equal(
+    resolveReleaseManifestVerificationBase({
+      currentOnly: true,
+      env: { OPENMELD_AFFECTED_BASE: "pull-request-base" },
+      latestReleaseTag: "v1.2.3",
+    }),
+    null
   );
 });
 

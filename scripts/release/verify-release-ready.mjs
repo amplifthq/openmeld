@@ -107,12 +107,20 @@ export async function runReleaseReadyVerification(
   assertReleaseReadyMode(options);
   const repoRoot = process.cwd();
   const facts = await collectLocalComponentFacts({ repoRoot });
+  const latestReleaseTag = await resolveLatestReleaseTag({ repoRoot });
   const base = resolveEffectiveReleaseBase({
     base: options.base,
     currentReleaseLine: facts.cliReleaseLine,
     currentOnly: options.currentOnly,
     env: process.env,
-    latestReleaseTag: await resolveLatestReleaseTag({ repoRoot }),
+    latestReleaseTag,
+  });
+  const releaseManifestBase = resolveReleaseManifestVerificationBase({
+    base: options.base,
+    currentReleaseLine: facts.cliReleaseLine,
+    currentOnly: options.currentOnly,
+    env: process.env,
+    latestReleaseTag,
   });
 
   let releaseReadyPaths = [];
@@ -195,11 +203,32 @@ export async function runReleaseReadyVerification(
   const verifyScript = options.currentOnly
     ? "release:local-components:verify-current"
     : "release:local-components:verify";
+  const verificationEnv = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name]) => name !== "OPENMELD_AFFECTED_BASE"
+    )
+  );
+  if (releaseManifestBase) {
+    verificationEnv.OPENMELD_AFFECTED_BASE = releaseManifestBase;
+  }
   runCommand("pnpm", ["run", verifyScript], {
-    env: base ? { ...process.env, OPENMELD_AFFECTED_BASE: base } : process.env,
+    env: verificationEnv,
   });
 
   await runChannelSyncGate({ options, repoRoot });
+}
+
+export function resolveReleaseManifestVerificationBase(input = {}) {
+  return resolveEffectiveReleaseBase({
+    base: input.base,
+    currentOnly: input.currentOnly,
+    currentReleaseLine: input.currentReleaseLine,
+    // OPENMELD_AFFECTED_BASE belongs to the candidate or push diff. Once a
+    // published tag exists, release policy must compare with that published
+    // state instead of an arbitrary unpublished PR base.
+    env: input.latestReleaseTag ? {} : input.env,
+    latestReleaseTag: input.latestReleaseTag,
+  });
 }
 
 export function evaluateDeferredReleaseState(input) {
