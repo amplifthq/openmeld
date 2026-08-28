@@ -412,6 +412,9 @@ The Spaces secondary sidebar consumes the Core-owned grouped unread Space
 message summary alongside the Account Space Index. It shows one static amber
 dot and an accessible unread label on visible Space rows. Unpinned unread Spaces
 appear first by newest unread Signal occurrence; pinned order remains member-controlled.
+The Direct Messages secondary sidebar consumes the same Core-owned grouped
+summary and shows the indicator on the exact unread conversation row. It does
+not derive unread state from route activity or a browser-only counter.
 The Spaces destination in the outer app rail consumes the Core summary's
 complete `ordinarySpaceUnreadCount` aggregate. It shows one static amber dot
 whenever at least one ordinary Space has unread messages, including while the
@@ -473,7 +476,13 @@ Opening a route alone does not clear the indicator. The shared Space message
 view writes the same Core-owned per-Space monotonic read-through watermark only
 after the document is visible and the member remains at the latest message for
 the normal debounce. If the unread summary is unavailable, Space navigation
-remains usable in Account Space Index order without inventing read state.
+remains usable in Account Space Index order without inventing read state. Web
+treats cursor persistence failure as failure and retries it; a missing Core
+Inbox writer cannot be mistaken for a successful write. Main-timeline and
+thread read positions remain separate, and implausible future cursor positions
+are rejected rather than suppressing future messages. When Web observes a new
+Inbox item, it invalidates the full Inbox facts projection so per-conversation
+indicators and aggregate launchers refresh from the same Core truth.
 
 Browse Spaces composes the Organization Space Directory with those same
 Account Space Index, unread-summary, and active-Wake projections. Joined cards

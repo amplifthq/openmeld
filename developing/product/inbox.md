@@ -303,8 +303,10 @@ messages. The Spaces secondary sidebar shows a static amber dot and stronger
 name treatment for every visible ordinary or pinned Space with unread messages.
 Unpinned Spaces with unread messages sort before read Spaces, newest unread
 first; pinned Spaces keep the member's explicit pin order. The indicator is
-accessible without color, does not pulse, and Direct Messages remain in their
-owning navigation surface instead of reappearing in the Spaces sidebar.
+accessible without color and does not pulse. Direct Messages remain in their
+owning navigation surface instead of reappearing in the Spaces sidebar; each
+unread Direct Message shows the same static amber indicator on its exact
+conversation row so the member can identify what needs attention.
 While any ordinary Space message remains unread, the Spaces destination in the
 outer app rail shows one static amber dot across OpenMeld. Its accessible label
 reports the complete unread ordinary Space message count. Core derives that
@@ -332,7 +334,11 @@ document is visible and the member has remained at the latest message for the
 normal read debounce. Scrolling up, switching tabs, or arriving through a deep
 link without viewing the latest reply does not clear it. The watermark also
 makes a delayed projection of an older already-viewed update arrive read, while
-a newer update remains unread. Reading never resolves unfinished source work.
+a newer update remains unread. A main-conversation watermark applies only to
+main-timeline items and never clears a thread item; each thread owns its own
+watermark. Core and Web reject implausible future read positions instead of
+letting a bad client clock suppress later messages. Reading never resolves
+unfinished source work.
 Opening the exact Inbox item marks that item read and deep-links to its source
 Signal in the same conversation.
 
