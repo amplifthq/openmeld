@@ -2047,7 +2047,7 @@ describe("output", () => {
     expect(
       plainLines.some((line) => line.includes("👤 Your profile in this space"))
     ).toBe(true);
-    expect(plainLines.some((line) => line.includes("Access"))).toBe(true);
+    expect(plainLines.some((line) => line.includes("Link access"))).toBe(true);
     expect(plainLines.some((line) => line.includes("password required"))).toBe(
       true
     );
@@ -2106,7 +2106,7 @@ describe("output", () => {
       visibility: "private",
     }).map(stripAnsi);
 
-    expect(plainLines.some((line) => line.includes("Access"))).toBe(true);
+    expect(plainLines.some((line) => line.includes("Link access"))).toBe(true);
     expect(plainLines.some((line) => line.includes("members only"))).toBe(true);
     expect(plainLines.join("\n")).not.toContain("Public Space Warning");
     expect(plainLines.join("\n")).not.toContain("Security  public");
