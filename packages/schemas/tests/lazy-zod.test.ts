@@ -85,6 +85,31 @@ describe("lazy Zod facade", () => {
     });
     expect(tagged.description).toBe("tagged");
 
+    const identified = z.string().meta({
+      description: "identified",
+      id: "openmeld-lazy-zod-identity-test",
+    });
+    expect(identified.parse("OpenMeld")).toBe("OpenMeld");
+    expect(actualZod.globalRegistry.get(identified)).toMatchObject({
+      description: "identified",
+      id: "openmeld-lazy-zod-identity-test",
+    });
+    expect(identified.toJSONSchema()).toMatchObject({
+      description: "identified",
+      id: "openmeld-lazy-zod-identity-test",
+    });
+
+    const removedBeforeResolution = z.string().meta({
+      description: "removed",
+      id: "openmeld-lazy-zod-removed-identity-test",
+    });
+    actualZod.globalRegistry.remove(removedBeforeResolution);
+    expect(removedBeforeResolution.parse("OpenMeld")).toBe("OpenMeld");
+    expect(
+      actualZod.toJSONSchema(actualZod.globalRegistry).schemas
+    ).not.toHaveProperty("openmeld-lazy-zod-removed-identity-test");
+    actualZod.globalRegistry.clear();
+
     const unbranded = z.string();
     expect(unbranded.brand()).toBe(unbranded);
     const finite = z.number();

@@ -183,7 +183,10 @@ export function lazySchema<TSchema extends zod.ZodType>(
           if (metadata.length === 0) {
             return globalRegistry.get(proxy);
           }
-          const registered = deferSchemaMethod(property, metadata);
+          const registered = deferSchemaMethod(
+            property,
+            withoutRegistryIdentity(metadata)
+          );
           globalRegistry.add(registered, ...metadata);
           return registered;
         };
@@ -283,6 +286,23 @@ export function lazySchema<TSchema extends zod.ZodType>(
     },
   }) as TSchema;
   return proxy;
+}
+
+function withoutRegistryIdentity(metadata: unknown[]): unknown[] {
+  const [firstMetadata] = metadata;
+  if (
+    !(
+      firstMetadata &&
+      typeof firstMetadata === "object" &&
+      "id" in firstMetadata
+    )
+  ) {
+    return metadata;
+  }
+  const hiddenMetadata = Object.fromEntries(
+    Object.entries(firstMetadata).filter(([key]) => key !== "id")
+  );
+  return [hiddenMetadata, ...metadata.slice(1)];
 }
 
 function snapshotFactoryArgument(value: unknown): unknown {
