@@ -95,18 +95,27 @@ blocking fact, end the active turn, and resume from a deterministic callback or
 new state change. Repeated polling is appropriate only for a short operation
 that this same turn already started and must close.
 
-Choose a callback transport that the current coding environment actually
-supports. A coding agent running in Codex App may use
-`send_message_to_thread` to send the affected task one message containing the
-real overlap, proposed sequence, exact PR/SHA and reusable evidence, then end
-its turn or continue independent work. The receiving Codex App task uses the
-same mechanism to return the terminal result or one genuine blocker. Coding
-agents in other environments use an available equivalent, such as task
-messaging, a pull-request comment, an authorized Space message, or an operator
-handoff. The transport coordinates one real dependency; it does not appoint a
-central coordinator or make a Codex-specific tool part of the CI/CD contract.
-When no callback transport exists, preserve the facts and resume only after an
-external state change.
+Silence is the default collaboration behavior. One pull request, branch, or
+production scope has one execution owner. A non-owner must not monitor or
+mutate its labels, candidate runs, commits, merge, release, or smoke merely to
+be helpful. A status message does not transfer ownership; transfer is explicit,
+names the exact object and remaining action, and is accepted by the new owner.
+
+Send one direct coordination message only when a newly observed fact changes
+another owner's next safe action: a real file overlap, competing mutation of
+the same PR or production scope, an exact `main` or lease dependency, or a
+safety failure. Address the actual owner, include the smallest actionable fact,
+then continue independent work or stop. Do not broadcast, relay through a
+coordinator, request an acknowledgement, poll the other task, take over its
+work, or send routine progress. Send a completion callback only to a task that
+explicitly depends on that outcome; otherwise stay silent.
+
+Use the callback transport the two environments already support. Codex App may
+use `send_message_to_thread`; other environments may use task messaging, a PR
+comment, an authorized focused Space, or an operator handoff. The transport
+carries one real dependency and never creates a central coordinator. Without
+an available transport, preserve the facts and resume only after an external
+state change.
 
 ## Final Candidate
 
