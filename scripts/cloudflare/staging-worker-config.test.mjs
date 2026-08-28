@@ -43,7 +43,11 @@ test("declares one isolated staging environment for every internal Worker", () =
     assert.equal(staging.vars?.OPENMELD_WORKER_ENVIRONMENT, "stg");
     assert.doesNotMatch(JSON.stringify(staging), PRODUCTION_URL_PATTERN);
     const isolatedStaging = structuredClone(staging);
-    delete isolatedStaging.vars?.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID;
+    isolatedStaging.vars = Object.fromEntries(
+      Object.entries(isolatedStaging.vars ?? {}).filter(
+        ([key]) => key !== "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID"
+      )
+    );
     assert.doesNotMatch(
       JSON.stringify(isolatedStaging),
       PRODUCTION_RESOURCE_PATTERN
