@@ -10,6 +10,7 @@ import {
   isProcessIdentityAlive,
 } from "../system/process-identity";
 import { resolveAuthSessionExpiryEligibility } from "./auth-session-expiry";
+import { withAuthSessionTransitionMutationLock } from "./auth-session-transition-lock";
 import { openMeldRootDir } from "./paths";
 import {
   deleteAccessToken,
@@ -371,51 +372,53 @@ export async function setAuthSession(input: AuthSessionInput): Promise<void> {
     throw new Error("client_id is required");
   }
 
-  await assertAuthSessionMutationAvailable();
-  await retryPendingTokenCleanup();
+  await withAuthSessionTransitionMutationLock(async () => {
+    await assertAuthSessionMutationAvailableWithOwnership();
+    await retryPendingTokenCleanup();
 
-  const previousPayload = await readSessionPayload();
-  const previousTokenRef = normalizeTokenRef(previousPayload?.tokenRef);
-  const tokenRef = await storeAccessToken({
-    accessToken,
-    authBaseUrl,
-    clientId,
+    const previousPayload = await readSessionPayloadFile();
+    const previousTokenRef = normalizeTokenRef(previousPayload?.tokenRef);
+    const tokenRef = await storeAccessToken({
+      accessToken,
+      authBaseUrl,
+      clientId,
+    });
+
+    const payload: AuthSessionV1 = {
+      v: 1,
+      tokenRef,
+      tokenType: String(input.tokenType ?? "Bearer").trim() || "Bearer",
+      authBaseUrl,
+      clientId,
+      createdAt: new Date().toISOString(),
+      ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+      ...(input.scope ? { scope: input.scope } : {}),
+      ...buildAuthUserPayload(input.user),
+      ...buildActiveOrganizationPayload(input.activeOrganization),
+    };
+
+    const path = authSessionPath();
+    await ensureAuthSessionDirectory();
+
+    try {
+      await assertStoredAccessTokenReloads({ accessToken, tokenRef });
+      await writeSessionPayloadAtomically(path, payload);
+    } catch (error) {
+      await deleteAccessTokenOrRetainForCleanup(tokenRef);
+      throw error;
+    }
+
+    cacheAuthSession({
+      payload,
+      session: buildStoredAuthSession({ accessToken, payload }),
+    });
+    if (
+      previousTokenRef &&
+      !areStoredTokenRefsEqual(previousTokenRef, tokenRef)
+    ) {
+      await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
+    }
   });
-
-  const payload: AuthSessionV1 = {
-    v: 1,
-    tokenRef,
-    tokenType: String(input.tokenType ?? "Bearer").trim() || "Bearer",
-    authBaseUrl,
-    clientId,
-    createdAt: new Date().toISOString(),
-    ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
-    ...(input.scope ? { scope: input.scope } : {}),
-    ...buildAuthUserPayload(input.user),
-    ...buildActiveOrganizationPayload(input.activeOrganization),
-  };
-
-  const path = authSessionPath();
-  await ensureAuthSessionDirectory();
-
-  try {
-    await assertStoredAccessTokenReloads({ accessToken, tokenRef });
-    await writeSessionPayloadAtomically(path, payload);
-  } catch (error) {
-    await deleteAccessTokenOrRetainForCleanup(tokenRef);
-    throw error;
-  }
-
-  cacheAuthSession({
-    payload,
-    session: buildStoredAuthSession({ accessToken, payload }),
-  });
-  if (
-    previousTokenRef &&
-    !areStoredTokenRefsEqual(previousTokenRef, tokenRef)
-  ) {
-    await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
-  }
 }
 
 export async function beginAuthSessionTransition(
@@ -435,190 +438,204 @@ export async function beginAuthSessionTransition(
     throw new Error("client_id is required");
   }
 
-  await assertAuthSessionMutationAvailable();
-  await retryPendingTokenCleanup();
-  await ensureAuthSessionDirectory();
-  const previousPayload = await readSessionPayload();
-  const previousState = await getLocalAuthSessionState();
-  const previousSession =
-    previousState.state === "valid" || previousState.state === "expired"
-      ? previousState.session
-      : null;
-  const tokenRef = await storeAccessToken({
-    accessToken,
-    authBaseUrl,
-    clientId,
-    unique: true,
-  });
-  const nextPayload: AuthSessionV1 = {
-    v: 1,
-    tokenRef,
-    tokenType: String(input.tokenType ?? "Bearer").trim() || "Bearer",
-    authBaseUrl,
-    clientId,
-    createdAt: new Date().toISOString(),
-    ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
-    ...(input.scope ? { scope: input.scope } : {}),
-    ...buildAuthUserPayload(input.user),
-    ...buildActiveOrganizationPayload(input.activeOrganization),
-  };
-  const journal: AuthSessionTransitionJournalV1 = {
-    v: 1,
-    id: randomUUID(),
-    state: "pending",
-    ownerPid: process.pid,
-    ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
-    previousPayload:
-      previousPayload?.v === 1 ? (previousPayload as AuthSessionV1) : null,
-    candidatePayload: nextPayload,
-    ...(context.computerHandoff
-      ? {
-          computerHandoff: {
-            gatewayUrl: context.computerHandoff.gatewayUrl,
-          },
-        }
-      : {}),
-  };
-  let journalClaimed = false;
-  try {
-    await assertStoredAccessTokenReloads({ accessToken, tokenRef });
-    await claimAuthSessionTransitionJournal(journal);
-    journalClaimed = true;
-    activeAuthSessionTransitionIds.add(journal.id);
-    await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
-  } catch (error) {
-    activeAuthSessionTransitionIds.delete(journal.id);
-    if (journalClaimed) {
-      await restoreTransitionPreviousPayload(journal).catch(() => undefined);
-      await removeAuthSessionTransitionJournalIfOwned(journal.id).catch(
-        () => undefined
-      );
-    }
-    await deleteAccessTokenOrRetainForCleanup(tokenRef);
-    throw error;
-  }
-  cacheAuthSession({
-    payload: nextPayload,
-    session: buildStoredAuthSession({ accessToken, payload: nextPayload }),
-  });
-
-  let settlement: "committed" | "pending" | "rolled_back" = "pending";
-  const assertTransitionPending = () => {
-    if (settlement !== "pending") {
-      throw new Error("auth session transition is already settled");
-    }
-  };
-  const assertCandidateSessionCurrent = async () => {
-    const currentPayload = await readSessionPayload();
-    if (
-      currentPayload?.v !== 1 ||
-      buildAuthSessionPayloadKey(currentPayload) !==
-        buildAuthSessionPayloadKey(nextPayload)
-    ) {
-      throw new Error(
-        "auth session changed before the setup transition completed"
-      );
-    }
-  };
-
-  return {
-    previousSession,
-    commit: async () => {
-      assertTransitionPending();
-      const currentJournal = await readOwnedPendingAuthSessionTransition(
-        journal.id
-      );
-      if (currentJournal.status === "missing") {
-        await assertCandidateSessionCurrent();
-        await restoreTransitionPreviousPayload(journal, previousSession);
-        settlement = "rolled_back";
-        activeAuthSessionTransitionIds.delete(journal.id);
-        await deleteAccessTokenOrRetainForCleanup(tokenRef).catch(
-          (error: unknown) => {
-            logDeferredAuthSessionTransitionCleanup({
-              error,
-              transitionId: journal.id,
-            });
+  return await withAuthSessionTransitionMutationLock(async () => {
+    await assertAuthSessionMutationAvailableWithOwnership();
+    await retryPendingTokenCleanup();
+    await ensureAuthSessionDirectory();
+    const previousPayload = await readSessionPayloadFile();
+    const previousState = await getLocalAuthSessionState({ recover: false });
+    const previousSession =
+      previousState.state === "valid" || previousState.state === "expired"
+        ? previousState.session
+        : null;
+    const tokenRef = await storeAccessToken({
+      accessToken,
+      authBaseUrl,
+      clientId,
+      unique: true,
+    });
+    const nextPayload: AuthSessionV1 = {
+      v: 1,
+      tokenRef,
+      tokenType: String(input.tokenType ?? "Bearer").trim() || "Bearer",
+      authBaseUrl,
+      clientId,
+      createdAt: new Date().toISOString(),
+      ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+      ...(input.scope ? { scope: input.scope } : {}),
+      ...buildAuthUserPayload(input.user),
+      ...buildActiveOrganizationPayload(input.activeOrganization),
+    };
+    const journal: AuthSessionTransitionJournalV1 = {
+      v: 1,
+      id: randomUUID(),
+      state: "pending",
+      ownerPid: process.pid,
+      ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
+      previousPayload:
+        previousPayload?.v === 1 ? (previousPayload as AuthSessionV1) : null,
+      candidatePayload: nextPayload,
+      ...(context.computerHandoff
+        ? {
+            computerHandoff: {
+              gatewayUrl: context.computerHandoff.gatewayUrl,
+            },
           }
-        );
-        throw new AuthSessionTransitionConflictError({
-          previousOwnerRestored: true,
-          reason: "journal_missing",
-        });
-      }
-      if (currentJournal.status !== "current") {
-        activeAuthSessionTransitionIds.delete(journal.id);
-        throw new AuthSessionTransitionConflictError({
-          previousOwnerRestored: false,
-          reason: currentJournal.status,
-        });
-      }
-      await assertCandidateSessionCurrent();
-      const committedJournal: AuthSessionTransitionJournalV1 = {
-        ...currentJournal.journal,
-        state: "committed",
-      };
-      await writeAuthSessionTransitionJournal(committedJournal);
-      settlement = "committed";
+        : {}),
+    };
+    let journalClaimed = false;
+    try {
+      await assertStoredAccessTokenReloads({ accessToken, tokenRef });
+      await claimAuthSessionTransitionJournal(journal);
+      journalClaimed = true;
+      activeAuthSessionTransitionIds.add(journal.id);
+      await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
+    } catch (error) {
       activeAuthSessionTransitionIds.delete(journal.id);
-      await finalizeCommittedAuthSessionTransition(committedJournal).catch(
-        (error: unknown) => {
-          logDeferredAuthSessionTransitionCleanup({
-            error,
-            transitionId: journal.id,
-          });
-        }
-      );
-    },
-    rollback: async () => {
-      if (settlement === "rolled_back") {
-        return;
-      }
-      assertTransitionPending();
-      const currentJournal = await readOwnedPendingAuthSessionTransition(
-        journal.id
-      );
-      if (currentJournal.status === "missing") {
-        await assertCandidateSessionCurrent();
-        await restoreTransitionPreviousPayload(journal, previousSession);
-        settlement = "rolled_back";
-        activeAuthSessionTransitionIds.delete(journal.id);
-        await deleteAccessTokenOrRetainForCleanup(tokenRef).catch(
-          (error: unknown) => {
-            logDeferredAuthSessionTransitionCleanup({
-              error,
-              transitionId: journal.id,
-            });
-          }
+      if (journalClaimed) {
+        await restoreTransitionPreviousPayload(journal).catch(() => undefined);
+        await removeAuthSessionTransitionJournalIfOwned(journal).catch(
+          () => undefined
         );
-        return;
-      }
-      if (currentJournal.status !== "current") {
-        activeAuthSessionTransitionIds.delete(journal.id);
-        throw new AuthSessionTransitionConflictError({
-          previousOwnerRestored: false,
-          reason: currentJournal.status,
-        });
-      }
-      await assertCandidateSessionCurrent();
-      await restoreTransitionPreviousPayload(
-        currentJournal.journal,
-        previousSession
-      );
-      settlement = "rolled_back";
-      activeAuthSessionTransitionIds.delete(journal.id);
-      stopRegisteredCandidateService(currentJournal.journal);
-      if (currentJournal.journal.computerHandoff) {
-        await writeAuthSessionTransitionJournal({
-          ...currentJournal.journal,
-          state: "recovery_required",
-        });
-        return;
       }
       await deleteAccessTokenOrRetainForCleanup(tokenRef);
-      await removeAuthSessionTransitionJournal();
-    },
-  };
+      throw error;
+    }
+    cacheAuthSession({
+      payload: nextPayload,
+      session: buildStoredAuthSession({ accessToken, payload: nextPayload }),
+    });
+
+    let settlement: "committed" | "pending" | "rolled_back" = "pending";
+    const assertTransitionPending = () => {
+      if (settlement !== "pending") {
+        throw new Error("auth session transition is already settled");
+      }
+    };
+    const assertCandidateSessionCurrent = async () => {
+      const currentPayload = await readSessionPayloadFile();
+      if (
+        currentPayload?.v !== 1 ||
+        buildAuthSessionPayloadKey(currentPayload) !==
+          buildAuthSessionPayloadKey(nextPayload)
+      ) {
+        throw new Error(
+          "auth session changed before the setup transition completed"
+        );
+      }
+    };
+
+    return {
+      previousSession,
+      commit: async () =>
+        await withAuthSessionTransitionMutationLock(async () => {
+          assertTransitionPending();
+          const currentJournal =
+            await readOwnedPendingAuthSessionTransition(journal);
+          if (currentJournal.status === "missing") {
+            await claimAuthSessionTransitionJournal(journal);
+            await assertCandidateSessionCurrent();
+            await restoreTransitionPreviousPayload(journal, previousSession);
+            settlement = "rolled_back";
+            activeAuthSessionTransitionIds.delete(journal.id);
+            await deleteAccessTokenOrRetainForCleanup(tokenRef).catch(
+              (error: unknown) => {
+                logDeferredAuthSessionTransitionCleanup({
+                  error,
+                  transitionId: journal.id,
+                });
+              }
+            );
+            await removeAuthSessionTransitionJournalIfOwned(journal);
+            throw new AuthSessionTransitionConflictError({
+              previousOwnerRestored: true,
+              reason: "journal_missing",
+            });
+          }
+          if (currentJournal.status !== "current") {
+            activeAuthSessionTransitionIds.delete(journal.id);
+            throw new AuthSessionTransitionConflictError({
+              previousOwnerRestored: false,
+              reason: currentJournal.status,
+            });
+          }
+          await assertCandidateSessionCurrent();
+          const committedJournal: AuthSessionTransitionJournalV1 = {
+            ...currentJournal.journal,
+            state: "committed",
+          };
+          await writeAuthSessionTransitionJournalIfOwned(
+            currentJournal.journal,
+            committedJournal
+          );
+          settlement = "committed";
+          activeAuthSessionTransitionIds.delete(journal.id);
+          await finalizeCommittedAuthSessionTransition(committedJournal).catch(
+            (error: unknown) => {
+              logDeferredAuthSessionTransitionCleanup({
+                error,
+                transitionId: journal.id,
+              });
+            }
+          );
+        }),
+      rollback: async () =>
+        await withAuthSessionTransitionMutationLock(async () => {
+          if (settlement === "rolled_back") {
+            return;
+          }
+          assertTransitionPending();
+          const currentJournal =
+            await readOwnedPendingAuthSessionTransition(journal);
+          if (currentJournal.status === "missing") {
+            await claimAuthSessionTransitionJournal(journal);
+            await assertCandidateSessionCurrent();
+            await restoreTransitionPreviousPayload(journal, previousSession);
+            settlement = "rolled_back";
+            activeAuthSessionTransitionIds.delete(journal.id);
+            await deleteAccessTokenOrRetainForCleanup(tokenRef).catch(
+              (error: unknown) => {
+                logDeferredAuthSessionTransitionCleanup({
+                  error,
+                  transitionId: journal.id,
+                });
+              }
+            );
+            await removeAuthSessionTransitionJournalIfOwned(journal);
+            return;
+          }
+          if (currentJournal.status !== "current") {
+            activeAuthSessionTransitionIds.delete(journal.id);
+            throw new AuthSessionTransitionConflictError({
+              previousOwnerRestored: false,
+              reason: currentJournal.status,
+            });
+          }
+          await assertCandidateSessionCurrent();
+          await restoreTransitionPreviousPayload(
+            currentJournal.journal,
+            previousSession
+          );
+          settlement = "rolled_back";
+          activeAuthSessionTransitionIds.delete(journal.id);
+          stopRegisteredCandidateService(currentJournal.journal);
+          if (currentJournal.journal.computerHandoff) {
+            await writeAuthSessionTransitionJournalIfOwned(
+              currentJournal.journal,
+              {
+                ...currentJournal.journal,
+                state: "recovery_required",
+              }
+            );
+            return;
+          }
+          await deleteAccessTokenOrRetainForCleanup(tokenRef);
+          await removeAuthSessionTransitionJournalIfOwned(
+            currentJournal.journal
+          );
+        }),
+    };
+  });
 }
 
 type OwnedPendingAuthSessionTransition =
@@ -628,13 +645,13 @@ type OwnedPendingAuthSessionTransition =
   | { status: "journal_replaced"; journal: AuthSessionTransitionJournalV1 };
 
 async function readOwnedPendingAuthSessionTransition(
-  id: string
+  expected: AuthSessionTransitionJournalV1
 ): Promise<OwnedPendingAuthSessionTransition> {
   const currentJournal = await readAuthSessionTransitionJournal();
   if (!currentJournal) {
     return { status: "missing" };
   }
-  if (currentJournal.id !== id) {
+  if (!hasSameAuthSessionTransitionIdentity(expected, currentJournal)) {
     return { status: "journal_replaced", journal: currentJournal };
   }
   if (currentJournal.state !== "pending") {
@@ -644,69 +661,74 @@ async function readOwnedPendingAuthSessionTransition(
 }
 
 export async function getInterruptedComputerAuthSessionRecovery(): Promise<InterruptedComputerAuthSessionRecovery | null> {
-  await recoverInterruptedAuthSessionTransition();
-  const journal = await readAuthSessionTransitionJournal();
-  if (!(journal?.state === "recovery_required" && journal.computerHandoff)) {
-    return null;
-  }
-
-  const candidateSession = await readStoredAuthSessionFromPayloadIfPresent(
-    journal.candidatePayload
-  );
-  if (!candidateSession) {
-    if (
-      journal.computerHandoff.serviceReconciledAt &&
-      journal.computerHandoff.remoteSessionRevokedAt
-    ) {
-      await removeAuthSessionTransitionJournal();
+  return await withAuthSessionTransitionMutationLock(async () => {
+    await recoverInterruptedAuthSessionTransitionWithOwnership();
+    const journal = await readAuthSessionTransitionJournal();
+    if (!(journal?.state === "recovery_required" && journal.computerHandoff)) {
       return null;
     }
-    throw new AuthSessionStorageError({
-      message: "auth session recovery token is missing",
-      reason: "corrupt",
-    });
-  }
-  const candidateOwnerUserId = normalizeOptionalString(
-    candidateSession.user?.id
-  );
-  if (!candidateOwnerUserId) {
-    throw new AuthSessionStorageError({
-      message: "computer auth recovery candidate is missing its owner user id",
-      reason: "corrupt",
-    });
-  }
 
-  return {
-    candidateSession: {
-      ...candidateSession,
-      user: { ...candidateSession.user, id: candidateOwnerUserId },
-    },
-    gatewayUrl: journal.computerHandoff.gatewayUrl,
-    id: journal.id,
-    previousSession: journal.previousPayload
-      ? await readStoredAuthSessionFromPayload(journal.previousPayload)
-      : null,
-    remoteSessionRevoked: Boolean(
-      journal.computerHandoff.remoteSessionRevokedAt
-    ),
-    serviceReconciled: Boolean(journal.computerHandoff.serviceReconciledAt),
-  };
+    const candidateSession = await readStoredAuthSessionFromPayloadIfPresent(
+      journal.candidatePayload
+    );
+    if (!candidateSession) {
+      if (
+        journal.computerHandoff.serviceReconciledAt &&
+        journal.computerHandoff.remoteSessionRevokedAt
+      ) {
+        await removeAuthSessionTransitionJournalIfOwned(journal);
+        return null;
+      }
+      throw new AuthSessionStorageError({
+        message: "auth session recovery token is missing",
+        reason: "corrupt",
+      });
+    }
+    const candidateOwnerUserId = normalizeOptionalString(
+      candidateSession.user?.id
+    );
+    if (!candidateOwnerUserId) {
+      throw new AuthSessionStorageError({
+        message:
+          "computer auth recovery candidate is missing its owner user id",
+        reason: "corrupt",
+      });
+    }
+
+    return {
+      candidateSession: {
+        ...candidateSession,
+        user: { ...candidateSession.user, id: candidateOwnerUserId },
+      },
+      gatewayUrl: journal.computerHandoff.gatewayUrl,
+      id: journal.id,
+      previousSession: journal.previousPayload
+        ? await readStoredAuthSessionFromPayload(journal.previousPayload)
+        : null,
+      remoteSessionRevoked: Boolean(
+        journal.computerHandoff.remoteSessionRevokedAt
+      ),
+      serviceReconciled: Boolean(journal.computerHandoff.serviceReconciledAt),
+    };
+  });
 }
 
 export async function markInterruptedComputerAuthSessionRecovery(input: {
   id: string;
   phase: "service" | "remote_session";
 }): Promise<void> {
-  const journal = await readRequiredComputerAuthRecoveryJournal(input.id);
-  await writeAuthSessionTransitionJournal({
-    ...journal,
-    computerHandoff: {
-      ...journal.computerHandoff,
-      ...(input.phase === "service"
-        ? { serviceReconciledAt: new Date().toISOString() }
-        : { remoteSessionRevokedAt: new Date().toISOString() }),
-      lastRecoveryFailure: undefined,
-    },
+  await withAuthSessionTransitionMutationLock(async () => {
+    const journal = await readRequiredComputerAuthRecoveryJournal(input.id);
+    await writeAuthSessionTransitionJournalIfOwned(journal, {
+      ...journal,
+      computerHandoff: {
+        ...journal.computerHandoff,
+        ...(input.phase === "service"
+          ? { serviceReconciledAt: new Date().toISOString() }
+          : { remoteSessionRevokedAt: new Date().toISOString() }),
+        lastRecoveryFailure: undefined,
+      },
+    });
   });
 }
 
@@ -717,8 +739,22 @@ export async function recordInterruptedComputerAuthSessionRecoveryFailure(input:
   phase: "service" | "remote_session" | "local_cleanup";
   status?: number | null;
 }): Promise<void> {
+  await withAuthSessionTransitionMutationLock(async () => {
+    await recordInterruptedComputerAuthSessionRecoveryFailureWithOwnership(
+      input
+    );
+  });
+}
+
+async function recordInterruptedComputerAuthSessionRecoveryFailureWithOwnership(input: {
+  endpoint?: string;
+  id: string;
+  message: string;
+  phase: "service" | "remote_session" | "local_cleanup";
+  status?: number | null;
+}): Promise<void> {
   const journal = await readRequiredComputerAuthRecoveryJournal(input.id);
-  await writeAuthSessionTransitionJournal({
+  await writeAuthSessionTransitionJournalIfOwned(journal, {
     ...journal,
     computerHandoff: {
       ...journal.computerHandoff,
@@ -736,32 +772,34 @@ export async function recordInterruptedComputerAuthSessionRecoveryFailure(input:
 export async function completeInterruptedComputerAuthSessionRecovery(
   id: string
 ): Promise<boolean> {
-  const journal = await readRequiredComputerAuthRecoveryJournal(id);
-  if (
-    !(
-      journal.computerHandoff.serviceReconciledAt &&
-      journal.computerHandoff.remoteSessionRevokedAt
-    )
-  ) {
-    throw new Error(
-      "computer auth recovery cannot complete before service and remote-session cleanup"
-    );
-  }
-  try {
-    await deleteAccessTokenOrRetainForCleanup(
-      journal.candidatePayload.tokenRef
-    );
-    await removeAuthSessionTransitionJournal();
-    return true;
-  } catch (error) {
-    await recordInterruptedComputerAuthSessionRecoveryFailure({
-      id,
-      message: toErrorMessage(error),
-      phase: "local_cleanup",
-    }).catch(() => undefined);
-    logDeferredAuthSessionTransitionCleanup({ error, transitionId: id });
-    return false;
-  }
+  return await withAuthSessionTransitionMutationLock(async () => {
+    const journal = await readRequiredComputerAuthRecoveryJournal(id);
+    if (
+      !(
+        journal.computerHandoff.serviceReconciledAt &&
+        journal.computerHandoff.remoteSessionRevokedAt
+      )
+    ) {
+      throw new Error(
+        "computer auth recovery cannot complete before service and remote-session cleanup"
+      );
+    }
+    try {
+      await deleteAccessTokenOrRetainForCleanup(
+        journal.candidatePayload.tokenRef
+      );
+      await removeAuthSessionTransitionJournalIfOwned(journal);
+      return true;
+    } catch (error) {
+      await recordInterruptedComputerAuthSessionRecoveryFailureWithOwnership({
+        id,
+        message: toErrorMessage(error),
+        phase: "local_cleanup",
+      }).catch(() => undefined);
+      logDeferredAuthSessionTransitionCleanup({ error, transitionId: id });
+      return false;
+    }
+  });
 }
 
 export async function getAuthSession(): Promise<StoredAuthSession | null> {
@@ -803,67 +841,78 @@ export async function getAuthSessionMetadata(): Promise<AuthSessionMetadata | nu
 export async function updateAuthSessionActiveOrganization(
   activeOrganization: StoredActiveOrganization | null
 ): Promise<void> {
-  const payload = await readSessionPayload();
-  if (payload?.v !== 1) {
-    throw new Error("cannot update active organization without auth session");
-  }
+  await withAuthSessionTransitionMutationLock(async () => {
+    await assertAuthSessionMutationAvailableWithOwnership();
+    const payload = await readSessionPayloadFile();
+    if (payload?.v !== 1) {
+      throw new Error("cannot update active organization without auth session");
+    }
 
-  const tokenRef = normalizeTokenRef(payload.tokenRef);
-  const tokenType = normalizeOptionalString(payload.tokenType);
-  const authBaseUrl = normalizeOptionalString(payload.authBaseUrl);
-  const clientId = normalizeOptionalString(payload.clientId);
-  const createdAt = normalizeOptionalString(payload.createdAt);
-  if (!(tokenRef && tokenType && authBaseUrl && clientId && createdAt)) {
-    throw new Error(
-      "cannot update active organization for invalid auth session"
-    );
-  }
+    const tokenRef = normalizeTokenRef(payload.tokenRef);
+    const tokenType = normalizeOptionalString(payload.tokenType);
+    const authBaseUrl = normalizeOptionalString(payload.authBaseUrl);
+    const clientId = normalizeOptionalString(payload.clientId);
+    const createdAt = normalizeOptionalString(payload.createdAt);
+    if (!(tokenRef && tokenType && authBaseUrl && clientId && createdAt)) {
+      throw new Error(
+        "cannot update active organization for invalid auth session"
+      );
+    }
 
-  const nextPayload: AuthSessionV1 = {
-    v: 1,
-    tokenRef,
-    tokenType,
-    authBaseUrl,
-    clientId,
-    createdAt,
-    ...(typeof payload.expiresAt === "string" && payload.expiresAt.trim()
-      ? { expiresAt: payload.expiresAt.trim() }
-      : {}),
-    ...(typeof payload.scope === "string" && payload.scope.trim()
-      ? { scope: payload.scope.trim() }
-      : {}),
-    ...buildAuthUserPayload(payload.user),
-    ...buildActiveOrganizationPayload(activeOrganization),
-  };
+    const nextPayload: AuthSessionV1 = {
+      v: 1,
+      tokenRef,
+      tokenType,
+      authBaseUrl,
+      clientId,
+      createdAt,
+      ...(typeof payload.expiresAt === "string" && payload.expiresAt.trim()
+        ? { expiresAt: payload.expiresAt.trim() }
+        : {}),
+      ...(typeof payload.scope === "string" && payload.scope.trim()
+        ? { scope: payload.scope.trim() }
+        : {}),
+      ...buildAuthUserPayload(payload.user),
+      ...buildActiveOrganizationPayload(activeOrganization),
+    };
 
-  await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
-  const currentCachedSession = readCachedAuthSession(payload);
-  if (currentCachedSession) {
-    cacheAuthSession({
-      payload: nextPayload,
-      session: buildStoredAuthSession({
-        accessToken: currentCachedSession.accessToken,
+    await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
+    const currentCachedSession = readCachedAuthSession(payload);
+    if (currentCachedSession) {
+      cacheAuthSession({
         payload: nextPayload,
-      }),
-    });
-  }
+        session: buildStoredAuthSession({
+          accessToken: currentCachedSession.accessToken,
+          payload: nextPayload,
+        }),
+      });
+    }
+  });
 }
 
 export async function clearAuthSession(): Promise<ClearAuthSessionResult> {
-  await assertAuthSessionMutationAvailable();
-  cachedAuthSession = null;
-  await retryPendingTokenCleanup();
-  const hadLocalSession = await authSessionFileExists();
-  const payload = await readSessionPayload();
-  if (payload?.v === 1 && isStoredTokenRef(payload.tokenRef)) {
-    await deleteAccessTokenOrRetainForCleanup(payload.tokenRef);
-  }
-  await removeSessionFile();
-  return { hadLocalSession };
+  return await withAuthSessionTransitionMutationLock(async () => {
+    await assertAuthSessionMutationAvailableWithOwnership();
+    cachedAuthSession = null;
+    await retryPendingTokenCleanup();
+    const hadLocalSession = await authSessionFileExists();
+    const payload = await readSessionPayloadFile();
+    if (payload?.v === 1 && isStoredTokenRef(payload.tokenRef)) {
+      await deleteAccessTokenOrRetainForCleanup(payload.tokenRef);
+    }
+    await removeSessionFile();
+    return { hadLocalSession };
+  });
 }
 
 export async function assertAuthSessionMutationAvailable(): Promise<void> {
-  await recoverInterruptedAuthSessionTransition();
+  await withAuthSessionTransitionMutationLock(
+    assertAuthSessionMutationAvailableWithOwnership
+  );
+}
+
+async function assertAuthSessionMutationAvailableWithOwnership(): Promise<void> {
+  await recoverInterruptedAuthSessionTransitionWithOwnership();
   if (await readAuthSessionTransitionJournal()) {
     throw new AuthSessionRecoveryInProgressError();
   }
@@ -961,10 +1010,15 @@ async function authSessionFileExists(): Promise<boolean> {
   }
 }
 
-async function getLocalAuthSessionState(): Promise<LocalAuthSessionState> {
+async function getLocalAuthSessionState(
+  options: { recover?: boolean } = {}
+): Promise<LocalAuthSessionState> {
   let payload: Partial<AuthSessionV1> | null;
   try {
-    payload = await readSessionPayload();
+    payload =
+      options.recover === false
+        ? await readSessionPayloadFile()
+        : await readSessionPayload();
   } catch (error) {
     if (error instanceof AuthSessionStorageError) {
       return {
@@ -1140,73 +1194,76 @@ async function persistRemoteSessionRefresh(input: {
   expiresAt: string;
   previousAccessToken: string;
 }): Promise<StoredAuthSession | null> {
-  const payload = await readSessionPayload();
-  if (
-    payload?.v !== 1 ||
-    input.expectedPayloadKey === null ||
-    buildAuthSessionPayloadKey(payload) !== input.expectedPayloadKey
-  ) {
-    return null;
-  }
-
-  const tokenRef = normalizeTokenRef(payload.tokenRef);
-  const tokenType = normalizeOptionalString(payload.tokenType);
-  const authBaseUrl = normalizeOptionalString(payload.authBaseUrl);
-  const clientId = normalizeOptionalString(payload.clientId);
-  const createdAt = normalizeOptionalString(payload.createdAt);
-  if (!(tokenRef && tokenType && authBaseUrl && clientId && createdAt)) {
-    return null;
-  }
-
-  const nextAccessToken = normalizeOptionalString(input.accessToken);
-  if (!nextAccessToken) {
-    return null;
-  }
-  const nextTokenRef =
-    nextAccessToken === input.previousAccessToken
-      ? tokenRef
-      : await storeAccessToken({
-          accessToken: nextAccessToken,
-          authBaseUrl,
-          clientId,
-        });
-  const nextPayload: AuthSessionV1 = {
-    v: 1,
-    tokenRef: nextTokenRef,
-    tokenType,
-    authBaseUrl,
-    clientId,
-    createdAt,
-    expiresAt: input.expiresAt,
-    ...(typeof payload.scope === "string" && payload.scope.trim()
-      ? { scope: payload.scope.trim() }
-      : {}),
-    ...buildAuthUserPayload(payload.user),
-    ...buildActiveOrganizationPayload(payload.activeOrganization),
-  };
-  const nextSession = buildStoredAuthSession({
-    accessToken: nextAccessToken,
-    payload: nextPayload,
-  });
-
-  try {
-    await assertStoredAccessTokenReloads({
-      accessToken: nextAccessToken,
-      tokenRef: nextTokenRef,
-    });
-    await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
-  } catch (error) {
-    if (!areStoredTokenRefsEqual(tokenRef, nextTokenRef)) {
-      await deleteAccessTokenOrRetainForCleanup(nextTokenRef);
+  return await withAuthSessionTransitionMutationLock(async () => {
+    await assertAuthSessionMutationAvailableWithOwnership();
+    const payload = await readSessionPayloadFile();
+    if (
+      payload?.v !== 1 ||
+      input.expectedPayloadKey === null ||
+      buildAuthSessionPayloadKey(payload) !== input.expectedPayloadKey
+    ) {
+      return null;
     }
-    throw error;
-  }
 
-  cacheAuthSession({ payload: nextPayload, session: nextSession });
-  if (!areStoredTokenRefsEqual(tokenRef, nextTokenRef)) {
-    await deleteAccessTokenOrRetainForCleanup(tokenRef);
-  }
-  return nextSession;
+    const tokenRef = normalizeTokenRef(payload.tokenRef);
+    const tokenType = normalizeOptionalString(payload.tokenType);
+    const authBaseUrl = normalizeOptionalString(payload.authBaseUrl);
+    const clientId = normalizeOptionalString(payload.clientId);
+    const createdAt = normalizeOptionalString(payload.createdAt);
+    if (!(tokenRef && tokenType && authBaseUrl && clientId && createdAt)) {
+      return null;
+    }
+
+    const nextAccessToken = normalizeOptionalString(input.accessToken);
+    if (!nextAccessToken) {
+      return null;
+    }
+    const nextTokenRef =
+      nextAccessToken === input.previousAccessToken
+        ? tokenRef
+        : await storeAccessToken({
+            accessToken: nextAccessToken,
+            authBaseUrl,
+            clientId,
+          });
+    const nextPayload: AuthSessionV1 = {
+      v: 1,
+      tokenRef: nextTokenRef,
+      tokenType,
+      authBaseUrl,
+      clientId,
+      createdAt,
+      expiresAt: input.expiresAt,
+      ...(typeof payload.scope === "string" && payload.scope.trim()
+        ? { scope: payload.scope.trim() }
+        : {}),
+      ...buildAuthUserPayload(payload.user),
+      ...buildActiveOrganizationPayload(payload.activeOrganization),
+    };
+    const nextSession = buildStoredAuthSession({
+      accessToken: nextAccessToken,
+      payload: nextPayload,
+    });
+
+    try {
+      await assertStoredAccessTokenReloads({
+        accessToken: nextAccessToken,
+        tokenRef: nextTokenRef,
+      });
+      await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
+    } catch (error) {
+      if (!areStoredTokenRefsEqual(tokenRef, nextTokenRef)) {
+        await deleteAccessTokenOrRetainForCleanup(nextTokenRef);
+      }
+      throw error;
+    }
+
+    cacheAuthSession({ payload: nextPayload, session: nextSession });
+    if (!areStoredTokenRefsEqual(tokenRef, nextTokenRef)) {
+      await deleteAccessTokenOrRetainForCleanup(tokenRef);
+    }
+    return nextSession;
+  });
 }
 
 function normalizeTokenRef(input: unknown): StoredTokenRef | null {
@@ -1374,6 +1431,12 @@ async function readSessionPayloadFile(): Promise<Partial<AuthSessionV1> | null> 
 }
 
 async function recoverInterruptedAuthSessionTransition(): Promise<void> {
+  await withAuthSessionTransitionMutationLock(
+    recoverInterruptedAuthSessionTransitionWithOwnership
+  );
+}
+
+async function recoverInterruptedAuthSessionTransitionWithOwnership(): Promise<void> {
   let journal = await readAuthSessionTransitionJournal();
   if (!journal) {
     return;
@@ -1396,7 +1459,7 @@ async function recoverInterruptedAuthSessionTransition(): Promise<void> {
     await restoreTransitionPreviousPayload(journal);
     stopRegisteredCandidateService(journal);
     if (journal.computerHandoff) {
-      await writeAuthSessionTransitionJournal({
+      await writeAuthSessionTransitionJournalIfOwned(journal, {
         ...journal,
         state: "recovery_required",
       });
@@ -1405,7 +1468,7 @@ async function recoverInterruptedAuthSessionTransition(): Promise<void> {
     await deleteAccessTokenOrRetainForCleanup(
       journal.candidatePayload.tokenRef
     );
-    await removeAuthSessionTransitionJournal();
+    await removeAuthSessionTransitionJournalIfOwned(journal);
     return;
   }
   if (journal.state === "recovery_required") {
@@ -1450,7 +1513,7 @@ async function finalizeCommittedAuthSessionTransition(
   ) {
     await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
   }
-  await removeAuthSessionTransitionJournal();
+  await removeAuthSessionTransitionJournalIfOwned(journal);
 }
 
 async function registerCurrentCandidateServiceProcess(
@@ -1478,7 +1541,10 @@ async function registerCurrentCandidateServiceProcess(
     ...currentJournal,
     candidateServiceProcess: currentProcess,
   };
-  await writeAuthSessionTransitionJournal(updatedJournal);
+  await writeAuthSessionTransitionJournalIfOwned(
+    currentJournal,
+    updatedJournal
+  );
   return updatedJournal;
 }
 
@@ -1704,10 +1770,27 @@ function isAuthSessionPayload(value: unknown): value is AuthSessionV1 {
   return isRecord(value) && value.v === 1 && isStoredTokenRef(value.tokenRef);
 }
 
-async function writeAuthSessionTransitionJournal(
-  journal: AuthSessionTransitionJournalV1
+async function writeAuthSessionTransitionJournalIfOwned(
+  expected: AuthSessionTransitionJournalV1,
+  next: AuthSessionTransitionJournalV1
 ): Promise<void> {
-  await writeJsonAtomically(authSessionTransitionPath(), journal);
+  if (!hasSameAuthSessionTransitionIdentity(expected, next)) {
+    throw new Error("auth session transition identity cannot change");
+  }
+  const current = await readAuthSessionTransitionJournal();
+  if (!current) {
+    throw new AuthSessionTransitionConflictError({
+      previousOwnerRestored: false,
+      reason: "journal_missing",
+    });
+  }
+  if (!hasSameAuthSessionTransitionIdentity(expected, current)) {
+    throw new AuthSessionTransitionConflictError({
+      previousOwnerRestored: false,
+      reason: "journal_replaced",
+    });
+  }
+  await writeJsonAtomically(authSessionTransitionPath(), next);
 }
 
 async function claimAuthSessionTransitionJournal(
@@ -1746,16 +1829,30 @@ async function claimAuthSessionTransitionJournal(
 }
 
 async function removeAuthSessionTransitionJournalIfOwned(
-  id: string
+  expected: AuthSessionTransitionJournalV1
 ): Promise<void> {
   const currentJournal = await readAuthSessionTransitionJournal();
-  if (currentJournal?.id === id) {
-    await removeAuthSessionTransitionJournal();
+  if (!currentJournal) {
+    return;
   }
+  if (!hasSameAuthSessionTransitionIdentity(expected, currentJournal)) {
+    throw new AuthSessionTransitionConflictError({
+      previousOwnerRestored: false,
+      reason: "journal_replaced",
+    });
+  }
+  await rm(authSessionTransitionPath(), { force: true });
 }
 
-async function removeAuthSessionTransitionJournal(): Promise<void> {
-  await rm(authSessionTransitionPath(), { force: true });
+function hasSameAuthSessionTransitionIdentity(
+  left: AuthSessionTransitionJournalV1,
+  right: AuthSessionTransitionJournalV1
+): boolean {
+  return (
+    left.id === right.id &&
+    left.ownerPid === right.ownerPid &&
+    left.ownerProcessStartedAt === right.ownerProcessStartedAt
+  );
 }
 
 function authSessionTransitionPath(): string {
