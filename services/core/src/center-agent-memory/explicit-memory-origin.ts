@@ -4,6 +4,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { type CoreBindings, wakeEvidenceDb } from "../lib/bindings";
 import type { CenterAgentMemoryEpisodeOrigin } from "./contract";
+import { resolveCenterAgentMemoryFrozenTurnContext } from "./frozen-turn-context";
 
 export function resolveExplicitMemorySourceDeliveryDb(
   env: Pick<CoreBindings, "OPENMELD_DB" | "OPENMELD_WAKE_EVIDENCE_DB">
@@ -34,6 +35,19 @@ export function resolveExplicitMemoryEpisodeOrigin(input: {
   sourceMessageId: string;
   turnEnvelope: RemoteAgentTurnEnvelope;
 }): CenterAgentMemoryEpisodeOrigin {
+  const frozenContext = resolveCenterAgentMemoryFrozenTurnContext(
+    input.turnEnvelope
+  );
+  if (!frozenContext) {
+    throw new Error(
+      "Explicit Organization memory requires a verified frozen interaction environment"
+    );
+  }
+  if (frozenContext.interactionEnvironment !== "organization_shared") {
+    throw new Error(
+      "Explicit Organization memory requires an organization-shared conversation"
+    );
+  }
   if (
     input.organizationId !== input.expectedOrganizationId ||
     input.turnEnvelope.organization.id !== input.expectedOrganizationId

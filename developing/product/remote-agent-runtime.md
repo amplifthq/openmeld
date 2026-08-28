@@ -2582,8 +2582,10 @@ contract in Core, with Zep Cloud behind a provider adapter:
   `interactionEnvironment`, revalidates its verified sender against current
   Organization membership, and fails closed when those facts are missing,
   conflicting, or mismatched. Carrier and source names remain provenance only.
-- The explicit `centerAgentRememberForOrganization` tool is designation-gated
-  and fails closed while organization memory is off.
+- The explicit `centerAgentRememberForOrganization` tool is designation-gated.
+  Core accepts it only for a frozen `organization_shared` turn while
+  organization memory is enabled, and rejects stale or forged calls from
+  requester-private and externally shared environments.
 - Core projects bounded memory items into the shared turn envelope before
   worker submission. The worker and Flue session must not query Zep, infer the
   enabled state, or create a parallel memory policy.

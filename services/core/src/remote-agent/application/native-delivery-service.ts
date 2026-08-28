@@ -89,6 +89,7 @@ import {
 } from "../../center-agent/center-agent-repository";
 import { isCenterAgentMemberResearchDelivery } from "../../center-agent-member-research/member-research-repository";
 import { createCoreCenterAgentMemoryService } from "../../center-agent-memory/core-memory-service";
+import { resolveCenterAgentMemoryFrozenTurnContext } from "../../center-agent-memory/frozen-turn-context";
 import type { CenterAgentMemoryService } from "../../center-agent-memory/memory-service";
 import {
   readCenterAgentTaskNativeDeliveryOwner,
@@ -7127,20 +7128,7 @@ function resolveCenterAgentMemoryFrozenContext(
     return null;
   }
 
-  const directEnvironment = turnEnvelope.interactionEnvironment;
-  const plannedEnvironment =
-    turnEnvelope.contextScopePlan?.interactionEnvironment;
-  if (
-    directEnvironment &&
-    plannedEnvironment &&
-    directEnvironment !== plannedEnvironment
-  ) {
-    return null;
-  }
-  const interactionEnvironment = directEnvironment ?? plannedEnvironment;
-  return interactionEnvironment
-    ? { interactionEnvironment, sender: turnEnvelope.sender }
-    : null;
+  return resolveCenterAgentMemoryFrozenTurnContext(turnEnvelope);
 }
 
 async function resolveDeliveryMemorySpeaker(input: {
