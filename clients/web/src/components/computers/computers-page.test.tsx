@@ -492,6 +492,26 @@ describe("ComputersPage", () => {
 		expect(screen.queryByTestId("computers-picker-list")).toBeNull();
 	});
 
+	it("resolves the legacy Computers home during a background inventory refetch", () => {
+		const onComputerRouteResolved = vi.fn();
+		useLocalAgentRecoveryControllerMock.mockReturnValue(
+			buildRecoveryControllerStub({
+				devices: [CURRENT_COMPUTER, OTHER_COMPUTER],
+				isFetchedAfterMount: true,
+				isFetching: true,
+			})
+		);
+
+		render(
+			<TestComputersRouteStateProvider value={{ onComputerRouteResolved }}>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(onComputerRouteResolved).toHaveBeenCalledWith("device-current");
+		expect(screen.getByTestId("computer-detail-loading")).toBeTruthy();
+	});
+
 	it("shows a read-only detail for another member's computer", () => {
 		organizationDirectoryQueryData = buildOrganizationDirectory({
 			includeOtherMemberComputers: true,
