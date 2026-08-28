@@ -235,21 +235,32 @@ export async function waitForServiceRunning(input) {
         timeoutMs: 30_000,
       });
       const payload = parseJsonEnvelope(result.stdout);
-      return {
-        runtimeStatus:
-          payload?.payload?.runtime?.status ?? payload?.runtime?.status ?? null,
-        serviceVersion:
-          payload?.payload?.runtime?.serviceVersion ??
-          payload?.payload?.environmentTarget?.currentVersion ??
-          payload?.runtime?.serviceVersion ??
-          null,
-      };
+      return resolveStagingServiceStatus(payload);
     },
     accept: (status) =>
       status.runtimeStatus === "running" &&
       (!status.serviceVersion ||
         status.serviceVersion === input.expectedVersion),
   });
+}
+
+export function resolveStagingServiceStatus(payload) {
+  const envelope = payload?.payload ?? payload;
+  const localResult = envelope?.localResult;
+  const fullResult = envelope?.result;
+  return {
+    runtimeStatus:
+      localResult?.runtime?.status ??
+      fullResult?.runtime?.status ??
+      envelope?.runtime?.status ??
+      null,
+    serviceVersion:
+      localResult?.state?.daemonVersion ??
+      fullResult?.state?.daemonVersion ??
+      envelope?.runtime?.serviceVersion ??
+      envelope?.environmentTarget?.currentVersion ??
+      null,
+  };
 }
 
 export async function waitForUpdateOperation(input) {
