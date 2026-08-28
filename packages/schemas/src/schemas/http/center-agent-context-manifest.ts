@@ -1,4 +1,4 @@
-import * as z from "zod/v4";
+import * as z from "../../lazy-zod";
 import { centerAgentInteractionSourceSchema } from "../protocol/center-agent-interaction-source";
 
 export const CENTER_AGENT_CONTEXT_MANIFEST_VERSION =

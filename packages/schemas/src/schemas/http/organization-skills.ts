@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
 
@@ -477,7 +478,7 @@ function isSafePortableSkillPath(value: string): boolean {
 }
 
 function readOrganizationSkillFileSize(
-  file: z.infer<typeof organizationSkillFileSchema>
+  file: zod.infer<typeof organizationSkillFileSchema>
 ): number | null {
   if (file.encoding === "utf8") {
     return new TextEncoder().encode(file.content).byteLength;
@@ -490,7 +491,7 @@ function readOrganizationSkillFileSize(
 }
 
 export function stringifyOrganizationSkillBundleCanonicalJson(
-  bundle: z.infer<typeof organizationSkillBundleSchema>
+  bundle: zod.infer<typeof organizationSkillBundleSchema>
 ): string {
   return JSON.stringify(sortOrganizationSkillJson(bundle));
 }

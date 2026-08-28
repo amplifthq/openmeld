@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { CENTER_AGENT_INTERACTION_CLIENT_MAX_CHARS } from "../protocol/center-agent-interaction-source";
 import { MAX_PROFILE_NAME_LENGTH } from "../protocol/constants";
@@ -153,27 +154,29 @@ const routineDestinationShape = {
   targetSpaceId: trimmedIdentifierSchema.nullable().default(null),
 };
 
+const centerAgentRoutineShape = {
+  canManage: z.boolean(),
+  createdAtMs: timestampMsSchema,
+  createdByUserId: trimmedIdentifierSchema,
+  ...routineScheduleShape,
+  ...routineDestinationShape,
+  id: trimmedIdentifierSchema,
+  instructions: z
+    .string()
+    .trim()
+    .min(1)
+    .max(CENTER_AGENT_ROUTINE_INSTRUCTIONS_MAX_CHARS),
+  lastRun: centerAgentRoutineLastRunSummarySchema.nullable(),
+  name: z.string().trim().min(1).max(CENTER_AGENT_ROUTINE_NAME_MAX_CHARS),
+  nextDueAt: timestampMsSchema.nullable(),
+  organizationId: trimmedIdentifierSchema,
+  status: centerAgentRoutineStatusSchema,
+  updatedAtMs: timestampMsSchema,
+  updatedByUserId: trimmedIdentifierSchema,
+};
+
 export const centerAgentRoutineSchema = z
-  .strictObject({
-    canManage: z.boolean(),
-    createdAtMs: timestampMsSchema,
-    createdByUserId: trimmedIdentifierSchema,
-    ...routineScheduleShape,
-    ...routineDestinationShape,
-    id: trimmedIdentifierSchema,
-    instructions: z
-      .string()
-      .trim()
-      .min(1)
-      .max(CENTER_AGENT_ROUTINE_INSTRUCTIONS_MAX_CHARS),
-    lastRun: centerAgentRoutineLastRunSummarySchema.nullable(),
-    name: z.string().trim().min(1).max(CENTER_AGENT_ROUTINE_NAME_MAX_CHARS),
-    nextDueAt: timestampMsSchema.nullable(),
-    organizationId: trimmedIdentifierSchema,
-    status: centerAgentRoutineStatusSchema,
-    updatedAtMs: timestampMsSchema,
-    updatedByUserId: trimmedIdentifierSchema,
-  })
+  .strictObject(centerAgentRoutineShape)
   .superRefine(validateRoutineScheduleAndDestination);
 
 export const centerAgentRoutineCapabilityStateSchema = z.strictObject({
@@ -200,16 +203,18 @@ export const centerAgentRoutineCreationAttributionSchema = z.strictObject({
     centerAgentRoutineCreationInteractionSourceSchema.optional(),
 });
 
+const centerAgentRoutineManagementV1Shape = {
+  ...centerAgentRoutineShape,
+  capabilityState: centerAgentRoutineCapabilityStateSchema,
+};
+
 export const centerAgentRoutineManagementV1Schema = z
-  .strictObject({
-    ...centerAgentRoutineSchema.shape,
-    capabilityState: centerAgentRoutineCapabilityStateSchema,
-  })
+  .strictObject(centerAgentRoutineManagementV1Shape)
   .superRefine(validateRoutineScheduleAndDestination);
 
 export const centerAgentRoutineManagementSchema = z
   .strictObject({
-    ...centerAgentRoutineManagementV1Schema.shape,
+    ...centerAgentRoutineManagementV1Shape,
     creationAttribution: centerAgentRoutineCreationAttributionSchema,
   })
   .superRefine(validateRoutineScheduleAndDestination);
@@ -335,20 +340,21 @@ export const listCenterAgentRoutineTargetSpacesResponseSchema = z.strictObject({
     .max(CENTER_AGENT_ROUTINE_TARGET_SPACE_LIST_MAX_ITEMS),
 });
 
+const createCenterAgentRoutineBodyShape = {
+  authorizedActions: centerAgentRoutineAuthorizedActionsSchema.optional(),
+  externalActionPolicy: centerAgentRoutineExternalActionPolicySchema.optional(),
+  ...routineScheduleShape,
+  ...routineDestinationShape,
+  instructions: z
+    .string()
+    .trim()
+    .min(1)
+    .max(CENTER_AGENT_ROUTINE_INSTRUCTIONS_MAX_CHARS),
+  name: z.string().trim().min(1).max(CENTER_AGENT_ROUTINE_NAME_MAX_CHARS),
+};
+
 export const createCenterAgentRoutineBodySchema = z
-  .strictObject({
-    authorizedActions: centerAgentRoutineAuthorizedActionsSchema.optional(),
-    externalActionPolicy:
-      centerAgentRoutineExternalActionPolicySchema.optional(),
-    ...routineScheduleShape,
-    ...routineDestinationShape,
-    instructions: z
-      .string()
-      .trim()
-      .min(1)
-      .max(CENTER_AGENT_ROUTINE_INSTRUCTIONS_MAX_CHARS),
-    name: z.string().trim().min(1).max(CENTER_AGENT_ROUTINE_NAME_MAX_CHARS),
-  })
+  .strictObject(createCenterAgentRoutineBodyShape)
   .superRefine(validateRoutineScheduleAndDestination);
 
 export const createCenterAgentRoutineResponseSchema = z.strictObject({
@@ -359,9 +365,13 @@ export const centerAgentRoutineMutationLegacyV1ResponseSchema = z.strictObject({
   routine: centerAgentRoutineLegacyV1Schema,
 });
 
-export const centerAgentRoutineRouteParamsSchema = z.strictObject({
+const centerAgentRoutineRouteParamsShape = {
   routineId: trimmedIdentifierSchema,
-});
+};
+
+export const centerAgentRoutineRouteParamsSchema = z.strictObject(
+  centerAgentRoutineRouteParamsShape
+);
 
 const routineUpdateShape = {
   authorizedActions: centerAgentRoutineAuthorizedActionsSchema.optional(),
@@ -488,7 +498,7 @@ export const createCenterAgentRoutineRpcInputSchema = z
   .strictObject({
     ...routineRpcContextShape,
     ...routineRpcContractShape,
-    ...createCenterAgentRoutineBodySchema.shape,
+    ...createCenterAgentRoutineBodyShape,
   })
   .superRefine(validateRoutineScheduleAndDestination);
 
@@ -496,7 +506,7 @@ export const updateCenterAgentRoutineRpcInputSchema = z
   .strictObject({
     ...routineRpcContextShape,
     ...routineRpcContractShape,
-    ...centerAgentRoutineRouteParamsSchema.shape,
+    ...centerAgentRoutineRouteParamsShape,
     ...routineUpdateShape,
   })
   .refine(hasRoutineUpdate, "At least one Routine field must be updated.");
@@ -504,19 +514,19 @@ export const updateCenterAgentRoutineRpcInputSchema = z
 export const pauseCenterAgentRoutineRpcInputSchema = z.strictObject({
   ...routineRpcContextShape,
   ...routineRpcContractShape,
-  ...centerAgentRoutineRouteParamsSchema.shape,
+  ...centerAgentRoutineRouteParamsShape,
 });
 
 export const resumeCenterAgentRoutineRpcInputSchema = z.strictObject({
   ...routineRpcContextShape,
   ...routineRpcContractShape,
-  ...centerAgentRoutineRouteParamsSchema.shape,
+  ...centerAgentRoutineRouteParamsShape,
 });
 
 export const deleteCenterAgentRoutineRpcInputSchema = z.strictObject({
   ...routineRpcContextShape,
   ...routineRpcContractShape,
-  ...centerAgentRoutineRouteParamsSchema.shape,
+  ...centerAgentRoutineRouteParamsShape,
 });
 
 export const listCenterAgentRoutineRunsRpcInputSchema = z.strictObject({
@@ -524,7 +534,7 @@ export const listCenterAgentRoutineRunsRpcInputSchema = z.strictObject({
   ...routineRpcContextShape,
   ...routineRpcContractShape,
   limit: routineRunLimitSchema.optional(),
-  ...centerAgentRoutineRouteParamsSchema.shape,
+  ...centerAgentRoutineRouteParamsShape,
 });
 
 export const centerAgentRoutineToolSpeakerSchema =
@@ -542,31 +552,31 @@ export const centerAgentListRoutinesToolRpcInputSchema = z.strictObject(
 export const centerAgentCreateRoutineToolRpcInputSchema = z
   .strictObject({
     ...routineToolRpcContextShape,
-    ...createCenterAgentRoutineBodySchema.shape,
+    ...createCenterAgentRoutineBodyShape,
   })
   .superRefine(validateRoutineScheduleAndDestination);
 
 export const centerAgentUpdateRoutineToolRpcInputSchema = z
   .strictObject({
     ...routineToolRpcContextShape,
-    ...centerAgentRoutineRouteParamsSchema.shape,
+    ...centerAgentRoutineRouteParamsShape,
     ...routineUpdateShape,
   })
   .refine(hasRoutineUpdate, "At least one Routine field must be updated.");
 
 export const centerAgentDeleteRoutineToolRpcInputSchema = z.strictObject({
   ...routineToolRpcContextShape,
-  ...centerAgentRoutineRouteParamsSchema.shape,
+  ...centerAgentRoutineRouteParamsShape,
 });
 
 export const centerAgentPauseRoutineToolRpcInputSchema = z.strictObject({
   ...routineToolRpcContextShape,
-  ...centerAgentRoutineRouteParamsSchema.shape,
+  ...centerAgentRoutineRouteParamsShape,
 });
 
 export const centerAgentResumeRoutineToolRpcInputSchema = z.strictObject({
   ...routineToolRpcContextShape,
-  ...centerAgentRoutineRouteParamsSchema.shape,
+  ...centerAgentRoutineRouteParamsShape,
 });
 
 function hasRoutineUpdate(value: {
@@ -618,7 +628,7 @@ function validateRoutineScheduleAndDestination(
     targetSpaceId: string | null;
     timezone: string | null;
   },
-  context: z.RefinementCtx
+  context: zod.RefinementCtx
 ): void {
   const recurringScheduleComplete = Boolean(
     value.cronExpression && value.timezone && value.runAtMs === null
@@ -673,7 +683,7 @@ function validateRoutineRunScheduledFor(
     scheduledFor: number;
     status: (typeof CENTER_AGENT_ROUTINE_RUN_STATUSES)[number];
   },
-  context: z.RefinementCtx
+  context: zod.RefinementCtx
 ): void {
   if (
     value.scheduledFor >= 0 ||

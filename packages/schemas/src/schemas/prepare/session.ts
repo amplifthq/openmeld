@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { openMeldProfileIdSchema } from "../daemon/profile-identity";
 import {
   authProfileKindSchema,
@@ -173,7 +174,7 @@ export const prepareStepDiagnosticsBundleSchema = z.object({
   truncated: z.boolean(),
 });
 
-export type PrepareStepDiagnosticsBundle = z.infer<
+export type PrepareStepDiagnosticsBundle = zod.infer<
   typeof prepareStepDiagnosticsBundleSchema
 >;
 

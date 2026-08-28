@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { agentControllerPermissionModeSchema } from "../agent-controller-permission-mode";
 import {
   agentProfileIdSchema,
@@ -63,7 +64,7 @@ const rejectRetiredAgentSnapshotKeysSchema = z
 function validateRuntimeProfileIdForMemberKind(input: {
   profileId: string;
   profileKind: "human" | "agent";
-  ctx: z.core.$RefinementCtx<unknown>;
+  ctx: zod.core.$RefinementCtx<unknown>;
   path: string[];
 }): void {
   const expectedSchema =
@@ -483,7 +484,7 @@ export const leaveSpaceResponseSchema = z.strictObject({
 });
 
 function addSummaryMismatchIssue(input: {
-  ctx: z.core.$RefinementCtx<z.output<typeof spaceMembersSnapshotSchema>>;
+  ctx: zod.core.$RefinementCtx<zod.output<typeof spaceMembersSnapshotSchema>>;
   actual: number;
   expected: number;
   path: string[];
@@ -501,25 +502,25 @@ function addSummaryMismatchIssue(input: {
 }
 
 function isPublicWakeableAgent(
-  agent: z.output<typeof spaceMemberAgentSnapshotSchema>
+  agent: zod.output<typeof spaceMemberAgentSnapshotSchema>
 ): boolean {
   return agent.agentWakeAvailability?.status === "available_for_wake";
 }
 
 function isPublicCheckingAgent(
-  agent: z.output<typeof spaceMemberAgentSnapshotSchema>
+  agent: zod.output<typeof spaceMemberAgentSnapshotSchema>
 ): boolean {
   return agent.agentWakeAvailability?.status === "checking_connection";
 }
 
 function isPublicOfflineAgent(
-  agent: z.output<typeof spaceMemberAgentSnapshotSchema>
+  agent: zod.output<typeof spaceMemberAgentSnapshotSchema>
 ): boolean {
   return agent.agentWakeAvailability?.status === "offline_for_wake";
 }
 
 function isPublicUnavailableAgent(
-  agent: z.output<typeof spaceMemberAgentSnapshotSchema>
+  agent: zod.output<typeof spaceMemberAgentSnapshotSchema>
 ): boolean {
   return agent.agentWakeAvailability?.status === "unavailable_for_wake";
 }
