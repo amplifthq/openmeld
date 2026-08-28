@@ -22,6 +22,20 @@ const MALICIOUS_MARKER_PATTERN = /MALICIOUS_BOOTSTRAP/u;
 const EXPLICIT_BOOTSTRAP_PATTERN = /Control trust: explicit-bootstrap/u;
 const MISSING_BOOTSTRAP_PATTERN =
   /Current main does not contain the trusted Final Candidate bootstrap/u;
+const QUIET_OBSERVER_CASE_PATTERN = /status \| wait/u;
+const QUIET_OBSERVER_PATH_PATTERN = /final-candidate-observer\.mjs/u;
+const LOCAL_READINESS_PATH_PATTERN = /local-final-candidate-readiness\.mjs/u;
+
+test("the trusted first hop exposes quiet status and resource-aware local fallback", () => {
+  const entrypoint = readFileSync(
+    path.join(REPO_ROOT, ENTRYPOINT_PATH),
+    "utf8"
+  );
+
+  assert.match(entrypoint, QUIET_OBSERVER_CASE_PATTERN);
+  assert.match(entrypoint, QUIET_OBSERVER_PATH_PATTERN);
+  assert.match(entrypoint, LOCAL_READINESS_PATH_PATTERN);
+});
 
 test("the guarded local first hop comes from current main, not candidate package scripts", () => {
   const fixture = createEntrypointFixture();

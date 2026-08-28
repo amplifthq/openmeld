@@ -89,6 +89,28 @@ pnpm run release:status -- --ref origin/main \
 Repeat `--deployed` for multiple local releases. The command accepts an
 override only when that commit is an ancestor of the selected ref.
 
+When closing one exact merged change, also pass its exact merge parent:
+
+```sh
+pnpm run release:status -- \
+  --ref <exact-merge-sha> \
+  --change-base <exact-merge-parent-sha>
+```
+
+The result keeps two facts separate:
+
+- `Current-change scopes` are the scopes selected by that exact diff.
+- `Global pending scopes` are older or unrelated deployment backlog visible in
+  GitHub history.
+
+The workflow mapping uses the current-change scopes when `--change-base` is
+present. Without it, the mapping is explicitly global-backlog information.
+Neither form authorizes a release or expands the responsible agent's business
+scope; it prevents an unrelated historical backlog from looking like work this
+merge must deploy. Missing deployment history blocks the current delivery only
+when it belongs to a current-change scope; the same missing fact remains visible
+under the global backlog without changing the scoped command's exit result.
+
 ## Release Scopes
 
 The local release tool accepts these direct scopes:
@@ -867,6 +889,12 @@ change and its handover checklist. Examples:
 - a CLI command fix: run that command through the published `openmeld` lane;
 - an unrelated Worker refactor: confirm its page or public entrypoint and no
   5xx response.
+
+After that exact changed path succeeds once and the visible result plus any
+required trace is recorded, stop. Repeat only after another deployment or
+relevant state change, when the task names another case, or when the smoke
+fails. Repeating an unchanged successful Wake or browser path consumes product,
+machine, and agent capacity without creating new release evidence.
 
 Smoke failure is a release failure. Keep the deployed SHA and diagnostic
 evidence, stop the remaining rollout, and choose a forward fix or explicit

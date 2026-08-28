@@ -152,6 +152,14 @@ environment callback, or no coordination best fits the actual work.
 
 - A background command attached to Codex must redirect standard input explicitly
   with `< /dev/null` so it cannot wait on the agent session.
+- Before starting a heavy local fallback, handing off a worktree, or leaving a
+  localhost stack unattended, inspect bounded machine facts with
+  `pnpm dev:status`. It groups active processes by exact worktree instead of
+  dumping every process into agent context.
+- When this worktree no longer needs its localhost stack, preview its exact
+  owned processes with `pnpm dev:stop -- --dry-run`, then run `pnpm dev:stop`.
+  The command is worktree-scoped. Never stop another worktree merely to create
+  headroom; contact its owner only when measured pressure blocks useful work.
 - Do not ask unrelated agents to freeze `main` while one Final Candidate runs.
   A successful exact PR candidate keeps its immutable evidence. Merge queue owns
   the latest-main combination when available; strict up-to-date protection owns
@@ -1675,6 +1683,10 @@ Validation handoff should include:
 - whether fresh user, stale state, and retry paths were covered when relevant
 - trace or Diagnostic Report pointers when relevant
 - remaining user-visible or agent-visible gaps
+
+Before the handoff, stop only this worktree's no-longer-needed dev stack. Keep
+it running when the handoff explicitly needs live localhost state, and state
+that fact instead of leaving an invisible background owner.
 
 Do not mark a user-facing flow as passed if only internal service calls,
 hand-built API requests, seeded state, or direct DB/projection edits were tested.
