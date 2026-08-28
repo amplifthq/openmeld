@@ -640,6 +640,54 @@ describe("ComputersPage", () => {
 		expect(onComputerRouteUnavailable).toHaveBeenCalledOnce();
 	});
 
+	it("waits for setup-complete reconciliation before choosing a cached Computer", () => {
+		const onComputerRouteResolved = vi.fn();
+		useRefreshComputersAfterSetupCompleteMock.mockReturnValue("pending");
+		useLocalAgentRecoveryControllerMock.mockReturnValue(
+			buildRecoveryControllerStub({
+				connectedDeviceId: "device-office",
+				devices: [OTHER_COMPUTER],
+				isFetchedAfterMount: false,
+				isFetching: true,
+			})
+		);
+
+		const view = render(
+			<TestComputersRouteStateProvider
+				value={{
+					computersSetupCompleteRefresh: true,
+					onComputerRouteResolved,
+				}}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(onComputerRouteResolved).not.toHaveBeenCalled();
+
+		useRefreshComputersAfterSetupCompleteMock.mockReturnValue("ready");
+		useLocalAgentRecoveryControllerMock.mockReturnValue(
+			buildRecoveryControllerStub({
+				connectedDeviceId: "device-current",
+				devices: [CURRENT_COMPUTER, OTHER_COMPUTER],
+				isFetchedAfterMount: true,
+			})
+		);
+		view.rerender(
+			<TestComputersRouteStateProvider
+				value={{
+					computersSetupCompleteRefresh: true,
+					onComputerRouteResolved,
+				}}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(onComputerRouteResolved).toHaveBeenCalledOnce();
+		expect(onComputerRouteResolved).toHaveBeenCalledWith("device-current");
+	});
+
 	it("renders a computer detail from the selected device route state", () => {
 		render(
 			<TestComputersRouteStateProvider

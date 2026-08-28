@@ -128,24 +128,26 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	const canResolvePreferredDeviceRoute =
 		preferredDeviceId !== null &&
 		devices.some((device) => device.deviceId === preferredDeviceId);
+	const inventoryIsSettled =
+		!(
+			recovery.localRuntimesQuery.isPending ||
+			recovery.localRuntimesQuery.isFetching
+		) &&
+		recovery.localRuntimesQuery.isFetchedAfterMount &&
+		!recovery.localRuntimesQuery.isError &&
+		setupCompleteRefreshStatus !== "pending" &&
+		setupCompleteRefreshStatus !== "error";
 
 	useResolvePreferredComputerRoute({
 		canResolvePreferredDeviceRoute,
+		inventoryIsSettled,
 		onComputerRouteResolved: routeState.onComputerRouteResolved,
 		preferredDeviceId,
 		shouldResolve: selectedDeviceId === null,
 	});
 	useResolveMissingComputerRoute({
 		canResolvePreferredDeviceRoute,
-		inventoryIsSettled:
-			!(
-				recovery.localRuntimesQuery.isPending ||
-				recovery.localRuntimesQuery.isFetching
-			) &&
-			recovery.localRuntimesQuery.isFetchedAfterMount &&
-			!recovery.localRuntimesQuery.isError &&
-			setupCompleteRefreshStatus !== "pending" &&
-			setupCompleteRefreshStatus !== "error",
+		inventoryIsSettled,
 		onComputerRouteUnavailable: routeState.onComputerRouteUnavailable,
 		preferredDeviceId,
 		shouldResolve: selectedDeviceId === null,
@@ -302,6 +304,7 @@ function ComputersPageBody(input: {
 // detail panel consumes focus.
 function useResolvePreferredComputerRoute(input: {
 	canResolvePreferredDeviceRoute: boolean;
+	inventoryIsSettled: boolean;
 	onComputerRouteResolved?: (deviceId: string) => void;
 	preferredDeviceId: string | null;
 	shouldResolve: boolean;
@@ -309,6 +312,7 @@ function useResolvePreferredComputerRoute(input: {
 	useEffect(() => {
 		if (
 			input.shouldResolve &&
+			input.inventoryIsSettled &&
 			input.preferredDeviceId &&
 			input.canResolvePreferredDeviceRoute
 		) {
@@ -316,6 +320,7 @@ function useResolvePreferredComputerRoute(input: {
 		}
 	}, [
 		input.canResolvePreferredDeviceRoute,
+		input.inventoryIsSettled,
 		input.onComputerRouteResolved,
 		input.preferredDeviceId,
 		input.shouldResolve,
