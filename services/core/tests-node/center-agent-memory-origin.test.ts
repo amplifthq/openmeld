@@ -102,6 +102,89 @@ describe("explicit organization memory origin", () => {
     });
   });
 
+  it.each([
+    {
+      interactionEnvironment: "requester_private" as const,
+      isCenterAgentDm: true,
+      label: "private Web DM",
+      trigger: { source: "web_dm" as const },
+    },
+    {
+      interactionEnvironment: "requester_private" as const,
+      isCenterAgentDm: false,
+      label: "private Slack DM",
+      trigger: {
+        conversationId: "slack:T123:D123:1700000000.000001",
+        source: "slack" as const,
+      },
+    },
+    {
+      interactionEnvironment: "requester_private" as const,
+      isCenterAgentDm: false,
+      label: "private Lark DM",
+      trigger: {
+        connectionId: "connection_1",
+        conversationId: "lark:connection_1:chat_1:root_message_1",
+        provider: "lark" as const,
+        source: "message_channel" as const,
+      },
+    },
+    {
+      interactionEnvironment: "requester_private" as const,
+      isCenterAgentDm: false,
+      label: "private Feishu DM",
+      trigger: {
+        connectionId: "connection_1",
+        conversationId: "feishu:connection_1:chat_1:root_message_1",
+        provider: "feishu" as const,
+        source: "message_channel" as const,
+      },
+    },
+    {
+      interactionEnvironment: "externally_shared" as const,
+      isCenterAgentDm: false,
+      label: "externally shared channel",
+      trigger: {
+        connectionId: "connection_1",
+        conversationId: "feishu:connection_1:chat_1:root_message_1",
+        provider: "feishu" as const,
+        source: "message_channel" as const,
+      },
+    },
+  ])("rejects an explicit Organization memory save from a $label", ({
+    interactionEnvironment,
+    isCenterAgentDm,
+    trigger,
+  }) => {
+    const baseEnvelope = createTurnEnvelope({
+      spaceId: "conversation_1",
+      trigger,
+    });
+    const turnEnvelope: RemoteAgentTurnEnvelope = {
+      ...baseEnvelope,
+      interactionEnvironment,
+      space: {
+        ...baseEnvelope.space,
+        isCenterAgentDm,
+        kind: isCenterAgentDm ? "dm" : baseEnvelope.space.kind,
+      },
+    };
+
+    expect(() =>
+      resolveExplicitMemoryEpisodeOrigin({
+        createdAtMs: 1200,
+        expectedOrganizationId: "org_1",
+        expectedProfileId: "agent_1",
+        organizationId: "org_1",
+        profileId: "agent_1",
+        sourceMessageId: "message_1",
+        turnEnvelope,
+      })
+    ).toThrow(
+      "Explicit Organization memory requires an organization-shared conversation"
+    );
+  });
+
   it("fails closed when a Routine has no original conversation source", () => {
     const turnEnvelope = createTurnEnvelope({
       spaceId: "space_publication_destination",
@@ -168,6 +251,7 @@ function createTurnEnvelope(input: {
       name: "OpenMeld",
       personal: false,
     },
+    interactionEnvironment: "organization_shared",
     sender: {
       displayName: "Maya",
       id: "member_1",

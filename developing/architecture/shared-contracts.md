@@ -2748,7 +2748,10 @@ The explicit-save tool is a capture method, not a conversation source. Core
 resolves its source from the stored, Core-originated native-delivery request and
 keeps the existing tool response's `explicit_tool` value only as the operation
 description. Model-facing text marks an explicitly saved fact without replacing
-its DM, Space, Slack, Lark, or Feishu source.
+its Space, Slack, Lark, or Feishu source. Core accepts the tool only for a
+non-conflicting frozen `organization_shared` environment at the write boundary.
+Requester-private and externally shared turns fail closed even if an old or
+compromised worker attempts the RPC.
 
 A cross-boundary memory write must carry a verified speaker-member projection or
 resolve it through an owning identity contract. Native-delivery callback code
