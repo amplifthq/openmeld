@@ -33,6 +33,7 @@ import {
   resolveRemoteAgentCompactionReserveTokens,
   resolveRemoteAgentProviderContextCapacity,
 } from "./provider-context-capacity";
+import { retryCompletedEmptyAssistantStreamOnce } from "./provider-stream-retry";
 import { createRemoteAgentSqlStorage } from "./storage";
 
 const OPENROUTER_MODEL_METADATA_BASE_URL = "https://openrouter.ai/api/v1/model";
@@ -687,30 +688,46 @@ function registerRemoteAgentModelCapabilitiesApi(): void {
       const capabilities = registeredRemoteAgentModelCapabilities.get(
         model.provider
       );
-      return base.stream(
-        declareRemoteAgentModelCapabilities(model),
-        context,
+      const resolvedModel = declareRemoteAgentModelCapabilities(model);
+      const resolvedOptions =
         withRemoteAgentProviderObservabilityAndSessionAffinity(
           options,
           capabilities?.reportStage,
           capabilities?.contextCapacity
-        )
-      );
+        );
+      return retryCompletedEmptyAssistantStreamOnce({
+        createAttempt: () =>
+          base.stream(resolvedModel, context, resolvedOptions),
+        onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
+        signal: resolvedOptions?.signal,
+      });
     },
     streamSimple: (model, context, options) => {
       const capabilities = registeredRemoteAgentModelCapabilities.get(
         model.provider
       );
-      return base.streamSimple(
-        declareRemoteAgentModelCapabilities(model),
-        context,
+      const resolvedModel = declareRemoteAgentModelCapabilities(model);
+      const resolvedOptions =
         withRemoteAgentProviderObservabilityAndSessionAffinity(
           options,
           capabilities?.reportStage,
           capabilities?.contextCapacity
-        )
-      );
+        );
+      return retryCompletedEmptyAssistantStreamOnce({
+        createAttempt: () =>
+          base.streamSimple(resolvedModel, context, resolvedOptions),
+        onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
+        signal: resolvedOptions?.signal,
+      });
     },
+  });
+}
+
+function logCompletedEmptyProviderRetry(modelId: string): void {
+  console.warn("[remote_agent.provider.completed_empty_retry]", {
+    event: "remote_agent.provider.completed_empty_retry",
+    modelId,
+    submissionId: getRemoteAgentExecutionSubmissionId(),
   });
 }
 
