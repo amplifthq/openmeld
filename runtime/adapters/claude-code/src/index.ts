@@ -6,6 +6,8 @@ import {
   type AdapterDispatchTelemetry,
   type AdapterInterruptRequest,
   type AdapterInterruptSignal,
+  type AdapterPermissionModeUpdateRequest,
+  type AdapterPermissionModeUpdateResult,
   type AdapterPreviewCallback,
   type AdapterRuntimeProcessEvent,
   type AdapterTransportMode,
@@ -30,6 +32,7 @@ import type {
   ClaudeAgentSdkQueryRegistration,
   ClaudeCodeTransportKind,
 } from "./transport/claude-agent-sdk-transport.js";
+import { resolveClaudePermissionMode } from "./transport/claude-permission-policy.js";
 
 export type ClaudeCodeInvokeResult = {
   contextDelta?: AdapterDispatchContextDelta;
@@ -108,17 +111,27 @@ const CLAUDE_CODE_CONVERSATION_BRIDGE_SPEC =
 const EXPECTED_FORCE_CLOSE_INTERRUPT_ERROR_RE =
   /query closed before response received/i;
 
+type ActiveClaudeAgentSdkQuery = {
+  permissionModeUpdatesAllowed: boolean;
+  query: ClaudeAgentSdkActiveQuery;
+};
+
 export const createClaudeCodeAdapter = (
   options: ClaudeCodeAdapterOptions
 ): RuntimeAdapter => {
-  const activeAgentSdkQueries = new Map<string, ClaudeAgentSdkActiveQuery>();
+  const activeAgentSdkQueries = new Map<string, ActiveClaudeAgentSdkQuery>();
   const registerAgentSdkQuery: ClaudeAgentSdkQueryRegistration = ({
+    permissionModeUpdatesAllowed,
     query,
     taskId,
   }) => {
-    activeAgentSdkQueries.set(taskId, query);
+    const activeQuery = {
+      permissionModeUpdatesAllowed,
+      query,
+    };
+    activeAgentSdkQueries.set(taskId, activeQuery);
     return () => {
-      if (activeAgentSdkQueries.get(taskId) === query) {
+      if (activeAgentSdkQueries.get(taskId) === activeQuery) {
         activeAgentSdkQueries.delete(taskId);
       }
     };
@@ -128,7 +141,7 @@ export const createClaudeCodeAdapter = (
     if (activeQuery) {
       if (signal.mode === "force") {
         Promise.resolve()
-          .then(() => activeQuery.interrupt())
+          .then(() => activeQuery.query.interrupt())
           .catch((error) => {
             if (isExpectedForceCloseInterruptError(error)) {
               return;
@@ -141,11 +154,11 @@ export const createClaudeCodeAdapter = (
               }
             );
           });
-        activeQuery.close();
+        activeQuery.query.close();
         return;
       }
 
-      await activeQuery.interrupt();
+      await activeQuery.query.interrupt();
       return;
     }
 
@@ -167,6 +180,45 @@ export const createClaudeCodeAdapter = (
     sendInterrupt,
     waitForMs: options.waitForMs,
   });
+  const updatePermissionMode = async (
+    input: AdapterPermissionModeUpdateRequest
+  ): Promise<AdapterPermissionModeUpdateResult> => {
+    if (!input.agentControllerPermissionMode.startsWith("claude-code:")) {
+      return {
+        reasonCode: "adapter.permission_mode_incompatible",
+        status: "not_applied",
+        taskId: input.taskId,
+      };
+    }
+
+    const activeQuery = activeAgentSdkQueries.get(input.taskId);
+    if (!activeQuery) {
+      return {
+        reasonCode: "adapter.task_not_active",
+        status: "not_applied",
+        taskId: input.taskId,
+      };
+    }
+
+    if (!activeQuery.permissionModeUpdatesAllowed) {
+      return {
+        reasonCode: "adapter.permission_mode_update_unsupported",
+        status: "not_applied",
+        taskId: input.taskId,
+      };
+    }
+
+    await activeQuery.query.setPermissionMode(
+      resolveClaudePermissionMode({
+        agentControllerPermissionMode: input.agentControllerPermissionMode,
+      })
+    );
+    return {
+      effectiveFrom: "subsequent_tool_requests",
+      status: "applied",
+      taskId: input.taskId,
+    };
+  };
   const dispatch = createSharedDispatchShell({
     adapterId: "claude-code",
     bridgeSpec: CLAUDE_CODE_CONVERSATION_BRIDGE_SPEC,
@@ -186,6 +238,7 @@ export const createClaudeCodeAdapter = (
     cancel: controlShell.cancel,
     dispatch,
     interrupt: controlShell.interrupt,
+    updatePermissionMode,
   };
 };
 

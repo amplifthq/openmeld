@@ -1324,7 +1324,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			queryKey: organizationQueryKeys.all,
 		});
 		expect(toastMock.success).toHaveBeenCalledWith(
-			"Settings saved for Research Agent. This computer must sync the changes before new work starts. Work already running keeps its current settings."
+			"Settings saved for Research Agent. This computer must sync the changes before new work starts. Permission mode changes can also reach running sessions when the local agent supports live updates."
 		);
 	});
 

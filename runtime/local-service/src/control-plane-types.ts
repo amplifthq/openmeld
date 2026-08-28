@@ -4,6 +4,7 @@ import type {
   AgentControllerProcessSignalTarget,
 } from "@openmeld/adapter-core";
 import type {
+  AgentControllerPermissionMode,
   OpenMeldDaemonControlPlaneRequest,
   OpenMeldDaemonControlPlaneResponse,
   OpenMeldDaemonControlTargetSelector,
@@ -11,10 +12,12 @@ import type {
 
 export type InflightTaskControlRecord = {
   adapterId: string;
+  agentControllerPermissionMode: AgentControllerPermissionMode | null;
   dispatchId: string;
   processId: number | null;
   runtimeCoordinatorExecutionId: string | null;
   signalTarget: AgentControllerProcessSignalTarget | null;
+  targetProfileId: string | null;
   taskId: string;
   updatedAt: string;
 };

@@ -811,6 +811,30 @@ local Agent Controller adapter.
   can roll back independently because it does not own Binding or execution
   truth. Never delete or rewrite legacy Binding rows as a rollback shortcut.
 
+#### Live permission-mode reconciliation
+
+Live permission-mode reconciliation changes the CLI-carried local Service and
+the process-internal `RuntimeAdapter` contract. It reuses the existing
+`daemon.route_catalog.changed` signal, expected-routes projection, Binding
+schema, Wake dispatch frame, Agent Interaction response path, and diagnostics
+transport; it adds no cloud-to-Service frame or shared schema field.
+
+- Old cloud can talk to the new local component because Core already sends the
+  catalog invalidation and canonical expected routes. New cloud can talk to an
+  old local component because the old Service keeps the established
+  future-work-only behavior. Mixed versions remain safe and explicit.
+- The new local component applies a mode to an active task only after a
+  controller adapter acknowledges native support. Unsupported providers and
+  modes keep the starting mode and do not block catalog convergence, existing
+  Wake work, setup, status, Space Actions, trace, or diagnostics.
+- No Runtime Transport epoch, OpenMeld Service contract, CLI command contract,
+  or shared schema constant changes. At publication time, stamp the touched
+  CLI/Service artifact as advisory `available`; no cloud deploy order or forced
+  local update is required.
+- Rollback removes the local live-update capability and returns to the previous
+  future-work-only behavior. It must not rewrite Binding state, active Wake
+  state, or pending Agent Interactions.
+
 ### Local Agent Interaction Contract Impact Audit
 
 The local Agent Interaction rollout changes shared HTTP/RPC/WebSocket schemas,

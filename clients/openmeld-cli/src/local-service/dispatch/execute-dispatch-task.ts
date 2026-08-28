@@ -959,8 +959,11 @@ export async function handleDispatchDeliverFrame(input: {
   let firstOutputEvidenceSent = false;
   input.inflightTaskControlRegistry.registerTask({
     adapterId: runtimeControllerSupport.runtimeAdapterMatch.adapterId,
+    agentControllerPermissionMode:
+      routeConfig?.agentControllerPermissionMode ?? null,
     dispatchId: parsedTask.dispatchId,
     runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+    targetProfileId: parsedTask.targetProfileId,
     taskId: parsedTask.taskId,
   });
   const runtimeStartedAtMs = Date.now();

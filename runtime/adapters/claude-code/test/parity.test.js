@@ -158,7 +158,13 @@ const createFakeClaudeAgentQueryFactory = (input) => {
       },
       setMaxThinkingTokens: () => Promise.resolve(),
       setModel: () => Promise.resolve(),
-      setPermissionMode: () => Promise.resolve(),
+      setPermissionMode: (permissionMode) => {
+        captured.permissionModes = [
+          ...(captured.permissionModes ?? []),
+          permissionMode,
+        ];
+        return Promise.resolve();
+      },
       get closed() {
         return closed;
       },
@@ -214,6 +220,134 @@ test("claude cli transport maps denied tool-use result to public runtime permiss
     );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("claude adapter applies a saved permission mode to an active Agent SDK query", async () => {
+  const { createClaudeCodeAdapter } = await import("../dist/index.js");
+  const dispatchDir = await mkdtemp(join(tmpdir(), "claude-sdk-dispatch-"));
+  const captured = {};
+  let markStarted;
+  let releaseQuery;
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
+  const queryReleased = new Promise((resolve) => {
+    releaseQuery = resolve;
+  });
+
+  try {
+    const adapter = createClaudeCodeAdapter({
+      launchContract: {
+        kind: "executable",
+        commandPath: process.execPath,
+      },
+      claudeTimeoutMs: 5000,
+      createAgentSdkQuery: createFakeClaudeAgentQueryFactory({
+        captured,
+        messages: [],
+        onBeforeMessages: async () => {
+          await queryReleased;
+        },
+        onStarted: () => {
+          markStarted();
+        },
+      }),
+    });
+    const dispatchPromise = adapter.dispatch({
+      agentId: "agt-live-permission-mode",
+      agentControllerPermissionMode: "claude-code:default",
+      prompt: "review this repository",
+      runtimeContext: createRuntimeContext(dispatchDir),
+      sourceEventId: "evt-live-permission-mode",
+      spaceId: "space-1",
+      taskId: "task-live-permission-mode",
+    });
+
+    await started;
+    try {
+      const result = await adapter.updatePermissionMode({
+        agentControllerPermissionMode: "claude-code:auto",
+        taskId: "task-live-permission-mode",
+      });
+
+      assert.deepEqual(result, {
+        effectiveFrom: "subsequent_tool_requests",
+        status: "applied",
+        taskId: "task-live-permission-mode",
+      });
+      assert.deepEqual(captured.permissionModes, ["auto"]);
+    } finally {
+      releaseQuery();
+      await dispatchPromise;
+    }
+  } finally {
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("claude adapter keeps temporary Plan mode for an active repair query", async () => {
+  const { createClaudeCodeAdapter } = await import("../dist/index.js");
+  const dispatchDir = await mkdtemp(join(tmpdir(), "claude-sdk-dispatch-"));
+  const captured = {};
+  let markStarted;
+  let releaseQuery;
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
+  const queryReleased = new Promise((resolve) => {
+    releaseQuery = resolve;
+  });
+
+  try {
+    const adapter = createClaudeCodeAdapter({
+      launchContract: {
+        kind: "executable",
+        commandPath: process.execPath,
+      },
+      claudeTimeoutMs: 5000,
+      createAgentSdkQuery: createFakeClaudeAgentQueryFactory({
+        captured,
+        messages: [],
+        onBeforeMessages: async () => {
+          await queryReleased;
+        },
+        onStarted: () => {
+          markStarted();
+        },
+      }),
+    });
+    const dispatchPromise = adapter.dispatch({
+      agentControllerConversationId: "claude-repair-session",
+      agentControllerPermissionMode: "claude-code:default",
+      agentId: "agt-repair-permission-mode",
+      executionMode: "repair",
+      prompt: "repair a structured Space action",
+      runtimeContext: createRuntimeContext(dispatchDir),
+      sourceEventId: "evt-repair-permission-mode",
+      spaceId: "space-1",
+      taskId: "task-repair-permission-mode",
+    });
+
+    await started;
+    try {
+      const result = await adapter.updatePermissionMode({
+        agentControllerPermissionMode: "claude-code:auto",
+        taskId: "task-repair-permission-mode",
+      });
+
+      assert.deepEqual(result, {
+        reasonCode: "adapter.permission_mode_update_unsupported",
+        status: "not_applied",
+        taskId: "task-repair-permission-mode",
+      });
+      assert.deepEqual(captured.permissionModes ?? [], []);
+    } finally {
+      releaseQuery();
+      await dispatchPromise;
+    }
+  } finally {
     await rm(dispatchDir, { force: true, recursive: true });
   }
 });

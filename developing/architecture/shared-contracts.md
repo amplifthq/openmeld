@@ -4873,6 +4873,18 @@ client, Gateway/Core write path, route catalog projection, daemon cache, and
 local adapter invocation. The dispatch queue must not duplicate the setting; it
 freezes only the owning `bindingId` and monotonic `configurationRevision`.
 
+An active-session permission update is a process-internal `RuntimeAdapter`
+capability, not a second permission source or a new cloud-to-Service command.
+The Service reacts to the existing canonical route-catalog change, compares
+that projected mode with its in-flight task record, and asks the matching
+adapter to update the active controller session. Only an explicit `applied`
+acknowledgement advances the task record, and its stable meaning is
+`subsequent_tool_requests`. `not_applied` must distinguish an inactive task,
+controller-incompatible value, and unsupported live update. The adapter
+capability must never approve or deny an already-pending Agent Interaction,
+change repair-only constraints, or imply that the accepted Binding revision was
+rewritten.
+
 The shared runtime resolver owns the native catalog values. Claude Code values
 mirror `claude --permission-mode`: `claude-code:default`,
 `claude-code:acceptEdits`, `claude-code:plan`, `claude-code:auto`,

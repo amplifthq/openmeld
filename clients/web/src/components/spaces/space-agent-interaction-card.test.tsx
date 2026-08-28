@@ -112,7 +112,7 @@ describe("SpaceAgentInteractionCard", () => {
 
 		expect(
 			screen.getByText(
-				"This changes future work only. Respond to this request separately to continue the current Wake."
+				"New permission settings can affect later tool requests in this Wake when the local agent supports live updates. This request was already waiting, so respond to it separately."
 			)
 		).toBeTruthy();
 		fireEvent.click(
