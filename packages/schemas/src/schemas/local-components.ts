@@ -1,5 +1,5 @@
 import type * as zod from "zod/v4";
-import * as z from "../lazy-zod";
+import * as z from "../lazy-zod.ts";
 
 export const LOCAL_COMPONENTS_SCHEMA_VERSION = 1 as const;
 
