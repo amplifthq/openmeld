@@ -103,7 +103,6 @@ async function executeStagingComputerUpdateSmoke(input) {
   );
   input.lifecycle.smokeHomeCreated = true;
   await runStagingSetup(input);
-  input.lifecycle.stagingComputerConnected = true;
   assertCliVersion({
     expectedVersion: baselineManifest.version,
     sensitiveValues: input.sensitiveValues,
@@ -112,6 +111,7 @@ async function executeStagingComputerUpdateSmoke(input) {
     expectedVersion: baselineManifest.version,
     sensitiveValues: input.sensitiveValues,
   });
+  input.lifecycle.stagingComputerConnected = true;
   pass("Canary Computer connected", baselineManifest.version);
 
   runCommand({
@@ -235,6 +235,21 @@ async function cleanupStagingComputerUpdateSmoke(input) {
   }
   return new AggregateError(
     [...(input.runFailure ? [input.runFailure] : []), ...cleanupFailures],
-    `Staging smoke cleanup needs help. Preserved files remain at ${input.runRoot}.`
+    formatStagingSmokeCleanupMessage({
+      runFailure: input.runFailure,
+      runRoot: input.runRoot,
+    })
   );
+}
+
+export function formatStagingSmokeCleanupMessage(input) {
+  const runFailure = toErrorMessage(input.runFailure);
+  return `${runFailure ? `Staging smoke failed: ${runFailure} ` : ""}Cleanup also needs help. Preserved files remain at ${input.runRoot}.`;
+}
+
+function toErrorMessage(error) {
+  if (error instanceof Error) {
+    return error.message.trim();
+  }
+  return String(error ?? "").trim();
 }
