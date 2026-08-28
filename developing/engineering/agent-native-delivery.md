@@ -237,6 +237,12 @@ Anything not run, with reason
 
 ## Development Infrastructure Feedback
 
+Task collaboration uses focused, agent-chosen `[OpenMeld Dev]` Spaces only when
+they help the actual work. Follow
+[OpenMeld Development Collaboration](development-workflow.md#openmeld-development-collaboration)
+for Space naming, CLI-only handoffs, optional membership and Wake, and native
+environment callbacks. The feedback Space below has a different purpose.
+
 Report reusable CI/CD, Wake testing, release, or agent-worker friction to the
 non-interactive Space:
 
