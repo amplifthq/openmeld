@@ -68,6 +68,11 @@ the correct owner document. Do not migrate raw logs or long historical notes.
 
 ### Parallelism Discipline
 
+- One pull request, branch, or production scope has one execution owner.
+  Non-owners do not touch its labels, candidate runs, commits, merge, release,
+  or smoke. Default to silence unless a newly observed conflict changes that
+  owner's next safe action; follow the quiet-ownership contract in
+  `agent-native-delivery.md`.
 - Before editing, every agent lane declares its planned file surface and checks
   it against every in-flight lane. An intersection requires one explicit owner
   or an agreed sequence before either lane edits the overlap; a newly discovered
