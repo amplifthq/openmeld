@@ -2268,7 +2268,13 @@ but not trigger.
    execution record and reuses the idempotent callback path. Failed, aborted,
    or cancellation-winning executions never retain a completed answer. During
    rollout, a legacy `completed` record with no recoverable answer is repaired
-   to an explicit failure instead of remaining a false terminal success.
+   to an explicit failure instead of remaining a false terminal success. Every
+   callback producer must use the terminal compare-and-set winner, including
+   when its own success, failure, or cancellation attempt loses the race.
+   Reconciliation overwrites a conflicting undelivered callback projection from
+   the owner's exact normalized answer, but never trusts callback-only text to
+   fill a missing owner answer. Both the terminal repair and its callback
+   projection are repeatable after a restart and remain idempotent at Core.
 4. **Presence is honest and Core-owned.** Core is itself the deliverer, so
    remote-runtime health is first-party state, not inferred evidence — no
    `remote_runtime` evidence channel, no daemon-style readiness chain. But

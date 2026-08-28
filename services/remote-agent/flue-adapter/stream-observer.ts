@@ -9,6 +9,7 @@ import {
   buildRemoteAgentUsageRecord,
   handleRemoteAgentChatResponse,
   REMOTE_AGENT_CALLBACK_CONTEXT_WAIT_MS,
+  type RemoteAgentAssistantCompletionResult,
   type RemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
@@ -18,6 +19,7 @@ import {
   buildRemoteAgentExecutionIdentity,
   completeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
+  resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
 import { normalizeFluePromptUsage } from "../agent-core/usage";
@@ -415,38 +417,19 @@ async function handleCenterAgentPromptCompletion(input: {
     streamPublisher: input.streamPublisher,
     submissionId,
   });
-  const cancelled = settledExecution?.status === "aborted";
-  const resultStatus = resolveRemoteAgentPromptResultStatus({
-    cancelled,
-    isError: input.event.isError,
+  const result = await resolveAuthoritativeRemoteAgentPromptResult({
+    assistantText,
+    event: input.event,
+    executionIdentity,
+    settledExecution,
+    storage,
+    usage,
   });
-  const failureReasonCode = input.event.isError
-    ? classifyRemoteAgentTurnFailure({
-        error: input.event.error,
-        errorInfo: input.event.errorInfo,
-      }).reasonCode
-    : undefined;
   let completed: RemoteAgentCallbackContext | null = null;
   try {
     completed = await handleRemoteAgentChatResponse({
       coreWorker,
-      result: {
-        continuation: false,
-        error: input.event.isError
-          ? {
-              error: input.event.error,
-              errorInfo: input.event.errorInfo,
-            }
-          : undefined,
-        ...(failureReasonCode ? { failureReasonCode } : {}),
-        message: {
-          parts: [{ text: assistantText, type: "text" }],
-        },
-        modelId: extractModelId(input.event),
-        requestId: submissionId,
-        status: resultStatus,
-        usage,
-      },
+      result,
       storage,
     });
     if (completed?.lastUsage) {
@@ -465,6 +448,7 @@ async function handleCenterAgentPromptCompletion(input: {
       completed,
       env,
       event: input.event,
+      result,
       submissionId,
     });
     const cleanup = closeRemoteAgentStream({
@@ -483,6 +467,100 @@ async function handleCenterAgentPromptCompletion(input: {
       await cleanup;
     }
   }
+}
+
+async function resolveAuthoritativeRemoteAgentPromptResult(input: {
+  assistantText: string;
+  event: FlueObservation & { operationKind: "prompt"; type: "operation" };
+  executionIdentity: ReturnType<
+    typeof buildRemoteAgentExecutionIdentity
+  > | null;
+  settledExecution: Awaited<
+    ReturnType<typeof completeRemoteAgentExecutionState>
+  >;
+  storage: RemoteAgentStorage;
+  usage: ReturnType<typeof normalizeFluePromptUsage>;
+}): Promise<RemoteAgentAssistantCompletionResult> {
+  const eventFailureReasonCode = input.event.isError
+    ? classifyRemoteAgentTurnFailure({
+        error: input.event.error,
+        errorInfo: input.event.errorInfo,
+      }).reasonCode
+    : undefined;
+  const modelId = extractModelId(input.event);
+  const requestId = resolveRemoteAgentObservationSubmissionId(
+    input.event.submissionId
+  );
+  if (!(input.executionIdentity && input.settledExecution)) {
+    return {
+      continuation: false,
+      error: new Error("Remote Agent execution owner is missing."),
+      failureReasonCode:
+        REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_NOT_COMPLETED,
+      message: { parts: [] },
+      modelId,
+      requestId,
+      status: "error",
+      usage: input.usage,
+    };
+  }
+  const outcome = await resolveRemoteAgentTerminalExecutionOutcome({
+    execution: input.settledExecution,
+    identity: input.executionIdentity,
+    nowMs: parseObservationTimestamp(input.event.timestamp),
+    storage: input.storage,
+  });
+  if (!outcome) {
+    return {
+      continuation: false,
+      error: new Error("Remote Agent execution has no terminal owner state."),
+      failureReasonCode:
+        REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_NOT_COMPLETED,
+      message: { parts: [] },
+      modelId,
+      requestId,
+      status: "error",
+      usage: input.usage,
+    };
+  }
+  if (outcome.status === "completed") {
+    return {
+      continuation: false,
+      message: {
+        parts: [{ text: outcome.completedText, type: "text" }],
+      },
+      modelId,
+      requestId,
+      status: "completed",
+      usage: input.usage,
+    };
+  }
+  if (outcome.status === "aborted") {
+    return {
+      continuation: false,
+      error: new Error("Remote Agent execution was cancelled."),
+      failureReasonCode: REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_FAILED,
+      message: { parts: [] },
+      modelId,
+      requestId,
+      status: "aborted",
+      usage: input.usage,
+    };
+  }
+  return {
+    continuation: false,
+    error: input.event.isError
+      ? { error: input.event.error, errorInfo: input.event.errorInfo }
+      : new Error("Remote Agent execution failed before its callback."),
+    failureReasonCode:
+      eventFailureReasonCode ??
+      REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_NOT_COMPLETED,
+    message: { parts: [] },
+    modelId,
+    requestId,
+    status: "error",
+    usage: input.usage,
+  };
 }
 
 async function settleRemoteAgentPromptExecution(input: {
@@ -602,36 +680,33 @@ function resolveRemoteAgentToolProgressKind(
   return "tool_completed";
 }
 
-function resolveRemoteAgentPromptResultStatus(input: {
-  cancelled: boolean;
-  isError: boolean;
-}): "aborted" | "completed" | "error" {
-  if (input.cancelled) {
-    return "aborted";
-  }
-  return input.isError ? "error" : "completed";
-}
-
 function emitRemoteAgentTurnCompletionEvidence(input: {
   completed: RemoteAgentCallbackContext | null;
   env: CloudflareBindings;
   event: FlueObservation & { operationKind: "prompt"; type: "operation" };
+  result: Pick<
+    RemoteAgentAssistantCompletionResult,
+    "failureReasonCode" | "status"
+  >;
   submissionId: string;
 }): void {
   let failure: {
     errorName: string;
     reasonCode: RemoteAgentRuntimeEvidenceOutcomeReasonCode;
   } | null = null;
-  if (input.event.isError) {
+  if (input.result.status === "error" && input.event.isError) {
     failure = classifyRemoteAgentTurnFailure({
       error: input.event.error,
       errorInfo: input.event.errorInfo,
     });
-  } else if (input.completed?.terminalFailureFact) {
+  } else if (input.result.status !== "completed") {
+    const terminalFailureFact = input.completed?.terminalFailureFact;
     failure = {
       errorName: "RemoteAgentTurnFailure",
       reasonCode: normalizeTerminalTurnFailureReasonCode(
-        input.completed.terminalFailureFact.code
+        input.result.failureReasonCode ??
+          terminalFailureFact?.code ??
+          "remote_agent.turn_not_completed"
       ),
     };
   }

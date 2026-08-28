@@ -1836,6 +1836,12 @@ text. Callback context receives the same answer as a recoverable delivery
 projection; an instance restart may repopulate it from the execution record and
 retry the ordinary Core callback. Partial stream text, failed execution,
 cancellation, and observability records cannot become this answer authority.
+Every observer and reconciliation path derives its callback from the terminal
+compare-and-set winner. A stale or conflicting callback-context answer is
+replaced by the execution record's exact normalized answer before publication;
+a legacy callback-only answer cannot repair a completed execution that has no
+owner answer. That invalid legacy owner state is durably changed to failure,
+and either side of a restart can repeat the same explicit-failure projection.
 
 The active Space Wake read model may project an accepted native delivery as
 `running` only before Core has received its terminal callback and before final

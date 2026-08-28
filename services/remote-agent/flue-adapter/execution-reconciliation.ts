@@ -13,9 +13,8 @@ import {
 } from "../agent-core/callback-context";
 import {
   completeRemoteAgentExecutionState,
-  readRemoteAgentCompletedExecutionAnswer,
   readRemoteAgentExecutionState,
-  repairRemoteAgentCompletedExecutionWithoutAnswer,
+  resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
 
 export type FlueSubmissionLifecycle = {
@@ -87,35 +86,18 @@ export async function reconcileRemoteAgentExecution(input: {
   if (current.status !== "found") {
     return current;
   }
-  if (current.execution.status === "completed") {
-    const answerAvailable = await replayDurableCompletedAnswer({
+  if (
+    current.execution.status === "completed" ||
+    current.execution.status === "failed" ||
+    current.execution.status === "aborted"
+  ) {
+    await projectRemoteAgentTerminalExecution({
       coreWorker: input.coreWorker,
+      execution: current.execution,
       identity: input.identity,
       nowMs: input.nowMs?.() ?? Date.now(),
       storage: input.storage,
     });
-    if (!answerAvailable) {
-      const nowMs = input.nowMs?.() ?? Date.now();
-      await repairRemoteAgentCompletedExecutionWithoutAnswer({
-        identity: input.identity,
-        nowMs,
-        storage: input.storage,
-      });
-      await handleRemoteAgentChatResponse({
-        coreWorker: input.coreWorker,
-        nowMs: () => nowMs,
-        result: {
-          continuation: false,
-          error: new Error(
-            "Remote Agent completed without a durable final answer."
-          ),
-          message: { parts: [] },
-          requestId: input.identity.submissionId,
-          status: "error",
-        },
-        storage: input.storage,
-      });
-    }
     return await readRemoteAgentExecutionState({
       identity: input.identity,
       storage: input.storage,
@@ -127,9 +109,7 @@ export async function reconcileRemoteAgentExecution(input: {
     return current;
   }
 
-  const cancelled =
-    current.execution.status === "cancellation_requested" ||
-    current.execution.status === "aborted";
+  const cancelled = current.execution.status === "cancellation_requested";
   // Successful settlement can precede the observer callback. A durable Flue
   // error or an already-requested cancellation is the only terminal fact this
   // reconciler is allowed to project.
@@ -139,29 +119,70 @@ export async function reconcileRemoteAgentExecution(input: {
 
   const nowMs = input.nowMs?.() ?? Date.now();
 
-  await completeRemoteAgentExecutionState({
+  const settledExecution = await completeRemoteAgentExecutionState({
     identity: input.identity,
     nowMs,
     status: cancelled ? "aborted" : "failed",
     storage: input.storage,
   });
-  await handleRemoteAgentChatResponse({
+  await projectRemoteAgentTerminalExecution({
     coreWorker: input.coreWorker,
-    nowMs: () => nowMs,
-    result: {
-      continuation: false,
-      error: cancelled
-        ? new Error("Remote Agent execution was cancelled.")
-        : new Error(submission.error),
-      message: { parts: [] },
-      requestId: input.identity.submissionId,
-      status: cancelled ? "aborted" : "error",
-    },
+    execution: settledExecution,
+    failureError: cancelled
+      ? new Error("Remote Agent execution was cancelled.")
+      : new Error(submission.error),
+    identity: input.identity,
+    nowMs,
     storage: input.storage,
   });
 
   return await readRemoteAgentExecutionState({
     identity: input.identity,
+    storage: input.storage,
+  });
+}
+
+async function projectRemoteAgentTerminalExecution(input: {
+  coreWorker?: RemoteAgentCoreWorkerBinding;
+  execution: Awaited<ReturnType<typeof completeRemoteAgentExecutionState>>;
+  failureError?: Error;
+  identity: RemoteAgentWorkerExecutionQuery;
+  nowMs: number;
+  storage: RemoteAgentStorage;
+}): Promise<void> {
+  const outcome = await resolveRemoteAgentTerminalExecutionOutcome({
+    execution: input.execution,
+    identity: input.identity,
+    nowMs: input.nowMs,
+    storage: input.storage,
+  });
+  if (!outcome) {
+    return;
+  }
+  if (outcome.status === "completed") {
+    await replayDurableCompletedAnswer({
+      completedText: outcome.completedText,
+      coreWorker: input.coreWorker,
+      identity: input.identity,
+      nowMs: input.nowMs,
+      storage: input.storage,
+    });
+    return;
+  }
+  await handleRemoteAgentChatResponse({
+    coreWorker: input.coreWorker,
+    nowMs: () => input.nowMs,
+    result: {
+      continuation: false,
+      error:
+        outcome.status === "aborted"
+          ? new Error("Remote Agent execution was cancelled.")
+          : (input.failureError ??
+            new Error("Remote Agent execution failed before its callback.")),
+      message: { parts: [] },
+      requestId: input.identity.submissionId,
+      status: outcome.status === "aborted" ? "aborted" : "error",
+    },
     storage: input.storage,
   });
 }
@@ -172,32 +193,24 @@ export async function reconcileRemoteAgentExecution(input: {
  * executions can never enter this path.
  */
 async function replayDurableCompletedAnswer(input: {
+  completedText: string;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs: number;
   storage: RemoteAgentStorage;
-}): Promise<boolean> {
-  const completedExecutionText = await readRemoteAgentCompletedExecutionAnswer({
-    identity: input.identity,
-    storage: input.storage,
-  });
+}): Promise<void> {
   let context = await readRemoteAgentCallbackContext(
     input.storage,
     input.identity.submissionId
   );
   if (!context) {
-    return false;
+    return;
   }
-  if (completedExecutionText && !context.completedText?.trim()) {
-    context = await recordRemoteAgentCompletedAnswer({
-      storage: input.storage,
-      submissionId: input.identity.submissionId,
-      text: completedExecutionText,
-    });
-  }
-  if (!context.completedText?.trim()) {
-    return false;
-  }
+  context = await recordRemoteAgentCompletedAnswer({
+    storage: input.storage,
+    submissionId: input.identity.submissionId,
+    text: input.completedText,
+  });
   if (
     context.callbackStatus !== "completed" &&
     context.callbackStatus !== "rejected"
@@ -216,5 +229,4 @@ async function replayDurableCompletedAnswer(input: {
       storage: input.storage,
     });
   }
-  return true;
 }

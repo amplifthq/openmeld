@@ -11,7 +11,7 @@ import type {
   RemoteAgentWorkerExecutionState,
 } from "@openmeld/schemas/types";
 import type { RemoteAgentStorage } from "./callback-context";
-import { fitRemoteAgentCompletedText } from "./callback-context";
+import { normalizeRemoteAgentCompletedAnswer } from "./completed-answer";
 
 const EXECUTION_STATE_PREFIX = "openmeld:remote-agent:execution-state:";
 
@@ -36,6 +36,18 @@ type FoundRemoteAgentStoredExecution = Extract<
   RemoteAgentStoredExecutionRead,
   { status: "found" }
 >;
+
+export type RemoteAgentTerminalExecutionOutcome =
+  | {
+      completedText: string;
+      execution: RemoteAgentWorkerExecutionState;
+      status: "completed";
+    }
+  | {
+      completedText: null;
+      execution: RemoteAgentWorkerExecutionState;
+      status: "aborted" | "failed";
+    };
 
 export class RemoteAgentExecutionCancelledError extends Error {
   constructor() {
@@ -249,17 +261,11 @@ export async function completeRemoteAgentExecutionState(
       );
     }
     if (isTerminalStatus(result.execution.status)) {
-      const resolution = await resolveExistingTerminalExecution({
-        identity: input.identity,
+      return resolveExistingTerminalExecution({
         requestedCompletedText,
         requestedStatus: input.status,
         result,
-        storage: input.storage,
       });
-      if (resolution === "retry") {
-        continue;
-      }
-      return resolution;
     }
     const settledStatus =
       result.execution.status === "cancellation_requested"
@@ -292,13 +298,11 @@ export async function completeRemoteAgentExecutionState(
   }
 }
 
-async function resolveExistingTerminalExecution(input: {
-  identity: RemoteAgentWorkerExecutionQuery;
+function resolveExistingTerminalExecution(input: {
   requestedCompletedText: string | null;
   requestedStatus: "completed" | "failed" | "aborted";
   result: FoundRemoteAgentStoredExecution;
-  storage: RemoteAgentStorage;
-}): Promise<RemoteAgentWorkerExecutionState | "retry"> {
+}): RemoteAgentWorkerExecutionState {
   if (
     input.result.execution.status !== "completed" ||
     input.requestedStatus !== "completed"
@@ -310,25 +314,15 @@ async function resolveExistingTerminalExecution(input: {
       "Remote Agent completed execution requires a final answer."
     );
   }
-  if (input.result.completedText) {
-    if (input.result.completedText !== input.requestedCompletedText) {
-      throw new Error(
-        "Remote Agent completed execution received a conflicting final answer."
-      );
-    }
-    return input.result.execution;
+  if (
+    input.result.completedText &&
+    input.result.completedText !== input.requestedCompletedText
+  ) {
+    throw new Error(
+      "Remote Agent completed execution received a conflicting final answer."
+    );
   }
-  return (await compareAndSetRemoteAgentExecutionState({
-    expected: input.result.stored,
-    identity: input.identity,
-    next: {
-      completedText: input.requestedCompletedText,
-      execution: input.result.execution,
-    },
-    storage: input.storage,
-  }))
-    ? input.result.execution
-    : "retry";
+  return input.result.execution;
 }
 
 export async function repairRemoteAgentCompletedExecutionWithoutAnswer(input: {
@@ -369,6 +363,42 @@ export async function repairRemoteAgentCompletedExecutionWithoutAnswer(input: {
       return failed;
     }
   }
+}
+
+export async function resolveRemoteAgentTerminalExecutionOutcome(input: {
+  execution: RemoteAgentWorkerExecutionState | null;
+  identity: RemoteAgentWorkerExecutionQuery;
+  nowMs: number;
+  storage: RemoteAgentStorage;
+}): Promise<RemoteAgentTerminalExecutionOutcome | null> {
+  let execution = input.execution;
+  while (execution) {
+    if (execution.status === "failed" || execution.status === "aborted") {
+      return {
+        completedText: null,
+        execution,
+        status: execution.status,
+      };
+    }
+    if (execution.status !== "completed") {
+      throw new Error(
+        "Remote Agent terminal outcome requires a terminal execution owner."
+      );
+    }
+    const completedText = await readRemoteAgentCompletedExecutionAnswer({
+      identity: input.identity,
+      storage: input.storage,
+    });
+    if (completedText) {
+      return { completedText, execution, status: "completed" };
+    }
+    execution = await repairRemoteAgentCompletedExecutionWithoutAnswer({
+      identity: input.identity,
+      nowMs: input.nowMs,
+      storage: input.storage,
+    });
+  }
+  return null;
 }
 
 export async function requestRemoteAgentExecutionCancellation(input: {
@@ -474,13 +504,7 @@ function compareAndSetRemoteAgentExecutionState(input: {
 }
 
 function normalizeCompletedExecutionText(text: string | undefined): string {
-  const completedText = text?.trim() ?? "";
-  if (!completedText) {
-    throw new Error(
-      "Remote Agent completed execution requires a final answer."
-    );
-  }
-  return fitRemoteAgentCompletedText(completedText);
+  return normalizeRemoteAgentCompletedAnswer(text);
 }
 
 function parseStoredCompletedText(value: unknown): string | null {

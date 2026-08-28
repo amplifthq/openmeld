@@ -7,10 +7,15 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
-  putRemoteAgentCallbackContext,
+  putRemoteAgentCallbackContext as putRemoteAgentCallbackContextProjection,
+  type RemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
   recordRemoteAgentWorkLoopCheckpoint,
 } from "../agent-core/callback-context";
+import {
+  buildRemoteAgentExecutionStateKey,
+  initializeRemoteAgentExecutionState,
+} from "../agent-core/execution-state";
 import { readRemoteAgentTurnObservability } from "../agent-core/turn-observability";
 import { createRemoteAgentConversationCompactionObserver } from "../flue-adapter/conversation-compaction";
 import { runWithRemoteAgentSubmissionExecution } from "../flue-adapter/execution-context";
@@ -676,6 +681,108 @@ describe("Center Agent stream observation", () => {
     });
   });
 
+  it("fails explicitly when a prompt callback has no execution owner", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContextProjection(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: "remote-agent:dispatch_123",
+          requestId: SUBMISSION_ID,
+          status: "pending",
+          submissionId: SUBMISSION_ID,
+        },
+        nowMs: TEST_NOW_MS,
+        request: createSubmitTurnRequest(),
+      })
+    );
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_missing_execution_owner",
+      status: "accepted" as const,
+    }));
+
+    await handleCenterAgentObservation({
+      event: completedPromptObservation("Unowned success must not publish."),
+      resolveDependencies: () => ({
+        coreWorker: { completeRemoteAgentSubmission },
+        env: {} as CloudflareBindings,
+        storage,
+      }),
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", submissionId: SUBMISSION_ID })
+    );
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.not.objectContaining({ text: expect.any(String) })
+    );
+  });
+
+  it("publishes failure when failed wins the CAS against a success observation", async () => {
+    const harness = await createTerminalCasRaceHarness("failed");
+    const input = {
+      event: completedPromptObservation("This success lost the owner CAS."),
+      resolveDependencies: harness.resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    };
+
+    await handleCenterAgentObservation(input);
+    await handleCenterAgentObservation(input);
+
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", submissionId: SUBMISSION_ID })
+    );
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.not.objectContaining({ text: expect.any(String) })
+    );
+  });
+
+  it("publishes the owner answer when completed wins the CAS against a failure observation", async () => {
+    const harness = await createTerminalCasRaceHarness("completed");
+    const input = {
+      event: failedPromptObservation(),
+      resolveDependencies: harness.resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    };
+
+    await handleCenterAgentObservation(input);
+    await handleCenterAgentObservation(input);
+
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "completed",
+        submissionId: SUBMISSION_ID,
+        text: "The durable owner answer won.",
+      })
+    );
+  });
+
+  it("publishes stopped when aborted wins the CAS against a success observation", async () => {
+    const harness = await createTerminalCasRaceHarness("aborted");
+    const input = {
+      event: completedPromptObservation("This success lost to stop."),
+      resolveDependencies: harness.resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    };
+
+    await handleCenterAgentObservation(input);
+    await handleCenterAgentObservation(input);
+
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.execution_cancelled",
+        status: "failed",
+        submissionId: SUBMISSION_ID,
+      })
+    );
+  });
+
   it("uses the immutable Flue execution identity when a prompt observation omits submissionId", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const staleSubmissionId = "submission_stale_pending";
@@ -1222,6 +1329,110 @@ type AnalyticsPoint = {
   doubles: number[];
   indexes: string[];
 };
+
+async function putRemoteAgentCallbackContext(
+  storage: InMemoryDurableObjectStorage,
+  context: RemoteAgentCallbackContext
+): Promise<void> {
+  await putRemoteAgentCallbackContextProjection(storage, context);
+  await initializeRemoteAgentExecutionState({
+    acceptedAtMs: context.submissionCreatedAt,
+    identity: {
+      idempotencyKey: context.idempotencyKey,
+      organizationId: context.organizationId,
+      spaceId: context.spaceId,
+      submissionId: context.submissionId,
+      v: 1,
+    },
+    storage,
+  });
+}
+
+class TerminalCasRaceStorage extends InMemoryDurableObjectStorage {
+  private nextWinner: { key: string; value: unknown } | null = null;
+
+  winNextExecutionCas(key: string, value: unknown): void {
+    this.nextWinner = { key, value };
+  }
+
+  override async compareAndSet<T>(
+    key: string,
+    expectedValue: T,
+    nextValue: T
+  ): Promise<boolean> {
+    if (this.nextWinner?.key === key) {
+      const winner = this.nextWinner;
+      this.nextWinner = null;
+      await this.put(key, winner.value);
+      return false;
+    }
+    return await super.compareAndSet(key, expectedValue, nextValue);
+  }
+}
+
+async function createTerminalCasRaceHarness(
+  winnerStatus: "aborted" | "completed" | "failed"
+) {
+  const storage = new TerminalCasRaceStorage();
+  const request = createSubmitTurnRequest();
+  const context = createRemoteAgentCallbackContext({
+    ack: {
+      accepted: true,
+      createdAt: TEST_NOW_MS,
+      idempotencyKey: request.idempotencyKey,
+      requestId: SUBMISSION_ID,
+      status: "pending",
+      submissionId: SUBMISSION_ID,
+    },
+    nowMs: TEST_NOW_MS,
+    request,
+  });
+  await putRemoteAgentCallbackContext(storage, context);
+  const initial = await initializeRemoteAgentExecutionState({
+    acceptedAtMs: TEST_NOW_MS,
+    identity: {
+      idempotencyKey: context.idempotencyKey,
+      organizationId: context.organizationId,
+      spaceId: context.spaceId,
+      submissionId: SUBMISSION_ID,
+      v: 1,
+    },
+    storage,
+  });
+  const progressKindByStatus = {
+    aborted: "aborted",
+    completed: "prompt_completed",
+    failed: "prompt_failed",
+  } as const;
+  storage.winNextExecutionCas(
+    buildRemoteAgentExecutionStateKey(SUBMISSION_ID),
+    {
+      ...initial,
+      ...(winnerStatus === "aborted"
+        ? { cancellationReason: "Stopped by the user." }
+        : {}),
+      ...(winnerStatus === "completed"
+        ? { completedText: "The durable owner answer won." }
+        : {}),
+      completedAtMs: TEST_NOW_MS + 20,
+      lastProgressAtMs: TEST_NOW_MS + 20,
+      lastProgressKind: progressKindByStatus[winnerStatus],
+      status: winnerStatus,
+    }
+  );
+  const completeRemoteAgentSubmission = vi.fn(async () => ({
+    publishedSignalId: `signal_${winnerStatus}_cas_winner`,
+    status: "accepted" as const,
+  }));
+  return {
+    completeRemoteAgentSubmission,
+    resolveDependencies: () => ({
+      coreWorker: { completeRemoteAgentSubmission },
+      env: {} as CloudflareBindings,
+      storage,
+    }),
+  };
+}
 
 function readBlob(
   point: AnalyticsPoint,
