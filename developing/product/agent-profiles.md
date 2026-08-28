@@ -406,9 +406,13 @@ The controller's native mode still decides which requests occur and which
 choices are valid. OpenMeld does not turn `Ask`, `Plan`, or an approval mode into
 one generic permission policy. It maps only the choices the controller offers,
 never fabricates an approval, and never upgrades a one-time decision into a
-persistent rule. Cursor Run Everything keeps its native one-time automatic
-allow behavior rather than pausing for an approval that the selected mode
-already resolved.
+persistent rule without a separate explicit choice from the owner. When the
+owner chooses both, OpenMeld answers the current request first so the Wake can
+resume, then saves the controller-native low-interruption mode as a non-blocking
+follow-up. A failed Profile save must not undo or delay the accepted current
+response. Cursor Run Everything keeps its native one-time automatic allow
+behavior rather than pausing for an approval that the selected mode already
+resolved.
 
 A dispatch-scoped first-party OpenMeld Space Action is not a general controller
 command approval. OpenMeld may make its own `reply`, `status`, and `stay_silent`

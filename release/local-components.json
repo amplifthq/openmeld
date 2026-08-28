@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-28T16:43:59.379Z",
+  "updatedAt": "2026-08-28T17:51:02.194Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.125",
+      "packageVersion": "0.3.126",
       "updatePolicy": "available",
-      "reason": "A newer local component is available, but current Wake work can continue."
+      "reason": "Existing cloud APIs and CLI commands remain compatible; this release only refreshes active local session credentials."
     },
     "service": {
-      "bundleHash": "e001f5dba71d37fd2150d55a6dbf76bfd63b43acaefddc44fee185cbcb09a16d",
-      "bundleVersion": "0.3.125",
+      "bundleHash": "528e088c40a1aae190f64f08eff50b99a189d8f97cce86898499b575a1a5fce1",
+      "bundleVersion": "0.3.126",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "A newer local component is available, but current Wake work can continue."
+      "reason": "Existing stream authentication remains compatible; the Service only refreshes expired local credentials before reconnecting."
     },
     "skills": {
       "bundleHash": "3b9b009ba253a1ec80240545d016a238505cd21ec6b11b34a10eea755f2e2683",

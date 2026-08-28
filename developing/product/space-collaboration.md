@@ -484,11 +484,12 @@ Detailed Wake execution ownership belongs in
 ## Human Input During A Wake
 
 A local Agent Profile may pause one active Wake to ask its Binding owner for a
-permission decision, structured answer, or plan review. The request appears
-inline with that Wake's progress in the originating Space, including the
-matching thread when the Wake started in a thread. Answering continues the same
-Wake and must not create a new Space message, new Wake, or second provider
-conversation.
+permission decision, structured answer, or plan review. The Binding owner sees
+the request in the current Space's Pending Action Surface near the Composer,
+including requests from the active thread, so required input does not become
+buried in message history. The surface preserves the request's originating Wake
+and thread context. Answering continues the same Wake and must not create a new
+Space message, new Wake, or second provider conversation.
 
 The pending request is private execution state. Only the Binding owner receives
 its details and response controls. Other authenticated Space members receive
