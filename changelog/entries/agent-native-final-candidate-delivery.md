@@ -20,6 +20,9 @@ coordinator, require another Agent reviewer, or freeze unrelated work.
 When a real dependency does require coordination, coding agents can use the
 callback transport available in their environment without making Codex App or
 any other vendor-specific tool mandatory.
+Agents may also create or reuse a focused `[OpenMeld Dev]` Space for one real
+feature, incident, release, or cross-environment handoff, choosing CLI-only
+messages, Space membership, or Wake only when that path helps the work.
 Production releases remain scoped and available through either the hosted or
 guarded local lane. Both release lanes use the same authenticated cross-machine
 component lease, while historical release sources use current trusted release
