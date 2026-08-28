@@ -106,6 +106,7 @@ type PrepareSessionPageState =
 			opaqueToken: string | null;
 			opaqueTokenExpiresAt: string | null;
 			snapshot: PrepareSessionSnapshot | null;
+			snapshotSessionKey: string | null;
 			status: "idle" | "loading" | "ready";
 	  }
 	| {
@@ -113,6 +114,7 @@ type PrepareSessionPageState =
 			opaqueToken: string | null;
 			opaqueTokenExpiresAt: string | null;
 			snapshot: PrepareSessionSnapshot | null;
+			snapshotSessionKey: string | null;
 			status: "error";
 	  };
 
@@ -423,7 +425,9 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 		deviceId: bringAgentsSetup.deviceId,
 		humanProfileId: bringAgentsSetup.selectedHumanProfileId,
 		runtimeLane: bringAgentsSetup.runtimeLane,
+		sessionKey: prepareSession.sessionKey,
 		snapshot: prepareSession.snapshot,
+		snapshotSessionKey: prepareSession.snapshotSessionKey,
 		targetSpaceId: bringAgentsSetup.targetSpaceId,
 	});
 	const completionReadinessRefresh = useRefreshReadinessAfterPrepareCompletion({
@@ -1680,6 +1684,7 @@ function usePrepareSession(input: {
 		opaqueToken: null,
 		opaqueTokenExpiresAt: null,
 		snapshot: null,
+		snapshotSessionKey: null,
 		status: "idle",
 	});
 	const [command, setCommand] = useState<string | null>(null);
@@ -1754,6 +1759,7 @@ function usePrepareSession(input: {
 				opaqueToken: null,
 				opaqueTokenExpiresAt: null,
 				snapshot: null,
+				snapshotSessionKey: null,
 				status: "idle",
 			});
 			return;
@@ -1765,6 +1771,7 @@ function usePrepareSession(input: {
 			opaqueToken: current.opaqueToken,
 			opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
 			snapshot: current.snapshot,
+			snapshotSessionKey: current.snapshotSessionKey,
 			status: "loading",
 		}));
 
@@ -1802,6 +1809,7 @@ function usePrepareSession(input: {
 				opaqueToken: session.opaqueToken,
 				opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
 				snapshot: session.snapshot,
+				snapshotSessionKey: sessionKey,
 				status: "ready",
 			});
 			if (forceFreshSession) {
@@ -1822,6 +1830,7 @@ function usePrepareSession(input: {
 				opaqueToken: current.opaqueToken,
 				opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
 				snapshot: current.snapshot,
+				snapshotSessionKey: current.snapshotSessionKey,
 				status: "error",
 			}));
 		});
@@ -1966,6 +1975,7 @@ function usePrepareSession(input: {
 				opaqueToken: null,
 				opaqueTokenExpiresAt: null,
 				snapshot: null,
+				snapshotSessionKey: null,
 				status: "loading",
 			});
 			const session = await createFreshPrepareSession({
@@ -1990,6 +2000,7 @@ function usePrepareSession(input: {
 				opaqueToken: session.opaqueToken,
 				opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
 				snapshot: session.snapshot,
+				snapshotSessionKey: sessionKey,
 				status: "ready",
 			});
 			setWebSocketStatus("idle");
@@ -2112,6 +2123,7 @@ function usePrepareSession(input: {
 		deviceId,
 		humanProfileId,
 		runtimeLane,
+		sessionKey,
 		state.opaqueToken,
 		state.opaqueTokenExpiresAt,
 		targetSpaceId,
@@ -2145,6 +2157,7 @@ function usePrepareSession(input: {
 				opaqueToken: current.opaqueToken,
 				opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
 				snapshot: response.snapshot,
+				snapshotSessionKey: current.snapshotSessionKey,
 				status: "ready",
 			}));
 		} catch (error) {
@@ -2171,6 +2184,7 @@ function usePrepareSession(input: {
 				opaqueToken: null,
 				opaqueTokenExpiresAt: null,
 				snapshot: null,
+				snapshotSessionKey: null,
 				status: "error",
 			});
 			return;
@@ -2185,6 +2199,7 @@ function usePrepareSession(input: {
 			opaqueToken: current.opaqueToken,
 			opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
 			snapshot: current.snapshot,
+			snapshotSessionKey: current.snapshotSessionKey,
 			status: "loading",
 		}));
 		try {
@@ -2209,6 +2224,7 @@ function usePrepareSession(input: {
 				opaqueToken: session.opaqueToken,
 				opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
 				snapshot: session.snapshot,
+				snapshotSessionKey: sessionKey,
 				status: "ready",
 			});
 		} catch (error) {
@@ -2223,6 +2239,7 @@ function usePrepareSession(input: {
 		deviceId,
 		humanProfileId,
 		runtimeLane,
+		sessionKey,
 		targetSpaceId,
 	]);
 
@@ -2381,7 +2398,9 @@ function usePrepareSession(input: {
 		refresh,
 		refreshCommand,
 		setCommandPlatform,
+		sessionKey,
 		snapshot: state.snapshot,
+		snapshotSessionKey: state.snapshotSessionKey,
 		startOver,
 		status: state.status,
 		webSocketStatus,
@@ -2695,7 +2714,9 @@ function resolveCurrentPrepareSessionSnapshot(input: {
 	deviceId: string | null;
 	humanProfileId: string | null;
 	runtimeLane: string | null;
+	sessionKey: string | null;
 	snapshot: PrepareSessionSnapshot | null;
+	snapshotSessionKey: string | null;
 	targetSpaceId: string | null;
 }): PrepareSessionSnapshot | null {
 	if (input.snapshot === null) {
@@ -2708,6 +2729,13 @@ function resolveCurrentPrepareSessionSnapshot(input: {
 		runtimeLane: input.runtimeLane,
 		targetSpaceId: input.targetSpaceId,
 	};
+	if (
+		input.sessionKey !== null &&
+		input.snapshotSessionKey === input.sessionKey &&
+		snapshotMatchesLoadedPrepareSession(input.snapshot, sessionInput)
+	) {
+		return input.snapshot;
+	}
 	if (input.snapshot.lifecycleStatus === "completed") {
 		return completedSnapshotMatchesPrepareSessionInput(
 			input.snapshot,
@@ -2719,6 +2747,23 @@ function resolveCurrentPrepareSessionSnapshot(input: {
 	return snapshotMatchesPrepareSessionInput(input.snapshot, sessionInput)
 		? input.snapshot
 		: null;
+}
+
+function snapshotMatchesLoadedPrepareSession(
+	snapshot: PrepareSessionSnapshot,
+	input: PrepareSessionInput
+): boolean {
+	if (
+		input.humanProfileId === null ||
+		snapshot.humanProfileId !== input.humanProfileId ||
+		snapshot.targetSpaceId !== input.targetSpaceId
+	) {
+		return false;
+	}
+	return (
+		input.connectedComputerId === null ||
+		snapshot.connectedComputerId === input.connectedComputerId
+	);
 }
 
 function snapshotMatchesPrepareSessionInput(

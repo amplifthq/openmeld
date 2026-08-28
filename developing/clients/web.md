@@ -244,18 +244,8 @@ The destinations resolve in that group order:
    owns no parallel state or mutation path. Its Center Agent action opens the
    canonical compact Center Agent conversation, and every other item links to
    its existing product home.
-2. **Center Agent** — the workspace's managed-agent home. It has no secondary
-   sidebar. Its persistent header navigation is exactly **Messages**, **Graph**,
-   **Files**, **Tasks**, **Routines**, **Skills**, and **Apps**, in that order.
-   Messages, Graph, and Files preserve the canonical Center Agent conversation
-   surface; Tasks owns durable parallel work, its read-only board, and
-   conversation-first detail. One compact header menu preserves **Channels**,
-   **Memory**, and **Center Agent settings**. The conversation variant of that
-   menu also preserves **Conversation information**. There is no separate About
-   surface or Slack shortcut; Center Agent identity, model, status, and Slack
-   management remain available through Center Agent settings and Channels.
-3. **Spaces** — the current workspace's Space collaboration surface.
-4. **Direct Messages** — the current workspace's private one-to-one
+2. **Spaces** — the current workspace's Space collaboration surface.
+3. **Direct Messages** — the current workspace's private one-to-one
    conversations. Its canonical routes are `/o/{orgSlug}/direct-messages` and
    `/o/{orgSlug}/direct-messages/{spaceId}`. The Direct Messages secondary
    sidebar lists current DM Spaces by the other participant's profile identity;
@@ -267,28 +257,28 @@ The destinations resolve in that group order:
    state uses Direct Messages geometry and never flashes the Spaces sidebar.
    Canonical classification reads the Space status projection; the Account
    Space Index is list data and cannot override a fresher status result.
-5. **People** — the first-level home for the Human teammates in the current
+4. **People** — the first-level home for the Human teammates in the current
    workspace. Its secondary sidebar lists Human Profiles and owns the
    **Invite Members** button. Selecting a person opens the full Human Profile
    detail as the main content, including that person's Computer cards. Inviting
    remains role-gated. The personal workspace shows the current member and the
    existing create-Organization guidance instead of pretending that invitations
    are available there.
-6. **Agents** — the first-level home for ordinary Agent Profiles that members
+5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. The page shows each Agent's
    identity, owner visibility, authoritative readiness, and execution
    relationship in plain language such as **Uses Codex on Felix's MacBook Pro**.
    The managed Center Agent remains in the separate Center Agent product home.
-7. **Projects** — the first-level home for choosing, creating, and connecting
+6. **Projects** — the first-level home for choosing, creating, and connecting
    the code Projects used by local Agents. Project records are scoped to the
    selected Organization; local folder connections remain owner-self,
    device-local execution facts.
-8. **Documents** — the Organization-scoped Markdown home for the
+7. **Documents** — the Organization-scoped Markdown home for the
    Organization Brief, Profile Reports, and shared knowledge, organized into
    nested folders. It has no secondary sidebar; the current folder's child
    folders and files live inside the page itself.
-9. **Agent Activity** — the first-level home for local coding-agent session
+8. **Agent Activity** — the first-level home for local coding-agent session
    visibility. Its canonical route is `/o/{orgSlug}/agent-activity`; the full
    label prevents confusion with human activity and the Center Agent Audit Log.
    Its secondary sidebar groups **Overview**, **Sessions**, and **Changes** under
@@ -310,6 +300,17 @@ interstitial. Center Agent and Inbox remain together at the far right. The
 Computer launcher reflects the current Computer's coarse state; it never
 replaces Core-owned readiness truth or claims that an Agent can reply. When no
 current Computer exists, it opens the normal setup flow.
+
+The global Center Agent surface has no secondary sidebar. Its persistent header
+navigation is exactly **Messages**, **Graph**, **Files**, **Tasks**, **Routines**,
+**Skills**, and **Apps**, in that order. Messages, Graph, and Files preserve the
+canonical Center Agent conversation surface; Tasks owns durable parallel work,
+its read-only board, and conversation-first detail. One compact header menu
+preserves **Channels**, **Memory**, and **Center Agent settings**. The
+conversation variant of that menu also preserves **Conversation information**.
+There is no separate About surface or Slack shortcut; Center Agent identity,
+model, status, and Slack management remain available through Center Agent
+settings and Channels.
 
 The Inbox launcher is present across ordinary authorized routes, shows only the uncleared,
 unresolved action-required count (visually capped at `99+`), and opens a compact
@@ -3185,7 +3186,7 @@ Space` action. The URL must come from the persisted bootstrap result, not from a
 guessed Space name, a reconstructed path, or local browser state. If bootstrap
 failed or no result has arrived yet, Web must not invent a Space URL.
 
-A Web setup or repair surface must not report local success only because:
+A Web setup or repair surface must not report **Computer connected** only because:
 
 - a command was generated
 - a Prepare Session connected
@@ -3194,9 +3195,11 @@ A Web setup or repair surface must not report local success only because:
 - capability inventory was observed
 - a setup snapshot streamed back to the browser
 
-Setup success must be grounded in the owner facts for account, device, lane, OpenMeld
-Service compatibility, controller capability, Binding, Core readiness, and claim
-eligibility.
+**Computer connected** must be grounded in persisted Terminal authentication and
+aligned, connected OpenMeld Service identity for the account, device, and lane.
+Controller capability, Binding, Core readiness, and claim eligibility remain the
+independent owner facts for each Agent's availability. They must not gate the
+Computer result or be collapsed into a second meaning of setup success.
 
 Web does not ask the user to select local agents during an ordinary setup
 handoff. The connected Service's background catalog refresh detects newly

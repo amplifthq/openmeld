@@ -850,6 +850,49 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		expect(readPrepareSessionMock).not.toHaveBeenCalled();
 	});
 
+	it("keeps a fresh Add a Computer session when Terminal reports the new computer identity", async () => {
+		const prepareSessionId = "prepare-add-computer";
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_add_computer",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot: createReadySnapshot({
+				connectedComputerId: "computer-new",
+				deviceId: "device-new-computer",
+				prepareSessionId,
+				runtimeLane: "prod",
+				targetSpaceId: null,
+			}),
+		});
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{
+					kind: "account_computer_setup",
+					resetThisComputer: true,
+				},
+				{
+					deviceId: "device-existing-computer",
+					runtimeLane: "prod",
+				}
+			)
+		);
+
+		renderPreparePage();
+
+		await waitFor(() => {
+			expect(createPrepareSessionMock).toHaveBeenCalledWith({
+				deviceId: null,
+				humanProfileId: "11111111-1111-4111-8111-111111111111",
+				runtimeLane: null,
+				selectedLocalAgentIds: [],
+				targetSpaceId: null,
+			});
+		});
+
+		expect(
+			await screen.findByRole("heading", { name: "Computer connected" })
+		).toBeTruthy();
+	});
+
 	it("completes reconnect when OpenMeld Service reports a new device identity", async () => {
 		createPrepareSessionMock.mockResolvedValueOnce({
 			opaqueToken: "preptok_reconnect",
