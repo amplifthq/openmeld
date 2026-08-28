@@ -686,6 +686,7 @@ async function runOneTimeTokenLoginFlow(input: {
         failure = new OneTimeTokenLocalSessionRecoveryError({
           cause: error,
           recoveryError,
+          redactedValues: [verified.accessToken],
         });
       }
     }

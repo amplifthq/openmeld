@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   DEFAULT_REMOTE_SESSION_TIMEOUT_MS,
@@ -92,6 +92,32 @@ export class AuthSessionRecoveryInProgressError extends Error {
       "OpenMeld is still finishing an interrupted Computer sign-in recovery. The current sign-in was not changed; retry after the recovery cleanup succeeds."
     );
     this.name = "AuthSessionRecoveryInProgressError";
+  }
+}
+
+export class AuthSessionTransitionConflictError extends Error {
+  readonly previousOwnerRestored: boolean;
+  readonly reason:
+    | "journal_missing"
+    | "journal_not_pending"
+    | "journal_replaced";
+
+  constructor(input: {
+    previousOwnerRestored: boolean;
+    reason: "journal_missing" | "journal_not_pending" | "journal_replaced";
+  }) {
+    const conflict = {
+      journal_missing: "missing",
+      journal_not_pending: "no longer pending",
+      journal_replaced: "owned by another sign-in",
+    }[input.reason];
+    const outcome = input.previousOwnerRestored
+      ? "The previous sign-in was restored."
+      : "No local sign-in state was changed.";
+    super(`The auth session transition journal is ${conflict}. ${outcome}`);
+    this.name = "AuthSessionTransitionConflictError";
+    this.reason = input.reason;
+    this.previousOwnerRestored = input.previousOwnerRestored;
   }
 }
 
@@ -453,15 +479,21 @@ export async function beginAuthSessionTransition(
         }
       : {}),
   };
+  let journalClaimed = false;
   try {
     await assertStoredAccessTokenReloads({ accessToken, tokenRef });
-    await writeAuthSessionTransitionJournal(journal);
+    await claimAuthSessionTransitionJournal(journal);
+    journalClaimed = true;
     activeAuthSessionTransitionIds.add(journal.id);
     await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
   } catch (error) {
     activeAuthSessionTransitionIds.delete(journal.id);
-    await restoreTransitionPreviousPayload(journal).catch(() => undefined);
-    await removeAuthSessionTransitionJournal().catch(() => undefined);
+    if (journalClaimed) {
+      await restoreTransitionPreviousPayload(journal).catch(() => undefined);
+      await removeAuthSessionTransitionJournalIfOwned(journal.id).catch(
+        () => undefined
+      );
+    }
     await deleteAccessTokenOrRetainForCleanup(tokenRef);
     throw error;
   }
@@ -470,11 +502,13 @@ export async function beginAuthSessionTransition(
     session: buildStoredAuthSession({ accessToken, payload: nextPayload }),
   });
 
-  let settled = false;
-  const assertTransitionCurrent = async () => {
-    if (settled) {
+  let settlement: "committed" | "pending" | "rolled_back" = "pending";
+  const assertTransitionPending = () => {
+    if (settlement !== "pending") {
       throw new Error("auth session transition is already settled");
     }
+  };
+  const assertCandidateSessionCurrent = async () => {
     const currentPayload = await readSessionPayload();
     if (
       currentPayload?.v !== 1 ||
@@ -490,16 +524,42 @@ export async function beginAuthSessionTransition(
   return {
     previousSession,
     commit: async () => {
-      await assertTransitionCurrent();
-      const currentJournal = await readCurrentPendingAuthSessionTransition(
+      assertTransitionPending();
+      const currentJournal = await readOwnedPendingAuthSessionTransition(
         journal.id
       );
+      if (currentJournal.status === "missing") {
+        await assertCandidateSessionCurrent();
+        await restoreTransitionPreviousPayload(journal, previousSession);
+        settlement = "rolled_back";
+        activeAuthSessionTransitionIds.delete(journal.id);
+        await deleteAccessTokenOrRetainForCleanup(tokenRef).catch(
+          (error: unknown) => {
+            logDeferredAuthSessionTransitionCleanup({
+              error,
+              transitionId: journal.id,
+            });
+          }
+        );
+        throw new AuthSessionTransitionConflictError({
+          previousOwnerRestored: true,
+          reason: "journal_missing",
+        });
+      }
+      if (currentJournal.status !== "current") {
+        activeAuthSessionTransitionIds.delete(journal.id);
+        throw new AuthSessionTransitionConflictError({
+          previousOwnerRestored: false,
+          reason: currentJournal.status,
+        });
+      }
+      await assertCandidateSessionCurrent();
       const committedJournal: AuthSessionTransitionJournalV1 = {
-        ...currentJournal,
+        ...currentJournal.journal,
         state: "committed",
       };
       await writeAuthSessionTransitionJournal(committedJournal);
-      settled = true;
+      settlement = "committed";
       activeAuthSessionTransitionIds.delete(journal.id);
       await finalizeCommittedAuthSessionTransition(committedJournal).catch(
         (error: unknown) => {
@@ -511,17 +571,46 @@ export async function beginAuthSessionTransition(
       );
     },
     rollback: async () => {
-      await assertTransitionCurrent();
-      const currentJournal = await readCurrentPendingAuthSessionTransition(
+      if (settlement === "rolled_back") {
+        return;
+      }
+      assertTransitionPending();
+      const currentJournal = await readOwnedPendingAuthSessionTransition(
         journal.id
       );
-      await restoreTransitionPreviousPayload(currentJournal, previousSession);
-      settled = true;
+      if (currentJournal.status === "missing") {
+        await assertCandidateSessionCurrent();
+        await restoreTransitionPreviousPayload(journal, previousSession);
+        settlement = "rolled_back";
+        activeAuthSessionTransitionIds.delete(journal.id);
+        await deleteAccessTokenOrRetainForCleanup(tokenRef).catch(
+          (error: unknown) => {
+            logDeferredAuthSessionTransitionCleanup({
+              error,
+              transitionId: journal.id,
+            });
+          }
+        );
+        return;
+      }
+      if (currentJournal.status !== "current") {
+        activeAuthSessionTransitionIds.delete(journal.id);
+        throw new AuthSessionTransitionConflictError({
+          previousOwnerRestored: false,
+          reason: currentJournal.status,
+        });
+      }
+      await assertCandidateSessionCurrent();
+      await restoreTransitionPreviousPayload(
+        currentJournal.journal,
+        previousSession
+      );
+      settlement = "rolled_back";
       activeAuthSessionTransitionIds.delete(journal.id);
-      stopRegisteredCandidateService(currentJournal);
-      if (currentJournal.computerHandoff) {
+      stopRegisteredCandidateService(currentJournal.journal);
+      if (currentJournal.journal.computerHandoff) {
         await writeAuthSessionTransitionJournal({
-          ...currentJournal,
+          ...currentJournal.journal,
           state: "recovery_required",
         });
         return;
@@ -532,14 +621,26 @@ export async function beginAuthSessionTransition(
   };
 }
 
-async function readCurrentPendingAuthSessionTransition(
+type OwnedPendingAuthSessionTransition =
+  | { status: "current"; journal: AuthSessionTransitionJournalV1 }
+  | { status: "missing" }
+  | { status: "journal_not_pending"; journal: AuthSessionTransitionJournalV1 }
+  | { status: "journal_replaced"; journal: AuthSessionTransitionJournalV1 };
+
+async function readOwnedPendingAuthSessionTransition(
   id: string
-): Promise<AuthSessionTransitionJournalV1> {
+): Promise<OwnedPendingAuthSessionTransition> {
   const currentJournal = await readAuthSessionTransitionJournal();
-  if (currentJournal?.id !== id || currentJournal.state !== "pending") {
-    throw new Error("auth session transition is no longer pending");
+  if (!currentJournal) {
+    return { status: "missing" };
   }
-  return currentJournal;
+  if (currentJournal.id !== id) {
+    return { status: "journal_replaced", journal: currentJournal };
+  }
+  if (currentJournal.state !== "pending") {
+    return { status: "journal_not_pending", journal: currentJournal };
+  }
+  return { status: "current", journal: currentJournal };
 }
 
 export async function getInterruptedComputerAuthSessionRecovery(): Promise<InterruptedComputerAuthSessionRecovery | null> {
@@ -1607,6 +1708,50 @@ async function writeAuthSessionTransitionJournal(
   journal: AuthSessionTransitionJournalV1
 ): Promise<void> {
   await writeJsonAtomically(authSessionTransitionPath(), journal);
+}
+
+async function claimAuthSessionTransitionJournal(
+  journal: AuthSessionTransitionJournalV1
+): Promise<void> {
+  const path = authSessionTransitionPath();
+  const claimPath = `${path}.claim-${process.pid}-${Date.now()}-${randomUUID()}`;
+  const file = await open(claimPath, "wx", 0o600);
+  let failure: unknown;
+  try {
+    await file.writeFile(`${JSON.stringify(journal, null, 2)}\n`, "utf8");
+    await file.sync();
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    await file.close();
+  } catch (error) {
+    failure ??= error;
+  }
+  if (failure !== undefined) {
+    await rm(claimPath, { force: true }).catch(() => undefined);
+    throw failure;
+  }
+
+  try {
+    await link(claimPath, path);
+  } catch (error) {
+    if (isFileNotFoundErrorCode(error, "EEXIST")) {
+      throw new AuthSessionRecoveryInProgressError();
+    }
+    throw error;
+  } finally {
+    await rm(claimPath, { force: true }).catch(() => undefined);
+  }
+}
+
+async function removeAuthSessionTransitionJournalIfOwned(
+  id: string
+): Promise<void> {
+  const currentJournal = await readAuthSessionTransitionJournal();
+  if (currentJournal?.id === id) {
+    await removeAuthSessionTransitionJournal();
+  }
 }
 
 async function removeAuthSessionTransitionJournal(): Promise<void> {

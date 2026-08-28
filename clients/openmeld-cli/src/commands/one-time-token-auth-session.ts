@@ -28,51 +28,81 @@ export class OneTimeTokenAuthError extends Error {
   }
 }
 
+export type OneTimeTokenErrorDiagnostic = {
+  cause?: OneTimeTokenErrorDiagnostic;
+  code?: number | string;
+  endpoint?: string;
+  message: string;
+  name: string;
+  operation?: string;
+  path?: string;
+  stack?: string;
+  status?: number | null;
+};
+
 export class OneTimeTokenCandidateSessionCleanupError extends OneTimeTokenAuthError {
-  readonly cleanup: {
-    endpoint: string;
-    message: string;
-    status: number | null;
-  };
+  readonly cleanup: OneTimeTokenErrorDiagnostic;
 
   constructor(input: {
     cause: unknown;
     cleanupError: AuthDeviceSessionClientError;
+    redactedValues?: readonly string[];
   }) {
+    const redactedValues = input.redactedValues ?? [];
+    const cleanup = createSanitizedErrorDiagnostic(
+      input.cleanupError,
+      redactedValues
+    );
+    const primary = createSanitizedErrorDiagnostic(input.cause, redactedValues);
+    const safeCause =
+      input.cause instanceof OneTimeTokenLocalSessionRecoveryError
+        ? input.cause
+        : createErrorFromDiagnostic(primary);
     const status =
-      input.cleanupError.status === null
+      cleanup.status === null
         ? "network error"
-        : `HTTP ${input.cleanupError.status}`;
+        : `HTTP ${String(cleanup.status)}`;
     super(
       input.cause instanceof OneTimeTokenAuthError
         ? input.cause.code
         : "unknown",
-      `${toErrorMessage(input.cause)}; cleanup failed at ${input.cleanupError.endpoint} (${status}): ${input.cleanupError.message}`,
-      { cause: input.cause }
+      `${primary.message}; cleanup failed at ${cleanup.endpoint ?? "unknown endpoint"} (${status}): ${cleanup.message}`,
+      { cause: safeCause }
     );
     this.name = "OneTimeTokenCandidateSessionCleanupError";
-    this.cleanup = {
-      endpoint: input.cleanupError.endpoint,
-      message: input.cleanupError.message,
-      status: input.cleanupError.status,
-    };
+    this.cleanup = cleanup;
   }
 }
 
 export class OneTimeTokenLocalSessionRecoveryError extends OneTimeTokenAuthError {
-  readonly recovery: { message: string };
+  readonly primary: OneTimeTokenErrorDiagnostic;
+  readonly recovery: OneTimeTokenErrorDiagnostic;
 
-  constructor(input: { cause: unknown; recoveryError: unknown }) {
-    const recoveryMessage = toErrorMessage(input.recoveryError);
+  constructor(input: {
+    cause: unknown;
+    recoveryError: unknown;
+    redactedValues?: readonly string[];
+  }) {
+    const redactedValues = input.redactedValues ?? [];
+    const primary = createSanitizedErrorDiagnostic(input.cause, redactedValues);
+    const recovery = createSanitizedErrorDiagnostic(
+      input.recoveryError,
+      redactedValues
+    );
+    const aggregateCause = new AggregateError(
+      [createErrorFromDiagnostic(primary), createErrorFromDiagnostic(recovery)],
+      "one-time token local session recovery failed"
+    );
     super(
       input.cause instanceof OneTimeTokenAuthError
         ? input.cause.code
         : "unknown",
-      `${toErrorMessage(input.cause)}; local session recovery failed: ${recoveryMessage}`,
-      { cause: input.cause }
+      `${primary.message}; local session recovery failed: ${recovery.message}`,
+      { cause: aggregateCause }
     );
     this.name = "OneTimeTokenLocalSessionRecoveryError";
-    this.recovery = { message: recoveryMessage };
+    this.primary = primary;
+    this.recovery = recovery;
   }
 }
 
@@ -91,6 +121,7 @@ export async function rejectOneTimeTokenCandidateSession(input: {
   throw new OneTimeTokenCandidateSessionCleanupError({
     cause: input.cause,
     cleanupError: cleanup.error,
+    redactedValues: [input.session.accessToken],
   });
 }
 
@@ -241,6 +272,132 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim()
     ? error.message.trim()
     : String(error ?? "unknown error");
+}
+
+function createSanitizedErrorDiagnostic(
+  error: unknown,
+  redactedValues: readonly string[],
+  seen = new Set<unknown>(),
+  depth = 0
+): OneTimeTokenErrorDiagnostic {
+  if (depth >= 8) {
+    return {
+      message: "Nested error cause omitted after maximum diagnostic depth",
+      name: "ErrorCauseDepthLimit",
+    };
+  }
+  if (
+    (typeof error === "object" && error !== null) ||
+    typeof error === "function"
+  ) {
+    if (seen.has(error)) {
+      return {
+        message: "Circular error cause omitted",
+        name: "CircularErrorCause",
+      };
+    }
+    seen.add(error);
+  }
+
+  const record = isRecord(error) ? error : null;
+  const name =
+    error instanceof Error && error.name.trim()
+      ? error.name.trim()
+      : (readDiagnosticString(record?.name) ?? "Error");
+  const diagnostic: OneTimeTokenErrorDiagnostic = {
+    name: redactSensitiveText(name, redactedValues),
+    message: redactSensitiveText(toErrorMessage(error), redactedValues),
+  };
+  const stack =
+    error instanceof Error ? readDiagnosticString(error.stack) : undefined;
+  if (stack) {
+    diagnostic.stack = redactSensitiveText(stack, redactedValues);
+  }
+  copyDiagnosticString(record, diagnostic, "path", redactedValues);
+  copyDiagnosticString(record, diagnostic, "endpoint", redactedValues);
+  copyDiagnosticString(record, diagnostic, "operation", redactedValues);
+  const code = record?.code;
+  if (typeof code === "string" || typeof code === "number") {
+    diagnostic.code =
+      typeof code === "string"
+        ? redactSensitiveText(code, redactedValues)
+        : code;
+  }
+  const status = record?.status;
+  if (status === null || typeof status === "number") {
+    diagnostic.status = status;
+  }
+  if (record && "cause" in record && record.cause !== undefined) {
+    diagnostic.cause = createSanitizedErrorDiagnostic(
+      record.cause,
+      redactedValues,
+      seen,
+      depth + 1
+    );
+  }
+  return diagnostic;
+}
+
+function createErrorFromDiagnostic(
+  diagnostic: OneTimeTokenErrorDiagnostic
+): Error {
+  const cause = diagnostic.cause
+    ? createErrorFromDiagnostic(diagnostic.cause)
+    : undefined;
+  const error = new Error(
+    diagnostic.message,
+    cause === undefined ? undefined : { cause }
+  );
+  error.name = diagnostic.name;
+  if (diagnostic.stack) {
+    error.stack = diagnostic.stack;
+  }
+  const enriched = error as Error & {
+    code?: number | string;
+    endpoint?: string;
+    operation?: string;
+    path?: string;
+    status?: number | null;
+  };
+  enriched.code = diagnostic.code;
+  enriched.endpoint = diagnostic.endpoint;
+  enriched.operation = diagnostic.operation;
+  enriched.path = diagnostic.path;
+  enriched.status = diagnostic.status;
+  return enriched;
+}
+
+function copyDiagnosticString(
+  source: Record<string, unknown> | null,
+  target: OneTimeTokenErrorDiagnostic,
+  key: "endpoint" | "operation" | "path",
+  redactedValues: readonly string[]
+): void {
+  const value = readDiagnosticString(source?.[key]);
+  if (value) {
+    target[key] = redactSensitiveText(value, redactedValues);
+  }
+}
+
+function readDiagnosticString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function redactSensitiveText(
+  value: string,
+  redactedValues: readonly string[]
+): string {
+  let redacted = value;
+  for (const sensitiveValue of redactedValues) {
+    if (sensitiveValue) {
+      redacted = redacted.split(sensitiveValue).join("[REDACTED]");
+    }
+  }
+  return redacted;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object");
 }
 
 async function parseResponseJson(response: Response): Promise<unknown> {
