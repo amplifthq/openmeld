@@ -14,6 +14,8 @@ const STAGING_ARGUMENT_PATTERN = /stg/u;
 const PRODUCTION_ARGUMENT_PATTERN = /prod/u;
 const ENVIRONMENT_SECRET_SOURCE_PATTERN = /--from-env/u;
 const LOCAL_SECRET_FILE_PATTERN = /\.dev\.vars/u;
+const STAGING_SETUP_BUILD_ENV_PATTERN =
+  /VITE_OPENMELD_SETUP_USER_FACING_COMMAND=openmeld-canary/u;
 
 const readConfig = (path) =>
   parseJsoncObject(
@@ -71,6 +73,10 @@ test("routes staging public Workers through staging.openmeld.ai", () => {
   assert.equal(
     configs.web.env.stg.vars.VITE_OPENMELD_SETUP_USER_FACING_COMMAND,
     "openmeld-canary"
+  );
+  assert.match(
+    packageManifests.web.scripts?.["build:stg"] ?? "",
+    STAGING_SETUP_BUILD_ENV_PATTERN
   );
 });
 
