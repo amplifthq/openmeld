@@ -2127,7 +2127,10 @@ than by the model provider:
   conversations never write to Organization memory automatically. Externally
   shared Channels also do not write it automatically unless a future explicit
   owner policy authorizes that environment. The Center Agent may save an
-  explicit Organization fact only while Organization memory is enabled.
+  explicit Organization fact only from an `organization_shared` conversation
+  while Organization memory is enabled. Core rejects a call from a
+  requester-private or externally shared environment even when an old or
+  compromised worker attempts it.
 - For automatic completed-turn capture, Core selects the memory subject from
   the frozen `interactionEnvironment` and a currently verified requester/member
   identity. `requester_private` selects Member memory,
@@ -2162,7 +2165,9 @@ than by the model provider:
   conversation.
 - An explicit save records `explicit_save` as the capture method while keeping
   the verified conversation surface as its source. The save mechanism must not
-  replace a DM, Space, Slack, Lark, or Feishu origin with `explicit_tool`.
+  replace a Space, Slack, Lark, or Feishu origin with `explicit_tool`, and it
+  must consume the same non-conflicting frozen `interactionEnvironment` as an
+  automatic write before Core admits the Organization subject.
 
 Core owns scope, authorization, enabled state, subject identity, and deletion
 lifecycle. `developing/architecture/data-and-observability.md` owns storage and
