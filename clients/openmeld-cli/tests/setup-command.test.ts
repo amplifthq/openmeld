@@ -1148,6 +1148,52 @@ describe("setup command", () => {
     });
   });
 
+  it("reports a completed no-agent setup as connected after a transient service start failure", async () => {
+    const previousExitCode = process.exitCode;
+    try {
+      runSetupLocalAgentConnectionMock.mockImplementationOnce(() => {
+        process.exitCode = 1;
+        return {
+          status: "completed",
+          setupSessionSnapshot: {
+            deviceId: "device-session",
+            prepareSessionId: "prepare-web",
+            runtimeLane: "canary",
+            selectedLocalAgentIds: [],
+          },
+        };
+      });
+      const { runSetup } = await import("../src/commands/setup");
+
+      await runSetup({
+        startSession: "preptok_web",
+        ott: "ott_web",
+        view: "agent",
+      });
+
+      const setupComplete = presenter.data.mock.calls.find(
+        ([event]) => (event as { code?: string }).code === "setup.complete"
+      )?.[0] as
+        | {
+            payload?: {
+              service?: {
+                deviceId?: string;
+                runtimeLane?: string;
+              } | null;
+            };
+          }
+        | undefined;
+
+      expect(setupComplete?.payload?.service).toEqual({
+        deviceId: "device-session",
+        runtimeLane: "canary",
+      });
+      expect(process.exitCode).toBe(previousExitCode);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
   it("renders human setup completion as readable cards without dumping agent JSON", async () => {
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "human",
