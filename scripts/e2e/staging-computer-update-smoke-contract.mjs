@@ -64,8 +64,6 @@ export function buildStagingSmokeSetupArgs(parsedCommand) {
     "setup",
     "--start-session",
     values.startSession,
-    "--local-agents",
-    "none",
     "--ott",
     values.ott,
     "--view",

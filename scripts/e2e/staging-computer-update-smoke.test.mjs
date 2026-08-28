@@ -13,6 +13,7 @@ import {
   redactStagingSetupCommand,
 } from "./staging-computer-update-smoke-contract.mjs";
 import { readProtectedSetupCommand } from "./staging-computer-update-smoke-local.mjs";
+import { formatStagingSmokeCleanupMessage } from "./staging-computer-update-smoke-runner.mjs";
 
 const SETUP_COMMAND =
   "curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --local-agents all --ott ott_staging_demo --view human";
@@ -85,20 +86,28 @@ test("accepts only the official staging Canary binary setup handoff", () => {
   }
 });
 
-test("forces the smoke setup to skip Local Agents and run without prompts", () => {
+test("lets setup select healthy Local Agents and runs without prompts", () => {
   assert.deepEqual(
     buildStagingSmokeSetupArgs(parseStagingWebSetupCommand(SETUP_COMMAND)),
     [
       "setup",
       "--start-session",
       "start_staging_demo",
-      "--local-agents",
-      "none",
       "--ott",
       "ott_staging_demo",
       "--view",
       "agent",
     ]
+  );
+});
+
+test("keeps the real smoke failure visible when cleanup also fails", () => {
+  assert.equal(
+    formatStagingSmokeCleanupMessage({
+      runFailure: new Error("Canary Service did not start."),
+      runRoot: "/tmp/staging-smoke-evidence",
+    }),
+    "Staging smoke failed: Canary Service did not start. Cleanup also needs help. Preserved files remain at /tmp/staging-smoke-evidence."
   );
 });
 
