@@ -9,6 +9,17 @@ const authMock = {
   },
 };
 const createAuthMock = vi.fn(() => authMock);
+let requestStateActive = false;
+const runWithAuthRequestStateMock = vi.fn(
+  async <T>(callback: () => T | Promise<T>): Promise<T> => {
+    requestStateActive = true;
+    try {
+      return await callback();
+    } finally {
+      requestStateActive = false;
+    }
+  }
+);
 
 const profileServiceMock = {
   getProfileCapabilities: vi.fn(),
@@ -81,6 +92,7 @@ vi.mock("../src/lib/better-auth", () => ({
 vi.mock("../src/lazy-runtime-modules", () => ({
   loadBetterAuthRuntime: vi.fn(async () => ({
     createAuth: createAuthMock,
+    runWithAuthRequestState: runWithAuthRequestStateMock,
   })),
 }));
 
@@ -125,6 +137,8 @@ describe("auth session resolution", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     authMock.api.getSession.mockReset();
     authMock.api.setPassword.mockReset();
+    requestStateActive = false;
+    runWithAuthRequestStateMock.mockClear();
     profileServiceMock.getProfileCapabilities.mockReset();
     profileServiceMock.getProfileCapabilities.mockReturnValue({
       additionalHumanProfileCreationEnabled: false,
@@ -155,6 +169,23 @@ describe("auth session resolution", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("keeps downstream auth work inside the lazy runtime request state", async () => {
+    authMock.api.getSession.mockImplementation(() => {
+      expect(requestStateActive).toBe(true);
+      return null;
+    });
+    const app = createHonoApp();
+
+    const response = await app.fetch(
+      new Request("http://local/v1/profiles"),
+      TEST_ENV,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(401);
+    expect(runWithAuthRequestStateMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns 401 when profile routes are genuinely unauthenticated", async () => {

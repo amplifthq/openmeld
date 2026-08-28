@@ -1,3 +1,7 @@
+import {
+  hasRequestState,
+  runWithRequestState,
+} from "@better-auth/core/context";
 import { createAuthConfig } from "@openmeld/auth/server";
 import { betterAuth } from "better-auth";
 import type { AuthBindings } from "../bindings";
@@ -63,6 +67,15 @@ export function createAuth(env: AuthBindings): AuthInstance {
   cachedAuth = auth;
   cachedAuthKey = nextKey;
   return auth;
+}
+
+export async function runWithAuthRequestState<T>(
+  callback: () => T | Promise<T>
+): Promise<T> {
+  if (await hasRequestState()) {
+    return callback();
+  }
+  return runWithRequestState(new WeakMap(), callback);
 }
 
 function buildAuthCacheKey(env: AuthBindings): string {
