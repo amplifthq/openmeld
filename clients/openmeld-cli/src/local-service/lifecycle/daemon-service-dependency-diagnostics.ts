@@ -268,7 +268,7 @@ export function buildDaemonServiceDependencyNextStep(input: {
     );
   }
   return formatInlineOpenMeldCliCommands(
-    "Check the configured OpenMeld auth and gateway endpoints for this lane, then retry `openmeld service status` or `openmeld service start --mode foreground`."
+    "Check the configured OpenMeld auth and gateway endpoints for this lane, then retry `openmeld service status`."
   );
 }
 

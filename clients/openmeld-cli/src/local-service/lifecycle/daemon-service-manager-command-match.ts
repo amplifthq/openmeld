@@ -6,6 +6,7 @@ import {
 } from "../../runtime/distribution";
 import { containsOpenMeldManagedBinaryPath } from "./daemon-managed-binary-path";
 import {
+  daemonServiceBinaryExecutablePath,
   daemonServiceExecutableWrapperPath,
   daemonServiceLauncherPath,
   daemonServiceLegacyWrapperPath,
@@ -29,7 +30,7 @@ export function matchesExpectedDaemonServiceManagerCommand(input: {
   }
   if ((input.distribution ?? resolveOpenMeldDistribution()) === "binary") {
     if (input.controller === "launchd") {
-      const stableExecutablePath = daemonServiceExecutableWrapperPath(
+      const stableExecutablePath = daemonServiceBinaryExecutablePath(
         input.pathInput
       );
       return [
@@ -73,7 +74,7 @@ export async function matchesExpectedDaemonServiceManagerDefinition(input: {
 
   if ((input.distribution ?? resolveOpenMeldDistribution()) === "binary") {
     if (input.controller === "launchd") {
-      const stableExecutablePath = daemonServiceExecutableWrapperPath(
+      const stableExecutablePath = daemonServiceBinaryExecutablePath(
         input.pathInput
       );
       return definition.includes(`<string>${stableExecutablePath}</string>`);

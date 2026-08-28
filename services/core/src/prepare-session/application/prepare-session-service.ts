@@ -54,8 +54,8 @@ const PREPARE_STEP_ORDER: readonly PrepareStepId[] = [
 ];
 
 const PREPARE_TERMINAL_STEP_ORDER: readonly PrepareStepId[] = [
-  "prepare_selected_agents",
   "refresh_service",
+  "prepare_selected_agents",
   "report_runtime",
   "verify_setup",
 ];
@@ -299,7 +299,14 @@ export async function registerPrepareTerminalConnectionUseCase(input: {
   const replacedTerminal =
     snapshot.terminalConnection.status === "connected" &&
     snapshot.terminalConnection.connectionId !== null;
+  const reconnectingActiveSession =
+    previousEpoch > 0 && snapshot.lifecycleStatus === "active";
   const next = updateSnapshot(snapshot, now, (draft) => {
+    if (reconnectingActiveSession) {
+      resetTerminalOwnedSteps(draft, now, {
+        preserveServiceAlignment: false,
+      });
+    }
     draft.terminalConnection = {
       status: "connected",
       connectionId: input.connectionId,
@@ -446,12 +453,12 @@ async function writeAgentSelectionFromSnapshot(input: {
       };
     }
     setStepState(draft, "choose_local_agents", "complete", now);
-    if (input.write.localAgentIds.length === 0) {
-      completePrepareSessionWithoutLocalAgents(draft, now);
-      return;
-    }
     if (selectionChanged) {
       resetTerminalOwnedSteps(draft, now);
+    }
+    if (input.write.localAgentIds.length === 0) {
+      advancePrepareSessionWithoutLocalAgents(draft, now);
+      return;
     }
     if (draft.terminalConnection.status === "connected") {
       resumeTerminalOwnedSteps(draft, now);
@@ -792,42 +799,6 @@ function isTerminalOwnedPrepareStep(stepId: PrepareStepId): boolean {
   return PREPARE_TERMINAL_STEP_ORDER.includes(stepId);
 }
 
-export async function completePrepareSessionUseCase(input: {
-  db: D1Database;
-  prepareSessionId: string;
-  now?: Date;
-}): Promise<PrepareSessionSnapshot> {
-  const snapshot = await readPrepareSessionSnapshotUseCase(input);
-  const now = input.now ?? new Date();
-  const next = updateSnapshot(snapshot, now, (draft) => {
-    draft.lifecycleStatus = "completed";
-    draft.phase = "ready";
-    draft.completedAt = now.toISOString();
-    for (const stepId of PREPARE_STEP_ORDER) {
-      setStepState(draft, stepId, "complete", now);
-    }
-  });
-  await revokePrepareSessionTokenRecords({
-    db: input.db,
-    prepareSessionId: next.prepareSessionId,
-    ownerUserId: next.ownerUserId,
-    revokedAtMs: now.getTime(),
-  });
-  await writeSnapshotAndEvent({
-    db: input.db,
-    previous: snapshot,
-    next,
-    event: buildPrepareSessionEvent({
-      snapshot: next,
-      eventType: "session.completed",
-      actor: "system",
-      now,
-      message: "Prepare session completed.",
-    }),
-  });
-  return next;
-}
-
 export async function failPrepareSessionUseCase(input: {
   db: D1Database;
   prepareSessionId: string;
@@ -1021,9 +992,14 @@ function resumePrepareSessionAfterTerminalConnect(
   if (snapshot.lifecycleStatus !== "active") {
     return;
   }
+  if (!isStepComplete(snapshot, "refresh_service")) {
+    snapshot.phase = "starting_service";
+    setStepState(snapshot, "refresh_service", "active", now);
+    return;
+  }
   if (isStepComplete(snapshot, "choose_local_agents")) {
     if (snapshot.selectedLocalAgentIds.length === 0) {
-      completePrepareSessionWithoutLocalAgents(snapshot, now);
+      advancePrepareSessionWithoutLocalAgents(snapshot, now);
       return;
     }
     resumeTerminalOwnedSteps(snapshot, now);
@@ -1060,11 +1036,18 @@ function resumeTerminalOwnedSteps(
 
 function resetTerminalOwnedSteps(
   snapshot: PrepareSessionSnapshot,
-  now: Date
+  now: Date,
+  options: { preserveServiceAlignment?: boolean } = {}
 ): void {
+  const preserveServiceAlignment =
+    options.preserveServiceAlignment !== false &&
+    isStepComplete(snapshot, "refresh_service");
   snapshot.lifecycleStatus = "active";
   snapshot.completedAt = null;
   for (const stepId of [...PREPARE_TERMINAL_STEP_ORDER, "ready"] as const) {
+    if (stepId === "refresh_service" && preserveServiceAlignment) {
+      continue;
+    }
     clearBlockersForStep(snapshot, stepId);
     snapshot.steps = snapshot.steps.map((step) =>
       step.id === stepId
@@ -1132,11 +1115,34 @@ function completeTerminalStep(
   now: Date
 ): void {
   setStepState(snapshot, stepId, "complete", now);
+  if (stepId === "refresh_service") {
+    if (isStepComplete(snapshot, "choose_local_agents")) {
+      if (snapshot.selectedLocalAgentIds.length === 0) {
+        advancePrepareSessionWithoutLocalAgents(snapshot, now);
+      } else {
+        resumeTerminalOwnedSteps(snapshot, now);
+      }
+      return;
+    }
+    if (snapshot.selectedLocalAgentIds.length > 0) {
+      setStepState(snapshot, "choose_local_agents", "complete", now);
+      resumeTerminalOwnedSteps(snapshot, now);
+      return;
+    }
+    snapshot.phase = "waiting_for_agent_selection";
+    setStepState(snapshot, "choose_local_agents", "waiting_for_user", now);
+    return;
+  }
   if (stepId === "verify_setup" || stepId === "ready") {
     snapshot.lifecycleStatus = "completed";
     snapshot.phase = "ready";
     snapshot.completedAt = now.toISOString();
     setStepState(snapshot, "ready", "complete", now);
+    return;
+  }
+
+  if (isTerminalOwnedPrepareStep(stepId)) {
+    resumeTerminalOwnedSteps(snapshot, now);
     return;
   }
 
@@ -1156,10 +1162,22 @@ function completeTerminalStep(
   );
 }
 
-function completePrepareSessionWithoutLocalAgents(
+function advancePrepareSessionWithoutLocalAgents(
   snapshot: PrepareSessionSnapshot,
   now: Date
 ): void {
+  if (!isStepComplete(snapshot, "refresh_service")) {
+    snapshot.lifecycleStatus = "active";
+    snapshot.completedAt = null;
+    if (snapshot.terminalConnection.status === "connected") {
+      snapshot.phase = "starting_service";
+      setStepState(snapshot, "refresh_service", "active", now);
+    } else {
+      snapshot.phase = "waiting_for_terminal";
+      setStepState(snapshot, "connect_terminal", "active", now);
+    }
+    return;
+  }
   snapshot.lifecycleStatus = "completed";
   snapshot.phase = "ready";
   snapshot.completedAt = now.toISOString();
@@ -1177,12 +1195,6 @@ function completePrepareSessionWithoutLocalAgents(
   );
   setStepStateWithSummary(
     snapshot,
-    "refresh_service",
-    "Skipped. OpenMeld Service is only needed for selected local agents.",
-    now
-  );
-  setStepStateWithSummary(
-    snapshot,
     "report_runtime",
     "Skipped. There are no selected local agents to report.",
     now
@@ -1196,7 +1208,7 @@ function completePrepareSessionWithoutLocalAgents(
   setStepStateWithSummary(
     snapshot,
     "ready",
-    "Setup complete. No local agents were selected.",
+    "Computer connected. No local agents were selected.",
     now
   );
 }

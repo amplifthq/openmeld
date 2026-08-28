@@ -1925,7 +1925,7 @@ function buildAgentOttFailureNextSteps(input: {
   if (input.code === "session_not_saved") {
     return [
       "Verify the local CLI can persist and reload the bearer session after one-time-token verification.",
-      "Copy a fresh setup command from OpenMeld Web and retry.",
+      "Return to OpenMeld Web to inspect the current connection state and recovery action.",
       "If it still fails, run `openmeld login --ott <token> --view agent` and inspect the auth worker response.",
     ].map((step) => formatInlineOpenMeldCliCommands(step));
   }

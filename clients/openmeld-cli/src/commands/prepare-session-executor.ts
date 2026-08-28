@@ -76,8 +76,8 @@ const REPORT_RUNTIME_CONNECTION_MAX_ATTEMPTS = 9;
 const WAITING_PROGRESS_DELAY_MS = 500;
 
 const TERMINAL_PREPARE_STEP_ORDER: readonly PrepareStepId[] = [
-  "prepare_selected_agents",
   "refresh_service",
+  "prepare_selected_agents",
   "report_runtime",
   "verify_setup",
 ];
@@ -319,22 +319,17 @@ async function runPrepareSessionExecutorOnce(input: {
       snapshot: connected,
     });
     connectionProgress.complete("Terminal connected. Keep this window open.");
-    const withLocalAgents = await reportLocalAgentCatalogForSelection({
+    emitHumanSection(input.input, "Setup progress");
+    const serviceConnected = await connectOpenMeldServiceForPrepare({
       input: input.input,
-      stream,
       snapshot: connected,
+      stream,
     });
-    const selected = await resolveAgentSelection({
+    const selected = await resolveAgentSelectionAfterServiceConnect({
       input: input.input,
       stream,
-      snapshot: withLocalAgents,
+      snapshot: serviceConnected,
     });
-    if (selected.selectedLocalAgentIds.length === 0) {
-      return {
-        snapshot: selected,
-        status: "completed",
-      };
-    }
     const completed = await executeSelectedAgentPreparation({
       input: input.input,
       stream,
@@ -353,6 +348,59 @@ async function runPrepareSessionExecutorOnce(input: {
   } finally {
     stream?.close();
   }
+}
+
+async function connectOpenMeldServiceForPrepare(input: {
+  input: PrepareSessionExecutorInput;
+  snapshot: PrepareSessionSnapshot;
+  stream: PrepareSessionStream;
+}): Promise<PrepareSessionSnapshot> {
+  const step = findStep(input.snapshot, "refresh_service");
+  if (step?.state === "complete") {
+    return input.snapshot;
+  }
+  const terminalStep = buildTerminalStep({
+    connectedComputerId: input.snapshot.connectedComputerId,
+    openMeldServiceRuntimeIdentity:
+      resolveRuntimeIdentityFromPrepareSessionSnapshot(input.snapshot),
+    humanProfileId: input.snapshot.humanProfileId,
+    input: input.input,
+    localAgentIds: input.snapshot.selectedLocalAgentIds,
+    ownerUserId: input.snapshot.ownerUserId,
+    stepId: "refresh_service",
+  });
+  return await runTerminalStep({
+    connectionEpoch: requireConnectionEpoch(input.snapshot),
+    input: input.input,
+    snapshot: input.snapshot,
+    stepId: "refresh_service",
+    stream: input.stream,
+    ...terminalStep,
+  });
+}
+
+async function resolveAgentSelectionAfterServiceConnect(input: {
+  input: PrepareSessionExecutorInput;
+  stream: PrepareSessionStream;
+  snapshot: PrepareSessionSnapshot;
+}): Promise<PrepareSessionSnapshot> {
+  if (hasAgentSelectionBeenSaved(input.snapshot)) {
+    return input.snapshot;
+  }
+  if (input.input.localAgentSelection) {
+    const withLocalAgents = await reportLocalAgentCatalogForSelection(input);
+    return await resolveAgentSelection({
+      ...input,
+      snapshot: withLocalAgents,
+    });
+  }
+  return await writeTerminalAgentSelection({
+    input: input.input,
+    localAgentIds: [],
+    selectionSource: "background",
+    snapshot: input.snapshot,
+    stream: input.stream,
+  });
 }
 
 export async function resolveAgentSelection(input: {
@@ -542,7 +590,7 @@ async function writeTerminalAgentSelection(input: {
   emptySelectionGuideUrl?: string;
   input: PrepareSessionExecutorInput;
   localAgentIds: readonly string[];
-  selectionSource: "automatic" | "explicit";
+  selectionSource: "automatic" | "background" | "explicit";
   stream: PrepareSessionStream;
   snapshot: PrepareSessionSnapshot;
 }): Promise<PrepareSessionSnapshot> {
@@ -576,10 +624,13 @@ async function writeTerminalAgentSelection(input: {
 function formatTerminalAgentSelectionResult(input: {
   emptySelectionGuideUrl?: string;
   localAgentIds: readonly string[];
-  selectionSource: "automatic" | "explicit";
+  selectionSource: "automatic" | "background" | "explicit";
   snapshot: PrepareSessionSnapshot;
 }): string {
   if (input.localAgentIds.length === 0) {
+    if (input.selectionSource === "background") {
+      return "Local agents will finish syncing in the background";
+    }
     const message =
       input.selectionSource === "automatic"
         ? "Enabled local agents: none"
@@ -784,7 +835,6 @@ async function executeSelectedAgentPreparation(input: {
 }> {
   let snapshot = input.snapshot;
   let reportRuntimeResult: TerminalStepRunResult | null = null;
-  emitHumanSection(input.input, "Setup progress");
   while (snapshot.lifecycleStatus === "active") {
     const stepId = resolveNextTerminalPrepareStep(snapshot);
     if (stepId === null) {
@@ -918,7 +968,7 @@ function requireStartedTerminalStepSnapshot(input: {
   }
   if (input.error instanceof PrepareSessionRevisionConflictError) {
     const message =
-      "This setup changed while Terminal was working. Copy a fresh setup command from OpenMeld Web and run setup again to continue from the latest step.";
+      "This setup changed while Terminal was working. Return to OpenMeld Web to see the current connection state and its valid recovery action.";
     input.progress.cancel();
     emitHumanStatus(input.executorInput, "Setup changed", [message]);
     throw new Error(message);
@@ -1039,6 +1089,9 @@ function assertTerminalStepCompletedOrThrow(input: {
 export function resolveNextTerminalPrepareStep(
   snapshot: PrepareSessionSnapshot
 ): PrepareStepId | null {
+  if (findStep(snapshot, "refresh_service")?.state !== "complete") {
+    return "refresh_service";
+  }
   if (snapshot.selectedLocalAgentIds.length === 0) {
     return null;
   }
@@ -1106,22 +1159,7 @@ async function runRefreshServiceTerminalStep(
         : {}),
       gatewayUrl: input.input.gatewayUrl,
     });
-  progress?.detail({
-    code: "prepare.session.progress.refresh_service.state",
-    text: "Checking local setup state...",
-  });
-  const readiness = await collectStartLocalReadiness({
-    auth: {
-      status: "valid",
-      email: null,
-      authBaseUrl: null,
-      gatewayUrl: input.input.gatewayUrl,
-    },
-  });
-  return {
-    ...openMeldServiceRuntimeIdentity,
-    localReadinessSnapshot: buildPrepareLocalReadinessSnapshot(readiness),
-  };
+  return openMeldServiceRuntimeIdentity;
 }
 
 export function buildTerminalStep(input: BuildTerminalStepInput): {
@@ -1175,9 +1213,7 @@ export function buildTerminalStep(input: BuildTerminalStepInput): {
       return {
         message: getSetupFlowCopy("setup").cliProgressFinishingSetup,
         run: async () => {
-          return await finishPrepareSetup({
-            gatewayUrl: input.input.gatewayUrl,
-          });
+          return await finishPrepareSetup();
         },
       };
     default:
@@ -1819,23 +1855,8 @@ function isTransientSelectedAgentConnectionError(error: unknown): boolean {
   );
 }
 
-async function finishPrepareSetup(input: {
-  gatewayUrl: string;
-}): Promise<TerminalStepRunResult> {
-  const openMeldServiceRuntimeIdentity =
-    await readTerminalRuntimeIdentityFromServiceContract();
-  const readiness = await collectStartLocalReadiness({
-    auth: {
-      status: "valid",
-      email: null,
-      authBaseUrl: null,
-      gatewayUrl: input.gatewayUrl,
-    },
-  });
-  return {
-    ...openMeldServiceRuntimeIdentity,
-    localReadinessSnapshot: buildPrepareLocalReadinessSnapshot(readiness),
-  };
+async function finishPrepareSetup(): Promise<TerminalStepRunResult> {
+  return await readTerminalRuntimeIdentityFromServiceContract();
 }
 
 async function readTerminalRuntimeIdentityFromServiceContract(): Promise<TerminalRuntimeIdentity> {
@@ -1912,24 +1933,24 @@ export function formatTerminalStepFailureMessage(input: {
   serviceJobVerdict?: PrepareServiceJobVerdict | null;
 }): string {
   if (input.rawMessage.includes("prepare session revision conflict")) {
-    return "This setup changed while Terminal was working. Copy a fresh setup command from OpenMeld Web and run setup again to continue from the latest step.";
+    return "This setup changed while Terminal was working. Return to OpenMeld Web to see the current connection state and its valid recovery action.";
   }
   if (input.stepId === "refresh_service") {
     if (input.serviceJobVerdict === "never_spawned") {
-      return "macOS didn't start OpenMeld Service. Open System Settings > General > Login Items & Extensions, turn on the OpenMeld background item, then copy a new setup command from OpenMeld Web.";
+      return "macOS didn't start OpenMeld Service. Open System Settings > General > Login Items & Extensions, turn on the OpenMeld background item, then return to OpenMeld Web and choose Try again.";
     }
     if (input.serviceJobVerdict === "crashed") {
       return `OpenMeld Service keeps stopping after it starts. Run \`${formatOpenMeldCliCommand(
-        "openmeld service start --mode foreground"
-      )}\` to see the live error, then copy a new setup command from OpenMeld Web.`;
+        "openmeld service repair"
+      )}\` once; OpenMeld saved the failure details for support.`;
     }
-    return "OpenMeld couldn't update its background service. Restart your computer, then copy a new setup command from OpenMeld Web.";
+    return "OpenMeld couldn't update its background service. Restart your computer; OpenMeld will reconnect automatically after sign-in.";
   }
   const copy = buildHumanErrorCopy(input.rawMessage);
   return [
     copy.summary,
     copy.nextStep ??
-      "Copy a new setup command from OpenMeld Web and run it again.",
+      "Return to OpenMeld Web to see the current connection state and recovery action.",
   ].join(" ");
 }
 

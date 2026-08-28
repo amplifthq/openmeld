@@ -244,18 +244,8 @@ The destinations resolve in that group order:
    owns no parallel state or mutation path. Its Center Agent action opens the
    canonical compact Center Agent conversation, and every other item links to
    its existing product home.
-2. **Center Agent** — the workspace's managed-agent home. It has no secondary
-   sidebar. Its persistent header navigation is exactly **Messages**, **Graph**,
-   **Files**, **Tasks**, **Routines**, **Skills**, and **Apps**, in that order.
-   Messages, Graph, and Files preserve the canonical Center Agent conversation
-   surface; Tasks owns durable parallel work, its read-only board, and
-   conversation-first detail. One compact header menu preserves **Channels**,
-   **Memory**, and **Center Agent settings**. The conversation variant of that
-   menu also preserves **Conversation information**. There is no separate About
-   surface or Slack shortcut; Center Agent identity, model, status, and Slack
-   management remain available through Center Agent settings and Channels.
-3. **Spaces** — the current workspace's Space collaboration surface.
-4. **Direct Messages** — the current workspace's private one-to-one
+2. **Spaces** — the current workspace's Space collaboration surface.
+3. **Direct Messages** — the current workspace's private one-to-one
    conversations. Its canonical routes are `/o/{orgSlug}/direct-messages` and
    `/o/{orgSlug}/direct-messages/{spaceId}`. The Direct Messages secondary
    sidebar lists current DM Spaces by the other participant's profile identity;
@@ -267,28 +257,28 @@ The destinations resolve in that group order:
    state uses Direct Messages geometry and never flashes the Spaces sidebar.
    Canonical classification reads the Space status projection; the Account
    Space Index is list data and cannot override a fresher status result.
-5. **People** — the first-level home for the Human teammates in the current
+4. **People** — the first-level home for the Human teammates in the current
    workspace. Its secondary sidebar lists Human Profiles and owns the
    **Invite Members** button. Selecting a person opens the full Human Profile
    detail as the main content, including that person's Computer cards. Inviting
    remains role-gated. The personal workspace shows the current member and the
    existing create-Organization guidance instead of pretending that invitations
    are available there.
-6. **Agents** — the first-level home for ordinary Agent Profiles that members
+5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. The page shows each Agent's
    identity, owner visibility, authoritative readiness, and execution
    relationship in plain language such as **Uses Codex on Felix's MacBook Pro**.
    The managed Center Agent remains in the separate Center Agent product home.
-7. **Projects** — the first-level home for choosing, creating, and connecting
+6. **Projects** — the first-level home for choosing, creating, and connecting
    the code Projects used by local Agents. Project records are scoped to the
    selected Organization; local folder connections remain owner-self,
    device-local execution facts.
-8. **Documents** — the Organization-scoped Markdown home for the
+7. **Documents** — the Organization-scoped Markdown home for the
    Organization Brief, Profile Reports, and shared knowledge, organized into
    nested folders. It has no secondary sidebar; the current folder's child
    folders and files live inside the page itself.
-9. **Agent Activity** — the first-level home for local coding-agent session
+8. **Agent Activity** — the first-level home for local coding-agent session
    visibility. Its canonical route is `/o/{orgSlug}/agent-activity`; the full
    label prevents confusion with human activity and the Center Agent Audit Log.
    Its secondary sidebar groups **Overview**, **Sessions**, and **Changes** under
@@ -310,6 +300,17 @@ interstitial. Center Agent and Inbox remain together at the far right. The
 Computer launcher reflects the current Computer's coarse state; it never
 replaces Core-owned readiness truth or claims that an Agent can reply. When no
 current Computer exists, it opens the normal setup flow.
+
+The global Center Agent surface has no secondary sidebar. Its persistent header
+navigation is exactly **Messages**, **Graph**, **Files**, **Tasks**, **Routines**,
+**Skills**, and **Apps**, in that order. Messages, Graph, and Files preserve the
+canonical Center Agent conversation surface; Tasks owns durable parallel work,
+its read-only board, and conversation-first detail. One compact header menu
+preserves **Channels**, **Memory**, and **Center Agent settings**. The
+conversation variant of that menu also preserves **Conversation information**.
+There is no separate About surface or Slack shortcut; Center Agent identity,
+model, status, and Slack management remain available through Center Agent
+settings and Channels.
 
 The Inbox launcher is present across ordinary authorized routes, shows only the uncleared,
 unresolved action-required count (visually capped at `99+`), and opens a compact
@@ -396,17 +397,16 @@ opening full Chat hides and unmounts the compact launcher. Maximize preserves
 the exact Task location. Multi-tab and reconnect behavior treats live frames
 only as refresh signals and re-reads Core.
 
-The Center Agent outer-rail destination independently shows a static amber
-unread dot for final replies in the current member's Center Agent Direct
-Message. Core excludes converted Direct Messages from this summary; their
-unread replies activate only the Spaces destination that now owns the
-conversation. Full rails place the Center Agent dot immediately after the label;
-compact and collapsed rails attach it to the icon corner. Web clears this
-projection only after the Center Agent conversation is visible and held at the
-latest message for the read debounce, then writes the Core-owned monotonic
-read-through watermark. Inbox deep links include the exact source Signal
-selector so opening an item returns to the relevant reply instead of merely
-opening the conversation root.
+The Home outer-rail destination independently shows a static amber unread dot
+for final replies in the current member's Center Agent Direct Message. Core
+excludes converted Direct Messages from this summary; their unread replies
+activate only the Spaces destination that now owns the conversation. Full rails
+place the Home dot immediately after the label; compact and collapsed rails
+attach it to the icon corner. Web clears this projection only after the Center
+Agent conversation is visible and held at the latest message for the read
+debounce, then writes the Core-owned monotonic read-through watermark. Inbox
+deep links include the exact source Signal selector so opening an item returns
+to the relevant reply instead of merely opening the conversation root.
 
 The Spaces secondary sidebar consumes the Core-owned grouped unread Space
 message summary alongside the Account Space Index. It shows one static amber
@@ -3124,6 +3124,20 @@ Web may create a Prepare Session handoff and show a setup command that carries
 an opaque session token. That handoff represents the user's intent to align this
 browser account with a local CLI or OpenMeld Service flow.
 
+Prepare and one-time credentials remain short-lived. Before a displayed command
+expires, Web mints a replacement Prepare token and one-time token and swaps in
+the new command. Copy also verifies freshness and refreshes first when needed,
+so the user never copies a command that Web already knows is expired. Expiry is
+not presented as a terminal-debugging task.
+
+Every command refresh is fenced to both the stable Computer setup key and the
+current Prepare Session ID. If starting over or recovery replaces the Prepare
+Session while an older refresh is in flight, the older result must not replace
+the visible command, overwrite the persisted session pointer, or satisfy refresh
+deduplication for the new session. Choosing `Set up again` increments that fence
+before Web requests the replacement session, so the invalidation does not depend
+on a later React render or network response.
+
 When setup starts from `Reconnect OpenMeld Service` on an existing Computer,
 Web carries that stable `connectedComputerId` into the Prepare Session. A local
 service reinstall may report a new `deviceId`; Web still follows the session and
@@ -3157,13 +3171,21 @@ shows their current state without issuing a duplicate notification.
 
 Web does not decide whether the local machine is actually ready.
 
+Once the Prepare owner confirms persisted terminal authentication and aligned,
+connected OpenMeld Service identity, Web presents **Computer connected** as the
+primary outcome. Agent Controller discovery, controller sign-in or repair
+attention, Skills, diagnostics, update state, Project discovery, Binding, and
+Core readiness remain independent progressive facts. They may update after the
+user leaves the page and must not turn the connected Computer result back into
+generic setup failure.
+
 When setup completes with an OpenMeld Assistant bootstrap result, Web reads that
 result from the Prepare Session snapshot and may show an `Open OpenMeld Welcoming
 Space` action. The URL must come from the persisted bootstrap result, not from a
 guessed Space name, a reconstructed path, or local browser state. If bootstrap
 failed or no result has arrived yet, Web must not invent a Space URL.
 
-A Web setup or repair surface must not report local success only because:
+A Web setup or repair surface must not report **Computer connected** only because:
 
 - a command was generated
 - a Prepare Session connected
@@ -3172,13 +3194,16 @@ A Web setup or repair surface must not report local success only because:
 - capability inventory was observed
 - a setup snapshot streamed back to the browser
 
-Setup success must be grounded in the owner facts for account, device, lane, OpenMeld
-Service compatibility, controller capability, Binding, Core readiness, and claim
-eligibility.
+**Computer connected** must be grounded in persisted Terminal authentication and
+aligned, connected OpenMeld Service identity for the account, device, and lane.
+Controller capability, Binding, Core readiness, and claim eligibility remain the
+independent owner facts for each Agent's availability. They must not gate the
+Computer result or be collapsed into a second meaning of setup success.
 
 Web does not ask the user to select local agents during an ordinary setup
-handoff. The CLI detects newly installed supported local agents and connects
-them automatically while preserving every existing On or Off choice. Web owns
+handoff. The connected Service's background catalog refresh detects newly
+installed supported local agents and connects them automatically while
+preserving every existing On or Off choice. Web owns
 only the Computers controls that let the user change those choices later;
 Binding truth and final readiness still belong to their architecture owners.
 

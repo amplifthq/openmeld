@@ -15,12 +15,16 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { daemonRuntimeLeasePath } from "../src/config/daemon-runtime-lease";
 import { daemonServiceContractPath } from "../src/config/daemon-service-contract";
-import { installDaemon } from "../src/config/daemon-state";
+import {
+  daemonLifecycleJournalPath,
+  installDaemon,
+} from "../src/config/daemon-state";
 import { openMeldManagedVersionBinaryPath } from "../src/config/paths";
 import {
   activateDaemonServiceBundle,
   cleanupInactiveDaemonServiceBundles,
   daemonServiceActiveBundlePath,
+  daemonServiceBinaryExecutablePath,
   daemonServiceExecutableWrapperPath,
   daemonServiceLauncherPath,
   daemonServiceLegacyWrapperPath,
@@ -31,6 +35,7 @@ import {
   resolveCurrentDaemonSourceDistFingerprint,
   resolveDaemonBundleRootPath,
   verifyDaemonActiveBundleIntegrity,
+  writeDaemonServiceExecutableWrapper,
 } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { ensureDaemonSystemServiceCommandFiles } from "../src/local-service/lifecycle/daemon-service-command-spec";
 import { withTempHome } from "./helpers/fs";
@@ -683,7 +688,10 @@ describe("local service bundle", () => {
         )}\n`,
         "utf8"
       );
-      const stableExecutablePath = daemonServiceExecutableWrapperPath();
+      const stableExecutablePath = daemonServiceBinaryExecutablePath();
+      expect(stableExecutablePath).not.toBe(
+        daemonServiceExecutableWrapperPath()
+      );
       await symlink(managedBinaryPath, stableExecutablePath);
       await ensureDaemonSystemServiceCommandFiles({
         controller: "launchd",
@@ -693,6 +701,41 @@ describe("local service bundle", () => {
       const stableExecutableStat = await lstat(stableExecutablePath);
       expect(stableExecutableStat.isFile()).toBe(true);
       expect(stableExecutableStat.isSymbolicLink()).toBe(false);
+      await expect(readFile(stableExecutablePath, "utf8")).resolves.toBe(
+        managedBinaryContent
+      );
+      const carrierAuditEvents = (
+        await readFile(daemonLifecycleJournalPath(), "utf8")
+      )
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(carrierAuditEvents).toContainEqual(
+        expect.objectContaining({
+          lane: "prod",
+          pid: process.pid,
+          result: "completed",
+          type: "service_manager.registration_reconcile",
+          metadata: expect.objectContaining({
+            distribution: "binary",
+            executable: process.execPath,
+            operation: "replace_stable_binary",
+            preset: "prod",
+            targetPath: stableExecutablePath,
+          }),
+        })
+      );
+      await expect(
+        ensureDaemonSystemServiceCommandFiles({
+          controller: "launchd",
+          distribution: "npm",
+        })
+      ).rejects.toThrow("binary-managed OpenMeld Service");
+      await expect(readFile(stableExecutablePath, "utf8")).resolves.toBe(
+        managedBinaryContent
+      );
+
+      await writeDaemonServiceExecutableWrapper();
       await expect(readFile(stableExecutablePath, "utf8")).resolves.toBe(
         managedBinaryContent
       );
@@ -759,7 +802,7 @@ describe("local service bundle", () => {
           distribution: "binary",
         });
       };
-      const stableExecutablePath = daemonServiceExecutableWrapperPath();
+      const stableExecutablePath = daemonServiceBinaryExecutablePath();
 
       await activateBinaryVersion({
         content: "previous signed binary fixture",

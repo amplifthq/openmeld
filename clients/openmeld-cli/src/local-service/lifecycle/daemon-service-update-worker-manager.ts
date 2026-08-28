@@ -1,18 +1,28 @@
 import { spawn } from "node:child_process";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
+import {
+  resolveDaemonServiceUpdateWorkerIdentity,
+  resolveDaemonServiceUpdateWorkerLaunchdPlistPath,
+  resolveDaemonServiceUpdateWorkerSystemdPathUnitPath,
+  resolveDaemonServiceUpdateWorkerSystemdUnitPath,
+  resolveDaemonServiceUpdateWorkerWindowsScriptPath,
+} from "../../config/daemon-service-update-worker-registration";
 import {
   daemonRuntimeRootPath,
   daemonRuntimeStateRootPath,
 } from "../../config/daemon-state";
-import {
-  type OpenMeldPathResolutionInput,
-  resolveOpenMeldEnvPreset,
-} from "../../config/paths";
+import type { OpenMeldPathResolutionInput } from "../../config/paths";
 import { assertSafePublishedProductionServiceRegistrationMutation } from "../../config/published-production-safety";
-import { resolveDaemonBundleEntryPathFromState } from "./daemon-service-bundle";
+import { pruneManagedVersions } from "../../local-components/managed-version-pruning";
+import {
+  clearDaemonServiceUpdateWorkerBinaryExecutable,
+  daemonServiceUpdateWorkerBinaryPath,
+  ensureDaemonServiceUpdateWorkerBinaryExecutable,
+  readDaemonActiveBundleState,
+  resolveDaemonBundleEntryPathFromState,
+} from "./daemon-service-bundle";
 import { buildDaemonSystemServiceCommandSpec } from "./daemon-service-command-spec";
 import { resolveDaemonServiceManager } from "./daemon-service-manager";
 import type { DaemonServiceUpdateJob } from "./daemon-service-update-state";
@@ -43,13 +53,24 @@ export async function installDaemonServiceUpdateWorker(
     "install the OpenMeld Service update worker for",
     pathInput
   );
+  const previousActiveBundle =
+    job.preparedBundle.bundleFormat === "binary_v1"
+      ? await readDaemonActiveBundleState().catch(() => null)
+      : null;
+  if (job.preparedBundle.bundleFormat === "binary_v1") {
+    await ensureDaemonServiceUpdateWorkerBinaryExecutable(
+      job.preparedBundle,
+      pathInput
+    );
+  }
   const spec = await buildDaemonServiceUpdateWorkerSpec(job, pathInput);
-  const identity = resolveUpdateWorkerIdentity(pathInput);
+  const identity = resolveDaemonServiceUpdateWorkerIdentity(pathInput);
   if (process.platform === "darwin") {
     const guiDomain =
       process.getuid === undefined ? "gui/501" : `gui/${process.getuid()}`;
     const serviceKey = `${guiDomain}/${identity.launchdLabel}`;
-    const plistPath = resolveUpdateWorkerLaunchdPlistPath(pathInput);
+    const plistPath =
+      resolveDaemonServiceUpdateWorkerLaunchdPlistPath(pathInput);
     await Promise.all([
       mkdir(dirname(plistPath), { recursive: true }),
       mkdir(dirname(resolveUpdateWorkerLogPath(pathInput)), {
@@ -78,12 +99,18 @@ export async function installDaemonServiceUpdateWorker(
       command: "launchctl",
       args: ["enable", serviceKey],
     });
+    await pruneVersionsAfterStableWorkerRegistration({
+      job,
+      pathInput,
+      previousActiveVersion: previousActiveBundle?.daemonVersion ?? null,
+    });
     return;
   }
 
   if (process.platform === "linux") {
-    const unitPath = resolveUpdateWorkerSystemdUnitPath(pathInput);
-    const pathUnitPath = resolveUpdateWorkerSystemdPathUnitPath(pathInput);
+    const unitPath = resolveDaemonServiceUpdateWorkerSystemdUnitPath(pathInput);
+    const pathUnitPath =
+      resolveDaemonServiceUpdateWorkerSystemdPathUnitPath(pathInput);
     await mkdir(dirname(unitPath), { recursive: true });
     await Promise.all([
       writeFile(unitPath, buildSystemdServiceUpdateWorkerUnit({ spec }), {
@@ -107,11 +134,17 @@ export async function installDaemonServiceUpdateWorker(
       command: "systemctl",
       args: ["--user", "enable", "--now", `${identity.serviceName}.path`],
     });
+    await pruneVersionsAfterStableWorkerRegistration({
+      job,
+      pathInput,
+      previousActiveVersion: previousActiveBundle?.daemonVersion ?? null,
+    });
     return;
   }
 
   if (process.platform === "win32") {
-    const scriptPath = resolveUpdateWorkerWindowsScriptPath(pathInput);
+    const scriptPath =
+      resolveDaemonServiceUpdateWorkerWindowsScriptPath(pathInput);
     await mkdir(dirname(scriptPath), { recursive: true });
     await writeFile(scriptPath, buildWindowsUpdateWorkerScript(spec), {
       encoding: "utf8",
@@ -147,6 +180,11 @@ export async function installDaemonServiceUpdateWorker(
         "restart/30000/restart/30000/restart/30000",
       ],
     });
+    await pruneVersionsAfterStableWorkerRegistration({
+      job,
+      pathInput,
+      previousActiveVersion: previousActiveBundle?.daemonVersion ?? null,
+    });
     return;
   }
 
@@ -163,7 +201,7 @@ export async function startDaemonServiceUpdateWorker(
     "start the OpenMeld Service update worker for",
     pathInput
   );
-  const identity = resolveUpdateWorkerIdentity(pathInput);
+  const identity = resolveDaemonServiceUpdateWorkerIdentity(pathInput);
   if (process.platform === "darwin") {
     const guiDomain =
       process.getuid === undefined ? "gui/501" : `gui/${process.getuid()}`;
@@ -208,7 +246,7 @@ export async function uninstallDaemonServiceUpdateWorker(
     "uninstall the OpenMeld Service update worker for",
     pathInput
   );
-  const identity = resolveUpdateWorkerIdentity(pathInput);
+  const identity = resolveDaemonServiceUpdateWorkerIdentity(pathInput);
   if (process.platform === "darwin") {
     const guiDomain =
       process.getuid === undefined ? "gui/501" : `gui/${process.getuid()}`;
@@ -216,7 +254,10 @@ export async function uninstallDaemonServiceUpdateWorker(
       command: "launchctl",
       args: ["bootout", `${guiDomain}/${identity.launchdLabel}`],
     });
-    await rm(resolveUpdateWorkerLaunchdPlistPath(pathInput), { force: true });
+    await rm(resolveDaemonServiceUpdateWorkerLaunchdPlistPath(pathInput), {
+      force: true,
+    });
+    await clearDaemonServiceUpdateWorkerBinaryExecutable(pathInput);
     return;
   }
   if (process.platform === "linux") {
@@ -229,13 +270,18 @@ export async function uninstallDaemonServiceUpdateWorker(
       args: ["--user", "stop", `${identity.serviceName}.service`],
     });
     await Promise.all([
-      rm(resolveUpdateWorkerSystemdUnitPath(pathInput), { force: true }),
-      rm(resolveUpdateWorkerSystemdPathUnitPath(pathInput), { force: true }),
+      rm(resolveDaemonServiceUpdateWorkerSystemdUnitPath(pathInput), {
+        force: true,
+      }),
+      rm(resolveDaemonServiceUpdateWorkerSystemdPathUnitPath(pathInput), {
+        force: true,
+      }),
     ]);
     await runCommand({
       command: "systemctl",
       args: ["--user", "daemon-reload"],
     });
+    await clearDaemonServiceUpdateWorkerBinaryExecutable(pathInput);
     return;
   }
   if (process.platform === "win32") {
@@ -247,6 +293,7 @@ export async function uninstallDaemonServiceUpdateWorker(
       command: "sc",
       args: ["delete", identity.windowsServiceName],
     });
+    await clearDaemonServiceUpdateWorkerBinaryExecutable(pathInput);
   }
 }
 
@@ -265,10 +312,12 @@ export async function buildDaemonServiceUpdateWorkerSpec(
     ...(job.preparedBundle.bundleFormat === "binary_v1"
       ? { binaryExecutablePath: job.preparedBundle.sourceEntryScriptPath }
       : {}),
+    distribution:
+      job.preparedBundle.bundleFormat === "binary_v1" ? "binary" : "npm",
   });
   const binaryDistribution = job.preparedBundle.bundleFormat === "binary_v1";
   const targetEntryPath = binaryDistribution
-    ? job.preparedBundle.sourceEntryScriptPath
+    ? daemonServiceUpdateWorkerBinaryPath(pathInput)
     : await resolveDaemonBundleEntryPathFromState(job.preparedBundle);
   if (!targetEntryPath) {
     throw new Error(
@@ -383,25 +432,6 @@ WantedBy=default.target
 `;
 }
 
-function resolveUpdateWorkerIdentity(pathInput: OpenMeldPathResolutionInput): {
-  launchdLabel: string;
-  serviceName: string;
-  windowsDisplayName: string;
-  windowsServiceName: string;
-} {
-  const preset = resolveOpenMeldEnvPreset(pathInput);
-  const suffix = preset === "prod" ? "" : `-${preset}`;
-  const dotSuffix = preset === "prod" ? "" : `.${preset}`;
-  return {
-    launchdLabel: `com.openmeld.openmeld-service-update${dotSuffix}`,
-    serviceName: `openmeld-service-update${suffix}`,
-    windowsDisplayName: `OpenMeld Service Update${
-      preset === "prod" ? "" : ` (${preset})`
-    }`,
-    windowsServiceName: `OpenMeld-Service-Update${suffix}`,
-  };
-}
-
 function resolveUpdateWorkerLogPath(
   pathInput: OpenMeldPathResolutionInput
 ): string {
@@ -412,45 +442,19 @@ function resolveUpdateWorkerLogPath(
   );
 }
 
-function resolveUpdateWorkerLaunchdPlistPath(
-  pathInput: OpenMeldPathResolutionInput
-): string {
-  return join(
-    pathInput.homeDir ?? userInfo().homedir,
-    "Library",
-    "LaunchAgents",
-    `${resolveUpdateWorkerIdentity(pathInput).launchdLabel}.plist`
-  );
-}
-
-function resolveUpdateWorkerSystemdUnitPath(
-  pathInput: OpenMeldPathResolutionInput
-): string {
-  return join(
-    pathInput.homeDir ?? userInfo().homedir,
-    ".config",
-    "systemd",
-    "user",
-    `${resolveUpdateWorkerIdentity(pathInput).serviceName}.service`
-  );
-}
-
-function resolveUpdateWorkerSystemdPathUnitPath(
-  pathInput: OpenMeldPathResolutionInput
-): string {
-  return join(
-    pathInput.homeDir ?? userInfo().homedir,
-    ".config",
-    "systemd",
-    "user",
-    `${resolveUpdateWorkerIdentity(pathInput).serviceName}.path`
-  );
-}
-
-function resolveUpdateWorkerWindowsScriptPath(
-  pathInput: OpenMeldPathResolutionInput
-): string {
-  return join(daemonRuntimeRootPath(pathInput), "service-update-worker.bat");
+async function pruneVersionsAfterStableWorkerRegistration(input: {
+  job: DaemonServiceUpdateJob;
+  pathInput: OpenMeldPathResolutionInput;
+  previousActiveVersion: string | null;
+}): Promise<void> {
+  if (input.job.preparedBundle.bundleFormat !== "binary_v1") {
+    return;
+  }
+  await pruneManagedVersions({
+    currentVersion: input.job.targetVersion,
+    pathInput: input.pathInput,
+    preferredRollbackVersion: input.previousActiveVersion,
+  });
 }
 
 function buildWindowsUpdateWorkerScript(

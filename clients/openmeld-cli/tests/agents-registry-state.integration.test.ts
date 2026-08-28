@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const {
   detectInstalledRuntimeAgentsMock,
   listBuiltinControllerInstalledCandidatesMock,
+  notifyDaemonRouteCatalogChangedMock,
   refreshBuiltinControllerPersistedLaunchContractMock,
 } = vi.hoisted(() => ({
   detectInstalledRuntimeAgentsMock: vi.fn(),
   listBuiltinControllerInstalledCandidatesMock: vi.fn(),
+  notifyDaemonRouteCatalogChangedMock: vi.fn(),
   refreshBuiltinControllerPersistedLaunchContractMock: vi.fn(),
 }));
 
@@ -35,11 +37,16 @@ vi.mock("../src/agents/local-controller-install", async () => {
   };
 });
 
+vi.mock("../src/local-service/state/route-catalog-sync-notifier", () => ({
+  notifyDaemonRouteCatalogChanged: notifyDaemonRouteCatalogChangedMock,
+}));
+
 import {
   type AgentTargetState,
   listAgentRegistrations,
   listAgentTargetStates,
   manageAgentRegistrationInstallation,
+  reconcileNewRunnableBuiltinAgentRegistrations,
   reconcileNewRunnableBuiltinAgentsForSetup,
   resolveAgentContextBinding,
   resolveAgentTargetState,
@@ -58,12 +65,17 @@ describe("agents registry resolve target state", () => {
       async (input: { launchContract: unknown }) => input.launchContract
     );
     listBuiltinControllerInstalledCandidatesMock.mockReset();
+    notifyDaemonRouteCatalogChangedMock.mockResolvedValue({
+      notified: false,
+      reason: "daemon_unavailable",
+    });
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     detectInstalledRuntimeAgentsMock.mockReset();
     listBuiltinControllerInstalledCandidatesMock.mockReset();
+    notifyDaemonRouteCatalogChangedMock.mockReset();
   });
 
   it("lists verified installations and persists the owner's selected installation", async () => {
@@ -456,6 +468,30 @@ describe("agents registry resolve target state", () => {
         { agentId: "codex", enabled: true },
         { agentId: "opencode", enabled: true },
       ]);
+    });
+  });
+
+  it("registers a newly installed agent during background catalog refresh without recursive notification", async () => {
+    await withTempHome(async () => {
+      const result = await reconcileNewRunnableBuiltinAgentRegistrations({
+        notifyRouteCatalogChanged: false,
+        states: [
+          buildBuiltinState({
+            agentId: "codex",
+            displayName: "Codex",
+            enabled: false,
+            registered: false,
+          }),
+        ],
+      });
+
+      expect(result.registeredAgentIds).toEqual(["codex"]);
+      expect(
+        (await getConfiguredDeviceRuntimeState())?.controllers?.map(
+          ({ agentId, enabled }) => ({ agentId, enabled })
+        )
+      ).toEqual([{ agentId: "codex", enabled: true }]);
+      expect(notifyDaemonRouteCatalogChangedMock).not.toHaveBeenCalled();
     });
   });
 

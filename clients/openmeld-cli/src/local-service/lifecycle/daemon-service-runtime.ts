@@ -243,7 +243,11 @@ export async function waitForDaemonSystemServiceToStop(input: {
     );
     const managerStatus = await input.manager.status().catch(() => null);
 
-    if (!managerStatus?.running && currentRuntime?.status !== "running") {
+    if (
+      managerStatus?.running === false &&
+      currentRuntime !== null &&
+      currentRuntime.status !== "running"
+    ) {
       return true;
     }
 
@@ -279,8 +283,12 @@ export async function waitForDaemonSystemServiceToStop(input: {
     return false;
   }
 
+  if (finalRuntime === null) {
+    return false;
+  }
+
   const finalManagerStatus = await input.manager.status().catch(() => null);
-  return finalManagerStatus?.running !== true;
+  return finalManagerStatus?.running === false;
 }
 
 async function readObservedRuntimeState(): Promise<DaemonServiceRuntimeStatus> {
@@ -291,7 +299,7 @@ async function readObservedRuntimeState(): Promise<DaemonServiceRuntimeStatus> {
     readDaemonRuntimeLease().catch(() => null),
     listDaemonOwnedProcesses({
       ignoreProcessIds: ignoredProcessIds,
-    }).catch(() => []),
+    }),
   ]);
   return resolveObservedDaemonRuntimeStatus({
     runtimeLease,

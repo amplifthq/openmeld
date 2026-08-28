@@ -144,7 +144,7 @@ describe("system service startup failure diagnostics", () => {
       "OpenMeld Service keeps stopping after it starts."
     );
     expect(findRowValue(report.rows, "Next")).toBe(
-      "Run `openmeld service start --mode foreground` to see what stopped it."
+      "Run `openmeld service repair` once."
     );
     expect(report.rows.some((row) => row.value.includes("exit code 78"))).toBe(
       false

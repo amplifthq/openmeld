@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { resolveDaemonServiceUpdateWorkerRegistrationPath } from "../src/config/daemon-service-update-worker-registration";
 import {
   buildInstallSelfJsonPayload,
   performManagedInstall,
@@ -23,11 +24,13 @@ const PLATFORM_TOKEN_REGEX = /^[a-z0-9]+-[a-z0-9]+$/;
 
 describe("managed install (install-self)", () => {
   const originalHome = process.env.OPENMELD_HOME;
+  const originalOsHome = process.env.HOME;
   let home: string;
   let source: string;
 
   beforeEach(async () => {
     home = await mkdtemp(path.join(tmpdir(), "wl-install-self-"));
+    process.env.HOME = home;
     process.env.OPENMELD_HOME = home;
     source = path.join(home, "source-binary");
     await writeFile(source, "#!/bin/sh\necho fake\n");
@@ -38,6 +41,11 @@ describe("managed install (install-self)", () => {
       Reflect.deleteProperty(process.env, "OPENMELD_HOME");
     } else {
       process.env.OPENMELD_HOME = originalHome;
+    }
+    if (originalOsHome === undefined) {
+      Reflect.deleteProperty(process.env, "HOME");
+    } else {
+      process.env.HOME = originalOsHome;
     }
     await rm(home, { recursive: true, force: true });
   });
@@ -123,6 +131,39 @@ describe("managed install (install-self)", () => {
     const installedVersions = await readdir(path.join(home, "versions"));
     expect(installedVersions.sort()).toEqual(
       ["0.3.11", "0.3.9+.", resolveCliSelfVersion(), "manual-backup"].sort()
+    );
+  });
+
+  it("keeps a legacy update worker's pinned version until the worker is re-registered", async () => {
+    await performManagedInstall({ sourceBinaryPath: source });
+    for (const version of ["0.1.0", "0.2.0", "0.3.9"]) {
+      const versionDir = path.join(home, "versions", version);
+      await mkdir(versionDir, { recursive: true });
+      await writeFile(path.join(versionDir, "openmeld"), version);
+      await chmod(path.join(versionDir, "openmeld"), 0o755);
+    }
+    const registrationPath = resolveDaemonServiceUpdateWorkerRegistrationPath(
+      { homeDir: home },
+      process.platform
+    );
+    if (registrationPath === null) {
+      throw new Error(`Unsupported test platform: ${process.platform}`);
+    }
+    await mkdir(path.dirname(registrationPath), { recursive: true });
+    await writeFile(
+      registrationPath,
+      `<plist><array><string>${path.join(
+        home,
+        "versions",
+        "0.1.0",
+        "openmeld"
+      )}</string></array></plist>`
+    );
+
+    await performManagedInstall({ sourceBinaryPath: source });
+
+    await expect(readdir(path.join(home, "versions"))).resolves.toEqual(
+      expect.arrayContaining(["0.1.0", "0.3.9", resolveCliSelfVersion()])
     );
   });
 

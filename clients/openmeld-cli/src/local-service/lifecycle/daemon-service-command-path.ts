@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import {
   daemonRuntimeBundlesPath,
-  daemonServiceRecognizedExecutableWrapperPaths,
+  daemonServiceRecognizedExecutablePaths,
 } from "../../config/daemon-state";
 import type { OpenMeldPathResolutionInput } from "../../config/paths";
 import { isOpenMeldManagedBinaryPath } from "./daemon-managed-binary-path";
@@ -183,7 +183,7 @@ function isRecognizedDaemonServiceExecutableWrapperPath(
   pathInput: OpenMeldPathResolutionInput
 ): boolean {
   const normalizedToken = normalizeDaemonCommandPath(token);
-  return daemonServiceRecognizedExecutableWrapperPaths(pathInput).some(
+  return daemonServiceRecognizedExecutablePaths(pathInput).some(
     (wrapperPath) => {
       const normalizedWrapperPath = normalizeDaemonCommandPath(wrapperPath);
       return (
@@ -208,9 +208,7 @@ function extractUnquotedDaemonWrapperPath(
 
   const commandPrefix = command.slice(0, serviceRunIndex);
   const normalizedPrefix = normalizedCommand.slice(0, serviceRunIndex);
-  for (const wrapperPath of daemonServiceRecognizedExecutableWrapperPaths(
-    pathInput
-  )) {
+  for (const wrapperPath of daemonServiceRecognizedExecutablePaths(pathInput)) {
     const normalizedWrapperPath = normalizeDaemonCommandPath(wrapperPath);
     const wrapperPathIndex = normalizedPrefix.lastIndexOf(
       normalizedWrapperPath

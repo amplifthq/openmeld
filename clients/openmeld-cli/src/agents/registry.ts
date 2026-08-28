@@ -470,7 +470,8 @@ export async function resolveAgentTargetState(
 export async function updateAgentRegistrations(
   updater: (
     current: RuntimeAgentControllerState[]
-  ) => RuntimeAgentControllerState[]
+  ) => RuntimeAgentControllerState[],
+  options: { notifyRouteCatalogChanged?: boolean } = {}
 ): Promise<RuntimeAgentControllerState[]> {
   let nextRegistrations: RuntimeAgentControllerState[] = [];
   try {
@@ -482,14 +483,19 @@ export async function updateAgentRegistrations(
   } catch (error) {
     throw wrapConfigError(error, "agents.config_write_failed");
   }
-  await notifyDaemonRouteCatalogChanged({
-    reason: "device_runtime_state_updated",
-  }).catch(() => undefined);
+  if (options.notifyRouteCatalogChanged !== false) {
+    await notifyDaemonRouteCatalogChanged({
+      reason: "device_runtime_state_updated",
+    }).catch(() => undefined);
+  }
   return nextRegistrations;
 }
 
-export async function reconcileNewRunnableBuiltinAgentsForSetup(
-  input: { states?: readonly AgentTargetState[] } = {}
+export async function reconcileNewRunnableBuiltinAgentRegistrations(
+  input: {
+    notifyRouteCatalogChanged?: boolean;
+    states?: readonly AgentTargetState[];
+  } = {}
 ): Promise<SetupLocalAgentRegistrationReconciliation> {
   const states = input.states ?? (await listAgentTargetStates());
   const runnableBuiltins = states
@@ -516,32 +522,43 @@ export async function reconcileNewRunnableBuiltinAgentsForSetup(
     return result;
   }
 
-  await updateAgentRegistrations((current) => {
-    const next = [...current];
-    const currentById = new Map(
-      next.map((registration) => [registration.agentId, registration])
-    );
+  await updateAgentRegistrations(
+    (current) => {
+      const next = [...current];
+      const currentById = new Map(
+        next.map((registration) => [registration.agentId, registration])
+      );
 
-    for (const state of runnableBuiltins) {
-      const currentRegistration = currentById.get(state.agentId);
-      if (currentRegistration) {
-        const preservedIds = currentRegistration.enabled
-          ? result.preservedEnabledAgentIds
-          : result.preservedDisabledAgentIds;
-        preservedIds.push(state.agentId);
-        continue;
+      for (const state of runnableBuiltins) {
+        const currentRegistration = currentById.get(state.agentId);
+        if (currentRegistration) {
+          const preservedIds = currentRegistration.enabled
+            ? result.preservedEnabledAgentIds
+            : result.preservedDisabledAgentIds;
+          preservedIds.push(state.agentId);
+          continue;
+        }
+
+        const registration = createRegistrationFromCatalogTarget(state);
+        next.push(registration);
+        currentById.set(state.agentId, registration);
+        result.registeredAgentIds.push(state.agentId);
       }
 
-      const registration = createRegistrationFromCatalogTarget(state);
-      next.push(registration);
-      currentById.set(state.agentId, registration);
-      result.registeredAgentIds.push(state.agentId);
+      return next;
+    },
+    {
+      notifyRouteCatalogChanged: input.notifyRouteCatalogChanged,
     }
-
-    return next;
-  });
+  );
 
   return result;
+}
+
+export async function reconcileNewRunnableBuiltinAgentsForSetup(
+  input: { states?: readonly AgentTargetState[] } = {}
+): Promise<SetupLocalAgentRegistrationReconciliation> {
+  return await reconcileNewRunnableBuiltinAgentRegistrations(input);
 }
 
 export async function listAgentCustomTargets(): Promise<AgentCustomTarget[]> {

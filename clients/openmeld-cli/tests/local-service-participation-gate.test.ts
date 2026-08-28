@@ -155,17 +155,16 @@ function createPresenter(): Presenter {
   };
 }
 
-function createLocalDemand(decision: "keep_running" | "allow_auto_stop") {
+function createLocalDemand(hasLocalExecutionRoute = true) {
   return {
-    decision,
-    hasLocalExecutionRoute: decision === "keep_running",
+    decision: "keep_running" as const,
+    hasLocalExecutionRoute,
     repairableReplyCandidateCount: 0,
     projection: null,
-    reason:
-      decision === "keep_running"
-        ? "local execution routes are available"
-        : "no local execution routes are available",
-    localExecutionRouteCount: decision === "keep_running" ? 1 : 0,
+    reason: hasLocalExecutionRoute
+      ? "local execution routes are available"
+      : "no local execution routes are available",
+    localExecutionRouteCount: hasLocalExecutionRoute ? 1 : 0,
   } as const;
 }
 
@@ -193,7 +192,7 @@ describe("local service participation gate", () => {
     selectPromptMock.mockReset();
   });
 
-  it("skips the interactive gate when local wake-up value is absent", async () => {
+  it("keeps the Service participation gate available when no local agent is installed yet", async () => {
     const presenter = createPresenter();
 
     const result = await runDaemonServiceParticipationGate({
@@ -201,12 +200,12 @@ describe("local service participation gate", () => {
       presenter,
       resolvedView: "human",
       allowPrompt: true,
-      localDemand: createLocalDemand("allow_auto_stop"),
+      localDemand: createLocalDemand(false),
       view: "human",
     });
 
-    expect(result).toEqual({ status: "aligned" });
-    expect(selectPromptMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: "declined" });
+    expect(selectPromptMock).toHaveBeenCalledTimes(1);
     expect(runDaemonInstallMock).not.toHaveBeenCalled();
     expect(runDaemonBackgroundStartForDecisionMock).not.toHaveBeenCalled();
   });
@@ -817,7 +816,7 @@ describe("local service participation gate", () => {
       presenter,
       resolvedView: "human",
       allowPrompt: true,
-      localDemand: createLocalDemand("keep_running"),
+      localDemand: createLocalDemand(),
       view: "human",
     });
 
@@ -843,7 +842,7 @@ describe("local service participation gate", () => {
       resolvedView: "human",
       allowPrompt: true,
       gatewayUrl: "http://localhost:8080",
-      localDemand: createLocalDemand("keep_running"),
+      localDemand: createLocalDemand(),
       view: "human",
     });
 
@@ -886,7 +885,7 @@ describe("local service participation gate", () => {
       resolvedView: "human",
       allowPrompt: true,
       gatewayUrl: "http://localhost:8080",
-      localDemand: createLocalDemand("keep_running"),
+      localDemand: createLocalDemand(),
       view: "human",
     });
 
@@ -930,7 +929,7 @@ describe("local service participation gate", () => {
       resolvedView: "human",
       allowPrompt: true,
       gatewayUrl: "http://localhost:8080",
-      localDemand: createLocalDemand("keep_running"),
+      localDemand: createLocalDemand(),
       view: "human",
     });
 
@@ -958,7 +957,7 @@ describe("local service participation gate", () => {
       presenter,
       resolvedView: "human",
       allowPrompt: true,
-      localDemand: createLocalDemand("keep_running"),
+      localDemand: createLocalDemand(),
       view: "human",
     });
 
@@ -988,7 +987,7 @@ describe("local service participation gate", () => {
       presenter,
       resolvedView: "human",
       allowPrompt: true,
-      localDemand: createLocalDemand("keep_running"),
+      localDemand: createLocalDemand(),
       view: "human",
     });
 

@@ -36,8 +36,6 @@ import {
   updateAgentCustomTarget,
   updateAgentRegistrations,
 } from "../agents/registry";
-import type { OpenMeldProfile } from "../config/openmeld-profiles-api";
-import { resolveOpenMeldProfileOrNull } from "../config/resolve-openmeld-profile";
 import {
   DEFAULT_RUNTIME_AGENT_TRANSPORT_MODE,
   type RuntimeAgentControllerState,
@@ -53,7 +51,6 @@ import { emitCliJsonEnvelope } from "../runtime/cli-json-output";
 import { resolveRuntimeContext } from "../runtime/context";
 import { canUseInteractivePrompts } from "../runtime/interaction";
 import { createPresenter } from "../runtime/presenter/index";
-import { postLocalParticipationMutationReconcile } from "../system/local-participation-mutation-reconcile";
 import {
   promptSearchMultiselect,
   promptSearchSelect,
@@ -3285,13 +3282,6 @@ export async function runAgentsDisable(
     }
     return sortAgentRegistrations(next);
   });
-  const reconcileProfile = await resolveLocalParticipationOwnerProfile(runtime);
-  await postLocalParticipationMutationReconcile({
-    codePrefix: "agents.disable",
-    ownerUserId: reconcileProfile?.ownerUserId ?? null,
-    presenter,
-    shouldReconcile: summary.disabled.length > 0,
-  });
   if (input.json === true) {
     emitCliJsonEnvelope({
       schemaVersion: 1,
@@ -3389,13 +3379,6 @@ export async function runAgentsConfig(input: AgentsConfigInput): Promise<void> {
   if (!effectiveConfig) {
     throw new Error("agents.config_write_failed: config update returned empty");
   }
-  const reconcileProfile = await resolveLocalParticipationOwnerProfile(runtime);
-  await postLocalParticipationMutationReconcile({
-    codePrefix: "agents.config",
-    ownerUserId: reconcileProfile?.ownerUserId ?? null,
-    presenter,
-    shouldReconcile: enabled === false,
-  });
   const payload = {
     agentId,
     updatedFields,
@@ -3437,17 +3420,6 @@ export async function runAgentsConfig(input: AgentsConfigInput): Promise<void> {
     ],
     minContentWidth: 34,
   });
-}
-
-async function resolveLocalParticipationOwnerProfile(
-  runtime: Awaited<ReturnType<typeof resolveRuntimeContext>>
-): Promise<OpenMeldProfile | null> {
-  return await resolveOpenMeldProfileOrNull({
-    openMeldProfileId: runtime.openMeldProfileId,
-    allowDefaultFallback: true,
-    allowUnauthenticated: true,
-    persistSelection: false,
-  }).catch(() => null);
 }
 
 export async function runAgentsCustomList(

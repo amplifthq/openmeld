@@ -2174,7 +2174,7 @@ async function handleDaemonRunStartFailure(input: {
           "OpenMeld could not finish starting OpenMeld Service.",
           ...(failure?.detail ? [`Last local detail: ${failure.detail}`] : []),
           `Next: ${formatInlineOpenMeldCliCommands(
-            "Run `openmeld service start --mode foreground` to see the live error. If it still fails, run `openmeld service repair`."
+            "Run `openmeld service repair` once. OpenMeld saved the startup evidence for diagnostics."
           )}`,
         ].join("\n");
     input.presenter.data({
@@ -2210,7 +2210,7 @@ async function handleDaemonRunStartFailure(input: {
       summary: "OpenMeld could not finish starting OpenMeld Service.",
       detail: failure?.detail ?? undefined,
       nextStep: formatInlineOpenMeldCliCommands(
-        "Run `openmeld service start --mode foreground` to see the live error. If it still fails, run `openmeld service repair`."
+        "Run `openmeld service repair` once. OpenMeld saved the startup evidence for diagnostics."
       ),
     });
     renderServiceActionCard({

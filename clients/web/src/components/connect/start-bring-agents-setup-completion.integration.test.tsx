@@ -130,8 +130,32 @@ class ClosingMockWebSocket extends MockWebSocket {
 	}
 }
 
+class ControlledMockWebSocket extends MockWebSocket {
+	static latest: ControlledMockWebSocket | null = null;
+
+	constructor(url: string) {
+		super(url);
+		ControlledMockWebSocket.latest = this;
+		window.queueMicrotask(() => this.onopen?.());
+	}
+
+	disconnectFromServer() {
+		this.onclose?.();
+	}
+
+	emitSnapshot(snapshot: PrepareSessionSnapshot) {
+		this.onmessage?.({
+			data: JSON.stringify({
+				payload: { snapshot },
+				type: "snapshot_changed",
+			}),
+		});
+	}
+}
+
 describe("StartBringAgentsSetupPage completion actions", () => {
 	beforeEach(() => {
+		ControlledMockWebSocket.latest = null;
 		navigateMock.mockReset().mockResolvedValue(undefined);
 		createPrepareSessionMock
 			.mockReset()
@@ -197,7 +221,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		expect(
 			await screen.findByText(
-				"No local agents selected. Continue, or run setup again."
+				"Computer connected. Local agents will sync in the background. Continue, or reconnect this computer."
 			)
 		).toBeTruthy();
 
@@ -237,7 +261,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 				})
 			).getAttribute("href")
 		).toBe("/o/acme/computers?focus=service&refresh=setup-complete");
-		expect(screen.getByText("Setup complete 🎉")).toBeTruthy();
+		expect(screen.getByText("Computer connected")).toBeTruthy();
 		expect(
 			screen.queryByRole("link", { name: "Open OpenMeld Welcoming Space" })
 		).toBeNull();
@@ -413,7 +437,9 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		renderPreparePage();
 
-		expect(await screen.findByText("Checking Wake availability.")).toBeTruthy();
+		expect(
+			await screen.findByText("Checking agent availability.")
+		).toBeTruthy();
 		expect(screen.queryByText("Setup not finished yet.")).toBe(null);
 		expect(screen.queryByText(COMPLETED_PREPARE_TOKEN_PATTERN)).toBeNull();
 		expect(buildWebSetupCommandMock).not.toHaveBeenCalled();
@@ -452,7 +478,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		expect(
 			await screen.findByText(
-				"Setup complete. Wake availability could not refresh."
+				"Computer connected. Agent availability could not refresh."
 			)
 		).toBeTruthy();
 		expect(screen.queryByText("Setup not finished yet.")).toBe(null);
@@ -497,7 +523,9 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		renderPreparePage();
 
-		expect(await screen.findByText("Checking Wake availability.")).toBeTruthy();
+		expect(
+			await screen.findByText("Checking agent availability.")
+		).toBeTruthy();
 		expect(readPrepareSessionMock).toHaveBeenCalledWith({
 			prepareSessionId: "prepare-active",
 		});
@@ -531,7 +559,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		expect(
 			await screen.findByText(
-				"Setup complete. Wake availability could not refresh."
+				"Computer connected. Agent availability could not refresh."
 			)
 		).toBeTruthy();
 		await waitFor(() => {
@@ -594,7 +622,9 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		const { rerender } = renderPreparePage();
 
-		expect(await screen.findByText("Checking Wake availability.")).toBeTruthy();
+		expect(
+			await screen.findByText("Checking agent availability.")
+		).toBeTruthy();
 		await waitFor(() => {
 			expect(oldRefreshAll).toHaveBeenCalledTimes(1);
 		});
@@ -667,7 +697,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		renderPreparePage();
 
-		expect(await screen.findByText("Setup complete.")).toBeTruthy();
+		expect(await screen.findByText("Computer connected.")).toBeTruthy();
 	});
 
 	it("does not promise ready after direct computer setup when matching Core readiness still needs setup", async () => {
@@ -715,10 +745,10 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		expect(
 			await screen.findByText(
-				"Setup complete. Wake availability still needs 1 Agent Profile."
+				"Computer connected. Agent availability still needs 1 Agent Profile."
 			)
 		).toBeTruthy();
-		expect(screen.queryByText("Setup complete.")).toBeNull();
+		expect(screen.queryByText("Computer connected.")).toBeTruthy();
 	});
 
 	it("ignores unrelated Agent Profiles when direct setup refreshes completion readiness", async () => {
@@ -774,10 +804,10 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		renderPreparePage();
 
-		expect(await screen.findByText("Setup complete.")).toBeTruthy();
+		expect(await screen.findByText("Computer connected.")).toBeTruthy();
 		expect(
 			screen.queryByText(
-				"Setup complete. Wake availability still needs 1 Agent Profile."
+				"Computer connected. Agent availability still needs 1 Agent Profile."
 			)
 		).toBeNull();
 	});
@@ -820,6 +850,49 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		expect(readPrepareSessionMock).not.toHaveBeenCalled();
 	});
 
+	it("keeps a fresh Add a Computer session when Terminal reports the new computer identity", async () => {
+		const prepareSessionId = "prepare-add-computer";
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_add_computer",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot: createReadySnapshot({
+				connectedComputerId: "computer-new",
+				deviceId: "device-new-computer",
+				prepareSessionId,
+				runtimeLane: "prod",
+				targetSpaceId: null,
+			}),
+		});
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{
+					kind: "account_computer_setup",
+					resetThisComputer: true,
+				},
+				{
+					deviceId: "device-existing-computer",
+					runtimeLane: "prod",
+				}
+			)
+		);
+
+		renderPreparePage();
+
+		await waitFor(() => {
+			expect(createPrepareSessionMock).toHaveBeenCalledWith({
+				deviceId: null,
+				humanProfileId: "11111111-1111-4111-8111-111111111111",
+				runtimeLane: null,
+				selectedLocalAgentIds: [],
+				targetSpaceId: null,
+			});
+		});
+
+		expect(
+			await screen.findByRole("heading", { name: "Computer connected" })
+		).toBeTruthy();
+	});
+
 	it("completes reconnect when OpenMeld Service reports a new device identity", async () => {
 		createPrepareSessionMock.mockResolvedValueOnce({
 			opaqueToken: "preptok_reconnect",
@@ -847,7 +920,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		renderPreparePage();
 
 		expect(
-			await screen.findByRole("heading", { name: "Setup complete 🎉" })
+			await screen.findByRole("heading", { name: "Computer connected" })
 		).toBeTruthy();
 		expect(createPrepareSessionMock).toHaveBeenCalledWith({
 			connectedComputerId: "computer-existing",
@@ -874,7 +947,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		expect(
 			await screen.findByText(
-				"No local agents selected. Continue, or run setup again."
+				"Computer connected. Local agents will sync in the background. Continue, or reconnect this computer."
 			)
 		).toBeTruthy();
 
@@ -1284,7 +1357,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		renderPreparePage();
 
-		expect(await screen.findByText("Setup complete.")).toBeTruthy();
+		expect(await screen.findByText("Computer connected.")).toBeTruthy();
 		await waitFor(() => {
 			expect(refreshAll).toHaveBeenCalledTimes(1);
 		});
@@ -1328,8 +1401,10 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		const view = renderPreparePage();
 
-		expect(await screen.findByText("Checking Wake availability.")).toBeTruthy();
-		expect(screen.queryByText("Setup complete.")).toBeNull();
+		expect(
+			await screen.findByText("Checking agent availability.")
+		).toBeTruthy();
+		expect(screen.queryByText("Computer connected.")).toBeTruthy();
 
 		setupContext = createSetupContext(routeIntent, {
 			agentExecutionReadinessByProfileId: new Map([
@@ -1349,10 +1424,10 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		expect(
 			await screen.findByText(
-				"Setup complete. Wake availability still needs 1 Agent Profile."
+				"Computer connected. Agent availability still needs 1 Agent Profile."
 			)
 		).toBeTruthy();
-		expect(screen.queryByText("Setup complete.")).toBeNull();
+		expect(screen.queryByText("Computer connected.")).toBeTruthy();
 	});
 
 	it("does not promise ready when Core readiness still needs setup", async () => {
@@ -1392,15 +1467,15 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		expect(
 			await screen.findByText(
-				"Setup complete. Wake availability still needs 1 Agent Profile."
+				"Computer connected. Agent availability still needs 1 Agent Profile."
 			)
 		).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Setup complete. Wake availability still needs 1 Agent Profile."
+				"Computer connected. Agent availability still needs 1 Agent Profile."
 			)
 		).toBeTruthy();
-		expect(screen.queryByText("Setup complete.")).toBeNull();
+		expect(screen.queryByText("Computer connected.")).toBeTruthy();
 	});
 
 	it("falls back to matched profiles when Space recovery has no explicit Agent Profile ids", async () => {
@@ -1450,7 +1525,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		expect(
 			await screen.findByText(
-				"Setup complete. Wake availability still needs 1 Agent Profile."
+				"Computer connected. Agent availability still needs 1 Agent Profile."
 			)
 		).toBeTruthy();
 	});
@@ -1481,8 +1556,10 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		renderPreparePage();
 
-		expect(await screen.findByText("Checking Wake availability.")).toBeTruthy();
-		expect(screen.getByText("Checking Wake availability.")).toBeTruthy();
+		expect(
+			await screen.findByText("Checking agent availability.")
+		).toBeTruthy();
+		expect(screen.getByText("Checking agent availability.")).toBeTruthy();
 	});
 
 	it("keeps the completed state clean while the finished terminal disconnect is inside the reconnect grace window", async () => {
@@ -1501,7 +1578,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		renderPreparePage();
 
-		expect(await screen.findByText("Setup complete 🎉")).toBeTruthy();
+		expect(await screen.findByText("Computer connected")).toBeTruthy();
 		expect(screen.queryByText("Setup command expired.")).toBeNull();
 		expect(
 			screen.queryByText("Terminal connection was interrupted. Reconnecting...")
@@ -1515,7 +1592,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		renderPreparePage();
 
 		await screen.findByText(
-			"No local agents selected. Continue, or run setup again."
+			"Computer connected. Local agents will sync in the background. Continue, or reconnect this computer."
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Set up again" }));
@@ -1779,6 +1856,348 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		await screen.findByText(REFRESHED_PREPARE_TOKEN_PATTERN);
 	});
 
+	it("automatically replaces a displayed setup command when it expires", async () => {
+		const activeSnapshot = createTerminalDisconnectedSnapshot();
+		readPrepareSessionMock.mockResolvedValueOnce({
+			snapshot: activeSnapshot,
+		});
+		mintPrepareSessionTokenMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_refreshed",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot: activeSnapshot,
+		});
+		generateOneTimeTokenMutateAsyncMock
+			.mockResolvedValueOnce({ expiresIn: 0.05, token: "ott_expiring" })
+			.mockResolvedValueOnce({ expiresIn: 180, token: "ott_refreshed" });
+		window.localStorage.setItem(
+			"openmeld.prepare.session.pointer",
+			JSON.stringify({
+				deviceId: "device-current",
+				humanProfileId: "11111111-1111-4111-8111-111111111111",
+				opaqueToken: "preptok_active",
+				opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+				prepareSessionId: activeSnapshot.prepareSessionId,
+				runtimeLane: "dev-local",
+				targetSpaceId: "space-123",
+			})
+		);
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext({
+				agentProfileIds: [],
+				kind: "space_recovery",
+				profileId: "11111111-1111-4111-8111-111111111111",
+				resetThisComputer: false,
+				spaceId: "space-123",
+			})
+		);
+
+		renderPreparePage();
+		await screen.findByText(ACTIVE_PREPARE_TOKEN_PATTERN);
+
+		await waitFor(() => {
+			expect(mintPrepareSessionTokenMock).toHaveBeenCalledWith({
+				prepareSessionId: activeSnapshot.prepareSessionId,
+			});
+		});
+		await screen.findByText(REFRESHED_PREPARE_TOKEN_PATTERN);
+		expect(
+			screen.queryByRole("button", { name: "Refresh command" })
+		).toBeNull();
+	});
+
+	it("does not let an old command refresh overwrite a new computer session", async () => {
+		const oldSnapshot = {
+			...createTerminalDisconnectedSnapshot(),
+			deviceId: "device-old",
+			prepareSessionId: "prepare-old",
+			runtimeLane: "dev-old",
+			targetSpaceId: null,
+		};
+		const currentSnapshot = createActiveSnapshot({
+			deviceId: "device-current",
+			prepareSessionId: "prepare-current",
+			runtimeLane: "dev-local",
+			targetSpaceId: null,
+		});
+		let resolveOldRefresh: (value: {
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}) => void = () => undefined;
+		const oldRefresh = new Promise<{
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}>((resolve) => {
+			resolveOldRefresh = resolve;
+		});
+		readPrepareSessionMock.mockResolvedValueOnce({ snapshot: oldSnapshot });
+		mintPrepareSessionTokenMock.mockReturnValueOnce(oldRefresh);
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_current",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot: currentSnapshot,
+		});
+		window.localStorage.setItem(
+			"openmeld.prepare.session.pointer",
+			JSON.stringify({
+				deviceId: "device-old",
+				humanProfileId: "11111111-1111-4111-8111-111111111111",
+				opaqueToken: null,
+				opaqueTokenExpiresAt: null,
+				prepareSessionId: oldSnapshot.prepareSessionId,
+				runtimeLane: "dev-old",
+				targetSpaceId: null,
+			})
+		);
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{ kind: "account_computer_setup", resetThisComputer: false },
+				{ deviceId: "device-old", runtimeLane: "dev-old" }
+			)
+		);
+
+		const { rerender } = renderPreparePage();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Refresh command" })
+		);
+		await waitFor(() => {
+			expect(mintPrepareSessionTokenMock).toHaveBeenCalledWith({
+				prepareSessionId: "prepare-old",
+			});
+		});
+
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{ kind: "account_computer_setup", resetThisComputer: false },
+				{ deviceId: "device-current", runtimeLane: "dev-local" }
+			)
+		);
+		rerender(createPreparePageElement());
+		await waitFor(() => {
+			expect(buildWebSetupCommandMock).toHaveBeenCalledWith(
+				expect.objectContaining({ startSession: "preptok_current" })
+			);
+		});
+
+		await act(async () => {
+			resolveOldRefresh({
+				opaqueToken: "preptok_old_refreshed",
+				opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+				snapshot: oldSnapshot,
+			});
+			await oldRefresh;
+		});
+
+		expect(buildWebSetupCommandMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ startSession: "preptok_old_refreshed" })
+		);
+		const persistedPointer = JSON.parse(
+			window.localStorage.getItem("openmeld.prepare.session.pointer") ?? "null"
+		) as { prepareSessionId?: string } | null;
+		expect(persistedPointer?.prepareSessionId).toBe("prepare-current");
+	});
+
+	it("does not let an old command refresh overwrite a replacement Prepare Session on the same computer", async () => {
+		vi.stubGlobal("WebSocket", ControlledMockWebSocket);
+		const oldSnapshot = {
+			...createTerminalDisconnectedSnapshot(),
+			prepareSessionId: "prepare-old",
+			targetSpaceId: null,
+		};
+		const currentSnapshot = {
+			...createTerminalDisconnectedSnapshot(),
+			prepareSessionId: "prepare-current",
+			targetSpaceId: null,
+		};
+		let resolveOldRefresh: (value: {
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}) => void = () => undefined;
+		const oldRefresh = new Promise<{
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}>((resolve) => {
+			resolveOldRefresh = resolve;
+		});
+		readPrepareSessionMock
+			.mockResolvedValueOnce({ snapshot: oldSnapshot })
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Prepare Session not found."), {
+					code: "prepare.session.not_found",
+				})
+			);
+		mintPrepareSessionTokenMock.mockReturnValueOnce(oldRefresh);
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_current",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot: currentSnapshot,
+		});
+		window.localStorage.setItem(
+			"openmeld.prepare.session.pointer",
+			JSON.stringify({
+				deviceId: "device-current",
+				humanProfileId: "11111111-1111-4111-8111-111111111111",
+				opaqueToken: null,
+				opaqueTokenExpiresAt: null,
+				prepareSessionId: oldSnapshot.prepareSessionId,
+				runtimeLane: "dev-local",
+				targetSpaceId: null,
+			})
+		);
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{ kind: "account_computer_setup", resetThisComputer: false },
+				{ deviceId: "device-current", runtimeLane: "dev-local" }
+			)
+		);
+
+		renderPreparePage();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Refresh command" })
+		);
+		await waitFor(() => {
+			expect(mintPrepareSessionTokenMock).toHaveBeenCalledWith({
+				prepareSessionId: "prepare-old",
+			});
+		});
+
+		ControlledMockWebSocket.latest?.disconnectFromServer();
+		await waitFor(() => {
+			expect(buildWebSetupCommandMock).toHaveBeenCalledWith(
+				expect.objectContaining({ startSession: "preptok_current" })
+			);
+		});
+
+		await act(async () => {
+			resolveOldRefresh({
+				opaqueToken: "preptok_old_refreshed",
+				opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+				snapshot: oldSnapshot,
+			});
+			await oldRefresh;
+		});
+
+		expect(buildWebSetupCommandMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ startSession: "preptok_old_refreshed" })
+		);
+		const persistedPointer = JSON.parse(
+			window.localStorage.getItem("openmeld.prepare.session.pointer") ?? "null"
+		) as { prepareSessionId?: string } | null;
+		expect(persistedPointer?.prepareSessionId).toBe("prepare-current");
+	});
+
+	it("invalidates an old command refresh as soon as Set up again starts", async () => {
+		vi.stubGlobal("WebSocket", ControlledMockWebSocket);
+		const oldSnapshot = {
+			...createTerminalDisconnectedSnapshot(),
+			prepareSessionId: "prepare-old",
+			targetSpaceId: null,
+		};
+		const completedOldSnapshot = createReadySnapshot({
+			prepareSessionId: "prepare-old",
+			targetSpaceId: null,
+		});
+		const currentSnapshot = {
+			...createTerminalDisconnectedSnapshot(),
+			prepareSessionId: "prepare-current",
+			targetSpaceId: null,
+		};
+		let resolveOldRefresh: (value: {
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}) => void = () => undefined;
+		const oldRefresh = new Promise<{
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}>((resolve) => {
+			resolveOldRefresh = resolve;
+		});
+		let resolveNewSession: (value: {
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}) => void = () => undefined;
+		const newSession = new Promise<{
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: PrepareSessionSnapshot;
+		}>((resolve) => {
+			resolveNewSession = resolve;
+		});
+		readPrepareSessionMock.mockResolvedValueOnce({ snapshot: oldSnapshot });
+		mintPrepareSessionTokenMock.mockReturnValueOnce(oldRefresh);
+		createPrepareSessionMock.mockReturnValueOnce(newSession);
+		window.localStorage.setItem(
+			"openmeld.prepare.session.pointer",
+			JSON.stringify({
+				deviceId: "device-current",
+				humanProfileId: "11111111-1111-4111-8111-111111111111",
+				opaqueToken: null,
+				opaqueTokenExpiresAt: null,
+				prepareSessionId: oldSnapshot.prepareSessionId,
+				runtimeLane: "dev-local",
+				targetSpaceId: null,
+			})
+		);
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{ kind: "account_computer_setup", resetThisComputer: false },
+				{ deviceId: "device-current", runtimeLane: "dev-local" }
+			)
+		);
+
+		renderPreparePage();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Refresh command" })
+		);
+		await waitFor(() => {
+			expect(mintPrepareSessionTokenMock).toHaveBeenCalledWith({
+				prepareSessionId: "prepare-old",
+			});
+		});
+		act(() => {
+			ControlledMockWebSocket.latest?.emitSnapshot(completedOldSnapshot);
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Set up again" })
+		);
+
+		await act(async () => {
+			resolveOldRefresh({
+				opaqueToken: "preptok_old_refreshed",
+				opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+				snapshot: oldSnapshot,
+			});
+			await oldRefresh;
+		});
+
+		expect(buildWebSetupCommandMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ startSession: "preptok_old_refreshed" })
+		);
+		expect(
+			window.localStorage.getItem("openmeld.prepare.session.pointer")
+		).toBeNull();
+
+		await act(async () => {
+			resolveNewSession({
+				opaqueToken: "preptok_current",
+				opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+				snapshot: currentSnapshot,
+			});
+			await newSession;
+		});
+		await waitFor(() => {
+			expect(buildWebSetupCommandMock).toHaveBeenCalledWith(
+				expect.objectContaining({ startSession: "preptok_current" })
+			);
+		});
+	});
+
 	it("prefers the completed direct setup session over a newer active setup session", async () => {
 		const activeSnapshot = createActiveSnapshot({
 			prepareSessionId: "prepare-active",
@@ -1839,7 +2258,9 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 			});
 		});
 		expect(
-			await screen.findByText("Setup complete. No local agents selected.")
+			await screen.findByText(
+				"Computer connected. Local agents will sync in the background."
+			)
 		).toBeTruthy();
 		expect(screen.queryByText(ACTIVE_PREPARE_TOKEN_PATTERN)).toBeNull();
 		expect(createPrepareSessionMock).not.toHaveBeenCalled();
@@ -2897,7 +3318,7 @@ function createReadySnapshot(
 			createCompleteStep(
 				"ready",
 				"Available for Wake",
-				"Setup complete. No local agents selected."
+				"Computer connected. Local agents will sync in the background."
 			),
 		],
 		targetSpaceId:

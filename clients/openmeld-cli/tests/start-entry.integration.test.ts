@@ -379,7 +379,7 @@ describe("openmeld start entry flow", () => {
       autoStopped: false,
       effectiveRuntimeStatus: "running",
       localDemand: {
-        decision: "allow_auto_stop",
+        decision: "keep_running",
         hasLocalExecutionRoute: false,
         repairableReplyCandidateCount: 0,
         reason: "no local execution routes are available",
@@ -388,7 +388,7 @@ describe("openmeld start entry flow", () => {
       },
     });
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       reason: "no local execution routes are available",
@@ -1563,7 +1563,7 @@ describe("openmeld start entry flow", () => {
     const selectMock = vi.mocked(prompts.select);
 
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       reason: "no local execution routes are available",
@@ -1617,7 +1617,7 @@ describe("openmeld start entry flow", () => {
       })
     );
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       reason: "no local execution routes are available",
@@ -1714,7 +1714,7 @@ describe("openmeld start entry flow", () => {
       })
     );
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       reason: "no local execution routes are available",

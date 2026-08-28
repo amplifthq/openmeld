@@ -75,30 +75,31 @@ const SETUP_FLOW_COPY = {
     verify_setup: "Checking setup.",
   },
   prepareComputerBlockedSummary: "Setup needs attention.",
-  prepareComputerCompleteSummary: "Computer set up.",
-  prepareComputerDefaultActiveSummary: "Setting up this computer.",
-  prepareComputerNoLocalAgentsSummary: "No local agents selected.",
+  prepareComputerCompleteSummary: "Computer connected.",
+  prepareComputerDefaultActiveSummary: "Connecting this computer.",
+  prepareComputerNoLocalAgentsSummary:
+    "Computer connected. Local agents are syncing in the background.",
   prepareComputerPendingSummary: "Waiting for Terminal.",
   prepareComputerTerminalDisconnectedSummary:
     "Terminal disconnected. Run a fresh setup command.",
   prepareComputerTitle: "Connect this computer",
   readyAccountComputerActionSummary:
-    "Setup complete. Back to Computers, or run setup again.",
-  readyCompleteSummary: "Setup complete.",
-  readyDefaultActionSummary: "Continue, or run setup again.",
+    "Computer connected. Back to Computers, or reconnect this computer.",
+  readyCompleteSummary: "Computer connected.",
+  readyDefaultActionSummary: "Continue, or reconnect this computer.",
   readyIncompleteSummary: "Setup not finished yet.",
   readyNoSelectedLocalAgentsActionSummary:
-    "No local agents selected. Continue, or run setup again.",
+    "Computer connected. Local agents will sync in the background. Continue, or reconnect this computer.",
   readyNoSelectedLocalAgentsSummary:
-    "Setup complete. No local agents selected.",
+    "Computer connected. Local agents will sync in the background.",
   readyRefreshPendingActionSummary:
-    "Continue after the check, or run setup again.",
+    "Continue after the check, or reconnect this computer.",
   readyRefreshErrorSummary:
-    "Setup complete. Wake availability could not refresh.",
-  readyRefreshPendingSummary: "Checking Wake availability.",
+    "Computer connected. Agent availability could not refresh.",
+  readyRefreshPendingSummary: "Checking agent availability.",
   readySpaceRecoveryActionSummary:
-    "Setup complete. Back to Space, or run setup again.",
-  readyTitle: "Setup complete 🎉",
+    "Computer connected. Back to Space, or reconnect this computer.",
+  readyTitle: "Computer connected",
   cliAiAgentHintTemplate: "AI setup agents: run {command} for setup.complete.",
   cliBootstrapRepairStatus: "Preparing OpenMeld...",
   cliBootstrapRunStatus: "Starting OpenMeld...",

@@ -63,6 +63,16 @@ const DAEMON_SERVICE_EXECUTABLE_WRAPPER_FILENAME_BY_PRESET = {
   "dev-local": "OpenMeld Service Dev",
   canary: "OpenMeld Service Canary",
 } as const satisfies Record<OpenMeldEnvPreset, string>;
+const DAEMON_SERVICE_BINARY_EXECUTABLE_FILENAME_BY_PRESET = {
+  prod: "OpenMeld Service Binary",
+  "dev-local": "OpenMeld Service Binary Dev",
+  canary: "OpenMeld Service Binary Canary",
+} as const satisfies Record<OpenMeldEnvPreset, string>;
+const DAEMON_SERVICE_UPDATE_WORKER_BINARY_FILENAME_BY_PRESET = {
+  prod: "OpenMeld Update Worker Binary",
+  "dev-local": "OpenMeld Update Worker Binary Dev",
+  canary: "OpenMeld Update Worker Binary Canary",
+} as const satisfies Record<OpenMeldEnvPreset, string>;
 const DAEMON_SERVICE_LEGACY_EXECUTABLE_WRAPPER_FILENAME_BY_PRESET = {
   prod: "openmeld-service",
   "dev-local": "openmeld-dev-service",
@@ -677,6 +687,26 @@ export function daemonServiceStableExecutableWrapperPath(
   );
 }
 
+export function daemonServiceStableBinaryExecutablePath(
+  pathInput: OpenMeldPathResolutionInput = {}
+): string {
+  const preset = resolveOpenMeldEnvPreset(pathInput);
+  return join(
+    daemonRuntimeServiceManagerPath(pathInput),
+    DAEMON_SERVICE_BINARY_EXECUTABLE_FILENAME_BY_PRESET[preset]
+  );
+}
+
+export function daemonServiceUpdateWorkerBinaryExecutablePath(
+  pathInput: OpenMeldPathResolutionInput = {}
+): string {
+  const preset = resolveOpenMeldEnvPreset(pathInput);
+  return join(
+    daemonRuntimeServiceManagerPath(pathInput),
+    DAEMON_SERVICE_UPDATE_WORKER_BINARY_FILENAME_BY_PRESET[preset]
+  );
+}
+
 export function daemonServiceLegacyExecutableWrapperPath(
   pathInput: OpenMeldPathResolutionInput = {}
 ): string {
@@ -687,12 +717,21 @@ export function daemonServiceLegacyExecutableWrapperPath(
   );
 }
 
-export function daemonServiceRecognizedExecutableWrapperPaths(
+export function daemonServiceExecutableWrapperPaths(
   pathInput: OpenMeldPathResolutionInput = {}
 ): string[] {
   return [
     daemonServiceStableExecutableWrapperPath(pathInput),
     daemonServiceLegacyExecutableWrapperPath(pathInput),
+  ];
+}
+
+export function daemonServiceRecognizedExecutablePaths(
+  pathInput: OpenMeldPathResolutionInput = {}
+): string[] {
+  return [
+    daemonServiceStableBinaryExecutablePath(pathInput),
+    ...daemonServiceExecutableWrapperPaths(pathInput),
   ];
 }
 

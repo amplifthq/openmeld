@@ -287,9 +287,13 @@ The canonical Web/CLI setup handoff command is:
 openmeld setup --start-session <opaque-token>
 ```
 
-The ordinary handoff automatically enables newly detected runnable local agents
-and preserves every existing local enabled/disabled decision. It has no human
-local-agent selector. Human View may open or print the matching OpenMeld Web
+The ordinary handoff authenticates the terminal, aligns and connects OpenMeld
+Service, then returns `Computer connected` without waiting for deep local-agent
+discovery. The running Service's background catalog refresh automatically
+registers and enables newly detected runnable local agents while preserving
+every existing local enabled/disabled decision, including agents installed
+after the first connection. The handoff has no human local-agent selector.
+Human View may open or print the matching OpenMeld Web
 setup page only as a progress and recovery surface. The URL remains the durable
 fallback for remote terminals, blocked browser launches, or users who need to
 inspect setup progress manually. Agent View should not auto-open a browser.
@@ -324,6 +328,12 @@ lock, and exits, so no shape of stuck setup can hold the single-instance lock
 forever. This deadline governs the setup process only; it is not a Wake
 execution timeout and does not fail an in-flight Wake.
 
+Human recovery never asks the user to run OpenMeld Service in foreground mode
+or copy another setup command as a diagnostic procedure. Setup automatically
+repairs deterministically recoverable Service state. When local evidence proves
+that automatic repair is unsafe, Human View gives one explicit repair action
+and a support code while retaining the detailed evidence for Agent View.
+
 Setup no longer creates or binds a separate onboarding assistant. In human view
 it must not ask which selected local agent should run a managed welcoming
 assistant, and in Agent View it must not synthesize one. Setup also must not
@@ -342,12 +352,15 @@ catalog. `--local-agents none` intentionally prepares no local agents.
 `--local-agent <id...>` chooses explicit selectable local agent IDs for a
 Prepare Session.
 
-Without one of those explicit flags, setup atomically registers and enables
-only runnable built-in controllers that have no local registration. Existing
+With one of those explicit flags, setup prepares and reports the selected
+controllers before completing that explicit request. Without an explicit flag,
+the ordinary Web handoff leaves controller reconciliation to the running
+Service's non-blocking background catalog refresh. That reconciliation registers
+only runnable built-in controllers with no local registration. Existing
 registrations are never rewritten, so a Computers Off decision survives every
-setup rerun and update. Setup reports per-controller attention honestly; a
-signed-out or broken controller remains unavailable without turning a different
-healthy controller's successful connection into a failure.
+setup rerun, update, and catalog refresh. Per-controller attention remains
+visible; a signed-out or broken controller remains unavailable without changing
+the connected Computer result.
 
 Standalone Agent Profile setup may connect one explicit local agent:
 
@@ -1008,6 +1021,18 @@ During Web setup handoff, the CLI receives an opaque Prepare Session token. That
 token represents user intent to align this terminal and local OpenMeld Service with
 the browser account that started setup.
 
+The CLI aligns OpenMeld Service first and writes that successful step, with its
+device and Runtime lane evidence, to the same Prepare Session before it resolves
+or writes Agent Controller selection. It reuses that recorded result for
+explicit selections; it must not run a second forced Service refresh for the
+same handoff. Selecting no Agent Controllers still requires the recorded Service
+step before Prepare can complete.
+
+That result is valid only for the Terminal connection epoch that wrote it. A
+replacement or reconnected Terminal repeats Service alignment and the remaining
+Terminal-owned work instead of inheriting device or lane evidence from the
+previous connection.
+
 When the handoff also includes a Web-issued one-time token, that token is a
 login method for this computer. The token itself stays short-lived and
 single-use, but a successful exchange must persist a normal local CLI auth
@@ -1120,6 +1145,12 @@ install-choice attention; those controllers remain unavailable and do not make
 healthy controllers unavailable.
 It does not prove that an Agent Profile can reply in a specific Space or that a
 future Wake will succeed.
+
+For a Web Prepare handoff, `Computer connected` is the earlier, narrower
+milestone: authentication is reloadable and OpenMeld Service is aligned and
+connected for the intended account/device/lane. Agent Controller discovery,
+Skills, diagnostics, and Project discovery may still be converging in the
+background and are not implied by that result.
 
 A CLI repair flow must not claim success merely because a command ran, a
 process started, a controller was detected, a service snapshot streamed, or

@@ -285,7 +285,7 @@ export function handleSetupGlobalDeadlineExpiry(input: {
 }): void {
   const deadlineMs = input.deadlineMs ?? SETUP_GLOBAL_DEADLINE_MS;
   const minutes = Math.max(1, Math.round(deadlineMs / 60_000));
-  const message = `OpenMeld setup did not finish within ${minutes} minutes on this computer and was stopped. This computer's setup lock has been released. Copy a fresh setup command from OpenMeld Web and run setup again.`;
+  const message = `OpenMeld setup did not finish within ${minutes} minutes on this computer and was stopped. This computer's setup lock has been released. Return to OpenMeld Web to see the current connection state and recovery action.`;
 
   // Release the lock file before exiting: the run promise stays pending (it is
   // hung), so runWithHeldLock's cleanup never runs. Releasing here is what

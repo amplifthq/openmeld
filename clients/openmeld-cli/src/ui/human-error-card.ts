@@ -15,7 +15,7 @@ const TECHNICAL_DETAIL_MARKERS = [
   /\s+Support code:/iu,
 ];
 const ACTION_SENTENCE_RE =
-  /^(?:After\b|Check\b|Choose\b|Close\b|Connect\b|Contact\b|Continue\b|Copy\b|Finish\b|Free\b|Go\b|Make sure\b|Open\b|Reconnect\b|Remove\b|Restart\b|Run\b|Select\b|Sign in\b|Start\b|Stop\b|Try\b|Turn off\b|Turn on\b|Update\b|Use\b|Wait\b)/iu;
+  /^(?:After\b|Check\b|Choose\b|Close\b|Connect\b|Contact\b|Continue\b|Copy\b|Finish\b|Free\b|Go\b|Make sure\b|Open\b|Reconnect\b|Remove\b|Restart\b|Return\b|Run\b|Select\b|Sign in\b|Start\b|Stop\b|Try\b|Turn off\b|Turn on\b|Update\b|Use\b|Wait\b)/iu;
 const SENTENCE_BOUNDARY_RE = /(?<=[.!?])\s+(?=[A-Z`])/u;
 
 export function buildHumanErrorCopy(message: string): HumanErrorCopy {
