@@ -2254,7 +2254,26 @@ but not trigger.
    callback. Callback retry uses capped backoff and Core publication
    idempotency, but no attempt ceiling: a temporary Core, Space, or Slack
    publication outage must not discard a completed answer or replace it with a
-   synthetic execution failure.
+   synthetic execution failure. A successful worker execution stores its
+   bounded final answer in the same compare-and-set durable execution record
+   that changes the execution to `completed`. Callback context is a delivery
+   projection of that record, not a second answer authority. If the instance
+   stops after the terminal write but before callback context or Core
+   publication advances, reconciliation restores the exact answer from the
+   execution record and reuses the idempotent callback path. Failed, aborted,
+   or cancellation-winning executions never retain a completed answer. During
+   rollout, a legacy `completed` record with no recoverable answer is repaired
+   to an explicit failure instead of remaining a false terminal success. Every
+   callback producer must use the terminal compare-and-set winner, including
+   when its own success, failure, or cancellation attempt loses the race.
+   Reconciliation overwrites a conflicting undelivered callback projection from
+   the owner's exact normalized answer, but never trusts callback-only text to
+   fill a missing owner answer. Both the terminal repair and its callback
+   projection are repeatable after a restart and remain idempotent at Core.
+   Observation and reconciliation share one terminal-to-callback projector.
+   A missing callback projection raises the named retryable reconciliation
+   failure `remote_agent.terminal_callback_projection_missing`; it never turns
+   a terminal owner into a silent success.
 4. **Presence is honest and Core-owned.** Core is itself the deliverer, so
    remote-runtime health is first-party state, not inferred evidence — no
    `remote_runtime` evidence channel, no daemon-style readiness chain. But

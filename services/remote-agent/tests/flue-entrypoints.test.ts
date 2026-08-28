@@ -2,8 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
+  readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
-import { initializeRemoteAgentExecutionState } from "../agent-core/execution-state";
+import {
+  buildRemoteAgentExecutionStateKey,
+  completeRemoteAgentExecutionState,
+  initializeRemoteAgentExecutionState,
+} from "../agent-core/execution-state";
 import {
   buildRemoteAgentPromptMessage,
   buildRemoteAgentSubmissionMetadata,
@@ -557,8 +562,8 @@ describe("Flue Cloudflare entrypoints", () => {
           storage,
         })
       ).resolves.toEqual({
-        nextDueAtMs: TEST_NOW_MS + 6000,
-        processed: 1,
+        nextDueAtMs: TEST_NOW_MS,
+        processed: 0,
         reconciled: 1,
       });
 
@@ -569,22 +574,19 @@ describe("Flue Cloudflare entrypoints", () => {
           submissionId: unreadableSubmissionId,
         })
       );
-      expect(completeRemoteAgentSubmission).toHaveBeenCalledTimes(2);
+      expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
       expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
         expect.objectContaining({
           status: "failed",
           submissionId: failedSubmissionId,
         })
       );
-      expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: "completed",
-          submissionId: retryableSubmissionId,
-        })
+      expect(completeRemoteAgentSubmission).not.toHaveBeenCalledWith(
+        expect.objectContaining({ submissionId: retryableSubmissionId })
       );
       expect(schedule).toHaveBeenCalledOnce();
       expect(schedule).toHaveBeenCalledWith(
-        5,
+        1,
         "retryRemoteAgentCallbacks",
         undefined,
         { idempotent: true }
@@ -592,6 +594,107 @@ describe("Flue Cloudflare entrypoints", () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  it("fences due retryable callbacks from terminal execution owners before alarm redelivery", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const failedSubmissionId = "submission_alarm_retryable_failed_owner";
+    const legacySubmissionId =
+      "submission_alarm_retryable_legacy_completed_without_answer";
+
+    for (const submissionId of [failedSubmissionId, legacySubmissionId]) {
+      const identity = {
+        idempotencyKey: request.idempotencyKey,
+        organizationId: request.organizationId,
+        spaceId: request.spaceId,
+        submissionId,
+        v: 1 as const,
+      };
+      const initial = await initializeRemoteAgentExecutionState({
+        acceptedAtMs: TEST_NOW_MS,
+        identity,
+        storage,
+      });
+      if (submissionId === failedSubmissionId) {
+        await completeRemoteAgentExecutionState({
+          identity,
+          nowMs: TEST_NOW_MS + 100,
+          status: "failed",
+          storage,
+        });
+      } else {
+        await storage.put(buildRemoteAgentExecutionStateKey(submissionId), {
+          ...initial,
+          completedAtMs: TEST_NOW_MS + 100,
+          lastProgressAtMs: TEST_NOW_MS + 100,
+          lastProgressKind: "prompt_completed",
+          status: "completed",
+        });
+      }
+      await putRemoteAgentCallbackContext(storage, {
+        ...createRemoteAgentCallbackContext({
+          ack: {
+            accepted: true,
+            createdAt: TEST_NOW_MS,
+            idempotencyKey: request.idempotencyKey,
+            status: "pending",
+            submissionId,
+          },
+          nowMs: TEST_NOW_MS,
+          request,
+        }),
+        callbackAttempts: 1,
+        callbackNextAttemptAt: new Date(TEST_NOW_MS + 200).toISOString(),
+        callbackStatus: "retryable",
+        completedText: `Stale success for ${submissionId}`,
+      });
+    }
+    const completeRemoteAgentSubmission = vi.fn(
+      async (_body: { submissionId: string; text?: string }) => ({
+        publishedSignalId: "signal_alarm_owner_fenced",
+        status: "accepted" as const,
+      })
+    );
+    const readSubmission = vi.fn(async () => ({ status: "settled" as const }));
+    const schedule = vi.fn(async () => undefined);
+
+    await expect(
+      reconcileAndRedeliverRemoteAgentCallbacks({
+        coreWorker: { completeRemoteAgentSubmission },
+        nowMs: () => TEST_NOW_MS + 1000,
+        readSubmission,
+        schedule,
+        storage,
+      })
+    ).resolves.toEqual({
+      nextDueAtMs: null,
+      processed: 0,
+      reconciled: 2,
+    });
+
+    expect(readSubmission).not.toHaveBeenCalled();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledTimes(2);
+    for (const submissionId of [failedSubmissionId, legacySubmissionId]) {
+      const callback = completeRemoteAgentSubmission.mock.calls.find(
+        ([body]) => body.submissionId === submissionId
+      )?.[0];
+      expect(callback).toMatchObject({ status: "failed", submissionId });
+      expect(callback).not.toHaveProperty("text");
+      await expect(
+        readRemoteAgentCallbackContext(storage, submissionId)
+      ).resolves.toMatchObject({
+        callbackAttempts: 2,
+        callbackStatus: "failed",
+        terminalFailureFact: {
+          code: "remote_agent.turn_not_completed",
+        },
+      });
+      await expect(
+        readRemoteAgentCallbackContext(storage, submissionId)
+      ).resolves.not.toHaveProperty("completedText");
+    }
+    expect(schedule).not.toHaveBeenCalled();
   });
 
   it("keeps the Agents SDK alarm idle when only admission receipts have expiry work", async () => {

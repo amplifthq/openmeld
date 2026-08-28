@@ -1,11 +1,15 @@
+import { REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
   assertRemoteAgentExecutionCanContinue,
+  buildRemoteAgentExecutionStateKey,
   completeRemoteAgentExecutionState,
   initializeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
+  readRemoteAgentCompletedExecutionAnswer,
   readRemoteAgentExecutionState,
   requestRemoteAgentExecutionCancellation,
+  resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
 import { createSubmitTurnRequest } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
@@ -116,6 +120,7 @@ describe("remote agent execution state", () => {
 
     await expect(
       completeRemoteAgentExecutionState({
+        completedText: "This answer lost the cancellation race.",
         identity,
         nowMs: 300,
         status: "completed",
@@ -152,6 +157,7 @@ describe("remote agent execution state", () => {
         storage,
       }),
       completeRemoteAgentExecutionState({
+        completedText: "This answer raced with cancellation.",
         identity,
         nowMs: 200,
         status: "completed",
@@ -169,6 +175,158 @@ describe("remote agent execution state", () => {
       },
       status: "found",
     });
+  });
+
+  it("stores completed state and its answer as one private durable invariant", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId: "submission_1",
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: 100,
+      identity,
+      storage,
+    });
+
+    await completeRemoteAgentExecutionState({
+      completedText: "The durable answer.",
+      identity,
+      nowMs: 200,
+      status: "completed",
+      storage,
+    });
+
+    await expect(
+      storage.get(buildRemoteAgentExecutionStateKey(identity.submissionId))
+    ).resolves.toMatchObject({
+      completedText: "The durable answer.",
+      status: "completed",
+    });
+    await expect(
+      readRemoteAgentExecutionState({ identity, storage })
+    ).resolves.not.toHaveProperty("execution.completedText");
+    await expect(
+      readRemoteAgentCompletedExecutionAnswer({ identity, storage })
+    ).resolves.toBe("The durable answer.");
+    await expect(
+      completeRemoteAgentExecutionState({
+        completedText: "The durable answer.",
+        identity,
+        nowMs: 300,
+        status: "completed",
+        storage,
+      })
+    ).resolves.toMatchObject({
+      completedAtMs: 200,
+      status: "completed",
+    });
+  });
+
+  it("stores failed state and its canonical outcome as one private durable invariant", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId: "submission_failed",
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: 100,
+      identity,
+      storage,
+    });
+
+    const execution = await completeRemoteAgentExecutionState({
+      identity,
+      nowMs: 200,
+      status: "failed",
+      storage,
+      terminalFailure: {
+        code: "remote_agent.provider.authentication_failed",
+        detail: "The provider rejected the configured credential.",
+        reasonCode:
+          REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_AUTHENTICATION_FAILED,
+      },
+    });
+
+    await expect(
+      storage.get(buildRemoteAgentExecutionStateKey(identity.submissionId))
+    ).resolves.toMatchObject({
+      status: "failed",
+      terminalFailure: {
+        code: "remote_agent.provider.authentication_failed",
+        detail: "The provider rejected the configured credential.",
+        reasonCode:
+          REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_AUTHENTICATION_FAILED,
+      },
+    });
+    await expect(
+      resolveRemoteAgentTerminalExecutionOutcome({
+        execution,
+        identity,
+        nowMs: 300,
+        storage,
+      })
+    ).resolves.toMatchObject({
+      failure: {
+        code: "remote_agent.provider.authentication_failed",
+        detail: "The provider rejected the configured credential.",
+        reasonCode:
+          REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_AUTHENTICATION_FAILED,
+      },
+      status: "failed",
+    });
+  });
+
+  it("returns the authoritative completed winner after losing a success CAS", async () => {
+    const storage = new CompletedCasRaceStorage();
+    const request = createSubmitTurnRequest();
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId: "submission_success_race",
+      v: 1 as const,
+    };
+    const initial = await initializeRemoteAgentExecutionState({
+      acceptedAtMs: 100,
+      identity,
+      storage,
+    });
+    storage.winNextExecutionCas(
+      buildRemoteAgentExecutionStateKey(identity.submissionId),
+      {
+        ...initial,
+        completedAtMs: 200,
+        completedText: "The authoritative winner answer.",
+        lastProgressAtMs: 200,
+        lastProgressKind: "prompt_completed",
+        status: "completed",
+      }
+    );
+
+    await expect(
+      completeRemoteAgentExecutionState({
+        completedText: "The losing observation answer.",
+        identity,
+        nowMs: 200,
+        status: "completed",
+        storage,
+      })
+    ).resolves.toMatchObject({
+      completedAtMs: 200,
+      status: "completed",
+    });
+    await expect(
+      readRemoteAgentCompletedExecutionAnswer({ identity, storage })
+    ).resolves.toBe("The authoritative winner answer.");
   });
 
   it("fails closed when a query reuses a submission id with different authority", async () => {
@@ -198,3 +356,25 @@ describe("remote agent execution state", () => {
     });
   });
 });
+
+class CompletedCasRaceStorage extends InMemoryDurableObjectStorage {
+  private nextWinner: { key: string; value: unknown } | null = null;
+
+  winNextExecutionCas(key: string, value: unknown): void {
+    this.nextWinner = { key, value };
+  }
+
+  override async compareAndSet<T>(
+    key: string,
+    expectedValue: T,
+    nextValue: T
+  ): Promise<boolean> {
+    if (this.nextWinner?.key === key) {
+      const winner = this.nextWinner;
+      this.nextWinner = null;
+      await this.put(key, winner.value);
+      return false;
+    }
+    return await super.compareAndSet(key, expectedValue, nextValue);
+  }
+}

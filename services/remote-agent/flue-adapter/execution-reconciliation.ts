@@ -3,17 +3,23 @@ import type {
   RemoteAgentWorkerExecutionQueryResponse,
 } from "@openmeld/schemas/types";
 import {
-  attemptRemoteAgentCallbackDelivery,
-  handleRemoteAgentChatResponse,
+  listDueRetryableCallbackContexts,
   listRemoteAgentCallbackContexts,
+  type RemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
-  readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
   completeRemoteAgentExecutionState,
+  RemoteAgentTerminalExecutionOwnerMissingError,
   readRemoteAgentExecutionState,
+  resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
+import {
+  buildRemoteAgentTerminalCallbackResult,
+  projectRemoteAgentTerminalOutcomeToCallback,
+} from "../agent-core/terminal-callback-projection";
+import { createRemoteAgentTerminalFailureFact } from "../agent-core/terminal-failure";
 
 export type FlueSubmissionLifecycle = {
   error?: string;
@@ -26,18 +32,28 @@ export async function reconcileSettledRemoteAgentExecutionFailures(input: {
   readSubmission: (
     submissionId: string
   ) => Promise<FlueSubmissionLifecycle | null>;
+  retryableContexts?: readonly RemoteAgentCallbackContext[];
   storage: RemoteAgentStorage;
 }): Promise<{ reconciled: number }> {
-  const pendingContexts = await listRemoteAgentCallbackContexts(input.storage, [
-    "pending",
+  const nowMs = input.nowMs?.() ?? Date.now();
+  const [pendingContexts, retryableContexts] = await Promise.all([
+    listRemoteAgentCallbackContexts(input.storage, ["pending"]),
+    input.retryableContexts
+      ? Promise.resolve(input.retryableContexts)
+      : listDueRetryableCallbackContexts(input.storage, nowMs),
   ]);
+  const candidates = new Map(
+    [...pendingContexts, ...retryableContexts]
+      .filter(
+        (context) =>
+          context.callbackStatus === "pending" ||
+          context.callbackStatus === "retryable"
+      )
+      .map((context) => [context.submissionId, context] as const)
+  );
   let reconciled = 0;
-  for (const context of pendingContexts) {
+  for (const context of candidates.values()) {
     try {
-      const submission = await input.readSubmission(context.submissionId);
-      if (submission?.status !== "settled") {
-        continue;
-      }
       const result = await reconcileRemoteAgentExecution({
         coreWorker: input.coreWorker,
         identity: {
@@ -47,8 +63,8 @@ export async function reconcileSettledRemoteAgentExecutionFailures(input: {
           submissionId: context.submissionId,
           v: 1,
         },
-        nowMs: input.nowMs,
-        readSubmission: async () => submission,
+        nowMs: () => nowMs,
+        readSubmission: input.readSubmission,
         storage: input.storage,
       });
       if (
@@ -84,9 +100,14 @@ export async function reconcileRemoteAgentExecution(input: {
   if (current.status !== "found") {
     return current;
   }
-  if (current.execution.status === "completed") {
-    await replayDurableCompletedAnswer({
+  if (
+    current.execution.status === "completed" ||
+    current.execution.status === "failed" ||
+    current.execution.status === "aborted"
+  ) {
+    await projectRemoteAgentTerminalExecution({
       coreWorker: input.coreWorker,
+      execution: current.execution,
       identity: input.identity,
       nowMs: input.nowMs?.() ?? Date.now(),
       storage: input.storage,
@@ -102,9 +123,7 @@ export async function reconcileRemoteAgentExecution(input: {
     return current;
   }
 
-  const cancelled =
-    current.execution.status === "cancellation_requested" ||
-    current.execution.status === "aborted";
+  const cancelled = current.execution.status === "cancellation_requested";
   // Successful settlement can precede the observer callback. A durable Flue
   // error or an already-requested cancellation is the only terminal fact this
   // reconciler is allowed to project.
@@ -114,24 +133,24 @@ export async function reconcileRemoteAgentExecution(input: {
 
   const nowMs = input.nowMs?.() ?? Date.now();
 
-  await completeRemoteAgentExecutionState({
+  const settledExecution = await completeRemoteAgentExecutionState({
     identity: input.identity,
     nowMs,
     status: cancelled ? "aborted" : "failed",
     storage: input.storage,
-  });
-  await handleRemoteAgentChatResponse({
-    coreWorker: input.coreWorker,
-    nowMs: () => nowMs,
-    result: {
-      continuation: false,
+    terminalFailure: createRemoteAgentTerminalFailureFact({
       error: cancelled
-        ? new Error("Remote Agent execution was cancelled.")
-        : new Error(submission.error),
-      message: { parts: [] },
-      requestId: input.identity.submissionId,
-      status: cancelled ? "aborted" : "error",
-    },
+        ? (current.execution.cancellationReason ??
+          "Remote Agent execution was cancelled.")
+        : submission.error,
+      status: cancelled ? "aborted" : "failed",
+    }),
+  });
+  await projectRemoteAgentTerminalExecution({
+    coreWorker: input.coreWorker,
+    execution: settledExecution,
+    identity: input.identity,
+    nowMs,
     storage: input.storage,
   });
 
@@ -141,43 +160,34 @@ export async function reconcileRemoteAgentExecution(input: {
   });
 }
 
-/**
- * Replay an authoritative answer only after the durable execution owner has
- * already recorded a successful completion. Partial stream text and failed
- * executions can never enter this path.
- */
-async function replayDurableCompletedAnswer(input: {
+async function projectRemoteAgentTerminalExecution(input: {
   coreWorker?: RemoteAgentCoreWorkerBinding;
+  execution: Awaited<ReturnType<typeof completeRemoteAgentExecutionState>>;
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs: number;
   storage: RemoteAgentStorage;
 }): Promise<void> {
-  const context = await readRemoteAgentCallbackContext(
-    input.storage,
-    input.identity.submissionId
-  );
-  if (!context) {
-    return;
+  const outcome = await resolveRemoteAgentTerminalExecutionOutcome({
+    execution: input.execution,
+    identity: input.identity,
+    nowMs: input.nowMs,
+    storage: input.storage,
+  });
+  if (!outcome) {
+    throw new RemoteAgentTerminalExecutionOwnerMissingError(
+      input.identity.submissionId
+    );
   }
-  if (!context.completedText?.trim()) {
-    return;
-  }
-  if (
-    context.callbackStatus !== "completed" &&
-    context.callbackStatus !== "rejected"
-  ) {
-    console.info("[remote_agent.execution.answer_replayed]", {
-      dispatchId: context.dispatchId,
-      idempotencyKey: context.idempotencyKey,
-      spaceId: context.spaceId,
-      submissionId: context.submissionId,
-      triggerMessageId: context.triggerMessageId,
-    });
-    await attemptRemoteAgentCallbackDelivery({
-      context,
-      coreWorker: input.coreWorker,
-      nowMs: input.nowMs,
-      storage: input.storage,
-    });
-  }
+  const result = buildRemoteAgentTerminalCallbackResult({
+    outcome,
+    requestId: input.identity.submissionId,
+  });
+  await projectRemoteAgentTerminalOutcomeToCallback({
+    coreWorker: input.coreWorker,
+    nowMs: input.nowMs,
+    outcome,
+    result,
+    storage: input.storage,
+    submissionId: input.identity.submissionId,
+  });
 }
