@@ -506,6 +506,62 @@ describe("auth session storage", () => {
     });
   });
 
+  it("refuses to replace an unresolved auth session transition", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      const firstTransition = await beginAuthSessionTransition({
+        accessToken: "first-candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "first-candidate-owner" },
+      });
+      const transitionPath = join(
+        home,
+        ".openmeld",
+        "auth",
+        "session-transition.json"
+      );
+      const firstJournal = await readFile(transitionPath, "utf8");
+
+      await expect(
+        beginAuthSessionTransition({
+          accessToken: "second-candidate-token",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "second-candidate-owner" },
+        })
+      ).rejects.toMatchObject({
+        name: "AuthSessionRecoveryInProgressError",
+      });
+
+      await expect(readFile(transitionPath, "utf8")).resolves.toBe(
+        firstJournal
+      );
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "first-candidate-token",
+          user: { id: "first-candidate-owner" },
+        },
+      });
+
+      await firstTransition.rollback();
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "previous-token",
+          user: { id: "previous-owner" },
+        },
+      });
+    });
+  });
+
   it("treats durable commit as successful when post-commit cleanup must be retried", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";

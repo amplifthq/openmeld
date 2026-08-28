@@ -409,6 +409,7 @@ export async function beginAuthSessionTransition(
     throw new Error("client_id is required");
   }
 
+  await assertAuthSessionMutationAvailable();
   await retryPendingTokenCleanup();
   await ensureAuthSessionDirectory();
   const previousPayload = await readSessionPayload();

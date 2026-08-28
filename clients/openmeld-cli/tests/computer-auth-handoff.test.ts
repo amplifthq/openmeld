@@ -41,7 +41,8 @@ vi.mock("@clack/prompts", () => ({
   isCancel: () => false,
 }));
 
-vi.mock("../src/config/auth-session", () => ({
+vi.mock("../src/config/auth-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/config/auth-session")>()),
   beginAuthSessionTransition: beginAuthSessionTransitionMock,
   completeInterruptedComputerAuthSessionRecovery:
     completeInterruptedComputerAuthSessionRecoveryMock,
@@ -242,7 +243,7 @@ describe("Computer authorization handoff", () => {
         runtime: agentRuntime,
         view: "agent",
       })
-    ).resolves.toBe(true);
+    ).resolves.toBe("completed");
 
     expect(bestEffortStopCurrentLaneDaemonServiceMock).toHaveBeenCalledTimes(1);
     expect(runDaemonServiceParticipationGateMock).toHaveBeenCalledWith(
@@ -311,7 +312,7 @@ describe("Computer authorization handoff", () => {
         presenter,
         runtime: agentRuntime,
       })
-    ).resolves.toBe(true);
+    ).resolves.toBe("deferred");
 
     expect(bestEffortStopCurrentLaneDaemonServiceMock).not.toHaveBeenCalled();
     expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
@@ -337,6 +338,43 @@ describe("Computer authorization handoff", () => {
         transitionId: "transition-cleanup-retry",
       }
     );
+  });
+
+  it("stops a new setup before exchanging credentials when prior recovery is deferred", async () => {
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-deferred-before-new-setup",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: true,
+    });
+    revokePreparedAuthSessionMock.mockResolvedValueOnce({
+      ok: false,
+      error: Object.assign(new Error("Auth Worker unavailable"), {
+        endpoint: "https://auth.openmeld.test/api/auth/revoke-token",
+        status: 503,
+      }),
+    });
+
+    await expect(runAgentHandoff()).rejects.toMatchObject({
+      name: "AuthSessionRecoveryInProgressError",
+    });
+
+    expect(resolveBaseUrlMock).not.toHaveBeenCalled();
+    expect(resolvePrepareSessionForHandoffMock).not.toHaveBeenCalled();
+    expect(exchangeComputerAuthorizationGrantMock).not.toHaveBeenCalled();
+    expect(beginAuthSessionTransitionMock).not.toHaveBeenCalled();
+    expect(runPrepareSessionExecutorMock).not.toHaveBeenCalled();
+    expect(
+      recordInterruptedComputerAuthSessionRecoveryFailureMock
+    ).toHaveBeenCalledWith({
+      endpoint: "https://auth.openmeld.test/api/auth/revoke-token",
+      id: "transition-deferred-before-new-setup",
+      message: "Auth Worker unavailable",
+      phase: "remote_session",
+      status: 503,
+    });
   });
 
   it("rolls a legacy OTT candidate back when Prepare fails", async () => {

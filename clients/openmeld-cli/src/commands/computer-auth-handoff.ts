@@ -1,5 +1,6 @@
 import { confirm, isCancel } from "@clack/prompts";
 import {
+  AuthSessionRecoveryInProgressError,
   beginAuthSessionTransition,
   getAuthSessionState,
   type StoredAuthSession,
@@ -68,11 +69,14 @@ async function runPreparedComputerAuthHandoff(
     exchangeCandidate: () => Promise<PreparedAuthSession>;
   }
 ): Promise<PrepareSessionExecutorResult> {
-  await recoverInterruptedComputerAuthHandoff({
+  const recoveryOutcome = await recoverInterruptedComputerAuthHandoff({
     presenter: input.presenter,
     runtime: input.runtime,
     view: input.view,
   });
+  if (recoveryOutcome === "deferred") {
+    throw new AuthSessionRecoveryInProgressError();
+  }
   const gatewayUrl = await resolveBaseUrl();
   const initialSnapshot = await resolvePrepareSessionForHandoff({
     gatewayUrl,
@@ -287,7 +291,7 @@ async function restorePreviousComputerAfterFailedHandoff(input: {
     runtime: input.runtime,
     view: input.view,
   });
-  if (!recovered) {
+  if (recovered === "none") {
     await restoreLegacyComputerAuthTransition(input);
   }
 }

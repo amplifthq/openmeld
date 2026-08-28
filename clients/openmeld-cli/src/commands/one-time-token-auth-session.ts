@@ -59,6 +59,41 @@ export class OneTimeTokenCandidateSessionCleanupError extends OneTimeTokenAuthEr
   }
 }
 
+export class OneTimeTokenLocalSessionRecoveryError extends OneTimeTokenAuthError {
+  readonly recovery: { message: string };
+
+  constructor(input: { cause: unknown; recoveryError: unknown }) {
+    const recoveryMessage = toErrorMessage(input.recoveryError);
+    super(
+      input.cause instanceof OneTimeTokenAuthError
+        ? input.cause.code
+        : "unknown",
+      `${toErrorMessage(input.cause)}; local session recovery failed: ${recoveryMessage}`,
+      { cause: input.cause }
+    );
+    this.name = "OneTimeTokenLocalSessionRecoveryError";
+    this.recovery = { message: recoveryMessage };
+  }
+}
+
+export async function rejectOneTimeTokenCandidateSession(input: {
+  cause: unknown;
+  session: {
+    accessToken: string;
+    authBaseUrl: string;
+    tokenType: string;
+  };
+}): Promise<never> {
+  const cleanup = await revokeAuthAccessToken(input.session);
+  if (cleanup.ok) {
+    throw input.cause;
+  }
+  throw new OneTimeTokenCandidateSessionCleanupError({
+    cause: input.cause,
+    cleanupError: cleanup.error,
+  });
+}
+
 export async function exchangeOneTimeTokenAuthSession(input: {
   authBaseUrl: string;
   clientId: string;
@@ -126,17 +161,13 @@ export async function exchangeOneTimeTokenAuthSession(input: {
       },
     };
   } catch (error) {
-    const cleanup = await revokeAuthAccessToken({
-      accessToken,
-      authBaseUrl: input.authBaseUrl,
-      tokenType: "Bearer",
-    });
-    if (cleanup.ok) {
-      throw error;
-    }
-    throw new OneTimeTokenCandidateSessionCleanupError({
+    return await rejectOneTimeTokenCandidateSession({
       cause: error,
-      cleanupError: cleanup.error,
+      session: {
+        accessToken,
+        authBaseUrl: input.authBaseUrl,
+        tokenType: "Bearer",
+      },
     });
   }
 }

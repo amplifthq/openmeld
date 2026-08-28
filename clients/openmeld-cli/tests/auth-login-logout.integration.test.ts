@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -326,6 +326,168 @@ describe("auth login/logout commands", () => {
       "cleanup failed at https://auth.openmeld.invalid/api/auth/sign-out (HTTP 503)"
     );
     expect(message).not.toContain("access-token-ott-cleanup-failure");
+  });
+
+  it("keeps the previous account and revokes the OTT candidate when local save fails", async () => {
+    let authDirectory = "";
+    const fetchMock = vi.fn(async (request: string | URL | Request) => {
+      const url = String(request);
+      if (url.endsWith("/api/auth/one-time-token/verify")) {
+        await chmod(authDirectory, 0o500);
+        return createJsonResponse(
+          {
+            session: {
+              id: "session-ott-save-failure",
+              expiresAt: "2099-02-23T00:00:00.000Z",
+            },
+            user: {
+              id: "candidate-owner",
+              email: "candidate@example.com",
+            },
+          },
+          200,
+          { "set-auth-token": "access-token-ott-save-failure" }
+        );
+      }
+      if (url.endsWith("/api/auth/sign-out")) {
+        return createJsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected auth request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let thrown: unknown = null;
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      authDirectory = join(home, ".openmeld", "auth");
+      await setAuthSession({
+        accessToken: "previous-token-before-save-failure",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      try {
+        await withCapturedStdio(async () => {
+          try {
+            await runAuthLogin({
+              view: "human",
+              authUrl: "https://auth.openmeld.invalid",
+              clientId: "openmeld-cli",
+              method: "ott",
+              ott: "OTT_TOKEN_WITH_LOCAL_SAVE_FAILURE",
+            });
+          } catch (error) {
+            thrown = error;
+          }
+        });
+      } finally {
+        await chmod(authDirectory, 0o700);
+        Reflect.deleteProperty(
+          process.env,
+          "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+        );
+      }
+
+      await expect(getAuthSession()).resolves.toMatchObject({
+        accessToken: "previous-token-before-save-failure",
+        user: { id: "previous-owner" },
+      });
+    });
+
+    expect(thrown).toMatchObject({ code: "EACCES" });
+    expect(fetchMock.mock.calls.map(([request]) => String(request))).toEqual([
+      "https://auth.openmeld.invalid/api/auth/one-time-token/verify",
+      "https://auth.openmeld.invalid/api/auth/sign-out",
+    ]);
+    expect(thrown instanceof Error ? thrown.message : "").not.toContain(
+      "access-token-ott-save-failure"
+    );
+  });
+
+  it("restores the previous account when OTT post-save verification fails", async () => {
+    const fetchMock = vi.fn((request: string | URL | Request) => {
+      const url = String(request);
+      if (url.endsWith("/api/auth/one-time-token/verify")) {
+        return createJsonResponse(
+          {
+            session: {
+              id: "session-ott-post-save-failure",
+              expiresAt: "2000-01-01T00:00:00.000Z",
+            },
+            user: {
+              id: "candidate-owner",
+              email: "candidate@example.com",
+            },
+          },
+          200,
+          { "set-auth-token": "access-token-ott-post-save-failure" }
+        );
+      }
+      if (url.endsWith("/api/auth/sign-out")) {
+        return createJsonResponse({ message: "Auth cleanup unavailable" }, 503);
+      }
+      throw new Error(`Unexpected auth request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let thrown: unknown = null;
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      try {
+        await setAuthSession({
+          accessToken: "previous-token-before-post-save-failure",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "previous-owner" },
+        });
+
+        await withCapturedStdio(async () => {
+          try {
+            await runAuthLogin({
+              view: "human",
+              authUrl: "https://auth.openmeld.invalid",
+              clientId: "openmeld-cli",
+              method: "ott",
+              ott: "OTT_TOKEN_WITH_POST_SAVE_FAILURE",
+            });
+          } catch (error) {
+            thrown = error;
+          }
+        });
+
+        await expect(getAuthSession()).resolves.toMatchObject({
+          accessToken: "previous-token-before-post-save-failure",
+          user: { id: "previous-owner" },
+        });
+      } finally {
+        Reflect.deleteProperty(
+          process.env,
+          "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+        );
+      }
+    });
+
+    expect(thrown).toMatchObject({
+      cause: {
+        code: "session_not_saved",
+        name: "OneTimeTokenAuthError",
+      },
+      cleanup: {
+        endpoint: "https://auth.openmeld.invalid/api/auth/sign-out",
+        status: 503,
+      },
+      name: "OneTimeTokenCandidateSessionCleanupError",
+    });
+    const message = thrown instanceof Error ? thrown.message : "";
+    expect(message).toContain("could not save a usable local sign-in session");
+    expect(message).toContain(
+      "cleanup failed at https://auth.openmeld.invalid/api/auth/sign-out (HTTP 503)"
+    );
+    expect(message).not.toContain("access-token-ott-post-save-failure");
+    expect(fetchMock.mock.calls.map(([request]) => String(request))).toEqual([
+      "https://auth.openmeld.invalid/api/auth/one-time-token/verify",
+      "https://auth.openmeld.invalid/api/auth/sign-out",
+    ]);
   });
 
   it("accepts ott-only login in agent view", async () => {

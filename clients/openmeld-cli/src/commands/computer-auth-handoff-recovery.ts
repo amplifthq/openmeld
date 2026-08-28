@@ -13,14 +13,19 @@ import { bestEffortStopCurrentLaneDaemonService } from "./service";
 const UNUSED_SETUP_SESSION_CLEANUP_SUFFIX =
   " OpenMeld also could not revoke the unused setup session.";
 
+export type ComputerAuthHandoffRecoveryOutcome =
+  | "none"
+  | "completed"
+  | "deferred";
+
 export async function recoverInterruptedComputerAuthHandoff(input: {
   presenter: Presenter;
   runtime: RuntimeContext;
   view?: string;
-}): Promise<boolean> {
+}): Promise<ComputerAuthHandoffRecoveryOutcome> {
   const recovery = await getInterruptedComputerAuthSessionRecovery();
   if (!recovery) {
-    return false;
+    return "none";
   }
 
   const previousOwnerUserId = normalizeOptionalString(
@@ -105,7 +110,7 @@ export async function recoverInterruptedComputerAuthHandoff(input: {
         transitionId: recovery.id,
       });
       emitUnusedSetupSessionCleanupWarning(input.presenter, revoked.error);
-      return true;
+      return "deferred";
     }
     await markInterruptedComputerAuthSessionRecovery({
       id: recovery.id,
@@ -113,8 +118,10 @@ export async function recoverInterruptedComputerAuthHandoff(input: {
     });
   }
 
-  await completeInterruptedComputerAuthSessionRecovery(recovery.id);
-  return true;
+  const completed = await completeInterruptedComputerAuthSessionRecovery(
+    recovery.id
+  );
+  return completed ? "completed" : "deferred";
 }
 
 function logDeferredComputerAuthHandoffRecovery(input: {

@@ -16,7 +16,9 @@ import {
 } from "../auth/auth-guidance";
 import {
   type AuthSessionState,
+  type AuthSessionTransition,
   assertAuthSessionMutationAvailable,
+  beginAuthSessionTransition,
   clearAuthSession,
   getAuthSessionState,
   setAuthSession,
@@ -54,6 +56,8 @@ import {
   exchangeOneTimeTokenAuthSession,
   OneTimeTokenAuthError,
   type OneTimeTokenAuthFailureCode,
+  OneTimeTokenLocalSessionRecoveryError,
+  rejectOneTimeTokenCandidateSession,
 } from "./one-time-token-auth-session";
 import { bestEffortStopCurrentLaneDaemonService } from "./service";
 
@@ -659,17 +663,37 @@ async function runOneTimeTokenLoginFlow(input: {
     token: input.token,
   });
 
-  await setAuthSession({
-    accessToken: verified.accessToken,
-    tokenType: verified.tokenType,
-    authBaseUrl: verified.authBaseUrl,
-    clientId: verified.clientId,
-    expiresAt: verified.expiresAt,
-    user: verified.user,
-  });
-  await assertOneTimeTokenAuthSessionSaved({
-    accessToken: verified.accessToken,
-  });
+  let transition: AuthSessionTransition | null = null;
+  try {
+    transition = await beginAuthSessionTransition({
+      accessToken: verified.accessToken,
+      tokenType: verified.tokenType,
+      authBaseUrl: verified.authBaseUrl,
+      clientId: verified.clientId,
+      expiresAt: verified.expiresAt,
+      user: verified.user,
+    });
+    await assertOneTimeTokenAuthSessionSaved({
+      accessToken: verified.accessToken,
+    });
+    await transition.commit();
+  } catch (error) {
+    let failure = error;
+    if (transition) {
+      try {
+        await transition.rollback();
+      } catch (recoveryError) {
+        failure = new OneTimeTokenLocalSessionRecoveryError({
+          cause: error,
+          recoveryError,
+        });
+      }
+    }
+    await rejectOneTimeTokenCandidateSession({
+      cause: failure,
+      session: verified,
+    });
+  }
 
   emitLineWithHumanSpacer({
     presenter: input.presenter,
