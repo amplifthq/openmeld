@@ -95,6 +95,19 @@ blocking fact, end the active turn, and resume from a deterministic callback or
 new state change. Repeated polling is appropriate only for a short operation
 that this same turn already started and must close.
 
+Choose a callback transport that the current coding environment actually
+supports. A coding agent running in Codex App may use
+`send_message_to_thread` to send the affected task one message containing the
+real overlap, proposed sequence, exact PR/SHA and reusable evidence, then end
+its turn or continue independent work. The receiving Codex App task uses the
+same mechanism to return the terminal result or one genuine blocker. Coding
+agents in other environments use an available equivalent, such as task
+messaging, a pull-request comment, an authorized Space message, or an operator
+handoff. The transport coordinates one real dependency; it does not appoint a
+central coordinator or make a Codex-specific tool part of the CI/CD contract.
+When no callback transport exists, preserve the facts and resume only after an
+external state change.
+
 ## Final Candidate
 
 The normal path uses GitHub-hosted compute:
