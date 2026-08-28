@@ -86,10 +86,7 @@ the correct owner document. Do not migrate raw logs or long historical notes.
   snapshot JSON, and never rename or rewrite a migration that may have been
   applied.
 - After regeneration, set `LATEST_SHARED_MIGRATION_ID` to the rebased journal
-  entry count and run the shared migration-history integrity test. Put an
-  approved lane into the merge queue immediately when that repository capability
-  is available. Otherwise, use one short strict-up-to-date merge slot instead of
-  asking unrelated agents to stop work.
+  entry count and run the shared migration-history integrity test.
 
 ### Delivery Pipeline
 
@@ -115,11 +112,6 @@ the correct owner document. Do not migrate raw logs or long historical notes.
 
 ### Resource Discipline
 
-- Prefer `codex exec resume` when continuing unattended work so the existing
-  execution context is reused.
-- Every validation or reconciliation step in an unattended work order must name
-  the exact command to run, or the commander must complete and endorse it before
-  handoff. The unattended executor runs only those endorsed commands.
 - A background command attached to Codex must redirect standard input explicitly
   with `< /dev/null` so it cannot wait on the agent session.
 - Do not ask unrelated agents to freeze `main` while one Final Candidate runs.

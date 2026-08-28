@@ -14,7 +14,9 @@ same inspectable validation and shared evidence work locally as a fallback when
 GitHub Actions is unavailable. Trusted current-main control remains separate
 from untrusted candidate code before package configuration or validation can
 run, and an explicit recorded bootstrap covers intentional delivery control
-changes.
+changes. Each responsible agent can use those transparent facts to complete its
+own review, merge, release, and smoke path; CI/CD does not appoint a central
+coordinator, require another Agent reviewer, or freeze unrelated work.
 Production releases remain scoped and available through either the hosted or
 guarded local lane. Both release lanes use the same authenticated cross-machine
 component lease, while historical release sources use current trusted release
