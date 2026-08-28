@@ -512,8 +512,9 @@ export async function beginAuthSessionTransition(
         throw new Error("auth session transition is already settled");
       }
     };
-    const isCandidateSessionCurrent = async () => {
-      const currentPayload = await readSessionPayloadFile();
+    const isCandidateSessionCurrent = (
+      currentPayload: Partial<AuthSessionV1> | null
+    ) => {
       return !(
         currentPayload?.v !== 1 ||
         buildAuthSessionPayloadKey(currentPayload) !==
@@ -521,15 +522,24 @@ export async function beginAuthSessionTransition(
       );
     };
     const assertCandidateSessionCurrent = async () => {
-      if (!(await isCandidateSessionCurrent())) {
+      const currentPayload = await readSessionPayloadFile();
+      if (!isCandidateSessionCurrent(currentPayload)) {
         throw new Error(
           "auth session changed before the setup transition completed"
         );
       }
     };
     const restoreMissingJournalTransition = async () => {
-      if (!(await isCandidateSessionCurrent())) {
-        activeAuthSessionTransitionIds.delete(journal.id);
+      const currentPayload = await readSessionPayloadFile();
+      if (!isCandidateSessionCurrent(currentPayload)) {
+        try {
+          await cleanupTransitionTokensNotReferencedByCurrentSession({
+            currentPayload,
+            journal,
+          });
+        } finally {
+          activeAuthSessionTransitionIds.delete(journal.id);
+        }
         throw new AuthSessionTransitionConflictError({
           previousOwnerRestored: false,
           reason: "journal_missing",
@@ -1159,6 +1169,33 @@ function buildStoredAuthSession(input: {
     ...buildAuthUserPayload(input.payload.user),
     ...buildActiveOrganizationPayload(input.payload.activeOrganization),
   };
+}
+
+async function cleanupTransitionTokensNotReferencedByCurrentSession(input: {
+  currentPayload: Partial<AuthSessionV1> | null;
+  journal: AuthSessionTransitionJournalV1;
+}): Promise<void> {
+  const currentTokenRef = normalizeTokenRef(input.currentPayload?.tokenRef);
+  const previousTokenRef = normalizeTokenRef(
+    input.journal.previousPayload?.tokenRef
+  );
+  const transitionTokenRefs = [
+    ...(previousTokenRef ? [previousTokenRef] : []),
+    input.journal.candidatePayload.tokenRef,
+  ];
+
+  for (const [index, tokenRef] of transitionTokenRefs.entries()) {
+    const alreadyHandled = transitionTokenRefs
+      .slice(0, index)
+      .some((previousRef) => areStoredTokenRefsEqual(previousRef, tokenRef));
+    if (
+      alreadyHandled ||
+      (currentTokenRef && areStoredTokenRefsEqual(currentTokenRef, tokenRef))
+    ) {
+      continue;
+    }
+    await deleteAccessTokenOrRetainForCleanup(tokenRef);
+  }
 }
 
 function cacheAuthSession(input: {

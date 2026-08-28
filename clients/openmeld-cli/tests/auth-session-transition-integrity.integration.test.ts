@@ -213,6 +213,9 @@ describe("auth session transition integrity", () => {
           user: { id: "new-login-owner" },
         },
       });
+      await expect(readStoredTokenInventory(home)).resolves.toEqual([
+        "new-login-token",
+      ]);
     });
   });
 
@@ -238,6 +241,7 @@ describe("auth session transition integrity", () => {
         state: "missing",
         session: null,
       });
+      await expect(readStoredTokenInventory(home)).resolves.toEqual([]);
     });
   });
 
@@ -274,6 +278,9 @@ describe("auth session transition integrity", () => {
           user: { id: "candidate-owner" },
         },
       });
+      await expect(readStoredTokenInventory(home)).resolves.toEqual([
+        "candidate-token",
+      ]);
     });
   });
 
@@ -430,6 +437,27 @@ async function authSessionTransitionJournalExists(
         ? false
         : Promise.reject(error)
   );
+}
+
+async function readStoredTokenInventory(home: string): Promise<string[]> {
+  const tokensDirectory = join(home, ".openmeld", "auth", "tokens");
+  const entries = await readdir(tokensDirectory).catch((error: unknown) =>
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ENOENT"
+      ? []
+      : Promise.reject(error)
+  );
+  return (
+    await Promise.all(
+      entries
+        .filter((entry) => entry.endsWith(".token"))
+        .map(async (entry) =>
+          (await readFile(join(tokensDirectory, entry), "utf8")).trim()
+        )
+    )
+  ).sort();
 }
 
 type RacingAuthSessionTransitionResult = {
