@@ -106,6 +106,23 @@ describe("lazy Zod facade", () => {
     });
   });
 
+  it("forwards public number and date constraint properties", () => {
+    const numberSchema = z.number().int().min(1).max(10);
+    const bigintSchema = z.coerce.bigint().min(1n).max(10n);
+    const minDate = new Date("2026-01-01T00:00:00.000Z");
+    const maxDate = new Date("2026-12-31T23:59:59.999Z");
+    const dateSchema = z.coerce.date().min(minDate).max(maxDate);
+
+    expect(numberSchema.minValue).toBe(1);
+    expect(numberSchema.maxValue).toBe(10);
+    expect(numberSchema.isInt).toBe(true);
+    expect(numberSchema.isFinite).toBe(true);
+    expect(bigintSchema.minValue).toBe(1n);
+    expect(bigintSchema.maxValue).toBe(10n);
+    expect(dateSchema.minDate).toEqual(minDate);
+    expect(dateSchema.maxDate).toEqual(maxDate);
+  });
+
   it("keeps profiled Core startup schema modules on the lazy facade", () => {
     for (const modulePath of STARTUP_CRITICAL_SCHEMA_MODULES) {
       const source = readFileSync(
