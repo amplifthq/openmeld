@@ -5,6 +5,7 @@ import {
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
+  buildRemoteAgentExecutionStateKey,
   completeRemoteAgentExecutionState,
   initializeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
@@ -298,6 +299,7 @@ describe("remote agent execution reconciliation", () => {
       storage,
     });
     await completeRemoteAgentExecutionState({
+      completedText: "The release plan is ready.",
       identity,
       nowMs: TEST_NOW_MS + 500,
       status: "completed",
@@ -317,7 +319,6 @@ describe("remote agent execution reconciliation", () => {
         request,
       }),
       callbackStatus: "pending",
-      completedText: "The release plan is ready.",
     });
     const completeRemoteAgentSubmission = vi.fn(async () => ({
       publishedSignalId: "signal_recovered_reply",
@@ -362,6 +363,75 @@ describe("remote agent execution reconciliation", () => {
       callbackStatus: "completed",
       completedText: "The release plan is ready.",
     });
+  });
+
+  it("turns a legacy completed execution without any durable answer into one visible failure", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const submissionId = "submission_legacy_completed_without_answer";
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId,
+      v: 1 as const,
+    };
+    const initial = await initializeRemoteAgentExecutionState({
+      acceptedAtMs: TEST_NOW_MS,
+      identity,
+      storage,
+    });
+    await storage.put(buildRemoteAgentExecutionStateKey(submissionId), {
+      ...initial,
+      completedAtMs: TEST_NOW_MS + 500,
+      lastProgressAtMs: TEST_NOW_MS + 500,
+      lastProgressKind: "prompt_completed",
+      status: "completed",
+    });
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: request.idempotencyKey,
+          requestId: submissionId,
+          status: "pending",
+          submissionId,
+        },
+        nowMs: TEST_NOW_MS,
+        request,
+      })
+    );
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_missing_answer_failure",
+      status: "accepted" as const,
+    }));
+
+    const first = await reconcileRemoteAgentExecution({
+      coreWorker: { completeRemoteAgentSubmission },
+      identity,
+      nowMs: () => TEST_NOW_MS + 1000,
+      readSubmission: async () => ({ status: "settled" }),
+      storage,
+    });
+    const second = await reconcileRemoteAgentExecution({
+      coreWorker: { completeRemoteAgentSubmission },
+      identity,
+      nowMs: () => TEST_NOW_MS + 2000,
+      readSubmission: async () => ({ status: "settled" }),
+      storage,
+    });
+
+    expect(first).toMatchObject({
+      execution: { lastProgressKind: "prompt_failed", status: "failed" },
+      status: "found",
+    });
+    expect(second).toEqual(first);
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", submissionId })
+    );
   });
 
   it("does not turn partial stream text from a failed runtime into a successful answer", async () => {

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   assertRemoteAgentExecutionCanContinue,
+  buildRemoteAgentExecutionStateKey,
   completeRemoteAgentExecutionState,
   initializeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
+  readRemoteAgentCompletedExecutionAnswer,
   readRemoteAgentExecutionState,
   requestRemoteAgentExecutionCancellation,
 } from "../agent-core/execution-state";
@@ -116,6 +118,7 @@ describe("remote agent execution state", () => {
 
     await expect(
       completeRemoteAgentExecutionState({
+        completedText: "This answer lost the cancellation race.",
         identity,
         nowMs: 300,
         status: "completed",
@@ -152,6 +155,7 @@ describe("remote agent execution state", () => {
         storage,
       }),
       completeRemoteAgentExecutionState({
+        completedText: "This answer raced with cancellation.",
         identity,
         nowMs: 200,
         status: "completed",
@@ -169,6 +173,65 @@ describe("remote agent execution state", () => {
       },
       status: "found",
     });
+  });
+
+  it("stores completed state and its answer as one private durable invariant", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId: "submission_1",
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: 100,
+      identity,
+      storage,
+    });
+
+    await completeRemoteAgentExecutionState({
+      completedText: "The durable answer.",
+      identity,
+      nowMs: 200,
+      status: "completed",
+      storage,
+    });
+
+    await expect(
+      storage.get(buildRemoteAgentExecutionStateKey(identity.submissionId))
+    ).resolves.toMatchObject({
+      completedText: "The durable answer.",
+      status: "completed",
+    });
+    await expect(
+      readRemoteAgentExecutionState({ identity, storage })
+    ).resolves.not.toHaveProperty("execution.completedText");
+    await expect(
+      readRemoteAgentCompletedExecutionAnswer({ identity, storage })
+    ).resolves.toBe("The durable answer.");
+    await expect(
+      completeRemoteAgentExecutionState({
+        completedText: "The durable answer.",
+        identity,
+        nowMs: 300,
+        status: "completed",
+        storage,
+      })
+    ).resolves.toMatchObject({
+      completedAtMs: 200,
+      status: "completed",
+    });
+    await expect(
+      completeRemoteAgentExecutionState({
+        completedText: "A conflicting answer.",
+        identity,
+        nowMs: 400,
+        status: "completed",
+        storage,
+      })
+    ).rejects.toThrow("conflicting final answer");
   });
 
   it("fails closed when a query reuses a submission id with different authority", async () => {

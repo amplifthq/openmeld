@@ -1163,7 +1163,7 @@ export async function recordRemoteAgentCenterAgentTaskReference(input: {
   );
 }
 
-function fitRemoteAgentCompletedText(text: string): string {
+export function fitRemoteAgentCompletedText(text: string): string {
   if (text.length <= MAX_TEXT_LENGTH) {
     return text;
   }

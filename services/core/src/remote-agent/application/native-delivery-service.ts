@@ -406,7 +406,7 @@ type RemoteAgentSpaceNativeDeliveryInput = {
 
 type RemoteAgentSpaceNativeDeliveryResult = {
   shouldAck: boolean;
-  status: "submitted" | "failed" | "stopped";
+  status: "admission_incomplete" | "submitted" | "failed" | "stopped";
 };
 
 type NativeDeliveryPublishRecord = Pick<
@@ -1765,7 +1765,7 @@ async function submitDurableRemoteAgentSpaceAdmission(
       error: toErrorMessage(admission.error),
       targetProfileId: input.message.targetProfileId,
     });
-    return { shouldAck: false, status: "submitted" };
+    return { shouldAck: false, status: "admission_incomplete" };
   }
   if (admission.status === "rejected") {
     await rejectNativeDeliveryWithSpaceFailure({

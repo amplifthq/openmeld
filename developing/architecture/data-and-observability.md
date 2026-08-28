@@ -1822,6 +1822,21 @@ Publication failure or an ambiguous provider outcome must leave the Wake trace
 unsettled and preserve retry or outcome-unknown evidence instead of claiming a
 terminal visible result.
 
+Before worker acknowledgement, the Core native-delivery row and its exact
+persisted worker request are the hosted admission recovery evidence. An
+outcome-ambiguous worker RPC keeps the Dispatch attempt admission-incomplete;
+it is not evidence for `waiting_result`. Recovery reuses that attempt and
+request idempotently, including older `waiting_result` attempts whose
+native-delivery row still has no worker acknowledgement.
+
+Inside the Remote Agent Durable Object, one private durable execution record
+atomically owns successful terminal state and its bounded final answer. The
+shared execution query remains a status projection and does not expose reply
+text. Callback context receives the same answer as a recoverable delivery
+projection; an instance restart may repopulate it from the execution record and
+retry the ordinary Core callback. Partial stream text, failed execution,
+cancellation, and observability records cannot become this answer authority.
+
 The active Space Wake read model may project an accepted native delivery as
 `running` only before Core has received its terminal callback and before final
 publication has started. Callback receipt or a claimed final publication

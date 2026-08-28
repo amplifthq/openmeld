@@ -9,10 +9,13 @@ import {
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
   readRemoteAgentCallbackContext,
+  recordRemoteAgentCompletedAnswer,
 } from "../agent-core/callback-context";
 import {
   completeRemoteAgentExecutionState,
+  readRemoteAgentCompletedExecutionAnswer,
   readRemoteAgentExecutionState,
+  repairRemoteAgentCompletedExecutionWithoutAnswer,
 } from "../agent-core/execution-state";
 
 export type FlueSubmissionLifecycle = {
@@ -85,12 +88,34 @@ export async function reconcileRemoteAgentExecution(input: {
     return current;
   }
   if (current.execution.status === "completed") {
-    await replayDurableCompletedAnswer({
+    const answerAvailable = await replayDurableCompletedAnswer({
       coreWorker: input.coreWorker,
       identity: input.identity,
       nowMs: input.nowMs?.() ?? Date.now(),
       storage: input.storage,
     });
+    if (!answerAvailable) {
+      const nowMs = input.nowMs?.() ?? Date.now();
+      await repairRemoteAgentCompletedExecutionWithoutAnswer({
+        identity: input.identity,
+        nowMs,
+        storage: input.storage,
+      });
+      await handleRemoteAgentChatResponse({
+        coreWorker: input.coreWorker,
+        nowMs: () => nowMs,
+        result: {
+          continuation: false,
+          error: new Error(
+            "Remote Agent completed without a durable final answer."
+          ),
+          message: { parts: [] },
+          requestId: input.identity.submissionId,
+          status: "error",
+        },
+        storage: input.storage,
+      });
+    }
     return await readRemoteAgentExecutionState({
       identity: input.identity,
       storage: input.storage,
@@ -151,16 +176,27 @@ async function replayDurableCompletedAnswer(input: {
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs: number;
   storage: RemoteAgentStorage;
-}): Promise<void> {
-  const context = await readRemoteAgentCallbackContext(
+}): Promise<boolean> {
+  const completedExecutionText = await readRemoteAgentCompletedExecutionAnswer({
+    identity: input.identity,
+    storage: input.storage,
+  });
+  let context = await readRemoteAgentCallbackContext(
     input.storage,
     input.identity.submissionId
   );
   if (!context) {
-    return;
+    return false;
+  }
+  if (completedExecutionText && !context.completedText?.trim()) {
+    context = await recordRemoteAgentCompletedAnswer({
+      storage: input.storage,
+      submissionId: input.identity.submissionId,
+      text: completedExecutionText,
+    });
   }
   if (!context.completedText?.trim()) {
-    return;
+    return false;
   }
   if (
     context.callbackStatus !== "completed" &&
@@ -180,4 +216,5 @@ async function replayDurableCompletedAnswer(input: {
       storage: input.storage,
     });
   }
+  return true;
 }

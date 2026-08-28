@@ -1298,7 +1298,7 @@ describe("claimDispatchAttempt", () => {
     });
   });
 
-  it("reuses the active dispatch attempt for incomplete hosted admission recovery", async () => {
+  it("reuses a legacy waiting-result attempt for incomplete hosted admission recovery", async () => {
     const { db } = createInMemoryDispatchLedgerDb();
     const message = buildDispatchMessage({
       dispatchId: "dispatch-hosted-admission-recovery-1",
@@ -1314,6 +1314,14 @@ describe("claimDispatchAttempt", () => {
     if (first.status !== "claimed") {
       throw new Error("expected first hosted dispatch claim");
     }
+    await markDispatchAttemptWaitingForResult({
+      attemptId: first.attemptId,
+      db,
+      idempotencyKey: message.idempotencyKey,
+      nowMs: 2000,
+      targetProfileId: message.targetProfileId,
+      taskId: message.taskId,
+    });
 
     await expect(
       claimDispatchAttempt({

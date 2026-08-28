@@ -2216,7 +2216,12 @@ but not trigger.
    cancellation, or a diagnosed stale-progress policy. Core must persist a
    real worker ACK without waiting for an independently started watchdog
    enqueue to finish; a delayed or failed watchdog must never leave running
-   work projected as merely submitted. When the admission watchdog does
+   work projected as merely submitted. Conversely, a worker RPC whose outcome
+   is unknown remains admission-incomplete and must not move the Dispatch
+   attempt to `waiting_result`. Hosted recovery reuses the original attempt and
+   exact persisted worker request; during rollout it also repairs an older
+   `waiting_result` attempt when the native-delivery row still proves that no
+   worker ACK was persisted. When the admission watchdog does
    terminalize a delivery, it must use the same Agent Task Coordination
    terminal projection as every other Native Delivery ending. Replaying a
    durable `published` or `outcome_unknown` watchdog result must rerun that
@@ -2254,7 +2259,16 @@ but not trigger.
    callback. Callback retry uses capped backoff and Core publication
    idempotency, but no attempt ceiling: a temporary Core, Space, or Slack
    publication outage must not discard a completed answer or replace it with a
-   synthetic execution failure.
+   synthetic execution failure. A successful worker execution stores its
+   bounded final answer in the same compare-and-set durable execution record
+   that changes the execution to `completed`. Callback context is a delivery
+   projection of that record, not a second answer authority. If the instance
+   stops after the terminal write but before callback context or Core
+   publication advances, reconciliation restores the exact answer from the
+   execution record and reuses the idempotent callback path. Failed, aborted,
+   or cancellation-winning executions never retain a completed answer. During
+   rollout, a legacy `completed` record with no recoverable answer is repaired
+   to an explicit failure instead of remaining a false terminal success.
 4. **Presence is honest and Core-owned.** Core is itself the deliverer, so
    remote-runtime health is first-party state, not inferred evidence — no
    `remote_runtime` evidence channel, no daemon-style readiness chain. But

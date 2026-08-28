@@ -220,8 +220,10 @@ const resolveHostedAdmissionRecoveryDecision = (input: {
     !input.existing ||
     input.existing.dispatchId !== input.requestedDispatchId ||
     !input.latestAttempt?.attemptId ||
-    input.latestAttempt.status !==
-      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching
+    (input.latestAttempt.status !==
+      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching &&
+      input.latestAttempt.status !==
+        OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.waitingResult)
   ) {
     return null;
   }

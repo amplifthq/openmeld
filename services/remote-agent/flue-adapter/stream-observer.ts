@@ -12,7 +12,6 @@ import {
   type RemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
-  recordRemoteAgentCompletedAnswer,
   waitForRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
@@ -400,29 +399,20 @@ async function handleCenterAgentPromptCompletion(input: {
   const executionIdentity = callbackContext
     ? buildRemoteAgentExecutionIdentity(callbackContext)
     : null;
+  const usage = normalizeFluePromptUsage(input.event.usage);
+  const settledExecution = await settleRemoteAgentPromptExecution({
+    assistantText,
+    executionIdentity,
+    hasAssistantText,
+    isError: input.event.isError,
+    storage,
+  });
   await flushRemoteAgentStream({
     coreWorker,
     env,
     event: input.event,
     storage,
     streamPublisher: input.streamPublisher,
-    submissionId,
-  });
-
-  const usage = normalizeFluePromptUsage(input.event.usage);
-  const settledExecution = executionIdentity
-    ? await completeRemoteAgentExecutionState({
-        identity: executionIdentity,
-        nowMs: Date.now(),
-        status: input.event.isError ? "failed" : "completed",
-        storage,
-      })
-    : null;
-  await persistAuthoritativeCompletedAnswer({
-    assistantText,
-    isError: input.event.isError,
-    settledExecution,
-    storage,
     submissionId,
   });
   const cancelled = settledExecution?.status === "aborted";
@@ -495,26 +485,32 @@ async function handleCenterAgentPromptCompletion(input: {
   }
 }
 
-async function persistAuthoritativeCompletedAnswer(input: {
+async function settleRemoteAgentPromptExecution(input: {
   assistantText: string;
+  executionIdentity: ReturnType<
+    typeof buildRemoteAgentExecutionIdentity
+  > | null;
+  hasAssistantText: boolean;
   isError: boolean;
-  settledExecution: Awaited<
-    ReturnType<typeof completeRemoteAgentExecutionState>
-  >;
   storage: RemoteAgentStorage;
-  submissionId: string;
-}): Promise<void> {
-  if (
-    input.settledExecution?.status !== "completed" ||
-    input.isError ||
-    !input.assistantText.trim()
-  ) {
-    return;
+}): Promise<Awaited<ReturnType<typeof completeRemoteAgentExecutionState>>> {
+  if (!input.executionIdentity) {
+    return null;
   }
-  await recordRemoteAgentCompletedAnswer({
+  if (input.isError || !input.hasAssistantText) {
+    return await completeRemoteAgentExecutionState({
+      identity: input.executionIdentity,
+      nowMs: Date.now(),
+      status: "failed",
+      storage: input.storage,
+    });
+  }
+  return await completeRemoteAgentExecutionState({
+    completedText: input.assistantText,
+    identity: input.executionIdentity,
+    nowMs: Date.now(),
+    status: "completed",
     storage: input.storage,
-    submissionId: input.submissionId,
-    text: input.assistantText,
   });
 }
 

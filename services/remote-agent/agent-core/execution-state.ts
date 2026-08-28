@@ -11,8 +11,31 @@ import type {
   RemoteAgentWorkerExecutionState,
 } from "@openmeld/schemas/types";
 import type { RemoteAgentStorage } from "./callback-context";
+import { fitRemoteAgentCompletedText } from "./callback-context";
 
 const EXECUTION_STATE_PREFIX = "openmeld:remote-agent:execution-state:";
+
+type RemoteAgentStoredExecutionState = RemoteAgentWorkerExecutionState & {
+  completedText?: string;
+};
+
+type RemoteAgentStoredExecutionRead =
+  | {
+      completedText: string | null;
+      execution: RemoteAgentWorkerExecutionState;
+      status: "found";
+      stored: RemoteAgentStoredExecutionState;
+    }
+  | { status: "not_found" }
+  | {
+      reasonCode: "remote_agent.execution_identity_mismatch";
+      status: "identity_mismatch";
+    };
+
+type FoundRemoteAgentStoredExecution = Extract<
+  RemoteAgentStoredExecutionRead,
+  { status: "found" }
+>;
 
 export class RemoteAgentExecutionCancelledError extends Error {
   constructor() {
@@ -47,7 +70,7 @@ export async function initializeRemoteAgentExecutionState(input: {
   identity: RemoteAgentWorkerExecutionQuery;
   storage: RemoteAgentStorage;
 }): Promise<RemoteAgentWorkerExecutionState> {
-  const existing = await readRemoteAgentExecutionState({
+  const existing = await readRemoteAgentStoredExecutionState({
     identity: input.identity,
     storage: input.storage,
   });
@@ -75,7 +98,7 @@ export async function initializeRemoteAgentExecutionState(input: {
   if (created) {
     return state;
   }
-  const raced = await readRemoteAgentExecutionState({
+  const raced = await readRemoteAgentStoredExecutionState({
     identity: input.identity,
     storage: input.storage,
   });
@@ -91,25 +114,65 @@ export async function readRemoteAgentExecutionState(input: {
   identity: RemoteAgentWorkerExecutionQuery;
   storage: Pick<RemoteAgentStorage, "get">;
 }): Promise<RemoteAgentWorkerExecutionQueryResponse> {
+  const stored = await readRemoteAgentStoredExecutionState(input);
+  if (stored.status !== "found") {
+    return remoteAgentWorkerExecutionQueryResponseSchema.parse(stored);
+  }
+  return remoteAgentWorkerExecutionQueryResponseSchema.parse({
+    execution: stored.execution,
+    status: "found",
+  });
+}
+
+export async function readRemoteAgentCompletedExecutionAnswer(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  storage: Pick<RemoteAgentStorage, "get">;
+}): Promise<string | null> {
+  const stored = await readRemoteAgentStoredExecutionState(input);
+  if (stored.status === "identity_mismatch") {
+    throw new Error(
+      "Remote Agent execution identity does not match its durable state."
+    );
+  }
+  return stored.status === "found" && stored.execution.status === "completed"
+    ? stored.completedText
+    : null;
+}
+
+async function readRemoteAgentStoredExecutionState(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  storage: Pick<RemoteAgentStorage, "get">;
+}): Promise<RemoteAgentStoredExecutionRead> {
   const stored = await input.storage.get<unknown>(
     buildRemoteAgentExecutionStateKey(input.identity.submissionId)
   );
   if (stored === undefined) {
-    return remoteAgentWorkerExecutionQueryResponseSchema.parse({
-      status: "not_found",
-    });
+    return { status: "not_found" };
   }
-  const execution = remoteAgentWorkerExecutionStateSchema.parse(stored);
+  if (!(stored && typeof stored === "object") || Array.isArray(stored)) {
+    remoteAgentWorkerExecutionStateSchema.parse(stored);
+  }
+  const { completedText: storedCompletedText, ...executionInput } =
+    stored as Record<string, unknown>;
+  const execution = remoteAgentWorkerExecutionStateSchema.parse(executionInput);
   if (!executionIdentityMatches(execution, input.identity)) {
-    return remoteAgentWorkerExecutionQueryResponseSchema.parse({
+    return {
       reasonCode: "remote_agent.execution_identity_mismatch",
       status: "identity_mismatch",
-    });
+    };
   }
-  return remoteAgentWorkerExecutionQueryResponseSchema.parse({
+  const completedText = parseStoredCompletedText(storedCompletedText);
+  if (completedText && execution.status !== "completed") {
+    throw new Error(
+      "Remote Agent durable answer exists without a completed execution."
+    );
+  }
+  return {
+    completedText,
     execution,
     status: "found",
-  });
+    stored: stored as RemoteAgentStoredExecutionState,
+  };
 }
 
 export async function markRemoteAgentExecutionProgress(input: {
@@ -119,7 +182,7 @@ export async function markRemoteAgentExecutionProgress(input: {
   storage: RemoteAgentStorage;
 }): Promise<RemoteAgentWorkerExecutionState | null> {
   while (true) {
-    const result = await readRemoteAgentExecutionState(input);
+    const result = await readRemoteAgentStoredExecutionState(input);
     if (result.status === "not_found") {
       return null;
     }
@@ -145,9 +208,9 @@ export async function markRemoteAgentExecutionProgress(input: {
     });
     if (
       await compareAndSetRemoteAgentExecutionState({
-        expected: result.execution,
+        expected: result.stored,
         identity: input.identity,
-        next,
+        next: { execution: next, completedText: null },
         storage: input.storage,
       })
     ) {
@@ -156,14 +219,27 @@ export async function markRemoteAgentExecutionProgress(input: {
   }
 }
 
-export async function completeRemoteAgentExecutionState(input: {
-  identity: RemoteAgentWorkerExecutionQuery;
-  nowMs: number;
-  status: "completed" | "failed" | "aborted";
-  storage: RemoteAgentStorage;
-}): Promise<RemoteAgentWorkerExecutionState | null> {
+export async function completeRemoteAgentExecutionState(
+  input: {
+    identity: RemoteAgentWorkerExecutionQuery;
+    nowMs: number;
+    storage: RemoteAgentStorage;
+  } & (
+    | { completedText: string; status: "completed" }
+    | { completedText?: never; status: "failed" | "aborted" }
+  )
+): Promise<RemoteAgentWorkerExecutionState | null> {
+  const requestedCompletedText =
+    input.status === "completed"
+      ? normalizeCompletedExecutionText(input.completedText)
+      : null;
+  if (input.status !== "completed" && input.completedText !== undefined) {
+    throw new Error(
+      "Remote Agent failed or aborted execution cannot store a completed answer."
+    );
+  }
   while (true) {
-    const result = await readRemoteAgentExecutionState(input);
+    const result = await readRemoteAgentStoredExecutionState(input);
     if (result.status === "not_found") {
       return null;
     }
@@ -173,7 +249,17 @@ export async function completeRemoteAgentExecutionState(input: {
       );
     }
     if (isTerminalStatus(result.execution.status)) {
-      return result.execution;
+      const resolution = await resolveExistingTerminalExecution({
+        identity: input.identity,
+        requestedCompletedText,
+        requestedStatus: input.status,
+        result,
+        storage: input.storage,
+      });
+      if (resolution === "retry") {
+        continue;
+      }
+      return resolution;
     }
     const settledStatus =
       result.execution.status === "cancellation_requested"
@@ -191,13 +277,96 @@ export async function completeRemoteAgentExecutionState(input: {
     });
     if (
       await compareAndSetRemoteAgentExecutionState({
-        expected: result.execution,
+        expected: result.stored,
         identity: input.identity,
-        next,
+        next: {
+          completedText:
+            settledStatus === "completed" ? requestedCompletedText : null,
+          execution: next,
+        },
         storage: input.storage,
       })
     ) {
       return next;
+    }
+  }
+}
+
+async function resolveExistingTerminalExecution(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  requestedCompletedText: string | null;
+  requestedStatus: "completed" | "failed" | "aborted";
+  result: FoundRemoteAgentStoredExecution;
+  storage: RemoteAgentStorage;
+}): Promise<RemoteAgentWorkerExecutionState | "retry"> {
+  if (
+    input.result.execution.status !== "completed" ||
+    input.requestedStatus !== "completed"
+  ) {
+    return input.result.execution;
+  }
+  if (!input.requestedCompletedText) {
+    throw new Error(
+      "Remote Agent completed execution requires a final answer."
+    );
+  }
+  if (input.result.completedText) {
+    if (input.result.completedText !== input.requestedCompletedText) {
+      throw new Error(
+        "Remote Agent completed execution received a conflicting final answer."
+      );
+    }
+    return input.result.execution;
+  }
+  return (await compareAndSetRemoteAgentExecutionState({
+    expected: input.result.stored,
+    identity: input.identity,
+    next: {
+      completedText: input.requestedCompletedText,
+      execution: input.result.execution,
+    },
+    storage: input.storage,
+  }))
+    ? input.result.execution
+    : "retry";
+}
+
+export async function repairRemoteAgentCompletedExecutionWithoutAnswer(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  nowMs: number;
+  storage: RemoteAgentStorage;
+}): Promise<RemoteAgentWorkerExecutionState | null> {
+  while (true) {
+    const result = await readRemoteAgentStoredExecutionState(input);
+    if (result.status === "not_found") {
+      return null;
+    }
+    if (result.status === "identity_mismatch") {
+      throw new Error(
+        "Remote Agent execution identity does not match its durable state."
+      );
+    }
+    if (result.execution.status !== "completed" || result.completedText) {
+      return result.execution;
+    }
+    const failed = remoteAgentWorkerExecutionStateSchema.parse({
+      ...result.execution,
+      lastProgressAtMs: Math.max(
+        result.execution.lastProgressAtMs,
+        input.nowMs
+      ),
+      lastProgressKind: "prompt_failed",
+      status: "failed",
+    });
+    if (
+      await compareAndSetRemoteAgentExecutionState({
+        expected: result.stored,
+        identity: input.identity,
+        next: { completedText: null, execution: failed },
+        storage: input.storage,
+      })
+    ) {
+      return failed;
     }
   }
 }
@@ -209,7 +378,7 @@ export async function requestRemoteAgentExecutionCancellation(input: {
   storage: RemoteAgentStorage;
 }): Promise<RemoteAgentWorkerCancellationResponse> {
   while (true) {
-    const result = await readRemoteAgentExecutionState(input);
+    const result = await readRemoteAgentStoredExecutionState(input);
     if (result.status !== "found") {
       return remoteAgentWorkerCancellationResponseSchema.parse(result);
     }
@@ -240,9 +409,9 @@ export async function requestRemoteAgentExecutionCancellation(input: {
     });
     if (
       await compareAndSetRemoteAgentExecutionState({
-        expected: result.execution,
+        expected: result.stored,
         identity: input.identity,
-        next: execution,
+        next: { completedText: null, execution },
         storage: input.storage,
       })
     ) {
@@ -287,16 +456,45 @@ function executionIdentityMatches(
 }
 
 function compareAndSetRemoteAgentExecutionState(input: {
-  expected: RemoteAgentWorkerExecutionState;
+  expected: RemoteAgentStoredExecutionState;
   identity: RemoteAgentWorkerExecutionQuery;
-  next: RemoteAgentWorkerExecutionState;
+  next: {
+    completedText: string | null;
+    execution: RemoteAgentWorkerExecutionState;
+  };
   storage: RemoteAgentStorage;
 }): Promise<boolean> {
   return input.storage.compareAndSet(
     buildRemoteAgentExecutionStateKey(input.identity.submissionId),
     input.expected,
-    input.next
+    input.next.completedText
+      ? { ...input.next.execution, completedText: input.next.completedText }
+      : input.next.execution
   );
+}
+
+function normalizeCompletedExecutionText(text: string | undefined): string {
+  const completedText = text?.trim() ?? "";
+  if (!completedText) {
+    throw new Error(
+      "Remote Agent completed execution requires a final answer."
+    );
+  }
+  return fitRemoteAgentCompletedText(completedText);
+}
+
+function parseStoredCompletedText(value: unknown): string | null {
+  if (value === undefined) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new Error("Remote Agent durable completed answer is invalid.");
+  }
+  const normalized = normalizeCompletedExecutionText(value);
+  if (normalized !== value) {
+    throw new Error("Remote Agent durable completed answer is not normalized.");
+  }
+  return value;
 }
 
 function isTerminalStatus(
