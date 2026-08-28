@@ -12,7 +12,10 @@ import {
   parseStagingWebSetupCommand,
   redactStagingSetupCommand,
 } from "./staging-computer-update-smoke-contract.mjs";
-import { readProtectedSetupCommand } from "./staging-computer-update-smoke-local.mjs";
+import {
+  readProtectedSetupCommand,
+  resolveStagingServiceStatus,
+} from "./staging-computer-update-smoke-local.mjs";
 import { formatStagingSmokeCleanupMessage } from "./staging-computer-update-smoke-runner.mjs";
 
 const SETUP_COMMAND =
@@ -108,6 +111,36 @@ test("keeps the real smoke failure visible when cleanup also fails", () => {
       runRoot: "/tmp/staging-smoke-evidence",
     }),
     "Staging smoke failed: Canary Service did not start. Cleanup also needs help. Preserved files remain at /tmp/staging-smoke-evidence."
+  );
+});
+
+test("reads the running Service from the real daemon status envelope", () => {
+  assert.deepEqual(
+    resolveStagingServiceStatus({
+      cliVersion: {
+        currentVersion: "0.3.122-staging.example",
+      },
+      localResult: {
+        installed: true,
+        runtime: {
+          status: "running",
+        },
+        state: {
+          daemonVersion: "0.3.122-staging.example",
+        },
+      },
+      result: {
+        runtime: {
+          status: "running",
+        },
+      },
+      schemaVersion: 1,
+      type: "daemon.status",
+    }),
+    {
+      runtimeStatus: "running",
+      serviceVersion: "0.3.122-staging.example",
+    }
   );
 });
 
