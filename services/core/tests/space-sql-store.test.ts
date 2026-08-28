@@ -427,6 +427,7 @@ describe("space-sql-store", () => {
     expect(allSql).toContain("DELETE FROM space_index_projection_outbox");
     expect(allSql).toContain("DELETE FROM space_inbox_projection_outbox");
     expect(allSql).toContain("DELETE FROM space_dispatch_rules");
+    expect(allSql).not.toContain("space_dispatch_policies");
   });
 
   it("blocks duplicate final reply persistence for the same dispatch and profile", () => {

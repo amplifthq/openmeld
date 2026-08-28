@@ -772,7 +772,6 @@ export const deleteAllSqlSpaceData = (sql: SqlStorage): void => {
   sql.exec("DELETE FROM space_index_projection_outbox");
   sql.exec("DELETE FROM space_inbox_projection_outbox");
   sql.exec("DELETE FROM space_dispatch_rules");
-  sql.exec("DELETE FROM space_dispatch_policies");
 };
 
 function claimFinalReplyPersistence(

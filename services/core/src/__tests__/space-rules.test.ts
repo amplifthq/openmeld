@@ -12,7 +12,7 @@ import {
 import {
   buildMentionFailureHintText,
   isSpaceHistoryEligibleMentionFailureDecision,
-  resolveMentionDispatchDecisionsForSignal,
+  resolveDispatchPlannerDecisionsForSignal,
   stripDispatchTargetMentionsFromText,
 } from "../space/rules/mention/mention-dispatch-rules";
 import { shouldEmitRetentionWarning } from "../space/rules/policy/retention-warning-policy";
@@ -66,26 +66,6 @@ const createMentionSqlStub = (options?: {
             updated_at_ms: Date.UTC(2026, 2, 4, 0, 0, 0),
           },
         ],
-      };
-    }
-    if (query.includes("space_dispatch_policies")) {
-      const scopeKind = String(params[0] ?? "");
-      const scopeId = String(params[1] ?? "");
-      if (scopeKind === "space_default" && scopeId === "default") {
-        return {
-          toArray: () => [
-            {
-              scope_kind: "space_default",
-              scope_id: "default",
-              dispatch_policy: "mention_only",
-              updated_by: "system",
-              updated_at_ms: Date.UTC(2026, 2, 4, 0, 0, 0),
-            },
-          ],
-        };
-      }
-      return {
-        toArray: () => [],
       };
     }
     if (
@@ -594,7 +574,8 @@ describe("mention dispatch rules", () => {
         }),
       ],
     });
-    const decisions = resolveMentionDispatchDecisionsForSignal({
+    const decisions = resolveDispatchPlannerDecisionsForSignal({
+      dispatchPolicy: "mention_only",
       sessions: null,
       sql,
       signal: {
@@ -637,7 +618,8 @@ describe("mention dispatch rules", () => {
 
   it("fails activationTargets that are not active agent members in this space", () => {
     const sql = createMentionSqlStub();
-    const decisions = resolveMentionDispatchDecisionsForSignal({
+    const decisions = resolveDispatchPlannerDecisionsForSignal({
+      dispatchPolicy: "mention_only",
       sessions: null,
       sql,
       signal: {
@@ -679,7 +661,8 @@ describe("mention dispatch rules", () => {
         }),
       ],
     });
-    const decisions = resolveMentionDispatchDecisionsForSignal({
+    const decisions = resolveDispatchPlannerDecisionsForSignal({
+      dispatchPolicy: "mention_only",
       sessions: null,
       sql,
       signal: {
@@ -721,7 +704,8 @@ describe("mention dispatch rules", () => {
         }),
       ],
     });
-    const decisions = resolveMentionDispatchDecisionsForSignal({
+    const decisions = resolveDispatchPlannerDecisionsForSignal({
+      dispatchPolicy: "mention_only",
       sessions: null,
       sql,
       signal: {
@@ -770,7 +754,8 @@ describe("mention dispatch rules", () => {
         }),
       ],
     });
-    const decisions = resolveMentionDispatchDecisionsForSignal({
+    const decisions = resolveDispatchPlannerDecisionsForSignal({
+      dispatchPolicy: "mention_only",
       sessions: null,
       sql,
       signal: {
@@ -808,7 +793,8 @@ describe("mention dispatch rules", () => {
     });
 
     expect(
-      resolveMentionDispatchDecisionsForSignal({
+      resolveDispatchPlannerDecisionsForSignal({
+        dispatchPolicy: "mention_only",
         sessions: null,
         sql,
         signal: {

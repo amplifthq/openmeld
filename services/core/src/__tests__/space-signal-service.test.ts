@@ -366,10 +366,7 @@ const createSystemWakePublishingHarness = (input: {
               : [],
         };
       }
-      if (
-        query.includes("FROM space_dispatch_policies") ||
-        query.includes("FROM space_cursors")
-      ) {
+      if (query.includes("FROM space_cursors")) {
         return { toArray: () => [] };
       }
       if (query.includes("SELECT signal_id")) {
@@ -443,10 +440,7 @@ const createSystemWakePublishingHarness = (input: {
       ) {
         return { toArray: () => [] };
       }
-      if (
-        query.includes("INSERT OR IGNORE INTO space_dispatch_policies") ||
-        query.includes("INSERT OR IGNORE INTO space_dispatch_rules")
-      ) {
+      if (query.includes("INSERT OR IGNORE INTO space_dispatch_rules")) {
         return { rowsWritten: 1 };
       }
       if (query.includes("DELETE FROM space_signals")) {
