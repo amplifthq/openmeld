@@ -961,6 +961,23 @@ test("routes stable CLI projection recovery through the guarded Core workflow", 
   assert.ok(cli.includes("group: deploy-core-worker-production"));
 });
 
+test("loads the current-stable Core projection entrypoint in plain Node", () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      "await import('./scripts/release/deploy-core-current-cli-projection.mjs')",
+    ],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("orders Gateway checks after the Auth contract build they import", () => {
   const gatewayTurbo = JSON.parse(readRepoFile("services/gateway/turbo.json"));
 
