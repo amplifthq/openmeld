@@ -222,6 +222,23 @@ test("a pure delivery infrastructure diff skips only the empty affected lane", (
   );
 });
 
+test("delivery infrastructure with its owner docs and Changelog skips the empty affected lane", () => {
+  const plan = createPlan([
+    "scripts/ci/final-candidate-reuse.mjs",
+    "scripts/ci/final-candidate-reuse.test.mjs",
+    "developing/engineering/agent-native-delivery.md",
+    "changelog/entries/reuse-unchanged-integration-evidence.md",
+  ]);
+
+  assert.deepEqual(checkIds(plan), [
+    "diff-integrity",
+    "trusted-control-entrypoints",
+    "repository-code-quality",
+    "repository-contracts",
+  ]);
+  assert.deepEqual(plan.riskTags, ["executable", "delivery-infrastructure"]);
+});
+
 test("a product or operations script keeps affected checks and unit tests", () => {
   const plan = createPlan(["scripts/ops/rebuild-search-index.mjs"]);
 

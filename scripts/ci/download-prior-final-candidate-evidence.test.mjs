@@ -17,9 +17,9 @@ const SCRIPT = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "download-prior-final-candidate-evidence.sh"
 );
-const ONE_ARTIFACT_PATTERN = /1 trusted workflow artifact/u;
+const ONE_ARTIFACT_PATTERN = /1 trusted completed-run artifact/u;
 
-test("downloads a bounded set of successful prior branch artifacts without blocking on misses", () => {
+test("downloads completed prior branch artifacts without requiring the whole run to succeed", () => {
   const root = mkdtempSync(path.join(tmpdir(), "openmeld-prior-evidence-"));
   const bin = path.join(root, "bin");
   const destination = path.join(root, "evidence");
@@ -30,6 +30,10 @@ test("downloads a bounded set of successful prior branch artifacts without block
     `#!/usr/bin/env bash
 set -euo pipefail
 if [ "\${1:-}" = api ]; then
+  if [[ "$*" == *'select(.conclusion'* ]]; then
+    printf 'completed runs must not be filtered by overall conclusion\n' >&2
+    exit 3
+  fi
   printf '101\n100\n99\n'
   exit 0
 fi

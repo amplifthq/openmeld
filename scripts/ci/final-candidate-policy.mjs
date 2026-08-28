@@ -31,6 +31,8 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/final-candidate-policy.test.mjs",
   "scripts/ci/final-candidate-publisher.mjs",
   "scripts/ci/final-candidate-publisher.test.mjs",
+  "scripts/ci/final-candidate-reuse.mjs",
+  "scripts/ci/final-candidate-reuse.test.mjs",
   "scripts/ci/final-candidate-state.mjs",
   "scripts/ci/final-candidate-workflow.test.mjs",
   "scripts/ci/final-candidate.mjs",
@@ -118,7 +120,11 @@ export function createFinalCandidatePlan(input) {
     ),
     deliveryInfrastructureOnly:
       changedPaths.length > 0 &&
-      changedPaths.every(isDeliveryInfrastructurePath),
+      changedPaths.some(isDeliveryInfrastructurePath) &&
+      changedPaths.every(
+        (path) =>
+          isDeliveryInfrastructurePath(path) || isDocumentationPath(path)
+      ),
     docsOnly:
       changedPaths.length > 0 && changedPaths.every(isDocumentationPath),
     headSha: input.headSha,

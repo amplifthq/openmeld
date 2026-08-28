@@ -5,8 +5,26 @@ import path from "node:path";
 
 import { finalCandidateEvidenceSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 
-const REUSABLE_CHECK_ID = "affected-checks-and-unit-tests";
-const REUSE_PROTOCOL_VERSION = 1;
+const REUSABLE_CHECK_TASK_PLANS = new Map([
+  [
+    "affected-checks-and-unit-tests",
+    [
+      { changedOnly: true, task: "check", turboArgs: ["--concurrency=2"] },
+      { changedOnly: true, task: "test", turboArgs: ["--concurrency=2"] },
+    ],
+  ],
+  [
+    "affected-integration-tests",
+    [
+      {
+        changedOnly: false,
+        task: "test:integration",
+        turboArgs: ["--concurrency=1", "--output-logs=errors-only"],
+      },
+    ],
+  ],
+]);
+const REUSE_PROTOCOL_VERSION = 2;
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const INPUT_FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/u;
 const MAX_PRIOR_EVIDENCE_FILES = 10;
@@ -57,8 +75,9 @@ export function readPriorEvidenceCandidates(root) {
 }
 
 export function resolveReusableCheckInput(input) {
+  const reusableTaskPlans = resolveReusableTaskPlans(input.check.id);
   if (
-    input.check.id !== REUSABLE_CHECK_ID ||
+    !reusableTaskPlans ||
     input.plan.mode !== "remote" ||
     input.plan.controlTrust !== "current-main" ||
     !input.commandWrapper
@@ -66,13 +85,15 @@ export function resolveReusableCheckInput(input) {
     return null;
   }
 
-  const taskPlans = ["check", "test"].map((task) =>
+  const taskPlans = reusableTaskPlans.map(({ changedOnly, task, turboArgs }) =>
     resolveTurboTaskPlan({
       baseSha: input.plan.baseSha,
       candidateRoot: input.candidateRoot,
+      changedOnly,
       commandWrapper: input.commandWrapper,
       environment: input.environment,
       task,
+      turboArgs,
     })
   );
   if (taskPlans.every((taskPlan) => taskPlan.tasks.length === 0)) {
@@ -102,14 +123,33 @@ export function resolveReusableCheckInput(input) {
   return { inputFingerprint, reusedFrom };
 }
 
+export function resolveReusableTaskPlans(checkId) {
+  const taskPlans = REUSABLE_CHECK_TASK_PLANS.get(checkId);
+  return taskPlans?.map((taskPlan) => ({ ...taskPlan })) ?? null;
+}
+
+export function buildTurboTaskPlanCommand(input) {
+  return [
+    process.execPath,
+    "scripts/dev/turbo-affected.mjs",
+    ...(input.changedOnly ? ["--changed-only"] : []),
+    input.task,
+    "--",
+    "--dry=json",
+    ...input.turboArgs,
+  ];
+}
+
 export function computeReusableCheckFingerprint(input) {
   const canonicalPlans = input.taskPlans
     .map((taskPlan) => ({
+      changedOnly: taskPlan.changedOnly,
       task: taskPlan.task,
       tasks: taskPlan.tasks
         .map((task) => ({ hash: task.hash, taskId: task.taskId }))
         .toSorted((left, right) => left.taskId.localeCompare(right.taskId)),
       turboVersion: taskPlan.turboVersion,
+      turboArgs: taskPlan.turboArgs,
     }))
     .toSorted((left, right) => left.task.localeCompare(right.task));
   return createHash("sha256")
@@ -157,7 +197,6 @@ export function selectReusableCheckEvidence(input) {
 
 function evidenceCanBeReused(evidence, input) {
   if (
-    evidence.conclusion !== "success" ||
     evidence.mode !== "remote" ||
     evidence.controlTrust !== "current-main" ||
     evidence.candidateKind !== "pull-request" ||
@@ -165,7 +204,6 @@ function evidenceCanBeReused(evidence, input) {
     evidence.pullRequestNumber !== input.pullRequestNumber ||
     evidence.branchName !== input.currentPlan.branchName ||
     evidence.confidence !== input.currentPlan.confidence ||
-    evidence.publicationErrors.length > 0 ||
     !EXACT_SHA_PATTERN.test(evidence.baseSha ?? "") ||
     !EXACT_SHA_PATTERN.test(evidence.headSha ?? "") ||
     !EXACT_SHA_PATTERN.test(evidence.treeSha ?? "") ||
@@ -191,15 +229,7 @@ function evidenceCanBeReused(evidence, input) {
 }
 
 function resolveTurboTaskPlan(input) {
-  const command = [
-    process.execPath,
-    "scripts/dev/turbo-affected.mjs",
-    "--changed-only",
-    input.task,
-    "--",
-    "--dry=json",
-    "--concurrency=2",
-  ];
+  const command = buildTurboTaskPlanCommand(input);
   const result = spawnSync(path.resolve(input.commandWrapper), command, {
     cwd: path.resolve(input.candidateRoot),
     encoding: "utf8",
@@ -225,5 +255,11 @@ function resolveTurboTaskPlan(input) {
     }
     return { hash: task.hash, taskId: task.taskId };
   });
-  return { task: input.task, tasks, turboVersion: plan.turboVersion };
+  return {
+    changedOnly: input.changedOnly,
+    task: input.task,
+    tasks,
+    turboArgs: input.turboArgs,
+    turboVersion: plan.turboVersion,
+  };
 }

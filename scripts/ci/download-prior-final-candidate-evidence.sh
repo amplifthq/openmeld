@@ -22,7 +22,7 @@ run_ids="$(
     -f event=pull_request_target \
     -f status=completed \
     -f per_page=20 \
-    --jq '.workflow_runs[] | select(.conclusion == "success") | .id' \
+    --jq '.workflow_runs[] | .id' \
     2>/dev/null || true
 )"
 
@@ -50,4 +50,4 @@ while IFS= read -r run_id; do
 done <<<"$run_ids"
 
 chmod -R a-w "$destination" 2>/dev/null || true
-echo "Prior Final Candidate evidence: $downloaded trusted workflow artifact(s) available for optional reuse."
+echo "Prior Final Candidate evidence: $downloaded trusted completed-run artifact(s) available for optional reuse."
