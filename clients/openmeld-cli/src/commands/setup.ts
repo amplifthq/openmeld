@@ -911,12 +911,16 @@ function emitSetupComplete(input: {
     const setupCopy = getSetupFlowCopy("setup");
     const serviceGuidance = buildSetupServiceGuidance({ cliCommandPrefix });
     const localAgentsGuideUrl = buildLocalAgentsGuideUrl(input.gatewayUrl);
+    let completionTitle = "OpenMeld Setup Partly Complete";
+    if (input.bootstrap.status === "completed") {
+      completionTitle =
+        input.path === "setup_session"
+          ? `✓ ${setupCopy.readyTitle}`
+          : setupCopy.cliCompletionTitle;
+    }
     renderInfoCard({
       presenter: input.presenter,
-      title:
-        input.bootstrap.status === "completed"
-          ? setupCopy.cliCompletionTitle
-          : "OpenMeld Setup Partly Complete",
+      title: completionTitle,
       codePrefix: "setup.complete.card",
       compact: true,
       minContentWidth: 44,

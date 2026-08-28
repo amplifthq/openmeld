@@ -15,6 +15,7 @@ import {
 import {
   clearDaemonRuntimeStateIfDefinitelyStopped,
   readCurrentDaemonRuntimeContext,
+  waitForDaemonSystemServiceToStop,
 } from "../src/local-service/lifecycle/daemon-service-runtime";
 import { withTempHome } from "./helpers/fs";
 
@@ -41,6 +42,47 @@ vi.mock("../src/local-service/lifecycle/daemon-service-manager", async () => {
 });
 
 describe("local service runtime cleanup", () => {
+  it("does not report not running when process inventory is unavailable", async () => {
+    await withTempHome(async () => {
+      listDaemonOwnedProcessesMock
+        .mockReset()
+        .mockRejectedValue(new Error("process inventory unavailable"));
+      resolveDaemonServiceManagerMock.mockReset().mockResolvedValue(null);
+
+      await expect(readCurrentDaemonRuntimeContext()).rejects.toThrow(
+        "process inventory unavailable"
+      );
+    });
+  });
+
+  it("does not prove a system service stopped when runtime and manager status are unknown", async () => {
+    const manager = {
+      controller: "launchd" as const,
+      deactivate: vi.fn(async () => undefined),
+      disableAutostart: vi.fn(async () => undefined),
+      enableAutostart: vi.fn(async () => undefined),
+      install: vi.fn(async () => undefined),
+      start: vi.fn(async () => undefined),
+      status: vi.fn(() => Promise.reject(new Error("manager unavailable"))),
+      stop: vi.fn(async () => undefined),
+      uninstall: vi.fn(async () => undefined),
+      waitUntilAbsent: vi.fn(async () => undefined),
+      waitUntilRunning: vi.fn(async () => undefined),
+      waitUntilStopped: vi.fn(async () => undefined),
+    };
+    listDaemonOwnedProcessesMock
+      .mockReset()
+      .mockRejectedValue(new Error("process inventory unavailable"));
+
+    await expect(
+      waitForDaemonSystemServiceToStop({
+        manager,
+        pollMs: 1,
+        waitMs: 0,
+      })
+    ).resolves.toBe(false);
+  });
+
   it("clears persisted runtime state when effective runtime is not running", async () => {
     await withTempHome(async () => {
       listDaemonOwnedProcessesMock.mockReset().mockResolvedValue([]);

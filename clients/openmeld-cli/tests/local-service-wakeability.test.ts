@@ -185,7 +185,7 @@ function withVerifiedExecutionEvidence(
 describe("reply readiness", () => {
   beforeEach(() => {
     resolveLocalServiceDemandMock.mockReset().mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       reason: "no local execution routes are registered on this device",
@@ -334,7 +334,7 @@ describe("reply readiness", () => {
     };
     getEffectiveDaemonRuntimeStatusMock.mockReturnValue("running");
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: true,
       repairableReplyCandidateCount: 0,
       reason: "local wakeable routes are registered on this device",
@@ -379,7 +379,7 @@ describe("reply readiness", () => {
     };
     getEffectiveDaemonRuntimeStatusMock.mockReturnValue("running");
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: true,
       repairableReplyCandidateCount: 0,
       reason: "local wakeable routes are registered on this device",
@@ -465,7 +465,7 @@ describe("reply readiness", () => {
     };
     getEffectiveDaemonRuntimeStatusMock.mockReturnValue("running");
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: true,
       repairableReplyCandidateCount: 0,
       reason: "local wakeable routes are registered on this device",
@@ -507,7 +507,7 @@ describe("reply readiness", () => {
     };
     getEffectiveDaemonRuntimeStatusMock.mockReturnValue("running");
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: true,
       repairableReplyCandidateCount: 0,
       reason: "local wakeable routes are registered on this device",
@@ -556,7 +556,7 @@ describe("reply readiness", () => {
     };
     getEffectiveDaemonRuntimeStatusMock.mockReturnValue("running");
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: true,
       repairableReplyCandidateCount: 0,
       reason: "local wakeable routes are registered on this device",
@@ -611,7 +611,7 @@ describe("reply readiness", () => {
     };
     getEffectiveDaemonRuntimeStatusMock.mockReturnValue("running");
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: true,
       repairableReplyCandidateCount: 0,
       reason: "local wakeable routes are registered on this device",
@@ -727,7 +727,7 @@ describe("reply readiness", () => {
     };
     getEffectiveDaemonRuntimeStatusMock.mockReturnValue("running");
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       reason: "No local agents on this device need OpenMeld Service right now",

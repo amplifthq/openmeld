@@ -178,7 +178,17 @@ describe("prepare session executor", () => {
   });
 
   it("does not run Terminal-owned work when no local agents are selected", () => {
-    expect(resolveNextTerminalPrepareStep(buildSnapshot({}, []))).toBeNull();
+    expect(resolveNextTerminalPrepareStep(buildSnapshot({}, []))).toBe(
+      "refresh_service"
+    );
+  });
+
+  it("finishes after Service alignment when no local agents are selected", () => {
+    expect(
+      resolveNextTerminalPrepareStep(
+        buildSnapshot({ refresh_service: "complete" }, [])
+      )
+    ).toBeNull();
   });
 
   it("stops once all Terminal-owned steps are complete", () => {
@@ -884,7 +894,7 @@ describe("prepare session executor", () => {
         rawMessage: "OpenMeld Service refresh did not complete: start_failed",
       })
     ).toBe(
-      "OpenMeld couldn't update its background service. Restart your computer, then copy a new setup command from OpenMeld Web."
+      "OpenMeld couldn't update its background service. Restart your computer; OpenMeld will reconnect automatically after sign-in."
     );
   });
 
@@ -912,7 +922,10 @@ describe("prepare session executor", () => {
     });
 
     expect(message).toContain("keeps stopping after it starts");
-    expect(message).toContain("service start --mode foreground");
+    expect(message).toContain("openmeld service repair");
+    expect(message).toContain("saved the failure details");
+    expect(message).not.toContain("--mode foreground");
+    expect(message).not.toContain("copy a new setup command");
     expect(message.length).toBeLessThanOrEqual(240);
   });
 
@@ -926,7 +939,7 @@ describe("prepare session executor", () => {
         rawMessage: message,
       })
     ).toBe(
-      "OpenMeld could not verify that selected local agents were reported to OpenMeld yet. Copy a new setup command from OpenMeld Web and run it again."
+      "OpenMeld could not verify that selected local agents were reported to OpenMeld yet. Return to OpenMeld Web to see the current connection state and recovery action."
     );
   });
 
@@ -1091,7 +1104,7 @@ describe("prepare session executor", () => {
       .join("\n");
     expect(output).toContain("Setup couldn't finish");
     expect(output).toContain(
-      "Next: Copy a new setup command from OpenMeld Web and run it again."
+      "Next: Return to OpenMeld Web to see the current connection state and recovery action."
     );
     expect(output).not.toContain("prepare.report_runtime.failed");
   });
@@ -1835,26 +1848,8 @@ describe("prepare session executor", () => {
     expect(result).toMatchObject({
       deviceId: "device-1",
       runtimeLane: "dev-local",
-      localReadinessSnapshot: {
-        service: {
-          expectedVersion: "0.4.0",
-          installStatus: "installed_current",
-          installedVersion: "0.4.0",
-          runtimeStatus: "running",
-          executionCompatibility: {
-            expectedEpoch: "daemon-runtime-epoch-current",
-            observedEpoch: "daemon-runtime-epoch-old",
-            reasonCode: "daemon.runtime_contract.mismatch",
-            status: "update_required",
-            updatedAt: "2026-05-08T00:00:00.000Z",
-          },
-        },
-        skills: {
-          status: "up_to_date",
-          targetCount: 1,
-        },
-      },
     });
+    expect(collectStartLocalReadiness).not.toHaveBeenCalled();
   });
 
   it("keeps a cancelled service prompt resumable instead of failing the Prepare step", async () => {
@@ -2589,12 +2584,8 @@ describe("prepare session executor", () => {
     expect(result).toMatchObject({
       deviceId: "device-1",
       runtimeLane: "dev-local",
-      localReadinessSnapshot: {
-        service: {
-          runtimeStatus: "running",
-        },
-      },
     });
+    expect(collectStartLocalReadiness).not.toHaveBeenCalled();
   });
 });
 

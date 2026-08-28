@@ -195,6 +195,11 @@ forking its command, PrepareSession, or live-status behavior.
     Web shows reconnecting during that window and asks for a fresh command only
     after recovery does not converge, the command expires, or a real blocker
     requires a new handoff. A transient socket close is not user action.
+17. **The copied command is fresh.** Prepare and one-time credentials remain
+    short-lived, but the Web surface automatically replaces an expired command
+    and the Copy action refreshes before copying. The user is never asked to
+    diagnose token expiry or manually reload the page to obtain a valid
+    command.
 
 ## The Start Planner (`packages/start`)
 
@@ -395,6 +400,10 @@ sibling mutation.
      visually primary and do not sit inside another bordered or padded frame.
    - Embed the production setup/Prepare surface: one-time command, expiry,
      Terminal progress, and current local runtime projection.
+   - Once authentication and OpenMeld Service alignment succeed, present the
+     primary outcome as **Computer connected**. Local-agent discovery, sign-in
+     attention, Skills, diagnostics, updates, and Project discovery refresh
+     progressively and do not keep the user on this page.
    - On re-entry or restart, first reconcile the current computer's real
      Service fact. If it is already connected, show that connected computer and
      do not create a new Prepare Session unless the user explicitly chooses
@@ -709,13 +718,16 @@ retired welcoming fields are `null` for current runs. Legacy welcoming profiles
 and Spaces are hidden from current lists and must not become a second entry point.
 
 Local-agent discovery and connection are CLI concerns, not Web ones. In the
-ordinary human flow, `openmeld setup` does not ask the user to choose local
-agents. It automatically registers and enables each runnable built-in Agent
-Controller the first time that controller is detected on this computer. A
-controller that is already registered keeps its existing enabled state, so
-re-running setup never reverses a user's explicit Computers setting. Explicit
-automation may still narrow one setup run via `--local-agent <id>` or
-`--local-agents all|none`.
+ordinary standalone human flow, `openmeld setup` does not ask the user to choose
+local agents. It automatically registers and enables each runnable built-in
+Agent Controller the first time that controller is detected on this computer.
+During an ordinary Web computer handoff, OpenMeld Service connects first and
+the command may finish while controller discovery continues in the Service's
+background catalog refresh. A controller installed later is discovered without
+another setup command. A controller that is already registered keeps its
+existing enabled state, so setup and background refresh never reverse a user's
+explicit Computers setting. Explicit automation may still narrow one setup run
+via `--local-agent <id>` or `--local-agents all|none`.
 
 When more than one verified installation can provide the same controller,
 setup stays non-blocking. It first honors an existing saved choice; otherwise

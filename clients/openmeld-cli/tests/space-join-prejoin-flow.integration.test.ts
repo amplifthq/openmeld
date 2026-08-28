@@ -939,7 +939,7 @@ describe("space join pre-join flow", () => {
       }),
     ]);
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       reason: "no local execution routes are available",
@@ -1476,7 +1476,7 @@ describe("space join pre-join flow", () => {
       autoStopped: false,
       effectiveRuntimeStatus: "running",
       localDemand: {
-        decision: "allow_auto_stop",
+        decision: "keep_running",
         hasLocalExecutionRoute: false,
         repairableReplyCandidateCount: 0,
         reason: "no local agents need OpenMeld Service right now",
@@ -1485,7 +1485,7 @@ describe("space join pre-join flow", () => {
       },
     });
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       reason: "no local agents need OpenMeld Service right now",

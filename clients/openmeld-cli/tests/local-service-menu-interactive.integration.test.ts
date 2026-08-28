@@ -556,7 +556,7 @@ describe("openmeld service interactive menu", () => {
       autoStopped: true,
       effectiveRuntimeStatus: "not_running",
       localDemand: {
-        decision: "allow_auto_stop",
+        decision: "keep_running",
         hasLocalExecutionRoute: false,
         repairableReplyCandidateCount: 0,
         reason: "no local execution routes are available",
@@ -565,7 +565,7 @@ describe("openmeld service interactive menu", () => {
       },
     });
     resolveLocalServiceDemandMock.mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       reason: "no local execution routes are available",
@@ -925,7 +925,8 @@ describe("openmeld service interactive menu", () => {
 
       expect(runRunMock).toHaveBeenCalledTimes(2);
       expect(stdout).toContain("OpenMeld Service couldn't start");
-      expect(stdout).toContain("openmeld service start --mode foreground");
+      expect(stdout).toContain("openmeld service repair");
+      expect(stdout).not.toContain("--mode foreground");
       expect(stdout).not.toContain("daemon-system-service.log");
     });
   });

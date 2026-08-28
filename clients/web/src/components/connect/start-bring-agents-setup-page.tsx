@@ -35,7 +35,13 @@ import {
 import { CheckCircleIcon, CircleNotchIcon } from "@phosphor-icons/react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { useBringAgentsSetupContext } from "#/components/connect/bring-agents-setup-context";
 import {
@@ -100,6 +106,7 @@ type PrepareSessionPageState =
 			opaqueToken: string | null;
 			opaqueTokenExpiresAt: string | null;
 			snapshot: PrepareSessionSnapshot | null;
+			snapshotSessionKey: string | null;
 			status: "idle" | "loading" | "ready";
 	  }
 	| {
@@ -107,6 +114,7 @@ type PrepareSessionPageState =
 			opaqueToken: string | null;
 			opaqueTokenExpiresAt: string | null;
 			snapshot: PrepareSessionSnapshot | null;
+			snapshotSessionKey: string | null;
 			status: "error";
 	  };
 
@@ -417,7 +425,9 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 		deviceId: bringAgentsSetup.deviceId,
 		humanProfileId: bringAgentsSetup.selectedHumanProfileId,
 		runtimeLane: bringAgentsSetup.runtimeLane,
+		sessionKey: prepareSession.sessionKey,
 		snapshot: prepareSession.snapshot,
+		snapshotSessionKey: prepareSession.snapshotSessionKey,
 		targetSpaceId: bringAgentsSetup.targetSpaceId,
 	});
 	const completionReadinessRefresh = useRefreshReadinessAfterPrepareCompletion({
@@ -1331,6 +1341,17 @@ function resolvePrepareCompletionRefreshKey(
 	return `${snapshot.prepareSessionId}:${snapshot.sessionRevision}`;
 }
 
+function buildPrepareCommandRefreshKey(input: {
+	generation: number;
+	prepareSessionId: string | null;
+	sessionKey: string | null;
+}): string | null {
+	if (input.sessionKey === null || input.prepareSessionId === null) {
+		return null;
+	}
+	return `${input.sessionKey}:${input.prepareSessionId}:${input.generation}`;
+}
+
 // Watches the local-components readiness projection after an update_service
 // terminal session completes, re-fetching it until OpenMeld Service and CLI
 // both clear `update_required`. Reaching the timeout window only flips the
@@ -1663,6 +1684,7 @@ function usePrepareSession(input: {
 		opaqueToken: null,
 		opaqueTokenExpiresAt: null,
 		snapshot: null,
+		snapshotSessionKey: null,
 		status: "idle",
 	});
 	const [command, setCommand] = useState<string | null>(null);
@@ -1676,8 +1698,11 @@ function usePrepareSession(input: {
 	);
 	const [webSocketStatus, setWebSocketStatus] =
 		useState<PrepareWebSocketStatus>("idle");
-	const [isRefreshingCommand, setIsRefreshingCommand] = useState(false);
+	const [refreshingCommandRefreshKey, setRefreshingCommandRefreshKey] =
+		useState<string | null>(null);
 	const socketRef = useRef<WebSocket | null>(null);
+	const commandGenerationKeyRef = useRef<string | null>(null);
+	const [commandRefreshGeneration, setCommandRefreshGeneration] = useState(0);
 	const activePrepareSessionId = state.snapshot?.prepareSessionId ?? null;
 	const sessionKey = buildPrepareSessionKey({
 		connectedComputerId,
@@ -1686,6 +1711,21 @@ function usePrepareSession(input: {
 		runtimeLane,
 		targetSpaceId,
 	});
+	const commandRefreshKey = buildPrepareCommandRefreshKey({
+		generation: commandRefreshGeneration,
+		prepareSessionId: activePrepareSessionId,
+		sessionKey,
+	});
+	const activeCommandRefreshKeyRef = useRef<string | null>(commandRefreshKey);
+	const isRefreshingCommand =
+		commandRefreshKey !== null &&
+		refreshingCommandRefreshKey === commandRefreshKey;
+	const isPrepareSessionMountedRef = useRef(true);
+	const commandRefreshRef = useRef<{
+		key: string;
+		request: object;
+		task: Promise<string | null>;
+	} | null>(null);
 	const generateOneTimeToken = useGenerateOneTimeToken();
 	const generateOneTimeTokenRef = useRef(generateOneTimeToken.mutateAsync);
 	generateOneTimeTokenRef.current = generateOneTimeToken.mutateAsync;
@@ -1701,12 +1741,25 @@ function usePrepareSession(input: {
 	const sourceNavigationActionSpaceId = sourceNavigationAction?.spaceId ?? null;
 
 	useEffect(() => {
+		isPrepareSessionMountedRef.current = true;
+		return () => {
+			isPrepareSessionMountedRef.current = false;
+		};
+	}, []);
+
+	useLayoutEffect(() => {
+		activeCommandRefreshKeyRef.current = commandRefreshKey;
+		commandRefreshRef.current = null;
+	}, [commandRefreshKey]);
+
+	useEffect(() => {
 		if (!sessionKey) {
 			setState({
 				error: null,
 				opaqueToken: null,
 				opaqueTokenExpiresAt: null,
 				snapshot: null,
+				snapshotSessionKey: null,
 				status: "idle",
 			});
 			return;
@@ -1718,6 +1771,7 @@ function usePrepareSession(input: {
 			opaqueToken: current.opaqueToken,
 			opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
 			snapshot: current.snapshot,
+			snapshotSessionKey: current.snapshotSessionKey,
 			status: "loading",
 		}));
 
@@ -1755,6 +1809,7 @@ function usePrepareSession(input: {
 				opaqueToken: session.opaqueToken,
 				opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
 				snapshot: session.snapshot,
+				snapshotSessionKey: sessionKey,
 				status: "ready",
 			});
 			if (forceFreshSession) {
@@ -1775,6 +1830,7 @@ function usePrepareSession(input: {
 				opaqueToken: current.opaqueToken,
 				opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
 				snapshot: current.snapshot,
+				snapshotSessionKey: current.snapshotSessionKey,
 				status: "error",
 			}));
 		});
@@ -1795,38 +1851,60 @@ function usePrepareSession(input: {
 		targetSpaceId,
 	]);
 
+	const generateSetupCommand = useCallback(
+		async (input: {
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string | null;
+		}) => {
+			const [gatewayUrl, oneTimeToken] = await Promise.all([
+				loadGatewayUrl(),
+				generateOneTimeTokenRef.current(),
+			]);
+			return {
+				command: buildWebSetupCommand({
+					setupPlatform: commandPlatform,
+					gatewayUrl,
+					startSession: input.opaqueToken,
+					oneTimeToken: oneTimeToken.token,
+				}),
+				expiresAt: resolveSetupCommandExpiresAt({
+					opaqueTokenExpiresAt: input.opaqueTokenExpiresAt,
+					oneTimeTokenExpiresIn: oneTimeToken.expiresIn,
+				}),
+			};
+		},
+		[commandPlatform, loadGatewayUrl]
+	);
+
 	useEffect(() => {
 		const shouldBuildCommand =
 			state.opaqueToken !== null &&
 			state.snapshot?.lifecycleStatus !== "completed";
 		if (!shouldBuildCommand) {
+			commandGenerationKeyRef.current = null;
 			setCommand(null);
 			setCommandExpiresAt(null);
+			return;
+		}
+		const generationKey = `${commandPlatform}:${state.opaqueToken}`;
+		if (commandGenerationKeyRef.current === generationKey) {
 			return;
 		}
 
 		let cancelled = false;
 		setCommand(null);
 		setCommandExpiresAt(state.opaqueTokenExpiresAt);
-		Promise.all([loadGatewayUrl(), generateOneTimeTokenRef.current()])
-			.then(([gatewayUrl, oneTimeToken]) => {
+		generateSetupCommand({
+			opaqueToken: state.opaqueToken as string,
+			opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
+		})
+			.then((generated) => {
 				if (cancelled) {
 					return;
 				}
-				setCommand(
-					buildWebSetupCommand({
-						setupPlatform: commandPlatform,
-						gatewayUrl,
-						startSession: state.opaqueToken as string,
-						oneTimeToken: oneTimeToken.token,
-					})
-				);
-				setCommandExpiresAt(
-					resolveSetupCommandExpiresAt({
-						opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
-						oneTimeTokenExpiresIn: oneTimeToken.expiresIn,
-					})
-				);
+				commandGenerationKeyRef.current = generationKey;
+				setCommand(generated.command);
+				setCommandExpiresAt(generated.expiresAt);
 				setCopyStatus("idle");
 			})
 			.catch((error: unknown) => {
@@ -1844,7 +1922,7 @@ function usePrepareSession(input: {
 		};
 	}, [
 		commandPlatform,
-		loadGatewayUrl,
+		generateSetupCommand,
 		state.opaqueToken,
 		state.opaqueTokenExpiresAt,
 		state.snapshot?.lifecycleStatus,
@@ -1886,6 +1964,10 @@ function usePrepareSession(input: {
 		};
 
 		const replaceMissingActiveSession = async () => {
+			setCommandRefreshGeneration((current) => current + 1);
+			activeCommandRefreshKeyRef.current = null;
+			commandRefreshRef.current = null;
+			setRefreshingCommandRefreshKey(null);
 			clearPrepareSessionPointer();
 			clearCompletedPrepareSessionPointer();
 			setState({
@@ -1893,6 +1975,7 @@ function usePrepareSession(input: {
 				opaqueToken: null,
 				opaqueTokenExpiresAt: null,
 				snapshot: null,
+				snapshotSessionKey: null,
 				status: "loading",
 			});
 			const session = await createFreshPrepareSession({
@@ -1917,6 +2000,7 @@ function usePrepareSession(input: {
 				opaqueToken: session.opaqueToken,
 				opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
 				snapshot: session.snapshot,
+				snapshotSessionKey: sessionKey,
 				status: "ready",
 			});
 			setWebSocketStatus("idle");
@@ -2039,6 +2123,7 @@ function usePrepareSession(input: {
 		deviceId,
 		humanProfileId,
 		runtimeLane,
+		sessionKey,
 		state.opaqueToken,
 		state.opaqueTokenExpiresAt,
 		targetSpaceId,
@@ -2072,6 +2157,7 @@ function usePrepareSession(input: {
 				opaqueToken: current.opaqueToken,
 				opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
 				snapshot: response.snapshot,
+				snapshotSessionKey: current.snapshotSessionKey,
 				status: "ready",
 			}));
 		} catch (error) {
@@ -2098,16 +2184,22 @@ function usePrepareSession(input: {
 				opaqueToken: null,
 				opaqueTokenExpiresAt: null,
 				snapshot: null,
+				snapshotSessionKey: null,
 				status: "error",
 			});
 			return;
 		}
 
+		setCommandRefreshGeneration((current) => current + 1);
+		activeCommandRefreshKeyRef.current = null;
+		commandRefreshRef.current = null;
+		setRefreshingCommandRefreshKey(null);
 		setState((current) => ({
 			error: null,
 			opaqueToken: current.opaqueToken,
 			opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
 			snapshot: current.snapshot,
+			snapshotSessionKey: current.snapshotSessionKey,
 			status: "loading",
 		}));
 		try {
@@ -2132,6 +2224,7 @@ function usePrepareSession(input: {
 				opaqueToken: session.opaqueToken,
 				opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
 				snapshot: session.snapshot,
+				snapshotSessionKey: sessionKey,
 				status: "ready",
 			});
 		} catch (error) {
@@ -2146,63 +2239,151 @@ function usePrepareSession(input: {
 		deviceId,
 		humanProfileId,
 		runtimeLane,
+		sessionKey,
 		targetSpaceId,
 	]);
 
-	const refreshCommand = useCallback(async () => {
+	const refreshCommandAndReturn = useCallback((): Promise<string | null> => {
 		const snapshot = state.snapshot;
-		if (snapshot === null) {
-			return;
+		if (snapshot === null || commandRefreshKey === null) {
+			return Promise.resolve(null);
 		}
+		const existingRefresh = commandRefreshRef.current;
+		if (existingRefresh?.key === commandRefreshKey) {
+			return existingRefresh.task;
+		}
+		const refreshKey = commandRefreshKey;
+		const isCurrentRefreshSession = () =>
+			isPrepareSessionMountedRef.current &&
+			activeCommandRefreshKeyRef.current === refreshKey;
 
-		setIsRefreshingCommand(true);
-		try {
-			const session = await mintPrepareSessionToken({
-				prepareSessionId: snapshot.prepareSessionId,
-			});
-			setState((current) => ({
-				...current,
-				error: null,
-				opaqueToken: session.opaqueToken,
-				opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
-				snapshot: session.snapshot,
-				status: "ready",
-			}));
-			persistPrepareSessionPointer(session, {
-				connectedComputerId,
-				deviceId,
-				humanProfileId,
-				runtimeLane,
-				targetSpaceId,
-			});
-			setCopyStatus("idle");
-		} catch (error) {
+		const refreshRequest = {};
+		const reportRefreshError = (error: unknown) => {
+			if (!isCurrentRefreshSession()) {
+				return;
+			}
 			setState((current) => ({
 				...current,
 				error: normalizeError(error),
 			}));
-		} finally {
-			setIsRefreshingCommand(false);
-		}
+		};
+		const refreshTask = (async () => {
+			setRefreshingCommandRefreshKey(refreshKey);
+			try {
+				const session = await mintPrepareSessionToken({
+					prepareSessionId: snapshot.prepareSessionId,
+				});
+				if (!isCurrentRefreshSession()) {
+					return null;
+				}
+				const generated = await generateSetupCommand({
+					opaqueToken: session.opaqueToken,
+					opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
+				});
+				if (!isCurrentRefreshSession()) {
+					return null;
+				}
+				commandGenerationKeyRef.current = `${commandPlatform}:${session.opaqueToken}`;
+				setCommand(generated.command);
+				setCommandExpiresAt(generated.expiresAt);
+				setState((current) => ({
+					...current,
+					error: null,
+					opaqueToken: session.opaqueToken,
+					opaqueTokenExpiresAt: session.opaqueTokenExpiresAt,
+					snapshot: session.snapshot,
+					status: "ready",
+				}));
+				persistPrepareSessionPointer(session, {
+					connectedComputerId,
+					deviceId,
+					humanProfileId,
+					runtimeLane,
+					targetSpaceId,
+				});
+				setCopyStatus("idle");
+				return generated.command;
+			} catch (error) {
+				reportRefreshError(error);
+				return null;
+			} finally {
+				if (commandRefreshRef.current?.request === refreshRequest) {
+					commandRefreshRef.current = null;
+					if (isCurrentRefreshSession()) {
+						setRefreshingCommandRefreshKey(null);
+					}
+				}
+			}
+		})();
+		commandRefreshRef.current = {
+			key: refreshKey,
+			request: refreshRequest,
+			task: refreshTask,
+		};
+		return refreshTask;
 	}, [
+		commandPlatform,
+		commandRefreshKey,
 		connectedComputerId,
 		deviceId,
+		generateSetupCommand,
 		humanProfileId,
 		runtimeLane,
 		state.snapshot,
 		targetSpaceId,
 	]);
 
-	const copyCommand = useCallback(async () => {
-		if (command === null) {
+	const refreshCommand = useCallback(async () => {
+		await refreshCommandAndReturn();
+	}, [refreshCommandAndReturn]);
+
+	useEffect(() => {
+		if (
+			command === null ||
+			commandExpiresAt === null ||
+			state.snapshot?.lifecycleStatus === "completed"
+		) {
 			return;
 		}
-		const didCopy = await copyCliEntryCommand(command);
+		const expiresAtMs = Date.parse(commandExpiresAt);
+		if (!Number.isFinite(expiresAtMs)) {
+			return;
+		}
+		const refreshTimer = window.setTimeout(
+			() => {
+				refreshCommandAndReturn().catch(() => undefined);
+			},
+			Math.max(0, expiresAtMs - Date.now()) + 25
+		);
+		return () => {
+			window.clearTimeout(refreshTimer);
+		};
+	}, [
+		command,
+		commandExpiresAt,
+		refreshCommandAndReturn,
+		state.snapshot?.lifecycleStatus,
+	]);
+
+	const copyCommand = useCallback(async () => {
+		let commandToCopy = command;
+		const commandExpiresAtMs = Date.parse(commandExpiresAt ?? "");
+		if (
+			commandToCopy !== null &&
+			Number.isFinite(commandExpiresAtMs) &&
+			commandExpiresAtMs <= Date.now()
+		) {
+			commandToCopy = await refreshCommandAndReturn();
+		}
+		if (commandToCopy === null) {
+			return;
+		}
+		const didCopy = await copyCliEntryCommand(commandToCopy);
 		setCopyStatus(didCopy ? "copied" : "manual");
 		if (didCopy) {
 			toast.success("CLI command copied.");
 		}
-	}, [command]);
+	}, [command, commandExpiresAt, refreshCommandAndReturn]);
 
 	return {
 		command,
@@ -2217,7 +2398,9 @@ function usePrepareSession(input: {
 		refresh,
 		refreshCommand,
 		setCommandPlatform,
+		sessionKey,
 		snapshot: state.snapshot,
+		snapshotSessionKey: state.snapshotSessionKey,
 		startOver,
 		status: state.status,
 		webSocketStatus,
@@ -2531,7 +2714,9 @@ function resolveCurrentPrepareSessionSnapshot(input: {
 	deviceId: string | null;
 	humanProfileId: string | null;
 	runtimeLane: string | null;
+	sessionKey: string | null;
 	snapshot: PrepareSessionSnapshot | null;
+	snapshotSessionKey: string | null;
 	targetSpaceId: string | null;
 }): PrepareSessionSnapshot | null {
 	if (input.snapshot === null) {
@@ -2544,6 +2729,13 @@ function resolveCurrentPrepareSessionSnapshot(input: {
 		runtimeLane: input.runtimeLane,
 		targetSpaceId: input.targetSpaceId,
 	};
+	if (
+		input.sessionKey !== null &&
+		input.snapshotSessionKey === input.sessionKey &&
+		snapshotMatchesLoadedPrepareSession(input.snapshot, sessionInput)
+	) {
+		return input.snapshot;
+	}
 	if (input.snapshot.lifecycleStatus === "completed") {
 		return completedSnapshotMatchesPrepareSessionInput(
 			input.snapshot,
@@ -2555,6 +2747,23 @@ function resolveCurrentPrepareSessionSnapshot(input: {
 	return snapshotMatchesPrepareSessionInput(input.snapshot, sessionInput)
 		? input.snapshot
 		: null;
+}
+
+function snapshotMatchesLoadedPrepareSession(
+	snapshot: PrepareSessionSnapshot,
+	input: PrepareSessionInput
+): boolean {
+	if (
+		input.humanProfileId === null ||
+		snapshot.humanProfileId !== input.humanProfileId ||
+		snapshot.targetSpaceId !== input.targetSpaceId
+	) {
+		return false;
+	}
+	return (
+		input.connectedComputerId === null ||
+		snapshot.connectedComputerId === input.connectedComputerId
+	);
 }
 
 function snapshotMatchesPrepareSessionInput(
@@ -2665,7 +2874,7 @@ function resolvePrepareCompletionReadyStepSummary(input: {
 		return input.setupCopy.readyNoSelectedLocalAgentsSummary;
 	}
 	if (input.completionReadiness.kind === "needs_attention") {
-		return `${input.setupCopy.readyCompleteSummary} Wake availability still needs ${formatAgentProfileCount(input.completionReadiness.count)}.`;
+		return `${input.setupCopy.readyCompleteSummary} Agent availability still needs ${formatAgentProfileCount(input.completionReadiness.count)}.`;
 	}
 	if (input.completionReadiness.kind === "error") {
 		return input.setupCopy.readyRefreshErrorSummary;

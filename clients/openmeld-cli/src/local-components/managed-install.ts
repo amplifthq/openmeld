@@ -5,7 +5,6 @@ import {
   copyFile,
   lstat,
   mkdir,
-  readdir,
   readlink,
   rename,
   rm,
@@ -15,6 +14,7 @@ import {
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
+import { readDaemonServiceUpdateWorkerProtectedManagedVersions } from "../config/daemon-service-update-worker-registration";
 import {
   acquireLock,
   isOpenMeldLockError,
@@ -26,18 +26,16 @@ import {
   openMeldManagedBinaryPath,
   openMeldManagedVersionBinaryPath,
   openMeldManagedVersionDir,
-  openMeldVersionsDir,
 } from "../config/paths";
 import { compareSemver } from "../config/version-state";
 import { OPENMELD_VERSION } from "../runtime/version";
+import { pruneManagedVersions } from "./managed-version-pruning";
 
 export type CliInstallSelfResult =
   | "installed"
   | "noop_same_version"
   | "noop_newer_present";
 
-const MANAGED_VERSION_DIRECTORY_PATTERN =
-  /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const MANAGED_INSTALL_LOCK_PROFILE = "managed-cli";
 const MANAGED_INSTALL_LOCK_KEY = "install";
 const MANAGED_INSTALL_LOCK_RETRY_DELAY_MS = 100;
@@ -136,6 +134,8 @@ async function performManagedInstallLocked(input?: {
   const currentPointerPath = openMeldManagedBinaryPath();
   const managedBinaryPath = openMeldManagedVersionBinaryPath(version);
   const previousVersion = await readCurrentPointerVersion();
+  const protectedVersions =
+    await readDaemonServiceUpdateWorkerProtectedManagedVersions();
 
   const baseOutcome = {
     version,
@@ -153,7 +153,10 @@ async function performManagedInstallLocked(input?: {
       comparison === 0 &&
       (await isUsableManagedBinary(managedBinaryPath))
     ) {
-      await pruneManagedVersions({ currentVersion: previousVersion });
+      await pruneManagedVersions({
+        currentVersion: previousVersion,
+        protectedVersions,
+      });
       return { ...baseOutcome, result: "noop_same_version" };
     }
     if (comparison < 0 && !force) {
@@ -167,6 +170,7 @@ async function performManagedInstallLocked(input?: {
       await pruneManagedVersions({
         currentVersion: previousVersion,
         preferredRollbackVersion: version,
+        protectedVersions,
       });
       return { ...baseOutcome, result: "noop_newer_present" };
     }
@@ -180,6 +184,7 @@ async function performManagedInstallLocked(input?: {
   await pruneManagedVersions({
     currentVersion: version,
     preferredRollbackVersion: previousVersion,
+    protectedVersions,
   });
   await swapCurrentPointer(currentPointerPath, managedBinaryPath);
 
@@ -216,65 +221,6 @@ async function withManagedInstallLock<T>(run: () => Promise<T>): Promise<T> {
       await delay(MANAGED_INSTALL_LOCK_RETRY_DELAY_MS);
     }
   }
-}
-
-async function pruneManagedVersions(input: {
-  currentVersion: string;
-  preferredRollbackVersion?: string | null;
-}): Promise<void> {
-  const versionsDir = openMeldVersionsDir();
-  const entries = await readdir(versionsDir, { withFileTypes: true });
-  const managedVersions = entries
-    .filter(
-      (entry) =>
-        entry.isDirectory() &&
-        MANAGED_VERSION_DIRECTORY_PATTERN.test(entry.name)
-    )
-    .map((entry) => entry.name);
-  const usableManagedVersions = new Set(
-    (
-      await Promise.all(
-        managedVersions.map(async (version) => ({
-          usable: await isUsableManagedVersion(version),
-          version,
-        }))
-      )
-    )
-      .filter((entry) => entry.usable)
-      .map((entry) => entry.version)
-  );
-  const retainedVersions = new Set([input.currentVersion]);
-
-  if (
-    input.preferredRollbackVersion &&
-    input.preferredRollbackVersion !== input.currentVersion &&
-    usableManagedVersions.has(input.preferredRollbackVersion)
-  ) {
-    retainedVersions.add(input.preferredRollbackVersion);
-  }
-
-  if (retainedVersions.size === 1) {
-    const rollbackVersion = [...usableManagedVersions]
-      .filter((version) => compareSemver(version, input.currentVersion) < 0)
-      .sort((left, right) => compareSemver(right, left))[0];
-    if (rollbackVersion) {
-      retainedVersions.add(rollbackVersion);
-    }
-  }
-
-  await Promise.all(
-    managedVersions
-      .filter((version) => !retainedVersions.has(version))
-      .map((version) =>
-        rm(path.join(versionsDir, version), { recursive: true })
-      )
-  );
-}
-
-async function isUsableManagedVersion(version: string): Promise<boolean> {
-  return await isUsableManagedBinary(
-    path.join(openMeldVersionsDir(), version, "openmeld")
-  );
 }
 
 async function placeVersionedBinary(

@@ -431,7 +431,7 @@ describe("space join gateway-chain blocked handling", () => {
       openMeldProfile: HUMAN_PROFILE,
       baseUrl: "https://target.gateway.example.com",
       localDemand: {
-        decision: "allow_auto_stop",
+        decision: "keep_running",
         hasLocalExecutionRoute: false,
         repairableReplyCandidateCount: 0,
         projection: null,
@@ -472,7 +472,7 @@ describe("space join gateway-chain blocked handling", () => {
       openMeldProfile: AGENT_PROFILE_WITHOUT_LOCAL_SETUP,
       baseUrl: "https://target.gateway.example.com",
       localDemand: {
-        decision: "allow_auto_stop",
+        decision: "keep_running",
         hasLocalExecutionRoute: false,
         repairableReplyCandidateCount: 0,
         projection: null,

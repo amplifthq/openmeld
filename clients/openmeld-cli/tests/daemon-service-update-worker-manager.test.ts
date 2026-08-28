@@ -1,16 +1,41 @@
-import { describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const spawnMock = vi.hoisted(() => vi.fn());
+const pruneManagedVersionsMock = vi.hoisted(() => vi.fn());
+
+vi.mock("node:child_process", () => ({
+  spawn: (...args: unknown[]) => spawnMock(...args),
+}));
 
 vi.mock("../src/local-service/lifecycle/daemon-service-command-spec", () => ({
   buildDaemonSystemServiceCommandSpec: vi.fn(),
 }));
 vi.mock("../src/local-service/lifecycle/daemon-service-bundle", () => ({
+  clearDaemonServiceUpdateWorkerBinaryExecutable: vi.fn(),
+  daemonServiceUpdateWorkerBinaryPath: vi.fn(
+    () =>
+      "/tmp/openmeld-home/runtime/daemon/service-manager/OpenMeld Update Worker Binary"
+  ),
+  ensureDaemonServiceUpdateWorkerBinaryExecutable: vi.fn(),
+  readDaemonActiveBundleState: vi.fn(),
   resolveDaemonBundleEntryPathFromState: vi.fn(),
 }));
 vi.mock("../src/local-service/lifecycle/daemon-service-manager", () => ({
   resolveDaemonServiceManager: vi.fn(),
 }));
+vi.mock("../src/local-components/managed-version-pruning", () => ({
+  pruneManagedVersions: (...args: unknown[]) =>
+    pruneManagedVersionsMock(...args),
+}));
 
-import { resolveDaemonBundleEntryPathFromState } from "../src/local-service/lifecycle/daemon-service-bundle";
+import {
+  ensureDaemonServiceUpdateWorkerBinaryExecutable,
+  readDaemonActiveBundleState,
+  resolveDaemonBundleEntryPathFromState,
+} from "../src/local-service/lifecycle/daemon-service-bundle";
 import { buildDaemonSystemServiceCommandSpec } from "../src/local-service/lifecycle/daemon-service-command-spec";
 import { resolveDaemonServiceManager } from "../src/local-service/lifecycle/daemon-service-manager";
 import type { DaemonServiceUpdateJob } from "../src/local-service/lifecycle/daemon-service-update-state";
@@ -19,6 +44,7 @@ import {
   buildLaunchdServiceUpdateWorkerPlist,
   buildSystemdServiceUpdateWorkerPathUnit,
   buildSystemdServiceUpdateWorkerUnit,
+  installDaemonServiceUpdateWorker,
 } from "../src/local-service/lifecycle/daemon-service-update-worker-manager";
 
 const SPEC = {
@@ -33,7 +59,22 @@ const SPEC = {
 };
 
 describe("daemon service update worker manager", () => {
-  it("starts a binary update worker from the prepared version before replacing the stable carrier", async () => {
+  const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(
+    process,
+    "platform"
+  );
+
+  afterEach(() => {
+    spawnMock.mockReset();
+    pruneManagedVersionsMock.mockReset();
+    vi.mocked(readDaemonActiveBundleState).mockReset();
+    vi.mocked(ensureDaemonServiceUpdateWorkerBinaryExecutable).mockReset();
+    if (originalPlatformDescriptor) {
+      Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
+  });
+
+  it("starts a binary update worker from its stable carrier instead of a prunable version path", async () => {
     const preparedExecutable = "/tmp/openmeld-home/versions/0.3.98/openmeld";
     vi.mocked(resolveDaemonServiceManager).mockResolvedValue({
       controller: "launchd",
@@ -82,7 +123,8 @@ describe("daemon service update worker manager", () => {
       buildDaemonServiceUpdateWorkerSpec(job)
     ).resolves.toMatchObject({
       args: ["service", "update-worker"],
-      executable: preparedExecutable,
+      executable:
+        "/tmp/openmeld-home/runtime/daemon/service-manager/OpenMeld Update Worker Binary",
     });
     expect(resolveDaemonBundleEntryPathFromState).not.toHaveBeenCalled();
   });
@@ -123,4 +165,99 @@ describe("daemon service update worker manager", () => {
     expect(pathUnit).toContain("Unit=openmeld-service-update.service");
     expect(pathUnit).toContain("WantedBy=default.target");
   });
+
+  it("registers the stable worker before pruning versioned binaries", async () => {
+    const homeDir = await mkdtemp(
+      `${tmpdir()}/openmeld-update-worker-registration-`
+    );
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: "darwin",
+    });
+    spawnMock.mockImplementation(() => {
+      const child = new EventEmitter() as EventEmitter & {
+        stderr: EventEmitter;
+        stdout: EventEmitter;
+      };
+      child.stderr = new EventEmitter();
+      child.stdout = new EventEmitter();
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    });
+    vi.mocked(readDaemonActiveBundleState).mockResolvedValue({
+      daemonVersion: "0.3.97",
+    } as never);
+    vi.mocked(resolveDaemonServiceManager).mockResolvedValue({
+      controller: "launchd",
+    } as never);
+    vi.mocked(buildDaemonSystemServiceCommandSpec).mockReturnValue({
+      args: ["service", "run", "--mode", "foreground"],
+      env: SPEC.env,
+      executable:
+        "/tmp/openmeld-home/runtime/daemon/service-manager/OpenMeld Service Binary",
+      workingDirectory: SPEC.workingDirectory,
+    });
+    pruneManagedVersionsMock.mockResolvedValue(undefined);
+    const job = createBinaryUpdateJob();
+    const pathInput = {
+      env: {
+        ...process.env,
+        OPENMELD_ENV_PRESET: "dev-local",
+      },
+      homeDir,
+    };
+
+    try {
+      await installDaemonServiceUpdateWorker(job, pathInput);
+    } finally {
+      await rm(homeDir, { force: true, recursive: true });
+    }
+
+    expect(
+      ensureDaemonServiceUpdateWorkerBinaryExecutable
+    ).toHaveBeenCalledWith(job.preparedBundle, pathInput);
+    expect(pruneManagedVersionsMock).toHaveBeenCalledWith({
+      currentVersion: "0.3.98",
+      pathInput,
+      preferredRollbackVersion: "0.3.97",
+    });
+    const lastRegistrationCallOrder = Math.max(
+      ...spawnMock.mock.invocationCallOrder
+    );
+    expect(
+      pruneManagedVersionsMock.mock.invocationCallOrder[0]
+    ).toBeGreaterThan(lastRegistrationCallOrder);
+  });
 });
+
+function createBinaryUpdateJob(): DaemonServiceUpdateJob {
+  return {
+    v: 2,
+    schema: "openmeld-daemon-service-update-job-v2",
+    attempts: 0,
+    desiredState: "background",
+    errorMessage: null,
+    jobId: "stable-carrier-update",
+    phase: "waiting_for_work",
+    preparedBundle: {
+      v: 2,
+      schema: "openmeld-daemon-active-bundle-v2",
+      bundleFormat: "binary_v1",
+      bundleId: "binary-0.3.98",
+      createdAt: "2026-08-25T00:00:00.000Z",
+      daemonVersion: "0.3.98",
+      entryScriptRelativePath: "openmeld",
+      sourceDistFingerprint: "abc123",
+      sourceDistRootPath: "/tmp/openmeld-home/versions/0.3.98",
+      sourceEntryScriptPath: "/tmp/openmeld-home/versions/0.3.98/openmeld",
+      sourceKind: "package_install",
+      sourcePackageRootPath: "/tmp/openmeld-home/versions/0.3.98",
+      updatedAt: "2026-08-25T00:00:00.000Z",
+    },
+    requestedAt: "2026-08-25T00:00:00.000Z",
+    requestSource: "cli",
+    targetVersion: "0.3.98",
+    updatedAt: "2026-08-25T00:00:00.000Z",
+    urgency: "available",
+  };
+}

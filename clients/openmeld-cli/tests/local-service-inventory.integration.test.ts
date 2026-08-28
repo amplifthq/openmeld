@@ -63,6 +63,23 @@ const EXTERNAL_MANAGER_STATUS: DaemonServiceManagerRuntimeStatus = {
     "node /tmp/external/.openmeld/runtime/daemon/launcher.mjs service run --mode foreground",
 };
 
+describe("local service inventory process evidence", () => {
+  it("fails closed when the owned-process scan cannot run", async () => {
+    await withTempHome(async () => {
+      await expect(
+        inspectDaemonServiceInventory({
+          expectedVersion: "0.2.2",
+          listOwnedProcesses: () =>
+            Promise.reject(new Error("process inventory unavailable")),
+          readDaemonStatus: async () => INSTALLED_STATUS,
+          resolveServiceManager: async () =>
+            createServiceManager(EXTERNAL_MANAGER_STATUS),
+        })
+      ).rejects.toThrow("process inventory unavailable");
+    });
+  });
+});
+
 function createServiceManager(
   status: DaemonServiceManagerRuntimeStatus
 ): DaemonServiceManager {

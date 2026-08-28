@@ -318,7 +318,7 @@ describe("prepare session service", () => {
             connectionEpoch: first.terminalConnection.connectionEpoch ?? 0,
             expectedRevision: first.sessionRevision,
             stepAttemptId: "attempt-stale",
-            stepId: "prepare_selected_agents",
+            stepId: "refresh_service",
             status: "started",
           },
         })
@@ -344,13 +344,13 @@ describe("prepare session service", () => {
             connectionEpoch: second.terminalConnection.connectionEpoch ?? 0,
             expectedRevision: second.sessionRevision,
             stepAttemptId: "attempt-current",
-            stepId: "prepare_selected_agents",
+            stepId: "refresh_service",
             status: "started",
           },
           now: new Date("2026-05-08T00:03:00.000Z"),
         })
       ).resolves.toMatchObject({
-        phase: "preparing_local_agents",
+        phase: "starting_service",
         terminalConnection: {
           connectionId: "terminal-2",
           connectionEpoch: 2,
@@ -367,6 +367,64 @@ describe("prepare session service", () => {
         "terminal.connection_replaced",
         "terminal.step_started",
       ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("requires a replacement Terminal to verify its own Service alignment", async () => {
+    const harness = createSqliteD1Harness();
+    try {
+      await createPrepareSessionUseCase({
+        db: harness.db,
+        ownerUserId: "owner-1",
+        request: {
+          selectedLocalAgentIds: [],
+        },
+        now: CREATED_AT,
+        createId: () => "prepare-1",
+        createOpaqueToken: () => "preptok_test",
+        hashOpaqueToken: async () => "sha256:test",
+      });
+      const first = await registerPrepareTerminalConnectionUseCase({
+        db: harness.db,
+        prepareSessionId: "prepare-1",
+        connectionId: "terminal-1",
+        now: new Date("2026-05-08T00:01:00.000Z"),
+      });
+      const firstAligned = await writeTerminalStepUseCase({
+        db: harness.db,
+        write: {
+          prepareSessionId: "prepare-1",
+          connectionEpoch: first.terminalConnection.connectionEpoch ?? 0,
+          expectedRevision: first.sessionRevision,
+          deviceId: "device-first",
+          localReadinessSnapshot: buildLocalReadinessSnapshot(),
+          runtimeLane: "dev-local",
+          stepAttemptId: "attempt-first-refresh",
+          stepId: "refresh_service",
+          status: "completed",
+        },
+        now: new Date("2026-05-08T00:02:00.000Z"),
+      });
+
+      const replacement = await registerPrepareTerminalConnectionUseCase({
+        db: harness.db,
+        prepareSessionId: "prepare-1",
+        connectionId: "terminal-2",
+        now: new Date("2026-05-08T00:03:00.000Z"),
+      });
+
+      expect(firstAligned.phase).toBe("waiting_for_agent_selection");
+      expect(replacement.lifecycleStatus).toBe("active");
+      expect(replacement.phase).toBe("starting_service");
+      expect(
+        replacement.steps.find((step) => step.id === "refresh_service")?.state
+      ).toBe("active");
+      expect(
+        replacement.steps.find((step) => step.id === "prepare_selected_agents")
+          ?.state
+      ).toBe("pending");
     } finally {
       harness.close();
     }
@@ -390,14 +448,28 @@ describe("prepare session service", () => {
         connectionId: "terminal-1",
         now: new Date("2026-05-08T00:01:00.000Z"),
       });
+      const refreshed = await writeTerminalStepUseCase({
+        db: harness.db,
+        write: {
+          prepareSessionId: "prepare-1",
+          connectionEpoch: connected.terminalConnection.connectionEpoch ?? 0,
+          deviceId: "device-actual",
+          expectedRevision: connected.sessionRevision,
+          runtimeLane: "dev-local",
+          stepAttemptId: "attempt-refresh",
+          stepId: "refresh_service",
+          status: "completed",
+        },
+        now: new Date("2026-05-08T00:02:00.000Z"),
+      });
       const selectedCodex = await writeWebAgentSelectionUseCase({
         db: harness.db,
         write: {
           prepareSessionId: "prepare-1",
-          expectedRevision: connected.sessionRevision,
+          expectedRevision: refreshed.sessionRevision,
           localAgentIds: ["codex"],
         },
-        now: new Date("2026-05-08T00:02:00.000Z"),
+        now: new Date("2026-05-08T00:03:00.000Z"),
       });
       const connectionEpoch = connected.terminalConnection.connectionEpoch ?? 0;
       const started = await writeTerminalStepUseCase({
@@ -410,7 +482,7 @@ describe("prepare session service", () => {
           stepId: "prepare_selected_agents",
           status: "started",
         },
-        now: new Date("2026-05-08T00:03:00.000Z"),
+        now: new Date("2026-05-08T00:04:00.000Z"),
       });
       const selectedClaudeCode = await writeWebAgentSelectionUseCase({
         db: harness.db,
@@ -419,7 +491,7 @@ describe("prepare session service", () => {
           expectedRevision: started.sessionRevision,
           localAgentIds: ["claude-code"],
         },
-        now: new Date("2026-05-08T00:04:00.000Z"),
+        now: new Date("2026-05-08T00:05:00.000Z"),
       });
 
       await expect(
@@ -433,7 +505,7 @@ describe("prepare session service", () => {
             stepId: "prepare_selected_agents",
             status: "completed",
           },
-          now: new Date("2026-05-08T00:05:00.000Z"),
+          now: new Date("2026-05-08T00:06:00.000Z"),
         })
       ).rejects.toBeInstanceOf(PrepareSessionRevisionConflictError);
 
@@ -665,33 +737,20 @@ describe("prepare session service", () => {
         connectionId: "terminal-1",
         now: new Date("2026-05-08T00:01:00.000Z"),
       });
-      const prepared = await writeTerminalStepUseCase({
-        db: harness.db,
-        write: {
-          prepareSessionId: "prepare-1",
-          connectionEpoch: connected.terminalConnection.connectionEpoch ?? 0,
-          expectedRevision: connected.sessionRevision,
-          stepAttemptId: "attempt-prepare",
-          stepId: "prepare_selected_agents",
-          status: "completed",
-        },
-        now: new Date("2026-05-08T00:02:00.000Z"),
-      });
-
       const refreshed = await writeTerminalStepUseCase({
         db: harness.db,
         write: {
           prepareSessionId: "prepare-1",
           connectionEpoch: connected.terminalConnection.connectionEpoch ?? 0,
           deviceId: "device-actual",
-          expectedRevision: prepared.sessionRevision,
+          expectedRevision: connected.sessionRevision,
           localReadinessSnapshot: buildLocalReadinessSnapshot(),
           runtimeLane: "dev-local",
           stepAttemptId: "attempt-refresh",
           stepId: "refresh_service",
           status: "completed",
         },
-        now: new Date("2026-05-08T00:03:00.000Z"),
+        now: new Date("2026-05-08T00:02:00.000Z"),
       });
 
       expect(refreshed.lifecycleStatus).toBe("active");
@@ -799,8 +858,7 @@ describe("prepare session service", () => {
         },
       ]);
       expect(
-        blocked.steps.find((step) => step.id === "prepare_selected_agents")
-          ?.state
+        blocked.steps.find((step) => step.id === "refresh_service")?.state
       ).toBe("active");
       expect(blocked.steps.find((step) => step.id === "ready")?.state).toBe(
         "pending"
@@ -810,7 +868,7 @@ describe("prepare session service", () => {
     }
   });
 
-  it("resumes a rerun from the first unfinished Terminal-owned step", async () => {
+  it("re-verifies Service alignment before a replacement Terminal resumes setup", async () => {
     const harness = createSqliteD1Harness();
     try {
       await createPrepareSessionUseCase({
@@ -831,29 +889,29 @@ describe("prepare session service", () => {
         now: new Date("2026-05-08T00:01:00.000Z"),
       });
       const firstEpoch = connected.terminalConnection.connectionEpoch ?? 0;
-      const prepared = await writeTerminalStepUseCase({
-        db: harness.db,
-        write: {
-          prepareSessionId: "prepare-1",
-          connectionEpoch: firstEpoch,
-          expectedRevision: connected.sessionRevision,
-          stepAttemptId: "attempt-prepare",
-          stepId: "prepare_selected_agents",
-          status: "completed",
-        },
-        now: new Date("2026-05-08T00:02:00.000Z"),
-      });
       const refreshed = await writeTerminalStepUseCase({
         db: harness.db,
         write: {
           prepareSessionId: "prepare-1",
           connectionEpoch: firstEpoch,
-          expectedRevision: prepared.sessionRevision,
+          expectedRevision: connected.sessionRevision,
           deviceId: "device-actual",
           localReadinessSnapshot: buildLocalReadinessSnapshot(),
           runtimeLane: "dev-local",
           stepAttemptId: "attempt-refresh",
           stepId: "refresh_service",
+          status: "completed",
+        },
+        now: new Date("2026-05-08T00:02:00.000Z"),
+      });
+      const prepared = await writeTerminalStepUseCase({
+        db: harness.db,
+        write: {
+          prepareSessionId: "prepare-1",
+          connectionEpoch: firstEpoch,
+          expectedRevision: refreshed.sessionRevision,
+          stepAttemptId: "attempt-prepare",
+          stepId: "prepare_selected_agents",
           status: "completed",
         },
         now: new Date("2026-05-08T00:03:00.000Z"),
@@ -863,7 +921,7 @@ describe("prepare session service", () => {
         write: {
           prepareSessionId: "prepare-1",
           connectionEpoch: firstEpoch,
-          expectedRevision: refreshed.sessionRevision,
+          expectedRevision: prepared.sessionRevision,
           stepAttemptId: "attempt-report",
           stepId: "report_runtime",
           status: "failed",
@@ -887,10 +945,11 @@ describe("prepare session service", () => {
       });
 
       expect(
-        prepared.steps.find((step) => step.id === "refresh_service")?.state
+        refreshed.steps.find((step) => step.id === "prepare_selected_agents")
+          ?.state
       ).toBe("active");
       expect(
-        refreshed.steps.find((step) => step.id === "report_runtime")?.state
+        prepared.steps.find((step) => step.id === "report_runtime")?.state
       ).toBe("active");
       expect(blocked.phase).toBe("blocked");
       expect(blocked.blockers).toMatchObject([
@@ -910,13 +969,13 @@ describe("prepare session service", () => {
         disconnected.steps.find((step) => step.id === "report_runtime")?.state
       ).toBe("pending");
       expect(disconnected.blockers).toEqual([]);
-      expect(reconnected.phase).toBe("reporting_runtime");
+      expect(reconnected.phase).toBe("starting_service");
       expect(
         reconnected.steps.find((step) => step.id === "refresh_service")?.state
-      ).toBe("complete");
+      ).toBe("active");
       expect(
         reconnected.steps.find((step) => step.id === "report_runtime")?.state
-      ).toBe("active");
+      ).toBe("pending");
       expect(reconnected.blockers).toEqual([]);
     } finally {
       harness.close();
@@ -1200,7 +1259,7 @@ describe("prepare session service", () => {
     }
   });
 
-  it("completes local prepare when Web chooses no local agents", async () => {
+  it("requires verified Service alignment before completing with no local agents", async () => {
     const harness = createSqliteD1Harness();
     try {
       await createPrepareSessionUseCase({
@@ -1219,7 +1278,7 @@ describe("prepare session service", () => {
         now: new Date("2026-05-08T00:01:00.000Z"),
       });
 
-      const skipped = await writeWebAgentSelectionUseCase({
+      const selected = await writeWebAgentSelectionUseCase({
         db: harness.db,
         write: {
           prepareSessionId: "prepare-1",
@@ -1229,16 +1288,41 @@ describe("prepare session service", () => {
         now: new Date("2026-05-08T00:02:00.000Z"),
       });
 
-      expect(skipped.lifecycleStatus).toBe("completed");
-      expect(skipped.phase).toBe("ready");
-      expect(skipped.selectedLocalAgentIds).toEqual([]);
+      expect(selected.lifecycleStatus).toBe("active");
+      expect(selected.phase).toBe("starting_service");
+      expect(selected.selectedLocalAgentIds).toEqual([]);
       expect(
-        skipped.steps
+        selected.steps.find((step) => step.id === "refresh_service")?.state
+      ).toBe("active");
+
+      const refreshed = await writeTerminalStepUseCase({
+        db: harness.db,
+        write: {
+          prepareSessionId: "prepare-1",
+          connectionEpoch: selected.terminalConnection.connectionEpoch ?? 0,
+          expectedRevision: selected.sessionRevision,
+          deviceId: "device-actual",
+          runtimeLane: "dev-local",
+          stepAttemptId: "attempt-refresh",
+          stepId: "refresh_service",
+          status: "completed",
+        },
+        now: new Date("2026-05-08T00:03:00.000Z"),
+      });
+
+      expect(refreshed.lifecycleStatus).toBe("completed");
+      expect(refreshed.phase).toBe("ready");
+      expect(
+        refreshed.steps.find((step) => step.id === "refresh_service")?.summary
+      ).toBe(
+        "OpenMeld Service keeps local agents available in the background."
+      );
+      expect(
+        refreshed.steps
           .filter((step) =>
             [
               "choose_local_agents",
               "prepare_selected_agents",
-              "refresh_service",
               "report_runtime",
               "verify_setup",
               "ready",
@@ -1253,11 +1337,6 @@ describe("prepare session service", () => {
           "Skipped. No local agents selected.",
         ],
         [
-          "refresh_service",
-          "complete",
-          "Skipped. OpenMeld Service is only needed for selected local agents.",
-        ],
-        [
           "report_runtime",
           "complete",
           "Skipped. There are no selected local agents to report.",
@@ -1267,18 +1346,66 @@ describe("prepare session service", () => {
           "complete",
           "Skipped. There are no selected local agents to verify.",
         ],
-        ["ready", "complete", "Setup complete. No local agents were selected."],
+        [
+          "ready",
+          "complete",
+          "Computer connected. No local agents were selected.",
+        ],
       ]);
 
       const diagnostic = await readPrepareDiagnosticUseCase({
         db: harness.db,
         prepareSessionId: "prepare-1",
       });
-      expect(diagnostic.events.at(-1)).toMatchObject({
-        eventType: "web.agent_selection_saved",
-        localAgentIds: [],
-        message: "Local agent selection saved. No local agents selected.",
+      expect(diagnostic.events).toContainEqual(
+        expect.objectContaining({
+          eventType: "web.agent_selection_saved",
+          localAgentIds: [],
+          message: "Local agent selection saved. No local agents selected.",
+        })
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps verified Service alignment when the selected local agents change", async () => {
+    const harness = createSqliteD1Harness();
+    try {
+      const terminal = await createPrepareSessionWithConnectedTerminal(harness);
+      const refreshed = await writeTerminalStepUseCase({
+        db: harness.db,
+        write: {
+          prepareSessionId: "prepare-1",
+          connectionEpoch: terminal.connectionEpoch,
+          expectedRevision: terminal.expectedRevision,
+          deviceId: "device-actual",
+          runtimeLane: "dev-local",
+          stepAttemptId: "attempt-refresh",
+          stepId: "refresh_service",
+          status: "completed",
+        },
+        now: new Date("2026-05-08T00:02:00.000Z"),
       });
+
+      const changed = await writeTerminalAgentSelectionUseCase({
+        db: harness.db,
+        write: {
+          prepareSessionId: "prepare-1",
+          connectionEpoch: terminal.connectionEpoch,
+          expectedRevision: refreshed.sessionRevision,
+          localAgentIds: ["codex"],
+        },
+        now: new Date("2026-05-08T00:03:00.000Z"),
+      });
+
+      expect(
+        changed.steps.find((step) => step.id === "refresh_service")?.state
+      ).toBe("complete");
+      expect(
+        changed.steps.find((step) => step.id === "prepare_selected_agents")
+          ?.state
+      ).toBe("active");
     } finally {
       harness.close();
     }
@@ -1305,29 +1432,29 @@ describe("prepare session service", () => {
         now: new Date("2026-05-08T00:01:00.000Z"),
       });
       const connectionEpoch = connected.terminalConnection.connectionEpoch ?? 0;
-      const prepared = await writeTerminalStepUseCase({
-        db: harness.db,
-        write: {
-          prepareSessionId: "prepare-1",
-          connectionEpoch,
-          expectedRevision: connected.sessionRevision,
-          stepAttemptId: "attempt-prepare",
-          stepId: "prepare_selected_agents",
-          status: "completed",
-        },
-        now: new Date("2026-05-08T00:02:00.000Z"),
-      });
       const refreshed = await writeTerminalStepUseCase({
         db: harness.db,
         write: {
           prepareSessionId: "prepare-1",
           connectionEpoch,
           deviceId: "device-actual",
-          expectedRevision: prepared.sessionRevision,
+          expectedRevision: connected.sessionRevision,
           localReadinessSnapshot: buildLocalReadinessSnapshot(),
           runtimeLane: "dev-local",
           stepAttemptId: "attempt-refresh",
           stepId: "refresh_service",
+          status: "completed",
+        },
+        now: new Date("2026-05-08T00:02:00.000Z"),
+      });
+      const prepared = await writeTerminalStepUseCase({
+        db: harness.db,
+        write: {
+          prepareSessionId: "prepare-1",
+          connectionEpoch,
+          expectedRevision: refreshed.sessionRevision,
+          stepAttemptId: "attempt-prepare",
+          stepId: "prepare_selected_agents",
           status: "completed",
         },
         now: new Date("2026-05-08T00:03:00.000Z"),
@@ -1338,7 +1465,7 @@ describe("prepare session service", () => {
           prepareSessionId: "prepare-1",
           connectionEpoch,
           deviceId: "device-actual",
-          expectedRevision: refreshed.sessionRevision,
+          expectedRevision: prepared.sessionRevision,
           localReadinessSnapshot: buildLocalReadinessSnapshot(),
           runtimeLane: "dev-local",
           stepAttemptId: "attempt-report",

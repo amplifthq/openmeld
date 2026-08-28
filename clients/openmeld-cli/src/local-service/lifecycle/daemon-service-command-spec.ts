@@ -22,9 +22,11 @@ import {
   resolveOpenMeldDistribution,
 } from "../../runtime/distribution";
 import {
+  daemonServiceBinaryExecutablePath,
   daemonServiceExecutableWrapperPath,
   daemonServiceLauncherPath,
   ensureDaemonServiceStableBinaryExecutable,
+  readDaemonActiveBundleState,
   writeDaemonServiceExecutableWrapper,
   writeDaemonServiceLauncher,
 } from "./daemon-service-bundle";
@@ -107,7 +109,7 @@ function resolveDaemonServiceExecutable(input: {
     return {
       executable:
         input.controller === "launchd"
-          ? daemonServiceExecutableWrapperPath()
+          ? daemonServiceBinaryExecutablePath()
           : (input.binaryExecutablePath ??
             openMeldManagedVersionBinaryPath(resolveCliSelfVersion())),
       specArgs: input.args,
@@ -135,6 +137,12 @@ export async function ensureDaemonSystemServiceCommandFiles(input: {
       await ensureDaemonServiceStableBinaryExecutable();
     }
     return;
+  }
+  const activeBundle = await readDaemonActiveBundleState();
+  if (activeBundle?.bundleFormat === "binary_v1") {
+    throw new Error(
+      "Refusing to replace a binary-managed OpenMeld Service with the npm carrier. Run the managed OpenMeld binary for Service repair or update."
+    );
   }
   await writeDaemonServiceLauncher();
   if (input.controller === "launchd") {

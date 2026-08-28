@@ -234,6 +234,6 @@ describe("local service dependency diagnostics", () => {
         ],
         lane: "prod",
       })
-    ).toContain("openmeld service start --mode foreground");
+    ).toContain("openmeld service status");
   });
 });

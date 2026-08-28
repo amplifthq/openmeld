@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { daemonRuntimeRootPath } from "../src/config/daemon-state";
 import {
+  daemonServiceBinaryExecutablePath,
   daemonServiceExecutableWrapperPath,
   daemonServiceLauncherPath,
   daemonServiceLegacyWrapperPath,
@@ -20,6 +21,7 @@ const DAEMON_SERVICE_LAUNCHER_PATH_PATTERN = /daemon-service-launcher\.mjs$/;
 const PROD_SERVICE_WRAPPER_PATH_PATTERN = /\/OpenMeld Service$/;
 const DEV_SERVICE_WRAPPER_PATH_PATTERN = /\/OpenMeld Service Dev$/;
 const CANARY_SERVICE_WRAPPER_PATH_PATTERN = /\/OpenMeld Service Canary$/;
+const PROD_BINARY_SERVICE_PATH_PATTERN = /\/OpenMeld Service Binary$/;
 
 describe("local service system service command spec", () => {
   afterEach(() => {
@@ -103,9 +105,12 @@ describe("local service system service command spec", () => {
       distribution: "binary",
     });
 
-    expect(previousSpec.executable).toBe(daemonServiceExecutableWrapperPath());
+    expect(previousSpec.executable).toBe(daemonServiceBinaryExecutablePath());
     expect(nextSpec.executable).toBe(previousSpec.executable);
-    expect(previousSpec.executable).toMatch(PROD_SERVICE_WRAPPER_PATH_PATTERN);
+    expect(previousSpec.executable).not.toBe(
+      daemonServiceExecutableWrapperPath()
+    );
+    expect(previousSpec.executable).toMatch(PROD_BINARY_SERVICE_PATH_PATTERN);
     expect(previousSpec.args).toEqual([
       "service",
       "run",

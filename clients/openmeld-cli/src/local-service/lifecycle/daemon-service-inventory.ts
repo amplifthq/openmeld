@@ -142,7 +142,7 @@ export async function inspectDaemonServiceInventory(input: {
     readDaemonServiceLifecycleLockMetaWithCleanup(),
     listOwnedProcesses({
       ignoreProcessIds: ignoredInventoryProcessIds,
-    }).catch(() => []),
+    }),
   ]);
   const activeBundleSourceAvailable =
     await resolveActiveBundleSourceAvailability(activeBundle);

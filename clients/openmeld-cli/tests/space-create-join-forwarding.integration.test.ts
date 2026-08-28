@@ -324,7 +324,7 @@ describe("space create to join forwarding", () => {
     emitSpaceFailureNextStepMock.mockReset();
     runConnectMock.mockReset().mockResolvedValue(undefined);
     resolveLocalServiceDemandMock.mockReset().mockResolvedValue({
-      decision: "allow_auto_stop",
+      decision: "keep_running",
       hasLocalExecutionRoute: false,
       repairableReplyCandidateCount: 0,
       reason: "no local execution routes are available",

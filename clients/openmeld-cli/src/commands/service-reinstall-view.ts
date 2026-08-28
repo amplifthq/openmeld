@@ -625,17 +625,11 @@ export function buildDaemonReinstallNextStepText(
         : formatInlineOpenMeldCliCommands(
             `Run \`${formatOpenMeldCliCommand(
               "openmeld service start"
-            )}\` to keep OpenMeld Service running in the background. If you need live logs, run \`${formatOpenMeldCliCommand(
-              "openmeld service start --mode foreground"
-            )}\`.`
+            )}\` to keep OpenMeld Service running in the background.`
           );
     case "stopped_safe":
       return formatInlineOpenMeldCliCommands(
-        `Run \`${formatOpenMeldCliCommand(
-          "openmeld service start --mode foreground"
-        )}\` to inspect startup live, or \`${formatOpenMeldCliCommand(
-          "openmeld service start"
-        )}\` to retry background startup from the current version.`
+        `Run \`${formatOpenMeldCliCommand("openmeld service repair")}\` once. OpenMeld preserved the failed update evidence and kept the current version stopped safely.`
       );
     case "in_progress":
       return formatInlineOpenMeldCliCommands(
@@ -960,9 +954,9 @@ export function buildDaemonReinstallUnexpectedStartNextStep(
   action: DaemonServiceMaintenanceAction = "repair"
 ): string {
   return formatInlineOpenMeldCliCommands(
-    `Run \`openmeld service start --mode foreground\` to see the live error. The latest local service log is at \`${getDaemonSystemServiceLogPath()}\`. If it still fails, run \`${formatDaemonServiceMaintenanceCommand(
+    `Run \`${formatDaemonServiceMaintenanceCommand(
       action
-    )}\` again.`
+    )}\` once. OpenMeld saved the latest local service log at \`${getDaemonSystemServiceLogPath()}\` for diagnostics.`
   );
 }
 
@@ -1028,7 +1022,7 @@ export function buildDaemonReinstallStartBlockedNextStep(
       );
     case "service_dependencies_unavailable":
       return formatInlineOpenMeldCliCommands(
-        `Start the required OpenMeld dependencies, then run \`${formatOpenMeldCliCommand("openmeld service start")}\` again. If you need live detail, run \`${formatOpenMeldCliCommand("openmeld service start --mode foreground")}\`.`
+        `Start the required OpenMeld dependencies, then run \`${formatOpenMeldCliCommand("openmeld service start")}\` again.`
       );
     case "cleanup_required":
       return formatInlineOpenMeldCliCommands(
