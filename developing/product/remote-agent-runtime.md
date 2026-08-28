@@ -576,6 +576,13 @@ identity, or other tools advance the goal. Large tool catalogs may compact
 schemas into Code Mode, but compaction does not change the semantic owner,
 reasoning policy, tool authorization, or available inner capabilities.
 
+A provider response that completes with no content events, visible text, or
+tool call may be retried once at the provider stream boundary. The worker must
+not retry after any content or tool event has been observed, or after the
+caller cancels the turn. The delivered attempt includes token and cost usage
+from the discarded empty attempt. A second empty response follows the ordinary
+visible terminal-failure path instead of creating an unbounded retry loop.
+
 Action authorization is semantic, not lexical. Conversation context may
 complete arguments only inside an action the user already authorized; it cannot
 create or broaden the action, effect, target, or scope. The same primary model
