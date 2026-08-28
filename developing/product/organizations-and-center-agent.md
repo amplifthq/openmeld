@@ -165,15 +165,19 @@ without loading every schema or transcript on every turn.
 The hosted Center Agent freezes one executable capability catalog at turn
 start. When that catalog has progressive discovery and Code Mode, every
 tool-capable primary model receives the same small bootstrap: typed search and
-describe tools, Code Mode, and the generic Connected App entry points. The
-worker never reads the user's words to preselect a hidden business-tool slice,
-and it does not maintain per-model tool-count rules. The primary model decides
-what to search for. That explicit search uses the same code-owned capability
-catalog, stable namespaces, multilingual search aliases, and deterministic
-ranking. Search returns bounded names, namespaces, and summaries, describe
-returns the selected capabilities' model-visible JSON schemas, descriptions,
-and declared prerequisites, and Code Mode executes only members of the frozen
-catalog. A catalog match proves only that the capability exists in this turn.
+describe tools, Code Mode, the generic Connected App entry points, and the
+bounded read-only member and Center Agent Task list/detail tools. The
+foundational reads keep current OpenMeld state directly inspectable for models
+that do not begin with a meta-discovery call. The worker never reads the user's
+words to preselect a hidden business-tool slice, and it does not maintain
+per-model tool-count rules. The primary model decides whether to use a
+foundational read or what to search for. That explicit search uses the same
+code-owned capability catalog, stable namespaces, multilingual search aliases,
+and deterministic ranking. Search returns bounded names, namespaces, and
+summaries, describe returns the selected capabilities' model-visible JSON
+schemas, descriptions, and declared prerequisites, and Code Mode executes only
+members of the frozen catalog. A catalog match proves only that the capability
+exists in this turn.
 The capability owner still decides current authorization, eligibility, and the
 execution outcome. Runtime validation remains authoritative for normalization
 and custom constraints that JSON Schema cannot express. Discovery does not add
