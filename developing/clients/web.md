@@ -397,17 +397,16 @@ opening full Chat hides and unmounts the compact launcher. Maximize preserves
 the exact Task location. Multi-tab and reconnect behavior treats live frames
 only as refresh signals and re-reads Core.
 
-The Center Agent outer-rail destination independently shows a static amber
-unread dot for final replies in the current member's Center Agent Direct
-Message. Core excludes converted Direct Messages from this summary; their
-unread replies activate only the Spaces destination that now owns the
-conversation. Full rails place the Center Agent dot immediately after the label;
-compact and collapsed rails attach it to the icon corner. Web clears this
-projection only after the Center Agent conversation is visible and held at the
-latest message for the read debounce, then writes the Core-owned monotonic
-read-through watermark. Inbox deep links include the exact source Signal
-selector so opening an item returns to the relevant reply instead of merely
-opening the conversation root.
+The Home outer-rail destination independently shows a static amber unread dot
+for final replies in the current member's Center Agent Direct Message. Core
+excludes converted Direct Messages from this summary; their unread replies
+activate only the Spaces destination that now owns the conversation. Full rails
+place the Home dot immediately after the label; compact and collapsed rails
+attach it to the icon corner. Web clears this projection only after the Center
+Agent conversation is visible and held at the latest message for the read
+debounce, then writes the Core-owned monotonic read-through watermark. Inbox
+deep links include the exact source Signal selector so opening an item returns
+to the relevant reply instead of merely opening the conversation root.
 
 The Spaces secondary sidebar consumes the Core-owned grouped unread Space
 message summary alongside the Account Space Index. It shows one static amber
