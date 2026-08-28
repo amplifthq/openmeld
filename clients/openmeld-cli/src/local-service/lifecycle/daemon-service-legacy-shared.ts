@@ -30,7 +30,6 @@ export type LegacySharedDaemonServiceInspection = {
 };
 
 const PROD_ENV_PRESET = "prod";
-const LEGACY_MIGRATION_ENV_PRESET = "dev-local";
 
 export function shouldInspectLegacySharedDaemonService(
   input: OpenMeldPathResolutionInput = {}
@@ -39,7 +38,7 @@ export function shouldInspectLegacySharedDaemonService(
   if (String(env[OPENMELD_HOME_ENV_KEY] ?? "").trim()) {
     return false;
   }
-  return resolveOpenMeldEnvPreset(input) === LEGACY_MIGRATION_ENV_PRESET;
+  return resolveOpenMeldEnvPreset(input) === PROD_ENV_PRESET;
 }
 
 export function resolveLegacySharedDaemonPathInput(

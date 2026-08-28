@@ -8,14 +8,14 @@ import {
 } from "../src/local-service/lifecycle/daemon-service-legacy-shared";
 
 describe("local service legacy shared", () => {
-  it("only inspects the legacy shared service from the local development lane", () => {
+  it("only inspects legacy production service state from the production lane", () => {
     expect(
       shouldInspectLegacySharedDaemonService({
         env: {
           OPENMELD_ENV_PRESET: "dev-local",
         },
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldInspectLegacySharedDaemonService({
         env: {
@@ -29,7 +29,7 @@ describe("local service legacy shared", () => {
           OPENMELD_ENV_PRESET: "prod",
         },
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("skips legacy shared inspection when OPENMELD_HOME is explicitly overridden", () => {
@@ -50,10 +50,13 @@ describe("local service legacy shared", () => {
     ).toBeNull();
   });
 
-  it("never resolves the production lane from canary", () => {
+  it.each([
+    "dev-local",
+    "canary",
+  ])("never resolves the production lane from %s", (envPreset) => {
     const input = {
       env: {
-        OPENMELD_ENV_PRESET: "canary",
+        OPENMELD_ENV_PRESET: envPreset,
         CUSTOM_FLAG: "1",
       },
     };

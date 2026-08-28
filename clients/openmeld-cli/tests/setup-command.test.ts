@@ -1194,6 +1194,40 @@ describe("setup command", () => {
     }
   });
 
+  it("shows a completed no-agent setup as a running auto-starting Service", async () => {
+    resolveRuntimeContextMock.mockResolvedValue({
+      resolvedView: "human",
+      viewMode: "human",
+      interactive: false,
+    });
+    runSetupLocalAgentConnectionMock.mockResolvedValue({
+      status: "completed",
+      setupSessionSnapshot: {
+        deviceId: "device-session",
+        prepareSessionId: "prepare-web",
+        runtimeLane: "prod",
+        selectedLocalAgentIds: [],
+      },
+    });
+    const { runSetup } = await import("../src/commands/setup");
+
+    await runSetup({
+      startSession: "preptok_web",
+      ott: "ott_web",
+      view: "human",
+    });
+
+    const output = presenter.line.mock.calls
+      .map(([line]) => (line as { text: string }).text)
+      .join("\n");
+    expect(output).toContain("Computer connected");
+    expect(output).toContain("Local agents: None connected");
+    expect(output).toContain("Status: Running");
+    expect(output).toContain("Auto-start: On - starts when you log in");
+    expect(output).not.toContain("Status: Not connected");
+    expect(output).not.toContain("Auto-start: Off - service is not connected");
+  });
+
   it("renders human setup completion as readable cards without dumping agent JSON", async () => {
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "human",

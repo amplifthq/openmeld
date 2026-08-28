@@ -8,5 +8,5 @@ audiences: ["members"]
 
 Computer setup now finishes successfully after OpenMeld Service recovers from
 a temporary start delay, and shows the Service as connected even when no local
-agents are installed yet. Staging and Canary setup also stay isolated from the
-published OpenMeld Service on the same computer.
+agents are installed yet. Development, Staging, and Canary setup also stay
+isolated from the published OpenMeld Service on the same computer.
