@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoredAuthSession } from "../src/config/auth-session";
 import {
+  type AuthRequestCredentialError,
   buildRequestAuthHeaders,
   canAttachAuthTokenToRequest,
   resolveAuthTokenAttachment,
@@ -130,15 +131,15 @@ describe("resolveAuthTokenAttachment", () => {
   });
 });
 
-describe("buildRequestAuthHeaders drop diagnostics", () => {
-  let warnSpy: ReturnType<typeof vi.spyOn>;
+describe("buildRequestAuthHeaders credential failures", () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
-    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   it("does not warn when the token attaches", async () => {
@@ -148,47 +149,52 @@ describe("buildRequestAuthHeaders drop diagnostics", () => {
     });
 
     expect(headers.Authorization).toBe("Bearer stored-token");
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it("warns with the compatibility reason when the token is dropped", async () => {
-    const headers = await buildRequestAuthHeaders({
+  it("throws locally with host context when credentials cannot attach", async () => {
+    const request = buildRequestAuthHeaders({
       authSession: sessionWith({ authBaseUrl: "http://localhost:8788" }),
       requestUrl: DAEMON_STREAM_URL,
     });
 
-    expect(headers.Authorization).toBeUndefined();
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
-      "[openmeld.auth.request_token_dropped]",
-      {
-        authHost: "localhost:8788",
-        expectedGatewayHost: null,
-        reason: "host_mismatch",
-        requestHost: "gateway.openmeld.invalid",
-      }
+    await expect(request).rejects.toMatchObject({
+      name: "AuthRequestCredentialError",
+      reason: "host_mismatch",
+      requestHost: "gateway.openmeld.invalid",
+      authHost: "localhost:8788",
+      expectedGatewayHost: null,
+    } satisfies Partial<AuthRequestCredentialError>);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[openmeld.auth.request_credential_rejected]",
+      expect.objectContaining({ reason: "host_mismatch" })
     );
   });
 
-  it("does not attach an explicitly supplied expired token", async () => {
-    const headers = await buildRequestAuthHeaders({
-      authSession: sessionWith({
-        expiresAt: new Date(Date.now() - 60_000).toISOString(),
-      }),
-      requestUrl: DAEMON_STREAM_URL,
-    });
+  it("throws locally for an explicitly supplied expired token", async () => {
+    await expect(
+      buildRequestAuthHeaders({
+        authSession: sessionWith({
+          expiresAt: new Date(Date.now() - 60_000).toISOString(),
+        }),
+        requestUrl: DAEMON_STREAM_URL,
+      })
+    ).rejects.toMatchObject({
+      name: "AuthRequestCredentialError",
+      reason: "session_expired",
+    } satisfies Partial<AuthRequestCredentialError>);
+  });
 
-    expect(headers.Authorization).toBeUndefined();
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
-      "[openmeld.auth.request_token_dropped]",
-      {
-        authHost: "auth.openmeld.invalid",
-        expectedGatewayHost: "gateway.openmeld.invalid",
-        reason: "session_expired",
-        requestHost: "gateway.openmeld.invalid",
-      }
-    );
+  it("throws locally for malformed credential expiry", async () => {
+    await expect(
+      buildRequestAuthHeaders({
+        authSession: sessionWith({ expiresAt: "not-a-date" }),
+        requestUrl: DAEMON_STREAM_URL,
+      })
+    ).rejects.toMatchObject({
+      name: "AuthRequestCredentialError",
+      reason: "session_expiry_invalid",
+    } satisfies Partial<AuthRequestCredentialError>);
   });
 
   it("does not warn when the caller is knowingly unauthenticated", async () => {
@@ -198,6 +204,6 @@ describe("buildRequestAuthHeaders drop diagnostics", () => {
     });
 
     expect(headers.Authorization).toBeUndefined();
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });

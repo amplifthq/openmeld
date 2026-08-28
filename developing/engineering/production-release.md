@@ -184,6 +184,19 @@ rejects the Context Scope Plan fields emitted by new Core. Every old caller
 continues working while each additive receiver comes online, and only the final
 CLI publication can expose the new command.
 
+The planner selects `connect-computer-cli-receiver-first` when one diff changes
+the shared Better Auth Device Authorization contract, the CLI command receiver,
+and the Web setup-command producer. It automatically includes both CLI and Web
+and rejects an explicit release that omits either side. Within selected scopes,
+Database and Auth may run first, then the guarded CLI stage publishes the CLI
+and deploys its Core current-channel projection before Web can emit
+`--device-code`. Gateway and Remote Agent follow only when the same release
+actually includes them. When Core is selected, the CLI-owned projection deploy
+also carries the exact Core source, so the planner does not deploy Core a second
+time or run the CLI-last profile's temporary current-version projection stage.
+This order protects users who copy a newly generated command from receiving
+syntax that the production CLI cannot parse.
+
 When any receiver-first profile includes both Core and CLI, the first Core
 deploy reads the stable production CLI version, loads that version's
 `release/local-components.json` from its immutable `v<version>` Git tag, and
@@ -194,7 +207,9 @@ and redeploys Core with the checked-in projection. This two-phase Core deploy
 prevents both unsafe states: publishing a new CLI before its receivers and
 announcing a CLI version before its artifact exists. The temporary projection
 is a build-time override, not a second runtime variable or mutable release
-ledger.
+ledger. The Connect Computer profile is the explicit opposite direction: Web is
+the producer and CLI is the receiver, so its CLI-owned Core projection completes
+before Web deploys.
 
 The planner selects `local-service-runtime-receiver-first` when one diff changes
 the strict Runtime Transport schema, a Core Runtime Transport receiver, and a

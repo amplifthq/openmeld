@@ -75,7 +75,7 @@ import {
 	resolveBrowserSetupCommandPlatform,
 	type WebSetupCommandPlatform,
 } from "#/lib/cli-entry-command";
-import { DEFAULT_COMPUTER_AUTHORIZATION_EXPIRES_IN_SECONDS } from "#/lib/computer-authorization-expiry";
+import { resolveComputerAuthorizationHandoffExpiresAt } from "#/lib/computer-authorization-expiry";
 import {
 	buildConnectRouteSearch,
 	type ConnectRouteSearch,
@@ -1864,9 +1864,9 @@ function usePrepareSession(input: {
 					startSession: input.opaqueToken,
 					deviceCode: computerAuthorization.deviceCode,
 				}),
-				expiresAt: resolveSetupCommandExpiresAt({
-					opaqueTokenExpiresAt: input.opaqueTokenExpiresAt,
-					authorizationExpiresIn: computerAuthorization.expiresIn,
+				expiresAt: resolveComputerAuthorizationHandoffExpiresAt({
+					prepareSessionExpiresAt: input.opaqueTokenExpiresAt,
+					authorizationExpiresInSeconds: computerAuthorization.expiresIn,
 				}),
 			};
 		},
@@ -2420,28 +2420,6 @@ type PrepareSessionLoadResult = {
 	opaqueTokenExpiresAt: string | null;
 	snapshot: PrepareSessionSnapshot;
 };
-
-function resolveSetupCommandExpiresAt(input: {
-	opaqueTokenExpiresAt: string | null;
-	authorizationExpiresIn: number | undefined;
-}): string | null {
-	const expiresAtCandidates: number[] = [];
-	const opaqueTokenExpiresAtMs = Date.parse(input.opaqueTokenExpiresAt ?? "");
-	if (Number.isFinite(opaqueTokenExpiresAtMs)) {
-		expiresAtCandidates.push(opaqueTokenExpiresAtMs);
-	}
-
-	const authorizationExpiresIn =
-		typeof input.authorizationExpiresIn === "number" &&
-		input.authorizationExpiresIn > 0
-			? input.authorizationExpiresIn
-			: DEFAULT_COMPUTER_AUTHORIZATION_EXPIRES_IN_SECONDS;
-	expiresAtCandidates.push(Date.now() + authorizationExpiresIn * 1000);
-
-	return expiresAtCandidates.length > 0
-		? new Date(Math.min(...expiresAtCandidates)).toISOString()
-		: null;
-}
 
 async function loadPrepareSessionForInput(
 	input: PrepareSessionInput,

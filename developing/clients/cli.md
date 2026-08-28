@@ -1041,8 +1041,13 @@ short-lived and single-use. The CLI validates the Prepare owner and candidate
 session before changing local auth. A cross-account switch requires explicit
 interactive confirmation. The local session switch is committed only after
 Prepare succeeds; cancellation or failure restores the previous local session
-and Service alignment. `--ott` remains a compatibility receiver for commands
-generated before this contract changed, not the Web-recommended handoff.
+and Service alignment. The pending switch remains recoverable across a killed
+Terminal, process crash, or computer restart: the next CLI or Service auth read
+restores the previous session, or clears an incomplete first connection. Once
+commit is durably recorded, restart recovery keeps the new session. `--ott`
+remains a compatibility receiver for commands generated before this contract
+changed and uses the same fail-atomic Prepare handoff; it is not the
+Web-recommended handoff.
 
 The signed macOS binary stores new bearer sessions in the user's macOS
 Keychain through Security.framework. The bare Developer ID CLI must not request
@@ -1107,7 +1112,9 @@ Computer signed in, but a known-expired credential must never be attached when
 that refresh cannot prove a future expiry. Explicitly supplied and stored
 sessions use the same token-attachment decision, including host compatibility.
 Sessions created before expiry metadata existed remain compatible when no
-`expiresAt` value is present; malformed expiry metadata fails closed.
+`expiresAt` value is present; malformed expiry metadata fails closed. A CLI
+command stops locally with structured auth diagnostics instead of continuing as
+an unauthenticated request when known credentials cannot be attached safely.
 
 When local service identity is known, the CLI must preserve service-derived
 runtime evidence such as device and lane. It must not infer runtime identity

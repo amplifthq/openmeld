@@ -27,6 +27,8 @@ const COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE = /requires the Remote Agent scope/u;
 const INBOX_SCOPE_ERROR_RE = /requires the Web, Gateway, and Core scopes/u;
 const LOCAL_SERVICE_CORE_SCOPE_ERROR_RE =
   /requires the Core scope before publishing CLI\/Service/u;
+const CONNECT_COMPUTER_CLI_SCOPE_ERROR_RE =
+  /requires both the CLI and Web scopes/u;
 const LOCAL_MAINLINE_RELEASE_ERROR_PATTERN = /main first-parent chain/u;
 const WRANGLER_RELEASE_STATE = JSON.parse(
   readFileSync(
@@ -539,6 +541,62 @@ test("lets CLI release own its required Core projection", () => {
   assert.deepEqual(
     steps.map((step) => step.internalOperation),
     ["publish-cli", "publish-cli"]
+  );
+});
+
+test("publishes the Connect Computer CLI receiver and Core projection before Web", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+    "clients/openmeld-cli/src/openmeld.ts",
+    "clients/web/src/lib/cli-entry-command.ts",
+  ];
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths,
+    scope: "auth,cli,core,web",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(plan.deployOrderProfile, "connect-computer-cli-receiver-first");
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Deploy Auth Worker",
+      "Verify Auth Worker health",
+      "Publish CLI and deploy its Core release projection",
+      "Deploy Web",
+      "Verify Web health",
+      "Verify final R2/npm/Core alignment",
+    ]
+  );
+});
+
+test("automatically includes both sides of the Connect Computer command contract", () => {
+  assert.deepEqual(
+    resolveAutomaticReleaseScopes({
+      affectedPackages: [],
+      changedPaths: [
+        "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+        "clients/openmeld-cli/src/openmeld.ts",
+        "clients/web/src/lib/cli-entry-command.ts",
+      ],
+    }),
+    ["cli", "web"]
+  );
+});
+
+test("rejects a Connect Computer Web deploy without its CLI receiver", () => {
+  assert.throws(
+    () =>
+      buildProductionDeployStepSpecs(["web"], {
+        changedPaths: [
+          "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+          "clients/openmeld-cli/src/openmeld.ts",
+          "clients/web/src/lib/cli-entry-command.ts",
+        ],
+      }),
+    CONNECT_COMPUTER_CLI_SCOPE_ERROR_RE
   );
 });
 

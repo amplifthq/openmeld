@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Presenter } from "../src/runtime/presenter";
 import type { RuntimeContext } from "../src/runtime/types";
 
 const {
@@ -6,6 +7,7 @@ const {
   bestEffortStopCurrentLaneDaemonServiceMock,
   confirmMock,
   exchangeComputerAuthorizationGrantMock,
+  exchangeOneTimeTokenAuthSessionMock,
   getAuthSessionStateMock,
   resolveBaseUrlMock,
   resolvePrepareSessionForHandoffMock,
@@ -17,6 +19,7 @@ const {
   bestEffortStopCurrentLaneDaemonServiceMock: vi.fn(),
   confirmMock: vi.fn(),
   exchangeComputerAuthorizationGrantMock: vi.fn(),
+  exchangeOneTimeTokenAuthSessionMock: vi.fn(),
   getAuthSessionStateMock: vi.fn(),
   resolveBaseUrlMock: vi.fn(),
   resolvePrepareSessionForHandoffMock: vi.fn(),
@@ -44,6 +47,10 @@ vi.mock("../src/commands/computer-auth-session", () => ({
   revokePreparedAuthSession: revokePreparedAuthSessionMock,
 }));
 
+vi.mock("../src/commands/one-time-token-auth-session", () => ({
+  exchangeOneTimeTokenAuthSession: exchangeOneTimeTokenAuthSessionMock,
+}));
+
 vi.mock("../src/commands/prepare-session-executor", () => ({
   resolvePrepareSessionForHandoff: resolvePrepareSessionForHandoffMock,
   runPrepareSessionExecutor: runPrepareSessionExecutorMock,
@@ -58,7 +65,10 @@ vi.mock("../src/commands/service", () => ({
     bestEffortStopCurrentLaneDaemonServiceMock,
 }));
 
-import { runComputerAuthorizationHandoff } from "../src/commands/computer-auth-handoff";
+import {
+  runComputerAuthorizationHandoff,
+  runOneTimeTokenComputerHandoff,
+} from "../src/commands/computer-auth-handoff";
 
 const candidateSession = {
   accessToken: "candidate-token",
@@ -88,11 +98,14 @@ const agentRuntime = {
   interactive: false,
   resolvedView: "agent",
   viewMode: "agent",
-} as unknown as RuntimeContext;
+} satisfies RuntimeContext;
 
 const presenter = {
+  data: vi.fn(),
+  event: vi.fn(),
   line: vi.fn(),
-};
+  view: "agent",
+} satisfies Presenter;
 
 describe("Computer authorization handoff", () => {
   beforeEach(() => {
@@ -103,6 +116,7 @@ describe("Computer authorization handoff", () => {
       prepareSessionId: "prepare-session",
     });
     exchangeComputerAuthorizationGrantMock.mockResolvedValue(candidateSession);
+    exchangeOneTimeTokenAuthSessionMock.mockResolvedValue(candidateSession);
     getAuthSessionStateMock.mockResolvedValue({
       state: "valid",
       session: existingSession,
@@ -116,7 +130,7 @@ describe("Computer authorization handoff", () => {
       snapshot: { selectedLocalAgentIds: [] },
       status: "completed",
     });
-    revokePreparedAuthSessionMock.mockResolvedValue(true);
+    revokePreparedAuthSessionMock.mockResolvedValue({ ok: true });
     runDaemonServiceParticipationGateMock.mockResolvedValue({
       status: "aligned",
     });
@@ -175,6 +189,38 @@ describe("Computer authorization handoff", () => {
     expect(commit.mock.invocationCallOrder[0]).toBeGreaterThan(
       runPrepareSessionExecutorMock.mock.invocationCallOrder[0] ?? 0
     );
+  });
+
+  it("rolls a legacy OTT candidate back when Prepare fails", async () => {
+    const commit = vi.fn().mockResolvedValue(undefined);
+    const rollback = vi.fn().mockResolvedValue(undefined);
+    beginAuthSessionTransitionMock.mockResolvedValue({
+      previousSession: existingSession,
+      commit,
+      rollback,
+    });
+    runPrepareSessionExecutorMock.mockRejectedValue(
+      new Error("Prepare connection failed")
+    );
+
+    await expect(
+      runOneTimeTokenComputerHandoff({
+        oneTimeToken: "legacy-one-time-token",
+        interactive: false,
+        presenter,
+        runtime: agentRuntime,
+        startSession: "starttok_demo",
+        view: "agent",
+      })
+    ).rejects.toThrow("Prepare connection failed");
+
+    expect(
+      resolvePrepareSessionForHandoffMock.mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      exchangeOneTimeTokenAuthSessionMock.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
   });
 
   it("rejects a grant from a different Prepare owner without changing local auth", async () => {
@@ -268,13 +314,19 @@ describe("Computer authorization handoff", () => {
       interactive: true,
       resolvedView: "human",
       viewMode: "human",
-    } as unknown as RuntimeContext;
+    } satisfies RuntimeContext;
+    const humanPresenter = {
+      data: vi.fn(),
+      event: vi.fn(),
+      line: vi.fn(),
+      view: "human",
+    } satisfies Presenter;
 
     await expect(
       runComputerAuthorizationHandoff({
         deviceCode: "approved-device-code",
         interactive: true,
-        presenter: presenter as never,
+        presenter: humanPresenter,
         runtime: humanRuntime,
         startSession: "starttok_demo",
         view: "human",
@@ -294,7 +346,7 @@ function runAgentHandoff() {
   return runComputerAuthorizationHandoff({
     deviceCode: "approved-device-code",
     interactive: false,
-    presenter: presenter as never,
+    presenter,
     runtime: agentRuntime,
     startSession: "starttok_demo",
     view: "agent",

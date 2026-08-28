@@ -812,10 +812,14 @@ that decision.
   the CLI exchanges for a new, independently revocable Computer session for the
   same OpenMeld user. The CLI must validate Prepare ownership before changing
   the active local session. A failed or cancelled handoff restores the previous
-  session and Service account alignment; a cross-account switch requires
-  explicit interactive confirmation. OpenMeld Service uses the committed
-  Computer session when it starts at login. The handoff must not be used to add
-  an agent-selection step to Web.
+  session and Service account alignment. That pending session transition is
+  durable: after Terminal exits, process failure, or machine restart, the next
+  CLI or Service auth read restores the previous session before proceeding; a
+  first connection clears its incomplete candidate. A committed transition is
+  never recovered backward. A cross-account switch requires explicit
+  interactive confirmation. OpenMeld Service uses the committed Computer
+  session when it starts at login. The handoff must not be used to add an
+  agent-selection step to Web.
   Keeping the legacy Web selector retired is a setup-flow
   consolidation owned by this document; it has no ordering dependency on the
   onboarding planner (`developing/product/onboarding.md`), which treats

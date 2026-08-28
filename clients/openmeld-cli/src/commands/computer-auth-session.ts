@@ -3,21 +3,15 @@ import {
   type AuthUserSnapshot,
   extractAuthApiErrorMessage,
   fetchAuthUserSnapshot,
+  type RevokeAuthAccessTokenResult,
   requestDeviceToken,
   resolveDeviceAuthClientId,
   resolveDeviceTokenExpiresAt,
   revokeAuthAccessToken,
 } from "./auth-device-session-client";
+import type { PreparedAuthSession } from "./prepared-auth-session";
 
-export type PreparedAuthSession = {
-  accessToken: string;
-  tokenType: string;
-  authBaseUrl: string;
-  clientId: string;
-  expiresAt?: string;
-  scope?: string;
-  user: AuthUserSnapshot & { id: string };
-};
+export type { PreparedAuthSession } from "./prepared-auth-session";
 
 export async function exchangeComputerAuthorizationGrant(input: {
   authBaseUrl?: string;
@@ -44,21 +38,32 @@ export async function exchangeComputerAuthorizationGrant(input: {
     );
   }
 
-  const user = await fetchAuthUserSnapshot({
-    authBaseUrl,
-    accessToken: tokenResult.data.access_token,
-  });
-  const userId = normalizeOptionalString(user?.id);
-  if (!userId) {
-    const revoked = await revokeAuthAccessToken({
+  let user: AuthUserSnapshot;
+  try {
+    user = await fetchAuthUserSnapshot({
+      authBaseUrl,
+      accessToken: tokenResult.data.access_token,
+    });
+  } catch (error) {
+    const cleanup = await revokeAuthAccessToken({
       accessToken: tokenResult.data.access_token,
       authBaseUrl,
-      tokenType: tokenResult.data.token_type ?? "Bearer",
+      tokenType: tokenResult.data.token_type,
     });
     throw new Error(
-      revoked
-        ? "computer authorization did not return an OpenMeld account"
-        : "computer authorization did not return an OpenMeld account, and OpenMeld could not revoke the unverified setup session"
+      `computer authorization could not verify its OpenMeld account: ${toErrorMessage(error)}${formatCleanupFailure(cleanup)}`,
+      { cause: error }
+    );
+  }
+  const userId = normalizeOptionalString(user?.id);
+  if (!userId) {
+    const cleanup = await revokeAuthAccessToken({
+      accessToken: tokenResult.data.access_token,
+      authBaseUrl,
+      tokenType: tokenResult.data.token_type,
+    });
+    throw new Error(
+      `computer authorization account response did not include a user id${formatCleanupFailure(cleanup)}`
     );
   }
 
@@ -66,7 +71,7 @@ export async function exchangeComputerAuthorizationGrant(input: {
   const scope = normalizeOptionalString(tokenResult.data.scope);
   return {
     accessToken: tokenResult.data.access_token,
-    tokenType: tokenResult.data.token_type ?? "Bearer",
+    tokenType: tokenResult.data.token_type,
     authBaseUrl,
     clientId,
     ...(expiresAt ? { expiresAt } : {}),
@@ -80,8 +85,25 @@ export async function exchangeComputerAuthorizationGrant(input: {
 
 export function revokePreparedAuthSession(
   session: PreparedAuthSession
-): Promise<boolean> {
+): Promise<RevokeAuthAccessTokenResult> {
   return revokeAuthAccessToken(session);
+}
+
+function formatCleanupFailure(result: RevokeAuthAccessTokenResult): string {
+  if (result.ok) {
+    return "";
+  }
+  const status =
+    result.error.status === null
+      ? "network error"
+      : `HTTP ${result.error.status}`;
+  return `; cleanup failed at ${result.error.endpoint} (${status}): ${result.error.message}`;
+}
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message.trim()
+    : String(error ?? "unknown error");
 }
 
 function normalizeRequiredString(value: string, message: string): string {

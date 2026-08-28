@@ -39,7 +39,7 @@ import {
 	resolveWebSetupFollowUpCliCommandPrefix,
 } from "#/lib/cli-entry-command";
 import { copyTextToClipboard } from "#/lib/clipboard";
-import { DEFAULT_COMPUTER_AUTHORIZATION_EXPIRES_IN_SECONDS } from "#/lib/computer-authorization-expiry";
+import { resolveComputerAuthorizationHandoffExpiresAt } from "#/lib/computer-authorization-expiry";
 import { Elevated } from "#/lib/elevated";
 import { listStartProfiles } from "#/lib/profiles/existing-profiles";
 import { listActiveProfilesByKind } from "#/lib/profiles/human-profiles";
@@ -146,7 +146,7 @@ export function AgentInterfacePage({
 				command,
 				skillUrl,
 			});
-			const expiresAt = resolveGeneratedPromptExpiresAt({
+			const expiresAt = resolveComputerAuthorizationHandoffExpiresAt({
 				authorizationExpiresInSeconds: computerAuthorization.expiresIn,
 				prepareSessionExpiresAt: prepareSession.opaqueTokenExpiresAt,
 			});
@@ -542,30 +542,6 @@ function resolveGenerateActionLabel(input: {
 		return "Refresh expired prompt";
 	}
 	return "Refresh agent prompt";
-}
-
-function resolveGeneratedPromptExpiresAt(input: {
-	authorizationExpiresInSeconds?: number;
-	prepareSessionExpiresAt?: null | string;
-}): string {
-	const now = Date.now();
-	const candidates: number[] = [];
-	const prepareSessionExpiresAtMs = input.prepareSessionExpiresAt
-		? Date.parse(input.prepareSessionExpiresAt)
-		: Number.NaN;
-
-	if (Number.isFinite(prepareSessionExpiresAtMs)) {
-		candidates.push(prepareSessionExpiresAtMs);
-	}
-
-	const authorizationExpiresInSeconds =
-		typeof input.authorizationExpiresInSeconds === "number" &&
-		input.authorizationExpiresInSeconds > 0
-			? input.authorizationExpiresInSeconds
-			: DEFAULT_COMPUTER_AUTHORIZATION_EXPIRES_IN_SECONDS;
-	candidates.push(now + authorizationExpiresInSeconds * 1000);
-
-	return new Date(Math.min(...candidates)).toISOString();
 }
 
 function resolveRemainingSeconds(

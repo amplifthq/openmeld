@@ -38,7 +38,10 @@ import { renderOpenMeldLogo, renderOpenMeldTagline } from "../ui/brand";
 import { renderInfoCard } from "../ui/info-card";
 import { runAgentsRepair } from "./agents";
 import { runAuthLogin } from "./auth";
-import { runComputerAuthorizationHandoff } from "./computer-auth-handoff";
+import {
+  runComputerAuthorizationHandoff,
+  runOneTimeTokenComputerHandoff,
+} from "./computer-auth-handoff";
 import {
   type PrepareSessionExecutorResult,
   type PrepareSessionLocalAgentSelection,
@@ -118,10 +121,26 @@ export async function runSetupLocalAgentConnection(input: {
     throw new Error(RETIRED_HUMAN_PROFILE_SETUP_MESSAGE);
   }
 
-  if (input.startSession && normalizeOptionalString(input.deviceCode)) {
+  const deviceCode = normalizeOptionalString(input.deviceCode);
+  if (input.startSession && deviceCode) {
     return buildPrepareSessionSetupResult(
       await runComputerAuthorizationHandoff({
-        deviceCode: input.deviceCode as string,
+        deviceCode,
+        interactive,
+        localAgentSelection: resolvePrepareSessionLocalAgentSelection(input),
+        presenter,
+        runtime,
+        startSession: input.startSession,
+        view: input.view,
+      })
+    );
+  }
+
+  const oneTimeToken = normalizeOptionalString(input.ott);
+  if (input.startSession && oneTimeToken) {
+    return buildPrepareSessionSetupResult(
+      await runOneTimeTokenComputerHandoff({
+        oneTimeToken,
         interactive,
         localAgentSelection: resolvePrepareSessionLocalAgentSelection(input),
         presenter,

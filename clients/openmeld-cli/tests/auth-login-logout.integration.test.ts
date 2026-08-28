@@ -39,6 +39,8 @@ describe("auth login/logout commands", () => {
           device_code: "device-code-1",
           user_code: "ABCD1234",
           verification_uri: "https://auth.openmeld.invalid/device",
+          verification_uri_complete:
+            "https://auth.openmeld.invalid/device?user_code=ABCD1234",
           expires_in: 1800,
           interval: 5,
         })
@@ -246,9 +248,8 @@ describe("auth login/logout commands", () => {
 
     const message = thrown instanceof Error ? thrown.message : "";
     expect(message).toContain(
-      "saved local sign-in is missing its OpenMeld account ID"
+      "computer authorization account response was invalid"
     );
-    expect(message).toContain("copy a fresh setup command");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

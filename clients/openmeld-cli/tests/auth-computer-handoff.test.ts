@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  AuthDeviceSessionClientError,
+  fetchAuthUserSnapshot,
+  revokeAuthAccessToken,
+} from "../src/commands/auth-device-session-client";
 import { exchangeComputerAuthorizationGrant } from "../src/commands/computer-auth-session";
 import {
   beginAuthSessionTransition,
@@ -13,25 +18,28 @@ describe("computer authorization handoff", () => {
   });
 
   it("validates an independent computer session without replacing the current local account", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        createJsonResponse({
-          access_token: "computer-session-token",
-          token_type: "Bearer",
-          expires_in: 604_800,
-          scope: "openid profile email",
-        })
-      )
-      .mockResolvedValueOnce(
-        createJsonResponse({
-          session: { id: "computer-session" },
-          user: {
-            id: "user-browser",
-            email: "browser@example.com",
-          },
-        })
-      );
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      switch (request) {
+        case "POST https://auth.openmeld.invalid/api/auth/device/token":
+          return createJsonResponse({
+            access_token: "computer-session-token",
+            token_type: "Bearer",
+            expires_in: 604_800,
+            scope: "openid profile email",
+          });
+        case "GET https://auth.openmeld.invalid/api/auth/get-session":
+          return createJsonResponse({
+            session: { id: "computer-session" },
+            user: {
+              id: "user-browser",
+              email: "browser@example.com",
+            },
+          });
+        default:
+          throw new Error(`Unexpected request: ${request}`);
+      }
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await withTempHome(async () => {
@@ -97,22 +105,27 @@ describe("computer authorization handoff", () => {
   });
 
   it("revokes a newly created computer session when its account cannot be verified", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        createJsonResponse({
-          access_token: "unverified-computer-session-token",
-          token_type: "Bearer",
-          expires_in: 604_800,
-        })
-      )
-      .mockResolvedValueOnce(
-        createJsonResponse({
-          session: { id: "computer-session" },
-          user: null,
-        })
-      )
-      .mockResolvedValueOnce(createJsonResponse({ success: true }));
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      switch (request) {
+        case "POST https://auth.openmeld.invalid/api/auth/device/token":
+          return createJsonResponse({
+            access_token: "unverified-computer-session-token",
+            token_type: "Bearer",
+            expires_in: 604_800,
+            scope: "openid profile email",
+          });
+        case "GET https://auth.openmeld.invalid/api/auth/get-session":
+          return createJsonResponse({
+            session: { id: "computer-session" },
+            user: null,
+          });
+        case "POST https://auth.openmeld.invalid/api/auth/sign-out":
+          return createJsonResponse({ success: true });
+        default:
+          throw new Error(`Unexpected request: ${request}`);
+      }
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
@@ -122,7 +135,7 @@ describe("computer authorization handoff", () => {
         deviceCode: "approved-device-code",
       })
     ).rejects.toThrow(
-      "computer authorization did not return an OpenMeld account"
+      "computer authorization account response did not include a user"
     );
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -135,6 +148,82 @@ describe("computer authorization handoff", () => {
         method: "POST",
       })
     );
+  });
+
+  it("preserves account endpoint status and cleanup failure context", async () => {
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      switch (request) {
+        case "POST https://auth.openmeld.invalid/api/auth/device/token":
+          return createJsonResponse({
+            access_token: "unverified-computer-session-token",
+            token_type: "Bearer",
+            expires_in: 604_800,
+            scope: "openid profile email",
+          });
+        case "GET https://auth.openmeld.invalid/api/auth/get-session":
+          return createJsonResponse({ message: "upstream unavailable" }, 503);
+        case "POST https://auth.openmeld.invalid/api/auth/sign-out":
+          return createJsonResponse({ message: "cleanup unavailable" }, 502);
+        default:
+          throw new Error(`Unexpected request: ${request}`);
+      }
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      exchangeComputerAuthorizationGrant({
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        deviceCode: "approved-device-code",
+      })
+    ).rejects.toThrow(
+      "computer authorization account request failed: upstream unavailable; cleanup failed at https://auth.openmeld.invalid/api/auth/sign-out (HTTP 502): unused computer authorization session could not be revoked: cleanup unavailable"
+    );
+  });
+
+  it("preserves original network causes for account reads and best-effort revoke", async () => {
+    const accountCause = new Error("account socket reset");
+    const revokeCause = new Error("revoke socket reset");
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      switch (request) {
+        case "GET https://auth.openmeld.invalid/api/auth/get-session":
+          return Promise.reject(accountCause);
+        case "POST https://auth.openmeld.invalid/api/auth/sign-out":
+          return Promise.reject(revokeCause);
+        default:
+          throw new Error(`Unexpected request: ${request}`);
+      }
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const accountError = await fetchAuthUserSnapshot({
+      accessToken: "computer-session-token",
+      authBaseUrl: "https://auth.openmeld.invalid",
+    }).catch((error: unknown) => error);
+    expect(accountError).toBeInstanceOf(AuthDeviceSessionClientError);
+    expect(accountError).toMatchObject({
+      endpoint: "https://auth.openmeld.invalid/api/auth/get-session",
+      operation: "read_auth_session",
+      status: null,
+      cause: accountCause,
+    });
+
+    const revokeResult = await revokeAuthAccessToken({
+      accessToken: "computer-session-token",
+      authBaseUrl: "https://auth.openmeld.invalid",
+      tokenType: "Bearer",
+    });
+    expect(revokeResult).toMatchObject({
+      ok: false,
+      error: {
+        endpoint: "https://auth.openmeld.invalid/api/auth/sign-out",
+        operation: "revoke_auth_session",
+        status: null,
+        cause: revokeCause,
+      },
+    });
   });
 
   it("restores the previous local account when computer setup fails after the switch starts", async () => {
@@ -182,9 +271,11 @@ describe("computer authorization handoff", () => {
   });
 });
 
-function createJsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
+function createJsonResponse(payload: unknown, status = 200): Promise<Response> {
+  return Promise.resolve(
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { "content-type": "application/json" },
+    })
+  );
 }

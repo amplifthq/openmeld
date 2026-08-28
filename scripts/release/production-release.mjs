@@ -91,6 +91,15 @@ const LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER = [
   "remote-agent",
   "cli",
 ];
+const CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER = [
+  "db",
+  "auth",
+  "cli",
+  "web",
+  "gateway",
+  "core",
+  "remote-agent",
+];
 const REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER = [
   "db",
   "remote-agent",
@@ -103,6 +112,8 @@ const REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER = [
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
   "center-agent-cli-receiver-first":
     CENTER_AGENT_CLI_RECEIVER_FIRST_SCOPE_ORDER,
+  "connect-computer-cli-receiver-first":
+    CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER,
   "core-worker-response-reader-first":
     CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "default-auth-receiver-first": SCOPE_ORDER,
@@ -129,6 +140,12 @@ const LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX =
   "services/core/src/runtime-transport/";
 const LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX =
   "clients/openmeld-cli/src/local-service/";
+const CONNECT_COMPUTER_DEVICE_AUTH_SCHEMA_PATH =
+  "packages/schemas/src/schemas/http/auth-device-authorization.ts";
+const CONNECT_COMPUTER_CLI_RECEIVER_PATH =
+  "clients/openmeld-cli/src/openmeld.ts";
+const CONNECT_COMPUTER_WEB_PRODUCER_PATH =
+  "clients/web/src/lib/cli-entry-command.ts";
 const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
   "services/remote-agent/.flue/cloudflare.ts",
   "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
@@ -305,6 +322,10 @@ export function resolveAutomaticReleaseScopes(input) {
       scopes.add(scope);
     }
   }
+  if (isConnectComputerCliReceiverFirstDiff(input.changedPaths)) {
+    scopes.add("cli");
+    scopes.add("web");
+  }
 
   return sortScopes(scopes);
 }
@@ -453,6 +474,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const selected = new Set(scopes);
   const steps = [];
   const changedPaths = input.changedPaths ?? [];
+  assertConnectComputerReleaseScopes(scopes, changedPaths);
   assertInboxSourceTargetReleaseScopes(scopes, changedPaths);
   assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
@@ -526,7 +548,10 @@ function appendProductionDeployScopeSteps(input) {
   }
   if (input.scope === "core") {
     if (input.selected.has("cli")) {
-      if (input.deployOrderProfile !== "default-auth-receiver-first") {
+      if (
+        input.deployOrderProfile !== "default-auth-receiver-first" &&
+        input.deployOrderProfile !== "connect-computer-cli-receiver-first"
+      ) {
         input.steps.push(
           {
             args: [
@@ -605,6 +630,9 @@ function resolveProductionDeployScopeOrder(scopes, changedPaths) {
 }
 
 function resolveProductionDeployOrderProfile(changedPaths) {
+  if (isConnectComputerCliReceiverFirstDiff(changedPaths)) {
+    return "connect-computer-cli-receiver-first";
+  }
   const isInboxReceiverFirst =
     isInboxSourceTargetReceiverFirstDiff(changedPaths);
   const isRemoteAgentRequestReceiverFirst =
@@ -644,6 +672,27 @@ function resolveProductionDeployOrderProfile(changedPaths) {
     return "local-service-runtime-receiver-first";
   }
   return "default-auth-receiver-first";
+}
+
+function isConnectComputerCliReceiverFirstDiff(changedPaths) {
+  return (
+    changedPaths.includes(CONNECT_COMPUTER_DEVICE_AUTH_SCHEMA_PATH) &&
+    changedPaths.includes(CONNECT_COMPUTER_CLI_RECEIVER_PATH) &&
+    changedPaths.includes(CONNECT_COMPUTER_WEB_PRODUCER_PATH)
+  );
+}
+
+function assertConnectComputerReleaseScopes(scopes, changedPaths) {
+  if (!isConnectComputerCliReceiverFirstDiff(changedPaths)) {
+    return;
+  }
+  const selected = new Set(scopes);
+  if (selected.has("cli") && selected.has("web")) {
+    return;
+  }
+  throw new Error(
+    "The Connect Computer command contract requires both the CLI and Web scopes so the CLI receiver and Core current-channel projection publish before Web emits --device-code."
+  );
 }
 
 function isLocalServiceRuntimeReceiverFirstDiff(changedPaths) {

@@ -1,7 +1,11 @@
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  beginAuthSessionTransition,
   clearAuthSession,
   getAuthSession,
   getAuthSessionState,
@@ -132,6 +136,117 @@ describe("auth session storage", () => {
         process.env,
         "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
       );
+    });
+  });
+
+  it("recovers the previous session after a setup process crashes before commit", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "candidate-owner" },
+      });
+      const transitionPath = join(
+        home,
+        ".openmeld",
+        "auth",
+        "session-transition.json"
+      );
+
+      vi.resetModules();
+      const { getAuthSessionState: getRestartedAuthSessionState } =
+        await import("../src/config/auth-session");
+
+      await expect(getRestartedAuthSessionState()).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "previous-token",
+          user: { id: "previous-owner" },
+        },
+      });
+      await expect(readFile(transitionPath, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    });
+  });
+
+  it("clears an incomplete first sign-in after a setup process crashes", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "candidate-owner" },
+      });
+
+      vi.resetModules();
+      const { getAuthSessionState: getRestartedAuthSessionState } =
+        await import("../src/config/auth-session");
+
+      await expect(getRestartedAuthSessionState()).resolves.toMatchObject({
+        reasonCode: "session_missing",
+        state: "missing",
+        session: null,
+      });
+      await expect(
+        readFile(join(home, ".openmeld", "auth", "session.json"), "utf8")
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("keeps a durably committed candidate when the process stops before journal cleanup", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      await beginAuthSessionTransition({
+        accessToken: "committed-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "committed-owner" },
+      });
+      const transitionPath = join(
+        home,
+        ".openmeld",
+        "auth",
+        "session-transition.json"
+      );
+      const committedJournal = JSON.parse(
+        await readFile(transitionPath, "utf8")
+      ) as Record<string, unknown>;
+      await writeFile(
+        transitionPath,
+        `${JSON.stringify({ ...committedJournal, state: "committed" })}\n`,
+        "utf8"
+      );
+
+      vi.resetModules();
+      const { getAuthSessionState: getRestartedAuthSessionState } =
+        await import("../src/config/auth-session");
+
+      await expect(getRestartedAuthSessionState()).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "committed-token",
+          user: { id: "committed-owner" },
+        },
+      });
+      await expect(readFile(transitionPath, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
     });
   });
 
@@ -293,6 +408,61 @@ describe("auth session storage", () => {
         process.env,
         "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
       );
+    });
+  });
+
+  it("reports corrupt session JSON as invalid instead of signed out", async () => {
+    await withTempHome(async (home) => {
+      const authDirectory = join(home, ".openmeld", "auth");
+      await mkdir(authDirectory, { recursive: true });
+      await writeFile(
+        join(authDirectory, "session.json"),
+        "{not-json\n",
+        "utf8"
+      );
+
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        errorMessage: expect.stringContaining("session.json"),
+        reasonCode: "session_metadata_invalid",
+        state: "invalid",
+        session: null,
+      });
+      await expect(
+        beginAuthSessionTransition({
+          accessToken: "replacement-token",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "replacement-owner" },
+        })
+      ).rejects.toThrow("current auth session metadata is corrupt");
+      await expect(
+        readFile(join(authDirectory, "session.json"), "utf8")
+      ).resolves.toBe("{not-json\n");
+    });
+  });
+
+  it("reports unreadable session storage as invalid instead of signed out", async () => {
+    await withTempHome(async (home) => {
+      const sessionPath = join(home, ".openmeld", "auth", "session.json");
+      await mkdir(sessionPath, { recursive: true });
+
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        errorMessage: expect.stringContaining("session.json"),
+        reasonCode: "session_metadata_invalid",
+        state: "invalid",
+        session: null,
+      });
+      await expect(
+        beginAuthSessionTransition({
+          accessToken: "replacement-token",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "replacement-owner" },
+        })
+      ).rejects.toThrow("current auth session metadata could not be read");
+      await expect(readFile(sessionPath, "utf8")).rejects.toMatchObject({
+        code: expect.any(String),
+      });
     });
   });
 
@@ -567,3 +737,91 @@ describe("auth session storage", () => {
     expect(realGetSessionResponse).not.toHaveProperty("activeOrganization");
   });
 });
+
+async function beginThenCrashAuthSessionTransition(input: {
+  accessToken: string;
+  authBaseUrl: string;
+  clientId: string;
+  user: { id: string };
+}): Promise<void> {
+  const testRequire = createRequire(import.meta.url);
+  const vitestRequire = createRequire(
+    testRequire.resolve("vitest/package.json")
+  );
+  const tsxPackagePath = vitestRequire.resolve("tsx/package.json");
+  const tsxLoaderPath = join(tsxPackagePath, "..", "dist", "loader.mjs");
+  const authSessionModuleUrl = new URL(
+    "../src/config/auth-session.ts",
+    import.meta.url
+  ).href;
+  const script = `
+    import { beginAuthSessionTransition } from ${JSON.stringify(authSessionModuleUrl)};
+    await beginAuthSessionTransition(${JSON.stringify(input)});
+    process.stdout.write("AUTH_TRANSITION_PENDING\\n");
+    setInterval(() => undefined, 60_000);
+  `;
+  const child = spawn(
+    process.execPath,
+    ["--import", tsxLoaderPath, "--input-type=module", "--eval", script],
+    {
+      env: { ...process.env },
+      stdio: ["pipe", "pipe", "pipe"],
+    }
+  );
+
+  try {
+    await waitForChildOutput(child, "AUTH_TRANSITION_PENDING");
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
+    if (child.exitCode === null && child.signalCode === null) {
+      await once(child, "exit");
+    }
+  }
+}
+
+async function waitForChildOutput(
+  child: ChildProcessWithoutNullStreams,
+  expected: string
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(
+        new Error(
+          `Timed out waiting for crash fixture output ${expected}. stderr: ${stderr}`
+        )
+      );
+    }, 10_000);
+    const onStdout = (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+      if (stdout.includes(expected)) {
+        cleanup();
+        resolve();
+      }
+    };
+    const onStderr = (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      reject(
+        new Error(
+          `Crash fixture exited before creating a pending transition (code=${code}, signal=${signal}). stderr: ${stderr}`
+        )
+      );
+    };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      child.stdout.off("data", onStdout);
+      child.stderr.off("data", onStderr);
+      child.off("exit", onExit);
+    };
+    child.stdout.on("data", onStdout);
+    child.stderr.on("data", onStderr);
+    child.once("exit", onExit);
+  });
+}

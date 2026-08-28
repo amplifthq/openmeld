@@ -176,36 +176,32 @@ describe("auth-query", () => {
 	});
 
 	it("creates a browser-approved grant that lets a computer create its own session", async () => {
-		const fetchMock = vi
-			.fn<typeof fetch>()
-			.mockResolvedValueOnce(
-				new Response(
-					JSON.stringify({
-						device_code: "device-secret",
-						user_code: "MELD-1234",
-						expires_in: 300,
-					}),
-					{
-						status: 200,
-						headers: { "content-type": "application/json" },
-					}
-				)
-			)
-			.mockResolvedValueOnce(
-				new Response(
-					JSON.stringify({ user_code: "MELD-1234", status: "pending" }),
-					{
-						status: 200,
-						headers: { "content-type": "application/json" },
-					}
-				)
-			)
-			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ success: true }), {
-					status: 200,
-					headers: { "content-type": "application/json" },
-				})
-			);
+		const fetchMock = vi.fn<typeof fetch>((input, init) => {
+			const request = `${init?.method ?? "GET"} ${String(input)}`;
+			switch (request) {
+				case "POST /api/auth/device/code":
+					return createFetchResponse(
+						{
+							device_code: "device-secret",
+							user_code: "MELD-1234",
+							verification_uri: "/device",
+							verification_uri_complete: "/device?user_code=MELD-1234",
+							expires_in: 300,
+							interval: 5,
+						},
+						200
+					);
+				case "GET /api/auth/device?user_code=MELD-1234":
+					return createFetchResponse(
+						{ user_code: "MELD-1234", status: "pending" },
+						200
+					);
+				case "POST /api/auth/device/approve":
+					return createFetchResponse({ success: true }, 200);
+				default:
+					throw new Error(`Unexpected request: ${request}`);
+			}
+		});
 		vi.stubGlobal("fetch", fetchMock);
 
 		await expect(createComputerAuthorizationGrant()).resolves.toEqual({
@@ -240,4 +236,39 @@ describe("auth-query", () => {
 			})
 		);
 	});
+
+	it("rejects a partial vendor response before issuing approval", async () => {
+		const fetchMock = vi.fn<typeof fetch>((input, init) => {
+			const request = `${init?.method ?? "GET"} ${String(input)}`;
+			if (request === "POST /api/auth/device/code") {
+				return createFetchResponse(
+					{
+						device_code: "device-secret",
+						user_code: "MELD-1234",
+						expires_in: 300,
+					},
+					200
+				);
+			}
+			throw new Error(`Unexpected request: ${request}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(createComputerAuthorizationGrant()).rejects.toThrow(
+			"Auth returned an invalid computer authorization response."
+		);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
 });
+
+function createFetchResponse(
+	payload: unknown,
+	status: number
+): Promise<Response> {
+	return Promise.resolve(
+		new Response(JSON.stringify(payload), {
+			status,
+			headers: { "content-type": "application/json" },
+		})
+	);
+}

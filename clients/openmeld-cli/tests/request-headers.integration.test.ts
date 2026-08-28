@@ -62,7 +62,7 @@ describe("buildOpenMeldRequestContextHeadersWithAuth", () => {
     });
   });
 
-  it("omits Authorization header for expired token", async () => {
+  it("fails locally instead of sending a request with expired stored credentials", async () => {
     await withTempHome(async () => {
       const previousForceInsecureToken =
         process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN;
@@ -76,13 +76,16 @@ describe("buildOpenMeldRequestContextHeadersWithAuth", () => {
           expiresAt: new Date(Date.now() - 60_000).toISOString(),
         });
 
-        const headers = await buildOpenMeldRequestContextHeadersWithAuth({
-          requestUrl: "https://gateway.openmeld.invalid/v1/spaces/demo/signals",
-          requestContext: REQUEST_CONTEXT,
+        await expect(
+          buildOpenMeldRequestContextHeadersWithAuth({
+            requestUrl:
+              "https://gateway.openmeld.invalid/v1/spaces/demo/signals",
+            requestContext: REQUEST_CONTEXT,
+          })
+        ).rejects.toMatchObject({
+          name: "AuthRequestCredentialError",
+          reason: "session_expired",
         });
-
-        expect(headers.Authorization).toBeUndefined();
-        expect(headers["x-openmeld-profile-id"]).toBe("profile-id-1");
       } finally {
         if (previousForceInsecureToken === undefined) {
           Reflect.deleteProperty(
@@ -97,7 +100,7 @@ describe("buildOpenMeldRequestContextHeadersWithAuth", () => {
     });
   });
 
-  it("omits Authorization header for untrusted request host", async () => {
+  it("fails locally for an untrusted request host", async () => {
     await withTempHome(async () => {
       const previousForceInsecureToken =
         process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN;
@@ -110,12 +113,15 @@ describe("buildOpenMeldRequestContextHeadersWithAuth", () => {
           clientId: "openmeld-cli",
         });
 
-        const headers = await buildOpenMeldRequestContextHeadersWithAuth({
-          requestUrl: "https://evil.example.com/v1/spaces/demo/signals",
-          requestContext: REQUEST_CONTEXT,
+        await expect(
+          buildOpenMeldRequestContextHeadersWithAuth({
+            requestUrl: "https://evil.example.com/v1/spaces/demo/signals",
+            requestContext: REQUEST_CONTEXT,
+          })
+        ).rejects.toMatchObject({
+          name: "AuthRequestCredentialError",
+          reason: "host_mismatch",
         });
-
-        expect(headers.Authorization).toBeUndefined();
       } finally {
         if (previousForceInsecureToken === undefined) {
           Reflect.deleteProperty(
@@ -163,7 +169,7 @@ describe("buildOpenMeldRequestContextHeadersWithAuth", () => {
     });
   });
 
-  it("omits Authorization header for non-loopback http gateway host", async () => {
+  it("fails locally for non-loopback http gateway host", async () => {
     await withTempHome(async () => {
       const previousForceInsecureToken =
         process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN;
@@ -176,12 +182,16 @@ describe("buildOpenMeldRequestContextHeadersWithAuth", () => {
           clientId: "openmeld-cli",
         });
 
-        const headers = await buildOpenMeldRequestContextHeadersWithAuth({
-          requestUrl: "http://gateway.internal.example/v1/spaces/demo/signals",
-          requestContext: REQUEST_CONTEXT,
+        await expect(
+          buildOpenMeldRequestContextHeadersWithAuth({
+            requestUrl:
+              "http://gateway.internal.example/v1/spaces/demo/signals",
+            requestContext: REQUEST_CONTEXT,
+          })
+        ).rejects.toMatchObject({
+          name: "AuthRequestCredentialError",
+          reason: "insecure_transport",
         });
-
-        expect(headers.Authorization).toBeUndefined();
       } finally {
         if (previousForceInsecureToken === undefined) {
           Reflect.deleteProperty(
@@ -196,7 +206,7 @@ describe("buildOpenMeldRequestContextHeadersWithAuth", () => {
     });
   });
 
-  it("omits Authorization header for non-loopback ws gateway host", async () => {
+  it("fails locally for non-loopback ws gateway host", async () => {
     await withTempHome(async () => {
       const previousForceInsecureToken =
         process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN;
@@ -209,12 +219,15 @@ describe("buildOpenMeldRequestContextHeadersWithAuth", () => {
           clientId: "openmeld-cli",
         });
 
-        const headers = await buildOpenMeldRequestContextHeadersWithAuth({
-          requestUrl: "ws://gateway.internal.example/v1/spaces/demo/stream",
-          requestContext: REQUEST_CONTEXT,
+        await expect(
+          buildOpenMeldRequestContextHeadersWithAuth({
+            requestUrl: "ws://gateway.internal.example/v1/spaces/demo/stream",
+            requestContext: REQUEST_CONTEXT,
+          })
+        ).rejects.toMatchObject({
+          name: "AuthRequestCredentialError",
+          reason: "insecure_transport",
         });
-
-        expect(headers.Authorization).toBeUndefined();
       } finally {
         if (previousForceInsecureToken === undefined) {
           Reflect.deleteProperty(

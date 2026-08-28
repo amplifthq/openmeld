@@ -1,25 +1,58 @@
+import {
+  BETTER_AUTH_DEVICE_AUTHORIZATION_GRANT_TYPE,
+  type BetterAuthDeviceAuthorizationTokenResponse,
+  type BetterAuthSessionUserSnapshot,
+  betterAuthDeviceAuthorizationErrorResponseSchema,
+  betterAuthDeviceAuthorizationTokenRequestSchema,
+  betterAuthDeviceAuthorizationTokenResponseSchema,
+  betterAuthSessionSnapshotResponseSchema,
+} from "@openmeld/schemas";
+
 const DEFAULT_DEVICE_CLIENT_ID = "openmeld-cli";
 const DEVICE_CLIENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$/;
-const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
-export type DeviceTokenSuccessResponse = {
-  access_token: string;
-  token_type?: string;
-  expires_in?: number;
-  scope?: string;
-};
+export type DeviceTokenSuccessResponse =
+  BetterAuthDeviceAuthorizationTokenResponse;
+export type AuthUserSnapshot = BetterAuthSessionUserSnapshot;
 
 type DeviceTokenErrorResponse = {
   error?: string;
   error_description?: string;
   message?: string;
+  detail?: string;
 };
 
-export type AuthUserSnapshot = {
-  id?: string;
-  email?: string;
-  name?: string;
-};
+export type AuthDeviceSessionOperation =
+  | "exchange_device_token"
+  | "read_auth_session"
+  | "revoke_auth_session";
+
+export class AuthDeviceSessionClientError extends Error {
+  readonly endpoint: string;
+  readonly operation: AuthDeviceSessionOperation;
+  readonly status: number | null;
+
+  constructor(input: {
+    endpoint: string;
+    message: string;
+    operation: AuthDeviceSessionOperation;
+    status?: number | null;
+    cause?: unknown;
+  }) {
+    super(
+      input.message,
+      input.cause === undefined ? undefined : { cause: input.cause }
+    );
+    this.name = "AuthDeviceSessionClientError";
+    this.endpoint = input.endpoint;
+    this.operation = input.operation;
+    this.status = input.status ?? null;
+  }
+}
+
+export type RevokeAuthAccessTokenResult =
+  | { ok: true }
+  | { ok: false; error: AuthDeviceSessionClientError };
 
 export async function requestDeviceToken(input: {
   authBaseUrl: string;
@@ -30,54 +63,62 @@ export async function requestDeviceToken(input: {
   | { ok: false; error: DeviceTokenErrorResponse; status: number }
 > {
   const endpoint = toAuthEndpoint(input.authBaseUrl, "/api/auth/device/token");
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      grant_type: DEVICE_GRANT_TYPE,
+  const parsedRequest =
+    betterAuthDeviceAuthorizationTokenRequestSchema.safeParse({
+      grant_type: BETTER_AUTH_DEVICE_AUTHORIZATION_GRANT_TYPE,
       device_code: input.deviceCode,
       client_id: input.clientId,
-    }),
-    signal: AbortSignal.timeout(10_000),
-  });
+    });
+  if (!parsedRequest.success) {
+    throw createClientError({
+      endpoint,
+      operation: "exchange_device_token",
+      message: "computer authorization token request was invalid",
+      cause: parsedRequest.error,
+    });
+  }
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(parsedRequest.data),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (error) {
+    throw createClientError({
+      endpoint,
+      operation: "exchange_device_token",
+      message: "computer authorization token request failed",
+      cause: error,
+    });
+  }
 
   const payload = await parseResponseJson(response);
   if (response.ok) {
-    const accessToken = normalizeRequiredString(
-      readStringField(payload, "access_token"),
-      "missing access_token in device token response"
-    );
-
-    return {
-      ok: true,
-      data: {
-        access_token: accessToken,
-        token_type:
-          normalizeOptionalString(readStringField(payload, "token_type")) ??
-          undefined,
-        expires_in: readNumberField(payload, "expires_in"),
-        scope:
-          normalizeOptionalString(readStringField(payload, "scope")) ??
-          undefined,
-      },
-    };
+    const parsed =
+      betterAuthDeviceAuthorizationTokenResponseSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw createClientError({
+        endpoint,
+        operation: "exchange_device_token",
+        status: response.status,
+        message: "computer authorization token response was invalid",
+        cause: parsed.error,
+      });
+    }
+    return { ok: true, data: parsed.data };
   }
 
+  const parsedError =
+    betterAuthDeviceAuthorizationErrorResponseSchema.safeParse(payload);
   return {
     ok: false,
-    error: {
-      error:
-        normalizeOptionalString(readStringField(payload, "error")) ?? undefined,
-      error_description:
-        normalizeOptionalString(
-          readStringField(payload, "error_description")
-        ) ?? undefined,
-      message:
-        normalizeOptionalString(readStringField(payload, "message")) ??
-        undefined,
-    },
+    error: parsedError.success
+      ? parsedError.data
+      : { message: response.statusText || `HTTP ${response.status}` },
     status: response.status,
   };
 }
@@ -85,45 +126,96 @@ export async function requestDeviceToken(input: {
 export async function fetchAuthUserSnapshot(input: {
   authBaseUrl: string;
   accessToken: string;
-}): Promise<AuthUserSnapshot | null> {
+}): Promise<AuthUserSnapshot> {
   const endpoint = toAuthEndpoint(input.authBaseUrl, "/api/auth/get-session");
+  let response: Response;
   try {
-    const response = await fetch(endpoint, {
+    response = await fetch(endpoint, {
       method: "GET",
       headers: {
         authorization: `Bearer ${input.accessToken}`,
       },
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) {
-      return null;
-    }
-    return readAuthUserFromSessionPayload(await parseResponseJson(response));
-  } catch {
-    return null;
+  } catch (error) {
+    throw createClientError({
+      endpoint,
+      operation: "read_auth_session",
+      message: "computer authorization account request failed",
+      cause: error,
+    });
   }
+  if (!response.ok) {
+    const payload = await parseResponseJson(response);
+    throw createClientError({
+      endpoint,
+      operation: "read_auth_session",
+      status: response.status,
+      message: `computer authorization account request failed: ${extractAuthApiErrorMessage(payload, response.status)}`,
+    });
+  }
+
+  const payload = await parseResponseJson(response);
+  const parsed = betterAuthSessionSnapshotResponseSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw createClientError({
+      endpoint,
+      operation: "read_auth_session",
+      status: response.status,
+      message: "computer authorization account response was invalid",
+      cause: parsed.error,
+    });
+  }
+  if (!parsed.data?.user) {
+    throw createClientError({
+      endpoint,
+      operation: "read_auth_session",
+      status: response.status,
+      message: "computer authorization account response did not include a user",
+    });
+  }
+  return parsed.data.user;
 }
 
 export async function revokeAuthAccessToken(input: {
   accessToken: string;
   authBaseUrl: string;
   tokenType: string;
-}): Promise<boolean> {
+}): Promise<RevokeAuthAccessTokenResult> {
+  const endpoint = toAuthEndpoint(input.authBaseUrl, "/api/auth/sign-out");
+  let response: Response;
   try {
-    const response = await fetch(
-      toAuthEndpoint(input.authBaseUrl, "/api/auth/sign-out"),
-      {
-        method: "POST",
-        headers: {
-          authorization: `${input.tokenType} ${input.accessToken}`,
-        },
-        signal: AbortSignal.timeout(10_000),
-      }
-    );
-    return response.ok;
-  } catch {
-    return false;
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        authorization: `${input.tokenType} ${input.accessToken}`,
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: createClientError({
+        endpoint,
+        operation: "revoke_auth_session",
+        message: "unused computer authorization session could not be revoked",
+        cause: error,
+      }),
+    };
   }
+  if (!response.ok) {
+    const payload = await parseResponseJson(response);
+    return {
+      ok: false,
+      error: createClientError({
+        endpoint,
+        operation: "revoke_auth_session",
+        status: response.status,
+        message: `unused computer authorization session could not be revoked: ${extractAuthApiErrorMessage(payload, response.status)}`,
+      }),
+    };
+  }
+  return { ok: true };
 }
 
 export function resolveDeviceAuthClientId(value: string | undefined): string {
@@ -171,47 +263,35 @@ export function extractAuthApiErrorMessage(
   payload: unknown,
   status: number
 ): string {
-  const errorDescription = normalizeOptionalString(
-    readStringField(payload, "error_description")
+  const parsed =
+    betterAuthDeviceAuthorizationErrorResponseSchema.safeParse(payload);
+  if (!parsed.success) {
+    return `HTTP ${status}`;
+  }
+  return (
+    normalizeOptionalString(parsed.data.error_description) ??
+    normalizeOptionalString(parsed.data.detail) ??
+    normalizeOptionalString(parsed.data.message) ??
+    normalizeOptionalString(parsed.data.error) ??
+    `HTTP ${status}`
   );
-  if (errorDescription) {
-    return errorDescription;
-  }
-  const detail = normalizeOptionalString(readStringField(payload, "detail"));
-  if (detail) {
-    return detail;
-  }
-  const message = normalizeOptionalString(readStringField(payload, "message"));
-  if (message) {
-    return message;
-  }
-  const errorCode = normalizeOptionalString(readStringField(payload, "error"));
-  return errorCode ?? `HTTP ${status}`;
 }
 
 export function readAuthUserFromSessionPayload(
   payload: unknown
 ): AuthUserSnapshot | null {
-  if (!(payload && typeof payload === "object" && "user" in payload)) {
-    return null;
-  }
-  const user = (payload as Record<string, unknown>).user;
-  if (!(user && typeof user === "object")) {
-    return null;
-  }
+  const parsed = betterAuthSessionSnapshotResponseSchema.safeParse(payload);
+  return parsed.success ? (parsed.data?.user ?? null) : null;
+}
 
-  const userRecord = user as Record<string, unknown>;
-  const id = readOptionalStringField(userRecord, "id");
-  const email = readOptionalStringField(userRecord, "email");
-  const name = readOptionalStringField(userRecord, "name");
-  if (!(id || email || name)) {
-    return null;
-  }
-  return {
-    ...(id ? { id } : {}),
-    ...(email ? { email } : {}),
-    ...(name ? { name } : {}),
-  };
+function createClientError(input: {
+  endpoint: string;
+  message: string;
+  operation: AuthDeviceSessionOperation;
+  status?: number | null;
+  cause?: unknown;
+}): AuthDeviceSessionClientError {
+  return new AuthDeviceSessionClientError(input);
 }
 
 function toAuthEndpoint(baseUrl: string, pathname: string): string {
@@ -222,48 +302,9 @@ function toAuthEndpoint(baseUrl: string, pathname: string): string {
   return url.toString();
 }
 
-function normalizeRequiredString(
-  value: string | null,
-  message: string
-): string {
-  const normalized = normalizeOptionalString(value);
-  if (!normalized) {
-    throw new Error(message);
-  }
-  return normalized;
-}
-
-function normalizeOptionalString(
-  value: string | null | undefined
-): string | null {
+function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
-}
-
-function readStringField(payload: unknown, key: string): string | null {
-  if (!(payload && typeof payload === "object" && key in payload)) {
-    return null;
-  }
-  const value = (payload as Record<string, unknown>)[key];
-  return typeof value === "string" ? value : null;
-}
-
-function readOptionalStringField(
-  payload: Record<string, unknown>,
-  key: string
-): string | undefined {
-  const value = payload[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function readNumberField(payload: unknown, key: string): number | undefined {
-  if (!(payload && typeof payload === "object" && key in payload)) {
-    return undefined;
-  }
-  const value = (payload as Record<string, unknown>)[key];
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
 }
 
 async function parseResponseJson(response: Response): Promise<unknown> {
