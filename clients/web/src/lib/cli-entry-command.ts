@@ -389,6 +389,8 @@ function buildSetupBootstrapUrl(input: {
 	if (input.platform === "windows") {
 		url.searchParams.set("platform", "windows");
 		url.searchParams.set("dist", "npm");
+	} else if (input.lane === "canary") {
+		url.searchParams.set("dist", "binary");
 	}
 	if (input.lane !== "prod") {
 		url.searchParams.set("lane", input.lane);

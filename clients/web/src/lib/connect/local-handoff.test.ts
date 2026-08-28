@@ -24,7 +24,7 @@ describe("local-handoff", () => {
 				userFacingCommand: "openmeld-canary",
 			})
 		).toBe(
-			"curl -fsSL 'http://localhost:3000/setup?lane=canary' | sh -s -- setup --start-session starttok_demo --ott ott_demo --view human"
+			"curl -fsSL 'http://localhost:3000/setup?dist=binary&lane=canary' | sh -s -- setup --start-session starttok_demo --ott ott_demo --view human"
 		);
 	});
 });
