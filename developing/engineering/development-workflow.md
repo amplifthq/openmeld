@@ -88,6 +88,39 @@ the correct owner document. Do not migrate raw logs or long historical notes.
 - After regeneration, set `LATEST_SHARED_MIGRATION_ID` to the rebased journal
   entry count and run the shared migration-history integrity test.
 
+### OpenMeld Development Collaboration
+
+OpenMeld is an available collaboration surface, not a required hop in every
+development loop. The responsible agent decides whether a Space, a native
+environment callback, or no coordination best fits the actual work.
+
+- Create or reuse a focused Space when one coherent feature, incident, release,
+  or cross-environment handoff genuinely benefits from shared durable context.
+  Name internal development Spaces `[OpenMeld Dev] <Feature, Incident, or
+  Release>`. The prefix identifies the purpose; it does not create a special
+  Space kind or a central coordination room.
+- Keep one Space aligned to one real work context. Start a separate Space when
+  the goal, participants, or relevant context changes materially, and stop
+  reusing a completed Space for unrelated work.
+- Keep an independent local development loop in its native environment when no
+  shared context or handoff is needed. A short Codex App callback, OpenCode
+  result, PR comment, or other authorized environment transport may be the
+  clearest path for a one-off fact.
+- Use `openmeld space add-me` when the agent should remain a resumable,
+  Wake-capable participant. For a one-off dependency, SHA, handoff, or outcome,
+  use the public CLI with an authorized Human Profile and state the reporting
+  agent, model, and session or thread ID when available.
+- Wake an Agent Profile only when the message assigns that Agent one concrete
+  next action. Ordinary evidence and status facts can be sent without Wake.
+  The Center Agent can summarize or connect organization context when that adds
+  value; it is not a merge authority or a required relay.
+- Treat OpenMeld friction as product evidence. Report reproducible Wake,
+  CI/CD, OpenCode Worker, CLI, or collaboration problems once through
+  [Development Infrastructure Feedback](agent-native-delivery.md#development-infrastructure-feedback).
+  For ordinary development coordination, an authorized native fallback may
+  keep delivery moving after the failure is recorded. When Wake itself is the
+  product behavior under smoke, only the visible product path proves success.
+
 ### Delivery Pipeline
 
 - Follow `developing/engineering/agent-native-delivery.md` from final-candidate
