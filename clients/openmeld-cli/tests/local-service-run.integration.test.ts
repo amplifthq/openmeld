@@ -72,6 +72,7 @@ const {
   spinnerMock,
   spawnMock,
   upsertDaemonServiceContractMock,
+  waitForDaemonSystemServiceToStopMock,
   withDaemonServiceRunLockMock,
   withDaemonServiceStopLockMock,
 } = vi.hoisted(() => ({
@@ -139,6 +140,7 @@ const {
       ) => EventEmitter & { pid: number; unref: () => void }
     >(),
   upsertDaemonServiceContractMock: vi.fn(),
+  waitForDaemonSystemServiceToStopMock: vi.fn(async () => true),
   withDaemonServiceRunLockMock: vi.fn(
     async (callback: () => Promise<unknown>) => callback()
   ),
@@ -523,6 +525,7 @@ vi.mock("../src/local-service/lifecycle/daemon-service-runtime", async () => {
     clearDaemonRuntimeStateIfDefinitelyStopped:
       clearDaemonRuntimeStateIfDefinitelyStoppedMock,
     readCurrentObservedDaemonRuntimeStatus: getObservedDaemonRuntimeStatusMock,
+    waitForDaemonSystemServiceToStop: waitForDaemonSystemServiceToStopMock,
     readCurrentDaemonRuntimeContext: vi.fn(async () => {
       const runtimeStatus = await getObservedDaemonRuntimeStatusMock();
       const status = await getDaemonStatusMock();
@@ -724,6 +727,7 @@ describe("openmeld service run command", () => {
       contractState = next;
       return Promise.resolve(next);
     });
+    waitForDaemonSystemServiceToStopMock.mockReset().mockResolvedValue(true);
     resolveAlignedDaemonActiveBundleEntryPathMock
       .mockReset()
       .mockResolvedValue(
@@ -3594,6 +3598,7 @@ describe("openmeld service stop command", () => {
       gracePeriodMs: 5000,
       mode: "graceful",
     });
+    waitForDaemonSystemServiceToStopMock.mockReset().mockResolvedValue(true);
     getDaemonStatusMock.mockReset();
     getObservedDaemonRuntimeStatusMock.mockReset();
     clearDaemonRuntimeStateIfDefinitelyStoppedMock.mockReset();

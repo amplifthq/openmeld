@@ -10,7 +10,7 @@ vi.mock("../src/runtime/distribution", () => ({
 import type { DaemonStatus } from "../src/config/daemon-state";
 import type { OpenMeldPathResolutionInput } from "../src/config/paths";
 import { resolveCliSelfVersion } from "../src/local-components/managed-install";
-import { daemonServiceExecutableWrapperPath } from "../src/local-service/lifecycle/daemon-service-bundle";
+import { daemonServiceBinaryExecutablePath } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { inspectDaemonServiceInventory } from "../src/local-service/lifecycle/daemon-service-inventory";
 import type {
   DaemonServiceManager,
@@ -84,8 +84,7 @@ describe("binary local service inventory", () => {
     await withTempHome(async () => {
       const pathInput = testPathInput();
       const version = resolveCliSelfVersion();
-      const stableExecutablePath =
-        daemonServiceExecutableWrapperPath(pathInput);
+      const stableExecutablePath = daemonServiceBinaryExecutablePath(pathInput);
       const definitionPath = await writeLaunchdDefinition(stableExecutablePath);
 
       const inventory = await inspectDaemonServiceInventory({
