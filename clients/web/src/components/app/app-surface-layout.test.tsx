@@ -25,6 +25,9 @@ describe("AppSurfaceLayout", () => {
 
 		const frame = document.querySelector('[data-slot="app-surface-layout"]');
 		const surface = document.querySelector('[data-slot="app-surface"]');
+		const contentColumn = document.querySelector(
+			'[data-slot="app-content-column"]'
+		);
 		const inlineNavigation = document.querySelector(
 			'[data-slot="app-inline-navigation"]'
 		);
@@ -43,11 +46,12 @@ describe("AppSurfaceLayout", () => {
 		expect(surface).toBeTruthy();
 		expect(frame?.children[0]).toBe(inlineNavigation);
 		expect(inlineNavigation?.contains(outerRail)).toBe(true);
-		expect(frame?.children[1]).toBe(surface);
+		expect(frame?.children[1]).toBe(contentColumn);
+		expect(contentColumn?.contains(surface)).toBe(true);
 		expect(surface?.contains(outerRail)).toBe(false);
 		expect(surface?.contains(innerSidebar)).toBe(true);
 		expect(surface?.contains(mainContent)).toBe(true);
-		expect(frame?.contains(globalControls)).toBe(true);
+		expect(contentColumn?.contains(globalControls)).toBe(true);
 		expect(surface?.contains(globalControls)).toBe(false);
 		expect(surface?.className).toContain("lg:mt-2");
 		expect(surface?.className).toContain("lg:mr-2");

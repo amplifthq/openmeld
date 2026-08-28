@@ -43,7 +43,7 @@ export const appShellStaticData = {
 	agentActivity: { appShellSection: "agentActivity" },
 	agents: { appShellSection: "agents" },
 	centerAgent: { appShellSection: "centerAgent" },
-	computers: { appShellSection: "computers" },
+	computers: { appShellSection: "people" },
 	connect: { appShellSection: "connect" },
 	directMessages: { appShellSection: "directMessages" },
 	documents: { appShellSection: "documents" },

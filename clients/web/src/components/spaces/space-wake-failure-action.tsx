@@ -6,7 +6,10 @@ import {
 	buildOrganizationComputersPath,
 	buildOrganizationWakeAccessPath,
 } from "#/lib/organizations/organization-routes";
-import { buildProfileHomeRoutes } from "#/lib/profile-routes";
+import {
+	buildAgentProfilePath,
+	buildProfileHomeRoutes,
+} from "#/lib/profile-routes";
 import type { WakeFailureDisplay } from "#/lib/spaces/wake-failure-display";
 
 export function SpaceWakeFailureActionControl(input: {
@@ -14,6 +17,7 @@ export function SpaceWakeFailureActionControl(input: {
 	display: WakeFailureDisplay;
 	orgSlug: string;
 	prepareSetupHref?: string;
+	targetProfileId?: string;
 }) {
 	const orgSlug = input.orgSlug;
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
@@ -43,6 +47,7 @@ export function SpaceWakeFailureActionControl(input: {
 		orgSlug,
 		prepareSetupHref: input.prepareSetupHref,
 		directoryAgentsPath: profileHomeRoutes.agents,
+		targetProfileId: input.targetProfileId,
 	});
 
 	return (
@@ -65,6 +70,7 @@ function resolveWakeFailureActionHref(input: {
 	orgSlug: string;
 	prepareSetupHref?: string;
 	directoryAgentsPath: string;
+	targetProfileId?: string;
 }): string {
 	if (input.actionTarget === "prepare_setup") {
 		return (
@@ -72,7 +78,12 @@ function resolveWakeFailureActionHref(input: {
 		);
 	}
 	if (input.actionTarget === "computer") {
-		return buildOrganizationComputersPath(input.orgSlug);
+		return input.targetProfileId
+			? buildAgentProfilePath({
+					orgSlug: input.orgSlug,
+					profileId: input.targetProfileId,
+				})
+			: input.directoryAgentsPath;
 	}
 	if (input.actionTarget === "org_wake_access") {
 		return buildOrganizationWakeAccessPath(input.orgSlug);

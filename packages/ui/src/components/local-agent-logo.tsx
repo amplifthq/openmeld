@@ -154,7 +154,7 @@ export function LocalAgentLogo({
     <span
       aria-hidden="true"
       className={cn(
-        "inline-flex shrink-0 items-center justify-center",
+        "pointer-events-none inline-flex shrink-0 items-center justify-center",
         LOCAL_AGENT_LOGO_SIZE_CLASS_NAMES[size],
         className
       )}

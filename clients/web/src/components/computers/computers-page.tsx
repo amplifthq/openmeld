@@ -1,7 +1,7 @@
 "use client";
 
 import type { LocalRuntimeComputer } from "@openmeld/schemas/types";
-import { buttonVariants } from "@openmeld/ui/components/button";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
@@ -18,12 +18,11 @@ import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-nav
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationComputersPath } from "#/lib/organizations/organization-routes";
+import { buildOrganizationPeoplePath } from "#/lib/organizations/organization-routes";
 import {
 	organizationComputersQueryOptions,
 	organizationDirectoryQueryOptions,
 } from "#/query/organizations/organization-directory";
-import { ComputersPicker } from "./computers-picker";
 import { OrganizationComputerDetail } from "./organization-computer-card";
 import {
 	formatOrganizationComputerPlatform,
@@ -35,16 +34,9 @@ import {
 const COMPUTERS_SERVICE_STATUS_REFETCH_INTERVAL_MS = 10_000;
 
 /**
- * The first-level Computers home.
- *
- * `/o/:orgSlug/computers` opens on a picker grouped by owner in Organization
- * workspaces. The signed-in member's cards come from their complete personal
- * inventory. Other members' read-only cards come from Core's team-safe
- * Organization Computer projection, so a connected computer remains visible
- * before its owner creates an Agent Profile. They expose only the bounded team
- * status defined by that projection and never local accounts, paths, versions,
- * policies, or controls. Selecting a computer navigates to
- * `/o/:orgSlug/computers/:deviceId` with an opaque directory route id.
+ * Computer detail route owner. `/o/:orgSlug/computers` is now only a legacy
+ * handoff that resolves the current Computer and immediately opens its detail.
+ * Human-owned Computer lists live in People > Human Profile.
  *
  * This reuses the same `useLocalAgentRecoveryController` hook, the same device
  * list / current-device sources, and the same
@@ -60,6 +52,7 @@ export type ComputersRouteState = {
 	computersFocusService: boolean;
 	computersSelectedDeviceId: string | null;
 	computersSetupCompleteRefresh: boolean;
+	onComputerRouteUnavailable?: () => void;
 	onComputerRouteResolved?: (deviceId: string) => void;
 	onFocusConsumed?: () => void;
 };
@@ -100,11 +93,12 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		isOrganizationContext &&
 		(organizationDirectoryQuery.isPending ||
 			organizationComputersQuery.isPending);
-	const directoryError =
-		isOrganizationContext &&
-		(organizationDirectoryQuery.isError || organizationComputersQuery.isError)
-			? "OpenMeld couldn't load other members' computers."
-			: null;
+	const computerResolutionError = resolveComputerResolutionError([
+		recovery.localRuntimesQuery.error,
+		...(isOrganizationContext
+			? [organizationDirectoryQuery.error, organizationComputersQuery.error]
+			: []),
+	]);
 	const computerGroups = resolveOrganizationComputerGroups({
 		currentUserId,
 		directory: organizationDirectoryQuery.data ?? null,
@@ -134,25 +128,45 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	const canResolvePreferredDeviceRoute =
 		preferredDeviceId !== null &&
 		devices.some((device) => device.deviceId === preferredDeviceId);
+	const inventoryIsSettled =
+		!(
+			recovery.localRuntimesQuery.isPending ||
+			recovery.localRuntimesQuery.isFetching
+		) &&
+		recovery.localRuntimesQuery.isFetchedAfterMount &&
+		!recovery.localRuntimesQuery.isError &&
+		setupCompleteRefreshStatus !== "pending" &&
+		setupCompleteRefreshStatus !== "error";
 
 	useResolvePreferredComputerRoute({
 		canResolvePreferredDeviceRoute,
+		inventoryIsSettled,
 		onComputerRouteResolved: routeState.onComputerRouteResolved,
 		preferredDeviceId,
-		shouldResolve:
-			(routeState.computersFocusFileAccess ||
-				routeState.computersFocusService) &&
-			selectedDeviceId === null,
+		shouldResolve: selectedDeviceId === null,
+	});
+	useResolveMissingComputerRoute({
+		canResolvePreferredDeviceRoute,
+		inventoryIsSettled,
+		onComputerRouteUnavailable: routeState.onComputerRouteUnavailable,
+		preferredDeviceId,
+		shouldResolve: selectedDeviceId === null,
+	});
+	const ownerProfileId = resolveComputerOwnerProfileId({
+		currentUserId,
+		directory: organizationDirectoryQuery.data ?? null,
+		selectedComputer,
+		selectedOrganizationComputer,
 	});
 
 	const sectionTitle = resolveComputersSectionTitle({
+		hasResolutionError: computerResolutionError !== null,
 		selectedOrganizationComputer,
 		selectedComputer,
 		selectedDeviceId,
 	});
 	const sectionDescription = resolveComputersSectionDescription({
-		isOrganizationContext,
-		organizationName: currentOrganization.name,
+		hasResolutionError: computerResolutionError !== null,
 		selectedOrganizationComputer,
 		selectedComputer,
 		selectedDeviceId,
@@ -177,27 +191,47 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 								APP_INLINE_BACK_LINK_CLASS_NAME,
 								"text-foreground hover:text-foreground/80"
 							)}
-							data-testid="all-computers-link"
-							to={buildOrganizationComputersPath(orgSlug)}
+							data-testid="computer-owner-profile-link"
+							search={
+								ownerProfileId ? { profileId: ownerProfileId } : undefined
+							}
+							to={buildOrganizationPeoplePath(orgSlug)}
 						>
 							<ArrowLeftIcon
 								aria-hidden="true"
 								className="size-4 shrink-0"
 								data-icon="inline-start"
 							/>
-							All computers
+							Back to profile
 						</Link>
 					</div>
 				) : null}
 				<ComputersPageBody
 					computerGroups={computerGroups}
-					directoryError={directoryError}
 					directoryIsPending={directoryIsPending}
-					isOrganizationContext={isOrganizationContext}
 					isReconcilingCurrentToolsStatus={isReconcilingCurrentToolsStatus}
+					onRetry={() => {
+						Promise.all([
+							recovery.refreshAll(),
+							...(isOrganizationContext
+								? [
+										organizationDirectoryQuery.refetch(),
+										organizationComputersQuery.refetch(),
+									]
+								: []),
+						]).catch((error: unknown) => {
+							console.error("Failed to refresh Computer details.", error);
+						});
+					}}
 					orgSlug={orgSlug}
 					queryClient={queryClient}
 					recovery={recovery}
+					resolutionError={
+						computerResolutionError ??
+						(setupCompleteRefreshStatus === "error"
+							? "OpenMeld could not refresh this Computer after setup."
+							: null)
+					}
 					routeState={routeState}
 					selectedComputer={selectedComputer}
 					selectedDeviceId={selectedDeviceId}
@@ -211,10 +245,9 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 
 function ComputersPageBody(input: {
 	computerGroups: readonly OrganizationComputerGroup[];
-	directoryError: string | null;
 	directoryIsPending: boolean;
-	isOrganizationContext: boolean;
 	isReconcilingCurrentToolsStatus: boolean;
+	onRetry: () => void;
 	orgSlug: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
@@ -222,6 +255,7 @@ function ComputersPageBody(input: {
 	selectedComputer: LocalRuntimeComputer | null;
 	selectedDeviceId: string | null;
 	selectedOrganizationComputer: OrganizationComputer | null;
+	resolutionError: string | null;
 	setupCompleteRefreshPending: boolean;
 }) {
 	if (
@@ -251,21 +285,18 @@ function ComputersPageBody(input: {
 			/>
 		);
 	}
+	if (input.resolutionError) {
+		return (
+			<ComputerResolutionErrorState
+				errorMessage={input.resolutionError}
+				onRetry={input.onRetry}
+			/>
+		);
+	}
 	if (input.selectedDeviceId !== null) {
 		return <ComputerNotFoundState orgSlug={input.orgSlug} />;
 	}
-	return (
-		<ComputersPicker
-			computerGroups={input.computerGroups}
-			directoryError={input.directoryError}
-			directoryIsPending={input.directoryIsPending}
-			isOrganizationContext={input.isOrganizationContext}
-			isPending={input.recovery.localRuntimesQuery.isPending}
-			isReconcilingCurrentToolsStatus={input.isReconcilingCurrentToolsStatus}
-			orgSlug={input.orgSlug}
-			recovery={input.recovery}
-		/>
-	);
+	return <SelectedComputerLoading />;
 }
 
 // A Computers deep-link can target one current-Computer control. Resolve the
@@ -273,6 +304,7 @@ function ComputersPageBody(input: {
 // detail panel consumes focus.
 function useResolvePreferredComputerRoute(input: {
 	canResolvePreferredDeviceRoute: boolean;
+	inventoryIsSettled: boolean;
 	onComputerRouteResolved?: (deviceId: string) => void;
 	preferredDeviceId: string | null;
 	shouldResolve: boolean;
@@ -280,6 +312,7 @@ function useResolvePreferredComputerRoute(input: {
 	useEffect(() => {
 		if (
 			input.shouldResolve &&
+			input.inventoryIsSettled &&
 			input.preferredDeviceId &&
 			input.canResolvePreferredDeviceRoute
 		) {
@@ -287,10 +320,60 @@ function useResolvePreferredComputerRoute(input: {
 		}
 	}, [
 		input.canResolvePreferredDeviceRoute,
+		input.inventoryIsSettled,
 		input.onComputerRouteResolved,
 		input.preferredDeviceId,
 		input.shouldResolve,
 	]);
+}
+
+function useResolveMissingComputerRoute(input: {
+	canResolvePreferredDeviceRoute: boolean;
+	inventoryIsSettled: boolean;
+	onComputerRouteUnavailable?: () => void;
+	preferredDeviceId: string | null;
+	shouldResolve: boolean;
+}) {
+	useEffect(() => {
+		if (
+			input.shouldResolve &&
+			input.inventoryIsSettled &&
+			!(input.preferredDeviceId && input.canResolvePreferredDeviceRoute)
+		) {
+			input.onComputerRouteUnavailable?.();
+		}
+	}, [
+		input.canResolvePreferredDeviceRoute,
+		input.inventoryIsSettled,
+		input.onComputerRouteUnavailable,
+		input.preferredDeviceId,
+		input.shouldResolve,
+	]);
+}
+
+function resolveComputerOwnerProfileId(input: {
+	currentUserId: string;
+	directory: Parameters<
+		typeof resolveOrganizationComputerGroups
+	>[0]["directory"];
+	selectedComputer: LocalRuntimeComputer | null;
+	selectedOrganizationComputer: OrganizationComputer | null;
+}): string | null {
+	const ownerUserId = input.selectedComputer
+		? input.currentUserId
+		: input.selectedOrganizationComputer?.ownerUserId;
+	if (!ownerUserId) {
+		return null;
+	}
+	const ownerMember = input.directory?.members.find(
+		(member) => member.userId === ownerUserId
+	);
+	if (!ownerMember) {
+		return null;
+	}
+	return (
+		ownerMember.humanProfile?.profileId ?? `member:${ownerMember.memberId}`
+	);
 }
 
 function resolveSelectedOrganizationComputer(input: {
@@ -309,12 +392,23 @@ function resolveSelectedOrganizationComputer(input: {
 }
 
 function resolveComputersSectionTitle(input: {
+	hasResolutionError: boolean;
 	selectedOrganizationComputer: OrganizationComputer | null;
 	selectedComputer: LocalRuntimeComputer | null;
 	selectedDeviceId: string | null;
 }): string {
 	if (input.selectedDeviceId === null) {
-		return "Computers";
+		if (input.hasResolutionError) {
+			return "Computer details are unavailable";
+		}
+		return "Computer";
+	}
+	if (
+		input.hasResolutionError &&
+		!input.selectedComputer &&
+		!input.selectedOrganizationComputer
+	) {
+		return "Computer details are unavailable";
 	}
 	return (
 		input.selectedComputer?.deviceDisplayName ??
@@ -324,17 +418,16 @@ function resolveComputersSectionTitle(input: {
 }
 
 function resolveComputersSectionDescription(input: {
-	isOrganizationContext: boolean;
-	organizationName: string;
+	hasResolutionError: boolean;
 	selectedOrganizationComputer: OrganizationComputer | null;
 	selectedComputer: LocalRuntimeComputer | null;
 	selectedDeviceId: string | null;
 }): string {
 	if (input.selectedDeviceId === null) {
-		if (input.isOrganizationContext) {
-			return `See the computers used by Agents in ${input.organizationName}. You can manage only the computers connected to your account.`;
+		if (input.hasResolutionError) {
+			return "OpenMeld could not load this Computer. Try again to refresh its details.";
 		}
-		return "Connect a computer to let OpenMeld run Agents through local tools such as Codex, Claude Code, and Grok Build.";
+		return "Opening this computer's details.";
 	}
 	if (input.selectedComputer) {
 		return formatComputerTabPlatform(input.selectedComputer);
@@ -344,7 +437,30 @@ function resolveComputersSectionDescription(input: {
 			input.selectedOrganizationComputer
 		);
 	}
+	if (input.hasResolutionError) {
+		return "OpenMeld could not load this Computer. Try again to refresh its details.";
+	}
 	return "This computer is no longer available in this workspace.";
+}
+
+function resolveComputerResolutionError(
+	errors: readonly unknown[]
+): string | null {
+	for (const error of errors) {
+		if (error instanceof Error && error.message.trim()) {
+			return error.message.trim();
+		}
+		if (
+			typeof error === "object" &&
+			error !== null &&
+			"message" in error &&
+			typeof error.message === "string" &&
+			error.message.trim()
+		) {
+			return error.message.trim();
+		}
+	}
+	return null;
 }
 
 function SelectedComputerLoading() {
@@ -356,6 +472,28 @@ function SelectedComputerLoading() {
 	);
 }
 
+function ComputerResolutionErrorState(input: {
+	errorMessage: string;
+	onRetry: () => void;
+}) {
+	return (
+		<div className="border border-border/70 bg-card/35 px-4 py-5" role="alert">
+			<p className="max-w-xl text-muted-foreground text-sm">
+				{input.errorMessage}
+			</p>
+			<Button
+				className="mt-4"
+				onClick={input.onRetry}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				Try again
+			</Button>
+		</div>
+	);
+}
+
 function ComputerNotFoundState(input: { orgSlug: string }) {
 	return (
 		<div
@@ -363,17 +501,17 @@ function ComputerNotFoundState(input: { orgSlug: string }) {
 			data-testid="computer-not-found-state"
 		>
 			<p className="max-w-xl text-muted-foreground text-sm">
-				This computer is no longer available. Return to all computers to choose
-				another machine.
+				This computer is no longer available. Return to People to choose another
+				computer from its owner's profile.
 			</p>
 			<Link
 				className={cn(
 					buttonVariants({ size: "sm", variant: "outline" }),
 					"mt-4"
 				)}
-				to={buildOrganizationComputersPath(input.orgSlug)}
+				to={buildOrganizationPeoplePath(input.orgSlug)}
 			>
-				All computers
+				Back to People
 			</Link>
 		</div>
 	);

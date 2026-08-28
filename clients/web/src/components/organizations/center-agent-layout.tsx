@@ -8,7 +8,6 @@ import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { AppOuterRailFrame } from "#/components/app/app-outer-rail-frame";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { useComputerAttentionTone } from "#/components/app/use-computer-attention-tone";
 import {
 	resolveClientSidebarInitialState,
 	type SidebarPersistedState,
@@ -20,8 +19,6 @@ export function CenterAgentLayout(input: {
 	initialOuterSidebarState?: SidebarPersistedState;
 }) {
 	const account = useAppShellAccount();
-	const computerAttentionTone = useComputerAttentionTone();
-
 	return (
 		<AppSurfaceLayout
 			frameSlotName="center-agent-layout"
@@ -31,7 +28,6 @@ export function CenterAgentLayout(input: {
 			outerRail={
 				<AppOuterRail
 					account={account}
-					computerAttentionTone={computerAttentionTone}
 					initialState={input.initialOuterSidebarState}
 				/>
 			}

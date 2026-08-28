@@ -42,59 +42,65 @@ export function AppSurfaceLayout(input: {
 				</AppNavigationPresentationProvider>
 			</div>
 			<div
-				className="relative mb-[calc(3.5rem+env(safe-area-inset-bottom))] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background lg:mt-2 lg:mr-2 lg:mb-9 lg:rounded-md lg:border-[0.5px] lg:border-border"
-				data-slot="app-surface"
+				className="relative flex min-h-0 min-w-0 flex-1"
+				data-slot="app-content-column"
 			>
-				<header
-					className="flex min-h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-end border-border border-b bg-background px-2 pt-[env(safe-area-inset-top)] lg:hidden"
-					data-slot="app-mobile-navigation-header"
+				<div
+					className="relative mb-[calc(3.5rem+env(safe-area-inset-bottom))] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background lg:mt-2 lg:mr-2 lg:mb-9 lg:rounded-md lg:border-[0.5px] lg:border-border"
+					data-slot="app-surface"
 				>
-					<div className="flex h-14 w-full items-center gap-2">
-						<button
-							aria-expanded={appNavigationOpen}
-							aria-label="Open app navigation"
-							className="flex min-h-11 min-w-11 touch-manipulation items-center justify-center gap-2 rounded-md px-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-							onClick={openAppNavigation}
-							ref={appNavigationTriggerRef}
-							type="button"
-						>
-							<ListIcon aria-hidden="true" className="size-5" />
-							<span>Menu</span>
-						</button>
-						{input.sidebar && input.mobileSidebarTitle ? (
+					<header
+						className="flex min-h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-end border-border border-b bg-background px-2 pt-[env(safe-area-inset-top)] lg:hidden"
+						data-slot="app-mobile-navigation-header"
+					>
+						<div className="flex h-14 w-full items-center gap-2">
 							<button
-								aria-expanded={contextualNavigationOpen}
-								aria-label={`Open ${input.mobileSidebarTitle} navigation`}
-								className="ml-auto flex min-h-11 min-w-0 touch-manipulation items-center justify-center gap-2 rounded-md px-3 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring md:hidden"
-								onClick={openContextualNavigation}
-								ref={contextualNavigationTriggerRef}
+								aria-expanded={appNavigationOpen}
+								aria-label="Open app navigation"
+								className="flex min-h-11 min-w-11 touch-manipulation items-center justify-center gap-2 rounded-md px-2 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+								onClick={openAppNavigation}
+								ref={appNavigationTriggerRef}
 								type="button"
 							>
-								<SidebarSimpleIcon
-									aria-hidden="true"
-									className="size-5 shrink-0"
-								/>
-								<span className="truncate">{input.mobileSidebarTitle}</span>
+								<ListIcon aria-hidden="true" className="size-5" />
+								<span>Menu</span>
 							</button>
-						) : null}
-					</div>
-				</header>
-				<div
-					className="flex min-h-0 min-w-0 flex-1"
-					data-slot="app-surface-body"
-				>
-					{input.sidebar ? (
-						<div
-							className="hidden md:contents"
-							data-slot="app-inline-contextual-navigation"
-						>
-							<AppNavigationPresentationProvider presentation="inline">
-								{input.sidebar}
-							</AppNavigationPresentationProvider>
+							{input.sidebar && input.mobileSidebarTitle ? (
+								<button
+									aria-expanded={contextualNavigationOpen}
+									aria-label={`Open ${input.mobileSidebarTitle} navigation`}
+									className="ml-auto flex min-h-11 min-w-0 touch-manipulation items-center justify-center gap-2 rounded-md px-3 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+									onClick={openContextualNavigation}
+									ref={contextualNavigationTriggerRef}
+									type="button"
+								>
+									<SidebarSimpleIcon
+										aria-hidden="true"
+										className="size-5 shrink-0"
+									/>
+									<span className="truncate">{input.mobileSidebarTitle}</span>
+								</button>
+							) : null}
 						</div>
-					) : null}
-					{input.children}
+					</header>
+					<div
+						className="flex min-h-0 min-w-0 flex-1"
+						data-slot="app-surface-body"
+					>
+						{input.sidebar ? (
+							<div
+								className="hidden md:contents"
+								data-slot="app-inline-contextual-navigation"
+							>
+								<AppNavigationPresentationProvider presentation="inline">
+									{input.sidebar}
+								</AppNavigationPresentationProvider>
+							</div>
+						) : null}
+						{input.children}
+					</div>
 				</div>
+				{input.globalControls}
 			</div>
 			<AppMobileNavigationDrawer
 				closeLabel="Close app navigation"
@@ -119,7 +125,6 @@ export function AppSurfaceLayout(input: {
 					{input.sidebar}
 				</AppMobileNavigationDrawer>
 			) : null}
-			{input.globalControls}
 		</div>
 	);
 }

@@ -13,6 +13,13 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import {
@@ -21,12 +28,20 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import { PaperPlaneTiltIcon } from "@phosphor-icons/react";
+import { PaperPlaneTiltIcon, PlusIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import {
+	type ComponentProps,
+	type FormEvent,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
+import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import type { AppShellAccount } from "#/components/app/app-shell-account";
+import { resolveOrganizationComputerGroups } from "#/components/computers/organization-computers";
 import {
 	buildOrganizationHumanProfileRows,
 	buildPersonalHumanProfileRows,
@@ -35,10 +50,10 @@ import {
 	resolveMissingPersonalHumanProfileMessage,
 } from "#/components/directory/directory-human-profile-model";
 import {
-	DirectoryHumanProfilesSection,
 	type DirectoryHumanProfilesViewState,
+	DirectoryHumanProfilesWorkspace,
 	type DirectoryMemberResearchRequest,
-} from "#/components/directory/directory-human-profiles-section";
+} from "#/components/directory/directory-human-profiles-workspace";
 import { OrganizationInviteLink } from "#/components/organizations/organization-invite-link";
 import { PersonalWorkspaceInvitationGuidance } from "#/components/organizations/personal-workspace-invitation-guidance";
 import {
@@ -58,8 +73,10 @@ import { canManageOrganizationArea } from "#/lib/organizations/organization-perm
 import {
 	buildOrganizationDirectMessagePath,
 	buildOrganizationNewOrganizationPath,
+	buildOrganizationPeoplePath,
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import {
 	openCurrentDirectMessageSpace,
 	resolveDirectMessageOpenErrorMessage,
@@ -108,6 +125,33 @@ type HumanDirectMessageIntent = {
 	organizationSlug: string;
 	targetProfileId: string;
 };
+
+type LocalAgentRecoveryController = ReturnType<
+	typeof useLocalAgentRecoveryController
+>;
+
+type DirectoryMembersOverviewProps = {
+	account: AppShellAccount;
+	currentOrganization: OrganizationSummary;
+	currentUserId: string;
+	directoryQuery: DirectoryQueryState;
+	focusProfileId: string | null;
+	initialSidebarStates?: AppSidebarPersistedStates;
+	onCreateProfile: () => void;
+	onFocusConsumed?: () => void;
+	recovery: LocalAgentRecoveryController;
+	storageScope: string;
+};
+
+type DirectoryInvitationAccess =
+	| { kind: "allowed" }
+	| { kind: "forbidden" }
+	| { kind: "loading" }
+	| { kind: "personal" }
+	| { kind: "unavailable" };
+
+const PROFILE_REPORT_DOCUMENTS_ERROR_MESSAGE =
+	"Report links are unavailable because Documents could not be loaded.";
 
 function useDirectoryMemberResearch(organizationId: string) {
 	const queryClient = useQueryClient();
@@ -217,19 +261,18 @@ function resolveHumanProfilesViewState(input: {
 	};
 }
 
-export function DirectoryMembersOverview(input: {
-	account: AppShellAccount;
-	currentOrganization: OrganizationSummary;
-	currentUserId: string;
-	directoryQuery: DirectoryQueryState;
-	focusProfileId: string | null;
-	onCreateProfile: () => void;
-	onFocusConsumed?: () => void;
-	storageScope: string;
-}) {
+export function DirectoryMembersOverview(input: DirectoryMembersOverviewProps) {
+	const model = useDirectoryMembersOverviewModel(input);
+	return <DirectoryMembersOverviewView model={model} />;
+}
+
+function useDirectoryMembersOverviewModel(
+	input: DirectoryMembersOverviewProps
+) {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const directMessageIntentInFlightRef = useRef(false);
+	const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
 	const profileCapabilitiesQuery = useQuery(profileCapabilitiesQueryOptions());
 	const canCreateHumanProfile = isAdditionalHumanProfileCreationEnabled(
 		profileCapabilitiesQuery
@@ -386,8 +429,17 @@ export function DirectoryMembersOverview(input: {
 		isSuccess: documentsQuery.isSuccess,
 	});
 	const computersStatus = resolveDirectoryProjectionStatus(computersQuery);
+	const currentUserComputersStatus = resolveDirectoryProjectionStatus(
+		input.recovery.localRuntimesQuery
+	);
 	const messageChannelsStatus =
 		resolveDirectoryProjectionStatus(messageChannelsQuery);
+	const computerGroups = resolveOrganizationComputerGroups({
+		currentUserId: input.currentUserId,
+		directory: input.directoryQuery.data ?? null,
+		organizationComputers: computersQuery.data ?? null,
+		ownedComputers: input.recovery.localRuntimesQuery.data?.localRuntimes ?? [],
+	});
 	const memberRows = isPersonalWorkspace
 		? buildPersonalHumanProfileRows({
 				account: input.account,
@@ -404,8 +456,9 @@ export function DirectoryMembersOverview(input: {
 				agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
 				canManageConnectedAccounts,
 				canManageMessageChannels,
-				computers: computersQuery.data ?? null,
+				computerGroups,
 				computersStatus,
+				currentUserComputersStatus,
 				currentUserId: input.currentUserId,
 				documents: documentsQuery.data?.documents ?? [],
 				documentsStatus,
@@ -432,65 +485,184 @@ export function DirectoryMembersOverview(input: {
 		profilesArePending,
 		researchIsPending: researchMutation.isPending,
 	});
-	const profilesSection = (
-		<DirectoryHumanProfilesSection
-			activeBatch={activeResearchBatch}
-			canCreateProfile={canCreateHumanProfile}
-			emptyMessage={profilesEmptyMessage}
-			errorMessage={profilesError}
-			focusProfileId={input.focusProfileId}
-			latestBatch={latestResearchBatch}
-			memberResearchError={researchErrors.member}
-			members={memberRows}
-			onCreateProfile={input.onCreateProfile}
-			onDisconnectConnectedAccount={(identityLinkId) =>
-				disconnectConnectedAccountMutation.mutate(identityLinkId)
-			}
-			onFocusConsumed={input.onFocusConsumed}
-			onOpenDirectMessage={openHumanDirectMessage}
-			onRequestChannelSetup={async (provider) => {
+	const selectedProfileId = resolveSelectedProfileId({
+		members: memberRows,
+		requestedProfileId: input.focusProfileId,
+	});
+	const workspaceProps: ComponentProps<typeof DirectoryHumanProfilesWorkspace> =
+		{
+			activeBatch: activeResearchBatch,
+			canCreateProfile: canCreateHumanProfile,
+			computerGroups,
+			directoryError: computersQuery.isError
+				? "OpenMeld couldn't load this member's computers."
+				: null,
+			directoryIsPending: computersQuery.isPending,
+			emptyMessage: profilesEmptyMessage,
+			errorMessage: profilesError,
+			initialSidebarStates: input.initialSidebarStates,
+			latestBatch: latestResearchBatch,
+			memberResearchError: researchErrors.member,
+			members: memberRows,
+			onCreateProfile: input.onCreateProfile,
+			onDisconnectConnectedAccount: (identityLinkId) =>
+				disconnectConnectedAccountMutation.mutate(identityLinkId),
+			onOpenDirectMessage: openHumanDirectMessage,
+			onRetryProfileReports: () => {
+				documentsQuery.refetch({ throwOnError: true }).catch((error: unknown) =>
+					reportMemberResearchDocumentRefreshFailure({
+						error,
+						organizationId: input.currentOrganization.id,
+					})
+				);
+			},
+			onRequestChannelSetup: async (provider) => {
 				await requestMessageChannelSetupMutation.mutateAsync(provider);
-			}}
-			onResearch={(subjectUserId) =>
-				researchMutation.mutate({ scope: "member", subjectUserId })
-			}
-			onResearchAll={() => researchMutation.mutate({ scope: "all" })}
-			pendingResearch={researchMutation.variables}
-			researchErrorMessage={researchErrors.section}
-			state={profilesViewState}
-		/>
-	);
+			},
+			onResearch: (subjectUserId) =>
+				researchMutation.mutate({ scope: "member", subjectUserId }),
+			onResearchAll: () => researchMutation.mutate({ scope: "all" }),
+			onSelectProfile: (profileId) => {
+				if (profileId === selectedProfileId) {
+					return;
+				}
+				navigate({
+					search: { profileId },
+					to: buildOrganizationPeoplePath(input.currentOrganization.slug),
+				}).catch((error: unknown) => {
+					console.error("Failed to open the selected Human Profile.", error);
+				});
+			},
+			orgSlug: input.currentOrganization.slug,
+			pendingResearch: researchMutation.variables,
+			profileReportsAreRetrying: documentsQuery.isFetching,
+			profileReportsErrorMessage: documentsQuery.isError
+				? PROFILE_REPORT_DOCUMENTS_ERROR_MESSAGE
+				: null,
+			recovery: input.recovery,
+			researchErrorMessage: researchErrors.section,
+			selectedProfileId,
+			sidebarLeadingContent: (
+				<Button
+					aria-label="Invite Members"
+					className="w-full min-w-0 justify-start overflow-hidden"
+					onClick={() => setIsInviteDialogOpen(true)}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					<PlusIcon
+						aria-hidden="true"
+						className="shrink-0"
+						data-icon="inline-start"
+					/>
+					<span
+						aria-hidden="true"
+						className="@[12rem]/contextual-sidebar:inline hidden truncate"
+					>
+						Invite Members
+					</span>
+					<span
+						aria-hidden="true"
+						className="@[12rem]/contextual-sidebar:hidden truncate"
+					>
+						Invite
+					</span>
+				</Button>
+			),
+			state: profilesViewState,
+		};
+	return {
+		invitationAccess: resolveDirectoryInvitationAccess({
+			canInvite,
+			isPersonalWorkspace,
+			isRoleError: roleQuery.isError,
+			isRolePending: roleQuery.isPending,
+		}),
+		isInviteDialogOpen,
+		onInviteDialogOpenChange: setIsInviteDialogOpen,
+		organization: input.currentOrganization,
+		workspaceProps,
+	};
+}
 
-	if (isPersonalWorkspace) {
-		return (
-			<div className="flex flex-col gap-4">
-				<PersonalWorkspaceInvitationGuidance
-					createOrganizationPath={buildOrganizationNewOrganizationPath(
-						input.currentOrganization.slug
-					)}
-					title="Invite members"
-				/>
-				{documentsQuery.isError ? (
-					<DocumentProfileLinksError onRetry={() => documentsQuery.refetch()} />
-				) : null}
-				{profilesSection}
-			</div>
-		);
-	}
-
+function DirectoryMembersOverviewView(input: {
+	model: ReturnType<typeof useDirectoryMembersOverviewModel>;
+}) {
 	return (
-		<div className="flex flex-col gap-4">
-			<DirectoryInvitePanel
-				canInvite={canInvite}
-				isRoleError={roleQuery.isError}
-				isRolePending={roleQuery.isPending}
-				organizationId={input.currentOrganization.id}
+		<>
+			<DirectoryHumanProfilesWorkspace {...input.model.workspaceProps} />
+			<DirectoryInviteDialog
+				access={input.model.invitationAccess}
+				isOpen={input.model.isInviteDialogOpen}
+				onOpenChange={input.model.onInviteDialogOpenChange}
+				organization={input.model.organization}
 			/>
-			{documentsQuery.isError ? (
-				<DocumentProfileLinksError onRetry={() => documentsQuery.refetch()} />
-			) : null}
-			{profilesSection}
-		</div>
+		</>
+	);
+}
+
+function DirectoryInviteDialog(input: {
+	access: DirectoryInvitationAccess;
+	isOpen: boolean;
+	onOpenChange: (open: boolean) => void;
+	organization: OrganizationSummary;
+}) {
+	return (
+		<Dialog onOpenChange={input.onOpenChange} open={input.isOpen}>
+			<DialogContent className="max-h-[min(50rem,calc(100dvh-2rem))] overflow-y-auto sm:max-w-4xl">
+				<DialogHeader>
+					<DialogTitle>Invite Members</DialogTitle>
+					<DialogDescription>
+						Invite teammates by email or share an organization invite link.
+					</DialogDescription>
+				</DialogHeader>
+				{input.access.kind === "personal" ? (
+					<PersonalWorkspaceInvitationGuidance
+						createOrganizationPath={buildOrganizationNewOrganizationPath(
+							input.organization.slug
+						)}
+						title="Create an organization to invite members"
+					/>
+				) : (
+					<DirectoryInvitePanel
+						access={input.access}
+						organizationId={input.organization.id}
+					/>
+				)}
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function resolveDirectoryInvitationAccess(input: {
+	canInvite: boolean;
+	isPersonalWorkspace: boolean;
+	isRoleError: boolean;
+	isRolePending: boolean;
+}): DirectoryInvitationAccess {
+	if (input.isPersonalWorkspace) {
+		return { kind: "personal" };
+	}
+	if (input.isRolePending) {
+		return { kind: "loading" };
+	}
+	if (input.isRoleError) {
+		return { kind: "unavailable" };
+	}
+	return { kind: input.canInvite ? "allowed" : "forbidden" };
+}
+
+function resolveSelectedProfileId(input: {
+	members: readonly { id: string; isCurrentUser: boolean }[];
+	requestedProfileId: string | null;
+}): string | null {
+	return (
+		input.members.find((member) => member.id === input.requestedProfileId)
+			?.id ??
+		input.members.find((member) => member.isCurrentUser)?.id ??
+		input.members[0]?.id ??
+		null
 	);
 }
 
@@ -505,12 +677,10 @@ function resolveDirectoryProjectionStatus(input: {
 }
 
 function DirectoryInvitePanel(input: {
-	canInvite: boolean;
-	isRoleError: boolean;
-	isRolePending: boolean;
+	access: Exclude<DirectoryInvitationAccess, { kind: "personal" }>;
 	organizationId: string;
 }) {
-	if (input.isRolePending) {
+	if (input.access.kind === "loading") {
 		return (
 			<Card>
 				<CardHeader>
@@ -523,7 +693,7 @@ function DirectoryInvitePanel(input: {
 		);
 	}
 
-	if (input.isRoleError) {
+	if (input.access.kind === "unavailable") {
 		return (
 			<Card>
 				<CardHeader>
@@ -536,7 +706,7 @@ function DirectoryInvitePanel(input: {
 		);
 	}
 
-	if (!input.canInvite) {
+	if (input.access.kind === "forbidden") {
 		return (
 			<Card>
 				<CardHeader>
@@ -770,18 +940,5 @@ function resolveHumanProfilesError(input: {
 	return (
 		input.directoryErrorMessage ??
 		"OpenMeld could not load organization Human Profiles right now."
-	);
-}
-
-function DocumentProfileLinksError(input: { onRetry: () => void }) {
-	return (
-		<div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/50 bg-destructive/5 p-4">
-			<p className="text-destructive text-sm">
-				Report links are unavailable because Documents could not be loaded.
-			</p>
-			<Button onClick={input.onRetry} size="sm" variant="outline">
-				Retry
-			</Button>
-		</div>
 	);
 }

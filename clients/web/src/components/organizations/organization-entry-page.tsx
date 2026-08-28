@@ -28,7 +28,6 @@ import { AppMainContent } from "#/components/app/app-main-content";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { useComputerAttentionTone } from "#/components/app/use-computer-attention-tone";
 import { WelcomeLayout } from "#/components/welcome/welcome-layout";
 import { createOrganization } from "#/lib/organizations/auth-organizations";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -72,7 +71,6 @@ function OrganizationEntryPageContent(input: {
 }) {
 	const account = useAppShellAccount();
 	const { currentOrganization, organizations } = useAppOrganization();
-	const computerAttentionTone = useComputerAttentionTone();
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [organizationName, setOrganizationName] = useState("");
@@ -225,12 +223,7 @@ function OrganizationEntryPageContent(input: {
 	return (
 		<AppSurfaceLayout
 			globalControls={<AppGlobalControls />}
-			outerRail={
-				<AppOuterRail
-					account={account}
-					computerAttentionTone={computerAttentionTone}
-				/>
-			}
+			outerRail={<AppOuterRail account={account} />}
 		>
 			<AppMainContent
 				bodySlotName="organization-entry-content-scroll"

@@ -29,6 +29,7 @@ const INNER_SIDEBAR_STATE_COOKIE_NAMES = {
 	"agent-activity": "openmeld_sidebar_inner_agent_activity",
 	"center-agent": "openmeld_sidebar_inner_center_agent",
 	"direct-messages": "openmeld_sidebar_inner_direct_messages",
+	people: "openmeld_sidebar_inner_people",
 	settings: "openmeld_sidebar_inner_settings",
 	spaces: "openmeld_sidebar_inner_spaces",
 } as const;
@@ -292,6 +293,7 @@ function readAppSidebarStateCatalogFromCookieHeader(
 				cookieHeader,
 				"direct-messages"
 			),
+			people: readInnerSidebarStateFromCookieHeader(cookieHeader, "people"),
 			settings: readInnerSidebarStateFromCookieHeader(cookieHeader, "settings"),
 			spaces: readInnerSidebarStateFromCookieHeader(cookieHeader, "spaces"),
 		},

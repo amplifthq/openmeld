@@ -6,6 +6,19 @@ import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar
 const AVATAR_SIZE = {
 	card: 56,
 	detail: 96,
+	sidebar: 32,
+} as const;
+
+const PLACEHOLDER_SIZE_CLASS_NAME = {
+	card: "size-14",
+	detail: "size-24",
+	sidebar: "size-8",
+} as const;
+
+const PLACEHOLDER_ICON_SIZE_CLASS_NAME = {
+	card: "size-6",
+	detail: "size-10",
+	sidebar: "size-3.5",
 } as const;
 
 export function DirectoryHumanProfileAvatar(input: {
@@ -35,7 +48,7 @@ export function DirectoryHumanProfileAvatar(input: {
 		<span
 			className={cn(
 				"grid shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground",
-				input.context === "card" ? "size-14" : "size-24"
+				PLACEHOLDER_SIZE_CLASS_NAME[input.context]
 			)}
 			data-testid={
 				input.context === "detail"
@@ -45,7 +58,7 @@ export function DirectoryHumanProfileAvatar(input: {
 		>
 			<UserIcon
 				aria-hidden="true"
-				className={input.context === "card" ? "size-6" : "size-10"}
+				className={PLACEHOLDER_ICON_SIZE_CLASS_NAME[input.context]}
 			/>
 		</span>
 	);

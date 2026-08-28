@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { SpaceAgentRecoveryActionControl } from "./space-agent-recovery-action";
 import { SpaceWakeFailureActionControl } from "./space-wake-failure-action";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -9,8 +10,10 @@ vi.mock("@tanstack/react-router", () => ({
 	),
 }));
 
+afterEach(cleanup);
+
 describe("SpaceWakeFailureActionControl", () => {
-	it("opens Computers instead of restarting setup for a Local Agent update", () => {
+	it("opens the affected Agent Profile instead of an unrelated current Computer", () => {
 		render(
 			<SpaceWakeFailureActionControl
 				display={{
@@ -21,6 +24,7 @@ describe("SpaceWakeFailureActionControl", () => {
 				}}
 				orgSlug="amplift"
 				prepareSetupHref="/o/amplift/connect?session=fresh"
+				targetProfileId="agent-profile-1"
 			/>
 		);
 
@@ -28,6 +32,33 @@ describe("SpaceWakeFailureActionControl", () => {
 			screen
 				.getByRole("link", { name: "Update or change local agent" })
 				.getAttribute("href")
-		).toBe("/o/amplift/computers");
+		).toBe("/o/amplift/agents?profileId=agent-profile-1");
+	});
+
+	it("keeps Local Agent recovery scoped to the affected Agent Profile", () => {
+		render(
+			<SpaceAgentRecoveryActionControl
+				isPending={false}
+				onAction={vi.fn()}
+				orgSlug="amplift"
+				plan={{
+					body: "Claude Code needs an update on its bound Computer.",
+					kind: "prepare_agent_profile",
+					primaryActionId: "manage_local_agent",
+					primaryActionLabel: "Update or change local agent",
+					profileId: "agent-profile-1",
+					profileName: "Claude Code",
+					recoveryReasonCode: "controller.client.upgrade_required",
+					secondaryLabel: "Update required",
+					title: "Claude Code needs an update",
+				}}
+			/>
+		);
+
+		expect(
+			screen
+				.getByRole("link", { name: "Update or change local agent" })
+				.getAttribute("href")
+		).toBe("/o/amplift/agents?profileId=agent-profile-1");
 	});
 });

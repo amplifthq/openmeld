@@ -8,6 +8,7 @@ import type {
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import { resolveOrganizationComputerGroups } from "#/components/computers/organization-computers";
 import {
 	buildOrganizationHumanProfileRows,
 	buildPersonalHumanProfileRows,
@@ -108,6 +109,36 @@ describe("directory Human Profile model", () => {
 				}),
 			])
 		);
+	});
+
+	it("orders connected Channel identities before Channels that still need an account", () => {
+		const [member] = buildOrganizationRows({
+			messageChannels: buildMessageChannels({
+				connections: [
+					buildConnection({ provider: "lark" }),
+					buildConnection({ provider: "slack" }),
+				],
+				identityLinks: [
+					buildIdentityLink({
+						openMeldUserId: "user-a",
+						provider: "slack",
+						providerAccountEmail: "ari@amplift.ai",
+						providerAccountName: "Ari",
+					}),
+				],
+			}),
+			messageChannelsStatus: "ready",
+		});
+
+		expect(
+			member?.identityAccounts.map((account) => ({
+				provider: account.provider,
+				state: account.state,
+			}))
+		).toEqual([
+			{ provider: "slack", state: "connected" },
+			{ provider: "lark", state: "not_connected" },
+		]);
 	});
 
 	it("lets the current member refresh a legacy Slack link without disconnecting it", () => {
@@ -349,8 +380,13 @@ function buildOrganizationRows(input: {
 		agentProfiles: input.agentProfiles ?? [],
 		canManageConnectedAccounts: true,
 		canManageMessageChannels: true,
-		computers: null,
+		computerGroups: resolveOrganizationComputerGroups({
+			currentUserId: "user-a",
+			directory,
+			ownedComputers: [],
+		}),
 		computersStatus: "ready",
+		currentUserComputersStatus: "ready",
 		currentUserId: "user-a",
 		documents: [],
 		documentsStatus: input.documentsStatus ?? "ready",

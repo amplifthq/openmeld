@@ -596,6 +596,7 @@ function ActivityItemRow(input: {
 					recoveryRequest={recoveryRequest}
 					retryRequest={retryRequest}
 					showDiagnostics={noticeRecovery?.showDiagnostics}
+					targetProfileId={item.targetProfileId ?? undefined}
 				/>
 				{canStopThisTarget && activity.onWakeStopRequest ? (
 					<div className="mt-3">
@@ -982,6 +983,7 @@ function WakeFailureActions(input: {
 	recoveryRequest: SpaceExecutionRecoveryRequest | null;
 	retryRequest: SpaceWakeRetryRequest | null;
 	showDiagnostics?: boolean;
+	targetProfileId?: string;
 }) {
 	if (
 		!(
@@ -1010,6 +1012,7 @@ function WakeFailureActions(input: {
 				onAgentRecoveryAction={input.onAgentRecoveryAction}
 				orgSlug={input.orgSlug}
 				prepareSetupHref={input.prepareSetupHref}
+				targetProfileId={input.targetProfileId}
 			/>
 		);
 	} else if (input.recoveryRequest && input.onRecoverExecution) {
@@ -1053,6 +1056,7 @@ function WakeIssueAction(input: {
 	) => Promise<void>;
 	orgSlug?: string;
 	prepareSetupHref?: string;
+	targetProfileId?: string;
 }) {
 	if (!input.action) {
 		return null;
@@ -1068,6 +1072,7 @@ function WakeIssueAction(input: {
 				display={input.action.display}
 				orgSlug={input.orgSlug}
 				prepareSetupHref={input.prepareSetupHref}
+				targetProfileId={input.targetProfileId}
 			/>
 		);
 	}

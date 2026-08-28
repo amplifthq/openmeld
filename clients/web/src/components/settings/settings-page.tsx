@@ -30,7 +30,6 @@ import { AppInnerSidebar } from "#/components/app/app-inner-sidebar";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { useComputerAttentionTone } from "#/components/app/use-computer-attention-tone";
 import { SendFeedbackDialog } from "#/components/feedback/send-feedback-dialog";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationAccountSettingsPath } from "#/lib/organizations/organization-routes";
@@ -128,7 +127,6 @@ function SettingsPageShell(input: {
 }) {
 	const [feedbackOpen, setFeedbackOpen] = useState(false);
 	const account = useAppShellAccount();
-	const computerAttentionTone = useComputerAttentionTone();
 	const roleQuery = useQuery(
 		organizationMemberRoleQueryOptions({
 			enabled: input.organization.isPersonal !== true,
@@ -149,7 +147,6 @@ function SettingsPageShell(input: {
 				outerRail={
 					<AppOuterRail
 						account={account}
-						computerAttentionTone={computerAttentionTone}
 						initialState={
 							input.initialSidebarStates?.outer ??
 							APP_SIDEBAR_DEFAULT_STATES.outer

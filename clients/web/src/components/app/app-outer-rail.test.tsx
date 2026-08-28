@@ -163,7 +163,6 @@ const PRIMARY_RAIL_LABELS = [
 	"Direct Messages",
 	"People",
 	"Agents",
-	"Computers",
 	"Projects",
 	"Documents",
 	"Agent Activity",
@@ -394,7 +393,6 @@ describe("AppOuterRail", () => {
 			"Direct Messages",
 			"People",
 			"Agents",
-			"Computers",
 			"Agent Activity",
 			"Documents",
 			"Projects",
@@ -433,7 +431,6 @@ describe("AppOuterRail", () => {
 				"Spaces",
 				"People",
 				"Agents",
-				"Computers",
 				"Agent Activity",
 				"Documents",
 				"Projects",
@@ -814,7 +811,7 @@ describe("AppOuterRail", () => {
 		"collapsed",
 		"compact",
 		"full",
-	] as const)("keeps all ten product destinations in the same order for personal and organization workspaces in the %s tier", (tier) => {
+	] as const)("keeps all product destinations in the same order for personal and organization workspaces in the %s tier", (tier) => {
 		for (const workspaceKind of ["personal", "organization"] as const) {
 			const personalOrganization = {
 				id: "org-personal",
@@ -1633,77 +1630,10 @@ describe("AppOuterRail", () => {
 		expect(spacesLink.getAttribute("aria-current")).toBeNull();
 	});
 
-	it.each([
-		[
-			"warning",
-			"collapsed",
-			"Computers, needs attention",
-			"overlay",
-			["bg-amber-700", "dark:bg-amber-400"],
-		],
-		[
-			"warning",
-			"compact",
-			"Computers, needs attention",
-			"overlay",
-			["bg-amber-700", "dark:bg-amber-400"],
-		],
-		[
-			"warning",
-			"full",
-			"Computers, needs attention",
-			"trailing",
-			["bg-amber-700", "dark:bg-amber-400"],
-		],
-		[
-			"danger",
-			"collapsed",
-			"Computers, needs attention",
-			"overlay",
-			["bg-destructive"],
-		],
-		[
-			"danger",
-			"compact",
-			"Computers, needs attention",
-			"overlay",
-			["bg-destructive"],
-		],
-		[
-			"danger",
-			"full",
-			"Computers, needs attention",
-			"trailing",
-			["bg-destructive"],
-		],
-	] as const)("shows a tone-matched Computers attention dot for %s attention in the %s tier", (computerAttentionTone, tier, accessibleName, placement, expectedDotClassNames) => {
-		rememberClientSidebarState("outer", {
-			tier,
-			width: tier === "collapsed" ? "8rem" : "9rem",
-		});
-		renderRail({ computerAttentionTone, tier });
+	it("keeps Computers out of the main app rail", () => {
+		renderRail();
 
-		const computersLink = screen.getByRole("link", {
-			name: accessibleName,
-		});
-		const indicator = computersLink.querySelector(
-			'[data-app-rail-status-indicator="computer-attention"]'
-		);
-		expect(indicator).toBeTruthy();
-		for (const expectedDotClassName of expectedDotClassNames) {
-			expect(indicator?.className).toContain(expectedDotClassName);
-		}
-		expect(indicator?.getAttribute("data-app-rail-status-placement")).toBe(
-			placement
-		);
-		expect(computersLink.className).not.toContain("!text-amber-300");
-		expect(computersLink.className).not.toContain("!text-destructive");
-		expect(computersLink.querySelector("svg")?.className.baseVal).not.toContain(
-			"text-amber-300"
-		);
-		expect(computersLink.querySelector("svg")?.className.baseVal).not.toContain(
-			"text-destructive"
-		);
+		expect(screen.queryByRole("link", { name: "Computers" })).toBeNull();
 	});
 
 	it("prefers the latest client state over stale route loader state after remount", () => {
@@ -1766,7 +1696,6 @@ function renderRail(
 	input: {
 		account?: typeof TEST_ACCOUNT;
 		collapsedGroupIds?: readonly string[];
-		computerAttentionTone?: "warning" | "danger" | null;
 		tier?: SidebarTier;
 		width?: string;
 	} = {}
@@ -1778,7 +1707,6 @@ function buildRailElement(
 	input: {
 		account?: typeof TEST_ACCOUNT;
 		collapsedGroupIds?: readonly string[];
-		computerAttentionTone?: "warning" | "danger" | null;
 		tier?: SidebarTier;
 		width?: string;
 	} = {}
@@ -1793,7 +1721,6 @@ function buildRailElement(
 			<TooltipProvider>
 				<AppOuterRail
 					account={input.account ?? TEST_ACCOUNT}
-					computerAttentionTone={input.computerAttentionTone}
 					initialState={initialState}
 				/>
 			</TooltipProvider>

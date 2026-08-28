@@ -6,7 +6,6 @@ import { AppInnerSidebar } from "#/components/app/app-inner-sidebar";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { useComputerAttentionTone } from "#/components/app/use-computer-attention-tone";
 import { AppDirectMessagesSidebar } from "#/components/spaces/app-direct-messages-sidebar";
 import { AppSpacesSidebar } from "#/components/spaces/app-spaces-sidebar";
 import { SpaceWakeProgressVisibleProjectionProvider } from "#/components/spaces/space-wake-progress-visible-projection";
@@ -25,15 +24,12 @@ export function SpaceWindowShell(input: {
 	sidebarPreferenceKey: InnerSidebarPreferenceKey;
 }) {
 	const account = useAppShellAccount();
-	const computerAttentionTone = useComputerAttentionTone();
-
 	return (
 		<SpaceWindowFrame
 			initialSidebarState={input.initialSidebarState}
 			outerRail={
 				<AppOuterRail
 					account={account}
-					computerAttentionTone={computerAttentionTone}
 					initialState={input.initialOuterSidebarState}
 				/>
 			}

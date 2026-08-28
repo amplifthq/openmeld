@@ -31,7 +31,6 @@ const currentOrganizationMock = vi.hoisted(() => ({
 const useQueryMock = vi.hoisted(() => vi.fn());
 const useQueryClientMock = vi.hoisted(() => vi.fn());
 const useLocalAgentRecoveryControllerMock = vi.hoisted(() => vi.fn());
-const computerAttentionToneMock = vi.hoisted(() => vi.fn());
 const FILTER_AGENTS_NAME = /Filter Agents/;
 const CHECKING_AGENTS_FILTER_NAME = /Current filter: Checking, 0 Agents/;
 const CREATE_AN_AGENT_PROFILE_NAME = /Create an Agent/;
@@ -72,9 +71,7 @@ vi.mock("@tanstack/react-query", async () => {
 });
 
 vi.mock("#/components/app/app-outer-rail", () => ({
-	AppOuterRail: (props: {
-		computerAttentionTone?: "warning" | "danger" | null;
-	}) => {
+	AppOuterRail: (props: unknown) => {
 		appOuterRailSpy(props);
 		return <nav data-testid="outer-rail" />;
 	},
@@ -82,10 +79,6 @@ vi.mock("#/components/app/app-outer-rail", () => ({
 
 vi.mock("#/components/app/app-global-controls", () => ({
 	AppGlobalControls: () => <div data-testid="global-controls" />,
-}));
-
-vi.mock("#/components/app/use-computer-attention-tone", () => ({
-	useComputerAttentionTone: computerAttentionToneMock,
 }));
 
 vi.mock("#/components/app/app-inner-sidebar", () => ({
@@ -519,7 +512,6 @@ describe("PeopleAndAgentsPage", () => {
 		useLocalAgentRecoveryControllerMock
 			.mockReset()
 			.mockReturnValue(buildRecoveryStub());
-		computerAttentionToneMock.mockReset().mockReturnValue(null);
 	});
 
 	afterEach(() => {
@@ -568,28 +560,6 @@ describe("PeopleAndAgentsPage", () => {
 				ownerUserId: "another-user",
 			})
 		).toBe(false);
-	});
-
-	it("keeps the Computer attention marker visible from Agents", () => {
-		computerAttentionToneMock.mockReturnValue("warning");
-
-		render(
-			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
-		);
-
-		expect(appOuterRailSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ computerAttentionTone: "warning" })
-		);
-	});
-
-	it("does not mark Computers without current attention", () => {
-		render(
-			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
-		);
-
-		expect(appOuterRailSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ computerAttentionTone: null })
-		);
 	});
 
 	it("moves the create action into the empty Agents card", () => {
@@ -685,11 +655,7 @@ describe("PeopleAndAgentsPage", () => {
 			/>
 		);
 
-		expect(
-			screen.getByText(
-				"See who belongs to Acme, invite teammates, and manage how each person appears in Spaces."
-			)
-		).toBeTruthy();
+		expect(screen.queryByText("People")).toBeNull();
 		expect(screen.getByText("Human Profiles overview")).toBeTruthy();
 		expect(directoryMembersOverviewSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -719,8 +685,8 @@ describe("PeopleAndAgentsPage", () => {
 		);
 
 		expect(
-			screen.getByText("See the identity you use in Spaces.")
-		).toBeTruthy();
+			screen.queryByText("See the identity you use in Spaces.")
+		).toBeNull();
 		expect(screen.getByText("Human Profiles overview")).toBeTruthy();
 		expect(directoryMembersOverviewSpy).toHaveBeenCalledWith(
 			expect.objectContaining({

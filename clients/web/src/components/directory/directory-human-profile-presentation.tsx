@@ -1,5 +1,10 @@
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { resolveStatusToneRingIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
@@ -27,6 +32,7 @@ import {
 import { AppLogo } from "#/components/organizations/app-logo";
 
 export function DirectoryComputerSummary(input: {
+	interactive?: boolean;
 	member: DirectoryHumanProfileRow;
 	size?: "card" | "detail";
 }) {
@@ -47,9 +53,9 @@ export function DirectoryComputerSummary(input: {
 		</>
 	);
 	const className = cn("inline-flex min-w-0 items-center gap-2", "text-xs");
-	if (!input.member.computer.path) {
+	if (input.interactive === false || !input.member.computer.path) {
 		return (
-			<div className={cn(className, "text-muted-foreground")}>{content}</div>
+			<span className={cn(className, "text-muted-foreground")}>{content}</span>
 		);
 	}
 	return (
@@ -63,6 +69,35 @@ export function DirectoryComputerSummary(input: {
 		>
 			{content}
 		</Link>
+	);
+}
+
+export function DirectoryComputerStatusIcon(input: {
+	member: DirectoryHumanProfileRow;
+}) {
+	const label = input.member.computer.label;
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<span
+						aria-label={label}
+						className="inline-flex shrink-0 items-center justify-center"
+						data-slot="human-profile-computer-status"
+						role="img"
+					/>
+				}
+			>
+				<DesktopTowerIcon
+					aria-hidden="true"
+					className={cn(
+						"size-3.5 shrink-0",
+						resolveDirectoryComputerToneClassName(input.member.computer.state)
+					)}
+				/>
+			</TooltipTrigger>
+			<TooltipContent side="top">{label}</TooltipContent>
+		</Tooltip>
 	);
 }
 
@@ -224,31 +259,44 @@ export function DirectoryIdentityLogo(input: {
 
 export function DirectoryIdentityAccountSummary(input: {
 	account: DirectoryIdentityAccount;
-	context: "card" | "detail";
+	context: "card" | "detail" | "sidebar";
 }) {
 	const label =
-		input.context === "card"
-			? resolveDirectoryIdentityAccountCardLabel(input.account)
-			: resolveDirectoryIdentityAccountLabel(input.account);
+		input.context === "detail"
+			? resolveDirectoryIdentityAccountLabel(input.account)
+			: resolveDirectoryIdentityAccountCardLabel(input.account);
 	return (
-		<div className="inline-flex min-w-0 items-center gap-2">
+		<span
+			className={cn(
+				"inline-flex min-w-0 items-center",
+				input.context === "sidebar" ? "max-w-full gap-1.5" : "gap-2"
+			)}
+		>
 			<DirectoryIdentityLogo
 				account={input.account}
-				className={input.context === "card" ? "size-5 rounded-sm" : undefined}
+				className={cn(
+					input.context === "card" ? "size-5 rounded-sm" : null,
+					input.context === "sidebar"
+						? "size-3.5 rounded-[3px] border-0 bg-transparent p-0 shadow-none"
+						: null
+				)}
 				muted={input.account.state !== "connected"}
 				size={input.context === "card" ? "sm" : "md"}
 			/>
 			{label ? (
 				<span
 					className={cn(
-						"min-w-0 select-text break-all text-muted-foreground",
-						input.context === "detail" ? "text-sm" : "text-xs"
+						"min-w-0 text-muted-foreground",
+						input.context === "detail" ? "select-text break-all text-sm" : null,
+						input.context === "card" ? "select-text break-all text-xs" : null,
+						input.context === "sidebar" ? "truncate text-xs" : null
 					)}
+					title={input.context === "sidebar" ? label : undefined}
 				>
 					{label}
 				</span>
 			) : null}
-		</div>
+		</span>
 	);
 }
 

@@ -19,8 +19,8 @@ vi.mock("#/components/app/app-shell-account", () => ({
 	}),
 }));
 
-vi.mock("#/components/app/use-computer-attention-tone", () => ({
-	useComputerAttentionTone: () => null,
+vi.mock("#/components/app/current-computer-toolbar-launcher", () => ({
+	CurrentComputerToolbarLauncher: () => null,
 }));
 
 afterEach(cleanup);
@@ -56,5 +56,27 @@ describe("AppFullWidthLayout", () => {
 		expect(appOuterRailSpy).toHaveBeenCalledWith(
 			expect.objectContaining({ initialState: initialOuterSidebarState })
 		);
+	});
+
+	it("supports a resizable contextual sidebar and flush profile content", () => {
+		render(
+			<AppFullWidthLayout
+				contentLayout="flush"
+				mobileSidebarTitle="People"
+				showMainHeader
+				sidebar={<nav aria-label="People">Human Profiles</nav>}
+				sidebarPreferenceKey="people"
+			>
+				<h1>Felix Lu</h1>
+			</AppFullWidthLayout>
+		);
+
+		expect(screen.getByRole("navigation", { name: "People" })).toBeTruthy();
+		expect(
+			document.querySelector('[data-slot="app-full-width-content"]')?.className
+		).toContain("min-h-full");
+		expect(
+			document.querySelector('[data-slot="app-main-content-header"]')
+		).toBeTruthy();
 	});
 });
