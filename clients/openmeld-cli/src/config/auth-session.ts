@@ -104,6 +104,10 @@ export type AuthSessionMetadata = {
 };
 
 type GetAuthSessionStateOptions = {
+  // Keep normal requests local-first, but let the server recover a stale local
+  // expiry before callers stop attaching an otherwise usable credential.
+  refreshExpired?: boolean;
+  // Ask the server to validate even a locally current session.
   validateRemote?: boolean;
 };
 
@@ -128,9 +132,15 @@ type LocalAuthSessionState =
     };
 
 type RemoteAuthSessionState = "valid" | "invalid" | "revoked" | "unknown";
-type RemoteAuthSessionValidation = {
-  state: RemoteAuthSessionState;
-};
+type RemoteAuthSessionValidation =
+  | {
+      accessToken?: string;
+      expiresAt?: string;
+      state: "valid";
+    }
+  | {
+      state: Exclude<RemoteAuthSessionState, "valid">;
+    };
 const TRAILING_SLASHES_RE = /\/+$/u;
 
 type CachedAuthSession = {
@@ -144,25 +154,60 @@ export async function getAuthSessionState(
   options: GetAuthSessionStateOptions = {}
 ): Promise<AuthSessionStateResult> {
   const localState = await getLocalAuthSessionState();
+  const localPayloadKey = cachedAuthSession?.payloadKey ?? null;
+  const shouldValidateRemote =
+    options.validateRemote === true ||
+    (options.refreshExpired === true && localState.state === "expired");
   switch (localState.state) {
     case "missing":
     case "invalid":
-    case "expired":
       return localState;
+    case "expired":
+      if (!shouldValidateRemote) {
+        return localState;
+      }
+      break;
     case "valid":
       break;
     default:
       return localState;
   }
-  if (!options.validateRemote) {
+  if (!shouldValidateRemote) {
     return localState;
   }
 
   const remoteValidation = await getRemoteAuthSessionState(localState.session);
   if (remoteValidation.state === "valid") {
-    return localState;
+    if (!remoteValidation.expiresAt) {
+      return localState;
+    }
+    if (isExpired(remoteValidation.expiresAt)) {
+      return localState;
+    }
+    const refreshedSession = await persistRemoteSessionRefresh({
+      accessToken:
+        remoteValidation.accessToken ?? localState.session.accessToken,
+      expectedPayloadKey: localPayloadKey,
+      expiresAt: remoteValidation.expiresAt,
+      previousAccessToken: localState.session.accessToken,
+    });
+    if (refreshedSession) {
+      return {
+        state: "valid",
+        session: refreshedSession,
+      };
+    }
+    return await getLocalAuthSessionState();
   }
   if (remoteValidation.state === "unknown") {
+    if (localState.state === "expired" && options.refreshExpired === true) {
+      // A stale local timestamp is not authorization truth. Keep sending the
+      // existing credential so the protected service can accept or reject it.
+      return {
+        state: "valid",
+        session: localState.session,
+      };
+    }
     return localState;
   }
 
@@ -598,6 +643,81 @@ function areStoredTokenRefsEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+async function persistRemoteSessionRefresh(input: {
+  accessToken: string;
+  expectedPayloadKey: string | null;
+  expiresAt: string;
+  previousAccessToken: string;
+}): Promise<StoredAuthSession | null> {
+  const payload = await readSessionPayload();
+  if (
+    payload?.v !== 1 ||
+    input.expectedPayloadKey === null ||
+    buildAuthSessionPayloadKey(payload) !== input.expectedPayloadKey
+  ) {
+    return null;
+  }
+
+  const tokenRef = normalizeTokenRef(payload.tokenRef);
+  const tokenType = normalizeOptionalString(payload.tokenType);
+  const authBaseUrl = normalizeOptionalString(payload.authBaseUrl);
+  const clientId = normalizeOptionalString(payload.clientId);
+  const createdAt = normalizeOptionalString(payload.createdAt);
+  if (!(tokenRef && tokenType && authBaseUrl && clientId && createdAt)) {
+    return null;
+  }
+
+  const nextAccessToken = normalizeOptionalString(input.accessToken);
+  if (!nextAccessToken) {
+    return null;
+  }
+  const nextTokenRef =
+    nextAccessToken === input.previousAccessToken
+      ? tokenRef
+      : await storeAccessToken({
+          accessToken: nextAccessToken,
+          authBaseUrl,
+          clientId,
+        });
+  const nextPayload: AuthSessionV1 = {
+    v: 1,
+    tokenRef: nextTokenRef,
+    tokenType,
+    authBaseUrl,
+    clientId,
+    createdAt,
+    expiresAt: input.expiresAt,
+    ...(typeof payload.scope === "string" && payload.scope.trim()
+      ? { scope: payload.scope.trim() }
+      : {}),
+    ...buildAuthUserPayload(payload.user),
+    ...buildActiveOrganizationPayload(payload.activeOrganization),
+  };
+  const nextSession = buildStoredAuthSession({
+    accessToken: nextAccessToken,
+    payload: nextPayload,
+  });
+
+  try {
+    await assertStoredAccessTokenReloads({
+      accessToken: nextAccessToken,
+      tokenRef: nextTokenRef,
+    });
+    await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
+  } catch (error) {
+    if (!areStoredTokenRefsEqual(tokenRef, nextTokenRef)) {
+      await deleteAccessTokenOrRetainForCleanup(nextTokenRef);
+    }
+    throw error;
+  }
+
+  cacheAuthSession({ payload: nextPayload, session: nextSession });
+  if (!areStoredTokenRefsEqual(tokenRef, nextTokenRef)) {
+    await deleteAccessTokenOrRetainForCleanup(tokenRef);
+  }
+  return nextSession;
+}
+
 function normalizeTokenRef(input: unknown): StoredTokenRef | null {
   if (!isStoredTokenRef(input)) {
     return null;
@@ -637,10 +757,44 @@ async function getRemoteAuthSessionState(
     if (!hasActiveSessionPayload(payload)) {
       return { state: "invalid" };
     }
-    return { state: "valid" };
+    return {
+      state: "valid",
+      ...readRemoteAccessToken(response),
+      ...readRemoteSessionExpiration(payload),
+    };
   } catch {
     return { state: "unknown" };
   }
+}
+
+function readRemoteAccessToken(response: Response): {
+  accessToken?: string;
+} {
+  const accessToken = normalizeOptionalString(
+    response.headers.get("set-auth-token")
+  );
+  return accessToken ? { accessToken } : {};
+}
+
+function readRemoteSessionExpiration(payload: unknown): {
+  expiresAt?: string;
+} {
+  if (!isRecord(payload)) {
+    return {};
+  }
+  const session = payload.session;
+  if (!isRecord(session)) {
+    return {};
+  }
+  const expiresAt = normalizeOptionalString(session.expiresAt);
+  if (!expiresAt) {
+    return {};
+  }
+  const expiresAtMs = Date.parse(expiresAt);
+  if (Number.isNaN(expiresAtMs)) {
+    return {};
+  }
+  return { expiresAt: new Date(expiresAtMs).toISOString() };
 }
 
 function resolveRemoteSessionTimeoutMs(endpoint: string): number {

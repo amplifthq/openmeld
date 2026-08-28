@@ -325,7 +325,7 @@ export async function resolveDaemonStreamAuthContext(input: {
     }
 > {
   const authState = await getAuthSessionState({
-    validateRemote: false,
+    refreshExpired: true,
   });
   if (authState.state !== "valid" || authState.session === null) {
     return {

@@ -196,7 +196,7 @@ async function resolveAuthSessionForHeaders(
     return input.authSession;
   }
 
-  const sessionState = await getAuthSessionState();
+  const sessionState = await getAuthSessionState({ refreshExpired: true });
   if (sessionState.state !== "valid" || sessionState.session === null) {
     return null;
   }

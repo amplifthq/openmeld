@@ -49,6 +49,9 @@ describe("resolveDaemonStreamAuthContext", () => {
       throw new Error("expected ready context");
     }
     expect(context.headers.Authorization).toBe("Bearer stored-token");
+    expect(getAuthSessionStateMock).toHaveBeenCalledWith({
+      refreshExpired: true,
+    });
   });
 
   it("fails closed instead of dialing bare when the auth host is incompatible", async () => {
