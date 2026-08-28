@@ -35,10 +35,7 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
-import {
-	type AgentProfileEditDialogContext,
-	AgentProfileEditDialogController,
-} from "#/components/agents/agent-profile-edit-dialog-controller";
+import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { COMPLETED_PREPARE_SESSION_POINTER_STORAGE_KEY } from "#/components/connect/prepare-session-pointer";
@@ -117,7 +114,6 @@ import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import type { SpaceAgentProfileEditHandler } from "./space-agent-interaction-card";
 import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participation";
-import { buildEditableSpaceAgentProfilesById } from "./space-agent-profile-edit-access";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
@@ -143,6 +139,8 @@ import {
 	SpaceConversationRecoveryBanner,
 	type SpaceSetupVisibility,
 } from "./space-onboarding-banner";
+import { resolveSpacePendingAgentActionSurfacePlacement } from "./space-pending-agent-action-model";
+import { SpacePendingAgentActions } from "./space-pending-agent-actions";
 import { SpaceProfileSwitcher } from "./space-profile-switcher";
 import { buildSpaceReferenceMessageTexts } from "./space-reference-message-texts";
 import {
@@ -169,12 +167,14 @@ import { useSpaceInboxReadPosition } from "./use-space-inbox-read-position";
 import { useSpaceLandingController } from "./use-space-landing-controller";
 import { useSpaceMessageReferences } from "./use-space-message-references";
 import { useSpacePanelWidth } from "./use-space-panel-width";
+import { useSpacePendingAgentActions } from "./use-space-pending-agent-actions";
 import { useWakeDisplayDebounce } from "./use-wake-display-debounce";
 
 const EMPTY_ACCOUNT_PROFILES: readonly AuthProfileView[] = [];
 const EMPTY_SPACE_DESCRIPTION =
 	"You and your teammates can give agents work. Agents can ask other agents for help. Everyone can see the results here.";
 const EMPTY_SPACE_TITLE = "A Space is where people and agents work together.";
+
 type WakeFinalOutcomeFactsRefreshInput = {
 	agentProfileIds: readonly string[];
 	signalIds: readonly string[];
@@ -1513,34 +1513,34 @@ function SpaceLandingReady({
 		},
 		recovery,
 	});
-	const editableAgentProfilesById = useMemo(() => {
-		return buildEditableSpaceAgentProfilesById({
-			accountProfiles,
-			currentOwnerUserId,
-			editContextAvailable: Boolean(agentProfileEditContext),
-		});
-	}, [accountProfiles, agentProfileEditContext, currentOwnerUserId]);
-	const [
-		editingInteractionAgentProfileId,
-		setEditingInteractionAgentProfileId,
-	] = useState<string | null>(null);
-	const editingInteractionAgentProfile = editingInteractionAgentProfileId
-		? (editableAgentProfilesById.get(editingInteractionAgentProfileId) ?? null)
-		: null;
-	const editableAgentProfileIds = useMemo(
-		() => new Set(editableAgentProfilesById.keys()),
-		[editableAgentProfilesById]
-	);
-	const handleEditInteractionAgentProfile:
-		| SpaceAgentProfileEditHandler
-		| undefined = agentProfileEditContext
-		? (profileId) => {
-				if (editableAgentProfilesById.has(profileId)) {
-					setEditingInteractionAgentProfileId(profileId);
-				}
-			}
-		: undefined;
+	const pendingAgentActions = useSpacePendingAgentActions({
+		accountProfiles,
+		agentProfileEditContext,
+		currentOwnerUserId,
+		membersSnapshot: controller.membersSnapshot,
+		modelCatalog,
+		onRespond: controller.onAgentInteractionResponse,
+		presentedItems: controller.presentedWakeProgressItems,
+		threadItems: controller.threadEphemeralActivityItems,
+	});
 	const isCompactPresentation = input.presentation === "compact";
+	const pendingActionSurfacePlacement =
+		resolveSpacePendingAgentActionSurfacePlacement({
+			hasActiveThread:
+				!isCompactPresentation &&
+				controller.isCurrentAccessConfirmed &&
+				controller.activeThread !== null,
+		});
+	const pendingActionSurface = (
+		<SpacePendingAgentActions
+			{...pendingAgentActions.surfaceProps}
+			returnFocusRef={
+				pendingActionSurfacePlacement === "thread"
+					? controller.threadTextareaRef
+					: controller.textareaRef
+			}
+		/>
+	);
 
 	return (
 		<>
@@ -1633,10 +1633,17 @@ function SpaceLandingReady({
 						composerProfileControl={composerProfileControl}
 						controller={controller}
 						currentSpaceControls={currentSpaceControls}
-						editableAgentProfileIds={editableAgentProfileIds}
+						editableAgentProfileIds={
+							pendingAgentActions.editableAgentProfileIds
+						}
 						historyErrorMessage={historyErrorMessage}
 						input={input}
-						onEditAgentProfile={handleEditInteractionAgentProfile}
+						onEditAgentProfile={pendingAgentActions.onEditAgentProfile}
+						pendingActionSurface={
+							pendingActionSurfacePlacement === "conversation"
+								? pendingActionSurface
+								: undefined
+						}
 						prepareSetupHref={prepareSetupHref}
 						state={state}
 					/>
@@ -1648,28 +1655,23 @@ function SpaceLandingReady({
 							composerProfileControl={composerProfileControl}
 							controller={controller}
 							currentSpaceControls={currentSpaceControls}
-							editableAgentProfileIds={editableAgentProfileIds}
+							editableAgentProfileIds={
+								pendingAgentActions.editableAgentProfileIds
+							}
 							input={input}
-							onEditAgentProfile={handleEditInteractionAgentProfile}
+							onEditAgentProfile={pendingAgentActions.onEditAgentProfile}
+							pendingActionSurface={
+								pendingActionSurfacePlacement === "thread"
+									? pendingActionSurface
+									: undefined
+							}
 							prepareSetupHref={prepareSetupHref}
 							state={state}
 						/>
 					)}
 				</div>
 			</AppMainContent>
-			{editingInteractionAgentProfile && agentProfileEditContext ? (
-				<AgentProfileEditDialogController
-					context={agentProfileEditContext}
-					modelCatalog={modelCatalog}
-					onOpenChange={(open) => {
-						if (!open) {
-							setEditingInteractionAgentProfileId(null);
-						}
-					}}
-					open={true}
-					profile={editingInteractionAgentProfile}
-				/>
-			) : null}
+			{pendingAgentActions.profileEditDialog}
 		</>
 	);
 }
@@ -1704,6 +1706,7 @@ function SpaceLandingConversation({
 	historyErrorMessage,
 	input,
 	onEditAgentProfile,
+	pendingActionSurface,
 	prepareSetupHref,
 	state,
 }: {
@@ -1717,6 +1720,7 @@ function SpaceLandingConversation({
 	historyErrorMessage: string | null;
 	input: SpaceLandingInput;
 	onEditAgentProfile?: SpaceAgentProfileEditHandler;
+	pendingActionSurface?: ReactNode;
 	prepareSetupHref: string;
 	state: SpaceLandingState;
 }) {
@@ -1744,6 +1748,7 @@ function SpaceLandingConversation({
 	} = state;
 	return (
 		<SpaceConversationPanel
+			actionableAgentInteractionPlacement="pending-surface"
 			activeSpaceView={spaceView}
 			agentDirectConversationKind={agentDirectConversationKind}
 			agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
@@ -1824,6 +1829,7 @@ function SpaceLandingConversation({
 			onViewingLatestChange={controller.onConversationViewingLatestChange}
 			onWakeStopRequest={controller.onWakeStopRequest}
 			orgSlug={input.orgSlug}
+			pendingActionSurface={pendingActionSurface}
 			prepareSetupHref={prepareSetupHref}
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}
@@ -1879,6 +1885,7 @@ function SpaceLandingSecondaryPanels({
 	editableAgentProfileIds,
 	input,
 	onEditAgentProfile,
+	pendingActionSurface,
 	prepareSetupHref,
 	state,
 }: {
@@ -1894,6 +1901,7 @@ function SpaceLandingSecondaryPanels({
 	editableAgentProfileIds: ReadonlySet<string>;
 	input: SpaceLandingInput;
 	onEditAgentProfile?: SpaceAgentProfileEditHandler;
+	pendingActionSurface?: ReactNode;
 	prepareSetupHref: string;
 	state: SpaceLandingState;
 }) {
@@ -1955,6 +1963,7 @@ function SpaceLandingSecondaryPanels({
 	return (
 		<>
 			<SpaceThreadPanel
+				actionableAgentInteractionPlacement="pending-surface"
 				activeThread={controller.activeThread}
 				agentDirectConversationKind={agentDirectConversationKind}
 				agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
@@ -2010,6 +2019,7 @@ function SpaceLandingSecondaryPanels({
 				onSendText={controller.onThreadSendText}
 				onWakeStopRequest={controller.onWakeStopRequest}
 				orgSlug={input.orgSlug}
+				pendingActionSurface={pendingActionSurface}
 				prepareSetupHref={prepareSetupHref}
 				profileControl={composerProfileControl}
 				selfAvatarImageUrl={currentUserAvatarImageUrl}
