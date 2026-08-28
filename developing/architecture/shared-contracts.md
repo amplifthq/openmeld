@@ -2751,7 +2751,10 @@ description. Model-facing text marks an explicitly saved fact without replacing
 its Space, Slack, Lark, or Feishu source. Core accepts the tool only for a
 non-conflicting frozen `organization_shared` environment at the write boundary.
 Requester-private and externally shared turns fail closed even if an old or
-compromised worker attempts the RPC.
+compromised worker attempts the RPC. Remote Agent must also omit the tool from
+its model-facing catalog unless that same frozen environment is present,
+non-conflicting, and `organization_shared`; this projection reduces impossible
+calls but does not replace Core authorization.
 
 A cross-boundary memory write must carry a verified speaker-member projection or
 resolve it through an owning identity contract. Native-delivery callback code

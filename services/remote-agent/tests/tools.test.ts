@@ -176,10 +176,21 @@ describe("remote agent OpenMeld tool catalog", () => {
     }
   });
 
-  it("exposes exactly the approved model-visible OpenMeld tool list", () => {
+  it("exposes exactly the approved model-visible OpenMeld tool list for an organization-shared turn", () => {
+    const privateEnvelope = createSubmitTurnRequest().turnEnvelope;
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {},
       storage: new InMemoryDurableObjectStorage(),
+      turnEnvelope: {
+        ...privateEnvelope,
+        interactionEnvironment: "organization_shared",
+        space: {
+          ...privateEnvelope.space,
+          isCenterAgentDm: false,
+          kind: "space",
+        },
+        trigger: { source: "space_wake" },
+      },
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
@@ -4521,7 +4532,22 @@ describe("remote agent OpenMeld tool catalog", () => {
 
   for (const scenario of toolPayloadScenarios()) {
     it(`passes ${scenario.toolName} payloads to ${scenario.rpcName}`, async () => {
-      const request = createSubmitTurnRequest();
+      const privateRequest = createSubmitTurnRequest();
+      const request =
+        scenario.toolName === "openmeld_remember_for_organization"
+          ? createSubmitTurnRequest({
+              turnEnvelope: {
+                ...privateRequest.turnEnvelope,
+                interactionEnvironment: "organization_shared",
+                space: {
+                  ...privateRequest.turnEnvelope.space,
+                  isCenterAgentDm: false,
+                  kind: "space",
+                },
+                trigger: { source: "space_wake" },
+              },
+            })
+          : privateRequest;
       const storage = await createStorageWithPendingContext(request);
       const rpc = vi.fn(async () => scenario.response);
       const centerAgentGetOrganizationDirectory = vi.fn(async () =>
@@ -4534,6 +4560,10 @@ describe("remote agent OpenMeld tool catalog", () => {
       const tools = getRemoteAgentOpenMeldToolDefinitions({
         coreWorker,
         storage,
+        turnEnvelope:
+          scenario.toolName === "openmeld_remember_for_organization"
+            ? request.turnEnvelope
+            : undefined,
       });
 
       if (

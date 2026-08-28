@@ -11,4 +11,5 @@ the verified member across OpenMeld, Slack, Lark, and Feishu. Shared
 Organization conversations can still build Organization memory, while
 externally shared channels do not contribute to it automatically. Private and
 externally shared conversations also cannot write through the explicit
-Organization memory save path.
+Organization memory save path, and they are no longer offered that unavailable
+tool while the Center Agent is deciding how to respond.
