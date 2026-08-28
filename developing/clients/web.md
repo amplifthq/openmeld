@@ -479,10 +479,11 @@ the normal debounce. If the unread summary is unavailable, Space navigation
 remains usable in Account Space Index order without inventing read state. Web
 treats cursor persistence failure as failure and retries it; a missing Core
 Inbox writer cannot be mistaken for a successful write. Main-timeline and
-thread read positions remain separate, and implausible future cursor positions
-are rejected rather than suppressing future messages. When Web observes a new
-Inbox item, it invalidates the full Inbox facts projection so per-conversation
-indicators and aggregate launchers refresh from the same Core truth.
+thread Inbox state remain separate: a main-timeline read position cannot clear
+a thread item. Implausible future cursor positions are rejected rather than
+suppressing future messages. When Web observes a new Inbox item, it invalidates
+the full Inbox facts projection so per-conversation indicators and aggregate
+launchers refresh from the same Core truth.
 
 Browse Spaces composes the Organization Space Directory with those same
 Account Space Index, unread-summary, and active-Wake projections. Joined cards

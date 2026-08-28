@@ -713,6 +713,10 @@ async function markSpaceInboxReadThrough(input: {
     input.itemScope === "space"
       ? INBOX_SPACE_MESSAGE_FILTER
       : INBOX_CENTER_AGENT_MESSAGE_FILTER;
+  const itemThreadFilter =
+    input.itemScope === "space"
+      ? "AND json_type(source_target_json, '$.threadRootSignalId') IS NULL"
+      : "";
   const [, itemResult] = await input.db.batch([
     input.db
       .prepare(
@@ -767,11 +771,7 @@ async function markSpaceInboxReadThrough(input: {
             AND occurred_at_ms <= ?
             AND ${itemTargetFilter}
             AND json_extract(source_target_json, '$.spaceId') = ?
-			${
-        input.itemScope === "space"
-          ? "AND json_type(source_target_json, '$.threadRootSignalId') IS NULL"
-          : ""
-      }
+            ${itemThreadFilter}
             AND ${CURRENT_SOURCE_ACCESS_FILTER}
         `
       )

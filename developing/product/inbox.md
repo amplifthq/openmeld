@@ -335,10 +335,10 @@ normal read debounce. Scrolling up, switching tabs, or arriving through a deep
 link without viewing the latest reply does not clear it. The watermark also
 makes a delayed projection of an older already-viewed update arrive read, while
 a newer update remains unread. A main-conversation watermark applies only to
-main-timeline items and never clears a thread item; each thread owns its own
-watermark. Core and Web reject implausible future read positions instead of
-letting a bad client clock suppress later messages. Reading never resolves
-unfinished source work.
+main-timeline items and never clears a thread item. A thread item remains
+independent until that exact Inbox item is marked read. Core and Web reject
+implausible future read positions instead of letting a bad client clock suppress
+later messages. Reading never resolves unfinished source work.
 Opening the exact Inbox item marks that item read and deep-links to its source
 Signal in the same conversation.
 
