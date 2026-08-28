@@ -2140,7 +2140,9 @@ than by the model provider:
   `externally_shared` selects neither. A carrier or provenance source such as
   `slack_conversation` or `message_channel_conversation` never selects the
   subject. Missing, conflicting, or mismatched environment and identity
-  evidence fails closed without a memory write.
+  evidence fails closed without a memory write. Automatic capture runs after
+  the reply and is not a model-callable tool, so the Center Agent must not infer
+  success, failure, or carrier support from the visible tool catalog.
 - Recalled memory keeps the source surface and occurrence time of the episode
   that produced it. Entering through a different DM, Space, Slack, Lark, or
   Feishu conversation must not relabel the memory as if it came from the

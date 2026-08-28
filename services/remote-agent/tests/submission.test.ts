@@ -34,6 +34,14 @@ const SHA_256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
 const ATTACHMENT_SEQUENCE_SUFFIX_PATTERN = /attachment-(\d+)$/u;
 
 describe("remote agent submission", () => {
+  it("does not mistake a hidden Organization memory tool for unavailable private memory capture", () => {
+    const prompt = buildRemoteAgentPromptMessage(createSubmitTurnRequest());
+
+    expect(prompt).toContain(
+      "Core may automatically learn eligible facts from this completed private turn into this requester's Member memory after the reply. This is not a callable tool, so never claim that personal memory persistence succeeded or failed from the visible tool list alone, and never redirect the requester to a different conversation carrier for memory persistence."
+    );
+  });
+
   it("keeps event-bound Slack search authorization out of model prompts", () => {
     const baseRequest = createSubmitTurnRequest();
     const encryptedAuthorization = "aesgcm:v1:private-search-authorization";
@@ -500,7 +508,7 @@ describe("remote agent submission", () => {
         "[Context handling]",
         "Current reply audience: only the requester in this private conversation.",
         "Treat this as the same verified requester across OpenMeld, Slack, Message Channels, and Local Agents.",
-        "Use personal memory to continue naturally with this requester and avoid asking them to repeat known context.",
+        "Use personal memory to continue naturally with this requester and avoid asking them to repeat known context. Core may automatically learn eligible facts from this completed private turn into this requester's Member memory after the reply. This is not a callable tool, so never claim that personal memory persistence succeeded or failed from the visible tool list alone, and never redirect the requester to a different conversation carrier for memory persistence.",
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
         "Use protected information only when the requester and destination are appropriate; clear existing authorization needs no extra confirmation.",
         "Authentication secrets are never available for retrieval or disclosure.",
@@ -1773,7 +1781,7 @@ describe("remote agent submission", () => {
         "[Context handling]",
         "Current reply audience: only the requester in this private conversation.",
         "Treat this as the same verified requester across OpenMeld, Slack, Message Channels, and Local Agents.",
-        "Use personal memory to continue naturally with this requester and avoid asking them to repeat known context.",
+        "Use personal memory to continue naturally with this requester and avoid asking them to repeat known context. Core may automatically learn eligible facts from this completed private turn into this requester's Member memory after the reply. This is not a callable tool, so never claim that personal memory persistence succeeded or failed from the visible tool list alone, and never redirect the requester to a different conversation carrier for memory persistence.",
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
         "Use protected information only when the requester and destination are appropriate; clear existing authorization needs no extra confirmation.",
         "Authentication secrets are never available for retrieval or disclosure.",
