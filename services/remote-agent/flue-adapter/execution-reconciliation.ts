@@ -3,7 +3,9 @@ import type {
   RemoteAgentWorkerExecutionQueryResponse,
 } from "@openmeld/schemas/types";
 import {
+  listDueRetryableCallbackContexts,
   listRemoteAgentCallbackContexts,
+  type RemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
 } from "../agent-core/callback-context";
@@ -30,18 +32,28 @@ export async function reconcileSettledRemoteAgentExecutionFailures(input: {
   readSubmission: (
     submissionId: string
   ) => Promise<FlueSubmissionLifecycle | null>;
+  retryableContexts?: readonly RemoteAgentCallbackContext[];
   storage: RemoteAgentStorage;
 }): Promise<{ reconciled: number }> {
-  const pendingContexts = await listRemoteAgentCallbackContexts(input.storage, [
-    "pending",
+  const nowMs = input.nowMs?.() ?? Date.now();
+  const [pendingContexts, retryableContexts] = await Promise.all([
+    listRemoteAgentCallbackContexts(input.storage, ["pending"]),
+    input.retryableContexts
+      ? Promise.resolve(input.retryableContexts)
+      : listDueRetryableCallbackContexts(input.storage, nowMs),
   ]);
+  const candidates = new Map(
+    [...pendingContexts, ...retryableContexts]
+      .filter(
+        (context) =>
+          context.callbackStatus === "pending" ||
+          context.callbackStatus === "retryable"
+      )
+      .map((context) => [context.submissionId, context] as const)
+  );
   let reconciled = 0;
-  for (const context of pendingContexts) {
+  for (const context of candidates.values()) {
     try {
-      const submission = await input.readSubmission(context.submissionId);
-      if (submission?.status !== "settled") {
-        continue;
-      }
       const result = await reconcileRemoteAgentExecution({
         coreWorker: input.coreWorker,
         identity: {
@@ -51,8 +63,8 @@ export async function reconcileSettledRemoteAgentExecutionFailures(input: {
           submissionId: context.submissionId,
           v: 1,
         },
-        nowMs: input.nowMs,
-        readSubmission: async () => submission,
+        nowMs: () => nowMs,
+        readSubmission: input.readSubmission,
         storage: input.storage,
       });
       if (

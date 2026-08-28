@@ -1837,11 +1837,14 @@ export async function listDueRetryableCallbackContexts(
  */
 export async function redeliverDueRemoteAgentCallbacks(input: {
   coreWorker?: RemoteAgentCoreWorkerBinding;
+  excludeSubmissionIds?: ReadonlySet<string>;
   nowMs?: () => number;
   storage: RemoteAgentStorage;
 }): Promise<{ processed: number; nextDueAtMs: number | null }> {
   const nowMs = input.nowMs?.() ?? Date.now();
-  const due = await listDueRetryableCallbackContexts(input.storage, nowMs);
+  const due = (
+    await listDueRetryableCallbackContexts(input.storage, nowMs)
+  ).filter((context) => !input.excludeSubmissionIds?.has(context.submissionId));
   for (const context of due) {
     await attemptRemoteAgentCallbackDelivery({
       context,
