@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { dispatchExecutionSchema } from "../daemon/conversation-lifecycle";
 import { spaceTraceExecutionIdentityProjectionSchema } from "../daemon/execution-identity";
 import {
@@ -1166,10 +1167,10 @@ export const spaceDispatchTraceResponseV1Schema =
     trace: z.union([spaceDispatchTraceSnapshotV1Schema, z.null()]),
   });
 
-type SpaceDispatchTraceSnapshotValue = z.infer<
+type SpaceDispatchTraceSnapshotValue = zod.infer<
   typeof spaceDispatchTraceSnapshotSchema
 >;
-type SpaceDispatchTraceFinalVisibleOutcomeValue = z.infer<
+type SpaceDispatchTraceFinalVisibleOutcomeValue = zod.infer<
   typeof spaceDispatchTraceFinalVisibleOutcomeSchema
 >;
 
@@ -2116,10 +2117,10 @@ function assertNever(value: never): never {
 }
 
 function expectRuntimeCoordinatorHeadLifecycleTraceEvidence(
-  context: z.RefinementCtx,
+  context: zod.RefinementCtx,
   value: {
-    query: z.infer<typeof spaceDispatchTraceQuerySchema>;
-    trace: z.infer<typeof spaceDispatchTraceSnapshotSchema>;
+    query: zod.infer<typeof spaceDispatchTraceQuerySchema>;
+    trace: zod.infer<typeof spaceDispatchTraceSnapshotSchema>;
   }
 ): void {
   const headLifecycle = value.trace.runtimeCoordinatorHeadLifecycle;
@@ -2161,10 +2162,10 @@ function expectRuntimeCoordinatorHeadLifecycleTraceEvidence(
 }
 
 function expectNativeDeliveryTraceEvidence(
-  context: z.RefinementCtx,
+  context: zod.RefinementCtx,
   value: {
-    query: z.infer<typeof spaceDispatchTraceQuerySchema>;
-    trace: z.infer<typeof spaceDispatchTraceSnapshotSchema>;
+    query: zod.infer<typeof spaceDispatchTraceQuerySchema>;
+    trace: zod.infer<typeof spaceDispatchTraceSnapshotSchema>;
   }
 ): void {
   const nativeDelivery = value.trace.nativeDelivery;
@@ -2195,8 +2196,8 @@ function expectNativeDeliveryTraceEvidence(
 }
 
 function expectFinalVisibleMessageTraceEvidence(
-  context: z.RefinementCtx,
-  trace: z.infer<typeof spaceDispatchTraceSnapshotSchema>
+  context: zod.RefinementCtx,
+  trace: zod.infer<typeof spaceDispatchTraceSnapshotSchema>
 ): void {
   if (!trace.finalVisibleMessage) {
     return;
@@ -2237,7 +2238,7 @@ function expectFinalVisibleMessageTraceEvidence(
 }
 
 function expectTraceEvidence(
-  context: z.RefinementCtx,
+  context: zod.RefinementCtx,
   actual: string | null,
   expected: string | null,
   path: Array<string | number>,
@@ -2253,7 +2254,7 @@ function expectTraceEvidence(
 }
 
 function expectNullTraceEvidence(
-  context: z.RefinementCtx,
+  context: zod.RefinementCtx,
   actual: string | null,
   path: Array<string | number>
 ): void {

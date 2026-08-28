@@ -1,4 +1,4 @@
-import * as z from "zod/v4";
+import * as z from "../../lazy-zod";
 import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";

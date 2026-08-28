@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../lazy-zod";
 
 export const LOCAL_COMPONENTS_SCHEMA_VERSION = 1 as const;
 
@@ -279,7 +280,7 @@ export const localComponentUpdateProjectionSchema = z.strictObject({
 });
 
 export function formatLocalSetupActionLabel(
-  action: z.infer<typeof localSetupActionSchema>
+  action: zod.infer<typeof localSetupActionSchema>
 ): string {
   switch (action) {
     case "connect_service":
@@ -304,8 +305,8 @@ export function formatLocalSetupActionLabel(
 }
 
 export function formatLocalComponentsSummaryLabel(input: {
-  cliStatus: z.infer<typeof localComponentStatusSchema>;
-  setupAction: z.infer<typeof localSetupActionSchema>;
+  cliStatus: zod.infer<typeof localComponentStatusSchema>;
+  setupAction: zod.infer<typeof localSetupActionSchema>;
 }): string {
   if (input.setupAction !== "none") {
     return formatLocalSetupActionLabel(input.setupAction);
@@ -325,8 +326,8 @@ export function formatLocalComponentsSummaryLabel(input: {
 }
 
 export function formatLocalComponentsSummaryDescription(input: {
-  cliStatus: z.infer<typeof localComponentStatusSchema>;
-  setupAction: z.infer<typeof localSetupActionSchema>;
+  cliStatus: zod.infer<typeof localComponentStatusSchema>;
+  setupAction: zod.infer<typeof localSetupActionSchema>;
 }): string {
   if (input.setupAction !== "none") {
     return formatLocalSetupActionDescription(input.setupAction);
@@ -346,7 +347,7 @@ export function formatLocalComponentsSummaryDescription(input: {
 }
 
 export function formatLocalSetupActionDescription(
-  action: z.infer<typeof localSetupActionSchema>
+  action: zod.infer<typeof localSetupActionSchema>
 ): string {
   switch (action) {
     case "connect_service":

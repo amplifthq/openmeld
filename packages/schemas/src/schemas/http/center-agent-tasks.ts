@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { CENTER_AGENT_INTERACTION_CLIENT_MAX_CHARS } from "../protocol/center-agent-interaction-source";
 import { agentTaskHandleSchema } from "../runtime/agent-task-coordination";
@@ -66,14 +67,14 @@ export const centerAgentTaskExecutionEvidenceSchema = z.strictObject({
 });
 
 export function resolveCenterAgentTaskPresentation(
-  status: z.infer<typeof centerAgentTaskStatusSchema>,
-  executionEvidence: z.infer<
+  status: zod.infer<typeof centerAgentTaskStatusSchema>,
+  executionEvidence: zod.infer<
     typeof centerAgentTaskExecutionEvidenceSchema
   > | null = null
 ): {
-  outcome: z.infer<typeof centerAgentTaskOutcomeSchema> | null;
-  phase: z.infer<typeof centerAgentTaskPhaseSchema> | null;
-  state: z.infer<typeof centerAgentTaskStateSchema>;
+  outcome: zod.infer<typeof centerAgentTaskOutcomeSchema> | null;
+  phase: zod.infer<typeof centerAgentTaskPhaseSchema> | null;
+  state: zod.infer<typeof centerAgentTaskStateSchema>;
 } {
   switch (status) {
     case "queued":
@@ -445,20 +446,32 @@ export const getCenterAgentTaskResponseV1Schema =
 export const getCenterAgentTaskResponseV2Schema =
   centerAgentTaskDetailResponseV2Schema;
 
-export const continueCenterAgentTaskBodySchema = z.strictObject({
+const continueCenterAgentTaskBodyShape = {
   expectedVersion: z.number().int().positive(),
   idempotencyKey: idempotencyKeySchema,
   text: taskTextSchema.max(CENTER_AGENT_TASK_EVENT_TEXT_MAX_CHARS),
-});
+};
 
-export const stopCenterAgentTaskBodySchema = z.strictObject({
+export const continueCenterAgentTaskBodySchema = z.strictObject(
+  continueCenterAgentTaskBodyShape
+);
+
+const stopCenterAgentTaskBodyShape = {
   expectedVersion: z.number().int().positive(),
-});
+};
 
-export const retryCenterAgentTaskBodySchema = z.strictObject({
+export const stopCenterAgentTaskBodySchema = z.strictObject(
+  stopCenterAgentTaskBodyShape
+);
+
+const retryCenterAgentTaskBodyShape = {
   expectedVersion: z.number().int().positive(),
   idempotencyKey: idempotencyKeySchema,
-});
+};
+
+export const retryCenterAgentTaskBodySchema = z.strictObject(
+  retryCenterAgentTaskBodyShape
+);
 
 export const listCenterAgentTasksRpcInputSchema =
   listCenterAgentTasksQuerySchema.extend({
@@ -476,7 +489,7 @@ export const getCenterAgentTaskRpcInputSchema =
 
 export const continueCenterAgentTaskRpcInputSchema =
   centerAgentTaskRouteParamsSchema
-    .extend(continueCenterAgentTaskBodySchema.shape)
+    .extend(continueCenterAgentTaskBodyShape)
     .extend({
       context: openMeldRequestContextSchema,
       responseContractVersion:
@@ -484,17 +497,15 @@ export const continueCenterAgentTaskRpcInputSchema =
     });
 
 export const stopCenterAgentTaskRpcInputSchema =
-  centerAgentTaskRouteParamsSchema
-    .extend(stopCenterAgentTaskBodySchema.shape)
-    .extend({
-      context: openMeldRequestContextSchema,
-      responseContractVersion:
-        centerAgentTaskResponseContractVersionSchema.optional(),
-    });
+  centerAgentTaskRouteParamsSchema.extend(stopCenterAgentTaskBodyShape).extend({
+    context: openMeldRequestContextSchema,
+    responseContractVersion:
+      centerAgentTaskResponseContractVersionSchema.optional(),
+  });
 
 export const retryCenterAgentTaskRpcInputSchema =
   centerAgentTaskRouteParamsSchema
-    .extend(retryCenterAgentTaskBodySchema.shape)
+    .extend(retryCenterAgentTaskBodyShape)
     .extend({
       context: openMeldRequestContextSchema,
       responseContractVersion:
@@ -523,11 +534,11 @@ export const mutateCenterAgentTaskResponseV2Schema =
   centerAgentTaskDetailResponseV2Schema;
 
 function resolveCenterAgentTaskPresentationV1(
-  status: z.infer<typeof centerAgentTaskStatusSchema>
+  status: zod.infer<typeof centerAgentTaskStatusSchema>
 ): {
-  outcome: z.infer<typeof centerAgentTaskOutcomeSchema> | null;
-  phase: z.infer<typeof centerAgentTaskPhaseSchema> | null;
-  state: z.infer<typeof centerAgentTaskStateSchema>;
+  outcome: zod.infer<typeof centerAgentTaskOutcomeSchema> | null;
+  phase: zod.infer<typeof centerAgentTaskPhaseSchema> | null;
+  state: zod.infer<typeof centerAgentTaskStateSchema>;
 } {
   if (status === "running") {
     return { outcome: null, phase: "working", state: "active" };
@@ -540,10 +551,10 @@ function validateCenterAgentTaskLifecycle(
     activeAttemptGeneration: number | null;
     createdAt: string;
     finishedAt: string | null;
-    status: z.infer<typeof centerAgentTaskStatusSchema>;
+    status: zod.infer<typeof centerAgentTaskStatusSchema>;
     updatedAt: string;
   },
-  context: z.RefinementCtx
+  context: zod.RefinementCtx
 ): void {
   const isTerminal = isCenterAgentTaskTerminalStatus(task.status);
   if (isTerminal !== (task.finishedAt !== null)) {
@@ -580,7 +591,7 @@ function validateCenterAgentTaskLifecycle(
 }
 
 export function isCenterAgentTaskTerminalStatus(
-  status: z.infer<typeof centerAgentTaskStatusSchema>
+  status: zod.infer<typeof centerAgentTaskStatusSchema>
 ): status is "failed" | "stopped" | "succeeded" {
   return status === "failed" || status === "stopped" || status === "succeeded";
 }

@@ -1,4 +1,4 @@
-import * as z from "zod/v4";
+import * as z from "../../lazy-zod";
 import { computerSetupModeSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";

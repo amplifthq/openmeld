@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { openMeldWebUrlSchema } from "../../navigation-action";
 import {
   CENTER_AGENT_ROUTINE_NAME_MAX_CHARS,
@@ -381,11 +382,11 @@ export const remoteAgentTurnEnvelopeSchema = z
 
 function validateMessageChannelTurn(
   envelope: {
-    trigger: z.infer<typeof remoteAgentTurnEnvelopeTriggerSchema>;
-    space: z.infer<typeof remoteAgentTurnEnvelopeSpaceSchema>;
-    channelContext?: z.infer<typeof channelContextSchema>;
+    trigger: zod.infer<typeof remoteAgentTurnEnvelopeTriggerSchema>;
+    space: zod.infer<typeof remoteAgentTurnEnvelopeSpaceSchema>;
+    channelContext?: zod.infer<typeof channelContextSchema>;
   },
-  context: z.RefinementCtx
+  context: zod.RefinementCtx
 ): void {
   if (envelope.trigger.source !== "message_channel") {
     return;
@@ -413,10 +414,10 @@ function validateMessageChannelTurn(
 }
 
 function validateTaskContinuationTrigger(
-  trigger: z.infer<typeof remoteAgentTurnEnvelopeTriggerSchema>,
-  context: z.RefinementCtx
+  trigger: zod.infer<typeof remoteAgentTurnEnvelopeTriggerSchema>,
+  context: zod.RefinementCtx
 ): void {
-  let continuation: z.infer<
+  let continuation: zod.infer<
     typeof remoteAgentRoutineContinuationSchema
   > | null = null;
   if (trigger.source === "task_continuation" && trigger.delegation) {

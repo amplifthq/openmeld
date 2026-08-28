@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import { agentProfileIdSchema } from "../protocol/profile";
@@ -64,8 +65,8 @@ export const agentTaskTerminalOutcomeSchema = z.strictObject({
 });
 
 export function areAgentTaskTerminalOutcomesEqual(
-  left: z.infer<typeof agentTaskTerminalOutcomeSchema>,
-  right: z.infer<typeof agentTaskTerminalOutcomeSchema>
+  left: zod.infer<typeof agentTaskTerminalOutcomeSchema>,
+  right: zod.infer<typeof agentTaskTerminalOutcomeSchema>
 ): boolean {
   return (
     left.errorCode === right.errorCode &&
@@ -169,7 +170,7 @@ export const agentDelegationSnapshotSchema = z.strictObject({
 });
 
 export function buildAgentTaskKey(
-  handleInput: z.input<typeof agentTaskHandleSchema>
+  handleInput: zod.input<typeof agentTaskHandleSchema>
 ): string {
   const handle = agentTaskHandleSchema.parse(handleInput);
   switch (handle.kind) {

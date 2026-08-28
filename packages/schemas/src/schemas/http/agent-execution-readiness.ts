@@ -1,8 +1,8 @@
-import * as z from "zod/v4";
 import {
   agentExecutionReadinessImpactKindSchema,
   agentExecutionReadinessImpactSourceSchema,
 } from "../../agent-execution-readiness-impact-taxonomy";
+import * as z from "../../lazy-zod";
 import { daemonRouteObservationSummarySchema } from "../daemon/route-observation-summary";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "../daemon/runtime-transport";
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
