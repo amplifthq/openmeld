@@ -557,6 +557,8 @@ export type RemoteAgentCoreWorkerBinding = {
 export type RemoteAgentAssistantCompletionResult = {
   continuation: boolean;
   error?: unknown;
+  failureCode?: string;
+  failureDetail?: string;
   failureReasonCode?: RemoteAgentRuntimeEvidenceOutcomeReasonCode;
   message: {
     parts: Record<string, unknown>[];
@@ -1698,7 +1700,9 @@ export async function handleRemoteAgentChatResponse(input: {
       code: resolveRemoteAgentResultFailureCode(input.result),
       context,
       coreWorker: input.coreWorker,
-      detail: toOptionalErrorMessage(input.result.error),
+      detail:
+        input.result.failureDetail ??
+        toOptionalErrorMessage(input.result.error),
       nowMs,
       result: input.result,
       storage: input.storage,
@@ -1753,9 +1757,12 @@ export async function handleRemoteAgentChatResponse(input: {
 function resolveRemoteAgentResultFailureCode(
   result: Pick<
     RemoteAgentAssistantCompletionResult,
-    "error" | "failureReasonCode" | "status"
+    "error" | "failureCode" | "failureReasonCode" | "status"
   >
 ): string {
+  if (result.failureCode) {
+    return result.failureCode;
+  }
   if (result.status === "completed") {
     return "remote_agent.empty_assistant_response";
   }

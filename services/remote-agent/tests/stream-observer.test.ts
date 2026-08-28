@@ -681,7 +681,7 @@ describe("Center Agent stream observation", () => {
     });
   });
 
-  it("fails explicitly when a prompt callback has no execution owner", async () => {
+  it("does not publish a terminal callback when the execution owner is missing", async () => {
     const storage = new InMemoryDurableObjectStorage();
     await putRemoteAgentCallbackContextProjection(
       storage,
@@ -703,22 +703,27 @@ describe("Center Agent stream observation", () => {
       status: "accepted" as const,
     }));
 
-    await handleCenterAgentObservation({
-      event: completedPromptObservation("Unowned success must not publish."),
-      resolveDependencies: () => ({
-        coreWorker: { completeRemoteAgentSubmission },
-        env: {} as CloudflareBindings,
-        storage,
-      }),
-      streamPublisher: createRemoteAgentStreamPublisher(),
-    });
+    await expect(
+      handleCenterAgentObservation({
+        event: completedPromptObservation("Unowned success must not publish."),
+        resolveDependencies: () => ({
+          coreWorker: { completeRemoteAgentSubmission },
+          env: {} as CloudflareBindings,
+          storage,
+        }),
+        streamPublisher: createRemoteAgentStreamPublisher(),
+      })
+    ).rejects.toThrow(
+      "remote_agent.terminal_execution_owner_missing:flue_submission_123"
+    );
 
-    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "failed", submissionId: SUBMISSION_ID })
-    );
-    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
-      expect.not.objectContaining({ text: expect.any(String) })
-    );
+    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+    await expect(
+      readRemoteAgentCallbackContext(storage, SUBMISSION_ID)
+    ).resolves.toMatchObject({
+      callbackAttempts: 0,
+      callbackStatus: "pending",
+    });
   });
 
   it("publishes failure when failed wins the CAS against a success observation", async () => {
@@ -738,6 +743,42 @@ describe("Center Agent stream observation", () => {
     );
     expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
       expect.not.objectContaining({ text: expect.any(String) })
+    );
+  });
+
+  it("publishes the owner failure when a different failure wins the CAS", async () => {
+    const harness = await createTerminalCasRaceHarness("failed", {
+      code: "remote_agent.provider.rate_limited",
+      detail: "Winner hit the provider rate limit.",
+      reasonCode:
+        REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_RATE_LIMITED,
+    });
+    const input = {
+      event: failedPromptObservation({
+        code: "invalid_api_key",
+        message: "Losing observation says invalid API key.",
+        name: "AuthenticationError",
+      }),
+      resolveDependencies: harness.resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    };
+
+    await handleCenterAgentObservation(input);
+    await handleCenterAgentObservation(input);
+
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.provider.rate_limited",
+        failureDetail: "Winner hit the provider rate limit.",
+        status: "failed",
+        submissionId: SUBMISSION_ID,
+      })
+    );
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        failureDetail: "Losing observation says invalid API key.",
+      })
     );
   });
 
@@ -1394,7 +1435,12 @@ class TerminalCasRaceStorage extends InMemoryDurableObjectStorage {
 }
 
 async function createTerminalCasRaceHarness(
-  winnerStatus: "aborted" | "completed" | "failed"
+  winnerStatus: "aborted" | "completed" | "failed",
+  terminalFailure?: {
+    code: string;
+    detail?: string;
+    reasonCode: string;
+  }
 ) {
   const storage = new TerminalCasRaceStorage();
   const request = createSubmitTurnRequest();
@@ -1436,6 +1482,9 @@ async function createTerminalCasRaceHarness(
         : {}),
       ...(winnerStatus === "completed"
         ? { completedText: "The durable owner answer won." }
+        : {}),
+      ...(winnerStatus === "failed" && terminalFailure
+        ? { terminalFailure }
         : {}),
       completedAtMs: TEST_NOW_MS + 20,
       lastProgressAtMs: TEST_NOW_MS + 20,
@@ -1580,19 +1629,19 @@ function completedPromptObservation(text: string): FlueObservation {
   } satisfies FlueObservation;
 }
 
-function failedPromptObservation(): FlueObservation {
+function failedPromptObservation(
+  error: { code: string; message: string; name: string } = {
+    code: "rate_limit_exceeded",
+    message: "private provider response",
+    name: "APIError",
+  }
+): FlueObservation {
   return {
     agentName: "center-agent",
     durationMs: 84,
-    error: {
-      code: "rate_limit_exceeded",
-      message: "private provider response",
-      name: "APIError",
-    },
+    error,
     errorInfo: {
-      code: "rate_limit_exceeded",
-      message: "private provider response",
-      name: "APIError",
+      ...error,
       type: "provider_error",
     },
     eventIndex: 3,

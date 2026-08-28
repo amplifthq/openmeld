@@ -1,5 +1,3 @@
-import { REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES } from "@openmeld/schemas";
-import type { RemoteAgentRuntimeEvidenceOutcomeReasonCode } from "@openmeld/schemas/types";
 import {
   attemptRemoteAgentCallbackDelivery,
   buildRemoteAgentUsageRecord,
@@ -32,14 +30,12 @@ export class RemoteAgentTerminalCallbackProjectionMissingError extends Error {
 }
 
 export function buildRemoteAgentTerminalCallbackResult(input: {
-  failureError?: unknown;
-  failureReasonCode?: RemoteAgentRuntimeEvidenceOutcomeReasonCode;
   modelId?: string | null;
-  outcome: RemoteAgentTerminalExecutionOutcome | null;
+  outcome: RemoteAgentTerminalExecutionOutcome;
   requestId: string;
   usage?: RemoteAgentTurnUsage | null;
 }): RemoteAgentAssistantCompletionResult {
-  if (input.outcome?.status === "completed") {
+  if (input.outcome.status === "completed") {
     return {
       continuation: false,
       message: {
@@ -51,34 +47,15 @@ export function buildRemoteAgentTerminalCallbackResult(input: {
       usage: input.usage,
     };
   }
-  if (input.outcome?.status === "aborted") {
-    return {
-      continuation: false,
-      error: new Error("Remote Agent execution was cancelled."),
-      failureReasonCode: REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_FAILED,
-      message: { parts: [] },
-      modelId: input.modelId,
-      requestId: input.requestId,
-      status: "aborted",
-      usage: input.usage,
-    };
-  }
   return {
     continuation: false,
-    error:
-      input.failureError ??
-      new Error(
-        input.outcome
-          ? "Remote Agent execution failed before its callback."
-          : "Remote Agent execution owner is missing."
-      ),
-    failureReasonCode:
-      input.failureReasonCode ??
-      REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_NOT_COMPLETED,
+    failureCode: input.outcome.failure.code,
+    failureDetail: input.outcome.failure.detail,
+    failureReasonCode: input.outcome.failure.reasonCode,
     message: { parts: [] },
     modelId: input.modelId,
     requestId: input.requestId,
-    status: "error",
+    status: input.outcome.status === "aborted" ? "aborted" : "error",
     usage: input.usage,
   };
 }
@@ -86,7 +63,7 @@ export function buildRemoteAgentTerminalCallbackResult(input: {
 export async function projectRemoteAgentTerminalOutcomeToCallback(input: {
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs: number;
-  outcome: RemoteAgentTerminalExecutionOutcome | null;
+  outcome: RemoteAgentTerminalExecutionOutcome;
   result: RemoteAgentAssistantCompletionResult;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -104,7 +81,7 @@ export async function projectRemoteAgentTerminalOutcomeToCallback(input: {
     );
   }
   const result = input.result;
-  if (input.outcome?.status === "completed") {
+  if (input.outcome.status === "completed") {
     const projected = await projectRemoteAgentCompletedAnswer({
       modelId: result.modelId,
       storage: input.storage,

@@ -9,6 +9,7 @@ import {
 } from "../agent-core/callback-context";
 import {
   completeRemoteAgentExecutionState,
+  RemoteAgentTerminalExecutionOwnerMissingError,
   readRemoteAgentExecutionState,
   resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
@@ -16,6 +17,7 @@ import {
   buildRemoteAgentTerminalCallbackResult,
   projectRemoteAgentTerminalOutcomeToCallback,
 } from "../agent-core/terminal-callback-projection";
+import { createRemoteAgentTerminalFailureFact } from "../agent-core/terminal-failure";
 
 export type FlueSubmissionLifecycle = {
   error?: string;
@@ -124,13 +126,17 @@ export async function reconcileRemoteAgentExecution(input: {
     nowMs,
     status: cancelled ? "aborted" : "failed",
     storage: input.storage,
+    terminalFailure: createRemoteAgentTerminalFailureFact({
+      error: cancelled
+        ? (current.execution.cancellationReason ??
+          "Remote Agent execution was cancelled.")
+        : submission.error,
+      status: cancelled ? "aborted" : "failed",
+    }),
   });
   await projectRemoteAgentTerminalExecution({
     coreWorker: input.coreWorker,
     execution: settledExecution,
-    failureError: cancelled
-      ? new Error("Remote Agent execution was cancelled.")
-      : new Error(submission.error),
     identity: input.identity,
     nowMs,
     storage: input.storage,
@@ -145,7 +151,6 @@ export async function reconcileRemoteAgentExecution(input: {
 async function projectRemoteAgentTerminalExecution(input: {
   coreWorker?: RemoteAgentCoreWorkerBinding;
   execution: Awaited<ReturnType<typeof completeRemoteAgentExecutionState>>;
-  failureError?: Error;
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs: number;
   storage: RemoteAgentStorage;
@@ -156,8 +161,12 @@ async function projectRemoteAgentTerminalExecution(input: {
     nowMs: input.nowMs,
     storage: input.storage,
   });
+  if (!outcome) {
+    throw new RemoteAgentTerminalExecutionOwnerMissingError(
+      input.identity.submissionId
+    );
+  }
   const result = buildRemoteAgentTerminalCallbackResult({
-    failureError: input.failureError,
     outcome,
     requestId: input.identity.submissionId,
   });

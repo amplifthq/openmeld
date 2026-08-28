@@ -1,3 +1,4 @@
+import { REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
   assertRemoteAgentExecutionCanContinue,
@@ -8,6 +9,7 @@ import {
   readRemoteAgentCompletedExecutionAnswer,
   readRemoteAgentExecutionState,
   requestRemoteAgentExecutionCancellation,
+  resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
 import { createSubmitTurnRequest } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
@@ -222,6 +224,64 @@ describe("remote agent execution state", () => {
     ).resolves.toMatchObject({
       completedAtMs: 200,
       status: "completed",
+    });
+  });
+
+  it("stores failed state and its canonical outcome as one private durable invariant", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId: "submission_failed",
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: 100,
+      identity,
+      storage,
+    });
+
+    const execution = await completeRemoteAgentExecutionState({
+      identity,
+      nowMs: 200,
+      status: "failed",
+      storage,
+      terminalFailure: {
+        code: "remote_agent.provider.authentication_failed",
+        detail: "The provider rejected the configured credential.",
+        reasonCode:
+          REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_AUTHENTICATION_FAILED,
+      },
+    });
+
+    await expect(
+      storage.get(buildRemoteAgentExecutionStateKey(identity.submissionId))
+    ).resolves.toMatchObject({
+      status: "failed",
+      terminalFailure: {
+        code: "remote_agent.provider.authentication_failed",
+        detail: "The provider rejected the configured credential.",
+        reasonCode:
+          REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_AUTHENTICATION_FAILED,
+      },
+    });
+    await expect(
+      resolveRemoteAgentTerminalExecutionOutcome({
+        execution,
+        identity,
+        nowMs: 300,
+        storage,
+      })
+    ).resolves.toMatchObject({
+      failure: {
+        code: "remote_agent.provider.authentication_failed",
+        detail: "The provider rejected the configured credential.",
+        reasonCode:
+          REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_AUTHENTICATION_FAILED,
+      },
+      status: "failed",
     });
   });
 
