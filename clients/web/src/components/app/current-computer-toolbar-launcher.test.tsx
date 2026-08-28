@@ -201,6 +201,80 @@ describe("CurrentComputerToolbarLauncher", () => {
 		});
 	});
 
+	it("does not present cached ready status while current liveness is reconciling", () => {
+		statusMock.mockImplementation((input: { isReconcilingStatus: boolean }) =>
+			input.isReconcilingStatus
+				? {
+						label: "Checking OpenMeld Tools status",
+						reason: "checking",
+						showLabel: true,
+						tone: "checking",
+					}
+				: {
+						label: "OpenMeld Tools are ready",
+						reason: "ready",
+						showLabel: false,
+						tone: "ready",
+					}
+		);
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				deviceDisplayName: "Felix's MacBook Pro",
+				readinessDeviceId: "device-current",
+				readinessIsFetching: true,
+			})
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(
+			screen.getByRole("link", {
+				name: "Open Felix's MacBook Pro details, Checking OpenMeld Tools status",
+			})
+		).toBeTruthy();
+		expect(statusMock).toHaveBeenCalledWith({
+			isReconcilingStatus: true,
+			readiness: {
+				deviceId: "device-current",
+				service: { connected: true },
+			},
+		});
+	});
+
+	it("keeps an offline result honest while its refresh is in flight", () => {
+		statusMock.mockReturnValue({
+			label: "OpenMeld Service is not connected",
+			reason: "service_not_connected",
+			showLabel: true,
+			tone: "danger",
+		});
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				deviceDisplayName: "Felix's MacBook Pro",
+				readinessDeviceId: "device-current",
+				readinessIsFetching: true,
+				readinessServiceConnected: false,
+			})
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(
+			screen.getByRole("link", {
+				name: "Open Felix's MacBook Pro details, OpenMeld Service is not connected",
+			})
+		).toBeTruthy();
+		expect(statusMock).toHaveBeenCalledWith({
+			isReconcilingStatus: false,
+			readiness: {
+				deviceId: "device-current",
+				service: { connected: false },
+			},
+		});
+	});
+
 	it("stays hidden before the app shell has an Organization context", () => {
 		useOptionalAppOrganizationMock.mockReturnValue(null);
 
@@ -217,6 +291,8 @@ function buildRuntimeQueries(input: {
 	deviceDisplayName?: string;
 	inventoryState?: "failed" | "pending" | "ready";
 	readinessDeviceId?: string;
+	readinessIsFetching?: boolean;
+	readinessServiceConnected?: boolean;
 	staleCurrentDeviceId?: string;
 }) {
 	const localRuntimes = input.currentDeviceId
@@ -231,10 +307,15 @@ function buildRuntimeQueries(input: {
 	return {
 		currentLocalRuntimeReplyReadinessQuery: {
 			data: input.readinessDeviceId
-				? { deviceId: input.readinessDeviceId }
+				? {
+						deviceId: input.readinessDeviceId,
+						service: {
+							connected: input.readinessServiceConnected ?? true,
+						},
+					}
 				: null,
 			isFetchedAfterMount: true,
-			isFetching: false,
+			isFetching: input.readinessIsFetching ?? false,
 		},
 		localRuntimesQuery: {
 			data:

@@ -175,4 +175,50 @@ describe("resolveOrganizationComputerGroups", () => {
 			],
 		});
 	});
+
+	it("keeps registration identity separate from current Service liveness", () => {
+		const ownedComputers = [
+			{
+				connectedComputerId: "computer-felix",
+				connectionStatus: "connected",
+				deviceDisplayName: "Felix's MacBook Pro",
+				deviceId: "device-current",
+				executionTargets: [],
+				isCurrent: true,
+			},
+		] as unknown as LocalRuntimeComputer[];
+		const organizationComputers = {
+			computers: [
+				{
+					computerId: "computer-felix",
+					deviceDisplayName: "Felix's MacBook Pro",
+					deviceType: "laptop",
+					lastSeenAtMs: 1_786_980_000_000,
+					localAgents: [],
+					osVersion: "25.5.0",
+					ownerUserId: "user-felix",
+					platformFamily: "macOS",
+					serviceState: "connected",
+				},
+			],
+			generatedAt: "2026-08-18T00:00:00.000Z",
+			organizationId: "org-1",
+		} satisfies OrganizationComputersResponse;
+
+		const [currentUserGroup] = resolveOrganizationComputerGroups({
+			currentComputerServiceState: {
+				deviceId: "device-current",
+				state: "not_connected",
+			},
+			currentUserId: "user-felix",
+			directory: buildDirectory(),
+			organizationComputers,
+			ownedComputers,
+		});
+
+		expect(currentUserGroup?.computers[0]).toMatchObject({
+			deviceId: "device-current",
+			serviceState: "not_connected",
+		});
+	});
 });

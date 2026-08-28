@@ -33,7 +33,7 @@ export function AppGlobalControls(input: AppGlobalControlsProps = {}) {
 	return (
 		<div
 			aria-label="Global controls"
-			className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex h-[calc(3.5rem+env(safe-area-inset-bottom))] min-w-0 items-center justify-between gap-1 overflow-hidden px-2 pb-[env(safe-area-inset-bottom)] lg:h-9 lg:gap-0.5 lg:pb-0 [&_a]:min-h-11 [&_a]:touch-manipulation lg:[&_a]:min-h-0 [&_button]:min-h-11 [&_button]:touch-manipulation lg:[&_button]:min-h-0"
+			className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex h-[calc(3.5rem+env(safe-area-inset-bottom))] min-w-0 items-center justify-between gap-1 overflow-hidden px-2 pb-[env(safe-area-inset-bottom)] lg:h-9 lg:gap-0.5 lg:ps-0 lg:pe-2 lg:pb-0 [&_a]:min-h-11 [&_a]:touch-manipulation lg:[&_a]:min-h-0 [&_button]:min-h-11 [&_button]:touch-manipulation lg:[&_button]:min-h-0"
 			data-slot="app-global-controls"
 			role="toolbar"
 		>

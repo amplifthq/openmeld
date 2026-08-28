@@ -94,6 +94,8 @@ describe("AppGlobalControls", () => {
 			"Open Center Agent panel",
 			"Open Inbox panel",
 		]);
+		expect(toolbar.classList.contains("lg:ps-0")).toBe(true);
+		expect(toolbar.classList.contains("lg:pe-2")).toBe(true);
 	});
 
 	it("keeps Task, Inbox, and Center Agent panels mutually exclusive", () => {

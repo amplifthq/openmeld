@@ -41,7 +41,10 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import type { AppShellAccount } from "#/components/app/app-shell-account";
-import { resolveOrganizationComputerGroups } from "#/components/computers/organization-computers";
+import {
+	type CurrentOrganizationComputerServiceState,
+	resolveOrganizationComputerGroups,
+} from "#/components/computers/organization-computers";
 import {
 	buildOrganizationHumanProfileRows,
 	buildPersonalHumanProfileRows,
@@ -56,6 +59,10 @@ import {
 } from "#/components/directory/directory-human-profiles-workspace";
 import { OrganizationInviteLink } from "#/components/organizations/organization-invite-link";
 import { PersonalWorkspaceInvitationGuidance } from "#/components/organizations/personal-workspace-invitation-guidance";
+import {
+	isCurrentLocalRuntimeServiceDisconnected,
+	resolveCurrentLocalRuntimeSubjectDeviceId,
+} from "#/lib/computer-summary-status";
 import {
 	inviteOrganizationMember,
 	type OrganizationInviteRole,
@@ -429,12 +436,19 @@ function useDirectoryMembersOverviewModel(
 		isSuccess: documentsQuery.isSuccess,
 	});
 	const computersStatus = resolveDirectoryProjectionStatus(computersQuery);
-	const currentUserComputersStatus = resolveDirectoryProjectionStatus(
+	const currentUserInventoryStatus = resolveDirectoryProjectionStatus(
 		input.recovery.localRuntimesQuery
 	);
+	const currentComputerServiceProjection =
+		resolveCurrentComputerServiceProjection({
+			computersStatus,
+			inventoryStatus: currentUserInventoryStatus,
+			readinessQuery: input.recovery.currentLocalRuntimeReplyReadinessQuery,
+		});
 	const messageChannelsStatus =
 		resolveDirectoryProjectionStatus(messageChannelsQuery);
 	const computerGroups = resolveOrganizationComputerGroups({
+		currentComputerServiceState: currentComputerServiceProjection.serviceState,
 		currentUserId: input.currentUserId,
 		directory: input.directoryQuery.data ?? null,
 		organizationComputers: computersQuery.data ?? null,
@@ -458,7 +472,7 @@ function useDirectoryMembersOverviewModel(
 				canManageMessageChannels,
 				computerGroups,
 				computersStatus,
-				currentUserComputersStatus,
+				currentUserComputersStatus: currentComputerServiceProjection.status,
 				currentUserId: input.currentUserId,
 				documents: documentsQuery.data?.documents ?? [],
 				documentsStatus,
@@ -856,6 +870,57 @@ function resolveDirectoryDocumentsStatus(input: {
 		return "failed";
 	}
 	return "loading";
+}
+
+function resolveCurrentUserComputersStatus(input: {
+	computersStatus: DirectoryProjectionStatus;
+	hasFreshReadiness: boolean;
+	inventoryStatus: DirectoryProjectionStatus;
+	readinessNeedsReconciliation: boolean;
+}): DirectoryProjectionStatus {
+	if (input.inventoryStatus !== "ready") {
+		return input.inventoryStatus;
+	}
+	if (input.readinessNeedsReconciliation) {
+		return "loading";
+	}
+	return input.hasFreshReadiness ? "ready" : input.computersStatus;
+}
+
+function resolveCurrentComputerServiceProjection(input: {
+	computersStatus: DirectoryProjectionStatus;
+	inventoryStatus: DirectoryProjectionStatus;
+	readinessQuery: LocalAgentRecoveryController["currentLocalRuntimeReplyReadinessQuery"];
+}): {
+	serviceState: CurrentOrganizationComputerServiceState | null;
+	status: DirectoryProjectionStatus;
+} {
+	const readiness = input.readinessQuery.data ?? null;
+	const serviceDisconnected = readiness
+		? isCurrentLocalRuntimeServiceDisconnected(readiness)
+		: false;
+	const deviceId = resolveCurrentLocalRuntimeSubjectDeviceId(readiness);
+	const serviceState =
+		readiness &&
+		deviceId &&
+		(!input.readinessQuery.isFetching || serviceDisconnected)
+			? {
+					deviceId,
+					state: serviceDisconnected
+						? ("not_connected" as const)
+						: ("connected" as const),
+				}
+			: null;
+	return {
+		serviceState,
+		status: resolveCurrentUserComputersStatus({
+			computersStatus: input.computersStatus,
+			hasFreshReadiness: serviceState !== null,
+			inventoryStatus: input.inventoryStatus,
+			readinessNeedsReconciliation:
+				input.readinessQuery.isFetching && !serviceDisconnected,
+		}),
+	};
 }
 
 function showMemberResearchCompletionToast(
