@@ -31,10 +31,21 @@ async function projectLastSelectedOrganization(
     throw new TypeError("Better Auth returned an invalid session response.");
   }
 
-  const lastSelectedOrganizationId =
-    await getAccountOrganizationPreferenceRepository(
-      c.env
-    ).getLastSelectedOrganizationId(payload.user.id);
+  let lastSelectedOrganizationId: string | null;
+  try {
+    lastSelectedOrganizationId =
+      await getAccountOrganizationPreferenceRepository(
+        c.env
+      ).getLastSelectedOrganizationId(payload.user.id);
+  } catch (error) {
+    console.warn("[auth.account_organization_preference_projection_failed]", {
+      event: "auth.account_organization_preference_projection_failed",
+      error: error instanceof Error ? error.message : String(error),
+      requestId: c.var.requestId,
+      userId: payload.user.id,
+    });
+    return response;
+  }
   const headers = new Headers(response.headers);
   headers.delete("content-length");
 
