@@ -3468,15 +3468,20 @@ from the Service-owned maintenance projection. It never keeps a browser
 preference.
 
 The card renders the canonical operation phase as one short status:
-**Finishing current work**, **Updating**, **Up to date**, or **Update failed.
-Try again.** Clicking **Update** changes the action to **Updating** immediately,
-then retains the Service-returned operation and polls the same Computer
-projection until it becomes terminal. A stale refetch must not erase the local
-accepted-operation evidence, and a `current` control response must not produce
-an **Up to date** toast until the component projection agrees. Request
-completion is not update completion. Service connection recovery remains
-explicitly **Connect OpenMeld Service** or **Reconnect OpenMeld Service**, and
-the Reconnect action remains the CLI fallback.
+**Finishing current work**, **Updating**, **Verifying update**, **Up to date**,
+or **Update failed. Try again.** Clicking **Update** changes the action to
+**Updating** immediately, then retains the Service-returned operation and polls
+the same Computer projection. Operation updates with the same id are monotonic:
+an older `updatedAt` snapshot, or an equal-time snapshot from an earlier phase,
+must not move the visible operation backward. `updated` means only that the
+installation operation ended; Web continues to show **Verifying update** and
+polls until both the Service and CLI projections reach the operation target.
+A stale refetch must not erase the local accepted-operation evidence, and a
+`current` control response must not produce **Up to date** until the component
+projection agrees. Request completion and installation completion are not
+verified update completion. Service connection recovery remains explicitly
+**Connect OpenMeld Service** or **Reconnect OpenMeld Service**, and the Reconnect
+action remains the CLI fallback.
 
 For an `update_service` setup run, terminal completion proves only that the CLI
 flow ended. Web must keep the result in a bounded confirming state until both

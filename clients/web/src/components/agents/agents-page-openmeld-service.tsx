@@ -316,7 +316,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 				localComponents: observedLocalComponents,
 				pending: pendingManagedUpdate,
 			}) ||
-			hasObservedTerminalManagedUpdate({
+			hasObservedFailedManagedUpdate({
 				localComponents: observedLocalComponents,
 				pending: pendingManagedUpdate,
 			})
@@ -865,6 +865,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 			{maintenance ? (
 				<OpenMeldToolsMaintenanceControls
 					automaticUpdatesEnabled={maintenance.automaticUpdatesEnabled}
+					completionPending={input.pendingManagedUpdate !== null}
 					disabled={input.isSavingAutomaticUpdates}
 					onAutomaticUpdatesChange={input.onAutomaticUpdatesChange}
 					operation={updateOperation}
@@ -1132,7 +1133,7 @@ function hasObservedPendingManagedUpdateSettled(input: {
 	);
 }
 
-function hasObservedTerminalManagedUpdate(input: {
+function hasObservedFailedManagedUpdate(input: {
 	localComponents: OpenMeldToolsProjection | null;
 	pending: PendingManagedUpdate;
 }): boolean {
@@ -1142,17 +1143,8 @@ function hasObservedTerminalManagedUpdate(input: {
 	const observedOperation = input.localComponents?.updateOperation ?? null;
 	return (
 		observedOperation?.operationId === input.pending.operation.operationId &&
-		isTerminalOpenMeldToolsUpdateOperation(observedOperation)
-	);
-}
-
-function isTerminalOpenMeldToolsUpdateOperation(
-	operation: OpenMeldToolsUpdateOperation
-): boolean {
-	return (
-		operation.phase === "updated" ||
-		operation.phase === "restored" ||
-		operation.phase === "needs_help"
+		(observedOperation.phase === "restored" ||
+			observedOperation.phase === "needs_help")
 	);
 }
 
@@ -1169,12 +1161,41 @@ function resolveVisibleOpenMeldToolsUpdateOperation(input: {
 		return pendingOperation;
 	}
 	if (input.observed.operationId === pendingOperation.operationId) {
-		return input.observed;
+		const observedUpdatedAt = Date.parse(input.observed.updatedAt);
+		const pendingUpdatedAt = Date.parse(pendingOperation.updatedAt);
+		if (observedUpdatedAt !== pendingUpdatedAt) {
+			return observedUpdatedAt > pendingUpdatedAt
+				? input.observed
+				: pendingOperation;
+		}
+		return resolveOpenMeldToolsUpdatePhaseOrder(input.observed.phase) >
+			resolveOpenMeldToolsUpdatePhaseOrder(pendingOperation.phase)
+			? input.observed
+			: pendingOperation;
 	}
 	return Date.parse(input.observed.updatedAt) >=
 		Date.parse(pendingOperation.updatedAt)
 		? input.observed
 		: pendingOperation;
+}
+
+function resolveOpenMeldToolsUpdatePhaseOrder(
+	phase: OpenMeldToolsUpdateOperation["phase"]
+): number {
+	switch (phase) {
+		case "waiting_for_work":
+			return 0;
+		case "updating":
+			return 1;
+		case "updated":
+		case "restored":
+		case "needs_help":
+			return 2;
+		default: {
+			const exhaustive: never = phase;
+			return exhaustive;
+		}
+	}
 }
 
 function buildOpenMeldToolsCliUpdateAction(
@@ -1451,6 +1472,7 @@ type OpenMeldToolsAction =
 
 function OpenMeldToolsMaintenanceControls(input: {
 	automaticUpdatesEnabled: boolean;
+	completionPending: boolean;
 	disabled: boolean;
 	onAutomaticUpdatesChange: (enabled: boolean) => Promise<void>;
 	operation:
@@ -1483,6 +1505,7 @@ function OpenMeldToolsMaintenanceControls(input: {
 }
 
 function resolveOpenMeldToolsUpdateStatus(input: {
+	completionPending: boolean;
 	operation:
 		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
 		| null;
@@ -1494,6 +1517,9 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 	}
 	if (input.requesting) {
 		return "Updating";
+	}
+	if (input.completionPending && input.operation?.phase === "updated") {
+		return "Verifying update";
 	}
 	return input.operation
 		? formatOpenMeldToolsUpdatePhase(input.operation.phase)

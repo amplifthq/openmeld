@@ -1655,6 +1655,11 @@ Completed operation phases remain visible for at most 24 hours. Core must omit
 an older `updated` phase when current component evidence already shows another
 actionable update. A completed historical operation must never contradict the
 current update action.
+`updated` proves that the worker finished installation; it does not prove that
+Core has observed the target CLI and Service versions. Clients must retain the
+operation and verify both component projections before presenting **Up to
+date**. Same-operation observations are ordered by `updatedAt` and phase, so a
+stale projection cannot move visible progress backward.
 Because runtime capability payloads are strict, rollout deploys the accepting
 Schemas and Core before publishing a Service that emits `updateOperation`.
 New Core accepts older Services that omit it; rollback removes the new local
@@ -1701,11 +1706,17 @@ they never create parallel Service update lifecycles.
 After the safe switch begins, RuntimeCoordinator remains the in-flight Wake
 authority. New Wake work may wait for the replacement route and resume after
 the Service reconnects, but it must not be duplicated or converted into an
-early local timeout failure. The update job is complete only after the target
-Service reaches its verified desired state. Replacement startup or health
-verification failure must restore and verify the previous Service before the
-job records failure. Uninstall and reset remove the background update worker
-and its lane-owned disposable state.
+early local timeout failure. Before delivery, RuntimeCoordinator persists the
+owning device and lane with the delivery provenance. A replacement session may
+therefore recover an unaccepted delivery after a Durable Object restart even
+when the old in-memory session no longer exists. Reconciliation re-reads the
+durable command inside the per-execution serializer, so concurrent reconnect
+triggers produce at most one replacement delivery. Older commands without that
+durable route identity fail closed. The update job is complete only after the
+target Service reaches its verified desired state. Replacement startup or
+health verification failure must restore and verify the previous Service before
+the job records failure. Uninstall and reset remove the background update
+worker and its lane-owned disposable state.
 
 A previous binary is eligible as last-known-good only when its executable and
 fingerprint are still verifiable and its version is at or above Core's cached
