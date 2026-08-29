@@ -2068,6 +2068,30 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.queryByText("Checking")).toBeNull();
 	});
 
+	it("keeps self-healing readiness active without rendering controller UI", async () => {
+		const { container, queryClient } = renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map(),
+				currentLocalRuntimeReplyReadinessQuery: {
+					data: { canReplyFromThisComputer: true },
+					fetchStatus: "idle",
+				} as RecoveryController["currentLocalRuntimeReplyReadinessQuery"],
+			},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "controller" }
+		);
+
+		expect(container.textContent).toBe("");
+		await waitFor(() => {
+			expect(refreshReadinessSharedCachesMock).toHaveBeenCalledWith({
+				agentProfileIds: [AGENT_PROFILE_ID],
+				includeLocalRuntimeCaches: false,
+				queryClient,
+				storageScope: "test-scope",
+			});
+		});
+	});
+
 	it("keeps a recently Available Agent visually stable during a brief connection check", async () => {
 		const availableReadiness =
 			createWakeAvailabilityReadiness("available_for_wake");
@@ -2309,6 +2333,7 @@ function renderAgentProfilesCard(
 	);
 	const rendered = render(createTree(overrides, primaryBinding));
 	return {
+		container: rendered.container,
 		queryClient,
 		rerenderAgentProfilesCard: (
 			nextOverrides: Partial<RecoveryController>,

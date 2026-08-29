@@ -310,7 +310,7 @@ export type AgentProfilesCardProps = {
 	isCurrentComputer: boolean;
 	onCreateProfile?: () => void;
 	onFocusProfileConsumed?: () => void;
-	presentation?: "cards" | "detail";
+	presentation?: "cards" | "controller" | "detail";
 	queryClient: QueryClient;
 	recovery: AgentsPageController;
 	serviceUpdatePath: string;
@@ -1439,6 +1439,11 @@ function AgentProfilesCardView(input: {
 		visibleAgentProfiles,
 	} = input.controller;
 	const cardInput = input.input;
+	const presentation = cardInput.presentation ?? "cards";
+
+	if (presentation === "controller") {
+		return null;
+	}
 
 	if (agentProfilesQueryState.isPending) {
 		return <AgentProfilesLoadingRows />;
@@ -1464,7 +1469,7 @@ function AgentProfilesCardView(input: {
 		<AgentProfileDirectoryRow
 			cardInput={cardInput}
 			controller={input.controller}
-			presentation={cardInput.presentation ?? "cards"}
+			presentation={presentation}
 			profile={profile}
 		/>
 	);
@@ -1479,7 +1484,7 @@ function AgentProfilesCardView(input: {
 			/>
 		) : null;
 
-	if (cardInput.presentation === "detail") {
+	if (presentation === "detail") {
 		const selectedProfile =
 			visibleAgentProfiles.find(
 				(profile) => profile.openMeldProfileId === cardInput.focusProfileId

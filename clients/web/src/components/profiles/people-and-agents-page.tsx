@@ -428,6 +428,27 @@ function AgentsWorkspaceHome(input: {
 					setupPath={accountComputerSetupPath}
 				/>
 			)}
+			renderProfilesController={() => (
+				<AgentProfilesCard
+					agentExecutionReadinessByProfileId={readinessByProfileId}
+					agentExecutionReadinessErrorByProfileId={errorByProfileId}
+					agentExecutionReadinessPendingProfileIds={pendingProfileIds}
+					agentProfiles={agentProfiles}
+					agentProfilesQueryState={{ isError: false, isPending: false }}
+					availabilityFilter="all"
+					canManageProfile={(candidate) =>
+						candidate.ownerUserId === input.currentUserId
+					}
+					fallbackOwnerLabel={input.fallbackOwnerLabel}
+					focusProfileId={null}
+					isCurrentComputer={true}
+					presentation="controller"
+					queryClient={queryClient}
+					recovery={input.recovery}
+					serviceUpdatePath={accountServiceUpdatePath}
+					setupPath={accountComputerSetupPath}
+				/>
+			)}
 			requestPanel={requestPanel}
 			selectedProfileId={input.selectedProfileId}
 			showAgentRequests={input.isOrganizationContext}

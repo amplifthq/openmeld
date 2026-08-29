@@ -58,6 +58,7 @@ export type AgentProfilesWorkspaceProps = {
 	readinessByProfileId: ReadonlyMap<string, GetAgentExecutionReadinessResponse>;
 	readinessErrorByProfileId?: ReadonlyMap<string, string>;
 	readinessPendingProfileIds?: ReadonlySet<string>;
+	renderProfilesController: () => ReactNode;
 	renderProfileDetail: (profile: AuthProfileView) => ReactNode;
 	requestPanel: ReactNode;
 	selectedProfileId: string | null;
@@ -218,23 +219,35 @@ function AgentProfilesWorkspaceContent(input: {
 			</div>
 		);
 	}
+	const profilesController =
+		(input.input.hasAnyProfiles ?? input.input.profiles.length > 0)
+			? input.input.renderProfilesController()
+			: null;
 	if (input.selectionMissing) {
 		return (
-			<div className="grid min-h-full place-items-center px-6 py-12 text-center">
-				<div className="max-w-md space-y-2">
-					<h1 className="font-medium text-base">Agent not found</h1>
-					<p className="text-muted-foreground text-sm">
-						This Agent no longer exists, or it isn’t available in this
-						Organization.
-					</p>
+			<>
+				{profilesController}
+				<div className="grid min-h-full place-items-center px-6 py-12 text-center">
+					<div className="max-w-md space-y-2">
+						<h1 className="font-medium text-base">Agent not found</h1>
+						<p className="text-muted-foreground text-sm">
+							This Agent no longer exists, or it isn’t available in this
+							Organization.
+						</p>
+					</div>
 				</div>
-			</div>
+			</>
 		);
 	}
 	if (input.selectedProfile) {
 		return input.input.renderProfileDetail(input.selectedProfile);
 	}
-	return <AgentProfilesWorkspaceEmptyState input={input.input} />;
+	return (
+		<>
+			{profilesController}
+			<AgentProfilesWorkspaceEmptyState input={input.input} />
+		</>
+	);
 }
 
 function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {

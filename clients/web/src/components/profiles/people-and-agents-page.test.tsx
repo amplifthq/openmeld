@@ -166,10 +166,14 @@ vi.mock("#/components/agents/agents-page-agent-profiles-card", () => ({
 		focusProfileId: string | null;
 		isCurrentComputer: boolean;
 		onCreateProfile?: () => void;
+		presentation?: "cards" | "controller" | "detail";
 		showOwnerGroups?: boolean;
 	}) => {
 		agentProfilesCardSpy(props);
 		const [editing, setEditing] = useState(false);
+		if (props.presentation === "controller") {
+			return null;
+		}
 		const profileName =
 			props.agentProfiles?.find(
 				(profile) => profile.openMeldProfileId === props.focusProfileId
@@ -217,6 +221,7 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 		onViewChange: (view: "agents" | "requests") => void;
 		pendingRequestCount: number;
 		profiles: readonly AuthProfileView[];
+		renderProfilesController: () => ReactNode;
 		renderProfileDetail: (profile: AuthProfileView) => ReactNode;
 		requestPanel: ReactNode;
 		selectedProfileId: string | null;
@@ -229,7 +234,7 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 			) ?? props.profiles[0];
 		let content: ReactNode = selectedProfile
 			? props.renderProfileDetail(selectedProfile)
-			: null;
+			: props.renderProfilesController();
 		if (props.activeView === "requests") {
 			content = props.requestPanel;
 		}
@@ -951,6 +956,16 @@ describe("PeopleAndAgentsPage", () => {
 			).toBeTruthy();
 			expect(agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].profiles).toEqual(
 				[]
+			);
+			expect(agentProfilesCardSpy.mock.calls.at(-1)?.[0]).toEqual(
+				expect.objectContaining({
+					agentProfiles: expect.arrayContaining([
+						expect.objectContaining({
+							openMeldProfileId: "agt_11111111-1111-4111-8111-111111111111",
+						}),
+					]),
+					presentation: "controller",
+				})
 			);
 		});
 	});

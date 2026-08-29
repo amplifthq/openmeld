@@ -147,6 +147,7 @@ describe("AgentProfilesWorkspace", () => {
 		expect(
 			screen.getByRole("button", { name: "Open Felix Agent" })
 		).toBeTruthy();
+		expect(screen.getByTestId("profiles-controller")).toBeTruthy();
 	});
 
 	it("shows Controller/model summary and the authoritative Wake availability", () => {
@@ -203,6 +204,7 @@ describe("AgentProfilesWorkspace", () => {
 		expect(
 			screen.queryAllByRole("button", { name: "Create Agent" })
 		).toHaveLength(1);
+		expect(screen.getByTestId("profiles-controller")).toBeTruthy();
 	});
 
 	it("distinguishes loading, failure, and the ready empty state", () => {
@@ -225,6 +227,7 @@ describe("AgentProfilesWorkspace", () => {
 				profilesStatus="error"
 				readinessByProfileId={new Map()}
 				renderProfileDetail={() => null}
+				renderProfilesController={() => null}
 				requestPanel={null}
 				selectedProfileId={null}
 			/>
@@ -245,6 +248,7 @@ describe("AgentProfilesWorkspace", () => {
 				profilesStatus="ready"
 				readinessByProfileId={new Map()}
 				renderProfileDetail={() => null}
+				renderProfilesController={() => null}
 				requestPanel={null}
 				selectedProfileId={null}
 			/>
@@ -275,6 +279,7 @@ function renderWorkspace(
 			renderProfileDetail={(profile) => (
 				<div data-testid="selected-agent-detail">{profile.profileName}</div>
 			)}
+			renderProfilesController={() => <div data-testid="profiles-controller" />}
 			requestPanel={<div data-testid="agent-requests-panel">Requests</div>}
 			selectedProfileId={null}
 			{...overrides}
