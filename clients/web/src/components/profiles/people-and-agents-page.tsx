@@ -405,6 +405,7 @@ function AgentsWorkspaceHome(input: {
 					fallbackOwnerLabel={input.fallbackOwnerLabel}
 					focusProfileId={profile.openMeldProfileId}
 					isCurrentComputer={true}
+					key={profile.openMeldProfileId}
 					presentation="detail"
 					queryClient={queryClient}
 					recovery={input.recovery}

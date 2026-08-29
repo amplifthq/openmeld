@@ -152,6 +152,20 @@ describe("AgentProfilesWorkspace", () => {
 		);
 	});
 
+	it("shows a readiness refresh error before cached sidebar availability", () => {
+		renderWorkspace({
+			readinessErrorByProfileId: new Map([
+				["agent-current", "Core could not refresh Wake availability."],
+			]),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(within(item).getByText("Unavailable").getAttribute("title")).toBe(
+			"Core could not refresh Wake availability."
+		);
+		expect(within(item).queryByText("Available")).toBeNull();
+	});
+
 	it("switches the main content to Agent requests without creating another request state", () => {
 		const onViewChange = vi.fn();
 		renderWorkspace({ activeView: "requests", onViewChange });

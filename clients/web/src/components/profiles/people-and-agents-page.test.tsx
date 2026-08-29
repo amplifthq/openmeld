@@ -12,7 +12,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PeopleAndAgentsPage } from "./people-and-agents-page";
 
@@ -169,9 +169,14 @@ vi.mock("#/components/agents/agents-page-agent-profiles-card", () => ({
 		showOwnerGroups?: boolean;
 	}) => {
 		agentProfilesCardSpy(props);
+		const [editing, setEditing] = useState(false);
+		const profileName = props.agentProfiles?.[0]?.profileName ?? "Agent";
 		return (
 			<section data-testid="agent-profiles-card">
-				Agents Card
+				{editing ? `Editing ${profileName}` : `Viewing ${profileName}`}
+				<button onClick={() => setEditing(true)} type="button">
+					Edit Agent
+				</button>
 				<button onClick={props.onCreateProfile} type="button">
 					Create an Agent
 				</button>
@@ -708,6 +713,66 @@ describe("PeopleAndAgentsPage", () => {
 			},
 			to: "/o/acme/agents",
 		});
+	});
+
+	it("resets profile-specific detail state when selecting another Agent", () => {
+		const directory = buildOrganizationDirectory();
+		const firstAgent = directory.agentProfiles[0];
+		if (!firstAgent) {
+			throw new Error("Expected the directory Agent fixture.");
+		}
+		const secondAgent = {
+			...firstAgent,
+			ownerName: "Mira",
+			ownerUserId: "user-456",
+			profileHandle: "analyst",
+			profileId: "agt_22222222-2222-4222-8222-222222222222",
+			profileName: "Analyst",
+		};
+		directory.agentProfiles = [firstAgent, secondAgent];
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			if (queryKey.includes("directory")) {
+				return {
+					data: directory,
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: { organizationId: "org-123", requests: [] },
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		const { rerender } = render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={firstAgent.profileId}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Edit Agent" }));
+		expect(screen.getByText("Editing Scout")).toBeTruthy();
+
+		rerender(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={secondAgent.profileId}
+			/>
+		);
+		expect(screen.getByText("Viewing Analyst")).toBeTruthy();
+		expect(screen.queryByText("Editing Analyst")).toBeNull();
 	});
 
 	it("opens an Agent from requests with one view-and-profile transition", () => {

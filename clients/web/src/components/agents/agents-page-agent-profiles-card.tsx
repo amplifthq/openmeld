@@ -3564,13 +3564,7 @@ export function AgentProfileInlineEditor(input: AgentProfileInlineEditorProps) {
 			}),
 		[input.editState, input.profileName]
 	);
-	return (
-		<AgentProfileInlineEditorContent
-			key={draftInput.draftKey}
-			{...input}
-			draftInput={draftInput}
-		/>
-	);
+	return <AgentProfileInlineEditorContent {...input} draftInput={draftInput} />;
 }
 
 function AgentProfileInlineEditorContent(

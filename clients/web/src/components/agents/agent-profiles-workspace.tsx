@@ -405,7 +405,7 @@ function resolveAgentProfileSidebarPresentation(input: {
 	const modelId =
 		input.readiness?.primaryBinding?.modelSelection?.modelId?.trim();
 	const wakeAvailability = input.readiness?.agentWakeAvailability ?? null;
-	if (!wakeAvailability) {
+	if (input.errorMessage || !wakeAvailability) {
 		const availability = resolveMissingSidebarAvailability(input);
 		return {
 			availabilityClassName: availability.className,

@@ -13,7 +13,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import type { ComponentProps, ReactNode } from "react";
+import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
@@ -25,6 +25,7 @@ import {
 import { resolveAgentProfileEditState } from "./agent-profile-edit-state";
 import {
 	AgentProfileEditDialog,
+	AgentProfileInlineEditor,
 	AgentProfilesCard,
 } from "./agents-page-agent-profiles-card";
 
@@ -1122,6 +1123,31 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			"Failed to update Agent Profile.",
 			expect.any(Error)
 		);
+	});
+
+	it("keeps the inline draft and error after a partial save rerenders its source", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+		render(<PartialSaveInlineEditorHarness />);
+
+		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+			target: { value: "Renamed Research Agent" },
+		});
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Codex collaboration mode" })
+		);
+		fireEvent.click(screen.getByRole("option", { name: "Plan" }));
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"Collaboration Mode update failed"
+		);
+		expect(
+			(screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement).value
+		).toBe("Renamed Research Agent");
+		expect(
+			screen.getByRole("combobox", { name: "Codex collaboration mode" })
+				.textContent
+		).toContain("Plan");
 	});
 
 	it("shows the current runtime and links Agent settings back to its computer", () => {
@@ -2289,6 +2315,38 @@ function renderAgentProfilesCard(
 				| null
 		) => rendered.rerender(createTree(nextOverrides, nextPrimaryBinding)),
 	};
+}
+
+function PartialSaveInlineEditorHarness() {
+	const [profileName, setProfileName] = useState("Research Agent");
+	const primaryBinding = createPrimaryBindingResponse("codex:askForApproval")
+		.binding as GetAgentProfilePrimaryBindingResponse["binding"];
+	return (
+		<TooltipProvider>
+			<AgentProfileInlineEditor
+				controllerChangeOptions={[]}
+				editState={resolveAgentProfileEditState({
+					binding: primaryBinding,
+					modelCatalog: null,
+				})}
+				isPending={false}
+				modelCatalog={null}
+				onCancel={() => undefined}
+				onControllerChange={() => Promise.resolve()}
+				onControllerCollaborationModeUpdate={() =>
+					Promise.reject(new Error("Collaboration Mode update failed"))
+				}
+				onControllerPermissionModeUpdate={() => Promise.resolve()}
+				onModelSelectionUpdate={() => Promise.resolve()}
+				onOpenCodePermissionUpdate={() => Promise.resolve()}
+				onRenameProfile={(nextProfileName) => {
+					setProfileName(nextProfileName);
+					return Promise.resolve();
+				}}
+				profileName={profileName}
+			/>
+		</TooltipProvider>
+	);
 }
 
 function createOrganizationScope(overrides: { isPersonal?: boolean } = {}) {
