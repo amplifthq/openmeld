@@ -158,14 +158,14 @@ describe("command entry cli update", () => {
     });
   });
 
-  it("fails non-zero when the user declines a required CLI update", async () => {
+  it("fails non-zero when the user declines a required product-command CLI update", async () => {
     await withTempHome(async () => {
       confirmMock.mockResolvedValue(false);
 
       const result = await runCliUpdateCheck({
         context: createContext({
-          entryName: "setup",
-          argv: ["node", "openmeld", "setup"],
+          entryName: "space.send",
+          argv: ["node", "openmeld", "space", "send"],
         }),
         requirement: {
           mode: "required",
@@ -184,13 +184,13 @@ describe("command entry cli update", () => {
     });
   });
 
-  it("reruns required setup after the CLI update succeeds", async () => {
+  it("reruns a required product command after the CLI update succeeds", async () => {
     await withTempHome(async () => {
-      const argv = ["node", "openmeld", "setup", "--view", "human"];
+      const argv = ["node", "openmeld", "space", "send", "--view", "human"];
 
       const result = await runCliUpdateCheck({
         context: createContext({
-          entryName: "setup",
+          entryName: "space.send",
           argv,
         }),
         requirement: {
@@ -216,15 +216,15 @@ describe("command entry cli update", () => {
     });
   });
 
-  it("continues required setup when npm latest cannot be checked", async () => {
+  it("continues a required product command when npm latest cannot be checked", async () => {
     await withTempHome(async () => {
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
       resetVersionCheckCacheForTests();
 
       const result = await runCliUpdateCheck({
         context: createContext({
-          entryName: "setup",
-          argv: ["node", "openmeld", "setup"],
+          entryName: "space.send",
+          argv: ["node", "openmeld", "space", "send"],
         }),
         requirement: {
           mode: "required",
@@ -304,14 +304,14 @@ describe("command entry cli update", () => {
     });
   });
 
-  it("blocks non-interactive required setup when the CLI is outdated", async () => {
+  it("blocks a non-interactive required product command when the CLI is outdated", async () => {
     await withTempHome(async () => {
       const presenter = createPresenter();
 
       const result = await runCliUpdateCheck({
         context: createContext({
-          entryName: "setup",
-          argv: ["node", "openmeld", "setup", "--view", "agent"],
+          entryName: "space.send",
+          argv: ["node", "openmeld", "space", "send", "--view", "agent"],
           runtime: {
             viewMode: "agent",
             resolvedView: "agent",

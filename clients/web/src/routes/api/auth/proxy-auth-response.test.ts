@@ -111,6 +111,45 @@ describe("auth proxy response", () => {
 		});
 	});
 
+	it("preserves cookie cleanup and request correlation on auth errors", async () => {
+		const expiredSessionCookie =
+			"better-auth.session_token=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax";
+		const expiredSessionDataCookie =
+			"better-auth.session_data=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax";
+		const upstreamHeaders = new Headers({
+			"content-type": "application/json",
+			"x-request-id": "auth-error-123",
+		});
+		upstreamHeaders.append("set-cookie", expiredSessionCookie);
+		upstreamHeaders.append("set-cookie", expiredSessionDataCookie);
+		const upstreamResponse = new Response(
+			JSON.stringify({
+				code: "INVALID_SESSION",
+				message: "Sign in again to continue.",
+			}),
+			{
+				headers: upstreamHeaders,
+				status: 401,
+			}
+		);
+
+		const response = await buildBufferedAuthProxyResponse({
+			method: "GET",
+			upstreamResponse,
+		});
+
+		expect(response.status).toBe(400);
+		expect(response.headers.get("x-request-id")).toBe("auth-error-123");
+		expect(readSetCookieHeaders(response.headers)).toEqual([
+			expiredSessionCookie,
+			expiredSessionDataCookie,
+		]);
+		await expect(response.json()).resolves.toEqual({
+			code: "INVALID_SESSION",
+			message: "Sign in again to continue.",
+		});
+	});
+
 	it("passes through verify redirects with auth cookies intact", async () => {
 		const location =
 			"http://localhost:3000/magic-link?redirect=%2Fo%2Facme%2Fnew-space";

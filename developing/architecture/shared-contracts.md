@@ -4225,14 +4225,21 @@ Service projection `required` even when the latest artifact is advisory:
 - CLI policy is projected at release time into the published npm package as
   `openmeld.minRequiredCliVersion` (the forced-update floor), because npm is the only
   channel a CLI can read before sign-in or device enrollment. The release tool
-  derives this floor from the manifest in the same step, so the npm field is a
-  projection, not a second source of truth. The floor is monotonic inside a
+  copies that exact tracked package field into the R2 stable manifest, so npm
+  and the binary channel cannot publish different floors. A `required` release
+  pins the field to at least its own version; a separately proven compatibility
+  break may raise it to the first safe CLI without making every supported CLI
+  below the latest release mandatory. The floor is monotonic inside a
   release line against the last-published baseline (the `v*` release tag
-  created by the guarded CLI release): a `required` release pins it to at least its own
-  version, a deliberate in-repo raise may ship with any release (it stays
-  dormant until the next `required` release pins it higher anyway), and `verify`
-  hard-rejects any regression below the baseline — dropping the floor silently
-  un-gates old CLIs, which is exactly how the 0.7.95 floor regression shipped.
+  created by the guarded CLI release), and `verify` hard-rejects any regression
+  below the baseline — dropping the floor silently un-gates old CLIs, which is
+  exactly how the 0.7.95 floor regression shipped. The current floor is
+  `0.3.126`: earlier CLIs belong to the same pre-recovery generation as the
+  unsupported Service and cannot be trusted to provide the startup recovery,
+  managed-update, and active Permission/Wake behavior that the current
+  workstation flow requires. This is a compatibility floor, not a latest-
+  version requirement; supported CLIs at or above `0.3.126` remain advisory
+  when `components.cli.updatePolicy=available`.
   The one explicit exception is the initial `openmeld-greenfield-2026-07`
   reset: OpenMeld's greenfield product line starts at `openmeld@0.1.0` before
   public npm publish, so the inherited ATS `0.7.x` floor does not carry into

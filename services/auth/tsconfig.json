@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "lib": ["ESNext", "WebWorker"],
-    "types": ["./worker-configuration.d.ts"]
+    "types": ["node", "./worker-configuration.d.ts"]
   },
   "include": ["src"],
   "exclude": [

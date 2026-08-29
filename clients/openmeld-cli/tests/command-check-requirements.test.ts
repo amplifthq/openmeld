@@ -288,7 +288,7 @@ describe("command check requirements", () => {
       signIn: { mode: "skip", stage: "before-entry" },
     });
     expect(getCommandCheckRequirements("setup")).toMatchObject({
-      cliUpdate: { mode: "optional", stage: "before-entry" },
+      cliUpdate: { mode: "skip", stage: "before-entry" },
       localRuntimeState: { mode: "auto-fix", stage: "before-entry" },
       signIn: { mode: "skip", stage: "before-entry" },
       service: { mode: "skip", stage: "after-sign-in" },

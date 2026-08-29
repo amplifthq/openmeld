@@ -1,6 +1,7 @@
 import type { Context, Hono } from "hono";
 import { getAccountOrganizationPreferenceRepository } from "../account/organization-preference-service";
 import type { AppContext } from "../context";
+import { toDiagnosticError } from "../observability/diagnostic-error";
 
 const BETTER_AUTH_SESSION_ROUTE = "/api/auth/get-session";
 
@@ -31,10 +32,21 @@ async function projectLastSelectedOrganization(
     throw new TypeError("Better Auth returned an invalid session response.");
   }
 
-  const lastSelectedOrganizationId =
-    await getAccountOrganizationPreferenceRepository(
-      c.env
-    ).getLastSelectedOrganizationId(payload.user.id);
+  let lastSelectedOrganizationId: string | null;
+  try {
+    lastSelectedOrganizationId =
+      await getAccountOrganizationPreferenceRepository(
+        c.env
+      ).getLastSelectedOrganizationId(payload.user.id);
+  } catch (error) {
+    console.warn("[auth.account_organization_preference_projection_failed]", {
+      event: "auth.account_organization_preference_projection_failed",
+      error: toDiagnosticError(error),
+      requestId: c.var.requestId,
+      userId: payload.user.id,
+    });
+    return response;
+  }
   const headers = new Headers(response.headers);
   headers.delete("content-length");
 

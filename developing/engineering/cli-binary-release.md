@@ -348,6 +348,11 @@ node scripts/release/upload-cli-binary.mjs
   smaller exact-base delta to `openmeld-desktop-downloads-prod/cli/`.
 - The upload writes the manifest to
   `openmeld-desktop-downloads-prod/cli/manifest.json`.
+- The npm package field `openmeld.minRequiredCliVersion` is the tracked CLI
+  compatibility floor. The same guarded release reads that field into
+  `channels.stable.minRequiredCliVersion`; npm latest and the R2 stable manifest
+  must expose the exact same floor after publication. A compatibility-floor
+  raise targets the first proven-safe CLI, not automatically the latest CLI.
 - The public Web routes are `/cli/manifest.json` and `/cli/download/<artifact>`.
 - Each platform record keeps `url`, `sha256`, and `sizeBytes` for the raw
   executable so older clients continue to work. The additive

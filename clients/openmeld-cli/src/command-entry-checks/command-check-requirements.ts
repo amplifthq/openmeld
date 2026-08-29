@@ -60,11 +60,7 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     OPTIONAL_CLI_UPDATE,
     AUTO_FIX_LOCAL_RUNTIME
   ),
-  setup: buildCommandChecks(
-    REQUIRED_DISCLAIMER,
-    OPTIONAL_CLI_UPDATE,
-    AUTO_FIX_LOCAL_RUNTIME
-  ),
+  setup: buildCommandChecks(REQUIRED_DISCLAIMER, AUTO_FIX_LOCAL_RUNTIME),
   feedback: buildCommandChecks(OPTIONAL_CLI_UPDATE),
   "repair.local-state": buildCommandChecks(REQUIRED_DISCLAIMER),
   uninstall: buildCommandChecks(REQUIRED_DISCLAIMER),

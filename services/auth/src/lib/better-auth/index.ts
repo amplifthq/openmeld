@@ -6,6 +6,7 @@ import { createAuthConfig } from "@openmeld/auth/server";
 import { betterAuth } from "better-auth";
 import type { AuthBindings } from "../bindings";
 import { createKvSecondaryStorage } from "../utils/kv";
+import "./initialize-async-context";
 import { createOrganizationDeletionGuard } from "./organization-deletion-guard";
 
 type AuthInstance = ReturnType<typeof betterAuth>;

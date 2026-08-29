@@ -158,6 +158,27 @@ describe("run command entry flow", () => {
     ]);
   });
 
+  it("keeps setup available without running the CLI update gate", async () => {
+    const callOrder: string[] = [];
+    runDisclaimerCheckMock.mockImplementation(() => {
+      callOrder.push("disclaimer");
+      return { status: "continue" };
+    });
+    runLocalRuntimeStateCheckMock.mockImplementation(() => {
+      callOrder.push("localRuntimeState");
+      return { status: "continue" };
+    });
+
+    const result = await runCommandEntryFlow(createContext("setup"));
+
+    expect(result).toEqual({ status: "continue" });
+    expect(callOrder).toEqual(["disclaimer", "localRuntimeState"]);
+    expect(runCliUpdateCheckMock).not.toHaveBeenCalled();
+    expect(runSignInCheckMock).not.toHaveBeenCalled();
+    expect(runSelectedProfileCheckMock).not.toHaveBeenCalled();
+    expect(runServiceCheckMock).not.toHaveBeenCalled();
+  });
+
   it("stops after the first blocking check result", async () => {
     const callOrder: string[] = [];
     runCliUpdateCheckMock.mockImplementation(() => {
