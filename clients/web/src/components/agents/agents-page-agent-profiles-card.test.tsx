@@ -402,6 +402,46 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeNull();
 	});
 
+	it("redacts owner-only diagnostics from a teammate Agent detail", async () => {
+		const baseBinding = createPrimaryBindingResponse(
+			"codex:approveForMe",
+			"builtin:codex",
+			{ modelId: "gpt-5.5", reasoningLevel: "high" }
+		).binding;
+		const primaryBinding = {
+			...baseBinding,
+			executionTarget: {
+				...baseBinding.executionTarget,
+				agentControllerConversationId: "private-native-session",
+			},
+		};
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(primaryBinding),
+			runtimeDeviceDisplayName: "Mira's MacBook Pro",
+		} as unknown as GetAgentExecutionReadinessResponse;
+		renderAgentProfilesCard({}, primaryBinding, {
+			agentExecutionReadinessByProfileId: new Map([
+				[AGENT_PROFILE_ID, readiness],
+			]),
+			canManageProfile: () => false,
+			presentation: "detail",
+		});
+
+		expect(
+			await screen.findByTestId("agent-profile-workspace-detail")
+		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Direct Message" })).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Edit Agent" })).toBeNull();
+		expect(screen.queryByText("Controller conversation ID")).toBeNull();
+		expect(screen.queryByText("Computer")).toBeNull();
+		expect(screen.queryByText("Model")).toBeNull();
+		expect(screen.queryByText("Binding state")).toBeNull();
+		expect(screen.queryByText("GPT-5.5 · High")).toBeNull();
+		await waitFor(() => {
+			expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();
+		});
+	});
+
 	it("keeps a readiness failure and its diagnostic visible in detail", async () => {
 		renderAgentProfilesCard(
 			{

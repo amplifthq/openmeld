@@ -63,6 +63,7 @@ export function buildProfileDetailsSnapshotFromAuthProfile(input: {
   primaryBinding: GetAgentProfilePrimaryBindingResponse["binding"] | null;
   profile: AuthProfileView;
   readiness: GetAgentExecutionReadinessResponse | null;
+  viewerScope: ProfileDetailsViewerScope;
 }): ProfileDetailsSnapshot {
   const executionTarget = input.primaryBinding?.executionTarget ?? null;
   const bindingConversationId =
@@ -158,7 +159,7 @@ export function buildProfileDetailsSnapshotFromAuthProfile(input: {
         wakeReasonCode: wakeAvailability?.reasonCode,
       }),
     ],
-    viewerScope: "owner_self",
+    viewerScope: input.viewerScope,
   });
 }
 

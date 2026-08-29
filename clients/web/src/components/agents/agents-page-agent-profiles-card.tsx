@@ -24,6 +24,7 @@ import type {
 	ModelCatalog,
 	OrganizationBindingAuthorizationProfile,
 	ProfileDetailsSnapshot,
+	ProfileDetailsViewerScope,
 } from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
@@ -219,6 +220,12 @@ type PrimaryBindingDisplayState = {
 	>;
 	storageScope: string;
 };
+
+function resolveProfileDetailsViewerScope(
+	canManage: boolean
+): ProfileDetailsViewerScope {
+	return canManage ? "owner_self" : "observer";
+}
 
 export type {
 	AgentProfileControllerChangeUpdate,
@@ -2026,6 +2033,9 @@ type AgentProfileExecutionReadinessRowProps = {
 function AgentProfileExecutionReadinessRow(
 	input: AgentProfileExecutionReadinessRowProps
 ) {
+	const viewerScope = resolveProfileDetailsViewerScope(
+		input.rowState.canManage
+	);
 	const controllerPermissionModeDisplay =
 		resolveWebAgentControllerPermissionModeDisplayFromBinding(
 			input.primaryBinding
@@ -2038,6 +2048,7 @@ function AgentProfileExecutionReadinessRow(
 			primaryBinding: input.primaryBinding,
 			profile: input.profile,
 			readiness: input.readiness,
+			viewerScope,
 		}
 	);
 	const rowMoreMenu = (
@@ -2149,6 +2160,7 @@ function AgentProfileExecutionReadinessRow(
 		primaryBinding: input.primaryBinding,
 		profile: input.profile,
 		readiness,
+		viewerScope,
 	});
 	const cardActions = renderAgentProfileCardActions({
 		canCheckExpiredWakeRouteAgain:
@@ -3066,6 +3078,7 @@ function AgentProfileRowMoreMenu(input: {
 	const currentSessionQuery = useQuery(
 		agentActivitySessionsQueryOptions({
 			enabled:
+				input.capabilities.canManage &&
 				(input.presentation === "detail" || isDetailsDialogOpen) &&
 				Boolean(input.primaryNativeSessionId),
 			limit: 1,
@@ -3078,22 +3091,25 @@ function AgentProfileRowMoreMenu(input: {
 				(session) => session.nativeSessionId === input.primaryNativeSessionId
 			) ?? null)
 		: null;
-	const currentSessionLink = input.primaryNativeSessionId
-		? {
-				href: `${buildOrganizationAgentActivitySessionsPath(currentOrganization.slug)}?query=${encodeURIComponent(input.primaryNativeSessionId)}`,
-				nativeSessionId: input.primaryNativeSessionId,
-				title:
-					currentSession?.nativeSessionTitle?.trim() ||
-					currentSession?.localAgent.name ||
-					"Local Agent Session",
-			}
-		: undefined;
+	const currentSessionLink =
+		input.capabilities.canManage && input.primaryNativeSessionId
+			? {
+					href: `${buildOrganizationAgentActivitySessionsPath(currentOrganization.slug)}?query=${encodeURIComponent(input.primaryNativeSessionId)}`,
+					nativeSessionId: input.primaryNativeSessionId,
+					title:
+						currentSession?.nativeSessionTitle?.trim() ||
+						currentSession?.localAgent.name ||
+						"Local Agent Session",
+				}
+			: undefined;
 	const runtimeControllerLabel =
 		input.controllerChangeOptions.find(
 			(option) => option.agentControllerRef === input.primaryAgentControllerRef
 		)?.label ?? null;
 	const runtime =
-		input.runtimeComputer && runtimeControllerLabel
+		input.capabilities.canManage &&
+		input.runtimeComputer &&
+		runtimeControllerLabel
 			? {
 					computerName: input.runtimeComputer.displayName,
 					controllerName: runtimeControllerLabel,
@@ -3312,7 +3328,7 @@ function AgentProfileWorkspacePresentation(input: {
 		(parsedControllerRef
 			? formatLocalAgentDisplayName(parsedControllerRef.id)
 			: null);
-	const controllerModelSummary =
+	const ownerControllerModelSummary =
 		resolveAgentProfileControllerModelDetail({
 			agentControllerRef: input.input.primaryAgentControllerRef,
 			controllerDisplayName,
@@ -3325,6 +3341,9 @@ function AgentProfileWorkspacePresentation(input: {
 					}
 				: null,
 		}) ?? "No Controller connected";
+	const controllerModelSummary = input.input.capabilities.canManage
+		? ownerControllerModelSummary
+		: (controllerDisplayName ?? "No Controller connected");
 	const overflowActions = input.input.capabilities.canManage ? (
 		<AgentProfileOptionsPopover
 			capabilities={{
