@@ -27,6 +27,23 @@ export class SpaceFileAuditRepository {
 
   record(rawEvent: SpaceFileAuditEvent): void {
     const event = spaceFileAuditEventSchema.parse(rawEvent);
+    const legacyEventId = `${event.operation}:${event.requestId}`;
+    if (legacyEventId !== event.eventId) {
+      const legacyEvent = this.read(legacyEventId);
+      if (legacyEvent?.operationId === event.operationId) {
+        if (
+          sameLogicalEvent(legacyEvent, {
+            ...event,
+            eventId: legacyEventId,
+          })
+        ) {
+          return;
+        }
+        throw new Error(
+          `Space File audit event ${event.eventId} conflicts with legacy event ${legacyEventId}.`
+        );
+      }
+    }
     this.sql.exec(
       `
         INSERT OR IGNORE INTO space_file_audit_events (

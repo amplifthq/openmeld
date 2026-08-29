@@ -7104,15 +7104,156 @@ describe("OpenMeld Core", () => {
           .toArray()
     );
     expect(auditEvents).toHaveLength(10);
-    expect(auditEvents).toEqual(
+    expect(
+      auditEvents.map(({ operation_id, request_id }) => ({
+        operation_id,
+        request_id,
+      }))
+    ).toEqual(
       expect.arrayContaining(
         writes.map((write) => ({
-          event_id: `content_write:${context.actorContext.requestId}:${write.clientMutationId}`,
           operation_id: write.clientMutationId,
           request_id: context.actorContext.requestId,
         }))
       )
     );
+    expect(new Set(auditEvents.map((event) => event.event_id)).size).toBe(10);
+  });
+
+  it("keeps Space File audit identities distinct when correlation IDs contain colons", async () => {
+    const spaceId = await createSpace({
+      name: `colon-audit-identity-${Date.now()}`,
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const writes = [
+      {
+        clientMutationId: "write-one",
+        requestId: "rpc:colon",
+      },
+      {
+        clientMutationId: "colon:write-one",
+        requestId: "rpc",
+      },
+    ] as const;
+
+    for (const [index, identity] of writes.entries()) {
+      const context = createRpcContext({
+        requestId: identity.requestId,
+        profileId: DEFAULT_HUMAN_PROFILE_ID,
+        profileKind: "human",
+        profileName: "Test User",
+        ownerUserId: "owner-test-default",
+      });
+      const spaceAccess = createAuthenticatedSpaceAccessContext({
+        requestContext: context,
+        spaceId,
+      });
+      const write = {
+        baseRevision: null,
+        clientMutationId: identity.clientMutationId,
+        fileId: randomUUID(),
+        mimeType: "text/plain",
+        name: `colon-evidence-${index + 1}.txt`,
+        parentId: null,
+        revisionId: randomUUID(),
+        sizeBytes: index + 1,
+        spaceId,
+      };
+
+      await stub.rpcPrepareSpaceFileWrite({ spaceAccess, write });
+      await expect(
+        stub.rpcCommitSpaceFileWrite({ spaceAccess, write })
+      ).resolves.toMatchObject({ id: write.fileId });
+    }
+
+    const auditEvents = await runInDurableObject(
+      stub,
+      async (_instance, state) =>
+        state.storage.sql
+          .exec<{ event_id: string }>(
+            `
+              SELECT event_id
+              FROM space_file_audit_events
+              WHERE operation = 'content_write'
+              ORDER BY event_id ASC
+            `
+          )
+          .toArray()
+    );
+    expect(auditEvents).toHaveLength(2);
+    expect(new Set(auditEvents.map((event) => event.event_id)).size).toBe(2);
+  });
+
+  it("reuses a legacy Space File audit event during an exact write replay", async () => {
+    const spaceId = await createSpace({
+      name: `legacy-audit-replay-${Date.now()}`,
+    });
+    const requestId = "rpc-legacy-audit-replay";
+    const context = createRpcContext({
+      requestId,
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Test User",
+      ownerUserId: "owner-test-default",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const spaceAccess = createAuthenticatedSpaceAccessContext({
+      requestContext: context,
+      spaceId,
+    });
+    const write = {
+      baseRevision: null,
+      clientMutationId: "legacy-audit-mutation",
+      fileId: randomUUID(),
+      mimeType: "text/plain",
+      name: "legacy-evidence.txt",
+      parentId: null,
+      revisionId: randomUUID(),
+      sizeBytes: 1,
+      spaceId,
+    };
+    await stub.rpcPrepareSpaceFileWrite({ spaceAccess, write });
+    await stub.rpcCommitSpaceFileWrite({ spaceAccess, write });
+
+    const legacyEventId = `content_write:${requestId}`;
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        `
+          UPDATE space_file_audit_events
+          SET event_id = ?
+          WHERE operation = 'content_write' AND operation_id = ?
+        `,
+        legacyEventId,
+        write.clientMutationId
+      );
+    });
+
+    await expect(
+      stub.rpcCommitSpaceFileWrite({ spaceAccess, write })
+    ).resolves.toMatchObject({ id: write.fileId });
+
+    const auditEvents = await runInDurableObject(
+      stub,
+      async (_instance, state) =>
+        state.storage.sql
+          .exec<{ event_id: string; operation_id: string }>(
+            `
+              SELECT event_id, operation_id
+              FROM space_file_audit_events
+              WHERE operation = 'content_write'
+              ORDER BY event_id ASC
+            `
+          )
+          .toArray()
+    );
+    expect(auditEvents).toEqual([
+      {
+        event_id: legacyEventId,
+        operation_id: write.clientMutationId,
+      },
+    ]);
   });
 
   it("durably audits Space file writes without storing file data", async () => {

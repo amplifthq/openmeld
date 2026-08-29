@@ -897,8 +897,10 @@ unsent. If a later upload fails, CLI moves only files confirmed as newly
 uploaded by that invocation to recoverable Trash; it never discovers cleanup
 targets by name or touches existing Space Files. Any cleanup failure preserves
 the original upload error and prints the exact file id and `space files trash`
-command needed to finish recovery. Thread replies use the same message file
-contract.
+command needed to finish recovery, including the actual acting Profile. For a
+password-protected Space, the guidance tells the caller to reuse the same
+password without printing or embedding that password in output. Thread replies
+use the same message file contract.
 
 ### OpenMeld Space Action Commands
 

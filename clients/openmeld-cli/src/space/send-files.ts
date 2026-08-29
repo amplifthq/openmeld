@@ -122,7 +122,12 @@ export async function uploadPreparedSpaceFiles(input: {
         cleanupMessage =
           cleanupFailures.length === 0
             ? " Files added earlier in this send were moved to Trash."
-            : ` ${formatCleanupFailures({ failures: cleanupFailures, spaceId: input.spaceId })}`;
+            : ` ${formatCleanupFailures({
+                failures: cleanupFailures,
+                passwordProtected: input.password !== undefined,
+                profileId: input.requestContext.actorContext.openMeldProfileId,
+                spaceId: input.spaceId,
+              })}`;
       }
       throw new SpaceSendFileError({
         code: failure.code ?? "space.file.upload_failed",
@@ -168,9 +173,11 @@ async function moveUploadedFilesToTrash(input: {
 
 function formatCleanupFailures(input: {
   failures: readonly SpaceFileCleanupFailure[];
+  passwordProtected: boolean;
+  profileId: string;
   spaceId: string;
 }): string {
-  return input.failures
+  const failureMessages = input.failures
     .map(({ failure, fileId }) => {
       const evidence = [
         failure.code ? `code ${failure.code}` : null,
@@ -179,9 +186,13 @@ function formatCleanupFailures(input: {
         .filter((value): value is string => value !== null)
         .join(", ");
       const evidenceText = evidence ? ` (${evidence})` : "";
-      return `Could not move file ${fileId} to Trash${evidenceText}: ${failure.message} Run \`openmeld space files trash ${input.spaceId} ${fileId}\` to finish cleanup.`;
+      return `Could not move file ${fileId} to Trash${evidenceText}: ${failure.message} Run \`openmeld space files trash ${input.spaceId} ${fileId} --profile ${input.profileId}\` to finish cleanup.`;
     })
     .join(" ");
+  const passwordGuidance = input.passwordProtected
+    ? " This Space is password protected. Add `--password` with the same Space password you used for this send; OpenMeld does not include the password in this message."
+    : "";
+  return `${failureMessages}${passwordGuidance}`;
 }
 
 async function prepareSpaceSendFile(

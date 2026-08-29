@@ -225,7 +225,7 @@ before send and creates the canonical root-level Space File; the message is
 published only after every selected upload succeeds. A failed upload never
 degrades into a text-only or partially attached message.
 
-During a multi-file send, the client keeps the exact ids of files created by
+During a multi-file CLI send, the CLI keeps the exact ids of files created by
 that not-yet-published submission. If a later selected upload fails, it moves
 only those earlier files from the same submission to recoverable Trash. It
 never guesses by file name or touches files from an earlier send. A cleanup

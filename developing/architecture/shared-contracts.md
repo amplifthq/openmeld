@@ -1178,7 +1178,12 @@ metadata mutations instead of constructing separate log shapes.
 The audit event identity includes the request correlation and, when it differs,
 the operation id. Multiple file writes in one request therefore remain
 distinct, while an exact replay of one operation remains the same logical
-audit event.
+audit event. New event ids use a versioned, length-delimited tuple so delimiter
+characters inside either correlation id cannot alias another operation. During
+rollout, an exact replay also reuses a matching legacy
+`<operation>:<requestId>` event instead of appending a second audit row; a
+different operation id that previously shared that legacy key remains a
+distinct event.
 
 The list contract names either the active tree or Trash. Trash reads and all
 restore mutations require active Space membership. Entry restore clears Trash

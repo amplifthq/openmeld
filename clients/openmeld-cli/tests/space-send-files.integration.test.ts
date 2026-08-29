@@ -5,6 +5,7 @@ import {
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   trashSpaceFileEntryResponseSchema,
+  uploadSpaceFileResponseSchema,
 } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runSend } from "../src/space/send";
@@ -71,6 +72,18 @@ function createSignalEnvelope(files: unknown[]) {
   };
 }
 
+function createUploadFileResponse(
+  file: ReturnType<typeof createFileDescriptor>
+): Response {
+  return new Response(
+    JSON.stringify(uploadSpaceFileResponseSchema.parse({ file })),
+    {
+      status: 201,
+      headers: { "content-type": "application/json" },
+    }
+  );
+}
+
 function createSignalResponse(files: unknown[]) {
   return new Response(JSON.stringify(createSignalEnvelope(files)), {
     status: 200,
@@ -112,10 +125,7 @@ describe("space send files", () => {
           expect(new Headers(init?.headers).get("content-type")).toBe(
             "application/pdf"
           );
-          return new Response(JSON.stringify({ file }), {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          });
+          return createUploadFileResponse(file);
         }
         if (method === "POST" && url.pathname.endsWith("/signals")) {
           const body = JSON.parse(String(init?.body)) as { files?: unknown[] };
@@ -171,10 +181,7 @@ describe("space send files", () => {
         const url = new URL(String(request));
         const method = String(init?.method ?? "GET").toUpperCase();
         if (method === "POST" && url.pathname.endsWith("/files")) {
-          return new Response(JSON.stringify({ file }), {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          });
+          return createUploadFileResponse(file);
         }
         if (method === "POST" && url.pathname.endsWith("/signals")) {
           const body = JSON.parse(String(init?.body)) as {
@@ -224,10 +231,7 @@ describe("space send files", () => {
         const url = new URL(String(request));
         const method = String(init?.method ?? "GET").toUpperCase();
         if (method === "POST" && url.pathname.endsWith("/files")) {
-          return new Response(JSON.stringify({ file }), {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          });
+          return createUploadFileResponse(file);
         }
         if (method === "GET" && url.pathname.endsWith("/threads")) {
           return new Response(
@@ -351,10 +355,7 @@ describe("space send files", () => {
           url.pathname.endsWith("/files") &&
           url.searchParams.get("name") === "first.txt"
         ) {
-          return new Response(JSON.stringify({ file: firstFile }), {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          });
+          return createUploadFileResponse(firstFile);
         }
         if (
           method === "POST" &&
@@ -427,6 +428,7 @@ describe("space send files", () => {
 
   it("preserves exact recovery guidance when partial-upload cleanup fails", async () => {
     await withTempHome(async (home) => {
+      const spacePassword = "space-password-must-stay-secret";
       const firstPath = join(home, "first.txt");
       const secondPath = join(home, "second.txt");
       await writeFile(firstPath, "First file");
@@ -445,10 +447,7 @@ describe("space send files", () => {
           url.pathname.endsWith("/files") &&
           url.searchParams.get("name") === "first.txt"
         ) {
-          return new Response(JSON.stringify({ file: firstFile }), {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          });
+          return createUploadFileResponse(firstFile);
         }
         const isSecondUpload =
           method === "POST" &&
@@ -494,6 +493,7 @@ describe("space send files", () => {
           baseUrl: "https://gateway.openmeld.invalid",
           space: "demo",
           filePaths: [firstPath, secondPath],
+          password: spacePassword,
           plainText: true,
           text: "Deployment evidence",
           view: "agent",
@@ -507,8 +507,12 @@ describe("space send files", () => {
       });
       expect((caught as Error).message).toContain("request-cleanup-1");
       expect((caught as Error).message).toContain(
-        `openmeld space files trash demo ${firstFile.id}`
+        `openmeld space files trash demo ${firstFile.id} --profile ${PROFILE.openMeldProfileId}`
       );
+      expect((caught as Error).message).toContain(
+        "This Space is password protected. Add `--password` with the same Space password you used for this send; OpenMeld does not include the password in this message."
+      );
+      expect((caught as Error).message).not.toContain(spacePassword);
     });
   });
 
@@ -554,10 +558,7 @@ describe("space send files", () => {
           uploadCounts.set(name, count);
           if (name === "first.txt") {
             const file = count === 1 ? firstAttemptFile : retryFiles[0];
-            return new Response(JSON.stringify({ file }), {
-              status: 201,
-              headers: { "content-type": "application/json" },
-            });
+            return createUploadFileResponse(file);
           }
           if (name === "second.txt" && count === 1) {
             return new Response(
@@ -578,10 +579,7 @@ describe("space send files", () => {
             );
           }
           if (name === "second.txt") {
-            return new Response(JSON.stringify({ file: retryFiles[1] }), {
-              status: 201,
-              headers: { "content-type": "application/json" },
-            });
+            return createUploadFileResponse(retryFiles[1]);
           }
         }
         if (
@@ -647,10 +645,7 @@ describe("space send files", () => {
           expect(new Headers(init?.headers).get("content-type")).toBe(
             "application/octet-stream"
           );
-          return new Response(JSON.stringify({ file }), {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          });
+          return createUploadFileResponse(file);
         }
         if (method === "POST" && url.pathname.endsWith("/signals")) {
           return createSignalResponse([

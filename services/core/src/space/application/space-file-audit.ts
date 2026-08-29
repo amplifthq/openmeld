@@ -28,10 +28,11 @@ export function buildSpaceFileAuditEvent(input: {
     actorProfileId: resolveSpaceFileAuditActorProfileId(input.spaceAccess),
     entryId: input.entryId,
     errorCode: input.errorCode,
-    eventId:
-      input.operationId === requestId
-        ? `${input.operation}:${requestId}`
-        : `${input.operation}:${requestId}:${input.operationId}`,
+    eventId: buildSpaceFileAuditEventId({
+      operation: input.operation,
+      operationId: input.operationId,
+      requestId,
+    }),
     occurredAtMs: input.occurredAtMs,
     operation: input.operation,
     operationId: input.operationId,
@@ -42,6 +43,23 @@ export function buildSpaceFileAuditEvent(input: {
     revisionId: input.revisionId,
     spaceId: input.spaceId,
   });
+}
+
+function buildSpaceFileAuditEventId(input: {
+  operation: SpaceFileAuditOperation;
+  operationId: string;
+  requestId: string;
+}): string {
+  return [
+    "v2",
+    encodeAuditIdentityPart(input.operation),
+    encodeAuditIdentityPart(input.requestId),
+    encodeAuditIdentityPart(input.operationId),
+  ].join(":");
+}
+
+function encodeAuditIdentityPart(value: string): string {
+  return `${value.length}:${value}`;
 }
 
 function resolveSpaceFileAuditActorProfileId(

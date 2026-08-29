@@ -160,7 +160,7 @@ export const spaceFileAuditResultSchema = z.enum(["succeeded", "failed"]);
 
 export const spaceFileAuditEventSchema = z
   .strictObject({
-    eventId: z.string().trim().min(1).max(1024),
+    eventId: z.string().trim().min(1).max(2048),
     operationId: scopeIdSchema,
     requestId: scopeIdSchema,
     organizationId: scopeIdSchema,

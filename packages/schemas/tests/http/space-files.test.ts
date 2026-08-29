@@ -118,6 +118,12 @@ describe("Space Files contracts", () => {
 
     expect(spaceFileAuditEventSchema.parse(event)).toEqual(event);
     expect(
+      spaceFileAuditEventSchema.safeParse({
+        ...event,
+        eventId: "x".repeat(2048),
+      }).success
+    ).toBe(true);
+    expect(
       spaceFileAuditEventSchema.safeParse({ ...event, fileName: "secret.md" })
         .success
     ).toBe(false);
