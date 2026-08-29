@@ -715,6 +715,52 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
+	it("does not substitute another Agent while the selected detail removal settles", async () => {
+		let resolveDelete!: (profile: AuthProfileView) => void;
+		deleteStartAgentProfileMock.mockImplementation(
+			() =>
+				new Promise<AuthProfileView>((resolve) => {
+					resolveDelete = resolve;
+				})
+		);
+		const selectedProfile = createAgentProfile();
+		const otherProfile = createAgentProfile({
+			openMeldProfileId: "agt-support",
+			profileHandle: "support-agent",
+			profileName: "Support Agent",
+		});
+		renderAgentProfilesCard(
+			{ agentProfiles: [selectedProfile, otherProfile] },
+			undefined,
+			{
+				focusProfileId: selectedProfile.openMeldProfileId,
+				presentation: "detail",
+			}
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
+		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
+
+		await waitFor(() => {
+			expect(screen.getByText("Removing Research Agent…")).toBeTruthy();
+			expect(
+				screen.queryByRole("heading", { name: "Support Agent" })
+			).toBeNull();
+		});
+
+		resolveDelete(selectedProfile);
+		await waitFor(() => {
+			expect(toastMock.success).toHaveBeenCalledWith(
+				"Research Agent was removed from Local Agents."
+			);
+		});
+	});
+
 	it("restores the Agent list cache when deletion fails", async () => {
 		const removeError = new Error("Failed to remove agent profile: 500");
 		const consoleErrorSpy = vi

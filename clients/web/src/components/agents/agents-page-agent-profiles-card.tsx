@@ -1441,6 +1441,7 @@ function AgentProfilesCardView(input: {
 		agentProfilesQueryState,
 		bulkReconnectCandidates,
 		handleBulkReconnectProfiles,
+		pendingRemoveProfileId,
 		pendingRepairProfileIds,
 		visibleAgentProfileGroups,
 		visibleAgentProfiles,
@@ -1459,6 +1460,27 @@ function AgentProfilesCardView(input: {
 	if (agentProfilesQueryState.isError) {
 		return (
 			<AgentProfilesInlineState message="OpenMeld could not load your Agents right now." />
+		);
+	}
+
+	const focusedProfileId =
+		cardInput.focusProfileId ?? agentProfiles[0]?.openMeldProfileId ?? null;
+	if (
+		presentation === "detail" &&
+		pendingRemoveProfileId !== null &&
+		pendingRemoveProfileId === focusedProfileId
+	) {
+		const pendingProfile = agentProfiles.find(
+			(profile) => profile.openMeldProfileId === pendingRemoveProfileId
+		);
+		return (
+			<AgentProfilesInlineState
+				message={
+					pendingProfile
+						? `Removing ${pendingProfile.profileName}…`
+						: "Removing Agent…"
+				}
+			/>
 		);
 	}
 
