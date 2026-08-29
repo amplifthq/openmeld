@@ -92,7 +92,6 @@ export function CenterAgentOptimisticConversation(input: {
 						<PromptInput
 							className="w-full"
 							disabled={isSending}
-							isLoading={isSending}
 							maxHeight={240}
 							onSubmit={input.onSend}
 							value={input.composerText}
@@ -101,7 +100,6 @@ export function CenterAgentOptimisticConversation(input: {
 								aria-label="Message Center Agent"
 								autoComplete="off"
 								className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
-								disabled={isSending}
 								name="center-agent-message"
 								onChange={(event) => {
 									input.onComposerChange(event.target.value);

@@ -319,7 +319,6 @@ function CenterAgentTaskComposer(input: {
 		<PromptInput
 			className="w-full"
 			disabled={input.disabled}
-			isLoading={input.disabled}
 			onSubmit={submit}
 			onValueChange={input.onTextChange}
 			value={input.text}
@@ -328,7 +327,6 @@ function CenterAgentTaskComposer(input: {
 				aria-label="Message this Task"
 				autoComplete="off"
 				className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
-				disabled={input.disabled}
 				name="task-message"
 				placeholder={
 					replacing ? "Send a new instruction…" : "Message this Task…"

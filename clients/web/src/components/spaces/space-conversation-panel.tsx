@@ -1489,7 +1489,6 @@ function SpaceComposerSection(input: {
 					) : null}
 					<PromptInput
 						className="w-full"
-						isLoading={panel.isSendingMessage}
 						maxHeight={240}
 						onSubmit={input.submitComposer}
 						value={panel.composerText}

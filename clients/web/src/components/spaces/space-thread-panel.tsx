@@ -1500,7 +1500,6 @@ function ThreadComposer(input: {
 				/>
 				<PromptInput
 					className="w-full"
-					isLoading={input.isSendingMessage}
 					maxHeight={180}
 					onSubmit={submitComposer}
 					value={input.composerText}
