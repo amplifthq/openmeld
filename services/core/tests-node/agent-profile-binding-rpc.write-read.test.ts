@@ -15,7 +15,9 @@ import type { CoreBindings } from "../src/lib/bindings";
 import {
   rpcDisableAgentProfilePrimaryBinding,
   rpcEnsureAgentProfilePrimaryBinding,
+  rpcGetAgentProfileControllerChangeEligibility,
   rpcGetAgentProfilePrimaryBinding,
+  rpcUpdateAgentProfilePrimaryBindingAgentControllerCollaborationMode,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode,
   rpcUpdateAgentProfilePrimaryBindingModelSelection,
   rpcUpdateAgentProfilePrimaryBindingOpenCodePermission,
@@ -32,6 +34,7 @@ import {
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const OTHER_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const DEFAULT_CONTEXT: OpenMeldRequestContext = {
+  activeOrganizationId: "org-personal-owner-1",
   actorContext: {
     openMeldProfileId: "11111111-1111-4111-8111-111111111111",
     ownerUserId: "owner-1",
@@ -1596,6 +1599,142 @@ describe("agent profile binding Core RPC", () => {
           sql: "SELECT count(*) AS count FROM openMeldDaemon_agent_profile_bindings",
         })
       ).toEqual({ count: 0 });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("rejects every per-Profile Binding read and mutation outside the Profile workspace", async () => {
+    const harness = createSqliteD1Harness();
+    applyAgentProfileBindingRpcMigrations(harness);
+    try {
+      const registeredRuntimeId =
+        await seedRuntimeAgentControllerReport(harness);
+      const env = coreEnv(harness.db);
+      await rpcEnsureAgentProfilePrimaryBinding(env, {
+        agentControllerConversationId: "codex-thread-1",
+        agentControllerRef: "builtin:codex",
+        agentProfileId: AGENT_PROFILE_ID,
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        modelId: "gpt-5.5",
+        openMeldServiceRuntimeId: registeredRuntimeId,
+        reasoningLevel: "high",
+      });
+
+      const wrongWorkspaceContext: OpenMeldRequestContext = {
+        ...DEFAULT_CONTEXT,
+        activeOrganizationId: "org-another-workspace",
+      };
+      const workspaceMismatch = {
+        cause: {
+          code: "agent_profile.organization_mismatch",
+          status: 403,
+        },
+      };
+
+      await expect(
+        rpcGetAgentProfilePrimaryBinding(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: { actorContext: DEFAULT_CONTEXT.actorContext },
+        })
+      ).rejects.toMatchObject({
+        cause: {
+          code: "agent_profile.organization_context_missing",
+          status: 403,
+        },
+      });
+      await expect(
+        rpcGetAgentProfilePrimaryBinding(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: wrongWorkspaceContext,
+        })
+      ).rejects.toMatchObject(workspaceMismatch);
+      await expect(
+        rpcGetAgentProfileControllerChangeEligibility(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: wrongWorkspaceContext,
+        })
+      ).rejects.toMatchObject(workspaceMismatch);
+      await expect(
+        rpcEnsureAgentProfilePrimaryBinding(env, {
+          agentControllerConversationId: "cross-workspace-thread",
+          agentControllerRef: "builtin:codex",
+          agentProfileId: AGENT_PROFILE_ID,
+          context: wrongWorkspaceContext,
+          deviceId: "device-1",
+          lane: "openmeld-dev",
+          openMeldServiceRuntimeId: registeredRuntimeId,
+          writeMode: "reconnect",
+        })
+      ).rejects.toMatchObject(workspaceMismatch);
+      await expect(
+        rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode(env, {
+          agentControllerPermissionMode: "codex:fullAccess",
+          agentProfileId: AGENT_PROFILE_ID,
+          context: wrongWorkspaceContext,
+        })
+      ).rejects.toMatchObject(workspaceMismatch);
+      await expect(
+        rpcUpdateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
+          env,
+          {
+            agentControllerCollaborationMode: "codex:default",
+            agentProfileId: AGENT_PROFILE_ID,
+            context: wrongWorkspaceContext,
+          }
+        )
+      ).rejects.toMatchObject(workspaceMismatch);
+      await expect(
+        rpcUpdateAgentProfilePrimaryBindingModelSelection(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: wrongWorkspaceContext,
+          modelId: "gpt-5.4-mini",
+          reasoningLevel: "medium",
+        })
+      ).rejects.toMatchObject(workspaceMismatch);
+      await expect(
+        rpcUpdateAgentProfilePrimaryBindingOpenCodePermission(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: wrongWorkspaceContext,
+          openCodePermission: null,
+        })
+      ).rejects.toMatchObject(workspaceMismatch);
+      await expect(
+        rpcDisableAgentProfilePrimaryBinding(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: wrongWorkspaceContext,
+        })
+      ).rejects.toMatchObject(workspaceMismatch);
+
+      expect(
+        harness.queryFirst<{
+          agent_controller_collaboration_mode: string | null;
+          agent_controller_conversation_id: string | null;
+          agent_controller_permission_mode: string | null;
+          binding_state: string;
+          model_id: string | null;
+          reasoning_level: string | null;
+        }>({
+          sql: `SELECT
+            agent_controller_collaboration_mode,
+            agent_controller_conversation_id,
+            agent_controller_permission_mode,
+            binding_state,
+            model_id,
+            reasoning_level
+          FROM openMeldDaemon_agent_profile_bindings`,
+        })
+      ).toEqual({
+        agent_controller_collaboration_mode: null,
+        agent_controller_conversation_id: "codex-thread-1",
+        agent_controller_permission_mode: null,
+        binding_state: "enabled_primary",
+        model_id: "gpt-5.5",
+        reasoning_level: "high",
+      });
+      expect(env.OPENMELD_RUNTIME_TRANSPORT?.get).toHaveBeenCalledTimes(1);
     } finally {
       harness.close();
     }

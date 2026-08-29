@@ -580,13 +580,17 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   `rpc*AgentProfileControllerMutation` names so old and new Worker and shard
   code remain mutually callable during eventual deployment propagation.
 - An Agent Profile's authoritative owner is the canonical Binding owner and
-  RuntimeCoordinator shard owner. Administrative action and authorization do
-  not transfer that ownership. If legacy data contains enabled Bindings for one
-  Agent Profile under more than one owner, reconciliation must acquire mutation
-  admission on every affected owner shard. Exact legacy disables, canonical
-  target installation or reuse, and Organization authorization carry-over are
-  one D1 batch so a failed target or authorization write leaves every prior
-  enabled Binding and authorization intact.
+  RuntimeCoordinator shard owner. Its authoritative workspace is the exact
+  `openmeld_profiles.organization_id` recorded when the Profile is created.
+  Administrative action does not transfer either identity. Every per-Profile
+  Binding read or mutation verifies the active workspace against that canonical
+  Organization before acquiring mutation admission or writing. If legacy data
+  contains enabled Bindings for one Agent Profile under more than one owner,
+  reconciliation must acquire mutation admission on every affected owner
+  shard. Exact legacy disables and canonical target installation or reuse are
+  one D1 batch so a failed target write leaves every prior enabled Binding
+  intact. Organization Wake authorization is not part of Binding
+  reconciliation.
   The D1 Binding writer is the final mixed-version fence: it rejects a new or
   re-enabled primary Binding whose owner is not the Agent Profile owner, and it
   rejects a second enabled primary Binding for the same Profile. Installing

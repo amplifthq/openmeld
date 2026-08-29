@@ -4618,8 +4618,10 @@ export async function rpcGetAgentProfilePrimaryBinding(
   env: CoreBindings,
   input: GetAgentProfilePrimaryBindingInput
 ): Promise<GetAgentProfilePrimaryBindingResponse> {
-  const request = requireAgentProfileBindingRequest(input);
-  const db = requireAgentProfileBindingDb(env);
+  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
+    env,
+    input
+  );
   const profileOwnerValidation = await resolveProfileOwnerValidationEvidence({
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
@@ -4658,7 +4660,10 @@ export async function rpcGetAgentProfileControllerChangeEligibility(
   env: CoreBindings,
   input: GetAgentProfileControllerChangeEligibilityInput
 ): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
-  const request = requireAgentProfileBindingRequest(input);
+  const { request } = await requireAgentProfileBindingWorkspaceScope(
+    env,
+    input
+  );
   await assertAgentProfileOwnerMatchesRequest({
     agentProfileId: request.agentProfileId,
     env,
@@ -4726,8 +4731,10 @@ export async function rpcDisableAgentProfilePrimaryBinding(
   env: CoreBindings,
   input: DisableAgentProfilePrimaryBindingInput
 ): Promise<DisableAgentProfilePrimaryBindingResponse> {
-  const request = requireAgentProfileBindingRequest(input);
-  const db = requireAgentProfileBindingDb(env);
+  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
+    env,
+    input
+  );
   const profileOwnerValidation = await resolveProfileOwnerValidationEvidence({
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
@@ -15692,7 +15699,10 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
   env: CoreBindings,
   input: EnsureAgentProfilePrimaryBindingInput
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-  const request = requireAgentProfileBindingRequest(input);
+  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
+    env,
+    input
+  );
   const body = ensureAgentProfilePrimaryBindingBodySchema.safeParse({
     agentControllerRef: input.agentControllerRef,
     agentControllerCollaborationMode: input.agentControllerCollaborationMode,
@@ -15717,7 +15727,6 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
     });
   }
 
-  const db = requireAgentProfileBindingDb(env);
   const runtimeLookupInput = createRuntimeLookupInput({
     deviceId: body.data.deviceId,
     lane: body.data.lane,
@@ -15898,7 +15907,10 @@ export async function rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissi
   env: CoreBindings,
   input: UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-  const request = requireAgentProfileBindingRequest(input);
+  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
+    env,
+    input
+  );
   const body =
     updateAgentProfilePrimaryBindingAgentControllerPermissionModeBodySchema.safeParse(
       {
@@ -15915,7 +15927,6 @@ export async function rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissi
     });
   }
 
-  const db = requireAgentProfileBindingDb(env);
   const profileOwnerValidation = await resolveProfileOwnerValidationEvidence({
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
@@ -15964,7 +15975,10 @@ export async function rpcUpdateAgentProfilePrimaryBindingAgentControllerCollabor
   env: CoreBindings,
   input: UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-  const request = requireAgentProfileBindingRequest(input);
+  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
+    env,
+    input
+  );
   const body =
     updateAgentProfilePrimaryBindingAgentControllerCollaborationModeBodySchema.safeParse(
       {
@@ -15982,7 +15996,6 @@ export async function rpcUpdateAgentProfilePrimaryBindingAgentControllerCollabor
     });
   }
 
-  const db = requireAgentProfileBindingDb(env);
   const profileOwnerValidation = await resolveProfileOwnerValidationEvidence({
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
@@ -16032,7 +16045,10 @@ export async function rpcUpdateAgentProfilePrimaryBindingModelSelection(
   env: CoreBindings,
   input: UpdateAgentProfilePrimaryBindingModelSelectionInput
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-  const request = requireAgentProfileBindingRequest(input);
+  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
+    env,
+    input
+  );
   const body =
     updateAgentProfilePrimaryBindingModelSelectionBodySchema.safeParse({
       modelId: input.modelId,
@@ -16048,7 +16064,6 @@ export async function rpcUpdateAgentProfilePrimaryBindingModelSelection(
     });
   }
 
-  const db = requireAgentProfileBindingDb(env);
   const profileOwnerValidation = await resolveProfileOwnerValidationEvidence({
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
@@ -16102,7 +16117,10 @@ export async function rpcUpdateAgentProfilePrimaryBindingOpenCodePermission(
   env: CoreBindings,
   input: UpdateAgentProfilePrimaryBindingOpenCodePermissionInput
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-  const request = requireAgentProfileBindingRequest(input);
+  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
+    env,
+    input
+  );
   const body =
     updateAgentProfilePrimaryBindingOpenCodePermissionBodySchema.safeParse({
       openCodePermission: input.openCodePermission,
@@ -16117,7 +16135,6 @@ export async function rpcUpdateAgentProfilePrimaryBindingOpenCodePermission(
     });
   }
 
-  const db = requireAgentProfileBindingDb(env);
   const profileOwnerValidation = await resolveProfileOwnerValidationEvidence({
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
@@ -19580,6 +19597,76 @@ function requireAgentProfileBindingRequest(input: {
       kind: "owner_account",
     },
   };
+}
+
+async function requireAgentProfileBindingWorkspaceScope(
+  env: CoreBindings,
+  input: {
+    agentProfileId: string;
+    context?: CoreRpcContextInput;
+  }
+): Promise<{
+  db: D1Database;
+  request: ReturnType<typeof requireAgentProfileBindingRequest>;
+}> {
+  const request = requireAgentProfileBindingRequest(input);
+  const activeOrganizationId = normalizeOptionalText(
+    request.context.activeOrganizationId
+  );
+  if (!activeOrganizationId) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.organization_context_missing",
+      reason: "Select a workspace before managing this Agent Profile.",
+      status: 403,
+    });
+  }
+
+  const db = requireAgentProfileBindingDb(env);
+  let profileOrganization: Awaited<
+    ReturnType<typeof readAgentProfileOrganizationContext>
+  >;
+  try {
+    profileOrganization = await readAgentProfileOrganizationContext({
+      agentProfileId: request.agentProfileId,
+      db,
+    });
+  } catch (error) {
+    console.error("[core.agent_profile_binding.organization_lookup_failed]", {
+      event: "core.agent_profile_binding.organization_lookup_failed",
+      activeOrganizationId,
+      agentProfileId: request.agentProfileId,
+      error: toErrorMessage(error),
+    });
+    throw createCoreRpcHttpError({
+      code: "agent_profile.organization_lookup_failed",
+      reason: "Agent Profile workspace could not be verified.",
+      status: 503,
+    });
+  }
+
+  if (!profileOrganization || profileOrganization.profileKind !== "agent") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.not_found",
+      reason: "Agent Profile was not found.",
+      status: 404,
+    });
+  }
+  if (
+    !isAgentProfileEligibleForOrganization({
+      managedRole: profileOrganization.managedRole,
+      profileOrganizationId: profileOrganization.organizationId,
+      targetOrganizationId: activeOrganizationId,
+    })
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.organization_mismatch",
+      reason:
+        "Agent Profile can only be managed in the workspace where it was created.",
+      status: 403,
+    });
+  }
+
+  return { db, request };
 }
 
 type ActiveOrganization = {
