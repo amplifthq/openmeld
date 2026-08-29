@@ -284,8 +284,7 @@ function resolveCliReleaseTarget(input) {
   return {
     coreTag: resolveCoreProjectionTag(input),
     headSha,
-    minRequiredCliVersion:
-      packageJson.openmeld?.minRequiredCliVersion ?? null,
+    minRequiredCliVersion: packageJson.openmeld?.minRequiredCliVersion ?? null,
     tagName: `v${packageJson.version}`,
     version: packageJson.version,
   };

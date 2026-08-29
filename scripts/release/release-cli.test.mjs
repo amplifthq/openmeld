@@ -36,6 +36,8 @@ const CHANNEL_CLI_VERSION_RE = /0\.7\.95/u;
 const TAG_CONFLICT_RE = /must map to exactly one commit/u;
 const IMMUTABLE_TAG_CONFLICT_RE =
   /refusing to overwrite an immutable release tag/u;
+const IMMUTABLE_NPM_METADATA_RE =
+  /npm openmeld@0\.7\.96 is immutable with required floor 0\.7\.95/u;
 const MANIFEST_GATE_EXPLODED_RE = /manifest gate exploded/u;
 const QUEUE_GATE_EXPLODED_RE = /queue gate exploded/u;
 const RELEASE_RESUME_COMMAND_RE =
@@ -919,7 +921,7 @@ test("stops before every release mutation when immutable npm metadata is wrong",
         env: {},
         withBinary: true,
       }),
-      /npm openmeld@0\.7\.96 is immutable with required floor 0\.7\.95/u
+      IMMUTABLE_NPM_METADATA_RE
     );
     assert.deepEqual(sideEffects, []);
   } finally {
