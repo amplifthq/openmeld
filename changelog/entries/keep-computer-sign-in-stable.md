@@ -4,6 +4,9 @@ title: Keep your Computer connected when setup cannot finish
 kind: fixed
 areas: ["connect", "cli", "web"]
 audiences: ["members"]
+publishedAt: 2026-08-30
+release: v0.3.132
+evidence: ["pr:469", "commit:dd680a248c14a84424856f29fb5edc9c0807febb", "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e", "tag:v0.3.132", "worker-version:acb7e69e-ffed-4ef2-96e7-c734a2598961", "worker-version:c56b9578-6712-4996-969e-ecf553b32066"]
 ---
 
 Connect Computer now gives the Computer its own sign-in, verifies that Web and

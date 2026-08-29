@@ -2,6 +2,218 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "fresh-agent-interface-copy",
+      "title": "Always copy a fresh Agent Interface prompt",
+      "kind": "fixed",
+      "areas": [
+        "setup",
+        "web",
+        "agent-interface"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:471",
+        "commit:1c148e24d05fc05ce0fbf9f53f4f9595b05ff446",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "worker-version:c3c4d138-2fd2-4df6-9ef2-d49fb24cf085"
+      ],
+      "body": "Agent Interface now replaces expired one-time setup credentials before Copy\nwrites the prompt to the clipboard. The button waits for a complete fresh\nprompt and can be retried in place, so users no longer copy a command that\nOpenMeld already knows will fail."
+    },
+    {
+      "id": "find-people-and-their-computers-together",
+      "title": "Find people and their computers together",
+      "kind": "improved",
+      "areas": [
+        "people",
+        "computers",
+        "navigation"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:436",
+        "commit:039fe8df2c1366b271b2a9f3199e11f53391fcf6",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "worker-version:c3c4d138-2fd2-4df6-9ef2-d49fb24cf085"
+      ],
+      "body": "People now keeps Human Profiles in a dedicated sidebar and opens each person's\nfull details in the main view. Computer cards live with their owner, invitations\nshare one dialog, and the current Computer is always one click away from the\nbottom toolbar. Computer status now follows the current OpenMeld Service\nconnection, so a registered Computer never looks ready only because OpenMeld\nhas seen it before.\n\nThe People sidebar now groups teammates as **Connected** or **Not Connected**\nbased on whether they have connected a Computer, with plain-language tooltips\nfor both labels. Your own profile stays first, while teammates in each group are\nordered by when they were last seen in OpenMeld Web. Activity uses compact copy\nsuch as **3 hours ago**, explains **Last seen 3 hours ago** on hover, and sits on\nthe same row as Local Agent icons. Empty Channel rows no longer reserve space.\nOpening or returning to OpenMeld Web now refreshes your last-seen time; using the\nCLI alone does not."
+    },
+    {
+      "id": "find-the-unread-conversation",
+      "title": "Find the conversation with unread messages",
+      "kind": "fixed",
+      "areas": [
+        "inbox",
+        "direct-messages",
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:434",
+        "commit:f030ca6e5c446fc109b2c199ef5d7e5dc6074107",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "worker-version:acb7e69e-ffed-4ef2-96e7-c734a2598961",
+        "worker-version:c3c4d138-2fd2-4df6-9ef2-d49fb24cf085"
+      ],
+      "body": "Direct Messages now show unread attention on the exact conversation that needs\nit. OpenMeld also keeps read positions durable and prevents a main-conversation\nread from hiding an unrelated thread item, so a failed update or unrelated read\ncannot silently hide a later message."
+    },
+    {
+      "id": "computer-details-wait-for-fresh-projection",
+      "title": "Keep Computer details honest while they refresh",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:468",
+        "commit:12a2549214c12e884c6f42fd501dbf573e2333b4",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "worker-version:acb7e69e-ffed-4ef2-96e7-c734a2598961",
+        "worker-version:c3c4d138-2fd2-4df6-9ef2-d49fb24cf085"
+      ],
+      "body": "Opening a teammate's Computer now waits for a fresh Organization Computer\nprojection before deciding that the Computer no longer exists, so an older\ncached list cannot briefly hide required update guidance."
+    },
+    {
+      "id": "keep-service-update-target-current",
+      "title": "Keep pending Service updates on the newest version",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "openmeld-service",
+        "setup"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:473",
+        "commit:f091298b264fb77e63a65cb86a7870c99b293ef7",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132"
+      ],
+      "body": "When a newer OpenMeld Service version becomes available while an update is\nalready waiting, OpenMeld now replaces the older target with the newer version.\nThe existing update remains recoverable until the newer target is safely saved,\nand an older worker or queued request cannot overwrite that target or move the\nService back to an earlier version."
+    },
+    {
+      "id": "keep-computer-sign-in-stable",
+      "title": "Keep your Computer connected when setup cannot finish",
+      "kind": "fixed",
+      "areas": [
+        "connect",
+        "cli",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:469",
+        "commit:dd680a248c14a84424856f29fb5edc9c0807febb",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "worker-version:acb7e69e-ffed-4ef2-96e7-c734a2598961",
+        "worker-version:c56b9578-6712-4996-969e-ecf553b32066"
+      ],
+      "body": "Connect Computer now gives the Computer its own sign-in, verifies that Web and\nthe setup command belong to the same account, and keeps the existing Computer\nconnection working when a new setup attempt fails, is canceled, or is interrupted\nby a closed Terminal, process crash, or computer restart. Switching a Computer\nto another account also requires explicit confirmation. That confirmation stays\nbound to the exact Computer sign-in the user reviewed. If another process\nchanges the sign-in before setup starts the switch, OpenMeld\nstops and asks the user to review again. The new candidate sign-in remains\nprivate to setup and its candidate Service until Prepare succeeds. If setup is\ninterrupted while OpenMeld Service is already offline, a fresh repair can now\nrestore the previous Computer connection instead of getting stuck on a missing\nlocal control socket. If account validation offers a refreshed token while that\nrecovery is still in progress, OpenMeld keeps the restored sign-in untouched\nuntil Service repair finishes. Recovery also closes the unused temporary\nsign-in correctly, so later status and repair checks do not leave the\ninterrupted handoff deferred.\nSign-in and Service status remain available for diagnosis. CLI and OpenMeld\nService requests now refresh an expired local session when possible, then stop\nlocally with clear auth diagnostics instead of continuing without authentication\nwhen stored credentials are expired or malformed."
+    },
+    {
+      "id": "clarify-space-access-output",
+      "title": "See how a Space can be found and opened",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "cli"
+      ],
+      "audiences": [
+        "members",
+        "agents"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:422",
+        "commit:85e312aa80bfeeb04f280603d17b05b2a57e655e",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132"
+      ],
+      "body": "OpenMeld CLI now separates Organization visibility from link access in Space\nlists and status output. An invite-only Space is no longer mistaken for\nmembers-only when anyone with its link can open it."
+    },
+    {
+      "id": "reliable-cli-multi-file-messages",
+      "title": "Send multiple files reliably from the CLI",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "files",
+        "cli"
+      ],
+      "audiences": [
+        "members",
+        "agents"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:472",
+        "commit:beb7b690e3d1d3fcdc3e5984f4155252ca06fc06",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "worker-version:acb7e69e-ffed-4ef2-96e7-c734a2598961"
+      ],
+      "body": "CLI users and Local Agents can share up to ten files in one Space message\nwithout the second upload colliding with the first. If a later upload fails,\nOpenMeld moves files already added by that send to recoverable Trash and gives\nexact cleanup guidance if any file could not be moved. CLI help and the official\nOpenMeld Skill now consistently use `--file` for shared files and `--text-file`\nfor a UTF-8 message body."
+    },
+    {
+      "id": "honest-local-agent-availability",
+      "title": "Show when a local agent is truly unavailable",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "computers",
+        "local-agents"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:448",
+        "commit:0e93f6d26f549ca49565e7f1101e8cef5bef1b35",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "worker-version:acb7e69e-ffed-4ef2-96e7-c734a2598961",
+        "worker-version:c3c4d138-2fd2-4df6-9ef2-d49fb24cf085"
+      ],
+      "body": "Local agents that are signed out or blocked by provider access now appear as\nUnavailable instead of a red launch error. Computers and Agent Profiles use the\nnewest exact local runtime evidence, distinguish temporary rate limits from\nhard account or quota blockers, and point to the provider action needed before\nthe agent can run again."
+    },
+    {
       "id": "editable-agent-runtime-settings",
       "title": "Edit Agent settings without leaving active work",
       "kind": "improved",

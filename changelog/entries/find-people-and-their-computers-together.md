@@ -4,6 +4,9 @@ title: Find people and their computers together
 kind: improved
 areas: ["people", "computers", "navigation"]
 audiences: ["members", "admins"]
+publishedAt: 2026-08-30
+release: v0.3.132
+evidence: ["pr:436", "commit:039fe8df2c1366b271b2a9f3199e11f53391fcf6", "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e", "tag:v0.3.132", "worker-version:c3c4d138-2fd2-4df6-9ef2-d49fb24cf085"]
 ---
 
 People now keeps Human Profiles in a dedicated sidebar and opens each person's
