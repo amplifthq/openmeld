@@ -954,6 +954,7 @@ function resolvePublishedAgentProfileName(input: {
 
 function createPreparedDispatchOutboxRecordForDecision(input: {
   spaceId: string;
+  organizationId: string;
   ownerCreatorProfileIdsByOwnerUserId: Map<
     string,
     CreatorProfileIdsByProfileId
@@ -1016,6 +1017,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     ruleId: input.decision.ruleId,
     ruleReason: input.decision.ruleReason,
     spaceId: input.spaceId,
+    organizationId: input.organizationId,
     spaceContractSnapshot: input.spaceContract,
     spacePassword: input.signalContext?.spacePassword,
     sourceEventId: input.sourceEventId,
@@ -13452,6 +13454,7 @@ export class Space extends DurableObject<CoreBindings> {
         plannerContext: null,
       };
     }
+    const spaceMeta = this.readSpaceMetaRecord();
     const { senderProfileId, sourceEventId, spaceContract } = plannerContext;
     const { mergedReadyDecisions, nonReadyDecisions } =
       evaluateDispatchPlannerDecisionsForSignal({
@@ -13459,7 +13462,7 @@ export class Space extends DurableObject<CoreBindings> {
         sessions: this.sessions?.values?.() ?? null,
         signal,
         spaceContract,
-        spacePurpose: this.readSpaceMetaRecord()?.purpose ?? null,
+        spacePurpose: spaceMeta?.purpose ?? null,
         sql: this.ctx.storage.sql,
       });
     assertVisibleWakeTargetsDispatchable({
@@ -13480,6 +13483,9 @@ export class Space extends DurableObject<CoreBindings> {
         outboxRecords: [],
         plannerContext,
       };
+    }
+    if (!spaceMeta) {
+      throw new Error("Space metadata is required for dispatch outbox seed");
     }
     const mentionTargetAliases = buildMentionTargetAliasIndexForDispatch(
       this.sessions?.values?.() ?? null,
@@ -13532,6 +13538,7 @@ export class Space extends DurableObject<CoreBindings> {
       outboxRecords.push(
         createPreparedDispatchOutboxRecordForDecision({
           spaceId: this.spaceId,
+          organizationId: spaceMeta.organizationId,
           ownerCreatorProfileIdsByOwnerUserId:
             this.ownerCreatorProfileIdsByOwnerUserId,
           signal,
@@ -13545,7 +13552,7 @@ export class Space extends DurableObject<CoreBindings> {
           senderProfileId,
           sourceEventId,
           sourceClientMessageId,
-          spacePurpose: this.readSpaceMetaRecord()?.purpose ?? null,
+          spacePurpose: spaceMeta.purpose ?? null,
           spaceContract,
           effectiveMentionLabelByProfileId,
           replyToSnapshot,
@@ -17707,6 +17714,9 @@ function buildDispatchQueueMessageFromOutboxRecord(
     v: outboxRecord.v,
     dispatchId: outboxRecord.dispatchId,
     spaceId: outboxRecord.spaceId,
+    ...(outboxRecord.organizationId
+      ? { organizationId: outboxRecord.organizationId }
+      : {}),
     sourceEventId: outboxRecord.sourceEventId,
     ...(outboxRecord.sourceClientMessageId
       ? { sourceClientMessageId: outboxRecord.sourceClientMessageId }

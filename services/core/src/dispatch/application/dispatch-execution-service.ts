@@ -5523,9 +5523,45 @@ export const resolveTargetBindingOrganizationScope = async (input: {
   }
 
   try {
+    const organizationIdSnapshot = normalizeOptionalText(
+      input.message.organizationId
+    );
+    // Phase 1 rollout compatibility only. After the canonical Space producer is
+    // stable in Production, make organizationId required and delete this branch
+    // together with its Space Index authorization read.
+    if (!organizationIdSnapshot) {
+      console.warn(
+        "[core.openMeldDaemon.dispatch_execution.legacy_space_organization_fallback]",
+        {
+          bindingId: input.bindingId,
+          dispatchId: input.message.dispatchId,
+          event:
+            "core.openMeldDaemon.dispatch_execution.legacy_space_organization_fallback",
+          queueSchemaVersion: input.message.v,
+          sourceEventId: input.message.sourceEventId,
+          spaceId: input.message.spaceId,
+          targetProfileId: input.message.targetProfileId,
+          taskId: input.message.taskId,
+        }
+      );
+    }
     const row = await db
       .prepare(
+        organizationIdSnapshot
+          ? `
+          SELECT
+            profiles.organization_id AS profile_organization_id
+          FROM openMeldDaemon_agent_profile_bindings AS bindings
+          LEFT JOIN openmeld_profiles AS profiles
+            ON profiles.profile_id = bindings.agent_profile_id
+            AND profiles.profile_kind = 'agent'
+            AND profiles.status = 'active'
+          WHERE bindings.binding_id = ?
+            AND bindings.agent_profile_id = ?
+            AND bindings.binding_state = 'enabled_primary'
+          LIMIT 1
         `
+          : `
           SELECT
             spaces.organization_id AS organization_id,
             profiles.organization_id AS profile_organization_id
@@ -5545,13 +5581,14 @@ export const resolveTargetBindingOrganizationScope = async (input: {
       .bind(
         input.bindingId,
         input.message.targetProfileId,
-        input.message.spaceId
+        ...(organizationIdSnapshot ? [] : [input.message.spaceId])
       )
       .first<{
-        organization_id: string | null;
+        organization_id?: string | null;
         profile_organization_id: string | null;
       }>();
-    const organizationId = normalizeOptionalText(row?.organization_id);
+    const organizationId =
+      organizationIdSnapshot ?? normalizeOptionalText(row?.organization_id);
     if (!organizationId) {
       return {
         ok: false,

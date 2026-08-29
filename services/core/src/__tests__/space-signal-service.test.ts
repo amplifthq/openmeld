@@ -484,7 +484,9 @@ const createSystemWakePublishingHarness = (input: {
     readSpaceContractRecord: {
       value: vi.fn(() => buildDefaultSpaceContract()),
     },
-    readSpaceMetaRecord: { value: vi.fn(() => null) },
+    readSpaceMetaRecord: {
+      value: vi.fn(() => ({ organizationId: "org-space-1" })),
+    },
     sessions: { value: new Map() },
     spaceId: { value: spaceId, writable: true },
   });
