@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -96,6 +96,17 @@ export class AuthSessionRecoveryInProgressError extends Error {
   }
 }
 
+export class AuthSessionChangedBeforeTransitionError extends Error {
+  readonly reason = "previous_session_changed" as const;
+
+  constructor() {
+    super(
+      "The current Computer sign-in changed while OpenMeld was waiting to start this account switch. Run the setup command again to review the current account before switching. No local sign-in state was changed."
+    );
+    this.name = "AuthSessionChangedBeforeTransitionError";
+  }
+}
+
 export class AuthSessionTransitionConflictError extends Error {
   readonly previousOwnerRestored: boolean;
   readonly reason:
@@ -176,6 +187,7 @@ export type AuthSessionTransitionContext = {
   computerHandoff?: {
     gatewayUrl: string;
   };
+  expectedPreviousSession?: StoredAuthSession | null;
 };
 
 export type InterruptedComputerAuthSessionRecovery = {
@@ -476,6 +488,10 @@ export async function beginAuthSessionTransition(
       previousState.state === "valid" || previousState.state === "expired"
         ? previousState.session
         : null;
+    assertExpectedPreviousSession({
+      current: previousSession,
+      expected: context.expectedPreviousSession,
+    });
     const tokenRef = await storeAccessToken({
       accessToken,
       authBaseUrl,
@@ -517,7 +533,6 @@ export async function beginAuthSessionTransition(
       await claimAuthSessionTransitionJournal(journal);
       journalClaimed = true;
       activeAuthSessionTransitionIds.add(journal.id);
-      await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
     } catch (error) {
       activeAuthSessionTransitionIds.delete(journal.id);
       if (journalClaimed) {
@@ -540,18 +555,40 @@ export async function beginAuthSessionTransition(
         throw new Error("auth session transition is already settled");
       }
     };
-    const isCandidateSessionCurrent = (
+    const isPreviousSessionCurrent = (
       currentPayload: Partial<AuthSessionV1> | null
     ) => {
-      return !(
-        currentPayload?.v !== 1 ||
-        buildAuthSessionPayloadKey(currentPayload) !==
-          buildAuthSessionPayloadKey(nextPayload)
+      if (!journal.previousPayload) {
+        return currentPayload === null;
+      }
+      return (
+        currentPayload?.v === 1 &&
+        buildAuthSessionPayloadKey(currentPayload) ===
+          buildAuthSessionPayloadKey(journal.previousPayload)
       );
     };
-    const assertCandidateSessionCurrent = async () => {
+    const isCandidateSessionCurrent = (
+      currentPayload: Partial<AuthSessionV1> | null
+    ) =>
+      currentPayload?.v === 1 &&
+      buildAuthSessionPayloadKey(currentPayload) ===
+        buildAuthSessionPayloadKey(nextPayload);
+    const assertPreviousSessionCurrent = async () => {
       const currentPayload = await readSessionPayloadFile();
-      if (!isCandidateSessionCurrent(currentPayload)) {
+      if (!isPreviousSessionCurrent(currentPayload)) {
+        throw new Error(
+          "auth session changed before the setup transition completed"
+        );
+      }
+    };
+    const assertTransitionSessionCurrent = async () => {
+      const currentPayload = await readSessionPayloadFile();
+      if (
+        !(
+          isPreviousSessionCurrent(currentPayload) ||
+          isCandidateSessionCurrent(currentPayload)
+        )
+      ) {
         throw new Error(
           "auth session changed before the setup transition completed"
         );
@@ -559,7 +596,12 @@ export async function beginAuthSessionTransition(
     };
     const restoreMissingJournalTransition = async () => {
       const currentPayload = await readSessionPayloadFile();
-      if (!isCandidateSessionCurrent(currentPayload)) {
+      if (
+        !(
+          isPreviousSessionCurrent(currentPayload) ||
+          isCandidateSessionCurrent(currentPayload)
+        )
+      ) {
         try {
           await cleanupTransitionTokensNotReferencedByCurrentSession({
             currentPayload,
@@ -613,7 +655,15 @@ export async function beginAuthSessionTransition(
               reason: currentJournal.status,
             });
           }
-          await assertCandidateSessionCurrent();
+          await assertPreviousSessionCurrent();
+          await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
+          cacheAuthSession({
+            payload: nextPayload,
+            session: buildStoredAuthSession({
+              accessToken,
+              payload: nextPayload,
+            }),
+          });
           const committedJournal: AuthSessionTransitionJournalV1 = {
             ...currentJournal.journal,
             state: "committed",
@@ -652,7 +702,7 @@ export async function beginAuthSessionTransition(
               reason: currentJournal.status,
             });
           }
-          await assertCandidateSessionCurrent();
+          await assertTransitionSessionCurrent();
           await restoreTransitionPreviousPayload(
             currentJournal.journal,
             previousSession
@@ -1199,6 +1249,41 @@ function buildStoredAuthSession(input: {
   };
 }
 
+function assertExpectedPreviousSession(input: {
+  current: StoredAuthSession | null;
+  expected: StoredAuthSession | null | undefined;
+}): void {
+  if (input.expected === undefined) {
+    return;
+  }
+  if (
+    buildStoredAuthSessionIdentity(input.current) !==
+    buildStoredAuthSessionIdentity(input.expected)
+  ) {
+    throw new AuthSessionChangedBeforeTransitionError();
+  }
+}
+
+function buildStoredAuthSessionIdentity(
+  session: StoredAuthSession | null
+): string {
+  if (!session) {
+    return "missing";
+  }
+  // Token rotation, expiry refresh, display metadata, and Organization
+  // selection do not change the signed-in Computer session the user reviewed.
+  // createdAt changes on every committed login, while user.id catches a real
+  // cross-account replacement even if two sessions are created together.
+  const identitySource = JSON.stringify([
+    session.v,
+    session.authBaseUrl,
+    session.clientId,
+    session.createdAt,
+    session.user?.id ?? null,
+  ]);
+  return createHash("sha256").update(identitySource).digest("base64url");
+}
+
 async function cleanupTransitionTokensNotReferencedByCurrentSession(input: {
   currentPayload: Partial<AuthSessionV1> | null;
   journal: AuthSessionTransitionJournalV1;
@@ -1469,7 +1554,27 @@ function resolveRemoteAuthSessionReasonCode(
 
 async function readSessionPayload(): Promise<Partial<AuthSessionV1> | null> {
   await recoverInterruptedAuthSessionTransition();
+  const journal = await readAuthSessionTransitionJournal();
+  if (
+    journal?.state === "pending" &&
+    isAuthSessionTransitionCandidateVisibleToCurrentProcess(journal)
+  ) {
+    return journal.candidatePayload;
+  }
   return await readSessionPayloadFile();
+}
+
+function isAuthSessionTransitionCandidateVisibleToCurrentProcess(
+  journal: AuthSessionTransitionJournalV1
+): boolean {
+  if (activeAuthSessionTransitionIds.has(journal.id)) {
+    return true;
+  }
+  return (
+    journal.candidateServiceProcess?.ownerPid === process.pid &&
+    journal.candidateServiceProcess.ownerProcessStartedAt ===
+      CURRENT_PROCESS_START_IDENTITY
+  );
 }
 
 async function readSessionPayloadFile(): Promise<Partial<AuthSessionV1> | null> {

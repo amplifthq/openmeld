@@ -1039,9 +1039,14 @@ Computer sessions must belong to the same OpenMeld user but remain independently
 revocable; signing out in Web must not sign out the Computer. The grant stays
 short-lived and single-use. The CLI validates the Prepare owner and candidate
 session before changing local auth. A cross-account switch requires explicit
-interactive confirmation. The local session switch is committed only after
-Prepare succeeds; cancellation or failure restores the previous local session
-and Service alignment. The pending switch remains recoverable across a killed
+interactive confirmation. That confirmation is bound to the stable identity of
+the exact committed session the user reviewed and is compared again inside the
+auth mutation lock; a changed session fails closed and requires fresh review.
+Until commit, ordinary CLI processes continue to see the previous committed
+session while only the transition owner and candidate OpenMeld Service can use
+the candidate. The local session switch is committed only after Prepare
+succeeds; cancellation or failure restores the previous local session and
+Service alignment. The pending switch remains recoverable across a killed
 Terminal, process crash, or computer restart: the next CLI or Service auth read
 restores the previous session, or clears an incomplete first connection. Once
 commit is durably recorded, restart recovery keeps the new session. `--ott`

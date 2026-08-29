@@ -1,5 +1,6 @@
 import { confirm, isCancel } from "@clack/prompts";
 import {
+  AuthSessionChangedBeforeTransitionError,
   AuthSessionRecoveryInProgressError,
   beginAuthSessionTransition,
   getAuthSessionState,
@@ -108,6 +109,7 @@ async function runPreparedComputerAuthHandoff(
 
   const transition = await beginComputerSessionTransition({
     candidate,
+    expectedPreviousSession: currentSession,
     gatewayUrl,
   });
 
@@ -206,15 +208,24 @@ async function resolveCurrentComputerSession(
 
 async function beginComputerSessionTransition(input: {
   candidate: PreparedAuthSession;
+  expectedPreviousSession: StoredAuthSession | null;
   gatewayUrl: string;
 }): Promise<Awaited<ReturnType<typeof beginAuthSessionTransition>>> {
   try {
     return await beginAuthSessionTransition(input.candidate, {
       computerHandoff: { gatewayUrl: input.gatewayUrl },
+      expectedPreviousSession: input.expectedPreviousSession,
     });
   } catch (error) {
     const revoked = await revokePreparedAuthSession(input.candidate);
     if (!revoked.ok) {
+      if (error instanceof AuthSessionChangedBeforeTransitionError) {
+        throw attachComputerAuthCleanupFailure({
+          accessToken: input.candidate.accessToken,
+          cleanupError: revoked.error,
+          error,
+        });
+      }
       throw new Error(
         `OpenMeld could not save the new Computer sign-in.${formatComputerAuthCleanupFailureSuffix(revoked)} ${toErrorMessage(
           error
@@ -224,6 +235,37 @@ async function beginComputerSessionTransition(input: {
     }
     throw error;
   }
+}
+
+function attachComputerAuthCleanupFailure(input: {
+  accessToken: string;
+  cleanupError: {
+    endpoint: string;
+    message: string;
+    operation: string;
+    status: number | null;
+  };
+  error: AuthSessionChangedBeforeTransitionError;
+}): AuthSessionChangedBeforeTransitionError & {
+  cleanup: {
+    endpoint: string;
+    message: string;
+    operation: string;
+    status: number | null;
+  };
+} {
+  const redact = (value: string): string =>
+    input.accessToken
+      ? value.split(input.accessToken).join("<REDACTED>")
+      : value;
+  return Object.assign(input.error, {
+    cleanup: {
+      endpoint: redact(input.cleanupError.endpoint),
+      message: redact(input.cleanupError.message),
+      operation: redact(input.cleanupError.operation),
+      status: input.cleanupError.status,
+    },
+  });
 }
 
 async function confirmComputerAccountSwitch(input: {

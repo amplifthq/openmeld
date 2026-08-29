@@ -817,8 +817,13 @@ that decision.
   CLI or Service auth read restores the previous session before proceeding; a
   first connection clears its incomplete candidate. A committed transition is
   never recovered backward. A cross-account switch requires explicit
-  interactive confirmation. OpenMeld Service uses the committed Computer
-  session when it starts at login. The handoff must not be used to add an
+  interactive confirmation bound to the stable identity of the exact committed
+  session the user reviewed. The transition lock compares that identity before
+  accepting the candidate; if it changed, setup requires fresh review. Before
+  commit, ordinary CLI processes keep using the previous committed session and
+  only the transition owner plus its candidate OpenMeld Service may read the
+  candidate. OpenMeld Service uses the committed Computer session when it starts
+  at login. The handoff must not be used to add an
   agent-selection step to Web.
   Keeping the legacy Web selector retired is a setup-flow
   consolidation owned by this document; it has no ordering dependency on the
