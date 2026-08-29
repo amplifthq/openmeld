@@ -425,6 +425,7 @@ type RouteTruthD1DatabaseInput = {
   deviceId?: string;
   failBindingRead?: boolean;
   ownerUserId?: string;
+  profileOrganizationId?: string;
   runtimeDeviceDisplayName?: string;
   openMeldServiceRuntimeId?: string;
   runtimeLane?: string;
@@ -448,6 +449,18 @@ function createRouteTruthD1Database(
     sql: string,
     params: readonly unknown[]
   ): Record<string, unknown> | null {
+    if (
+      input.profileOrganizationId &&
+      sql.toLowerCase().includes("from openmeld_profiles")
+    ) {
+      return {
+        managed_role: "center_agent",
+        organization_id: input.profileOrganizationId,
+        owner_user_id: ownerUserId,
+        profile_kind: "agent",
+        profile_name: "Center Agent",
+      };
+    }
     if (sql.toLowerCase().includes("from center_agent_designations")) {
       const organizationId = String(params[0] ?? "");
       if (organizationId !== input.centerAgentDesignationOrganizationId) {
@@ -3901,6 +3914,7 @@ describe("space-members-service", () => {
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
       centerAgentDesignationOrganizationId: "org-1",
       ownerUserId: "owner-center-agent",
+      profileOrganizationId: "org-1",
     });
     const env = {
       OPENMELD_AUTH_WORKER: {
@@ -3991,6 +4005,7 @@ describe("space-members-service", () => {
       agentProfileId,
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
       ownerUserId: "owner-center-agent",
+      profileOrganizationId: "org-1",
     });
     const env = {
       OPENMELD_AUTH_WORKER: {
