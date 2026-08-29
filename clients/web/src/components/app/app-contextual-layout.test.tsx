@@ -21,11 +21,43 @@ vi.mock("@tanstack/react-router", () => ({
 	),
 }));
 
+vi.mock("@openmeld/ui/components/tooltip", () => ({
+	Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+	TooltipContent: ({ children }: { children: ReactNode }) => (
+		<span data-testid="group-label-tooltip">{children}</span>
+	),
+	TooltipTrigger: ({ render }: { render: ReactNode }) => render,
+}));
+
 afterEach(() => {
 	cleanup();
 });
 
 describe("AppContextualSidebarNav", () => {
+	it("explains a compact group label with its full Computer meaning", () => {
+		render(
+			<AppContextualSidebarNav
+				activeItemId={null}
+				ariaLabel="People"
+				groups={[
+					{
+						ariaLabel: "Connected",
+						content: <p>Felix</p>,
+						id: "connected",
+						label: "Connected",
+						labelTooltip: "Computer connected",
+					},
+				]}
+				title="People"
+			/>
+		);
+
+		expect(screen.getByRole("button", { name: "Connected" })).toBeTruthy();
+		expect(screen.getByTestId("group-label-tooltip").textContent).toBe(
+			"Computer connected"
+		);
+	});
+
 	it("composes leading actions, label accessories, and dynamic group content inside the shared sidebar frame", () => {
 		render(
 			<AppContextualSidebarNav

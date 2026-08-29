@@ -658,6 +658,7 @@ export type {
   OrganizationDirectoryHumanProfile,
   OrganizationDirectoryMember,
   OrganizationDirectoryResponse,
+  OrganizationMemberWebActivityResponse,
 } from "./organization-directory";
 export type {
   ApproveOrganizationDocumentDraftBody,

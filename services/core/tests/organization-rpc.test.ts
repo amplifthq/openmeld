@@ -92,6 +92,7 @@ import {
   rpcPostCenterAgentWakePublicationSignal,
   rpcReadCenterAgentOrganizationMemoryPolicy,
   rpcReadOrganizationInformationProtectionPolicy,
+  rpcRecordCurrentOrganizationWebActivity,
   rpcRemoveSpaceMembers,
   rpcRevokeAgentProfileBindingForOrganization,
   rpcSaveOrganizationWakeAccessChoice,
@@ -1147,6 +1148,103 @@ describe("organization Core RPC", () => {
     });
 
     expect(response.members[0]).not.toHaveProperty("lastActiveAt");
+  });
+
+  it("records explicit Web use as the signed-in Human member's latest activity", async () => {
+    const memberActivities: Array<{
+      humanProfileId: string;
+      lastActiveAtMs: number;
+      organizationId: string;
+      userId: string;
+    }> = [];
+    const db = createOrganizationRpcDb({
+      agentProfiles: [],
+      memberActivities,
+      members: [memberRow("member-a", "org-a", "user-a")],
+    });
+    const env = buildEnv({ db });
+    vi.spyOn(Date, "now").mockReturnValue(TEST_NOW_MS);
+
+    const response = await rpcRecordCurrentOrganizationWebActivity(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+    });
+
+    expect(response).toEqual({
+      lastActiveAt: "2026-07-08T00:00:00.000Z",
+      organizationId: "org-a",
+      userId: "user-a",
+    });
+    expect(memberActivities).toEqual([
+      {
+        humanProfileId: HUMAN_PROFILE_ID,
+        lastActiveAtMs: TEST_NOW_MS,
+        organizationId: "org-a",
+        userId: "user-a",
+      },
+    ]);
+  });
+
+  it("rejects Web activity from an Agent Profile without writing member activity", async () => {
+    const memberActivities: Array<{
+      humanProfileId: string;
+      lastActiveAtMs: number;
+      organizationId: string;
+      userId: string;
+    }> = [];
+    const env = buildEnv({
+      db: createOrganizationRpcDb({
+        agentProfiles: [],
+        memberActivities,
+        members: [memberRow("member-a", "org-a", "user-a")],
+      }),
+    });
+
+    await expect(
+      rpcRecordCurrentOrganizationWebActivity(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+      })
+    ).rejects.toMatchObject({
+      code: "organization.context_required",
+      status: 403,
+    });
+    expect(memberActivities).toEqual([]);
+  });
+
+  it("rejects Web activity when the selected Human Profile is not the member's current profile", async () => {
+    const memberActivities: Array<{
+      humanProfileId: string;
+      lastActiveAtMs: number;
+      organizationId: string;
+      userId: string;
+    }> = [];
+    const env = buildEnv({
+      db: createOrganizationRpcDb({
+        agentProfiles: [],
+        memberActivities,
+        members: [memberRow("member-a", "org-a", "user-a")],
+      }),
+    });
+
+    await expect(
+      rpcRecordCurrentOrganizationWebActivity(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          profileId: SECOND_HUMAN_PROFILE_ID,
+          userId: "user-a",
+        }),
+      })
+    ).rejects.toMatchObject({
+      code: "organization.context_unavailable",
+      status: 409,
+    });
+    expect(memberActivities).toEqual([]);
   });
 
   it("reads member activity from the identity store when local state is separate", async () => {
@@ -12160,6 +12258,39 @@ function createOrganizationRpcDb(input: {
                 authorizationDeletes.push({ organizationId, bindingId });
               }
               return createD1RunResult(deleted ? 1 : 0);
+            }
+            if (
+              normalizedSql.includes("insert into organization_member_activity")
+            ) {
+              const memberActivities = input.memberActivities;
+              if (!memberActivities) {
+                disallowedWrites.push(normalizedSql);
+                return createD1RunResult(0);
+              }
+              const organizationId = String(args[0] ?? "");
+              const userId = String(args[1] ?? "");
+              const humanProfileId = String(args[2] ?? "");
+              const lastActiveAtMs = Number(args[3] ?? 0);
+              const existing = memberActivities.find(
+                (activity) =>
+                  activity.organizationId === organizationId &&
+                  activity.userId === userId
+              );
+              if (existing && existing.lastActiveAtMs >= lastActiveAtMs) {
+                return createD1RunResult(0);
+              }
+              if (existing) {
+                existing.humanProfileId = humanProfileId;
+                existing.lastActiveAtMs = lastActiveAtMs;
+              } else {
+                memberActivities.push({
+                  humanProfileId,
+                  lastActiveAtMs,
+                  organizationId,
+                  userId,
+                });
+              }
+              return createD1RunResult(1);
             }
             disallowedWrites.push(normalizedSql);
             return createD1RunResult(0);

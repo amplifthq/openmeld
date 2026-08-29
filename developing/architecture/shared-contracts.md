@@ -766,9 +766,12 @@ Core-owned Center Agent designation and readiness. When a caller explicitly
 requests `includeMemberLastActiveAt=true`, Core also overlays its own optional
 member `lastActiveAt` projection. This ISO timestamp is tied to the member's
 current Human Profile and advances only from an accepted, persisted Human text
-Signal in that Organization. A missing or stale-profile projection is omitted;
-Computer heartbeat, login/session refresh, presence, and Agent Activity are not
-fallbacks. Core must not reproduce the
+Signal in that Organization or an explicit authenticated Web activity write.
+The Web write must prove the caller is the active member, uses a Human Profile,
+and selected that member's current active Human Profile before Core writes the
+same monotonic projection. A missing or stale-profile projection is omitted;
+CLI use, Computer heartbeat, login/session refresh, inferred presence, and
+Agent Activity are not fallbacks. Core must not reproduce the
 member, user, Human Profile, or Agent Profile identity joins from Auth private
 tables. A missing method, failed result, malformed payload, or mismatched
 Organization id fails the Directory read closed with
@@ -776,6 +779,15 @@ Organization id fails the Directory read closed with
 public `OrganizationDirectoryResponse` adds only the optional member-level
 `lastActiveAt` field. Gateway strips it unless the query opts in, so older Web
 and CLI clients continue to receive the prior strict shape during rollout.
+
+`POST /v1/organizations/current/member-activity/web` is an additive
+Gateway-to-Core contract. It accepts no client-selected user, member, Profile,
+Organization, or timestamp; Gateway and Core derive those values from the
+authenticated request context and Core returns only the validated
+`organizationId`, `userId`, and `lastActiveAt`. Rollout deploys Core and Gateway
+before the Web caller. Older Web clients and every CLI, OpenMeld Service, Skills,
+RuntimeCoordinator, and Space contract remain unchanged because they do not
+call this route.
 
 `organization-computers.ts` owns the strict team-safe Organization Computer
 projection. Core authorizes the active Organization, resolves its current

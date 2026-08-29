@@ -2299,24 +2299,39 @@ that member has no Human Profile identity yet. Selecting an item makes that
 person's complete Profile detail the persistent main content; it does not open
 a transient drawer. The item owns only high-frequency scan signals: a prominent
 Human Profile avatar, the member's name, an explicit `(you)` marker, Core-owned
-**Last active** time, coarse Computer state, one compact mapped Slack, Lark, or
+relative last-seen time, coarse Computer state, one compact mapped Slack, Lark, or
 Feishu identity line, and enabled reported Local Agent icons. The mapped
 identity line may show the provider icon followed by the account name or handle
 and provider email when Core supplies those values. The member's OpenMeld
 account email and Organization role belong in Profile detail, not in the
 sidebar. Missing identity mappings, unavailable account metadata, unconfigured
-providers, and disabled Local Agents add no placeholder text or icons. Every
-logo-only signal has an accessible name and tooltip and reuses the catalog-owned
+providers, and disabled Local Agents add no placeholder text, empty row, or
+icons. The relative time is compact body copy such as **3 hours ago**; its
+tooltip supplies the full meaning, such as **Last seen 3 hours ago**. It shares
+one row with Local Agent icons, aligned at opposite ends. Every logo-only signal
+has an accessible name and tooltip and reuses the catalog-owned
 identity from its canonical Channel or Computer surface.
 
 The sidebar never exposes the internal profile Handle or slug, a generic
 **Active** badge, an invented online presence, or an undefined recent-activity
-field. People sorts the signed-in member first, then owner, admin, member, and
-unknown roles, with name and user ID as deterministic tie breakers. People must
-not duplicate the same people in a separate Members card. **Learn about all
+field. It groups members who have at least one registered Computer under
+**Connected** and members with no Computer under **Not Connected**. The labels
+explain **Computer connected** and **Computer not connected** in tooltips. The
+signed-in member's group appears first and the signed-in member remains first
+inside it. Everyone else sorts by most recent last-seen time within their group;
+members without activity sort last, followed by name and user ID as deterministic
+tie breakers. People must not duplicate the same people in a separate Members
+card. **Learn about all
 members** belongs to the People sidebar. **Invite Members** opens one dialog
 that contains both the email-and-role invitation form and the invite-link Copy,
 Reset, and Revoke actions; invitation controls do not occupy the main detail.
+
+Opening the authenticated Organization Web app, returning it to the foreground,
+or continuing to keep it visible reports explicit Web activity at a bounded
+cadence. Core verifies the active member and current Human Profile and advances
+the same Organization-scoped activity projection used by accepted Human Space
+messages. CLI use does not report this Web activity. This is last-seen evidence,
+not a claim that the person is currently online.
 
 An existing Profile Report opens from a top-right document icon. Amber means
 the report has updates to review and save. **Learn about {member}** remains

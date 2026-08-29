@@ -36,6 +36,7 @@ type AppContextualNavGroupBase = {
 	id: string;
 	label: string;
 	labelAccessory?: ReactNode;
+	labelTooltip?: string;
 };
 
 export type AppContextualNavGroup<ItemId extends string = string> =
@@ -125,6 +126,7 @@ export function AppContextualSidebarNav<ItemId extends string>(
 						labelAccessory={group.labelAccessory}
 						labelClassName={APP_NAV_GROUP_LABEL_CLASS_NAME}
 						labelText={group.label}
+						labelTooltip={group.labelTooltip}
 					>
 						{group.items !== undefined ? (
 							<FluidNavMenu

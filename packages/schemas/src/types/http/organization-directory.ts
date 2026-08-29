@@ -10,6 +10,8 @@ type OrganizationDirectoryAgentProfileIdentitySchema =
   typeof import("../../schemas/http/organization-directory")["organizationDirectoryAgentProfileIdentitySchema"];
 type OrganizationDirectoryResponseSchema =
   typeof import("../../schemas/http/organization-directory")["organizationDirectoryResponseSchema"];
+type OrganizationMemberWebActivityResponseSchema =
+  typeof import("../../schemas/http/organization-directory")["organizationMemberWebActivityResponseSchema"];
 type CenterAgentListOrganizationMembersBodySchema =
   typeof import("../../schemas/http/organization-directory")["centerAgentListOrganizationMembersBodySchema"];
 type CenterAgentListOrganizationMembersResponseSchema =
@@ -27,6 +29,8 @@ export type OrganizationDirectoryAgentProfileIdentity =
   z.infer<OrganizationDirectoryAgentProfileIdentitySchema>;
 export type OrganizationDirectoryResponse =
   z.infer<OrganizationDirectoryResponseSchema>;
+export type OrganizationMemberWebActivityResponse =
+  z.infer<OrganizationMemberWebActivityResponseSchema>;
 export type CenterAgentListOrganizationMembersBody =
   z.infer<CenterAgentListOrganizationMembersBodySchema>;
 export type CenterAgentListOrganizationMembersResponse =
