@@ -31,11 +31,13 @@ const AGENT_SETUP_COMMAND =
 const SEMVER_RE =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u;
 const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
-// OpenMeld Service 0.3.14 can report an online heartbeat without registering
-// execution routes. Core owns this monotonic compatibility floor separately
-// from the latest release's advisory policy, so a later optional release can
-// never make that unsafe Service eligible for new Wake work again.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.15";
+// OpenMeld Service 0.3.126 is the first supported recovery baseline. Earlier
+// Services do not carry the complete startup recovery, managed-update, and
+// active Permission/Wake behavior required by the current workstation runtime.
+// Core owns this monotonic compatibility floor separately from the latest
+// release's advisory policy, so a later optional release can never make an
+// older unsafe Service eligible for new Wake work again.
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.126";
 
 type ServiceUpdateDecision = {
   reasonCodes: string[];
@@ -143,13 +145,17 @@ export function resolveLocalComponentUpdateProjection(input: {
   const minimumSupportedVersionBreached =
     minimumSupportedVersionComparison === null ||
     minimumSupportedVersionComparison < 0;
+  const minimumRecoveryTargetVersion = minimumSupportedVersionBreached
+    ? maxServiceVersion(
+        MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+        servicePolicy.bundleVersion
+      )
+    : null;
   const requiredVersion = maxServiceVersion(
     servicePolicy.updatePolicy === "required"
       ? servicePolicy.bundleVersion
       : null,
-    minimumSupportedVersionBreached
-      ? MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
-      : null
+    minimumRecoveryTargetVersion
   );
   const effectiveServicePolicy =
     requiredVersion === null ? servicePolicy.updatePolicy : "required";

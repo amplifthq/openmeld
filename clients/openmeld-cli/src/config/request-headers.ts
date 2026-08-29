@@ -5,10 +5,14 @@ import {
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import {
   type AuthRequestCompatibilityReason,
-  canUseAuthSessionForRequest,
   resolveAuthRequestCompatibility,
 } from "./auth-request-compatibility";
-import { getAuthSessionState, type StoredAuthSession } from "./auth-session";
+import {
+  type AuthSessionStateReasonCode,
+  getAuthSessionState,
+  type StoredAuthSession,
+} from "./auth-session";
+import { resolveAuthSessionExpiryEligibility } from "./auth-session-expiry";
 import type { OpenMeldProfile } from "./openmeld-profiles-api";
 import {
   buildOpenMeldRequestContextFromProfile,
@@ -38,7 +42,11 @@ export type AuthTokenAttachment =
     }
   | {
       status: "dropped";
-      reason: "empty_token" | AuthRequestCompatibilityReason;
+      reason:
+        | "empty_token"
+        | "session_expired"
+        | "session_expiry_invalid"
+        | AuthRequestCompatibilityReason;
       requestHost: string | null;
       authHost: string | null;
       expectedGatewayHost: string | null;
@@ -48,6 +56,38 @@ export type DroppedAuthTokenAttachment = Extract<
   AuthTokenAttachment,
   { status: "dropped" }
 >;
+
+export type AuthRequestCredentialFailureReason =
+  | DroppedAuthTokenAttachment["reason"]
+  | AuthSessionStateReasonCode
+  | "session_invalid"
+  | "session_revoked";
+
+export class AuthRequestCredentialError extends Error {
+  readonly authHost: string | null;
+  readonly expectedGatewayHost: string | null;
+  readonly reason: AuthRequestCredentialFailureReason;
+  readonly requestHost: string | null;
+  readonly droppedAttachment?: DroppedAuthTokenAttachment;
+
+  constructor(input: {
+    authHost: string | null;
+    expectedGatewayHost: string | null;
+    reason: AuthRequestCredentialFailureReason;
+    requestHost: string | null;
+    droppedAttachment?: DroppedAuthTokenAttachment;
+  }) {
+    super(
+      `OpenMeld refused to send a request with unusable stored credentials (${input.reason}).`
+    );
+    this.name = "AuthRequestCredentialError";
+    this.authHost = input.authHost;
+    this.expectedGatewayHost = input.expectedGatewayHost;
+    this.reason = input.reason;
+    this.requestHost = input.requestHost;
+    this.droppedAttachment = input.droppedAttachment;
+  }
+}
 
 export async function buildRequestAuthHeaders(
   input: RequestAuthHeadersInput
@@ -147,11 +187,32 @@ export function resolveAuthTokenAttachment(input: {
       expectedGatewayHost: compatibility.expectedGatewayHost,
     };
   }
+  const expiryReason = resolveSessionExpiryReason(input.session);
+  if (expiryReason) {
+    return {
+      status: "dropped",
+      reason: expiryReason,
+      requestHost: compatibility.requestHost,
+      authHost: compatibility.authHost,
+      expectedGatewayHost: compatibility.expectedGatewayHost,
+    };
+  }
   return {
     status: "attachable",
     token,
     tokenType: normalizeTokenType(input.session.tokenType),
   };
+}
+
+export function requireAuthTokenAttachment(input: {
+  session: StoredAuthSession;
+  requestUrl: string;
+}): Extract<AuthTokenAttachment, { status: "attachable" }> {
+  const attachment = resolveAuthTokenAttachment(input);
+  if (attachment.status === "dropped") {
+    throw createAuthRequestCredentialError(attachment);
+  }
+  return attachment;
 }
 
 async function attachAuthHeader(
@@ -165,27 +226,29 @@ async function attachAuthHeader(
     return;
   }
 
-  const attachment = resolveAuthTokenAttachment({
-    session,
-    requestUrl: input.requestUrl,
-  });
-  if (attachment.status === "dropped") {
-    // The caller holds a session it believes is usable. Dropping the token is
-    // still the safe outcome (never leak credentials to an incompatible
-    // host), but it must stay visible in diagnostics instead of silently
-    // dialing bare and surfacing as a remote 401.
-    warnDroppedAuthToken(attachment);
-    return;
+  let attachment: Extract<AuthTokenAttachment, { status: "attachable" }>;
+  try {
+    attachment = requireAuthTokenAttachment({
+      session,
+      requestUrl: input.requestUrl,
+    });
+  } catch (error) {
+    if (error instanceof AuthRequestCredentialError) {
+      logRejectedAuthRequestCredential(error);
+    }
+    throw error;
   }
   headers[AUTHORIZATION_HEADER] = `${attachment.tokenType} ${attachment.token}`;
 }
 
-function warnDroppedAuthToken(attachment: DroppedAuthTokenAttachment): void {
-  console.warn("[openmeld.auth.request_token_dropped]", {
-    authHost: attachment.authHost,
-    expectedGatewayHost: attachment.expectedGatewayHost,
-    reason: attachment.reason,
-    requestHost: attachment.requestHost,
+function logRejectedAuthRequestCredential(
+  error: AuthRequestCredentialError
+): void {
+  console.error("[openmeld.auth.request_credential_rejected]", {
+    authHost: error.authHost,
+    expectedGatewayHost: error.expectedGatewayHost,
+    reason: error.reason,
+    requestHost: error.requestHost,
   });
 }
 
@@ -197,11 +260,45 @@ async function resolveAuthSessionForHeaders(
   }
 
   const sessionState = await getAuthSessionState({ refreshExpired: true });
-  if (sessionState.state !== "valid" || sessionState.session === null) {
+  if (sessionState.state === "missing") {
     return null;
+  }
+  if (sessionState.state !== "valid" || sessionState.session === null) {
+    const error = new AuthRequestCredentialError({
+      authHost: null,
+      expectedGatewayHost: null,
+      reason:
+        sessionState.reasonCode ??
+        (sessionState.state === "revoked"
+          ? "session_revoked"
+          : "session_invalid"),
+      requestHost: parseRequestHost(input.requestUrl),
+    });
+    logRejectedAuthRequestCredential(error);
+    throw error;
   }
 
   return sessionState.session;
+}
+
+function createAuthRequestCredentialError(
+  attachment: DroppedAuthTokenAttachment
+): AuthRequestCredentialError {
+  return new AuthRequestCredentialError({
+    authHost: attachment.authHost,
+    expectedGatewayHost: attachment.expectedGatewayHost,
+    reason: attachment.reason,
+    requestHost: attachment.requestHost,
+    droppedAttachment: attachment,
+  });
+}
+
+function parseRequestHost(requestUrl: string): string | null {
+  try {
+    return new URL(requestUrl).host || null;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeAccessToken(session: StoredAuthSession): string {
@@ -213,12 +310,24 @@ function normalizeTokenType(tokenType: string | undefined): string {
   return normalized.length > 0 ? normalized : DEFAULT_TOKEN_TYPE;
 }
 
+function resolveSessionExpiryReason(
+  session: StoredAuthSession
+): "session_expired" | "session_expiry_invalid" | null {
+  const eligibility = resolveAuthSessionExpiryEligibility(session.expiresAt);
+  if (eligibility.status === "invalid") {
+    return "session_expiry_invalid";
+  }
+  return eligibility.status === "expired" ? "session_expired" : null;
+}
+
 export function canAttachAuthTokenToRequest(
   session: StoredAuthSession,
   requestUrl: string
 ): boolean {
-  return canUseAuthSessionForRequest({
-    session,
-    requestUrl,
-  });
+  return (
+    resolveAuthTokenAttachment({
+      session,
+      requestUrl,
+    }).status === "attachable"
+  );
 }

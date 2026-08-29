@@ -42,6 +42,7 @@ export type AgentProfileEditDialogContext = Omit<
 
 export function AgentProfileEditDialogController(input: {
 	context: AgentProfileEditDialogContext;
+	initialSection?: "permissions";
 	modelCatalog: ModelCatalog | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
@@ -172,6 +173,7 @@ export function AgentProfileEditDialogController(input: {
 			}
 			controllerChangeOptions={controllerChangeOptions}
 			editState={editState}
+			initialSection={input.initialSection}
 			isLoading={input.open && bindingQuery.isPending}
 			isPending={isPending}
 			loadErrorMessage={

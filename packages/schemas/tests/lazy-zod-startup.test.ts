@@ -72,7 +72,7 @@ vi.mock("zod/v4", async (importOriginal) => {
 
 const schemasDirectory = new URL("../src/schemas/", import.meta.url);
 const lazyZodImportPattern =
-  /import \* as z from "\.\.\/(?:\.\.\/)?lazy-zod";/u;
+  /import \* as z from "(?:#lazy-zod|\.\.\/(?:\.\.\/)?lazy-zod)";/u;
 
 function listSchemaModules(directory: URL): URL[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -97,9 +97,14 @@ describe("lazy Zod startup boundary", () => {
     const lazySchemaModules = listSchemaModules(schemasDirectory).filter(
       (moduleUrl) => lazyZodImportPattern.test(readFileSync(moduleUrl, "utf8"))
     );
+    const localComponentsSchemaModule = new URL(
+      "../src/schemas/local-components.ts",
+      import.meta.url
+    );
 
     try {
       expect(lazySchemaModules.length).toBeGreaterThan(0);
+      expect(lazySchemaModules).toContainEqual(localComponentsSchemaModule);
 
       for (const moduleUrl of lazySchemaModules) {
         startupTracking.currentModule = moduleUrl.pathname;

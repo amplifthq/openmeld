@@ -1,6 +1,7 @@
 import { CLOUDFLARE_AGENT_INTERNAL_DISPATCH_PATH } from "@flue/runtime/internal";
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 import {
+  listDueRetryableCallbackContexts,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
   redeliverDueRemoteAgentCallbacks,
@@ -243,12 +244,14 @@ export async function scheduleRemoteAgentCallbackRetry(input: {
 
 export async function redeliverRemoteAgentCallbacksAndScheduleNextRetry(input: {
   coreWorker?: RemoteAgentCoreWorkerBinding;
+  excludeSubmissionIds?: ReadonlySet<string>;
   nowMs?: () => number;
   schedule: RemoteAgentCallbackRetryScheduler;
   storage: RemoteAgentStorage;
 }): Promise<{ processed: number; nextDueAtMs: number | null }> {
   const callbackRetry = await redeliverDueRemoteAgentCallbacks({
     coreWorker: input.coreWorker,
+    excludeSubmissionIds: input.excludeSubmissionIds,
     nowMs: input.nowMs,
     storage: input.storage,
   });
@@ -275,15 +278,25 @@ export async function reconcileAndRedeliverRemoteAgentCallbacks(input: {
   processed: number;
   reconciled: number;
 }> {
+  const nowMs = input.nowMs?.() ?? Date.now();
+  // Fence the exact retryable set through the execution owner before this
+  // alarm can redeliver any callback projection captured before a restart.
+  const retryableContexts = (
+    await listDueRetryableCallbackContexts(input.storage, nowMs)
+  ).filter((context) => context.callbackStatus === "retryable");
   const reconciliation = await reconcileSettledRemoteAgentExecutionFailures({
     coreWorker: input.coreWorker,
-    nowMs: input.nowMs,
+    nowMs: () => nowMs,
     readSubmission: input.readSubmission,
+    retryableContexts,
     storage: input.storage,
   });
   const redelivery = await redeliverRemoteAgentCallbacksAndScheduleNextRetry({
     coreWorker: input.coreWorker,
-    nowMs: input.nowMs,
+    excludeSubmissionIds: new Set(
+      retryableContexts.map((context) => context.submissionId)
+    ),
+    nowMs: () => nowMs,
     schedule: input.schedule,
     storage: input.storage,
   });

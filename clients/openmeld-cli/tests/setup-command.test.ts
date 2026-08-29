@@ -339,14 +339,14 @@ describe("setup command", () => {
     const { runSetup } = await import("../src/commands/setup");
 
     await runSetup({
+      deviceCode: "device_code_web",
       startSession: "preptok_web",
-      ott: "ott_web",
       view: "agent",
     });
 
     expect(runSetupLocalAgentConnectionMock).toHaveBeenCalledWith({
+      deviceCode: "device_code_web",
       startSession: "preptok_web",
-      ott: "ott_web",
       view: "agent",
     });
     expect(resolveOpenMeldProfileOrNullMock).not.toHaveBeenCalled();

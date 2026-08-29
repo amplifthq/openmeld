@@ -82,6 +82,10 @@ import {
 	type SpaceAgentInteractionResponseHandler,
 	type SpaceAgentProfileEditHandler,
 } from "./space-agent-interaction-card";
+import {
+	resolveSpaceAgentInteractionPlacement,
+	type SpaceAgentInteractionPlacement,
+} from "./space-agent-interaction-placement";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import {
@@ -128,6 +132,7 @@ import {
 	SpaceOutcomeRow,
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
+import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	resolveAnchoredSpaceWakeRetryRequest,
@@ -232,6 +237,7 @@ export function SpaceThreadPanel(input: {
 	composerText: string;
 	composerFiles: readonly SpaceComposerFile[];
 	composerFileLimitReached: boolean;
+	pendingActionSurface?: ReactNode;
 	profileControl?: ReactNode;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	editableAgentProfileIds?: ReadonlySet<string>;
@@ -245,6 +251,7 @@ export function SpaceThreadPanel(input: {
 	isCenterAgentDirectMessage?: boolean;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
+	actionableAgentInteractionPlacement?: SpaceAgentInteractionPlacement;
 	isPersonalContext?: boolean;
 	isSendingMessage: boolean;
 	mentionPopoverState: SpaceMentionPopoverState;
@@ -581,6 +588,9 @@ export function SpaceThreadPanel(input: {
 			<ThreadPanelHeader onClose={input.onClose} />
 			{renderThreadFocusStatus(focusStatusMessage)}
 			<ThreadTimeline
+				actionableAgentInteractionPlacement={resolveSpaceAgentInteractionPlacement(
+					input.actionableAgentInteractionPlacement
+				)}
 				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 				allItems={rawThreadTimelineItems}
 				anchoredOutcomeNoticesBySourceSignalId={
@@ -620,6 +630,7 @@ export function SpaceThreadPanel(input: {
 				}
 				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
 			/>
+			{input.pendingActionSurface}
 			{input.readOnly ? null : (
 				<ThreadComposer
 					agentDirectConversationKind={input.agentDirectConversationKind}
@@ -861,6 +872,7 @@ function ThreadTimeline(input: {
 	computerSetupContext?: CenterAgentComputerSetupContext;
 	items: readonly SpaceTimelineItem[];
 	isLoading: boolean;
+	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
@@ -969,6 +981,9 @@ function ThreadTimeline(input: {
 										/>
 									) : null}
 									<ThreadTimelineMessageRow
+										actionableAgentInteractionPlacement={
+											input.actionableAgentInteractionPlacement
+										}
 										agentRecoveryPlansByProfileId={
 											input.agentRecoveryPlansByProfileId
 										}
@@ -1041,6 +1056,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	editableAgentProfileIds?: ReadonlySet<string>;
 	isFirstInGroup: boolean;
 	isLastInGroup: boolean;
+	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	isPersonalContext: boolean;
 	item: SpaceTimelineItem;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -1242,27 +1258,30 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							<SpaceMessageInteractionSource
 								source={input.item.centerAgentInteractionSource}
 							/>
-							{agentInteractionItems.map((interactionItem) => (
-								<SpaceAgentInteractionCard
-									item={interactionItem}
-									key={
-										interactionItem.pendingInteraction?.interactionId ??
-										`${interactionItem.targetProfileId}:interaction`
-									}
-									onEditAgentProfile={
-										input.editableAgentProfileIds?.has(
-											interactionItem.targetProfileId
-										)
-											? input.onEditAgentProfile
-											: undefined
-									}
-									onRespond={
-										input.readOnly
-											? undefined
-											: input.onAgentInteractionResponse
-									}
-								/>
-							))}
+							{agentInteractionItems.map((interactionItem) =>
+								input.actionableAgentInteractionPlacement ===
+									"pending-surface" &&
+								interactionItem.pendingInteraction?.canRespond ? null : (
+									<SpaceAgentInteractionCard
+										item={interactionItem}
+										key={resolveSpacePendingAgentActionIdentity(
+											interactionItem
+										)}
+										onEditAgentProfile={
+											input.editableAgentProfileIds?.has(
+												interactionItem.targetProfileId
+											)
+												? input.onEditAgentProfile
+												: undefined
+										}
+										onRespond={
+											input.readOnly
+												? undefined
+												: input.onAgentInteractionResponse
+										}
+									/>
+								)
+							)}
 							{input.item.agentActivity ? (
 								<SpaceAgentToolActivity
 									item={input.item}

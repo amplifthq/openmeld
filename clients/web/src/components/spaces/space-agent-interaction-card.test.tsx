@@ -115,9 +115,7 @@ describe("SpaceAgentInteractionCard", () => {
 				"New permission settings can affect later tool requests in this Wake when the local agent supports live updates. This request was already waiting, so respond to it separately."
 			)
 		).toBeTruthy();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Edit Agent permissions" })
-		);
+		fireEvent.click(screen.getByRole("button", { name: "Edit Agent Profile" }));
 
 		expect(onEditAgentProfile).toHaveBeenCalledWith("agent-runner");
 		expect(onRespond).not.toHaveBeenCalled();

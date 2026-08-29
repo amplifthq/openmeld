@@ -6,7 +6,6 @@ import {
   type CenterAgentModelRoute,
   centerAgentModelRouteSchema,
   conversationCompactionMarkerSchema,
-  MAX_TEXT_LENGTH,
   type OpenMeldNavigationTarget,
   openMeldNavigationTargetSchema,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
@@ -150,6 +149,7 @@ import type {
   StartCenterAgentMemberResearchResponse,
   UpdateCenterAgentRoutineResponse,
 } from "@openmeld/schemas/types";
+import { normalizeRemoteAgentCompletedAnswer } from "./completed-answer";
 import {
   isRemoteAgentContextWindowExceeded,
   isRemoteAgentToolResultTooLarge,
@@ -175,8 +175,6 @@ const CENTER_AGENT_TASK_REFERENCE_WRITE_MAX_ATTEMPTS = 8;
 const CONVERSATION_COMPACTION_WRITE_MAX_ATTEMPTS = 8;
 const WORK_LOOP_CHECKPOINT_WRITE_MAX_ATTEMPTS = 8;
 export const REMOTE_AGENT_CALLBACK_CONTEXT_WAIT_MS = 5000;
-const REMOTE_AGENT_COMPLETED_TEXT_TRUNCATION_NOTICE =
-  "\n\n_Response shortened because it exceeded OpenMeld's 100,000-character response limit._";
 
 export function computeCallbackRetryDelayMs(attempts: number): number {
   const exponent = Math.max(0, attempts - 1);
@@ -559,6 +557,8 @@ export type RemoteAgentCoreWorkerBinding = {
 export type RemoteAgentAssistantCompletionResult = {
   continuation: boolean;
   error?: unknown;
+  failureCode?: string;
+  failureDetail?: string;
   failureReasonCode?: RemoteAgentRuntimeEvidenceOutcomeReasonCode;
   message: {
     parts: Record<string, unknown>[];
@@ -1032,7 +1032,7 @@ export function buildRemoteAgentCoreCallbackBody(input: {
     spaceId: input.context.spaceId,
     status: "completed",
     submissionId: input.context.submissionId,
-    text: fitRemoteAgentCompletedText(input.text),
+    text: normalizeRemoteAgentCompletedAnswer(input.text),
     triggerMessageId: input.context.triggerMessageId,
     ...(input.context.outputAttachments?.length
       ? { attachments: input.context.outputAttachments }
@@ -1161,33 +1161,6 @@ export async function recordRemoteAgentCenterAgentTaskReference(input: {
   throw new Error(
     `Remote Agent Center Agent Task reference could not update callback context ${input.submissionId} after concurrent writes.`
   );
-}
-
-function fitRemoteAgentCompletedText(text: string): string {
-  if (text.length <= MAX_TEXT_LENGTH) {
-    return text;
-  }
-  let sourceEnd =
-    MAX_TEXT_LENGTH - REMOTE_AGENT_COMPLETED_TEXT_TRUNCATION_NOTICE.length;
-  if (
-    sourceEnd > 0 &&
-    isHighSurrogate(text.charCodeAt(sourceEnd - 1)) &&
-    isLowSurrogate(text.charCodeAt(sourceEnd))
-  ) {
-    sourceEnd -= 1;
-  }
-  return `${text.slice(
-    0,
-    sourceEnd
-  )}${REMOTE_AGENT_COMPLETED_TEXT_TRUNCATION_NOTICE}`;
-}
-
-function isHighSurrogate(codeUnit: number): boolean {
-  return codeUnit >= 0xd8_00 && codeUnit <= 0xdb_ff;
-}
-
-function isLowSurrogate(codeUnit: number): boolean {
-  return codeUnit >= 0xdc_00 && codeUnit <= 0xdf_ff;
 }
 
 export async function appendRemoteAgentOutputAttachment(input: {
@@ -1400,8 +1373,16 @@ export function recordTerminalTurnFailure(input: {
     nowMs: input.nowMs,
     retryable: false,
   });
+  const {
+    callbackCompletedAt: _callbackCompletedAt,
+    callbackNextAttemptAt: _callbackNextAttemptAt,
+    completedText: _completedText,
+    lastCoreResponse: _lastCoreResponse,
+    workLoopCheckpoint: _workLoopCheckpoint,
+    ...contextWithoutStalePayload
+  } = input.context;
   return {
-    ...input.context,
+    ...contextWithoutStalePayload,
     callbackStatus: "failed",
     lastFailureFact: failureFact,
     terminalFailureFact: failureFact,
@@ -1409,31 +1390,63 @@ export function recordTerminalTurnFailure(input: {
 }
 
 /**
- * Persist the authoritative completed answer before its first Core callback.
- * The durable retry path can then replay the exact final answer after an
- * instance restart without treating partial stream text as a completed turn.
+ * Copy the execution owner's exact completed answer into its callback
+ * projection. This context remains rebuildable delivery state; it does not own
+ * or select the answer.
  */
-export async function recordRemoteAgentCompletedAnswer(input: {
+export async function projectRemoteAgentCompletedAnswer(input: {
+  modelId?: string | null;
   storage: RemoteAgentStorage;
   submissionId: string;
   text: string;
+  usage?: RemoteAgentTurnUsage | null;
 }): Promise<RemoteAgentCallbackContext> {
-  const completedText = input.text.trim();
-  if (!completedText) {
-    throw new Error("Remote Agent completed answer cannot be empty.");
-  }
+  const completedText = normalizeRemoteAgentCompletedAnswer(input.text);
   return await updateRemoteAgentCallbackContext({
     storage: input.storage,
     submissionId: input.submissionId,
-    update: (current) =>
-      current.callbackStatus === "completed" ||
-      current.callbackStatus === "rejected" ||
-      current.completedText?.trim()
-        ? current
-        : {
-            ...current,
-            completedText: fitRemoteAgentCompletedText(completedText),
-          },
+    update: (current) => {
+      if (
+        current.callbackStatus === "completed" ||
+        current.callbackStatus === "rejected"
+      ) {
+        if (
+          current.callbackStatus === "completed" &&
+          current.completedText !== completedText
+        ) {
+          throw new Error(
+            "Remote Agent completed callback projection conflicts with its durable execution owner."
+          );
+        }
+        return current;
+      }
+      if (
+        current.completedText === completedText &&
+        !current.lastFailureFact &&
+        !current.terminalFailureFact
+      ) {
+        return current;
+      }
+      const {
+        callbackCompletedAt: _callbackCompletedAt,
+        callbackNextAttemptAt: _callbackNextAttemptAt,
+        lastFailureFact: _lastFailureFact,
+        lastCoreResponse: _lastCoreResponse,
+        terminalFailureFact: _terminalFailureFact,
+        workLoopCheckpoint: _workLoopCheckpoint,
+        ...contextWithoutStalePayload
+      } = current;
+      return {
+        ...contextWithoutStalePayload,
+        callbackStatus:
+          current.callbackStatus === "failed"
+            ? "retryable"
+            : current.callbackStatus,
+        completedText,
+        lastUsage: input.usage ?? current.lastUsage,
+        modelId: input.modelId ?? current.modelId ?? null,
+      };
+    },
   });
 }
 
@@ -1632,11 +1645,20 @@ export async function handleRemoteAgentChatResponse(input: {
   result: RemoteAgentAssistantCompletionResult;
   storage: RemoteAgentStorage;
 }): Promise<RemoteAgentCallbackContext | null> {
-  const pendingContexts = await listRemoteAgentCallbackContexts(input.storage, [
-    "pending",
-  ]);
+  const projectableContexts = (
+    await listRemoteAgentCallbackContexts(input.storage, [
+      "failed",
+      "pending",
+      "retryable",
+    ])
+  ).filter(
+    (context) =>
+      context.callbackStatus === "pending" ||
+      context.callbackStatus === "retryable" ||
+      isUndeliveredTerminalFailureContext(context)
+  );
   const context = selectCallbackContextForChatResponse({
-    contexts: pendingContexts,
+    contexts: projectableContexts,
     requestId: input.result.requestId,
   });
   if (!context) {
@@ -1644,7 +1666,7 @@ export async function handleRemoteAgentChatResponse(input: {
   }
 
   const nowMs = input.nowMs?.() ?? Date.now();
-  if (context.workLoopCheckpoint) {
+  if (context.workLoopCheckpoint && input.result.continuation) {
     const checkpointContext = await updateRemoteAgentCallbackContext({
       storage: input.storage,
       submissionId: context.submissionId,
@@ -1678,7 +1700,9 @@ export async function handleRemoteAgentChatResponse(input: {
       code: resolveRemoteAgentResultFailureCode(input.result),
       context,
       coreWorker: input.coreWorker,
-      detail: toOptionalErrorMessage(input.result.error),
+      detail:
+        input.result.failureDetail ??
+        toOptionalErrorMessage(input.result.error),
       nowMs,
       result: input.result,
       storage: input.storage,
@@ -1699,7 +1723,7 @@ export async function handleRemoteAgentChatResponse(input: {
       }
       return {
         ...current,
-        completedText: fitRemoteAgentCompletedText(completedText),
+        completedText: normalizeRemoteAgentCompletedAnswer(completedText),
         lastUsage: input.result.usage ?? undefined,
         modelId: input.result.modelId ?? current.modelId ?? null,
       };
@@ -1733,9 +1757,12 @@ export async function handleRemoteAgentChatResponse(input: {
 function resolveRemoteAgentResultFailureCode(
   result: Pick<
     RemoteAgentAssistantCompletionResult,
-    "error" | "failureReasonCode" | "status"
+    "error" | "failureCode" | "failureReasonCode" | "status"
   >
 ): string {
+  if (result.failureCode) {
+    return result.failureCode;
+  }
   if (result.status === "completed") {
     return "remote_agent.empty_assistant_response";
   }
@@ -1810,11 +1837,14 @@ export async function listDueRetryableCallbackContexts(
  */
 export async function redeliverDueRemoteAgentCallbacks(input: {
   coreWorker?: RemoteAgentCoreWorkerBinding;
+  excludeSubmissionIds?: ReadonlySet<string>;
   nowMs?: () => number;
   storage: RemoteAgentStorage;
 }): Promise<{ processed: number; nextDueAtMs: number | null }> {
   const nowMs = input.nowMs?.() ?? Date.now();
-  const due = await listDueRetryableCallbackContexts(input.storage, nowMs);
+  const due = (
+    await listDueRetryableCallbackContexts(input.storage, nowMs)
+  ).filter((context) => !input.excludeSubmissionIds?.has(context.submissionId));
   for (const context of due) {
     await attemptRemoteAgentCallbackDelivery({
       context,

@@ -10,7 +10,7 @@ import { TestQueryClientProvider } from "#/test-support/query-client";
 import { AgentInterfacePage } from "./agent-interface-page";
 
 const createPrepareSessionMock = vi.hoisted(() => vi.fn());
-const generateOneTimeTokenMutateAsyncMock = vi.hoisted(() => vi.fn());
+const createComputerAuthorizationMutateAsyncMock = vi.hoisted(() => vi.fn());
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const buildWebSetupCommandMock = vi.hoisted(() => vi.fn());
 const resolveBrowserSetupCommandPlatformMock = vi.hoisted(() => vi.fn());
@@ -28,10 +28,8 @@ vi.mock("#/components/app/cross-page-header", () => ({
 	CrossPageHeader: () => <header>OpenMeld header</header>,
 }));
 
-vi.mock("#/hooks/account.hooks", () => ({
-	useGenerateOneTimeToken: () => ({
-		mutateAsync: generateOneTimeTokenMutateAsyncMock,
-	}),
+vi.mock("#/query/auth-query", () => ({
+	createComputerAuthorizationGrant: createComputerAuthorizationMutateAsyncMock,
 }));
 
 vi.mock("#/query/connect/prepare-session", () => ({
@@ -64,8 +62,8 @@ describe("AgentInterfacePage", () => {
 			opaqueTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
 			snapshot: {},
 		});
-		generateOneTimeTokenMutateAsyncMock.mockReset().mockResolvedValue({
-			token: "ott_demo",
+		createComputerAuthorizationMutateAsyncMock.mockReset().mockResolvedValue({
+			deviceCode: "device-secret",
 			expiresIn: 300,
 		});
 		listStartProfilesMock.mockReset().mockResolvedValue([
@@ -83,7 +81,7 @@ describe("AgentInterfacePage", () => {
 		buildWebSetupCommandMock
 			.mockReset()
 			.mockReturnValue(
-				"curl -fsSL http://localhost:3000/setup | sh -s -- setup --start-session preptok_demo --local-agents all --ott ott_demo --view agent"
+				"curl -fsSL http://localhost:3000/setup | sh -s -- setup --start-session preptok_demo --local-agents all --device-code device-secret --view agent"
 			);
 		resolveBrowserSetupCommandPlatformMock.mockReset().mockReturnValue("posix");
 		copyTextToClipboardMock.mockReset().mockResolvedValue(true);
@@ -134,7 +132,7 @@ describe("AgentInterfacePage", () => {
 			expect(buildWebSetupCommandMock).toHaveBeenCalledWith(
 				expect.objectContaining({
 					localAgents: "all",
-					oneTimeToken: "ott_demo",
+					deviceCode: "device-secret",
 					startSession: "preptok_demo",
 					view: "agent",
 				})
@@ -195,14 +193,14 @@ describe("AgentInterfacePage", () => {
 		expect(screen.getByRole("button", { name: "Copy again" })).toBeTruthy();
 	});
 
-	it("uses the ten-minute one-time-token fallback when the auth response omits expiry", async () => {
+	it("uses the ten-minute authorization fallback when the auth response omits expiry", async () => {
 		createPrepareSessionMock.mockResolvedValueOnce({
 			opaqueToken: "preptok_demo",
 			opaqueTokenExpiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
 			snapshot: {},
 		});
-		generateOneTimeTokenMutateAsyncMock.mockResolvedValueOnce({
-			token: "ott_demo",
+		createComputerAuthorizationMutateAsyncMock.mockResolvedValueOnce({
+			deviceCode: "device-secret",
 		});
 
 		renderPage({ isAuthenticated: true });

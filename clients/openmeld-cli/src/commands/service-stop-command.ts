@@ -331,14 +331,24 @@ async function prepareManagedDaemonServiceForStop(input: {
     });
     return null;
   } catch (error) {
-    const isCompatibilityFallback =
+    const isLegacyShutdownContract =
       error instanceof LocalDaemonControlPlaneClientError &&
       error.code === "daemon.control.contract_mismatch";
+    const isManagerRunningWithoutRuntime =
+      error instanceof LocalDaemonControlPlaneClientError &&
+      error.code === "daemon.control.endpoint_missing" &&
+      input.ownerSnapshot.runtimeStatus.status !== "running" &&
+      input.ownerSnapshot.ownedProcesses.length === 0;
+    const isCompatibilityFallback =
+      isLegacyShutdownContract || isManagerRunningWithoutRuntime;
     await emitDaemonLifecycleEvent({
       command: "openmeld service stop",
       intent: "stop",
       metadata: {
         compatibilityFallback: isCompatibilityFallback,
+        ...(isManagerRunningWithoutRuntime
+          ? { compatibilityReason: "manager_running_without_runtime" }
+          : {}),
         errorMessage: toErrorMessage(error),
       },
       result: isCompatibilityFallback ? "fallback" : "failed",

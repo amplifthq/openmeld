@@ -16,6 +16,10 @@ import {
   createOrphanedLocalConcurrencyIssue,
   toRecognizedLocalMachineFailureError,
 } from "../system/local-machine-recovery";
+import {
+  CURRENT_PROCESS_START_IDENTITY,
+  isProcessIdentityAlive,
+} from "../system/process-identity";
 import { resolveOpenMeldLaneDescriptor } from "./openmeld-lane-descriptor";
 import {
   normalizeOpenMeldProfileId,
@@ -133,6 +137,7 @@ export async function acquireLock(input: {
     const contents = `${JSON.stringify({
       ...(input.meta ? { ...input.meta } : {}),
       pid: process.pid,
+      ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
       openMeldProfileId,
       ...(sessionId ? { sessionId } : {}),
       at: new Date().toISOString(),
@@ -380,7 +385,7 @@ type LockSnapshot = {
   metaRaw: string | null;
   meta: OpenMeldLockMeta | null;
   pid: number | null;
-  hasStalePid: boolean;
+  hasStaleOwner: boolean;
   storageKind: "directory" | "legacy_file" | null;
 };
 
@@ -460,7 +465,7 @@ function missingLockSnapshot(): LockSnapshot {
     metaRaw: null,
     meta: null,
     pid: null,
-    hasStalePid: false,
+    hasStaleOwner: false,
     storageKind: null,
   };
 }
@@ -525,7 +530,7 @@ async function readLockSnapshot(
       metaRaw: normalizedMetaRaw,
       meta,
       pid,
-      hasStalePid: pid !== null && !isPidAlive(pid),
+      hasStaleOwner: isLockOwnerStale({ meta, pid }),
       storageKind: "legacy_file",
     };
   } finally {
@@ -553,7 +558,7 @@ async function readDirectoryLockSnapshot(
       metaRaw: null,
       meta: null,
       pid: null,
-      hasStalePid: false,
+      hasStaleOwner: false,
       storageKind: "directory",
     };
   }
@@ -576,7 +581,7 @@ async function readDirectoryLockSnapshot(
       metaRaw: normalizedMetaRaw,
       meta,
       pid,
-      hasStalePid: pid !== null && !isPidAlive(pid),
+      hasStaleOwner: isLockOwnerStale({ meta, pid }),
       storageKind: "directory",
     };
   } finally {
@@ -640,7 +645,7 @@ function resolveLockContentionState(
   }
   if (
     snapshot.storageKind !== null &&
-    (snapshot.pid === null || !snapshot.hasStalePid)
+    (snapshot.pid === null || !snapshot.hasStaleOwner)
   ) {
     return "active";
   }
@@ -738,12 +743,39 @@ function isRecoverableStaleLock(snapshot: LockSnapshot): boolean {
     return false;
   }
   if (snapshot.pid !== null) {
-    return snapshot.hasStalePid;
+    return snapshot.hasStaleOwner;
   }
   return (
     snapshot.modifiedAtMs !== null &&
     Date.now() - snapshot.modifiedAtMs >= MALFORMED_LOCK_RECOVERY_GRACE_MS
   );
+}
+
+function isLockOwnerStale(input: {
+  meta: OpenMeldLockMeta | null;
+  pid: number | null;
+}): boolean {
+  if (input.pid === null) {
+    return false;
+  }
+  const ownerProcessStartedAt = getProcessStartIdentityFromMeta(input.meta);
+  if (!ownerProcessStartedAt) {
+    // Locks from older clients do not carry process-start identity. Keep them
+    // while their PID is live, but preserve the existing dead-PID recovery.
+    return !isPidAlive(input.pid);
+  }
+  return !isProcessIdentityAlive({
+    ownerPid: input.pid,
+    ownerProcessStartedAt,
+  });
+}
+
+function getProcessStartIdentityFromMeta(meta: unknown): string | null {
+  if (!(meta && typeof meta === "object")) {
+    return null;
+  }
+  const value = (meta as Record<string, unknown>).ownerProcessStartedAt;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function isPidAlive(pid: number): boolean {

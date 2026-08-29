@@ -1033,12 +1033,21 @@ replacement or reconnected Terminal repeats Service alignment and the remaining
 Terminal-owned work instead of inheriting device or lane evidence from the
 previous connection.
 
-When the handoff also includes a Web-issued one-time token, that token is a
-login method for this computer. The token itself stays short-lived and
-single-use, but a successful exchange must persist a normal local CLI auth
-session for the same OpenMeld account. `openmeld setup` must not claim success from a Web
-handoff unless that local session can be reloaded, because OpenMeld Service depends
-on it when launchd/systemd starts the service after sign-in.
+When the handoff also includes a Web-approved Device Authorization code, the
+CLI exchanges it for a new Computer-owned auth session. The browser and
+Computer sessions must belong to the same OpenMeld user but remain independently
+revocable; signing out in Web must not sign out the Computer. The grant stays
+short-lived and single-use. The CLI validates the Prepare owner and candidate
+session before changing local auth. A cross-account switch requires explicit
+interactive confirmation. The local session switch is committed only after
+Prepare succeeds; cancellation or failure restores the previous local session
+and Service alignment. The pending switch remains recoverable across a killed
+Terminal, process crash, or computer restart: the next CLI or Service auth read
+restores the previous session, or clears an incomplete first connection. Once
+commit is durably recorded, restart recovery keeps the new session. `--ott`
+remains a compatibility receiver for commands generated before this contract
+changed and uses the same fail-atomic Prepare handoff; it is not the
+Web-recommended handoff.
 
 The signed macOS binary stores new bearer sessions in the user's macOS
 Keychain through Security.framework. The bare Developer ID CLI must not request
@@ -1097,6 +1106,15 @@ cleanup while the new private-file session becomes usable immediately.
 
 The CLI must prove account alignment. Missing, unknown, expired, or mismatched
 terminal authentication must fail closed and tell the user the next safe action.
+When a stored session reaches its local expiry, a request may first ask Auth for
+the session's current server expiry. A successful refresh may keep an active
+Computer signed in, but a known-expired credential must never be attached when
+that refresh cannot prove a future expiry. Explicitly supplied and stored
+sessions use the same token-attachment decision, including host compatibility.
+Sessions created before expiry metadata existed remain compatible when no
+`expiresAt` value is present; malformed expiry metadata fails closed. A CLI
+command stops locally with structured auth diagnostics instead of continuing as
+an unauthenticated request when known credentials cannot be attached safely.
 
 When local service identity is known, the CLI must preserve service-derived
 runtime evidence such as device and lane. It must not infer runtime identity
@@ -1452,7 +1470,8 @@ wrappers around the same selector and read model.
 visible failure. CLI must not label current service health, current setup status,
 route-online state, or local capability evidence as the Wake's final outcome.
 
-Diagnostics must not include secrets, access tokens, one-time tokens, passwords,
+Diagnostics must not include secrets, access tokens, one-time tokens, Computer
+authorization codes, passwords,
 cookies, full message text, prompt bodies, or arbitrary payload dumps.
 
 ## Lane Safety Boundary

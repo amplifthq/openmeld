@@ -3218,6 +3218,7 @@ export function AgentProfileEditDialog(input: {
 	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
 	editState: AgentProfileEditState | null;
 	isLoading?: boolean;
+	initialSection?: "permissions";
 	isPending: boolean;
 	loadErrorMessage?: string | null;
 	modelCatalog: ModelCatalog | null;
@@ -3273,6 +3274,8 @@ function AgentProfileEditDialogContent(
 ) {
 	const confirmationId = useId();
 	const profileNameInputId = useId();
+	const permissionControlRef = useRef<HTMLButtonElement>(null);
+	const didFocusInitialPermissionsRef = useRef(false);
 	const draftKey = input.draftInput.draftKey;
 	const [draft, setDraft] = useState<AgentProfileEditDraft>(() =>
 		createAgentProfileEditDraft(input.draftInput)
@@ -3285,6 +3288,7 @@ function AgentProfileEditDialogContent(
 	});
 	const controllerPermissionMode =
 		activeEditState?.controllerPermissionMode ?? null;
+	const hasControllerPermissionMode = controllerPermissionMode !== null;
 	const controllerCollaborationMode =
 		activeEditState?.controllerCollaborationMode ?? null;
 	const modelSelection = activeEditState?.modelSelection ?? null;
@@ -3302,6 +3306,37 @@ function AgentProfileEditDialogContent(
 		openCodePermission,
 		profileName: input.profileName,
 	});
+	useEffect(() => {
+		if (!input.open) {
+			didFocusInitialPermissionsRef.current = false;
+			return;
+		}
+		if (
+			didFocusInitialPermissionsRef.current ||
+			input.initialSection !== "permissions" ||
+			input.isLoading ||
+			input.loadErrorMessage ||
+			!hasControllerPermissionMode
+		) {
+			return;
+		}
+		const frameId = window.requestAnimationFrame(() => {
+			const control = permissionControlRef.current;
+			if (!control) {
+				return;
+			}
+			didFocusInitialPermissionsRef.current = true;
+			control.focus({ preventScroll: true });
+			control.scrollIntoView?.({ block: "nearest" });
+		});
+		return () => window.cancelAnimationFrame(frameId);
+	}, [
+		hasControllerPermissionMode,
+		input.initialSection,
+		input.isLoading,
+		input.loadErrorMessage,
+		input.open,
+	]);
 
 	return (
 		<Dialog
@@ -3312,7 +3347,15 @@ function AgentProfileEditDialogContent(
 			}}
 			open={input.open}
 		>
-			<DialogContent className="sm:max-w-3xl">
+			<DialogContent
+				className="sm:max-w-3xl"
+				initialFocus={
+					input.initialSection === "permissions" &&
+					controllerPermissionMode?.editable
+						? permissionControlRef
+						: undefined
+				}
+			>
 				<DialogHeader>
 					<DialogTitle className="flex items-center gap-1.5">
 						Edit Agent
@@ -3386,6 +3429,7 @@ function AgentProfileEditDialogContent(
 						modelSelection={modelSelection}
 						onDraftChange={setDraft}
 						openCodePermission={openCodePermission}
+						permissionControlRef={permissionControlRef}
 						profileNameInputId={profileNameInputId}
 					/>
 				)}
@@ -3454,6 +3498,7 @@ function AgentProfileEditDialogFields(input: {
 	modelSelection: AgentProfileModelSelectionEditState | null;
 	onDraftChange: (draft: AgentProfileEditDraft) => void;
 	openCodePermission: AgentProfileOpenCodePermissionEditState | null;
+	permissionControlRef: Ref<HTMLButtonElement>;
 	profileNameInputId: string;
 }) {
 	return (
@@ -3532,6 +3577,7 @@ function AgentProfileEditDialogFields(input: {
 						controllerPermissionMode={input.controllerPermissionMode}
 						disabled={input.disabled}
 						draftKey={input.draftKey}
+						focusRef={input.permissionControlRef}
 						onDraftChange={input.onDraftChange}
 						selectedPolicy={input.dialogState.selectedPolicy}
 					/>
@@ -4086,6 +4132,7 @@ function AgentProfilePermissionModeEditSection(input: {
 	controllerPermissionMode: AgentProfileControllerPermissionModeEditState | null;
 	disabled: boolean;
 	draftKey: string;
+	focusRef: Ref<HTMLButtonElement>;
 	onDraftChange: (draft: AgentProfileEditDraft) => void;
 	selectedPolicy: AgentControllerPermissionMode | null;
 }) {
@@ -4116,7 +4163,10 @@ function AgentProfilePermissionModeEditSection(input: {
 	);
 	const requiresConfirmation = selectedMetadata.requiresExplicitConfirmation;
 	return (
-		<div className="grid gap-3">
+		<div
+			className="grid gap-3"
+			data-slot="agent-profile-permission-mode-section"
+		>
 			<label className="font-medium text-sm" htmlFor={selectId}>
 				{selectedMetadata.fieldLabel}
 			</label>
@@ -4146,6 +4196,7 @@ function AgentProfilePermissionModeEditSection(input: {
 					displayValue={selectedOption?.label}
 					id={selectId}
 					placeholder={selectedMetadata.fieldLabel}
+					ref={input.focusRef}
 				/>
 				<SelectContent className="max-h-64">
 					{options.map((option, index) => (

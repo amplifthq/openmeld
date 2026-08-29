@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   hasJsonOutputArgv,
+  isPassiveCliQueryArgv,
   parseLeadingCommandTokensFromArgv,
 } from "../src/runtime/view-argv";
 
@@ -46,6 +47,40 @@ describe("hasJsonOutputArgv", () => {
   it("ignores JSON-looking positional values after the option terminator", () => {
     expect(
       hasJsonOutputArgv(["node", "openmeld", "space", "send", "--", "--json"])
+    ).toBe(false);
+  });
+});
+
+describe("isPassiveCliQueryArgv", () => {
+  it("keeps auth and Service diagnostics available during deferred Computer recovery", () => {
+    expect(
+      isPassiveCliQueryArgv([
+        "node",
+        "openmeld",
+        "auth",
+        "status",
+        "--view",
+        "agent",
+      ])
+    ).toBe(true);
+    expect(
+      isPassiveCliQueryArgv([
+        "node",
+        "openmeld",
+        "service",
+        "status",
+        "--view=agent",
+      ])
+    ).toBe(true);
+    expect(
+      isPassiveCliQueryArgv([
+        "node",
+        "openmeld",
+        "service",
+        "repair",
+        "--view",
+        "agent",
+      ])
     ).toBe(false);
   });
 });

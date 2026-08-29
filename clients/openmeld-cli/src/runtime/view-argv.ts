@@ -7,6 +7,13 @@ type ViewArgvOptions = {
 export type ServiceAutoInstallMode = "always" | "ask" | "never";
 
 const PASSIVE_CLI_QUERY_FLAGS = new Set(["--help", "--version", "-V", "-h"]);
+const PASSIVE_CLI_QUERY_COMMANDS = new Set([
+  "auth status",
+  "service snapshot",
+  "service status",
+  "service trace",
+  "whoami",
+]);
 
 export function isStandaloneViewQueryArgv(argv: string[]): boolean {
   const args = argv.slice(2);
@@ -194,7 +201,9 @@ export function isPassiveCliQueryArgv(argv: string[]): boolean {
     }
   }
 
-  return false;
+  return PASSIVE_CLI_QUERY_COMMANDS.has(
+    parseLeadingCommandTokensFromArgv(argv, 2).join(" ")
+  );
 }
 
 export function hasJsonOutputArgv(argv: string[]): boolean {

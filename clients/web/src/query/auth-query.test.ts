@@ -18,6 +18,7 @@ vi.mock("#/lib/openmeld-api/client", () => ({
 }));
 
 import {
+	createComputerAuthorizationGrant,
 	generateOneTimeToken,
 	getAccountAvatar,
 	getSession,
@@ -173,4 +174,101 @@ describe("auth-query", () => {
 			})
 		);
 	});
+
+	it("creates a browser-approved grant that lets a computer create its own session", async () => {
+		const fetchMock = vi.fn<typeof fetch>((input, init) => {
+			const request = `${init?.method ?? "GET"} ${String(input)}`;
+			switch (request) {
+				case "POST /api/auth/device/code":
+					return createFetchResponse(
+						{
+							device_code: "device-secret",
+							user_code: "MELD-1234",
+							verification_uri: "/device",
+							verification_uri_complete: "/device?user_code=MELD-1234",
+							expires_in: 300,
+							interval: 5,
+						},
+						200
+					);
+				case "GET /api/auth/device?user_code=MELD-1234":
+					return createFetchResponse(
+						{ user_code: "MELD-1234", status: "pending" },
+						200
+					);
+				case "POST /api/auth/device/approve":
+					return createFetchResponse({ success: true }, 200);
+				default:
+					throw new Error(`Unexpected request: ${request}`);
+			}
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(createComputerAuthorizationGrant()).resolves.toEqual({
+			deviceCode: "device-secret",
+			expiresIn: 300,
+		});
+
+		expect(fetchMock).toHaveBeenNthCalledWith(
+			1,
+			"/api/auth/device/code",
+			expect.objectContaining({
+				body: JSON.stringify({ client_id: "openmeld-cli" }),
+				credentials: "include",
+				method: "POST",
+			})
+		);
+		expect(fetchMock).toHaveBeenNthCalledWith(
+			2,
+			"/api/auth/device?user_code=MELD-1234",
+			expect.objectContaining({
+				credentials: "include",
+				method: "GET",
+			})
+		);
+		expect(fetchMock).toHaveBeenNthCalledWith(
+			3,
+			"/api/auth/device/approve",
+			expect.objectContaining({
+				body: JSON.stringify({ userCode: "MELD-1234" }),
+				credentials: "include",
+				method: "POST",
+			})
+		);
+	});
+
+	it("rejects a partial vendor response before issuing approval", async () => {
+		const fetchMock = vi.fn<typeof fetch>((input, init) => {
+			const request = `${init?.method ?? "GET"} ${String(input)}`;
+			if (request === "POST /api/auth/device/code") {
+				return createFetchResponse(
+					{
+						device_code: "device-secret",
+						user_code: "MELD-1234",
+						expires_in: 300,
+					},
+					200
+				);
+			}
+			throw new Error(`Unexpected request: ${request}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(createComputerAuthorizationGrant()).rejects.toThrow(
+			"Auth returned an invalid computer authorization response."
+		);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
 });
+
+function createFetchResponse(
+	payload: unknown,
+	status: number
+): Promise<Response> {
+	return Promise.resolve(
+		new Response(JSON.stringify(payload), {
+			status,
+			headers: { "content-type": "application/json" },
+		})
+	);
+}

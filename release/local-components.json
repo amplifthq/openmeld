@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-28T17:51:02.194Z",
+  "updatedAt": "2026-08-29T06:23:37.774Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.126",
+      "packageVersion": "0.3.129",
       "updatePolicy": "available",
-      "reason": "Existing cloud APIs and CLI commands remain compatible; this release only refreshes active local session credentials."
+      "reason": "Existing CLI and cloud versions remain compatible; 0.3.129 fixes only local Computer recovery sequencing."
     },
     "service": {
-      "bundleHash": "528e088c40a1aae190f64f08eff50b99a189d8f97cce86898499b575a1a5fce1",
-      "bundleVersion": "0.3.126",
+      "bundleHash": "2970775f9efe90d39fb49aefff03d51b079f1099f2f8fc99439687f993975096",
+      "bundleVersion": "0.3.129",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Existing stream authentication remains compatible; the Service only refreshes expired local credentials before reconnecting."
+      "reason": "No Service wire contract changed; 0.3.129 lets the bundled Service reuse the restored sign-in during repair while older healthy Services remain compatible."
     },
     "skills": {
       "bundleHash": "3b9b009ba253a1ec80240545d016a238505cd21ec6b11b34a10eea755f2e2683",

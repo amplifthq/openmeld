@@ -159,7 +159,7 @@ describe("auth session renewal", () => {
     });
   });
 
-  it("keeps using the stored credential when the renewal check is temporarily unavailable", async () => {
+  it("does not attach a known-expired credential when renewal is temporarily unavailable", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
@@ -173,11 +173,14 @@ describe("auth session renewal", () => {
         expiresAt: new Date(Date.now() - 60_000).toISOString(),
       });
 
-      const headers = await buildRequestAuthHeaders({
-        requestUrl: GATEWAY_URL,
+      await expect(
+        buildRequestAuthHeaders({
+          requestUrl: GATEWAY_URL,
+        })
+      ).rejects.toMatchObject({
+        name: "AuthRequestCredentialError",
+        reason: "session_expired",
       });
-
-      expect(headers.Authorization).toBe("Bearer token-active");
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });

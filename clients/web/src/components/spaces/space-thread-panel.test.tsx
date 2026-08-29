@@ -128,6 +128,25 @@ describe("SpaceThreadPanel", () => {
 		expect(composer?.className).not.toContain("border-border");
 	});
 
+	it("places the current Space pending actions above the visible thread composer", () => {
+		renderThreadPanel({
+			pendingActionSurface: (
+				<section data-testid="pending-agent-actions">Pending actions</section>
+			),
+		});
+
+		const pendingActions = screen.getByTestId("pending-agent-actions");
+		const composer = document.querySelector('[data-slot="thread-composer"]');
+
+		expect(composer).toBeInstanceOf(HTMLElement);
+		if (!composer) {
+			throw new Error("Expected the visible thread composer.");
+		}
+		expect(pendingActions.compareDocumentPosition(composer)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+	});
+
 	it("explains that sending a Thread reply wakes the agent in an Agent DM", () => {
 		renderThreadPanel({
 			agentDirectConversationKind: "direct_message",
@@ -1430,6 +1449,36 @@ describe("SpaceThreadPanel", () => {
 		});
 	});
 
+	it("keeps reused provider interaction ids isolated across inline thread Wake executions", () => {
+		const view = renderThreadPanel({
+			ephemeralActivityItems: [
+				createInlineThreadPermissionProgressItem({
+					runtimeCoordinatorExecutionId: "rce-thread-first",
+					title: "Allow the first thread execution?",
+				}),
+			],
+			onAgentInteractionResponse: vi.fn().mockResolvedValue(undefined),
+			signals: [createWakeTextSignal()],
+		});
+
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		view.rerenderThreadPanel({
+			ephemeralActivityItems: [
+				createInlineThreadPermissionProgressItem({
+					runtimeCoordinatorExecutionId: "rce-thread-second",
+					title: "Allow the second thread execution?",
+				}),
+			],
+		});
+
+		expect(screen.getByText("Allow the second thread execution?")).toBeTruthy();
+		expect(
+			screen
+				.getByRole("radio", { name: "Allow once" })
+				.getAttribute("aria-checked")
+		).toBe("false");
+	});
+
 	it("opens future permission settings from a permission request in a thread", () => {
 		const onEditAgentProfile = vi.fn();
 		renderThreadPanel({
@@ -1474,7 +1523,7 @@ describe("SpaceThreadPanel", () => {
 		expect(sourceMessage).not.toBeNull();
 		fireEvent.click(
 			within(sourceMessage as HTMLElement).getByRole("button", {
-				name: "Edit Agent permissions",
+				name: "Edit Agent Profile",
 			})
 		);
 
@@ -1830,6 +1879,40 @@ function createWakeProgressItem(input?: {
 			input?.wakeStopEligibility ?? CANCEL_BACKED_WAKE_STOP_ELIGIBILITY;
 	}
 	return item;
+}
+
+function createInlineThreadPermissionProgressItem(input: {
+	runtimeCoordinatorExecutionId: string;
+	title: string;
+}): WakeProgressItem {
+	const interactionId = "provider-interaction-reused";
+	return {
+		...createWakeProgressItem(),
+		pendingInteraction: {
+			canRespond: true,
+			expiresAtMs: Date.UTC(2026, 6, 29),
+			interactionId,
+			kind: "permission",
+			request: {
+				expiresAtMs: Date.UTC(2026, 6, 29),
+				interactionId,
+				kind: "permission",
+				options: [
+					{
+						intent: "allow_once",
+						label: "Allow once",
+						optionId: "allow-once",
+					},
+				],
+				requestedAtMs: Date.UTC(2026, 6, 28),
+				subject: { type: "tool" },
+				title: input.title,
+				v: 1,
+			},
+			requestedAtMs: Date.UTC(2026, 6, 28),
+		},
+		runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+	};
 }
 
 function createWakeStopResponse(): PostSpaceWakeStopResponse {

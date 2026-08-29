@@ -35,7 +35,14 @@ describe("connect lock policy", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
-    acquireLockMock.mockResolvedValue({ path: "/tmp/join.lock" });
+    acquireLockMock.mockImplementation(
+      async (input: { openMeldProfileId: string }) => ({
+        path:
+          input.openMeldProfileId === "auth-session"
+            ? "/tmp/auth-session.lock"
+            : "/tmp/join.lock",
+      })
+    );
     releaseLockMock.mockResolvedValue(undefined);
     runWithHeldLockMock.mockImplementation(
       async (input: { lock: { path: string }; run: () => Promise<unknown> }) =>
@@ -124,8 +131,12 @@ describe("connect lock policy", () => {
       });
     });
 
-    expect(acquireLockMock).not.toHaveBeenCalled();
-    expect(releaseLockMock).not.toHaveBeenCalled();
+    expect(acquireLockMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ openMeldProfileId: "agt-watch" })
+    );
+    expect(releaseLockMock).not.toHaveBeenCalledWith({
+      path: "/tmp/join.lock",
+    });
   });
 
   it("fails closed when connectionMode is omitted", async () => {
@@ -148,8 +159,12 @@ describe("connect lock policy", () => {
       ).rejects.toThrow("runConnect requires explicit connectionMode");
     });
 
-    expect(acquireLockMock).not.toHaveBeenCalled();
-    expect(releaseLockMock).not.toHaveBeenCalled();
+    expect(acquireLockMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ openMeldProfileId: "agt-missing-mode" })
+    );
+    expect(releaseLockMock).not.toHaveBeenCalledWith({
+      path: "/tmp/join.lock",
+    });
   });
 
   it("preserves the connection error when lock release also fails", async () => {
