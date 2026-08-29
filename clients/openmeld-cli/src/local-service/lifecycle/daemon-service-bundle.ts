@@ -1272,12 +1272,47 @@ async function resolveDaemonDependencyPackageRootFromManifest(input: {
     const dependencyManifestPath = await realpath(
       input.resolver.resolve(`${input.dependencyName}/package.json`)
     );
-    return dirname(dependencyManifestPath);
+    return await findDaemonDependencyPackageRootFromManifestPath({
+      dependencyManifestPath,
+      dependencyName: input.dependencyName,
+    });
   } catch (error) {
     if (isPackageEntryResolutionError(error)) {
       return null;
     }
     throw error;
+  }
+}
+
+async function findDaemonDependencyPackageRootFromManifestPath(input: {
+  dependencyManifestPath: string;
+  dependencyName: string;
+}): Promise<string | null> {
+  let currentPath = dirname(input.dependencyManifestPath);
+  while (true) {
+    const packageManifestPath = join(currentPath, "package.json");
+    const packageManifestRaw = await readFile(
+      packageManifestPath,
+      "utf8"
+    ).catch((error: unknown) => {
+      if (getErrorCode(error) === "ENOENT") {
+        return null;
+      }
+      throw error;
+    });
+    if (packageManifestRaw !== null) {
+      const packageManifest = JSON.parse(packageManifestRaw) as {
+        name?: unknown;
+      };
+      if (packageManifest.name === input.dependencyName) {
+        return currentPath;
+      }
+    }
+    const parentPath = dirname(currentPath);
+    if (parentPath === currentPath) {
+      return null;
+    }
+    currentPath = parentPath;
   }
 }
 

@@ -306,6 +306,91 @@ async function addNodeBuiltinNamedRuntimeDependency(
   );
 }
 
+async function addRedirectedPackageManifestDependency(
+  fixture: DaemonBundleFixture
+): Promise<void> {
+  const packageJsonPath = join(fixture.packageRootPath, "package.json");
+  const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
+    dependencies?: Record<string, string>;
+  };
+  await writeFile(
+    packageJsonPath,
+    `${JSON.stringify(
+      {
+        ...packageJson,
+        dependencies: {
+          ...packageJson.dependencies,
+          "@redirected/sdk": "1.0.0",
+        },
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await writeFile(
+    fixture.cliScriptPath,
+    'import "commander";\nimport "@redirected/sdk";\nconsole.log("ok");\n',
+    "utf8"
+  );
+
+  const dependencyStoreRoot = join(fixture.packageRootPath, "node_modules");
+  const redirectedSdkRootPath = join(dependencyStoreRoot, "@redirected", "sdk");
+  const redirectedSdkDistPath = join(redirectedSdkRootPath, "dist", "cjs");
+  const redirectedChildRootPath = join(dependencyStoreRoot, "redirected-child");
+  await mkdir(redirectedSdkDistPath, { recursive: true });
+  await mkdir(redirectedChildRootPath, { recursive: true });
+  await writeFile(
+    join(redirectedSdkRootPath, "package.json"),
+    `${JSON.stringify(
+      {
+        name: "@redirected/sdk",
+        version: "1.0.0",
+        type: "module",
+        exports: {
+          ".": "./dist/cjs/index.js",
+          "./package.json": "./dist/cjs/package.json",
+        },
+        dependencies: {
+          "redirected-child": "1.0.0",
+        },
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await writeFile(
+    join(redirectedSdkDistPath, "package.json"),
+    `${JSON.stringify({ type: "commonjs" })}\n`,
+    "utf8"
+  );
+  await writeFile(
+    join(redirectedSdkDistPath, "index.js"),
+    'require("redirected-child");\n',
+    "utf8"
+  );
+  await writeFile(
+    join(redirectedChildRootPath, "package.json"),
+    `${JSON.stringify(
+      {
+        name: "redirected-child",
+        version: "1.0.0",
+        type: "module",
+        exports: "./index.js",
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await writeFile(
+    join(redirectedChildRootPath, "index.js"),
+    "export const value = 'ok';\n",
+    "utf8"
+  );
+}
+
 async function withCliScriptArgv<T>(
   cliScriptPath: string,
   fn: () => Promise<T>
@@ -1212,6 +1297,48 @@ describe("local service bundle", () => {
             join(bundleRootPath, "node_modules", "entryless-child", "index.js")
           )
         ).resolves.toBeDefined();
+      } finally {
+        await fixture?.cleanup();
+        if (previousPreset === undefined) {
+          Reflect.deleteProperty(process.env, "OPENMELD_ENV_PRESET");
+        } else {
+          process.env.OPENMELD_ENV_PRESET = previousPreset;
+        }
+      }
+    });
+  });
+
+  it("uses the root manifest when a package redirects its package.json export", async () => {
+    await withTempHome(async () => {
+      const previousPreset = process.env.OPENMELD_ENV_PRESET;
+      let fixture: DaemonBundleFixture | null = null;
+      process.env.OPENMELD_ENV_PRESET = "dev-local";
+
+      try {
+        fixture = await createDaemonBundleFixture("workspace");
+        await addRedirectedPackageManifestDependency(fixture);
+
+        const bundleState = await prepareDaemonServiceBundle({
+          daemonVersion: "0.1.9",
+          cliScriptPath: fixture.cliScriptPath,
+        });
+        const bundleRootPath = resolveDaemonBundleRootPath(
+          bundleState.bundleId
+        );
+        const bundledEntryPath = join(
+          bundleRootPath,
+          bundleState.entryScriptRelativePath
+        );
+
+        await expect(
+          stat(
+            join(bundleRootPath, "node_modules", "redirected-child", "index.js")
+          )
+        ).resolves.toBeDefined();
+        await expect(runNodeScript(bundledEntryPath)).resolves.toMatchObject({
+          exitCode: 0,
+          stdout: "ok\n",
+        });
       } finally {
         await fixture?.cleanup();
         if (previousPreset === undefined) {
