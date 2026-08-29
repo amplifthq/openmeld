@@ -2,8 +2,11 @@ import type { GetSpaceStatusResponse } from "@openmeld/schemas/types";
 import pc from "picocolors";
 import type { Presenter } from "../runtime/presenter";
 import { type InfoCardRow, renderInfoCard } from "../ui/info-card";
-import { resolveSpaceAccessLabel } from "../ui/public-space-warning";
 import { sanitizeTerminalDisplayText } from "../ui/terminal-safe-text";
+import {
+  resolveLinkAccessLabel,
+  resolveOrganizationVisibilityLabel,
+} from "./access-presentation";
 import { formatPublicationModeForDisplay } from "./contract-set-options";
 
 export function emitSpaceStatusHumanOutput(input: {
@@ -50,6 +53,7 @@ export function emitSpaceStatusAgentOutput(input: {
     data: {
       spaceId: input.status.spaceId,
       spaceName: input.status.name ?? null,
+      organizationVisibility: input.status.organizationVisibility ?? null,
       accessMode: input.status.accessMode,
       members: {
         totalCount: input.status.members.totalCount,
@@ -90,10 +94,20 @@ function buildSpaceStatusOverviewRows(
           } satisfies InfoCardRow,
         ]
       : []),
+    ...(status.organizationVisibility
+      ? [
+          {
+            label: pc.dim("Organization visibility"),
+            value: pc.bold(
+              resolveOrganizationVisibilityLabel(status.organizationVisibility)
+            ),
+          } satisfies InfoCardRow,
+        ]
+      : []),
     {
-      label: pc.dim("Access"),
+      label: pc.dim("Link access"),
       value: pc.bold(
-        resolveSpaceAccessLabel({
+        resolveLinkAccessLabel({
           accessMode: status.accessMode,
           passwordProtected: status.passwordProtected,
         })

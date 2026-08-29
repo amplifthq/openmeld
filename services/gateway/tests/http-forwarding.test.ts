@@ -839,6 +839,7 @@ function makeEnv(input?: {
       spaceId: "demo",
       generatedAt: "2026-03-21T00:00:00.000Z",
       name: "demo",
+      organizationVisibility: "private",
       accessMode: "protected",
       passwordProtected: true,
       dispatchPolicy: { mode: "mention_only" },
@@ -5593,6 +5594,7 @@ describe("gateway http forwarding", () => {
     await expect(response.json()).resolves.toEqual(
       expect.objectContaining({
         spaceId: "demo",
+        organizationVisibility: "private",
         latestVisibleUpdate: expect.objectContaining({
           signalId: "sig-2",
           signalType: "signal.status",

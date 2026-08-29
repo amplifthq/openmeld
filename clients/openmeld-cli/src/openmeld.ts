@@ -3970,7 +3970,9 @@ withSpaceProfileOption(
 withSpaceProfileOption(
   spaceCmd
     .command("status")
-    .description("Read the current space status.")
+    .description(
+      "Read Organization visibility, link access, and current Space status."
+    )
     .argument("[space]", "Space ID (64-character hex)")
     .option("--json", "Print canonical JSON", false)
     .option("--password <value>", "Space password for protected access")
@@ -4102,7 +4104,7 @@ withSpaceProfileOption(
     .option("--limit <n>", "Max spaces to show (default: 20)", "20")
     .option(
       "--organization",
-      "List the active Organization Space directory, including public Spaces",
+      "List Organization discovery and self-serve joining visibility",
       false
     )
     .option("--json", "Print machine-readable JSON", false)

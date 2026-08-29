@@ -31,6 +31,7 @@ import {
 import pc from "picocolors";
 import { resolveRegistryOriginLaunchCommand } from "../agents/registry-source";
 import { formatOpenMeldCliCommand } from "../runtime/cli-entry-command";
+import { resolveLinkAccessLabel } from "../space/access-presentation";
 import { resolveNormalizedOwnerFields } from "../space/agent-output-contract";
 import {
   resolvePrimarySpaceMentionLabel,
@@ -57,7 +58,6 @@ import {
 import {
   buildPublicSpaceWarningLines,
   resolvePublicSpaceExposure,
-  resolveSpaceAccessLabel,
 } from "./public-space-warning";
 import {
   highlightSpaceMentions,
@@ -381,8 +381,8 @@ export function buildSpaceInfoData(input: SpaceInfoCardInput): SpaceInfoData {
       },
       ...metadataFacts,
       {
-        label: "Access",
-        value: resolveSpaceAccessLabel(accessFacts),
+        label: "Link access",
+        value: resolveLinkAccessLabel(accessFacts),
       },
       {
         label: "Gateway URL",

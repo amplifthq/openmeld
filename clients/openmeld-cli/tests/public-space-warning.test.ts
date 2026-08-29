@@ -1,13 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  resolveLinkAccessLabel,
+  resolveOrganizationVisibilityLabel,
+} from "../src/space/access-presentation";
+import {
   buildPublicSpaceBringAgentsConfirmPromptConfig,
   buildPublicSpaceJoinConfirmPromptConfig,
   buildPublicSpacePasswordPromptConfig,
   resolvePublicSpaceExposure,
-  resolveSpaceAccessLabel,
 } from "../src/ui/public-space-warning";
 
 describe("public space warning prompt config", () => {
+  it("describes Organization visibility without implying link access", () => {
+    expect(resolveOrganizationVisibilityLabel("public")).toBe(
+      "discoverable; Organization members can join"
+    );
+    expect(resolveOrganizationVisibilityLabel("private")).toBe("invite only");
+  });
+
   it("does not treat a private members-only Space as public", () => {
     expect(
       resolvePublicSpaceExposure({
@@ -17,7 +27,7 @@ describe("public space warning prompt config", () => {
       })
     ).toBeNull();
     expect(
-      resolveSpaceAccessLabel({
+      resolveLinkAccessLabel({
         accessMode: "members_only",
         passwordProtected: false,
         visibility: "private",
@@ -50,7 +60,7 @@ describe("public space warning prompt config", () => {
       })
     ).toBe("anyone_can_join");
     expect(
-      resolveSpaceAccessLabel({
+      resolveLinkAccessLabel({
         passwordProtected: false,
         visibility: "private",
       })
@@ -59,21 +69,21 @@ describe("public space warning prompt config", () => {
 
   it("describes each Space access mode from canonical access facts", () => {
     expect(
-      resolveSpaceAccessLabel({
+      resolveLinkAccessLabel({
         accessMode: "public",
         passwordProtected: false,
         visibility: "public",
       })
     ).toBe("anyone with the link");
     expect(
-      resolveSpaceAccessLabel({
+      resolveLinkAccessLabel({
         accessMode: "public_view_join_password",
         passwordProtected: false,
         visibility: "public",
       })
     ).toBe("anyone can view; password required to join");
     expect(
-      resolveSpaceAccessLabel({
+      resolveLinkAccessLabel({
         accessMode: "protected",
         passwordProtected: true,
         visibility: "private",

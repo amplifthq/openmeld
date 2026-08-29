@@ -927,7 +927,10 @@ Web and CLI consume this contract through `packages/api-client`. CLI exposes
 the member-count directory as `space list --organization`; it must preserve the
 server-projected visibility and `joined` facts. Explicit `--json` emits the
 strict versioned `space.list.organization` envelope, reusing the directory item
-schema while adding only CLI-owned pagination summary fields. Self-service
+schema while adding only CLI-owned pagination summary fields. That version 1
+JSON envelope retains the directory field name `visibility`; Human and Agent
+Views label it `Organization visibility` so it cannot be confused with link
+access. Self-service
 membership uses the existing shared `POST /v1/spaces/:spaceId/join` client
 method and remains a separate operation from opening a local interactive Space
 session. When the user supplies `--password`, the API client carries the
@@ -4536,6 +4539,14 @@ for whether a Space is public, public to view but password-gated to join, or
 member-only for creator/current-member/same-account access. The Space password remains a single
 Space credential; access mode changes may set, reuse, or clear that one password
 proof, but must not introduce a second join-only or view-only password.
+
+`GetSpaceStatusResponse` projects both access facts from the same Space meta
+record: optional `organizationVisibility` describes Organization discovery and
+self-service joining, while required `accessMode` describes what a person with
+the link can do. The optional field permits a staged Core, Gateway, and CLI
+rollout: new readers accept an older response without it, and older readers
+strip the additive field. Clients must label the facts separately and must not
+derive one from the other.
 
 `packages/space` owns reusable pure policy for turning Space identity and
 membership facts into mention labels, addressing support, and member directory

@@ -220,7 +220,7 @@ function createPanelViewState(
               span: "column",
             },
             {
-              label: "Access",
+              label: "Link access",
               value: "anyone with the link",
               span: "column",
             },

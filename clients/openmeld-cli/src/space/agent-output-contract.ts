@@ -4,7 +4,7 @@ import type {
   AgentProfileBindingModelSelection,
   SpaceMembersSnapshot,
 } from "@openmeld/schemas/types";
-import { resolveSpaceAccessLabel } from "../ui/public-space-warning";
+import { resolveLinkAccessLabel } from "./access-presentation";
 
 function normalizeOptionalText(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -139,7 +139,7 @@ export function buildAgentSessionMetaPayload(input: {
   spaceName?: string;
   visibility?: SpaceMeta["visibility"];
 }): Record<string, unknown> {
-  const access = resolveSpaceAccessLabel(input);
+  const access = resolveLinkAccessLabel(input);
   let security: "Secure" | "Public" | "Unknown" = "Unknown";
   if (input.passwordProtected === true) {
     security = "Secure";

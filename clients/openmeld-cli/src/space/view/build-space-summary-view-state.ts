@@ -1,5 +1,5 @@
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
-import { resolveSpaceAccessLabel } from "../../ui/public-space-warning";
+import { resolveLinkAccessLabel } from "../access-presentation";
 import type {
   SpaceSessionContext,
   SpaceSummaryFactsViewState,
@@ -75,7 +75,7 @@ export function selectSpaceSummarySegments(input: {
 function resolveSpaceSummaryAccessLabel(
   session: SpaceSessionContext["session"]
 ): string | null {
-  const label = resolveSpaceAccessLabel({
+  const label = resolveLinkAccessLabel({
     accessMode: session.accessMode ?? undefined,
     passwordProtected: session.passwordProtected ?? undefined,
     visibility: session.visibility ?? undefined,

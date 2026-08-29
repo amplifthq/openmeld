@@ -702,6 +702,7 @@ describe("space control commands", () => {
               spaceId: VALID_SPACE_ID,
               generatedAt: "2026-03-21T00:03:00.000Z",
               name: "phase-5b-room",
+              organizationVisibility: "private",
               accessMode: "protected",
               passwordProtected: true,
               dispatchPolicy: { mode: "mention_only" },
@@ -748,9 +749,67 @@ describe("space control commands", () => {
       expect(plainStdout).toContain("Collaboration summary:");
       expect(plainStdout).toContain("Latest public activity:");
       expect(plainStdout).toContain("phase-5b-room");
+      expect(plainStdout).toContain("Organization visibility");
+      expect(plainStdout).toContain("invite only");
+      expect(plainStdout).toContain("Link access");
+      expect(plainStdout).toContain("password required to view and join");
       expect(plainStdout).toContain("Status update");
       expect(plainStdout).toContain("Connected agents");
       expect(plainStdout).not.toContain("Live agents");
+    });
+  });
+
+  it("keeps link access readable when an older status response omits Organization visibility", async () => {
+    await withTempHome(async () => {
+      getAuthSessionStateMock.mockResolvedValue(VALID_AUTH_STATE);
+      await withSilencedStdio(async () => {
+        await runInit({
+          profile: PROFILE.openMeldProfileId,
+          profileId: HUMAN_PROFILE_ID,
+          profileName: PROFILE.profileName,
+          kind: "human",
+        });
+      });
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+        Promise.resolve(
+          createJsonResponse({
+            spaceId: VALID_SPACE_ID,
+            generatedAt: "2026-03-21T00:03:00.000Z",
+            name: "phase-5b-room",
+            accessMode: "public",
+            passwordProtected: false,
+            dispatchPolicy: { mode: "mention_only" },
+            publicationMode: "collaboration",
+            allowedActions: ["post_message", "post_status", "stay_silent"],
+            resultArchivePolicy: { mode: "all_final_results" },
+            entryBrief: "default",
+            dispatchBrief: "default",
+            members: {
+              totalCount: 1,
+              humanCount: 1,
+              agentCount: 0,
+              liveNowCount: 0,
+              liveHumanCount: 0,
+              liveAgentCount: 0,
+            },
+          })
+        )
+      );
+
+      const { plainStdout } = await withCapturedStdio(async () => {
+        await runSpaceStatus({
+          profile: PROFILE.openMeldProfileId,
+          baseUrl: "http://localhost",
+          space: VALID_SPACE_ID,
+          json: false,
+          view: "human",
+        });
+      });
+
+      expect(plainStdout).toContain("Link access");
+      expect(plainStdout).toContain("anyone with the link");
+      expect(plainStdout).not.toContain("Organization visibility");
     });
   });
 
@@ -773,6 +832,7 @@ describe("space control commands", () => {
               spaceId: VALID_SPACE_ID,
               generatedAt: "2026-03-21T00:03:00.000Z",
               name: "phase-5b-room",
+              organizationVisibility: "private",
               accessMode: "public",
               passwordProtected: false,
               dispatchPolicy: { mode: "mention_only" },
@@ -822,6 +882,8 @@ describe("space control commands", () => {
         text: "space status: phase-5b-room, members=3, agents=2",
         data: {
           spaceId: VALID_SPACE_ID,
+          organizationVisibility: "private",
+          accessMode: "public",
           members: {
             totalCount: 3,
             agentCount: 2,
@@ -858,6 +920,7 @@ describe("space control commands", () => {
           createJsonResponse({
             spaceId: VALID_SPACE_ID,
             generatedAt: "2026-03-21T00:03:00.000Z",
+            organizationVisibility: "private",
             accessMode: "public",
             passwordProtected: false,
             dispatchPolicy: { mode: "mention_only" },
@@ -890,6 +953,8 @@ describe("space control commands", () => {
 
       expect(JSON.parse(stdout.trim())).toMatchObject({
         spaceId: VALID_SPACE_ID,
+        organizationVisibility: "private",
+        accessMode: "public",
         passwordProtected: false,
       });
     });

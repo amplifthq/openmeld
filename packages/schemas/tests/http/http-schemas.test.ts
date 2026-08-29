@@ -1081,6 +1081,7 @@ describe("http schemas", () => {
         generatedAt: "2026-03-21T00:00:00.000Z",
         name: "phase-5b-room",
         centerAgentProfileId: AGENT_PROFILE_ID,
+        organizationVisibility: "private",
         accessMode: "protected",
         passwordProtected: true,
         dispatchPolicy: { mode: "mention_only" },
@@ -1113,6 +1114,7 @@ describe("http schemas", () => {
         return;
       }
       expect(statusResponse.data.centerAgentProfileId).toBe(AGENT_PROFILE_ID);
+      expect(statusResponse.data.organizationVisibility).toBe("private");
     });
 
     it("preserves Space status compatibility counts without using them as status truth", () => {

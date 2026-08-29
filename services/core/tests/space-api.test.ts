@@ -9076,6 +9076,8 @@ describe("OpenMeld Core", () => {
       spaceId,
       name: "phase-5b-status",
       centerAgentProfileId,
+      organizationVisibility: "private",
+      accessMode: "public",
       passwordProtected: false,
       dispatchPolicy: { mode: "mention_only" },
       publicationMode: "collaboration",

@@ -4,8 +4,8 @@ import pc from "picocolors";
 import type { Presenter } from "../runtime/presenter";
 import { buildStructuredGuidePayload } from "../runtime/structured-guide-payload";
 import { type InfoCardRow, renderInfoCard } from "../ui/info-card";
-import { resolveSpaceAccessLabel } from "../ui/public-space-warning";
 import { sanitizeTerminalDisplayText } from "../ui/terminal-safe-text";
+import { resolveLinkAccessLabel } from "./access-presentation";
 
 export function emitSpaceGuideHumanOutput(input: {
   presenter: Presenter;
@@ -87,8 +87,8 @@ function buildSpaceGuideCardRows(input: {
     typeof input.meta.passwordProtected === "boolean"
       ? [
           {
-            label: pc.dim("Access"),
-            value: resolveSpaceAccessLabel(input.meta),
+            label: pc.dim("Link access"),
+            value: resolveLinkAccessLabel(input.meta),
           } satisfies InfoCardRow,
         ]
       : []),
