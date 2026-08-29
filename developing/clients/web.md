@@ -3465,7 +3465,9 @@ update capability shows only **Update manually**; Web must never offer an
 action that the installed Service cannot perform. The same card shows one
 capability-gated **Keep OpenMeld Tools up to date** switch and reads its value
 from the Service-owned maintenance projection. It never keeps a browser
-preference.
+preference. Required-update copy and the primary action name the current
+installable Service release supplied by Core; Web must not expose an older
+internal compatibility floor as though it were the user's upgrade destination.
 
 The card renders the canonical operation phase as one short status:
 **Finishing current work**, **Updating**, **Verifying update**, **Up to date**,

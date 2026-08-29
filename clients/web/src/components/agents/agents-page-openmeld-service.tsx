@@ -1281,6 +1281,12 @@ function formatOpenMeldServiceVersionDescription(input: {
 			? `Latest available: v${input.expectedServiceVersion}.`
 			: undefined;
 	}
+	if (
+		serviceUpdate.requiredVersion &&
+		serviceUpdate.requiredVersion === serviceUpdate.latestVersion
+	) {
+		return `Update to v${serviceUpdate.requiredVersion}.`;
+	}
 	const details = [
 		serviceUpdate.requiredVersion
 			? `Required: v${serviceUpdate.requiredVersion}.`

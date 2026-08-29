@@ -145,13 +145,17 @@ export function resolveLocalComponentUpdateProjection(input: {
   const minimumSupportedVersionBreached =
     minimumSupportedVersionComparison === null ||
     minimumSupportedVersionComparison < 0;
+  const minimumRecoveryTargetVersion = minimumSupportedVersionBreached
+    ? maxServiceVersion(
+        MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+        servicePolicy.bundleVersion
+      )
+    : null;
   const requiredVersion = maxServiceVersion(
     servicePolicy.updatePolicy === "required"
       ? servicePolicy.bundleVersion
       : null,
-    minimumSupportedVersionBreached
-      ? MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
-      : null
+    minimumRecoveryTargetVersion
   );
   const effectiveServicePolicy =
     requiredVersion === null ? servicePolicy.updatePolicy : "required";
