@@ -650,18 +650,34 @@ export function useSpaceMentionAuthoring(input: {
 				nextText,
 				previousText: currentDraft.text,
 			});
-			const mentionInputs = retainedMentions.map(toAuthoredMentionInput);
-			if (
-				!retainedMentions.some(
-					(mention) => mention.profileId === selectedItem.suggestion.profileId
-				)
-			) {
+			const retainedMentionForProfile = retainedMentions.find(
+				(mention) => mention.profileId === selectedItem.suggestion.profileId
+			);
+			const selectedMentionOwnsRelation =
+				!retainedMentionForProfile ||
+				activePrefixRange.start < retainedMentionForProfile.start;
+			const mentionInputs = retainedMentions.flatMap((mention) => {
+				if (
+					selectedMentionOwnsRelation &&
+					mention.profileId === selectedItem.suggestion.profileId
+				) {
+					return [];
+				}
+				return [toAuthoredMentionInput(mention)];
+			});
+			if (selectedMentionOwnsRelation) {
 				mentionInputs.push({
 					profileId: selectedItem.suggestion.profileId,
 					relation: selectedRelation,
+					start: activePrefixRange.start,
 					text: mentionText,
 				});
 			}
+			mentionInputs.sort(
+				(left, right) =>
+					(left.start ?? Number.MAX_SAFE_INTEGER) -
+					(right.start ?? Number.MAX_SAFE_INTEGER)
+			);
 			return {
 				...currentDraft,
 				authoredMentions: trackAuthoredMentionsInText({

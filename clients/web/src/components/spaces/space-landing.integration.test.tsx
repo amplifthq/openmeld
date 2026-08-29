@@ -8585,6 +8585,68 @@ describe("SpaceLanding", () => {
 		});
 	});
 
+	it("uses a newly inserted earlier mention as the structured relation", async () => {
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "sig-earlier-runner-reference",
+				text: "@Runner  then @Runner ",
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		setComposerValue(textarea, "Then @Run");
+		fireEvent.mouseDown(
+			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
+		);
+		await waitFor(() => {
+			expect((textarea as HTMLTextAreaElement).value).toBe("Then @Runner ");
+		});
+
+		setComposerValue(textarea, "@Run then @Runner ", 4);
+		await screen.findByRole("listbox", { name: "Mention target options" });
+		fireEvent.click(screen.getByRole("button", { name: "Reference Runner" }));
+		await waitFor(() => {
+			expect((textarea as HTMLTextAreaElement).value).toBe(
+				"@Runner  then @Runner "
+			);
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				messageEnvelope: {
+					activationTargets: [],
+					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
+					text: "@Runner  then @Runner",
+				},
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "@Runner  then @Runner",
+				timeoutMs: 30_000,
+			});
+		});
+	});
+
 	it("shows a quiet summary for multiple structured targets", async () => {
 		const reviewerProfileId = "agt_33333333-3333-4333-8333-333333333333";
 		const postNormalMessageMock = vi.fn().mockResolvedValue(

@@ -2050,6 +2050,7 @@ export {
   spaceDispatchTraceStreamingSchema,
 } from "./http/space-dispatch-trace";
 export {
+  buildSpaceComposerPublishedFileId,
   buildSpaceComposerUploadObjectKey,
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,

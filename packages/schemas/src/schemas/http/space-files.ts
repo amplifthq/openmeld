@@ -60,6 +60,24 @@ export async function buildSpaceFileEntryIdForMutation(
 }
 
 /**
+ * Derives one canonical file identity from the exact Composer publication.
+ * Both bounded request identities are validated independently before hashing.
+ */
+export async function buildSpaceComposerPublishedFileId(input: {
+  clientMutationId: string;
+  uploadId: string;
+}): Promise<string> {
+  const clientMutationId = spaceFileClientMutationIdSchema.parse(
+    input.clientMutationId
+  );
+  const uploadId = spaceComposerUploadIdSchema.parse(input.uploadId);
+  return await buildSpaceFileStorageId({
+    identityParts: ["composer-upload", clientMutationId, uploadId],
+    kind: "file",
+  });
+}
+
+/**
  * Derives an immutable revision identity from both the mutation and its bytes.
  * Exact retries reuse the same object key, while changed bytes conflict instead
  * of overwriting an already committed revision.
@@ -99,13 +117,18 @@ async function buildSpaceFileMutationStorageId(input: {
   const clientMutationId = spaceFileClientMutationIdSchema.parse(
     input.clientMutationId
   );
+  return await buildSpaceFileStorageId({
+    identityParts: [clientMutationId, input.revisionIdentity ?? ""],
+    kind: input.kind,
+  });
+}
+
+async function buildSpaceFileStorageId(input: {
+  identityParts: readonly string[];
+  kind: "file" | "revision";
+}): Promise<string> {
   const encoded = new TextEncoder().encode(
-    [
-      "space-file",
-      input.kind,
-      clientMutationId,
-      input.revisionIdentity ?? "",
-    ].join(":")
+    ["space-file", input.kind, ...input.identityParts].join(":")
   );
   const bytes = new ArrayBuffer(encoded.byteLength);
   new Uint8Array(bytes).set(encoded);

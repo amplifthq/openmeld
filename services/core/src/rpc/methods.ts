@@ -31,6 +31,7 @@ import {
   authorizeAgentProfileBindingForOrganizationResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
   buildAgentTaskKey,
+  buildSpaceComposerPublishedFileId,
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdForMutation,
@@ -17697,7 +17698,7 @@ export async function rpcPublishSpaceComposerUpload(
     env,
     input
   );
-  const fileId = await buildPublishedSpaceComposerFileId({
+  const fileId = await buildSpaceComposerPublishedFileId({
     clientMutationId,
     uploadId,
   });
@@ -17842,15 +17843,6 @@ function normalizeComposerUploadNow(value: number | undefined): number {
     });
   }
   return nowMs;
-}
-
-async function buildPublishedSpaceComposerFileId(input: {
-  clientMutationId: string;
-  uploadId: string;
-}): Promise<string> {
-  return await buildSpaceFileEntryIdForMutation(
-    JSON.stringify(["composer_upload", input.clientMutationId, input.uploadId])
-  );
 }
 
 function normalizeSpaceComposerUploadError(error: unknown): unknown {

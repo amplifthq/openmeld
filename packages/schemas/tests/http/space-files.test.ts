@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSpaceComposerPublishedFileId,
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdForMutation,
@@ -23,6 +24,28 @@ import {
 } from "../../src";
 
 describe("Space Files contracts", () => {
+  it("keeps Composer publication identities exact at the request limits", async () => {
+    const clientMutationId = "m".repeat(128);
+    const uploadId = "22222222-2222-4222-8222-222222222222";
+    const repeatedFileId = await buildSpaceComposerPublishedFileId({
+      clientMutationId,
+      uploadId,
+    });
+
+    expect(repeatedFileId).toBe(
+      await buildSpaceComposerPublishedFileId({
+        clientMutationId,
+        uploadId,
+      })
+    );
+    expect(repeatedFileId).not.toBe(
+      await buildSpaceComposerPublishedFileId({
+        clientMutationId,
+        uploadId: "33333333-3333-4333-8333-333333333333",
+      })
+    );
+  });
+
   it("keeps exact write retries stable and changed bytes distinct", async () => {
     const firstBytes = new TextEncoder().encode("first");
     const repeatedBytes = new TextEncoder().encode("first");

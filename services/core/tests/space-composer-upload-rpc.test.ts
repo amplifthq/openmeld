@@ -1,6 +1,6 @@
 import {
+  buildSpaceComposerPublishedFileId,
   buildSpaceComposerUploadObjectKey,
-  buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
 } from "@openmeld/schemas";
@@ -281,19 +281,40 @@ describe("Core Space Composer upload RPC", () => {
 
     expect(stub.rpcResolveCommittedSpaceFileWrite).toHaveBeenCalledWith({
       clientMutationId: "publish-composer-upload-test",
-      expectedFileId: await buildSpaceFileEntryIdForMutation(
-        JSON.stringify([
-          "composer_upload",
-          "publish-composer-upload-test",
-          UPLOAD_ID,
-        ])
-      ),
+      expectedFileId: await buildSpaceComposerPublishedFileId({
+        clientMutationId: "publish-composer-upload-test",
+        uploadId: UPLOAD_ID,
+      }),
       spaceAccess: expect.any(Object),
       spaceId: SPACE_ID,
     });
     expect(bucket.get).not.toHaveBeenCalled();
     expect(stub.rpcPrepareSpaceFileWrite).not.toHaveBeenCalled();
     expect(stub.rpcCommitSpaceFileWrite).not.toHaveBeenCalled();
+  });
+
+  it("publishes with the longest valid client mutation identity", async () => {
+    const { bucket, env, stub } = makeEnv();
+    const clientMutationId = "m".repeat(128);
+    stub.rpcResolveCommittedSpaceFileWrite.mockResolvedValue(FILE);
+
+    await expect(
+      rpcPublishSpaceComposerUpload(env, {
+        clientMutationId,
+        context: CONTEXT,
+        nowMs: NOW_MS,
+        spaceId: SPACE_ID,
+        uploadId: UPLOAD_ID,
+      })
+    ).resolves.toEqual(FILE);
+
+    expect(stub.rpcResolveCommittedSpaceFileWrite).toHaveBeenCalledWith({
+      clientMutationId,
+      expectedFileId: expect.any(String),
+      spaceAccess: expect.any(Object),
+      spaceId: SPACE_ID,
+    });
+    expect(bucket.get).not.toHaveBeenCalled();
   });
 
   it("discards only the current actor's temporary upload", async () => {
