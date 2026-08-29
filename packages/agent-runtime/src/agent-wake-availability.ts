@@ -90,6 +90,27 @@ const serviceNotConnectedReasonCodes = [
   "daemon.session.not_found",
 ] as const;
 
+const workspaceUnavailableReasonCodes = new Set([
+  "agent_profile.organization_context_missing",
+  "agent_profile.organization_lookup_failed",
+  "agent_profile.space_organization_unavailable",
+  "organization_binding_authorization.lookup_failed",
+  "organization_binding_authorization.preference_unavailable",
+  "organization_binding_authorization.space_org_unavailable",
+]);
+
+export function isAgentProfileWorkspaceBlockerReasonCode(
+  reasonCode: string
+): boolean {
+  return (
+    reasonCode === "agent_profile.organization_context_missing" ||
+    reasonCode === "agent_profile.organization_lookup_failed" ||
+    reasonCode === "agent_profile.organization_mismatch" ||
+    reasonCode === "agent_profile.space_organization_unavailable" ||
+    reasonCode.startsWith("organization_binding_authorization.")
+  );
+}
+
 const routeOfflineReasonCodes = [
   "agent_execution.route_offline",
   "route.offline",
@@ -634,14 +655,7 @@ function createUnavailableWakeAvailability(
   agentControllerRef?: string | null
 ): AgentWakeAvailability {
   const workspaceUnavailableReasonCode = collectReasonCodes(readiness).find(
-    (reasonCode) =>
-      reasonCode === "agent_profile.organization_context_missing" ||
-      reasonCode === "agent_profile.organization_lookup_failed" ||
-      reasonCode === "agent_profile.space_organization_unavailable" ||
-      reasonCode === "organization_binding_authorization.lookup_failed" ||
-      reasonCode ===
-        "organization_binding_authorization.preference_unavailable" ||
-      reasonCode === "organization_binding_authorization.space_org_unavailable"
+    (reasonCode) => workspaceUnavailableReasonCodes.has(reasonCode)
   );
   if (workspaceUnavailableReasonCode) {
     return createAvailability(readiness, {
@@ -1120,15 +1134,11 @@ function isPublicUnavailableReasonCode(reasonCode: string): boolean {
     reasonCode === "service.drifted" ||
     reasonCode === "local_service.identity_mismatch" ||
     reasonCode === "background_helper.update_required" ||
-    reasonCode === "agent_profile.organization_context_missing" ||
-    reasonCode === "agent_profile.organization_lookup_failed" ||
-    reasonCode === "agent_profile.organization_mismatch" ||
-    reasonCode === "agent_profile.space_organization_unavailable" ||
+    isAgentProfileWorkspaceBlockerReasonCode(reasonCode) ||
     isPublicUnavailableAgentProfileBindingReason(reasonCode) ||
     isPublicUnavailableClaimEligibilityReason(reasonCode) ||
     reasonCode.startsWith("controller.") ||
     reasonCode.startsWith("daemon.runtime_contract.") ||
-    reasonCode.startsWith("organization_binding_authorization.") ||
     reasonCode.startsWith("provider_account.") ||
     reasonCode.startsWith("workspace.")
   );

@@ -1,4 +1,5 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import { isAgentProfileWorkspaceBlockerReasonCode } from "@openmeld/agent-runtime";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
@@ -126,7 +127,10 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 	const displayedAgentRecoveryPlan =
 		input.entry.presenceStatus === "wakeable" ||
 		rawDisplayedMemberTransientState === "checking" ||
-		input.entry.availabilityReasonCode === "agent_profile.organization_mismatch"
+		(input.entry.availabilityReasonCode !== null &&
+			isAgentProfileWorkspaceBlockerReasonCode(
+				input.entry.availabilityReasonCode
+			))
 			? null
 			: manageableAgentRecoveryPlan;
 	const availabilityIndicatorLabel = resolvePresenceStatusLabel({

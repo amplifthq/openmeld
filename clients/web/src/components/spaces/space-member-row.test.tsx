@@ -152,6 +152,34 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByText("Needs setup on this computer")).toBeNull();
 	});
 
+	it.each([
+		"agent_profile.organization_context_missing",
+		"agent_profile.organization_lookup_failed",
+		"agent_profile.space_organization_unavailable",
+		"organization_binding_authorization.lookup_failed",
+		"organization_binding_authorization.preference_unavailable",
+		"organization_binding_authorization.required",
+		"organization_binding_authorization.space_org_unavailable",
+	])("does not offer local recovery for workspace blocker %s", (reasonCode) => {
+		renderSpaceMemberRow({
+			agentRecoveryPlan: buildPreparePlan(),
+			entry: buildAgentEntry({
+				availabilityBadgeLabel: "Workspace unavailable",
+				availabilityCategory: "unavailable",
+				availabilityReasonCode: reasonCode,
+				availabilitySummary:
+					"OpenMeld could not verify this Agent Profile's workspace.",
+				availabilityTooltip:
+					"OpenMeld could not verify this Agent Profile's workspace",
+			}),
+		});
+
+		expect(
+			screen.queryByRole("link", { name: "Connect local agent" })
+		).toBeNull();
+		expect(screen.queryByText("Needs setup on this computer")).toBeNull();
+	});
+
 	it("opens profile details from an agent member name", () => {
 		renderSpaceMemberRow({
 			entry: buildAgentEntry({
