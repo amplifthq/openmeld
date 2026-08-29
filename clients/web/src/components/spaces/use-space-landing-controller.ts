@@ -461,6 +461,7 @@ function canStartSpaceComposerSend(input: {
 function settleDefinitiveSpaceComposerFailure(input: {
 	clearFiles: () => void;
 	clientMessageId: string;
+	hasPublishedFiles: boolean;
 	isPendingMessage: boolean;
 	mentionAuthoring: SpaceMentionAuthoringController;
 	outcomeUnknown: boolean;
@@ -483,10 +484,12 @@ function settleDefinitiveSpaceComposerFailure(input: {
 		input.setPendingSignals,
 		input.clientMessageId
 	);
-	clearManualComposerFiles({
-		clearFiles: input.clearFiles,
-		isPendingMessage: input.isPendingMessage,
-	});
+	if (input.hasPublishedFiles) {
+		clearManualComposerFiles({
+			clearFiles: input.clearFiles,
+			isPendingMessage: input.isPendingMessage,
+		});
+	}
 }
 
 function createSpaceMessageSendSeed(input: {
@@ -2179,14 +2182,25 @@ export function useSpaceLandingController(input: {
 		setIsSendingMessage(true);
 
 		let postedMessage = false;
+		let hasPublishedFiles = false;
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		try {
+			const missingMembersMessage =
+				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions.";
+			const preparedSubmission = prepareMainComposerSubmission({
+				mentionAuthoring,
+				messageSeed,
+				missingMembersMessage,
+				pendingMessage: options?.pendingMessage,
+			});
+			pendingSubmission = preparedSubmission;
 			const publishedFiles = options?.pendingMessage
 				? {
 						messageFiles: [] as SpaceMessageFileReference[],
 						previewUrlsByFileId: new Map<string, string>(),
 					}
 				: await composerFilesController.publishReadyFiles();
+			hasPublishedFiles = publishedFiles.messageFiles.length > 0;
 			if (
 				hasNoPublishedComposerContent({
 					files: publishedFiles.messageFiles,
@@ -2198,15 +2212,6 @@ export function useSpaceLandingController(input: {
 				);
 				return;
 			}
-			const missingMembersMessage =
-				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions.";
-			const preparedSubmission = prepareMainComposerSubmission({
-				mentionAuthoring,
-				messageSeed,
-				missingMembersMessage,
-				pendingMessage: options?.pendingMessage,
-			});
-			pendingSubmission = preparedSubmission;
 			mentionAuthoring.recordPendingSubmission();
 			await sendPreparedSpaceMessage({
 				files: publishedFiles.messageFiles,
@@ -2231,6 +2236,7 @@ export function useSpaceLandingController(input: {
 			settleDefinitiveSpaceComposerFailure({
 				clearFiles: composerFilesController.clearFiles,
 				clientMessageId: messageSeed.clientMessageId,
+				hasPublishedFiles,
 				isPendingMessage: options?.pendingMessage !== undefined,
 				mentionAuthoring,
 				outcomeUnknown: sendError?.outcomeUnknown ?? false,
@@ -3090,6 +3096,13 @@ function useSpaceThreadController(input: {
 
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		try {
+			const preparedSubmission =
+				trimmedText.length > 0
+					? mentionAuthoring.prepareSubmission(
+							"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
+						)
+					: mentionAuthoring.prepareFileOnlySubmission();
+			pendingSubmission = preparedSubmission;
 			const publishedFiles = await composerFilesController.publishReadyFiles();
 			if (
 				trimmedText.length === 0 &&
@@ -3100,13 +3113,6 @@ function useSpaceThreadController(input: {
 				);
 				return;
 			}
-			const preparedSubmission =
-				trimmedText.length > 0
-					? mentionAuthoring.prepareSubmission(
-							"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
-						)
-					: mentionAuthoring.prepareFileOnlySubmission();
-			pendingSubmission = preparedSubmission;
 			mentionAuthoring.recordPendingSubmission();
 			await sendPreparedThreadMessage({
 				files: publishedFiles.messageFiles,

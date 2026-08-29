@@ -12416,6 +12416,84 @@ describe("SpaceLanding", () => {
 		});
 	});
 
+	it("validates mentions before publishing selected files", async () => {
+		const membersResult = createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+		});
+		const publishComposerUploadMock = vi.fn();
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: membersResult,
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		const view = renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
+			},
+		});
+		await screen.findByText("Ready");
+
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		setComposerValue(textarea, "@Run");
+		fireEvent.mouseDown(
+			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
+		);
+		await waitFor(() => {
+			expect((textarea as HTMLTextAreaElement).value).toBe("@Runner ");
+		});
+		setComposerValue(textarea, "@Runner review these notes");
+
+		Object.assign(membersResult, {
+			data: undefined,
+			error: new Error("members unavailable"),
+			isError: true,
+			isSuccess: false,
+		});
+		view.rerender(
+			<SpaceLanding
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await screen.findByText(
+			"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
+		);
+		expect(publishComposerUploadMock).not.toHaveBeenCalled();
+		expect(screen.getByText("Ready")).toBeTruthy();
+		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		expect((textarea as HTMLTextAreaElement).value).toBe(
+			"@Runner review these notes"
+		);
+	});
+
 	it("keeps a file-only Composer open when its staged file cannot be published", async () => {
 		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
@@ -15330,6 +15408,132 @@ describe("SpaceLanding", () => {
 				timeoutMs: 30_000,
 			});
 		});
+	});
+
+	it("validates thread mentions before publishing selected files", async () => {
+		const membersResult = createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+		});
+		const publishComposerUploadMock = vi.fn();
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
+		});
+		const rootSignal = createTextSignal({
+			id: "sig-thread-mention-file-root",
+			text: "Review the attached notes in this thread.",
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: membersResult,
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [rootSignal], nextCursor: null },
+			}),
+			threadSignals: createQueryResult({
+				isSuccess: true,
+				data: { signals: [rootSignal] },
+			}),
+			threads: createQueryResult({
+				isSuccess: true,
+				data: {
+					threads: [
+						{
+							threadId: "thread-1",
+							spaceId: "space-123",
+							rootSignalId: rootSignal.id,
+							createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+							createdAt: "2026-04-11T00:00:00.000Z",
+							updatedAt: "2026-04-11T00:00:00.000Z",
+						},
+					],
+				},
+			}),
+		});
+
+		const view = renderSpaceLanding();
+		const rootMessage = screen
+			.getByText("Review the attached notes in this thread.")
+			.closest("[data-signal-id]");
+		expect(rootMessage).not.toBeNull();
+		fireEvent.mouseEnter(rootMessage as HTMLElement);
+		fireEvent.click(
+			within(rootMessage as HTMLElement).getAllByRole("button", {
+				name: "Open thread",
+			})[0] as HTMLElement
+		);
+
+		let threadPanel = screen.getByLabelText("Thread");
+		fireEvent.change(
+			within(threadPanel).getByLabelText("Choose files to send"),
+			{
+				target: {
+					files: [
+						new File(["thread notes"], "thread-notes.txt", {
+							type: "text/plain",
+						}),
+					],
+				},
+			}
+		);
+		await within(threadPanel).findByText("Ready");
+		const threadComposer = within(threadPanel).getByRole("textbox", {
+			name: "Reply in thread",
+		});
+		setComposerValue(threadComposer, "@Run");
+		fireEvent.mouseDown(
+			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
+		);
+		await waitFor(() => {
+			expect((threadComposer as HTMLTextAreaElement).value).toBe("@Runner ");
+		});
+		setComposerValue(threadComposer, "@Runner review these thread notes");
+
+		Object.assign(membersResult, {
+			data: undefined,
+			error: new Error("members unavailable"),
+			isError: true,
+			isSuccess: false,
+		});
+		view.rerender(
+			<SpaceLanding
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		threadPanel = screen.getByLabelText("Thread");
+		fireEvent.click(
+			within(threadPanel).getByRole("button", { name: "Send reply" })
+		);
+
+		await within(threadPanel).findByText(
+			"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
+		);
+		expect(publishComposerUploadMock).not.toHaveBeenCalled();
+		expect(within(threadPanel).getByText("Ready")).toBeTruthy();
+		expect(within(threadPanel).getByText("1 file ready to send")).toBeTruthy();
+		expect(
+			(
+				within(threadPanel).getByRole("textbox", {
+					name: "Reply in thread",
+				}) as HTMLTextAreaElement
+			).value
+		).toBe("@Runner review these thread notes");
 	});
 
 	it("keeps an outcome-unknown thread reply under one idempotent send identity", async () => {
