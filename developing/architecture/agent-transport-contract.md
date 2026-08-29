@@ -583,8 +583,9 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   RuntimeCoordinator shard owner. Its authoritative workspace is the exact
   `openmeld_profiles.organization_id` recorded when the Profile is created.
   Administrative action does not transfer either identity. Every per-Profile
-  Binding read or mutation verifies the active workspace against that canonical
-  Organization before acquiring mutation admission or writing. If legacy data
+  Binding read or mutation and every local working-folder mutation verifies the
+  active workspace against that canonical Organization before reading local
+  execution configuration, acquiring mutation admission, or writing. If legacy data
   contains enabled Bindings for one Agent Profile under more than one owner,
   reconciliation must acquire mutation admission on every affected owner
   shard. Exact legacy disables and canonical target installation or reuse are

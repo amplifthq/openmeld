@@ -3868,7 +3868,6 @@ export async function rpcSetCurrentAgentProfileWorkspace(
   env: CoreBindings,
   input: SetCurrentAgentProfileWorkspaceInput
 ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
-  const userId = requireAuthenticatedOwnerUserId(input.context);
   const routeParams =
     setCurrentAgentProfileWorkspaceRouteParamsSchema.safeParse({
       agentProfileId: input.agentProfileId,
@@ -3890,6 +3889,11 @@ export async function rpcSetCurrentAgentProfileWorkspace(
     });
   }
 
+  const { request } = await requireAgentProfileWorkspaceScope(env, {
+    agentProfileId: routeParams.data.agentProfileId,
+    context: input.context,
+  });
+  const userId = request.owner.id;
   const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
     capability: "setProfileWorkspace",
     env,
@@ -4618,10 +4622,7 @@ export async function rpcGetAgentProfilePrimaryBinding(
   env: CoreBindings,
   input: GetAgentProfilePrimaryBindingInput
 ): Promise<GetAgentProfilePrimaryBindingResponse> {
-  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
-    env,
-    input
-  );
+  const { db, request } = await requireAgentProfileWorkspaceScope(env, input);
   const profileOwnerValidation = await resolveProfileOwnerValidationEvidence({
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
@@ -4660,10 +4661,7 @@ export async function rpcGetAgentProfileControllerChangeEligibility(
   env: CoreBindings,
   input: GetAgentProfileControllerChangeEligibilityInput
 ): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
-  const { request } = await requireAgentProfileBindingWorkspaceScope(
-    env,
-    input
-  );
+  const { request } = await requireAgentProfileWorkspaceScope(env, input);
   await assertAgentProfileOwnerMatchesRequest({
     agentProfileId: request.agentProfileId,
     env,
@@ -4731,10 +4729,7 @@ export async function rpcDisableAgentProfilePrimaryBinding(
   env: CoreBindings,
   input: DisableAgentProfilePrimaryBindingInput
 ): Promise<DisableAgentProfilePrimaryBindingResponse> {
-  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
-    env,
-    input
-  );
+  const { db, request } = await requireAgentProfileWorkspaceScope(env, input);
   const profileOwnerValidation = await resolveProfileOwnerValidationEvidence({
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
@@ -15699,10 +15694,7 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
   env: CoreBindings,
   input: EnsureAgentProfilePrimaryBindingInput
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
-    env,
-    input
-  );
+  const { db, request } = await requireAgentProfileWorkspaceScope(env, input);
   const body = ensureAgentProfilePrimaryBindingBodySchema.safeParse({
     agentControllerRef: input.agentControllerRef,
     agentControllerCollaborationMode: input.agentControllerCollaborationMode,
@@ -15907,10 +15899,7 @@ export async function rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissi
   env: CoreBindings,
   input: UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
-    env,
-    input
-  );
+  const { db, request } = await requireAgentProfileWorkspaceScope(env, input);
   const body =
     updateAgentProfilePrimaryBindingAgentControllerPermissionModeBodySchema.safeParse(
       {
@@ -15975,10 +15964,7 @@ export async function rpcUpdateAgentProfilePrimaryBindingAgentControllerCollabor
   env: CoreBindings,
   input: UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
-    env,
-    input
-  );
+  const { db, request } = await requireAgentProfileWorkspaceScope(env, input);
   const body =
     updateAgentProfilePrimaryBindingAgentControllerCollaborationModeBodySchema.safeParse(
       {
@@ -16045,10 +16031,7 @@ export async function rpcUpdateAgentProfilePrimaryBindingModelSelection(
   env: CoreBindings,
   input: UpdateAgentProfilePrimaryBindingModelSelectionInput
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
-    env,
-    input
-  );
+  const { db, request } = await requireAgentProfileWorkspaceScope(env, input);
   const body =
     updateAgentProfilePrimaryBindingModelSelectionBodySchema.safeParse({
       modelId: input.modelId,
@@ -16117,10 +16100,7 @@ export async function rpcUpdateAgentProfilePrimaryBindingOpenCodePermission(
   env: CoreBindings,
   input: UpdateAgentProfilePrimaryBindingOpenCodePermissionInput
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-  const { db, request } = await requireAgentProfileBindingWorkspaceScope(
-    env,
-    input
-  );
+  const { db, request } = await requireAgentProfileWorkspaceScope(env, input);
   const body =
     updateAgentProfilePrimaryBindingOpenCodePermissionBodySchema.safeParse({
       openCodePermission: input.openCodePermission,
@@ -19599,7 +19579,7 @@ function requireAgentProfileBindingRequest(input: {
   };
 }
 
-async function requireAgentProfileBindingWorkspaceScope(
+async function requireAgentProfileWorkspaceScope(
   env: CoreBindings,
   input: {
     agentProfileId: string;

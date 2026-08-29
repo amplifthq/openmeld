@@ -528,6 +528,10 @@ Organization-shared data, Agent Activity, snapshot data, or Center Agent
 context. A missing or invalid custom folder fails closed; it does not silently
 become `openmeld_managed`.
 
+The working folder may be read or changed only while the Profile's canonical
+Organization is the active Workspace. Switching Workspaces never makes another
+Workspace's Agent Profile or its local execution configuration manageable.
+
 When the exact current Service advertises Local Folder Picker, a custom working
 folder uses **Choose folder on this computer** as the primary input action. The
 native chooser returns one folder because an Agent Profile has one working

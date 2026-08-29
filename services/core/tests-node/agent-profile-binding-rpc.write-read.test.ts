@@ -17,6 +17,7 @@ import {
   rpcEnsureAgentProfilePrimaryBinding,
   rpcGetAgentProfileControllerChangeEligibility,
   rpcGetAgentProfilePrimaryBinding,
+  rpcSetCurrentAgentProfileWorkspace,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerCollaborationMode,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode,
   rpcUpdateAgentProfilePrimaryBindingModelSelection,
@@ -1705,6 +1706,14 @@ describe("agent profile binding Core RPC", () => {
         rpcDisableAgentProfilePrimaryBinding(env, {
           agentProfileId: AGENT_PROFILE_ID,
           context: wrongWorkspaceContext,
+        })
+      ).rejects.toMatchObject(workspaceMismatch);
+      await expect(
+        rpcSetCurrentAgentProfileWorkspace(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: wrongWorkspaceContext,
+          workspaceMode: "custom",
+          workspacePath: "/Users/mira/another-workspace",
         })
       ).rejects.toMatchObject(workspaceMismatch);
 
