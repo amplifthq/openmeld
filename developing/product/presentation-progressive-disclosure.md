@@ -7,7 +7,7 @@
   current Web navigation and Settings topology are owned by
   `developing/clients/web.md`.
 - Read this when: You are changing the context selector, onboarding surfaces,
-  Space creation, Wake-access authorization UX, or user-facing copy that names
+  Space creation, Agent Profile Organization ownership UX, or user-facing copy that names
   Organizations or the personal context. Read `developing/clients/web.md`
   first for current navigation, Settings placement, and migration status.
 - Update this when: Felix settles a new presentation decision or reverses one
@@ -19,7 +19,7 @@
   and red lines belong to the Organization owner; Space semantics belong to
   `developing/product/space-collaboration.md`.
 - Source of truth: This file owns only the progressive-disclosure and
-  authorization-UX principles that have not been superseded by a narrower
+  Organization-ownership UX principles that have not been superseded by a narrower
   owner. `developing/clients/web.md` owns current navigation structure and
   `developing/product/organizations-and-center-agent.md` owns the Center Agent
   home and management boundaries.
@@ -30,7 +30,7 @@ The 2026-07-13 W-NAV target in `developing/clients/web.md` supersedes this
 document's former sidebar,
 Organization-section, Center Agent tab, Channels/Apps handoff, and Settings
 placement. The product narrative, permanently-solo personal Organization,
-Wake-access authorization, Space visibility, and other explicitly retained
+Agent Profile Organization ownership, Space visibility, and other explicitly retained
 principles below remain active. Do not implement a historical navigation shape
 from this document. Remove this file when the retained principles are absorbed
 into their owner documents and only superseded material remains.
@@ -73,11 +73,11 @@ to the current workspace, and the page names its owner where useful.
 
 ## Disclosure Layers
 
-| Layer | Concepts | When visible |
-| --- | --- | --- |
-| Global structure | Work: Center Agent, Spaces, Direct Messages; Team: People, Agents; Resources: Projects, Documents, Agent Activity; the Settings utility; the current-Computer toolbar launcher; and the workspace switcher | From first sign-in, in the same order for every workspace and role |
-| Contextual collaboration content | Organization members, invitations, roles, shared access, and Organization directory-listing controls | Only when the selected workspace and current role make the content meaningful; the destination itself remains present |
-| Never surfaced as domain truth | "personal org" as a separate tenant type and per-Binding authorization mechanics in ordinary product flows | — |
+| Layer                            | Concepts                                                                                                                                                                                                   | When visible                                                                                                          |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Global structure                 | Work: Center Agent, Spaces, Direct Messages; Team: People, Agents; Resources: Projects, Documents, Agent Activity; the Settings utility; the current-Computer toolbar launcher; and the workspace switcher | From first sign-in, in the same order for every workspace and role                                                    |
+| Contextual collaboration content | Organization members, invitations, roles, shared access, and Organization directory-listing controls                                                                                                       | Only when the selected workspace and current role make the content meaningful; the destination itself remains present |
+| Never surfaced as domain truth   | "personal org" as a separate tenant type and per-Binding authorization mechanics in ordinary product flows                                                                                                 | —                                                                                                                     |
 
 Rationale for the split: we hide the **organization of people**, never the
 **organization of agents**. A solo user has no colleagues but does have a
@@ -181,13 +181,11 @@ org" direction):
 - Collaboration always starts by **creating a new organization**. The
   personal context stays the user's private garden forever — a stable mental
   anchor.
-- **Growth path** ("bring your agents"): after the minimal Organization
-  creation form succeeds, the shared Organization entry dialog offers Wake
-  access for the user's existing bound Agent Profiles. Implementation is *not*
-  data duplication: Agent Profile identities and Bindings remain user-owned,
-  and the explicit choice authorizes those Bindings for the new Organization.
-  Spaces do not move (deferred; the Center Agent can carry context summaries
-  into new Spaces when asked).
+- **Growth path**: collaboration starts with new Organization-scoped Agent
+  Profiles. Existing Personal Workspace Agent Profiles remain private to the
+  Personal Workspace and are never imported, synchronized, or authorized into
+  the new Organization. Spaces do not move (deferred; the Center Agent can
+  carry context summaries into new Spaces when asked).
 - Rejected: duplicating Spaces/Profiles into the new org on invite. Copies
   diverge and confuse identity; a copy is not cleanliness, it is double the
   mess.
@@ -221,54 +219,27 @@ org" direction):
   schemas, storage, CLI Organization identity, email Organization identity,
   and owner docs continue to use the stored Organization name.
 
-## Wake Access Authorization UX (the three-piece model)
+## Agent Profile Organization Ownership
 
-Authorization records stay per-`(organization, binding)`, individually
-revocable, fail closed — unchanged. What changes is how they are created:
+An ordinary workstation Agent Profile belongs permanently to the Workspace in
+which it was created. Personal Workspace Profiles remain private to Personal;
+Organization Profiles remain in that Organization. Web never presents an
+import, reuse, authorization, future-authorization preference, or Wake-access
+toggle for moving that Profile across Organizations. Rebinding changes local
+execution infrastructure only and cannot change the Profile's Organization.
 
-1. **Personal context: fully automatic and invisible.** The user's own
-   bindings are auto-authorized in their personal organization. Own machine,
-   own garden, zero concepts.
-2. **Organization entry: one explicit choice in the shared dialog.** Creation
-   collects only the Organization name, then opens the Organization
-   without writing a Wake preference. The unanswered preference opens the same
-   default-checked Wake access choice used after joining. Confirming atomically
-   writes the current Binding authorization records and saves automatic
-   authorization for the user's future bound Agent Profiles.
-3. **Organization settings: a per-user-per-org preference** — "Automatically
-   authorize my new Agent Profiles in this organization." It governs only
-   the *user's own* agents: bindings are user-owned and nobody can authorize
-   another person's binding, including owners.
-
-When a user creates a bound Agent Profile from an organization-scoped creation
-surface, including Agent Profiles and Space member creation flows, the Agent
-Profile identity still belongs to the user's account, but the creation flow
-must immediately handle organization Wake access intent. If the user's
-auto-authorization preference is already on for that organization, Web
-authorizes the new Binding without another prompt. If it is off, Web asks
-whether to use this Agent Profile in the current organization and offers to
-turn on automatic authorization for future new Agent Profiles. Choosing not to
-use it in the organization creates the Agent Profile only in the user's
-account.
-
-**Rebind inheritance** (settled): when the same user rebinds a profile (new
-computer, new controller, local→remote runtime switch), existing org
-authorizations **carry over automatically**, each carry-over recorded in the
-audit journal. The user's intent — "my agent may be woken in this org" — did
-not change; only the machine did, and the journal keeps the trail.
-
-This amends the baseline's "Wake authorization stays opt-in per Binding":
-opt-in now includes explicitly approved bulk/automatic policies. Records
-remain per-binding and revocable; fail-closed enforcement is untouched.
+Organization mismatch is an identity error, not a configuration choice. Web
+does not offer a repair action that would authorize or reuse the foreign
+Profile. The user creates a new Agent Profile in the intended Workspace.
 
 Account Setup Studio presents the Core-owned Workspace memory default as on
 without manufacturing a user choice. Organization owners and admins may change
 the policy in the Defaults step; other members see the real policy read-only
 and can never invoke its mutation. Personal Workspace onboarding keeps its
 shorter path and makes the confirmed default visible on Ready instead of adding
-another question. Wake access remains a separate member-scoped choice.
+another question.
 
-After Wake access is saved, the same dialog remains open for an optional Slack
+After Organization creation, the same flow may continue to an optional Slack
 Channel and GitHub App step. Slack is writable only for an owner or admin.
 GitHub keeps member-owned and Organization-shared scopes explicit: a member may
 connect their account, while an owner or admin may connect shared access. OAuth
@@ -276,9 +247,7 @@ runs in provider popups while the original dialog remains visible, and only the
 owning Core projection proves success. Provider popup liveness is not product
 truth because cross-origin isolation may detach the opener relationship;
 explicit Cancel and timeout remain the non-success exits. Back changes only the
-visible step and does not undo saved facts. A saved enabled or disabled Wake
-preference means the dialog has been answered and must not appear again after
-the current session finishes.
+visible step and does not undo saved facts.
 
 ## Space Visibility Presentation (two orthogonal axes)
 
@@ -297,7 +266,7 @@ the current session finishes.
 ## Context-Switching Behavior
 
 - **Creating an organization switches to it immediately** (selector and URL
-  follow; the bring-your-agents wizard runs in the new context).
+  follow; new Agent Profiles created there belong to the new Organization).
 - **Landing rule on switch**: the six product destinations and Settings utility
   exist in every workspace, so switching preserves the current destination and
   changes its owner scope. An obsolete, removed, or invalid deep route falls
@@ -313,9 +282,10 @@ Land these in `developing/product/organizations-and-center-agent.md` and
 1. Personal organizations are permanently solo (metadata-marked, server
    rejects invitations; fail closed). Replaces "a personal org grows into a
    team org by inviting members; no migration moment" — growth now happens
-   by creating a new organization plus the bring-your-agents wizard.
-2. Wake authorization opt-in extends to explicitly approved bulk/automatic
-   policies (three-piece model above) and rebind inheritance with audit.
+   by creating a new organization and creating Organization-scoped Agent
+   Profiles there.
+2. Agent Profile Organization ownership is permanent. Personal and
+   non-personal Organizations never reuse or Wake each other's Profiles.
 3. The personal organization's name is the user's name at the data level;
    Web may use **Personal** only as its pinned workspace-navigation label;
    slugs are human-friendly with a reserved list.
@@ -345,6 +315,6 @@ Agent or explicitly create a Space → connect a computer → wake an agent with
 authorization mechanics. **Directory → People** remains present and explains
 that collaboration requires an Organization instead of attempting a personal-
 workspace invitation. An Organization creator gets: creation → immediate
-workspace switch → the same destination preserved → one Wake-access prompt
-when needed → bring-your-agents guidance → role-appropriate Directory and
-Organization Settings content.
+workspace switch → the same destination preserved → Organization-scoped Agent
+creation guidance → role-appropriate Directory and Organization Settings
+content.

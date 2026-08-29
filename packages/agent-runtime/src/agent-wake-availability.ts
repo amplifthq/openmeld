@@ -633,17 +633,28 @@ function createUnavailableWakeAvailability(
   readiness: AgentExecutionStatusProjection,
   agentControllerRef?: string | null
 ): AgentWakeAvailability {
-  const organizationWakeAccessReasonCode = collectReasonCodes(readiness).find(
-    (reasonCode) => reasonCode.startsWith("organization_binding_authorization.")
-  );
-  if (organizationWakeAccessReasonCode) {
+  if (hasReasonCode(readiness, "agent_profile.organization_mismatch")) {
     return createAvailability(readiness, {
       ...unavailableWakeAvailabilityFallbackCopy,
       category: "unavailable",
       isRefreshing: false,
-      label: "Wake access off",
+      label: "Wrong workspace",
       phase: "unavailable",
-      reasonCode: organizationWakeAccessReasonCode,
+      reasonCode: "agent_profile.organization_mismatch",
+      status: "unavailable_for_wake",
+    });
+  }
+  const retiredAuthorizationReasonCode = collectReasonCodes(readiness).find(
+    (reasonCode) => reasonCode.startsWith("organization_binding_authorization.")
+  );
+  if (retiredAuthorizationReasonCode) {
+    return createAvailability(readiness, {
+      ...unavailableWakeAvailabilityFallbackCopy,
+      category: "unavailable",
+      isRefreshing: false,
+      label: "Wrong workspace",
+      phase: "unavailable",
+      reasonCode: retiredAuthorizationReasonCode,
       status: "unavailable_for_wake",
     });
   }
@@ -1088,6 +1099,7 @@ function isPublicUnavailableReasonCode(reasonCode: string): boolean {
     reasonCode === "service.drifted" ||
     reasonCode === "local_service.identity_mismatch" ||
     reasonCode === "background_helper.update_required" ||
+    reasonCode === "agent_profile.organization_mismatch" ||
     isPublicUnavailableAgentProfileBindingReason(reasonCode) ||
     isPublicUnavailableClaimEligibilityReason(reasonCode) ||
     reasonCode.startsWith("controller.") ||

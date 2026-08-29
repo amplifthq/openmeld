@@ -730,25 +730,42 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
-      availabilityBadgeLabel: "Wake access off",
+      availabilityBadgeLabel: "Wrong workspace",
       availabilitySummary:
-        "Turn on Wake access before this agent can reply in this Organization.",
-      availabilityTooltip: "Wake access is off for this Organization",
-      // organization_binding_authorization has several sub-codes (required,
-      // binding_required, no_bindings, profile_org_mismatch, ...) that all
-      // mean the same thing to a reader: the organization hasn't turned Wake
-      // access on for this agent's binding. One pattern on the shared prefix
-      // covers all of them instead of enumerating each sub-code -- matching
-      // wake-failure-display.ts's resolveOrganizationWakeFailureDisplay and
-      // agent-wake-availability.ts's members-panel classification, which
-      // both already prefix-match this reason code family. recoveryTarget is
-      // null (no button) because this table's only destinations are
-      // "agents" and "prepare_setup" -- neither is where this is actually
-      // fixed (the organization's Wake Access setting), so a button here
-      // would repeat the review-agent-settings dead end this table's other
-      // entries were rewritten to stop doing.
+        "This Agent Profile belongs to a different workspace.",
+      availabilityTooltip: "This Agent Profile belongs to another workspace",
       body: (targetName) =>
-        `Wake access is off for ${targetName} in this organization. Turn it on to let ${targetName} reply in this Space.`,
+        `${targetName} belongs to a different workspace. Choose an Agent Profile created in this workspace.`,
+      kind: "system_retry",
+      patterns: ["=agent_profile.organization_mismatch"],
+      recoveryTarget: null,
+    },
+    {
+      availabilityBadgeLabel: "Workspace unavailable",
+      availabilitySummary:
+        "OpenMeld could not verify this Agent Profile's workspace.",
+      availabilityTooltip:
+        "OpenMeld could not verify this Agent Profile's workspace",
+      body: (targetName) =>
+        `OpenMeld could not verify ${targetName}'s workspace. Try again, and open diagnostics if the problem continues.`,
+      kind: "system_retry",
+      patterns: [
+        "=agent_profile.organization_context_missing",
+        "=agent_profile.organization_lookup_failed",
+        "=agent_profile.space_organization_unavailable",
+      ],
+      recoveryTarget: null,
+    },
+    {
+      availabilityBadgeLabel: "Wrong workspace",
+      availabilitySummary:
+        "This Agent Profile cannot be used in this workspace.",
+      availabilityTooltip: "This Agent Profile cannot be used here",
+      // Old Core deployments can still emit this family during a rolling
+      // upgrade. Keep it safe and non-actionable without reviving the retired
+      // authorization product surface.
+      body: (targetName) =>
+        `${targetName} cannot be used in this workspace. Choose an Agent Profile created here.`,
       kind: "system_retry",
       patterns: ["organization_binding_authorization."],
       recoveryTarget: null,

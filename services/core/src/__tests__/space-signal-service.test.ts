@@ -3220,7 +3220,7 @@ describe("space signal service", () => {
         dispatchId: "dispatch-failure-publication-2",
         failureStage: "execution",
         reasonCode: "organization_binding_authorization.required",
-        text: "Wake access is off for Review Agent in this organization. Turn it on to let Review Agent reply in this Space.",
+        text: "Review Agent cannot be used in this workspace. Choose an Agent Profile created here.",
       },
       type: "signal.system_notice",
     });

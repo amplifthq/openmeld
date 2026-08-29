@@ -112,7 +112,7 @@ runtime, including R2 if it ever unfreezes.
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | R1 — Remote Agent                | OpenMeld-operated native agent on the Flue harness; conversation-loop MVP with tiered capabilities; labeled "Remote Agent · Experimental"                                                                                      | **Shipped MVP.**                                                                                                         |
 | R0 — BYO server                  | User installs OpenMeld Service + a real agent CLI on their own always-on compute (a Linux box, or the user's own cloud container such as a moltworker-style Cloudflare Sandbox); a workstation runtime like any other Computer | After open-source launch. Zero shared engineering with R1.                                                               |
-| R2 — General hosted workstations | Any Agent Profile rebinds to an OpenMeld-managed container running a real CLI; a workstation runtime                                                                                                                            | **Frozen.** Do not design, estimate, or partially build. Only obligation: keep the `agentControllerRef` kind space open. |
+| R2 — General hosted workstations | Any Agent Profile rebinds to an OpenMeld-managed container running a real CLI; a workstation runtime                                                                                                                           | **Frozen.** Do not design, estimate, or partially build. Only obligation: keep the `agentControllerRef` kind space open. |
 
 Related positioning (settled 2026-07-06, after evaluating Pi / Hermes /
 OpenClaw): process-shaped agent runtimes (terminal CLIs, self-hosted
@@ -185,9 +185,9 @@ the connected provider API.
    that turn; it is never inferred from a model-authored channel name or raw
    timestamp. Remote Agent retains only the bounded target selector needed for
    that execution, and Core verifies the permalink against the connected Slack
-workspace before freezing the canonical channel and root thread. A Routine
-or approved Organization document publication remains top-level. A Routine may
-use the action only when its stored structured grant explicitly contains
+   workspace before freezing the canonical channel and root thread. A Routine
+   or approved Organization document publication remains top-level. A Routine may
+   use the action only when its stored structured grant explicitly contains
    `slack.publish_channel_report`; Core rechecks that canonical Routine grant
    independently before provider I/O. The model selects either the current turn,
    the authorized Routine Run, or an exact approved Organization document as the
@@ -1769,8 +1769,8 @@ because it is OpenMeld authorization input, not a provider action parameter.
 The OpenMeld OpenConnector deployment keeps administration and runtime action
 execution on separate bearer-token surfaces:
 
-| Purpose                                | Endpoint examples                                                                                | Bearer token                                                               |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| Purpose                                | Endpoint examples                                                                                | Bearer token                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
 | Catalog and connection administration  | `GET /api/providers`, `GET /api/actions`, `GET /api/connections`, and the other `/api/*` routes  | `OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN`                                                |
 | Runtime discovery and action execution | `GET /v1/providers`, `GET /v1/actions`, `GET /v1/apps`, `POST /v1/actions/:actionId`, and `/mcp` | `OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN` or an OpenConnector persistent runtime token |
 
@@ -2042,17 +2042,17 @@ is the deliverable, not a pre-baked list):
 
 Current hosted capability inventory:
 
-| Capability                                    | Official doc surface                                                    | Enabled?                      | Reason                                                                                                    | Risk                                                         | Test evidence                                                                                                     |
-| --------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| OpenRouter web search and fetch               | OpenRouter server tools through the existing AI Gateway route           | Yes                           | Adds current public-web research without a new OpenMeld data store                                        | Provider requests and model context consumption              | Tool payload, citation, usage, and failure tests                                                                  |
-| Browser Run rendered reads                    | Browser Run Quick Actions                                               | Yes                           | Reads JavaScript-rendered pages with a browser binding only                                               | Browser time and untrusted page content                      | Markdown, links, extraction, scraping, and browser-time tests                                                     |
-| Browser Run screenshots                       | Browser Run Quick Actions plus the existing Space attachment contract   | Yes for OpenMeld Space output | Lets the Center Agent return a real visual artifact                                                       | Image size, browser time, and private attachment lifecycle   | Browser response, R2 write, Core metadata, callback, and final publication tests                                  |
-| Cloudflare Computer (Center Agent's computer) | `@cloudflare/computer` Workspace + worker-shell backend on `env.LOADER` | Yes                           | Gives the Center Agent one durable org-level filesystem and shell that persists across conversations      | Preview-stage API drift and Durable Object storage growth    | Computer naming/enablement, layout, SandboxApi adapter, native grep, observability, and localhost smoke tests     |
-| Computer container backend (computerd)        | `@cloudflare/computer/backends/container` + computerd FUSE image        | Yes                           | Full Linux userland (python3, git, curl, jq) over the same durable file world as worker-shell             | Container boot latency and standard-2 instance cost          | Backend routing tests plus local Docker smoke: python3 reads DO-written file, container write syncs back          |
-| Cloudflare Sandbox (removed)                  | Cloudflare Sandbox SDK plus Flue Cloudflare adapter                     | Removed                       | Fully superseded by the computer's container backend                                                      | None (class deleted via `v6_retire_sandbox`)                 | Dependency removed; no `SANDBOX` binding or `Sandbox` class remains                                               |
-| Browser Live View and retained sessions       | Browser Run Live View and CDP session APIs                              | No                            | Headless one-shot execution covers the current product need                                               | Human takeover and retained-session lifecycle                | No Live View URL, browser session state, or takeover surface exists                                               |
-| Stateless Code Mode                           | Cloudflare Code Mode `createCodeTool` plus `DynamicWorkerExecutor`      | Yes                           | Composes the exact active turn tools for dependent calls, loops, filtering, branching, and result shaping | Generated-code execution and multiplied inner tool calls     | Capability-parity, execution-context, prompt, binding, build, and real localhost composition tests                |
-| Durable Code Mode runtime                     | Cloudflare Code Mode durable runtime                                    | No                            | Stateless composition is sufficient for the first increment                                               | A second history, approval, snippet, and discovery lifecycle | No durable runtime export, Code Mode storage, snippet catalog, or approval replay exists                         |
+| Capability                                    | Official doc surface                                                    | Enabled?                      | Reason                                                                                                    | Risk                                                         | Test evidence                                                                                                 |
+| --------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| OpenRouter web search and fetch               | OpenRouter server tools through the existing AI Gateway route           | Yes                           | Adds current public-web research without a new OpenMeld data store                                        | Provider requests and model context consumption              | Tool payload, citation, usage, and failure tests                                                              |
+| Browser Run rendered reads                    | Browser Run Quick Actions                                               | Yes                           | Reads JavaScript-rendered pages with a browser binding only                                               | Browser time and untrusted page content                      | Markdown, links, extraction, scraping, and browser-time tests                                                 |
+| Browser Run screenshots                       | Browser Run Quick Actions plus the existing Space attachment contract   | Yes for OpenMeld Space output | Lets the Center Agent return a real visual artifact                                                       | Image size, browser time, and private attachment lifecycle   | Browser response, R2 write, Core metadata, callback, and final publication tests                              |
+| Cloudflare Computer (Center Agent's computer) | `@cloudflare/computer` Workspace + worker-shell backend on `env.LOADER` | Yes                           | Gives the Center Agent one durable org-level filesystem and shell that persists across conversations      | Preview-stage API drift and Durable Object storage growth    | Computer naming/enablement, layout, SandboxApi adapter, native grep, observability, and localhost smoke tests |
+| Computer container backend (computerd)        | `@cloudflare/computer/backends/container` + computerd FUSE image        | Yes                           | Full Linux userland (python3, git, curl, jq) over the same durable file world as worker-shell             | Container boot latency and standard-2 instance cost          | Backend routing tests plus local Docker smoke: python3 reads DO-written file, container write syncs back      |
+| Cloudflare Sandbox (removed)                  | Cloudflare Sandbox SDK plus Flue Cloudflare adapter                     | Removed                       | Fully superseded by the computer's container backend                                                      | None (class deleted via `v6_retire_sandbox`)                 | Dependency removed; no `SANDBOX` binding or `Sandbox` class remains                                           |
+| Browser Live View and retained sessions       | Browser Run Live View and CDP session APIs                              | No                            | Headless one-shot execution covers the current product need                                               | Human takeover and retained-session lifecycle                | No Live View URL, browser session state, or takeover surface exists                                           |
+| Stateless Code Mode                           | Cloudflare Code Mode `createCodeTool` plus `DynamicWorkerExecutor`      | Yes                           | Composes the exact active turn tools for dependent calls, loops, filtering, branching, and result shaping | Generated-code execution and multiplied inner tool calls     | Capability-parity, execution-context, prompt, binding, build, and real localhost composition tests            |
+| Durable Code Mode runtime                     | Cloudflare Code Mode durable runtime                                    | No                            | Stateless composition is sufficient for the first increment                                               | A second history, approval, snippet, and discovery lifecycle | No durable runtime export, Code Mode storage, snippet catalog, or approval replay exists                      |
 
 The implementation report must use this inventory table for every default or
 configured Flue capability:
@@ -2410,8 +2410,8 @@ worker callback contract.
   structured schema, not string concatenation. The shared hosted-runtime shape
   serves UI, trace, ledger, and diagnostics; the org is derivable and the
   identity must not contain volatile data.
-- Wake-access records stay per-`(organization, binding)`, fail closed,
-  carried over on rebind with audit — unchanged.
+- The managed Center Agent Profile and hosted Binding stay in their canonical
+  Organization. Legacy Wake-access records are not an admission fact.
 - Binding owner is the designating owner/admin (consistent with the local
   rule: designate only onto your own Binding).
 
@@ -2487,7 +2487,7 @@ tooling, not a user surface and not availability truth.
 - Every interactive and Routine system prompt includes one generic execution
   routing protocol. The Center Agent derives a plan from the current task's
   data, identity, side-effect, and environment requirements; the live tool,
-  App, Channel, Project, Agent Profile readiness, Wake-access, and authorization
+  App, Channel, Project, Agent Profile readiness, and authorization
   signals relevant to those requirements; and the exact results returned while
   executing. It chooses the smallest capable direct, delegated, or combined
   path and re-evaluates that path when a signal fails.

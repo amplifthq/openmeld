@@ -716,7 +716,6 @@ import {
 } from "../agent-profile-binding/application/agent-profile-binding-lookup-service";
 import { rememberAgentProfileCreationDefaults } from "../agent-profile-binding/application/agent-profile-creation-defaults-service";
 import { readLocalRuntimeExpectedRoutes } from "../agent-profile-binding/application/local-runtime-expected-routes-service";
-import { applyAcceptedBindingAuthorizationPolicies } from "../agent-profile-binding/application/organization-binding-authorization-policy-service";
 import {
   AgentProfileBindingOwnerInventoryLimitError,
   type AgentProfileBindingRecord,
@@ -741,7 +740,6 @@ import {
   listOrganizationBindingAuthorizationProfiles,
   listOrganizationBindingAuthorizationRecords,
   listOrganizationBindingAuthorizationRecordsForBinding,
-  listOrganizationBindingAuthorizedAgentProfileIds,
   type OrganizationBindingAuthorizationCandidate,
   readOrganizationBindingAuthorizationPreferenceRecord,
   readPersonalOrganizationIdForUser,
@@ -4813,10 +4811,20 @@ export async function rpcDisableAgentProfilePrimaryBinding(
   }
 }
 
+function rejectRemovedOrganizationWakeAccessApi(): void {
+  throw createCoreRpcHttpError({
+    code: "agent_profile.organization_ownership_required",
+    reason:
+      "Agent Profiles can only be used in the workspace where they were created.",
+    status: 410,
+  });
+}
+
 export async function rpcAuthorizeAgentProfileBindingForOrganization(
   env: CoreBindings,
   input: AuthorizeAgentProfileBindingForOrganizationInput
 ): Promise<AuthorizeAgentProfileBindingForOrganizationResponse> {
+  rejectRemovedOrganizationWakeAccessApi();
   const request = requireAgentProfileBindingRequest(input);
   const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
     context: request.context,
@@ -4927,6 +4935,7 @@ export async function rpcBulkAuthorizeAgentProfileBindingsForOrganization(
   env: CoreBindings,
   input: BulkAuthorizeAgentProfileBindingsForOrganizationInput
 ): Promise<BulkAuthorizeAgentProfileBindingsForOrganizationResponse> {
+  rejectRemovedOrganizationWakeAccessApi();
   const context = requireRpcContext(input.context);
   const organizationId = requireOrganizationId(input.organizationId);
   const body =
@@ -5006,6 +5015,7 @@ export async function rpcSaveOrganizationWakeAccessChoice(
   env: CoreBindings,
   input: SaveOrganizationWakeAccessChoiceInput
 ): Promise<SaveOrganizationWakeAccessChoiceResponse> {
+  rejectRemovedOrganizationWakeAccessApi();
   const context = requireRpcContext(input.context);
   const organizationId = requireOrganizationId(input.organizationId);
   const body = saveOrganizationWakeAccessChoiceBodySchema.safeParse({
@@ -5128,6 +5138,7 @@ export async function rpcListOrganizationBindingAuthorizations(
   env: CoreBindings,
   input: ListOrganizationBindingAuthorizationsInput
 ): Promise<ListOrganizationBindingAuthorizationsResponse> {
+  rejectRemovedOrganizationWakeAccessApi();
   const context = requireRpcContext(input.context);
   const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
     context,
@@ -5162,6 +5173,7 @@ export async function rpcListOrganizationBindingAuthorizationProfiles(
   env: CoreBindings,
   input: ListOrganizationBindingAuthorizationProfilesInput
 ): Promise<ListOrganizationBindingAuthorizationProfilesResponse> {
+  rejectRemovedOrganizationWakeAccessApi();
   const context = requireRpcContext(input.context);
   const organizationId = requireOrganizationId(input.organizationId);
   const membership = await requireOrganizationMembershipOrThrow({
@@ -5233,6 +5245,7 @@ export async function rpcListCurrentUserAgentProfileOrganizationWakeAccess(
   env: CoreBindings,
   input: ListCurrentUserAgentProfileOrganizationWakeAccessInput
 ): Promise<ListCurrentUserAgentProfileOrganizationWakeAccessResponse> {
+  rejectRemovedOrganizationWakeAccessApi();
   const ownerUserId = requireAuthenticatedOwnerUserId(input.context);
   const db = requireAgentProfileBindingDb(env);
 
@@ -5340,6 +5353,7 @@ export async function rpcRevokeAgentProfileBindingForOrganization(
   env: CoreBindings,
   input: RevokeAgentProfileBindingForOrganizationInput
 ): Promise<RevokeAgentProfileBindingForOrganizationResponse> {
+  rejectRemovedOrganizationWakeAccessApi();
   const request = requireAgentProfileBindingRequest(input);
   const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
     context: request.context,
@@ -5379,6 +5393,7 @@ export async function rpcGetOrganizationBindingAuthorizationPreference(
   env: CoreBindings,
   input: GetOrganizationBindingAuthorizationPreferenceInput
 ): Promise<GetOrganizationBindingAuthorizationPreferenceResponse> {
+  rejectRemovedOrganizationWakeAccessApi();
   const context = requireRpcContext(input.context);
   const organizationId = requireOrganizationId(input.organizationId);
   const membership = await requireOrganizationMembershipOrThrow({
@@ -5549,6 +5564,7 @@ export async function rpcSetOrganizationBindingAuthorizationPreference(
   env: CoreBindings,
   input: SetOrganizationBindingAuthorizationPreferenceInput
 ): Promise<SetOrganizationBindingAuthorizationPreferenceResponse> {
+  rejectRemovedOrganizationWakeAccessApi();
   const context = requireRpcContext(input.context);
   const organizationId = requireOrganizationId(input.organizationId);
   const body =
@@ -5614,17 +5630,12 @@ export async function rpcGetCurrentOrganizationDirectory(
     organizationId,
   });
   const agentProfileProjectionPromise =
-    listOrganizationBindingAuthorizedAgentProfileIds({
-      db,
+    resolveOrganizationDirectoryAgentProfiles({
+      additionalAgentProfileIds: [],
+      authWorker: env.OPENMELD_AUTH_WORKER,
       organizationId,
-    }).then((additionalAgentProfileIds) =>
-      resolveOrganizationDirectoryAgentProfiles({
-        additionalAgentProfileIds,
-        authWorker: env.OPENMELD_AUTH_WORKER,
-        organizationId,
-        requestId,
-      })
-    );
+      requestId,
+    });
   const memberActivityPromise = input.includeMemberLastActiveAt
     ? listOrganizationMemberActivity({
         db: requireIdentityDb(env),
@@ -5664,11 +5675,6 @@ export async function rpcGetCurrentOrganizationDirectory(
       profile,
     ])
   );
-  for (const profile of agentProfileProjection.additionalAgentProfiles) {
-    if (profile.status === "active") {
-      agentProfilesById.set(profile.profileId, profile);
-    }
-  }
   const eligibleAgentProfiles = [...agentProfilesById.values()]
     .filter((agent) =>
       isAgentProfileEligibleForOrganization({
@@ -15854,21 +15860,6 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
       return buildRejectedAgentProfileBindingResponse(result.reasonCodes);
     }
 
-    await applyAcceptedBindingAuthorizationPolicies({
-      activeOrganizationId: normalizeOptionalText(
-        request.context.activeOrganizationId
-      ),
-      actorProfileId: normalizeOptionalText(
-        request.context.actorContext.openMeldProfileId
-      ),
-      agentProfileId: request.agentProfileId,
-      bindingId: result.binding.bindingId,
-      db,
-      nowMs: Date.now(),
-      ownerUserId: request.owner.id,
-      previousBindingId: bindingMutationContext.previousBindingId,
-    });
-
     const lookupResult = await lookupPrimaryAgentProfileBinding({
       agentProfileId: request.agentProfileId,
       owner: request.owner,
@@ -20530,19 +20521,7 @@ async function designateRemoteCenterAgentBinding(input: {
         ...admittedEnabledPrimaryBindings.map((binding) => binding.bindingId),
       ]),
     ];
-    const inheritedAuthorization =
-      await resolveRemoteCenterAgentBindingAuthorization({
-        activeOrganizationId: input.activeOrganization.organizationId,
-        authorizedByDefault: input.activeOrganization.userId,
-        db: input.bindingDb,
-        previousBindingIds: previousPrimaryBindingIds,
-      });
     const writeResult = await reconcileRemoteCenterAgentBindingRecord({
-      authorization: {
-        authorizedBy: inheritedAuthorization.authorizedBy,
-        id: crypto.randomUUID(),
-        organizationId: input.activeOrganization.organizationId,
-      },
       currentBindings: admittedEnabledPrimaryBindings,
       db: input.bindingDb,
       noncanonicalDisabledReasonCode: "center_agent.binding_owner_reconciled",
@@ -20561,37 +20540,6 @@ async function designateRemoteCenterAgentBinding(input: {
         runtimeKind: "hosted_center_agent",
         updatedAtMs: nowMs,
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-      },
-    });
-    if (
-      inheritedAuthorization.previousBindingId &&
-      writeResult.authorizationStatus === "authorized"
-    ) {
-      await insertCenterAgentAuditJournalEntry({
-        action: "carry_over_binding_authorization",
-        actorProfileId,
-        attribution: { actorProfileId, onBehalfOf: null },
-        db: input.bindingDb,
-        id: crypto.randomUUID(),
-        nowMs,
-        organizationId: input.activeOrganization.organizationId,
-        resource: {
-          id: writeResult.authorization.id,
-          type: "organization_binding_authorization",
-        },
-      });
-    }
-    await insertCenterAgentAuditJournalEntry({
-      action: "authorize_remote_center_agent_binding",
-      actorProfileId,
-      attribution: { actorProfileId, onBehalfOf: null },
-      db: input.bindingDb,
-      id: crypto.randomUUID(),
-      nowMs,
-      organizationId: input.activeOrganization.organizationId,
-      resource: {
-        id: writeResult.authorization.id,
-        type: "organization_binding_authorization",
       },
     });
     await insertCenterAgentAuditJournalEntry({
@@ -20654,34 +20602,6 @@ function remoteCenterAgentTargetNeedsMutation(input: {
     !canonicalBinding ||
     !isHostedCenterAgentExecutionTarget(canonicalBinding)
   );
-}
-
-async function resolveRemoteCenterAgentBindingAuthorization(input: {
-  activeOrganizationId: string;
-  authorizedByDefault: string;
-  db: D1Database;
-  previousBindingIds: readonly string[];
-}): Promise<{ authorizedBy: string; previousBindingId: string | null }> {
-  for (const previousBindingId of input.previousBindingIds) {
-    const previousAuthorizations =
-      await listOrganizationBindingAuthorizationRecordsForBinding({
-        bindingId: previousBindingId,
-        db: input.db,
-      });
-    for (const previousAuthorization of previousAuthorizations) {
-      if (previousAuthorization.organizationId !== input.activeOrganizationId) {
-        continue;
-      }
-      return {
-        authorizedBy: previousAuthorization.authorizedBy,
-        previousBindingId,
-      };
-    }
-  }
-  return {
-    authorizedBy: input.authorizedByDefault,
-    previousBindingId: null,
-  };
 }
 
 async function assertSelfHostedDesignatableCenterAgentProfile(input: {

@@ -73,7 +73,6 @@ import {
   type AgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecord,
 } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
-import { readOrganizationBindingAuthorizationRecord } from "../../agent-profile-binding/infrastructure/d1/organization-binding-authorization-repo";
 import { recordAndEnqueueAgentTaskTerminalOutcome } from "../../agent-task-coordination/application/agent-task-terminal-outcome-service";
 import { hasAgentTaskResumeContinuationByObserverTask } from "../../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import { resolveCenterAgentAttentionRequestsForReply } from "../../center-agent/application/center-agent-attention-service";
@@ -1085,16 +1084,6 @@ export async function requireCurrentCenterAgentTaskAdmissionAuthority(input: {
   if (!(binding && isHostedCenterAgentExecutionTarget(binding))) {
     throw new RemoteAgentTaskContinuationTerminalError(
       "remote_agent.hosted_binding_invalid"
-    );
-  }
-  const authorization = await readOrganizationBindingAuthorizationRecord({
-    bindingId: binding.bindingId,
-    db: currentIdentityDb,
-    organizationId: input.organizationId,
-  });
-  if (!authorization) {
-    throw new RemoteAgentTaskContinuationTerminalError(
-      "organization_binding_authorization.required"
     );
   }
   const modelRoute = resolveDelegatedNativeDeliveryModelRoute(binding);
@@ -6452,20 +6441,6 @@ async function resolveDelegatedRemoteAgentNativeDeliveryTarget(input: {
     return {
       failureCode: modelRouteResolution.failureCode,
       failureReason: modelRouteResolution.failureReason,
-      ok: false,
-      target,
-    };
-  }
-  const authorization = await readOrganizationBindingAuthorizationRecord({
-    bindingId: binding.bindingId,
-    db: input.db,
-    organizationId: input.organizationId,
-  });
-  if (!authorization) {
-    return {
-      failureCode: "organization_binding_authorization.required",
-      failureReason:
-        "its designated Center Agent Binding is not authorized for this Organization.",
       ok: false,
       target,
     };

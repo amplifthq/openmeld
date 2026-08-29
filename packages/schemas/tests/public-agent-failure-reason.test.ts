@@ -624,7 +624,7 @@ describe("public agent failure reason mapping", () => {
     });
   });
 
-  it("returns structured recovery for every organization_binding_authorization sub-code, not just 'required'", () => {
+  it("keeps every legacy authorization sub-code non-actionable during rollout", () => {
     const subCodes = [
       "organization_binding_authorization.required",
       "organization_binding_authorization.binding_required",
@@ -642,7 +642,7 @@ describe("public agent failure reason mapping", () => {
           targetLabel: "Runner",
         })
       ).toEqual({
-        body: "Wake access is off for Runner in this organization. Turn it on to let Runner reply in this Space.",
+        body: "Runner cannot be used in this workspace. Choose an Agent Profile created here.",
         kind: "system_retry",
         recoveryTarget: null,
       });

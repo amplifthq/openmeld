@@ -146,9 +146,9 @@ forking its command, PrepareSession, or live-status behavior.
    (for example a new invite-link token), show an immediate pending outcome
    while retaining the last confirmed value; never invent a token or success.
 7. **Defaults are visible, not interrogative.** Untouched Workspace memory
-   and automatic Wake access default on. Setup Studio tells the user they are
-   enabled and allows an authorized user to turn them off. It does not ask
-   again when a prior explicit choice already exists.
+   defaults on. Setup Studio tells the user it is enabled and allows an
+   authorized user to turn it off. Agent Profile Organization ownership is an
+   invariant, not a preference or onboarding question.
 8. **Separate membership, Service, and wakeability.** Joining an Organization
    or Space, connecting this computer, detecting Codex, and proving an Agent
    Profile can currently be woken are separate facts. Setup Studio may summarize
@@ -357,7 +357,7 @@ sibling mutation.
 1. **Workspace — "Choose your workspace"**
    - Always show `Personal Workspace` first as an explicit real choice with
      `For you only. Create an organization to connect Slack or invite
-     teammates.`; `Skip setup` is never a substitute for choosing it.
+teammates.`; `Skip setup` is never a substitute for choosing it.
    - Show existing non-personal Organizations under a separate
      `Organizations` label.
    - Show pending email invitations from Better Auth and let the user join in
@@ -416,8 +416,8 @@ sibling mutation.
      supported local agent later. Copy never asks about a generic "coding
      agent."
 5. **Defaults — "Built into your OpenMeld setup" (Organization only)**
-   - Untouched Organization memory and automatic Wake access default on and are
-     presented as enabled. Existing explicit choices are preserved.
+   - Untouched Organization memory defaults on and is presented as enabled.
+     Existing explicit choices are preserved.
    - Organization brief is optional and explains that it gives Center Agent
      stable goals and operating context.
    - Information Protection is optional and visible only to an owner/admin.
@@ -507,12 +507,12 @@ Space setup completion, but its DM remains outside this local-computer rule.
 Empty-Space action cards:
 
 - The centered introduction is `A Space is where people and agents work
-  together.` followed by `You and your teammates can give agents work. Agents
-  can ask other agents for help. Everyone can see the results here.`
+together.` followed by `You and your teammates can give agents work. Agents
+can ask other agents for help. Everyone can see the results here.`
 - `Connect this computer` explains `Make Codex, Claude Code, or another local
-  agent available in OpenMeld.`
+agent available in OpenMeld.`
 - `Add people or agents` explains `Choose people or agents for this Space, or
-  create a new agent.` It opens the existing Members panel and expands its Add
+create a new agent.` It opens the existing Members panel and expands its Add
   members card; when no Agent Profile exists, that existing flow supplies
   Create Agent. The empty state never builds a second selector or
   agent-creation workflow.
@@ -608,19 +608,19 @@ Behavior:
 Copy baseline (English; renderers may localize later, meaning may not
 drift):
 
-| Element | Copy |
-| --- | --- |
-| Empty Space title | `A Space is where people and agents work together.` |
-| Empty Space description | `You and your teammates can give agents work. Agents can ask other agents for help. Everyone can see the results here.` |
-| Empty Space connect action | `Connect this computer` / `Make Codex, Claude Code, or another local agent available in OpenMeld.` |
-| Empty Space add action | `Add people or agents` / `Choose people or agents for this Space, or create a new agent.` |
-| Banner heading | `Get set up` / `Optional. Dismiss anytime.` |
-| Connect (banner) | `Connect this computer` / `So your local agents can reply when you mention them` / button `Connect OpenMeld Service` (routes to the setup page) |
-| Waiting status (setup page) | `Waiting for this computer…` |
-| Connected status | `Connected` |
-| Bring agents (available) | `Add agents` (opens + flashes Add members) |
-| Bring agents (done) | `<Agent> is in this Space` (membership only — never "can be woken") |
-| Dismiss / Recall | per-row `×` / header **Get set up** action |
+| Element                     | Copy                                                                                                                                            |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Empty Space title           | `A Space is where people and agents work together.`                                                                                             |
+| Empty Space description     | `You and your teammates can give agents work. Agents can ask other agents for help. Everyone can see the results here.`                         |
+| Empty Space connect action  | `Connect this computer` / `Make Codex, Claude Code, or another local agent available in OpenMeld.`                                              |
+| Empty Space add action      | `Add people or agents` / `Choose people or agents for this Space, or create a new agent.`                                                       |
+| Banner heading              | `Get set up` / `Optional. Dismiss anytime.`                                                                                                     |
+| Connect (banner)            | `Connect this computer` / `So your local agents can reply when you mention them` / button `Connect OpenMeld Service` (routes to the setup page) |
+| Waiting status (setup page) | `Waiting for this computer…`                                                                                                                    |
+| Connected status            | `Connected`                                                                                                                                     |
+| Bring agents (available)    | `Add agents` (opens + flashes Add members)                                                                                                      |
+| Bring agents (done)         | `<Agent> is in this Space` (membership only — never "can be woken")                                                                             |
+| Dismiss / Recall            | per-row `×` / header **Get set up** action                                                                                                      |
 
 Accessibility floor: the banner is a labeled region; status changes announce
 via `aria-live`; dismiss/recall and every control are keyboard-reachable;
@@ -769,12 +769,12 @@ Agent view (`--view agent`) — both `setup` and `doctor` emit the decision
 list as machine output:
 
 - `setup.plan` result: `{ schemaVersion, readOnly, facts, plan: { decisions,
-  summary } }`, codes snake_case per shared-contracts naming. The payload is
+summary } }`, codes snake_case per shared-contracts naming. The payload is
   validated by `packages/schemas` and reuses the onboarding facts and plan
   schemas instead of copying action shapes.
 - The agent loop is: read the first executable decision from
   `plan.decisions`, run its command when present, rerun `openmeld setup --view
-  agent`, repeat until `setup.complete` reports summary `nothing_to_do`.
+agent`, repeat until `setup.complete` reports summary `nothing_to_do`.
 - `doctor --view agent` emits the same payload with `readOnly: true` and never
   mutates on the default diagnostics path.
 - Agent view requires explicit arguments and never prompts (existing house
@@ -889,13 +889,13 @@ The reviewer validates against this document. Verification gates (all must
 pass; use the correct entries — `test` alone is a false green for
 integration files in both openmeld-cli and clients/web):
 
-| Gate | Command |
-| --- | --- |
-| Planner unit tests | `pnpm --filter @openmeld/start test` |
-| Web unit | `pnpm -C clients/web exec vitest run --config vitest.config.ts` |
-| Web integration | `pnpm -C clients/web exec vitest run --config vitest.integration.config.ts` (inherited red baseline only; no new reds) |
-| CLI unit + integration | `pnpm --filter ./clients/openmeld-cli test` and `test:integration` |
-| Typecheck / lint | affected packages `tsc --noEmit`, `biome check` |
+| Gate                   | Command                                                                                                                |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Planner unit tests     | `pnpm --filter @openmeld/start test`                                                                                   |
+| Web unit               | `pnpm -C clients/web exec vitest run --config vitest.config.ts`                                                        |
+| Web integration        | `pnpm -C clients/web exec vitest run --config vitest.integration.config.ts` (inherited red baseline only; no new reds) |
+| CLI unit + integration | `pnpm --filter ./clients/openmeld-cli test` and `test:integration`                                                     |
+| Typecheck / lint       | affected packages `tsc --noEmit`, `biome check`                                                                        |
 
 Behavioral acceptance scenarios (each needs an automated test or a recorded
 manual verification):
@@ -921,8 +921,8 @@ manual verification):
    may be skipped or left running without blocking Continue. Re-entry with an
    already connected Service shows the connected computer without issuing a new
    command.
-7. Untouched memory and automatic Wake access become enabled. Existing explicit
-   off choices remain off. Organization brief is optional; Information
+7. Untouched memory becomes enabled. Existing explicit off choices remain off.
+   Organization brief is optional; Information
    Protection is owner/admin-only and an empty value clears it.
 8. Multiple invitation emails appear immediately. A partial server failure
    removes only failed optimistic rows and keeps successes. A reusable

@@ -288,10 +288,6 @@ export function buildOrganizationOrgSettingsPath(orgSlug: string): string {
 	return `${buildOrganizationSettingsRootPath(orgSlug)}/general`;
 }
 
-export function buildOrganizationWakeAccessPath(orgSlug: string): string {
-	return `${buildOrganizationOrgSettingsPath(orgSlug)}#organization-wake-access`;
-}
-
 export function buildOrganizationSettingsRootPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/settings`;
 }

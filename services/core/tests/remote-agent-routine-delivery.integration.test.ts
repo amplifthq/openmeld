@@ -3854,7 +3854,6 @@ describe("Remote Agent Routine native delivery", () => {
     "paused",
     "deleted",
     "center_agent_paused",
-    "binding_authorization_revoked",
     "target_membership_revoked",
   ] as const)("revalidates full Routine admission before recovery when %s", async (change) => {
     const fixture = await seedRoutineDeliveryFixture();
@@ -3888,12 +3887,6 @@ describe("Remote Agent Routine native delivery", () => {
       )
         .bind(fixture.nowMs, fixture.userId, fixture.organizationId)
         .run();
-    } else if (change === "binding_authorization_revoked") {
-      await env.OPENMELD_DB.prepare(
-        "DELETE FROM organization_binding_authorizations WHERE organization_id = ? AND binding_id = ?"
-      )
-        .bind(fixture.organizationId, fixture.bindingId)
-        .run();
     } else {
       await env.OPENMELD_DB.prepare(
         "DELETE FROM space_index_memberships WHERE space_id = ? AND profile_id = ?"
@@ -3922,8 +3915,6 @@ describe("Remote Agent Routine native delivery", () => {
       ? "routine.not_enabled_at_recovery"
       : {
           center_agent_paused: "remote_agent.center_agent_paused",
-          binding_authorization_revoked:
-            "organization_binding_authorization.required",
           target_membership_revoked:
             "remote_agent.routine_target_space_unavailable",
         }[change];

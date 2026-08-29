@@ -18,12 +18,11 @@ import {
 	OrganizationEntryPage,
 } from "./organization-entry-page";
 
-const saveOrganizationWakeAccessChoiceMock = vi.hoisted(() => vi.fn());
 const createOrganizationMock = vi.hoisted(() => vi.fn());
 const prepareOrganizationDestinationMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const CREATE_AN_ORGANIZATION_LABEL = /Create an organization/;
-const WAKE_ACCESS_LABEL = /Wake access for my Agent Profiles/;
+const WAKE_ACCESS_PATTERN = /Wake access/i;
 
 let currentOrganization: OrganizationSummary = {
 	id: "org-solo",
@@ -98,26 +97,11 @@ vi.mock("#/lib/organizations/prepare-organization-destination", () => ({
 	prepareOrganizationDestination: prepareOrganizationDestinationMock,
 }));
 
-vi.mock("#/lib/profiles/organization-binding-authorizations", () => ({
-	saveOrganizationWakeAccessChoice: saveOrganizationWakeAccessChoiceMock,
-}));
-
 describe("OrganizationEntryPage", () => {
 	beforeEach(() => {
 		consoleErrorMock = vi
 			.spyOn(console, "error")
 			.mockImplementation(() => undefined);
-		saveOrganizationWakeAccessChoiceMock.mockReset().mockResolvedValue({
-			alreadyAuthorizedCount: 0,
-			authorizedCount: 1,
-			organizationId: "org-acme",
-			preference: {
-				autoAuthorizeAgentProfileBindings: true,
-				organizationId: "org-acme",
-				updatedAt: "2026-07-15T00:00:00.000Z",
-				userId: "user-1",
-			},
-		});
 		createOrganizationMock.mockReset();
 		createOrganizationMock.mockResolvedValue({
 			id: "org-acme",
@@ -349,7 +333,7 @@ describe("OrganizationEntryPage", () => {
 			target: { value: "Acme Labs" },
 		});
 		expect(screen.queryByLabelText("Slug")).toBeNull();
-		expect(screen.queryByLabelText(WAKE_ACCESS_LABEL)).toBeNull();
+		expect(screen.queryByText(WAKE_ACCESS_PATTERN)).toBeNull();
 		expect(screen.queryByLabelText("Organization memory")).toBeNull();
 		expect(screen.queryByRole("dialog")).toBeNull();
 		expect(createOrganizationMock).not.toHaveBeenCalled();
@@ -388,7 +372,6 @@ describe("OrganizationEntryPage", () => {
 		expect(
 			prepareOrganizationDestinationMock.mock.invocationCallOrder[0]
 		).toBeLessThan(navigateMock.mock.invocationCallOrder[0] ?? 0);
-		expect(saveOrganizationWakeAccessChoiceMock).not.toHaveBeenCalled();
 	});
 
 	it("opens Channels after creating an organization in Slack install mode", async () => {
@@ -446,7 +429,6 @@ describe("OrganizationEntryPage", () => {
 		expect(
 			await screen.findByRole("button", { name: "Opening Acme Labs" })
 		).toBeTruthy();
-		expect(saveOrganizationWakeAccessChoiceMock).not.toHaveBeenCalled();
 
 		act(() => {
 			resolveNavigation();
@@ -478,7 +460,6 @@ describe("OrganizationEntryPage", () => {
 				"Try again. OpenMeld will continue from the organization it already created."
 			)
 		).toBeTruthy();
-		expect(saveOrganizationWakeAccessChoiceMock).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "Retry opening" }));
 
@@ -489,7 +470,6 @@ describe("OrganizationEntryPage", () => {
 				to: "/o/acme-labs",
 			});
 		});
-		expect(saveOrganizationWakeAccessChoiceMock).not.toHaveBeenCalled();
 	});
 
 	it("retries Center Agent initialization without creating a duplicate organization", async () => {

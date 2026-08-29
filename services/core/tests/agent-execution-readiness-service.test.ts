@@ -1,8 +1,8 @@
 import { createAgentProfileBindingDisplayProjection } from "@openmeld/agent-runtime";
 import { describe, expect, it } from "vitest";
 import {
+  resolveAgentProfileOrganizationClaimDiagnostics,
   resolveCoreAgentExecutionReadinessForProfile,
-  resolveOrganizationAwareClaimDiagnostics,
 } from "../src/agent-execution/application/agent-execution-readiness-service";
 import type { CoreBindings } from "../src/lib/bindings";
 
@@ -43,33 +43,16 @@ describe("agent-execution-readiness-service", () => {
     );
   });
 
-  it("blocks Organization readiness when the primary Binding has no Wake access", async () => {
-    const readiness = await resolveOrganizationAwareClaimDiagnostics({
+  it("keeps runtime claim readiness for an Agent Profile owned by the active Organization without legacy Wake access", async () => {
+    const readiness = await resolveAgentProfileOrganizationClaimDiagnostics({
       activeOrganizationId: "org-acme",
       binding: createPrimaryBinding(),
-      env: createAuthorizationEnv(null),
-      resolveRuntimeClaimDiagnostics: async () => ({
-        reasonCodes: [],
-        status: "accepted",
-      }),
-    });
-
-    expect(readiness).toEqual({
-      reasonCodes: ["organization_binding_authorization.required"],
-      status: "rejected",
-    });
-  });
-
-  it("keeps runtime claim readiness when Organization Wake access is on", async () => {
-    const readiness = await resolveOrganizationAwareClaimDiagnostics({
-      activeOrganizationId: "org-acme",
-      binding: createPrimaryBinding(),
-      env: createAuthorizationEnv({
-        authorized_by: "user-1",
-        binding_id: "binding-1",
-        created_at: 1,
-        id: "authorization-1",
+      env: createAuthorizationEnv(null, {
+        managed_role: null,
         organization_id: "org-acme",
+        owner_user_id: "user-1",
+        profile_kind: "agent",
+        profile_name: "Acme Agent",
       }),
       resolveRuntimeClaimDiagnostics: async () => ({
         reasonCodes: [],
@@ -80,8 +63,40 @@ describe("agent-execution-readiness-service", () => {
     expect(readiness).toEqual({ reasonCodes: [], status: "accepted" });
   });
 
+  it("blocks an ordinary Agent Profile owned by another Organization even when legacy Wake access remains", async () => {
+    const readiness = await resolveAgentProfileOrganizationClaimDiagnostics({
+      activeOrganizationId: "org-acme",
+      binding: createPrimaryBinding(),
+      env: createAuthorizationEnv(
+        {
+          authorized_by: "user-1",
+          binding_id: "binding-1",
+          created_at: 1,
+          id: "authorization-1",
+          organization_id: "org-acme",
+        },
+        {
+          managed_role: null,
+          organization_id: "org-personal",
+          owner_user_id: "user-1",
+          profile_kind: "agent",
+          profile_name: "Personal Agent",
+        }
+      ),
+      resolveRuntimeClaimDiagnostics: async () => ({
+        reasonCodes: [],
+        status: "accepted",
+      }),
+    });
+
+    expect(readiness).toEqual({
+      reasonCodes: ["agent_profile.organization_mismatch"],
+      status: "rejected",
+    });
+  });
+
   it("blocks a Center Agent from another Organization even when Wake access remains", async () => {
-    const readiness = await resolveOrganizationAwareClaimDiagnostics({
+    const readiness = await resolveAgentProfileOrganizationClaimDiagnostics({
       activeOrganizationId: "org-acme",
       binding: createPrimaryBinding(),
       env: createAuthorizationEnv(
@@ -113,7 +128,7 @@ describe("agent-execution-readiness-service", () => {
   });
 
   it("keeps the Organization's own Center Agent claim readiness", async () => {
-    const readiness = await resolveOrganizationAwareClaimDiagnostics({
+    const readiness = await resolveAgentProfileOrganizationClaimDiagnostics({
       activeOrganizationId: "org-acme",
       binding: createPrimaryBinding(),
       env: createAuthorizationEnv(
@@ -158,7 +173,7 @@ function createAuthorizationEnv(
   record: unknown,
   profileContext: unknown = {
     managed_role: null,
-    organization_id: null,
+    organization_id: "org-personal",
     owner_user_id: "user-1",
     profile_kind: "agent",
     profile_name: "Personal Agent",

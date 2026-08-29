@@ -66,14 +66,14 @@ describe("resolveSpaceOutcomeRowTone", () => {
 		).toBe("warning");
 	});
 
-	it("is warning when Wake access is off instead of presenting it as a destructive failure", () => {
+	it("treats a cross-workspace Agent Profile as an execution failure", () => {
 		expect(
 			resolveSpaceOutcomeRowTone({
 				failureStage: "execution",
 				noticeType: "terminal_failure",
-				reasonCode: "organization_binding_authorization.required",
+				reasonCode: "agent_profile.organization_mismatch",
 			})
-		).toBe("warning");
+		).toBe("destructive");
 	});
 });
 
@@ -233,13 +233,13 @@ describe("SpaceOutcomeRow", () => {
 		render(
 			<SpaceOutcomeRow
 				onOpenDetails={null}
-				text="Wake access is off for this agent."
-				tone="warning"
+				text="This Agent Profile belongs to another workspace."
+				tone="destructive"
 			/>
 		);
 
 		const marker = screen
-			.getByText("Wake access is off for this agent.")
+			.getByText("This Agent Profile belongs to another workspace.")
 			.closest("[data-slot='marker']");
 		const icon = marker?.querySelector("[data-slot='marker-icon']");
 		expect(marker?.className).toContain("items-center");

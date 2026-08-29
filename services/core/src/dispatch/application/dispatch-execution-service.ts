@@ -3113,18 +3113,17 @@ export const runDispatchExecutionPreflightGate = async (input: {
     };
   }
 
-  const organizationAuthorization =
-    await resolveTargetBindingOrganizationAuthorization({
-      bindingId: targetBindingSnapshot.bindingId,
-      env: input.env,
-      message,
-    });
-  if (!organizationAuthorization.ok) {
+  const organizationScope = await resolveTargetBindingOrganizationScope({
+    bindingId: targetBindingSnapshot.bindingId,
+    env: input.env,
+    message,
+  });
+  if (!organizationScope.ok) {
     return {
       ok: false,
-      errorCode: organizationAuthorization.errorCode,
-      errorMessage: organizationAuthorization.errorMessage,
-      finalStatus: organizationAuthorization.finalStatus,
+      errorCode: organizationScope.errorCode,
+      errorMessage: organizationScope.errorMessage,
+      finalStatus: organizationScope.finalStatus,
       bindingSource: targetBindingResolution.source,
       targetOwnerUserId: targetBindingSnapshot.ownerUserId,
     };
@@ -3148,7 +3147,7 @@ export const runDispatchExecutionPreflightGate = async (input: {
     ok: true,
     effectiveTargetBindingSnapshot: {
       ...targetBindingSnapshot,
-      organizationId: organizationAuthorization.organizationId,
+      organizationId: organizationScope.organizationId,
     },
     bindingSource: targetBindingResolution.source,
   };
@@ -5479,7 +5478,7 @@ function parseHostedRuntimeIdentity(
   }
 }
 
-type TargetBindingOrganizationAuthorizationResult =
+type TargetBindingOrganizationScopeResult =
   | {
       ok: true;
       organizationId: string;
@@ -5487,26 +5486,27 @@ type TargetBindingOrganizationAuthorizationResult =
   | {
       ok: false;
       errorCode:
-        | "organization_binding_authorization.lookup_failed"
-        | "organization_binding_authorization.required"
-        | "organization_binding_authorization.space_org_unavailable";
+        | "agent_profile.organization_context_missing"
+        | "agent_profile.organization_lookup_failed"
+        | "agent_profile.organization_mismatch"
+        | "agent_profile.space_organization_unavailable";
       errorMessage: string;
       finalStatus:
         | typeof OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable
         | typeof OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal;
     };
 
-const resolveTargetBindingOrganizationAuthorization = async (input: {
+export const resolveTargetBindingOrganizationScope = async (input: {
   bindingId: string | null;
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
-}): Promise<TargetBindingOrganizationAuthorizationResult> => {
+}): Promise<TargetBindingOrganizationScopeResult> => {
   if (!input.bindingId) {
     return {
       ok: false,
-      errorCode: "organization_binding_authorization.lookup_failed",
+      errorCode: "agent_profile.organization_lookup_failed",
       errorMessage:
-        "Target Binding authorization could not be checked before Wake execution.",
+        "The Agent Profile workspace could not be checked before Wake execution.",
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
     };
   }
@@ -5515,9 +5515,9 @@ const resolveTargetBindingOrganizationAuthorization = async (input: {
   if (!db) {
     return {
       ok: false,
-      errorCode: "organization_binding_authorization.lookup_failed",
+      errorCode: "agent_profile.organization_lookup_failed",
       errorMessage:
-        "Target Binding authorization could not be checked before Wake execution.",
+        "The Agent Profile workspace could not be checked before Wake execution.",
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
     };
   }
@@ -5528,36 +5528,57 @@ const resolveTargetBindingOrganizationAuthorization = async (input: {
         `
           SELECT
             spaces.organization_id AS organization_id,
-            authorizations.id AS authorization_id
+            profiles.organization_id AS profile_organization_id
           FROM space_index_spaces AS spaces
-          LEFT JOIN organization_binding_authorizations AS authorizations
-            ON authorizations.organization_id = spaces.organization_id
-            AND authorizations.binding_id = ?
+          LEFT JOIN openMeldDaemon_agent_profile_bindings AS bindings
+            ON bindings.binding_id = ?
+            AND bindings.agent_profile_id = ?
+            AND bindings.binding_state = 'enabled_primary'
+          LEFT JOIN openmeld_profiles AS profiles
+            ON profiles.profile_id = bindings.agent_profile_id
+            AND profiles.profile_kind = 'agent'
+            AND profiles.status = 'active'
           WHERE spaces.space_id = ?
           LIMIT 1
         `
       )
-      .bind(input.bindingId, input.message.spaceId)
+      .bind(
+        input.bindingId,
+        input.message.targetProfileId,
+        input.message.spaceId
+      )
       .first<{
         organization_id: string | null;
-        authorization_id: string | null;
+        profile_organization_id: string | null;
       }>();
     const organizationId = normalizeOptionalText(row?.organization_id);
     if (!organizationId) {
       return {
         ok: false,
-        errorCode: "organization_binding_authorization.space_org_unavailable",
+        errorCode: "agent_profile.space_organization_unavailable",
         errorMessage:
           "Space Organization could not be verified before Wake execution.",
         finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
       };
     }
-    if (!normalizeOptionalText(row?.authorization_id)) {
+    const profileOrganizationId = normalizeOptionalText(
+      row?.profile_organization_id
+    );
+    if (!profileOrganizationId) {
       return {
         ok: false,
-        errorCode: "organization_binding_authorization.required",
+        errorCode: "agent_profile.organization_context_missing",
         errorMessage:
-          "Target Binding is not authorized for this Space Organization.",
+          "The Agent Profile workspace could not be verified before Wake execution.",
+        finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      };
+    }
+    if (profileOrganizationId !== organizationId) {
+      return {
+        ok: false,
+        errorCode: "agent_profile.organization_mismatch",
+        errorMessage:
+          "This Agent Profile belongs to a different workspace than the Space.",
         finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
       };
     }
@@ -5568,9 +5589,9 @@ const resolveTargetBindingOrganizationAuthorization = async (input: {
   } catch {
     return {
       ok: false,
-      errorCode: "organization_binding_authorization.lookup_failed",
+      errorCode: "agent_profile.organization_lookup_failed",
       errorMessage:
-        "Target Binding authorization could not be checked before Wake execution.",
+        "The Agent Profile workspace could not be checked before Wake execution.",
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
     };
   }
@@ -5583,20 +5604,19 @@ const resolveTargetProfileIsCurrentCenterAgent = async (input: {
   executionLogBase: DispatchExecutionLogBase;
   message: OpenMeldDaemonDispatchQueueMessage;
 }): Promise<boolean> => {
-  const organizationAuthorization =
-    await resolveTargetBindingOrganizationAuthorization({
-      bindingId: input.bindingId,
-      env: input.env,
-      message: input.message,
-    });
-  if (!organizationAuthorization.ok) {
+  const organizationScope = await resolveTargetBindingOrganizationScope({
+    bindingId: input.bindingId,
+    env: input.env,
+    message: input.message,
+  });
+  if (!organizationScope.ok) {
     console.warn(
       "[core.openMeldDaemon.dispatch_execution.center_agent_designation_unavailable]",
       {
         event:
           "core.openMeldDaemon.dispatch_execution.center_agent_designation_unavailable",
         ...input.executionLogBase,
-        reasonCode: organizationAuthorization.errorCode,
+        reasonCode: organizationScope.errorCode,
       }
     );
     return false;
@@ -5605,7 +5625,7 @@ const resolveTargetProfileIsCurrentCenterAgent = async (input: {
   try {
     const designation = await readCenterAgentDesignationRecord({
       db: input.db,
-      organizationId: organizationAuthorization.organizationId,
+      organizationId: organizationScope.organizationId,
     });
     return designation?.agentProfileId === input.message.targetProfileId;
   } catch (error) {

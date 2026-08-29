@@ -4903,7 +4903,6 @@ describe("remote agent OpenMeld tool catalog", () => {
       configuration: {
         agentControllerCollaborationMode: "codex:default",
         agentControllerPermissionMode: "codex:askForApproval",
-        authorizeForOrganization: true,
         defaultProjectId: "project-1",
         modelId: "gpt-5.6-terra",
         openCodePermission: null,
@@ -4956,7 +4955,6 @@ describe("remote agent OpenMeld tool catalog", () => {
         agentControllerCollaborationMode: "codex:plan",
         agentControllerPermissionMode: "codex:approveForMe",
         agentControllerRef: "builtin:codex",
-        authorizeForOrganization: true,
         defaultProjectId: "project-1",
         modelId: "gpt-5.6-sol",
         openCodePermission: null,

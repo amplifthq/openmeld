@@ -37,7 +37,6 @@ import {
 	buildOrganizationProjectsPath,
 	buildOrganizationSkillPath,
 	buildOrganizationSkillsPath,
-	buildOrganizationWakeAccessPath,
 	resolveOrganizationSwitchPath,
 } from "./organization-routes";
 
@@ -95,9 +94,6 @@ describe("integration management routes", () => {
 		);
 		expect(buildOrganizationConnectedAppsSettingsPath("acme")).toBe(
 			"/o/acme/settings/connected-apps"
-		);
-		expect(buildOrganizationWakeAccessPath("acme")).toBe(
-			"/o/acme/settings/general#organization-wake-access"
 		);
 	});
 });

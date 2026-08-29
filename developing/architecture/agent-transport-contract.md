@@ -402,20 +402,19 @@ separate and must not collapse into one availability source:
 - Execution readiness: whether the Agent Profile is eligible for a Wake now.
 - Concrete Wake outcome: what happened to one actual Wake execution.
 
-Organization Binding authorization is part of claim eligibility. When a
-readiness request has an active Organization and an enabled primary Binding,
-Core must verify the matching Organization authorization record. Missing or
-unavailable authorization evidence blocks readiness with an explicit
-`organization_binding_authorization.*` reason. Route or service health must not
-override that fail-closed result.
+Canonical Agent Profile Organization identity is part of claim eligibility.
+When a readiness request has an active Organization and an enabled primary
+Binding, Core must verify that the Agent Profile's `organizationId` equals the
+active Organization. Missing or unavailable identity evidence blocks readiness
+with an explicit `agent_profile.organization_*` reason. Route, service health,
+Space membership, or a legacy authorization record must not override that
+fail-closed result.
 
-Binding authorization cannot transfer a managed Center Agent identity between
-Organizations. For `managedRole = "center_agent"`, claim eligibility also
-requires the Agent Profile's `organizationId` to equal the active
-Organization. A foreign managed Center Agent must fail closed before readiness
-or Wake even if an authorization record, Space membership, route, and healthy
-Runtime already exist. This restriction does not change ordinary Agent Profile
-cross-Organization authorization.
+The same rule applies before Wake dispatch. A foreign ordinary workstation or
+managed Center Agent Profile must fail closed even if a legacy authorization
+record, Space membership, route, and healthy Runtime already exist. Remote
+Agent native delivery remains a separate runtime family; it does not make an
+ordinary workstation Profile portable.
 
 The 2026-06 Runtime Transport cleanup completed the practical transport
 boundary work: Gateway no longer runs a long-lived daemon-stream frame relay,

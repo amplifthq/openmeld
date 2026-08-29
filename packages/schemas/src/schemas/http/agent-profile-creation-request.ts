@@ -50,7 +50,7 @@ const completeAgentProfileCreationConfigurationSchema =
   agentProfileCreationPreferenceSelectionSchema
     .safeExtend({
       agentControllerRef: agentControllerRefSchema.nullable(),
-      authorizeForOrganization: z.boolean(),
+      authorizeForOrganization: z.boolean().optional(),
       localAgentConnectionCandidateId: identifierSchema.nullable().optional(),
       targetComputerId: identifierSchema.nullable(),
     })
@@ -101,7 +101,11 @@ const completeAgentProfileCreationConfigurationSchema =
           });
         }
       }
-    });
+    })
+    .transform(
+      ({ authorizeForOrganization: _retiredWakeAccess, ...configuration }) =>
+        configuration
+    );
 
 export const agentProfileCreationConfigurationSchema = z.preprocess(
   addMissingAgentControllerCollaborationMode,
@@ -124,7 +128,6 @@ export const DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION = {
   agentControllerCollaborationMode: null,
   agentControllerPermissionMode: null,
   agentControllerRef: null,
-  authorizeForOrganization: true,
   defaultProjectId: null,
   modelId: null,
   openCodePermission: null,

@@ -230,7 +230,7 @@ describe("agent wake availability", () => {
     });
   });
 
-  it("projects missing Organization Wake access as unavailable with a clear reason", () => {
+  it("keeps legacy authorization failures non-actionable during rollout", () => {
     const readiness = resolveAgentExecutionStatus({
       agentProfileId,
       binding: createPrimaryBinding(),
@@ -258,9 +258,9 @@ describe("agent wake availability", () => {
         readiness,
       })
     ).toMatchObject({
-      badgeLabel: "Wake access off",
+      badgeLabel: "Wrong workspace",
       category: "unavailable",
-      label: "Wake access off",
+      label: "Wrong workspace",
       reasonCode: "organization_binding_authorization.required",
       status: "unavailable_for_wake",
     });

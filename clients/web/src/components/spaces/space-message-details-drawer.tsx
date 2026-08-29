@@ -34,7 +34,6 @@ import {
 	isSpaceOutcomeNoticeItem,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
-import { isOrganizationWakeAccessReasonCode } from "#/lib/spaces/wake-access-reason-code";
 import {
 	resolveWakeFailureDisplay,
 	type WakeFailureTargetContext,
@@ -925,10 +924,7 @@ function resolveNoticeRecoveryPresentation(input: {
 	)
 		? recovery.body
 		: null;
-	if (
-		recovery.kind === "system_retry" &&
-		!isOrganizationWakeAccessReasonCode(reasonCode)
-	) {
+	if (recovery.kind === "system_retry") {
 		return { action: null, body, showDiagnostics: true };
 	}
 	if (recovery.kind !== "local_service" && recovery.recoveryTarget !== null) {
@@ -947,8 +943,7 @@ function resolveNoticeRecoveryPresentation(input: {
 		};
 	}
 
-	// Local-service actions need current-owner context, and Organization Wake
-	// access is a Web-specific route adaptation for a shared no-action mapping.
+	// Local-service actions need current-owner context.
 	const display = resolveWakeFailureDisplay({
 		failureReasonCode: reasonCode,
 		isPersonalContext: input.isPersonalContext,

@@ -200,17 +200,6 @@ openmeld org invite-link revoke --view agent
 openmeld org invite-link get --json
 ```
 
-### `openmeld binding`
-
-Authorize Agent Profile primary Bindings for the active organization.
-
-```bash
-openmeld binding list
-openmeld binding authorize <agent-profile-id>
-openmeld binding revoke <agent-profile-id>
-openmeld binding list --view agent
-```
-
 ### `openmeld center-agent`
 
 Consult the active Organization Center Agent, read its status and audit trail,

@@ -39,7 +39,6 @@ import {
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
 } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
-import { readOrganizationBindingAuthorizationRecord } from "../../agent-profile-binding/infrastructure/d1/organization-binding-authorization-repo";
 import {
   isAgentProfileEligibleForOrganization,
   readAgentProfileOrganizationContext,
@@ -665,7 +664,7 @@ async function enrichAgentBindingSnapshot(input: {
   ] = await Promise.all([
     runtimeReadinessPromise,
     measureReadinessStep(input.timing, "claim_diagnostics_read", () =>
-      resolveOrganizationAwareClaimDiagnostics({
+      resolveAgentProfileOrganizationClaimDiagnostics({
         activeOrganizationId: input.activeOrganizationId,
         binding: agentExecutionBinding,
         env: input.env,
@@ -1445,7 +1444,7 @@ async function resolveAgentClaimDiagnostics(input: {
   }
 }
 
-export async function resolveOrganizationAwareClaimDiagnostics(input: {
+export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
   activeOrganizationId: string | null;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1465,8 +1464,8 @@ export async function resolveOrganizationAwareClaimDiagnostics(input: {
 
   const db = identityDb(input.env);
   if (!db) {
-    return mergeOrganizationWakeAccessClaimFailure({
-      reasonCode: "organization_binding_authorization.lookup_failed",
+    return mergeAgentProfileOrganizationClaimFailure({
+      reasonCode: "agent_profile.organization_lookup_failed",
       runtimeClaimDiagnostics,
       status: "unavailable",
     });
@@ -1478,7 +1477,7 @@ export async function resolveOrganizationAwareClaimDiagnostics(input: {
       db,
     });
     if (!profileContext) {
-      return mergeOrganizationWakeAccessClaimFailure({
+      return mergeAgentProfileOrganizationClaimFailure({
         reasonCode: "agent_profile.organization_context_missing",
         runtimeClaimDiagnostics,
         status: "unavailable",
@@ -1491,28 +1490,19 @@ export async function resolveOrganizationAwareClaimDiagnostics(input: {
         targetOrganizationId: input.activeOrganizationId,
       })
     ) {
-      return mergeOrganizationWakeAccessClaimFailure({
-        reasonCode: "center_agent.organization_mismatch",
+      return mergeAgentProfileOrganizationClaimFailure({
+        reasonCode:
+          profileContext.managedRole === "center_agent"
+            ? "center_agent.organization_mismatch"
+            : "agent_profile.organization_mismatch",
         runtimeClaimDiagnostics,
         status: "rejected",
       });
     }
-    const authorization = await readOrganizationBindingAuthorizationRecord({
-      bindingId: input.binding.bindingId,
-      db,
-      organizationId: input.activeOrganizationId,
-    });
-    if (authorization) {
-      return runtimeClaimDiagnostics;
-    }
-    return mergeOrganizationWakeAccessClaimFailure({
-      reasonCode: "organization_binding_authorization.required",
-      runtimeClaimDiagnostics,
-      status: "rejected",
-    });
+    return runtimeClaimDiagnostics;
   } catch (error) {
     console.warn(
-      "[core.agent_execution.organization_wake_access_lookup_failed]",
+      "[core.agent_execution.agent_profile_organization_lookup_failed]",
       {
         event: CORE_LOG_EVENTS.coreInternalError,
         agentProfileId: input.binding.agentProfileId,
@@ -1521,15 +1511,15 @@ export async function resolveOrganizationAwareClaimDiagnostics(input: {
         organizationId: input.activeOrganizationId,
       }
     );
-    return mergeOrganizationWakeAccessClaimFailure({
-      reasonCode: "organization_binding_authorization.lookup_failed",
+    return mergeAgentProfileOrganizationClaimFailure({
+      reasonCode: "agent_profile.organization_lookup_failed",
       runtimeClaimDiagnostics,
       status: "unavailable",
     });
   }
 }
 
-function mergeOrganizationWakeAccessClaimFailure(input: {
+function mergeAgentProfileOrganizationClaimFailure(input: {
   reasonCode: string;
   runtimeClaimDiagnostics: AgentExecutionClaimDiagnosticEvidence | null;
   status: "rejected" | "unavailable";

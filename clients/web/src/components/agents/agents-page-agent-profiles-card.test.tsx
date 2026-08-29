@@ -31,6 +31,8 @@ import {
 const AGENT_PROFILE_ID = "agt-codex";
 const CREATE_AN_AGENT_PROFILE_NAME = /Create an Agent/;
 const PERMISSIONS_MODE_NAME_PATTERN = /permissions mode/i;
+const WAKE_ACCESS_LABEL_PATTERN = /Wake access:/i;
+const ORGANIZATION_WAKE_ACCESS_SWITCH_PATTERN = /organization.*Wake access/i;
 
 const ensureRuntimeBindingMock = vi.hoisted(() => vi.fn());
 const disablePrimaryBindingMock = vi.hoisted(() => vi.fn());
@@ -40,18 +42,6 @@ const refreshReadinessFactsMock = vi.hoisted(() => vi.fn());
 const refreshReadinessSharedCachesMock = vi.hoisted(() => vi.fn());
 const renameOpenMeldProfileMock = vi.hoisted(() => vi.fn());
 const deleteStartAgentProfileMock = vi.hoisted(() => vi.fn());
-const listOrganizationBindingAuthorizationProfilesMock = vi.hoisted(() =>
-	vi.fn()
-);
-const authorizeAgentProfileBindingForCurrentOrganizationMock = vi.hoisted(() =>
-	vi.fn()
-);
-const revokeAgentProfileBindingForCurrentOrganizationMock = vi.hoisted(() =>
-	vi.fn()
-);
-const listCurrentUserAgentProfileOrganizationWakeAccessMock = vi.hoisted(() =>
-	vi.fn()
-);
 const updatePrimaryBindingAgentControllerPermissionModeMock = vi.hoisted(() =>
 	vi.fn()
 );
@@ -142,27 +132,6 @@ vi.mock("#/lib/spaces/direct-message", () => ({
 	) => openCurrentDirectMessageSpaceMock(...args),
 	resolveDirectMessageOpenErrorMessage: () =>
 		"OpenMeld could not open this Direct Message.",
-}));
-
-vi.mock("#/lib/profiles/organization-binding-authorizations", () => ({
-	authorizeAgentProfileBindingForCurrentOrganization: (
-		...args: Parameters<
-			typeof authorizeAgentProfileBindingForCurrentOrganizationMock
-		>
-	) => authorizeAgentProfileBindingForCurrentOrganizationMock(...args),
-	listCurrentUserAgentProfileOrganizationWakeAccess: (
-		...args: Parameters<
-			typeof listCurrentUserAgentProfileOrganizationWakeAccessMock
-		>
-	) => listCurrentUserAgentProfileOrganizationWakeAccessMock(...args),
-	listOrganizationBindingAuthorizationProfiles: (
-		...args: Parameters<typeof listOrganizationBindingAuthorizationProfilesMock>
-	) => listOrganizationBindingAuthorizationProfilesMock(...args),
-	revokeAgentProfileBindingForCurrentOrganization: (
-		...args: Parameters<
-			typeof revokeAgentProfileBindingForCurrentOrganizationMock
-		>
-	) => revokeAgentProfileBindingForCurrentOrganizationMock(...args),
 }));
 
 vi.mock("#/query/agents/execution-readiness", () => ({
@@ -315,14 +284,6 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 					input.openCodePermission
 				)
 			);
-		listOrganizationBindingAuthorizationProfilesMock
-			.mockReset()
-			.mockResolvedValue({ organizationId: "org-acme", profiles: [] });
-		authorizeAgentProfileBindingForCurrentOrganizationMock.mockReset();
-		revokeAgentProfileBindingForCurrentOrganizationMock.mockReset();
-		listCurrentUserAgentProfileOrganizationWakeAccessMock
-			.mockReset()
-			.mockResolvedValue({ profiles: [] });
 		openCurrentDirectMessageSpaceMock.mockReset().mockResolvedValue({
 			memberProfileId: "profile-felix",
 			spaceId: "space-research-agent-dm",
@@ -2023,100 +1984,16 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(toastMock.error).not.toHaveBeenCalled();
 	});
 
-	it("shows and toggles the Organization Wake Access switch for a caller-owned bound Agent", async () => {
-		listOrganizationBindingAuthorizationProfilesMock.mockResolvedValue({
-			organizationId: "org-acme",
-			profiles: [
-				{
-					agentProfileId: AGENT_PROFILE_ID,
-					authorized: false,
-					authorizedAt: null,
-					authorizedBy: null,
-					bindingId: "binding-1",
-					ownerUserId: "user-1",
-					profileHandle: "research-agent",
-					profileName: "Research Agent",
-					profileOrganizationId: "org-acme",
-					status: "not_authorized",
-				},
-			],
-		});
-		authorizeAgentProfileBindingForCurrentOrganizationMock.mockResolvedValue({
-			agentProfileId: AGENT_PROFILE_ID,
-			authorized: true,
-			bindingId: "binding-1",
-		});
+	it("does not expose cross-workspace Wake access controls or projections", async () => {
 		renderAgentProfilesCard();
 
-		const toggle = await screen.findByRole("switch", {
-			name: "Authorize Research Agent for this organization's Wake access",
-		});
-		expect(toggle.getAttribute("aria-checked")).toBe("false");
-
-		fireEvent.click(toggle);
-
-		await waitFor(() => {
-			expect(
-				authorizeAgentProfileBindingForCurrentOrganizationMock
-			).toHaveBeenCalledWith({
-				agentProfileId: AGENT_PROFILE_ID,
-				organizationId: "org-acme",
-			});
-		});
-	});
-
-	it("hides the Organization Wake Access switch for an Agent the caller cannot manage", async () => {
-		listOrganizationBindingAuthorizationProfilesMock.mockResolvedValue({
-			organizationId: "org-acme",
-			profiles: [
-				{
-					agentProfileId: AGENT_PROFILE_ID,
-					authorized: false,
-					authorizedAt: null,
-					authorizedBy: null,
-					bindingId: "binding-1",
-					ownerUserId: "user-2",
-					profileHandle: "research-agent",
-					profileName: "Research Agent",
-					profileOrganizationId: "org-acme",
-					status: "not_authorized",
-				},
-			],
-		});
-		renderAgentProfilesCard({}, undefined, {
-			canManageProfile: () => false,
-		});
-
 		await screen.findByText("Research Agent");
+		expect(screen.queryByText(WAKE_ACCESS_LABEL_PATTERN)).toBeNull();
 		expect(
 			screen.queryByRole("switch", {
-				name: "Authorize Research Agent for this organization's Wake access",
+				name: ORGANIZATION_WAKE_ACCESS_SWITCH_PATTERN,
 			})
 		).toBeNull();
-	});
-
-	it("shows which Organizations a personal-view Agent's Binding is shared with", async () => {
-		listCurrentUserAgentProfileOrganizationWakeAccessMock.mockResolvedValue({
-			profiles: [
-				{
-					agentProfileId: AGENT_PROFILE_ID,
-					organizations: [
-						{ organizationId: "org-widgets", organizationName: "Widgets Inc" },
-					],
-				},
-			],
-		});
-		renderAgentProfilesCard(
-			{},
-			undefined,
-			{},
-			createOrganizationScope({ isPersonal: true })
-		);
-
-		expect(await screen.findByText("Wake access: Widgets Inc")).toBeTruthy();
-		expect(
-			listOrganizationBindingAuthorizationProfilesMock
-		).not.toHaveBeenCalled();
 	});
 });
 

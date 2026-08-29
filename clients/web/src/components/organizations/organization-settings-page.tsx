@@ -23,7 +23,6 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { SettingsSection } from "@openmeld/ui/components/settings-section";
-import { Switch } from "@openmeld/ui/components/switch";
 import {
 	Select,
 	SelectContent,
@@ -57,7 +56,6 @@ import {
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
-import { setOrganizationBindingAuthorizationPreference } from "#/lib/profiles/organization-binding-authorizations";
 import {
 	organizationDirectoryQueryOptions,
 	organizationMemberRoleQueryOptions,
@@ -65,7 +63,6 @@ import {
 } from "#/query/organizations/organization-directory";
 import { applyOrganizationDeletionToScopeCache } from "#/query/organizations/organization-scope";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
-import { organizationBindingAuthorizationPreferenceQueryOptions } from "#/query/profiles/organization-binding-authorizations";
 
 const MEMBER_ROLE_OPTIONS = [
 	{ label: "Member", value: "member" },
@@ -134,7 +131,7 @@ function OrganizationSettingsContent(input: {
 				<p className="max-w-2xl text-muted-foreground text-sm leading-6">
 					{isPersonalWorkspace
 						? "Manage the name and URL for your personal workspace."
-						: "Manage workspace identity, members, invitations, and Wake access."}
+						: "Manage workspace identity, members, invitations, and policies."}
 				</p>
 			</section>
 			{isPersonalWorkspace ? null : (
@@ -183,9 +180,6 @@ function OrganizationSettingsContent(input: {
 					<AgentProfileCreationApprovalSettings
 						organizationId={currentOrganization.id}
 					/>
-					<OrganizationWakeAccessPreferenceSection
-						organizationId={currentOrganization.id}
-					/>
 					{canManageInformationProtection ? (
 						<OrganizationInformationProtectionSection
 							organizationId={currentOrganization.id}
@@ -217,108 +211,6 @@ function PersonalWorkspaceLifecycleSection() {
 			</p>
 		</SettingsSection>
 	);
-}
-
-function OrganizationWakeAccessPreferenceSection(input: {
-	organizationId: string;
-}) {
-	const preferenceQuery = useQuery(
-		organizationBindingAuthorizationPreferenceQueryOptions({
-			enabled: true,
-			organizationId: input.organizationId,
-		})
-	);
-	const preferenceMutation = useMutation({
-		mutationFn: async (autoAuthorizeAgentProfileBindings: boolean) =>
-			await setOrganizationBindingAuthorizationPreference({
-				autoAuthorizeAgentProfileBindings,
-				organizationId: input.organizationId,
-			}),
-		onSuccess: async () => {
-			await preferenceQuery.refetch();
-		},
-	});
-	const checked =
-		preferenceQuery.data?.autoAuthorizeAgentProfileBindings ?? false;
-	const isDisabled =
-		preferenceQuery.isPending ||
-		preferenceQuery.isError ||
-		preferenceMutation.isPending;
-
-	return (
-		<SettingsSection
-			description="Choose whether new Agent Profiles you create for this organization receive Wake access automatically after they have a Binding."
-			id="organization-wake-access-preference"
-			title="New Agent Profile Wake access"
-		>
-			<div className="flex items-center justify-between gap-4 rounded-md border border-border/70 px-4 py-4">
-				<div className="min-w-0">
-					<p className="font-medium text-foreground text-sm">
-						Automatically authorize my new Agent Profiles in this organization
-					</p>
-					<p className="mt-1 text-muted-foreground text-xs">
-						{resolvePreferenceSummary({
-							checked,
-							isPending: preferenceQuery.isPending,
-							isSaving: preferenceMutation.isPending,
-						})}
-					</p>
-					{preferenceQuery.isError ? (
-						<div className="mt-2 flex flex-wrap items-center gap-3">
-							<p className="text-destructive text-xs">
-								{preferenceQuery.error.message}
-							</p>
-							<Button
-								disabled={preferenceQuery.isRefetching}
-								onClick={() => {
-									preferenceQuery.refetch().catch((error) => {
-										console.error(
-											"Failed to refresh organization Wake access preference.",
-											error
-										);
-									});
-								}}
-								size="sm"
-								type="button"
-								variant="outline"
-							>
-								Retry
-							</Button>
-						</div>
-					) : null}
-					{preferenceMutation.isError ? (
-						<p className="mt-2 text-destructive text-xs">
-							{preferenceMutation.error.message}
-						</p>
-					) : null}
-				</div>
-				<Switch
-					aria-label="Automatically authorize my new Agent Profiles in this organization"
-					checked={checked}
-					disabled={isDisabled}
-					onCheckedChange={(nextChecked) => {
-						preferenceMutation.mutate(nextChecked);
-					}}
-				/>
-			</div>
-		</SettingsSection>
-	);
-}
-
-function resolvePreferenceSummary(input: {
-	checked: boolean;
-	isPending: boolean;
-	isSaving: boolean;
-}): string {
-	if (input.isPending) {
-		return "Loading this preference from OpenMeld.";
-	}
-	if (input.isSaving) {
-		return "Saving this preference.";
-	}
-	return input.checked
-		? "New Agent Profiles you create here will receive Wake access automatically after they have a Binding."
-		: "New Agent Profiles you create here will need Wake access authorized manually.";
 }
 
 function DeleteOrganizationSection(input: {

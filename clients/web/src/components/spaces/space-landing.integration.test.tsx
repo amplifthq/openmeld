@@ -3560,13 +3560,6 @@ describe("SpaceLanding", () => {
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
 				}
-				const organizationAuthorizationPreferenceResult =
-					resolveOrganizationAuthorizationPreferenceQueryResult(
-						options.queryKey
-					);
-				if (organizationAuthorizationPreferenceResult) {
-					return organizationAuthorizationPreferenceResult;
-				}
 				const [scope, kind, spaceId] = options.queryKey;
 				if (kind === "account-spaces") {
 					return createQueryResult({
@@ -8903,13 +8896,6 @@ describe("SpaceLanding", () => {
 				);
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
-				}
-				const organizationAuthorizationPreferenceResult =
-					resolveOrganizationAuthorizationPreferenceQueryResult(
-						options.queryKey
-					);
-				if (organizationAuthorizationPreferenceResult) {
-					return organizationAuthorizationPreferenceResult;
 				}
 				if (
 					queryKey ===
@@ -16422,11 +16408,6 @@ function mockSpaceQueries(input: {
 			if (organizationSpacesResult) {
 				return organizationSpacesResult;
 			}
-			const organizationAuthorizationPreferenceResult =
-				resolveOrganizationAuthorizationPreferenceQueryResult(options.queryKey);
-			if (organizationAuthorizationPreferenceResult) {
-				return organizationAuthorizationPreferenceResult;
-			}
 			if (
 				isExpectedSpace &&
 				options.queryKey[0] === "spaces" &&
@@ -16952,22 +16933,6 @@ function resolveOrganizationSpacesQueryResult(queryKey: readonly unknown[]) {
 					generatedAt: "2026-07-08T00:00:00.000Z",
 					organizationId: String(queryKey[1] ?? ""),
 					spaces: [],
-				},
-			})
-		: null;
-}
-
-function resolveOrganizationAuthorizationPreferenceQueryResult(
-	queryKey: readonly unknown[]
-) {
-	return queryKey[0] === "agent-profile-binding" &&
-		queryKey[1] === "organization-authorizations" &&
-		queryKey[3] === "preference"
-		? createQueryResult({
-				isSuccess: true,
-				data: {
-					autoAuthorizeAgentProfileBindings: false,
-					organizationId: String(queryKey[2] ?? ""),
 				},
 			})
 		: null;

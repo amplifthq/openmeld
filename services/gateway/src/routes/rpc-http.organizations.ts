@@ -4,8 +4,6 @@ import {
 } from "@openmeld/gateway-contract";
 import {
   agentProfileCreationRequestMutationResponseSchema,
-  bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
-  bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   centerAgentOrganizationMemoryPolicyResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
   createAgentProfileCreationRequestBodySchema,
@@ -14,9 +12,7 @@ import {
   feedbackReportingPolicyResponseSchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
   getAgentProfileCreationDefaultsResponseSchema,
-  getOrganizationBindingAuthorizationPreferenceResponseSchema,
   listAgentProfileCreationRequestsResponseSchema,
-  listOrganizationBindingAuthorizationProfilesResponseSchema,
   organizationComputersResponseSchema,
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
@@ -24,14 +20,10 @@ import {
   organizationMemberWebActivityResponseSchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
-  saveOrganizationWakeAccessChoiceBodySchema,
-  saveOrganizationWakeAccessChoiceResponseSchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
   setAgentProfileCreationDefaultsResponseSchema,
-  setOrganizationBindingAuthorizationPreferenceBodySchema,
-  setOrganizationBindingAuthorizationPreferenceResponseSchema,
   updateCenterAgentOrganizationMemoryPolicyBodySchema,
   updateFeedbackReportingPolicyBodySchema,
   updateOrganizationInformationProtectionPolicyBodySchema,
@@ -42,6 +34,7 @@ import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
+  respondAgentProfileOrganizationOwnershipRequired,
   respondBadRequest,
 } from "./rpc-http.helpers";
 import { readJsonRequestBody } from "./rpc-http.parsers";
@@ -578,110 +571,29 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
-  app.post(ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE, async (c) => {
-    const organizationId = c.req.param("organizationId")?.trim();
-    if (!organizationId) {
-      return respondBadRequest({
-        c,
-        route: ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE,
-        method: "POST",
-        code: "invalid_payload",
-        message: "organizationId is required",
-      });
-    }
-
-    const bodyResult = await readJsonRequestBody(c.req.raw);
-    if (!bodyResult.ok) {
-      return respondBadRequest({
-        c,
-        route: ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE,
-        method: "POST",
-        code: "invalid_json",
-        message: bodyResult.message,
-      });
-    }
-    const body =
-      bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema.safeParse(
-        bodyResult.value
-      );
-    if (!body.success) {
-      return respondBadRequest({
-        c,
-        route: ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE,
-        method: "POST",
-        code: "invalid_payload",
-        message:
-          body.error.issues[0]?.message ??
-          "Invalid Organization Binding authorization payload.",
-      });
-    }
-
-    return executeRpcRoute({
+  app.post(ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE, (c) =>
+    respondAgentProfileOrganizationOwnershipRequired({
       c,
       route: ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE,
       method: "POST",
-      responseSchema:
-        bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
-      execute: async () =>
-        await c.var.coreRpc.bulkAuthorizeAgentProfileBindingsForOrganization({
-          ...body.data,
-          organizationId,
-          context: buildCoreRpcContext(c),
-        }),
-    });
-  });
+    })
+  );
 
-  app.get(ORGANIZATION_BINDING_AUTHORIZATION_PROFILES_ROUTE, (c) => {
-    const organizationId = c.req.param("organizationId")?.trim();
-    if (!organizationId) {
-      return respondBadRequest({
-        c,
-        route: ORGANIZATION_BINDING_AUTHORIZATION_PROFILES_ROUTE,
-        method: "GET",
-        code: "invalid_payload",
-        message: "organizationId is required",
-      });
-    }
-
-    return executeRpcRoute({
+  app.get(ORGANIZATION_BINDING_AUTHORIZATION_PROFILES_ROUTE, (c) =>
+    respondAgentProfileOrganizationOwnershipRequired({
       c,
       route: ORGANIZATION_BINDING_AUTHORIZATION_PROFILES_ROUTE,
       method: "GET",
-      responseSchema:
-        listOrganizationBindingAuthorizationProfilesResponseSchema,
-      execute: async () =>
-        await c.var.coreRpc.listOrganizationBindingAuthorizationProfiles({
-          organizationId,
-          context: buildCoreRpcContext(c),
-        }),
-    });
-  });
+    })
+  );
 
-  app.get(ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE, (c) => {
-    const organizationId = c.req.param("organizationId")?.trim();
-    if (!organizationId) {
-      return respondBadRequest({
-        c,
-        route: ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE,
-        method: "GET",
-        code: "invalid_payload",
-        message: "organizationId is required",
-      });
-    }
-
-    return executeRpcRoute({
+  app.get(ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE, (c) =>
+    respondAgentProfileOrganizationOwnershipRequired({
       c,
       route: ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE,
       method: "GET",
-      responseSchema:
-        getOrganizationBindingAuthorizationPreferenceResponseSchema,
-      execute: async () =>
-        await c.var.coreRpc.getOrganizationBindingAuthorizationPreference({
-          organizationId,
-          context: buildCoreRpcContext(c),
-        }),
-    });
-  });
+    })
+  );
 
   app.get(AGENT_PROFILE_CREATION_DEFAULTS_ROUTE, (c) => {
     const organizationId = c.req.param("organizationId")?.trim();
@@ -760,109 +672,21 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
-  app.put(ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE, async (c) => {
-    const organizationId = c.req.param("organizationId")?.trim();
-    if (!organizationId) {
-      return respondBadRequest({
-        c,
-        route: ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE,
-        method: "PUT",
-        code: "invalid_payload",
-        message: "organizationId is required",
-      });
-    }
-
-    const bodyResult = await readJsonRequestBody(c.req.raw);
-    if (!bodyResult.ok) {
-      return respondBadRequest({
-        c,
-        route: ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE,
-        method: "PUT",
-        code: "invalid_json",
-        message: bodyResult.message,
-      });
-    }
-    const body =
-      setOrganizationBindingAuthorizationPreferenceBodySchema.safeParse(
-        bodyResult.value
-      );
-    if (!body.success) {
-      return respondBadRequest({
-        c,
-        route: ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE,
-        method: "PUT",
-        code: "invalid_payload",
-        message:
-          body.error.issues[0]?.message ??
-          "Invalid Organization Binding authorization preference payload.",
-      });
-    }
-
-    return executeRpcRoute({
+  app.put(ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE, (c) =>
+    respondAgentProfileOrganizationOwnershipRequired({
       c,
       route: ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE,
       method: "PUT",
-      responseSchema:
-        setOrganizationBindingAuthorizationPreferenceResponseSchema,
-      execute: async () =>
-        await c.var.coreRpc.setOrganizationBindingAuthorizationPreference({
-          ...body.data,
-          organizationId,
-          context: buildCoreRpcContext(c),
-        }),
-    });
-  });
+    })
+  );
 
-  app.put(ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE, async (c) => {
-    const organizationId = c.req.param("organizationId")?.trim();
-    if (!organizationId) {
-      return respondBadRequest({
-        c,
-        route: ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE,
-        method: "PUT",
-        code: "invalid_payload",
-        message: "organizationId is required",
-      });
-    }
-
-    const bodyResult = await readJsonRequestBody(c.req.raw);
-    if (!bodyResult.ok) {
-      return respondBadRequest({
-        c,
-        route: ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE,
-        method: "PUT",
-        code: "invalid_json",
-        message: bodyResult.message,
-      });
-    }
-    const body = saveOrganizationWakeAccessChoiceBodySchema.safeParse(
-      bodyResult.value
-    );
-    if (!body.success) {
-      return respondBadRequest({
-        c,
-        route: ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE,
-        method: "PUT",
-        code: "invalid_payload",
-        message:
-          body.error.issues[0]?.message ??
-          "Invalid Organization Wake access choice payload.",
-      });
-    }
-
-    return executeRpcRoute({
+  app.put(ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE, (c) =>
+    respondAgentProfileOrganizationOwnershipRequired({
       c,
       route: ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE,
       method: "PUT",
-      responseSchema: saveOrganizationWakeAccessChoiceResponseSchema,
-      execute: async () =>
-        await c.var.coreRpc.saveOrganizationWakeAccessChoice({
-          ...body.data,
-          organizationId,
-          context: buildCoreRpcContext(c),
-        }),
-    });
-  });
+    })
+  );
 }
 
 function readCreationRequestIdentifiers(c: {

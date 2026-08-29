@@ -895,7 +895,6 @@ describe("api-client organization api", () => {
       configuration: {
         agentControllerPermissionMode: null,
         agentControllerRef: null,
-        authorizeForOrganization: true,
         defaultProjectId: null,
         modelId: null,
         openCodePermission: null,
