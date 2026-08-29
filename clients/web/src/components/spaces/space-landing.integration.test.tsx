@@ -448,6 +448,7 @@ function renderSpaceLanding(
 		} | null;
 		isCenterAgentDirectMessage?: boolean;
 		onInitialPendingMessageConsumed?: () => void;
+		organizationScope?: OrganizationScopeAuthorized;
 		presentation?: "compact" | "full";
 		profileId?: string;
 		queryClient?: QueryClient;
@@ -469,7 +470,13 @@ function renderSpaceLanding(
 				{input.observeVisibleWakeProgress ? (
 					<WakeProgressVisibleProjectionProbe />
 				) : null}
-				{ui}
+				{input.organizationScope ? (
+					<AppOrganizationProvider scope={input.organizationScope}>
+						{ui}
+					</AppOrganizationProvider>
+				) : (
+					ui
+				)}
 			</SpaceWakeProgressVisibleProjectionProvider>
 		</TestQueryClientProvider>
 	);
@@ -4112,7 +4119,7 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding();
+		renderSpaceLanding({ organizationScope: createOrganizationScope() });
 
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -4126,6 +4133,7 @@ describe("SpaceLanding", () => {
 				agentProfileId: DEFAULT_AGENT_PROFILE_ID,
 				agentControllerRef: "builtin:codex",
 				deviceId: "device-office",
+				organizationId: "org-acme",
 				runtimeLane: "dev-local",
 				writeMode: "reconnect",
 			});

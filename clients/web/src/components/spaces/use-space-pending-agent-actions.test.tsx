@@ -103,6 +103,7 @@ function renderPendingAgentActionsHook(
 		deviceId: "device-1",
 		executionTarget: null,
 		onSaved: input.onSaved ?? vi.fn().mockResolvedValue(undefined),
+		organizationId: "org-acme",
 		runtimeLane: "prod",
 		storageScope: "account:user-felix",
 	};

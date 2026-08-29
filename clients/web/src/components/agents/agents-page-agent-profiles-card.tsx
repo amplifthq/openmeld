@@ -756,6 +756,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 			action,
 			actorProfileId: input.recovery.selectedHumanProfileId,
 			deviceId: input.recovery.deviceId,
+			organizationId: currentOrganization.id,
 			profile,
 			runtimeLane: input.recovery.runtimeLane,
 		});
@@ -777,6 +778,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				});
 			},
 			profileIds,
+			organizationId: currentOrganization.id,
 			queryClient: input.queryClient,
 			refreshAll: input.recovery.refreshAll,
 			storageScope: input.recovery.storageScope,
@@ -922,6 +924,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		},
 		profile,
 		queryClient: input.queryClient,
+		organizationId: currentOrganization.id,
 		runtimeLane: input.recovery.runtimeLane,
 		storageScope: input.recovery.storageScope,
 	});
@@ -1127,6 +1130,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 			const response = await disableAgentProfilePrimaryBinding({
 				actorProfileId: input.recovery.selectedHumanProfileId,
 				agentProfileId: profile.openMeldProfileId,
+				organizationId: currentOrganization.id,
 			});
 			if (!(response.disabled || response.status === "missing")) {
 				if (
@@ -2752,6 +2756,7 @@ function AgentProfileRowMoreMenu(input: {
 				isProfileEditDialogOpen,
 				isUnbindControllerDialogOpen,
 			}),
+			organizationId: input.organizationId,
 			storageScope: input.storageScope,
 		})
 	);

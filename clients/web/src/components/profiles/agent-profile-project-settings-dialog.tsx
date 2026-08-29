@@ -92,6 +92,7 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 		try {
 			await updateAgentProfileWorkspace({
 				actorProfileId: input.actorProfileId,
+				organizationId: input.organizationId,
 				profileId: input.profile.openMeldProfileId,
 				workspaceMode: "custom",
 				workspacePath: connection.path,
@@ -117,6 +118,7 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 		try {
 			await updateAgentProfileWorkspace({
 				actorProfileId: input.actorProfileId,
+				organizationId: input.organizationId,
 				profileId: input.profile.openMeldProfileId,
 				workspaceMode: "openmeld_managed",
 			});
@@ -145,6 +147,7 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 		try {
 			await updateAgentProfileWorkspace({
 				actorProfileId: input.actorProfileId,
+				organizationId: input.organizationId,
 				profileId: input.profile.openMeldProfileId,
 				workspaceMode: "custom",
 				workspacePath,

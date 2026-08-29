@@ -18,6 +18,7 @@ export async function saveAgentProfileConnection(input: {
 	action: AgentProfileRepairAction;
 	actorProfileId: string | null;
 	deviceId: string | null;
+	organizationId: string;
 	profile: AuthProfileView;
 	runtimeLane: DaemonServiceLane | null;
 }): Promise<void> {
@@ -26,6 +27,7 @@ export async function saveAgentProfileConnection(input: {
 		agentProfileId: input.profile.openMeldProfileId,
 		agentControllerRef: input.action.agentControllerRef,
 		deviceId: input.deviceId,
+		organizationId: input.organizationId,
 		runtimeLane: input.runtimeLane,
 		writeMode: input.action.intent === "reconnect" ? "reconnect" : "ensure",
 	});
@@ -40,6 +42,7 @@ export async function refreshSavedAgentProfileConnections(input: {
 		binding: NonNullable<GetAgentProfilePrimaryBindingResponse["binding"]>
 	) => void;
 	profileIds: readonly string[];
+	organizationId: string;
 	queryClient: QueryClient;
 	refreshAll: () => Promise<unknown>;
 	storageScope: string;
@@ -49,6 +52,7 @@ export async function refreshSavedAgentProfileConnections(input: {
 			profileId,
 			response: await readAgentProfilePrimaryBinding({
 				agentProfileId: profileId,
+				organizationId: input.organizationId,
 			}),
 		}))
 	);

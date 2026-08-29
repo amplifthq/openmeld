@@ -2608,11 +2608,17 @@ export function useSpaceLandingController(input: {
 		setPendingAgentRecoveryProfileId(bindingInput.profileId);
 
 		try {
+			if (!input.organizationId) {
+				throw new Error(
+					"Workspace is unavailable. Refresh the page and try again."
+				);
+			}
 			const bindingResult = await ensureWebAgentProfileRuntimeBinding({
 				actorProfileId: input.profileId,
 				agentProfileId: bindingInput.profileId,
 				agentControllerRef: bindingInput.agentControllerRef,
 				deviceId: bindingInput.deviceId,
+				organizationId: input.organizationId,
 				runtimeLane: bindingInput.runtimeLane,
 				writeMode: "reconnect",
 			});

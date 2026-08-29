@@ -675,6 +675,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				actorProfileId: "human-1",
 				agentControllerPermissionMode: "codex:fullAccess",
 				agentProfileId: AGENT_PROFILE_ID,
+				organizationId: "org-acme",
 			});
 		});
 		expect(refreshAll).not.toHaveBeenCalled();
@@ -788,6 +789,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				actorProfileId: "human-1",
 				agentControllerCollaborationMode: "codex:plan",
 				agentProfileId: AGENT_PROFILE_ID,
+				organizationId: "org-acme",
 			});
 		});
 		expect(
@@ -1343,6 +1345,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				actorProfileId: "human-1",
 				agentProfileId: AGENT_PROFILE_ID,
 				modelId: "opencode/deepseek-v4-flash-free",
+				organizationId: "org-acme",
 				reasoningLevel: "max",
 			});
 		});
@@ -1401,6 +1404,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				actorProfileId: "human-1",
 				agentProfileId: AGENT_PROFILE_ID,
 				openCodePermission: { edit: "allow" },
+				organizationId: "org-acme",
 			});
 			expect(screen.queryByRole("heading", { name: "Edit Agent" })).toBeNull();
 		});
@@ -1522,6 +1526,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			expect(disablePrimaryBindingMock).toHaveBeenCalledWith({
 				actorProfileId: "human-1",
 				agentProfileId: AGENT_PROFILE_ID,
+				organizationId: "org-acme",
 			});
 		});
 		expect(refreshReadinessFactsMock).toHaveBeenCalledWith(
@@ -1639,6 +1644,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				deviceId: "device-1",
 				modelId: "claude-sonnet-4-5",
 				openCodePermission: null,
+				organizationId: "org-acme",
 				reasoningLevel: null,
 				runtimeLane: "dev-local",
 				writeMode: "reconnect",
@@ -1834,6 +1840,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				actorProfileId: "human-1",
 				agentProfileId: AGENT_PROFILE_ID,
 				modelId: "opencode/fast-reset",
+				organizationId: "org-acme",
 				reasoningLevel: null,
 			});
 		});
@@ -1961,6 +1968,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				agentControllerRef: "builtin:codex",
 				agentProfileId: AGENT_PROFILE_ID,
 				deviceId: "device-1",
+				organizationId: "org-acme",
 				runtimeLane: "dev-local",
 				writeMode: "ensure",
 			});

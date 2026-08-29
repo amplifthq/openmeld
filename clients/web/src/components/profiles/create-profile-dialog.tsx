@@ -1481,6 +1481,7 @@ async function configureRequestedAgentCustomWorkingFolder(input: {
 		await configureNewAgentProfileWorkspace({
 			agentProfileId: input.request.createdAgentProfileId,
 			bindingEstablished: true,
+			organizationId: input.submission.organizationId,
 			projectFolderPath: input.submission.projectFolderPath,
 			selectedHumanProfileId:
 				input.submission.selectedHumanProfile?.openMeldProfileId ?? null,
@@ -2407,6 +2408,7 @@ async function refreshCreatedProfileCaches(input: {
 
 async function refreshCreatedAgentProfileLocalState(input: {
 	createdProfile: AuthProfileView;
+	organizationId: string;
 	queryClient: QueryClient;
 	recovery: RecoveryController;
 }) {
@@ -2432,6 +2434,7 @@ async function refreshCreatedAgentProfileLocalState(input: {
 
 async function refreshCreatedAgentProfilePrimaryBinding(input: {
 	createdProfile: AuthProfileView;
+	organizationId: string;
 	queryClient: QueryClient;
 	recovery: RecoveryController;
 }) {
@@ -2444,6 +2447,7 @@ async function refreshCreatedAgentProfilePrimaryBinding(input: {
 		agentProfilePrimaryBindingQueryOptions({
 			agentProfileId: input.createdProfile.openMeldProfileId,
 			enabled: true,
+			organizationId: input.organizationId,
 			storageScope: input.recovery.storageScope,
 		})
 	);

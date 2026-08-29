@@ -1434,6 +1434,7 @@ function SpaceLandingReady({
 		membersPanelWidth,
 		modelCatalog,
 		navigate,
+		organizationId,
 		recovery,
 		refreshCurrentSpaceMemberFacts,
 		setupRecallAction,
@@ -1511,6 +1512,7 @@ function SpaceLandingReady({
 				recovery.refreshAll(),
 			]);
 		},
+		organizationId,
 		recovery,
 	});
 	const pendingAgentActions = useSpacePendingAgentActions({
@@ -2120,9 +2122,10 @@ function resolveSpaceMembersLoadErrorMessage(error: unknown) {
 
 function resolveAgentProfileEditDialogContext(input: {
 	onSaved: (profileId: string) => Promise<void>;
+	organizationId: string | null;
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
 }): AgentProfileEditDialogContext | undefined {
-	if (!input.recovery.selectedHumanProfileId) {
+	if (!(input.organizationId && input.recovery.selectedHumanProfileId)) {
 		return undefined;
 	}
 	return {
@@ -2132,6 +2135,7 @@ function resolveAgentProfileEditDialogContext(input: {
 			input.recovery
 		),
 		onSaved: input.onSaved,
+		organizationId: input.organizationId,
 		runtimeLane: input.recovery.runtimeLane,
 		storageScope: input.recovery.storageScope,
 	};
