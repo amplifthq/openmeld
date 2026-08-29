@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { agentProfileCreationConfigurationSchema } from "../../src";
 
 describe("Agent Profile creation request HTTP schemas", () => {
-  it("reads legacy creation requests without preserving retired Wake access", () => {
+  it("preserves the retired field only as a rolling compatibility boolean", () => {
     const configuration = agentProfileCreationConfigurationSchema.parse({
       agentControllerPermissionMode: "codex:customConfig",
       agentControllerRef: "builtin:codex",
@@ -16,15 +16,14 @@ describe("Agent Profile creation request HTTP schemas", () => {
 
     expect(configuration).toMatchObject({
       agentControllerCollaborationMode: null,
+      authorizeForOrganization: true,
     });
-    expect(configuration).not.toHaveProperty("authorizeForOrganization");
   });
 
-  it("keeps legacy unbound requests valid when no candidate ID is present", () => {
+  it("fills the compatibility boolean for new writers that omit it", () => {
     const configuration = agentProfileCreationConfigurationSchema.parse({
       agentControllerPermissionMode: null,
       agentControllerRef: null,
-      authorizeForOrganization: true,
       defaultProjectId: null,
       modelId: null,
       openCodePermission: null,
@@ -35,8 +34,8 @@ describe("Agent Profile creation request HTTP schemas", () => {
     expect(configuration).toMatchObject({
       agentControllerCollaborationMode: null,
       agentControllerRef: null,
+      authorizeForOrganization: true,
       targetComputerId: null,
     });
-    expect(configuration).not.toHaveProperty("authorizeForOrganization");
   });
 });

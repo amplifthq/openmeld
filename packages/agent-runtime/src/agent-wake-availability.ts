@@ -633,6 +633,27 @@ function createUnavailableWakeAvailability(
   readiness: AgentExecutionStatusProjection,
   agentControllerRef?: string | null
 ): AgentWakeAvailability {
+  const workspaceUnavailableReasonCode = collectReasonCodes(readiness).find(
+    (reasonCode) =>
+      reasonCode === "agent_profile.organization_context_missing" ||
+      reasonCode === "agent_profile.organization_lookup_failed" ||
+      reasonCode === "agent_profile.space_organization_unavailable" ||
+      reasonCode === "organization_binding_authorization.lookup_failed" ||
+      reasonCode ===
+        "organization_binding_authorization.preference_unavailable" ||
+      reasonCode === "organization_binding_authorization.space_org_unavailable"
+  );
+  if (workspaceUnavailableReasonCode) {
+    return createAvailability(readiness, {
+      ...unavailableWakeAvailabilityFallbackCopy,
+      category: "unavailable",
+      isRefreshing: false,
+      label: "Workspace unavailable",
+      phase: "unavailable",
+      reasonCode: workspaceUnavailableReasonCode,
+      status: "unavailable_for_wake",
+    });
+  }
   if (hasReasonCode(readiness, "agent_profile.organization_mismatch")) {
     return createAvailability(readiness, {
       ...unavailableWakeAvailabilityFallbackCopy,
@@ -1099,7 +1120,10 @@ function isPublicUnavailableReasonCode(reasonCode: string): boolean {
     reasonCode === "service.drifted" ||
     reasonCode === "local_service.identity_mismatch" ||
     reasonCode === "background_helper.update_required" ||
+    reasonCode === "agent_profile.organization_context_missing" ||
+    reasonCode === "agent_profile.organization_lookup_failed" ||
     reasonCode === "agent_profile.organization_mismatch" ||
+    reasonCode === "agent_profile.space_organization_unavailable" ||
     isPublicUnavailableAgentProfileBindingReason(reasonCode) ||
     isPublicUnavailableClaimEligibilityReason(reasonCode) ||
     reasonCode.startsWith("controller.") ||

@@ -624,18 +624,15 @@ describe("public agent failure reason mapping", () => {
     });
   });
 
-  it("keeps every legacy authorization sub-code non-actionable during rollout", () => {
-    const subCodes = [
+  it("keeps legacy ownership failures non-actionable during rollout", () => {
+    const ownershipCodes = [
       "organization_binding_authorization.required",
       "organization_binding_authorization.binding_required",
-      "organization_binding_authorization.lookup_failed",
       "organization_binding_authorization.no_bindings",
-      "organization_binding_authorization.preference_unavailable",
       "organization_binding_authorization.profile_org_mismatch",
       "organization_binding_authorization.profile_owner_mismatch",
-      "organization_binding_authorization.space_org_unavailable",
     ];
-    for (const errorCode of subCodes) {
+    for (const errorCode of ownershipCodes) {
       expect(
         resolvePublicAgentFailureRecovery({
           errorCode,
@@ -643,6 +640,26 @@ describe("public agent failure reason mapping", () => {
         })
       ).toEqual({
         body: "Runner cannot be used in this workspace. Choose an Agent Profile created here.",
+        kind: "system_retry",
+        recoveryTarget: null,
+      });
+    }
+  });
+
+  it("keeps transient legacy workspace verification failures retryable", () => {
+    const transientCodes = [
+      "organization_binding_authorization.lookup_failed",
+      "organization_binding_authorization.preference_unavailable",
+      "organization_binding_authorization.space_org_unavailable",
+    ];
+    for (const errorCode of transientCodes) {
+      expect(
+        resolvePublicAgentFailureRecovery({
+          errorCode,
+          targetLabel: "Runner",
+        })
+      ).toEqual({
+        body: "OpenMeld could not verify Runner's workspace. Try again, and open diagnostics if the problem continues.",
         kind: "system_retry",
         recoveryTarget: null,
       });

@@ -1400,6 +1400,7 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 			agentControllerCollaborationMode: input.agentControllerCollaborationMode,
 			agentControllerPermissionMode: input.agentControllerPermissionMode,
 			agentControllerRef: connection.agentControllerRef,
+			authorizeForOrganization: true,
 			defaultProjectId,
 			modelId:
 				input.boundAgentId && input.boundModelId ? input.boundModelId : null,

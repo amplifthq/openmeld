@@ -230,12 +230,36 @@ describe("agent wake availability", () => {
     });
   });
 
-  it("keeps legacy authorization failures non-actionable during rollout", () => {
+  it.each([
+    {
+      label: "Wrong workspace",
+      reasonCode: "organization_binding_authorization.required",
+    },
+    {
+      label: "Workspace unavailable",
+      reasonCode: "organization_binding_authorization.lookup_failed",
+    },
+    {
+      label: "Workspace unavailable",
+      reasonCode: "agent_profile.organization_context_missing",
+    },
+    {
+      label: "Workspace unavailable",
+      reasonCode: "agent_profile.organization_lookup_failed",
+    },
+    {
+      label: "Workspace unavailable",
+      reasonCode: "agent_profile.space_organization_unavailable",
+    },
+  ])("blocks ready routes for $reasonCode as $label", ({
+    label,
+    reasonCode,
+  }) => {
     const readiness = resolveAgentExecutionStatus({
       agentProfileId,
       binding: createPrimaryBinding(),
       claimDiagnostics: {
-        reasonCodes: ["organization_binding_authorization.required"],
+        reasonCodes: [reasonCode],
         status: "rejected",
       },
       localService: {
@@ -258,10 +282,10 @@ describe("agent wake availability", () => {
         readiness,
       })
     ).toMatchObject({
-      badgeLabel: "Wrong workspace",
+      badgeLabel: label,
       category: "unavailable",
-      label: "Wrong workspace",
-      reasonCode: "organization_binding_authorization.required",
+      label,
+      reasonCode,
       status: "unavailable_for_wake",
     });
   });

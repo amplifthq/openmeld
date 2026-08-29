@@ -504,10 +504,13 @@ Agent Controller Collaboration Mode, and controller-specific permissions.
 Web, CLI, Local Agent, and Center Agent creation reuse that selection rather
 than defining surface-specific subsets. The Agent Profile Creation Request adds
 only execution targeting; Core reuses the existing Binding and Default Project
-owners. Legacy `authorizeForOrganization` input is accepted only during the
-rolling retirement window and is discarded before persistence or response.
-New writers never send it. The model-visible Center Agent input carries a cloud
-Project ID and never a local path.
+owners. Legacy `authorizeForOrganization` remains a required-looking
+compatibility boolean on serialized requests and responses during the rolling
+retirement window. New clients send the fixed value `true`, and new Core
+versions ignore it completely; there is no product preference or authorization
+effect behind the field. This keeps old readers and writers schema-compatible
+until the consumer-retirement release is fully deployed. The model-visible
+Center Agent input carries a cloud Project ID and never a local path.
 
 Auth also owns the shared `resolveOrganizationAccountIdentity` RPC projection
 used by Slack and generic Message Channel ingress, identity-link previews, and

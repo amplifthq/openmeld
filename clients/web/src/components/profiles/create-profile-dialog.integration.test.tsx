@@ -900,6 +900,7 @@ describe("CreateProfileDialog", () => {
 					agentControllerCollaborationMode: "codex:default",
 					agentControllerPermissionMode: "codex:askForApproval",
 					agentControllerRef: "builtin:codex",
+					authorizeForOrganization: true,
 					defaultProjectId: "project-1",
 					modelId: "gpt-5.4-mini",
 					openCodePermission: null,
@@ -1975,7 +1976,7 @@ describe("CreateProfileDialog", () => {
 		});
 		expect(
 			createAgentProfileCreationRequestMock.mock.calls[0]?.[0].configuration
-		).not.toHaveProperty("authorizeForOrganization");
+		).toMatchObject({ authorizeForOrganization: true });
 	});
 
 	it("uses the managed Project folder when a bound agent is created without a custom folder", async () => {
