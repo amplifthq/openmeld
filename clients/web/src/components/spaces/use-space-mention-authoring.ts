@@ -7,6 +7,7 @@ import {
 	closeMentionPickerState,
 	createSpaceTargetCatalog,
 	extractMentionAuthoringPrefix,
+	isSpaceComposerSubmissionError,
 	isTargetPickerState,
 	listSpaceMentionSuggestions,
 	type MentionPickerState,
@@ -89,6 +90,12 @@ export type SpaceComposerAddressingTarget = {
 	wakeAvailability: SpaceSendTargetWakeAvailability;
 };
 
+type SpaceComposerAddressingMention = Pick<
+	SpaceComposerAuthoredMentionInTextOrder,
+	"profileId" | "relation"
+> &
+	Partial<Pick<SpaceComposerAuthoredMentionInTextOrder, "text">>;
+
 type TrackedComposerAuthoredMention =
 	SpaceComposerAuthoredMentionInTextOrder & {
 		end: number;
@@ -144,17 +151,26 @@ export function useSpaceMentionAuthoring(input: {
 	const [dismissedMentionStarts, setDismissedMentionStarts] = useState<
 		number[]
 	>([]);
+	const addressingMentions = useMemo(
+		() =>
+			resolveSpaceComposerAddressingMentions({
+				authoredMentions,
+				snapshot: input.snapshot,
+				text: composerText,
+			}),
+		[authoredMentions, composerText, input.snapshot]
+	);
 	const addressingSummary = useMemo(
-		() => buildSpaceComposerAddressingSummary(authoredMentions),
-		[authoredMentions]
+		() => buildSpaceComposerAddressingSummary(addressingMentions),
+		[addressingMentions]
 	);
 	const addressingTargets = useMemo(
 		() =>
 			buildSpaceComposerAddressingTargets({
-				mentions: authoredMentions,
+				mentions: addressingMentions,
 				snapshot: input.snapshot,
 			}),
-		[authoredMentions, input.snapshot]
+		[addressingMentions, input.snapshot]
 	);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: Changing conversation identity must reset ephemeral picker and selection state even though the key is not rendered.
@@ -802,7 +818,7 @@ export function resolveDefaultSpaceComposerMentionRelation(
 }
 
 export function buildSpaceComposerAddressingSummary(
-	mentions: readonly SpaceComposerAuthoredMentionInTextOrder[]
+	mentions: readonly SpaceComposerAddressingMention[]
 ): string | null {
 	const relationByProfileId = new Map<string, MessageMentionType>();
 	for (const mention of mentions) {
@@ -831,7 +847,7 @@ export function buildSpaceComposerAddressingSummary(
 }
 
 export function buildSpaceComposerAddressingTargets(input: {
-	mentions: readonly SpaceComposerAuthoredMentionInTextOrder[];
+	mentions: readonly SpaceComposerAddressingMention[];
 	snapshot: SpaceMembersSnapshot | null;
 }): readonly SpaceComposerAddressingTarget[] {
 	if (!input.snapshot) {
@@ -857,6 +873,48 @@ export function buildSpaceComposerAddressingTargets(input: {
 		});
 	}
 	return [...targetByProfileId.values()];
+}
+
+export function resolveSpaceComposerAddressingMentions(input: {
+	authoredMentions: readonly SpaceComposerAuthoredMentionInTextOrder[];
+	snapshot: SpaceMembersSnapshot | null;
+	text: string;
+}): readonly SpaceComposerAddressingMention[] {
+	if (!input.snapshot) {
+		return input.authoredMentions;
+	}
+
+	try {
+		const preparedSubmission = prepareSpaceComposerSubmission({
+			authoredMentionsInTextOrder: input.authoredMentions,
+			missingSnapshotMessage: SPACE_MEMBERS_LOAD_ERROR_MESSAGE,
+			snapshot: input.snapshot,
+			text: input.text,
+		});
+		const activationProfileIds = new Set(
+			preparedSubmission.messageEnvelope?.activationTargets ?? []
+		);
+		const referenceProfileIds = new Set(
+			preparedSubmission.messageEnvelope?.referenceTargets ?? []
+		);
+
+		return preparedSubmission.resolvedStructuredTargets.profileIdsInTextOrder.flatMap(
+			(profileId): SpaceComposerAddressingMention[] => {
+				if (activationProfileIds.has(profileId)) {
+					return [{ profileId, relation: "wake" }];
+				}
+				if (referenceProfileIds.has(profileId)) {
+					return [{ profileId, relation: "reference" }];
+				}
+				return [];
+			}
+		);
+	} catch (error) {
+		if (!isSpaceComposerSubmissionError(error)) {
+			throw error;
+		}
+		return input.authoredMentions;
+	}
 }
 
 function toAuthoredMentionInput(

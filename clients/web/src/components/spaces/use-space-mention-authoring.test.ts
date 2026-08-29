@@ -9,6 +9,7 @@ import {
 	buildSpaceComposerAddressingSummary,
 	buildSpaceComposerAddressingTargets,
 	buildSpaceMentionTargetItems,
+	resolveSpaceComposerAddressingMentions,
 	useSpaceMentionAuthoring,
 } from "./use-space-mention-authoring";
 
@@ -317,6 +318,41 @@ describe("buildSpaceComposerAddressingTargets", () => {
 				profileId: runnerProfileId,
 				relation: "wake",
 			}),
+		]);
+	});
+});
+
+describe("resolveSpaceComposerAddressingMentions", () => {
+	it("shows the earlier canonical relation when an authored duplicate appears later", () => {
+		const runnerProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const text = "@Runner(wake) Review this with @Runner";
+
+		expect(
+			resolveSpaceComposerAddressingMentions({
+				authoredMentions: [
+					{
+						profileId: runnerProfileId,
+						relation: "reference",
+						start: text.lastIndexOf("@Runner"),
+						text: "@Runner",
+					},
+				],
+				snapshot: createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							agentWakeAvailability: { status: "available_for_wake" },
+							profileId: runnerProfileId,
+							profileName: "Runner",
+						}),
+					],
+				}),
+				text,
+			})
+		).toEqual([
+			{
+				profileId: runnerProfileId,
+				relation: "wake",
+			},
 		]);
 	});
 });
