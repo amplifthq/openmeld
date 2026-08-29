@@ -15,7 +15,9 @@ while OpenMeld Service is already offline, a fresh repair can now restore the
 previous Computer connection instead of getting stuck on a missing local control
 socket. If account validation offers a refreshed token while that recovery is
 still in progress, OpenMeld keeps the restored sign-in untouched until Service
-repair finishes. Sign-in and Service status remain available for diagnosis. CLI
-and OpenMeld Service requests now refresh an expired local session when
-possible, then stop locally with clear auth diagnostics instead of continuing
-without authentication when stored credentials are expired or malformed.
+repair finishes. Recovery also closes the unused temporary sign-in correctly,
+so later status and repair checks do not leave the interrupted handoff deferred.
+Sign-in and Service status remain available for diagnosis. CLI and OpenMeld
+Service requests now refresh an expired local session when possible, then stop
+locally with clear auth diagnostics instead of continuing without authentication
+when stored credentials are expired or malformed.

@@ -189,7 +189,9 @@ export async function revokeAuthAccessToken(input: {
       method: "POST",
       headers: {
         authorization: `${input.tokenType} ${input.accessToken}`,
+        "content-type": "application/json",
       },
+      body: JSON.stringify({}),
       signal: AbortSignal.timeout(10_000),
     });
   } catch (error) {
