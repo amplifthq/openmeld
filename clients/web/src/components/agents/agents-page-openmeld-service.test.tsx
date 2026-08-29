@@ -6,6 +6,7 @@ import type { ComputerReplyReadiness } from "@openmeld/start";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import type { QueryClient } from "@tanstack/react-query";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -95,6 +96,7 @@ const queryClientStub = {
 describe("OpenMeldServiceCard", () => {
 	afterEach(() => {
 		cleanup();
+		vi.useRealTimers();
 		vi.clearAllMocks();
 		vi.restoreAllMocks();
 		refreshSharedCachesMock.mockResolvedValue(undefined);
@@ -204,10 +206,19 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
 		expect(screen.getByText("Update to v0.3.127.")).toBeTruthy();
-		expect(screen.getAllByRole("button", { name: "Update" })).toHaveLength(1);
+		const updateButton = screen.getByRole("button", { name: "Update" });
+		const manualUpdateLink = screen.getByRole("link", {
+			name: "Update manually",
+		});
+		expect(updateButton).toBeTruthy();
 		expect(
 			screen.getAllByRole("link", { name: "Update manually" })
 		).toHaveLength(1);
+		expect(manualUpdateLink.className).toContain("text-muted-foreground");
+		expect(manualUpdateLink.className).toContain("text-xs");
+		expect(manualUpdateLink.className).toContain("hover:underline");
+		expect(manualUpdateLink.className).toContain("focus-visible:ring-2");
+		expect(manualUpdateLink.nextElementSibling).toBe(updateButton);
 		expect(screen.queryByText("Required: v0.3.126.")).toBeNull();
 	});
 
@@ -303,7 +314,8 @@ describe("OpenMeldServiceCard", () => {
 			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
 				.disabled
 		).toBe(true);
-		expect(screen.getAllByText("Updating")).toHaveLength(2);
+		expect(screen.getByText("Checking for updates")).toBeTruthy();
+		expect(screen.getAllByText("Updating")).toHaveLength(1);
 
 		finishRequest(result);
 
@@ -349,10 +361,88 @@ describe("OpenMeldServiceCard", () => {
 			expect(refreshSharedCachesMock).toHaveBeenCalled();
 		});
 		expect(toastSuccessMock).not.toHaveBeenCalled();
+		expect(screen.getByText("Verifying update")).toBeTruthy();
 		expect(
 			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
 				.disabled
 		).toBe(true);
+	});
+
+	it("verifies an updated operation after a fresh mount until both installed versions match", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					cli: {
+						commandContractVersion:
+							"openmeld-cli-command-contract-2026-05-local-components-v1",
+						installedPackageVersion: "0.7.99",
+						latestPackageVersion: "0.8.0",
+						reasonCodes: ["cli.package_update_available"],
+						requiredCommandContractVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase: "updated" }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(screen.getByText("Verifying update")).toBeTruthy();
+		expect(screen.queryByText("Up to date")).toBeNull();
+	});
+
+	it("shows Up to date only after the authoritative operation and both installed versions converge", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					cli: {
+						commandContractVersion:
+							"openmeld-cli-command-contract-2026-05-local-components-v1",
+						installedPackageVersion: "0.8.0",
+						latestPackageVersion: "0.8.0",
+						reasonCodes: [],
+						requiredCommandContractVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.8.0",
+						latestVersion: "0.8.0",
+						reasonCodes: [],
+						requiredVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase: "updated" }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(screen.getByText("Up to date")).toBeTruthy();
+		expect(screen.queryByText("Verifying update")).toBeNull();
+		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
 	});
 
 	it("does not let a stale refetch move the same update operation backward", async () => {
@@ -566,6 +656,231 @@ describe("OpenMeldServiceCard", () => {
 		);
 	});
 
+	it.each([
+		"restored",
+		"needs_help",
+	] as const)("shows an honest retryable outcome when the update owner reports %s", (phase) => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(screen.getByText("Update failed. Try again.")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Update manually" })).toBeTruthy();
+	});
+
+	it("stops polling after repeated refresh failures and keeps both recovery actions", async () => {
+		vi.useFakeTimers();
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		refreshSharedCachesMock.mockRejectedValue(new Error("refresh unavailable"));
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase: "updated" }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(6000);
+		});
+		expect(
+			screen.getByText(
+				"Couldn't verify the update. Try again or update manually."
+			)
+		).toBeTruthy();
+		const callsAfterBudget = refreshSharedCachesMock.mock.calls.length;
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(20_000);
+		});
+		expect(refreshSharedCachesMock).toHaveBeenCalledTimes(callsAfterBudget);
+		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Update manually" })).toBeTruthy();
+		expect(consoleErrorMock).toHaveBeenCalled();
+	});
+
+	it("stops polling when successful refreshes never produce the target projection", async () => {
+		vi.useFakeTimers();
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase: "updated" }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(120_000);
+		});
+		expect(
+			screen.getByText(
+				"Couldn't verify the update. Try again or update manually."
+			)
+		).toBeTruthy();
+		const callsAfterBudget = refreshSharedCachesMock.mock.calls.length;
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(20_000);
+		});
+		expect(refreshSharedCachesMock).toHaveBeenCalledTimes(callsAfterBudget);
+	});
+
+	it("keeps reading through a short Service replacement and converges without a refresh", async () => {
+		vi.useFakeTimers();
+		requestCurrentOpenMeldToolsUpdateMock.mockResolvedValueOnce({
+			operation: buildUpdateOperation({ phase: "updating" }),
+			status: "started",
+		});
+		const view = renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Update" }));
+		await act(async () => await Promise.resolve());
+		view.rerender(
+			buildOpenMeldServiceCard({
+				currentLocalRuntimeReplyReadiness: null,
+				replyReadiness: SERVICE_NOT_CONNECTED_REPLY_READINESS,
+			})
+		);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(2000);
+		});
+		expect(refreshSharedCachesMock).toHaveBeenCalled();
+
+		view.rerender(
+			buildOpenMeldServiceCard({
+				currentLocalRuntimeReplyReadiness:
+					buildCurrentLocalRuntimeReplyReadiness({
+						cli: {
+							commandContractVersion:
+								"openmeld-cli-command-contract-2026-05-local-components-v1",
+							installedPackageVersion: "0.8.0",
+							latestPackageVersion: "0.8.0",
+							reasonCodes: [],
+							requiredCommandContractVersion: null,
+							status: "current",
+							updatePolicy: "ok",
+							wakeBlocked: false,
+						},
+						maintenance: {
+							automaticUpdatesEnabled: true,
+							status: "ready",
+						},
+						service: {
+							installedVersion: "0.8.0",
+							latestVersion: "0.8.0",
+							reasonCodes: [],
+							requiredVersion: null,
+							status: "current",
+							updatePolicy: "ok",
+							wakeBlocked: false,
+						},
+						updateOperation: buildUpdateOperation({ phase: "updated" }),
+					}),
+				replyReadiness: READY_REPLY_READINESS,
+			})
+		);
+
+		expect(screen.getByText("Up to date")).toBeTruthy();
+		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+	});
+
+	it("clears update verification timers when the card unmounts", async () => {
+		vi.useFakeTimers();
+		const view = renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase: "updated" }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		view.unmount();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(20_000);
+		});
+		expect(refreshSharedCachesMock).not.toHaveBeenCalled();
+	});
+
 	it("keeps Update available when a local agent also needs repair", () => {
 		const readiness = buildCurrentLocalRuntimeReplyReadiness({
 			maintenance: {
@@ -638,7 +953,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 	});
 
-	it("uses one OpenMeld Tools command action for a CLI-only update", () => {
+	it("uses only the manual update path for a CLI-only update when the Service cannot manage it", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
 				{
@@ -663,15 +978,22 @@ describe("OpenMeldServiceCard", () => {
 		const updateValue = screen.getByText("Update available");
 		expect(updateValue.className).toContain("text-amber");
 		expect(screen.getByText("Latest available: v0.7.92.")).toBeTruthy();
-		expect(screen.queryByText("Update OpenMeld CLI")).toBeNull();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Update OpenMeld Tools" })
-		);
-		expect(screen.getByText("openmeld upgrade --yes")).toBeTruthy();
+		const manualUpdateLink = screen.getByRole("link", {
+			name: "Update manually",
+		});
+		expect(
+			decodeURIComponent(manualUpdateLink.getAttribute("href") ?? "")
+		).toContain("serviceAction=update_service");
+		expect(
+			screen.queryByRole("button", { name: "Update OpenMeld Tools" })
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
+		expect(
+			screen.getAllByRole("link", { name: "Update manually" })
+		).toHaveLength(1);
 	});
 
-	it("confirms when the CLI update command is copied", async () => {
-		copyCliEntryCommandMock.mockResolvedValueOnce(true);
+	it("uses managed OpenMeld Tools control for a CLI-only update when the Service supports it", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
 				{
@@ -686,27 +1008,21 @@ describe("OpenMeldServiceCard", () => {
 						updatePolicy: "available",
 						wakeBlocked: false,
 					},
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
 					runtimeLane: "prod",
 				}
 			),
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		fireEvent.click(
-			screen.getByRole("button", { name: "Update OpenMeld Tools" })
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
-
-		await waitFor(() => {
-			expect(copyCliEntryCommandMock).toHaveBeenCalledWith(
-				"openmeld upgrade --yes"
-			);
-		});
-		const copiedButton = screen.getByRole("button", { name: "Copied" });
+		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Update manually" })).toBeTruthy();
 		expect(
-			copiedButton.querySelector('[data-icon="inline-start"]')
-		).toBeTruthy();
-		expect(toastSuccessMock).toHaveBeenCalledWith("Command copied.");
+			screen.queryByRole("button", { name: "Update OpenMeld Tools" })
+		).toBeNull();
 	});
 
 	it("does not label package-only CLI drift as a required contract update", () => {
@@ -734,7 +1050,7 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.getByText("Latest available: v0.7.92.")).toBeTruthy();
 	});
 
-	it("uses the aggregate action for a required CLI update", () => {
+	it("uses the manual aggregate action for a required CLI update without managed capability", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
 				{
@@ -761,9 +1077,8 @@ describe("OpenMeldServiceCard", () => {
 				content.includes("Required CLI contract update.")
 			)
 		).toBeTruthy();
-		expect(
-			screen.getByRole("button", { name: "Update OpenMeld Tools" })
-		).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Update manually" })).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
 	});
 
 	it("labels a required version-only CLI update without claiming a contract change", () => {
@@ -833,7 +1148,7 @@ describe("OpenMeldServiceCard", () => {
 		expect(updateLink).toHaveProperty("pathname", "/o/acme/connect");
 		expect(updateLink).toHaveProperty(
 			"search",
-			"?connectedComputerId=computer-macbook-pro&session=fresh"
+			"?connectedComputerId=computer-macbook-pro&serviceAction=update_service&session=fresh"
 		);
 		expect(screen.queryByText("Update OpenMeld skills")).toBeNull();
 		expect(screen.queryByText("hash-prev")).toBeNull();
@@ -1134,6 +1449,22 @@ function buildCurrentLocalRuntimeReplyReadiness(input?: {
 			sessionLane: "dev-local",
 		},
 		status: "ready",
+	};
+}
+
+function buildUpdateOperation(input: {
+	phase: NonNullable<
+		CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
+	>["phase"];
+}) {
+	return {
+		operationId: "update-1",
+		phase: input.phase,
+		requestSource: "web" as const,
+		requestedAt: "2026-08-25T10:00:00.000Z",
+		targetVersion: "0.8.0",
+		updatedAt: "2026-08-25T10:00:02.000Z",
+		urgency: "available" as const,
 	};
 }
 

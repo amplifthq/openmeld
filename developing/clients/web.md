@@ -3460,14 +3460,17 @@ owner-scoped request to the Service's background coordinator. A quiet **Update
 manually** link remains immediately beside it and opens the deterministic CLI
 setup path. The user may close the page immediately and never needs to copy a
 command unless they choose that fallback. This direct action remains available
-when automatic updates are off. An older Service that does not report managed
-update capability shows only **Update manually**; Web must never offer an
-action that the installed Service cannot perform. The same card shows one
-capability-gated **Keep OpenMeld Tools up to date** switch and reads its value
-from the Service-owned maintenance projection. It never keeps a browser
-preference. Required-update copy and the primary action name the current
-installable Service release supplied by Core; Web must not expose an older
-internal compatibility floor as though it were the user's upgrade destination.
+when automatic updates are off. The same managed action also owns CLI-only
+updates; Web must not fall back to a command dialog when the installed Service
+can safely ask the coordinator to update OpenMeld Tools. An older Service that
+does not report managed update capability shows only **Update manually**; Web
+must never offer an action that the installed Service cannot perform. The same
+card shows one capability-gated **Keep OpenMeld Tools up to date** switch and
+reads its value from the Service-owned maintenance projection. It never keeps a
+browser preference. Required-update copy and the primary action name the
+current installable Service release supplied by Core; Web must not expose an
+older internal compatibility floor as though it were the user's upgrade
+destination.
 
 The card renders the canonical operation phase as one short status:
 **Finishing current work**, **Updating**, **Verifying update**, **Up to date**,
@@ -3477,13 +3480,26 @@ the same Computer projection. Operation updates with the same id are monotonic:
 an older `updatedAt` snapshot, or an equal-time snapshot from an earlier phase,
 must not move the visible operation backward. `updated` means only that the
 installation operation ended; Web continues to show **Verifying update** and
-polls until both the Service and CLI projections reach the operation target.
-A stale refetch must not erase the local accepted-operation evidence, and a
+polls until both the Service and CLI projections reach the operation target and
+the aggregate component projection no longer reports an actionable update. A
+stale refetch must not erase the local accepted-operation evidence, and a
 `current` control response must not produce **Up to date** until the component
 projection agrees. Request completion and installation completion are not
 verified update completion. Service connection recovery remains explicitly
 **Connect OpenMeld Service** or **Reconnect OpenMeld Service**, and the Reconnect
 action remains the CLI fallback.
+
+This verification contract survives a reload or a new tab: browser-local
+request state may improve the immediate click response, but it never decides
+completion. Web derives **Verifying update** from the authoritative operation
+target and the exact installed Service and CLI projections. It keeps reading
+through a short Service replacement, resets its bounded verification budget
+only when the owner operation reports newer progress, and stops polling after a
+bounded period of no convergence or repeated refresh failures. That exhausted
+state says **Couldn't verify the update. Try again or update manually.**, keeps
+the managed action retryable, and always preserves **Update manually**. It does
+not require the user to refresh the page and does not turn missing evidence into
+success or failure of the underlying installation.
 
 For an `update_service` setup run, terminal completion proves only that the CLI
 flow ended. Web must keep the result in a bounded confirming state until both

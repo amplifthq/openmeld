@@ -12,3 +12,8 @@ current release includes startup recovery, managed updates, active Permission
 and Wake behavior, and recovery for a Wake that reaches the computer while a
 controlled Service update is switching versions. Already accepted work is
 still allowed to finish before OpenMeld switches the Service version.
+
+The Computer page now keeps update progress honest until both OpenMeld Service
+and CLI report the installed target version. If Web cannot verify the result,
+it stops checking automatically and keeps a clear **Update manually** fallback;
+older Services that cannot manage their own update show only that manual path.
