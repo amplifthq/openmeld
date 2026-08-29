@@ -485,6 +485,83 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.queryByText("Up to date")).toBeNull();
 	});
 
+	it("settles the clicked update when its exact target is installed and a newer release is available", async () => {
+		requestCurrentOpenMeldToolsUpdateMock.mockResolvedValueOnce({
+			operation: buildUpdateOperation({ phase: "updating" }),
+			status: "started",
+		});
+		const view = renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Update" }));
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "Updating" })).toBeTruthy();
+		});
+
+		view.rerender(
+			buildOpenMeldServiceCard({
+				currentLocalRuntimeReplyReadiness:
+					buildCurrentLocalRuntimeReplyReadiness({
+						cli: {
+							commandContractVersion:
+								"openmeld-cli-command-contract-2026-05-local-components-v1",
+							installedPackageVersion: "0.8.0",
+							latestPackageVersion: "0.9.0",
+							reasonCodes: ["cli.package_update_available"],
+							requiredCommandContractVersion: null,
+							status: "update_available",
+							updatePolicy: "available",
+							wakeBlocked: false,
+						},
+						maintenance: {
+							automaticUpdatesEnabled: true,
+							status: "ready",
+						},
+						service: {
+							installedVersion: "0.8.0",
+							latestVersion: "0.9.0",
+							reasonCodes: ["service.update_available"],
+							requiredVersion: null,
+							status: "update_available",
+							updatePolicy: "available",
+							wakeBlocked: false,
+						},
+						updateOperation: buildUpdateOperation({ phase: "updated" }),
+					}),
+				replyReadiness: READY_REPLY_READINESS,
+			})
+		);
+
+		await waitFor(() => {
+			expect(
+				(screen.getByRole("button", { name: "Update" }) as HTMLButtonElement)
+					.disabled
+			).toBe(false);
+		});
+		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
+		expect(screen.queryByText("Updating")).toBeNull();
+		expect(screen.queryByText("Verifying update")).toBeNull();
+		expect(screen.queryByText("Up to date")).toBeNull();
+	});
+
 	it("does not let a stale refetch move the same update operation backward", async () => {
 		requestCurrentOpenMeldToolsUpdateMock.mockResolvedValueOnce({
 			operation: {

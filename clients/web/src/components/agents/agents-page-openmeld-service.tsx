@@ -1222,8 +1222,11 @@ function hasObservedPendingManagedUpdateSettled(input: {
 	localComponents: OpenMeldToolsProjection | null;
 	pending: PendingManagedUpdate;
 }): boolean {
+	if (!input.localComponents) {
+		return false;
+	}
 	if (
-		!input.localComponents ||
+		input.pending.kind === "confirmation" &&
 		hasActionableOpenMeldToolsUpdate(input.localComponents)
 	) {
 		return false;
