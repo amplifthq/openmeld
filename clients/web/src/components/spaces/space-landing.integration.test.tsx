@@ -13223,6 +13223,10 @@ describe("SpaceLanding", () => {
 	});
 
 	it("keeps an outcome-unknown main message under one idempotent send identity", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "pending-main.txt",
+		});
 		const hangingRequest = createHangingFetchRequest();
 		const postNormalMessageMock = vi.fn(
 			async (input: { timeoutMs?: number }) =>
@@ -13231,8 +13235,21 @@ describe("SpaceLanding", () => {
 					timeoutMs: input.timeoutMs,
 				})
 		);
+		const publishComposerUploadMock = vi.fn().mockResolvedValue(descriptor);
 		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -13250,6 +13267,16 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [
+					new File(["pending"], "pending-main.txt", {
+						type: "text/plain",
+					}),
+				],
+			},
+		});
+		await screen.findByText("Ready");
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -13301,6 +13328,11 @@ describe("SpaceLanding", () => {
 		expect(postNormalMessageMock.mock.calls[1]?.[0]).toEqual(
 			postNormalMessageMock.mock.calls[0]?.[0]
 		);
+		expect(screen.queryByText("Ready")).toBeNull();
+		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.click(sendButton);
+		expect(postNormalMessageMock).toHaveBeenCalledTimes(2);
+		expect(publishComposerUploadMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not show a send-failure banner when the message posted but a follow-up step failed", async () => {
@@ -15599,6 +15631,10 @@ describe("SpaceLanding", () => {
 	});
 
 	it("keeps an outcome-unknown thread reply under one idempotent send identity", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "pending-thread.txt",
+		});
 		const hangingRequest = createHangingFetchRequest();
 		const postThreadSignalMock = vi.fn(
 			async (input: { timeoutMs?: number }) =>
@@ -15607,7 +15643,9 @@ describe("SpaceLanding", () => {
 					timeoutMs: input.timeoutMs,
 				})
 		);
+		const publishComposerUploadMock = vi.fn().mockResolvedValue(descriptor);
 		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
 			getWakeProgress: vi.fn().mockResolvedValue({
 				items: [],
@@ -15621,6 +15659,17 @@ describe("SpaceLanding", () => {
 			listSignalEnvelopes: vi.fn(),
 			postNormalMessage: vi.fn(),
 			postThreadSignal: postThreadSignalMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
 		});
 		const rootSignal = createTextSignal({
 			id: "sig-thread-timeout-root",
@@ -15678,6 +15727,19 @@ describe("SpaceLanding", () => {
 			})[0] as HTMLElement
 		);
 		const threadPanel = screen.getByLabelText("Thread");
+		fireEvent.change(
+			within(threadPanel).getByLabelText("Choose files to send"),
+			{
+				target: {
+					files: [
+						new File(["pending"], "pending-thread.txt", {
+							type: "text/plain",
+						}),
+					],
+				},
+			}
+		);
+		await within(threadPanel).findByText("Ready");
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
@@ -15731,6 +15793,11 @@ describe("SpaceLanding", () => {
 		expect(postThreadSignalMock.mock.calls[1]?.[0]).toEqual(
 			postThreadSignalMock.mock.calls[0]?.[0]
 		);
+		expect(within(threadPanel).queryByText("Ready")).toBeNull();
+		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.click(sendButton);
+		expect(postThreadSignalMock).toHaveBeenCalledTimes(2);
+		expect(publishComposerUploadMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("records thread Wake diagnostics without rendering the old composer strip", async () => {

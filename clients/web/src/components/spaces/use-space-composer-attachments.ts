@@ -48,6 +48,27 @@ export function useSpaceComposerFiles(input: {
 		updateFiles([]);
 	}, [updateFiles]);
 
+	const consumePublishedFiles = useCallback(
+		(publishedLocalIds: readonly string[]) => {
+			if (publishedLocalIds.length === 0) {
+				return;
+			}
+			const publishedLocalIdSet = new Set(publishedLocalIds);
+			for (const localId of publishedLocalIdSet) {
+				activeFileIdsRef.current.delete(localId);
+				const previewUrl = previewUrlsByLocalIdRef.current.get(localId);
+				if (previewUrl) {
+					URL.revokeObjectURL(previewUrl);
+					previewUrlsByLocalIdRef.current.delete(localId);
+				}
+			}
+			updateFiles((current) =>
+				current.filter((file) => !publishedLocalIdSet.has(file.localId))
+			);
+		},
+		[updateFiles]
+	);
+
 	useEffect(() => {
 		if (previousScopeKeyRef.current !== scopeKey) {
 			discardStagedFiles({
@@ -184,22 +205,25 @@ export function useSpaceComposerFiles(input: {
 			)
 		);
 		const messageFiles: SpaceMessageFileReference[] = [];
+		const publishedLocalIds: string[] = [];
 		const previewUrlsByFileId = new Map<string, string>();
 		for (const result of published) {
 			if (!result) {
 				continue;
 			}
 			messageFiles.push(result.file);
+			publishedLocalIds.push(result.localId);
 			if (result.previewUrl) {
 				previewUrlsByFileId.set(result.file.fileId, result.previewUrl);
 			}
 		}
-		return { messageFiles, previewUrlsByFileId };
+		return { messageFiles, previewUrlsByFileId, publishedLocalIds };
 	}, [input.organizationSlug, input.profileId, input.spaceId, updateFiles]);
 
 	return {
 		addFiles,
 		clearFiles,
+		consumePublishedFiles,
 		files,
 		isAtLimit: files.length >= SPACE_MESSAGE_FILE_MAX_COUNT,
 		publishReadyFiles,
@@ -300,6 +324,7 @@ async function publishPendingFile(input: {
 	spaceId: string;
 }): Promise<{
 	file: SpaceMessageFileReference;
+	localId: string;
 	previewUrl: string | null;
 } | null> {
 	const upload = input.file.upload;
@@ -321,6 +346,7 @@ async function publishPendingFile(input: {
 		);
 		return {
 			file: toMessageFileReference(descriptor),
+			localId: input.file.localId,
 			previewUrl: input.file.previewUrl,
 		};
 	} catch (error) {

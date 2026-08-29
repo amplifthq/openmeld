@@ -438,6 +438,42 @@ function markPendingOutgoingSignalFailed(
 	);
 }
 
+function clearPendingOutgoingSignalFilePreviews(
+	setPendingSignals: (value: SetStateAction<PendingOutgoingSignal[]>) => void,
+	clientMessageId: string
+) {
+	setPendingSignals((current) =>
+		current.map((item) =>
+			item.clientMessageId === clientMessageId
+				? { ...item, filePreviewUrlsById: new Map() }
+				: item
+		)
+	);
+}
+
+function consumePublishedComposerFilesAfterAcceptedOrUnknownSend(input: {
+	clientMessageId: string | null;
+	consumePublishedFiles: (publishedLocalIds: readonly string[]) => void;
+	outcomeUnknown: boolean;
+	postedMessage: boolean;
+	publishedLocalIds: readonly string[];
+	setPendingSignals: (value: SetStateAction<PendingOutgoingSignal[]>) => void;
+}) {
+	if (
+		!(input.postedMessage || input.outcomeUnknown) ||
+		input.publishedLocalIds.length === 0
+	) {
+		return;
+	}
+	if (input.clientMessageId) {
+		clearPendingOutgoingSignalFilePreviews(
+			input.setPendingSignals,
+			input.clientMessageId
+		);
+	}
+	input.consumePublishedFiles(input.publishedLocalIds);
+}
+
 function restoreFailedPendingSubmission(input: {
 	mentionAuthoring: SpaceMentionAuthoringController;
 	pendingSubmission: PendingComposerSubmission | null;
@@ -458,18 +494,28 @@ function canStartSpaceComposerSend(input: {
 	return input.statusReady && input.allowedToPost && !input.isInFlight;
 }
 
-function settleDefinitiveSpaceComposerFailure(input: {
+function settleSpaceComposerSendFailure(input: {
 	clearFiles: () => void;
 	clientMessageId: string;
+	consumePublishedFiles: (publishedLocalIds: readonly string[]) => void;
 	hasPublishedFiles: boolean;
 	isPendingMessage: boolean;
 	mentionAuthoring: SpaceMentionAuthoringController;
 	outcomeUnknown: boolean;
 	pendingSubmission: PendingComposerSubmission | null;
+	publishedLocalIds: readonly string[];
 	postedMessage: boolean;
 	setPendingSignals: (value: SetStateAction<PendingOutgoingSignal[]>) => void;
 }) {
 	if (input.postedMessage || input.outcomeUnknown) {
+		consumePublishedComposerFilesAfterAcceptedOrUnknownSend({
+			clientMessageId: input.clientMessageId,
+			consumePublishedFiles: input.consumePublishedFiles,
+			outcomeUnknown: input.outcomeUnknown,
+			postedMessage: input.postedMessage,
+			publishedLocalIds: input.publishedLocalIds,
+			setPendingSignals: input.setPendingSignals,
+		});
 		return;
 	}
 	const restoredPreviousSubmission = restoreFailedPendingSubmission({
@@ -2183,6 +2229,7 @@ export function useSpaceLandingController(input: {
 
 		let postedMessage = false;
 		let hasPublishedFiles = false;
+		let publishedLocalIds: readonly string[] = [];
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		try {
 			const missingMembersMessage =
@@ -2198,9 +2245,11 @@ export function useSpaceLandingController(input: {
 				? {
 						messageFiles: [] as SpaceMessageFileReference[],
 						previewUrlsByFileId: new Map<string, string>(),
+						publishedLocalIds: [] as string[],
 					}
 				: await composerFilesController.publishReadyFiles();
 			hasPublishedFiles = publishedFiles.messageFiles.length > 0;
+			publishedLocalIds = publishedFiles.publishedLocalIds;
 			if (
 				hasNoPublishedComposerContent({
 					files: publishedFiles.messageFiles,
@@ -2233,14 +2282,16 @@ export function useSpaceLandingController(input: {
 				error instanceof PreparedSpaceMessageSendError ? error : null;
 			postedMessage ||= sendError?.postedMessage ?? false;
 			const originalError = sendError?.originalError ?? error;
-			settleDefinitiveSpaceComposerFailure({
+			settleSpaceComposerSendFailure({
 				clearFiles: composerFilesController.clearFiles,
 				clientMessageId: messageSeed.clientMessageId,
+				consumePublishedFiles: composerFilesController.consumePublishedFiles,
 				hasPublishedFiles,
 				isPendingMessage: options?.pendingMessage !== undefined,
 				mentionAuthoring,
 				outcomeUnknown: sendError?.outcomeUnknown ?? false,
 				pendingSubmission,
+				publishedLocalIds,
 				postedMessage,
 				setPendingSignals: setPendingOutgoingSignals,
 			});
@@ -3095,6 +3146,7 @@ function useSpaceThreadController(input: {
 		setIsSendingMessage(true);
 
 		let pendingSubmission: PendingComposerSubmission | null = null;
+		let publishedLocalIds: readonly string[] = [];
 		try {
 			const preparedSubmission =
 				trimmedText.length > 0
@@ -3104,6 +3156,7 @@ function useSpaceThreadController(input: {
 					: mentionAuthoring.prepareFileOnlySubmission();
 			pendingSubmission = preparedSubmission;
 			const publishedFiles = await composerFilesController.publishReadyFiles();
+			publishedLocalIds = publishedFiles.publishedLocalIds;
 			if (
 				trimmedText.length === 0 &&
 				publishedFiles.messageFiles.length === 0
@@ -3126,7 +3179,11 @@ function useSpaceThreadController(input: {
 				thread,
 			});
 		} catch (error) {
-			await handleSendMessageFailure({ error, pendingSubmission });
+			await handleSendMessageFailure({
+				error,
+				pendingSubmission,
+				publishedLocalIds,
+			});
 		} finally {
 			threadComposerSendInFlightRef.current = false;
 			setIsSendingMessage(false);
@@ -3136,6 +3193,7 @@ function useSpaceThreadController(input: {
 	async function handleSendMessageFailure(failureInput: {
 		error: unknown;
 		pendingSubmission: PendingComposerSubmission | null;
+		publishedLocalIds: readonly string[];
 	}) {
 		const sendError =
 			failureInput.error instanceof PreparedSpaceMessageSendError
@@ -3146,6 +3204,14 @@ function useSpaceThreadController(input: {
 		const postedMessage = sendError?.postedMessage ?? false;
 		const outcomeUnknown =
 			sendError?.outcomeUnknown ?? isSpaceComposerSendOutcomeUnknown(failure);
+		consumePublishedComposerFilesAfterAcceptedOrUnknownSend({
+			clientMessageId: sendError?.clientMessageId ?? null,
+			consumePublishedFiles: composerFilesController.consumePublishedFiles,
+			outcomeUnknown,
+			postedMessage,
+			publishedLocalIds: failureInput.publishedLocalIds,
+			setPendingSignals: setPendingOutgoingSignals,
+		});
 		if (!(postedMessage || outcomeUnknown)) {
 			const restoredPreviousSubmission = restoreFailedPendingSubmission({
 				mentionAuthoring,

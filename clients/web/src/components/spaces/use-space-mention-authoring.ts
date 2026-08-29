@@ -1,4 +1,8 @@
-import type { MessageMentionType } from "@openmeld/schemas";
+import {
+	collectCanonicalMentionTextFragments,
+	formatCanonicalMentionLiteral,
+	type MessageMentionType,
+} from "@openmeld/schemas";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import {
 	buildRecentMentionRankByProfileId,
@@ -462,25 +466,24 @@ export function useSpaceMentionAuthoring(input: {
 			profileId: string,
 			relation: MessageMentionType
 		) => {
-			if (!input.snapshot) {
+			const snapshot = input.snapshot;
+			if (!snapshot) {
 				return;
 			}
-			const target = createSpaceTargetCatalog(input.snapshot).byProfileId.get(
-				profileId
-			);
+			const target =
+				createSpaceTargetCatalog(snapshot).byProfileId.get(profileId);
 			if (!target?.allowedRelations[relation]) {
 				return;
 			}
 			composerDraft.setContent((currentDraft) => ({
 				...currentDraft,
-				authoredMentions: currentDraft.authoredMentions.map((mention) =>
-					mention.profileId === profileId
-						? {
-								...mention,
-								relation,
-							}
-						: mention
-				),
+				...applySpaceComposerRelationChange({
+					authoredMentions: currentDraft.authoredMentions,
+					profileId,
+					relation,
+					snapshot,
+					text: currentDraft.text,
+				}),
 			}));
 		},
 		onMentionPopoverClose,
@@ -718,6 +721,90 @@ export function useSpaceMentionAuthoring(input: {
 		setHighlightedIndex(-1);
 		setActivePrefixRange(null);
 	}
+}
+
+function applySpaceComposerRelationChange(input: {
+	authoredMentions: readonly TrackedComposerAuthoredMention[];
+	profileId: string;
+	relation: MessageMentionType;
+	snapshot: SpaceMembersSnapshot;
+	text: string;
+}): {
+	authoredMentions: TrackedComposerAuthoredMention[];
+	text: string;
+} {
+	const catalog = createSpaceTargetCatalog(input.snapshot);
+	const canonicalOwners = collectCanonicalMentionTextFragments(
+		input.text
+	).flatMap((fragment, sequence) => {
+		const parsedLiteral = fragment.parsedLiteral;
+		if (!parsedLiteral) {
+			return [];
+		}
+		const target = catalog.byExactMentionLabel.get(parsedLiteral.name);
+		if (target?.profileId !== input.profileId) {
+			return [];
+		}
+		return [
+			{
+				end: fragment.end,
+				kind: "canonical" as const,
+				name: parsedLiteral.name,
+				sequence,
+				start: fragment.start,
+			},
+		];
+	});
+	const authoredOwners = input.authoredMentions.flatMap((mention, sequence) =>
+		mention.profileId === input.profileId
+			? [
+					{
+						kind: "authored" as const,
+						mention,
+						sequence,
+						start: mention.start,
+					},
+				]
+			: []
+	);
+	const owner = [...canonicalOwners, ...authoredOwners].sort(
+		(left, right) =>
+			left.start - right.start ||
+			(left.kind === "canonical" ? 0 : 1) -
+				(right.kind === "canonical" ? 0 : 1) ||
+			left.sequence - right.sequence
+	)[0];
+	if (!owner) {
+		return {
+			authoredMentions: [...input.authoredMentions],
+			text: input.text,
+		};
+	}
+
+	if (owner.kind === "authored") {
+		return {
+			authoredMentions: input.authoredMentions.map((mention) =>
+				mention === owner.mention
+					? { ...mention, relation: input.relation }
+					: mention
+			),
+			text: input.text,
+		};
+	}
+
+	const canonicalText = formatCanonicalMentionLiteral({
+		name: owner.name,
+		type: input.relation,
+	});
+	const nextText = `${input.text.slice(0, owner.start)}${canonicalText}${input.text.slice(owner.end)}`;
+	return {
+		authoredMentions: reconcileTrackedAuthoredMentions({
+			mentions: input.authoredMentions,
+			nextText,
+			previousText: input.text,
+		}),
+		text: nextText,
+	};
 }
 
 export function buildSpaceMentionTargetItems(input: {

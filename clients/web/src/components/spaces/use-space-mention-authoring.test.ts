@@ -160,6 +160,72 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 			}),
 		]);
 	});
+
+	it("rewrites the owning canonical mention when its relation changes", () => {
+		const runnerProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const composer = renderHook(() =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: {
+					kind: "space",
+					ownerAccountId: "account-1",
+					profileId: "human-1",
+					spaceId: "space-1",
+				},
+				isMembersLoading: false,
+				membersErrorMessage: null,
+				openMeldProfileId: "human-1",
+				snapshot: createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							agentWakeAvailability: { status: "available_for_wake" },
+							profileId: runnerProfileId,
+							profileName: "Runner",
+						}),
+					],
+				}),
+				spaceId: "space-1",
+			})
+		);
+
+		const textWithDuplicate = "@Runner(wake) Review this plan with @Run";
+		act(() => {
+			composer.result.current.onComposerChange(textWithDuplicate, {
+				end: textWithDuplicate.length,
+				start: textWithDuplicate.length,
+			});
+		});
+		expect(composer.result.current.mentionPopoverState.kind).toBe(
+			"target_picker"
+		);
+		act(() => {
+			composer.result.current.onMentionItemSelect(0, "reference");
+		});
+		expect(composer.result.current.addressingTargets).toEqual([
+			expect.objectContaining({
+				profileId: runnerProfileId,
+				relation: "wake",
+			}),
+		]);
+
+		act(() => {
+			composer.result.current.onMentionRelationChange(
+				runnerProfileId,
+				"reference"
+			);
+		});
+
+		expect(composer.result.current.composerText).toBe(
+			"@Runner(reference) Review this plan with @Runner "
+		);
+		expect(
+			composer.result.current.prepareSubmission("Members are required.")
+				.messageEnvelope
+		).toEqual({
+			activationTargets: [],
+			referenceTargets: [runnerProfileId],
+			text: "@Runner(reference) Review this plan with @Runner",
+		});
+	});
 });
 
 describe("buildSpaceMentionTargetItems", () => {
