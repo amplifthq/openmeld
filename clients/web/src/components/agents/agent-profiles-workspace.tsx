@@ -113,15 +113,20 @@ function AgentProfilesWorkspaceFrame(input: {
 }) {
 	const workspaceInput = input.input;
 	const orderedProfiles = input.groups.flatMap((group) => group.profiles);
+	const retainedImplicitProfileId = orderedProfiles.some(
+		(profile) => profile.openMeldProfileId === input.implicitSelectedProfileId
+	)
+		? input.implicitSelectedProfileId
+		: (orderedProfiles[0]?.openMeldProfileId ?? null);
 	const requestedProfileId =
-		workspaceInput.selectedProfileId ?? input.implicitSelectedProfileId;
+		workspaceInput.selectedProfileId ?? retainedImplicitProfileId;
 	const selectedProfile = requestedProfileId
 		? (orderedProfiles.find(
 				(profile) => profile.openMeldProfileId === requestedProfileId
 			) ?? null)
 		: (orderedProfiles[0] ?? null);
 	const selectionMissing =
-		requestedProfileId !== null && selectedProfile === null;
+		workspaceInput.selectedProfileId !== null && selectedProfile === null;
 	const activeProfileId =
 		workspaceInput.activeView === "agents"
 			? (selectedProfile?.openMeldProfileId ?? null)

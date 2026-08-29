@@ -169,6 +169,37 @@ describe("AgentProfilesWorkspace", () => {
 		expect(onSelectProfile).not.toHaveBeenCalled();
 	});
 
+	it("selects the first remaining Agent when a filter removes the implicit selection", () => {
+		const firstProfile = createProfile(
+			"agent-current",
+			CURRENT_USER_ID,
+			"Felix",
+			"Felix Agent"
+		);
+		const secondProfile = createProfile(
+			"agent-current-two",
+			CURRENT_USER_ID,
+			"Felix",
+			"Second Felix Agent"
+		);
+		const { rerenderWorkspace } = renderWorkspace({
+			profiles: [firstProfile, secondProfile],
+		});
+
+		expect(screen.getByTestId("selected-agent-detail").textContent).toBe(
+			"Felix Agent"
+		);
+
+		rerenderWorkspace({ profiles: [secondProfile] });
+
+		expect(screen.getByTestId("selected-agent-detail").textContent).toBe(
+			"Second Felix Agent"
+		);
+		expect(
+			screen.queryByRole("heading", { name: "Agent not found" })
+		).toBeNull();
+	});
+
 	it("does not substitute another Agent for a stale profile deep link", () => {
 		renderWorkspace({ selectedProfileId: "agent-missing" });
 
