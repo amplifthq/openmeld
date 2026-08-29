@@ -3399,7 +3399,8 @@ function AgentProfileWorkspacePresentation(input: {
 				wakeAvailabilityErrorMessage={input.input.readinessErrorMessage}
 				wakeAvailabilityIsPending={input.input.readinessIsPending}
 				wakeAvailabilityRecoveryActions={
-					input.input.readinessIsMissing &&
+					(input.input.readinessIsMissing ||
+						Boolean(input.input.readinessErrorMessage)) &&
 					!input.input.readinessIsPending &&
 					input.input.repairActions.length > 0 ? (
 						<AgentProfileRepairActions

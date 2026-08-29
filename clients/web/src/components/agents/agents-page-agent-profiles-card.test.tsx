@@ -419,6 +419,32 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.getByText("Unavailable")).toBeTruthy();
 	});
 
+	it("prioritizes a readiness refresh failure over cached availability", async () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						createWakeAvailabilityReadiness("available_for_wake"),
+					],
+				]),
+				agentExecutionReadinessErrorByProfileId: new Map([
+					[AGENT_PROFILE_ID, "Core could not refresh Wake availability."],
+				]),
+			},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "detail" }
+		);
+
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"Core could not refresh Wake availability."
+		);
+		expect(screen.getByText("Unavailable")).toBeTruthy();
+		expect(
+			document.querySelector('[data-availability-phase="available"]')
+		).toBeNull();
+	});
+
 	it("keeps the Core recovery action in the selected Agent detail", async () => {
 		renderAgentProfilesCard(
 			{},

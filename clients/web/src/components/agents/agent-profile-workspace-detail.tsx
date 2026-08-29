@@ -42,7 +42,14 @@ export function AgentProfileWorkspaceDetail(input: {
 	wakeAvailabilityIsPending: boolean;
 	wakeAvailabilityRecoveryActions?: ReactNode;
 }) {
-	const fallbackAvailability = resolveFallbackWakeAvailability(input);
+	const displayedWakeAvailability = input.wakeAvailabilityErrorMessage
+		? null
+		: input.wakeAvailability;
+	const fallbackAvailability = resolveFallbackWakeAvailability({
+		wakeAvailability: displayedWakeAvailability,
+		wakeAvailabilityErrorMessage: input.wakeAvailabilityErrorMessage,
+		wakeAvailabilityIsPending: input.wakeAvailabilityIsPending,
+	});
 	return (
 		<div
 			className="@container/agent-detail mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
@@ -63,7 +70,7 @@ export function AgentProfileWorkspaceDetail(input: {
 						<p className="mt-1 break-words text-muted-foreground text-sm">
 							{input.controllerModelSummary}
 						</p>
-						{input.wakeAvailability ? (
+						{displayedWakeAvailability ? (
 							<Tooltip>
 								<TooltipTrigger
 									render={
@@ -72,21 +79,21 @@ export function AgentProfileWorkspaceDetail(input: {
 												"mt-2 inline-flex rounded-md bg-muted px-2 py-1 font-medium text-xs"
 											)}
 											data-availability-action={
-												input.wakeAvailability.action ?? undefined
+												displayedWakeAvailability.action ?? undefined
 											}
 											data-availability-phase={
-												input.wakeAvailability.phase ?? undefined
+												displayedWakeAvailability.phase ?? undefined
 											}
 											data-availability-reason-code={
-												input.wakeAvailability.reasonCode ?? undefined
+												displayedWakeAvailability.reasonCode ?? undefined
 											}
 										/>
 									}
 								>
-									{input.wakeAvailability.badgeLabel}
+									{displayedWakeAvailability.badgeLabel}
 								</TooltipTrigger>
 								<TooltipContent className="max-w-sm" side="top">
-									{input.wakeAvailability.tooltip}
+									{displayedWakeAvailability.tooltip}
 								</TooltipContent>
 							</Tooltip>
 						) : (
