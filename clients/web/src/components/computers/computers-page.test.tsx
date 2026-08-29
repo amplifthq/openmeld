@@ -970,6 +970,7 @@ describe("ComputersPage", () => {
 		);
 		expect(useRefreshComputersAfterSetupCompleteMock).toHaveBeenCalledWith({
 			enabled: true,
+			organizationId: "org-acme",
 			queryClient: queryClientStub,
 			recovery: expect.any(Object),
 		});
