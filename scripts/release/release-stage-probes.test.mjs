@@ -12,6 +12,7 @@ import {
 } from "./release-stage-probes.mjs";
 
 const TARGET_VERSION = "0.2.43";
+const TARGET_MIN_REQUIRED_CLI_VERSION = "0.2.40";
 const TARGET_CORE_TAG = "openmeld-release-1234567890abcdef";
 const TARGET_SHA = "a".repeat(40);
 const ARTIFACT_SHA = "b".repeat(64);
@@ -43,7 +44,7 @@ function completeBinaryInput() {
       channels: {
         stable: {
           version: TARGET_VERSION,
-          minRequiredCliVersion: TARGET_VERSION,
+          minRequiredCliVersion: TARGET_MIN_REQUIRED_CLI_VERSION,
           platforms: {
             "darwin-arm64": {
               sha256: ARTIFACT_SHA,
@@ -59,6 +60,7 @@ function completeBinaryInput() {
       },
     },
     platform: "darwin-arm64",
+    targetMinRequiredCliVersion: TARGET_MIN_REQUIRED_CLI_VERSION,
     targetVersion: TARGET_VERSION,
   };
 }
@@ -106,7 +108,18 @@ test("skips the CLI binary channel at the published-record criterion", () => {
     action: "SKIP",
     criterion: "verified-published-record",
     reason:
-      "the production manifest has 0.2.43, the darwin-arm64 raw URL matches its recorded size, and the gzip archive hashes and reconstructs the recorded binary",
+      "the production manifest has 0.2.43 with required floor 0.2.40, the darwin-arm64 raw URL matches its recorded size, and the gzip archive hashes and reconstructs the recorded binary",
+  });
+});
+
+test("reruns the CLI binary publication when R2 has the right version but the wrong required floor", () => {
+  const input = completeBinaryInput();
+  input.manifest.channels.stable.minRequiredCliVersion = "0.2.39";
+
+  assert.deepEqual(decideCliBinaryStage(input), {
+    action: "RUN",
+    reason:
+      "the production CLI manifest required floor is 0.2.39, not target 0.2.40",
   });
 });
 
@@ -169,13 +182,57 @@ test("skips npm when the immutable target version already exists", () => {
     decideNpmPublishStage({
       status: 0,
       stderr: "",
-      stdout: `${JSON.stringify(TARGET_VERSION)}\n`,
+      stdout: `${JSON.stringify({
+        version: TARGET_VERSION,
+        "openmeld.minRequiredCliVersion": TARGET_MIN_REQUIRED_CLI_VERSION,
+      })}\n`,
+      targetMinRequiredCliVersion: TARGET_MIN_REQUIRED_CLI_VERSION,
       targetVersion: TARGET_VERSION,
     }),
     {
       action: "SKIP",
-      criterion: "npm-version-exists",
-      reason: "npm already publishes openmeld@0.2.43",
+      criterion: "npm-version-and-floor-exist",
+      reason:
+        "npm already publishes openmeld@0.2.43 with required floor 0.2.40",
+    }
+  );
+});
+
+test("fails final alignment before mutation when an immutable channel is wrong", () => {
+  const immutableNpmFailure = {
+    action: "FAIL",
+    reason: "npm immutable metadata differs",
+  };
+
+  assert.deepEqual(
+    decideChannelAlignmentStage({
+      binary: { action: "SKIP" },
+      core: { action: "SKIP" },
+      npm: immutableNpmFailure,
+    }),
+    {
+      action: "FAIL",
+      reason: "npm immutable metadata differs",
+    }
+  );
+});
+
+test("fails closed when an immutable npm package has the wrong required floor", () => {
+  assert.deepEqual(
+    decideNpmPublishStage({
+      status: 0,
+      stderr: "",
+      stdout: `${JSON.stringify({
+        version: TARGET_VERSION,
+        "openmeld.minRequiredCliVersion": "0.2.39",
+      })}\n`,
+      targetMinRequiredCliVersion: TARGET_MIN_REQUIRED_CLI_VERSION,
+      targetVersion: TARGET_VERSION,
+    }),
+    {
+      action: "FAIL",
+      reason:
+        "npm openmeld@0.2.43 is immutable with required floor 0.2.39, not target 0.2.40; publish a new release instead of retrying this version",
     }
   );
 });

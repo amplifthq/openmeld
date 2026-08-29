@@ -1332,9 +1332,9 @@ test("the CLI floor is monotonic for non-required releases (base-aware)", () => 
     policies: { cli: "available" },
   });
 
-  // Deliberately RAISING the floor outside a required release is allowed: it
-  // stays dormant until the next required release, which pins the floor to
-  // its own version regardless.
+  // Deliberately RAISING the floor outside a required release is allowed for a
+  // separately proven compatibility break. The release can remain advisory for
+  // every CLI at or above that first safe version.
   assert.deepEqual(
     resolveCliRequiredFloorVerificationErrors({
       baseAware: true,

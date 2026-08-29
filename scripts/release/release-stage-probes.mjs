@@ -47,6 +47,15 @@ export function decideCliBinaryStage(input) {
       reason: `the production CLI manifest is at ${String(stable.version ?? "missing")}, not target ${input.targetVersion}`,
     };
   }
+  if (
+    input.targetMinRequiredCliVersion &&
+    stable.minRequiredCliVersion !== input.targetMinRequiredCliVersion
+  ) {
+    return {
+      action: "RUN",
+      reason: `the production CLI manifest required floor is ${String(stable.minRequiredCliVersion ?? "missing")}, not target ${input.targetMinRequiredCliVersion}`,
+    };
+  }
   const artifact = stable.platforms?.[input.platform];
   if (!cliBinaryCompressedReleaseSchema.safeParse(artifact).success) {
     return {
@@ -96,7 +105,7 @@ export function decideCliBinaryStage(input) {
   return {
     action: "SKIP",
     criterion: "verified-published-record",
-    reason: `the production manifest has ${input.targetVersion}, the ${input.platform} raw URL matches its recorded size, and the gzip archive hashes and reconstructs the recorded binary`,
+    reason: `the production manifest has ${input.targetVersion} with required floor ${input.targetMinRequiredCliVersion}, the ${input.platform} raw URL matches its recorded size, and the gzip archive hashes and reconstructs the recorded binary`,
   };
 }
 
@@ -111,12 +120,22 @@ export function decideNpmPublishStage(input) {
     }
     return probeFailureDecision("npm completion probe", detail);
   }
-  const publishedVersion = parseNpmVersion(input.stdout);
+  const published = parseNpmPackageProjection(input.stdout);
+  const publishedVersion = published.version;
   if (publishedVersion === input.targetVersion) {
+    if (
+      input.targetMinRequiredCliVersion &&
+      published.minRequiredCliVersion !== input.targetMinRequiredCliVersion
+    ) {
+      return {
+        action: "FAIL",
+        reason: `npm openmeld@${input.targetVersion} is immutable with required floor ${String(published.minRequiredCliVersion ?? "missing")}, not target ${input.targetMinRequiredCliVersion}; publish a new release instead of retrying this version`,
+      };
+    }
     return {
       action: "SKIP",
-      criterion: "npm-version-exists",
-      reason: `npm already publishes openmeld@${input.targetVersion}`,
+      criterion: "npm-version-and-floor-exist",
+      reason: `npm already publishes openmeld@${input.targetVersion} with required floor ${input.targetMinRequiredCliVersion}`,
     };
   }
   return {
@@ -232,6 +251,12 @@ export function decideCoreProjectionStage(input) {
 }
 
 export function decideChannelAlignmentStage(input) {
+  const failure = [input.binary, input.npm, input.core].find(
+    (decision) => decision?.action === "FAIL"
+  );
+  if (failure) {
+    return failure;
+  }
   const incomplete = [
     ["R2", input.binary],
     ["npm", input.npm],
@@ -281,16 +306,28 @@ export function readCurrentWorkerVersionIds(deployments) {
     );
 }
 
-function parseNpmVersion(stdout) {
+function parseNpmPackageProjection(stdout) {
   const normalized = String(stdout ?? "").trim();
   if (!normalized) {
-    return null;
+    return { minRequiredCliVersion: null, version: null };
   }
   try {
     const parsed = JSON.parse(normalized);
-    return typeof parsed === "string" ? parsed.trim() : null;
+    if (typeof parsed === "string") {
+      return { minRequiredCliVersion: null, version: parsed.trim() };
+    }
+    if (parsed && typeof parsed === "object") {
+      const version =
+        typeof parsed.version === "string" ? parsed.version.trim() : null;
+      const minRequiredCliVersion =
+        typeof parsed["openmeld.minRequiredCliVersion"] === "string"
+          ? parsed["openmeld.minRequiredCliVersion"].trim()
+          : null;
+      return { minRequiredCliVersion, version };
+    }
+    return { minRequiredCliVersion: null, version: null };
   } catch {
-    return normalized;
+    return { minRequiredCliVersion: null, version: normalized };
   }
 }
 

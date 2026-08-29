@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-29T06:57:03.837Z",
+  "updatedAt": "2026-08-29T07:58:29.382Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.130",
+      "packageVersion": "0.3.131",
       "updatePolicy": "available",
-      "reason": "Existing CLI, Service, Auth, Core, Gateway, and Web remain interoperable; 0.3.130 only completes best-effort cleanup of an unused candidate sign-in after recovery."
+      "reason": "CLIs before 0.3.126 lack the reliable startup, recovery, managed update, and active Permission/Wake behavior required by the current workstation runtime; supported CLIs remain advisory."
     },
     "service": {
-      "bundleHash": "bcaa3a71f1beb74cbe5ce39dd4f97d4442f6993a5c49b4c258283ebe52f1206b",
-      "bundleVersion": "0.3.130",
+      "bundleHash": "7684c0942cbafd9bc7347275acb3d23392399918b7b85f9fa4cd47d148ff5e63",
+      "bundleVersion": "0.3.131",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "No Service wire contract changed; 0.3.129 lets the bundled Service reuse the restored sign-in during repair while older healthy Services remain compatible."
+      "reason": "No Service contract changes; this release carries the proven CLI compatibility floor while supported Services remain interoperable."
     },
     "skills": {
       "bundleHash": "3b9b009ba253a1ec80240545d016a238505cd21ec6b11b34a10eea755f2e2683",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Keep Space replies working after OpenMeld Service upgrades."
+      "reason": "No OpenMeld-managed skill contract changed."
     }
   }
 }

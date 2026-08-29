@@ -15,6 +15,7 @@ import {
   DEFAULT_CLI_R2_BUCKET,
   prepareSignedCliBinary,
   prepareVerifiedCliBinary,
+  resolveCliMinRequiredVersion,
 } from "./upload-cli-binary.mjs";
 
 const CAPTURED_MANIFEST = JSON.parse(
@@ -29,6 +30,41 @@ const CAPTURED_MANIFEST = JSON.parse(
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const SECURE_STORAGE_SMOKE_FAILURE_PATTERN = /secure storage smoke failed/u;
 const STOP_AFTER_BUILD_INPUT_PATTERN = /stop after build input/u;
+
+test("publishes the proven 0.3.126 CLI compatibility floor without forcing every older supported release", () => {
+  const packageJson = JSON.parse(
+    readFileSync(
+      new URL("../../clients/openmeld-cli/package.json", import.meta.url),
+      "utf8"
+    )
+  );
+  const minRequiredCliVersion = resolveCliMinRequiredVersion();
+
+  assert.equal(minRequiredCliVersion, "0.3.126");
+  assert.notEqual(
+    minRequiredCliVersion,
+    packageJson.version,
+    "the compatibility floor must not force every CLI below latest without evidence"
+  );
+
+  const manifest = buildCliManifest({
+    archiveArtifactName: `openmeld-cli-darwin-arm64-${packageJson.version}.gz`,
+    archiveSha256: "b".repeat(64),
+    archiveSizeBytes: 25_721_096,
+    artifactName: `openmeld-cli-darwin-arm64-${packageJson.version}`,
+    downloadBaseUrl: DEFAULT_CLI_DOWNLOAD_BASE_URL,
+    minRequiredCliVersion,
+    platform: "darwin-arm64",
+    sha256: "a".repeat(64),
+    sizeBytes: 68_899_792,
+    version: packageJson.version,
+  });
+
+  assert.equal(
+    manifest.channels.stable.minRequiredCliVersion,
+    packageJson.openmeld.minRequiredCliVersion
+  );
+});
 
 test("builds the captured stable CLI binary manifest shape", () => {
   const manifest = buildCliManifest({

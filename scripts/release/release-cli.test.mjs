@@ -110,7 +110,15 @@ async function createReleaseRepo(version) {
   await mkdir(join(repoRoot, "clients/openmeld-cli"), { recursive: true });
   await writeFile(
     join(repoRoot, "clients/openmeld-cli/package.json"),
-    `${JSON.stringify({ name: "openmeld", version }, null, 2)}\n`
+    `${JSON.stringify(
+      {
+        name: "openmeld",
+        version,
+        openmeld: { minRequiredCliVersion: version },
+      },
+      null,
+      2
+    )}\n`
   );
   await git("add", "-A");
   await git("commit", "-m", "seed");
@@ -776,8 +784,16 @@ test("a fully completed CLI release rerun skips every stage without side effects
         },
         runCommand: ({ args, command }) => {
           const key = [command, ...args].join(" ");
-          if (key === "npm view openmeld@0.7.96 version --json") {
-            return { status: 0, stderr: "", stdout: '"0.7.96"\n' };
+          if (
+            key ===
+            "npm view openmeld@0.7.96 version openmeld.minRequiredCliVersion --json"
+          ) {
+            return {
+              status: 0,
+              stderr: "",
+              stdout:
+                '{"version":"0.7.96","openmeld.minRequiredCliVersion":"0.7.96"}\n',
+            };
           }
           if (key.includes("wrangler deployments list")) {
             return {
@@ -831,6 +847,81 @@ test("a fully completed CLI release rerun skips every stage without side effects
     assert.equal(rendered.match(new RegExp(ALREADY_DONE_RE, "gu"))?.length, 6);
     assert.match(rendered, THREE_WAY_ALIGNMENT_RE);
     assert.equal((await git("rev-parse", "HEAD")).stdout.trim(), head);
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("stops before every release mutation when immutable npm metadata is wrong", async () => {
+  const { git, repoRoot } = await createReleaseRepo("0.7.96");
+  await mkdir(join(repoRoot, "release"), { recursive: true });
+  await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
+  await git("add", "release/local-components.json");
+  await git("commit", "-m", "add release manifest");
+  await configureTestOrigin({ git, repoRoot });
+  const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
+  const sideEffects = [];
+
+  try {
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          fetch: (url, options) => {
+            const manifest = buildTestCliManifest("0.7.96");
+            if (options?.method === "HEAD") {
+              return new Response(null, {
+                headers: {
+                  "content-length": String(TEST_CLI_BINARY.byteLength),
+                },
+                status: 200,
+              });
+            }
+            if (String(url).endsWith(".gz")) {
+              return new Response(TEST_CLI_ARCHIVE, { status: 200 });
+            }
+            return new Response(JSON.stringify(manifest), { status: 200 });
+          },
+          runCommand: ({ args, command }) => {
+            const key = [command, ...args].join(" ");
+            if (key.startsWith("npm view")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout:
+                  '{"version":"0.7.96","openmeld.minRequiredCliVersion":"0.7.95"}\n',
+              };
+            }
+            if (key.includes("wrangler deployments list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(WRANGLER_RELEASE_STATE.deployments),
+              };
+            }
+            if (key.includes("wrangler versions list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(
+                  WRANGLER_RELEASE_STATE.versions.map((version) => ({
+                    ...version,
+                    annotations: { "workers/tag": coreTag },
+                  }))
+                ),
+              };
+            }
+            throw new Error(`Unexpected read-only command: ${key}`);
+          },
+          runStep: (step) => sideEffects.push(step.label),
+          publishCliReleaseTag: () => sideEffects.push("tag"),
+        },
+        cwd: repoRoot,
+        env: {},
+        withBinary: true,
+      }),
+      /npm openmeld@0\.7\.96 is immutable with required floor 0\.7\.95/u
+    );
+    assert.deepEqual(sideEffects, []);
   } finally {
     await rm(repoRoot, { force: true, recursive: true });
   }
