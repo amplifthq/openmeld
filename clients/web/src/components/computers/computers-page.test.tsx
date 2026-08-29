@@ -439,6 +439,59 @@ function buildOrganizationComputers(input: {
 	};
 }
 
+function buildLegacyRequiredOrganizationComputers(): OrganizationComputersResponse {
+	// Captured from the public Organization Computers contract on 2026-08-29;
+	// identity and display values are redacted while update fields keep the
+	// production legacy-Service shape that exposed this route race.
+	return {
+		computers: [
+			{
+				computerId: "device-ashley",
+				deviceDisplayName: "Ashley's Mac Studio",
+				deviceType: "desktop",
+				lastSeenAtMs: 1_775_952_000_000,
+				localAgents: [],
+				openMeldTools: {
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					cli: {
+						installedPackageVersion: "0.3.107",
+						latestPackageVersion: "0.3.131",
+						reasonCodes: ["cli.package_update_available"],
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					service: {
+						installedVersion: "0.3.107",
+						latestVersion: "0.3.131",
+						reasonCodes: ["service.version_outdated"],
+						requiredVersion: "0.3.131",
+						status: "update_required",
+						updatePolicy: "required",
+						wakeBlocked: true,
+					},
+					skills: {
+						reasonCodes: ["skills.bundle_mismatch"],
+						status: "update_available",
+						targetCount: 1,
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+				},
+				osVersion: "24.0.0",
+				ownerUserId: "user-ashley",
+				platformFamily: "macOS",
+				serviceState: "needs_attention",
+			},
+		],
+		generatedAt: "2026-08-29T00:00:00.000Z",
+		organizationId: "org-acme",
+	};
+}
+
 describe("ComputersPage", () => {
 	beforeEach(() => {
 		selectedComputerPanelPropsSpy.mockReset();
@@ -596,6 +649,68 @@ describe("ComputersPage", () => {
 		expect(
 			screen.getByTestId("computer-owner-profile-link").getAttribute("href")
 		).toBe("/o/acme/people?profileId=member:member-ashley");
+	});
+
+	it("waits for a fresh Organization projection before declaring a legacy Computer missing", () => {
+		organizationDirectoryQueryData = buildOrganizationDirectory({
+			includeOtherMemberComputers: true,
+		});
+		organizationComputersQueryData = buildOrganizationComputers({});
+		let projectionRefreshIsPending = true;
+		useQueryMock.mockImplementation((options) => ({
+			data:
+				options.queryKey.at(-1) === "computers"
+					? organizationComputersQueryData
+					: organizationDirectoryQueryData,
+			error: null,
+			isError: false,
+			isFetchedAfterMount: !projectionRefreshIsPending,
+			isFetching: projectionRefreshIsPending,
+			isPending: false,
+		}));
+
+		const { rerender } = render(
+			<TestComputersRouteStateProvider
+				value={{ computersSelectedDeviceId: "computer:device-ashley" }}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(screen.getByTestId("computer-detail-loading")).toBeTruthy();
+		expect(
+			screen.queryByRole("heading", { name: "Computer not found" })
+		).toBeNull();
+
+		organizationComputersQueryData = buildLegacyRequiredOrganizationComputers();
+		projectionRefreshIsPending = false;
+		rerender(
+			<TestComputersRouteStateProvider
+				value={{ computersSelectedDeviceId: "computer:device-ashley" }}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(
+			screen.getByRole("heading", { name: "Ashley's Mac Studio" })
+		).toBeTruthy();
+		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
+		expect(screen.getByText("Installed v0.3.107")).toBeTruthy();
+		expect(screen.getByText("Update to v0.3.131.")).toBeTruthy();
+
+		organizationComputersQueryData = buildOrganizationComputers({});
+		rerender(
+			<TestComputersRouteStateProvider
+				value={{ computersSelectedDeviceId: "computer:device-ashley" }}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(
+			screen.getByRole("heading", { name: "Computer not found" })
+		).toBeTruthy();
 	});
 
 	it("returns to People when the legacy Computers home has no current device", () => {
