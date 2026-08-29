@@ -7,8 +7,8 @@ import { gunzipSync } from "node:zlib";
 
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
-import { compareSemverCore } from "./release-semver.mjs";
 import {
+  classifyCliBinaryManifestVersion,
   decideChannelAlignmentStage,
   decideCliBinaryStage,
   decideCoreProjectionStage,
@@ -296,12 +296,11 @@ async function probeCliBinaryStage(input) {
     const manifest = await fetchCliChannelManifest({
       fetch: input.adapters.fetch,
     });
-    if (
-      compareSemverCore(
-        manifest.channels.stable.version,
-        input.target.version
-      ) !== 0
-    ) {
+    const versionRelation = classifyCliBinaryManifestVersion({
+      stableVersion: manifest.channels.stable.version,
+      targetVersion: input.target.version,
+    });
+    if (versionRelation !== "exact") {
       return decideCliBinaryStage({
         manifest,
         platform: CLI_BINARY_PLATFORM,

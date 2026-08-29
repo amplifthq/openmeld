@@ -830,7 +830,10 @@ production manifest has a semantically lower version, the new target may safely
 resume because artifacts publish before the manifest; this decision is made
 before requesting any artifact owned by the older manifest. A manifest version
 ahead of the target fails without mutation so the stable channel cannot move
-backward. Once the manifest names the target version, any missing, incomplete,
+backward. Prerelease, build-metadata, non-canonical, or other suffix variants do
+not count as the target even when their numeric core matches; they fail closed.
+Only exact canonical `x.y.z` string equality permits target artifact probes.
+Once the manifest names that exact target version, any missing, incomplete,
 size-mismatched, hash-mismatched, or unreconstructable artifact fails without
 rebuilding or overwriting that version.
 

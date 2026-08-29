@@ -161,6 +161,29 @@ test("fails before moving the stable CLI channel backward", () => {
   });
 });
 
+test("fails closed when the manifest version is not the exact canonical target", () => {
+  const versionCases = [
+    { stableVersion: "0.3.131-beta", targetVersion: "0.3.131" },
+    { stableVersion: "0.3.131+meta", targetVersion: "0.3.131" },
+    { stableVersion: "0.3.131oops", targetVersion: "0.3.131" },
+    { stableVersion: "0.3.131oops", targetVersion: "0.3.131oops" },
+  ];
+
+  for (const versionCase of versionCases) {
+    const input = completeBinaryInput();
+    input.manifest.channels.stable.version = versionCase.stableVersion;
+    input.manifest.channels.stable.minRequiredCliVersion =
+      versionCase.targetVersion;
+    input.targetVersion = versionCase.targetVersion;
+    input.targetMinRequiredCliVersion = versionCase.targetVersion;
+
+    assert.deepEqual(decideCliBinaryStage(input), {
+      action: "FAIL",
+      reason: `the production CLI manifest version ${versionCase.stableVersion} cannot be safely compared with target ${versionCase.targetVersion}; exact canonical x.y.z identity is required before probing immutable target artifacts`,
+    });
+  }
+});
+
 test("fails closed when a published target version has a missing compressed artifact", () => {
   const input = completeBinaryInput();
   input.archiveProbe = { contentLength: null, ok: false, status: 404 };

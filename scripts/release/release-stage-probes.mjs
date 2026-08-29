@@ -5,6 +5,8 @@ import { compareSemverCore } from "./release-semver.mjs";
 const NO_PENDING_D1_MIGRATIONS_PATTERN = /No migrations to apply[.!]?/iu;
 const NPM_MISSING_VERSION_PATTERN =
   /\bE404\b|is not in this registry|No match found/iu;
+const CANONICAL_CLI_RELEASE_VERSION_PATTERN =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
 
 export function decideD1MigrationStage(input) {
   if (input.status !== 0) {
@@ -44,21 +46,9 @@ export function decideCliBinaryStage(input) {
       reason: "the production CLI manifest is missing channels.stable",
     };
   }
-  const stableVersionComparison = compareSemverCore(
-    stable.version,
-    input.targetVersion
-  );
-  if (stableVersionComparison < 0) {
-    return {
-      action: "RUN",
-      reason: `the production CLI manifest is at ${stable.version}, below target ${input.targetVersion}`,
-    };
-  }
-  if (stableVersionComparison > 0) {
-    return {
-      action: "FAIL",
-      reason: `the production CLI manifest is already at ${stable.version}, ahead of target ${input.targetVersion}; refusing to publish an older CLI or move the stable channel backward`,
-    };
+  const versionDecision = decideCliBinaryManifestVersionStage(input, stable);
+  if (versionDecision) {
+    return versionDecision;
   }
   if (
     input.targetMinRequiredCliVersion &&
@@ -120,6 +110,57 @@ export function decideCliBinaryStage(input) {
     criterion: "verified-published-record",
     reason: `the production manifest has ${input.targetVersion} with required floor ${input.targetMinRequiredCliVersion}, the ${input.platform} raw URL matches its recorded size, and the gzip archive hashes and reconstructs the recorded binary`,
   };
+}
+
+function decideCliBinaryManifestVersionStage(input, stable) {
+  const versionRelation = classifyCliBinaryManifestVersion({
+    stableVersion: stable.version,
+    targetVersion: input.targetVersion,
+  });
+  if (versionRelation === "behind") {
+    return {
+      action: "RUN",
+      reason: `the production CLI manifest is at ${stable.version}, below target ${input.targetVersion}`,
+    };
+  }
+  if (versionRelation === "ahead") {
+    return {
+      action: "FAIL",
+      reason: `the production CLI manifest is already at ${stable.version}, ahead of target ${input.targetVersion}; refusing to publish an older CLI or move the stable channel backward`,
+    };
+  }
+  if (versionRelation === "unsafe") {
+    return {
+      action: "FAIL",
+      reason: `the production CLI manifest version ${stable.version} cannot be safely compared with target ${input.targetVersion}; exact canonical x.y.z identity is required before probing immutable target artifacts`,
+    };
+  }
+  return null;
+}
+
+export function classifyCliBinaryManifestVersion(input) {
+  if (
+    !(
+      CANONICAL_CLI_RELEASE_VERSION_PATTERN.test(input.stableVersion) &&
+      CANONICAL_CLI_RELEASE_VERSION_PATTERN.test(input.targetVersion)
+    )
+  ) {
+    return "unsafe";
+  }
+  if (input.stableVersion === input.targetVersion) {
+    return "exact";
+  }
+  const comparison = compareSemverCore(
+    input.stableVersion,
+    input.targetVersion
+  );
+  if (comparison < 0) {
+    return "behind";
+  }
+  if (comparison > 0) {
+    return "ahead";
+  }
+  return "unsafe";
 }
 
 function immutableCliBinaryArtifactFailure(input, detail) {

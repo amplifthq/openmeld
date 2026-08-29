@@ -49,6 +49,8 @@ const INCONCLUSIVE_R2_PROBE_RE =
   /could not prove whether 0\.3\.130 is already published.*refusing to rerun immutable binary publication/u;
 const R2_STABLE_CHANNEL_AHEAD_RE =
   /production CLI manifest is already at 0\.3\.132, ahead of target 0\.3\.131.*stable channel backward/u;
+const UNSAFE_R2_VERSION_IDENTITY_RE =
+  /cannot be safely compared with target 0\.3\.131.*exact canonical x\.y\.z identity is required/u;
 const MANIFEST_GATE_EXPLODED_RE = /manifest gate exploded/u;
 const QUEUE_GATE_EXPLODED_RE = /queue gate exploded/u;
 const RELEASE_RESUME_COMMAND_RE =
@@ -1273,4 +1275,87 @@ test("resumes a newer CLI target without probing artifacts from an older manifes
     reason: "the production CLI manifest is at 0.3.130, below target 0.3.131",
   });
   assert.deepEqual(artifactRequests, []);
+});
+
+test("stops before every release mutation when the manifest is not the exact canonical target", async () => {
+  const targetVersion = "0.3.131";
+  for (const stableVersion of ["0.3.131-beta", "0.3.131+meta", "0.3.131oops"]) {
+    const { git, repoRoot } = await createReleaseRepo(targetVersion);
+    await mkdir(join(repoRoot, "release"), { recursive: true });
+    await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
+    await git("add", "release/local-components.json");
+    await git("commit", "-m", "add release manifest");
+    await configureTestOrigin({ git, repoRoot });
+    const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
+    const sideEffects = [];
+
+    try {
+      await assert.rejects(
+        runCliRelease({
+          adapters: {
+            fetch: (url, options) => {
+              const manifest = buildTestCliManifest(stableVersion, {
+                minRequiredCliVersion: targetVersion,
+              });
+              if (options?.method === "HEAD") {
+                return new Response(null, {
+                  headers: {
+                    "content-length": String(TEST_CLI_BINARY.byteLength),
+                  },
+                  status: 200,
+                });
+              }
+              if (String(url).endsWith(".gz")) {
+                return new Response(TEST_CLI_ARCHIVE, { status: 200 });
+              }
+              return new Response(JSON.stringify(manifest), { status: 200 });
+            },
+            runCommand: ({ args, command }) => {
+              const key = [command, ...args].join(" ");
+              if (key.startsWith("npm view")) {
+                return {
+                  status: 1,
+                  stderr: "npm error code E404",
+                  stdout: "",
+                };
+              }
+              if (key.includes("wrangler deployments list")) {
+                return {
+                  status: 0,
+                  stderr: "",
+                  stdout: JSON.stringify(WRANGLER_RELEASE_STATE.deployments),
+                };
+              }
+              if (key.includes("wrangler versions list")) {
+                return {
+                  status: 0,
+                  stderr: "",
+                  stdout: JSON.stringify(
+                    WRANGLER_RELEASE_STATE.versions.map((version) => ({
+                      ...version,
+                      annotations: { "workers/tag": `${coreTag}-other` },
+                    }))
+                  ),
+                };
+              }
+              throw new Error(`Unexpected read-only command: ${key}`);
+            },
+            runStep: (step) => {
+              sideEffects.push(step.label);
+              throw new Error("release mutation must not start");
+            },
+            publishCliReleaseTag: () => sideEffects.push("tag"),
+          },
+          cwd: repoRoot,
+          env: {},
+          withBinary: true,
+        }),
+        UNSAFE_R2_VERSION_IDENTITY_RE,
+        stableVersion
+      );
+      assert.deepEqual(sideEffects, [], stableVersion);
+    } finally {
+      await rm(repoRoot, { force: true, recursive: true });
+    }
+  }
 });
