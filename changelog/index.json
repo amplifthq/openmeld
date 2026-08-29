@@ -2,6 +2,127 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "find-people-and-their-computers-together",
+      "title": "Find people and their computers together",
+      "kind": "improved",
+      "areas": [
+        "people",
+        "computers",
+        "navigation"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:436",
+        "commit:039fe8df2c1366b271b2a9f3199e11f53391fcf6",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "worker-version:c3c4d138-2fd2-4df6-9ef2-d49fb24cf085",
+        "pr-comment:5463688488"
+      ],
+      "body": "People now keeps Human Profiles in a dedicated sidebar and opens each person's\nfull details in the main view. Computer cards live with their owner, invitations\nshare one dialog, and the current Computer is always one click away from the\nbottom toolbar. Computer status now follows the current OpenMeld Service\nconnection, so a registered Computer never looks ready only because OpenMeld\nhas seen it before.\n\nThe People sidebar now groups teammates as **Connected** or **Not Connected**\nbased on whether they have connected a Computer, with plain-language tooltips\nfor both labels. Your own profile stays first, while teammates in each group are\nordered by when they were last seen in OpenMeld Web. Activity uses compact copy\nsuch as **3 hours ago**, explains **Last seen 3 hours ago** on hover, and sits on\nthe same row as Local Agent icons. Empty Channel rows no longer reserve space.\nOpening or returning to OpenMeld Web now refreshes your last-seen time; using the\nCLI alone does not."
+    },
+    {
+      "id": "computer-details-wait-for-fresh-projection",
+      "title": "Keep Computer details honest while they refresh",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:468",
+        "commit:12a2549214c12e884c6f42fd501dbf573e2333b4",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "worker-version:acb7e69e-ffed-4ef2-96e7-c734a2598961",
+        "worker-version:c3c4d138-2fd2-4df6-9ef2-d49fb24cf085",
+        "pr-comment:5463688488"
+      ],
+      "body": "Opening a teammate's Computer now waits for a fresh Organization Computer\nprojection before deciding that the Computer no longer exists, so an older\ncached list cannot briefly hide required update guidance."
+    },
+    {
+      "id": "keep-service-update-target-current",
+      "title": "Keep pending Service updates on the newest version",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "openmeld-service",
+        "setup"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:473",
+        "commit:f091298b264fb77e63a65cb86a7870c99b293ef7",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "pr-comment:5463688488"
+      ],
+      "body": "When a newer OpenMeld Service version becomes available while an update is\nalready waiting, OpenMeld now replaces the older target with the newer version.\nThe existing update remains recoverable until the newer target is safely saved,\nand an older worker or queued request cannot overwrite that target or move the\nService back to an earlier version."
+    },
+    {
+      "id": "clarify-space-access-output",
+      "title": "See how a Space can be found and opened",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "cli"
+      ],
+      "audiences": [
+        "members",
+        "agents"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:422",
+        "commit:85e312aa80bfeeb04f280603d17b05b2a57e655e",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "pr-comment:5463688488"
+      ],
+      "body": "OpenMeld CLI now separates Organization visibility from link access in Space\nlists and status output. An invite-only Space is no longer mistaken for\nmembers-only when anyone with its link can open it."
+    },
+    {
+      "id": "honest-local-agent-availability",
+      "title": "Show when a local agent is truly unavailable",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "computers",
+        "local-agents"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-30",
+      "release": "v0.3.132",
+      "evidence": [
+        "pr:448",
+        "commit:0e93f6d26f549ca49565e7f1101e8cef5bef1b35",
+        "commit:cc1aacf11c2f3abf8bbd3cfc148269a30d818e3e",
+        "tag:v0.3.132",
+        "worker-version:acb7e69e-ffed-4ef2-96e7-c734a2598961",
+        "worker-version:c3c4d138-2fd2-4df6-9ef2-d49fb24cf085",
+        "pr-comment:5463688488"
+      ],
+      "body": "Local agents that are signed out or blocked by provider access now appear as\nUnavailable instead of a red launch error. Computers and Agent Profiles use the\nnewest exact local runtime evidence, distinguish temporary rate limits from\nhard account or quota blockers, and point to the provider action needed before\nthe agent can run again."
+    },
+    {
       "id": "editable-agent-runtime-settings",
       "title": "Edit Agent settings without leaving active work",
       "kind": "improved",
