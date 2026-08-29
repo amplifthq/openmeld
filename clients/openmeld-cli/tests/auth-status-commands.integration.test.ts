@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runAuthStatus } from "../src/commands/auth";
 import { runWhoami } from "../src/commands/whoami";
 import {
+  beginAuthSessionTransition,
   getAuthSessionState,
   setAuthSession,
 } from "../src/config/auth-session";
@@ -200,6 +201,81 @@ describe("auth command status states", () => {
       );
       expect(await getAuthSessionState()).toMatchObject({
         state: "valid",
+      });
+    });
+  });
+
+  it("reads the restored saved sign-in without replacing its token during Computer recovery", async () => {
+    const remoteExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            session: { id: "session-previous", expiresAt: remoteExpiresAt },
+            user: { id: "previous-owner" },
+          }),
+          {
+            headers: { "set-auth-token": "rotated-remote-token" },
+            status: 200,
+          }
+        )
+      )
+    );
+
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      const transition = await beginAuthSessionTransition(
+        {
+          accessToken: "candidate-token",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "candidate-owner" },
+        },
+        {
+          computerHandoff: {
+            gatewayUrl: "https://gateway.openmeld.invalid",
+          },
+        }
+      );
+      await transition.rollback();
+
+      const authDirectory = join(home, ".openmeld", "auth");
+      const sessionPath = join(authDirectory, "session.json");
+      const transitionPath = join(authDirectory, "session-transition.json");
+      const sessionBeforeStatus = await readFile(sessionPath, "utf8");
+      const transitionBeforeStatus = await readFile(transitionPath, "utf8");
+
+      const result = await runCommandAndCapture(() =>
+        runAuthStatus({ view: "agent" })
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(
+        parseJsonLine(result.stdout, "auth.status.session")?.payload
+      ).toMatchObject({
+        signedIn: true,
+        state: "valid",
+      });
+      await expect(readFile(sessionPath, "utf8")).resolves.toBe(
+        sessionBeforeStatus
+      );
+      await expect(readFile(transitionPath, "utf8")).resolves.toBe(
+        transitionBeforeStatus
+      );
+      vi.stubEnv("OPENMELD_DAEMON_RUNTIME_MODE", "background");
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "previous-token",
+          user: { id: "previous-owner" },
+        },
       });
     });
   });
