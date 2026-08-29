@@ -32,7 +32,6 @@ const REPORT_POINTER_COPY_PATTERN =
 	/The report sends message IDs and system trace pointers/;
 const AGENTS_RECOVERY_HREF_PATTERN = /\/agents$/u;
 const COMPUTERS_RECOVERY_HREF_PATTERN = /\/computers$/u;
-const ORGANIZATION_WAKE_ACCESS_HREF_PATTERN = /#organization-wake-access$/u;
 const REFERENCED_SPACE_ID = "d".repeat(64);
 
 vi.mock("#/lib/clipboard", () => ({
@@ -1235,7 +1234,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 	});
 
-	it("keeps an Organization Wake access failure and its action in one activity row", () => {
+	it("shows a cross-workspace Agent failure without a dead-end action", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -1252,9 +1251,9 @@ describe("SpaceMessageDetailsDrawer", () => {
 					replyToSignalId: "sig-human",
 					signalType: "signal.system_notice",
 					systemNoticeFailureStage: "execution",
-					systemNoticeReasonCode: "organization_binding_authorization.required",
+					systemNoticeReasonCode: "agent_profile.organization_mismatch",
 					systemNoticeType: "terminal_failure",
-					text: "Wake access is off for Runner in this organization.",
+					text: "Runner belongs to a different workspace.",
 				}),
 			],
 		});
@@ -1262,7 +1261,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const failureSection = getActivityRegion("OpenMeld");
 		const statusBadge = within(failureSection).getByText("Failed");
 		const failureReason = within(failureSection).getByText(
-			"Wake access is off for Runner in this organization."
+			"Runner belongs to a different workspace."
 		);
 		expect(statusBadge.className).toContain("text-destructive");
 		expect(failureReason).toBeTruthy();
@@ -1270,12 +1269,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(
 			screen.queryByRole("heading", { name: "Why this failed" })
 		).toBeNull();
-		const recoveryLink = screen.getByRole("link", {
-			name: "Turn on Wake access",
-		});
-		expect(recoveryLink.getAttribute("href")).toMatch(
-			ORGANIZATION_WAKE_ACCESS_HREF_PATTERN
-		);
+		expect(within(failureSection).queryByRole("link")).toBeNull();
 	});
 
 	it("shows one failed activity row and keeps reason-code facts in Technical details", () => {

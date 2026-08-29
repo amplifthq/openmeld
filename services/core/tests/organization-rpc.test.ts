@@ -15,10 +15,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  type ApplyAcceptedBindingAuthorizationPoliciesInput,
-  applyAcceptedBindingAuthorizationPolicies,
-} from "../src/agent-profile-binding/application/organization-binding-authorization-policy-service";
 import { MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE } from "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 // biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM exports used by the RPC orchestration module.
 import * as centerAgentWakePublicationService from "../src/center-agent/application/center-agent-wake-publication-service";
@@ -35,8 +31,6 @@ import {
   rpcAddCenterAgentToSpace,
   rpcAddOrganizationDirectoryProfilesToSpace,
   rpcAddSpaceMembers,
-  rpcAuthorizeAgentProfileBindingForOrganization,
-  rpcBulkAuthorizeAgentProfileBindingsForOrganization,
   rpcCenterAgentAddAgentProfilesToSpace,
   rpcCenterAgentAddMembersToSpace,
   rpcCenterAgentCreateAgentProfile,
@@ -79,13 +73,9 @@ import {
   rpcGetCurrentOrganizationDirectory,
   rpcGetCurrentOrganizationSpaceDirectory,
   rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts,
-  rpcGetOrganizationBindingAuthorizationPreference,
   rpcJoinOrganizationPublicSpace,
   rpcLeaveSpace,
   rpcListCenterAgentAuditJournal,
-  rpcListCurrentUserAgentProfileOrganizationWakeAccess,
-  rpcListOrganizationBindingAuthorizationProfiles,
-  rpcListOrganizationBindingAuthorizations,
   rpcOpenCenterAgentDirectMessageSpace,
   rpcOpenDirectMessageSpace,
   rpcPatchSpaceContract,
@@ -94,10 +84,7 @@ import {
   rpcReadOrganizationInformationProtectionPolicy,
   rpcRecordCurrentOrganizationWebActivity,
   rpcRemoveSpaceMembers,
-  rpcRevokeAgentProfileBindingForOrganization,
-  rpcSaveOrganizationWakeAccessChoice,
   rpcSetCenterAgentOrganizationMemoryPolicy,
-  rpcSetOrganizationBindingAuthorizationPreference,
   rpcSetOrganizationInformationProtectionPolicy,
   rpcSetSpaceAccessMode,
   rpcUpdateCenterAgentModel,
@@ -147,447 +134,6 @@ describe("organization Core RPC", () => {
       code: "organization.membership_required",
       status: 403,
     });
-  });
-
-  it("authorizes the current primary Binding for the active Organization only through the Core authorization table", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          organizationId: "org-a",
-          ownerUserId: "user-a",
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-      ],
-      members: [memberRow("member-a", "org-a", "user-a")],
-    });
-    const env = buildEnv({ db });
-
-    const response = await rpcAuthorizeAgentProfileBindingForOrganization(env, {
-      agentProfileId: AGENT_PROFILE_ID,
-      context: buildContext({
-        activeOrganizationId: "org-a",
-        userId: "user-a",
-      }),
-    });
-
-    expect(response).toMatchObject({
-      agentProfileId: AGENT_PROFILE_ID,
-      authorizedBy: "user-a",
-      bindingId: `binding-${AGENT_PROFILE_ID}`,
-      organizationId: "org-a",
-      status: "authorized",
-    });
-    expect(db.authorizationWrites).toEqual([
-      {
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        organizationId: "org-a",
-      },
-    ]);
-    expect(db.disallowedWrites).toEqual([]);
-  });
-
-  it("authorizes a caller personal Agent Profile Binding for the active collaboration Organization", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          organizationId: "org-personal",
-          ownerUserId: "user-a",
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-      ],
-      members: [
-        memberRow("member-personal", "org-personal", "user-a", "owner"),
-        memberRow("member-acme", "org-acme", "user-a", "owner"),
-      ],
-      personalOrganizations: [
-        { organizationId: "org-personal", userId: "user-a" },
-      ],
-    });
-    const env = buildEnv({ db });
-    const context = buildContext({
-      activeOrganizationId: "org-acme",
-      userId: "user-a",
-    });
-
-    await expect(
-      rpcAuthorizeAgentProfileBindingForOrganization(env, {
-        agentProfileId: AGENT_PROFILE_ID,
-        context,
-      })
-    ).resolves.toMatchObject({
-      agentProfileId: AGENT_PROFILE_ID,
-      authorizedBy: "user-a",
-      bindingId: `binding-${AGENT_PROFILE_ID}`,
-      organizationId: "org-acme",
-      status: "authorized",
-    });
-    await expect(
-      rpcRevokeAgentProfileBindingForOrganization(env, {
-        agentProfileId: AGENT_PROFILE_ID,
-        context,
-      })
-    ).resolves.toMatchObject({
-      agentProfileId: AGENT_PROFILE_ID,
-      bindingId: `binding-${AGENT_PROFILE_ID}`,
-      organizationId: "org-acme",
-      revoked: true,
-      status: "revoked",
-    });
-    expect(db.authorizationWrites).toEqual([
-      {
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        organizationId: "org-acme",
-      },
-    ]);
-    expect(db.authorizationDeletes).toEqual([
-      {
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        organizationId: "org-acme",
-      },
-    ]);
-  });
-
-  it("rejects authorizing a personal Center Agent Binding for another Organization", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        managedCenterAgentProfileRow({
-          organizationId: "org-personal",
-          ownerUserId: "user-a",
-        }),
-      ],
-      members: [
-        memberRow("member-personal", "org-personal", "user-a", "owner"),
-        memberRow("member-acme", "org-acme", "user-a", "owner"),
-      ],
-      personalOrganizations: [
-        { organizationId: "org-personal", userId: "user-a" },
-      ],
-    });
-    const env = buildEnv({ db });
-
-    await expect(
-      rpcAuthorizeAgentProfileBindingForOrganization(env, {
-        agentProfileId: AGENT_PROFILE_ID,
-        context: buildContext({
-          activeOrganizationId: "org-acme",
-          userId: "user-a",
-        }),
-      })
-    ).rejects.toMatchObject({
-      code: "organization_binding_authorization.managed_profile_org_mismatch",
-      status: 403,
-    });
-    expect(db.authorizationWrites).toEqual([]);
-  });
-
-  it("bulk-authorizes only the caller's current Agent Profile Bindings for the requested Organization", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          organizationId: "org-a",
-          ownerUserId: "user-a",
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-        {
-          organizationId: "org-a",
-          ownerUserId: "user-a",
-          profileHandle: "planner",
-          profileId: SECOND_AGENT_PROFILE_ID,
-          profileName: "Planner",
-          status: "active",
-        },
-        {
-          organizationId: "org-a",
-          ownerUserId: "user-b",
-          profileHandle: "other",
-          profileId: "agt_00000000-0000-4000-8000-000000000004",
-          profileName: "Other",
-          status: "active",
-        },
-      ],
-      members: [memberRow("member-a", "org-a", "user-a")],
-    });
-    const env = buildEnv({ db });
-
-    const response = await rpcBulkAuthorizeAgentProfileBindingsForOrganization(
-      env,
-      {
-        organizationId: "org-a",
-        context: buildContext({
-          activeOrganizationId: "org-a",
-          userId: "user-a",
-        }),
-      }
-    );
-
-    expect(response).toMatchObject({
-      authorizedCount: 2,
-      alreadyAuthorizedCount: 0,
-      organizationId: "org-a",
-    });
-    expect(response.authorizations.map((item) => item.agentProfileId)).toEqual([
-      AGENT_PROFILE_ID,
-      SECOND_AGENT_PROFILE_ID,
-    ]);
-    expect(db.authorizationWrites).toEqual([
-      {
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        organizationId: "org-a",
-      },
-      {
-        bindingId: `binding-${SECOND_AGENT_PROFILE_ID}`,
-        organizationId: "org-a",
-      },
-    ]);
-  });
-
-  it("bulk-authorizes caller personal Agent Profile Bindings into the requested Organization", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          organizationId: "org-personal",
-          ownerUserId: "user-a",
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-      ],
-      members: [
-        memberRow("member-personal", "org-personal", "user-a", "owner"),
-        memberRow("member-acme", "org-acme", "user-a", "owner"),
-      ],
-      personalOrganizations: [
-        { organizationId: "org-personal", userId: "user-a" },
-      ],
-    });
-    const env = buildEnv({ db });
-
-    const response = await rpcBulkAuthorizeAgentProfileBindingsForOrganization(
-      env,
-      {
-        organizationId: "org-acme",
-        context: buildContext({
-          activeOrganizationId: "org-personal",
-          userId: "user-a",
-        }),
-      }
-    );
-
-    expect(response).toMatchObject({
-      authorizedCount: 1,
-      alreadyAuthorizedCount: 0,
-      organizationId: "org-acme",
-    });
-    expect(response.authorizations).toEqual([
-      expect.objectContaining({
-        agentProfileId: AGENT_PROFILE_ID,
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        organizationId: "org-acme",
-        status: "authorized",
-      }),
-    ]);
-    expect(db.authorizationWrites).toEqual([
-      {
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        organizationId: "org-acme",
-      },
-    ]);
-  });
-
-  it("bulk Wake Access skips a personal Center Agent while keeping ordinary personal Agents", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          organizationId: "org-personal",
-          ownerUserId: "user-a",
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-        managedCenterAgentProfileRow({
-          organizationId: "org-personal",
-          ownerUserId: "user-a",
-          profileId: SECOND_AGENT_PROFILE_ID,
-        }),
-      ],
-      members: [
-        memberRow("member-personal", "org-personal", "user-a", "owner"),
-        memberRow("member-acme", "org-acme", "user-a", "owner"),
-      ],
-      personalOrganizations: [
-        { organizationId: "org-personal", userId: "user-a" },
-      ],
-    });
-    const env = buildEnv({ db });
-
-    const response = await rpcBulkAuthorizeAgentProfileBindingsForOrganization(
-      env,
-      {
-        organizationId: "org-acme",
-        context: buildContext({
-          activeOrganizationId: "org-personal",
-          userId: "user-a",
-        }),
-      }
-    );
-
-    expect(response.authorizations.map((item) => item.agentProfileId)).toEqual([
-      AGENT_PROFILE_ID,
-    ]);
-    expect(db.authorizationWrites).toEqual([
-      {
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        organizationId: "org-acme",
-      },
-    ]);
-  });
-
-  it("rejects bulk authorization when any requested Agent Profile is not caller-owned in that Organization", async () => {
-    const env = buildEnv({
-      agentProfiles: [
-        {
-          organizationId: "org-a",
-          ownerUserId: "user-b",
-          profileHandle: "other",
-          profileId: SECOND_AGENT_PROFILE_ID,
-          profileName: "Other",
-          status: "active",
-        },
-      ],
-      members: [memberRow("member-a", "org-a", "user-a")],
-    });
-
-    await expect(
-      rpcBulkAuthorizeAgentProfileBindingsForOrganization(env, {
-        agentProfileIds: [SECOND_AGENT_PROFILE_ID],
-        organizationId: "org-a",
-        context: buildContext({
-          activeOrganizationId: "org-a",
-          userId: "user-a",
-        }),
-      })
-    ).rejects.toMatchObject({
-      code: "organization_binding_authorization.profile_owner_mismatch",
-      status: 403,
-    });
-  });
-
-  it("stores the per-user per-Organization Binding authorization preference", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [],
-      members: [memberRow("member-a", "org-a", "user-a")],
-    });
-    const env = buildEnv({ db });
-    const context = buildContext({
-      activeOrganizationId: "org-a",
-      userId: "user-a",
-    });
-
-    await expect(
-      rpcGetOrganizationBindingAuthorizationPreference(env, {
-        organizationId: "org-a",
-        context,
-      })
-    ).resolves.toMatchObject({
-      autoAuthorizeAgentProfileBindings: false,
-      organizationId: "org-a",
-      updatedAt: null,
-      userId: "user-a",
-    });
-
-    await expect(
-      rpcSetOrganizationBindingAuthorizationPreference(env, {
-        autoAuthorizeAgentProfileBindings: true,
-        organizationId: "org-a",
-        context,
-      })
-    ).resolves.toMatchObject({
-      autoAuthorizeAgentProfileBindings: true,
-      organizationId: "org-a",
-      userId: "user-a",
-    });
-
-    await expect(
-      rpcGetOrganizationBindingAuthorizationPreference(env, {
-        organizationId: "org-a",
-        context,
-      })
-    ).resolves.toMatchObject({
-      autoAuthorizeAgentProfileBindings: true,
-    });
-  });
-
-  it("saves current and future Organization Wake access in one atomic batch", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          organizationId: "org-personal",
-          ownerUserId: "user-a",
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-        {
-          organizationId: "org-personal",
-          ownerUserId: "user-a",
-          profileHandle: "planner",
-          profileId: SECOND_AGENT_PROFILE_ID,
-          profileName: "Planner",
-          status: "active",
-        },
-      ],
-      members: [
-        memberRow("member-personal", "org-personal", "user-a", "owner"),
-        memberRow("member-acme", "org-acme", "user-a", "owner"),
-      ],
-      personalOrganizations: [
-        { organizationId: "org-personal", userId: "user-a" },
-      ],
-    });
-    const env = buildEnv({ db });
-
-    await expect(
-      rpcSaveOrganizationWakeAccessChoice(env, {
-        context: buildContext({
-          activeOrganizationId: "org-personal",
-          userId: "user-a",
-        }),
-        enableWakeAccess: true,
-        organizationId: "org-acme",
-      })
-    ).resolves.toMatchObject({
-      alreadyAuthorizedCount: 0,
-      authorizedCount: 2,
-      organizationId: "org-acme",
-      preference: {
-        autoAuthorizeAgentProfileBindings: true,
-        organizationId: "org-acme",
-        userId: "user-a",
-      },
-    });
-    expect(db.batch).toHaveBeenCalledTimes(1);
-    expect(db.authorizationWrites).toEqual([
-      {
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        organizationId: "org-acme",
-      },
-      {
-        bindingId: `binding-${SECOND_AGENT_PROFILE_ID}`,
-        organizationId: "org-acme",
-      },
-    ]);
   });
 
   it("defaults untouched Center Agent organization memory on", async () => {
@@ -814,195 +360,6 @@ describe("organization Core RPC", () => {
         updatedByUserId: "user-admin",
       },
     ]);
-  });
-
-  it("applies personal and preference authorization policies after a Binding becomes enabled primary", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          organizationId: "org-a",
-          ownerUserId: "user-a",
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-      ],
-      bindingAuthorizationPreferences: [
-        preferenceRow({
-          autoAuthorizeAgentProfileBindings: true,
-          organizationId: "org-a",
-          userId: "user-a",
-        }),
-      ],
-      members: [
-        memberRow("member-personal", "org-personal", "user-a", "owner"),
-        memberRow("member-a", "org-a", "user-a"),
-      ],
-      personalOrganizations: [
-        { organizationId: "org-personal", userId: "user-a" },
-      ],
-    });
-
-    await expect(
-      applyAcceptedBindingAuthorizationPolicies({
-        activeOrganizationId: "org-a",
-        actorProfileId: HUMAN_PROFILE_ID,
-        agentProfileId: AGENT_PROFILE_ID,
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        db: db as unknown as D1Database,
-        nowMs: 1_700_000_000_001,
-        ownerUserId: "user-a",
-      })
-    ).resolves.toEqual([
-      {
-        organizationId: "org-personal",
-        source: "personal",
-        status: "authorized",
-      },
-      {
-        organizationId: "org-a",
-        source: "preference",
-        status: "authorized",
-      },
-    ]);
-    expect(db.authorizationWrites).toEqual([
-      {
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        organizationId: "org-personal",
-      },
-      {
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        organizationId: "org-a",
-      },
-    ]);
-  });
-
-  it("carries reconnected Binding authorizations forward and records one audit row per carried authorization", async () => {
-    const oldBindingId = "binding-old";
-    const newBindingId = `binding-${AGENT_PROFILE_ID}`;
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          organizationId: "org-a",
-          ownerUserId: "user-a",
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-      ],
-      authorizations: [
-        authorizationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-a",
-          bindingId: oldBindingId,
-          createdAtMs: 1_700_000_000_000,
-          organizationId: "org-a",
-        }),
-        authorizationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-b",
-          bindingId: oldBindingId,
-          createdAtMs: 1_700_000_000_000,
-          organizationId: "org-b",
-        }),
-      ],
-      members: [
-        memberRow("member-a", "org-a", "user-a", "owner"),
-        memberRow("member-b", "org-a", "user-b"),
-      ],
-      personalOrganizations: [{ organizationId: "org-a", userId: "user-a" }],
-    });
-
-    await applyAcceptedBindingAuthorizationPolicies({
-      activeOrganizationId: "org-a",
-      actorProfileId: HUMAN_PROFILE_ID,
-      agentProfileId: AGENT_PROFILE_ID,
-      bindingId: newBindingId,
-      db: db as unknown as D1Database,
-      nowMs: 1_700_000_000_010,
-      ownerUserId: "user-a",
-      previousBindingId: oldBindingId,
-    } satisfies ApplyAcceptedBindingAuthorizationPoliciesInput);
-
-    expect(db.authorizationWrites).toEqual([
-      { bindingId: newBindingId, organizationId: "org-a" },
-      { bindingId: newBindingId, organizationId: "org-b" },
-    ]);
-    expect(db.centerAgentAuditRows).toHaveLength(2);
-    expect(
-      db.centerAgentAuditRows.map((row) => ({
-        action: row.action,
-        actorProfileId: row.actorProfileId,
-        organizationId: row.organizationId,
-        resourceType: row.resourceType,
-      }))
-    ).toEqual([
-      {
-        action: "carry_over_binding_authorization",
-        actorProfileId: HUMAN_PROFILE_ID,
-        organizationId: "org-a",
-        resourceType: "organization_binding_authorization",
-      },
-      {
-        action: "carry_over_binding_authorization",
-        actorProfileId: HUMAN_PROFILE_ID,
-        organizationId: "org-b",
-        resourceType: "organization_binding_authorization",
-      },
-    ]);
-  });
-
-  it("does not carry a Center Agent Binding authorization into another Organization", async () => {
-    const oldBindingId = "binding-old";
-    const newBindingId = `binding-${AGENT_PROFILE_ID}`;
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        managedCenterAgentProfileRow({
-          organizationId: "org-a",
-          ownerUserId: "user-a",
-        }),
-      ],
-      authorizations: [
-        authorizationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-a",
-          bindingId: oldBindingId,
-          createdAtMs: 1_700_000_000_000,
-          organizationId: "org-a",
-        }),
-        authorizationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-b",
-          bindingId: oldBindingId,
-          createdAtMs: 1_700_000_000_000,
-          organizationId: "org-b",
-        }),
-      ],
-      members: [memberRow("member-a", "org-a", "user-a", "owner")],
-      personalOrganizations: [{ organizationId: "org-a", userId: "user-a" }],
-    });
-
-    await applyAcceptedBindingAuthorizationPolicies({
-      activeOrganizationId: "org-a",
-      actorProfileId: HUMAN_PROFILE_ID,
-      agentProfileId: AGENT_PROFILE_ID,
-      bindingId: newBindingId,
-      db: db as unknown as D1Database,
-      nowMs: 1_700_000_000_010,
-      ownerUserId: "user-a",
-      previousBindingId: oldBindingId,
-    } satisfies ApplyAcceptedBindingAuthorizationPoliciesInput);
-
-    expect(db.authorizationWrites).toEqual([
-      { bindingId: newBindingId, organizationId: "org-a" },
-    ]);
-    expect(db.centerAgentAuditRows).toHaveLength(1);
-    expect(db.centerAgentAuditRows[0]).toMatchObject({
-      action: "carry_over_binding_authorization",
-      organizationId: "org-a",
-    });
   });
 
   it("filters the organization directory to the active Organization and reuses agent readiness projection", async () => {
@@ -2071,7 +1428,7 @@ describe("organization Core RPC", () => {
     });
   });
 
-  it("includes active personal Agent Profiles with Organization Wake Access in the organization directory", async () => {
+  it("excludes personal Agent Profiles from another Organization even with legacy Wake Access", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -2132,12 +1489,11 @@ describe("organization Core RPC", () => {
         profileId: profile.profileId,
       }))
     ).toEqual([
-      { organizationId: "org-personal", profileId: AGENT_PROFILE_ID },
       { organizationId: "org-a", profileId: SECOND_AGENT_PROFILE_ID },
     ]);
   });
 
-  it("excludes a personal Center Agent from another Organization's directory even with Wake Access", async () => {
+  it("excludes all personal Agent Profiles from another Organization even with legacy Wake Access", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -2181,9 +1537,7 @@ describe("organization Core RPC", () => {
       }),
     });
 
-    expect(response.agentProfiles.map((profile) => profile.profileId)).toEqual([
-      AGENT_PROFILE_ID,
-    ]);
+    expect(response.agentProfiles).toEqual([]);
   });
 
   it("falls back to readable names for organization directory members with empty auth names", async () => {
@@ -2549,7 +1903,7 @@ describe("organization Core RPC", () => {
     }
   });
 
-  it("designates Remote Agent by writing a hosted Binding, Organization authorization, and audit entries", async () => {
+  it("designates Remote Agent by writing a hosted Binding without retired Wake authorization", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -2599,12 +1953,8 @@ describe("organization Core RPC", () => {
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
     ]);
-    const hostedBindingId = [...db.bindingRows.values()][0]?.bindingId;
-    expect(db.authorizationWrites).toEqual([
-      { bindingId: hostedBindingId, organizationId: "org-a" },
-    ]);
+    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
-      "authorize_remote_center_agent_binding",
       "designate_remote_center_agent",
     ]);
   });
@@ -2876,7 +2226,7 @@ describe("organization Core RPC", () => {
     expect(db.bindingWriteEvents).toEqual([]);
   });
 
-  it("reconciles a legacy admin-owned Binding into the Profile owner's Binding", async () => {
+  it("reconciles a legacy admin-owned Binding without rebuilding retired Wake authorization", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -2958,12 +2308,7 @@ describe("organization Core RPC", () => {
         runtimeKind: "hosted_center_agent",
       }),
     ]);
-    expect([...db.authorizationRows.values()]).toEqual([
-      expect.objectContaining({
-        authorizedBy: "admin-user",
-        organizationId: "org-a",
-      }),
-    ]);
+    expect([...db.authorizationRows.values()]).toEqual([]);
     expect(
       acquireMutation.mock.calls.map(([request]) => request.ownerUserId)
     ).toEqual(["admin-user", "owner-user"]);
@@ -2978,7 +2323,7 @@ describe("organization Core RPC", () => {
     ]);
   });
 
-  it("preserves the original authorizer while moving a legacy hosted Binding to the Profile owner", async () => {
+  it("does not carry retired Wake authorization while leaving legacy evidence untouched", async () => {
     const legacyBindingId = "binding-legacy-hosted-admin";
     const db = createOrganizationRpcDb({
       agentProfiles: [
@@ -3057,17 +2402,17 @@ describe("organization Core RPC", () => {
       reasoningLevel: "high",
       runtimeKind: "hosted_center_agent",
     });
-    expect(
-      db.authorizationRows.get(
-        authorizationKey("org-a", canonicalBinding?.bindingId ?? "")
-      )
-    ).toMatchObject({
-      authorizedBy: "legacy-authorizer",
-      organizationId: "org-a",
-    });
+    expect([...db.authorizationRows.values()]).toEqual([
+      expect.objectContaining({
+        authorizedBy: "legacy-authorizer",
+        bindingId: legacyBindingId,
+        organizationId: "org-a",
+      }),
+    ]);
+    expect(db.authorizationWrites).toEqual([]);
   });
 
-  it("releases every owner admission when atomic authorization carry-over fails", async () => {
+  it("releases every owner admission without touching retired Wake authorization", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -3120,10 +2465,11 @@ describe("organization Core RPC", () => {
           runtime: "remote_agent",
         }
       )
-    ).rejects.toThrow("Test Binding authorization write failure.");
+    ).resolves.toMatchObject({ status: "designated" });
     expect(
       releaseMutation.mock.calls.map(([request]) => request.ownerUserId).sort()
     ).toEqual(["admin-user", "owner-user"]);
+    expect(db.authorizationWrites).toEqual([]);
   });
 
   it("does not change D1 state when a legacy owner shard blocks reconciliation", async () => {
@@ -3474,7 +2820,7 @@ describe("organization Core RPC", () => {
     });
   });
 
-  it("keeps only the Center Agent's own Organization authorization when replacing its hosted Binding", async () => {
+  it("does not carry legacy Organization authorization when replacing a hosted Center Agent Binding", async () => {
     const previousBindingId = `binding-${AGENT_PROFILE_ID}`;
     const db = createOrganizationRpcDb({
       agentProfiles: [
@@ -3515,17 +2861,12 @@ describe("organization Core RPC", () => {
       runtime: "remote_agent",
     });
 
-    const hostedBindingId = [...db.bindingRows.values()].find(
-      (binding) => binding.runtimeKind === "hosted_center_agent"
-    )?.bindingId;
-    expect(db.authorizationWrites).toEqual([
-      { bindingId: hostedBindingId, organizationId: "org-a" },
-    ]);
+    expect(db.authorizationWrites).toEqual([]);
     expect(
       db.centerAgentAuditRows
         .filter((row) => row.action === "carry_over_binding_authorization")
         .map((row) => row.organizationId)
-    ).toEqual(["org-a"]);
+    ).toEqual([]);
   });
 
   it("lets organization owners and admins update the Center Agent profile name through Auth", async () => {
@@ -4154,6 +3495,14 @@ describe("organization Core RPC", () => {
         }),
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PRIVATE_SPACE_ID,
+          spaceName: "Joined room",
+          visibility: "private",
+        }),
+      ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
     const env = buildEnv({ db, spaceStub });
@@ -8154,12 +7503,8 @@ describe("organization Core RPC", () => {
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
     ]);
-    const hostedBindingId = [...db.bindingRows.values()][0]?.bindingId;
-    expect(db.authorizationWrites).toEqual([
-      { bindingId: hostedBindingId, organizationId: "org-a" },
-    ]);
+    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
-      "authorize_remote_center_agent_binding",
       "designate_remote_center_agent",
     ]);
     expect(
@@ -9071,6 +8416,156 @@ describe("organization Core RPC", () => {
     );
   });
 
+  it("keeps Space member writes inside the Agent Profile's canonical Organization", async () => {
+    const spaceId =
+      "abababababababababababababababababababababababababababababababab";
+    const sameOrganizationAgentProfileId = AGENT_PROFILE_ID;
+    const foreignAgentProfileId = SECOND_AGENT_PROFILE_ID;
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "same-org-agent",
+          profileId: sameOrganizationAgentProfileId,
+          profileName: "Same Organization Agent",
+          status: "active",
+        },
+        {
+          organizationId: "org-b",
+          ownerUserId: "user-a",
+          profileHandle: "foreign-agent",
+          profileId: foreignAgentProfileId,
+          profileName: "Foreign Agent",
+          status: "active",
+        },
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "member")],
+      spaces: [
+        spaceRow({
+          organizationId: "org-b",
+          spaceId,
+          spaceName: "Stale Organization B Projection",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId,
+          spaceName: "Canonical Organization A Room",
+          visibility: "private",
+        }),
+      ],
+    });
+    const env = buildEnv({ db, spaceStub });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+    const sameOrganizationAgent = {
+      agentControllerRef: null,
+      ownerName: "Ava",
+      ownerUserId: "user-a",
+      profileId: sameOrganizationAgentProfileId,
+      profileKind: "agent" as const,
+      profileName: "Same Organization Agent",
+    };
+    const humanMember = {
+      agentControllerRef: null,
+      ownerName: "Ava",
+      ownerUserId: "user-a",
+      profileId: HUMAN_PROFILE_ID,
+      profileKind: "human" as const,
+      profileName: "Ava",
+    };
+
+    await expect(
+      rpcAddSpaceMembers(env, {
+        context,
+        members: [sameOrganizationAgent, humanMember],
+        password: "space-password",
+        spaceId,
+      })
+    ).resolves.toMatchObject({
+      addedMemberIds: [sameOrganizationAgentProfileId, HUMAN_PROFILE_ID],
+    });
+    expect(spaceStub.rpcGetMeta).toHaveBeenCalledWith({
+      context,
+      password: "space-password",
+      spaceId,
+    });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+
+    const foreignAgent = {
+      ...sameOrganizationAgent,
+      profileId: foreignAgentProfileId,
+      profileName: "Foreign Agent",
+    };
+    // Exercise the Core DTO seam directly so an older Gateway/client cannot
+    // bypass canonical Space and Agent Profile Organization validation.
+    await expect(
+      rpcAddSpaceMembers(env, {
+        context,
+        members: [foreignAgent],
+        spaceId,
+      })
+    ).rejects.toMatchObject({
+      code: "agent_profile.organization_mismatch",
+      status: 403,
+    });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+
+    await expect(
+      rpcAddSpaceMembers(env, {
+        context,
+        members: [
+          {
+            ...sameOrganizationAgent,
+            profileKind: "human",
+          },
+        ],
+        spaceId,
+      })
+    ).rejects.toMatchObject({
+      code: "space.member_profile_kind_mismatch",
+      status: 409,
+    });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+
+    spaceStub.rpcGetMeta.mockRejectedValueOnce(
+      new Error("canonical Space metadata lookup failed")
+    );
+    await expect(
+      rpcAddSpaceMembers(env, {
+        context,
+        members: [sameOrganizationAgent],
+        spaceId,
+      })
+    ).rejects.toMatchObject({
+      code: "space.organization_lookup_failed",
+      status: 503,
+    });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+
+    db.prepare.mockImplementationOnce(() => {
+      throw new Error("canonical Agent Profile lookup failed");
+    });
+    await expect(
+      rpcAddSpaceMembers(env, {
+        context,
+        members: [sameOrganizationAgent],
+        spaceId,
+      })
+    ).rejects.toMatchObject({
+      code: "agent_profile.organization_lookup_failed",
+      status: 503,
+    });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects Center Agent DM member, lifecycle, and access mutations while ordinary DMs still forward them", async () => {
     const centerAgentDirectMessageSpaceId =
       "5555555555555555555555555555555555555555555555555555555555555555";
@@ -9744,7 +9239,7 @@ describe("organization Core RPC", () => {
     expect(db.spaces).toHaveLength(2);
   });
 
-  it("opens the Center Agent DM for a personal Agent Profile with Organization Wake Access", async () => {
+  it("rejects the Center Agent DM for a personal Agent Profile even with legacy Wake Access", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -9780,35 +9275,18 @@ describe("organization Core RPC", () => {
     const spaceStub = createSpaceStub({ spaces: db.spaces });
     const env = buildEnv({ db, spaceStub });
 
-    const response = await rpcOpenCenterAgentDirectMessageSpace(env, {
-      context: buildContext({
-        activeOrganizationId: "org-a",
-        userId: "user-a",
-      }),
-    });
-
-    expect(response).toMatchObject({
-      centerAgentProfileId: AGENT_PROFILE_ID,
-      created: true,
-      memberProfileId: HUMAN_PROFILE_ID,
-      organizationId: "org-a",
-    });
-    expect(spaceStub.rpcPostMembers).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        members: expect.arrayContaining([
-          expect.objectContaining({
-            profileId: HUMAN_PROFILE_ID,
-            profileKind: "human",
-          }),
-          expect.objectContaining({
-            profileId: AGENT_PROFILE_ID,
-            profileKind: "agent",
-            profileName: "Codex",
-          }),
-        ]),
-        spaceId: response.spaceId,
+    await expect(
+      rpcOpenCenterAgentDirectMessageSpace(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          userId: "user-a",
+        }),
       })
-    );
+    ).rejects.toMatchObject({
+      code: "center_agent.profile_not_found",
+      status: 409,
+    });
+    expect(spaceStub.rpcPostMembers).not.toHaveBeenCalled();
   });
 
   it("rejects the Center Agent DM for a personal Agent Profile without Organization Wake Access", async () => {
@@ -9973,349 +9451,6 @@ describe("organization Core RPC", () => {
     expect(
       responseWithMemberCounts.spaces.map((space) => space.activeMemberCount)
     ).toEqual([null, null, null]);
-  });
-
-  it("lists Organization Binding authorizations for the active Organization", async () => {
-    const env = buildEnv({
-      agentProfiles: [
-        {
-          organizationId: "org-a",
-          ownerUserId: "user-a",
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-      ],
-      authorizations: [
-        authorizationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-a",
-          bindingId: `binding-${AGENT_PROFILE_ID}`,
-          createdAtMs: 1_700_000_000_000,
-          organizationId: "org-a",
-        }),
-      ],
-      members: [memberRow("member-a", "org-a", "user-a")],
-    });
-
-    const response = await rpcListOrganizationBindingAuthorizations(env, {
-      context: buildContext({
-        activeOrganizationId: "org-a",
-        userId: "user-a",
-      }),
-    });
-
-    expect(response).toEqual({
-      organizationId: "org-a",
-      authorizations: [
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-a",
-          bindingId: `binding-${AGENT_PROFILE_ID}`,
-          createdAt: "2023-11-14T22:13:20.000Z",
-        },
-      ],
-    });
-  });
-
-  it("lists personal Agent Profile Binding authorizations written into the active Organization", async () => {
-    const env = buildEnv({
-      agentProfiles: [
-        {
-          organizationId: "org-personal",
-          ownerUserId: "user-a",
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-      ],
-      authorizations: [
-        authorizationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-a",
-          bindingId: `binding-${AGENT_PROFILE_ID}`,
-          createdAtMs: 1_700_000_000_000,
-          organizationId: "org-acme",
-        }),
-      ],
-      members: [memberRow("member-acme", "org-acme", "user-a")],
-    });
-
-    const response = await rpcListOrganizationBindingAuthorizations(env, {
-      context: buildContext({
-        activeOrganizationId: "org-acme",
-        userId: "user-a",
-      }),
-    });
-
-    expect(response).toEqual({
-      organizationId: "org-acme",
-      authorizations: [
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-a",
-          bindingId: `binding-${AGENT_PROFILE_ID}`,
-          createdAt: "2023-11-14T22:13:20.000Z",
-        },
-      ],
-    });
-  });
-
-  it("lists only caller-owned target and personal Organization Wake Access profiles", async () => {
-    const env = buildEnv({
-      agentProfiles: [
-        {
-          organizationId: "org-acme",
-          ownerUserId: "user-a",
-          profileHandle: "acme-codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Acme Codex",
-          status: "active",
-        },
-        {
-          hasBinding: false,
-          organizationId: "org-personal",
-          ownerUserId: "user-a",
-          profileHandle: "personal-assistant",
-          profileId: SECOND_AGENT_PROFILE_ID,
-          profileName: "Personal Assistant",
-          status: "active",
-        },
-        {
-          organizationId: "org-other",
-          ownerUserId: "user-a",
-          profileHandle: "other-codex",
-          profileId: "agt_00000000-0000-4000-8000-000000000004",
-          profileName: "Other Codex",
-          status: "active",
-        },
-        {
-          organizationId: "org-acme",
-          ownerUserId: "user-b",
-          profileHandle: "teammate-codex",
-          profileId: "agt_00000000-0000-4000-8000-000000000005",
-          profileName: "Teammate Codex",
-          status: "active",
-        },
-      ],
-      authorizations: [
-        authorizationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-a",
-          bindingId: `binding-${AGENT_PROFILE_ID}`,
-          createdAtMs: 1_700_000_000_000,
-          organizationId: "org-acme",
-        }),
-      ],
-      members: [memberRow("member-acme", "org-acme", "user-a")],
-      personalOrganizations: [
-        { organizationId: "org-personal", userId: "user-a" },
-      ],
-    });
-
-    const response = await rpcListOrganizationBindingAuthorizationProfiles(
-      env,
-      {
-        context: buildContext({
-          activeOrganizationId: "org-acme",
-          userId: "user-a",
-        }),
-        organizationId: "org-acme",
-      }
-    );
-
-    expect(response).toEqual({
-      organizationId: "org-acme",
-      profiles: [
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          authorized: true,
-          authorizedAt: "2023-11-14T22:13:20.000Z",
-          authorizedBy: "user-a",
-          bindingId: `binding-${AGENT_PROFILE_ID}`,
-          ownerUserId: "user-a",
-          profileHandle: "acme-codex",
-          profileName: "Acme Codex",
-          profileOrganizationId: "org-acme",
-          status: "authorized",
-        },
-        {
-          agentProfileId: SECOND_AGENT_PROFILE_ID,
-          authorized: false,
-          authorizedAt: null,
-          authorizedBy: null,
-          bindingId: null,
-          ownerUserId: "user-a",
-          profileHandle: "personal-assistant",
-          profileName: "Personal Assistant",
-          profileOrganizationId: "org-personal",
-          status: "binding_required",
-        },
-      ],
-    });
-  });
-
-  it("lists which non-personal Organizations have Wake access to the current user's own Agent Profile bindings", async () => {
-    const env = buildEnv({
-      agentProfiles: [
-        {
-          organizationId: "org-acme",
-          ownerUserId: "user-a",
-          profileHandle: "acme-codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Acme Codex",
-          status: "active",
-        },
-        {
-          hasBinding: false,
-          organizationId: "org-acme",
-          ownerUserId: "user-a",
-          profileHandle: "unbound-agent",
-          profileId: SECOND_AGENT_PROFILE_ID,
-          profileName: "Unbound Agent",
-          status: "active",
-        },
-      ],
-      authorizations: [
-        authorizationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-a",
-          bindingId: `binding-${AGENT_PROFILE_ID}`,
-          createdAtMs: 1_700_000_000_000,
-          organizationId: "org-acme",
-        }),
-        authorizationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-a",
-          bindingId: `binding-${AGENT_PROFILE_ID}`,
-          createdAtMs: 1_700_000_000_000,
-          organizationId: "org-personal",
-        }),
-      ],
-      members: [memberRow("member-acme", "org-acme", "user-a")],
-      organizations: [
-        { name: "Acme", organizationId: "org-acme", slug: "acme" },
-      ],
-      personalOrganizations: [
-        { organizationId: "org-personal", userId: "user-a" },
-      ],
-    });
-
-    const response = await rpcListCurrentUserAgentProfileOrganizationWakeAccess(
-      env,
-      {
-        context: buildContext({
-          activeOrganizationId: "org-acme",
-          userId: "user-a",
-        }),
-      }
-    );
-
-    expect(response).toEqual({
-      profiles: [
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          organizations: [
-            {
-              organizationId: "org-acme",
-              organizationName: "Acme",
-              organizationSlug: "acme",
-            },
-          ],
-        },
-      ],
-    });
-  });
-
-  it("reports no organization Wake access when the current user has no authorized Bindings", async () => {
-    const env = buildEnv({
-      agentProfiles: [
-        {
-          organizationId: "org-acme",
-          ownerUserId: "user-a",
-          profileHandle: "acme-codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Acme Codex",
-          status: "active",
-        },
-      ],
-      members: [memberRow("member-acme", "org-acme", "user-a")],
-    });
-
-    const response = await rpcListCurrentUserAgentProfileOrganizationWakeAccess(
-      env,
-      {
-        context: buildContext({
-          activeOrganizationId: "org-acme",
-          userId: "user-a",
-        }),
-      }
-    );
-
-    expect(response).toEqual({ profiles: [] });
-  });
-
-  it("revokes the active Organization Binding authorization idempotently", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          organizationId: "org-a",
-          ownerUserId: "user-a",
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-      ],
-      authorizations: [
-        authorizationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-a",
-          bindingId: `binding-${AGENT_PROFILE_ID}`,
-          createdAtMs: 1_700_000_000_000,
-          organizationId: "org-a",
-        }),
-      ],
-      members: [memberRow("member-a", "org-a", "user-a")],
-    });
-    const env = buildEnv({ db });
-    const context = buildContext({
-      activeOrganizationId: "org-a",
-      userId: "user-a",
-    });
-
-    await expect(
-      rpcRevokeAgentProfileBindingForOrganization(env, {
-        agentProfileId: AGENT_PROFILE_ID,
-        context,
-      })
-    ).resolves.toMatchObject({
-      agentProfileId: AGENT_PROFILE_ID,
-      bindingId: `binding-${AGENT_PROFILE_ID}`,
-      organizationId: "org-a",
-      revoked: true,
-      status: "revoked",
-    });
-    await expect(
-      rpcRevokeAgentProfileBindingForOrganization(env, {
-        agentProfileId: AGENT_PROFILE_ID,
-        context,
-      })
-    ).resolves.toMatchObject({
-      agentProfileId: AGENT_PROFILE_ID,
-      bindingId: `binding-${AGENT_PROFILE_ID}`,
-      organizationId: "org-a",
-      revoked: false,
-      status: "missing",
-    });
-    expect(db.authorizationDeletes).toEqual([
-      {
-        bindingId: `binding-${AGENT_PROFILE_ID}`,
-        organizationId: "org-a",
-      },
-    ]);
   });
 
   it("joins a public Organization Space through the Space DO member write path", async () => {
@@ -13967,6 +13102,24 @@ function createSpaceStub(
     }
   );
   return {
+    rpcGetMeta: vi.fn((request: { spaceId: string }) => {
+      const space = spaces.find((item) => item.spaceId === request.spaceId);
+      if (!space) {
+        return Promise.reject(
+          Object.assign(new Error("Space was not found."), {
+            code: "space.not_found",
+            status: 404,
+          })
+        );
+      }
+      return Promise.resolve({
+        ...(space.spaceName ? { name: space.spaceName } : {}),
+        organizationId: space.organizationId,
+        ...(space.spacePurpose ? { purpose: space.spacePurpose } : {}),
+        spaceId: space.spaceId,
+        visibility: space.visibility,
+      });
+    }),
     rpcInitializeDirectMessageMeta: initializeDirectMessageMeta,
     rpcConvertDirectMessageToSpace: vi.fn(
       (request: {

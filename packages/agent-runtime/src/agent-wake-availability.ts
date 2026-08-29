@@ -90,6 +90,27 @@ const serviceNotConnectedReasonCodes = [
   "daemon.session.not_found",
 ] as const;
 
+const workspaceUnavailableReasonCodes = new Set([
+  "agent_profile.organization_context_missing",
+  "agent_profile.organization_lookup_failed",
+  "agent_profile.space_organization_unavailable",
+  "organization_binding_authorization.lookup_failed",
+  "organization_binding_authorization.preference_unavailable",
+  "organization_binding_authorization.space_org_unavailable",
+]);
+
+export function isAgentProfileWorkspaceBlockerReasonCode(
+  reasonCode: string
+): boolean {
+  return (
+    reasonCode === "agent_profile.organization_context_missing" ||
+    reasonCode === "agent_profile.organization_lookup_failed" ||
+    reasonCode === "agent_profile.organization_mismatch" ||
+    reasonCode === "agent_profile.space_organization_unavailable" ||
+    reasonCode.startsWith("organization_binding_authorization.")
+  );
+}
+
 const routeOfflineReasonCodes = [
   "agent_execution.route_offline",
   "route.offline",
@@ -250,6 +271,11 @@ export function resolveHostedAgentWakeAvailability(input: {
   readiness: AgentExecutionStatusProjection;
 }): AgentWakeAvailability {
   const { readiness } = input;
+  if (
+    collectReasonCodes(readiness).some(isAgentProfileWorkspaceBlockerReasonCode)
+  ) {
+    return createUnavailableWakeAvailability(readiness);
+  }
   const reasonCode = pickHostedAgentReasonCode(readiness);
 
   if (hasReasonCode(readiness, "agent_profile.not_found")) {
@@ -633,17 +659,42 @@ function createUnavailableWakeAvailability(
   readiness: AgentExecutionStatusProjection,
   agentControllerRef?: string | null
 ): AgentWakeAvailability {
-  const organizationWakeAccessReasonCode = collectReasonCodes(readiness).find(
-    (reasonCode) => reasonCode.startsWith("organization_binding_authorization.")
+  const workspaceUnavailableReasonCode = collectReasonCodes(readiness).find(
+    (reasonCode) => workspaceUnavailableReasonCodes.has(reasonCode)
   );
-  if (organizationWakeAccessReasonCode) {
+  if (workspaceUnavailableReasonCode) {
     return createAvailability(readiness, {
       ...unavailableWakeAvailabilityFallbackCopy,
       category: "unavailable",
       isRefreshing: false,
-      label: "Wake access off",
+      label: "Workspace unavailable",
       phase: "unavailable",
-      reasonCode: organizationWakeAccessReasonCode,
+      reasonCode: workspaceUnavailableReasonCode,
+      status: "unavailable_for_wake",
+    });
+  }
+  if (hasReasonCode(readiness, "agent_profile.organization_mismatch")) {
+    return createAvailability(readiness, {
+      ...unavailableWakeAvailabilityFallbackCopy,
+      category: "unavailable",
+      isRefreshing: false,
+      label: "Wrong workspace",
+      phase: "unavailable",
+      reasonCode: "agent_profile.organization_mismatch",
+      status: "unavailable_for_wake",
+    });
+  }
+  const retiredAuthorizationReasonCode = collectReasonCodes(readiness).find(
+    (reasonCode) => reasonCode.startsWith("organization_binding_authorization.")
+  );
+  if (retiredAuthorizationReasonCode) {
+    return createAvailability(readiness, {
+      ...unavailableWakeAvailabilityFallbackCopy,
+      category: "unavailable",
+      isRefreshing: false,
+      label: "Wrong workspace",
+      phase: "unavailable",
+      reasonCode: retiredAuthorizationReasonCode,
       status: "unavailable_for_wake",
     });
   }
@@ -1088,11 +1139,11 @@ function isPublicUnavailableReasonCode(reasonCode: string): boolean {
     reasonCode === "service.drifted" ||
     reasonCode === "local_service.identity_mismatch" ||
     reasonCode === "background_helper.update_required" ||
+    isAgentProfileWorkspaceBlockerReasonCode(reasonCode) ||
     isPublicUnavailableAgentProfileBindingReason(reasonCode) ||
     isPublicUnavailableClaimEligibilityReason(reasonCode) ||
     reasonCode.startsWith("controller.") ||
     reasonCode.startsWith("daemon.runtime_contract.") ||
-    reasonCode.startsWith("organization_binding_authorization.") ||
     reasonCode.startsWith("provider_account.") ||
     reasonCode.startsWith("workspace.")
   );

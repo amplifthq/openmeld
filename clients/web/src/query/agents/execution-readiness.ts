@@ -19,15 +19,17 @@ function normalizeQueryScope(storageScope: string | null | undefined): string {
 }
 
 export const agentExecutionReadinessQueryKeys = {
-	batchesForStorageScope: (storageScope: string) =>
+	batchesForOrganization: (storageScope: string, organizationId: string) =>
 		[
 			"agents",
 			"execution-readiness",
 			"batch",
 			normalizeQueryScope(storageScope),
+			organizationId,
 		] as const,
 	batch: (
 		storageScope: string,
+		organizationId: string,
 		agentProfileIds: readonly string[],
 		targetRuntime: AgentExecutionReadinessTargetRuntime | undefined
 	) =>
@@ -36,6 +38,7 @@ export const agentExecutionReadinessQueryKeys = {
 			"execution-readiness",
 			"batch",
 			normalizeQueryScope(storageScope),
+			organizationId,
 			targetRuntime?.kind ?? "bound-runtime",
 			targetRuntime?.kind === "openmeld_service_runtime_id"
 				? targetRuntime.openMeldServiceRuntimeId
@@ -47,6 +50,7 @@ export const agentExecutionReadinessQueryKeys = {
 export function agentExecutionReadinessBatchQueryOptions(input: {
 	agentProfileIds: readonly string[];
 	enabled: boolean;
+	organizationId: string;
 	storageScope: string;
 	targetRuntime?: AgentExecutionReadinessTargetRuntime;
 }) {
@@ -56,12 +60,14 @@ export function agentExecutionReadinessBatchQueryOptions(input: {
 	>({
 		queryKey: agentExecutionReadinessQueryKeys.batch(
 			input.storageScope,
+			input.organizationId,
 			input.agentProfileIds,
 			input.targetRuntime
 		),
 		queryFn: async () =>
 			await readAgentExecutionReadinessBatch({
 				agentProfileIds: input.agentProfileIds,
+				organizationId: input.organizationId,
 				...(input.targetRuntime === undefined
 					? {}
 					: { targetRuntime: input.targetRuntime }),
@@ -96,6 +102,7 @@ export async function refreshWebAgentReadinessFacts(input: {
 	agentProfileIds?: readonly string[];
 	includeLocalRuntimeCaches?: boolean;
 	maxAttempts?: number;
+	organizationId: string;
 	onStepFailure?: (failure: WebAgentReadinessRefreshFailure) => void;
 	queryClient: QueryClient;
 	storageScope: string;
@@ -108,6 +115,7 @@ export async function refreshWebAgentReadinessFacts(input: {
 			action: () =>
 				notifyAgentExecutionReadinessRefresh({
 					agentProfileIds,
+					organizationId: input.organizationId,
 				}),
 			agentProfileIds,
 			maxAttempts,
@@ -121,6 +129,7 @@ export async function refreshWebAgentReadinessFacts(input: {
 		agentProfileIds,
 		includeLocalRuntimeCaches: input.includeLocalRuntimeCaches,
 		maxAttempts,
+		organizationId: input.organizationId,
 		onStepFailure: input.onStepFailure,
 		queryClient: input.queryClient,
 		storageScope: input.storageScope,
@@ -138,6 +147,7 @@ export async function refreshWebAgentReadinessAfterCoreFactsChanged(
 			refreshWebAgentReadinessSharedCaches({
 				agentProfileIds,
 				includeLocalRuntimeCaches: input.includeLocalRuntimeCaches,
+				organizationId: input.organizationId,
 				queryClient: input.queryClient,
 				storageScope: input.storageScope,
 			}),
@@ -152,7 +162,7 @@ export async function refreshWebAgentReadinessAfterCoreFactsChanged(
 export async function refreshWebAgentReadinessSharedCaches(input: {
 	agentProfileIds?: readonly string[];
 	includeLocalRuntimeCaches?: boolean;
-	organizationId?: string;
+	organizationId: string;
 	queryClient: QueryClient;
 	storageScope: string;
 }) {
@@ -166,13 +176,14 @@ export async function refreshWebAgentReadinessSharedCaches(input: {
 							agentProfileIds.some((agentProfileId) =>
 								query.queryKey.includes(agentProfileId)
 							),
-			queryKey: agentExecutionReadinessQueryKeys.batchesForStorageScope(
-				input.storageScope
+			queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+				input.storageScope,
+				input.organizationId
 			),
 			refetchType: "active",
 		}),
 	];
-	const organizationId = input.organizationId?.trim() ?? "";
+	const organizationId = input.organizationId.trim();
 	if (organizationId.length > 0) {
 		refreshes.push(
 			input.queryClient.invalidateQueries({

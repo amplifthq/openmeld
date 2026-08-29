@@ -41,7 +41,10 @@ import {
 	APP_SIDEBAR_DEFAULT_STATES,
 	type AppSidebarPersistedStates,
 } from "#/lib/sidebar-width-cookie";
-import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import {
+	organizationDirectoryQueryOptions,
+	organizationQueryKeys,
+} from "#/query/organizations/organization-directory";
 import { startQueryKeys } from "#/query/query-keys";
 
 export type ProfileHomeId = "agents" | "people";
@@ -107,20 +110,18 @@ export function PeopleAndAgentsPage(input: {
 		activeSectionId: input.activeSectionId,
 		isOrganizationContext,
 	});
-	const fallbackOwnerLabel =
-		(account.name ?? account.email ?? "This member").trim() || "This member";
 	const recovery = useLocalAgentRecoveryController({
 		agentExecutionReadinessScope: "bound_runtime",
 		loadSetupState: false,
 	});
 	const organizationDirectoryQuery = useQuery(
 		organizationDirectoryQueryOptions({
-			enabled: isOrganizationContext,
+			enabled: true,
 			organizationId: currentOrganization.id,
 		})
 	);
 	const agentProfileFilterCounts = useMemo(() => {
-		if (isOrganizationContext && organizationDirectoryQuery.data) {
+		if (organizationDirectoryQuery.data) {
 			return summarizeOrganizationAgentProfileAvailabilityFilters(
 				organizationDirectoryQuery.data.agentProfiles.filter(
 					(profile) => profile.managedRole !== "center_agent"
@@ -134,7 +135,6 @@ export function PeopleAndAgentsPage(input: {
 			readinessByProfileId: recovery.agentExecutionReadinessByProfileId,
 		});
 	}, [
-		isOrganizationContext,
 		organizationDirectoryQuery.data,
 		recovery.agentExecutionReadinessByProfileId,
 		recovery.agentExecutionReadinessErrorByProfileId,
@@ -144,11 +144,8 @@ export function PeopleAndAgentsPage(input: {
 	const agentProfilesAreEmpty =
 		input.activeSectionId === "agents" &&
 		resolveAgentProfilesEmptyState({
-			agentProfiles: recovery.agentProfiles,
-			agentProfilesQueryState: recovery.agentProfilesQuery,
 			directory: organizationDirectoryQuery.data ?? null,
 			directoryQueryState: organizationDirectoryQuery,
-			isOrganizationContext,
 		});
 	if (activeAgentView === "requests") {
 		return (
@@ -175,16 +172,19 @@ export function PeopleAndAgentsPage(input: {
 	}
 
 	const handleProfileCreated = (profile: AuthProfileView) => {
-		queryClient
-			.invalidateQueries({
+		Promise.all([
+			queryClient.invalidateQueries({
 				queryKey: startQueryKeys.profilesForStorageScope(recovery.storageScope),
-			})
-			.catch((error: unknown) => {
-				console.error(
-					"Failed to refresh Profiles after profile creation.",
-					error
-				);
-			});
+			}),
+			queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.directory(currentOrganization.id),
+			}),
+		]).catch((error: unknown) => {
+			console.error(
+				"Failed to refresh Profiles after profile creation.",
+				error
+			);
+		});
 		const targetRoute =
 			profile.profileKind === "agent"
 				? profileHomeRoutes.agents
@@ -215,14 +215,6 @@ export function PeopleAndAgentsPage(input: {
 			onOpenChange={setIsCreateProfileOpen}
 			onProfileCreated={handleProfileCreated}
 			open={true}
-			organizationAuthorizationContext={
-				isOrganizationContext && input.activeSectionId === "agents"
-					? {
-							organizationId: currentOrganization.id,
-							organizationName: currentOrganization.name,
-						}
-					: undefined
-			}
 			organizationId={currentOrganization.id}
 			recovery={recovery}
 		/>
@@ -245,30 +237,19 @@ export function PeopleAndAgentsPage(input: {
 			</>
 		);
 	}
-	const profilesContent: ReactNode = isOrganizationContext ? (
+	const profilesContent: ReactNode = (
 		<OrganizationAgentProfilesPanel
 			availabilityFilter={resolveAgentProfileAvailabilityFilter(
 				agentProfileFilter
 			)}
-			currentUserId={recovery.storageScope}
+			currentUserId={currentUserId}
 			directoryQuery={organizationDirectoryQuery}
 			focusProfileId={input.focusProfileId}
 			onCreateProfile={() => setIsCreateProfileOpen(true)}
 			onFocusConsumed={input.onFocusConsumed}
 			orgSlug={orgSlug}
 			recovery={recovery}
-		/>
-	) : (
-		<AgentProfilesPanel
-			availabilityFilter={resolveAgentProfileAvailabilityFilter(
-				agentProfileFilter
-			)}
-			fallbackOwnerLabel={fallbackOwnerLabel}
-			focusProfileId={input.focusProfileId}
-			onCreateProfile={() => setIsCreateProfileOpen(true)}
-			onFocusConsumed={input.onFocusConsumed}
-			orgSlug={orgSlug}
-			recovery={recovery}
+			showOwnerGroups={isOrganizationContext}
 		/>
 	);
 
@@ -429,10 +410,6 @@ function AgentRequestsHome(input: {
 						input.onOpenAgent(profile.openMeldProfileId)
 					}
 					open={true}
-					organizationAuthorizationContext={{
-						organizationId: input.organizationId,
-						organizationName: input.organizationName,
-					}}
 					organizationId={input.organizationId}
 					orgSlug={input.orgSlug}
 					recovery={input.recovery}
@@ -463,28 +440,16 @@ function resolveProfilesSectionDescription(input: {
 }
 
 function resolveAgentProfilesEmptyState(input: {
-	agentProfiles: readonly AuthProfileView[];
-	agentProfilesQueryState: { isError?: boolean; isPending?: boolean };
 	directory: OrganizationDirectoryResponse | null;
 	directoryQueryState: { isError?: boolean; isPending?: boolean };
-	isOrganizationContext: boolean;
 }): boolean {
-	if (input.isOrganizationContext) {
-		return (
-			!(
-				input.directoryQueryState.isPending || input.directoryQueryState.isError
-			) &&
-			(input.directory?.agentProfiles.filter(
-				(profile) => profile.managedRole !== "center_agent"
-			).length ?? 0) === 0
-		);
-	}
-
 	return (
 		!(
-			input.agentProfilesQueryState.isPending ||
-			input.agentProfilesQueryState.isError
-		) && input.agentProfiles.length === 0
+			input.directoryQueryState.isPending || input.directoryQueryState.isError
+		) &&
+		(input.directory?.agentProfiles.filter(
+			(profile) => profile.managedRole !== "center_agent"
+		).length ?? 0) === 0
 	);
 }
 
@@ -596,6 +561,7 @@ function OrganizationAgentProfilesPanel(input: {
 	onFocusConsumed?: () => void;
 	orgSlug: string;
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
+	showOwnerGroups: boolean;
 }) {
 	const directory = input.directoryQuery.data ?? null;
 	const queryClient = useQueryClient();
@@ -649,42 +615,7 @@ function OrganizationAgentProfilesPanel(input: {
 			recovery={input.recovery}
 			serviceUpdatePath={accountServiceUpdatePath}
 			setupPath={accountComputerSetupPath}
-			showOwnerGroups={true}
-		/>
-	);
-}
-
-function AgentProfilesPanel(input: {
-	availabilityFilter: AgentProfileAvailabilityFilter;
-	fallbackOwnerLabel: string;
-	focusProfileId: string | null;
-	onCreateProfile: () => void;
-	onFocusConsumed?: () => void;
-	orgSlug: string;
-	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
-}) {
-	const queryClient = useQueryClient();
-	const accountComputerSetupPath = buildConnectComputerPath({
-		orgSlug: input.orgSlug,
-	});
-	const accountServiceUpdatePath = buildConnectComputerPath({
-		orgSlug: input.orgSlug,
-		serviceAction: "update_service",
-		session: "fresh",
-	});
-
-	return (
-		<AgentProfilesCard
-			availabilityFilter={input.availabilityFilter}
-			fallbackOwnerLabel={input.fallbackOwnerLabel}
-			focusProfileId={input.focusProfileId}
-			isCurrentComputer={true}
-			onCreateProfile={input.onCreateProfile}
-			onFocusProfileConsumed={input.onFocusConsumed}
-			queryClient={queryClient}
-			recovery={input.recovery}
-			serviceUpdatePath={accountServiceUpdatePath}
-			setupPath={accountComputerSetupPath}
+			showOwnerGroups={input.showOwnerGroups}
 		/>
 	);
 }

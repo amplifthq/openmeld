@@ -110,26 +110,6 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     OPTIONAL_CLI_UPDATE,
     REQUIRED_SIGN_IN
   ),
-  "binding.menu": buildCommandChecks(
-    REQUIRED_DISCLAIMER,
-    OPTIONAL_CLI_UPDATE,
-    REQUIRED_SIGN_IN
-  ),
-  "binding.authorize": buildCommandChecks(
-    REQUIRED_DISCLAIMER,
-    OPTIONAL_CLI_UPDATE,
-    REQUIRED_SIGN_IN
-  ),
-  "binding.revoke": buildCommandChecks(
-    REQUIRED_DISCLAIMER,
-    OPTIONAL_CLI_UPDATE,
-    REQUIRED_SIGN_IN
-  ),
-  "binding.list": buildCommandChecks(
-    REQUIRED_DISCLAIMER,
-    OPTIONAL_CLI_UPDATE,
-    REQUIRED_SIGN_IN
-  ),
   "center_agent.menu": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,

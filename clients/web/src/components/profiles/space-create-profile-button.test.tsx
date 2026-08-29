@@ -57,7 +57,7 @@ describe("SpaceCreateProfileButton", () => {
 		vi.clearAllMocks();
 	});
 
-	it("passes organization authorization context when creating from an organization Space", () => {
+	it("keeps organization Space profile creation scoped to the current organization", () => {
 		useAppOrganizationMock.mockReturnValue({
 			activeOrganization: null,
 			currentOrganization: {
@@ -73,10 +73,7 @@ describe("SpaceCreateProfileButton", () => {
 
 		expect(dialogProps).toEqual(
 			expect.objectContaining({
-				organizationAuthorizationContext: {
-					organizationId: "org-123",
-					organizationName: "Acme",
-				},
+				organizationId: "org-123",
 				orgSlug: "acme",
 				open: true,
 				spaceContext: {
@@ -87,7 +84,7 @@ describe("SpaceCreateProfileButton", () => {
 		);
 	});
 
-	it("keeps personal Space profile creation account-only", () => {
+	it("keeps personal Space profile creation scoped to the Personal Workspace", () => {
 		useAppOrganizationMock.mockReturnValue({
 			activeOrganization: null,
 			currentOrganization: {
@@ -101,7 +98,7 @@ describe("SpaceCreateProfileButton", () => {
 
 		const dialogProps = renderSpaceCreateProfileButton();
 
-		expect(dialogProps.organizationAuthorizationContext).toBeUndefined();
+		expect(dialogProps.organizationId).toBe("personal-123");
 		expect(dialogProps.spaceContext).toEqual({
 			spaceId: "space-123",
 			spaceName: "Design Room",

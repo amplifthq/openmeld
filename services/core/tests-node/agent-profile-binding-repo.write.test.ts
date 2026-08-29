@@ -38,14 +38,13 @@ import {
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const OTHER_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
-const FOREIGN_KEY_CONSTRAINT_ERROR_PATTERN = /FOREIGN KEY constraint failed/;
 const OWNER = {
   id: "owner-1",
   kind: "owner_account",
 } as const;
 
 describe("Agent Profile Binding repo write-side", () => {
-  it("leaves every Binding and authorization unchanged when a same-millisecond writer makes admitted inventory stale", async () => {
+  it("leaves every Binding unchanged when a same-millisecond writer makes admitted inventory stale", async () => {
     const harness = createSqliteD1Harness();
     applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
     try {
@@ -115,11 +114,6 @@ describe("Agent Profile Binding repo write-side", () => {
 
       await expect(
         reconcileRemoteCenterAgentBindingRecord({
-          authorization: {
-            authorizedBy: OWNER.id,
-            id: "authorization-hosted",
-            organizationId: "org-1",
-          },
           currentBindings,
           db: harness.db,
           noncanonicalDisabledReasonCode:
@@ -229,11 +223,6 @@ describe("Agent Profile Binding repo write-side", () => {
         });
 
       await reconcileRemoteCenterAgentBindingRecord({
-        authorization: {
-          authorizedBy: OWNER.id,
-          id: "authorization-hosted",
-          organizationId: "org-1",
-        },
         currentBindings,
         db: harness.db,
         noncanonicalDisabledReasonCode: "center_agent.binding_owner_reconciled",
@@ -266,7 +255,7 @@ describe("Agent Profile Binding repo write-side", () => {
     }
   });
 
-  it("rolls back legacy disables and the hosted target when authorization carry-over fails", async () => {
+  it("reconciles the hosted target without reading or writing legacy authorization rows", async () => {
     const harness = createSqliteD1Harness();
     applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
     try {
@@ -329,11 +318,6 @@ describe("Agent Profile Binding repo write-side", () => {
 
       await expect(
         reconcileRemoteCenterAgentBindingRecord({
-          authorization: {
-            authorizedBy: "missing-authorizer",
-            id: "authorization-hosted",
-            organizationId: "org-1",
-          },
           currentBindings,
           db: harness.db,
           noncanonicalDisabledReasonCode:
@@ -348,7 +332,10 @@ describe("Agent Profile Binding repo write-side", () => {
             runtimeKind: "hosted_center_agent",
           }),
         })
-      ).rejects.toThrow(FOREIGN_KEY_CONSTRAINT_ERROR_PATTERN);
+      ).resolves.toMatchObject({
+        binding: { bindingId: "binding_hosted" },
+        outcome: "created",
+      });
 
       expect(
         harness.queryAll<{
@@ -366,8 +353,13 @@ describe("Agent Profile Binding repo write-side", () => {
         })
       ).toEqual([
         {
-          binding_id: "binding_legacy_admin",
+          binding_id: "binding_hosted",
           binding_state: "enabled_primary",
+          owner_id: OWNER.id,
+        },
+        {
+          binding_id: "binding_legacy_admin",
+          binding_state: "disabled_historical",
           owner_id: "admin-1",
         },
       ]);

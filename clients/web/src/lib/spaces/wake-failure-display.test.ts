@@ -2,40 +2,15 @@ import { describe, expect, it } from "vitest";
 import { resolveWakeFailureDisplay } from "./wake-failure-display";
 
 describe("resolveWakeFailureDisplay", () => {
-	it("maps organization Binding authorization failures to Org Settings recovery", () => {
+	it("explains a cross-workspace Agent Profile without offering a dead-end action", () => {
 		const display = resolveWakeFailureDisplay({
-			failureReasonCode: "organization_binding_authorization.required",
-			targetLabel: "@codex",
-		});
-
-		expect(display).toEqual({
-			actionTarget: "org_wake_access",
-			body: "Wake access is off for Codex in this organization. Turn it on to let Codex reply in this Space.",
-			primaryActionId: "review_agent_settings",
-			primaryActionLabel: "Turn on Wake access",
-		});
-	});
-
-	it("maps organization policy failures before generic recovery fallback", () => {
-		const display = resolveWakeFailureDisplay({
-			failureReasonCode: "organization.membership_required",
-			targetLabel: "runner",
-		});
-
-		expect(display?.actionTarget).toBe("org_wake_access");
-		expect(display?.body).toContain("Wake access is off");
-	});
-
-	it("does not point personal-context Wake access failures to Org Settings", () => {
-		const display = resolveWakeFailureDisplay({
-			failureReasonCode: "binding_required",
-			isPersonalContext: true,
+			failureReasonCode: "agent_profile.organization_mismatch",
 			targetLabel: "@codex",
 		});
 
 		expect(display).toEqual({
 			actionTarget: null,
-			body: "Codex could not be woken because Wake access is not ready for this Agent Profile yet. Open Wake details for diagnostics, then try the Wake again.",
+			body: "Codex belongs to a different workspace. Choose an Agent Profile created in this workspace.",
 		});
 	});
 

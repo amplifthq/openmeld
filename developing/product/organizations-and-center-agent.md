@@ -233,15 +233,16 @@ There is exactly one resource-container type: the **organization**.
   label this pinned navigation context **Personal**; that presentation label is
   not the Organization's stored name or a second tenant type. The personal org
   otherwise uses the same code path as any org except the solo guard below.
-- Every resource (Space, Agent Profile, Binding authorization, Center Agent
-  designation) belongs to exactly one org via `organizationId`.
+- Every resource (Space, Agent Profile, Binding, Center Agent designation)
+  belongs to exactly one org via `organizationId`.
 - A managed Center Agent profile is Organization-exclusive. It may participate
   only in Spaces owned by the same Organization. Authorizing one of its
   Bindings into another Organization never makes the managed profile eligible
   for that Organization's Directory, Space membership, readiness, or Wake.
-  Ordinary Agent Profiles keep their explicit cross-Organization Binding
-  authorization behavior. An Organization's own designated Center Agent may
-  still join that Organization's ordinary Spaces.
+  Ordinary workstation Agent Profiles follow the same Organization identity
+  boundary: they may be listed, added, readied, or woken only inside their own
+  Organization. An Organization's own designated Center Agent may still join
+  that Organization's ordinary Spaces.
 - Users can belong to many orgs (membership). Auth stores the account's last
   explicitly selected Organization as a durable entry preference; Web exposes
   selection through the single workspace switcher defined in
@@ -251,10 +252,9 @@ There is exactly one resource-container type: the **organization**.
   earlier grows-into-a-team direction): it never takes members, and the
   server rejects invitations to it (marked via organization `metadata`
   `personal: true`; fail closed). Collaboration starts by creating a new
-  organization; a bring-your-agents wizard re-creates the user's Agent
-  Profiles there bound to the same user-owned Bindings (no data
-  duplication — duplicating Spaces/Profiles was considered and rejected:
-  copies diverge). Spaces do not migrate between orgs (deferred).
+  organization; existing Personal Workspace Agent Profiles remain in Personal,
+  and users create Organization-specific Agent Profiles where collaboration is
+  needed. Spaces and Profiles do not migrate between orgs (deferred).
   Presentation rules live in
   `developing/product/presentation-progressive-disclosure.md`.
 
@@ -372,34 +372,23 @@ Hard boundary:
 
 ### Devices and Bindings under org
 
-- Devices/daemons stay **user-owned**, never org-owned.
-- A user authorizes specific Bindings into an org. Only org-authorized
-  Bindings are wakeable by org members and the Center Agent. This is the direct
-  translation of the existing invariant "bound into a Space → wakeable" to
-  org scope. Authorization records stay per-Binding, individually revocable,
-  fail closed.
-- Binding authorization grants execution eligibility; it does not transfer
-  managed identity ownership. Authorization candidate discovery, automatic
-  authorization, rebind carry-over, Directory projections, Space member
-  mutations, readiness, and Wake must all reject a
-  `managedRole = "center_agent"` profile whose `organizationId` differs from
-  the target Organization. Do not infer this classification from the display
-  name or from the target Organization's derived `isCenterAgent` projection.
-- Opt-in includes explicitly approved bulk/automatic policies (settled
-  2026-07-05): the personal org auto-authorizes the user's own Bindings;
-  org creation prompts once for the creator's agents; a per-user-per-org
-  preference can auto-authorize the user's new profiles. First Web entry after
-  joining a non-personal Organization prompts once when that preference has
-  never been answered, defaulting to authorization for the user's current and
-  future bound Agent Profiles. When the same user rebinds a profile, existing
-  org authorizations carry over automatically with an audit-journal record. UX
-  detail lives in
-  `developing/product/presentation-progressive-disclosure.md`.
-- A Center Agent request to create and configure an Agent Profile for the
-  current Organization is itself explicit authorization intent. The operation
-  turns on Wake access for that new primary Binding before Space membership and
-  readiness checks. It does not depend on, or silently change, the user's
-  future auto-authorization preference.
+- Devices and OpenMeld Service Runtimes stay **user-owned**. They may serve
+  Agent Profiles from multiple Organizations without making those Profiles
+  portable.
+- Every ordinary workstation Agent Profile has one canonical Organization from
+  creation. Its enabled primary Binding is execution infrastructure for that
+  Profile; it is not a grant to another Organization.
+- Directory projections, Space member mutations, readiness, and Wake compare
+  the Profile's canonical `organizationId` with the target Organization and
+  fail closed when identity is missing or mismatched. Legacy authorization
+  records, preferences, and rebind history never override this rule.
+- Rebinding a Profile preserves its Organization. It never carries access to a
+  different Organization and never writes a future-authorization preference.
+- Center Agent-created ordinary workstation Profiles use the Organization in
+  the represented-member request. Remote Agent native delivery and the
+  Organization-managed Center Agent remain governed by their own runtime and
+  designation contracts; neither is a portability mechanism for ordinary
+  workstation Profiles.
 
 ### URLs: org-scoped from day one
 
@@ -726,15 +715,15 @@ temporarily unavailable.
 The seven-tab **Manage Center Agent** panel remains retired as a parallel
 concept. Its surviving destinations use the stable header or its compact menu:
 
-| Former tab | Target home                                          | Placement rule                                                                                     |
-| ---------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Overview   | **Center Agent → Center Agent settings**             | Identity, status, and configuration live in one low-frequency management surface.                  |
+| Former tab | Target home                                          | Placement rule                                                                                                                                                              |
+| ---------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview   | **Center Agent → Center Agent settings**             | Identity, status, and configuration live in one low-frequency management surface.                                                                                           |
 | Channels   | **Center Agent → Channels**                          | The single Channel destination in every workspace; Organizations manage connections, while Personal Workspaces show read-only discovery and an Organization-creation guide. |
-| Apps       | **Center Agent → Apps**                              | The single member and shared App catalog in every workspace.                                       |
-| Memory     | **Center Agent → Memory**                            | Organization policy and the current member's erase action share one clearly separated memory home. |
-| Routines   | **Center Agent → Routines**                          | Routine use and creation remain daily product work inside the product that executes them.          |
-| Activity   | **Center Agent → Center Agent settings → Audit Log** | Retire the misleading label; this journal records Center Agent tool calls.                         |
-| Settings   | **Center Agent → Center Agent settings**             | One configuration home, with mutations role-gated.                                                 |
+| Apps       | **Center Agent → Apps**                              | The single member and shared App catalog in every workspace.                                                                                                                |
+| Memory     | **Center Agent → Memory**                            | Organization policy and the current member's erase action share one clearly separated memory home.                                                                          |
+| Routines   | **Center Agent → Routines**                          | Routine use and creation remain daily product work inside the product that executes them.                                                                                   |
+| Activity   | **Center Agent → Center Agent settings → Audit Log** | Retire the misleading label; this journal records Center Agent tool calls.                                                                                                  |
+| Settings   | **Center Agent → Center Agent settings**             | One configuration home, with mutations role-gated.                                                                                                                          |
 
 The 2026-07-27 cutover removes the former root Routines and Organization
 Settings leaf routes directly. Because the product has not launched, do not
@@ -1976,9 +1965,9 @@ Management location follows the owner instead of repeating mutation controls:
   Apps** is the single catalog and
   management surface for both the current member's connections and
   Organization-shared connections.
-- The first-entry Organization dialog may offer one-time, role-appropriate
-  Slack Channel and GitHub App connection actions after the member confirms
-  Wake access. It keeps Channels and Apps visibly separate, has no disconnect
+- The first-entry Organization flow may offer one-time, role-appropriate
+  Slack Channel and GitHub App connection actions. It keeps Channels and Apps
+  visibly separate, has no disconnect
   or repair controls, and accepts success only from the owning Core projection.
   Center Agent remains the ongoing management home.
 - The Center Agent Chat page has no Channels or Apps mutation copy. It may show
@@ -2340,7 +2329,7 @@ projection proves that no report exists, People shows only **Learn about
 {member}**; it never opens a blank document. While Documents are loading or
 unavailable, People shows neither action because it cannot prove the current
 report state. A
-  single-member learning start failure stays on that member's detail with its retry
+single-member learning start failure stays on that member's detail with its retry
 action. **Learn about** asks the designated Center Agent to process one member
 at a time and create one new dated Profile Report. The all-members operation is
 serial: one task reaches a terminal outcome before Core starts the next, and
@@ -2547,12 +2536,12 @@ generic **Activity** or reused for the Center Agent audit journal.
 
 In scope:
 
-| Block          | Contents                                                                                                                                                                                                                                                                                                                                                                                                      |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Org tenancy    | Vercel-style mechanics; auto personal org; Better Auth organization plugin as-is; email-bound invitations + verification; `owner`/`admin`/`member`; org directory (members + Agent Profiles with existing presence); Spaces carry `organizationId` with `public`/`private` org visibility; `/o/{orgSlug}/...` routing                                                                                         |
+| Block          | Contents                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Org tenancy    | Vercel-style mechanics; auto personal org; Better Auth organization plugin as-is; email-bound invitations + verification; `owner`/`admin`/`member`; org directory (members + Agent Profiles with existing presence); Spaces carry `organizationId` with `public`/`private` org visibility; `/o/{orgSlug}/...` routing                                                                                                    |
 | Center Agent   | System-managed `managedRole = "center_agent"` Agent Profile per org; designation table (multi-Center-Agent-shaped, MVP-constrained); derived `isCenterAgent`; hosted Remote Agent R1; concierge tool set plus verified member-attributed Task and Routine management; server-enforced CA-DM Space; isolated first-class Task conversations; member-scoped memory and default-on Organization memory; audit + attribution |
-| Agent Activity | First-class Projects; explicit per-repository local opt-in; privacy-safe coding-session metadata; Organization-wide member visibility; Web, CLI, and read-only Center Agent awareness surfaces, as owned by `developing/product/agent-activity.md`                                                                                                                                                            |
-| Carry-over     | Existing wake pipeline, Space DO, daemon/CLI, web shell — all re-scoped to carry `organizationId`                                                                                                                                                                                                                                                                                                             |
+| Agent Activity | First-class Projects; explicit per-repository local opt-in; privacy-safe coding-session metadata; Organization-wide member visibility; Web, CLI, and read-only Center Agent awareness surfaces, as owned by `developing/product/agent-activity.md`                                                                                                                                                                       |
+| Carry-over     | Existing wake pipeline, Space DO, daemon/CLI, web shell — all re-scoped to carry `organizationId`                                                                                                                                                                                                                                                                                                                        |
 
 Out of scope (explicit, settled):
 
@@ -2574,8 +2563,8 @@ Generic shareable invite links were removed from this out-of-scope list by the
 
 1. **Org foundation** — shipped on main. Schema-level tenancy now includes the
    Better Auth organization plugin, auto personal orgs, memberships,
-   invitations, org-scoped routing, `organizationId` on business tables, org
-   Space visibility, and Binding authorization into an org.
+   invitations, org-scoped routing, `organizationId` on business tables, and
+   Organization-scoped Space, Agent Profile, and Binding identity.
 2. **Center Agent loop** — shipped on main for the MVP surfaces: designation
    storage and contracts, server-side authorization, audit-backed
    Core/Gateway/API client surfaces, Web directory/badge surfaces, and

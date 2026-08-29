@@ -28,6 +28,7 @@ export function SelectedComputerPanel(input: {
 	focusService: boolean;
 	isReconcilingStatus: boolean;
 	onFocusConsumed?: () => void;
+	organizationId: string;
 	queryClient: QueryClient;
 	recovery: LocalAgentRecoveryController;
 	setupCompleteRefreshPending: boolean;
@@ -72,6 +73,7 @@ export function SelectedComputerPanel(input: {
 				isCurrentComputer={isCurrentComputer}
 				isReconcilingStatus={input.isReconcilingStatus}
 				onFocusConsumed={input.onFocusConsumed}
+				organizationId={input.organizationId}
 				queryClient={input.queryClient}
 				recovery={input.recovery}
 				replyReadiness={effectiveReplyReadiness}
@@ -102,6 +104,7 @@ type SetupCompleteRefreshStatus = "idle" | "pending" | "ready" | "error";
 
 export function useRefreshComputersAfterSetupComplete(input: {
 	enabled: boolean;
+	organizationId: string;
 	queryClient: QueryClient;
 	recovery: LocalAgentRecoveryController;
 }): SetupCompleteRefreshStatus {
@@ -114,6 +117,7 @@ export function useRefreshComputersAfterSetupComplete(input: {
 	const queryClientRef = useRef(input.queryClient);
 	const refreshAllRef = useRef(input.recovery.refreshAll);
 	const storageScopeRef = useRef(input.recovery.storageScope);
+	const organizationIdRef = useRef(input.organizationId);
 	const serviceUpdateRequired = isCurrentLocalRuntimeServiceUpdateRequired(
 		input.recovery.currentLocalRuntimeReplyReadinessQuery.data ?? null
 	);
@@ -121,9 +125,11 @@ export function useRefreshComputersAfterSetupComplete(input: {
 	useEffect(() => {
 		queryClientRef.current = input.queryClient;
 		refreshAllRef.current = input.recovery.refreshAll;
+		organizationIdRef.current = input.organizationId;
 		storageScopeRef.current = input.recovery.storageScope;
 	}, [
 		input.queryClient,
+		input.organizationId,
 		input.recovery.refreshAll,
 		input.recovery.storageScope,
 	]);
@@ -152,6 +158,7 @@ export function useRefreshComputersAfterSetupComplete(input: {
 		}, SETUP_COMPLETE_REFRESH_GRACE_MS);
 
 		refreshWebAgentReadinessSharedCaches({
+			organizationId: organizationIdRef.current,
 			queryClient: queryClientRef.current,
 			storageScope: storageScopeRef.current,
 		})

@@ -44,6 +44,7 @@ import {
 	setLocalRuntimeDisplayName,
 } from "#/lib/connect/local-runtimes";
 import { readStartGatewayUrl } from "#/lib/connect/start-gateway-url";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
 import { readBundledOpenMeldCliRelease } from "#/lib/release/openmeld-cli-release";
 import {
@@ -125,6 +126,8 @@ export function useLocalAgentRecoveryController(
 	// AgentExecutionReadiness, Prepare Session setup state, and UI recovery
 	// actions should not live in one mixed hook.
 	const queryClient = useQueryClient();
+	const organizationId =
+		useOptionalAppOrganization()?.currentOrganization.id ?? null;
 	const {
 		shouldLoadAgentExecutionReadiness: shouldLoadAgentExecutionReadinessBase,
 		shouldLoadAgentProfiles,
@@ -156,6 +159,7 @@ export function useLocalAgentRecoveryController(
 		null;
 	const shouldLoadAgentExecutionReadiness =
 		resolveShouldLoadAgentExecutionReadiness({
+			activeOrganizationId: organizationId,
 			currentLocalRuntimeCanReply: currentLocalRuntimeCanReply ?? undefined,
 			scope: options.agentExecutionReadinessScope,
 			shouldLoadAgentExecutionReadinessBase,
@@ -192,6 +196,7 @@ export function useLocalAgentRecoveryController(
 				agentProfileIds: batchProfileIds,
 				enabled:
 					shouldLoadAgentExecutionReadiness && agentProfilesQuery.isSuccess,
+				organizationId: organizationId ?? "organization-unavailable",
 				storageScope,
 				targetRuntime: resolveAgentExecutionReadinessTargetRuntime({
 					currentDeviceTarget: currentDeviceTargetQuery.data,
@@ -470,6 +475,7 @@ export function useLocalAgentRecoveryController(
 		currentPrepareSessionPointer,
 		deviceId,
 		queryClient,
+		organizationId,
 		sessionExpiredError,
 		setSessionExpiredError,
 		agentExecutionReadinessScope: options.agentExecutionReadinessScope,
@@ -511,7 +517,8 @@ export function useLocalAgentRecoveryController(
 			return;
 		}
 
-		refreshWebAgentReadinessSharedCaches({
+		refreshAgentReadinessSharedCachesForOrganization({
+			organizationId,
 			queryClient,
 			storageScope,
 		})
@@ -530,6 +537,7 @@ export function useLocalAgentRecoveryController(
 	}, [
 		currentLocalRuntimeCanReply,
 		queryClient,
+		organizationId,
 		sessionExpiredError,
 		storageScope,
 	]);
@@ -597,11 +605,17 @@ function resolveLocalAgentRecoveryOptions(
 }
 
 export function resolveShouldLoadAgentExecutionReadiness(input: {
+	activeOrganizationId?: string | null;
 	currentLocalRuntimeCanReply: boolean | undefined;
 	scope: AgentExecutionReadinessScope | undefined;
 	shouldLoadAgentExecutionReadinessBase: boolean;
 }): boolean {
-	if (!input.shouldLoadAgentExecutionReadinessBase) {
+	if (
+		!(
+			input.shouldLoadAgentExecutionReadinessBase &&
+			input.activeOrganizationId?.trim()
+		)
+	) {
 		return false;
 	}
 	if (input.scope === "bound_runtime") {
@@ -781,12 +795,28 @@ function resolveAgentExecutionReadinessTargetRuntime(input: {
 	return resolveCurrentLocalRuntimeTargetRuntime(input.currentDeviceTarget);
 }
 
+function refreshAgentReadinessSharedCachesForOrganization(input: {
+	organizationId: string | null;
+	queryClient: QueryClient;
+	storageScope: string;
+}): Promise<void> {
+	if (!input.organizationId) {
+		return Promise.resolve();
+	}
+	return refreshWebAgentReadinessSharedCaches({
+		organizationId: input.organizationId,
+		queryClient: input.queryClient,
+		storageScope: input.storageScope,
+	});
+}
+
 function useLocalRuntimeActions(input: {
 	agentExecutionReadinessScope: AgentExecutionReadinessScope | undefined;
 	currentCompletedPrepareSessionPointer: PrepareSessionPointer | null;
 	currentPrepareSessionPointer: PrepareSessionPointer | null;
 	deviceId: string | null;
 	queryClient: QueryClient;
+	organizationId: string | null;
 	sessionExpiredError: unknown | null;
 	setSessionExpiredError: (error: unknown) => void;
 	shouldLoadAgentExecutionReadiness: boolean;
@@ -857,7 +887,8 @@ function useLocalRuntimeActions(input: {
 					input.storageScope
 				),
 			}),
-			refreshWebAgentReadinessSharedCaches({
+			refreshAgentReadinessSharedCachesForOrganization({
+				organizationId: input.organizationId,
 				queryClient: input.queryClient,
 				storageScope: input.storageScope,
 			}),
@@ -875,7 +906,8 @@ function useLocalRuntimeActions(input: {
 					input.storageScope
 				),
 			}),
-			refreshWebAgentReadinessSharedCaches({
+			refreshAgentReadinessSharedCachesForOrganization({
+				organizationId: input.organizationId,
 				queryClient: input.queryClient,
 				storageScope: input.storageScope,
 			}),
@@ -980,6 +1012,7 @@ async function refreshLocalAgentRecoveryController(input: {
 	currentCompletedPrepareSessionPointer: PrepareSessionPointer | null;
 	currentPrepareSessionPointer: PrepareSessionPointer | null;
 	queryClient: QueryClient;
+	organizationId: string | null;
 	sessionExpiredError: unknown | null;
 	setSessionExpiredError: (error: unknown) => void;
 	shouldLoadAgentExecutionReadiness: boolean;
@@ -1054,6 +1087,7 @@ function fetchAgentExecutionReadinessRefresh(input: {
 	agentExecutionReadinessScope: AgentExecutionReadinessScope | undefined;
 	currentDeviceTarget: CurrentDeviceTargetResponse;
 	queryClient: QueryClient;
+	organizationId: string | null;
 	refreshedDeviceId: string | null;
 	shouldLoadAgentExecutionReadiness: boolean;
 	shouldLoadAgentProfiles: boolean;
@@ -1087,7 +1121,12 @@ function fetchAgentExecutionReadinessRefresh(input: {
 					refreshedAgentProfileIds,
 					AGENT_EXECUTION_READINESS_UI_BATCH_SIZE
 				);
+			const organizationId = input.organizationId;
+			if (!organizationId) {
+				return null;
+			}
 			await refreshWebAgentReadinessSharedCaches({
+				organizationId,
 				queryClient: input.queryClient,
 				storageScope: input.storageScope,
 			});
@@ -1097,6 +1136,7 @@ function fetchAgentExecutionReadinessRefresh(input: {
 						agentExecutionReadinessBatchQueryOptions({
 							agentProfileIds: batchProfileIds,
 							enabled: true,
+							organizationId,
 							storageScope: input.storageScope,
 							targetRuntime: resolveAgentExecutionReadinessTargetRuntime({
 								currentDeviceTarget: input.currentDeviceTarget,

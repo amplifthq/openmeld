@@ -171,10 +171,9 @@ describe("space mention suggestions", () => {
             profileName: "Organization Agent",
             agentWakeAvailability: {
               ...createTestAgentAgentWakeAvailability("unavailable_for_wake"),
-              reasonCode: "organization_binding_authorization.required",
-              summary:
-                "Turn on Wake access before this agent can reply in this Organization.",
-              tooltip: "Wake access is off for this Organization",
+              reasonCode: "agent_profile.organization_mismatch",
+              summary: "This Agent Profile belongs to another workspace.",
+              tooltip: "Wrong workspace",
             },
           }),
           createAgentMember({
@@ -219,7 +218,7 @@ describe("space mention suggestions", () => {
       },
       {
         description:
-          "codex · by Felix · Unavailable now: Turn on Wake access before this agent can reply in this Organization",
+          "codex · by Felix · Unavailable now: This Agent Profile belongs to another workspace",
         profileName: "Organization Agent",
       },
     ]);

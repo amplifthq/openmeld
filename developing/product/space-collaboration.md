@@ -651,10 +651,10 @@ publication-failure notice with one action to Wake the Agent again and a path
 to diagnostics. That notice closes only publication, not the truth that the
 Agent produced a retained result.
 
-If the Wake is rejected because Organization Wake access is off, the outcome
-must name that exact condition and offer one direct action to turn it on. This
-is an actionable configuration warning, so the Space presents it in amber
-rather than as a destructive execution failure.
+If Wake is rejected because the Agent Profile belongs to another Organization,
+the outcome must name the Workspace mismatch and offer no authorization or
+reuse action. This is an identity boundary, not a configurable warning. The
+user creates or selects an Agent Profile that belongs to the current Workspace.
 
 One terminal execution failure may offer **Retry as new execution** beside its
 compact outcome only when Space can recover the exact source message text and

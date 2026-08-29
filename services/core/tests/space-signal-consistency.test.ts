@@ -214,7 +214,9 @@ const withDispatchPlannerTestDefaults = (
 ): object => {
   return {
     ownerCreatorProfileIdsByOwnerUserId: new Map(),
-    readSpaceMetaRecord: vi.fn(() => null),
+    readSpaceMetaRecord: vi.fn(() => ({
+      organizationId: "org-space-1",
+    })),
     spaceId: signal.spaceId,
     ...target,
   };
@@ -861,6 +863,7 @@ const createDispatchMessageFixture = (
   v: 2,
   dispatchId: "dispatch-fixture-1",
   spaceId: "space-1",
+  organizationId: "org-space-1",
   sourceEventId,
   targetProfileId: "agt_f3333333-3333-4333-8333-333333333333",
   dispatchChainId: "dispatch-fixture-1",
@@ -2307,6 +2310,7 @@ describe("space signal consistency matrix", () => {
     expect(enqueuedMessage).not.toHaveProperty("outboxStatus");
     expect(enqueuedMessage).not.toHaveProperty("createdAtMs");
     expect(enqueuedMessage).not.toHaveProperty("queuedAtMs");
+    expect(enqueuedMessage).toHaveProperty("organizationId", "org-space-1");
   });
 
   it("skips a poison outbox candidate without blocking later candidates", async () => {
@@ -2980,6 +2984,7 @@ describe("space signal consistency matrix", () => {
     expect(firstRecord?.sourceSignalSnapshot?.text).toBe(
       "wake up, who are you"
     );
+    expect(firstRecord?.organizationId).toBe("org-space-1");
     expect(firstRecord?.replyToSnapshot).toEqual({
       signalId: "sig-strip-target-mention",
       profileId: "usr-owner",
@@ -3630,7 +3635,7 @@ describe("space signal consistency matrix", () => {
           dispatchMessages
         );
       },
-      readSpaceMetaRecord: vi.fn(() => null),
+      readSpaceMetaRecord: vi.fn(() => ({ organizationId: "org-space-1" })),
     };
 
     const signal: SignalEnvelope = {

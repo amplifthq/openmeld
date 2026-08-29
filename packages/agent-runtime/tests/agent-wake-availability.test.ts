@@ -230,12 +230,36 @@ describe("agent wake availability", () => {
     });
   });
 
-  it("projects missing Organization Wake access as unavailable with a clear reason", () => {
+  it.each([
+    {
+      label: "Wrong workspace",
+      reasonCode: "organization_binding_authorization.required",
+    },
+    {
+      label: "Workspace unavailable",
+      reasonCode: "organization_binding_authorization.lookup_failed",
+    },
+    {
+      label: "Workspace unavailable",
+      reasonCode: "agent_profile.organization_context_missing",
+    },
+    {
+      label: "Workspace unavailable",
+      reasonCode: "agent_profile.organization_lookup_failed",
+    },
+    {
+      label: "Workspace unavailable",
+      reasonCode: "agent_profile.space_organization_unavailable",
+    },
+  ])("blocks ready routes for $reasonCode as $label", ({
+    label,
+    reasonCode,
+  }) => {
     const readiness = resolveAgentExecutionStatus({
       agentProfileId,
       binding: createPrimaryBinding(),
       claimDiagnostics: {
-        reasonCodes: ["organization_binding_authorization.required"],
+        reasonCodes: [reasonCode],
         status: "rejected",
       },
       localService: {
@@ -258,10 +282,10 @@ describe("agent wake availability", () => {
         readiness,
       })
     ).toMatchObject({
-      badgeLabel: "Wake access off",
+      badgeLabel: label,
       category: "unavailable",
-      label: "Wake access off",
-      reasonCode: "organization_binding_authorization.required",
+      label,
+      reasonCode,
       status: "unavailable_for_wake",
     });
   });
@@ -326,6 +350,46 @@ describe("agent wake availability", () => {
       reasonCode: "center_agent.designation_required",
       status: "unavailable_for_wake",
       summary: "Connect the Center Agent before waking it from this Space.",
+    });
+  });
+
+  it("keeps a hosted Center Agent workspace mismatch explicit", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      runtimeReadiness: {
+        displayState: "unavailable",
+        ready: false,
+        reasonCodes: ["agent_profile.organization_mismatch"],
+      },
+    });
+
+    expect(resolveHostedAgentWakeAvailability({ readiness })).toMatchObject({
+      badgeLabel: "Wrong workspace",
+      label: "Wrong workspace",
+      reasonCode: "agent_profile.organization_mismatch",
+      status: "unavailable_for_wake",
+      summary: "This Agent Profile belongs to a different workspace.",
+      tooltip: "This Agent Profile belongs to another workspace",
+    });
+  });
+
+  it("keeps a hosted Center Agent missing workspace context explicit", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      runtimeReadiness: {
+        displayState: "unavailable",
+        ready: false,
+        reasonCodes: ["agent_profile.organization_context_missing"],
+      },
+    });
+
+    expect(resolveHostedAgentWakeAvailability({ readiness })).toMatchObject({
+      badgeLabel: "Workspace unavailable",
+      label: "Workspace unavailable",
+      reasonCode: "agent_profile.organization_context_missing",
+      status: "unavailable_for_wake",
     });
   });
 

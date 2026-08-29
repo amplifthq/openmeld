@@ -148,6 +148,7 @@ export async function setupNewAgentProfileLocalState(
 			await configureNewAgentProfileWorkspace({
 				agentProfileId: input.profile.openMeldProfileId,
 				bindingEstablished: false,
+				organizationId,
 				projectFolderPath: input.projectFolderPath ?? null,
 				selectedHumanProfileId: input.selectedHumanProfileId,
 			});
@@ -171,6 +172,7 @@ export async function setupNewAgentProfileLocalState(
 		deviceId: input.deviceId,
 		modelId: input.modelId ?? null,
 		openCodePermission: input.openCodePermission ?? null,
+		organizationId,
 		reasoningLevel: input.reasoningLevel ?? null,
 		runtimeLane: input.runtimeLane,
 		selectedHumanProfileId: input.selectedHumanProfileId,
@@ -181,6 +183,7 @@ export async function setupNewAgentProfileLocalState(
 	await configureNewAgentProfileWorkspace({
 		agentProfileId: input.profile.openMeldProfileId,
 		bindingEstablished: true,
+		organizationId,
 		projectFolderPath: input.projectFolderPath ?? null,
 		selectedHumanProfileId: input.selectedHumanProfileId,
 	});
@@ -215,6 +218,7 @@ async function bindNewAgentProfileToLocalAgent(input: {
 	deviceId: string | null;
 	modelId: string | null;
 	openCodePermission: AgentProfileBindingOpenCodePermission | null;
+	organizationId: string;
 	reasoningLevel: string | null;
 	runtimeLane: DaemonServiceLane | null;
 	selectedHumanProfileId: string | null;
@@ -239,6 +243,7 @@ async function bindNewAgentProfileToLocalAgent(input: {
 		deviceId: input.deviceId,
 		modelId: input.modelId,
 		openCodePermission: input.openCodePermission,
+		organizationId: input.organizationId,
 		reasoningLevel: input.reasoningLevel,
 		runtimeLane: input.runtimeLane,
 		...(input.sessionInventorySelection
@@ -260,6 +265,7 @@ async function bindNewAgentProfileToLocalAgent(input: {
 export async function configureNewAgentProfileWorkspace(input: {
 	agentProfileId: string;
 	bindingEstablished: boolean;
+	organizationId: string;
 	projectFolderPath: string | null;
 	selectedHumanProfileId: string | null;
 }): Promise<void> {
@@ -267,6 +273,7 @@ export async function configureNewAgentProfileWorkspace(input: {
 	try {
 		await updateAgentProfileWorkspace({
 			actorProfileId: input.selectedHumanProfileId,
+			organizationId: input.organizationId,
 			profileId: input.agentProfileId,
 			workspaceMode: projectFolderPath ? "custom" : "openmeld_managed",
 			...(projectFolderPath ? { workspacePath: projectFolderPath } : {}),

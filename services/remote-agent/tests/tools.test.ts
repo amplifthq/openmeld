@@ -9,7 +9,15 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
-import { safeParse } from "valibot";
+import {
+  literal,
+  nullable,
+  optional,
+  safeParse,
+  strictObject,
+  string,
+  unknown,
+} from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
@@ -50,6 +58,24 @@ const FALLBACK_AGENT_PROFILE_ID = "agt_44444444-4444-4444-8444-444444444444";
 const CREATED_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/u;
 const ISO_INSTANT_PREFIX_PATTERN = /^\d{4}-\d{2}-\d{2}T/u;
+const oldCoreAgentProfileCreationConfigurationSchema = strictObject({
+  agentControllerCollaborationMode: nullable(string()),
+  agentControllerPermissionMode: nullable(string()),
+  agentControllerRef: optional(string()),
+  authorizeForOrganization: literal(true),
+  defaultProjectId: nullable(string()),
+  modelId: nullable(string()),
+  openCodePermission: nullable(unknown()),
+  reasoningLevel: nullable(string()),
+  targetComputerId: optional(string()),
+});
+
+function parseOldCoreCreationConfiguration(configuration: unknown) {
+  return safeParse(
+    oldCoreAgentProfileCreationConfigurationSchema,
+    configuration
+  );
+}
 
 function getRemoteAgentOpenMeldToolDefinitions(
   input: Omit<
@@ -4869,13 +4895,16 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentCreateAgentProfile).toHaveBeenCalledOnce();
   });
 
-  it("creates Agent Profile requests through the represented member and Center Agent actor", async () => {
+  it("keeps new Agent Profile requests compatible with the old strict Core contract", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);
     const response = createAgentProfileCreationRequestResponse();
-    const centerAgentCreateAgentProfileCreationRequest = vi.fn(
-      async () => response
-    );
+    const centerAgentCreateAgentProfileCreationRequest = vi.fn((input) => {
+      expect(
+        parseOldCoreCreationConfiguration(input.configuration).success
+      ).toBe(true);
+      return Promise.resolve(response);
+    });
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: { centerAgentCreateAgentProfileCreationRequest },
       storage,
@@ -4919,13 +4948,16 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
-  it("preserves the selected Session lane when the Center Agent requests a fork", async () => {
+  it("keeps Fork configuration compatible while preserving the selected Session lane", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);
     const response = createAgentProfileCreationRequestResponse();
-    const centerAgentCreateAgentProfileCreationRequest = vi.fn(
-      async () => response
-    );
+    const centerAgentCreateAgentProfileCreationRequest = vi.fn((input) => {
+      expect(
+        parseOldCoreCreationConfiguration(input.configuration).success
+      ).toBe(true);
+      return Promise.resolve(response);
+    });
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: { centerAgentCreateAgentProfileCreationRequest },
       storage,
@@ -4968,6 +5000,60 @@ describe("remote agent OpenMeld tool catalog", () => {
       onBehalfOf: { profileId: request.author.profileId },
       profileName: "Forked Reviewer",
       sessionStrategy: "fork",
+      targetOwnerUserId: "user-2",
+    });
+  });
+
+  it("keeps Resume configuration compatible with the old strict Core contract", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const response = createAgentProfileCreationRequestResponse();
+    const centerAgentCreateAgentProfileCreationRequest = vi.fn((input) => {
+      expect(
+        parseOldCoreCreationConfiguration(input.configuration).success
+      ).toBe(true);
+      return Promise.resolve(response);
+    });
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        configuration: {
+          agentControllerCollaborationMode: "codex:default",
+          agentControllerPermissionMode: "codex:askForApproval",
+          defaultProjectId: "project-1",
+        },
+        profileName: "Resumed Reviewer",
+        sessionSelection: {
+          agentControllerRef: "builtin:codex",
+          computerId: "computer-1",
+          nativeSessionId: "native-session-1",
+          projectId: "project-1",
+        },
+        sessionStrategy: "resume",
+        targetOwnerUserId: "user-2",
+      })
+    ).resolves.toEqual(response);
+    expect(centerAgentCreateAgentProfileCreationRequest).toHaveBeenCalledWith({
+      configuration: {
+        agentControllerCollaborationMode: "codex:default",
+        agentControllerPermissionMode: "codex:askForApproval",
+        agentControllerRef: "builtin:codex",
+        authorizeForOrganization: true,
+        defaultProjectId: "project-1",
+        modelId: null,
+        openCodePermission: null,
+        reasoningLevel: null,
+        targetComputerId: "computer-1",
+      },
+      context: expect.any(Object),
+      nativeSessionId: "native-session-1",
+      onBehalfOf: { profileId: request.author.profileId },
+      profileName: "Resumed Reviewer",
+      sessionStrategy: "resume",
       targetOwnerUserId: "user-2",
     });
   });

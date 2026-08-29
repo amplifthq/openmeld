@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient } from "#/test-support/query-client";
 import {
+	agentExecutionReadinessQueryKeys,
 	refreshWebAgentReadinessAfterCoreFactsChanged,
 	refreshWebAgentReadinessFacts,
 	refreshWebAgentReadinessSharedCaches,
@@ -26,6 +27,24 @@ describe("refreshWebAgentReadinessFacts", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("keeps readiness batches isolated by canonical Organization", () => {
+		expect(
+			agentExecutionReadinessQueryKeys.batch(
+				"scope-test",
+				"org-acme",
+				["agt_target"],
+				undefined
+			)
+		).not.toEqual(
+			agentExecutionReadinessQueryKeys.batch(
+				"scope-test",
+				"org-beta",
+				["agt_target"],
+				undefined
+			)
+		);
+	});
+
 	it("treats cancelled refreshes as superseded work, not failures", async () => {
 		const queryClient = createTestQueryClient();
 		const onStepFailure = vi.fn();
@@ -42,6 +61,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 		await refreshWebAgentReadinessFacts({
 			agentProfileIds: ["agt_123"],
 			onStepFailure,
+			organizationId: "org-acme",
 			queryClient,
 			storageScope: "scope-test",
 		});
@@ -60,6 +80,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 			agentProfileIds: ["agt_123"],
 			maxAttempts: 1,
 			onStepFailure,
+			organizationId: "org-acme",
 			queryClient,
 			storageScope: "scope-test",
 		});
@@ -81,11 +102,12 @@ describe("refreshWebAgentReadinessFacts", () => {
 		await refreshWebAgentReadinessSharedCaches({
 			agentProfileIds: ["agt_target"],
 			includeLocalRuntimeCaches: false,
+			organizationId: "org-acme",
 			queryClient,
 			storageScope: "scope-test",
 		});
 
-		expect(invalidateQueriesSpy).toHaveBeenCalledTimes(1);
+		expect(invalidateQueriesSpy).toHaveBeenCalledTimes(2);
 		const invalidateInput = invalidateQueriesSpy.mock.calls[0]?.[0] as
 			| {
 					predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
@@ -100,6 +122,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 					"execution-readiness",
 					"batch",
 					"scope-test",
+					"org-acme",
 					"bound-runtime",
 					"",
 					"agt_target",
@@ -113,6 +136,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 					"execution-readiness",
 					"batch",
 					"scope-test",
+					"org-acme",
 					"bound-runtime",
 					"",
 					"agt_other",
@@ -146,6 +170,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 		await refreshWebAgentReadinessAfterCoreFactsChanged({
 			agentProfileIds: ["agt_target"],
 			includeLocalRuntimeCaches: false,
+			organizationId: "org-acme",
 			queryClient,
 			storageScope: "scope-test",
 		});
@@ -158,6 +183,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 					"execution-readiness",
 					"batch",
 					"scope-test",
+					"org-acme",
 				]),
 				refetchType: "active",
 			})

@@ -111,6 +111,14 @@ export const openMeldDaemonDispatchQueueMessageSchema = z
     v: z.literal(OPENMELD_DAEMON_DISPATCH_QUEUE_SCHEMA_VERSION),
     dispatchId: z.string().min(1),
     spaceId: z.string().min(1),
+    organizationId: z
+      .string()
+      .trim()
+      .min(1)
+      .describe(
+        "Canonical Space Organization snapshot captured by the Space Durable Object when it creates the dispatch outbox seed. Optional only while old producers remain in the phase-1 rollout window."
+      )
+      .optional(),
     sourceEventId: z.string().min(1),
     sourceClientMessageId: z.string().min(1).max(200).nullable().optional(),
     dispatchOwner: openMeldDaemonDispatchOwnerSchema.optional(),

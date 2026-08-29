@@ -9,6 +9,9 @@ const notifyRouteCatalogChangedBatch = vi.fn(async () => ({
 	notifiedSessions: 1,
 	ok: true,
 }));
+const createOrganizationScopedWebOpenMeldApiFoundation = vi.hoisted(() =>
+	vi.fn(() => ({}))
+);
 
 vi.mock("@openmeld/api-client", () => ({
 	createAgentProfileBindingApi: vi.fn(() => ({
@@ -19,7 +22,7 @@ vi.mock("@openmeld/api-client", () => ({
 }));
 
 vi.mock("#/lib/openmeld-api/client", () => ({
-	createUnscopedWebOpenMeldApiFoundation: vi.fn(() => ({})),
+	createOrganizationScopedWebOpenMeldApiFoundation,
 }));
 
 import {
@@ -35,6 +38,7 @@ function buildAgentProfileId(index: number): string {
 
 describe("read agent execution readiness batch", () => {
 	beforeEach(() => {
+		createOrganizationScopedWebOpenMeldApiFoundation.mockClear();
 		getExecutionReadinessBatch.mockClear();
 		notifyRouteCatalogChangedBatch.mockClear();
 	});
@@ -44,8 +48,14 @@ describe("read agent execution readiness batch", () => {
 			buildAgentProfileId(index + 1)
 		);
 
-		const result = await readAgentExecutionReadinessBatch({ agentProfileIds });
+		const result = await readAgentExecutionReadinessBatch({
+			agentProfileIds,
+			organizationId: "org-acme",
+		});
 
+		expect(
+			createOrganizationScopedWebOpenMeldApiFoundation
+		).toHaveBeenCalledWith({ organizationId: "org-acme" });
 		expect(getExecutionReadinessBatch).toHaveBeenCalledTimes(2);
 		expect(
 			getExecutionReadinessBatch.mock.calls[0]?.[0].agentProfileIds
@@ -86,8 +96,12 @@ describe("read agent execution readiness batch", () => {
 	it("nudges route catalog refreshes through one batch request", async () => {
 		await notifyAgentExecutionReadinessRefresh({
 			agentProfileIds: ["agt_2", "agt_1", "agt_2"],
+			organizationId: "org-acme",
 		});
 
+		expect(
+			createOrganizationScopedWebOpenMeldApiFoundation
+		).toHaveBeenCalledWith({ organizationId: "org-acme" });
 		expect(notifyRouteCatalogChangedBatch).toHaveBeenCalledOnce();
 		expect(notifyRouteCatalogChangedBatch).toHaveBeenCalledWith({
 			agentProfileIds: ["agt_2", "agt_1"],

@@ -37,11 +37,6 @@ import {
   registerProjectCommands,
 } from "./agent-activity/registration";
 import { registerBuiltinAgentSelectionOptions } from "./agents/builtin-selection-contract";
-import {
-  runBindingAuthorize,
-  runBindingList,
-  runBindingRevoke,
-} from "./binding/command";
 import { runCenterAgentAsk } from "./center-agent/ask-command";
 import {
   runCenterAgentContext,
@@ -956,80 +951,6 @@ function resolveOrganizationInviteLinkDescription(
   }
   return "Revoke the active Organization invite link.";
 }
-
-const bindingCmd = program
-  .command("binding")
-  .alias("bindings")
-  .description(
-    "Manage organization authorizations for Agent Profile Bindings."
-  );
-
-bindingCmd
-  .command("authorize")
-  .description(
-    "Authorize an Agent Profile primary Binding for the active organization."
-  )
-  .argument("<agent-profile-id>", "OpenMeld Agent Profile ID")
-  .action(async (agentProfileId: string) => {
-    const view = getGlobalViewOption();
-    await runCommandWithEntryChecks({
-      routeTokens: ["binding", "authorize"],
-      view,
-      run: async () => {
-        await runBindingAuthorize({
-          agentProfileId,
-          view,
-        });
-        await maybeRunAgentViewRecoveryAfterSuccess({
-          view,
-        });
-      },
-    });
-  });
-
-bindingCmd
-  .command("revoke")
-  .description(
-    "Revoke an Agent Profile primary Binding authorization from the active organization."
-  )
-  .argument("<agent-profile-id>", "OpenMeld Agent Profile ID")
-  .action(async (agentProfileId: string) => {
-    const view = getGlobalViewOption();
-    await runCommandWithEntryChecks({
-      routeTokens: ["binding", "revoke"],
-      view,
-      run: async () => {
-        await runBindingRevoke({
-          agentProfileId,
-          view,
-        });
-        await maybeRunAgentViewRecoveryAfterSuccess({
-          view,
-        });
-      },
-    });
-  });
-
-bindingCmd
-  .command("list")
-  .description(
-    "List Agent Profile Binding authorizations for the active organization."
-  )
-  .action(async () => {
-    const view = getGlobalViewOption();
-    await runCommandWithEntryChecks({
-      routeTokens: ["binding", "list"],
-      view,
-      run: async () => {
-        await runBindingList({
-          view,
-        });
-        await maybeRunAgentViewRecoveryAfterSuccess({
-          view,
-        });
-      },
-    });
-  });
 
 const centerAgentCmd = program
   .command("center-agent")
@@ -4634,10 +4555,6 @@ profileCmd
     "--organization <slugOrId>",
     "Organization slug or ID; defaults to the current Organization"
   )
-  .option(
-    "--no-organization-wake-access",
-    "Do not request Organization Wake access for the selected Binding"
-  )
   .action(async (profileName, opts) => {
     const outputView = await resolveEffectiveViewForOutput();
     const targetName =
@@ -4670,8 +4587,7 @@ profileCmd
           typeof opts.space === "string" ||
           typeof opts.organization === "string" ||
           typeof opts.agentControllerCollaborationMode === "string" ||
-          typeof opts.openCodePermission === "string" ||
-          opts.organizationWakeAccess === false;
+          typeof opts.openCodePermission === "string";
         if (usesCreationRequest) {
           if (
             typeof opts.kind === "string" &&
@@ -4687,7 +4603,6 @@ profileCmd
               opts.agentControllerCollaborationMode,
             agentControllerPermissionModeInput:
               opts.agentControllerPermissionMode,
-            authorizeForOrganization: opts.organizationWakeAccess,
             confirmDangerousAgentControllerPermissionMode: Boolean(
               opts.confirmDangerousAgentControllerPermissionMode
             ),

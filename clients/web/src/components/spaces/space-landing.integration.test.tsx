@@ -448,6 +448,7 @@ function renderSpaceLanding(
 		} | null;
 		isCenterAgentDirectMessage?: boolean;
 		onInitialPendingMessageConsumed?: () => void;
+		organizationScope?: OrganizationScopeAuthorized;
 		presentation?: "compact" | "full";
 		profileId?: string;
 		queryClient?: QueryClient;
@@ -463,13 +464,19 @@ function renderSpaceLanding(
 	const queryClient = input.queryClient ?? createTestQueryClient();
 	const profileId = input.profileId ?? DEFAULT_SPACE_PROFILE_ID;
 	const spaceId = input.spaceId ?? "space-123";
+	const organizationScope =
+		input.organizationScope === undefined
+			? createOrganizationScope()
+			: input.organizationScope;
 	const wrap = (ui: ReactNode) => (
 		<TestQueryClientProvider queryClient={queryClient}>
 			<SpaceWakeProgressVisibleProjectionProvider>
 				{input.observeVisibleWakeProgress ? (
 					<WakeProgressVisibleProjectionProbe />
 				) : null}
-				{ui}
+				<AppOrganizationProvider scope={organizationScope}>
+					{ui}
+				</AppOrganizationProvider>
 			</SpaceWakeProgressVisibleProjectionProvider>
 		</TestQueryClientProvider>
 	);
@@ -574,8 +581,10 @@ function buildSharedReadinessCacheInvalidations(
 ) {
 	return [
 		{
-			queryKey:
-				agentExecutionReadinessQueryKeys.batchesForStorageScope(storageScope),
+			queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+				storageScope,
+				"org-acme"
+			),
 			refetchType: "active",
 		},
 	] as const;
@@ -1300,6 +1309,7 @@ describe("SpaceLanding", () => {
 					profileName: "Scout",
 				}),
 			],
+			organizationScope: createOrganizationScope({ isPersonal: true }),
 		});
 
 		fireEvent.click(
@@ -1410,6 +1420,7 @@ describe("SpaceLanding", () => {
 					profileName: "Scout",
 				}),
 			],
+			organizationScope: createOrganizationScope({ isPersonal: true }),
 		});
 
 		fireEvent.click(
@@ -1588,6 +1599,7 @@ describe("SpaceLanding", () => {
 		expect(addMembersMock).not.toHaveBeenCalled();
 		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 			agentProfileIds: [SECOND_AGENT_PROFILE_ID],
+			organizationId: "org-acme",
 		});
 		expect(
 			notifyAgentExecutionReadinessRefreshMock.mock.invocationCallOrder[0] ?? 0
@@ -3560,13 +3572,6 @@ describe("SpaceLanding", () => {
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
 				}
-				const organizationAuthorizationPreferenceResult =
-					resolveOrganizationAuthorizationPreferenceQueryResult(
-						options.queryKey
-					);
-				if (organizationAuthorizationPreferenceResult) {
-					return organizationAuthorizationPreferenceResult;
-				}
 				const [scope, kind, spaceId] = options.queryKey;
 				if (kind === "account-spaces") {
 					return createQueryResult({
@@ -4119,7 +4124,7 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding();
+		renderSpaceLanding({ organizationScope: createOrganizationScope() });
 
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -4133,12 +4138,14 @@ describe("SpaceLanding", () => {
 				agentProfileId: DEFAULT_AGENT_PROFILE_ID,
 				agentControllerRef: "builtin:codex",
 				deviceId: "device-office",
+				organizationId: "org-acme",
 				runtimeLane: "dev-local",
 				writeMode: "reconnect",
 			});
 		});
 		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 			agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+			organizationId: "org-acme",
 		});
 		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
 			expect(invalidateQueriesMock).toHaveBeenCalledWith(
@@ -4651,6 +4658,7 @@ describe("SpaceLanding", () => {
 					profileName: "Scout",
 				}),
 			],
+			organizationScope: createOrganizationScope({ isPersonal: true }),
 		});
 
 		const setupActions = screen.getByRole("group", {
@@ -4843,6 +4851,7 @@ describe("SpaceLanding", () => {
 					profileName: "Scout",
 				}),
 			],
+			organizationScope: createOrganizationScope({ isPersonal: true }),
 		});
 
 		fireEvent.click(
@@ -6977,6 +6986,7 @@ describe("SpaceLanding", () => {
 
 		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 			agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+			organizationId: "org-acme",
 		});
 		expect(refreshAllMock).not.toHaveBeenCalled();
 		expect(statusRefetchMock).toHaveBeenCalledTimes(1);
@@ -7193,6 +7203,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 				agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+				organizationId: "org-acme",
 			});
 		});
 		expect(refreshAllMock).not.toHaveBeenCalled();
@@ -7512,6 +7523,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 				agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+				organizationId: "org-acme",
 			});
 		});
 		expect(refreshAllMock).not.toHaveBeenCalled();
@@ -8904,13 +8916,6 @@ describe("SpaceLanding", () => {
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
 				}
-				const organizationAuthorizationPreferenceResult =
-					resolveOrganizationAuthorizationPreferenceQueryResult(
-						options.queryKey
-					);
-				if (organizationAuthorizationPreferenceResult) {
-					return organizationAuthorizationPreferenceResult;
-				}
 				if (
 					queryKey ===
 					JSON.stringify([
@@ -9914,10 +9919,10 @@ describe("SpaceLanding", () => {
 		expect(refreshAllMock).not.toHaveBeenCalled();
 		expect(invalidateQueriesMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				queryKey:
-					agentExecutionReadinessQueryKeys.batchesForStorageScope(
-						"test-storage-scope"
-					),
+				queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+					"test-storage-scope",
+					"org-acme"
+				),
 				refetchType: "active",
 			})
 		);
@@ -10379,6 +10384,7 @@ describe("SpaceLanding", () => {
 		});
 		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 			agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+			organizationId: "org-acme",
 		});
 		expect(refreshAllMock).not.toHaveBeenCalled();
 		expect(membersQueryResult.refetch).toHaveBeenCalled();
@@ -10597,10 +10603,10 @@ describe("SpaceLanding", () => {
 		expect(membersRefetchMock).toHaveBeenCalledTimes(2);
 		expect(invalidateQueriesMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				queryKey:
-					agentExecutionReadinessQueryKeys.batchesForStorageScope(
-						"test-storage-scope"
-					),
+				queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+					"test-storage-scope",
+					"org-acme"
+				),
 				refetchType: "active",
 			})
 		);
@@ -10689,10 +10695,10 @@ describe("SpaceLanding", () => {
 		);
 		expect(invalidateQueriesMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				queryKey:
-					agentExecutionReadinessQueryKeys.batchesForStorageScope(
-						"test-storage-scope"
-					),
+				queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+					"test-storage-scope",
+					"org-acme"
+				),
 				refetchType: "active",
 			})
 		);
@@ -10710,8 +10716,9 @@ describe("SpaceLanding", () => {
 			.spyOn(console, "warn")
 			.mockImplementation(() => undefined);
 		const readinessCachePrefix =
-			agentExecutionReadinessQueryKeys.batchesForStorageScope(
-				"test-storage-scope"
+			agentExecutionReadinessQueryKeys.batchesForOrganization(
+				"test-storage-scope",
+				"org-acme"
 			);
 		let rejectedReadinessCacheRefresh = false;
 		const invalidateQueriesMock = vi
@@ -10958,10 +10965,10 @@ describe("SpaceLanding", () => {
 		expect(refreshAllMock).not.toHaveBeenCalled();
 		expect(invalidateQueriesMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				queryKey:
-					agentExecutionReadinessQueryKeys.batchesForStorageScope(
-						"test-storage-scope"
-					),
+				queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+					"test-storage-scope",
+					"org-acme"
+				),
 				refetchType: "active",
 			})
 		);
@@ -10987,6 +10994,7 @@ describe("SpaceLanding", () => {
 			.mockResolvedValue({ items: [] });
 		const agentsPageBatchQueryKey = agentExecutionReadinessQueryKeys.batch(
 			"test-storage-scope",
+			"org-acme",
 			[DEFAULT_AGENT_PROFILE_ID],
 			undefined
 		);
@@ -16422,11 +16430,6 @@ function mockSpaceQueries(input: {
 			if (organizationSpacesResult) {
 				return organizationSpacesResult;
 			}
-			const organizationAuthorizationPreferenceResult =
-				resolveOrganizationAuthorizationPreferenceQueryResult(options.queryKey);
-			if (organizationAuthorizationPreferenceResult) {
-				return organizationAuthorizationPreferenceResult;
-			}
 			if (
 				isExpectedSpace &&
 				options.queryKey[0] === "spaces" &&
@@ -16797,9 +16800,12 @@ function createAccountSpaceSections() {
 	};
 }
 
-function createOrganizationScope(): OrganizationScopeAuthorized {
+function createOrganizationScope(
+	input: { isPersonal?: boolean } = {}
+): OrganizationScopeAuthorized {
 	const currentOrganization = {
 		id: "org-acme",
+		...(input.isPersonal === true ? { isPersonal: true } : {}),
 		name: "Acme",
 		slug: "acme",
 	};
@@ -16952,22 +16958,6 @@ function resolveOrganizationSpacesQueryResult(queryKey: readonly unknown[]) {
 					generatedAt: "2026-07-08T00:00:00.000Z",
 					organizationId: String(queryKey[1] ?? ""),
 					spaces: [],
-				},
-			})
-		: null;
-}
-
-function resolveOrganizationAuthorizationPreferenceQueryResult(
-	queryKey: readonly unknown[]
-) {
-	return queryKey[0] === "agent-profile-binding" &&
-		queryKey[1] === "organization-authorizations" &&
-		queryKey[3] === "preference"
-		? createQueryResult({
-				isSuccess: true,
-				data: {
-					autoAuthorizeAgentProfileBindings: false,
-					organizationId: String(queryKey[2] ?? ""),
 				},
 			})
 		: null;

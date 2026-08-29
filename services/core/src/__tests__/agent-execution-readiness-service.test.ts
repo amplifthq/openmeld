@@ -2,7 +2,7 @@ import { resolveAgentWakeAvailability } from "@openmeld/agent-runtime";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type { LocalComponentsStatus } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveCoreAgentExecutionReadinessForProfile } from "../agent-execution/application/agent-execution-readiness-service";
+import { resolveCoreAgentExecutionReadinessForProfile as resolveCoreAgentExecutionReadinessForProfileWithoutOrganizationFixture } from "../agent-execution/application/agent-execution-readiness-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as readinessImpactRepo from "../agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
 import { readFreshAgentExecutionReadinessImpactForBinding } from "../agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
@@ -47,6 +47,7 @@ import { REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST } from "./local-components-rel
 
 const GENERATED_AT = "2026-05-13T00:00:00.000Z";
 const GENERATED_AT_MS = Date.parse(GENERATED_AT);
+const TEST_ORGANIZATION_ID = "org-readiness-test";
 const COMPATIBLE_SERVICE = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -1300,7 +1301,7 @@ describe("Core Agent Execution Readiness", () => {
       agentProfileId: "agt_provider_access",
       bindingId: "binding-1",
       agentControllerRef: "builtin:codex",
-      db: {},
+      db: expect.anything(),
       nowMs: GENERATED_AT_MS,
       openMeldServiceRuntimeId: "runtime-1",
     });
@@ -1365,7 +1366,7 @@ describe("Core Agent Execution Readiness", () => {
       agentProfileId: "agt_readiness_impact",
       bindingId: "binding-1",
       agentControllerRef: "builtin:codex",
-      db: {},
+      db: expect.anything(),
       nowMs: GENERATED_AT_MS,
       openMeldServiceRuntimeId: "runtime-1",
     });
@@ -1435,7 +1436,7 @@ describe("Core Agent Execution Readiness", () => {
       bindingId: "binding-1",
       agentControllerRef: "builtin:codex",
       agentControllerConversationId: "thread-ctx-1",
-      db: {},
+      db: expect.anything(),
       method: "codex_app_server_thread_resume",
       nowMs: GENERATED_AT_MS,
       provider: "codex",
@@ -1508,7 +1509,7 @@ describe("Core Agent Execution Readiness", () => {
     ).toHaveBeenCalledWith({
       agentControllerConversationId: "thread-ctx-1",
       agentControllerRef: "builtin:codex",
-      db: {},
+      db: expect.anything(),
       excludeAgentProfileId: "agt_controller_conversation_conflict",
       owner: {
         id: "owner-1",
@@ -1733,9 +1734,43 @@ function createCoreEnv(input: {
     OPENMELD_AUTH_WORKER: {
       resolveProfileById: input.resolveProfileById,
     },
-    OPENMELD_DB: {} as D1Database,
+    OPENMELD_DB: createAgentProfileOrganizationDb(),
     OPENMELD_SPACES: {} as DurableObjectNamespace,
   } as unknown as CoreBindings;
+}
+
+function resolveCoreAgentExecutionReadinessForProfile(
+  input: Parameters<
+    typeof resolveCoreAgentExecutionReadinessForProfileWithoutOrganizationFixture
+  >[0]
+) {
+  return resolveCoreAgentExecutionReadinessForProfileWithoutOrganizationFixture(
+    {
+      activeOrganizationId: TEST_ORGANIZATION_ID,
+      ...input,
+    }
+  );
+}
+
+function createAgentProfileOrganizationDb(): D1Database {
+  return {
+    prepare: vi.fn((query: string) => {
+      if (!query.includes("FROM openmeld_profiles")) {
+        throw new Error(`Unexpected readiness test query: ${query}`);
+      }
+      return {
+        bind: vi.fn(() => ({
+          first: vi.fn().mockResolvedValue({
+            managed_role: null,
+            organization_id: TEST_ORGANIZATION_ID,
+            owner_user_id: "owner-1",
+            profile_kind: "agent",
+            profile_name: "Readiness Test Agent",
+          }),
+        })),
+      };
+    }),
+  } as unknown as D1Database;
 }
 
 function mockReadyBindingAndRuntime(

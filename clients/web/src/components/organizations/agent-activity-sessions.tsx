@@ -384,10 +384,6 @@ function SessionCreateProfileDialog(input: {
 			}}
 			onProfileCreated={(profile) => input.onCreated(profile.openMeldProfileId)}
 			open={true}
-			organizationAuthorizationContext={{
-				organizationId: input.organizationId,
-				organizationName: input.organizationName,
-			}}
 			organizationId={input.organizationId}
 			orgSlug={input.orgSlug}
 			recovery={recovery}

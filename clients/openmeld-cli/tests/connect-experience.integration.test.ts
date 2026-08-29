@@ -1400,6 +1400,7 @@ describe("connect experience enhancements", () => {
           },
         })
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
       harness.close(1006, "");
 
       const { stdout } = await connectPromise;
@@ -1480,6 +1481,7 @@ describe("connect experience enhancements", () => {
           },
         })
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
       harness.close(1006, "");
 
       const { stdout } = await connectPromise;

@@ -54,9 +54,9 @@ local agents installed).
   but its health never creates Computer or navigation attention. When every
   local agent is off, the Computer shows that intentional state without a
   warning or repair prompt.
-- Applied: missing Organization Wake access appears as an amber, per-agent
-  configuration outcome with a direct `Turn on Wake access` action, while real
-  execution failures remain destructive.
+- Applied: an Agent Profile Organization mismatch appears on that Agent as a
+  destructive identity outcome with no authorization shortcut; the next action
+  is to choose or create an Agent Profile in the current Workspace.
 - Violation looks like: one agent goes unready, and the whole page grows a
   "Connect Local Agent" banner that points nowhere specific.
 
