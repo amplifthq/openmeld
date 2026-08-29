@@ -636,6 +636,16 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
+        `${targetName}'s provider subscription does not include the access this agent needs. Review the provider plan or account on its computer before waking it again.`,
+      kind: "account_access",
+      mappedReasonBody: (targetName) =>
+        `${targetName}'s provider subscription does not include the access this agent needs. Review the provider plan or account on its computer before waking it again.`,
+      patterns: ["provider.subscription_access_unavailable"],
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
+    },
+    {
+      body: (targetName) =>
         `${targetName}'s selected model is not responding right now. Switch this agent to another model or try again later.`,
       kind: "account_access",
       mappedReasonBody: PROVIDER_UNAVAILABLE_PUBLIC_COPY,
@@ -648,37 +658,48 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "agents",
     },
     {
-      availabilityBadgeLabel: "Blocked",
+      availabilityBadgeLabel: "Unavailable",
       availabilitySummary: "Fix provider access before this agent can reply.",
       availabilityTooltip: "Provider access needed",
       body: (targetName) =>
-        `${targetName} is connected, but its Claude Code subscription needs attention before this agent can reply. Open Claude Code and check the Claude Code subscription for this local agent.`,
-      kind: "local_service",
+        `${targetName} is connected, but its provider subscription does not include the access this agent needs. Review the provider plan or account on its computer before waking it again.`,
+      kind: "account_access",
       patterns: ["=provider_account.subscription_access_unavailable"],
-      primaryActionId: "reconnect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
     },
     {
-      availabilityBadgeLabel: "Blocked",
+      availabilityBadgeLabel: "Unavailable",
       availabilitySummary: "Fix provider access before this agent can reply.",
       availabilityTooltip: "Provider access needed",
       body: (targetName) =>
-        `${targetName} is connected, but Claude Code access is disabled before this agent can reply. Open Claude Code or ask your Claude admin to enable Claude Code access for this local agent.`,
-      kind: "local_service",
+        `${targetName} is connected, but its organization has disabled the provider access this agent needs. Ask the provider account admin to enable access before waking it again.`,
+      kind: "account_access",
       patterns: ["=provider_account.organization_access_disabled"],
-      primaryActionId: "reconnect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
     },
     {
-      availabilityBadgeLabel: "Blocked",
+      availabilityBadgeLabel: "Unavailable",
+      availabilitySummary: "Review the provider plan, billing, or credits.",
+      availabilityTooltip: "Provider quota exhausted",
+      body: (targetName) =>
+        `${targetName} is connected, but its provider quota or credit balance is exhausted. Review the provider plan, billing, or credits before waking it again.`,
+      kind: "account_access",
+      patterns: ["=provider_account.capacity_exhausted"],
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
+    },
+    {
+      availabilityBadgeLabel: "Unavailable",
       availabilitySummary: "Fix provider access before this agent can reply.",
       availabilityTooltip: "Provider access needed",
       body: (targetName) =>
         `${targetName}'s provider account needs attention on its computer. Fix access with the provider there, then check its status here.`,
-      kind: "local_service",
+      kind: "account_access",
       patterns: ["provider_account."],
-      primaryActionId: "reconnect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
     },
     {
       availabilityBadgeLabel: "Unavailable",

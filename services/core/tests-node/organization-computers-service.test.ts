@@ -84,6 +84,80 @@ describe("Organization Computers service", () => {
     expect(serialized).not.toContain("private-plan");
     expect(serialized).not.toContain("prepaidBalance");
   });
+
+  it("keeps the newest exact runtime and lane evidence when controller refs repeat", async () => {
+    const input = {
+      generatedAt: "2026-08-20T08:05:00.000Z",
+      lookupMemberComputerInventory: async () => ({
+        devices: [
+          {
+            deviceId: "computer-1",
+            deviceType: "laptop",
+            firstSeenAtMs: 1,
+            lastObservedAtMs: 300,
+            observedDisplayName: "Maya's Mac",
+            osVersion: "15.6",
+            ownerUserId: "user-1",
+            platformFamily: "macOS",
+            updatedAtMs: 300,
+            userDisplayName: null,
+          },
+        ],
+        executionTargets: [
+          {
+            agentControllerInterface: sensitiveSnapshot(),
+            agentControllerRef: "builtin:codex",
+            capabilityEnabled: true,
+            capabilityReasonCodes: [],
+            capabilityStatus: "ready",
+            deviceId: "computer-1",
+            lastObservedAtMs: 200,
+            openMeldServiceRuntimeId: "runtime-prod-old",
+            runtimeLane: "prod",
+          },
+          {
+            agentControllerInterface: {
+              ...sensitiveSnapshot(),
+              auth: { status: "unauthenticated" },
+              checkedAt: "2026-08-20T08:04:00.000Z",
+              message: "Codex is not signed in.",
+              status: "unavailable",
+              version: "0.149.0",
+            },
+            agentControllerRef: "builtin:codex",
+            capabilityEnabled: true,
+            capabilityReasonCodes: [
+              "provider_account.access_required",
+              "controller.auth.unauthenticated",
+            ],
+            capabilityStatus: "not_ready",
+            deviceId: "computer-1",
+            lastObservedAtMs: 300,
+            openMeldServiceRuntimeId: "runtime-canary-current",
+            runtimeLane: "canary",
+          },
+        ],
+        liveSessions: [],
+      }),
+      memberUserIds: ["user-1"],
+      modelCatalog: readModelCatalog(),
+      organizationId: "organization-1",
+    } satisfies Parameters<typeof listOrganizationComputers>[0];
+
+    const response = await listOrganizationComputers(input);
+
+    expect(response.computers[0]?.localAgents).toEqual([
+      expect.objectContaining({
+        agentControllerRef: "builtin:codex",
+        details: expect.objectContaining({
+          checkedAt: "2026-08-20T08:04:00.000Z",
+          status: "unavailable",
+          version: "0.149.0",
+        }),
+        status: "not_ready",
+      }),
+    ]);
+  });
 });
 
 function sensitiveSnapshot(): AgentControllerInterfaceSnapshot {

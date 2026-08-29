@@ -38,6 +38,34 @@ const createNodeScriptLaunchContract = (scriptPath) => ({
   scriptPath,
 });
 
+test("codex distinguishes subscription access from a transient rate limit", async () => {
+  const { classifyCodexProviderAccountFailure } = await import(
+    "../dist/output/codex-provider-failure.js"
+  );
+
+  const subscription = classifyCodexProviderAccountFailure({
+    message: "This model is not available on your plan. Upgrade your plan.",
+  });
+  assert.equal(subscription.code, "provider.subscription_access_unavailable");
+  assert.equal(
+    subscription.providerAccessEvidence.reasonCode,
+    "provider_account.subscription_access_unavailable"
+  );
+
+  const transientRateLimit = classifyCodexProviderAccountFailure({
+    message: "429 Too Many Requests: rate limit exceeded",
+  });
+  assert.equal(transientRateLimit.code, "rate_limited");
+  assert.equal(transientRateLimit.providerAccessEvidence, undefined);
+
+  const overlappingTransientRateLimit = classifyCodexProviderAccountFailure({
+    message:
+      "429 Too Many Requests: usage limit reached for this billing window",
+  });
+  assert.equal(overlappingTransientRateLimit.code, "rate_limited");
+  assert.equal(overlappingTransientRateLimit.providerAccessEvidence, undefined);
+});
+
 const CODEX_PLATFORM_LAYOUTS = {
   "darwin-arm64": {
     packageName: "@openai/codex-darwin-arm64",
@@ -1638,6 +1666,10 @@ test("codex app-server transport maps a usage-limit turn failure to quota.exceed
       (error) => {
         assert.equal(error.code, "quota.exceeded");
         assert.equal(error.errorType, "adapter");
+        assert.equal(
+          error.providerAccessEvidence.reasonCode,
+          "provider_account.capacity_exhausted"
+        );
         assert.equal(error.message, usageLimitMessage);
         assert.equal(
           resolveDetailedPublicAgentFailureReason(
@@ -1681,6 +1713,10 @@ test("codex cli transport maps a usage-limit turn failure to quota.exceeded", as
       (error) => {
         assert.equal(error.code, "quota.exceeded");
         assert.equal(error.errorType, "adapter");
+        assert.equal(
+          error.providerAccessEvidence.reasonCode,
+          "provider_account.capacity_exhausted"
+        );
         assert.match(error.message, USAGE_LIMIT_RE);
         return true;
       }
@@ -2777,6 +2813,10 @@ test("codex cli transport fails when provider terminal error arrives before proc
       (error) => {
         assert.equal(error.code, "quota.exceeded");
         assert.equal(error.errorType, "adapter");
+        assert.equal(
+          error.providerAccessEvidence.reasonCode,
+          "provider_account.capacity_exhausted"
+        );
         assert.match(error.message, QUOTA_RE);
         return true;
       }
@@ -3026,6 +3066,7 @@ test("codex cli transport maps quota and rate-limit failures from stdout events"
       (error) => {
         assert.equal(error.code, "rate_limited");
         assert.equal(error.errorType, "adapter");
+        assert.equal(error.providerAccessEvidence, undefined);
         assert.match(error.message, RATE_LIMIT_RE);
         return true;
       }

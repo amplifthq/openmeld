@@ -542,6 +542,12 @@ test("opencode cli transport maps provider balance failures to provider.insuffic
       (error) => {
         assert.equal(error.code, "provider.insufficient_balance");
         assert.equal(error.errorType, "adapter");
+        assert.deepEqual(error.providerAccessEvidence, {
+          observedAtMs: error.providerAccessEvidence.observedAtMs,
+          provider: "opencode",
+          reasonCode: "provider_account.capacity_exhausted",
+          source: "wake_failure",
+        });
         assert.match(error.message, PROVIDER_INSUFFICIENT_BALANCE_CODE_RE);
         assert.match(error.message, INSUFFICIENT_BALANCE_RE);
         return true;
@@ -550,6 +556,37 @@ test("opencode cli transport maps provider balance failures to provider.insuffic
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
   }
+});
+
+test("opencode distinguishes subscription access from a transient rate limit", async () => {
+  const { classifyOpenCodeFailureMessage } = await import(
+    "../dist/transport/opencode-failure.js"
+  );
+  const isContextLost = () => false;
+
+  const subscription = classifyOpenCodeFailureMessage({
+    isContextLost,
+    message: "This model is not included in your subscription plan.",
+  });
+  assert.equal(subscription.code, "provider.subscription_access_unavailable");
+  assert.equal(
+    subscription.providerAccessEvidence.reasonCode,
+    "provider_account.subscription_access_unavailable"
+  );
+
+  const transientRateLimit = classifyOpenCodeFailureMessage({
+    isContextLost,
+    message: "429 Too Many Requests: rate limit exceeded",
+  });
+  assert.equal(transientRateLimit.code, "provider.rate_limited");
+  assert.equal(transientRateLimit.providerAccessEvidence, undefined);
+
+  const overlappingTransientRateLimit = classifyOpenCodeFailureMessage({
+    isContextLost,
+    message: "429 Too Many Requests: usage limit reached for this request",
+  });
+  assert.equal(overlappingTransientRateLimit.code, "provider.rate_limited");
+  assert.equal(overlappingTransientRateLimit.providerAccessEvidence, undefined);
 });
 
 test("opencode cli transport maps raw permission auto-reject stdout to public runtime permission copy", async () => {

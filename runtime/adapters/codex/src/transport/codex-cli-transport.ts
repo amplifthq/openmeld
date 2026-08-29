@@ -4,6 +4,7 @@ import type {
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterPreviewCallback,
+  AdapterProviderAccessEvidence,
   AdapterRuntimeEventCallback,
   AdapterRuntimeProcessCallback,
   AdapterStreamingMode,
@@ -23,11 +24,7 @@ import {
   runCliDriver,
 } from "@openmeld/adapter-core/drivers/cli-driver";
 import { processCodexStdoutLine } from "../output/codex-output-parser.js";
-import {
-  isCodexAuthFailure as isAuthFailure,
-  isCodexQuotaFailure as isQuotaFailure,
-  isCodexRateLimitFailure as isRateLimitFailure,
-} from "../output/codex-provider-failure.js";
+import { classifyCodexProviderAccountFailure } from "../output/codex-provider-failure.js";
 import { extractCodexToolActivityEvent } from "../output/codex-tool-activity.js";
 import { buildCodexFileAccessBoundaryGlobalArgs } from "./codex-file-access-boundary.js";
 import { buildCodexSpaceActionMcpGlobalArgs } from "./codex-space-action-mcp-config.js";
@@ -41,16 +38,19 @@ export type CodexCliTransportResult = {
 export class CodexCliTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    providerAccessEvidence?: AdapterProviderAccessEvidence;
   }) {
     super(input.message);
     this.name = "CodexCliTransportError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.providerAccessEvidence = input.providerAccessEvidence;
   }
 }
 
@@ -182,6 +182,7 @@ export async function invokeCodexCliTransport(input: {
       code: classifiedFailure.code,
       errorType: classifiedFailure.errorType,
       message: classifiedFailure.message,
+      providerAccessEvidence: classifiedFailure.providerAccessEvidence,
     });
   }
 
@@ -197,6 +198,7 @@ export async function invokeCodexCliTransport(input: {
         code: classifiedFailure.code,
         errorType: classifiedFailure.errorType,
         message: classifiedFailure.message,
+        providerAccessEvidence: classifiedFailure.providerAccessEvidence,
       });
     }
     throw new CodexCliTransportError({
@@ -543,6 +545,7 @@ const toCodexCliTransportError = (
         code: classifiedFailure.code,
         errorType: classifiedFailure.errorType,
         message: classifiedFailure.message,
+        providerAccessEvidence: classifiedFailure.providerAccessEvidence,
       });
     }
   }
@@ -611,6 +614,7 @@ const classifyCodexFailure = (input: {
   code: string;
   errorType: AdapterErrorType;
   message: string;
+  providerAccessEvidence?: AdapterProviderAccessEvidence;
 } => {
   const providerMessage = resolveProviderFailureMessage(input);
   if (providerMessage) {
@@ -633,24 +637,12 @@ const classifyCodexFailure = (input: {
         message: toControllerClientUpgradeRequiredMessage(providerMessage),
       };
     }
-    if (isQuotaFailure(lowered)) {
+    const providerFailure = classifyCodexProviderAccountFailure({
+      message: providerMessage,
+    });
+    if (providerFailure) {
       return {
-        code: "quota.exceeded",
-        errorType: "adapter",
-        message: providerMessage,
-      };
-    }
-    if (isAuthFailure(lowered)) {
-      return {
-        code: "auth.required",
-        errorType: "auth",
-        message: providerMessage,
-      };
-    }
-    if (isRateLimitFailure(lowered)) {
-      return {
-        code: "rate_limited",
-        errorType: "adapter",
+        ...providerFailure,
         message: providerMessage,
       };
     }
@@ -707,9 +699,7 @@ const looksLikeProviderFailure = (value: string): boolean => {
   const normalized = value.toLowerCase();
   return (
     looksLikeRuntimePermissionDenialMessage(value) ||
-    isAuthFailure(normalized) ||
-    isQuotaFailure(normalized) ||
-    isRateLimitFailure(normalized)
+    classifyCodexProviderAccountFailure({ message: normalized }) !== null
   );
 };
 

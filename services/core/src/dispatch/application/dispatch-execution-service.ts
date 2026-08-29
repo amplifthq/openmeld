@@ -1779,6 +1779,7 @@ async function clearProviderAccessEvidenceFromAcceptedSuccess(input: {
       clearedAtMs: input.inboxRecord.acceptedAtMs,
       db: input.localStateDb,
       executionIdentity,
+      sourceAttemptId: input.inboxRecord.attemptId,
       sourceDispatchId: input.dispatchMessage.dispatchId,
     });
   } catch (error) {

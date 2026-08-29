@@ -667,6 +667,21 @@ a real Wake failure, and a real Wake failure must be preserved as
 execution/diagnostic evidence instead of being rewritten as generic availability
 drift.
 
+A provider failure changes later Wake availability only when the accepted
+result carries fresh structured hard-blocker evidence for the exact Agent
+Profile, Binding, device, runtime lane, OpenMeld Service Runtime, Agent
+Controller, and provider. Organization access disabled, subscription access
+unavailable, and exhausted hard quota/credit capacity may project
+`Unavailable`. A passive usage percentage, old capacity snapshot, generic quota
+wording, or ordinary transient `429` remains diagnostic evidence for that Wake
+and must not become a durable availability blocker. A later accepted success
+for the same exact execution identity may clear only evidence no newer than
+that success. Core durably retains the latest accepted-result watermark even
+when no failure row existed, so a delayed older failure cannot reopen cleared
+evidence. Accepted-result time is the persisted ordering key; an exact-time
+success/failure tie fails closed in favor of the hard failure, while delayed
+failures and successes cannot overwrite newer accepted facts.
+
 The canonical read paths are:
 
 ```text

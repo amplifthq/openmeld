@@ -318,6 +318,7 @@ export type SettingsLocalAgentRow = {
   detail?: ReactNode;
   displayName: string;
   id: string;
+  identityMuted?: boolean;
   logoAgentId?: string;
   muted?: boolean;
   summaryAccessory?: ReactNode;
@@ -1204,6 +1205,7 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
   // that click-through.
   const closedAtRef = useRef(0);
   const status = resolveLocalAgentCardStatus(row);
+  const identityMuted = row.identityMuted || status.tone === "muted";
   const hasDialog = Boolean(row.detail || row.description);
   const openDetails = () => {
     if (Date.now() - closedAtRef.current < 300) {
@@ -1235,7 +1237,7 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
           <div className="flex items-center">
             <SettingsLocalAgentIcon
               agentId={row.logoAgentId ?? row.id}
-              muted={status.tone === "muted"}
+              muted={identityMuted}
               size="lg"
             />
           </div>
@@ -1243,9 +1245,7 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
             <p
               className={cn(
                 "font-medium text-sm",
-                status.tone === "muted"
-                  ? "text-muted-foreground"
-                  : "text-foreground"
+                identityMuted ? "text-muted-foreground" : "text-foreground"
               )}
             >
               {row.displayName}

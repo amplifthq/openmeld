@@ -569,7 +569,8 @@ describe("agent controller interface probe keeper", () => {
 
       // Past the TTL the next background probe runs for real and reaches a
       // live server that proves no provider is connected. That is a completed
-      // check: fail-closed reporting must not be smoothed away.
+      // check: fail-closed reporting must not be smoothed away, while the
+      // account blocker remains unavailable rather than a launch error.
       ageAgentControllerInterfaceKeeperForTests(KEEPER_TTL_MS + 1);
       mockNoConnectedProvider();
 
@@ -578,7 +579,7 @@ describe("agent controller interface probe keeper", () => {
         probePolicy: "background",
         state,
       });
-      expect(proven.status).toBe("error");
+      expect(proven.status).toBe("unavailable");
       expect(proven.message).toContain("no connected provider was reported");
     } finally {
       await rm(home, { force: true, recursive: true });

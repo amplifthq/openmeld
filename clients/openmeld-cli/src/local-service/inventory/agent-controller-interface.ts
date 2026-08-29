@@ -615,7 +615,7 @@ async function resolveClaudeCodeInterfaceSnapshot(input: {
   if (auth.status === "unauthenticated") {
     message =
       "Claude Code is installed, but this computer is not signed in to Claude Code.";
-    status = "error";
+    status = "unavailable";
   } else if (auth.status === "unknown") {
     message = "OpenMeld could not read Claude Code authentication status.";
     status = "warning";
@@ -659,7 +659,7 @@ async function resolveCursorInterfaceSnapshot(input: {
   let status = input.baseSnapshot.status;
   if (auth.status === "unauthenticated") {
     message = requireControllerSignInInterfaceDescription("cursor");
-    status = "error";
+    status = "unavailable";
   } else if (auth.status === "unknown") {
     message = "OpenMeld could not read Cursor CLI authentication status.";
     status = "warning";
@@ -740,7 +740,7 @@ async function resolveGrokBuildInterfaceSnapshot(input: {
         : `OpenMeld could not read Grok Build's ACP status: ${toErrorMessage(
             interfaceProbe.error
           )}`,
-      status: unauthenticated ? "error" : "warning",
+      status: unauthenticated ? "unavailable" : "warning",
       version,
       versionAdvisory: await resolveControllerVersionAdvisory({
         checkedAt: input.baseSnapshot.checkedAt,
@@ -779,17 +779,20 @@ async function resolveOpenClawInterfaceSnapshot(input: {
     message =
       "OpenClaw is installed, but its model provider credentials are missing or expired. Re-authenticate the model provider in OpenClaw before OpenMeld can launch it.";
   }
+  let status = input.baseSnapshot.status;
+  if (!authResult.probeCompleted) {
+    status = "unknown";
+  }
+  if (authResult.auth.status === "unauthenticated") {
+    status = "unavailable";
+  }
   return {
     probeCompleted: authResult.probeCompleted,
     snapshot: {
       ...input.baseSnapshot,
       auth: authResult.auth,
       message,
-      status:
-        authResult.auth.status === "unauthenticated" ||
-        !authResult.probeCompleted
-          ? "error"
-          : input.baseSnapshot.status,
+      status,
       version,
     },
   };
@@ -1149,7 +1152,7 @@ async function runCodexAppServerProbeRequests(input: {
     models: parseCodexModels(models),
     ok: true,
     skills: parseCodexSkills(skills),
-    status: auth.status === "unauthenticated" ? "error" : "ready",
+    status: auth.status === "unauthenticated" ? "unavailable" : "ready",
     usageLimits,
     version: parseCodexUserAgentVersion(initialized),
   });

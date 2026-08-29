@@ -41,6 +41,7 @@ const RECONCILED_REASON_CODES = [
   // Reply-recovery reasons reconciled into the legal shared sources by
   // W-ERRH1. Keep exact codes here even when one side uses a family prefix so
   // a future prefix or ordering change cannot silently reopen the split.
+  "provider_account.capacity_exhausted",
   "provider_account.subscription_access_unavailable",
   "provider_account.organization_access_disabled",
   "controller.auth.unauthenticated",

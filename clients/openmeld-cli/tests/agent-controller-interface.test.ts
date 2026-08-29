@@ -21,6 +21,7 @@ import {
   resetAgentControllerInterfaceKeeperForTests,
   resolveAgentControllerCommandFingerprint,
 } from "../src/local-service/inventory/agent-controller-interface-keeper";
+import { probeOpenCodeReadiness } from "../src/local-service/inventory/opencode-readiness-probe";
 import { GROK_STABLE_VERSION_URL } from "./fixtures/homebrew-latest-versions";
 import { OPENCLAW_MODELS_STATUS_MISSING_AUTH_RESPONSE } from "./fixtures/openclaw-models-status";
 import {
@@ -391,7 +392,7 @@ describe("agent controller interface inventory", () => {
         message:
           "Grok Build is installed, but this computer is not signed in to Grok.",
         models: [],
-        status: "error",
+        status: "unavailable",
         version: "1.0.3",
       });
     } finally {
@@ -426,7 +427,7 @@ describe("agent controller interface inventory", () => {
         message:
           "Grok Build is installed, but this computer is not signed in to Grok.",
         models: [],
-        status: "error",
+        status: "unavailable",
         version: "1.0.3",
       });
     } finally {
@@ -737,11 +738,11 @@ describe("agent controller interface inventory", () => {
       });
 
       expect(snapshot).toMatchObject({
-        auth: { status: "unknown" },
+        auth: { status: "unauthenticated", type: "opencode" },
         message:
           "OpenCode is installed, but no connected provider was reported. Open OpenCode and sign in to a provider before OpenMeld can launch it.",
         models: [],
-        status: "error",
+        status: "unavailable",
         version: "1.17.11",
       });
     } finally {
@@ -813,6 +814,37 @@ describe("agent controller interface inventory", () => {
       }
     }
   );
+
+  it("keeps an unfinished OpenCode provider probe out of the error state", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-opencode-error-"));
+    try {
+      const binPath = join(home, "opencode");
+      await writeFile(
+        binPath,
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "serve" ]; then exit 1; fi',
+          "exit 1",
+          "",
+        ].join("\n"),
+        "utf8"
+      );
+      await chmod(binPath, 0o755);
+
+      await expect(
+        probeOpenCodeReadiness({
+          launchContract: { commandPath: binPath, kind: "executable" },
+          timeoutMs: 100,
+        })
+      ).resolves.toMatchObject({
+        auth: { status: "unknown" },
+        probeCompleted: false,
+        status: "unknown",
+      });
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
 
   it("adds a manual update advisory when a Codex npm install is behind latest", async () => {
     vi.stubGlobal(
@@ -915,7 +947,7 @@ describe("agent controller interface inventory", () => {
       expect(snapshot).toMatchObject({
         auth: { status: "unauthenticated" },
         controllerId: "openclaw",
-        status: "error",
+        status: "unavailable",
         version: "2026.3.13",
       });
     } finally {
@@ -992,7 +1024,7 @@ describe("agent controller interface inventory", () => {
 
     expect(snapshot).toMatchObject({
       auth: { status: "unauthenticated" },
-      status: "error",
+      status: "unavailable",
     });
   });
 
@@ -1097,7 +1129,7 @@ describe("agent controller interface inventory", () => {
         auth: { status: "unauthenticated" },
         message:
           "Codex CLI is installed, but this computer is not signed in to Codex.",
-        status: "error",
+        status: "unavailable",
       });
     } finally {
       await rm(home, { force: true, recursive: true });

@@ -6,6 +6,7 @@ import type {
   AdapterInstructionPrompt,
   AdapterInteractionCallback,
   AdapterPreviewCallback,
+  AdapterProviderAccessEvidence,
   AdapterRuntimeEventCallback,
   AdapterRuntimeProcessCallback,
   AdapterStreamingMode,
@@ -32,16 +33,19 @@ export type CodexInvokeResult = {
 export class CodexRuntimeError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    providerAccessEvidence?: AdapterProviderAccessEvidence;
   }) {
     super(input.message);
     this.name = "CodexRuntimeError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.providerAccessEvidence = input.providerAccessEvidence;
   }
 }
 
@@ -241,6 +245,9 @@ function toCodexRuntimeError(error: unknown): CodexRuntimeError {
       code: (error as { code: string }).code,
       errorType: (error as { errorType: AdapterErrorType }).errorType,
       message: error.message,
+      providerAccessEvidence: (
+        error as { providerAccessEvidence?: AdapterProviderAccessEvidence }
+      ).providerAccessEvidence,
     });
   }
   return new CodexRuntimeError({

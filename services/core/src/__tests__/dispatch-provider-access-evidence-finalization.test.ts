@@ -584,6 +584,7 @@ describe("dispatch provider access evidence finalization", () => {
         agentControllerRef: "builtin:claude-code",
         openMeldServiceRuntimeId: "runtime-office-mac-1",
       },
+      sourceAttemptId: "attempt-provider-access-1",
       sourceDispatchId: "dispatch-provider-access-1",
     });
     expect(

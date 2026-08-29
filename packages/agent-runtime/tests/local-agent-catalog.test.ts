@@ -121,6 +121,36 @@ describe("local agent catalog projection", () => {
     );
   });
 
+  it("does not turn provider sign-in blockers into launch repair", () => {
+    const catalog = projectLocalAgentCatalogFromCapabilities({
+      capabilities: [
+        {
+          agentControllerRef: "builtin:claude-code",
+          reasonCodes: [
+            "provider_account.access_required",
+            "controller.auth.unauthenticated",
+          ],
+          status: "not_ready",
+        },
+      ],
+    });
+
+    expect(catalog.needsRepair).toBe(0);
+    expect(catalog.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          agentId: "claude-code",
+          detected: true,
+          enabled: true,
+          launchStatus: "ready",
+          selectable: true,
+          selectableReason: null,
+          targetKind: "builtin",
+        }),
+      ])
+    );
+  });
+
   it("preserves disabled local agent state without treating it as a repair failure", () => {
     const catalog = projectLocalAgentCatalogFromCapabilities({
       capabilities: [

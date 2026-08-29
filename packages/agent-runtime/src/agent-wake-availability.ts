@@ -704,6 +704,7 @@ function createUnavailableWakeAvailability(
       label: "Provider access needed",
       phase: "provider_blocked",
       reasonCode: pickReasonCode(readiness, [
+        "provider_account.capacity_exhausted",
         "provider_account.subscription_access_unavailable",
         "provider_account.organization_access_disabled",
         "provider_account.access_required",

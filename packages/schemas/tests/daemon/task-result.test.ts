@@ -114,6 +114,33 @@ describe("daemon task-result schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts hard provider capacity evidence without treating a transient rate limit as account evidence", () => {
+    const hardFailure = openMeldDaemonTaskResultEnvelopeSchema.safeParse({
+      v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+      code: "service.task_result",
+      payload: {
+        agentId: "agt_11111111-1111-4111-8111-111111111111",
+        attemptId: "attempt-provider-capacity-1",
+        deduped: false,
+        errorCode: "quota.exceeded",
+        errorMessage:
+          "This provider account has exhausted its available quota.",
+        errorType: "adapter",
+        providerAccessEvidence: {
+          observedAtMs: 1_770_000_000_000,
+          provider: "opencode",
+          reasonCode: "provider_account.capacity_exhausted",
+          source: "wake_failure",
+        },
+        sourceEventId: "evt-provider-capacity-1",
+        status: "failed",
+        taskId: "task-provider-capacity-1",
+      },
+    });
+
+    expect(hardFailure.success).toBe(true);
+  });
+
   it("accepts path-free Default Project failure trace context", () => {
     const result = openMeldDaemonTaskResultEnvelopeSchema.safeParse({
       v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,

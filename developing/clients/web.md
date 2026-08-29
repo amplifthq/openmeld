@@ -3429,6 +3429,14 @@ completed outcome. A completed `check_status` verdict uses the same amber
 summary, and current-Computer toolbar attention. It never becomes a red repair
 alert or setup action.
 
+Computers applies the same severity boundary to controller account states.
+Signed out and provider access unavailable are non-runnable `Unavailable`
+states: keep the local-agent logo and name muted, use neutral or amber status
+copy, and show the accurate provider-account next action. Red `Error` remains
+reserved for a real launch or controller failure. Another member's Computer
+uses the same presentation from the team-safe projection; Web must not infer a
+different severity from missing private account detail.
+
 Web does not inspect a second execution-target snapshot to override the Core
 verdict. Core excludes disabled local agents from Computer status, aggregate
 reason codes, and recovery actions. Web keeps an all-disabled Computer neutral,

@@ -882,11 +882,15 @@ describe("planAgentProfileReplyRecovery", () => {
   it.each([
     [
       "provider_account.subscription_access_unavailable",
-      "Codex is connected, but its Claude Code subscription needs attention before this agent can reply. Open Claude Code and check the Claude Code subscription for this local agent.",
+      "Codex is connected, but its provider subscription does not include the access this agent needs. Review the provider plan or account on its computer before waking it again.",
     ],
     [
       "provider_account.organization_access_disabled",
-      "Codex is connected, but Claude Code access is disabled before this agent can reply. Open Claude Code or ask your Claude admin to enable Claude Code access for this local agent.",
+      "Codex is connected, but its organization has disabled the provider access this agent needs. Ask the provider account admin to enable access before waking it again.",
+    ],
+    [
+      "provider_account.capacity_exhausted",
+      "Codex is connected, but its provider quota or credit balance is exhausted. Review the provider plan, billing, or credits before waking it again.",
     ],
   ] as const)("uses shared recovery copy for provider reason %s", (reasonCode, copy) => {
     const plan = planAgentProfileReplyRecovery({

@@ -13,6 +13,7 @@ import type {
   AdapterInstructionPrompt,
   AdapterInteractionCallback,
   AdapterPreviewCallback,
+  AdapterProviderAccessEvidence,
   AdapterRuntimeEvent,
   AdapterRuntimeEventCallback,
   AdapterRuntimeProcessCallback,
@@ -90,16 +91,19 @@ type OpenCodeServerLifecycleInput = Pick<
 export class OpenCodeServerTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    providerAccessEvidence?: AdapterProviderAccessEvidence;
   }) {
     super(input.message);
     this.name = "OpenCodeServerTransportError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.providerAccessEvidence = input.providerAccessEvidence;
   }
 }
 
