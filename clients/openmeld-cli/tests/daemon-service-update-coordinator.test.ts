@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { DaemonActiveBundleState } from "../src/local-service/lifecycle/daemon-service-bundle";
 
 vi.mock("../src/local-service/lifecycle/daemon-service-bundle", () => ({
   discardPreparedDaemonServiceBundle: vi.fn(),
@@ -116,6 +115,10 @@ describe("daemon service background update coordinator", () => {
       },
       {
         createJobId: () => "update-1",
+        prepareWorkerCarrier: () => {
+          calls.push("prepare_worker_carrier");
+          return Promise.resolve();
+        },
         now: () => "2026-08-25T00:00:00.000Z",
         prepareBundle: () => {
           calls.push("prepare");
@@ -131,9 +134,19 @@ describe("daemon service background update coordinator", () => {
           calls.push("install_worker");
           return Promise.resolve();
         },
+        pruneWorkerVersions: () => {
+          calls.push("prune_worker_versions");
+          return Promise.resolve();
+        },
         startWorker: () => {
           calls.push("start_worker");
           return Promise.resolve();
+        },
+        withManagedInstallTransaction: async (run) => {
+          calls.push("managed_install_transaction_start");
+          const result = await run();
+          calls.push("managed_install_transaction_end");
+          return result;
         },
       }
     );
@@ -150,10 +163,69 @@ describe("daemon service background update coordinator", () => {
     });
     expect(calls).toEqual([
       "prepare",
+      "managed_install_transaction_start",
+      "prepare_worker_carrier",
+      "install_worker",
+      "persist",
+      "managed_install_transaction_end",
+      "start_worker",
+      "prune_worker_versions",
+    ]);
+  });
+
+  it("keeps a durable update scheduled when post-handoff pruning fails", async () => {
+    const calls: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const result = await scheduleDaemonServiceUpdate(
+      {
+        targetVersion: "0.3.98",
+        urgency: "required",
+      },
+      {
+        createJobId: () => "update-prune-warning",
+        installWorker: () => {
+          calls.push("install_worker");
+          return Promise.resolve();
+        },
+        now: () => "2026-08-25T00:00:00.000Z",
+        persistPendingJob: () => {
+          calls.push("persist");
+          return Promise.resolve();
+        },
+        prepareBundle: async () => PREPARED_BUNDLE,
+        pruneWorkerVersions: () => {
+          calls.push("prune_worker_versions");
+          return Promise.reject(new Error("managed version cleanup failed"));
+        },
+        readPendingJob: async () => null,
+        resolveDesiredState: async () => "background",
+        startWorker: () => {
+          calls.push("start_worker");
+          return Promise.resolve();
+        },
+      }
+    );
+
+    expect(result).toMatchObject({
+      job: { jobId: "update-prune-warning" },
+      status: "scheduled",
+    });
+    expect(calls).toEqual([
       "install_worker",
       "persist",
       "start_worker",
+      "prune_worker_versions",
     ]);
+    expect(warn).toHaveBeenCalledWith(
+      "[openmeld.daemon_service.update_worker_prune_failed]",
+      expect.objectContaining({
+        errorMessage: "managed version cleanup failed",
+        operationId: "update-prune-warning",
+        targetVersion: "0.3.98",
+      })
+    );
+    warn.mockRestore();
   });
 
   it("keeps the same operation identity when the CLI hands off to the Service", async () => {
@@ -172,6 +244,7 @@ describe("daemon service background update coordinator", () => {
         resolveDesiredState: async () => "background",
         persistPendingJob: async () => undefined,
         installWorker: async () => undefined,
+        pruneWorkerVersions: async () => undefined,
         startWorker: async () => undefined,
       }
     );
@@ -361,7 +434,13 @@ describe("daemon service background update coordinator", () => {
       daemonVersion: "0.3.99",
     };
     const persisted: DaemonServiceUpdateJob[] = [];
-    const discarded: DaemonActiveBundleState[] = [];
+    let durableJob = pending;
+    const installWorker = vi.fn();
+    const prepareWorkerCarrier = vi.fn();
+    const pruneWorkerVersions = vi.fn((job: DaemonServiceUpdateJob) => {
+      expect(durableJob).toEqual(job);
+      return Promise.resolve();
+    });
 
     const result = await scheduleDaemonServiceUpdate(
       {
@@ -370,17 +449,16 @@ describe("daemon service background update coordinator", () => {
         urgency: "required",
       },
       {
-        discardBundle: (bundle) => {
-          discarded.push(bundle);
-          return Promise.resolve();
-        },
-        installWorker: async () => undefined,
+        installWorker,
         now: () => "2026-08-25T00:02:00.000Z",
         persistPendingJob: (job) => {
+          durableJob = job;
           persisted.push(job);
           return Promise.resolve();
         },
         prepareBundle: async () => nextBundle,
+        prepareWorkerCarrier,
+        pruneWorkerVersions,
         readPendingJob: async () => pending,
         startWorker: async () => undefined,
       }
@@ -396,7 +474,374 @@ describe("daemon service background update coordinator", () => {
       urgency: "required",
     });
     expect(persisted).toEqual([result.job]);
-    expect(discarded).toEqual([PREPARED_BUNDLE]);
+    expect(installWorker).not.toHaveBeenCalled();
+    expect(prepareWorkerCarrier).toHaveBeenCalledWith(result.job);
+    expect(pruneWorkerVersions).toHaveBeenCalledWith(result.job);
+  });
+
+  it("keeps the old durable update recoverable when replacement persistence fails", async () => {
+    const pending: DaemonServiceUpdateJob = {
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 0,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "update-1",
+      phase: "waiting_for_work",
+      preparedBundle: PREPARED_BUNDLE,
+      requestedAt: "2026-08-25T00:00:00.000Z",
+      requestSource: "cli",
+      targetVersion: "0.3.98",
+      updatedAt: "2026-08-25T00:00:00.000Z",
+      urgency: "required",
+    };
+    const nextBundle = {
+      ...PREPARED_BUNDLE,
+      bundleId: "0.3.99-def456",
+      daemonVersion: "0.3.99",
+    };
+    const recoverableBundleIds = new Set([
+      pending.preparedBundle.bundleId,
+      nextBundle.bundleId,
+    ]);
+    const installWorker = vi.fn(async () => undefined);
+    const pruneWorkerVersions = vi.fn(() => {
+      recoverableBundleIds.delete(pending.preparedBundle.bundleId);
+      return Promise.resolve();
+    });
+    const startWorker = vi.fn();
+
+    await expect(
+      scheduleDaemonServiceUpdate(
+        {
+          requestSource: "web",
+          targetVersion: "0.3.99",
+          urgency: "required",
+        },
+        {
+          installWorker,
+          now: () => "2026-08-25T00:02:00.000Z",
+          persistPendingJob: () =>
+            Promise.reject(new Error("replacement job write failed")),
+          prepareBundle: async () => nextBundle,
+          pruneWorkerVersions,
+          readPendingJob: async () => pending,
+          startWorker,
+        }
+      )
+    ).rejects.toThrow("replacement job write failed");
+
+    expect(installWorker).not.toHaveBeenCalled();
+    expect(pruneWorkerVersions).not.toHaveBeenCalled();
+    expect(startWorker).not.toHaveBeenCalled();
+    expect(recoverableBundleIds).toContain(pending.preparedBundle.bundleId);
+
+    const recovered = await runPendingDaemonServiceUpdate({
+      completePendingJob: async () => undefined,
+      now: () => "2026-08-25T00:03:00.000Z",
+      persistPendingJob: async () => undefined,
+      readPendingJob: async () => pending,
+      runLifecycle: async ({ preparedBundle }) =>
+        recoverableBundleIds.has(preparedBundle.bundleId)
+          ? { errorMessage: null, status: "aligned" }
+          : {
+              errorMessage: "The prepared Service bundle is missing.",
+              recoveryStatus: "failed_before_safe_state",
+              status: "failed",
+            },
+      waitUntilSafeToSwitch: async () => undefined,
+    });
+
+    expect(recovered).toMatchObject({
+      phase: "updated",
+      targetVersion: "0.3.98",
+    });
+  });
+
+  it("does not let a waiting worker restore a target replaced concurrently", async () => {
+    const pending: DaemonServiceUpdateJob = {
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 0,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "update-1",
+      phase: "waiting_for_work",
+      preparedBundle: PREPARED_BUNDLE,
+      requestedAt: "2026-08-25T00:00:00.000Z",
+      requestSource: "cli",
+      targetVersion: "0.3.98",
+      updatedAt: "2026-08-25T00:00:00.000Z",
+      urgency: "available",
+    };
+    const nextBundle = {
+      ...PREPARED_BUNDLE,
+      bundleId: "0.3.99-def456",
+      daemonVersion: "0.3.99",
+    };
+    const workerPersistStarted = Promise.withResolvers<void>();
+    const releaseWorkerPersist = Promise.withResolvers<void>();
+    const safeSwitchWaitStarted = Promise.withResolvers<void>();
+    const releaseSafeSwitchWait = Promise.withResolvers<void>();
+    const replacementInstallStarted = Promise.withResolvers<void>();
+    const lockContended = Promise.withResolvers<void>();
+    let durableJob = pending;
+    let blockedWorkerPersist = false;
+    let lockTail = Promise.resolve();
+    let lockHeld = false;
+    const withReconcileLock = async <T>(run: () => Promise<T>): Promise<T> => {
+      const previous = lockTail;
+      let releaseLock: () => void = () => undefined;
+      lockTail = new Promise<void>((resolve) => {
+        releaseLock = resolve;
+      });
+      if (lockHeld) {
+        lockContended.resolve();
+      }
+      await previous;
+      lockHeld = true;
+      try {
+        return await run();
+      } finally {
+        lockHeld = false;
+        releaseLock();
+      }
+    };
+    const persistPendingJob = async (
+      job: DaemonServiceUpdateJob
+    ): Promise<void> => {
+      if (
+        !blockedWorkerPersist &&
+        job.targetVersion === pending.targetVersion &&
+        job.phase === "waiting_for_work"
+      ) {
+        blockedWorkerPersist = true;
+        workerPersistStarted.resolve();
+        await releaseWorkerPersist.promise;
+      }
+      durableJob = job;
+    };
+    const lifecycleTargets: string[] = [];
+
+    const workerRun = runPendingDaemonServiceUpdate({
+      completePendingJob: async () => undefined,
+      now: () => "2026-08-25T00:03:00.000Z",
+      persistPendingJob,
+      readPendingJob: async () => durableJob,
+      runLifecycle: ({ expectedVersion }) => {
+        lifecycleTargets.push(expectedVersion);
+        return Promise.resolve({ errorMessage: null, status: "aligned" });
+      },
+      waitUntilSafeToSwitch: async () => {
+        safeSwitchWaitStarted.resolve();
+        await releaseSafeSwitchWait.promise;
+      },
+      withReconcileLock,
+    });
+    await workerPersistStarted.promise;
+
+    const replacement = scheduleDaemonServiceUpdate(
+      {
+        requestSource: "web",
+        targetVersion: "0.3.99",
+        urgency: "required",
+      },
+      {
+        installWorker: () => {
+          replacementInstallStarted.resolve();
+          return Promise.resolve();
+        },
+        now: () => "2026-08-25T00:02:00.000Z",
+        persistPendingJob,
+        prepareBundle: async () => nextBundle,
+        pruneWorkerVersions: async () => undefined,
+        readPendingJob: async () => durableJob,
+        startWorker: async () => undefined,
+        withReconcileLock,
+      }
+    );
+    const firstBoundary = await Promise.race([
+      replacementInstallStarted.promise.then(() => "replacement_started"),
+      lockContended.promise.then(() => "lock_contended"),
+    ]);
+    if (firstBoundary === "replacement_started") {
+      await replacement;
+    }
+
+    releaseWorkerPersist.resolve();
+    await safeSwitchWaitStarted.promise;
+    await replacement;
+    releaseSafeSwitchWait.resolve();
+
+    const result = await workerRun;
+
+    expect(lifecycleTargets).toEqual(["0.3.99"]);
+    expect(result).toMatchObject({
+      phase: "updated",
+      targetVersion: "0.3.99",
+      urgency: "required",
+    });
+  });
+
+  it("keeps a replacement when the superseded worker fails while waiting", async () => {
+    const pending: DaemonServiceUpdateJob = {
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 0,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "update-1",
+      phase: "waiting_for_work",
+      preparedBundle: PREPARED_BUNDLE,
+      requestedAt: "2026-08-25T00:00:00.000Z",
+      requestSource: "cli",
+      targetVersion: "0.3.98",
+      updatedAt: "2026-08-25T00:00:00.000Z",
+      urgency: "available",
+    };
+    const nextBundle = {
+      ...PREPARED_BUNDLE,
+      bundleId: "0.3.99-def456",
+      daemonVersion: "0.3.99",
+    };
+    let durableJob = pending;
+    const withReconcileLock = createSerialReconcileLock();
+    const persistPendingJob = (job: DaemonServiceUpdateJob): Promise<void> => {
+      durableJob = job;
+      return Promise.resolve();
+    };
+
+    await expect(
+      runPendingDaemonServiceUpdate({
+        completePendingJob: async () => undefined,
+        now: () => "2026-08-25T00:03:00.000Z",
+        persistPendingJob,
+        readPendingJob: async () => durableJob,
+        runLifecycle: vi.fn(),
+        waitUntilSafeToSwitch: async () => {
+          await scheduleDaemonServiceUpdate(
+            {
+              requestSource: "web",
+              targetVersion: "0.3.99",
+              urgency: "required",
+            },
+            {
+              installWorker: async () => undefined,
+              now: () => "2026-08-25T00:02:00.000Z",
+              persistPendingJob,
+              prepareBundle: async () => nextBundle,
+              pruneWorkerVersions: async () => undefined,
+              readPendingJob: async () => durableJob,
+              startWorker: async () => undefined,
+              withReconcileLock,
+            }
+          );
+          throw new Error("safe-switch check failed");
+        },
+        withReconcileLock,
+      })
+    ).rejects.toThrow("safe-switch check failed");
+
+    expect(durableJob).toMatchObject({
+      errorMessage: null,
+      preparedBundle: { bundleId: "0.3.99-def456" },
+      targetVersion: "0.3.99",
+      urgency: "required",
+    });
+  });
+
+  it("preserves both the safe-switch failure and a failure to record it", async () => {
+    const job: DaemonServiceUpdateJob = {
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 0,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "update-double-failure",
+      phase: "waiting_for_work",
+      preparedBundle: PREPARED_BUNDLE,
+      requestedAt: "2026-08-25T00:00:00.000Z",
+      requestSource: "cli",
+      targetVersion: "0.3.98",
+      updatedAt: "2026-08-25T00:00:00.000Z",
+      urgency: "available",
+    };
+    let persistCount = 0;
+
+    const failure = await runPendingDaemonServiceUpdate({
+      completePendingJob: async () => undefined,
+      now: () => "2026-08-25T00:01:00.000Z",
+      persistPendingJob: () => {
+        persistCount += 1;
+        if (persistCount === 2) {
+          return Promise.reject(new Error("failed to record wait error"));
+        }
+        return Promise.resolve();
+      },
+      readPendingJob: async () => job,
+      runLifecycle: vi.fn(),
+      waitUntilSafeToSwitch: () =>
+        Promise.reject(new Error("safe switch unavailable")),
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toEqual([
+      expect.objectContaining({ message: "safe switch unavailable" }),
+      expect.objectContaining({ message: "failed to record wait error" }),
+    ]);
+  });
+
+  it("runs one lifecycle when multiple workers resume the same durable job", async () => {
+    const pending: DaemonServiceUpdateJob = {
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 0,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "update-1",
+      phase: "waiting_for_work",
+      preparedBundle: PREPARED_BUNDLE,
+      requestedAt: "2026-08-25T00:00:00.000Z",
+      requestSource: "cli",
+      targetVersion: "0.3.98",
+      updatedAt: "2026-08-25T00:00:00.000Z",
+      urgency: "required",
+    };
+    let durableJob: DaemonServiceUpdateJob | null = pending;
+    const withReconcileLock = createSerialReconcileLock();
+    const runLifecycle = vi.fn(() =>
+      Promise.resolve({
+        errorMessage: null,
+        status: "aligned" as const,
+      })
+    );
+    const dependencies = {
+      completePendingJob: (): Promise<void> => {
+        durableJob = null;
+        return Promise.resolve();
+      },
+      now: () => "2026-08-25T00:03:00.000Z",
+      persistPendingJob: (job: DaemonServiceUpdateJob): Promise<void> => {
+        durableJob = job;
+        return Promise.resolve();
+      },
+      readPendingJob: async () => durableJob,
+      runLifecycle,
+      waitUntilSafeToSwitch: vi.fn(),
+      withReconcileLock,
+    };
+
+    const results = await Promise.all([
+      runPendingDaemonServiceUpdate(dependencies),
+      runPendingDaemonServiceUpdate(dependencies),
+    ]);
+
+    expect(runLifecycle).toHaveBeenCalledOnce();
+    expect(results).toContain(null);
+    expect(results).toContainEqual(
+      expect.objectContaining({ phase: "updated" })
+    );
+    expect(durableJob).toBeNull();
   });
 
   it("keeps a newer pending target when an older request arrives later", async () => {
@@ -421,7 +866,7 @@ describe("daemon service background update coordinator", () => {
     };
     const prepareBundle = vi.fn();
     const persistPendingJob = vi.fn();
-    const discardBundle = vi.fn();
+    const installWorker = vi.fn();
 
     const result = await scheduleDaemonServiceUpdate(
       {
@@ -430,8 +875,7 @@ describe("daemon service background update coordinator", () => {
         urgency: "available",
       },
       {
-        discardBundle,
-        installWorker: async () => undefined,
+        installWorker,
         persistPendingJob,
         prepareBundle,
         readPendingJob: async () => pending,
@@ -442,10 +886,10 @@ describe("daemon service background update coordinator", () => {
     expect(result).toEqual({ job: pending, status: "already_scheduled" });
     expect(prepareBundle).not.toHaveBeenCalled();
     expect(persistPendingJob).not.toHaveBeenCalled();
-    expect(discardBundle).not.toHaveBeenCalled();
+    expect(installWorker).not.toHaveBeenCalled();
   });
 
-  it("keeps the replacement scheduled when old bundle cleanup fails", async () => {
+  it("keeps a superseded bundle while the existing OS worker may still reference it", async () => {
     const pending: DaemonServiceUpdateJob = {
       v: 2,
       schema: "openmeld-daemon-service-update-job-v2",
@@ -466,8 +910,6 @@ describe("daemon service background update coordinator", () => {
       bundleId: "0.3.99-def456",
       daemonVersion: "0.3.99",
     };
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-
     const result = await scheduleDaemonServiceUpdate(
       {
         requestSource: "web",
@@ -475,24 +917,16 @@ describe("daemon service background update coordinator", () => {
         urgency: "available",
       },
       {
-        discardBundle: () => Promise.reject(new Error("cleanup failed")),
         installWorker: async () => undefined,
         persistPendingJob: async () => undefined,
         prepareBundle: async () => nextBundle,
+        pruneWorkerVersions: async () => undefined,
         readPendingJob: async () => pending,
         startWorker: async () => undefined,
       }
     );
 
     expect(result.job.targetVersion).toBe("0.3.99");
-    expect(warn).toHaveBeenCalledWith(
-      "[openmeld.daemon_service.update_bundle_cleanup_failed]",
-      expect.objectContaining({
-        bundleId: PREPARED_BUNDLE.bundleId,
-        errorMessage: "cleanup failed",
-        operationId: "update-1",
-      })
-    );
   });
 
   it("migrates the previous persisted job and exposes one safe public operation", async () => {
@@ -551,3 +985,20 @@ describe("daemon service background update coordinator", () => {
     }
   });
 });
+
+function createSerialReconcileLock() {
+  let lockTail = Promise.resolve();
+  return async <T>(run: () => Promise<T>): Promise<T> => {
+    const previous = lockTail;
+    let releaseLock: () => void = () => undefined;
+    lockTail = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    await previous;
+    try {
+      return await run();
+    } finally {
+      releaseLock();
+    }
+  };
+}

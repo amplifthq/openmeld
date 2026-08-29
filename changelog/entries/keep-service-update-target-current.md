@@ -8,5 +8,6 @@ audiences: ["members", "admins"]
 
 When a newer OpenMeld Service version becomes available while an update is
 already waiting, OpenMeld now replaces the older target with the newer version.
-An older queued request cannot overwrite that target or move the Service back
-to an earlier version.
+The existing update remains recoverable until the newer target is safely saved,
+and an older worker or queued request cannot overwrite that target or move the
+Service back to an earlier version.

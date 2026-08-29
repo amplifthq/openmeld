@@ -4,15 +4,13 @@ import { sleep, toErrorMessage } from "@openmeld/utils";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
 import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
 import { compareSemver } from "../../config/version-state";
+import { withManagedInstallTransaction } from "../../local-components/managed-install";
 import {
   LocalDaemonControlPlaneClientError,
   requestLocalDaemonServiceUpdateReadiness,
 } from "../control-plane/client";
 import type { DaemonActiveBundleState } from "./daemon-service-bundle";
-import {
-  discardPreparedDaemonServiceBundle,
-  prepareDaemonServiceBundle,
-} from "./daemon-service-bundle";
+import { prepareDaemonServiceBundle } from "./daemon-service-bundle";
 import type {
   DaemonServiceLifecycleOutcome,
   DaemonServiceLifecycleRecoveryStatus,
@@ -28,10 +26,19 @@ import {
 } from "./daemon-service-update-state";
 import {
   installDaemonServiceUpdateWorker,
+  prepareDaemonServiceUpdateWorkerCarrier,
+  pruneDaemonServiceUpdateWorkerManagedVersions,
+  registerDaemonServiceUpdateWorker,
   startDaemonServiceUpdateWorker,
 } from "./daemon-service-update-worker-manager";
 
 const MAX_BACKGROUND_UPDATE_ATTEMPTS = 5;
+
+type DaemonServiceUpdateReconcileLock = <T>(
+  run: () => Promise<T>
+) => Promise<T>;
+
+type ManagedInstallTransaction = <T>(run: () => Promise<T>) => Promise<T>;
 
 type ScheduleDaemonServiceUpdateInput = {
   cliScriptPath?: string;
@@ -44,7 +51,6 @@ type ScheduleDaemonServiceUpdateInput = {
 
 type ScheduleDaemonServiceUpdateDependencies = {
   createJobId: () => string;
-  discardBundle: (bundle: DaemonActiveBundleState) => Promise<void>;
   installWorker: (job: DaemonServiceUpdateJob) => Promise<void>;
   now: () => string;
   persistPendingJob: (job: DaemonServiceUpdateJob) => Promise<void>;
@@ -53,9 +59,13 @@ type ScheduleDaemonServiceUpdateDependencies = {
     daemonVersion: string;
     cliScriptPath?: string;
   }) => Promise<DaemonActiveBundleState>;
+  prepareWorkerCarrier: (job: DaemonServiceUpdateJob) => Promise<void>;
+  pruneWorkerVersions: (job: DaemonServiceUpdateJob) => Promise<void>;
   readPendingJob: () => Promise<DaemonServiceUpdateJob | null>;
   resolveDesiredState: () => Promise<"background" | "stopped">;
   startWorker: (job: DaemonServiceUpdateJob) => Promise<void>;
+  withReconcileLock: DaemonServiceUpdateReconcileLock;
+  withManagedInstallTransaction: ManagedInstallTransaction;
 };
 
 type RunPendingDaemonServiceUpdateDependencies = {
@@ -78,6 +88,7 @@ type RunPendingDaemonServiceUpdateDependencies = {
     }
   >;
   waitUntilSafeToSwitch: (job: DaemonServiceUpdateJob) => Promise<void>;
+  withReconcileLock: DaemonServiceUpdateReconcileLock;
 };
 
 export type ScheduleDaemonServiceUpdateResult = {
@@ -89,17 +100,18 @@ export async function scheduleDaemonServiceUpdate(
   input: ScheduleDaemonServiceUpdateInput,
   overrides: Partial<ScheduleDaemonServiceUpdateDependencies> = {}
 ): Promise<ScheduleDaemonServiceUpdateResult> {
-  if (Object.keys(overrides).length === 0) {
-    return await withDaemonServiceReconcileLock(
-      async () =>
-        await scheduleDaemonServiceUpdate(input, defaultScheduleOverrides()),
-      {
-        command: "openmeld service update",
-        intent: "upgrade_reconcile",
-      }
-    );
-  }
-  const deps = resolveScheduleDependencies(overrides);
+  const deps = resolveScheduleDependencies(overrides, {
+    useDefaultLock: Object.keys(overrides).length === 0,
+  });
+  return await deps.withReconcileLock(
+    async () => await scheduleDaemonServiceUpdateLocked(input, deps)
+  );
+}
+
+async function scheduleDaemonServiceUpdateLocked(
+  input: ScheduleDaemonServiceUpdateInput,
+  deps: ScheduleDaemonServiceUpdateDependencies
+): Promise<ScheduleDaemonServiceUpdateResult> {
   const pending = await deps.readPendingJob();
   if (pending) {
     return await reschedulePendingDaemonServiceUpdate({
@@ -134,9 +146,13 @@ export async function scheduleDaemonServiceUpdate(
   // Register the OS-owned worker before publishing the pending job. After the
   // atomic write, the initiating Terminal or browser is no longer responsible
   // for completing the update.
-  await deps.installWorker(job);
-  await deps.persistPendingJob(job);
+  await deps.withManagedInstallTransaction(async () => {
+    await deps.prepareWorkerCarrier(job);
+    await deps.installWorker(job);
+    await deps.persistPendingJob(job);
+  });
   await deps.startWorker(job);
+  await pruneWorkerVersionsBestEffort({ dependencies: deps, job });
   return { job, status: "scheduled" };
 }
 
@@ -176,58 +192,71 @@ async function reschedulePendingDaemonServiceUpdate(input: {
           urgency: escalateUrgency ? "required" : input.pending.urgency,
         }
       : input.pending;
-  await input.dependencies.installWorker(retained);
   if (retained !== input.pending) {
-    await input.dependencies.persistPendingJob(retained);
+    await input.dependencies.withManagedInstallTransaction(async () => {
+      await input.dependencies.prepareWorkerCarrier(retained);
+      await input.dependencies.persistPendingJob(retained);
+    });
   }
+  // A pending job proves the OS worker is already registered. Keep that
+  // recovery carrier untouched until replacement state is durable, then wake
+  // the existing worker against the same stable job path.
   await input.dependencies.startWorker(retained);
-  if (replaceTarget) {
-    await discardReplacedBundleBestEffort({
+  if (retained !== input.pending) {
+    await pruneWorkerVersionsBestEffort({
       dependencies: input.dependencies,
-      pending: input.pending,
+      job: retained,
     });
   }
   return { job: retained, status: "already_scheduled" };
 }
 
-async function discardReplacedBundleBestEffort(input: {
+async function pruneWorkerVersionsBestEffort(input: {
   dependencies: ScheduleDaemonServiceUpdateDependencies;
-  pending: DaemonServiceUpdateJob;
+  job: DaemonServiceUpdateJob;
 }): Promise<void> {
-  await input.dependencies
-    .discardBundle(input.pending.preparedBundle)
-    .catch((error) => {
-      console.warn("[openmeld.daemon_service.update_bundle_cleanup_failed]", {
-        bundleId: input.pending.preparedBundle.bundleId,
-        errorMessage: toErrorMessage(error),
-        operationId: input.pending.jobId,
-      });
+  await input.dependencies.pruneWorkerVersions(input.job).catch((error) => {
+    console.warn("[openmeld.daemon_service.update_worker_prune_failed]", {
+      errorMessage: toErrorMessage(error),
+      operationId: input.job.jobId,
+      targetVersion: input.job.targetVersion,
     });
+  });
 }
 
 export async function runPendingDaemonServiceUpdate(
   overrides: Partial<RunPendingDaemonServiceUpdateDependencies> = {}
 ): Promise<DaemonServiceUpdateJob | null> {
-  if (Object.keys(overrides).length === 0) {
-    const deps = resolveRunDependencies(defaultRunOverrides());
-    const pending = await preparePendingUpdateForSwitch(deps);
-    if (!pending) {
-      return null;
-    }
-    return await withDaemonServiceReconcileLock(
-      async () => await runPreparedPendingUpdate(deps),
-      {
-        command: "openmeld service update-worker",
-        intent: "upgrade_reconcile",
-      }
-    );
-  }
-  const deps = resolveRunDependencies(overrides);
-  const pending = await preparePendingUpdateForSwitch(deps);
+  const deps = resolveRunDependencies(overrides, {
+    useDefaultLock: Object.keys(overrides).length === 0,
+  });
+  const pending = await deps.withReconcileLock(
+    async () => await preparePendingUpdateForSwitch(deps)
+  );
   if (!pending) {
     return null;
   }
-  return await runPreparedPendingUpdate(deps);
+  if (pending.urgency === "available") {
+    try {
+      await deps.waitUntilSafeToSwitch(pending);
+    } catch (waitError) {
+      try {
+        await deps.withReconcileLock(
+          async () =>
+            await recordSafeSwitchWaitFailure(deps, pending, waitError)
+        );
+      } catch (recordError) {
+        throw new AggregateError(
+          [waitError, recordError],
+          "OpenMeld could not safely switch the Service or record the failure."
+        );
+      }
+      throw waitError;
+    }
+  }
+  return await deps.withReconcileLock(
+    async () => await runPreparedPendingUpdate(deps)
+  );
 }
 
 async function preparePendingUpdateForSwitch(
@@ -245,19 +274,39 @@ async function preparePendingUpdateForSwitch(
       updatedAt: deps.now(),
     };
     await deps.persistPendingJob(waiting);
-    try {
-      await deps.waitUntilSafeToSwitch(waiting);
-    } catch (error) {
-      await deps.persistPendingJob({
-        ...waiting,
-        errorMessage: toErrorMessage(error),
-        updatedAt: deps.now(),
-      });
-      throw error;
-    }
     return waiting;
   }
   return pending;
+}
+
+async function recordSafeSwitchWaitFailure(
+  deps: RunPendingDaemonServiceUpdateDependencies,
+  waiting: DaemonServiceUpdateJob,
+  error: unknown
+): Promise<void> {
+  const current = await deps.readPendingJob();
+  if (!(current && isSameWaitingUpdate(current, waiting))) {
+    return;
+  }
+  await deps.persistPendingJob({
+    ...current,
+    errorMessage: toErrorMessage(error),
+    updatedAt: deps.now(),
+  });
+}
+
+function isSameWaitingUpdate(
+  current: DaemonServiceUpdateJob,
+  waiting: DaemonServiceUpdateJob
+): boolean {
+  return (
+    current.jobId === waiting.jobId &&
+    current.targetVersion === waiting.targetVersion &&
+    current.preparedBundle.bundleId === waiting.preparedBundle.bundleId &&
+    current.urgency === waiting.urgency &&
+    current.phase === "waiting_for_work" &&
+    current.attempts === waiting.attempts
+  );
 }
 
 async function runPreparedPendingUpdate(
@@ -335,52 +384,49 @@ async function runPreparedPendingUpdate(
   }
 }
 
-function defaultScheduleOverrides(): Partial<ScheduleDaemonServiceUpdateDependencies> {
-  return {
-    createJobId: randomUUID,
-    discardBundle: discardPreparedDaemonServiceBundle,
-    installWorker: installDaemonServiceUpdateWorker,
-    now: () => new Date().toISOString(),
-    persistPendingJob: persistPendingDaemonServiceUpdate,
-    prepareBundle: prepareDaemonServiceBundle,
-    readPendingJob: readPendingDaemonServiceUpdate,
-    resolveDesiredState: resolveCurrentDaemonDesiredState,
-    startWorker: startDaemonServiceUpdateWorker,
-  };
-}
-
-function defaultRunOverrides(): Partial<RunPendingDaemonServiceUpdateDependencies> {
-  return {
-    completePendingJob: completePendingDaemonServiceUpdate,
-    now: () => new Date().toISOString(),
-    persistPendingJob: persistPendingDaemonServiceUpdate,
-    readPendingJob: readPendingDaemonServiceUpdate,
-    runLifecycle: runDaemonServiceLifecycle,
-    waitUntilSafeToSwitch: waitUntilDaemonServiceSafeSwitch,
-  };
-}
-
 function resolveScheduleDependencies(
-  overrides: Partial<ScheduleDaemonServiceUpdateDependencies>
+  overrides: Partial<ScheduleDaemonServiceUpdateDependencies>,
+  options: { useDefaultLock: boolean }
 ): ScheduleDaemonServiceUpdateDependencies {
   return {
     createJobId: overrides.createJobId ?? randomUUID,
-    discardBundle:
-      overrides.discardBundle ?? discardPreparedDaemonServiceBundle,
-    installWorker: overrides.installWorker ?? installDaemonServiceUpdateWorker,
+    installWorker:
+      overrides.installWorker ??
+      (options.useDefaultLock
+        ? registerDaemonServiceUpdateWorker
+        : installDaemonServiceUpdateWorker),
     now: overrides.now ?? (() => new Date().toISOString()),
     persistPendingJob:
       overrides.persistPendingJob ?? persistPendingDaemonServiceUpdate,
     prepareBundle: overrides.prepareBundle ?? prepareDaemonServiceBundle,
+    prepareWorkerCarrier:
+      overrides.prepareWorkerCarrier ??
+      (options.useDefaultLock
+        ? prepareDaemonServiceUpdateWorkerCarrier
+        : async () => undefined),
+    pruneWorkerVersions:
+      overrides.pruneWorkerVersions ??
+      pruneDaemonServiceUpdateWorkerManagedVersions,
     readPendingJob: overrides.readPendingJob ?? readPendingDaemonServiceUpdate,
     resolveDesiredState:
       overrides.resolveDesiredState ?? resolveCurrentDaemonDesiredState,
     startWorker: overrides.startWorker ?? startDaemonServiceUpdateWorker,
+    withReconcileLock:
+      overrides.withReconcileLock ??
+      (options.useDefaultLock
+        ? withDaemonServiceUpdateScheduleLock
+        : runWithoutReconcileLock),
+    withManagedInstallTransaction:
+      overrides.withManagedInstallTransaction ??
+      (options.useDefaultLock
+        ? withManagedInstallTransaction
+        : runWithoutReconcileLock),
   };
 }
 
 function resolveRunDependencies(
-  overrides: Partial<RunPendingDaemonServiceUpdateDependencies>
+  overrides: Partial<RunPendingDaemonServiceUpdateDependencies>,
+  options: { useDefaultLock: boolean }
 ): RunPendingDaemonServiceUpdateDependencies {
   return {
     completePendingJob:
@@ -392,7 +438,34 @@ function resolveRunDependencies(
     runLifecycle: overrides.runLifecycle ?? runDaemonServiceLifecycle,
     waitUntilSafeToSwitch:
       overrides.waitUntilSafeToSwitch ?? waitUntilDaemonServiceSafeSwitch,
+    withReconcileLock:
+      overrides.withReconcileLock ??
+      (options.useDefaultLock
+        ? withDaemonServiceUpdateWorkerLock
+        : runWithoutReconcileLock),
   };
+}
+
+async function withDaemonServiceUpdateScheduleLock<T>(
+  run: () => Promise<T>
+): Promise<T> {
+  return await withDaemonServiceReconcileLock(run, {
+    command: "openmeld service update",
+    intent: "upgrade_reconcile",
+  });
+}
+
+async function withDaemonServiceUpdateWorkerLock<T>(
+  run: () => Promise<T>
+): Promise<T> {
+  return await withDaemonServiceReconcileLock(run, {
+    command: "openmeld service update-worker",
+    intent: "upgrade_reconcile",
+  });
+}
+
+async function runWithoutReconcileLock<T>(run: () => Promise<T>): Promise<T> {
+  return await run();
 }
 
 async function waitUntilDaemonServiceSafeSwitch(

@@ -17,8 +17,11 @@ import { resolveDaemonServiceUpdateWorkerRegistrationPath } from "../src/config/
 import {
   buildInstallSelfJsonPayload,
   performManagedInstall,
+  pruneManagedInstallVersions,
   resolveCliSelfVersion,
+  withManagedInstallTransaction,
 } from "../src/local-components/managed-install";
+import { persistPendingDaemonServiceUpdate } from "../src/local-service/lifecycle/daemon-service-update-state";
 
 const PLATFORM_TOKEN_REGEX = /^[a-z0-9]+-[a-z0-9]+$/;
 
@@ -109,6 +112,32 @@ describe("managed install (install-self)", () => {
     await expect(readdir(path.join(home, "versions"))).resolves.toHaveLength(2);
   });
 
+  it("serializes a durable target commit with other managed install mutations", async () => {
+    const firstTransactionEntered = Promise.withResolvers<void>();
+    const releaseFirstTransaction = Promise.withResolvers<void>();
+    const secondTransactionEntered = Promise.withResolvers<void>();
+
+    const firstTransaction = withManagedInstallTransaction(async () => {
+      firstTransactionEntered.resolve();
+      await releaseFirstTransaction.promise;
+    });
+    await firstTransactionEntered.promise;
+
+    const secondTransaction = withManagedInstallTransaction(() => {
+      secondTransactionEntered.resolve();
+      return Promise.resolve();
+    });
+    const firstBoundary = await Promise.race([
+      secondTransactionEntered.promise.then(() => "second_entered" as const),
+      Promise.resolve("second_blocked" as const),
+    ]);
+
+    expect(firstBoundary).toBe("second_blocked");
+    releaseFirstTransaction.resolve();
+    await Promise.all([firstTransaction, secondTransaction]);
+    await expect(secondTransactionEntered.promise).resolves.toBeUndefined();
+  });
+
   it("keeps the current binary and one rollback version instead of accumulating every release", async () => {
     await performManagedInstall({ sourceBinaryPath: source });
     for (const version of ["0.1.0", "0.2.0", "0.3.9", "0.3.11"]) {
@@ -164,6 +193,101 @@ describe("managed install (install-self)", () => {
 
     await expect(readdir(path.join(home, "versions"))).resolves.toEqual(
       expect.arrayContaining(["0.1.0", "0.3.9", resolveCliSelfVersion()])
+    );
+  });
+
+  it("keeps the version referenced by a durable pending Service update", async () => {
+    await performManagedInstall({ sourceBinaryPath: source });
+    for (const version of ["0.1.0", "0.3.9"]) {
+      const versionDir = path.join(home, "versions", version);
+      await mkdir(versionDir, { recursive: true });
+      await writeFile(path.join(versionDir, "openmeld"), version);
+      await chmod(path.join(versionDir, "openmeld"), 0o755);
+    }
+    await persistPendingDaemonServiceUpdate({
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 0,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "pending-service-update",
+      phase: "waiting_for_work",
+      preparedBundle: {
+        v: 2,
+        schema: "openmeld-daemon-active-bundle-v2",
+        bundleFormat: "binary_v1",
+        bundleId: "binary-0.1.0",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        daemonVersion: "0.1.0",
+        entryScriptRelativePath: "openmeld",
+        sourceDistFingerprint: "abc123",
+        sourceDistRootPath: path.join(home, "versions", "0.1.0"),
+        sourceEntryScriptPath: path.join(home, "versions", "0.1.0", "openmeld"),
+        sourceKind: "package_install",
+        sourcePackageRootPath: path.join(home, "versions", "0.1.0"),
+        updatedAt: "2026-08-29T00:00:00.000Z",
+      },
+      requestedAt: "2026-08-29T00:00:00.000Z",
+      requestSource: "automatic",
+      targetVersion: "0.1.0",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      urgency: "required",
+    });
+
+    await performManagedInstall({ sourceBinaryPath: source });
+
+    await expect(readdir(path.join(home, "versions"))).resolves.toEqual(
+      expect.arrayContaining(["0.1.0", "0.3.9", resolveCliSelfVersion()])
+    );
+  });
+
+  it("prunes after a Service update commit without deleting the current CLI or durable target", async () => {
+    await performManagedInstall({ sourceBinaryPath: source });
+    for (const version of ["0.1.0", "0.2.0", "0.3.9"]) {
+      const versionDir = path.join(home, "versions", version);
+      await mkdir(versionDir, { recursive: true });
+      await writeFile(path.join(versionDir, "openmeld"), version);
+      await chmod(path.join(versionDir, "openmeld"), 0o755);
+    }
+    await persistPendingDaemonServiceUpdate({
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 0,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "committed-service-update",
+      phase: "waiting_for_work",
+      preparedBundle: {
+        v: 2,
+        schema: "openmeld-daemon-active-bundle-v2",
+        bundleFormat: "binary_v1",
+        bundleId: "binary-0.1.0",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        daemonVersion: "0.1.0",
+        entryScriptRelativePath: "openmeld",
+        sourceDistFingerprint: "abc123",
+        sourceDistRootPath: path.join(home, "versions", "0.1.0"),
+        sourceEntryScriptPath: path.join(home, "versions", "0.1.0", "openmeld"),
+        sourceKind: "package_install",
+        sourcePackageRootPath: path.join(home, "versions", "0.1.0"),
+        updatedAt: "2026-08-29T00:00:00.000Z",
+      },
+      requestedAt: "2026-08-29T00:00:00.000Z",
+      requestSource: "automatic",
+      targetVersion: "0.1.0",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      urgency: "required",
+    });
+
+    await pruneManagedInstallVersions({
+      preferredRollbackVersion: "0.3.9",
+    });
+
+    await expect(readdir(path.join(home, "versions"))).resolves.toEqual(
+      ["0.1.0", "0.3.9", resolveCliSelfVersion()].sort()
+    );
+    await expect(readlink(path.join(home, "bin", "openmeld"))).resolves.toBe(
+      path.join("..", "versions", resolveCliSelfVersion(), "openmeld")
     );
   });
 

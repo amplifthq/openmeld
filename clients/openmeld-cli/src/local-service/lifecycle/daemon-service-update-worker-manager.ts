@@ -15,7 +15,7 @@ import {
 } from "../../config/daemon-state";
 import type { OpenMeldPathResolutionInput } from "../../config/paths";
 import { assertSafePublishedProductionServiceRegistrationMutation } from "../../config/published-production-safety";
-import { pruneManagedVersions } from "../../local-components/managed-version-pruning";
+import { pruneManagedInstallVersions } from "../../local-components/managed-install";
 import {
   clearDaemonServiceUpdateWorkerBinaryExecutable,
   daemonServiceUpdateWorkerBinaryPath,
@@ -49,20 +49,18 @@ export async function installDaemonServiceUpdateWorker(
   job: DaemonServiceUpdateJob,
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<void> {
+  await prepareDaemonServiceUpdateWorkerCarrier(job, pathInput);
+  await registerDaemonServiceUpdateWorker(job, pathInput);
+}
+
+export async function registerDaemonServiceUpdateWorker(
+  job: DaemonServiceUpdateJob,
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<void> {
   assertSafePublishedProductionServiceRegistrationMutation(
     "install the OpenMeld Service update worker for",
     pathInput
   );
-  const previousActiveBundle =
-    job.preparedBundle.bundleFormat === "binary_v1"
-      ? await readDaemonActiveBundleState().catch(() => null)
-      : null;
-  if (job.preparedBundle.bundleFormat === "binary_v1") {
-    await ensureDaemonServiceUpdateWorkerBinaryExecutable(
-      job.preparedBundle,
-      pathInput
-    );
-  }
   const spec = await buildDaemonServiceUpdateWorkerSpec(job, pathInput);
   const identity = resolveDaemonServiceUpdateWorkerIdentity(pathInput);
   if (process.platform === "darwin") {
@@ -99,11 +97,6 @@ export async function installDaemonServiceUpdateWorker(
       command: "launchctl",
       args: ["enable", serviceKey],
     });
-    await pruneVersionsAfterStableWorkerRegistration({
-      job,
-      pathInput,
-      previousActiveVersion: previousActiveBundle?.daemonVersion ?? null,
-    });
     return;
   }
 
@@ -133,11 +126,6 @@ export async function installDaemonServiceUpdateWorker(
     await requireSuccessfulCommand({
       command: "systemctl",
       args: ["--user", "enable", "--now", `${identity.serviceName}.path`],
-    });
-    await pruneVersionsAfterStableWorkerRegistration({
-      job,
-      pathInput,
-      previousActiveVersion: previousActiveBundle?.daemonVersion ?? null,
     });
     return;
   }
@@ -180,17 +168,38 @@ export async function installDaemonServiceUpdateWorker(
         "restart/30000/restart/30000/restart/30000",
       ],
     });
-    await pruneVersionsAfterStableWorkerRegistration({
-      job,
-      pathInput,
-      previousActiveVersion: previousActiveBundle?.daemonVersion ?? null,
-    });
     return;
   }
 
   throw new Error(
     `OpenMeld cannot install its background update worker on ${process.platform}.`
   );
+}
+
+export async function prepareDaemonServiceUpdateWorkerCarrier(
+  job: DaemonServiceUpdateJob,
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<void> {
+  if (job.preparedBundle.bundleFormat === "binary_v1") {
+    await ensureDaemonServiceUpdateWorkerBinaryExecutable(
+      job.preparedBundle,
+      pathInput
+    );
+  }
+}
+
+export async function pruneDaemonServiceUpdateWorkerManagedVersions(
+  job: DaemonServiceUpdateJob,
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<void> {
+  if (job.preparedBundle.bundleFormat !== "binary_v1") {
+    return;
+  }
+  const previousActiveBundle = await readDaemonActiveBundleState();
+  await pruneManagedInstallVersions({
+    pathInput,
+    preferredRollbackVersion: previousActiveBundle?.daemonVersion ?? null,
+  });
 }
 
 export async function startDaemonServiceUpdateWorker(
@@ -440,21 +449,6 @@ function resolveUpdateWorkerLogPath(
     "logs",
     "service-update-worker.log"
   );
-}
-
-async function pruneVersionsAfterStableWorkerRegistration(input: {
-  job: DaemonServiceUpdateJob;
-  pathInput: OpenMeldPathResolutionInput;
-  previousActiveVersion: string | null;
-}): Promise<void> {
-  if (input.job.preparedBundle.bundleFormat !== "binary_v1") {
-    return;
-  }
-  await pruneManagedVersions({
-    currentVersion: input.job.targetVersion,
-    pathInput: input.pathInput,
-    preferredRollbackVersion: input.previousActiveVersion,
-  });
 }
 
 function buildWindowsUpdateWorkerScript(
