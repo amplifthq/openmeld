@@ -137,6 +137,18 @@ describe("AgentProfilesWorkspace", () => {
 		expect(onSelectProfile).toHaveBeenCalledWith("agent-current");
 	});
 
+	it("does not substitute another Agent for a stale profile deep link", () => {
+		renderWorkspace({ selectedProfileId: "agent-missing" });
+
+		expect(
+			screen.getByRole("heading", { name: "Agent not found" })
+		).toBeTruthy();
+		expect(screen.queryByTestId("selected-agent-detail")).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Open Felix Agent" })
+		).toBeTruthy();
+	});
+
 	it("shows Controller/model summary and the authoritative Wake availability", () => {
 		renderWorkspace();
 

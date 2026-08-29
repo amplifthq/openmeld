@@ -70,12 +70,13 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 		profiles: input.profiles,
 	});
 	const orderedProfiles = groups.flatMap((group) => group.profiles);
-	const selectedProfile =
-		orderedProfiles.find(
-			(profile) => profile.openMeldProfileId === input.selectedProfileId
-		) ??
-		orderedProfiles[0] ??
-		null;
+	const selectedProfile = input.selectedProfileId
+		? (orderedProfiles.find(
+				(profile) => profile.openMeldProfileId === input.selectedProfileId
+			) ?? null)
+		: (orderedProfiles[0] ?? null);
+	const selectionMissing =
+		input.selectedProfileId !== null && selectedProfile === null;
 	const activeProfileId =
 		input.activeView === "agents"
 			? (selectedProfile?.openMeldProfileId ?? null)
@@ -100,6 +101,7 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 			<AgentProfilesWorkspaceContent
 				input={input}
 				selectedProfile={selectedProfile}
+				selectionMissing={selectionMissing}
 			/>
 		</AppFullWidthLayout>
 	);
@@ -190,6 +192,7 @@ function AgentProfilesWorkspaceSidebar(input: {
 
 function AgentProfilesWorkspaceContent(input: {
 	input: AgentProfilesWorkspaceProps;
+	selectionMissing: boolean;
 	selectedProfile: AuthProfileView | null;
 }) {
 	if (input.input.activeView === "requests") {
@@ -210,6 +213,19 @@ function AgentProfilesWorkspaceContent(input: {
 					<p className="text-destructive text-sm">
 						{input.input.profilesErrorMessage ??
 							"OpenMeld couldn’t load this Agent list. Try again."}
+					</p>
+				</div>
+			</div>
+		);
+	}
+	if (input.selectionMissing) {
+		return (
+			<div className="grid min-h-full place-items-center px-6 py-12 text-center">
+				<div className="max-w-md space-y-2">
+					<h1 className="font-medium text-base">Agent not found</h1>
+					<p className="text-muted-foreground text-sm">
+						This Agent no longer exists, or it isn’t available in this
+						Organization.
 					</p>
 				</div>
 			</div>
