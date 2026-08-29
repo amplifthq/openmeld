@@ -978,6 +978,31 @@ test("loads the current-stable Core projection entrypoint in plain Node", () => 
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("keeps the current-stable Core projection schema type-safe for downstream packages", () => {
+  const result = spawnSync(
+    PNPM_BINARY,
+    [
+      "exec",
+      "tsc",
+      "--noEmit",
+      "--module",
+      "ESNext",
+      "--moduleResolution",
+      "Bundler",
+      "--target",
+      "ESNext",
+      "--skipLibCheck",
+      "packages/schemas/src/schemas/local-components.ts",
+    ],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("orders Gateway checks after the Auth contract build they import", () => {
   const gatewayTurbo = JSON.parse(readRepoFile("services/gateway/turbo.json"));
 

@@ -5,6 +5,9 @@
   "sideEffects": false,
   "type": "module",
   "description": "OpenMeld - Shared Zod schemas and inferred types",
+  "imports": {
+    "#lazy-zod": "./src/lazy-zod.ts"
+  },
   "license": "MIT",
   "exports": {
     ".": {
