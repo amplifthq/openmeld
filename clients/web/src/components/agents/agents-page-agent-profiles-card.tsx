@@ -1468,24 +1468,34 @@ function AgentProfilesCardView(input: {
 			profile={profile}
 		/>
 	);
+	const bulkReconnectNotice =
+		bulkReconnectCandidates.length > 1 ? (
+			<AgentProfileBulkReconnectNotice
+				candidates={bulkReconnectCandidates}
+				isPending={bulkReconnectCandidates.some((candidate) =>
+					pendingRepairProfileIds.has(candidate.profile.openMeldProfileId)
+				)}
+				onReconnect={handleBulkReconnectProfiles}
+			/>
+		) : null;
 
 	if (cardInput.presentation === "detail") {
-		const selectedProfile = visibleAgentProfiles[0];
-		return selectedProfile ? renderAgentProfileRow(selectedProfile) : null;
+		const selectedProfile =
+			visibleAgentProfiles.find(
+				(profile) => profile.openMeldProfileId === cardInput.focusProfileId
+			) ?? visibleAgentProfiles[0];
+		return selectedProfile ? (
+			<>
+				{bulkReconnectNotice}
+				{renderAgentProfileRow(selectedProfile)}
+			</>
+		) : null;
 	}
 
 	if (!cardInput.showOwnerGroups) {
 		return (
 			<>
-				{bulkReconnectCandidates.length > 1 ? (
-					<AgentProfileBulkReconnectNotice
-						candidates={bulkReconnectCandidates}
-						isPending={bulkReconnectCandidates.some((candidate) =>
-							pendingRepairProfileIds.has(candidate.profile.openMeldProfileId)
-						)}
-						onReconnect={handleBulkReconnectProfiles}
-					/>
-				) : null}
+				{bulkReconnectNotice}
 				<DirectoryCardGrid>
 					{visibleAgentProfiles.map((profile) => (
 						<DirectoryCardItem
@@ -1502,15 +1512,7 @@ function AgentProfilesCardView(input: {
 
 	return (
 		<div className="flex flex-col gap-5">
-			{bulkReconnectCandidates.length > 1 ? (
-				<AgentProfileBulkReconnectNotice
-					candidates={bulkReconnectCandidates}
-					isPending={bulkReconnectCandidates.some((candidate) =>
-						pendingRepairProfileIds.has(candidate.profile.openMeldProfileId)
-					)}
-					onReconnect={handleBulkReconnectProfiles}
-				/>
-			) : null}
+			{bulkReconnectNotice}
 			{visibleAgentProfileGroups.map((group) => (
 				<DirectoryOwnerGroup
 					countLabel={

@@ -1850,7 +1850,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
-	it("reconnects all eligible Agents after one explicit confirmation", async () => {
+	it("keeps bulk reconnect available in a selected Agent detail", async () => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		const codexProfile = createAgentProfile({
 			openMeldProfileId: "agt-codex-old-runtime",
@@ -1893,6 +1893,8 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 					[claudeProfile.openMeldProfileId, claudeReadiness],
 				]),
 				agentProfiles: [codexProfile, claudeProfile],
+				focusProfileId: codexProfile.openMeldProfileId,
+				presentation: "detail",
 			}
 		);
 

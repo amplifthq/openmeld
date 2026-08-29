@@ -170,7 +170,12 @@ vi.mock("#/components/agents/agents-page-agent-profiles-card", () => ({
 	}) => {
 		agentProfilesCardSpy(props);
 		const [editing, setEditing] = useState(false);
-		const profileName = props.agentProfiles?.[0]?.profileName ?? "Agent";
+		const profileName =
+			props.agentProfiles?.find(
+				(profile) => profile.openMeldProfileId === props.focusProfileId
+			)?.profileName ??
+			props.agentProfiles?.[0]?.profileName ??
+			"Agent";
 		return (
 			<section data-testid="agent-profiles-card">
 				{editing ? `Editing ${profileName}` : `Viewing ${profileName}`}
@@ -795,6 +800,76 @@ describe("PeopleAndAgentsPage", () => {
 			"agents",
 			"agt_11111111-1111-4111-8111-111111111111"
 		);
+	});
+
+	it("keeps the routed Agent visible through filters while the detail controller observes every Agent", async () => {
+		const directory = buildOrganizationDirectory();
+		const firstAgent = directory.agentProfiles[0];
+		if (!firstAgent) {
+			throw new Error("Expected the directory Agent fixture.");
+		}
+		const secondAgent = {
+			...firstAgent,
+			ownerName: "Mira",
+			ownerUserId: "user-456",
+			profileHandle: "analyst",
+			profileId: "agt_22222222-2222-4222-8222-222222222222",
+			profileName: "Analyst",
+		};
+		directory.agentProfiles = [firstAgent, secondAgent];
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			if (queryKey.includes("directory")) {
+				return {
+					data: directory,
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: { organizationId: "org-123", requests: [] },
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={secondAgent.profileId}
+			/>
+		);
+
+		fireEvent.click(screen.getByRole("combobox", { name: FILTER_AGENTS_NAME }));
+		fireEvent.click(
+			await screen.findByRole("option", { name: "Checking, 0 Agents" })
+		);
+
+		await waitFor(() => {
+			expect(
+				agentProfilesWorkspaceSpy.mock.calls
+					.at(-1)?.[0]
+					.profiles.map((profile: AuthProfileView) => profile.openMeldProfileId)
+			).toEqual([secondAgent.profileId]);
+			expect(
+				agentProfilesCardSpy.mock.calls
+					.at(-1)?.[0]
+					.agentProfiles.map(
+						(profile: AuthProfileView) => profile.openMeldProfileId
+					)
+			).toEqual([firstAgent.profileId, secondAgent.profileId]);
+		});
+		expect(screen.getByText("Viewing Analyst")).toBeTruthy();
 	});
 
 	it("keeps Create Agent in the sidebar when the list is empty", () => {

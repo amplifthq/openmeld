@@ -326,6 +326,21 @@ function AgentsWorkspaceHome(input: {
 			readinessByProfileId,
 		]
 	);
+	const sidebarAgentProfiles = useMemo(() => {
+		const selectedProfile = agentProfiles.find(
+			(profile) => profile.openMeldProfileId === input.selectedProfileId
+		);
+		if (
+			!selectedProfile ||
+			visibleAgentProfiles.some(
+				(profile) =>
+					profile.openMeldProfileId === selectedProfile.openMeldProfileId
+			)
+		) {
+			return visibleAgentProfiles;
+		}
+		return [selectedProfile, ...visibleAgentProfiles];
+	}, [agentProfiles, input.selectedProfileId, visibleAgentProfiles]);
 	const requestsQuery = useQuery(
 		agentProfileCreationRequestsQueryOptions({
 			enabled: input.isOrganizationContext,
@@ -385,7 +400,7 @@ function AgentsWorkspaceHome(input: {
 			onSelectProfile={input.onSelectProfile}
 			onViewChange={input.onViewChange}
 			pendingRequestCount={pendingRequestCount}
-			profiles={visibleAgentProfiles}
+			profiles={sidebarAgentProfiles}
 			profilesErrorMessage={profilesErrorMessage}
 			profilesStatus={profilesStatus}
 			readinessByProfileId={readinessByProfileId}
@@ -396,7 +411,7 @@ function AgentsWorkspaceHome(input: {
 					agentExecutionReadinessByProfileId={readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={errorByProfileId}
 					agentExecutionReadinessPendingProfileIds={pendingProfileIds}
-					agentProfiles={[profile]}
+					agentProfiles={agentProfiles}
 					agentProfilesQueryState={{ isError: false, isPending: false }}
 					availabilityFilter="all"
 					canManageProfile={(candidate) =>
