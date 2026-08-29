@@ -46,6 +46,7 @@ import type {
   SpaceAccessModeState,
   SpaceAttachmentDescriptor,
   SpaceBootstrapResponse,
+  SpaceComposerUploadDescriptor,
   SpaceFileDescriptor,
   SpaceFileEntry,
   SpaceIdentityDirectory,
@@ -181,6 +182,23 @@ export type SpaceApi = {
       parentId?: string | null;
     }
   ) => Promise<SpaceFileDescriptor>;
+  stageComposerUpload: (
+    input: SpaceRequestInput & {
+      bytes: SpaceFileContentBytes;
+      mimeType: string;
+      name: string;
+      uploadId: string;
+    }
+  ) => Promise<SpaceComposerUploadDescriptor>;
+  publishComposerUpload: (
+    input: SpaceRequestInput & {
+      clientMutationId: string;
+      uploadId: string;
+    }
+  ) => Promise<SpaceFileDescriptor>;
+  discardComposerUpload: (
+    input: SpaceRequestInput & { uploadId: string }
+  ) => Promise<void>;
   updateFileContent: (
     input: SpaceRequestInput & {
       baseRevision: number;

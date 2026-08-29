@@ -5,6 +5,8 @@ export const SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES = 1024 * 1024;
 export const SPACE_FILE_MAX_NAME_LENGTH = 255;
 export const SPACE_FILE_MAX_FOLDER_DEPTH = 20;
 export const SPACE_MESSAGE_FILE_MAX_COUNT = 10;
+export const SPACE_COMPOSER_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
+export const SPACE_COMPOSER_UPLOAD_OBJECT_PREFIX = "composer-uploads/v1/";
 
 const PATH_SEPARATOR_PATTERN = /[\\/]/u;
 const MEDIA_TYPE_PATTERN =
@@ -42,6 +44,7 @@ export const spaceFileSizeBytesSchema = z
   .int()
   .min(0)
   .max(SPACE_FILE_MAX_SIZE_BYTES);
+export const spaceComposerUploadIdSchema = z.string().uuid();
 
 /**
  * Derives the opaque file identity for a retriable create mutation.
@@ -52,6 +55,24 @@ export async function buildSpaceFileEntryIdForMutation(
 ): Promise<string> {
   return await buildSpaceFileMutationStorageId({
     clientMutationId,
+    kind: "file",
+  });
+}
+
+/**
+ * Derives one canonical file identity from the exact Composer publication.
+ * Both bounded request identities are validated independently before hashing.
+ */
+export async function buildSpaceComposerPublishedFileId(input: {
+  clientMutationId: string;
+  uploadId: string;
+}): Promise<string> {
+  const clientMutationId = spaceFileClientMutationIdSchema.parse(
+    input.clientMutationId
+  );
+  const uploadId = spaceComposerUploadIdSchema.parse(input.uploadId);
+  return await buildSpaceFileStorageId({
+    identityParts: ["composer-upload", clientMutationId, uploadId],
     kind: "file",
   });
 }
@@ -96,13 +117,18 @@ async function buildSpaceFileMutationStorageId(input: {
   const clientMutationId = spaceFileClientMutationIdSchema.parse(
     input.clientMutationId
   );
+  return await buildSpaceFileStorageId({
+    identityParts: [clientMutationId, input.revisionIdentity ?? ""],
+    kind: input.kind,
+  });
+}
+
+async function buildSpaceFileStorageId(input: {
+  identityParts: readonly string[];
+  kind: "file" | "revision";
+}): Promise<string> {
   const encoded = new TextEncoder().encode(
-    [
-      "space-file",
-      input.kind,
-      clientMutationId,
-      input.revisionIdentity ?? "",
-    ].join(":")
+    ["space-file", input.kind, ...input.identityParts].join(":")
   );
   const bytes = new ArrayBuffer(encoded.byteLength);
   new Uint8Array(bytes).set(encoded);
@@ -363,6 +389,45 @@ export const uploadSpaceFileResponseSchema = z.strictObject({
   file: spaceFileDescriptorSchema,
 });
 
+/**
+ * Temporary bytes selected in a Composer. This is deliberately not a Space
+ * File descriptor: the upload becomes a canonical root Space File only when
+ * the user sends the message.
+ */
+export const spaceComposerUploadDescriptorSchema = z.strictObject({
+  id: spaceComposerUploadIdSchema,
+  name: spaceFileNameSchema,
+  mimeType: spaceFileMimeTypeSchema,
+  sizeBytes: spaceFileSizeBytesSchema,
+  expiresAt: z.iso.datetime({ offset: true }),
+});
+
+export const stageSpaceComposerUploadQuerySchema = z.strictObject({
+  name: spaceFileNameSchema,
+});
+
+export const stageSpaceComposerUploadResponseSchema = z.strictObject({
+  upload: spaceComposerUploadDescriptorSchema,
+});
+
+export const publishSpaceComposerUploadBodySchema = z.strictObject({
+  clientMutationId: spaceFileClientMutationIdSchema,
+});
+
+export const publishSpaceComposerUploadResponseSchema = z.strictObject({
+  file: spaceFileDescriptorSchema,
+});
+
+export const discardSpaceComposerUploadResponseSchema = z.strictObject({
+  uploadId: spaceComposerUploadIdSchema,
+  discarded: z.literal(true),
+});
+
+export const resolveSpaceComposerUploadScopeResponseSchema = z.strictObject({
+  organizationId: scopeIdSchema,
+  actorProfileId: scopeIdSchema,
+});
+
 export const spaceFileContentQuerySchema = z.strictObject({
   revision: queryIntegerSchema.pipe(spaceFileRevisionNumberSchema).optional(),
 });
@@ -431,6 +496,20 @@ export function buildSpaceFileObjectKey(input: {
   revisionId: string;
 }): string {
   return `org/${input.organizationId}/space/${input.spaceId}/files/${input.fileId}/revisions/${input.revisionId}`;
+}
+
+export function buildSpaceComposerUploadObjectKey(input: {
+  organizationId: string;
+  spaceId: string;
+  actorProfileId: string;
+  uploadId: string;
+}): string {
+  const uploadId = spaceComposerUploadIdSchema.parse(input.uploadId);
+  return `${SPACE_COMPOSER_UPLOAD_OBJECT_PREFIX}org/${encodeURIComponent(
+    input.organizationId
+  )}/space/${encodeURIComponent(input.spaceId)}/profile/${encodeURIComponent(
+    input.actorProfileId
+  )}/${uploadId}`;
 }
 
 export function isSpaceFileTextEditable(input: {

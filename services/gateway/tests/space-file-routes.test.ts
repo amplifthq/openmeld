@@ -12,6 +12,7 @@ const OWNER_USER_ID = "owner-files-route-test";
 const REQUEST_ID = "req-files-route-test";
 const FILE_ID = "file-route-test";
 const REVISION_ID = "revision-route-test";
+const COMPOSER_UPLOAD_ID = "22222222-2222-4222-8222-222222222222";
 const OBJECT_KEY = `org/${ORGANIZATION_ID}/space/${SPACE_ID}/files/${FILE_ID}/revisions/${REVISION_ID}`;
 const TEXT_BYTES = new TextEncoder().encode("Shared launch notes\n");
 
@@ -260,6 +261,113 @@ describe("Space file routes", () => {
       })
     );
     expect(bucket.put).not.toHaveBeenCalled();
+  });
+
+  it("stages Composer bytes without creating a canonical Space File", async () => {
+    const { coreRpc, env } = makeEnv();
+    const stageSpaceComposerUpload = vi.fn(async () => ({
+      expiresAt: "2026-08-30T08:00:00.000Z",
+      id: COMPOSER_UPLOAD_ID,
+      mimeType: "text/markdown",
+      name: "launch-notes.md",
+      sizeBytes: TEXT_BYTES.byteLength,
+    }));
+    Object.assign(coreRpc, { stageSpaceComposerUpload });
+
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/composer-uploads/${COMPOSER_UPLOAD_ID}?name=launch-notes.md`,
+        {
+          body: Uint8Array.from(TEXT_BYTES).buffer,
+          headers: { "content-type": "text/markdown; charset=utf-8" },
+          method: "PUT",
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      upload: {
+        expiresAt: "2026-08-30T08:00:00.000Z",
+        id: COMPOSER_UPLOAD_ID,
+        mimeType: "text/markdown",
+        name: "launch-notes.md",
+        sizeBytes: TEXT_BYTES.byteLength,
+      },
+    });
+    expect(stageSpaceComposerUpload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bytes: expect.any(ArrayBuffer),
+        mimeType: "text/markdown",
+        name: "launch-notes.md",
+        spaceId: SPACE_ID,
+        uploadId: COMPOSER_UPLOAD_ID,
+      })
+    );
+    expect(coreRpc.writeSpaceFileContent).not.toHaveBeenCalled();
+  });
+
+  it("publishes a staged Composer upload only when Send requests it", async () => {
+    const { coreRpc, env } = makeEnv();
+    const publishSpaceComposerUpload = vi.fn(async () => FILE);
+    Object.assign(coreRpc, { publishSpaceComposerUpload });
+
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/composer-uploads/${COMPOSER_UPLOAD_ID}/publish`,
+        {
+          body: JSON.stringify({
+            clientMutationId: "publish-composer-upload-route-test",
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ file: FILE });
+    expect(publishSpaceComposerUpload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientMutationId: "publish-composer-upload-route-test",
+        spaceId: SPACE_ID,
+        uploadId: COMPOSER_UPLOAD_ID,
+      })
+    );
+  });
+
+  it("discards an abandoned Composer upload", async () => {
+    const { coreRpc, env } = makeEnv();
+    const discardSpaceComposerUpload = vi.fn(async () => ({
+      discarded: true as const,
+      uploadId: COMPOSER_UPLOAD_ID,
+    }));
+    Object.assign(coreRpc, { discardSpaceComposerUpload });
+
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/composer-uploads/${COMPOSER_UPLOAD_ID}`,
+        { method: "DELETE" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      discarded: true,
+      uploadId: COMPOSER_UPLOAD_ID,
+    });
+    expect(discardSpaceComposerUpload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spaceId: SPACE_ID,
+        uploadId: COMPOSER_UPLOAD_ID,
+      })
+    );
   });
 
   it("keeps upload storage ids stable when the client retries a mutation", async () => {

@@ -7,7 +7,9 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	buildSpaceComposerAddressingSummary,
+	buildSpaceComposerAddressingTargets,
 	buildSpaceMentionTargetItems,
+	resolveSpaceComposerAddressingMentions,
 	useSpaceMentionAuthoring,
 } from "./use-space-mention-authoring";
 
@@ -158,6 +160,72 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 			}),
 		]);
 	});
+
+	it("rewrites the owning canonical mention when its relation changes", () => {
+		const runnerProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const composer = renderHook(() =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: {
+					kind: "space",
+					ownerAccountId: "account-1",
+					profileId: "human-1",
+					spaceId: "space-1",
+				},
+				isMembersLoading: false,
+				membersErrorMessage: null,
+				openMeldProfileId: "human-1",
+				snapshot: createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							agentWakeAvailability: { status: "available_for_wake" },
+							profileId: runnerProfileId,
+							profileName: "Runner",
+						}),
+					],
+				}),
+				spaceId: "space-1",
+			})
+		);
+
+		const textWithDuplicate = "@Runner(wake) Review this plan with @Run";
+		act(() => {
+			composer.result.current.onComposerChange(textWithDuplicate, {
+				end: textWithDuplicate.length,
+				start: textWithDuplicate.length,
+			});
+		});
+		expect(composer.result.current.mentionPopoverState.kind).toBe(
+			"target_picker"
+		);
+		act(() => {
+			composer.result.current.onMentionItemSelect(0, "reference");
+		});
+		expect(composer.result.current.addressingTargets).toEqual([
+			expect.objectContaining({
+				profileId: runnerProfileId,
+				relation: "wake",
+			}),
+		]);
+
+		act(() => {
+			composer.result.current.onMentionRelationChange(
+				runnerProfileId,
+				"reference"
+			);
+		});
+
+		expect(composer.result.current.composerText).toBe(
+			"@Runner(reference) Review this plan with @Runner "
+		);
+		expect(
+			composer.result.current.prepareSubmission("Members are required.")
+				.messageEnvelope
+		).toEqual({
+			activationTargets: [],
+			referenceTargets: [runnerProfileId],
+			text: "@Runner(reference) Review this plan with @Runner",
+		});
+	});
 });
 
 describe("buildSpaceMentionTargetItems", () => {
@@ -260,7 +328,7 @@ describe("buildSpaceComposerAddressingSummary", () => {
 		).toBe("Waking 1 agent · Referencing 1");
 	});
 
-	it("counts each profile once and uses its latest authored relation", () => {
+	it("counts each profile once and uses its first authored relation", () => {
 		expect(
 			buildSpaceComposerAddressingSummary([
 				{
@@ -279,7 +347,79 @@ describe("buildSpaceComposerAddressingSummary", () => {
 					text: "@Reviewer",
 				},
 			])
-		).toBe("Waking 1 agent · Referencing 1");
+		).toBe("Waking 2 agents · Referencing 0");
+	});
+});
+
+describe("buildSpaceComposerAddressingTargets", () => {
+	it("shows the first relation when the same profile occurs more than once", () => {
+		const runnerProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+		expect(
+			buildSpaceComposerAddressingTargets({
+				mentions: [
+					{
+						profileId: runnerProfileId,
+						relation: "wake",
+						text: "@Runner",
+					},
+					{
+						profileId: runnerProfileId,
+						relation: "reference",
+						text: "@Runner",
+					},
+				],
+				snapshot: createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							agentWakeAvailability: { status: "available_for_wake" },
+							profileId: runnerProfileId,
+							profileName: "Runner",
+						}),
+					],
+				}),
+			})
+		).toEqual([
+			expect.objectContaining({
+				profileId: runnerProfileId,
+				relation: "wake",
+			}),
+		]);
+	});
+});
+
+describe("resolveSpaceComposerAddressingMentions", () => {
+	it("shows the earlier canonical relation when an authored duplicate appears later", () => {
+		const runnerProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const text = "@Runner(wake) Review this with @Runner";
+
+		expect(
+			resolveSpaceComposerAddressingMentions({
+				authoredMentions: [
+					{
+						profileId: runnerProfileId,
+						relation: "reference",
+						start: text.lastIndexOf("@Runner"),
+						text: "@Runner",
+					},
+				],
+				snapshot: createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							agentWakeAvailability: { status: "available_for_wake" },
+							profileId: runnerProfileId,
+							profileName: "Runner",
+						}),
+					],
+				}),
+				text,
+			})
+		).toEqual([
+			{
+				profileId: runnerProfileId,
+				relation: "wake",
+			},
+		]);
 	});
 });
 

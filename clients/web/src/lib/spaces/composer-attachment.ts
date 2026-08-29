@@ -1,7 +1,6 @@
-import type { SpaceMessageFileReference } from "@openmeld/schemas/types";
+import type { SpaceComposerUploadDescriptor } from "@openmeld/schemas/types";
 
 export type SpaceComposerFile = {
-	descriptor: SpaceMessageFileReference | null;
 	errorMessage: string | null;
 	errorRequestId: string | null;
 	fileName: string;
@@ -9,7 +8,9 @@ export type SpaceComposerFile = {
 	mimeType: string;
 	previewUrl: string | null;
 	progress: number;
+	publishMutationId: string;
 	status: "uploading" | "ready" | "failed";
+	upload: SpaceComposerUploadDescriptor | null;
 };
 
 export function isSpaceComposerFileInProgress(

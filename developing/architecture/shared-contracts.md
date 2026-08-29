@@ -1236,13 +1236,38 @@ storage limits, and they never replace or mutate the original revision.
 
 A text signal may have empty text only when it carries at least one canonical
 Space File. Web and CLI may therefore publish a file-only
-message without synthetic text. File selection creates the Space File before
-message publication; a message-send failure may leave that ordinary uploaded
-file visible in Files. A multi-file upload failure is narrower: CLI moves only
+message without synthetic text. CLI creates canonical Space Files before
+message publication; a message-send failure may leave those ordinary uploaded
+files visible in Files. A multi-file upload failure is narrower: CLI moves only
 files confirmed as newly uploaded by that same not-yet-published invocation to
-recoverable Trash and reports exact ids for any cleanup that fails. This is one
-canonical file with two references, not an atomic upload-and-send transaction;
-cleanup never infers ownership from a file name or removes pre-existing files.
+recoverable Trash and reports exact ids for any cleanup that fails. Cleanup
+never infers ownership from a file name or removes pre-existing files.
+
+Web file selection first creates a temporary
+Composer Upload in private object storage. That upload has no Space File id,
+folder entry, revision, audit event, Files invalidation, or message reference.
+It is scoped to the authorized Space member, expires after 24 hours, and is
+discarded explicitly on removal or successful send; Core periodically deletes
+expired objects.
+
+Send publishes each ready Composer Upload through an idempotent mutation. Core
+reauthorizes the Space and actor, validates the frozen name, MIME type, byte
+size, scope, and expiry, then creates the canonical root Space File through the
+ordinary prepare, immutable-object-write, and commit contract. Web uses only
+the returned canonical revision reference in the message. In-progress staging
+blocks Send. A failed stage or publication is omitted while text and other
+successfully published files continue; an empty message is never posted when
+all publications fail. A message-send failure after publication may leave the
+now-ordinary Space File visible in Files because Send was the explicit publish
+boundary. This remains one canonical file with one message reference, not an
+atomic file-and-message transaction or a second message-owned byte copy.
+
+This additive contract rolls out receiver first: deploy Core's staging,
+publication, discard, and expiry-cleanup receivers; then deploy Gateway's HTTP
+routes; then deploy Web's Composer caller. Existing Web and CLI clients keep
+using the canonical Space File upload contract throughout. New Web must not ship
+until both cloud receivers are available; rollback removes the Web caller before
+the Gateway and Core receivers.
 
 `space.files.changed` is an additive invalidation topic. It carries no file
 metadata and grants no access. Clients refresh the shared file-list contract.

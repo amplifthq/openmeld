@@ -64,6 +64,7 @@ import {
   remoteAgentWorkerCancellationResponseSchema,
   removeSpaceMembersBodySchema,
   resolveMappedPublicAgentFailureReason,
+  resolveSpaceComposerUploadScopeResponseSchema,
   resolveSpaceFileContentInputSchema,
   respondToSpaceAgentInteractionInputSchema,
   respondToSpaceAgentInteractionResponseSchema,
@@ -84,6 +85,8 @@ import {
   spaceAgentStreamTerminalFrameSchema,
   spaceBoardRoomProjectionSchema,
   spaceFileAuditEventSchema,
+  spaceFileClientMutationIdSchema,
+  spaceFileEntryIdSchema,
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
@@ -129,6 +132,7 @@ import type {
   RemoteAgentWorkerCancellationResponse,
   RemoveSpaceMembersResponse,
   ResolvedSpaceMemberProfile,
+  ResolveSpaceComposerUploadScopeResponse,
   ResolveSpaceFileContentResponse,
   RespondToSpaceAgentInteractionBody,
   RespondToSpaceAgentInteractionResponse,
@@ -2361,6 +2365,19 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
+  async rpcResolveSpaceComposerUploadScope(input: {
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<ResolveSpaceComposerUploadScopeResponse> {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const meta = this.requireSpaceFileMetaRecord();
+    return resolveSpaceComposerUploadScopeResponseSchema.parse({
+      actorProfileId: actor.profileId,
+      organizationId: meta.organizationId,
+    });
+  }
+
   async rpcGetSpaceFile(input: {
     fileId: string;
     spaceAccess: SpaceAccessContext;
@@ -2540,6 +2557,26 @@ export class Space extends DurableObject<CoreBindings> {
       }),
       ...(committedFile ? { committedFile } : {}),
     };
+  }
+
+  async rpcResolveCommittedSpaceFileWrite(input: {
+    clientMutationId: unknown;
+    expectedFileId: unknown;
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<SpaceFileDescriptor | null> {
+    const clientMutationId = spaceFileClientMutationIdSchema.parse(
+      input.clientMutationId
+    );
+    const expectedFileId = spaceFileEntryIdSchema.parse(input.expectedFileId);
+    this.applySpaceRef(input.spaceId);
+    await this.requireSpaceFileWriteActor(input.spaceAccess);
+    return this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.resolveCommittedWrite(
+        clientMutationId,
+        expectedFileId
+      )
+    );
   }
 
   async rpcCommitSpaceFileWrite(input: {

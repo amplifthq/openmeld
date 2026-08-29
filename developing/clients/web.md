@@ -2235,9 +2235,11 @@ A Space draft retains text, structured Wake/Reference mentions, and the reply
 target together. Restoring visible `@` text without its structured relation is
 forbidden because it would silently change who is woken or referenced. Browser
 `File` objects and local preview URLs are not serializable draft state. Selected
-files upload immediately and remain visible as canonical Space Files, but the
-unsent message association and local preview are not restored across refresh in
-the MVP.
+files stage as temporary Composer Uploads and remain invisible to Files until
+Send publishes them. Web requests discard when a selection is removed or its
+Composer scope closes; Core expiration cleanup covers refresh, window-close,
+and interrupted-request cases. The unsent selection and local preview are not
+restored across refresh in the MVP.
 
 The send path takes an immutable snapshot of the current submission, clears that
 draft once, and immediately leaves the Composer available for the next draft.
@@ -2598,13 +2600,17 @@ without changing the primary control. The file picker accepts arbitrary files;
 paste and drag and drop use the same path.
 
 A composer accepts up to ten files, each up to the shared 10 MiB limit.
-Selection immediately uploads each file as a canonical root-level Space File
-and keeps a removable local row with image thumbnail when available, file name,
-progress, failure, and request id. Sending waits for every selected upload and
-allows a file-only message without invented caption text. A failure never
-silently publishes a text-only or partially attached message.
+Selection immediately stages each file as a temporary Composer Upload and keeps
+a removable local row with image thumbnail when available, file name, progress,
+failure, and request id. A staged upload is not listed in Files. Sending waits
+for in-progress staging, publishes each ready upload as a canonical root-level
+Space File, and allows a file-only message without invented caption text. A
+failed stage or publication is excluded while the member's text and other
+successful files continue. Web explains that the failed files will not be sent;
+if every publication fails and there is no text, it keeps the Composer open
+instead of posting an empty message.
 
-After upload, Web submits only server-returned Space File references. A pending
+After publication, Web submits only server-returned Space File references. A pending
 outgoing message may use a local image preview until the canonical signal with
 the same client message id arrives. Durable message cards fetch an image
 thumbnail from the exact sent revision when appropriate and otherwise show a
