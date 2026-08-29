@@ -12,7 +12,6 @@ import type React from "react";
 import { createContext, use, useEffect, useRef, useState } from "react";
 
 type PromptInputContextType = {
-	isLoading: boolean;
 	value: string;
 	setValue: (value: string) => void;
 	maxHeight: number | string;
@@ -31,7 +30,6 @@ function usePromptInput() {
 }
 
 type PromptInputProps = {
-	isLoading?: boolean;
 	disabled?: boolean;
 	value?: string;
 	onValueChange?: (value: string) => void;
@@ -43,7 +41,6 @@ type PromptInputProps = {
 
 function PromptInput({
 	className,
-	isLoading = false,
 	disabled = false,
 	maxHeight = 240,
 	value,
@@ -62,7 +59,6 @@ function PromptInput({
 		<TooltipProvider>
 			<PromptInputContext.Provider
 				value={{
-					isLoading,
 					value: value ?? internalValue,
 					setValue: onValueChange ?? handleChange,
 					maxHeight,
