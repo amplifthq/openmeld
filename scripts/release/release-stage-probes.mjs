@@ -1,5 +1,7 @@
 import { cliBinaryCompressedReleaseSchema } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
 
+import { compareSemverCore } from "./release-semver.mjs";
+
 const NO_PENDING_D1_MIGRATIONS_PATTERN = /No migrations to apply[.!]?/iu;
 const NPM_MISSING_VERSION_PATTERN =
   /\bE404\b|is not in this registry|No match found/iu;
@@ -42,10 +44,20 @@ export function decideCliBinaryStage(input) {
       reason: "the production CLI manifest is missing channels.stable",
     };
   }
-  if (stable.version !== input.targetVersion) {
+  const stableVersionComparison = compareSemverCore(
+    stable.version,
+    input.targetVersion
+  );
+  if (stableVersionComparison < 0) {
     return {
       action: "RUN",
-      reason: `the production CLI manifest is at ${String(stable.version ?? "missing")}, not target ${input.targetVersion}`,
+      reason: `the production CLI manifest is at ${stable.version}, below target ${input.targetVersion}`,
+    };
+  }
+  if (stableVersionComparison > 0) {
+    return {
+      action: "FAIL",
+      reason: `the production CLI manifest is already at ${stable.version}, ahead of target ${input.targetVersion}; refusing to publish an older CLI or move the stable channel backward`,
     };
   }
   if (

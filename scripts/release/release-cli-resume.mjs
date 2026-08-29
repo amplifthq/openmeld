@@ -7,6 +7,7 @@ import { gunzipSync } from "node:zlib";
 
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
+import { compareSemverCore } from "./release-semver.mjs";
 import {
   decideChannelAlignmentStage,
   decideCliBinaryStage,
@@ -295,6 +296,19 @@ async function probeCliBinaryStage(input) {
     const manifest = await fetchCliChannelManifest({
       fetch: input.adapters.fetch,
     });
+    if (
+      compareSemverCore(
+        manifest.channels.stable.version,
+        input.target.version
+      ) !== 0
+    ) {
+      return decideCliBinaryStage({
+        manifest,
+        platform: CLI_BINARY_PLATFORM,
+        targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
+        targetVersion: input.target.version,
+      });
+    }
     const artifact =
       manifest?.channels?.stable?.platforms?.[CLI_BINARY_PLATFORM];
     const probeArtifact = async ({ archive, url }) => {

@@ -145,7 +145,19 @@ test("runs the CLI binary channel when the target version is not published", () 
   input.manifest.channels.stable.version = "0.2.42";
   assert.deepEqual(decideCliBinaryStage(input), {
     action: "RUN",
-    reason: "the production CLI manifest is at 0.2.42, not target 0.2.43",
+    reason: "the production CLI manifest is at 0.2.42, below target 0.2.43",
+  });
+});
+
+test("fails before moving the stable CLI channel backward", () => {
+  const input = completeBinaryInput();
+  input.manifest.channels.stable.version = "0.10.0";
+  input.targetVersion = "0.9.0";
+
+  assert.deepEqual(decideCliBinaryStage(input), {
+    action: "FAIL",
+    reason:
+      "the production CLI manifest is already at 0.10.0, ahead of target 0.9.0; refusing to publish an older CLI or move the stable channel backward",
   });
 });
 

@@ -24,7 +24,10 @@ import {
   runCliRelease,
   tagCliRelease,
 } from "./release-cli.mjs";
-import { resolveCoreProjectionTag } from "./release-cli-resume.mjs";
+import {
+  probeCliReleaseStages,
+  resolveCoreProjectionTag,
+} from "./release-cli-resume.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -44,6 +47,8 @@ const IMMUTABLE_R2_ARTIFACT_RE =
   /production CLI manifest already publishes 0\.3\.130.*raw artifact is not downloadable/u;
 const INCONCLUSIVE_R2_PROBE_RE =
   /could not prove whether 0\.3\.130 is already published.*refusing to rerun immutable binary publication/u;
+const R2_STABLE_CHANNEL_AHEAD_RE =
+  /production CLI manifest is already at 0\.3\.132, ahead of target 0\.3\.131.*stable channel backward/u;
 const MANIFEST_GATE_EXPLODED_RE = /manifest gate exploded/u;
 const QUEUE_GATE_EXPLODED_RE = /queue gate exploded/u;
 const RELEASE_RESUME_COMMAND_RE =
@@ -1131,4 +1136,141 @@ test("stops before every release mutation when immutable binary completion is un
       await rm(repoRoot, { force: true, recursive: true });
     }
   }
+});
+
+test("stops before every release mutation when the stable CLI channel is ahead", async () => {
+  const targetVersion = "0.3.131";
+  const { git, repoRoot } = await createReleaseRepo(targetVersion);
+  await mkdir(join(repoRoot, "release"), { recursive: true });
+  await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
+  await git("add", "release/local-components.json");
+  await git("commit", "-m", "add release manifest");
+  await configureTestOrigin({ git, repoRoot });
+  const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
+  const sideEffects = [];
+
+  try {
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          fetch: (url, options) => {
+            const manifest = buildTestCliManifest("0.3.132");
+            if (options?.method === "HEAD") {
+              return new Response(null, {
+                headers: {
+                  "content-length": String(TEST_CLI_BINARY.byteLength),
+                },
+                status: 200,
+              });
+            }
+            if (String(url).endsWith(".gz")) {
+              return new Response(TEST_CLI_ARCHIVE, { status: 200 });
+            }
+            return new Response(JSON.stringify(manifest), { status: 200 });
+          },
+          runCommand: ({ args, command }) => {
+            const key = [command, ...args].join(" ");
+            if (key.startsWith("npm view")) {
+              return { status: 1, stderr: "npm error code E404", stdout: "" };
+            }
+            if (key.includes("wrangler deployments list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(WRANGLER_RELEASE_STATE.deployments),
+              };
+            }
+            if (key.includes("wrangler versions list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(
+                  WRANGLER_RELEASE_STATE.versions.map((version) => ({
+                    ...version,
+                    annotations: { "workers/tag": `${coreTag}-other` },
+                  }))
+                ),
+              };
+            }
+            throw new Error(`Unexpected read-only command: ${key}`);
+          },
+          runStep: (step) => {
+            sideEffects.push(step.label);
+            throw new Error("release mutation must not start");
+          },
+          publishCliReleaseTag: () => sideEffects.push("tag"),
+        },
+        cwd: repoRoot,
+        env: {},
+        withBinary: true,
+      }),
+      R2_STABLE_CHANNEL_AHEAD_RE
+    );
+    assert.deepEqual(sideEffects, []);
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("resumes a newer CLI target without probing artifacts from an older manifest", async () => {
+  const artifactRequests = [];
+  const target = {
+    coreTag: "openmeld-release-target",
+    minRequiredCliVersion: "0.3.131",
+    version: "0.3.131",
+  };
+
+  const result = await probeCliReleaseStages({
+    adapters: {
+      fetch: (url, options) => {
+        if (options?.method) {
+          artifactRequests.push({ method: options.method, url: String(url) });
+          return Promise.reject(
+            new Error("old immutable artifact must not be requested")
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify(buildTestCliManifest("0.3.130")), {
+            status: 200,
+          })
+        );
+      },
+      runCommand: ({ args, command }) => {
+        const key = [command, ...args].join(" ");
+        if (key.startsWith("npm view")) {
+          return { status: 1, stderr: "npm error code E404", stdout: "" };
+        }
+        if (key.includes("wrangler deployments list")) {
+          return {
+            status: 0,
+            stderr: "",
+            stdout: JSON.stringify(WRANGLER_RELEASE_STATE.deployments),
+          };
+        }
+        if (key.includes("wrangler versions list")) {
+          return {
+            status: 0,
+            stderr: "",
+            stdout: JSON.stringify(
+              WRANGLER_RELEASE_STATE.versions.map((version) => ({
+                ...version,
+                annotations: { "workers/tag": "another-release" },
+              }))
+            ),
+          };
+        }
+        throw new Error(`Unexpected read-only command: ${key}`);
+      },
+    },
+    cwd: process.cwd(),
+    env: {},
+    tag: { action: "RUN", reason: "the release tag is not published" },
+    target,
+  });
+
+  assert.deepEqual(result.binary, {
+    action: "RUN",
+    reason: "the production CLI manifest is at 0.3.130, below target 0.3.131",
+  });
+  assert.deepEqual(artifactRequests, []);
 });
