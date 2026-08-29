@@ -25,7 +25,7 @@ import {
 	CopyIcon,
 	KeyRoundIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CrossPageHeader } from "#/components/app/cross-page-header";
 import {
@@ -66,15 +66,36 @@ type GeneratedAgentInterfaceState = {
 	profileName: string | null;
 };
 
+type PromptActionKind = "copy" | "generate";
+
+type InFlightPromptAction = {
+	id: number;
+	promise: Promise<void>;
+};
+
+type PendingPromptAction = {
+	id: number;
+	kind: PromptActionKind;
+};
+
+type PromptForAction = {
+	didGenerateFreshPrompt: boolean;
+	prompt: GeneratedAgentInterfaceState;
+};
+
 export function AgentInterfacePage({
 	isAuthenticated,
 }: AgentInterfacePageProps) {
 	const [generated, setGenerated] =
 		useState<GeneratedAgentInterfaceState | null>(null);
-	const [isGenerating, setIsGenerating] = useState(false);
+	const [pendingPromptActionState, setPendingPromptActionState] =
+		useState<PendingPromptAction | null>(null);
 	const [actionPreviewIndex, setActionPreviewIndex] = useState(0);
 	const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
 	const [now, setNow] = useState(() => Date.now());
+	const isMountedRef = useRef(false);
+	const promptActionIdRef = useRef(0);
+	const inFlightPromptActionRef = useRef<InFlightPromptAction | null>(null);
 	const profilesQuery = useQuery({
 		queryKey: ["agent-interface", "profiles"],
 		queryFn: async () => await listStartProfiles(),
@@ -89,17 +110,43 @@ export function AgentInterfacePage({
 		[profilesQuery.data]
 	);
 	const skillUrl = resolveSkillUrl();
-	const canGenerate = isAuthenticated && !isGenerating;
+	const pendingPromptAction =
+		isAuthenticated &&
+		pendingPromptActionState?.id === promptActionIdRef.current
+			? pendingPromptActionState.kind
+			: null;
+	const isPromptActionPending = pendingPromptAction !== null;
+	const canGenerate = isAuthenticated && !isPromptActionPending;
 	const generatedRemainingSeconds = useMemo(
 		() => resolveRemainingSeconds(generated?.expiresAt ?? null, now),
 		[generated?.expiresAt, now]
 	);
-	const isGeneratedExpired =
-		generatedRemainingSeconds !== null && generatedRemainingSeconds <= 0;
+	const isGeneratedExpired = generated
+		? isPromptExpired(generated.expiresAt, now)
+		: false;
 	const generateActionLabel = resolveGenerateActionLabel({
 		hasGeneratedPrompt: Boolean(generated),
 		isExpired: isGeneratedExpired,
 	});
+
+	useEffect(() => {
+		isMountedRef.current = true;
+
+		return () => {
+			isMountedRef.current = false;
+			promptActionIdRef.current += 1;
+			inFlightPromptActionRef.current = null;
+		};
+	}, []);
+
+	useEffect(() => {
+		if (isAuthenticated) {
+			return;
+		}
+
+		promptActionIdRef.current += 1;
+		inFlightPromptActionRef.current = null;
+	}, [isAuthenticated]);
 
 	useEffect(() => {
 		if (!generated) {
@@ -116,77 +163,149 @@ export function AgentInterfacePage({
 		};
 	}, [generated]);
 
-	async function generateAgentPrompt() {
-		if (!isAuthenticated) {
-			return;
-		}
-		setIsGenerating(true);
-		setCopyState("idle");
-		try {
-			const humanProfile = await resolveBestHumanProfile(defaultHumanProfile);
-			const [prepareSession, computerAuthorization] = await Promise.all([
-				createPrepareSession({
-					deviceId: null,
-					humanProfileId: humanProfile?.openMeldProfileId ?? null,
-					runtimeLane: null,
-					targetSpaceId: null,
-					selectedLocalAgentIds: [],
-				}),
-				createComputerAuthorizationGrant(),
-			]);
-			const command = buildWebSetupCommand({
-				startSession: prepareSession.opaqueToken,
-				deviceCode: computerAuthorization.deviceCode,
-				localAgents: "all",
-				setupPlatform: resolveBrowserSetupCommandPlatform(),
-				view: "agent",
-			});
-			const prompt = buildAgentInterfacePrompt({
-				cliCommandPrefix: resolveWebSetupFollowUpCliCommandPrefix(),
-				command,
-				skillUrl,
-			});
-			const expiresAt = resolveComputerAuthorizationHandoffExpiresAt({
+	async function createFreshAgentPrompt(): Promise<GeneratedAgentInterfaceState> {
+		const humanProfile = await resolveBestHumanProfile(defaultHumanProfile);
+		const [prepareSession, computerAuthorization] = await Promise.all([
+			createPrepareSession({
+				deviceId: null,
+				humanProfileId: humanProfile?.openMeldProfileId ?? null,
+				runtimeLane: null,
+				targetSpaceId: null,
+				selectedLocalAgentIds: [],
+			}),
+			createComputerAuthorizationGrant(),
+		]);
+		const command = buildWebSetupCommand({
+			startSession: prepareSession.opaqueToken,
+			deviceCode: computerAuthorization.deviceCode,
+			localAgents: "all",
+			setupPlatform: resolveBrowserSetupCommandPlatform(),
+			view: "agent",
+		});
+		const prompt = buildAgentInterfacePrompt({
+			cliCommandPrefix: resolveWebSetupFollowUpCliCommandPrefix(),
+			command,
+			skillUrl,
+		});
+
+		return {
+			command,
+			expiresAt: resolveComputerAuthorizationHandoffExpiresAt({
 				authorizationExpiresInSeconds: computerAuthorization.expiresIn,
 				prepareSessionExpiresAt: prepareSession.opaqueTokenExpiresAt,
-			});
-			setGenerated({
-				command,
-				expiresAt,
-				profileName: humanProfile?.profileName ?? null,
-				prompt,
-				skillUrl,
-			});
-			const didCopy = await copyTextToClipboard(prompt).catch(() => false);
-			if (didCopy) {
-				setCopyState("copied");
-				toast.success("OpenMeld Agent Interface prompt generated and copied.");
-				return;
-			}
+			}),
+			profileName: humanProfile?.profileName ?? null,
+			prompt,
+			skillUrl,
+		};
+	}
+
+	function isCurrentPromptAction(actionId: number): boolean {
+		return isMountedRef.current && promptActionIdRef.current === actionId;
+	}
+
+	async function resolvePromptForAction(
+		kind: PromptActionKind
+	): Promise<PromptForAction> {
+		if (
+			kind === "copy" &&
+			generated &&
+			!isPromptExpired(generated.expiresAt, Date.now())
+		) {
+			return { didGenerateFreshPrompt: false, prompt: generated };
+		}
+
+		return {
+			didGenerateFreshPrompt: true,
+			prompt: await createFreshAgentPrompt(),
+		};
+	}
+
+	function presentPromptCopyResult(input: {
+		didCopy: boolean;
+		didGenerateFreshPrompt: boolean;
+		kind: PromptActionKind;
+	}) {
+		if (input.didCopy) {
+			setCopyState("copied");
+			toast.success(resolvePromptCopiedMessage(input));
+			return;
+		}
+
+		if (input.kind === "generate") {
 			toast.success("OpenMeld Agent Interface prompt generated.");
 			toast.error(
 				"OpenMeld could not copy automatically. Use Copy agent prompt to copy it manually."
 			);
-		} catch (error) {
-			toast.error(resolveErrorMessage(error));
-		} finally {
-			setIsGenerating(false);
-		}
-	}
-
-	async function copyPrompt() {
-		if (!generated) {
-			return;
-		}
-		const didCopy = await copyTextToClipboard(generated.prompt);
-		if (didCopy) {
-			setCopyState("copied");
-			toast.success("Agent prompt copied.");
 			return;
 		}
 		toast.error(
-			"OpenMeld could not copy automatically. Select the prompt text and copy it manually."
+			input.didGenerateFreshPrompt
+				? "OpenMeld refreshed the prompt but could not copy it. Try again, or select the prompt text and copy it manually."
+				: "OpenMeld could not copy the prompt. Try again, or select the prompt text and copy it manually."
 		);
+	}
+
+	async function performPromptAction(
+		actionId: number,
+		kind: PromptActionKind
+	): Promise<void> {
+		try {
+			const { didGenerateFreshPrompt, prompt } =
+				await resolvePromptForAction(kind);
+			if (!isCurrentPromptAction(actionId)) {
+				return;
+			}
+			if (isPromptExpired(prompt.expiresAt, Date.now())) {
+				throw new Error(
+					"OpenMeld created a prompt that expired before it could be copied. Try again."
+				);
+			}
+			if (didGenerateFreshPrompt) {
+				setGenerated(prompt);
+			}
+
+			const didCopy = await copyTextToClipboard(prompt.prompt).catch(
+				() => false
+			);
+			if (!isCurrentPromptAction(actionId)) {
+				return;
+			}
+			presentPromptCopyResult({ didCopy, didGenerateFreshPrompt, kind });
+		} catch (error) {
+			if (isCurrentPromptAction(actionId)) {
+				toast.error(resolveErrorMessage(error));
+			}
+		} finally {
+			if (inFlightPromptActionRef.current?.id === actionId) {
+				inFlightPromptActionRef.current = null;
+			}
+			if (isCurrentPromptAction(actionId)) {
+				setPendingPromptActionState(null);
+			}
+		}
+	}
+
+	function startPromptAction(
+		kind: PromptActionKind
+	): Promise<void> | undefined {
+		if (!isAuthenticated) {
+			return;
+		}
+		const currentAction = inFlightPromptActionRef.current;
+		if (currentAction) {
+			return currentAction.promise;
+		}
+
+		const actionId = promptActionIdRef.current + 1;
+		promptActionIdRef.current = actionId;
+		setPendingPromptActionState({ id: actionId, kind });
+		setCopyState("idle");
+
+		const promise = performPromptAction(actionId, kind);
+
+		inFlightPromptActionRef.current = { id: actionId, promise };
+		return promise;
 	}
 
 	function handleActionTabSelect(nextIndex: number) {
@@ -199,7 +318,7 @@ export function AgentInterfacePage({
 			if (!canGenerate) {
 				return;
 			}
-			generateAgentPrompt();
+			startPromptAction("generate");
 			return;
 		}
 		window.location.assign(OPENMELD_SKILL_PATH);
@@ -213,13 +332,22 @@ export function AgentInterfacePage({
 		hasGeneratedPrompt: Boolean(generated),
 		isAuthenticated,
 		isExpired: isGeneratedExpired,
-		isGenerating,
+		isGenerating: isPromptActionPending,
 	});
 	const handoffTitle = generated
 		? "Copy this prompt into your AI agent"
 		: "Agent handoff";
 	const skillPromptDescription =
 		"Use the public Skill when your agent only needs to learn OpenMeld concepts and CLI usage. It does not include private setup access or sign the agent into OpenMeld.";
+	const copyActionLabel = resolveCopyActionLabel({
+		copyState,
+		isExpired: isGeneratedExpired,
+		pendingPromptAction,
+	});
+	const showCopiedIcon =
+		copyState === "copied" &&
+		!isGeneratedExpired &&
+		pendingPromptAction !== "copy";
 
 	return (
 		<main className="min-h-svh bg-background">
@@ -384,18 +512,18 @@ export function AgentInterfacePage({
 											</Elevated>
 											<div className="flex flex-wrap items-end justify-between gap-3">
 												<Button
-													onClick={copyPrompt}
+													aria-busy={pendingPromptAction === "copy"}
+													disabled={isPromptActionPending}
+													onClick={() => startPromptAction("copy")}
 													type="button"
 													variant="secondary"
 												>
-													{copyState === "copied" ? (
+													{showCopiedIcon ? (
 														<CheckIcon className="size-4" />
 													) : (
 														<CopyIcon className="size-4" />
 													)}
-													{copyState === "copied"
-														? "Copy again"
-														: "Copy agent prompt"}
+													{copyActionLabel}
 												</Button>
 												<PromptExpiryStatus
 													remainingSeconds={generatedRemainingSeconds}
@@ -498,7 +626,7 @@ function PromptExpiryStatus(input: { remainingSeconds: number | null }) {
 					resolveStatusToneIconClassName("warning")
 				)}
 			>
-				Expired. Refresh to continue.
+				Expired. Refresh and copy to continue.
 			</p>
 		);
 	}
@@ -542,6 +670,37 @@ function resolveGenerateActionLabel(input: {
 		return "Refresh expired prompt";
 	}
 	return "Refresh agent prompt";
+}
+
+function resolveCopyActionLabel(input: {
+	copyState: "copied" | "idle";
+	isExpired: boolean;
+	pendingPromptAction: PromptActionKind | null;
+}): string {
+	if (input.pendingPromptAction === "copy") {
+		return input.isExpired ? "Refreshing and copying…" : "Copying…";
+	}
+	if (input.isExpired) {
+		return "Refresh and copy";
+	}
+	return input.copyState === "copied" ? "Copy again" : "Copy agent prompt";
+}
+
+function resolvePromptCopiedMessage(input: {
+	didGenerateFreshPrompt: boolean;
+	kind: PromptActionKind;
+}): string {
+	if (input.kind === "generate") {
+		return "OpenMeld Agent Interface prompt generated and copied.";
+	}
+	return input.didGenerateFreshPrompt
+		? "Fresh agent prompt copied."
+		: "Agent prompt copied.";
+}
+
+function isPromptExpired(expiresAt: string, now: number): boolean {
+	const remainingSeconds = resolveRemainingSeconds(expiresAt, now);
+	return remainingSeconds === null || remainingSeconds <= 0;
 }
 
 function resolveRemainingSeconds(
