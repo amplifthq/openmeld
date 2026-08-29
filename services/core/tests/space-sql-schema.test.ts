@@ -81,9 +81,7 @@ describe("space-sql-schema", () => {
       "CREATE TABLE IF NOT EXISTS space_inbox_projection_outbox"
     );
     expect(allSql).toContain("CREATE TABLE IF NOT EXISTS space_dispatch_rules");
-    expect(allSql).toContain(
-      "CREATE TABLE IF NOT EXISTS space_dispatch_policies"
-    );
+    expect(allSql).not.toContain("space_dispatch_policies");
     expect(allSql).toContain("CREATE TABLE IF NOT EXISTS space_file_entries");
     expect(allSql).toContain("CREATE TABLE IF NOT EXISTS space_file_revisions");
     expect(allSql).toContain("CREATE TABLE IF NOT EXISTS space_file_mutations");
@@ -104,7 +102,6 @@ describe("space-sql-schema", () => {
     expect(allSql).toContain("idx_space_inbox_projection_outbox_status_retry");
     expect(allSql).toContain("idx_space_inbox_projection_outbox_signal_id");
     expect(allSql).toContain("idx_space_dispatch_rules_updated_at");
-    expect(allSql).toContain("idx_space_dispatch_policies_updated_at");
     expect(allSql).toContain("idx_space_file_entries_active_parent_name");
     expect(allSql).toContain("idx_space_file_revisions_file_revision");
     expect(allSql).toContain("idx_space_file_mutations_created_at");
@@ -166,6 +163,21 @@ describe("space-sql-schema", () => {
     expect(allSql).toContain(
       "DROP TABLE IF EXISTS space_conversation_bindings"
     );
+  });
+
+  it("leaves legacy dispatch policy storage untouched", () => {
+    const sql = new FakeSqlStorage();
+
+    ensureSpaceSqlSchema(sql as unknown as SqlStorage);
+
+    const allSql = sql.calls.map((call) => call.sql).join("\n");
+    expect(allSql).not.toContain(
+      "CREATE TABLE IF NOT EXISTS space_dispatch_policies"
+    );
+    expect(allSql).not.toContain(
+      "DROP TABLE IF EXISTS space_dispatch_policies"
+    );
+    expect(allSql).not.toContain("DELETE FROM space_dispatch_policies");
   });
 
   it("makes legacy Direct Messages private and marks degraded conversations as converted", () => {

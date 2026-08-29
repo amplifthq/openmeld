@@ -1738,6 +1738,7 @@ const evaluateDispatchPlannerDecisionsForSignal = (input: {
   sql: SqlStorage;
 }): DispatchPlannerEvaluation => {
   const mentionDecisions = resolveDispatchPlannerDecisionsForSignal({
+    dispatchPolicy: input.spaceContract.dispatchPolicy.mode,
     sessions: input.sessions,
     signal: input.signal,
     sql: input.sql,

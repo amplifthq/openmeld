@@ -1,5 +1,5 @@
-export const SPACE_SQL_SCHEMA_VERSION = 27;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v27";
+export const SPACE_SQL_SCHEMA_VERSION = 28;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v28";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -210,24 +210,6 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   `);
 
   sql.exec(`
-    CREATE TABLE IF NOT EXISTS space_dispatch_policies (
-      scope_kind TEXT NOT NULL
-        CHECK (scope_kind IN ('space_default', 'target_profile')),
-      scope_id TEXT NOT NULL,
-      dispatch_policy TEXT NOT NULL
-        CHECK (dispatch_policy IN ('mention_only')),
-      updated_by TEXT NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (scope_kind, scope_id),
-      CHECK (
-        (scope_kind = 'space_default' AND scope_id = 'default')
-        OR
-        (scope_kind = 'target_profile' AND length(scope_id) > 0)
-      )
-    )
-  `);
-
-  sql.exec(`
     CREATE TABLE IF NOT EXISTS space_contracts (
       space_id TEXT PRIMARY KEY,
       contract_json TEXT NOT NULL,
@@ -401,9 +383,6 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   );
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_dispatch_rules_updated_at ON space_dispatch_rules (updated_at_ms)"
-  );
-  sql.exec(
-    "CREATE INDEX IF NOT EXISTS idx_space_dispatch_policies_updated_at ON space_dispatch_policies (updated_at_ms)"
   );
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_contracts_updated_at ON space_contracts (updated_at)"
