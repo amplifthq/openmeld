@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-29T06:57:03.837Z",
+  "updatedAt": "2026-08-29T09:03:29.660Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.130",
+      "packageVersion": "0.3.131",
       "updatePolicy": "available",
-      "reason": "Existing CLI, Service, Auth, Core, Gateway, and Web remain interoperable; 0.3.130 only completes best-effort cleanup of an unused candidate sign-in after recovery."
+      "reason": "CLI versions before 0.3.126 must update before ordinary product commands; setup, upgrade, repair, status, diagnostics, sign-in, and version recovery remain available, while supported 0.3.126 and newer CLIs remain compatible."
     },
     "service": {
-      "bundleHash": "bcaa3a71f1beb74cbe5ce39dd4f97d4442f6993a5c49b4c258283ebe52f1206b",
-      "bundleVersion": "0.3.130",
+      "bundleHash": "87e42524396862009a26647207839dd1ebbe9d3375bf78e55b47d5eb9246c56b",
+      "bundleVersion": "0.3.131",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
