@@ -581,9 +581,13 @@ function printStageDecision(label, decision, write) {
     );
     return;
   }
-  const probeFailure = decision.probeFailure
-    ? "; completion probe failed, fail-open to execution"
-    : "";
+  let probeFailure = "";
+  if (decision.probeFailure) {
+    probeFailure =
+      decision.action === "RUN"
+        ? "; completion probe failed, fail-open to execution"
+        : "; completion probe failed, fail-closed";
+  }
   write(
     `\n[release:cli] ${label} — ${decision.action}: ${decision.reason}${probeFailure}${currentVersions}\n`
   );

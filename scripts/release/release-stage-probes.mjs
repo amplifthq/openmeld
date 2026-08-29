@@ -29,10 +29,11 @@ export function decideD1MigrationStage(input) {
 
 export function decideCliBinaryStage(input) {
   if (input.probeError) {
-    return probeFailureDecision(
-      "CLI binary completion probe",
-      input.probeError
-    );
+    return {
+      action: "FAIL",
+      probeFailure: true,
+      reason: `CLI binary completion probe could not prove whether ${input.targetVersion} is already published: ${String(input.probeError).trim() || "unknown failure"}; refusing to rerun immutable binary publication without conclusive evidence`,
+    };
   }
   const stable = input.manifest?.channels?.stable;
   if (!stable) {
@@ -58,54 +59,61 @@ export function decideCliBinaryStage(input) {
   }
   const artifact = stable.platforms?.[input.platform];
   if (!cliBinaryCompressedReleaseSchema.safeParse(artifact).success) {
-    return {
-      action: "RUN",
-      reason: `the ${input.platform} manifest record is incomplete for ${input.targetVersion}`,
-    };
+    return immutableCliBinaryArtifactFailure(
+      input,
+      "the manifest record is incomplete"
+    );
   }
   if (!input.artifactProbe?.ok) {
-    return {
-      action: "RUN",
-      reason: `the ${input.platform} artifact is not downloadable (HTTP ${String(input.artifactProbe?.status ?? "unknown")})`,
-    };
+    return immutableCliBinaryArtifactFailure(
+      input,
+      `the raw artifact is not downloadable (HTTP ${String(input.artifactProbe?.status ?? "unknown")})`
+    );
   }
   if (input.artifactProbe.contentLength !== artifact.sizeBytes) {
-    return {
-      action: "RUN",
-      reason: `the ${input.platform} artifact size does not match the manifest record (${String(input.artifactProbe.contentLength ?? "missing")} != ${String(artifact.sizeBytes)})`,
-    };
+    return immutableCliBinaryArtifactFailure(
+      input,
+      `the raw artifact size does not match the manifest record (${String(input.artifactProbe.contentLength ?? "missing")} != ${String(artifact.sizeBytes)})`
+    );
   }
   if (!input.archiveProbe?.ok) {
-    return {
-      action: "RUN",
-      reason: `the ${input.platform} gzip archive is not downloadable (HTTP ${String(input.archiveProbe?.status ?? "unknown")})`,
-    };
+    return immutableCliBinaryArtifactFailure(
+      input,
+      `the gzip archive is not downloadable (HTTP ${String(input.archiveProbe?.status ?? "unknown")})`
+    );
   }
   if (input.archiveProbe.contentLength !== artifact.archiveSizeBytes) {
-    return {
-      action: "RUN",
-      reason: `the ${input.platform} gzip archive size does not match the manifest record (${String(input.archiveProbe.contentLength ?? "missing")} != ${String(artifact.archiveSizeBytes)})`,
-    };
+    return immutableCliBinaryArtifactFailure(
+      input,
+      `the gzip archive size does not match the manifest record (${String(input.archiveProbe.contentLength ?? "missing")} != ${String(artifact.archiveSizeBytes)})`
+    );
   }
   if (input.archiveProbe.sha256 !== artifact.archiveSha256) {
-    return {
-      action: "RUN",
-      reason: `the ${input.platform} gzip archive sha256 does not match the manifest record`,
-    };
+    return immutableCliBinaryArtifactFailure(
+      input,
+      "the gzip archive sha256 does not match the manifest record"
+    );
   }
   if (
     input.archiveProbe.reconstructedSizeBytes !== artifact.sizeBytes ||
     input.archiveProbe.reconstructedSha256 !== artifact.sha256
   ) {
-    return {
-      action: "RUN",
-      reason: `the ${input.platform} gzip archive does not reconstruct the recorded binary`,
-    };
+    return immutableCliBinaryArtifactFailure(
+      input,
+      "the gzip archive does not reconstruct the recorded binary"
+    );
   }
   return {
     action: "SKIP",
     criterion: "verified-published-record",
     reason: `the production manifest has ${input.targetVersion} with required floor ${input.targetMinRequiredCliVersion}, the ${input.platform} raw URL matches its recorded size, and the gzip archive hashes and reconstructs the recorded binary`,
+  };
+}
+
+function immutableCliBinaryArtifactFailure(input, detail) {
+  return {
+    action: "FAIL",
+    reason: `the production CLI manifest already publishes ${input.targetVersion}, so its ${input.platform} artifacts are immutable; ${detail}; investigate the published record or publish a new version instead of retrying this version`,
   };
 }
 

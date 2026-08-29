@@ -40,6 +40,10 @@ const IMMUTABLE_NPM_METADATA_RE =
   /npm openmeld@0\.7\.96 is immutable with required floor 0\.7\.95/u;
 const IMMUTABLE_R2_METADATA_RE =
   /production CLI manifest for 0\.7\.96 is immutable with required floor 0\.7\.95/u;
+const IMMUTABLE_R2_ARTIFACT_RE =
+  /production CLI manifest already publishes 0\.3\.130.*raw artifact is not downloadable/u;
+const INCONCLUSIVE_R2_PROBE_RE =
+  /could not prove whether 0\.3\.130 is already published.*refusing to rerun immutable binary publication/u;
 const MANIFEST_GATE_EXPLODED_RE = /manifest gate exploded/u;
 const QUEUE_GATE_EXPLODED_RE = /queue gate exploded/u;
 const RELEASE_RESUME_COMMAND_RE =
@@ -65,15 +69,32 @@ const WRANGLER_RELEASE_STATE = JSON.parse(
     "utf8"
   )
 );
+const NPM_VERSION_FLOOR_FIXTURE = JSON.parse(
+  readFileSync(
+    new URL(
+      "./fixtures/npm-view-openmeld-0.3.130-version-floor.json",
+      import.meta.url
+    ),
+    "utf8"
+  )
+);
 const TEST_CLI_BINARY = Buffer.alloc(100, "b");
 const TEST_CLI_ARCHIVE = gzipSync(TEST_CLI_BINARY);
+
+function buildCapturedNpmVersionFloorStdout(input) {
+  return `${JSON.stringify({
+    ...NPM_VERSION_FLOOR_FIXTURE.response,
+    version: input.version,
+    "openmeld.minRequiredCliVersion": input.minRequiredCliVersion,
+  })}\n`;
+}
 
 function buildTestCliManifest(version, options = {}) {
   const url = `https://openmeld.test/cli-${version}`;
   return {
     channels: {
       stable: {
-        minRequiredCliVersion: version,
+        minRequiredCliVersion: options.minRequiredCliVersion ?? version,
         platforms: {
           "darwin-arm64": {
             sha256: createHash("sha256").update(TEST_CLI_BINARY).digest("hex"),
@@ -98,7 +119,7 @@ function buildTestCliManifest(version, options = {}) {
   };
 }
 
-async function createReleaseRepo(version) {
+async function createReleaseRepo(version, options = {}) {
   const repoRoot = await mkdtemp(join(tmpdir(), "openmeld-release-cli-"));
   const git = (...args) =>
     execFileAsync(
@@ -118,7 +139,9 @@ async function createReleaseRepo(version) {
       {
         name: "openmeld",
         version,
-        openmeld: { minRequiredCliVersion: version },
+        openmeld: {
+          minRequiredCliVersion: options.minRequiredCliVersion ?? version,
+        },
       },
       null,
       2
@@ -590,8 +613,8 @@ test("preserves a failed stage error and prints the canonical resume command", a
                 schemaVersion: 1,
                 channels: {
                   stable: {
-                    version: "0.7.96",
-                    minRequiredCliVersion: "0.7.96",
+                    version: "0.7.95",
+                    minRequiredCliVersion: "0.7.95",
                     platforms: {
                       "darwin-arm64": {
                         url: "https://openmeld.test/cli-0.7.96",
@@ -675,8 +698,8 @@ test("stops before binary, npm, tag, and Core when the Queue gate fails", async 
                 schemaVersion: 1,
                 channels: {
                   stable: {
-                    version: "0.7.96",
-                    minRequiredCliVersion: "0.7.96",
+                    version: "0.7.95",
+                    minRequiredCliVersion: "0.7.95",
                     platforms: {
                       "darwin-arm64": {
                         url: "https://openmeld.test/cli-0.7.96",
@@ -797,8 +820,10 @@ test("a fully completed CLI release rerun skips every stage without side effects
             return {
               status: 0,
               stderr: "",
-              stdout:
-                '{"version":"0.7.96","openmeld.minRequiredCliVersion":"0.7.96"}\n',
+              stdout: buildCapturedNpmVersionFloorStdout({
+                minRequiredCliVersion: "0.7.96",
+                version: "0.7.96",
+              }),
             };
           }
           if (key.includes("wrangler deployments list")) {
@@ -893,8 +918,10 @@ test("stops before every release mutation when immutable npm metadata is wrong",
               return {
                 status: 0,
                 stderr: "",
-                stdout:
-                  '{"version":"0.7.96","openmeld.minRequiredCliVersion":"0.7.95"}\n',
+                stdout: buildCapturedNpmVersionFloorStdout({
+                  minRequiredCliVersion: "0.7.95",
+                  version: "0.7.96",
+                }),
               };
             }
             if (key.includes("wrangler deployments list")) {
@@ -969,8 +996,10 @@ test("stops before every release mutation when immutable R2 metadata is wrong", 
               return {
                 status: 0,
                 stderr: "",
-                stdout:
-                  '{"version":"0.7.96","openmeld.minRequiredCliVersion":"0.7.96"}\n',
+                stdout: buildCapturedNpmVersionFloorStdout({
+                  minRequiredCliVersion: "0.7.96",
+                  version: "0.7.96",
+                }),
               };
             }
             if (key.includes("wrangler deployments list")) {
@@ -1006,5 +1035,100 @@ test("stops before every release mutation when immutable R2 metadata is wrong", 
     assert.deepEqual(sideEffects, []);
   } finally {
     await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("stops before every release mutation when immutable binary completion is unsafe", async () => {
+  const capturedNpmResponse = NPM_VERSION_FLOOR_FIXTURE.response;
+  const releaseCases = [
+    {
+      name: "the target manifest points to a missing raw artifact",
+      expected: IMMUTABLE_R2_ARTIFACT_RE,
+      fetch: (url, options) => {
+        const manifest = buildTestCliManifest(capturedNpmResponse.version, {
+          minRequiredCliVersion:
+            capturedNpmResponse["openmeld.minRequiredCliVersion"],
+        });
+        if (options?.method === "HEAD") {
+          return new Response(null, { status: 404 });
+        }
+        if (String(url).endsWith(".gz")) {
+          return new Response(TEST_CLI_ARCHIVE, { status: 200 });
+        }
+        return new Response(JSON.stringify(manifest), { status: 200 });
+      },
+    },
+    {
+      name: "the completion probe cannot prove whether the target exists",
+      expected: INCONCLUSIVE_R2_PROBE_RE,
+      fetch: () => Promise.reject(new Error("read-only probe unavailable")),
+    },
+  ];
+
+  for (const releaseCase of releaseCases) {
+    const { git, repoRoot } = await createReleaseRepo(
+      capturedNpmResponse.version,
+      {
+        minRequiredCliVersion:
+          capturedNpmResponse["openmeld.minRequiredCliVersion"],
+      }
+    );
+    await mkdir(join(repoRoot, "release"), { recursive: true });
+    await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
+    await git("add", "release/local-components.json");
+    await git("commit", "-m", "add release manifest");
+    await configureTestOrigin({ git, repoRoot });
+    const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
+    const sideEffects = [];
+
+    try {
+      await assert.rejects(
+        runCliRelease({
+          adapters: {
+            fetch: releaseCase.fetch,
+            runCommand: ({ args, command }) => {
+              const key = [command, ...args].join(" ");
+              if (key.startsWith("npm view")) {
+                return {
+                  status: 0,
+                  stderr: "",
+                  stdout: `${JSON.stringify(capturedNpmResponse)}\n`,
+                };
+              }
+              if (key.includes("wrangler deployments list")) {
+                return {
+                  status: 0,
+                  stderr: "",
+                  stdout: JSON.stringify(WRANGLER_RELEASE_STATE.deployments),
+                };
+              }
+              if (key.includes("wrangler versions list")) {
+                return {
+                  status: 0,
+                  stderr: "",
+                  stdout: JSON.stringify(
+                    WRANGLER_RELEASE_STATE.versions.map((version) => ({
+                      ...version,
+                      annotations: { "workers/tag": coreTag },
+                    }))
+                  ),
+                };
+              }
+              throw new Error(`Unexpected read-only command: ${key}`);
+            },
+            runStep: (step) => sideEffects.push(step.label),
+            publishCliReleaseTag: () => sideEffects.push("tag"),
+          },
+          cwd: repoRoot,
+          env: {},
+          withBinary: true,
+        }),
+        releaseCase.expected,
+        releaseCase.name
+      );
+      assert.deepEqual(sideEffects, [], releaseCase.name);
+    } finally {
+      await rm(repoRoot, { force: true, recursive: true });
+    }
   }
 });

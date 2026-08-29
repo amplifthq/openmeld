@@ -824,7 +824,13 @@ probes are read-only. A completed stage prints `SKIP (already done)` with its
 criterion; an incomplete stage prints `RUN` and executes the existing command
 and gates unchanged. If a completion probe cannot run because of network,
 credentials, or malformed output, the executor prints the probe failure and
-runs the stage. It never skips work on uncertain evidence.
+runs the stage only when that stage is safely repeatable. The immutable CLI
+binary stage is the exception: an inconclusive probe fails closed. When the
+production manifest still names an older version, the new target may safely
+resume because artifacts publish before the manifest; once the manifest names
+the target version, any missing, incomplete, size-mismatched, hash-mismatched,
+or unreconstructable artifact fails without rebuilding or overwriting that
+version.
 
 The built-in production order is:
 
@@ -843,7 +849,7 @@ because they are safe, even though they create another Worker version.
 | Stage | `SKIP` criterion | Criterion level |
 | --- | --- | --- |
 | Production D1 migration application | `wrangler d1 migrations list --remote` reports no pending migrations | Remote pending-list truth |
-| CLI binary, signing, notarization, and R2 | The production manifest has the target version and the exact target `minRequiredCliVersion`; the platform record has a valid sha256 and positive size; `HEAD` confirms the artifact is downloadable with that size | Published-record evidence; no local rebuild/hash comparison |
+| CLI binary, signing, notarization, and R2 | The production manifest has the target version and the exact target `minRequiredCliVersion`; the platform record is complete; the raw and gzip artifacts are downloadable with their recorded sizes; the gzip sha256 matches and reconstructs the recorded raw binary | Immutable published-record evidence; any inconclusive or inconsistent target-version record fails closed |
 | npm | `npm view` reports the target immutable version and its `openmeld.minRequiredCliVersion` exactly matches the target floor | Registry version and floor existence |
 | Release tag | The target tag resolves to the current release commit both locally and on `origin` | Local and remote Git object identity |
 | Core projection | The active 100% production Worker version carries the stable tag derived from the release commit and `release/local-components.json` | Active Worker version identity |

@@ -27,6 +27,23 @@ const WRANGLER_RELEASE_STATE = JSON.parse(
     "utf8"
   )
 );
+const NPM_VERSION_FLOOR_FIXTURE = JSON.parse(
+  readFileSync(
+    new URL(
+      "./fixtures/npm-view-openmeld-0.3.130-version-floor.json",
+      import.meta.url
+    ),
+    "utf8"
+  )
+);
+
+function buildCapturedNpmVersionFloorStdout(input) {
+  return `${JSON.stringify({
+    ...NPM_VERSION_FLOOR_FIXTURE.response,
+    version: input.version,
+    "openmeld.minRequiredCliVersion": input.minRequiredCliVersion,
+  })}\n`;
+}
 
 function completeBinaryInput() {
   return {
@@ -132,12 +149,43 @@ test("runs the CLI binary channel when the target version is not published", () 
   });
 });
 
-test("runs the CLI binary channel when the compressed artifact is missing", () => {
+test("fails closed when a published target version has a missing compressed artifact", () => {
   const input = completeBinaryInput();
   input.archiveProbe = { contentLength: null, ok: false, status: 404 };
   assert.deepEqual(decideCliBinaryStage(input), {
-    action: "RUN",
-    reason: "the darwin-arm64 gzip archive is not downloadable (HTTP 404)",
+    action: "FAIL",
+    reason:
+      "the production CLI manifest already publishes 0.2.43, so its darwin-arm64 artifacts are immutable; the gzip archive is not downloadable (HTTP 404); investigate the published record or publish a new version instead of retrying this version",
+  });
+});
+
+test("fails closed when a published target version has an incomplete artifact record", () => {
+  const input = completeBinaryInput();
+  input.manifest.channels.stable.platforms["darwin-arm64"].archiveSizeBytes =
+    undefined;
+
+  assert.deepEqual(decideCliBinaryStage(input), {
+    action: "FAIL",
+    reason:
+      "the production CLI manifest already publishes 0.2.43, so its darwin-arm64 artifacts are immutable; the manifest record is incomplete; investigate the published record or publish a new version instead of retrying this version",
+  });
+});
+
+test("fails closed when a published target version has mismatched artifact sizes", () => {
+  const rawInput = completeBinaryInput();
+  rawInput.artifactProbe.contentLength -= 1;
+  assert.deepEqual(decideCliBinaryStage(rawInput), {
+    action: "FAIL",
+    reason:
+      "the production CLI manifest already publishes 0.2.43, so its darwin-arm64 artifacts are immutable; the raw artifact size does not match the manifest record (68899791 != 68899792); investigate the published record or publish a new version instead of retrying this version",
+  });
+
+  const archiveInput = completeBinaryInput();
+  archiveInput.archiveProbe.contentLength -= 1;
+  assert.deepEqual(decideCliBinaryStage(archiveInput), {
+    action: "FAIL",
+    reason:
+      "the production CLI manifest already publishes 0.2.43, so its darwin-arm64 artifacts are immutable; the gzip archive size does not match the manifest record (25721095 != 25721096); investigate the published record or publish a new version instead of retrying this version",
   });
 });
 
@@ -146,9 +194,9 @@ test("does not trust a same-size gzip archive whose bytes do not match the manif
   input.archiveProbe.sha256 = "d".repeat(64);
 
   assert.deepEqual(decideCliBinaryStage(input), {
-    action: "RUN",
+    action: "FAIL",
     reason:
-      "the darwin-arm64 gzip archive sha256 does not match the manifest record",
+      "the production CLI manifest already publishes 0.2.43, so its darwin-arm64 artifacts are immutable; the gzip archive sha256 does not match the manifest record; investigate the published record or publish a new version instead of retrying this version",
   });
 });
 
@@ -157,43 +205,42 @@ test("does not trust a gzip archive unless it reconstructs the signed binary", (
   input.archiveProbe.reconstructedSha256 = "d".repeat(64);
 
   assert.deepEqual(decideCliBinaryStage(input), {
-    action: "RUN",
+    action: "FAIL",
     reason:
-      "the darwin-arm64 gzip archive does not reconstruct the recorded binary",
+      "the production CLI manifest already publishes 0.2.43, so its darwin-arm64 artifacts are immutable; the gzip archive does not reconstruct the recorded binary; investigate the published record or publish a new version instead of retrying this version",
   });
 });
 
-test("runs the CLI binary channel when its bounded read-only probe fails", () => {
+test("fails closed when the immutable binary completion probe is inconclusive", () => {
   assert.deepEqual(
     decideCliBinaryStage({
       probeError: "This operation was aborted",
       targetVersion: TARGET_VERSION,
     }),
     {
-      action: "RUN",
+      action: "FAIL",
       probeFailure: true,
-      reason: "CLI binary completion probe failed: This operation was aborted",
+      reason:
+        "CLI binary completion probe could not prove whether 0.2.43 is already published: This operation was aborted; refusing to rerun immutable binary publication without conclusive evidence",
     }
   );
 });
 
-test("skips npm when the immutable target version already exists", () => {
+test("parses the captured npm multi-field response when the immutable target version already exists", () => {
+  const response = NPM_VERSION_FLOOR_FIXTURE.response;
   assert.deepEqual(
     decideNpmPublishStage({
       status: 0,
       stderr: "",
-      stdout: `${JSON.stringify({
-        version: TARGET_VERSION,
-        "openmeld.minRequiredCliVersion": TARGET_MIN_REQUIRED_CLI_VERSION,
-      })}\n`,
-      targetMinRequiredCliVersion: TARGET_MIN_REQUIRED_CLI_VERSION,
-      targetVersion: TARGET_VERSION,
+      stdout: `${JSON.stringify(response)}\n`,
+      targetMinRequiredCliVersion: response["openmeld.minRequiredCliVersion"],
+      targetVersion: response.version,
     }),
     {
       action: "SKIP",
       criterion: "npm-version-and-floor-exist",
       reason:
-        "npm already publishes openmeld@0.2.43 with required floor 0.2.40",
+        "npm already publishes openmeld@0.3.130 with required floor 0.3.117",
     }
   );
 });
@@ -218,21 +265,22 @@ test("fails final alignment before mutation when an immutable channel is wrong",
 });
 
 test("fails closed when an immutable npm package has the wrong required floor", () => {
+  const response = NPM_VERSION_FLOOR_FIXTURE.response;
   assert.deepEqual(
     decideNpmPublishStage({
       status: 0,
       stderr: "",
-      stdout: `${JSON.stringify({
-        version: TARGET_VERSION,
-        "openmeld.minRequiredCliVersion": "0.2.39",
-      })}\n`,
-      targetMinRequiredCliVersion: TARGET_MIN_REQUIRED_CLI_VERSION,
-      targetVersion: TARGET_VERSION,
+      stdout: buildCapturedNpmVersionFloorStdout({
+        minRequiredCliVersion: "0.3.116",
+        version: response.version,
+      }),
+      targetMinRequiredCliVersion: response["openmeld.minRequiredCliVersion"],
+      targetVersion: response.version,
     }),
     {
       action: "FAIL",
       reason:
-        "npm openmeld@0.2.43 is immutable with required floor 0.2.39, not target 0.2.40; publish a new release instead of retrying this version",
+        "npm openmeld@0.3.130 is immutable with required floor 0.3.116, not target 0.3.117; publish a new release instead of retrying this version",
     }
   );
 });
