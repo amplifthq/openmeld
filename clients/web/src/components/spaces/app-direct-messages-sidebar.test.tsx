@@ -19,12 +19,17 @@ const {
 	prefetchSpaceConversationIntentMock,
 	preloadRouteMock,
 	readSpaceMembersMock,
+	spaceUnreadById,
 } = vi.hoisted(() => ({
 	listAccountSpaceItemsMock: vi.fn(),
 	navigateMock: vi.fn(),
 	prefetchSpaceConversationIntentMock: vi.fn(),
 	preloadRouteMock: vi.fn(),
 	readSpaceMembersMock: vi.fn(),
+	spaceUnreadById: new Map<
+		string,
+		{ latestUnreadOccurredAtMs: number; unreadCount: number }
+	>(),
 }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
@@ -54,6 +59,10 @@ vi.mock("./use-space-conversation-intent-prefetch", () => ({
 	useSpaceConversationIntentPrefetch: () => prefetchSpaceConversationIntentMock,
 }));
 
+vi.mock("./use-account-space-indicators", () => ({
+	useSpaceInboxUnreadById: () => spaceUnreadById,
+}));
+
 vi.mock("#/lib/spaces/account-spaces", () => ({
 	listAccountSpaceItems: (...args: unknown[]) =>
 		listAccountSpaceItemsMock(...args),
@@ -81,6 +90,7 @@ describe("AppDirectMessagesSidebar", () => {
 			.mockResolvedValue(undefined);
 		preloadRouteMock.mockReset().mockResolvedValue(undefined);
 		readSpaceMembersMock.mockReset();
+		spaceUnreadById.clear();
 	});
 
 	afterEach(() => {
@@ -88,6 +98,10 @@ describe("AppDirectMessagesSidebar", () => {
 	});
 
 	it("shows only current Direct Messages with the other participant identity", async () => {
+		spaceUnreadById.set("space-dm", {
+			latestUnreadOccurredAtMs: 2000,
+			unreadCount: 2,
+		});
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -131,8 +145,11 @@ describe("AppDirectMessagesSidebar", () => {
 		);
 
 		const peerButton = await screen.findByRole("button", {
-			name: "Build Agent",
+			name: "Build Agent, unread messages",
 		});
+		expect(
+			peerButton.querySelector('[data-direct-message-unread-indicator="true"]')
+		).toBeTruthy();
 		expect(screen.queryByText("Felix and Build Agent 2026-08-05")).toBeNull();
 		expect(screen.queryByText("Degraded DM")).toBeNull();
 		expect(screen.queryByText("Other organization DM")).toBeNull();

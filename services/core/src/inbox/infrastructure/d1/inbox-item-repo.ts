@@ -78,7 +78,7 @@ export async function prepareEnsureInboxItemStatements(input: {
     candidate.attention === "action_required" ? "open" : "not_applicable";
   const targetSpaceId =
     candidate.sourceKind === "space_signal" && candidate.attention === "update"
-      ? readInboxTargetSpaceId(candidate.sourceTarget)
+      ? readMainInboxTargetSpaceId(candidate.sourceTarget)
       : null;
   const spaceReadWatermark = targetSpaceId
     ? {
@@ -188,12 +188,12 @@ export async function prepareEnsureInboxItemStatements(input: {
   return { deliveryId, itemId, statements };
 }
 
-function readInboxTargetSpaceId(
+function readMainInboxTargetSpaceId(
   target: InboxSourceCandidate["sourceTarget"]
 ): string | null {
   switch (target.kind) {
     case "space":
-      return target.spaceId;
+      return target.threadRootSignalId === undefined ? target.spaceId : null;
     case "center_agent":
       return target.spaceId ?? null;
     case "agent_interaction":

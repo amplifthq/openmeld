@@ -22,6 +22,7 @@ import {
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   OPENMELD_WELCOMING_SPACE_PURPOSE,
 } from "@openmeld/space";
+import { isReadPositionWithinAllowedFutureSkew } from "../../shared/read-position";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 
 const INBOX_ITEM_NOT_FOUND_CODE = "inbox.item_not_found";
@@ -649,11 +650,12 @@ async function markSpaceInboxReadThrough(input: {
   requireIdentifier(input.organizationId, "organizationId");
   requireIdentifier(input.recipientUserId, "recipientUserId");
   requireIdentifier(input.spaceId, "spaceId");
+  const timestamp = readNowMs(input.nowMs);
   if (
-    !(
-      Number.isInteger(input.throughOccurredAtMs) &&
-      input.throughOccurredAtMs >= 0
-    )
+    !isReadPositionWithinAllowedFutureSkew({
+      nowMs: timestamp,
+      positionMs: input.throughOccurredAtMs,
+    })
   ) {
     throw invalidInputError(input.invalidWatermarkMessage);
   }
@@ -707,11 +709,14 @@ async function markSpaceInboxReadThrough(input: {
       status: 404,
     });
   }
-  const timestamp = readNowMs(input.nowMs);
   const itemTargetFilter =
     input.itemScope === "space"
       ? INBOX_SPACE_MESSAGE_FILTER
       : INBOX_CENTER_AGENT_MESSAGE_FILTER;
+  const itemThreadFilter =
+    input.itemScope === "space"
+      ? "AND json_type(source_target_json, '$.threadRootSignalId') IS NULL"
+      : "";
   const [, itemResult] = await input.db.batch([
     input.db
       .prepare(
@@ -766,6 +771,7 @@ async function markSpaceInboxReadThrough(input: {
             AND occurred_at_ms <= ?
             AND ${itemTargetFilter}
             AND json_extract(source_target_json, '$.spaceId') = ?
+            ${itemThreadFilter}
             AND ${CURRENT_SOURCE_ACCESS_FILTER}
         `
       )

@@ -46,14 +46,14 @@ describe("readSpaceCursorLastSeenTs", () => {
 		).resolves.toBeNull();
 	});
 
-	it("returns null (resilient) when the request fails", async () => {
+	it("surfaces a read failure instead of treating it as no saved cursor", async () => {
 		requestJsonMock.mockRejectedValue(new Error("network"));
 		await expect(
 			readSpaceCursorLastSeenTs({
 				spaceId: "space-1",
 				openMeldProfileId: "p-1",
 			})
-		).resolves.toBeNull();
+		).rejects.toThrow("network");
 	});
 });
 
@@ -74,7 +74,7 @@ describe("writeSpaceCursorLastSeenTs", () => {
 		);
 	});
 
-	it("never throws when the write fails", async () => {
+	it("surfaces a write failure so the caller can retry", async () => {
 		requestJsonMock.mockRejectedValue(new Error("network"));
 		await expect(
 			writeSpaceCursorLastSeenTs({
@@ -82,6 +82,6 @@ describe("writeSpaceCursorLastSeenTs", () => {
 				openMeldProfileId: "p-1",
 				lastSeenTs: 5000,
 			})
-		).resolves.toBeUndefined();
+		).rejects.toThrow("network");
 	});
 });

@@ -31,6 +31,7 @@ import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { spaceMembersQueryOptions } from "#/query/spaces/members";
 import { selectAccountSpaceSections } from "./account-space-sections";
 import { SpaceProfileIcon } from "./space-profile-icon";
+import { useSpaceInboxUnreadById } from "./use-account-space-indicators";
 import {
 	type SpaceConversationIntentPrefetch,
 	useSpaceConversationIntentPrefetch,
@@ -68,6 +69,10 @@ export function AppDirectMessagesSidebar(input: {
 				sections: spacesQuery.data,
 			}).directMessageItems
 		: [];
+	const unreadBySpaceId = useSpaceInboxUnreadById({
+		enabled: input.currentProfileId.trim().length > 0,
+		organizationId: currentOrganization.id,
+	});
 	let listState: DirectMessagesListState = "ready";
 	if (spacesQuery.isPending) {
 		listState = "loading";
@@ -107,6 +112,7 @@ export function AppDirectMessagesSidebar(input: {
 					prefetchSpaceConversation={prefetchSpaceConversation}
 					routeIntentPrefetch={routeIntentPrefetch}
 					state={listState}
+					unreadBySpaceId={unreadBySpaceId}
 				/>
 			</SidebarContent>
 		</nav>
@@ -123,6 +129,10 @@ function DirectMessagesList(input: {
 	prefetchSpaceConversation: SpaceConversationIntentPrefetch;
 	routeIntentPrefetch: RouteIntentPrefetchController;
 	state: DirectMessagesListState;
+	unreadBySpaceId: ReadonlyMap<
+		string,
+		{ latestUnreadOccurredAtMs: number; unreadCount: number }
+	>;
 }) {
 	if (input.state === "loading") {
 		return (
@@ -183,6 +193,9 @@ function DirectMessagesList(input: {
 						organizationSlug={input.organizationSlug}
 						prefetchSpaceConversation={input.prefetchSpaceConversation}
 						routeIntentPrefetch={input.routeIntentPrefetch}
+						unreadCount={
+							input.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0
+						}
 					/>
 				))}
 			</FluidNavMenu>
@@ -224,6 +237,7 @@ function DirectMessageSidebarItem(input: {
 	organizationSlug: string;
 	prefetchSpaceConversation: SpaceConversationIntentPrefetch;
 	routeIntentPrefetch: RouteIntentPrefetchController;
+	unreadCount: number;
 }) {
 	const viewerProfileId = resolveDirectMessageViewerProfileId({
 		currentProfileId: input.currentProfileId,
@@ -241,6 +255,8 @@ function DirectMessageSidebarItem(input: {
 		viewerProfileId,
 	});
 	const label = peer?.profileName ?? input.item.spaceName;
+	const hasUnread = input.unreadCount > 0;
+	const accessibleLabel = hasUnread ? `${label}, unread messages` : label;
 	const routePath = buildOrganizationDirectMessagePath({
 		orgSlug: input.organizationSlug,
 		search: { profileId: viewerProfileId },
@@ -259,14 +275,15 @@ function DirectMessageSidebarItem(input: {
 					render={
 						<button
 							aria-current={input.isActive ? "page" : undefined}
-							aria-label={label}
+							aria-label={accessibleLabel}
 							className={cn(
 								"flex min-h-10 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring",
 								APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 								APP_NAV_ITEM_TONE_CLASS_NAME,
 								input.isActive
 									? "font-medium text-sidebar-accent-foreground"
-									: null
+									: null,
+								hasUnread ? "font-semibold text-sidebar-foreground" : null
 							)}
 							onClick={() => input.onOpen(routePath)}
 							onFocus={
@@ -324,6 +341,13 @@ function DirectMessageSidebarItem(input: {
 								</span>
 							)}
 							<CenterTruncatedText className="flex-1" text={label} />
+							{hasUnread ? (
+								<span
+									aria-hidden="true"
+									className="size-1.5 shrink-0 rounded-full bg-amber-400"
+									data-direct-message-unread-indicator="true"
+								/>
+							) : null}
 						</button>
 					}
 				/>
@@ -346,7 +370,7 @@ function resolveDirectMessageViewerProfileId(input: {
 		: input.item.openProfileId;
 }
 
-export function resolveDirectMessagePeer(input: {
+function resolveDirectMessagePeer(input: {
 	members: SpaceMembersSnapshot | undefined;
 	viewerProfileId: string;
 }): DirectMessagePeer | null {

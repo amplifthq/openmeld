@@ -778,6 +778,79 @@ describe("Inbox service", () => {
     }
   });
 
+  it("keeps thread messages unread when the main Space timeline is viewed", async () => {
+    const harness = createInboxHarness();
+    try {
+      await seedSpaceItem(harness.db, {
+        occurredAtMs: 900,
+        recipientUserId: "user_one",
+        sourceKey: "space_main_message",
+        spaceId: "space_one",
+      });
+      await seedSpaceItem(harness.db, {
+        occurredAtMs: 950,
+        recipientUserId: "user_one",
+        sourceKey: "space_thread_message",
+        spaceId: "space_one",
+        threadRootSignalId: "space_thread_root",
+      });
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+
+      await expect(
+        service.markSpaceReadThrough({
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+          spaceId: "space_one",
+          throughOccurredAtMs: 1000,
+        })
+      ).resolves.toMatchObject({ markedReadCount: 1 });
+
+      expect(
+        harness.queryFirst<{ read_at_ms: number | null }>({
+          params: ["space_thread_message"],
+          sql: "SELECT read_at_ms FROM inbox_items WHERE source_key = ?",
+        })
+      ).toEqual({ read_at_ms: null });
+
+      await seedSpaceItem(harness.db, {
+        occurredAtMs: 800,
+        recipientUserId: "user_one",
+        sourceKey: "space_delayed_thread_message",
+        spaceId: "space_one",
+        threadRootSignalId: "space_thread_root",
+      });
+      expect(
+        harness.queryFirst<{ read_at_ms: number | null }>({
+          params: ["space_delayed_thread_message"],
+          sql: "SELECT read_at_ms FROM inbox_items WHERE source_key = ?",
+        })
+      ).toEqual({ read_at_ms: null });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("rejects a Space read watermark far in the future", async () => {
+    const harness = createInboxHarness();
+    try {
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+
+      await expect(
+        service.markSpaceReadThrough({
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+          spaceId: "space_one",
+          throughOccurredAtMs: 304_001,
+        })
+      ).rejects.toMatchObject({
+        code: "inbox.invalid_input",
+        status: 400,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("rejects the legacy Center Agent read endpoint for an ordinary Space", async () => {
     const harness = createInboxHarness();
     try {
@@ -852,6 +925,7 @@ async function seedSpaceItem(
     recipientUserId: string;
     sourceKey: string;
     spaceId: string;
+    threadRootSignalId?: string;
   }
 ) {
   return await ensureInboxItem({
@@ -870,6 +944,9 @@ async function seedSpaceItem(
         kind: "space",
         signalId: identity.sourceKey,
         spaceId: identity.spaceId,
+        ...(identity.threadRootSignalId
+          ? { threadRootSignalId: identity.threadRootSignalId }
+          : {}),
       },
       title: "New message in Launch Room",
     },

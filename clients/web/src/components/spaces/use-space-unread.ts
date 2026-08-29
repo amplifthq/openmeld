@@ -124,7 +124,6 @@ export function useSpaceUnread(input: {
 			}
 			const persist = onViewedThroughTsRef.current;
 			if (!persist) {
-				inboxPersistedThroughTsRef.current = throughTs;
 				return;
 			}
 			try {
@@ -174,7 +173,9 @@ export function useSpaceUnread(input: {
 						isSameIdentity(identityRef.current, identity) &&
 						writeTimerRef.current === null &&
 						(cursorPersistedThroughTsRef.current < latestVisibleTsRef.current ||
-							inboxPersistedThroughTsRef.current < latestVisibleTsRef.current)
+							(onViewedThroughTsRef.current !== undefined &&
+								inboxPersistedThroughTsRef.current <
+									latestVisibleTsRef.current))
 					) {
 						schedulePersistenceRef.current();
 					}
@@ -215,13 +216,20 @@ export function useSpaceUnread(input: {
 					return;
 				}
 				if (seeded !== null) {
-					cursorPersistedThroughTsRef.current = seeded;
-					setLastSeenTs(seeded);
+					cursorPersistedThroughTsRef.current = Math.max(
+						cursorPersistedThroughTsRef.current,
+						seeded
+					);
+					setLastSeenTs((current) => Math.max(current, seeded));
 				}
 				setIsCursorReady(true);
 			})
-			.catch(() => {
+			.catch((error: unknown) => {
 				if (!isDisposed) {
+					console.warn(
+						"Failed to read the Space message read position.",
+						error
+					);
 					setIsCursorReady(true);
 				}
 			});
@@ -245,6 +253,19 @@ export function useSpaceUnread(input: {
 		}
 		cancelPendingPersistence();
 	}, [
+		isViewingNow,
+		latestVisibleTs,
+		schedulePersistence,
+		cancelPendingPersistence,
+	]);
+
+	useEffect(() => {
+		if (input.onViewedThroughTs && isViewingNow) {
+			schedulePersistence(latestVisibleTs);
+			return cancelPendingPersistence;
+		}
+	}, [
+		input.onViewedThroughTs,
 		isViewingNow,
 		latestVisibleTs,
 		schedulePersistence,

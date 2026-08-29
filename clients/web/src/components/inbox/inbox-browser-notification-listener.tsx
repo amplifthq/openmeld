@@ -32,7 +32,7 @@ import { getCurrentInboxItem } from "#/lib/organizations/inbox";
 import {
 	inboxBrowserNotificationRecoveryItemQueryOptions,
 	inboxItemsInfiniteQueryOptions,
-	invalidateInboxSummary,
+	invalidateInboxFacts,
 } from "#/query/organizations/inbox";
 
 const INBOX_BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 10_000;
@@ -327,7 +327,7 @@ export function InboxBrowserNotificationListener(input: {
 			visibleConversation,
 		});
 		if (sawNewItem) {
-			invalidateInboxSummary({
+			invalidateInboxFacts({
 				organizationId: input.organizationId,
 				queryClient,
 			}).catch((error: unknown) => {
