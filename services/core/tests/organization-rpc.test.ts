@@ -1428,7 +1428,7 @@ describe("organization Core RPC", () => {
     });
   });
 
-  it("includes active personal Agent Profiles with Organization Wake Access in the organization directory", async () => {
+  it("excludes personal Agent Profiles from another Organization even with legacy Wake Access", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -1489,12 +1489,11 @@ describe("organization Core RPC", () => {
         profileId: profile.profileId,
       }))
     ).toEqual([
-      { organizationId: "org-personal", profileId: AGENT_PROFILE_ID },
       { organizationId: "org-a", profileId: SECOND_AGENT_PROFILE_ID },
     ]);
   });
 
-  it("excludes a personal Center Agent from another Organization's directory even with Wake Access", async () => {
+  it("excludes all personal Agent Profiles from another Organization even with legacy Wake Access", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -1538,9 +1537,7 @@ describe("organization Core RPC", () => {
       }),
     });
 
-    expect(response.agentProfiles.map((profile) => profile.profileId)).toEqual([
-      AGENT_PROFILE_ID,
-    ]);
+    expect(response.agentProfiles).toEqual([]);
   });
 
   it("falls back to readable names for organization directory members with empty auth names", async () => {
@@ -1906,7 +1903,7 @@ describe("organization Core RPC", () => {
     }
   });
 
-  it("designates Remote Agent by writing a hosted Binding, Organization authorization, and audit entries", async () => {
+  it("designates Remote Agent by writing a hosted Binding without retired Wake authorization", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -1956,12 +1953,8 @@ describe("organization Core RPC", () => {
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
     ]);
-    const hostedBindingId = [...db.bindingRows.values()][0]?.bindingId;
-    expect(db.authorizationWrites).toEqual([
-      { bindingId: hostedBindingId, organizationId: "org-a" },
-    ]);
+    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
-      "authorize_remote_center_agent_binding",
       "designate_remote_center_agent",
     ]);
   });
@@ -2233,7 +2226,7 @@ describe("organization Core RPC", () => {
     expect(db.bindingWriteEvents).toEqual([]);
   });
 
-  it("reconciles a legacy admin-owned Binding into the Profile owner's Binding", async () => {
+  it("reconciles a legacy admin-owned Binding without rebuilding retired Wake authorization", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -2315,12 +2308,7 @@ describe("organization Core RPC", () => {
         runtimeKind: "hosted_center_agent",
       }),
     ]);
-    expect([...db.authorizationRows.values()]).toEqual([
-      expect.objectContaining({
-        authorizedBy: "admin-user",
-        organizationId: "org-a",
-      }),
-    ]);
+    expect([...db.authorizationRows.values()]).toEqual([]);
     expect(
       acquireMutation.mock.calls.map(([request]) => request.ownerUserId)
     ).toEqual(["admin-user", "owner-user"]);
@@ -2335,7 +2323,7 @@ describe("organization Core RPC", () => {
     ]);
   });
 
-  it("preserves the original authorizer while moving a legacy hosted Binding to the Profile owner", async () => {
+  it("does not carry retired Wake authorization while leaving legacy evidence untouched", async () => {
     const legacyBindingId = "binding-legacy-hosted-admin";
     const db = createOrganizationRpcDb({
       agentProfiles: [
@@ -2414,17 +2402,17 @@ describe("organization Core RPC", () => {
       reasoningLevel: "high",
       runtimeKind: "hosted_center_agent",
     });
-    expect(
-      db.authorizationRows.get(
-        authorizationKey("org-a", canonicalBinding?.bindingId ?? "")
-      )
-    ).toMatchObject({
-      authorizedBy: "legacy-authorizer",
-      organizationId: "org-a",
-    });
+    expect([...db.authorizationRows.values()]).toEqual([
+      expect.objectContaining({
+        authorizedBy: "legacy-authorizer",
+        bindingId: legacyBindingId,
+        organizationId: "org-a",
+      }),
+    ]);
+    expect(db.authorizationWrites).toEqual([]);
   });
 
-  it("releases every owner admission when atomic authorization carry-over fails", async () => {
+  it("releases every owner admission without touching retired Wake authorization", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -2477,10 +2465,11 @@ describe("organization Core RPC", () => {
           runtime: "remote_agent",
         }
       )
-    ).rejects.toThrow("Test Binding authorization write failure.");
+    ).resolves.toMatchObject({ status: "designated" });
     expect(
       releaseMutation.mock.calls.map(([request]) => request.ownerUserId).sort()
     ).toEqual(["admin-user", "owner-user"]);
+    expect(db.authorizationWrites).toEqual([]);
   });
 
   it("does not change D1 state when a legacy owner shard blocks reconciliation", async () => {
@@ -2831,7 +2820,7 @@ describe("organization Core RPC", () => {
     });
   });
 
-  it("keeps only the Center Agent's own Organization authorization when replacing its hosted Binding", async () => {
+  it("does not carry legacy Organization authorization when replacing a hosted Center Agent Binding", async () => {
     const previousBindingId = `binding-${AGENT_PROFILE_ID}`;
     const db = createOrganizationRpcDb({
       agentProfiles: [
@@ -2872,17 +2861,12 @@ describe("organization Core RPC", () => {
       runtime: "remote_agent",
     });
 
-    const hostedBindingId = [...db.bindingRows.values()].find(
-      (binding) => binding.runtimeKind === "hosted_center_agent"
-    )?.bindingId;
-    expect(db.authorizationWrites).toEqual([
-      { bindingId: hostedBindingId, organizationId: "org-a" },
-    ]);
+    expect(db.authorizationWrites).toEqual([]);
     expect(
       db.centerAgentAuditRows
         .filter((row) => row.action === "carry_over_binding_authorization")
         .map((row) => row.organizationId)
-    ).toEqual(["org-a"]);
+    ).toEqual([]);
   });
 
   it("lets organization owners and admins update the Center Agent profile name through Auth", async () => {
@@ -7511,12 +7495,8 @@ describe("organization Core RPC", () => {
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
     ]);
-    const hostedBindingId = [...db.bindingRows.values()][0]?.bindingId;
-    expect(db.authorizationWrites).toEqual([
-      { bindingId: hostedBindingId, organizationId: "org-a" },
-    ]);
+    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
-      "authorize_remote_center_agent_binding",
       "designate_remote_center_agent",
     ]);
     expect(
@@ -9101,7 +9081,7 @@ describe("organization Core RPC", () => {
     expect(db.spaces).toHaveLength(2);
   });
 
-  it("opens the Center Agent DM for a personal Agent Profile with Organization Wake Access", async () => {
+  it("rejects the Center Agent DM for a personal Agent Profile even with legacy Wake Access", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -9137,35 +9117,18 @@ describe("organization Core RPC", () => {
     const spaceStub = createSpaceStub({ spaces: db.spaces });
     const env = buildEnv({ db, spaceStub });
 
-    const response = await rpcOpenCenterAgentDirectMessageSpace(env, {
-      context: buildContext({
-        activeOrganizationId: "org-a",
-        userId: "user-a",
-      }),
-    });
-
-    expect(response).toMatchObject({
-      centerAgentProfileId: AGENT_PROFILE_ID,
-      created: true,
-      memberProfileId: HUMAN_PROFILE_ID,
-      organizationId: "org-a",
-    });
-    expect(spaceStub.rpcPostMembers).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        members: expect.arrayContaining([
-          expect.objectContaining({
-            profileId: HUMAN_PROFILE_ID,
-            profileKind: "human",
-          }),
-          expect.objectContaining({
-            profileId: AGENT_PROFILE_ID,
-            profileKind: "agent",
-            profileName: "Codex",
-          }),
-        ]),
-        spaceId: response.spaceId,
+    await expect(
+      rpcOpenCenterAgentDirectMessageSpace(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          userId: "user-a",
+        }),
       })
-    );
+    ).rejects.toMatchObject({
+      code: "center_agent.profile_not_found",
+      status: 409,
+    });
+    expect(spaceStub.rpcPostMembers).not.toHaveBeenCalled();
   });
 
   it("rejects the Center Agent DM for a personal Agent Profile without Organization Wake Access", async () => {
