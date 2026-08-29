@@ -87,6 +87,7 @@ import {
   runOneTimeTokenComputerHandoff,
 } from "../src/commands/computer-auth-handoff";
 import { recoverInterruptedComputerAuthHandoff } from "../src/commands/computer-auth-handoff-recovery";
+import { AuthSessionChangedBeforeTransitionError } from "../src/config/auth-session";
 
 const candidateSession = {
   accessToken: "candidate-token",
@@ -226,6 +227,48 @@ describe("Computer authorization handoff", () => {
         expectedPreviousSession: existingSession,
       }
     );
+  });
+
+  it("keeps a stale account-switch confirmation recognizable when candidate cleanup fails", async () => {
+    beginAuthSessionTransitionMock.mockRejectedValueOnce(
+      new AuthSessionChangedBeforeTransitionError()
+    );
+    revokePreparedAuthSessionMock.mockResolvedValueOnce({
+      ok: false,
+      error: Object.assign(
+        new Error(
+          `Auth Worker could not revoke ${candidateSession.accessToken}`
+        ),
+        {
+          endpoint: `https://auth.openmeld.test/api/auth/revoke-token?token=${candidateSession.accessToken}`,
+          operation: "revoke_auth_session",
+          status: 503,
+        }
+      ),
+    });
+
+    const failure = await runAgentHandoff().then(
+      () => null,
+      (error: unknown) => error
+    );
+
+    expect(failure).toBeInstanceOf(AuthSessionChangedBeforeTransitionError);
+    expect(failure).toMatchObject({
+      cleanup: {
+        endpoint:
+          "https://auth.openmeld.test/api/auth/revoke-token?token=<REDACTED>",
+        message: "Auth Worker could not revoke <REDACTED>",
+        operation: "revoke_auth_session",
+        status: 503,
+      },
+      name: "AuthSessionChangedBeforeTransitionError",
+      reason: "previous_session_changed",
+    });
+    expect(JSON.stringify(failure)).not.toContain(candidateSession.accessToken);
+    expect(revokePreparedAuthSessionMock).toHaveBeenCalledWith(
+      candidateSession
+    );
+    expect(runPrepareSessionExecutorMock).not.toHaveBeenCalled();
   });
 
   it("reconciles a crashed candidate Service and revokes its remote session before clearing recovery", async () => {
