@@ -23,7 +23,12 @@ export type SpaceComposerUploadScope = {
 };
 
 export class SpaceComposerUploadStorageError extends Error {
-  readonly kind: "expired" | "invalid" | "not_found" | "storage_failed";
+  readonly kind:
+    | "conflict"
+    | "expired"
+    | "invalid"
+    | "not_found"
+    | "storage_failed";
 
   constructor(input: {
     cause?: unknown;
@@ -53,9 +58,11 @@ export async function stageSpaceComposerUpload(input: {
     sizeBytes: input.bytes.byteLength,
   });
   const objectKey = buildScopedObjectKey(input.scope, descriptor.id);
+  let stored: R2Object | null;
   try {
-    await input.bucket.put(objectKey, input.bytes, {
+    stored = await input.bucket.put(objectKey, input.bytes, {
       httpMetadata: { contentType: descriptor.mimeType },
+      onlyIf: { etagDoesNotMatch: "*" },
       customMetadata: {
         actorProfileId: input.scope.actorProfileId,
         expiresAtMs: String(input.expiresAtMs),
@@ -74,7 +81,28 @@ export async function stageSpaceComposerUpload(input: {
       message: "This file could not be staged right now.",
     });
   }
-  return descriptor;
+  if (stored) {
+    return descriptor;
+  }
+
+  const existing = await readSpaceComposerUpload({
+    bucket: input.bucket,
+    nowMs: 0,
+    scope: input.scope,
+    uploadId: input.uploadId,
+  });
+  if (
+    existing.descriptor.mimeType !== descriptor.mimeType ||
+    existing.descriptor.name !== descriptor.name ||
+    existing.descriptor.sizeBytes !== descriptor.sizeBytes ||
+    !arrayBuffersEqual(existing.bytes, input.bytes)
+  ) {
+    throw new SpaceComposerUploadStorageError({
+      kind: "conflict",
+      message: "This upload ID was already used for a different file.",
+    });
+  }
+  return existing.descriptor;
 }
 
 export async function readSpaceComposerUpload(input: {
@@ -268,4 +296,13 @@ function parseMetadata(
     spaceId,
     uploadId: descriptor.data.id,
   };
+}
+
+function arrayBuffersEqual(left: ArrayBuffer, right: ArrayBuffer): boolean {
+  if (left.byteLength !== right.byteLength) {
+    return false;
+  }
+  const leftBytes = new Uint8Array(left);
+  const rightBytes = new Uint8Array(right);
+  return leftBytes.every((byte, index) => byte === rightBytes[index]);
 }

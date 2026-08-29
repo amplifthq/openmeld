@@ -1,5 +1,6 @@
 import {
   buildSpaceComposerUploadObjectKey,
+  buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
 } from "@openmeld/schemas";
@@ -114,7 +115,7 @@ function makeEnv(input?: { expiresAtMs?: number }) {
     rpcRecordSpaceFileAuditEvent: vi.fn(async () => undefined),
   };
   const bucket = {
-    put: vi.fn(async () => null),
+    put: vi.fn(async (): Promise<R2Object | null> => ({}) as R2Object),
     get: vi.fn(async () => ({
       arrayBuffer: async () => Uint8Array.from(BYTES).buffer,
       customMetadata: createStageMetadata(input?.expiresAtMs),
@@ -171,6 +172,61 @@ describe("Core Space Composer upload RPC", () => {
     expect(stub.rpcCommitSpaceFileWrite).not.toHaveBeenCalled();
   });
 
+  it("preserves the first expiry when an exact stage request replays", async () => {
+    const { bucket, env } = makeEnv();
+    bucket.put.mockResolvedValue(null);
+
+    await expect(
+      rpcStageSpaceComposerUpload(env, {
+        bytes: Uint8Array.from(BYTES).buffer,
+        context: CONTEXT,
+        mimeType: "text/plain",
+        name: "notes.txt",
+        nowMs: NOW_MS + 1000,
+        spaceId: SPACE_ID,
+        uploadId: UPLOAD_ID,
+      })
+    ).resolves.toEqual({
+      id: UPLOAD_ID,
+      expiresAt: new Date(EXPIRES_AT_MS).toISOString(),
+      mimeType: "text/plain",
+      name: "notes.txt",
+      sizeBytes: BYTES.byteLength,
+    });
+
+    expect(bucket.put).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(ArrayBuffer),
+      expect.objectContaining({
+        onlyIf: { etagDoesNotMatch: "*" },
+      })
+    );
+    expect(bucket.get).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a different payload that reuses a staged upload identity", async () => {
+    const { bucket, env } = makeEnv();
+    bucket.put.mockResolvedValue(null);
+
+    await expect(
+      rpcStageSpaceComposerUpload(env, {
+        bytes: Uint8Array.from(new TextEncoder().encode("Different bytes\n"))
+          .buffer,
+        context: CONTEXT,
+        mimeType: "text/plain",
+        name: "different.txt",
+        nowMs: NOW_MS + 1000,
+        spaceId: SPACE_ID,
+        uploadId: UPLOAD_ID,
+      })
+    ).rejects.toMatchObject({
+      code: "space_file.conflict",
+      status: 409,
+    });
+
+    expect(bucket.get).toHaveBeenCalledOnce();
+  });
+
   it("publishes staged bytes as a canonical root Space File on Send", async () => {
     const { bucket, env, stub } = makeEnv();
 
@@ -225,6 +281,13 @@ describe("Core Space Composer upload RPC", () => {
 
     expect(stub.rpcResolveCommittedSpaceFileWrite).toHaveBeenCalledWith({
       clientMutationId: "publish-composer-upload-test",
+      expectedFileId: await buildSpaceFileEntryIdForMutation(
+        JSON.stringify([
+          "composer_upload",
+          "publish-composer-upload-test",
+          UPLOAD_ID,
+        ])
+      ),
       spaceAccess: expect.any(Object),
       spaceId: SPACE_ID,
     });

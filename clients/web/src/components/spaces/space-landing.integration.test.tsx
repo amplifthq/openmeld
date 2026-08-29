@@ -8522,6 +8522,69 @@ describe("SpaceLanding", () => {
 		});
 	});
 
+	it("keeps the first picker relation when the same Agent is mentioned twice", async () => {
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "sig-repeated-runner-reference",
+				text: "@Runner for context, then @Runner again",
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		setComposerValue(textarea, "@");
+		await screen.findByRole("listbox", { name: "Mention target options" });
+		fireEvent.click(screen.getByRole("button", { name: "Reference Runner" }));
+		await waitFor(() => {
+			expect((textarea as HTMLTextAreaElement).value).toBe("@Runner ");
+		});
+
+		setComposerValue(textarea, "@Runner for context, then @Run");
+		fireEvent.mouseDown(
+			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
+		);
+		await waitFor(() => {
+			expect((textarea as HTMLTextAreaElement).value).toBe(
+				"@Runner for context, then @Runner "
+			);
+		});
+		setComposerValue(textarea, "@Runner for context, then @Runner again");
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				messageEnvelope: {
+					activationTargets: [],
+					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
+					text: "@Runner for context, then @Runner again",
+				},
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "@Runner for context, then @Runner again",
+				timeoutMs: 30_000,
+			});
+		});
+	});
+
 	it("shows a quiet summary for multiple structured targets", async () => {
 		const reviewerProfileId = "agt_33333333-3333-4333-8333-333333333333";
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
@@ -11945,6 +12008,57 @@ describe("SpaceLanding", () => {
 			spaceId: "space-123",
 			uploadId: expect.any(String),
 		});
+	});
+
+	it("retries an outcome-unknown stage once with the same upload identity", async () => {
+		const stageComposerUploadMock = vi
+			.fn()
+			.mockRejectedValueOnce(
+				createStructuredFailure({
+					code: "network.request_failed",
+					message: "The stage response was lost.",
+				})
+			)
+			.mockImplementationOnce((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			);
+		createWebSpaceApiMock.mockReturnValue({
+			stageComposerUpload: stageComposerUploadMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["retry"], "retriable.txt", { type: "text/plain" })],
+			},
+		});
+
+		await screen.findByText("Ready");
+		expect(stageComposerUploadMock).toHaveBeenCalledTimes(2);
+		expect(stageComposerUploadMock.mock.calls[1]?.[0]).toEqual(
+			stageComposerUploadMock.mock.calls[0]?.[0]
+		);
 	});
 
 	it("sends a Space File without requiring a text note", async () => {

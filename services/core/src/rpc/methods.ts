@@ -17697,9 +17697,14 @@ export async function rpcPublishSpaceComposerUpload(
     env,
     input
   );
+  const fileId = await buildPublishedSpaceComposerFileId({
+    clientMutationId,
+    uploadId,
+  });
   const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const committedFile = await stub.rpcResolveCommittedSpaceFileWrite({
     clientMutationId,
+    expectedFileId: fileId,
     spaceAccess,
     spaceId: input.spaceId,
   });
@@ -17717,17 +17722,14 @@ export async function rpcPublishSpaceComposerUpload(
   } catch (error) {
     throw normalizeSpaceComposerUploadError(error);
   }
-  const [fileId, revisionId] = await Promise.all([
-    buildSpaceFileEntryIdForMutation(clientMutationId),
-    buildSpaceFileRevisionIdForMutation({
-      baseRevision: null,
-      bytes: staged.bytes,
-      clientMutationId,
-      mimeType: staged.descriptor.mimeType,
-      name: staged.descriptor.name,
-      parentId: null,
-    }),
-  ]);
+  const revisionId = await buildSpaceFileRevisionIdForMutation({
+    baseRevision: null,
+    bytes: staged.bytes,
+    clientMutationId,
+    mimeType: staged.descriptor.mimeType,
+    name: staged.descriptor.name,
+    parentId: null,
+  });
   return await rpcWriteSpaceFileContent(env, {
     bytes: staged.bytes,
     context: input.context,
@@ -17842,6 +17844,15 @@ function normalizeComposerUploadNow(value: number | undefined): number {
   return nowMs;
 }
 
+async function buildPublishedSpaceComposerFileId(input: {
+  clientMutationId: string;
+  uploadId: string;
+}): Promise<string> {
+  return await buildSpaceFileEntryIdForMutation(
+    JSON.stringify(["composer_upload", input.clientMutationId, input.uploadId])
+  );
+}
+
 function normalizeSpaceComposerUploadError(error: unknown): unknown {
   if (!(error instanceof SpaceComposerUploadStorageError)) {
     return normalizeSpaceFileStorageError(
@@ -17854,6 +17865,13 @@ function normalizeSpaceComposerUploadError(error: unknown): unknown {
       code: "space_file.not_found",
       reason: error.message,
       status: 404,
+    });
+  }
+  if (error.kind === "conflict") {
+    return createCoreRpcHttpError({
+      code: "space_file.conflict",
+      reason: error.message,
+      status: 409,
     });
   }
   return createCoreRpcHttpError({

@@ -187,6 +187,22 @@ describe("SpaceFileRepository", () => {
         write: secondWrite,
       });
       expect(repository.prepareWrite(secondWrite)).toEqual(secondRevision);
+      expect(
+        repository.resolveCommittedWrite(
+          secondWrite.clientMutationId,
+          secondRevision.id
+        )
+      ).toEqual(secondRevision);
+      expect(() =>
+        repository.resolveCommittedWrite(
+          secondWrite.clientMutationId,
+          `${fixture.prefix}-other-file`
+        )
+      ).toThrowError(
+        expect.objectContaining<Partial<SpaceFileRepositoryError>>({
+          code: "space_file.conflict",
+        })
+      );
 
       expect(() =>
         repository.prepareWrite({

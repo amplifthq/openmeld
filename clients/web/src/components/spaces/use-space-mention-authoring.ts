@@ -645,30 +645,27 @@ export function useSpaceMentionAuthoring(input: {
 			start: nextCaretPosition,
 		};
 		composerDraft.setContent((currentDraft) => {
-			const retainedMentionInputs = reconcileTrackedAuthoredMentions({
+			const retainedMentions = reconcileTrackedAuthoredMentions({
 				mentions: currentDraft.authoredMentions,
 				nextText,
 				previousText: currentDraft.text,
-			}).reduce<SpaceComposerAuthoredMentionInTextOrder[]>(
-				(inputs, mention) => {
-					if (mention.profileId !== selectedItem.suggestion.profileId) {
-						inputs.push(toAuthoredMentionInput(mention));
-					}
-					return inputs;
-				},
-				[]
-			);
+			});
+			const mentionInputs = retainedMentions.map(toAuthoredMentionInput);
+			if (
+				!retainedMentions.some(
+					(mention) => mention.profileId === selectedItem.suggestion.profileId
+				)
+			) {
+				mentionInputs.push({
+					profileId: selectedItem.suggestion.profileId,
+					relation: selectedRelation,
+					text: mentionText,
+				});
+			}
 			return {
 				...currentDraft,
 				authoredMentions: trackAuthoredMentionsInText({
-					mentions: [
-						...retainedMentionInputs,
-						{
-							profileId: selectedItem.suggestion.profileId,
-							relation: selectedRelation,
-							text: mentionText,
-						},
-					],
+					mentions: mentionInputs,
 					text: nextText,
 				}),
 				text: nextText,

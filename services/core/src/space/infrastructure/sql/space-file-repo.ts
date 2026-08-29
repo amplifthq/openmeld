@@ -233,7 +233,10 @@ export class SpaceFileRepository {
     return null;
   }
 
-  resolveCommittedWrite(clientMutationId: string): SpaceFileDescriptor | null {
+  resolveCommittedWrite(
+    clientMutationId: string,
+    expectedFileId: string
+  ): SpaceFileDescriptor | null {
     const row = first(
       this.sql.exec<SpaceFileMutationRow>(
         `
@@ -251,7 +254,13 @@ export class SpaceFileRepository {
     if (row.action !== "commit_write") {
       throw conflict("This request ID was already used for another change.");
     }
-    return spaceFileDescriptorSchema.parse(JSON.parse(row.response_json));
+    const committedFile = spaceFileDescriptorSchema.parse(
+      JSON.parse(row.response_json)
+    );
+    if (committedFile.id !== expectedFileId) {
+      throw conflict("This request ID was already used for another change.");
+    }
+    return committedFile;
   }
 
   createFolder(input: {

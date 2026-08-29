@@ -224,16 +224,20 @@ async function uploadPendingFile(input: {
 			...current,
 			progress: 55,
 		}));
-		const upload = await createOrganizationScopedWebSpaceApi({
+		const api = createOrganizationScopedWebSpaceApi({
 			organizationSlug: input.organizationSlug,
 			openMeldProfileId: input.profileId,
-		}).stageComposerUpload({
+		});
+		const stageInput = {
 			bytes: input.file,
 			mimeType: input.item.mimeType,
 			name: input.item.fileName,
 			spaceId: input.spaceId,
 			uploadId: input.item.localId.replace("composer-file:", ""),
-		});
+		};
+		const upload = await runSpaceComposerIdempotentRequestWithRetry(
+			async () => await api.stageComposerUpload(stageInput)
+		);
 		if (!input.activeFileIds.has(input.item.localId)) {
 			discardComposerUploadIds({
 				organizationSlug: input.organizationSlug,
