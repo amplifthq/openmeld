@@ -843,12 +843,16 @@ EOF
 openmeld space send <space-id> --profile <profile-id> "$MESSAGE"
 ```
 
-Or use file/stdin:
+Share files with the message, or read the message body from a file/stdin:
 
 ```bash
-openmeld space send <space-id> --profile <profile-id> --file /tmp/message.txt
+openmeld space send <space-id> --profile <profile-id> --file ./evidence.png "Deployment evidence"
+openmeld space send <space-id> --profile <profile-id> --text-file /tmp/message.txt
 echo "hello" | openmeld space send <space-id> --profile <profile-id> --stdin
 ```
+
+`--file <path>` shares a file with the message and can be repeated for up to 10
+files. `--text-file <path>` reads the message body from a UTF-8 text file.
 
 Send canonical mention syntax as literal text without resolving Wake or
 Reference targets:

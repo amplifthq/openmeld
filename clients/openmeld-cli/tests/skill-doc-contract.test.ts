@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 const TEST_DIR = fileURLToPath(new URL(".", import.meta.url));
 const CLI_ROOT = join(TEST_DIR, "..");
 
+const README_PATH = join(CLI_ROOT, "README.md");
 const SKILL_DIR = join(CLI_ROOT, "skills", "openmeld-cli");
 const SKILL_FILE_PATH = join(SKILL_DIR, "SKILL.md");
 const AGENT_ONBOARDING_PATH = join(
@@ -254,6 +255,32 @@ describe("openmeld-cli skill docs contract", () => {
     for (const raw of docs) {
       expect(raw).toContain("<DISPATCH_ACTION_CLI> space action reply");
       expect(raw).not.toMatch(RAW_SPACE_ACTION_COMMAND_PATTERN);
+    }
+  });
+
+  it("keeps Space message file flags aligned with the real CLI", async () => {
+    const docs = await Promise.all(
+      [
+        README_PATH,
+        SKILL_FILE_PATH,
+        SPACE_OPS_PATH,
+        COMMANDS_REFERENCE_PATH,
+      ].map(async (path) => await readFile(path, "utf8"))
+    );
+    const openMeldSourceRaw = await readFile(OPENMELD_SOURCE_PATH, "utf8");
+
+    for (const raw of [openMeldSourceRaw, ...docs]) {
+      expect(raw).toContain("--file");
+      expect(raw).toContain("--text-file");
+      expect(raw).not.toContain("--attach");
+    }
+    for (const raw of docs) {
+      expect(normalizeMarkdownWhitespace(raw)).toContain(
+        "`--file <path>` shares a file with the message"
+      );
+      expect(normalizeMarkdownWhitespace(raw)).toContain(
+        "`--text-file <path>` reads the message body from a UTF-8 text file"
+      );
     }
   });
 

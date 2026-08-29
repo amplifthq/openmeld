@@ -225,6 +225,13 @@ before send and creates the canonical root-level Space File; the message is
 published only after every selected upload succeeds. A failed upload never
 degrades into a text-only or partially attached message.
 
+During a multi-file send, the client keeps the exact ids of files created by
+that not-yet-published submission. If a later selected upload fails, it moves
+only those earlier files from the same submission to recoverable Trash. It
+never guesses by file name or touches files from an earlier send. A cleanup
+failure keeps the original upload failure primary and names every file id that
+still needs the ordinary Trash action.
+
 The timeline renders image references as bounded inline previews that morph
 into a focused full-size view, while other file references use file cards.
 The focused image view and each file card provide an explicit **Open in Files**

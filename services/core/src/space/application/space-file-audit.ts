@@ -28,7 +28,10 @@ export function buildSpaceFileAuditEvent(input: {
     actorProfileId: resolveSpaceFileAuditActorProfileId(input.spaceAccess),
     entryId: input.entryId,
     errorCode: input.errorCode,
-    eventId: `${input.operation}:${requestId}`,
+    eventId:
+      input.operationId === requestId
+        ? `${input.operation}:${requestId}`
+        : `${input.operation}:${requestId}:${input.operationId}`,
     occurredAtMs: input.occurredAtMs,
     operation: input.operation,
     operationId: input.operationId,

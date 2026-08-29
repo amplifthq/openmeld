@@ -207,7 +207,7 @@ describe("Core Space file content RPC", () => {
         actorProfileId: CONTEXT.actorContext.openMeldProfileId,
         entryId: FILE_ID,
         errorCode: null,
-        eventId: `content_write:${CONTEXT.actorContext.requestId}`,
+        eventId: `content_write:${CONTEXT.actorContext.requestId}:${WRITE.clientMutationId}`,
         operation: "content_write",
         operationId: WRITE.clientMutationId,
         organizationId: ORGANIZATION_ID,
