@@ -4,7 +4,6 @@ import {
 } from "@openmeld/agent-runtime";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
-import releaseManifestJson from "../../../release/local-components.json";
 import { resolveCoreAgentExecutionReadinessForProfile } from "../src/agent-execution/application/agent-execution-readiness-service";
 import { writeAcceptedAgentExecutionReadinessImpact } from "../src/agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
 import { acceptProviderConversationProofRecord } from "../src/agent-execution/infrastructure/d1/provider-conversation-proof-repo";
@@ -21,8 +20,10 @@ const OWNER_USER_ID = "owner-1";
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const GENERATED_AT = "2026-05-10T00:00:00.000Z";
 const GENERATED_AT_MS = Date.parse(GENERATED_AT);
-const CURRENT_SERVICE_VERSION =
-  releaseManifestJson.components.service.bundleVersion;
+// These readiness fixtures represent a supported Service. Keep the version
+// explicit so a release manifest that still describes the previous public
+// version cannot silently turn unrelated readiness tests into update tests.
+const CURRENT_SERVICE_VERSION = "0.3.126";
 const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,

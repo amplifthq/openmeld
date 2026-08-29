@@ -3,6 +3,7 @@ import {
   agentInteractionResponseSchema,
   buildRuntimeCoordinatorFailurePublicationCommandId,
   buildRuntimeCoordinatorFinalizationCommandId,
+  daemonServiceLaneSchema,
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
   RUNTIME_COORDINATOR_FAILURE_PUBLICATION_COMMAND_MODEL_VERSION,
   runtimeCoordinatorExecutionTokenAuthorityRecordSchema,
@@ -12,6 +13,7 @@ import {
 import type {
   AgentInteractionRequest,
   AgentInteractionResponse,
+  DaemonServiceLane,
   RuntimeCoordinatorExecutionEventType,
   RuntimeCoordinatorExecutionRecord,
   RuntimeCoordinatorExecutionStatus,
@@ -331,6 +333,12 @@ export type RuntimeCoordinatorTerminalDecisionPlan = {
 export type RuntimeCoordinatorDeliveryProvenanceSnapshot = {
   connectionGeneration: number;
   daemonSessionId: string;
+  /**
+   * Optional only for command states written before durable route identity was
+   * introduced. New delivery and redelivery writes always persist both fields.
+   */
+  deviceId?: string;
+  lane?: DaemonServiceLane;
   leaseEpoch: number;
 };
 
@@ -1443,6 +1451,11 @@ export const isRuntimeCoordinatorRunCommandState = (
     typeof record.lastDeliveryProvenance !== "object" ||
     typeof record.lastDeliveryProvenance.connectionGeneration !== "number" ||
     typeof record.lastDeliveryProvenance.daemonSessionId !== "string" ||
+    (record.lastDeliveryProvenance.deviceId !== undefined &&
+      typeof record.lastDeliveryProvenance.deviceId !== "string") ||
+    (record.lastDeliveryProvenance.lane !== undefined &&
+      !daemonServiceLaneSchema.safeParse(record.lastDeliveryProvenance.lane)
+        .success) ||
     typeof record.lastDeliveryProvenance.leaseEpoch !== "number"
   ) {
     return false;

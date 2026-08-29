@@ -10443,6 +10443,169 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
+  it("redelivers a Wake that reached a Service while a controlled update was closing admission", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const {
+        hub,
+        recordingD1,
+        sentFrames,
+        socket,
+        spaceFetchRequests,
+        state,
+      } = createHarness();
+      await issueDeliveryToken({
+        hub,
+        sentFrames,
+        socket,
+        state,
+      });
+
+      const oldSession = state.sessionsById.get("daemon-session-1");
+      if (!oldSession) {
+        throw new Error("Expected the original daemon session.");
+      }
+      oldSession.acceptingDispatches = false;
+      oldSession.deliveryDisconnectedAtMs = 1_700_000_001_000;
+      oldSession.socket = null;
+      oldSession.stopCause = "controlled_service_update";
+
+      const replacementSocket = {
+        send: vi.fn((message: string) => {
+          sentFrames.push(JSON.parse(message));
+        }),
+      } as unknown as WebSocket;
+      registerCompatibleRoute({
+        connectionGeneration: 9,
+        daemonSessionId: "daemon-session-2",
+        leaseEpoch: 5,
+        socket: replacementSocket,
+        state,
+      });
+      sentFrames.length = 0;
+      recordingD1.calls.length = 0;
+      spaceFetchRequests.length = 0;
+      nowSpy.mockReturnValue(1_700_000_001_200);
+
+      await (
+        hub as unknown as {
+          reconcileRuntimeCoordinatorExecutionsForReplacementSession: (input: {
+            daemonSessionId: string;
+          }) => Promise<void>;
+        }
+      ).reconcileRuntimeCoordinatorExecutionsForReplacementSession({
+        daemonSessionId: "daemon-session-2",
+      });
+
+      expect(sentFrames).toEqual([
+        expect.objectContaining({
+          code: "daemon.dispatch.deliver",
+          payload: expect.objectContaining({
+            connectionGeneration: 9,
+            daemonSessionId: "daemon-session-2",
+            leaseEpoch: 5,
+          }),
+        }),
+      ]);
+      expect(spaceFetchRequests).toEqual([]);
+      expect(
+        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      ).toMatchObject({
+        status: "delivery_accepted",
+      });
+      expect(
+        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+          (call) =>
+            call.params[2] === "runtime_coordinator_redelivery_commanded"
+        )
+      ).toBe(true);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("redelivers exactly once after a hub restart loses the old in-memory Service session", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const first = createHarness();
+      await issueDeliveryToken({
+        hub: first.hub,
+        sentFrames: first.sentFrames,
+        socket: first.socket,
+        state: first.state,
+      });
+
+      expect(
+        findRuntimeCoordinatorRunCommandState(first.storageRecords)
+          ?.lastDeliveryProvenance
+      ).toMatchObject({
+        daemonSessionId: "daemon-session-1",
+        deviceId: "device-1",
+        lane: "dev-local",
+      });
+
+      const restarted = createHarness({
+        storageRecords: first.storageRecords,
+      });
+      const replacementSocket = {
+        send: vi.fn((message: string) => {
+          restarted.sentFrames.push(JSON.parse(message));
+        }),
+      } as unknown as WebSocket;
+      registerCompatibleRoute({
+        connectionGeneration: 9,
+        daemonSessionId: "daemon-session-2",
+        leaseEpoch: 5,
+        socket: replacementSocket,
+        state: restarted.state,
+      });
+      expect(restarted.state.sessionsById.has("daemon-session-1")).toBe(false);
+      restarted.sentFrames.length = 0;
+      nowSpy.mockReturnValue(1_700_000_001_200);
+
+      const reconcile = () =>
+        (
+          restarted.hub as unknown as {
+            reconcileRuntimeCoordinatorExecutionsForReplacementSession: (input: {
+              daemonSessionId: string;
+            }) => Promise<void>;
+          }
+        ).reconcileRuntimeCoordinatorExecutionsForReplacementSession({
+          daemonSessionId: "daemon-session-2",
+        });
+      await Promise.all([reconcile(), reconcile()]);
+
+      expect(
+        restarted.sentFrames.filter(
+          (frame) =>
+            typeof frame === "object" &&
+            frame !== null &&
+            (frame as { code?: unknown }).code === "daemon.dispatch.deliver"
+        )
+      ).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            connectionGeneration: 9,
+            daemonSessionId: "daemon-session-2",
+            leaseEpoch: 5,
+          }),
+        }),
+      ]);
+      expect(
+        findRuntimeCoordinatorRunCommandState(first.storageRecords)
+      ).toMatchObject({
+        lastDeliveryProvenance: {
+          daemonSessionId: "daemon-session-2",
+          deviceId: "device-1",
+          lane: "dev-local",
+        },
+        redeliveryCount: 1,
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("reconciles one active local run when a replacement service session proves the old runtime was lost", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {

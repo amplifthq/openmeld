@@ -5,6 +5,7 @@ import type {
 	LocalComponentUpdateStatus,
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
+	OpenMeldToolsUpdateOperation,
 	OrganizationComputerOpenMeldTools,
 } from "@openmeld/schemas/types";
 import type { ComputerReplyReadiness } from "@openmeld/start";
@@ -54,7 +55,14 @@ import {
 } from "@phosphor-icons/react";
 import type { QueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	type Ref,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
@@ -92,9 +100,21 @@ type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
 const OPENMELD_TOOLS_CARD_TITLE = "OpenMeld Tools";
 const OPENMELD_SKILLS_MANAGEMENT_COMMAND = "npx -y openmeld@latest skills";
-const OPENMELD_CLI_UPDATE_COMMAND = "openmeld upgrade --yes";
-const UPDATE_OPENMELD_TOOLS_LABEL = "Update OpenMeld Tools";
-const OPENMELD_COMMAND_PREFIX_RE = /^openmeld/u;
+const RECONNECT_MANUALLY_LABEL = "Reconnect manually";
+const UPDATE_MANUALLY_LABEL = "Update manually";
+const UPDATE_STATUS_REFRESH_INTERVAL_MS = 2000;
+const UPDATE_STATUS_MAX_REFRESH_ATTEMPTS = 60;
+const UPDATE_STATUS_MAX_CONSECUTIVE_REFRESH_FAILURES = 3;
+
+type PendingManagedUpdate =
+	| {
+			currentVersion: string;
+			kind: "confirmation";
+	  }
+	| {
+			kind: "operation";
+			operation: OpenMeldToolsUpdateOperation;
+	  };
 
 export type OpenMeldServiceCardOwnerProps = {
 	computer: LocalRuntimeComputer;
@@ -215,12 +235,24 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	const orgSlug = useCurrentOrganizationSlug();
 	const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 	const [isUpdatingTools, setIsUpdatingTools] = useState(false);
+	const [pendingManagedUpdate, setPendingManagedUpdate] =
+		useState<PendingManagedUpdate | null>(null);
 	const [updateRequestFailed, setUpdateRequestFailed] = useState(false);
+	const [exhaustedUpdateVerificationKey, setExhaustedUpdateVerificationKey] =
+		useState<string | null>(null);
 	const [isSavingAutomaticUpdates, setIsSavingAutomaticUpdates] =
 		useState(false);
 	const [isServiceHighlighted, setIsServiceHighlighted] = useState(false);
 	const serviceCardRef = useRef<HTMLDivElement | null>(null);
 	const highlightEndTimerRef = useRef<number | null>(null);
+	const settledPendingManagedUpdateRef = useRef<PendingManagedUpdate | null>(
+		null
+	);
+	const updateVerificationBudgetRef = useRef({
+		consecutiveFailures: 0,
+		key: null as string | null,
+		refreshAttempts: 0,
+	});
 	useEffect(() => {
 		if (!(input.focusService && input.isCurrentComputer)) {
 			return;
@@ -273,25 +305,140 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			setIsCheckingStatus(false);
 		}
 	};
-	const refreshServiceStatus = async () => {
+	const refreshServiceStatus = useCallback(async () => {
 		await refreshWebAgentReadinessSharedCaches({
 			queryClient: input.queryClient,
 			storageScope: input.recovery.storageScope,
 		});
 		await input.recovery.refreshAll();
-	};
+	}, [
+		input.queryClient,
+		input.recovery.refreshAll,
+		input.recovery.storageScope,
+	]);
+	const observedLocalComponents =
+		input.currentLocalRuntimeReplyReadiness?.localComponents ?? null;
+	const pendingManagedUpdateSettled = pendingManagedUpdate
+		? hasObservedPendingManagedUpdateSettled({
+				localComponents: observedLocalComponents,
+				pending: pendingManagedUpdate,
+			}) ||
+			hasObservedFailedManagedUpdate({
+				localComponents: observedLocalComponents,
+				pending: pendingManagedUpdate,
+			})
+		: false;
+	const activePendingManagedUpdate =
+		pendingManagedUpdate &&
+		!pendingManagedUpdateSettled &&
+		settledPendingManagedUpdateRef.current !== pendingManagedUpdate
+			? pendingManagedUpdate
+			: null;
+	const visibleUpdateOperation = resolveVisibleOpenMeldToolsUpdateOperation({
+		observed: observedLocalComponents?.updateOperation ?? null,
+		pending: activePendingManagedUpdate,
+	});
+	const updateTargetVersion = resolveOpenMeldToolsUpdateTargetVersion({
+		operation: visibleUpdateOperation,
+		pending: activePendingManagedUpdate,
+	});
+	const updateTargetObserved = hasObservedOpenMeldToolsUpdateTarget({
+		localComponents: observedLocalComponents,
+		targetVersion: updateTargetVersion,
+	});
+	const updateVerificationKey = resolveOpenMeldToolsUpdateVerificationKey({
+		operation: visibleUpdateOperation,
+		pending: activePendingManagedUpdate,
+		targetObserved: updateTargetObserved,
+	});
+	const updateVerificationExhausted =
+		updateVerificationKey !== null &&
+		exhaustedUpdateVerificationKey === updateVerificationKey;
+	useEffect(() => {
+		if (pendingManagedUpdate && pendingManagedUpdateSettled) {
+			settledPendingManagedUpdateRef.current = pendingManagedUpdate;
+		}
+	}, [pendingManagedUpdate, pendingManagedUpdateSettled]);
+	useEffect(() => {
+		if (!updateVerificationKey || updateVerificationExhausted) {
+			return;
+		}
+		let cancelled = false;
+		let refreshTimer: number | null = null;
+		if (updateVerificationBudgetRef.current.key !== updateVerificationKey) {
+			updateVerificationBudgetRef.current = {
+				consecutiveFailures: 0,
+				key: updateVerificationKey,
+				refreshAttempts: 0,
+			};
+		}
+		const verificationBudget = updateVerificationBudgetRef.current;
+		const refreshUntilSettled = async () => {
+			verificationBudget.refreshAttempts += 1;
+			try {
+				await refreshServiceStatus();
+				verificationBudget.consecutiveFailures = 0;
+			} catch (error) {
+				verificationBudget.consecutiveFailures += 1;
+				console.error("OpenMeld Tools update status refresh failed.", error);
+			}
+			if (cancelled) {
+				return;
+			}
+			if (
+				verificationBudget.refreshAttempts >=
+					UPDATE_STATUS_MAX_REFRESH_ATTEMPTS ||
+				verificationBudget.consecutiveFailures >=
+					UPDATE_STATUS_MAX_CONSECUTIVE_REFRESH_FAILURES
+			) {
+				setExhaustedUpdateVerificationKey(updateVerificationKey);
+				return;
+			}
+			refreshTimer = window.setTimeout(
+				refreshUntilSettled,
+				UPDATE_STATUS_REFRESH_INTERVAL_MS
+			);
+		};
+		refreshTimer = window.setTimeout(
+			refreshUntilSettled,
+			UPDATE_STATUS_REFRESH_INTERVAL_MS
+		);
+		return () => {
+			cancelled = true;
+			if (refreshTimer !== null) {
+				window.clearTimeout(refreshTimer);
+			}
+		};
+	}, [
+		refreshServiceStatus,
+		updateVerificationExhausted,
+		updateVerificationKey,
+	]);
 	const updateOpenMeldTools = async () => {
 		setUpdateRequestFailed(false);
+		setExhaustedUpdateVerificationKey(null);
+		updateVerificationBudgetRef.current = {
+			consecutiveFailures: 0,
+			key: null,
+			refreshAttempts: 0,
+		};
 		setIsUpdatingTools(true);
 		try {
 			const result = await requestCurrentOpenMeldToolsUpdate();
 			if (result.status === "current") {
-				toast.success("Up to date.");
+				setPendingManagedUpdate({
+					currentVersion: result.currentVersion,
+					kind: "confirmation",
+				});
 				await refreshServiceStatus();
 			} else if (
 				result.status === "started" ||
 				result.status === "already_running"
 			) {
+				setPendingManagedUpdate({
+					kind: "operation",
+					operation: result.operation,
+				});
 				input.queryClient.setQueryData<CurrentLocalRuntimeReplyReadinessResponse>(
 					startQueryKeys.currentLocalRuntimeReplyReadiness(
 						input.recovery.storageScope
@@ -308,11 +455,13 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 							: current
 				);
 			} else {
+				setPendingManagedUpdate(null);
 				setUpdateRequestFailed(true);
 				toast.error("Update failed.");
 			}
 		} catch (error) {
 			console.error("OpenMeld Tools update request failed.", error);
+			setPendingManagedUpdate(null);
 			setUpdateRequestFailed(true);
 			toast.error("Update failed.");
 		} finally {
@@ -400,11 +549,13 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 				isUpdatingTools={isUpdatingTools}
 				onAutomaticUpdatesChange={setAutomaticUpdates}
 				onUpdateOpenMeldTools={updateOpenMeldTools}
+				pendingManagedUpdate={activePendingManagedUpdate}
 				replyReadiness={input.replyReadiness}
 				serviceUpdatePath={serviceUpdatePath}
 				setupCompleteRefreshPending={input.setupCompleteRefreshPending}
 				setupPath={setupPath}
 				updateRequestFailed={updateRequestFailed}
+				updateVerificationExhausted={updateVerificationExhausted}
 			/>
 		);
 	}
@@ -466,7 +617,7 @@ function OpenMeldServiceMoreMenu(input: {
 }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const showCheckStatus = input.showCheckStatus ?? true;
-	const setupLabel = input.setupLabel ?? "Reconnect OpenMeld Service";
+	const setupLabel = input.setupLabel ?? RECONNECT_MANUALLY_LABEL;
 
 	const checkStatus = () => {
 		setIsOpen(false);
@@ -635,12 +786,14 @@ function CurrentLocalRuntimeServiceFacts(input: {
 	isCheckingStatus: boolean;
 	isSavingAutomaticUpdates: boolean;
 	isUpdatingTools: boolean;
+	pendingManagedUpdate: PendingManagedUpdate | null;
 	onAutomaticUpdatesChange: (enabled: boolean) => Promise<void>;
 	onUpdateOpenMeldTools: () => Promise<void>;
 	replyReadiness: ComputerReplyReadiness;
 	serviceUpdatePath: string;
 	setupPath: string;
 	setupCompleteRefreshPending: boolean;
+	updateVerificationExhausted: boolean;
 	updateRequestFailed: boolean;
 }) {
 	const hasCurrentServiceObservation =
@@ -653,11 +806,26 @@ function CurrentLocalRuntimeServiceFacts(input: {
 	const localComponents =
 		input.currentLocalRuntimeReplyReadiness?.localComponents ?? null;
 	const maintenance = localComponents?.maintenance ?? null;
-	const updateOperation = localComponents?.updateOperation ?? null;
+	const updateOperation = resolveVisibleOpenMeldToolsUpdateOperation({
+		observed: localComponents?.updateOperation ?? null,
+		pending: input.pendingManagedUpdate,
+	});
+	const updateTargetVersion = resolveOpenMeldToolsUpdateTargetVersion({
+		operation: updateOperation,
+		pending: input.pendingManagedUpdate,
+	});
+	const updateTargetObserved = hasObservedOpenMeldToolsUpdateTarget({
+		localComponents,
+		targetVersion: updateTargetVersion,
+	});
+	const nextUpdateAvailable = hasActionableOpenMeldToolsUpdate(localComponents);
 	const updateIsActive =
-		input.isUpdatingTools ||
-		updateOperation?.phase === "updating" ||
-		updateOperation?.phase === "waiting_for_work";
+		!input.updateVerificationExhausted &&
+		(input.isUpdatingTools ||
+			input.pendingManagedUpdate !== null ||
+			updateOperation?.phase === "updating" ||
+			updateOperation?.phase === "waiting_for_work" ||
+			(updateOperation?.phase === "updated" && !updateTargetObserved));
 	const serviceUpdate = localComponents?.service ?? null;
 	const cliUpdate = resolveOpenMeldToolsCliUpdate(localComponents);
 	const skillsUpdate = resolveOpenMeldToolsSkillsUpdate(localComponents);
@@ -676,9 +844,6 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		isCheckingStatus: input.isCheckingStatus,
 		replyReadiness: input.replyReadiness,
 		requiredServiceUpdate,
-		runtimeLane: resolveCurrentLocalRuntimeLane(
-			input.currentLocalRuntimeReplyReadiness
-		),
 		serviceUpdate,
 		serviceConnected,
 		serviceDisconnected: hasCurrentServiceObservation && !serviceConnected,
@@ -705,15 +870,12 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		serviceVersionValue,
 		skillsUpdate,
 	});
-	const primaryAction =
-		maintenance && display.primaryAction?.label === UPDATE_OPENMELD_TOOLS_LABEL
-			? {
-					disabled: updateIsActive,
-					kind: "managed" as const,
-					label: updateIsActive ? "Updating" : "Update",
-					onClick: input.onUpdateOpenMeldTools,
-				}
-			: display.primaryAction;
+	const primaryAction = resolveCurrentOpenMeldToolsPrimaryAction({
+		displayAction: display.primaryAction,
+		maintenanceAvailable: maintenance !== null,
+		onUpdateOpenMeldTools: input.onUpdateOpenMeldTools,
+		updateIsActive,
+	});
 	return (
 		<div className="flex flex-col">
 			<div
@@ -750,21 +912,37 @@ function CurrentLocalRuntimeServiceFacts(input: {
 					</p>
 				</div>
 				{primaryAction ? (
-					<OpenMeldToolsActionControl
-						action={primaryAction}
-						className="w-fit shrink-0"
-						tone={display.tone}
-					/>
+					<div className="flex w-fit shrink-0 items-center gap-3">
+						{primaryAction.kind === "managed" ? (
+							<Link
+								className="text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								to={input.serviceUpdatePath}
+							>
+								{UPDATE_MANUALLY_LABEL}
+							</Link>
+						) : null}
+						<OpenMeldToolsActionControl
+							action={primaryAction}
+							className="w-fit shrink-0"
+							tone={display.tone}
+						/>
+					</div>
 				) : null}
 			</div>
 			{maintenance ? (
 				<OpenMeldToolsMaintenanceControls
 					automaticUpdatesEnabled={maintenance.automaticUpdatesEnabled}
+					confirmationPending={
+						input.pendingManagedUpdate?.kind === "confirmation"
+					}
 					disabled={input.isSavingAutomaticUpdates}
+					nextUpdateAvailable={nextUpdateAvailable}
 					onAutomaticUpdatesChange={input.onAutomaticUpdatesChange}
 					operation={updateOperation}
 					requestFailed={input.updateRequestFailed && updateOperation === null}
 					requesting={input.isUpdatingTools}
+					targetObserved={updateTargetObserved}
+					verificationExhausted={input.updateVerificationExhausted}
 				/>
 			) : null}
 
@@ -790,7 +968,6 @@ type CurrentLocalRuntimeServiceDisplayInput = {
 	isCheckingStatus: boolean;
 	replyReadiness: ComputerReplyReadiness;
 	requiredServiceUpdate: boolean;
-	runtimeLane: OpenMeldRuntimeLane;
 	serviceUpdate:
 		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["service"]
 		| null;
@@ -836,7 +1013,7 @@ function resolveOpenMeldToolsServiceBoundaryDisplay(
 			hideVersionDetails: false,
 			primaryAction: {
 				kind: "link",
-				label: formatLocalSetupActionLabel("reconnect_service"),
+				label: RECONNECT_MANUALLY_LABEL,
 				path: input.setupPath,
 			},
 			statusLabel: "OpenMeld Service is not connected",
@@ -878,21 +1055,13 @@ function resolveOpenMeldToolsUpdateDisplay(
 	if (!(input.serviceConnected && (hasServiceOrSkillsUpdate || hasCliUpdate))) {
 		return null;
 	}
-	const updatePath = isOpenMeldToolsComponentUpdateActionable(
-		input.serviceUpdate
-	)
-		? input.serviceUpdatePath
-		: input.setupPath;
-	const primaryAction = hasServiceOrSkillsUpdate
-		? buildOpenMeldToolsLinkAction(updatePath)
-		: buildOpenMeldToolsCliUpdateAction(input.runtimeLane);
 	return {
 		description: hasRequiredToolsUpdate
 			? "An update is required to keep local agents ready on this computer."
 			: "A newer version of OpenMeld Tools is available.",
 		descriptionTone: hasRequiredToolsUpdate ? "muted" : "warning",
 		hideVersionDetails: false,
-		primaryAction,
+		primaryAction: buildOpenMeldToolsLinkAction(input.serviceUpdatePath),
 		statusLabel: hasRequiredToolsUpdate
 			? "OpenMeld Tools need an update"
 			: "OpenMeld Tools update available",
@@ -965,24 +1134,176 @@ function resolveOpenMeldToolsDefaultDisplay(
 function buildOpenMeldToolsLinkAction(path: string): OpenMeldToolsAction {
 	return {
 		kind: "link",
-		label: UPDATE_OPENMELD_TOOLS_LABEL,
+		label: UPDATE_MANUALLY_LABEL,
 		path,
 	};
 }
 
-function buildOpenMeldToolsCliUpdateAction(
-	runtimeLane: OpenMeldRuntimeLane
-): OpenMeldToolsAction {
+function resolveCurrentOpenMeldToolsPrimaryAction(input: {
+	displayAction: OpenMeldToolsAction | null;
+	maintenanceAvailable: boolean;
+	onUpdateOpenMeldTools: () => Promise<void>;
+	updateIsActive: boolean;
+}): OpenMeldToolsAction | null {
+	const managedUpdateCandidate =
+		input.displayAction?.kind === "link" &&
+		input.displayAction.label === UPDATE_MANUALLY_LABEL;
+	if (!(input.maintenanceAvailable && managedUpdateCandidate)) {
+		return input.displayAction;
+	}
 	return {
-		command: resolveOpenMeldCliUpdateCommand({
-			runtimeLane,
-		}),
-		description:
-			"Run this command in Terminal on this computer. OpenMeld will update the CLI and check local service alignment.",
-		kind: "command",
-		label: UPDATE_OPENMELD_TOOLS_LABEL,
-		title: UPDATE_OPENMELD_TOOLS_LABEL,
+		disabled: input.updateIsActive,
+		kind: "managed",
+		label: input.updateIsActive ? "Updating" : "Update",
+		onClick: input.onUpdateOpenMeldTools,
 	};
+}
+
+function resolveOpenMeldToolsUpdateTargetVersion(input: {
+	operation: OpenMeldToolsUpdateOperation | null;
+	pending: PendingManagedUpdate | null;
+}): string | null {
+	return input.pending?.kind === "confirmation"
+		? input.pending.currentVersion
+		: (input.operation?.targetVersion ?? null);
+}
+
+function hasObservedOpenMeldToolsUpdateTarget(input: {
+	localComponents: OpenMeldToolsProjection | null;
+	targetVersion: string | null;
+}): boolean {
+	return Boolean(
+		input.localComponents &&
+			input.targetVersion &&
+			input.localComponents.service.installedVersion === input.targetVersion &&
+			input.localComponents.cli.installedPackageVersion === input.targetVersion
+	);
+}
+
+function resolveOpenMeldToolsUpdateVerificationKey(input: {
+	operation: OpenMeldToolsUpdateOperation | null;
+	pending: PendingManagedUpdate | null;
+	targetObserved: boolean;
+}): string | null {
+	if (input.pending?.kind === "confirmation" && !input.targetObserved) {
+		return `confirmation:${input.pending.currentVersion}`;
+	}
+	if (
+		!input.operation ||
+		input.operation.phase === "restored" ||
+		input.operation.phase === "needs_help" ||
+		(input.operation.phase === "updated" && input.targetObserved)
+	) {
+		return null;
+	}
+	return [
+		"operation",
+		input.operation.operationId,
+		input.operation.phase,
+		input.operation.updatedAt,
+		input.operation.targetVersion,
+	].join(":");
+}
+
+function hasActionableOpenMeldToolsUpdate(
+	localComponents: OpenMeldToolsProjection | null
+): boolean {
+	if (!localComponents) {
+		return true;
+	}
+	return (
+		isOpenMeldToolsComponentUpdateActionable(localComponents.service) ||
+		isOpenMeldToolsComponentUpdateActionable(localComponents.skills) ||
+		isOpenMeldToolsComponentUpdateActionable(localComponents.cli)
+	);
+}
+
+function hasObservedPendingManagedUpdateSettled(input: {
+	localComponents: OpenMeldToolsProjection | null;
+	pending: PendingManagedUpdate;
+}): boolean {
+	if (!input.localComponents) {
+		return false;
+	}
+	if (
+		input.pending.kind === "confirmation" &&
+		hasActionableOpenMeldToolsUpdate(input.localComponents)
+	) {
+		return false;
+	}
+	const expectedVersion =
+		input.pending.kind === "confirmation"
+			? input.pending.currentVersion
+			: input.pending.operation.targetVersion;
+	return (
+		input.localComponents.service.installedVersion === expectedVersion &&
+		input.localComponents.cli.installedPackageVersion === expectedVersion
+	);
+}
+
+function hasObservedFailedManagedUpdate(input: {
+	localComponents: OpenMeldToolsProjection | null;
+	pending: PendingManagedUpdate;
+}): boolean {
+	if (input.pending.kind !== "operation") {
+		return false;
+	}
+	const observedOperation = input.localComponents?.updateOperation ?? null;
+	return (
+		observedOperation?.operationId === input.pending.operation.operationId &&
+		(observedOperation.phase === "restored" ||
+			observedOperation.phase === "needs_help")
+	);
+}
+
+function resolveVisibleOpenMeldToolsUpdateOperation(input: {
+	observed: OpenMeldToolsUpdateOperation | null;
+	pending: PendingManagedUpdate | null;
+}): OpenMeldToolsUpdateOperation | null {
+	const pendingOperation =
+		input.pending?.kind === "operation" ? input.pending.operation : null;
+	if (!pendingOperation) {
+		return input.observed;
+	}
+	if (!input.observed) {
+		return pendingOperation;
+	}
+	if (input.observed.operationId === pendingOperation.operationId) {
+		const observedUpdatedAt = Date.parse(input.observed.updatedAt);
+		const pendingUpdatedAt = Date.parse(pendingOperation.updatedAt);
+		if (observedUpdatedAt !== pendingUpdatedAt) {
+			return observedUpdatedAt > pendingUpdatedAt
+				? input.observed
+				: pendingOperation;
+		}
+		return resolveOpenMeldToolsUpdatePhaseOrder(input.observed.phase) >
+			resolveOpenMeldToolsUpdatePhaseOrder(pendingOperation.phase)
+			? input.observed
+			: pendingOperation;
+	}
+	return Date.parse(input.observed.updatedAt) >=
+		Date.parse(pendingOperation.updatedAt)
+		? input.observed
+		: pendingOperation;
+}
+
+function resolveOpenMeldToolsUpdatePhaseOrder(
+	phase: OpenMeldToolsUpdateOperation["phase"]
+): number {
+	switch (phase) {
+		case "waiting_for_work":
+			return 0;
+		case "updating":
+			return 1;
+		case "updated":
+		case "restored":
+		case "needs_help":
+			return 2;
+		default: {
+			const exhaustive: never = phase;
+			return exhaustive;
+		}
+	}
 }
 
 type OpenMeldToolsProjection =
@@ -990,21 +1311,6 @@ type OpenMeldToolsProjection =
 type OpenMeldToolsCliUpdate = OrganizationComputerOpenMeldTools["cli"];
 type OpenMeldToolsServiceUpdate = OrganizationComputerOpenMeldTools["service"];
 type OpenMeldToolsSkillsUpdate = OrganizationComputerOpenMeldTools["skills"];
-type OpenMeldRuntimeLane =
-	CurrentLocalRuntimeReplyReadinessResponse["runtime"]["runtimeLane"];
-
-function resolveCurrentLocalRuntimeLane(
-	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null
-): OpenMeldRuntimeLane {
-	const runtimeLane = currentLocalRuntimeReplyReadiness?.runtime.runtimeLane;
-	if (runtimeLane) {
-		return runtimeLane;
-	}
-	const currentTarget = currentLocalRuntimeReplyReadiness?.currentTarget;
-	return currentTarget?.availability === "resolved"
-		? currentTarget.runtimeLane
-		: null;
-}
 
 function resolveOpenMeldToolsCliUpdate(
 	localComponents: OpenMeldToolsProjection | null
@@ -1053,6 +1359,12 @@ function formatOpenMeldServiceVersionDescription(input: {
 			? `Latest available: v${input.expectedServiceVersion}.`
 			: undefined;
 	}
+	if (
+		serviceUpdate.requiredVersion &&
+		serviceUpdate.requiredVersion === serviceUpdate.latestVersion
+	) {
+		return `Update to v${serviceUpdate.requiredVersion}.`;
+	}
 	const details = [
 		serviceUpdate.requiredVersion
 			? `Required: v${serviceUpdate.requiredVersion}.`
@@ -1077,8 +1389,11 @@ function resolveOpenMeldServiceActionLabel(input: {
 	const actionLabel = resolveCurrentLocalRuntimeServiceActionLabel(
 		input.replyReadiness
 	);
-	return actionLabel === formatLocalSetupActionLabel("connect_local_agent")
-		? null
+	if (actionLabel === formatLocalSetupActionLabel("connect_local_agent")) {
+		return null;
+	}
+	return actionLabel === formatLocalSetupActionLabel("reconnect_service")
+		? RECONNECT_MANUALLY_LABEL
 		: actionLabel;
 }
 
@@ -1244,13 +1559,17 @@ type OpenMeldToolsAction =
 
 function OpenMeldToolsMaintenanceControls(input: {
 	automaticUpdatesEnabled: boolean;
+	confirmationPending: boolean;
 	disabled: boolean;
+	nextUpdateAvailable: boolean;
 	onAutomaticUpdatesChange: (enabled: boolean) => Promise<void>;
 	operation:
 		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
 		| null;
 	requestFailed: boolean;
 	requesting: boolean;
+	targetObserved: boolean;
+	verificationExhausted: boolean;
 }) {
 	const updateStatus = resolveOpenMeldToolsUpdateStatus(input);
 	return (
@@ -1276,41 +1595,62 @@ function OpenMeldToolsMaintenanceControls(input: {
 }
 
 function resolveOpenMeldToolsUpdateStatus(input: {
+	confirmationPending: boolean;
+	nextUpdateAvailable: boolean;
 	operation:
 		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
 		| null;
 	requestFailed: boolean;
 	requesting: boolean;
+	targetObserved: boolean;
+	verificationExhausted: boolean;
 }): string | null {
 	if (input.requestFailed) {
 		return "Update failed. Try again.";
 	}
+	if (input.verificationExhausted) {
+		return "Couldn't verify the update. Try again or update manually.";
+	}
+	if (input.confirmationPending && !input.targetObserved) {
+		return "Verifying update";
+	}
 	if (input.requesting) {
-		return "Updating";
+		return "Checking for updates";
+	}
+	if (
+		input.operation?.phase === "updated" &&
+		input.targetObserved &&
+		input.nextUpdateAvailable
+	) {
+		return null;
 	}
 	return input.operation
-		? formatOpenMeldToolsUpdatePhase(input.operation.phase)
+		? formatOpenMeldToolsUpdatePhase({
+				phase: input.operation.phase,
+				targetObserved: input.targetObserved,
+			})
 		: null;
 }
 
-function formatOpenMeldToolsUpdatePhase(
+function formatOpenMeldToolsUpdatePhase(input: {
 	phase: NonNullable<
 		CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
-	>["phase"]
-): string {
-	switch (phase) {
+	>["phase"];
+	targetObserved: boolean;
+}): string {
+	switch (input.phase) {
 		case "waiting_for_work":
 			return "Finishing current work";
 		case "updating":
 			return "Updating";
 		case "updated":
-			return "Up to date";
+			return input.targetObserved ? "Up to date" : "Verifying update";
 		case "restored":
 			return "Update failed. Try again.";
 		case "needs_help":
 			return "Update failed. Try again.";
 		default: {
-			const exhaustive: never = phase;
+			const exhaustive: never = input.phase;
 			return exhaustive;
 		}
 	}
@@ -1355,28 +1695,6 @@ function buildOpenMeldToolsComponentDetails(input: {
 			value: formatOpenMeldSkillsValue(input.skillsUpdate),
 		},
 	];
-}
-
-function resolveOpenMeldCliUpdateCommand(input: {
-	runtimeLane: OpenMeldRuntimeLane;
-}): string {
-	return OPENMELD_CLI_UPDATE_COMMAND.replace(
-		OPENMELD_COMMAND_PREFIX_RE,
-		resolveInstalledOpenMeldCliCommand(input)
-	);
-}
-
-function resolveInstalledOpenMeldCliCommand(input: {
-	runtimeLane: OpenMeldRuntimeLane;
-}): string {
-	switch (input.runtimeLane) {
-		case "dev-local":
-			return "openmeld-dev";
-		case "canary":
-			return "openmeld-canary";
-		default:
-			return "openmeld";
-	}
 }
 
 function formatOpenMeldCliVersionValue(
