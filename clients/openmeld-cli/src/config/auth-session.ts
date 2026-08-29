@@ -304,26 +304,11 @@ export async function getAuthSessionState(
 
   const remoteValidation = await getRemoteAuthSessionState(localState.session);
   if (remoteValidation.state === "valid") {
-    if (!remoteValidation.expiresAt) {
-      return localState;
-    }
-    if (isExpired(remoteValidation.expiresAt)) {
-      return localState;
-    }
-    const refreshedSession = await persistRemoteSessionRefresh({
-      accessToken:
-        remoteValidation.accessToken ?? localState.session.accessToken,
-      expectedPayloadKey: localPayloadKey,
-      expiresAt: remoteValidation.expiresAt,
-      previousAccessToken: localState.session.accessToken,
+    return await resolveRemotelyValidatedAuthSession({
+      localPayloadKey,
+      localState,
+      remoteValidation,
     });
-    if (refreshedSession) {
-      return {
-        state: "valid",
-        session: refreshedSession,
-      };
-    }
-    return await getLocalAuthSessionState();
   }
   if (remoteValidation.state === "unknown") {
     if (localState.state === "expired" && options.refreshExpired === true) {
@@ -342,6 +327,49 @@ export async function getAuthSessionState(
     reasonCode: resolveRemoteAuthSessionReasonCode(remoteValidation.state),
     state: remoteValidation.state,
     session: null,
+  };
+}
+
+async function resolveRemotelyValidatedAuthSession(input: {
+  localPayloadKey: string | null;
+  localState: Extract<LocalAuthSessionState, { state: "expired" | "valid" }>;
+  remoteValidation: Extract<RemoteAuthSessionValidation, { state: "valid" }>;
+}): Promise<AuthSessionStateResult> {
+  if (
+    !input.remoteValidation.expiresAt ||
+    isExpired(input.remoteValidation.expiresAt)
+  ) {
+    return input.localState;
+  }
+
+  let refreshedSession: StoredAuthSession | null;
+  try {
+    refreshedSession = await persistRemoteSessionRefresh({
+      accessToken:
+        input.remoteValidation.accessToken ??
+        input.localState.session.accessToken,
+      expectedPayloadKey: input.localPayloadKey,
+      expiresAt: input.remoteValidation.expiresAt,
+      previousAccessToken: input.localState.session.accessToken,
+    });
+  } catch (error) {
+    if (!(error instanceof AuthSessionRecoveryInProgressError)) {
+      throw error;
+    }
+    // Remote validation is a read. A valid response may offer a refreshed
+    // token or expiry, but an interrupted Computer handoff still owns the
+    // auth mutation boundary. Keep that journal and its token ownership
+    // intact, then re-read the currently restored session in case another
+    // owner won while the remote request was in flight.
+    return await getLocalAuthSessionState({ recover: false });
+  }
+
+  if (!refreshedSession) {
+    return await getLocalAuthSessionState();
+  }
+  return {
+    state: "valid",
+    session: refreshedSession,
   };
 }
 
