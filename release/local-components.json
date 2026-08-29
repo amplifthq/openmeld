@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-29T09:03:29.660Z",
+  "updatedAt": "2026-08-29T15:37:22.331Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.131",
+      "packageVersion": "0.3.132",
       "updatePolicy": "available",
-      "reason": "CLI versions before 0.3.126 must update before ordinary product commands; setup, upgrade, repair, status, diagnostics, sign-in, and version recovery remain available, while supported 0.3.126 and newer CLIs remain compatible."
+      "reason": "Existing CLI setup, Space, and Wake commands remain interoperable; the new behavior is additive or recoverable against the current cloud."
     },
     "service": {
-      "bundleHash": "87e42524396862009a26647207839dd1ebbe9d3375bf78e55b47d5eb9246c56b",
-      "bundleVersion": "0.3.131",
+      "bundleHash": "5d711a1dd6e22e24e655f27f3591644a3e61d466417e5adbb9fde98846acc10e",
+      "bundleVersion": "0.3.132",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "No Service wire contract changed; 0.3.129 lets the bundled Service reuse the restored sign-in during repair while older healthy Services remain compatible."
+      "reason": "Existing Services can continue Wake work, and the new optional provider evidence is emitted only after the compatible Core reader is deployed."
     },
     "skills": {
-      "bundleHash": "3b9b009ba253a1ec80240545d016a238505cd21ec6b11b34a10eea755f2e2683",
+      "bundleHash": "8962ec12246fa12842f60f7bf6cbbf50e52bac61855afe8fdee04d4defecac1f",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Keep Space replies working after OpenMeld Service upgrades."
+      "reason": "Managed Skill changes document the additive multi-file send flow and remain compatible with existing CLI commands."
     }
   }
 }
