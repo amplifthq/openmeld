@@ -1,5 +1,65 @@
 "use client";
 
+export type PendingTextClipboardWrite = {
+	cancel: () => void;
+	complete: (value: string) => Promise<boolean>;
+};
+
+export function beginTextClipboardWrite(): PendingTextClipboardWrite | null {
+	if (
+		typeof navigator === "undefined" ||
+		typeof navigator.clipboard?.write !== "function" ||
+		typeof ClipboardItem === "undefined" ||
+		typeof Blob === "undefined"
+	) {
+		return null;
+	}
+
+	let resolveText!: (value: Blob) => void;
+	let rejectText!: (reason: Error) => void;
+	let isSettled = false;
+	const text = new Promise<Blob>((resolve, reject) => {
+		resolveText = resolve;
+		rejectText = reject;
+	});
+	text.catch(() => undefined);
+
+	let write: Promise<boolean>;
+	try {
+		write = navigator.clipboard
+			.write([
+				new ClipboardItem({
+					"text/plain": text,
+				}),
+			])
+			.then(
+				() => true,
+				() => false
+			);
+	} catch {
+		isSettled = true;
+		rejectText(new Error("Clipboard write could not be started."));
+		return null;
+	}
+
+	return {
+		cancel: () => {
+			if (isSettled) {
+				return;
+			}
+			isSettled = true;
+			rejectText(new Error("Clipboard write was canceled."));
+		},
+		complete: (value) => {
+			if (!isSettled) {
+				isSettled = true;
+				resolveText(new Blob([value], { type: "text/plain" }));
+			}
+			return write;
+		},
+	};
+}
+
 export async function copyTextToClipboard(value: string): Promise<boolean> {
 	if (typeof navigator !== "undefined" && navigator.clipboard) {
 		try {

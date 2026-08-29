@@ -25,7 +25,14 @@ import {
 	CopyIcon,
 	KeyRoundIcon,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { CrossPageHeader } from "#/components/app/cross-page-header";
 import {
@@ -38,7 +45,11 @@ import {
 	resolveBrowserSetupCommandPlatform,
 	resolveWebSetupFollowUpCliCommandPrefix,
 } from "#/lib/cli-entry-command";
-import { copyTextToClipboard } from "#/lib/clipboard";
+import {
+	beginTextClipboardWrite,
+	copyTextToClipboard,
+	type PendingTextClipboardWrite,
+} from "#/lib/clipboard";
 import { resolveComputerAuthorizationHandoffExpiresAt } from "#/lib/computer-authorization-expiry";
 import { Elevated } from "#/lib/elevated";
 import { listStartProfiles } from "#/lib/profiles/existing-profiles";
@@ -70,6 +81,7 @@ type PromptActionKind = "copy" | "generate";
 
 type InFlightPromptAction = {
 	id: number;
+	pendingClipboardWrite: PendingTextClipboardWrite | null;
 	promise: Promise<void>;
 };
 
@@ -96,6 +108,11 @@ export function AgentInterfacePage({
 	const isMountedRef = useRef(false);
 	const promptActionIdRef = useRef(0);
 	const inFlightPromptActionRef = useRef<InFlightPromptAction | null>(null);
+	const invalidatePromptActions = useCallback(() => {
+		promptActionIdRef.current += 1;
+		inFlightPromptActionRef.current?.pendingClipboardWrite?.cancel();
+		inFlightPromptActionRef.current = null;
+	}, []);
 	const profilesQuery = useQuery({
 		queryKey: ["agent-interface", "profiles"],
 		queryFn: async () => await listStartProfiles(),
@@ -129,24 +146,22 @@ export function AgentInterfacePage({
 		isExpired: isGeneratedExpired,
 	});
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		isMountedRef.current = true;
 
 		return () => {
 			isMountedRef.current = false;
-			promptActionIdRef.current += 1;
-			inFlightPromptActionRef.current = null;
+			invalidatePromptActions();
 		};
-	}, []);
+	}, [invalidatePromptActions]);
 
 	useLayoutEffect(() => {
 		if (isAuthenticated) {
 			return;
 		}
 
-		promptActionIdRef.current += 1;
-		inFlightPromptActionRef.current = null;
-	}, [isAuthenticated]);
+		invalidatePromptActions();
+	}, [invalidatePromptActions, isAuthenticated]);
 
 	useEffect(() => {
 		if (!generated) {
@@ -248,7 +263,8 @@ export function AgentInterfacePage({
 
 	async function performPromptAction(
 		actionId: number,
-		kind: PromptActionKind
+		kind: PromptActionKind,
+		pendingClipboardWrite: PendingTextClipboardWrite | null
 	): Promise<void> {
 		try {
 			const { didGenerateFreshPrompt, prompt } =
@@ -265,9 +281,10 @@ export function AgentInterfacePage({
 				setGenerated(prompt);
 			}
 
-			const didCopy = await copyTextToClipboard(prompt.prompt).catch(
-				() => false
-			);
+			const didCopy = await copyPromptText({
+				pendingClipboardWrite,
+				value: prompt.prompt,
+			});
 			if (!isCurrentPromptAction(actionId)) {
 				return;
 			}
@@ -277,6 +294,7 @@ export function AgentInterfacePage({
 				toast.error(resolveErrorMessage(error));
 			}
 		} finally {
+			pendingClipboardWrite?.cancel();
 			if (inFlightPromptActionRef.current?.id === actionId) {
 				inFlightPromptActionRef.current = null;
 			}
@@ -302,9 +320,14 @@ export function AgentInterfacePage({
 		setPendingPromptActionState({ id: actionId, kind });
 		setCopyState("idle");
 
-		const promise = performPromptAction(actionId, kind);
+		const pendingClipboardWrite = beginTextClipboardWrite();
+		const promise = performPromptAction(actionId, kind, pendingClipboardWrite);
 
-		inFlightPromptActionRef.current = { id: actionId, promise };
+		inFlightPromptActionRef.current = {
+			id: actionId,
+			pendingClipboardWrite,
+			promise,
+		};
 		return promise;
 	}
 
@@ -696,6 +719,21 @@ function resolvePromptCopiedMessage(input: {
 	return input.didGenerateFreshPrompt
 		? "Fresh agent prompt copied."
 		: "Agent prompt copied.";
+}
+
+async function copyPromptText(input: {
+	pendingClipboardWrite: PendingTextClipboardWrite | null;
+	value: string;
+}): Promise<boolean> {
+	if (input.pendingClipboardWrite) {
+		const didPreserveUserActivation =
+			await input.pendingClipboardWrite.complete(input.value);
+		if (didPreserveUserActivation) {
+			return true;
+		}
+	}
+
+	return await copyTextToClipboard(input.value).catch(() => false);
 }
 
 function isPromptExpired(expiresAt: string, now: number): boolean {

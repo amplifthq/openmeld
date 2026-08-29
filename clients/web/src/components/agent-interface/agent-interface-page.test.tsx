@@ -16,6 +16,7 @@ const createComputerAuthorizationMutateAsyncMock = vi.hoisted(() => vi.fn());
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const buildWebSetupCommandMock = vi.hoisted(() => vi.fn());
 const resolveBrowserSetupCommandPlatformMock = vi.hoisted(() => vi.fn());
+const beginTextClipboardWriteMock = vi.hoisted(() => vi.fn());
 const copyTextToClipboardMock = vi.hoisted(() => vi.fn());
 const OPEN_OPENMELD_SKILL_RE = /Open OpenMeld Skill/i;
 const PRIVATE_PROMPT_SIGN_IN_RE =
@@ -54,6 +55,7 @@ vi.mock("#/lib/cli-entry-command", async () => {
 });
 
 vi.mock("#/lib/clipboard", () => ({
+	beginTextClipboardWrite: beginTextClipboardWriteMock,
 	copyTextToClipboard: copyTextToClipboardMock,
 }));
 
@@ -92,6 +94,7 @@ describe("AgentInterfacePage", () => {
 					`curl -fsSL http://localhost:3000/setup | sh -s -- setup --start-session ${input.startSession} --local-agents ${input.localAgents} --device-code ${input.deviceCode} --view ${input.view}`
 			);
 		resolveBrowserSetupCommandPlatformMock.mockReset().mockReturnValue("posix");
+		beginTextClipboardWriteMock.mockReset().mockReturnValue(null);
 		copyTextToClipboardMock.mockReset().mockResolvedValue(true);
 	});
 
@@ -319,6 +322,78 @@ describe("AgentInterfacePage", () => {
 		expect(copyTextToClipboardMock).not.toHaveBeenCalledWith(
 			expect.stringContaining("device-secret-expired")
 		);
+	});
+
+	it("starts the clipboard write in the click that refreshes an expired prompt", async () => {
+		const refreshPrepareSession = createDeferred<{
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: object;
+		}>();
+		createPrepareSessionMock
+			.mockResolvedValueOnce({
+				opaqueToken: "preptok_expired",
+				opaqueTokenExpiresAt: new Date(Date.now() + 250).toISOString(),
+				snapshot: {},
+			})
+			.mockImplementationOnce(() => refreshPrepareSession.promise);
+		createComputerAuthorizationMutateAsyncMock
+			.mockResolvedValueOnce({
+				deviceCode: "device-secret-expired",
+				expiresIn: 300,
+			})
+			.mockResolvedValueOnce({
+				deviceCode: "device-secret-fresh",
+				expiresIn: 300,
+			});
+		renderPage({ isAuthenticated: true });
+		await waitFor(() => {
+			expect(listStartProfilesMock).toHaveBeenCalled();
+		});
+
+		fireEvent.click(screen.getByRole("tab", { name: "Generate agent prompt" }));
+		await screen.findByRole("button", { name: "Copy again" });
+		await waitFor(
+			() => {
+				expect(
+					screen.getByText("Expired. Refresh and copy to continue.")
+				).toBeTruthy();
+			},
+			{ timeout: 2000 }
+		);
+		const completeClipboardWrite = vi.fn().mockResolvedValue(true);
+		beginTextClipboardWriteMock.mockClear().mockReturnValue({
+			cancel: vi.fn(),
+			complete: completeClipboardWrite,
+		});
+		copyTextToClipboardMock.mockClear();
+
+		fireEvent.click(screen.getByRole("button", { name: "Refresh and copy" }));
+
+		expect(beginTextClipboardWriteMock).toHaveBeenCalledTimes(1);
+		expect(completeClipboardWrite).not.toHaveBeenCalled();
+		expect(copyTextToClipboardMock).not.toHaveBeenCalled();
+
+		await act(async () => {
+			refreshPrepareSession.resolve({
+				opaqueToken: "preptok_fresh",
+				opaqueTokenExpiresAt: new Date(
+					Date.now() + 10 * 60 * 1000
+				).toISOString(),
+				snapshot: {},
+			});
+			await refreshPrepareSession.promise;
+		});
+
+		await waitFor(() => {
+			expect(completeClipboardWrite).toHaveBeenCalledWith(
+				expect.stringContaining("preptok_fresh")
+			);
+			expect(completeClipboardWrite).toHaveBeenCalledWith(
+				expect.stringContaining("device-secret-fresh")
+			);
+		});
+		expect(copyTextToClipboardMock).not.toHaveBeenCalled();
 	});
 
 	it("deduplicates repeated clicks while refreshing an expired prompt", async () => {
@@ -551,6 +626,11 @@ describe("AgentInterfacePage", () => {
 	});
 
 	it("fences a prompt response synchronously when sign-out commits", async () => {
+		const cancelClipboardWrite = vi.fn();
+		beginTextClipboardWriteMock.mockReturnValue({
+			cancel: cancelClipboardWrite,
+			complete: vi.fn().mockResolvedValue(true),
+		});
 		const pendingPrepareSession = createDeferred<{
 			opaqueToken: string;
 			opaqueTokenExpiresAt: string;
@@ -604,6 +684,7 @@ describe("AgentInterfacePage", () => {
 				await copiedBeforePassiveEffects.promise;
 
 			expect(resolveAfterSignOutCommit).toHaveBeenCalledTimes(1);
+			expect(cancelClipboardWrite).toHaveBeenCalled();
 			expect(copyCountAtTheSignedOutCommit).toBe(0);
 			expect(copyTextToClipboardMock).not.toHaveBeenCalled();
 			expect(
