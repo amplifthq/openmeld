@@ -23,7 +23,7 @@ import {
 	ClipboardTextIcon,
 	PlusIcon,
 } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import {
 	type AgentProfileSidebarGroup,
@@ -70,37 +70,81 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 		currentUserId: input.currentUserId,
 		profiles: input.profiles,
 	});
-	const orderedProfiles = groups.flatMap((group) => group.profiles);
-	const selectedProfile = input.selectedProfileId
+	if (input.profilesStatus === "ready") {
+		return (
+			<ReadyAgentProfilesWorkspace
+				groups={groups}
+				input={input}
+				key={input.profiles.length > 0 ? "has-profiles" : "no-profiles"}
+			/>
+		);
+	}
+	return (
+		<AgentProfilesWorkspaceFrame
+			groups={groups}
+			implicitSelectedProfileId={null}
+			input={input}
+		/>
+	);
+}
+
+function ReadyAgentProfilesWorkspace(input: {
+	groups: readonly AgentProfileSidebarGroup[];
+	input: AgentProfilesWorkspaceProps;
+}) {
+	const [implicitSelectedProfileId] = useState(
+		() =>
+			input.groups.flatMap((group) => group.profiles)[0]?.openMeldProfileId ??
+			null
+	);
+	return (
+		<AgentProfilesWorkspaceFrame
+			groups={input.groups}
+			implicitSelectedProfileId={implicitSelectedProfileId}
+			input={input.input}
+		/>
+	);
+}
+
+function AgentProfilesWorkspaceFrame(input: {
+	groups: readonly AgentProfileSidebarGroup[];
+	implicitSelectedProfileId: string | null;
+	input: AgentProfilesWorkspaceProps;
+}) {
+	const workspaceInput = input.input;
+	const orderedProfiles = input.groups.flatMap((group) => group.profiles);
+	const requestedProfileId =
+		workspaceInput.selectedProfileId ?? input.implicitSelectedProfileId;
+	const selectedProfile = requestedProfileId
 		? (orderedProfiles.find(
-				(profile) => profile.openMeldProfileId === input.selectedProfileId
+				(profile) => profile.openMeldProfileId === requestedProfileId
 			) ?? null)
 		: (orderedProfiles[0] ?? null);
 	const selectionMissing =
-		input.selectedProfileId !== null && selectedProfile === null;
+		requestedProfileId !== null && selectedProfile === null;
 	const activeProfileId =
-		input.activeView === "agents"
+		workspaceInput.activeView === "agents"
 			? (selectedProfile?.openMeldProfileId ?? null)
 			: null;
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
-			initialInnerSidebarState={input.initialSidebarStates?.inner}
-			initialOuterSidebarState={input.initialSidebarStates?.outer}
+			initialInnerSidebarState={workspaceInput.initialSidebarStates?.inner}
+			initialOuterSidebarState={workspaceInput.initialSidebarStates?.outer}
 			mobileSidebarTitle="Agents"
 			showMainHeader
 			sidebar={
 				<AgentProfilesWorkspaceSidebar
 					activeProfileId={activeProfileId}
-					groups={groups}
-					input={input}
+					groups={input.groups}
+					input={workspaceInput}
 				/>
 			}
 			sidebarPreferenceKey="agents"
 			sidebarSeparatorLabel="Resize the Agents sidebar"
 		>
 			<AgentProfilesWorkspaceContent
-				input={input}
+				input={workspaceInput}
 				selectedProfile={selectedProfile}
 				selectionMissing={selectionMissing}
 			/>

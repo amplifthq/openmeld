@@ -137,6 +137,38 @@ describe("AgentProfilesWorkspace", () => {
 		expect(onSelectProfile).toHaveBeenCalledWith("agent-current");
 	});
 
+	it("retains the first default Agent when readiness ordering changes", () => {
+		const onSelectProfile = vi.fn();
+		const firstProfile = createProfile(
+			"agent-current",
+			CURRENT_USER_ID,
+			"Felix",
+			"Felix Agent"
+		);
+		const secondProfile = createProfile(
+			"agent-current-two",
+			CURRENT_USER_ID,
+			"Felix",
+			"Second Felix Agent"
+		);
+		const { rerenderWorkspace } = renderWorkspace({
+			onSelectProfile,
+			profiles: [firstProfile, secondProfile],
+		});
+
+		expect(screen.getByTestId("selected-agent-detail").textContent).toBe(
+			"Felix Agent"
+		);
+		expect(onSelectProfile).not.toHaveBeenCalled();
+
+		rerenderWorkspace({ profiles: [secondProfile, firstProfile] });
+
+		expect(screen.getByTestId("selected-agent-detail").textContent).toBe(
+			"Felix Agent"
+		);
+		expect(onSelectProfile).not.toHaveBeenCalled();
+	});
+
 	it("does not substitute another Agent for a stale profile deep link", () => {
 		renderWorkspace({ selectedProfileId: "agent-missing" });
 
@@ -264,7 +296,9 @@ function renderWorkspace(
 		createProfile("agent-current", CURRENT_USER_ID, "Felix", "Felix Agent"),
 		createProfile("agent-other", "user-other", "Mira", "Other Agent"),
 	];
-	return render(
+	const createTree = (
+		nextOverrides: Partial<Parameters<typeof AgentProfilesWorkspace>[0]>
+	) => (
 		<AgentProfilesWorkspace
 			activeView="agents"
 			currentUserId={CURRENT_USER_ID}
@@ -282,9 +316,16 @@ function renderWorkspace(
 			renderProfilesController={() => <div data-testid="profiles-controller" />}
 			requestPanel={<div data-testid="agent-requests-panel">Requests</div>}
 			selectedProfileId={null}
-			{...overrides}
+			{...nextOverrides}
 		/>
 	);
+	const rendered = render(createTree(overrides));
+	return {
+		...rendered,
+		rerenderWorkspace: (
+			nextOverrides: Partial<Parameters<typeof AgentProfilesWorkspace>[0]>
+		) => rendered.rerender(createTree({ ...overrides, ...nextOverrides })),
+	};
 }
 
 function createProfile(
