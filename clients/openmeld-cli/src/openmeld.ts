@@ -5238,7 +5238,12 @@ async function runLocalCli(argv: string[]): Promise<void> {
     await ensureSystemLayout();
     const [startupCommand, startupSubcommand] =
       parseLeadingCommandTokensFromArgv(argv, 2);
-    if (!(startupCommand === "service" && startupSubcommand === "run")) {
+    if (
+      !(
+        isPassiveCliQueryArgv(argv) ||
+        (startupCommand === "service" && startupSubcommand === "run")
+      )
+    ) {
       const recoveryRuntime = {
         interactive: false,
         resolvedView: "agent",
