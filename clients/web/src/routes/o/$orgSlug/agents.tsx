@@ -35,7 +35,7 @@ export const Route = createFileRoute("/o/$orgSlug/agents")({
 		}).catch((error: unknown) => {
 			console.error("Failed to prefetch the Agents route data.", error);
 		});
-		return { sidebarStates: await getAppSidebarStatesForRoute() };
+		return { sidebarStates: await getAppSidebarStatesForRoute("agents") };
 	},
 	component: AgentsRoute,
 });
