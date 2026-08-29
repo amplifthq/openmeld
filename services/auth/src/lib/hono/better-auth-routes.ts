@@ -1,6 +1,7 @@
 import type { Context, Hono } from "hono";
 import { getAccountOrganizationPreferenceRepository } from "../account/organization-preference-service";
 import type { AppContext } from "../context";
+import { toDiagnosticError } from "../observability/diagnostic-error";
 
 const BETTER_AUTH_SESSION_ROUTE = "/api/auth/get-session";
 
@@ -40,7 +41,7 @@ async function projectLastSelectedOrganization(
   } catch (error) {
     console.warn("[auth.account_organization_preference_projection_failed]", {
       event: "auth.account_organization_preference_projection_failed",
-      error: error instanceof Error ? error.message : String(error),
+      error: toDiagnosticError(error),
       requestId: c.var.requestId,
       userId: payload.user.id,
     });
