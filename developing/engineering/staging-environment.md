@@ -132,6 +132,35 @@ and Staging Core all report the new version. Success output is a short list of
 `PASS` lines. Failure output includes the failed step; cleanup failures preserve
 their recovery directory under `dev-tmp/staging-computer-smoke/`.
 
+## Run Work Coordinator Acceptance
+
+The Work Coordinator V2 fixture is a small, persistent Staging scenario for
+workstation Wake coordination. It provides one owner, one non-owner, two Codex
+Agent Profiles on different models, two Spaces, and one Direct Message. Read
+the non-secret IDs and direct Web entry points with:
+
+```bash
+pnpm staging:work-coordinator:summary
+```
+
+Fixture credentials live only in Doppler project `openmeld-staging-smoke`,
+config `stg_smoke`. Recreate the two human identities without printing their
+credentials with:
+
+```bash
+pnpm staging:work-coordinator:prepare-identities
+```
+
+That command is fixture preparation, not smoke evidence. Acceptance still uses
+the listed Staging Web routes and a Staging-aligned Service with a fresh
+temporary `OPENMELD_HOME`. Run the Service in the foreground or as a detached
+process without registering an OS service. Never use `~/.openmeld`, stop a
+published Service, or point the fixture at Production. The scenario is scoped
+to workstation Wake, same-Profile FIFO across its two Spaces and Direct
+Message, two-model collaboration, owner/member projections, Usage and
+recovery, configuration revisions, and end-to-end timing. Add more fixture
+surface only when the Work Coordinator acceptance actually needs it.
+
 ## Deployment Order
 
 The guarded deployment order is intentional:
