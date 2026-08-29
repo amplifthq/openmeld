@@ -226,15 +226,25 @@ describe("daemon service update worker manager", () => {
     } as never);
     pruneManagedInstallVersionsMock.mockResolvedValue(undefined);
     const job = createBinaryUpdateJob();
+    const homeDir = await mkdtemp(
+      `${tmpdir()}/openmeld-update-worker-prune-success-`
+    );
     const pathInput = {
       env: {
+        ...process.env,
         OPENMELD_ENV_PRESET: "dev-local",
+        OPENMELD_HOME: homeDir,
       },
-      homeDir: "/tmp/openmeld-home",
+      homeDir,
     };
 
-    await pruneDaemonServiceUpdateWorkerManagedVersions(job, pathInput);
+    try {
+      await pruneDaemonServiceUpdateWorkerManagedVersions(job, pathInput);
+    } finally {
+      await rm(homeDir, { force: true, recursive: true });
+    }
 
+    expect(readDaemonActiveBundleState).toHaveBeenCalledWith(pathInput);
     expect(pruneManagedInstallVersionsMock).toHaveBeenCalledWith({
       pathInput,
       preferredRollbackVersion: "0.3.97",
@@ -246,11 +256,27 @@ describe("daemon service update worker manager", () => {
       new Error("active bundle state is unreadable")
     );
     const job = createBinaryUpdateJob();
+    const homeDir = await mkdtemp(
+      `${tmpdir()}/openmeld-update-worker-prune-failure-`
+    );
+    const pathInput = {
+      env: {
+        ...process.env,
+        OPENMELD_ENV_PRESET: "dev-local",
+        OPENMELD_HOME: homeDir,
+      },
+      homeDir,
+    };
 
-    await expect(
-      pruneDaemonServiceUpdateWorkerManagedVersions(job)
-    ).rejects.toThrow("active bundle state is unreadable");
+    try {
+      await expect(
+        pruneDaemonServiceUpdateWorkerManagedVersions(job, pathInput)
+      ).rejects.toThrow("active bundle state is unreadable");
+    } finally {
+      await rm(homeDir, { force: true, recursive: true });
+    }
 
+    expect(readDaemonActiveBundleState).toHaveBeenCalledWith(pathInput);
     expect(pruneManagedInstallVersionsMock).not.toHaveBeenCalled();
   });
 });

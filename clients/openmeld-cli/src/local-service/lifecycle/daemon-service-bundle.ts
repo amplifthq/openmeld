@@ -153,15 +153,18 @@ export function isDaemonBundleSourceAllowedForLane(input: {
   return resolveOpenMeldEnvPreset(input.pathInput) === "dev-local";
 }
 
-export async function readDaemonActiveBundleState(): Promise<DaemonActiveBundleState | null> {
-  const raw = await readFile(daemonServiceActiveBundlePath(), "utf8").catch(
-    (error) => {
-      if (getErrorCode(error) === "ENOENT") {
-        return null;
-      }
-      throw error;
+export async function readDaemonActiveBundleState(
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<DaemonActiveBundleState | null> {
+  const raw = await readFile(
+    daemonServiceActiveBundlePath(pathInput),
+    "utf8"
+  ).catch((error) => {
+    if (getErrorCode(error) === "ENOENT") {
+      return null;
     }
-  );
+    throw error;
+  });
   if (raw === null) {
     return null;
   }

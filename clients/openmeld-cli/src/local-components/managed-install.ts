@@ -28,6 +28,7 @@ import {
   openMeldManagedVersionBinaryPath,
   openMeldManagedVersionDir,
 } from "../config/paths";
+import { assertNoPublishedProductionMutationDuringTests } from "../config/published-production-safety";
 import { compareSemver } from "../config/version-state";
 import { readPendingDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-state";
 import { OPENMELD_VERSION } from "../runtime/version";
@@ -175,10 +176,14 @@ export async function withManagedInstallTransaction<T>(
  * the lock, so cleanup cannot race an install or use a stale pending snapshot.
  */
 export async function pruneManagedInstallVersions(input: {
-  pathInput?: OpenMeldPathResolutionInput;
+  pathInput: OpenMeldPathResolutionInput;
   preferredRollbackVersion?: string | null;
 }): Promise<void> {
-  const pathInput = input.pathInput ?? {};
+  const pathInput = input.pathInput;
+  assertNoPublishedProductionMutationDuringTests(
+    pathInput,
+    "managed CLI versions"
+  );
   await withManagedInstallTransaction(async () => {
     const currentVersion = await readCurrentPointerVersion(pathInput);
     if (currentVersion === null) {

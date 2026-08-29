@@ -280,6 +280,10 @@ describe("managed install (install-self)", () => {
     });
 
     await pruneManagedInstallVersions({
+      pathInput: {
+        env: { ...process.env, OPENMELD_HOME: home },
+        homeDir: home,
+      },
       preferredRollbackVersion: "0.3.9",
     });
 
@@ -309,6 +313,23 @@ describe("managed install (install-self)", () => {
       mode: expect.any(Number),
     });
     expect((await lstat(managedBinaryPath)).isFile()).toBe(true);
+  });
+
+  it("repairs a broken current pointer whose versioned binary is missing", async () => {
+    const version = resolveCliSelfVersion();
+    await performManagedInstall({ sourceBinaryPath: source });
+    const managedBinaryPath = path.join(home, "versions", version, "openmeld");
+    await rm(managedBinaryPath);
+
+    const outcome = await performManagedInstall({ sourceBinaryPath: source });
+
+    expect(outcome.result).toBe("installed");
+    await expect(readFile(managedBinaryPath, "utf8")).resolves.toBe(
+      "#!/bin/sh\necho fake\n"
+    );
+    await expect(readlink(path.join(home, "bin", "openmeld"))).resolves.toBe(
+      path.join("..", "versions", version, "openmeld")
+    );
   });
 
   it("replaces the same version when forced", async () => {

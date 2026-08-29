@@ -195,7 +195,7 @@ export async function pruneDaemonServiceUpdateWorkerManagedVersions(
   if (job.preparedBundle.bundleFormat !== "binary_v1") {
     return;
   }
-  const previousActiveBundle = await readDaemonActiveBundleState();
+  const previousActiveBundle = await readDaemonActiveBundleState(pathInput);
   await pruneManagedInstallVersions({
     pathInput,
     preferredRollbackVersion: previousActiveBundle?.daemonVersion ?? null,
