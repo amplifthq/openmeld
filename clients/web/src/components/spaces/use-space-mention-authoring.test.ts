@@ -7,6 +7,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	buildSpaceComposerAddressingSummary,
+	buildSpaceComposerAddressingTargets,
 	buildSpaceMentionTargetItems,
 	useSpaceMentionAuthoring,
 } from "./use-space-mention-authoring";
@@ -260,7 +261,7 @@ describe("buildSpaceComposerAddressingSummary", () => {
 		).toBe("Waking 1 agent · Referencing 1");
 	});
 
-	it("counts each profile once and uses its latest authored relation", () => {
+	it("counts each profile once and uses its first authored relation", () => {
 		expect(
 			buildSpaceComposerAddressingSummary([
 				{
@@ -279,7 +280,44 @@ describe("buildSpaceComposerAddressingSummary", () => {
 					text: "@Reviewer",
 				},
 			])
-		).toBe("Waking 1 agent · Referencing 1");
+		).toBe("Waking 2 agents · Referencing 0");
+	});
+});
+
+describe("buildSpaceComposerAddressingTargets", () => {
+	it("shows the first relation when the same profile occurs more than once", () => {
+		const runnerProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+		expect(
+			buildSpaceComposerAddressingTargets({
+				mentions: [
+					{
+						profileId: runnerProfileId,
+						relation: "wake",
+						text: "@Runner",
+					},
+					{
+						profileId: runnerProfileId,
+						relation: "reference",
+						text: "@Runner",
+					},
+				],
+				snapshot: createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							agentWakeAvailability: { status: "available_for_wake" },
+							profileId: runnerProfileId,
+							profileName: "Runner",
+						}),
+					],
+				}),
+			})
+		).toEqual([
+			expect.objectContaining({
+				profileId: runnerProfileId,
+				relation: "wake",
+			}),
+		]);
 	});
 });
 

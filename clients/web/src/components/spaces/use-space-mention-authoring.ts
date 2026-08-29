@@ -806,7 +806,9 @@ export function buildSpaceComposerAddressingSummary(
 ): string | null {
 	const relationByProfileId = new Map<string, MessageMentionType>();
 	for (const mention of mentions) {
-		relationByProfileId.set(mention.profileId, mention.relation);
+		if (!relationByProfileId.has(mention.profileId)) {
+			relationByProfileId.set(mention.profileId, mention.relation);
+		}
 	}
 	if (relationByProfileId.size < 2) {
 		return null;
@@ -839,6 +841,9 @@ export function buildSpaceComposerAddressingTargets(input: {
 	const catalog = createSpaceTargetCatalog(input.snapshot);
 	const targetByProfileId = new Map<string, SpaceComposerAddressingTarget>();
 	for (const mention of input.mentions) {
+		if (targetByProfileId.has(mention.profileId)) {
+			continue;
+		}
 		const target = catalog.byProfileId.get(mention.profileId);
 		if (!target?.allowedRelations[mention.relation]) {
 			continue;
