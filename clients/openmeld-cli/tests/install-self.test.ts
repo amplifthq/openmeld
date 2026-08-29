@@ -332,6 +332,20 @@ describe("managed install (install-self)", () => {
     );
   });
 
+  it("replaces a non-symlink current pointer", async () => {
+    const currentPointerPath = path.join(home, "bin", "openmeld");
+    await mkdir(path.dirname(currentPointerPath), { recursive: true });
+    await writeFile(currentPointerPath, "stale unmanaged binary");
+
+    const outcome = await performManagedInstall({ sourceBinaryPath: source });
+
+    expect(outcome.result).toBe("installed");
+    expect(outcome.previousVersion).toBeNull();
+    await expect(readlink(currentPointerPath)).resolves.toBe(
+      path.join("..", "versions", resolveCliSelfVersion(), "openmeld")
+    );
+  });
+
   it("replaces the same version when forced", async () => {
     await performManagedInstall({ sourceBinaryPath: source });
     await writeFile(source, "#!/bin/sh\necho replacement\n");

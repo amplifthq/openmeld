@@ -102,7 +102,7 @@ async function readCurrentPointerVersion(
 ): Promise<string | null> {
   const pointerPath = openMeldManagedBinaryPath(pathInput);
   const target = await readlink(pointerPath).catch((error) => {
-    if (isErrorWithCode(error, "ENOENT")) {
+    if (isErrorWithCode(error, "ENOENT") || isErrorWithCode(error, "EINVAL")) {
       return null;
     }
     throw error;
