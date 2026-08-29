@@ -72,6 +72,7 @@ vi.mock(
   })
 );
 
+import type { RuntimeAdapter } from "@openmeld/adapter-core";
 import {
   createInflightTaskControlRegistry,
   createLocalAdapterContainer,
@@ -1112,6 +1113,138 @@ describe("local service run catalog signal", () => {
     expect(
       syncLocalServiceRuntimeAgentControllerReportsMock
     ).toHaveBeenCalledTimes(2);
+
+    socket.close(1000, "shutdown");
+    await sessionPromise;
+  });
+
+  it("applies a changed permission mode to an active task during catalog sync", async () => {
+    vi.useFakeTimers();
+
+    syncDaemonRouteCatalogStateMock.mockResolvedValue({
+      diff: {
+        addedProfileIds: [],
+        keptProfileIds: ["agt-1"],
+        removedProfileIds: [],
+      },
+      registerResponse: {
+        acceptedLeases: [
+          {
+            leaseEpoch: 2,
+            profileId: "agt-1",
+          },
+        ],
+        connectionGeneration: 1,
+        ok: true,
+        rejectedProfiles: [],
+      },
+      skippedProfiles: [],
+      status: "changed",
+    });
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+
+    const updatePermissionMode = vi.fn().mockResolvedValue({
+      effectiveFrom: "subsequent_tool_requests",
+      status: "applied",
+      taskId: "task-1",
+    });
+    const adapter = {
+      adapterId: "claude-code",
+      dispatch: vi.fn(),
+      interrupt: vi.fn(),
+      updatePermissionMode,
+    } as unknown as RuntimeAdapter;
+    const inflightTaskControlRegistry = createInflightTaskControlRegistry();
+    inflightTaskControlRegistry.registerTask({
+      adapterId: "claude-code",
+      agentControllerPermissionMode: "claude-code:default",
+      dispatchId: "dispatch-1",
+      targetProfileId: "agt-1",
+      taskId: "task-1",
+    } as Parameters<typeof inflightTaskControlRegistry.registerTask>[0]);
+    const routeCatalogState = {
+      fingerprint: "auto-mode",
+      profileIds: ["agt-1"],
+      routeByProfileId: new Map([
+        [
+          "agt-1",
+          {
+            agentControllerPermissionMode: "claude-code:auto" as const,
+            agentControllerRef: "builtin:claude-code",
+            contextIdMappingSpec: {
+              mappingVersion: 1 as const,
+              sourceField: "session_id" as const,
+            },
+            profileId: "agt-1",
+            streamingMode: "final" as const,
+            transportMode: "local-cli" as const,
+          },
+        ],
+      ]),
+      skippedProfiles: [],
+    };
+    const socket = createMockSocket();
+    const sessionPromise = runDaemonSocketSession({
+      computerFileAccessStorePath: "/tmp/computer-file-access.json",
+      contextStore: new Map<string, string>(),
+      daemonSessionId: "session-live-permission-mode",
+      dispatchLimits: {
+        globalConcurrency: 1,
+        queueMax: 4,
+      },
+      deviceId: "device-1",
+      foregroundActive: false,
+      heartbeatIntervalMs: 5000,
+      inflightDispatchMetaByTaskId: new Map(),
+      inflightTaskControlRegistry,
+      pendingAgentInteractionRegistry: createPendingAgentInteractionRegistry(),
+      lane: "dev-local",
+      ledgerPaths: {
+        backupStateFilePath: "/tmp/ledger.backup",
+        historyFilePath: "/tmp/ledger.history",
+        historyTempFilePath: "/tmp/ledger.history.tmp",
+        rootDirPath: "/tmp/ledger",
+        stateFilePath: "/tmp/ledger.state",
+        stateTempFilePath: "/tmp/ledger.state.tmp",
+      },
+      localAdapterContainer: createLocalAdapterContainer([
+        {
+          adapter,
+          adapterId: "claude-code",
+          transportModes: ["local-cli"],
+        },
+      ]),
+      ownerUserId: "owner-1",
+      profileOwnerName: "felix",
+      presenter: {
+        view: "human",
+        event: () => undefined,
+        line: () => undefined,
+        data: () => undefined,
+      },
+      reconnectAttempt: 0,
+      routeCatalogState,
+      socket,
+      touchRuntimeState: async () => undefined,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    socket.emitServerFrame({
+      v: 1,
+      code: "daemon.route_catalog.changed",
+      payload: {
+        reason: "profile_binding_changed",
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(updatePermissionMode).toHaveBeenCalledWith({
+      agentControllerPermissionMode: "claude-code:auto",
+      taskId: "task-1",
+    });
+    expect(inflightTaskControlRegistry.getTask("task-1")).toMatchObject({
+      agentControllerPermissionMode: "claude-code:auto",
+    });
 
     socket.close(1000, "shutdown");
     await sessionPromise;

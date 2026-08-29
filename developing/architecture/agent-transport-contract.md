@@ -548,6 +548,17 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   it never executes with a mismatched identity; an expired window fails closed
   with `daemon.profile.configuration_not_synced`. This consistency fence does
   not make the projection or the Service an execution authority.
+  Agent Controller Permission Mode is the only supported active-session
+  reconciliation inside that frozen dispatch identity. The canonical Binding
+  write and expected-routes projection remain the source of truth; the local
+  Service may ask the already-active adapter to apply the new mode, and records
+  it as applied to that task only after an explicit adapter acknowledgement.
+  The acknowledgement means later provider tool requests use the new mode. It
+  does not change the frozen Binding revision, dispatch identity, execution
+  target, or a permission request that was already waiting. Unsupported
+  adapters, unsupported controller modes, and repair-only permission
+  constraints keep the active task's starting mode without blocking catalog
+  convergence or future work.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
   spans every Space. Web may use that read to disable disruptive actions
@@ -562,9 +573,10 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   Unavailable or rebuilding owner-shard authority fails closed. A definitive
   mutation result releases admission; timeout or invalid-response outcomes keep
   the lease until expiry because the local write may still complete. Settings-
-  only writes do not use this guard because
-  RuntimeCoordinator already freezes their accepted Binding revision for the
-  current execution. The Core-internal schema names describe execution-target
+  only writes do not use this guard because they do not change execution
+  identity; the permission-mode exception above is reconciled through the
+  existing catalog signal and explicit adapter capability. The Core-internal
+  schema names describe execution-target
   mutation, while the Durable Object RPC wire retains the historical
   `rpc*AgentProfileControllerMutation` names so old and new Worker and shard
   code remain mutually callable during eventual deployment propagation.

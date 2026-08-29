@@ -4209,12 +4209,19 @@ Service projection `required` even when the latest artifact is advisory:
   (`wakeBlocked`) — a post-auth, post-enrollment signal. Core also owns one
   monotonic minimum supported OpenMeld Service version. A version below that
   floor is known unable to carry current Wake work safely and must project
-  `update_required`, the floor as `requiredVersion`, and `wakeBlocked=true`.
-  Raising this floor requires concrete compatibility evidence plus Core behavior
-  tests; an ordinary advisory release cannot lower or bypass it. The initial
-  floor is `0.3.15`: Service `0.3.14` can report an online heartbeat without
-  registering execution routes. A supported version below the latest release
-  remains advisory when `components.service.updatePolicy=available`.
+  `update_required` and `wakeBlocked=true`. Its user-visible `requiredVersion`
+  is the newer of the compatibility floor and the current installable Service
+  release, so recovery never directs a user to an older or unavailable target.
+  Raising the compatibility floor requires concrete compatibility evidence plus
+  Core behavior tests; an ordinary advisory release cannot lower or bypass it.
+  The initial floor was `0.3.15`: Service `0.3.14` can report an online
+  heartbeat without registering execution routes. The current floor is
+  `0.3.126`: earlier Services lack the complete startup recovery,
+  managed-update, and active Permission/Wake behavior required by the current
+  workstation runtime, and `0.3.125` can strand a newly delivered Wake during
+  a controlled Service replacement. A supported version below the latest
+  release remains advisory when
+  `components.service.updatePolicy=available`.
 - CLI policy is projected at release time into the published npm package as
   `openmeld.minRequiredCliVersion` (the forced-update floor), because npm is the only
   channel a CLI can read before sign-in or device enrollment. The release tool
@@ -4884,6 +4891,18 @@ cross-boundary contract family as the Binding itself: shared schema, API
 client, Gateway/Core write path, route catalog projection, daemon cache, and
 local adapter invocation. The dispatch queue must not duplicate the setting; it
 freezes only the owning `bindingId` and monotonic `configurationRevision`.
+
+An active-session permission update is a process-internal `RuntimeAdapter`
+capability, not a second permission source or a new cloud-to-Service command.
+The Service reacts to the existing canonical route-catalog change, compares
+that projected mode with its in-flight task record, and asks the matching
+adapter to update the active controller session. Only an explicit `applied`
+acknowledgement advances the task record, and its stable meaning is
+`subsequent_tool_requests`. `not_applied` must distinguish an inactive task,
+controller-incompatible value, and unsupported live update. The adapter
+capability must never approve or deny an already-pending Agent Interaction,
+change repair-only constraints, or imply that the accepted Binding revision was
+rewritten.
 
 The shared runtime resolver owns the native catalog values. Claude Code values
 mirror `claude --permission-mode`: `claude-code:default`,

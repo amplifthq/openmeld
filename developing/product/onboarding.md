@@ -195,11 +195,15 @@ forking its command, PrepareSession, or live-status behavior.
     Web shows reconnecting during that window and asks for a fresh command only
     after recovery does not converge, the command expires, or a real blocker
     requires a new handoff. A transient socket close is not user action.
-17. **The copied command is fresh.** Prepare and one-time credentials remain
-    short-lived, but the Web surface automatically replaces an expired command
-    and the Copy action refreshes before copying. The user is never asked to
-    diagnose token expiry or manually reload the page to obtain a valid
-    command.
+17. **The copied command is fresh.** Prepare and Computer authorization
+    credentials remain short-lived, but the Web surface automatically replaces
+    an expired command and the Copy action refreshes before copying. The user is
+    never asked to diagnose token expiry or manually reload the page to obtain
+    a valid command.
+18. **A temporary download interruption recovers inside the same command.** The
+    setup bootstrap retries manifest and CLI artifact downloads within a small,
+    bounded window and discards partial output before each retry. One incomplete
+    transfer must not make the user copy or run the setup command again.
 
 ## The Start Planner (`packages/start`)
 
@@ -739,9 +743,9 @@ agents section. This is an owner action on one computer; it does not create a
 second Agent Profile or another controller identity.
 
 The Web never selects agents and never drives a step-mirroring session; its only
-handoff is a copyable command
-(optionally carrying a one-time token that the terminal exchanges for the same
-local CLI sign-in session as `openmeld login`) plus watching the connected fact flip.
+handoff is a copyable command carrying a short-lived, browser-approved Device
+Authorization grant that creates an independent Computer session for the same
+user, plus watching the connected fact flip.
 The retired web selector and
 stepper have no successor (see Retired Surfaces).
 

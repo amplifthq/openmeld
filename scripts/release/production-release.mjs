@@ -91,6 +91,15 @@ const LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER = [
   "remote-agent",
   "cli",
 ];
+const CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER = [
+  "db",
+  "auth",
+  "cli",
+  "web",
+  "gateway",
+  "core",
+  "remote-agent",
+];
 const REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER = [
   "db",
   "remote-agent",
@@ -100,9 +109,24 @@ const REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER = [
   "core",
   "cli",
 ];
+const REMOTE_AGENT_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER = [
+  "db",
+  "remote-agent",
+  "auth",
+  "cli",
+  "web",
+  "gateway",
+  "core",
+];
+const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
+  CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
   "center-agent-cli-receiver-first":
     CENTER_AGENT_CLI_RECEIVER_FIRST_SCOPE_ORDER,
+  "connect-computer-cli-receiver-first":
+    CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER,
+  "core-worker-response-and-connect-computer-receivers-first":
+    CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER,
   "core-worker-response-reader-first":
     CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "default-auth-receiver-first": SCOPE_ORDER,
@@ -112,6 +136,8 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER,
   "remote-agent-and-inbox-receivers-first":
     REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER,
+  "remote-agent-and-connect-computer-receivers-first":
+    REMOTE_AGENT_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER,
   "remote-agent-receiver-first": REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER,
 };
 const INBOX_SOURCE_TARGET_SCHEMA_PATH =
@@ -129,6 +155,12 @@ const LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX =
   "services/core/src/runtime-transport/";
 const LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX =
   "clients/openmeld-cli/src/local-service/";
+const CONNECT_COMPUTER_DEVICE_AUTH_SCHEMA_PATH =
+  "packages/schemas/src/schemas/http/auth-device-authorization.ts";
+const CONNECT_COMPUTER_CLI_RECEIVER_PATH =
+  "clients/openmeld-cli/src/openmeld.ts";
+const CONNECT_COMPUTER_WEB_PRODUCER_PATH =
+  "clients/web/src/lib/cli-entry-command.ts";
 const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
   "services/remote-agent/.flue/cloudflare.ts",
   "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
@@ -305,6 +337,10 @@ export function resolveAutomaticReleaseScopes(input) {
       scopes.add(scope);
     }
   }
+  if (isConnectComputerCliReceiverFirstDiff(input.changedPaths)) {
+    scopes.add("cli");
+    scopes.add("web");
+  }
 
   return sortScopes(scopes);
 }
@@ -453,6 +489,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const selected = new Set(scopes);
   const steps = [];
   const changedPaths = input.changedPaths ?? [];
+  assertConnectComputerReleaseScopes(scopes, changedPaths);
   assertInboxSourceTargetReleaseScopes(scopes, changedPaths);
   assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
@@ -526,7 +563,7 @@ function appendProductionDeployScopeSteps(input) {
   }
   if (input.scope === "core") {
     if (input.selected.has("cli")) {
-      if (input.deployOrderProfile !== "default-auth-receiver-first") {
+      if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
         input.steps.push(
           {
             args: [
@@ -605,26 +642,50 @@ function resolveProductionDeployScopeOrder(scopes, changedPaths) {
 }
 
 function resolveProductionDeployOrderProfile(changedPaths) {
+  const isConnectComputerReceiverFirst =
+    isConnectComputerCliReceiverFirstDiff(changedPaths);
   const isInboxReceiverFirst =
     isInboxSourceTargetReceiverFirstDiff(changedPaths);
   const isRemoteAgentRequestReceiverFirst =
     isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths);
+  const isRemoteAgentReceiverFirst = changedPaths.some(
+    isRemoteAgentReceiverFirstContractPath
+  );
+  const isLocalServiceReceiverFirst =
+    isLocalServiceRuntimeReceiverFirstDiff(changedPaths);
+  const isCoreWorkerResponseReaderFirst =
+    isCoreWorkerResponseReaderFirstDiff(changedPaths);
+  const isCenterAgentCliReceiverFirst = changedPaths.some(
+    isCenterAgentCliReceiverFirstContractPath
+  );
+  assertComposableConnectComputerReleaseProfile({
+    isCenterAgentCliReceiverFirst,
+    isConnectComputerReceiverFirst,
+    isInboxReceiverFirst,
+    isLocalServiceReceiverFirst,
+  });
+  if (
+    isConnectComputerReceiverFirst &&
+    (isRemoteAgentRequestReceiverFirst || isRemoteAgentReceiverFirst)
+  ) {
+    return "remote-agent-and-connect-computer-receivers-first";
+  }
+  if (isConnectComputerReceiverFirst && isCoreWorkerResponseReaderFirst) {
+    return "core-worker-response-and-connect-computer-receivers-first";
+  }
+  if (isConnectComputerReceiverFirst) {
+    return "connect-computer-cli-receiver-first";
+  }
   if (isRemoteAgentRequestReceiverFirst) {
     return isInboxReceiverFirst
       ? "remote-agent-and-inbox-receivers-first"
       : "remote-agent-receiver-first";
   }
-  if (isCoreWorkerResponseReaderFirstDiff(changedPaths)) {
+  if (isCoreWorkerResponseReaderFirst) {
     return isInboxReceiverFirst
       ? "inbox-source-target-receiver-first"
       : "core-worker-response-reader-first";
   }
-  const isRemoteAgentReceiverFirst = changedPaths.some(
-    isRemoteAgentReceiverFirstContractPath
-  );
-  const isCenterAgentCliReceiverFirst = changedPaths.some(
-    isCenterAgentCliReceiverFirstContractPath
-  );
   if (
     isInboxReceiverFirst &&
     (isRemoteAgentReceiverFirst || isCenterAgentCliReceiverFirst)
@@ -640,10 +701,61 @@ function resolveProductionDeployOrderProfile(changedPaths) {
   if (isCenterAgentCliReceiverFirst) {
     return "center-agent-cli-receiver-first";
   }
-  if (isLocalServiceRuntimeReceiverFirstDiff(changedPaths)) {
+  if (isLocalServiceReceiverFirst) {
     return "local-service-runtime-receiver-first";
   }
   return "default-auth-receiver-first";
+}
+
+function assertComposableConnectComputerReleaseProfile(input) {
+  if (!input.isConnectComputerReceiverFirst) {
+    return;
+  }
+  if (input.isInboxReceiverFirst) {
+    throw new Error(
+      "Connect Computer and Inbox receiver-first contracts cannot ship in one release because they require Core on opposite sides of the Web deployment. Split them into independently releasable changes."
+    );
+  }
+  if (input.isLocalServiceReceiverFirst) {
+    throw new Error(
+      "Connect Computer and Local Service receiver-first contracts cannot ship in one release because they require Core on opposite sides of the CLI publication. Split them into independently releasable changes."
+    );
+  }
+  if (input.isCenterAgentCliReceiverFirst) {
+    throw new Error(
+      "Connect Computer and Center Agent CLI receiver-first contracts cannot ship in one release because they require the CLI on opposite sides of the Web and Core deployments. Split them into independently releasable changes."
+    );
+  }
+}
+
+function doesCliReleaseOwnCoreProjection(profile) {
+  return (
+    profile === "default-auth-receiver-first" ||
+    profile === "connect-computer-cli-receiver-first" ||
+    profile === "core-worker-response-and-connect-computer-receivers-first" ||
+    profile === "remote-agent-and-connect-computer-receivers-first"
+  );
+}
+
+function isConnectComputerCliReceiverFirstDiff(changedPaths) {
+  return (
+    changedPaths.includes(CONNECT_COMPUTER_DEVICE_AUTH_SCHEMA_PATH) &&
+    changedPaths.includes(CONNECT_COMPUTER_CLI_RECEIVER_PATH) &&
+    changedPaths.includes(CONNECT_COMPUTER_WEB_PRODUCER_PATH)
+  );
+}
+
+function assertConnectComputerReleaseScopes(scopes, changedPaths) {
+  if (!isConnectComputerCliReceiverFirstDiff(changedPaths)) {
+    return;
+  }
+  const selected = new Set(scopes);
+  if (selected.has("cli") && selected.has("web")) {
+    return;
+  }
+  throw new Error(
+    "The Connect Computer command contract requires both the CLI and Web scopes so the CLI receiver and Core current-channel projection publish before Web emits --device-code."
+  );
 }
 
 function isLocalServiceRuntimeReceiverFirstDiff(changedPaths) {

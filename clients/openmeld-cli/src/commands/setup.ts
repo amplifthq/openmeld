@@ -1,3 +1,4 @@
+import process from "node:process";
 import type { PrepareSessionSnapshot } from "@openmeld/schemas/types";
 import { getSetupFlowCopy } from "@openmeld/start";
 import { ensureCommandAuthenticationOrCancel } from "../auth/command-auth";
@@ -73,6 +74,7 @@ const NON_INTERACTIVE_DEFAULT_LOCAL_AGENTS_NOTICE =
 
 export async function runSetup(input: {
   agent?: string[];
+  deviceCode?: string;
   humanProfile?: string;
   localAgent?: string[];
   localAgents?: string;
@@ -108,6 +110,7 @@ export async function runSetup(input: {
 
 async function runSetupUnlocked(input: {
   agent?: string[];
+  deviceCode?: string;
   humanProfile?: string;
   localAgent?: string[];
   localAgents?: string;
@@ -120,6 +123,7 @@ async function runSetupUnlocked(input: {
   await runSetupStartupLocalStateRepair();
 
   if (shouldUseSetupLocalAgentConnection(input)) {
+    const previousExitCode = process.exitCode;
     const setupResult = await runSetupLocalAgentConnection(input);
     if (setupResult.status !== "completed") {
       return;
@@ -130,6 +134,11 @@ async function runSetupUnlocked(input: {
       setupInput: input,
       setupResult,
     });
+    // Nested Service start attempts can mark a transient failure before the
+    // Prepare Session reconnects and completes. The completed setup outcome is
+    // authoritative for this command, so do not leave that stale exit code
+    // behind after the final success has been emitted.
+    process.exitCode = previousExitCode;
     return;
   }
 
@@ -748,15 +757,6 @@ async function resolveDelegatedSetupCompletionFacts(input: {
           },
         }),
       });
-  if (selectedLocalAgentIds.length === 0) {
-    return {
-      routeCatalogSync: null,
-      openMeldServiceRuntimeIdentity: null,
-      runtimeReports: [],
-      selectedLocalAgentIds,
-    };
-  }
-
   const openMeldServiceRuntimeIdentity =
     resolveRuntimeIdentityFromSetupSession(
       input.setupResult.setupSessionSnapshot
@@ -764,6 +764,15 @@ async function resolveDelegatedSetupCompletionFacts(input: {
     (await syncLocalSetupCurrentDeviceTargetFromServiceContract({
       gatewayUrl: input.gatewayUrl,
     }));
+  if (selectedLocalAgentIds.length === 0) {
+    return {
+      routeCatalogSync: null,
+      openMeldServiceRuntimeIdentity,
+      runtimeReports: [],
+      selectedLocalAgentIds,
+    };
+  }
+
   const finalReadiness = await collectStartLocalReadiness({
     auth: {
       status: "valid",

@@ -8,28 +8,28 @@ import {
 } from "../src/local-service/lifecycle/daemon-service-legacy-shared";
 
 describe("local service legacy shared", () => {
-  it("inspects non-prod lanes when OPENMELD_HOME is not overridden", () => {
+  it("only inspects legacy production service state from the production lane", () => {
     expect(
       shouldInspectLegacySharedDaemonService({
         env: {
           OPENMELD_ENV_PRESET: "dev-local",
         },
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldInspectLegacySharedDaemonService({
         env: {
           OPENMELD_ENV_PRESET: "canary",
         },
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldInspectLegacySharedDaemonService({
         env: {
           OPENMELD_ENV_PRESET: "prod",
         },
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("skips legacy shared inspection when OPENMELD_HOME is explicitly overridden", () => {
@@ -50,20 +50,18 @@ describe("local service legacy shared", () => {
     ).toBeNull();
   });
 
-  it("resolves legacy shared inspection against the prod lane while preserving other env values", () => {
+  it.each([
+    "dev-local",
+    "canary",
+  ])("never resolves the production lane from %s", (envPreset) => {
     const input = {
       env: {
-        OPENMELD_ENV_PRESET: "canary",
+        OPENMELD_ENV_PRESET: envPreset,
         CUSTOM_FLAG: "1",
       },
     };
 
-    expect(resolveLegacySharedDaemonPathInput(input)).toEqual({
-      env: {
-        OPENMELD_ENV_PRESET: "prod",
-        CUSTOM_FLAG: "1",
-      },
-    });
+    expect(resolveLegacySharedDaemonPathInput(input)).toBeNull();
   });
 
   it("only requires migration when the shared service command drifts away from the prod service wrapper", () => {

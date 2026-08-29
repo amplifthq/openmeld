@@ -168,7 +168,7 @@ function requestRemoteCandidate(options) {
       `Base: ${state.snapshot.expectedBaseSha}`,
       `Confidence: ${options.confidence}`,
       `Request label: ${requestedLabel}`,
-      "No check result exists yet. Follow the workflow run and require its exact commit status before merge.",
+      "No check result exists yet. Use the trusted quiet wait command; it prints only state transitions and the final exact status.",
       "",
     ].join("\n")
   );
@@ -723,6 +723,10 @@ Plan the exact candidate without running checks:
 
 Use the normal, recommended GitHub-hosted gate when Actions is available:
   git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- request --pr <number>
+
+Read once or wait quietly without streaming full GitHub logs:
+  git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- status --pr <number>
+  git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --pr <number>
 
 Use the workstation fallback only when Actions quota, billing, or runners are unavailable:
   git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- local --pr <number>

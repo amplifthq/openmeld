@@ -35,7 +35,7 @@ const mintPrepareSessionTokenMock = vi.hoisted(() => vi.fn());
 const readPrepareSessionMock = vi.hoisted(() => vi.fn());
 const buildWebSetupCommandMock = vi.hoisted(() => vi.fn());
 const copyCliEntryCommandMock = vi.hoisted(() => vi.fn());
-const generateOneTimeTokenMutateAsyncMock = vi.hoisted(() => vi.fn());
+const createComputerAuthorizationMutateAsyncMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const useBringAgentsSetupContextMock = vi.hoisted(() => vi.fn());
@@ -71,11 +71,8 @@ vi.mock("#/lib/cli-entry-command", () => ({
 	resolveBrowserSetupCommandPlatform: () => "posix",
 }));
 
-vi.mock("#/hooks/account.hooks", () => ({
-	useGenerateOneTimeToken: () => ({
-		mutateAsync: generateOneTimeTokenMutateAsyncMock,
-		isPending: false,
-	}),
+vi.mock("#/query/auth-query", () => ({
+	createComputerAuthorizationGrant: createComputerAuthorizationMutateAsyncMock,
 }));
 
 vi.mock("#/query/connect/prepare-session", () => ({
@@ -179,18 +176,18 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		buildWebSetupCommandMock
 			.mockReset()
 			.mockImplementation(
-				(input: { oneTimeToken?: string; startSession: string }) => {
+				(input: { deviceCode?: string; startSession: string }) => {
 					let command = `openmeld-dev setup --start-session ${input.startSession}`;
-					if (input.oneTimeToken) {
-						command += ` --ott ${input.oneTimeToken}`;
+					if (input.deviceCode) {
+						command += ` --device-code ${input.deviceCode}`;
 					}
 					return command;
 				}
 			);
 		copyCliEntryCommandMock.mockReset().mockResolvedValue(true);
 		toastSuccessMock.mockReset();
-		generateOneTimeTokenMutateAsyncMock.mockReset().mockResolvedValue({
-			token: "ott_ready",
+		createComputerAuthorizationMutateAsyncMock.mockReset().mockResolvedValue({
+			deviceCode: "device_ready",
 			expiresIn: 180,
 		});
 		useBringAgentsSetupContextMock.mockReset().mockReturnValue(
@@ -1318,7 +1315,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 				},
 			})
 		);
-		expect(generateOneTimeTokenMutateAsyncMock).not.toHaveBeenCalled();
+		expect(createComputerAuthorizationMutateAsyncMock).not.toHaveBeenCalled();
 	});
 
 	it("refreshes Core readiness after setup completes and shows final ready state", async () => {
@@ -1866,9 +1863,15 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
 			snapshot: activeSnapshot,
 		});
-		generateOneTimeTokenMutateAsyncMock
-			.mockResolvedValueOnce({ expiresIn: 0.05, token: "ott_expiring" })
-			.mockResolvedValueOnce({ expiresIn: 180, token: "ott_refreshed" });
+		createComputerAuthorizationMutateAsyncMock
+			.mockResolvedValueOnce({
+				deviceCode: "device_expiring",
+				expiresIn: 0.05,
+			})
+			.mockResolvedValueOnce({
+				deviceCode: "device_refreshed",
+				expiresIn: 180,
+			});
 		window.localStorage.setItem(
 			"openmeld.prepare.session.pointer",
 			JSON.stringify({

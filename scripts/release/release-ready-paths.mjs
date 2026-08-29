@@ -2,6 +2,7 @@ const LOCAL_COMPONENTS_MANIFEST_PATH = "release/local-components.json";
 const PRE_PUSH_RELEASE_GATE_CONTROL_PATHS = new Set([
   ".husky/pre-push",
   "package.json",
+  "services/core/src/local-components/update-projection.ts",
 ]);
 const PRE_PUSH_RELEASE_GATE_CONTROL_PATH_PREFIXES = ["scripts/release/"];
 const CLI_AND_SERVICE_RELEASE_PATH_PREFIXES = ["packages/agent-runtime/src/"];

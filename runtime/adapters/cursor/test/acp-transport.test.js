@@ -1039,6 +1039,101 @@ test("Cursor ACP cancellation uses session/cancel and returns a stopped turn", a
   });
 });
 
+test("Cursor adapter applies a saved permission mode to an active ACP session", async () => {
+  const { createCursorAdapter } = await import("../dist/index.js");
+  await withFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const adapter = createCursorAdapter({
+      cursorTimeoutMs: 2000,
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+    });
+    const dispatchPromise = adapter.dispatch({
+      agentControllerPermissionMode: "cursor:default",
+      agentId: "cursor",
+      env: {
+        OPENMELD_FAKE_CURSOR_ACP_LOG: logPath,
+        OPENMELD_FAKE_CURSOR_ACP_WAIT_FOR_CANCEL: "1",
+      },
+      prompt: "Wait",
+      runtimeContext: createRuntimeContext(fixtureDir),
+      sourceEventId: "source-live-permission-mode",
+      spaceId: "space-live-permission-mode",
+      taskId: "task-live-permission-mode",
+      transportMode: "acp",
+    });
+    await waitForLogMethod(logPath, "session/prompt");
+
+    try {
+      const result = await adapter.updatePermissionMode({
+        agentControllerPermissionMode: "cursor:plan",
+        taskId: "task-live-permission-mode",
+      });
+
+      assert.deepEqual(result, {
+        effectiveFrom: "subsequent_tool_requests",
+        status: "applied",
+        taskId: "task-live-permission-mode",
+      });
+      const setMode = (await readLog(logPath)).find(
+        (entry) => entry.method === "session/set_mode"
+      );
+      assert.deepEqual(setMode?.params, {
+        modeId: "plan",
+        sessionId: "cursor-session-new",
+      });
+    } finally {
+      await adapter.cancel({ taskId: "task-live-permission-mode" });
+      await dispatchPromise;
+    }
+  });
+});
+
+test("Cursor adapter does not claim live updates for launch-only permission modes", async () => {
+  const { createCursorAdapter } = await import("../dist/index.js");
+  await withFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const adapter = createCursorAdapter({
+      cursorTimeoutMs: 2000,
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+    });
+    const dispatchPromise = adapter.dispatch({
+      agentControllerPermissionMode: "cursor:default",
+      agentId: "cursor",
+      env: {
+        OPENMELD_FAKE_CURSOR_ACP_LOG: logPath,
+        OPENMELD_FAKE_CURSOR_ACP_WAIT_FOR_CANCEL: "1",
+      },
+      prompt: "Wait",
+      runtimeContext: createRuntimeContext(fixtureDir),
+      sourceEventId: "source-launch-only-permission-mode",
+      spaceId: "space-launch-only-permission-mode",
+      taskId: "task-launch-only-permission-mode",
+      transportMode: "acp",
+    });
+    await waitForLogMethod(logPath, "session/prompt");
+
+    try {
+      const result = await adapter.updatePermissionMode({
+        agentControllerPermissionMode: "cursor:force",
+        taskId: "task-launch-only-permission-mode",
+      });
+
+      assert.deepEqual(result, {
+        reasonCode: "adapter.permission_mode_update_unsupported",
+        status: "not_applied",
+        taskId: "task-launch-only-permission-mode",
+      });
+      assert.equal(
+        (await readLog(logPath)).filter(
+          (entry) => entry.method === "session/set_mode"
+        ).length,
+        0
+      );
+    } finally {
+      await adapter.cancel({ taskId: "task-launch-only-permission-mode" });
+      await dispatchPromise;
+    }
+  });
+});
+
 test("Cursor ACP rejects independent reasoning strength before launch", async () => {
   const { invokeCursorAcpTransport } = await import("../dist/index.js");
   await withFixture(async ({ fixtureDir, fixturePath }) => {

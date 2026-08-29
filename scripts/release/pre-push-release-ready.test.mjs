@@ -31,6 +31,7 @@ const RELEASE_RELEVANT_PATH_PATTERN = /packages\/schemas\/src\/index\.ts/u;
 const PRE_PUSH_GATE_CONTROL_PATH_EXAMPLES = [
   ".husky/pre-push",
   "package.json",
+  "services/core/src/local-components/update-projection.ts",
   "scripts/release/build-packaged-openmeld-cli.mjs",
   "scripts/release/cli-channel-sync.mjs",
   "scripts/release/local-components.mjs",

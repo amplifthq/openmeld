@@ -901,6 +901,7 @@ export {
   reconcileDeletedAgentProfileResponseSchema,
   reconcileDeletedAgentProfileSpaceOutcomeSchema,
 } from "./http/agent-profile-lifecycle";
+export * from "./http/auth-device-authorization";
 export {
   setAuthPasswordBodySchema,
   setAuthPasswordResponseSchema,

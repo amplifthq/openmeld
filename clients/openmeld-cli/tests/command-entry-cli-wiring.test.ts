@@ -83,6 +83,22 @@ vi.mock("../src/config/system-layout", async (importOriginal) => {
   };
 });
 
+vi.mock(
+  "../src/commands/computer-auth-handoff-recovery",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../src/commands/computer-auth-handoff-recovery")
+      >();
+    return {
+      ...actual,
+      recoverInterruptedComputerAuthHandoff: vi.fn(async () => ({
+        status: "not_required" as const,
+      })),
+    };
+  }
+);
+
 vi.mock("../src/openmeld-cli-entry-checks", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/openmeld-cli-entry-checks")>();

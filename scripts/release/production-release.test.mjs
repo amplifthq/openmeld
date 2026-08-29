@@ -27,6 +27,12 @@ const COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE = /requires the Remote Agent scope/u;
 const INBOX_SCOPE_ERROR_RE = /requires the Web, Gateway, and Core scopes/u;
 const LOCAL_SERVICE_CORE_SCOPE_ERROR_RE =
   /requires the Core scope before publishing CLI\/Service/u;
+const CONNECT_COMPUTER_CLI_SCOPE_ERROR_RE =
+  /requires both the CLI and Web scopes/u;
+const CONNECT_COMPUTER_INBOX_COMBINATION_ERROR_RE =
+  /Connect Computer and Inbox receiver-first contracts cannot ship in one release/u;
+const CONNECT_COMPUTER_CENTER_AGENT_COMBINATION_ERROR_RE =
+  /Connect Computer and Center Agent CLI receiver-first contracts cannot ship in one release/u;
 const LOCAL_MAINLINE_RELEASE_ERROR_PATTERN = /main first-parent chain/u;
 const WRANGLER_RELEASE_STATE = JSON.parse(
   readFileSync(
@@ -539,6 +545,168 @@ test("lets CLI release own its required Core projection", () => {
   assert.deepEqual(
     steps.map((step) => step.internalOperation),
     ["publish-cli", "publish-cli"]
+  );
+});
+
+test("publishes the Connect Computer CLI receiver and Core projection before Web", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+    "clients/openmeld-cli/src/openmeld.ts",
+    "clients/web/src/lib/cli-entry-command.ts",
+  ];
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths,
+    scope: "auth,cli,core,web",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(plan.deployOrderProfile, "connect-computer-cli-receiver-first");
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Deploy Auth Worker",
+      "Verify Auth Worker health",
+      "Publish CLI and deploy its Core release projection",
+      "Deploy Web",
+      "Verify Web health",
+      "Verify final R2/npm/Core alignment",
+    ]
+  );
+});
+
+test("fails closed instead of dropping Inbox ordering from a Connect Computer release", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        changedPaths: [
+          "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+          "clients/openmeld-cli/src/openmeld.ts",
+          "clients/web/src/lib/cli-entry-command.ts",
+          "packages/schemas/src/schemas/http/inbox.ts",
+          "services/core/src/remote-agent/application/native-delivery-inbox-producer.ts",
+        ],
+        scope: "cli,web,gateway,core",
+        sourceSha: REMOTE_SOURCE_SHA,
+      }),
+    CONNECT_COMPUTER_INBOX_COMBINATION_ERROR_RE
+  );
+});
+
+test("composes the Remote Agent receiver before Connect Computer CLI and Web producers", () => {
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths: [
+      "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+      "clients/openmeld-cli/src/openmeld.ts",
+      "clients/web/src/lib/cli-entry-command.ts",
+      "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
+      "services/core/src/remote-agent/application/remote-agent-worker-admission.ts",
+      "services/remote-agent/.flue/agents/center-agent.ts",
+    ],
+    scope: "remote-agent,cli,core,web",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(
+    plan.deployOrderProfile,
+    "remote-agent-and-connect-computer-receivers-first"
+  );
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
+      "Publish CLI and deploy its Core release projection",
+      "Deploy Web",
+      "Verify Web health",
+      "Verify final R2/npm/Core alignment",
+    ]
+  );
+});
+
+test("fails closed instead of dropping Center Agent CLI ordering from a Connect Computer release", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        changedPaths: [
+          "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+          "clients/openmeld-cli/src/openmeld.ts",
+          "clients/web/src/lib/cli-entry-command.ts",
+          "services/core/src/center-agent-tasks/application/center-agent-task-service.ts",
+        ],
+        scope: "cli,web,core",
+        sourceSha: REMOTE_SOURCE_SHA,
+      }),
+    CONNECT_COMPUTER_CENTER_AGENT_COMBINATION_ERROR_RE
+  );
+});
+
+test("composes Core's response reader with Connect Computer receiver-first ordering", () => {
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths: [
+      "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+      "clients/openmeld-cli/src/openmeld.ts",
+      "clients/web/src/lib/cli-entry-command.ts",
+      "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+      "services/remote-agent/.flue/agents/center-agent.ts",
+    ],
+    scope: "auth,cli,core,web,remote-agent",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(
+    plan.deployOrderProfile,
+    "core-worker-response-and-connect-computer-receivers-first"
+  );
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Deploy Auth Worker",
+      "Verify Auth Worker health",
+      "Publish CLI and deploy its Core release projection",
+      "Deploy Web",
+      "Verify Web health",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
+      "Verify final R2/npm/Core alignment",
+    ]
+  );
+});
+
+test("automatically includes both sides of the Connect Computer command contract", () => {
+  assert.deepEqual(
+    resolveAutomaticReleaseScopes({
+      affectedPackages: [],
+      changedPaths: [
+        "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+        "clients/openmeld-cli/src/openmeld.ts",
+        "clients/web/src/lib/cli-entry-command.ts",
+      ],
+    }),
+    ["cli", "web"]
+  );
+});
+
+test("rejects a Connect Computer Web deploy without its CLI receiver", () => {
+  assert.throws(
+    () =>
+      buildProductionDeployStepSpecs(["web"], {
+        changedPaths: [
+          "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+          "clients/openmeld-cli/src/openmeld.ts",
+          "clients/web/src/lib/cli-entry-command.ts",
+        ],
+      }),
+    CONNECT_COMPUTER_CLI_SCOPE_ERROR_RE
   );
 });
 

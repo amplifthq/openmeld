@@ -6,7 +6,7 @@ const OPENMELD_SETUP_PACKAGE_SPEC = `${OPENMELD_SETUP_PACKAGE_NAME}@latest`;
 // trailing "npm error" block without flooding the terminal.
 const OPENMELD_SETUP_PACKAGE_PROBE_TAIL_LINES = 15;
 const OPENMELD_SETUP_PREPARE_COMMAND_HINT =
-	"Use this setup script only with an OpenMeld Web setup command. It must include --start-session, --ott, and either --view human or --view agent.";
+	"Use this setup script only with an OpenMeld Web setup command. It must include --start-session, either --device-code or --ott, and either --view human or --view agent.";
 const OPENMELD_SETUP_PACKAGE_DOWNLOAD_NOTICE =
 	"Downloading OpenMeld CLI (first run may take up to a minute)...";
 const DEFAULT_MIN_NODE_MAJOR_VERSION = 20;
@@ -243,15 +243,17 @@ validate_setup_args() {
 
   OPENMELD_SETUP_HAS_START_SESSION=0
   OPENMELD_SETUP_HAS_OTT=0
+  OPENMELD_SETUP_HAS_DEVICE_CODE=0
   for OPENMELD_SETUP_ARG in "$@"; do
     case "$OPENMELD_SETUP_ARG" in
       --start-session|--start-session=*) OPENMELD_SETUP_HAS_START_SESSION=1 ;;
       --ott|--ott=*) OPENMELD_SETUP_HAS_OTT=1 ;;
+      --device-code|--device-code=*) OPENMELD_SETUP_HAS_DEVICE_CODE=1 ;;
     esac
   done
 
-  if [ "$OPENMELD_SETUP_HAS_START_SESSION" -ne 1 ] || [ "$OPENMELD_SETUP_HAS_OTT" -ne 1 ]; then
-    die "This setup script needs both --start-session and --ott from OpenMeld Web. Copy the latest setup command from OpenMeld Web and run it again."
+  if [ "$OPENMELD_SETUP_HAS_START_SESSION" -ne 1 ] || { [ "$OPENMELD_SETUP_HAS_DEVICE_CODE" -ne 1 ] && [ "$OPENMELD_SETUP_HAS_OTT" -ne 1 ]; }; then
+    die "This setup script needs --start-session and either --device-code or --ott from OpenMeld Web. Copy the latest setup command from OpenMeld Web and run it again."
   fi
 }
 
@@ -453,14 +455,31 @@ format_binary_download_notice() {
   esac
 }
 
-download_file_with_optional_progress() {
+download_file_with_retry() {
   OPENMELD_SETUP_DOWNLOAD_URL="$1"
   OPENMELD_SETUP_DOWNLOAD_OUTPUT="$2"
-  if { [ -t 2 ]; } 2>/dev/null; then
-    curl -fL --progress-bar "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"
-    return $?
-  fi
-  curl -fsSL "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"
+  OPENMELD_SETUP_DOWNLOAD_SHOW_PROGRESS="\${3:-1}"
+  OPENMELD_SETUP_DOWNLOAD_ATTEMPT=1
+
+  while [ "$OPENMELD_SETUP_DOWNLOAD_ATTEMPT" -le 3 ]; do
+    rm -f "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"
+    if [ "$OPENMELD_SETUP_DOWNLOAD_SHOW_PROGRESS" = "1" ] && { [ -t 2 ]; } 2>/dev/null; then
+      if curl -fL --progress-bar "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
+        return 0
+      fi
+    elif curl -fsSL "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
+      return 0
+    fi
+
+    if [ "$OPENMELD_SETUP_DOWNLOAD_ATTEMPT" -ge 3 ]; then
+      return 1
+    fi
+    say "Download didn't finish. Retrying..."
+    sleep "$OPENMELD_SETUP_DOWNLOAD_ATTEMPT"
+    OPENMELD_SETUP_DOWNLOAD_ATTEMPT="$((OPENMELD_SETUP_DOWNLOAD_ATTEMPT + 1))"
+  done
+
+  return 1
 }
 
 cleanup_binary_download() {
@@ -523,7 +542,7 @@ install_binary_openmeld() {
   OPENMELD_SETUP_BINARY_PATH="$OPENMELD_SETUP_BINARY_TMP/openmeld"
   OPENMELD_SETUP_BINARY_ARCHIVE_PATH="$OPENMELD_SETUP_BINARY_TMP/openmeld.gz"
 
-  curl -fsSL "$OPENMELD_SETUP_BINARY_MANIFEST_URL" -o "$OPENMELD_SETUP_BINARY_MANIFEST_PATH" || die "OpenMeld could not download the CLI binary manifest."
+  download_file_with_retry "$OPENMELD_SETUP_BINARY_MANIFEST_URL" "$OPENMELD_SETUP_BINARY_MANIFEST_PATH" 0 || die "OpenMeld could not download the CLI binary manifest."
   grep -F "\\"$OPENMELD_SETUP_BINARY_PLATFORM\\"" "$OPENMELD_SETUP_BINARY_MANIFEST_PATH" >/dev/null 2>&1 || die "OpenMeld CLI binary manifest does not include this platform."
   OPENMELD_SETUP_BINARY_VERSION="$(read_manifest_string_field version "$OPENMELD_SETUP_BINARY_MANIFEST_PATH")"
   OPENMELD_SETUP_BINARY_URL="$(read_manifest_string_field url "$OPENMELD_SETUP_BINARY_MANIFEST_PATH")"
@@ -560,7 +579,7 @@ install_binary_openmeld() {
 
   if [ "$OPENMELD_SETUP_BINARY_HAS_ARCHIVE" = "1" ]; then
     format_binary_download_notice "$OPENMELD_SETUP_BINARY_ARCHIVE_SIZE_BYTES"
-    download_file_with_optional_progress "$OPENMELD_SETUP_BINARY_ARCHIVE_URL" "$OPENMELD_SETUP_BINARY_ARCHIVE_PATH" || die "OpenMeld could not download the CLI binary archive."
+    download_file_with_retry "$OPENMELD_SETUP_BINARY_ARCHIVE_URL" "$OPENMELD_SETUP_BINARY_ARCHIVE_PATH" || die "OpenMeld could not download the CLI binary archive."
     OPENMELD_SETUP_BINARY_ARCHIVE_ACTUAL_SIZE_BYTES="$(wc -c < "$OPENMELD_SETUP_BINARY_ARCHIVE_PATH" | tr -d '[:space:]')"
     [ "$OPENMELD_SETUP_BINARY_ARCHIVE_ACTUAL_SIZE_BYTES" = "$OPENMELD_SETUP_BINARY_ARCHIVE_SIZE_BYTES" ] || die "OpenMeld CLI binary archive size did not match the manifest."
     OPENMELD_SETUP_BINARY_ARCHIVE_ACTUAL_SHA256="$(shasum -a 256 "$OPENMELD_SETUP_BINARY_ARCHIVE_PATH" | awk '{print $1}')"
@@ -568,7 +587,7 @@ install_binary_openmeld() {
     gzip -dc "$OPENMELD_SETUP_BINARY_ARCHIVE_PATH" > "$OPENMELD_SETUP_BINARY_PATH" || die "OpenMeld could not decompress the CLI binary."
   else
     format_binary_download_notice "$OPENMELD_SETUP_BINARY_SIZE_BYTES"
-    download_file_with_optional_progress "$OPENMELD_SETUP_BINARY_URL" "$OPENMELD_SETUP_BINARY_PATH" || die "OpenMeld could not download the CLI binary."
+    download_file_with_retry "$OPENMELD_SETUP_BINARY_URL" "$OPENMELD_SETUP_BINARY_PATH" || die "OpenMeld could not download the CLI binary."
   fi
   OPENMELD_SETUP_BINARY_ACTUAL_SIZE_BYTES="$(wc -c < "$OPENMELD_SETUP_BINARY_PATH" | tr -d '[:space:]')"
   [ "$OPENMELD_SETUP_BINARY_ACTUAL_SIZE_BYTES" = "$OPENMELD_SETUP_BINARY_SIZE_BYTES" ] || die "OpenMeld CLI binary size did not match the manifest."
@@ -899,6 +918,7 @@ function Validate-SetupArgs {
 
   $hasStartSession = $false
   $hasOneTimeToken = $false
+  $hasDeviceCode = $false
   foreach ($arg in $OpenMeldArgs) {
     if ($arg -eq '--start-session' -or $arg.StartsWith('--start-session=')) {
       $hasStartSession = $true
@@ -906,10 +926,13 @@ function Validate-SetupArgs {
     if ($arg -eq '--ott' -or $arg.StartsWith('--ott=')) {
       $hasOneTimeToken = $true
     }
+    if ($arg -eq '--device-code' -or $arg.StartsWith('--device-code=')) {
+      $hasDeviceCode = $true
+    }
   }
 
-  if (-not $hasStartSession -or -not $hasOneTimeToken) {
-    Die 'This setup script needs both --start-session and --ott from OpenMeld Web. Copy the latest setup command from OpenMeld Web and run it again.'
+  if (-not $hasStartSession -or (-not $hasDeviceCode -and -not $hasOneTimeToken)) {
+    Die 'This setup script needs --start-session and either --device-code or --ott from OpenMeld Web. Copy the latest setup command from OpenMeld Web and run it again.'
   }
 }
 

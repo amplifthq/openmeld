@@ -119,6 +119,10 @@ import {
 import { createRuntimeReportingAttemptObserver } from "../reporting/runtime-reporting-attempt-observer";
 import type { RuntimeReportingAuthenticationFailure } from "../reporting/runtime-reporting-auth-recovery";
 import {
+  type ActivePermissionModeSyncOutcome,
+  syncActiveTaskPermissionModes,
+} from "../routing/active-permission-mode-sync";
+import {
   createRouteCatalogFromMutableState,
   loadDaemonRouteCatalog,
   summarizeSkippedDaemonProfiles,
@@ -1360,6 +1364,15 @@ export async function runDaemonSocketSession(input: {
       registerCatalog: registerDaemonSession,
     });
 
+    if (syncResult.status !== "failed") {
+      const permissionModeOutcomes = await syncActiveTaskPermissionModes({
+        catalogState: input.routeCatalogState,
+        inflightTaskControlRegistry: input.inflightTaskControlRegistry,
+        localAdapterContainer: input.localAdapterContainer,
+      });
+      emitActivePermissionModeSyncOutcomes(permissionModeOutcomes);
+    }
+
     if (syncResult.status === "changed") {
       await handleChangedCatalogSync(syncResult, inputSync);
       resolvePendingRouteCatalogSyncRequests(syncResult);
@@ -1380,6 +1393,35 @@ export async function runDaemonSocketSession(input: {
 
     handleFailedCatalogSync(syncResult);
     resolvePendingRouteCatalogSyncRequests(syncResult);
+  };
+
+  const emitActivePermissionModeSyncOutcomes = (
+    outcomes: ActivePermissionModeSyncOutcome[]
+  ): void => {
+    for (const outcome of outcomes) {
+      if (outcome.status === "applied") {
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.active_permission_mode_updated",
+          text: `updated permission mode for active task ${outcome.taskId}`,
+          payload: outcome,
+        });
+        continue;
+      }
+
+      emitRunLine({
+        presenter: input.presenter,
+        code:
+          outcome.status === "failed"
+            ? "daemon.run.active_permission_mode_update_failed"
+            : "daemon.run.active_permission_mode_not_applied",
+        text:
+          outcome.status === "failed"
+            ? `failed to update permission mode for active task ${outcome.taskId}: ${outcome.errorMessage ?? "unknown error"}`
+            : `active permission mode update was not applied for task ${outcome.taskId} (${outcome.reasonCode})`,
+        payload: outcome,
+      });
+    }
   };
 
   const shouldStartRouteCatalogSync = (): boolean =>

@@ -1,5 +1,8 @@
 import type { AgentControllerProcessSignalTarget } from "@openmeld/adapter-core";
-import type { OpenMeldDaemonControlTargetSelector } from "@openmeld/schemas/types";
+import type {
+  AgentControllerPermissionMode,
+  OpenMeldDaemonControlTargetSelector,
+} from "@openmeld/schemas/types";
 import type {
   InflightTaskControlRecord,
   LocalControlResolution,
@@ -7,8 +10,15 @@ import type {
 
 type RegisterInflightTaskInput = {
   adapterId: string;
+  agentControllerPermissionMode?: AgentControllerPermissionMode | null;
   dispatchId: string;
   runtimeCoordinatorExecutionId?: string | null;
+  targetProfileId?: string | null;
+  taskId: string;
+};
+
+type UpdateInflightTaskPermissionModeInput = {
+  agentControllerPermissionMode: AgentControllerPermissionMode;
   taskId: string;
 };
 
@@ -38,17 +48,39 @@ export function createInflightTaskControlRegistry() {
 
       const record: InflightTaskControlRecord = {
         adapterId: input.adapterId,
+        agentControllerPermissionMode:
+          input.agentControllerPermissionMode ??
+          existing?.agentControllerPermissionMode ??
+          null,
         dispatchId: input.dispatchId,
         processId: existing?.processId ?? null,
         runtimeCoordinatorExecutionId:
           input.runtimeCoordinatorExecutionId ?? null,
         signalTarget: existing?.signalTarget ?? null,
+        targetProfileId:
+          input.targetProfileId ?? existing?.targetProfileId ?? null,
         taskId: input.taskId,
         updatedAt: new Date().toISOString(),
       };
       recordByTaskId.set(input.taskId, record);
       taskIdByDispatchId.set(input.dispatchId, input.taskId);
       return record;
+    },
+
+    updateTaskPermissionMode(
+      input: UpdateInflightTaskPermissionModeInput
+    ): InflightTaskControlRecord | null {
+      const existing = readRecord(input.taskId);
+      if (!existing) {
+        return null;
+      }
+      const updated: InflightTaskControlRecord = {
+        ...existing,
+        agentControllerPermissionMode: input.agentControllerPermissionMode,
+        updatedAt: new Date().toISOString(),
+      };
+      recordByTaskId.set(input.taskId, updated);
+      return updated;
     },
 
     updateTaskProcess(

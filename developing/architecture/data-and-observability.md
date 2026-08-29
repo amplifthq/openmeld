@@ -1827,6 +1827,26 @@ Publication failure or an ambiguous provider outcome must leave the Wake trace
 unsettled and preserve retry or outcome-unknown evidence instead of claiming a
 terminal visible result.
 
+Inside the Remote Agent Durable Object, one private durable execution record
+atomically owns successful terminal state and its bounded final answer. The
+shared execution query remains a status projection and does not expose reply
+text. Callback context receives the same answer as a recoverable delivery
+projection; an instance restart may repopulate it from the execution record and
+retry the ordinary Core callback. Partial stream text, failed execution,
+cancellation, and observability records cannot become this answer authority.
+Every observer and reconciliation path derives its callback from the terminal
+compare-and-set winner. A stale or conflicting callback-context answer is
+replaced by the execution record's exact normalized answer before publication;
+a legacy callback-only answer cannot repair a completed execution that has no
+owner answer. That invalid legacy owner state is durably changed to failure,
+and either side of a restart can repeat the same explicit-failure projection.
+One terminal-outcome projector maps completed, failed, aborted, and missing
+execution outcomes into callback payloads for both observation and
+reconciliation. If the callback projection itself is missing, reconciliation
+fails with `remote_agent.terminal_callback_projection_missing`, leaves the
+execution owner unchanged, and remains retryable and diagnosable through the
+Core reconciliation path instead of silently reporting terminal success.
+
 The active Space Wake read model may project an accepted native delivery as
 `running` only before Core has received its terminal callback and before final
 publication has started. Callback receipt or a claimed final publication

@@ -1,4 +1,5 @@
 import type {
+	AgentControllerPermissionMode,
 	AgentInteractionQuestion,
 	AgentInteractionRequest,
 	AgentInteractionResponse,
@@ -19,6 +20,17 @@ export type SpaceAgentInteractionResponseHandler = (
 
 export type SpaceAgentProfileEditHandler = (profileId: string) => void;
 
+export type SpaceAgentPermissionModeShortcut = {
+	description: string;
+	label: string;
+	permissionMode: AgentControllerPermissionMode;
+};
+
+export type SpaceAgentPermissionModeUpdateHandler = (input: {
+	permissionMode: AgentControllerPermissionMode;
+	profileId: string;
+}) => void;
+
 type QuestionDraft = {
 	otherText: string;
 	selectedOptionIds: ReadonlySet<string>;
@@ -34,7 +46,10 @@ const EMPTY_QUESTION_DRAFT: QuestionDraft = {
 export function SpaceAgentInteractionCard(input: {
 	item: WakeProgressItem;
 	onEditAgentProfile?: SpaceAgentProfileEditHandler;
+	onPermissionModeUpdate?: SpaceAgentPermissionModeUpdateHandler;
 	onRespond?: SpaceAgentInteractionResponseHandler;
+	permissionModeShortcut?: SpaceAgentPermissionModeShortcut;
+	presentation?: "surface" | "timeline";
 }) {
 	const pendingInteraction = input.item.pendingInteraction;
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -49,7 +64,10 @@ export function SpaceAgentInteractionCard(input: {
 	const canRespond =
 		pendingInteraction.canRespond && request !== null && input.onRespond;
 
-	const respond = async (response: AgentInteractionResponse) => {
+	const respond = async (
+		response: AgentInteractionResponse,
+		permissionMode?: AgentControllerPermissionMode
+	) => {
 		if (!(request && canRespond)) {
 			return;
 		}
@@ -71,6 +89,12 @@ export function SpaceAgentInteractionCard(input: {
 				runtimeCoordinatorExecutionId,
 			});
 			setSubmitted(true);
+			if (permissionMode) {
+				input.onPermissionModeUpdate?.({
+					permissionMode,
+					profileId: input.item.targetProfileId,
+				});
+			}
 		} catch (error) {
 			setErrorMessage(
 				error instanceof Error
@@ -86,6 +110,7 @@ export function SpaceAgentInteractionCard(input: {
 		return (
 			<InteractionShell
 				kind={pendingInteraction.kind}
+				presentation={input.presentation}
 				targetLabel={input.item.targetLabel}
 				title="Response sent"
 			>
@@ -100,6 +125,7 @@ export function SpaceAgentInteractionCard(input: {
 		return (
 			<InteractionShell
 				kind={pendingInteraction.kind}
+				presentation={input.presentation}
 				targetLabel={input.item.targetLabel}
 				title="Waiting for the local agent owner"
 			>
@@ -114,6 +140,7 @@ export function SpaceAgentInteractionCard(input: {
 	return (
 		<InteractionShell
 			kind={request.kind}
+			presentation={input.presentation}
 			targetLabel={input.item.targetLabel}
 			title={request.title}
 		>
@@ -131,6 +158,7 @@ export function SpaceAgentInteractionCard(input: {
 							: undefined
 					}
 					onRespond={respond}
+					permissionModeShortcut={input.permissionModeShortcut}
 					request={request}
 				/>
 			) : null}
@@ -169,13 +197,19 @@ export function SpaceAgentInteractionCard(input: {
 function InteractionShell(input: {
 	children: ReactNode;
 	kind: AgentInteractionRequest["kind"];
+	presentation?: "surface" | "timeline";
 	targetLabel: string;
 	title: string;
 }) {
 	return (
 		<section
 			aria-label={`Request from ${input.targetLabel}`}
-			className="my-2 flex w-full max-w-2xl flex-col gap-4 border border-border bg-background p-4 text-left shadow-sm"
+			className={cn(
+				"flex w-full max-w-2xl flex-col gap-4 bg-background text-left",
+				input.presentation === "surface"
+					? "p-0"
+					: "my-2 border border-border p-4 shadow-sm"
+			)}
 			data-agent-interaction-kind={input.kind}
 		>
 			<header className="flex min-w-0 flex-col gap-1">
@@ -202,16 +236,23 @@ function InteractionShell(input: {
 function PermissionInteraction(input: {
 	disabled: boolean;
 	onEditAgentProfile?: () => void;
-	onRespond: (response: AgentInteractionResponse) => Promise<void>;
+	onRespond: (
+		response: AgentInteractionResponse,
+		permissionMode?: AgentControllerPermissionMode
+	) => Promise<void>;
+	permissionModeShortcut?: SpaceAgentPermissionModeShortcut;
 	request: Extract<AgentInteractionRequest, { kind: "permission" }>;
 }) {
 	const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
+	const [updatePermissionMode, setUpdatePermissionMode] = useState(false);
 	const selectedIndex = input.request.options.findIndex(
 		(option) => option.optionId === selectedOptionId
 	);
 	const selectedOption = input.request.options.find(
 		(option) => option.optionId === selectedOptionId
 	);
+	const selectedOptionAllows =
+		selectedOption !== undefined && selectedOption.intent !== "deny";
 
 	return (
 		<>
@@ -230,11 +271,27 @@ function PermissionInteraction(input: {
 					/>
 				))}
 			</RadioGroup>
+			{input.permissionModeShortcut && selectedOptionAllows ? (
+				<CheckboxGroup
+					aria-label="Future Agent permissions"
+					checkedIndices={updatePermissionMode ? new Set([0]) : new Set()}
+					className="w-full"
+				>
+					<CheckboxItem
+						checked={updatePermissionMode}
+						description={`After this response is sent, OpenMeld will save ${input.permissionModeShortcut.label} for future requests. This does not delay the current Wake.`}
+						index={0}
+						label={`Also use ${input.permissionModeShortcut.label} for future requests`}
+						onToggle={() => setUpdatePermissionMode((current) => !current)}
+					/>
+				</CheckboxGroup>
+			) : null}
 			{input.onEditAgentProfile ? (
 				<div className="grid gap-2 border-border border-t pt-3">
 					<p className="text-muted-foreground text-xs leading-5">
-						This changes future work only. Respond to this request separately to
-						continue the current Wake.
+						New permission settings can affect later tool requests in this Wake
+						when the local agent supports live updates. This request was already
+						waiting, so respond to it separately.
 					</p>
 					<div>
 						<Button
@@ -243,7 +300,7 @@ function PermissionInteraction(input: {
 							type="button"
 							variant="outline"
 						>
-							Edit Agent permissions
+							Edit Agent Profile
 						</Button>
 					</div>
 				</div>
@@ -255,10 +312,15 @@ function PermissionInteraction(input: {
 						if (!selectedOptionId) {
 							return;
 						}
-						input.onRespond({
-							kind: "permission",
-							optionId: selectedOptionId,
-						});
+						input.onRespond(
+							{
+								kind: "permission",
+								optionId: selectedOptionId,
+							},
+							updatePermissionMode && selectedOptionAllows
+								? input.permissionModeShortcut?.permissionMode
+								: undefined
+						);
 					}}
 					type="button"
 					variant={selectedOption?.intent === "deny" ? "outline" : "default"}

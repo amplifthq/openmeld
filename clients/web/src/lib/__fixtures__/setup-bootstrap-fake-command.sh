@@ -197,6 +197,22 @@ run_fake_curl() {
   done
   [ -n "$OPENMELD_TEST_OUTPUT" ] || exit 64
 
+  if [ -n "${OPENMELD_TEST_CURL_CALLS_PATH:-}" ]; then
+    printf '%s\n' "$OPENMELD_TEST_URL" >> "$OPENMELD_TEST_CURL_CALLS_PATH"
+  fi
+
+  if [ -n "${OPENMELD_TEST_CURL_FAIL_ONCE_SUFFIX:-}" ] && [ -n "${OPENMELD_TEST_CURL_FAIL_ONCE_MARKER_PATH:-}" ]; then
+    case "$OPENMELD_TEST_URL" in
+      *"$OPENMELD_TEST_CURL_FAIL_ONCE_SUFFIX")
+        if [ ! -f "$OPENMELD_TEST_CURL_FAIL_ONCE_MARKER_PATH" ]; then
+          printf 'partial download' > "$OPENMELD_TEST_OUTPUT"
+          printf 'failed\n' > "$OPENMELD_TEST_CURL_FAIL_ONCE_MARKER_PATH"
+          exit 18
+        fi
+        ;;
+    esac
+  fi
+
   case "$OPENMELD_TEST_URL" in
     */cli/manifest.json)
 	  OPENMELD_TEST_RAW_BINARY="$OPENMELD_TEST_OUTPUT.raw"

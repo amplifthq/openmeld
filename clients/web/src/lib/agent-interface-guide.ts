@@ -37,7 +37,7 @@ Do not guess it after setup. Use the \`cliCommandPrefix\` or \`nextCommands\` fr
 <OPENMELD_CLI> service status --view agent
 \`\`\`
 
-The setup command uses the OpenMeld bootstrap script. On supported macOS computers, production setup downloads the OpenMeld CLI binary, verifies its sha256 from the OpenMeld manifest, runs \`install-self\`, signs the Terminal into OpenMeld with the one-time token, and runs the canonical \`openmeld setup\` path through the managed binary. Windows and explicit \`?dist=npm\` setup commands use the npm package path.
+The setup command uses the OpenMeld bootstrap script. On supported macOS computers, production setup downloads the OpenMeld CLI binary, verifies its sha256 from the OpenMeld manifest, runs \`install-self\`, creates an independent Computer sign-in from the browser-approved code, and runs the canonical \`openmeld setup\` path through the managed binary. Windows and explicit \`?dist=npm\` setup commands use the npm package path.
 
 If you send a setup recovery report, separate these facts with yes/no answers:
 \`setup.complete\` reached, background OpenMeld Service healthy, foreground service probe used, Space membership added, and Wake reply proven. Do not call setup fixed only because a Space member badge says \`Available\`, because \`Available\` means OpenMeld has enough current route evidence to try a Wake. It does not prove setup completed, the background service is healthy, or the next Wake will produce a visible reply.
@@ -106,7 +106,7 @@ Run setup sequentially. If one setup is running, wait for it to finish before st
 If the user wants only specific agents, use:
 
 \`\`\`sh
-<OPENMELD_CLI> setup --start-session <token> --local-agent codex claude-code grok-build cursor opencode --ott <one-time-token> --view agent
+<OPENMELD_CLI> setup --start-session <token> --local-agent codex claude-code grok-build cursor opencode --device-code <browser-approved-code> --view agent
 \`\`\`
 
 Use the exact tokenized command from the user. Do not invent tokens.

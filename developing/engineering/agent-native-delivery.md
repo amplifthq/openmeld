@@ -126,6 +126,23 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | \
   bash -s -- request --pr <number>
 ```
 
+Observe that request without streaming a full workflow log into the agent
+context:
+
+```sh
+git show origin/main:scripts/ci/trusted-final-candidate.sh | \
+  bash -s -- status --pr <number>
+git show origin/main:scripts/ci/trusted-final-candidate.sh | \
+  bash -s -- wait --pr <number>
+```
+
+`status` reads once. `wait` polls in the terminal process and prints only state
+transitions plus the final exact status. Full logs stay in GitHub. A captured
+GitHub job annotation distinguishes an Actions budget or billing refusal from a
+candidate check failure and reports whether candidate checks ever started. A
+later hosted budget refusal does not invalidate an existing successful exact
+status for the same head.
+
 Use `--full` only when the responsible agent wants full confidence. Standard
 and full requests use distinct labels but publish the same required status:
 
@@ -173,6 +190,11 @@ This lane fetches live `main`, reads the live PR, executes trusted current-main
 control against the candidate, rechecks identity after validation, posts the
 evidence comment, and publishes the same status. It requires an authenticated
 `gh` session and fails closed when GitHub or network evidence is unavailable.
+Before installing or executing candidate checks, it prints a bounded local
+resource preflight: available disk and active OpenMeld dev stacks. Other stacks
+are facts, not an approval rule. Only the critical one-GiB free-disk safety
+floor blocks local execution; constrained-but-usable machines remain an agent
+judgment. The preflight never stops another worktree.
 
 A Final Candidate control-plane change cannot certify itself through a
 candidate-owned entrypoint. When current `main` lacks the new control, inspect
@@ -227,6 +249,13 @@ local entrypoint selected there. Git-backed scope leases serialize only the
 same production scope; they do not block unrelated development, merges, or
 compatible releases.
 
+When the exact release includes changed CLI, OpenMeld Service, or bundled
+skills, run the local-component plan and supply the explicit policy and reason
+required by `production-release.md`. Delivery tooling exposes the changed
+components, versions, floors, and missing decisions; it does not guess
+`available`, choose `required`, or replace the responsible agent's Contract
+Impact Audit.
+
 ## Health And Real-User Smoke
 
 Health proves component reachability. Release completion also needs the
@@ -234,6 +263,12 @@ smallest user-accessible smoke for the changed path through OpenMeld Web, the
 published CLI, installed OpenMeld Service, or another supported product entry
 point. Internal RPC, database inspection, and direct projections are diagnostic
 evidence, not real-user smoke.
+
+One successful smoke of the exact changed path is sufficient after its visible
+result and required trace or diagnostic receipt are recorded. Stop there unless
+the task explicitly requires another case, the product state changed, a new
+deployment occurred, or the first smoke exposed a failure. Repeating the same
+unchanged success is not stronger evidence and must not delay delivery.
 
 Report these facts separately:
 
@@ -250,8 +285,9 @@ Anything not run, with reason
 
 - Check or identity failure: keep the exact failure, fix the cause on a new
   commit, sync `main`, and create one new candidate.
-- Hosted candidate unavailable: use the trusted local fallback; do not weaken
-  status protection or invent success.
+- Hosted candidate unavailable: use `status` or `wait` to preserve the exact
+  GitHub reason. The trusted local fallback remains available; do not relabel
+  the unchanged head repeatedly, weaken status protection, or invent success.
 - Active production scope lease: inspect its owner, source, start, and expiry.
   Wait only for that scope. Recover an expired exact lease with a recorded
   reason after proving its owner stopped.

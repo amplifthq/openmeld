@@ -7,10 +7,15 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
-  putRemoteAgentCallbackContext,
+  putRemoteAgentCallbackContext as putRemoteAgentCallbackContextProjection,
+  type RemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
   recordRemoteAgentWorkLoopCheckpoint,
 } from "../agent-core/callback-context";
+import {
+  buildRemoteAgentExecutionStateKey,
+  initializeRemoteAgentExecutionState,
+} from "../agent-core/execution-state";
 import { readRemoteAgentTurnObservability } from "../agent-core/turn-observability";
 import { createRemoteAgentConversationCompactionObserver } from "../flue-adapter/conversation-compaction";
 import { runWithRemoteAgentSubmissionExecution } from "../flue-adapter/execution-context";
@@ -676,6 +681,172 @@ describe("Center Agent stream observation", () => {
     });
   });
 
+  it("does not publish a terminal callback when the execution owner is missing", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContextProjection(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: "remote-agent:dispatch_123",
+          requestId: SUBMISSION_ID,
+          status: "pending",
+          submissionId: SUBMISSION_ID,
+        },
+        nowMs: TEST_NOW_MS,
+        request: createSubmitTurnRequest(),
+      })
+    );
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_missing_execution_owner",
+      status: "accepted" as const,
+    }));
+
+    await expect(
+      handleCenterAgentObservation({
+        event: completedPromptObservation("Unowned success must not publish."),
+        resolveDependencies: () => ({
+          coreWorker: { completeRemoteAgentSubmission },
+          env: {} as CloudflareBindings,
+          storage,
+        }),
+        streamPublisher: createRemoteAgentStreamPublisher(),
+      })
+    ).rejects.toThrow(
+      "remote_agent.terminal_execution_owner_missing:flue_submission_123"
+    );
+
+    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+    await expect(
+      readRemoteAgentCallbackContext(storage, SUBMISSION_ID)
+    ).resolves.toMatchObject({
+      callbackAttempts: 0,
+      callbackStatus: "pending",
+    });
+  });
+
+  it("publishes failure when failed wins the CAS against a success observation", async () => {
+    const harness = await createTerminalCasRaceHarness("failed");
+    const input = {
+      event: completedPromptObservation("This success lost the owner CAS."),
+      resolveDependencies: harness.resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    };
+
+    await handleCenterAgentObservation(input);
+    await handleCenterAgentObservation(input);
+
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", submissionId: SUBMISSION_ID })
+    );
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.not.objectContaining({ text: expect.any(String) })
+    );
+  });
+
+  it("publishes the owner failure when a different failure wins the CAS", async () => {
+    const harness = await createTerminalCasRaceHarness("failed", {
+      code: "remote_agent.provider.rate_limited",
+      detail: "Winner hit the provider rate limit.",
+      reasonCode:
+        REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_RATE_LIMITED,
+    });
+    const input = {
+      event: failedPromptObservation({
+        code: "invalid_api_key",
+        message: "Losing observation says invalid API key.",
+        name: "AuthenticationError",
+      }),
+      resolveDependencies: harness.resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    };
+
+    await handleCenterAgentObservation(input);
+    await handleCenterAgentObservation(input);
+
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.provider.rate_limited",
+        failureDetail: "Winner hit the provider rate limit.",
+        status: "failed",
+        submissionId: SUBMISSION_ID,
+      })
+    );
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        failureDetail: "Losing observation says invalid API key.",
+      })
+    );
+  });
+
+  it("publishes the owner answer when completed wins the CAS against a failure observation", async () => {
+    const harness = await createTerminalCasRaceHarness("completed");
+    const input = {
+      event: failedPromptObservation(),
+      resolveDependencies: harness.resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    };
+
+    await handleCenterAgentObservation(input);
+    await handleCenterAgentObservation(input);
+
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "completed",
+        submissionId: SUBMISSION_ID,
+        text: "The durable owner answer won.",
+      })
+    );
+  });
+
+  it("publishes the owner answer when a different success wins the CAS", async () => {
+    const harness = await createTerminalCasRaceHarness("completed");
+    const input = {
+      event: completedPromptObservation(
+        "This successful observation lost the owner CAS."
+      ),
+      resolveDependencies: harness.resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    };
+
+    await handleCenterAgentObservation(input);
+    await handleCenterAgentObservation(input);
+
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "completed",
+        submissionId: SUBMISSION_ID,
+        text: "The durable owner answer won.",
+      })
+    );
+  });
+
+  it("publishes stopped when aborted wins the CAS against a success observation", async () => {
+    const harness = await createTerminalCasRaceHarness("aborted");
+    const input = {
+      event: completedPromptObservation("This success lost to stop."),
+      resolveDependencies: harness.resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    };
+
+    await handleCenterAgentObservation(input);
+    await handleCenterAgentObservation(input);
+
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(harness.completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.execution_cancelled",
+        status: "failed",
+        submissionId: SUBMISSION_ID,
+      })
+    );
+  });
+
   it("uses the immutable Flue execution identity when a prompt observation omits submissionId", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const staleSubmissionId = "submission_stale_pending";
@@ -1223,6 +1394,118 @@ type AnalyticsPoint = {
   indexes: string[];
 };
 
+async function putRemoteAgentCallbackContext(
+  storage: InMemoryDurableObjectStorage,
+  context: RemoteAgentCallbackContext
+): Promise<void> {
+  await putRemoteAgentCallbackContextProjection(storage, context);
+  await initializeRemoteAgentExecutionState({
+    acceptedAtMs: context.submissionCreatedAt,
+    identity: {
+      idempotencyKey: context.idempotencyKey,
+      organizationId: context.organizationId,
+      spaceId: context.spaceId,
+      submissionId: context.submissionId,
+      v: 1,
+    },
+    storage,
+  });
+}
+
+class TerminalCasRaceStorage extends InMemoryDurableObjectStorage {
+  private nextWinner: { key: string; value: unknown } | null = null;
+
+  winNextExecutionCas(key: string, value: unknown): void {
+    this.nextWinner = { key, value };
+  }
+
+  override async compareAndSet<T>(
+    key: string,
+    expectedValue: T,
+    nextValue: T
+  ): Promise<boolean> {
+    if (this.nextWinner?.key === key) {
+      const winner = this.nextWinner;
+      this.nextWinner = null;
+      await this.put(key, winner.value);
+      return false;
+    }
+    return await super.compareAndSet(key, expectedValue, nextValue);
+  }
+}
+
+async function createTerminalCasRaceHarness(
+  winnerStatus: "aborted" | "completed" | "failed",
+  terminalFailure?: {
+    code: string;
+    detail?: string;
+    reasonCode: string;
+  }
+) {
+  const storage = new TerminalCasRaceStorage();
+  const request = createSubmitTurnRequest();
+  const context = createRemoteAgentCallbackContext({
+    ack: {
+      accepted: true,
+      createdAt: TEST_NOW_MS,
+      idempotencyKey: request.idempotencyKey,
+      requestId: SUBMISSION_ID,
+      status: "pending",
+      submissionId: SUBMISSION_ID,
+    },
+    nowMs: TEST_NOW_MS,
+    request,
+  });
+  await putRemoteAgentCallbackContext(storage, context);
+  const initial = await initializeRemoteAgentExecutionState({
+    acceptedAtMs: TEST_NOW_MS,
+    identity: {
+      idempotencyKey: context.idempotencyKey,
+      organizationId: context.organizationId,
+      spaceId: context.spaceId,
+      submissionId: SUBMISSION_ID,
+      v: 1,
+    },
+    storage,
+  });
+  const progressKindByStatus = {
+    aborted: "aborted",
+    completed: "prompt_completed",
+    failed: "prompt_failed",
+  } as const;
+  storage.winNextExecutionCas(
+    buildRemoteAgentExecutionStateKey(SUBMISSION_ID),
+    {
+      ...initial,
+      ...(winnerStatus === "aborted"
+        ? { cancellationReason: "Stopped by the user." }
+        : {}),
+      ...(winnerStatus === "completed"
+        ? { completedText: "The durable owner answer won." }
+        : {}),
+      ...(winnerStatus === "failed" && terminalFailure
+        ? { terminalFailure }
+        : {}),
+      completedAtMs: TEST_NOW_MS + 20,
+      lastProgressAtMs: TEST_NOW_MS + 20,
+      lastProgressKind: progressKindByStatus[winnerStatus],
+      status: winnerStatus,
+    }
+  );
+  const completeRemoteAgentSubmission = vi.fn(async () => ({
+    publishedSignalId: `signal_${winnerStatus}_cas_winner`,
+    status: "accepted" as const,
+  }));
+  return {
+    completeRemoteAgentSubmission,
+    resolveDependencies: () => ({
+      coreWorker: { completeRemoteAgentSubmission },
+      env: {} as CloudflareBindings,
+      storage,
+    }),
+  };
+}
+
 function readBlob(
   point: AnalyticsPoint,
   field: (typeof OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS)[number]
@@ -1346,19 +1629,19 @@ function completedPromptObservation(text: string): FlueObservation {
   } satisfies FlueObservation;
 }
 
-function failedPromptObservation(): FlueObservation {
+function failedPromptObservation(
+  error: { code: string; message: string; name: string } = {
+    code: "rate_limit_exceeded",
+    message: "private provider response",
+    name: "APIError",
+  }
+): FlueObservation {
   return {
     agentName: "center-agent",
     durationMs: 84,
-    error: {
-      code: "rate_limit_exceeded",
-      message: "private provider response",
-      name: "APIError",
-    },
+    error,
     errorInfo: {
-      code: "rate_limit_exceeded",
-      message: "private provider response",
-      name: "APIError",
+      ...error,
       type: "provider_error",
     },
     eventIndex: 3,

@@ -87,7 +87,7 @@ describe("legacy shared local service cleanup", () => {
     uninstallDaemonMock.mockResolvedValue({ removed: true });
   });
 
-  it("uninstalls the legacy shared service manager before removing legacy runtime state", async () => {
+  it("lets production remove its own legacy service state", async () => {
     const uninstall = vi.fn().mockResolvedValue(undefined);
     const waitUntilAbsent = vi.fn().mockResolvedValue(undefined);
 
@@ -114,7 +114,7 @@ describe("legacy shared local service cleanup", () => {
 
     const result = await cleanupLegacySharedDaemonServiceState({
       env: {
-        OPENMELD_ENV_PRESET: "dev-local",
+        OPENMELD_ENV_PRESET: "prod",
       },
     });
 
@@ -122,5 +122,20 @@ describe("legacy shared local service cleanup", () => {
     expect(waitUntilAbsent).toHaveBeenCalledTimes(1);
     expect(uninstallDaemonMock).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ removed: true });
+  });
+
+  it.each([
+    "dev-local",
+    "canary",
+  ])("never uninstalls the production service from %s", async (envPreset) => {
+    const result = await cleanupLegacySharedDaemonServiceState({
+      env: {
+        OPENMELD_ENV_PRESET: envPreset,
+      },
+    });
+
+    expect(resolveDaemonServiceManagerMock).not.toHaveBeenCalled();
+    expect(uninstallDaemonMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ removed: false });
   });
 });

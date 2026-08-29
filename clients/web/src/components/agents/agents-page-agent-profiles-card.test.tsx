@@ -6,6 +6,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -870,6 +871,74 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toContain("Plan");
 	});
 
+	it("focuses approval recovery once without stealing focus from later profile edits", async () => {
+		const primaryBinding = createPrimaryBindingResponse("codex:askForApproval")
+			.binding as GetAgentProfilePrimaryBindingResponse["binding"];
+
+		render(
+			<AgentProfileEditDialog
+				controllerChangeOptions={[
+					{
+						agentControllerRef: "builtin:claude-code",
+						label: "Claude Code",
+					},
+				]}
+				editState={resolveAgentProfileEditState({
+					binding: primaryBinding,
+					modelCatalog: null,
+				})}
+				initialSection="permissions"
+				isPending={false}
+				modelCatalog={null}
+				onControllerChange={() => Promise.resolve()}
+				onControllerCollaborationModeUpdate={() => Promise.resolve()}
+				onControllerPermissionModeUpdate={() => Promise.resolve()}
+				onModelSelectionUpdate={() => Promise.resolve()}
+				onOpenChange={() => undefined}
+				onOpenCodePermissionUpdate={() => Promise.resolve()}
+				onRenameProfile={() => Promise.resolve()}
+				open={true}
+				profileName="Research Agent"
+			/>
+		);
+
+		const permissionsControl = screen.getByRole("combobox", {
+			name: PERMISSIONS_MODE_NAME_PATTERN,
+		});
+		expect(
+			permissionsControl.closest(
+				'[data-slot="agent-profile-permission-mode-section"]'
+			)
+		).not.toBeNull();
+		await waitFor(() => {
+			expect(document.activeElement).toBe(permissionsControl);
+		});
+
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Change controller" })
+		);
+		fireEvent.click(screen.getByRole("option", { name: "Claude Code" }));
+		await act(
+			async () =>
+				await new Promise<void>((resolve) => {
+					window.requestAnimationFrame(() => resolve());
+				})
+		);
+		const nameInput = screen.getByRole("textbox", { name: "Name" });
+		nameInput.focus();
+		fireEvent.change(nameInput, {
+			target: { value: "Renamed Research Agent" },
+		});
+		await act(
+			async () =>
+				await new Promise<void>((resolve) => {
+					window.requestAnimationFrame(() => resolve());
+				})
+		);
+
+		expect(document.activeElement).toBe(nameInput);
+	});
+
 	it("refreshes completed Agent changes when a later field fails to save", async () => {
 		const onControllerCollaborationModeUpdate = vi.fn(() =>
 			Promise.reject(new Error("Collaboration Mode update failed"))
@@ -1324,7 +1393,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			queryKey: organizationQueryKeys.all,
 		});
 		expect(toastMock.success).toHaveBeenCalledWith(
-			"Settings saved for Research Agent. This computer must sync the changes before new work starts. Work already running keeps its current settings."
+			"Settings saved for Research Agent. This computer must sync the changes before new work starts. Permission mode changes can also reach running sessions when the local agent supports live updates."
 		);
 	});
 

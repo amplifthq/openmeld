@@ -573,9 +573,7 @@ describe("SpaceConversationPanel", () => {
 		expect(sourceMessage).not.toBeNull();
 		const source = within(sourceMessage as HTMLElement);
 		expect(source.getByText("Allow this command?")).toBeTruthy();
-		fireEvent.click(
-			source.getByRole("button", { name: "Edit Agent permissions" })
-		);
+		fireEvent.click(source.getByRole("button", { name: "Edit Agent Profile" }));
 		expect(onEditAgentProfile).toHaveBeenCalledWith(TARGET_PROFILE_ID);
 		expect(onAgentInteractionResponse).not.toHaveBeenCalled();
 		fireEvent.click(source.getByRole("radio", { name: "Allow once" }));
@@ -593,6 +591,110 @@ describe("SpaceConversationPanel", () => {
 				runtimeCoordinatorExecutionId: "rce_inline",
 			});
 		});
+	});
+
+	it("keeps reused provider interaction ids isolated across inline Wake executions", () => {
+		const createPanelProps = (item: WakeProgressItem) =>
+			createSpaceConversationPanelProps({
+				ephemeralActivityItems: [item],
+				onAgentInteractionResponse: vi.fn().mockResolvedValue(undefined),
+				readOnly: false,
+				timelineItems: [
+					createTimelineItem({
+						id: "sig-wake",
+						text: "@Runner(wake) validate this change",
+						wakeTargetProfileIds: [TARGET_PROFILE_ID],
+					}),
+				],
+			});
+		const view = render(
+			<SpaceConversationPanel
+				{...createPanelProps(
+					createInlinePermissionProgressItem({
+						runtimeCoordinatorExecutionId: "rce-inline-first",
+						title: "Allow the first execution?",
+					})
+				)}
+			/>
+		);
+
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		view.rerender(
+			<SpaceConversationPanel
+				{...createPanelProps(
+					createInlinePermissionProgressItem({
+						runtimeCoordinatorExecutionId: "rce-inline-second",
+						title: "Allow the second execution?",
+					})
+				)}
+			/>
+		);
+
+		expect(screen.getByText("Allow the second execution?")).toBeTruthy();
+		expect(
+			screen
+				.getByRole("radio", { name: "Allow once" })
+				.getAttribute("aria-checked")
+		).toBe("false");
+	});
+
+	it("mounts the pending action surface above the composer without duplicating owner actions in history", () => {
+		renderSpaceConversationPanel({
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem({ sourceSignalId: "sig-wake" }),
+					pendingInteraction: {
+						canRespond: true,
+						expiresAtMs: Date.UTC(2026, 6, 29),
+						interactionId: "interaction-surface",
+						kind: "permission",
+						request: {
+							expiresAtMs: Date.UTC(2026, 6, 29),
+							interactionId: "interaction-surface",
+							kind: "permission",
+							options: [
+								{
+									intent: "allow_once",
+									label: "Allow once",
+									optionId: "allow-once",
+								},
+							],
+							requestedAtMs: Date.UTC(2026, 6, 28),
+							subject: {
+								command: "pnpm test",
+								type: "command",
+							},
+							title: "History must not duplicate this request",
+							v: 1,
+						},
+						requestedAtMs: Date.UTC(2026, 6, 28),
+					},
+					runtimeCoordinatorExecutionId: "rce_surface",
+				},
+			],
+			actionableAgentInteractionPlacement: "pending-surface",
+			pendingActionSurface: (
+				<div data-testid="pending-action-surface">1 action needs you</div>
+			),
+			readOnly: false,
+			timelineItems: [
+				createTimelineItem({
+					id: "sig-wake",
+					text: "@Runner(wake) validate this change",
+					wakeTargetProfileIds: [TARGET_PROFILE_ID],
+				}),
+			],
+		});
+
+		expect(
+			screen.queryByText("History must not duplicate this request")
+		).toBeNull();
+		const surface = screen.getByTestId("pending-action-surface");
+		const composer = document.querySelector(
+			'[data-slot="space-composer-section"]'
+		);
+		expect(composer).not.toBeNull();
+		expect(surface.nextElementSibling).toBe(composer);
 	});
 
 	it("anchors the earlier-history loading header to the conversation content rail", () => {
@@ -4806,6 +4908,40 @@ function createWakeProgressItem(input?: {
 			input?.wakeStopEligibility ?? CANCEL_BACKED_WAKE_STOP_ELIGIBILITY;
 	}
 	return item;
+}
+
+function createInlinePermissionProgressItem(input: {
+	runtimeCoordinatorExecutionId: string;
+	title: string;
+}): WakeProgressItem {
+	const interactionId = "provider-interaction-reused";
+	return {
+		...createWakeProgressItem({ sourceSignalId: "sig-wake" }),
+		pendingInteraction: {
+			canRespond: true,
+			expiresAtMs: Date.UTC(2026, 6, 29),
+			interactionId,
+			kind: "permission",
+			request: {
+				expiresAtMs: Date.UTC(2026, 6, 29),
+				interactionId,
+				kind: "permission",
+				options: [
+					{
+						intent: "allow_once",
+						label: "Allow once",
+						optionId: "allow-once",
+					},
+				],
+				requestedAtMs: Date.UTC(2026, 6, 28),
+				subject: { type: "tool" },
+				title: input.title,
+				v: 1,
+			},
+			requestedAtMs: Date.UTC(2026, 6, 28),
+		},
+		runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+	};
 }
 
 function createWakeStopResponse(): PostSpaceWakeStopResponse {

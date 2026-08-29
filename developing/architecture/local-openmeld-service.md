@@ -808,10 +808,18 @@ that decision.
   surface that holds the information owns the action.
 - The current bootstrap that hands a web token to the CLI
   (`openmeld setup --start-session <token>`) initiates and authenticates a local
-  setup. When the command includes a Web-issued one-time token, the CLI must
-  exchange it for a durable local CLI sign-in session for the same OpenMeld account;
-  OpenMeld Service uses that local session when it starts at login. The handoff must
-  not be used to add an agent-selection step to Web.
+  setup. The command carries a browser-approved Device Authorization code that
+  the CLI exchanges for a new, independently revocable Computer session for the
+  same OpenMeld user. The CLI must validate Prepare ownership before changing
+  the active local session. A failed or cancelled handoff restores the previous
+  session and Service account alignment. That pending session transition is
+  durable: after Terminal exits, process failure, or machine restart, the next
+  CLI or Service auth read restores the previous session before proceeding; a
+  first connection clears its incomplete candidate. A committed transition is
+  never recovered backward. A cross-account switch requires explicit
+  interactive confirmation. OpenMeld Service uses the committed Computer
+  session when it starts at login. The handoff must not be used to add an
+  agent-selection step to Web.
   Keeping the legacy Web selector retired is a setup-flow
   consolidation owned by this document; it has no ordering dependency on the
   onboarding planner (`developing/product/onboarding.md`), which treats
@@ -1110,6 +1118,14 @@ Catalog consumption rules:
 - Carrier startup and periodic catalog refresh only check existing local
   projection and workspace state. Setup and explicit repair own mutations;
   catalog reads must not run repair work or block healthy routes behind it.
+- After a successful catalog refresh, the Service reconciles a changed Agent
+  Controller Permission Mode into matching in-flight tasks. It may mark the new
+  mode on a task only after the active adapter explicitly reports `applied` for
+  later tool requests. Missing adapter capability, a launch-only mode, an
+  inactive-task race, and repair-only constraints are explicit `not_applied`
+  diagnostic outcomes: they do not fail route registration, roll back the saved
+  Binding, or pretend the active controller changed. A pending Agent
+  Interaction remains separate and still requires its own response.
 - One catalog load has one bounded total deadline. A phase that does not settle
   must fail with its phase name and measured duration so startup can recover
   from the last accepted cache, or start empty and retry when no cache exists.
@@ -1473,6 +1489,18 @@ receive new Wake work, even when the latest release itself is advisory. This
 keeps healthy supported Services eligible without allowing a later optional
 release to re-enable a known-broken Service.
 
+The current monotonic floor is OpenMeld Service `0.3.126`. It is the first
+supported baseline that carries the required startup recovery, managed-update,
+active Permission/Wake behavior, and pre-accept Wake recovery across a
+controlled Service replacement. Core projects every connected older Service as
+`update_required` and blocks new Wake admission. The user-visible
+`requiredVersion` is the newer of this compatibility floor and the current
+installable Service release, so the action always names a version the user can
+actually install. A later advisory release may raise that remediation target,
+but it must not lower or bypass the compatibility floor. A Service already at
+`0.3.126` remains supported and receives only the advisory update policy of a
+newer release.
+
 Wake Stop local control is an affected Service capability. A Core/Web deployment
 that exposes Wake Stop must use a local-components manifest whose Service bundle
 hash matches the carrier that understands the Wake Stop control frame and local
@@ -1631,6 +1659,11 @@ Completed operation phases remain visible for at most 24 hours. Core must omit
 an older `updated` phase when current component evidence already shows another
 actionable update. A completed historical operation must never contradict the
 current update action.
+`updated` proves that the worker finished installation; it does not prove that
+Core has observed the target CLI and Service versions. Clients must retain the
+operation and verify both component projections before presenting **Up to
+date**. Same-operation observations are ordered by `updatedAt` and phase, so a
+stale projection cannot move visible progress backward.
 Because runtime capability payloads are strict, rollout deploys the accepting
 Schemas and Core before publishing a Service that emits `updateOperation`.
 New Core accepts older Services that omit it; rollback removes the new local
@@ -1677,11 +1710,17 @@ they never create parallel Service update lifecycles.
 After the safe switch begins, RuntimeCoordinator remains the in-flight Wake
 authority. New Wake work may wait for the replacement route and resume after
 the Service reconnects, but it must not be duplicated or converted into an
-early local timeout failure. The update job is complete only after the target
-Service reaches its verified desired state. Replacement startup or health
-verification failure must restore and verify the previous Service before the
-job records failure. Uninstall and reset remove the background update worker
-and its lane-owned disposable state.
+early local timeout failure. Before delivery, RuntimeCoordinator persists the
+owning device and lane with the delivery provenance. A replacement session may
+therefore recover an unaccepted delivery after a Durable Object restart even
+when the old in-memory session no longer exists. Reconciliation re-reads the
+durable command inside the per-execution serializer, so concurrent reconnect
+triggers produce at most one replacement delivery. Older commands without that
+durable route identity fail closed. The update job is complete only after the
+target Service reaches its verified desired state. Replacement startup or
+health verification failure must restore and verify the previous Service before
+the job records failure. Uninstall and reset remove the background update
+worker and its lane-owned disposable state.
 
 A previous binary is eligible as last-known-good only when its executable and
 fingerprint are still verifiable and its version is at or above Core's cached

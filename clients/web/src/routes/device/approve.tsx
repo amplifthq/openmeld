@@ -1,3 +1,8 @@
+import {
+	betterAuthDeviceAuthorizationClaimResponseSchema,
+	betterAuthDeviceAuthorizationDecisionRequestSchema,
+	betterAuthDeviceAuthorizationDecisionResponseSchema,
+} from "@openmeld/schemas";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Card,
@@ -80,22 +85,13 @@ async function getDeviceRequestStatus(
 	response: Response
 ): Promise<DeviceRequestStatus | null> {
 	try {
-		const payload: unknown = await response.json();
-		if (
-			typeof payload === "object" &&
-			payload !== null &&
-			"status" in payload &&
-			(payload.status === "approved" ||
-				payload.status === "denied" ||
-				payload.status === "pending")
-		) {
-			return payload.status;
-		}
+		const parsed = betterAuthDeviceAuthorizationClaimResponseSchema.safeParse(
+			await response.json()
+		);
+		return parsed.success ? parsed.data.status : null;
 	} catch {
 		return null;
 	}
-
-	return null;
 }
 
 async function claimDeviceRequest(
@@ -130,8 +126,15 @@ async function claimDeviceRequest(
 async function submitDeviceDecision(
 	input: DeviceDecisionInput
 ): Promise<DeviceDecisionInput> {
+	const parsedRequest =
+		betterAuthDeviceAuthorizationDecisionRequestSchema.safeParse({
+			userCode: input.userCode,
+		});
+	if (!parsedRequest.success) {
+		throw new Error(DECISION_FAILED_TEXT, { cause: parsedRequest.error });
+	}
 	const response = await fetch(input.path, {
-		body: JSON.stringify({ userCode: input.userCode }),
+		body: JSON.stringify(parsedRequest.data),
 		credentials: "include",
 		headers: {
 			"content-type": "application/json",
@@ -141,6 +144,12 @@ async function submitDeviceDecision(
 
 	if (!response.ok) {
 		throw new Error(getDeviceRequestErrorMessage(response, "decide"));
+	}
+	const parsed = betterAuthDeviceAuthorizationDecisionResponseSchema.safeParse(
+		await response.json()
+	);
+	if (!(parsed.success && parsed.data.success)) {
+		throw new Error(DECISION_FAILED_TEXT);
 	}
 
 	return input;

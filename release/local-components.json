@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-28T04:38:50.518Z",
+  "updatedAt": "2026-08-29T06:23:37.774Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.122",
+      "packageVersion": "0.3.129",
       "updatePolicy": "available",
-      "reason": "A newer local component is available, but current Wake work can continue."
+      "reason": "Existing CLI and cloud versions remain compatible; 0.3.129 fixes only local Computer recovery sequencing."
     },
     "service": {
-      "bundleHash": "58f1dd91a7e1e255a81221fbcf2dcff93b54c192d66a4212aac2c1894c9376f9",
-      "bundleVersion": "0.3.122",
+      "bundleHash": "2970775f9efe90d39fb49aefff03d51b079f1099f2f8fc99439687f993975096",
+      "bundleVersion": "0.3.129",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "A newer local component is available, but current Wake work can continue."
+      "reason": "No Service wire contract changed; 0.3.129 lets the bundled Service reuse the restored sign-in during repair while older healthy Services remain compatible."
     },
     "skills": {
       "bundleHash": "3b9b009ba253a1ec80240545d016a238505cd21ec6b11b34a10eea755f2e2683",

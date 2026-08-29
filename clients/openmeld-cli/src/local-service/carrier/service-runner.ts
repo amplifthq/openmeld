@@ -46,10 +46,10 @@ import {
   resolveDaemonServiceRuntimeMetadata,
 } from "../../config/daemon-state";
 import {
+  AuthRequestCredentialError,
+  type AuthRequestCredentialFailureReason,
   buildOpenMeldProfileRequestHeadersWithAuth,
   buildRequestAuthHeaders,
-  type DroppedAuthTokenAttachment,
-  resolveAuthTokenAttachment,
 } from "../../config/request-headers";
 import {
   requireOpenMeldProfile,
@@ -196,7 +196,13 @@ function buildLocalServiceCapabilityHeaders(input: {
 // different lane, so host compatibility fails). Dialing bare in that state is
 // what produced the production 401 relaunch storm, so the connect path treats
 // it as authentication_required and never sends the handshake.
-type DaemonStreamCredentialFailure = DroppedAuthTokenAttachment;
+type DaemonStreamCredentialFailure = {
+  authHost: string | null;
+  expectedGatewayHost: string | null;
+  reason: AuthRequestCredentialFailureReason;
+  requestHost: string | null;
+  status: "dropped";
+};
 
 class DaemonStreamAuthenticationRequiredError extends Error {
   readonly authState: ServiceConnectionAuthState;
@@ -324,54 +330,65 @@ export async function resolveDaemonStreamAuthContext(input: {
       status: "authentication_required";
     }
 > {
-  const authState = await getAuthSessionState({
-    validateRemote: false,
-  });
-  if (authState.state !== "valid" || authState.session === null) {
-    return {
-      authState: resolveAuthenticationRequiredAuthState(authState),
-      status: "authentication_required",
-    };
-  }
-
-  const attachment = resolveAuthTokenAttachment({
-    session: authState.session,
-    requestUrl: input.requestUrl,
-  });
-  if (attachment.status === "dropped") {
+  let headers: Record<string, string>;
+  try {
+    headers = await buildDaemonStreamRequestHeaders({
+      requestUrl: input.requestUrl,
+      selectedOpenMeldProfile: input.selectedOpenMeldProfile,
+    });
+  } catch (error) {
+    if (!(error instanceof AuthRequestCredentialError)) {
+      throw error;
+    }
     // Fail closed: a handshake that would go out without Authorization must
     // not be dialed at all. The session exists but is unusable for this
     // gateway, which the connection state machine models as "invalid".
     return {
-      authState: "invalid",
-      credentialFailure: attachment,
+      authState: resolveCredentialFailureAuthState(error.reason),
+      credentialFailure: toDaemonStreamCredentialFailure(error),
+      status: "authentication_required",
+    };
+  }
+  if (!headers.Authorization) {
+    return {
+      authState: "missing",
       status: "authentication_required",
     };
   }
 
   return {
     authState: "valid",
-    headers: await buildDaemonStreamRequestHeaders({
-      authSession: authState.session,
-      requestUrl: input.requestUrl,
-      selectedOpenMeldProfile: input.selectedOpenMeldProfile,
-    }),
+    headers,
     status: "ready",
   };
 }
 
-function resolveAuthenticationRequiredAuthState(input: {
-  state: AuthSessionState;
-  session: StoredAuthSession | null;
-}): Exclude<AuthSessionState, "valid"> {
-  if (input.state !== "valid") {
-    return input.state;
+function resolveCredentialFailureAuthState(
+  reason: AuthRequestCredentialFailureReason
+): Exclude<AuthSessionState, "valid"> {
+  if (reason === "session_expired") {
+    return "expired";
+  }
+  if (reason === "remote_session_revoked" || reason === "session_revoked") {
+    return "revoked";
   }
   return "invalid";
 }
 
+function toDaemonStreamCredentialFailure(
+  error: AuthRequestCredentialError
+): DaemonStreamCredentialFailure {
+  return {
+    authHost: error.authHost,
+    expectedGatewayHost: error.expectedGatewayHost,
+    reason: error.reason,
+    requestHost: error.requestHost,
+    status: "dropped",
+  };
+}
+
 async function buildDaemonStreamRequestHeaders(input: {
-  authSession: StoredAuthSession;
+  authSession?: StoredAuthSession;
   requestUrl: string;
   selectedOpenMeldProfile: Awaited<
     ReturnType<typeof requireOpenMeldProfile>
@@ -380,11 +397,11 @@ async function buildDaemonStreamRequestHeaders(input: {
   return input.selectedOpenMeldProfile
     ? await buildOpenMeldProfileRequestHeadersWithAuth({
         openMeldProfile: input.selectedOpenMeldProfile,
-        authSession: input.authSession,
+        ...(input.authSession ? { authSession: input.authSession } : {}),
         requestUrl: input.requestUrl,
       })
     : await buildRequestAuthHeaders({
-        authSession: input.authSession,
+        ...(input.authSession ? { authSession: input.authSession } : {}),
         requestUrl: input.requestUrl,
       });
 }

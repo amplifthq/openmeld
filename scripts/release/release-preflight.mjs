@@ -87,7 +87,7 @@ function buildCheckSpecs() {
     {
       id: "channel",
       label: "CLI channel versions",
-      fix: "Run `pnpm run release:preflight`, then prepare an aligned version with `pnpm release:local-components stamp --next ...`.",
+      fix: "Inspect the exact public versions, floors, touched components, and missing decisions with `pnpm release:local-components plan --next`.",
       run: checkChannelVersions,
     },
     {
@@ -314,13 +314,13 @@ async function checkChannelVersions(context) {
         status: "FAIL",
         detail: `${versionDecision} WARNING: declared version ${packageVersion} already exists, but ${changedReleasePaths.length} local-component path(s) differ from immutable ${releaseTag} content. Do not reuse the version.`,
         detailLines: changedReleasePaths.map((path) => `changed: ${path}`),
-        fix: `Run \`pnpm release:local-components stamp --version ${suggestedVersion} ...\`, then \`pnpm run release:preflight\`.`,
+        fix: `Run \`pnpm release:local-components plan --version ${suggestedVersion}\`, make each printed compatibility decision explicit, then rerun preflight.`,
       };
     }
     return {
       status: "PASS",
       detail: `${versionDecision} Declared ${packageVersion} matches immutable ${releaseTag} local-component content.`,
-      fix: `Use \`pnpm release:local-components stamp --version ${suggestedVersion} ...\` only when preparing the next CLI/Service release.`,
+      fix: `Use \`pnpm release:local-components plan --version ${suggestedVersion}\` only when preparing the next CLI/Service release.`,
     };
   }
 
@@ -353,13 +353,13 @@ async function checkChannelVersions(context) {
     return {
       status: "FAIL",
       detail: `${versionDecision} WARNING: declared version ${packageVersion} already exists and ${sourceDetail}. Do not reuse immutable npm content.`,
-      fix: `Run \`pnpm release:local-components stamp --version ${suggestedVersion} ...\`, then \`pnpm run release:preflight\`.`,
+      fix: `Run \`pnpm release:local-components plan --version ${suggestedVersion}\`, make each printed compatibility decision explicit, then rerun preflight.`,
     };
   }
   return {
     status: "PASS",
     detail: `${versionDecision} Declared ${packageVersion} already exists from this HEAD.`,
-    fix: `Use \`pnpm release:local-components stamp --version ${suggestedVersion} ...\` only when preparing the next CLI/Service release.`,
+    fix: `Use \`pnpm release:local-components plan --version ${suggestedVersion}\` only when preparing the next CLI/Service release.`,
   };
 }
 

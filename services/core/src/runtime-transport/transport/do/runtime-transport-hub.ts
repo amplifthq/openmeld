@@ -7569,6 +7569,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ...authority.commandState,
       lastCommandReasonCode: "runtime_coordinator.interaction_waiting",
       lastDeliveryProvenance: {
+        ...authority.commandState.lastDeliveryProvenance,
         connectionGeneration: parsed.data.connectionGeneration,
         daemonSessionId: parsed.data.daemonSessionId,
         leaseEpoch: parsed.data.leaseEpoch,
@@ -7678,6 +7679,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ...authority.commandState,
       lastCommandReasonCode: "runtime_coordinator.interaction_delivered",
       lastDeliveryProvenance: {
+        ...authority.commandState.lastDeliveryProvenance,
         connectionGeneration: parsed.data.connectionGeneration,
         daemonSessionId: parsed.data.daemonSessionId,
         leaseEpoch: parsed.data.leaseEpoch,
@@ -11326,6 +11328,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const existing = await this.readRuntimeCoordinatorRunCommandState(
       input.request.payload.runtimeCoordinatorExecutionId
     );
+    const deliverySession = this.state.sessionsById.get(
+      input.request.daemonSessionId
+    );
+    if (
+      !deliverySession ||
+      deliverySession.ownerUserId !== input.request.ownerUserId ||
+      deliverySession.connectionGeneration !==
+        input.request.connectionGeneration
+    ) {
+      throw new Error(
+        "runtime_coordinator.delivery_route_identity_unavailable"
+      );
+    }
     await this.writeRuntimeCoordinatorRunCommandState({
       activeRunId: executionToken.runId,
       attemptId: input.request.attemptId,
@@ -11335,6 +11350,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       lastDeliveryProvenance: {
         connectionGeneration: input.request.connectionGeneration,
         daemonSessionId: input.request.daemonSessionId,
+        deviceId: deliverySession.deviceId,
+        lane: deliverySession.lane,
         leaseEpoch: input.request.leaseEpoch,
       },
       lastWatchdogCheckAtMs: null,
@@ -11894,16 +11911,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       if (
         previousDaemonSessionId === currentReplacementSession.daemonSessionId ||
         commandState.ownerUserId !== currentReplacementSession.ownerUserId ||
-        commandState.localProgress.phase === "result_received" ||
-        !hasRuntimeCoordinatorDurableLocalProgress(commandState.localProgress)
+        commandState.localProgress.phase === "result_received"
       ) {
         continue;
       }
       await this.runSerializedRuntimeCoordinatorFinalizationToCompletion({
         run: () =>
           this.reconcileRuntimeCoordinatorExecutionForReplacementSession({
-            commandState,
             daemonSessionId: input.daemonSessionId,
+            runtimeCoordinatorExecutionId:
+              commandState.runtimeCoordinatorExecutionId,
           }),
         runtimeCoordinatorExecutionId:
           commandState.runtimeCoordinatorExecutionId,
@@ -11912,8 +11929,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private async reconcileRuntimeCoordinatorExecutionForReplacementSession(input: {
-    commandState: RuntimeCoordinatorRunCommandState;
     daemonSessionId: string;
+    runtimeCoordinatorExecutionId: string;
   }): Promise<void> {
     const currentReplacementSession = this.state.sessionsById.get(
       input.daemonSessionId
@@ -11928,7 +11945,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       return;
     }
-    const { commandState } = input;
+    // This method runs behind the per-execution serializer, but the index scan
+    // that queued it may have observed an older command. Re-read inside the
+    // serialized section so a concurrent reconciliation sees the first
+    // delivery's durable provenance and cannot send the same Wake twice.
+    const commandState = await this.readRuntimeCoordinatorRunCommandState(
+      input.runtimeCoordinatorExecutionId
+    );
+    if (!commandState) {
+      return;
+    }
     const previousDaemonSessionId =
       commandState.lastDeliveryProvenance.daemonSessionId;
     const previousSession = this.state.sessionsById.get(
@@ -11937,20 +11963,51 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const currentLease = this.state.profileLeasesByProfileId.get(
       commandState.profileId
     );
+    const persistedPreviousRouteMatchesReplacement =
+      previousSession === undefined &&
+      commandState.lastDeliveryProvenance.deviceId ===
+        currentReplacementSession.deviceId &&
+      commandState.lastDeliveryProvenance.lane ===
+        currentReplacementSession.lane;
+    const inMemoryPreviousRouteWasDisconnected =
+      previousSession !== undefined &&
+      previousSession.socket === null &&
+      previousSession.deliveryDisconnectedAtMs !== null &&
+      previousSession.ownerUserId === currentReplacementSession.ownerUserId &&
+      previousSession.deviceId === currentReplacementSession.deviceId &&
+      previousSession.lane === currentReplacementSession.lane;
     if (
       previousDaemonSessionId === currentReplacementSession.daemonSessionId ||
       commandState.ownerUserId !== currentReplacementSession.ownerUserId ||
       commandState.localProgress.phase === "result_received" ||
-      !hasRuntimeCoordinatorDurableLocalProgress(commandState.localProgress) ||
-      !previousSession ||
-      previousSession.socket !== null ||
-      previousSession.deliveryDisconnectedAtMs === null ||
-      previousSession.ownerUserId !== currentReplacementSession.ownerUserId ||
-      previousSession.deviceId !== currentReplacementSession.deviceId ||
-      previousSession.lane !== currentReplacementSession.lane ||
+      !(
+        persistedPreviousRouteMatchesReplacement ||
+        inMemoryPreviousRouteWasDisconnected
+      ) ||
+      !currentReplacementSession.profileIds.has(commandState.profileId) ||
       currentLease?.daemonSessionId !==
         currentReplacementSession.daemonSessionId
     ) {
+      return;
+    }
+    if (
+      !hasRuntimeCoordinatorDurableLocalProgress(commandState.localProgress)
+    ) {
+      await this.decideRuntimeCoordinatorExecutionProgress({
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        attemptId: commandState.attemptId,
+        dispatchId: commandState.dispatchId,
+        eventKind: "reclaim",
+        idempotencyKey: `runtime_coordinator_pre_accept_service_replacement:${commandState.runtimeCoordinatorExecutionId}:${commandState.activeRunId}:${currentReplacementSession.daemonSessionId}`,
+        observedRunId: commandState.activeRunId,
+        reasonCode: "runtime_coordinator.pre_accept_service_replacement",
+        runtimeCoordinatorExecutionId:
+          commandState.runtimeCoordinatorExecutionId,
+        sourceClientMessageId: commandState.sourceClientMessageId,
+        spaceId: commandState.sanitizedDeliveryRequest.payload.spaceId,
+        targetProfileId: commandState.targetProfileId,
+        trigger: "daemon",
+      });
       return;
     }
     const [authority, projection] = await Promise.all([
@@ -14024,6 +14081,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       lastDeliveryProvenance: {
         connectionGeneration: redeliveryRequest.connectionGeneration,
         daemonSessionId: redeliveryRequest.daemonSessionId,
+        deviceId: redeliveryRoute.session.deviceId,
+        lane: redeliveryRoute.session.lane,
         leaseEpoch: redeliveryRequest.leaseEpoch,
       },
       lastWatchdogCheckAtMs: null,
