@@ -33,6 +33,12 @@ import {
 
 const COMPUTERS_SERVICE_STATUS_REFETCH_INTERVAL_MS = 10_000;
 
+type ComputerProjectionQueryState = {
+	isFetchedAfterMount: boolean;
+	isFetching: boolean;
+	isPending: boolean;
+};
+
 /**
  * Computer detail route owner. `/o/:orgSlug/computers` is now only a legacy
  * handoff that resolves the current Computer and immediately opens its detail.
@@ -89,10 +95,12 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 			organizationId: currentOrganization.id,
 		})
 	);
-	const directoryIsPending =
-		isOrganizationContext &&
-		(organizationDirectoryQuery.isPending ||
-			organizationComputersQuery.isPending);
+	const organizationProjectionNeedsFreshEvidence =
+		needsFreshOrganizationProjection(
+			isOrganizationContext,
+			organizationDirectoryQuery,
+			organizationComputersQuery
+		);
 	const computerResolutionError = resolveComputerResolutionError([
 		recovery.localRuntimesQuery.error,
 		...(isOrganizationContext
@@ -125,6 +133,12 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		selectedComputer,
 		selectedDeviceId,
 	});
+	const computerResolutionIsPending =
+		selectedDeviceId !== null &&
+		selectedComputer === null &&
+		selectedOrganizationComputer === null &&
+		(recovery.localRuntimesQuery.isPending ||
+			organizationProjectionNeedsFreshEvidence);
 	const canResolvePreferredDeviceRoute =
 		preferredDeviceId !== null &&
 		devices.some((device) => device.deviceId === preferredDeviceId);
@@ -161,12 +175,14 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 
 	const sectionTitle = resolveComputersSectionTitle({
 		hasResolutionError: computerResolutionError !== null,
+		isResolutionPending: computerResolutionIsPending,
 		selectedOrganizationComputer,
 		selectedComputer,
 		selectedDeviceId,
 	});
 	const sectionDescription = resolveComputersSectionDescription({
 		hasResolutionError: computerResolutionError !== null,
+		isResolutionPending: computerResolutionIsPending,
 		selectedOrganizationComputer,
 		selectedComputer,
 		selectedDeviceId,
@@ -208,7 +224,7 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 				) : null}
 				<ComputersPageBody
 					computerGroups={computerGroups}
-					directoryIsPending={directoryIsPending}
+					computerResolutionIsPending={computerResolutionIsPending}
 					isReconcilingCurrentToolsStatus={isReconcilingCurrentToolsStatus}
 					onRetry={() => {
 						Promise.all([
@@ -243,9 +259,22 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	);
 }
 
+function needsFreshOrganizationProjection(
+	enabled: boolean,
+	...queries: readonly ComputerProjectionQueryState[]
+): boolean {
+	return (
+		enabled &&
+		queries.some(
+			(query) =>
+				query.isPending || (query.isFetching && !query.isFetchedAfterMount)
+		)
+	);
+}
+
 function ComputersPageBody(input: {
 	computerGroups: readonly OrganizationComputerGroup[];
-	directoryIsPending: boolean;
+	computerResolutionIsPending: boolean;
 	isReconcilingCurrentToolsStatus: boolean;
 	onRetry: () => void;
 	orgSlug: string;
@@ -258,10 +287,7 @@ function ComputersPageBody(input: {
 	resolutionError: string | null;
 	setupCompleteRefreshPending: boolean;
 }) {
-	if (
-		input.selectedDeviceId !== null &&
-		(input.recovery.localRuntimesQuery.isPending || input.directoryIsPending)
-	) {
+	if (input.computerResolutionIsPending) {
 		return <SelectedComputerLoading />;
 	}
 	if (input.selectedDeviceId !== null && input.selectedComputer) {
@@ -393,10 +419,14 @@ function resolveSelectedOrganizationComputer(input: {
 
 function resolveComputersSectionTitle(input: {
 	hasResolutionError: boolean;
+	isResolutionPending: boolean;
 	selectedOrganizationComputer: OrganizationComputer | null;
 	selectedComputer: LocalRuntimeComputer | null;
 	selectedDeviceId: string | null;
 }): string {
+	if (input.isResolutionPending) {
+		return "Computer";
+	}
 	if (input.selectedDeviceId === null) {
 		if (input.hasResolutionError) {
 			return "Computer details are unavailable";
@@ -419,10 +449,14 @@ function resolveComputersSectionTitle(input: {
 
 function resolveComputersSectionDescription(input: {
 	hasResolutionError: boolean;
+	isResolutionPending: boolean;
 	selectedOrganizationComputer: OrganizationComputer | null;
 	selectedComputer: LocalRuntimeComputer | null;
 	selectedDeviceId: string | null;
 }): string {
+	if (input.isResolutionPending) {
+		return "Opening this computer's details.";
+	}
 	if (input.selectedDeviceId === null) {
 		if (input.hasResolutionError) {
 			return "OpenMeld could not load this Computer. Try again to refresh its details.";
