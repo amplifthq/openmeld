@@ -389,6 +389,8 @@ function AgentsWorkspaceHome(input: {
 			profilesErrorMessage={profilesErrorMessage}
 			profilesStatus={profilesStatus}
 			readinessByProfileId={readinessByProfileId}
+			readinessErrorByProfileId={errorByProfileId}
+			readinessPendingProfileIds={pendingProfileIds}
 			renderProfileDetail={(profile) => (
 				<AgentProfilesCard
 					agentExecutionReadinessByProfileId={readinessByProfileId}

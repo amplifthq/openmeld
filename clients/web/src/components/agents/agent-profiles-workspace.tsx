@@ -24,6 +24,7 @@ import {
 	PlusIcon,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
+import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import {
 	type AgentProfileSidebarGroup,
 	resolveAgentProfileSidebarGroups,
@@ -35,7 +36,6 @@ import {
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
-import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 
@@ -56,6 +56,8 @@ export type AgentProfilesWorkspaceProps = {
 	profilesErrorMessage?: string;
 	profilesStatus?: "error" | "loading" | "ready";
 	readinessByProfileId: ReadonlyMap<string, GetAgentExecutionReadinessResponse>;
+	readinessErrorByProfileId?: ReadonlyMap<string, string>;
+	readinessPendingProfileIds?: ReadonlySet<string>;
 	renderProfileDetail: (profile: AuthProfileView) => ReactNode;
 	requestPanel: ReactNode;
 	selectedProfileId: string | null;
@@ -120,6 +122,12 @@ function AgentProfilesWorkspaceSidebar(input: {
 						onSelectProfile={input.input.onSelectProfile}
 						profiles={group.profiles}
 						readinessByProfileId={input.input.readinessByProfileId}
+						readinessErrorByProfileId={
+							input.input.readinessErrorByProfileId ?? new Map()
+						}
+						readinessPendingProfileIds={
+							input.input.readinessPendingProfileIds ?? new Set()
+						}
 					/>
 				),
 				id: group.id,
@@ -271,6 +279,8 @@ function AgentProfileSidebarList(input: {
 	onSelectProfile: (profileId: string) => void;
 	profiles: readonly AuthProfileView[];
 	readinessByProfileId: ReadonlyMap<string, GetAgentExecutionReadinessResponse>;
+	readinessErrorByProfileId: ReadonlyMap<string, string>;
+	readinessPendingProfileIds: ReadonlySet<string>;
 }) {
 	return (
 		<FluidNavMenu
@@ -290,6 +300,13 @@ function AgentProfileSidebarList(input: {
 					readiness={
 						input.readinessByProfileId.get(profile.openMeldProfileId) ?? null
 					}
+					readinessErrorMessage={
+						input.readinessErrorByProfileId.get(profile.openMeldProfileId) ??
+						null
+					}
+					readinessIsPending={input.readinessPendingProfileIds.has(
+						profile.openMeldProfileId
+					)}
 				/>
 			))}
 		</FluidNavMenu>
@@ -302,9 +319,16 @@ function AgentProfileSidebarItem(input: {
 	onSelectProfile: (profileId: string) => void;
 	profile: AuthProfileView;
 	readiness: GetAgentExecutionReadinessResponse | null;
+	readinessErrorMessage: string | null;
+	readinessIsPending: boolean;
 }) {
 	const { dismiss } = useAppNavigationPresentation();
-	const presentation = resolveAgentProfileSidebarPresentation(input.readiness);
+	const agentControllerRef = resolveAgentProfileControllerRef(input.readiness);
+	const presentation = resolveAgentProfileSidebarPresentation({
+		errorMessage: input.readinessErrorMessage,
+		isPending: input.readinessIsPending,
+		readiness: input.readiness,
+	});
 	return (
 		<FluidNavMenuItem
 			index={input.index}
@@ -326,11 +350,10 @@ function AgentProfileSidebarItem(input: {
 				}}
 				type="button"
 			>
-				<DitherProfileAvatar
+				<AgentProfileControllerAvatar
+					agentControllerRef={agentControllerRef}
 					className="shrink-0"
 					profileId={input.profile.openMeldProfileId}
-					profileKind="center-agent"
-					profileName={input.profile.profileName}
 					size={32}
 				/>
 				<span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
@@ -364,29 +387,30 @@ function AgentProfileSidebarItem(input: {
 	);
 }
 
-function resolveAgentProfileSidebarPresentation(
-	readiness: GetAgentExecutionReadinessResponse | null
-): {
+function resolveAgentProfileSidebarPresentation(input: {
+	errorMessage: string | null;
+	isPending: boolean;
+	readiness: GetAgentExecutionReadinessResponse | null;
+}): {
 	availabilityClassName: string;
 	availabilityLabel: string;
 	availabilityTooltip: string;
 	controllerModelSummary: string;
 } {
-	const agentControllerRef =
-		readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
-		readiness?.agentControllerRef ??
-		null;
+	const agentControllerRef = resolveAgentProfileControllerRef(input.readiness);
 	const parsedControllerRef = parseAgentControllerRef(agentControllerRef);
 	const controllerName = parsedControllerRef
 		? formatLocalAgentDisplayName(parsedControllerRef.id)
 		: "No Controller connected";
-	const modelId = readiness?.primaryBinding?.modelSelection?.modelId?.trim();
-	const wakeAvailability = readiness?.agentWakeAvailability ?? null;
+	const modelId =
+		input.readiness?.primaryBinding?.modelSelection?.modelId?.trim();
+	const wakeAvailability = input.readiness?.agentWakeAvailability ?? null;
 	if (!wakeAvailability) {
+		const availability = resolveMissingSidebarAvailability(input);
 		return {
-			availabilityClassName: "text-muted-foreground",
-			availabilityLabel: "Checking",
-			availabilityTooltip: "Checking Wake availability",
+			availabilityClassName: availability.className,
+			availabilityLabel: availability.label,
+			availabilityTooltip: availability.tooltip,
 			controllerModelSummary: modelId
 				? `${controllerName} · ${modelId}`
 				: controllerName,
@@ -401,6 +425,41 @@ function resolveAgentProfileSidebarPresentation(
 		controllerModelSummary: modelId
 			? `${controllerName} · ${modelId}`
 			: controllerName,
+	};
+}
+
+function resolveAgentProfileControllerRef(
+	readiness: GetAgentExecutionReadinessResponse | null
+): string | null {
+	return (
+		readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
+		readiness?.agentControllerRef ??
+		null
+	);
+}
+
+function resolveMissingSidebarAvailability(input: {
+	errorMessage: string | null;
+	isPending: boolean;
+}) {
+	if (input.errorMessage) {
+		return {
+			className: resolveStatusToneTextClassName("warning"),
+			label: "Unavailable",
+			tooltip: input.errorMessage,
+		};
+	}
+	if (input.isPending) {
+		return {
+			className: resolveStatusToneTextClassName("checking"),
+			label: "Checking",
+			tooltip: "Checking Wake availability",
+		};
+	}
+	return {
+		className: "text-muted-foreground",
+		label: "Not checked",
+		tooltip: "Wake availability has not been checked yet",
 	};
 }
 

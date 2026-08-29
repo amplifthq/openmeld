@@ -143,6 +143,10 @@ describe("AgentProfilesWorkspace", () => {
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
 		expect(item.textContent).toContain("Codex · gpt-5.6-sol");
 		expect(item.textContent).toContain("Available");
+		expect(
+			within(item).getByTestId("agent-profile-controller-avatar-agent-current")
+		).toBeTruthy();
+		expect(item.querySelector('[data-profile-kind="center-agent"]')).toBeNull();
 		expect(within(item).getByText("Available").getAttribute("title")).toBe(
 			"Available for Wake"
 		);

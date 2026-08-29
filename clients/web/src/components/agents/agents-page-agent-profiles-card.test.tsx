@@ -391,6 +391,32 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toContain("Edit Agent");
 		expect(screen.queryByRole("button", { name: "About profile" })).toBeNull();
 		expect(screen.getByText("Agent Controller Permission Mode")).toBeTruthy();
+		expect(
+			screen.getByTestId(`agent-profile-controller-avatar-${AGENT_PROFILE_ID}`)
+		).toBeTruthy();
+		expect(
+			screen
+				.getByTestId("agent-profile-workspace-detail")
+				.querySelector('[data-profile-kind="center-agent"]')
+		).toBeNull();
+	});
+
+	it("keeps a readiness failure and its diagnostic visible in detail", async () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map(),
+				agentExecutionReadinessErrorByProfileId: new Map([
+					[AGENT_PROFILE_ID, "Core could not read Wake availability."],
+				]),
+			},
+			null,
+			{ presentation: "detail" }
+		);
+
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"Core could not read Wake availability."
+		);
+		expect(screen.getByText("Unavailable")).toBeTruthy();
 	});
 
 	it("edits in place and Cancel restores the read-only detail without saving", async () => {

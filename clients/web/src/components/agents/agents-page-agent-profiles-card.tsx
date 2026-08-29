@@ -2278,6 +2278,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 			onProfileUpdated={input.row.onProfileUpdated}
 			onRemoveProfile={input.row.onRemoveProfile}
 			onRenameProfile={input.row.onRenameProfile}
+			onRepairAction={input.row.onRepairAction}
 			organizationId={input.row.organizationId}
 			pendingState={input.row.pendingState}
 			presentation={input.row.presentation}
@@ -2290,6 +2291,10 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 			}
 			profile={input.row.profile}
 			profileName={input.row.profile.profileName}
+			readinessErrorMessage={input.row.errorMessage}
+			readinessIsMissing={input.row.readiness === null}
+			readinessIsPending={input.row.rowState.isReadinessPending}
+			repairActions={input.row.repairActions}
 			runtimeComputer={
 				input.row.readiness?.routeDeviceId &&
 				input.row.readiness.runtimeDeviceDisplayName
@@ -2980,11 +2985,16 @@ function AgentProfileRowMoreMenu(input: {
 	) => Promise<void>;
 	onOpenDirectMessage: () => Promise<void>;
 	onProfileUpdated: (profile: AuthProfileView) => void;
+	onRepairAction: (action: AgentProfileRepairAction) => Promise<void>;
 	onRenameProfile: (profileName: string) => Promise<void>;
 	onRemoveProfile: () => Promise<void>;
 	organizationId: string;
 	profile: AuthProfileView;
 	profileName: string;
+	readinessErrorMessage: string | null;
+	readinessIsMissing: boolean;
+	readinessIsPending: boolean;
+	repairActions: readonly AgentProfileRepairAction[];
 	primaryAgentControllerRef: string | null;
 	primaryNativeSessionId: string | null;
 	pendingState: AgentProfileActionPendingState;
@@ -3322,6 +3332,7 @@ function AgentProfileWorkspacePresentation(input: {
 	return (
 		<>
 			<AgentProfileWorkspaceDetail
+				agentControllerRef={input.input.primaryAgentControllerRef}
 				canEdit={input.input.capabilities.canManage}
 				controllerModelSummary={controllerModelSummary}
 				currentSession={input.currentSession}
@@ -3373,6 +3384,19 @@ function AgentProfileWorkspacePresentation(input: {
 				overflowActions={overflowActions}
 				profile={input.input.profile}
 				wakeAvailability={input.input.wakeAvailability}
+				wakeAvailabilityErrorMessage={input.input.readinessErrorMessage}
+				wakeAvailabilityIsPending={input.input.readinessIsPending}
+				wakeAvailabilityRecoveryActions={
+					input.input.readinessIsMissing &&
+					!input.input.readinessIsPending &&
+					input.input.repairActions.length > 0 ? (
+						<AgentProfileRepairActions
+							actions={input.input.repairActions}
+							isPending={input.input.pendingState.repair}
+							onRepairAction={input.input.onRepairAction}
+						/>
+					) : null
+				}
 			/>
 			<AgentProfileProjectSettingsDialog
 				actorProfileId={input.input.actorProfileId}

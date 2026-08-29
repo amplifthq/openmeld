@@ -11,14 +11,16 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, PencilSimpleIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
+import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { ProfileDetailsContent } from "#/components/profiles/profile-details-dialog";
 
 export function AgentProfileWorkspaceDetail(input: {
 	canEdit: boolean;
+	agentControllerRef: string | null;
 	controllerModelSummary: string;
 	currentSession?: {
 		href: string;
@@ -35,7 +37,11 @@ export function AgentProfileWorkspaceDetail(input: {
 	overflowActions: ReactNode;
 	profile: AuthProfileView;
 	wakeAvailability: AgentWakeAvailability | null;
+	wakeAvailabilityErrorMessage: string | null;
+	wakeAvailabilityIsPending: boolean;
+	wakeAvailabilityRecoveryActions?: ReactNode;
 }) {
+	const fallbackAvailability = resolveFallbackWakeAvailability(input);
 	return (
 		<div
 			className="@container/agent-detail mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
@@ -43,11 +49,10 @@ export function AgentProfileWorkspaceDetail(input: {
 		>
 			<div className="flex min-w-0 @[42rem]/agent-detail:flex-row flex-col @[42rem]/agent-detail:items-start gap-4">
 				<div className="flex min-w-0 flex-1 items-start gap-4">
-					<DitherProfileAvatar
+					<AgentProfileControllerAvatar
+						agentControllerRef={input.agentControllerRef}
 						className="shrink-0"
 						profileId={input.profile.openMeldProfileId}
-						profileKind="center-agent"
-						profileName={input.profile.profileName}
 						size={96}
 					/>
 					<div className="min-w-0 flex-1 pt-1">
@@ -83,6 +88,42 @@ export function AgentProfileWorkspaceDetail(input: {
 									{input.wakeAvailability.tooltip}
 								</TooltipContent>
 							</Tooltip>
+						) : (
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<span
+											className={cn(
+												"mt-2 inline-flex rounded-md bg-muted px-2 py-1 font-medium text-xs",
+												fallbackAvailability.className
+											)}
+										/>
+									}
+								>
+									{fallbackAvailability.label}
+								</TooltipTrigger>
+								<TooltipContent className="max-w-sm" side="top">
+									{fallbackAvailability.tooltip}
+								</TooltipContent>
+							</Tooltip>
+						)}
+						{fallbackAvailability.diagnostic ? (
+							<p
+								className={cn(
+									"mt-2 max-w-2xl text-sm",
+									input.wakeAvailabilityErrorMessage
+										? "text-destructive"
+										: "text-muted-foreground"
+								)}
+								role={input.wakeAvailabilityErrorMessage ? "alert" : undefined}
+							>
+								{fallbackAvailability.diagnostic}
+							</p>
+						) : null}
+						{input.wakeAvailabilityRecoveryActions ? (
+							<div className="mt-3">
+								{input.wakeAvailabilityRecoveryActions}
+							</div>
 						) : null}
 					</div>
 				</div>
@@ -124,4 +165,36 @@ export function AgentProfileWorkspaceDetail(input: {
 			)}
 		</div>
 	);
+}
+
+function resolveFallbackWakeAvailability(input: {
+	wakeAvailability: AgentWakeAvailability | null;
+	wakeAvailabilityErrorMessage: string | null;
+	wakeAvailabilityIsPending: boolean;
+}) {
+	if (input.wakeAvailability) {
+		return { className: "", diagnostic: null, label: "", tooltip: "" };
+	}
+	if (input.wakeAvailabilityErrorMessage) {
+		return {
+			className: resolveStatusToneTextClassName("warning"),
+			diagnostic: input.wakeAvailabilityErrorMessage,
+			label: "Unavailable",
+			tooltip: "Status unavailable",
+		};
+	}
+	if (input.wakeAvailabilityIsPending) {
+		return {
+			className: resolveStatusToneTextClassName("checking"),
+			diagnostic: null,
+			label: "Loading",
+			tooltip: "Loading Wake availability",
+		};
+	}
+	return {
+		className: "text-muted-foreground",
+		diagnostic: "OpenMeld has not checked this Agent on this computer yet.",
+		label: "Not checked",
+		tooltip: "Wake availability not checked yet",
+	};
 }
