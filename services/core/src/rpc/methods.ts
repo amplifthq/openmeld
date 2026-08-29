@@ -244,9 +244,11 @@ import {
   requestCurrentOpenMeldToolsUpdateResponseSchema,
   resolvedSpaceMemberProfileSchema,
   resolveSpaceAttachmentForDownloadPayloadSchema,
+  resolveSpaceComposerUploadScopeResponseSchema,
   respondToSpaceAgentInteractionInputSchema,
   revokeAgentProfileBindingForOrganizationResponseSchema,
   runtimeReportingRouteParamsSchema,
+  SPACE_COMPOSER_UPLOAD_TTL_MS,
   SPACE_FILE_MAX_SIZE_BYTES,
   saveOrganizationWakeAccessChoiceBodySchema,
   saveOrganizationWakeAccessChoiceResponseSchema,
@@ -284,6 +286,10 @@ import {
   spaceAccessModeSchema,
   spaceAttachmentDescriptorSchema,
   spaceBoardResponseSchema,
+  spaceComposerUploadIdSchema,
+  spaceFileClientMutationIdSchema,
+  spaceFileMimeTypeSchema,
+  spaceFileNameSchema,
   submitRuntimeAgentControllerReportsBodySchema,
   submitRuntimeAgentControllerReportsResponseSchema,
   submitRuntimeProviderConversationProofsBodySchema,
@@ -621,6 +627,7 @@ import type {
   SpaceBoardResponse,
   SpaceBoardRoomProjection,
   SpaceBootstrapResponse,
+  SpaceComposerUploadDescriptor,
   SpaceContract,
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceResponseContractVersion,
@@ -1116,6 +1123,13 @@ import type {
   SpaceClaimTimeLivenessInput,
   SpaceClaimTimeLivenessResult,
 } from "../space/application/space-claim-liveness-service";
+import {
+  discardSpaceComposerUpload,
+  readSpaceComposerUpload,
+  type SpaceComposerUploadScope,
+  SpaceComposerUploadStorageError,
+  stageSpaceComposerUpload,
+} from "../space/application/space-composer-upload-storage";
 import { buildSpaceFileAuditEvent } from "../space/application/space-file-audit";
 import type { FinalOutcomeWriteAuthority } from "../space/application/types";
 import { readSpaceBoardExecutionProjection } from "../space/infrastructure/d1/space-board-execution-read-repo";
@@ -1911,6 +1925,24 @@ export type ReadSpaceFileContentRpcResponse =
 
 export type WriteSpaceFileContentRpcInput = SpaceFileWriteInput & {
   bytes: ArrayBuffer;
+};
+
+export type StageSpaceComposerUploadRpcInput = SpaceAttachmentAccessInput & {
+  bytes: ArrayBuffer;
+  mimeType: string;
+  name: string;
+  nowMs?: number;
+  uploadId: string;
+};
+
+export type PublishSpaceComposerUploadRpcInput = SpaceAttachmentAccessInput & {
+  clientMutationId: string;
+  nowMs?: number;
+  uploadId: string;
+};
+
+export type DiscardSpaceComposerUploadRpcInput = SpaceAttachmentAccessInput & {
+  uploadId: string;
 };
 
 export type CreateSpaceDiagnosticReportInput = CoreRpcSpaceAccessInput & {
@@ -17622,6 +17654,108 @@ export async function rpcWriteSpaceFileContent(
   }
 }
 
+export async function rpcStageSpaceComposerUpload(
+  env: CoreBindings,
+  input: StageSpaceComposerUploadRpcInput
+): Promise<SpaceComposerUploadDescriptor> {
+  if (input.bytes.byteLength > SPACE_FILE_MAX_SIZE_BYTES) {
+    throw createCoreRpcHttpError({
+      code: "space_file.too_large",
+      reason: "Files must be 10 MiB or smaller.",
+      status: 413,
+    });
+  }
+  const uploadId = spaceComposerUploadIdSchema.parse(input.uploadId);
+  const name = spaceFileNameSchema.parse(input.name);
+  const mimeType = spaceFileMimeTypeSchema.parse(input.mimeType);
+  const nowMs = normalizeComposerUploadNow(input.nowMs);
+  const { scope } = await resolveSpaceComposerUploadScope(env, input);
+  try {
+    return await stageSpaceComposerUpload({
+      bucket: requireSpaceFileBucket(env),
+      bytes: input.bytes,
+      expiresAtMs: nowMs + SPACE_COMPOSER_UPLOAD_TTL_MS,
+      mimeType,
+      name,
+      scope,
+      uploadId,
+    });
+  } catch (error) {
+    throw normalizeSpaceComposerUploadError(error);
+  }
+}
+
+export async function rpcPublishSpaceComposerUpload(
+  env: CoreBindings,
+  input: PublishSpaceComposerUploadRpcInput
+): Promise<SpaceFileDescriptor> {
+  const uploadId = spaceComposerUploadIdSchema.parse(input.uploadId);
+  const clientMutationId = spaceFileClientMutationIdSchema.parse(
+    input.clientMutationId
+  );
+  const { scope, spaceAccess } = await resolveSpaceComposerUploadScope(
+    env,
+    input
+  );
+  let staged: Awaited<ReturnType<typeof readSpaceComposerUpload>>;
+  try {
+    staged = await readSpaceComposerUpload({
+      bucket: requireSpaceFileBucket(env),
+      nowMs: normalizeComposerUploadNow(input.nowMs),
+      scope,
+      uploadId,
+    });
+  } catch (error) {
+    throw normalizeSpaceComposerUploadError(error);
+  }
+  const [fileId, revisionId] = await Promise.all([
+    buildSpaceFileEntryIdForMutation(clientMutationId),
+    buildSpaceFileRevisionIdForMutation({
+      baseRevision: null,
+      bytes: staged.bytes,
+      clientMutationId,
+      mimeType: staged.descriptor.mimeType,
+      name: staged.descriptor.name,
+      parentId: null,
+    }),
+  ]);
+  return await rpcWriteSpaceFileContent(env, {
+    bytes: staged.bytes,
+    context: input.context,
+    spaceAccess,
+    spaceId: input.spaceId,
+    write: {
+      baseRevision: null,
+      clientMutationId,
+      fileId,
+      mimeType: staged.descriptor.mimeType,
+      name: staged.descriptor.name,
+      parentId: null,
+      revisionId,
+      sizeBytes: staged.descriptor.sizeBytes,
+      spaceId: input.spaceId,
+    },
+  });
+}
+
+export async function rpcDiscardSpaceComposerUpload(
+  env: CoreBindings,
+  input: DiscardSpaceComposerUploadRpcInput
+): Promise<{ discarded: true; uploadId: string }> {
+  const uploadId = spaceComposerUploadIdSchema.parse(input.uploadId);
+  const { scope } = await resolveSpaceComposerUploadScope(env, input);
+  try {
+    await discardSpaceComposerUpload({
+      bucket: requireSpaceFileBucket(env),
+      scope,
+      uploadId,
+    });
+  } catch (error) {
+    throw normalizeSpaceComposerUploadError(error);
+  }
+  return { discarded: true, uploadId };
+}
+
 export async function rpcRestoreSpaceFileRevision(
   env: CoreBindings,
   input: RestoreSpaceFileRevisionInput
@@ -17663,6 +17797,61 @@ function requireSpaceFileBucket(env: CoreBindings): R2Bucket {
     throwSpaceFileStorageFailed("Space file storage is unavailable.");
   }
   return env.OPENMELD_SPACE_ATTACHMENTS;
+}
+
+async function resolveSpaceComposerUploadScope(
+  env: CoreBindings,
+  input: SpaceAttachmentAccessInput
+): Promise<{
+  scope: SpaceComposerUploadScope;
+  spaceAccess: SpaceAccessContext;
+}> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const resolved = resolveSpaceComposerUploadScopeResponseSchema.parse(
+    await stub.rpcResolveSpaceComposerUploadScope({ spaceAccess, spaceId })
+  );
+  return {
+    scope: {
+      actorProfileId: resolved.actorProfileId,
+      organizationId: resolved.organizationId,
+      spaceId,
+    },
+    spaceAccess,
+  };
+}
+
+function normalizeComposerUploadNow(value: number | undefined): number {
+  const nowMs = value ?? Date.now();
+  if (!(Number.isInteger(nowMs) && nowMs >= 0)) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Composer upload time must be a non-negative integer.",
+      status: 400,
+    });
+  }
+  return nowMs;
+}
+
+function normalizeSpaceComposerUploadError(error: unknown): unknown {
+  if (!(error instanceof SpaceComposerUploadStorageError)) {
+    return normalizeSpaceFileStorageError(
+      error,
+      "This upload could not be processed right now."
+    );
+  }
+  if (error.kind === "expired" || error.kind === "not_found") {
+    return createCoreRpcHttpError({
+      code: "space_file.not_found",
+      reason: error.message,
+      status: 404,
+    });
+  }
+  return createCoreRpcHttpError({
+    code: "space_file.storage_failed",
+    reason: error.message,
+    status: 503,
+  });
 }
 
 function assertSpaceFileObjectScope(input: {

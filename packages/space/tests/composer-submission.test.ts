@@ -118,6 +118,53 @@ describe("space composer submission", () => {
     });
   });
 
+  it("keeps repeated authored mention text while waking the Agent only once", () => {
+    const text =
+      "@Budget Analyst please review this, then ask @Budget Analyst to summarize it.";
+
+    expect(
+      prepareSpaceComposerSubmission({
+        authoredMentionsInTextOrder: [
+          {
+            profileId: AGENT_BUDGET_ID,
+            relation: "wake",
+            text: "@Budget Analyst",
+          },
+          {
+            profileId: AGENT_BUDGET_ID,
+            relation: "wake",
+            text: "@Budget Analyst",
+          },
+        ],
+        missingSnapshotMessage: "missing snapshot",
+        text,
+        snapshot: createSnapshot(),
+      })
+    ).toMatchObject({
+      authoredMentionsInTextOrder: [
+        {
+          profileId: AGENT_BUDGET_ID,
+          relation: "wake",
+          text: "@Budget Analyst",
+        },
+        {
+          profileId: AGENT_BUDGET_ID,
+          relation: "wake",
+          text: "@Budget Analyst",
+        },
+      ],
+      messageEnvelope: {
+        activationTargets: [AGENT_BUDGET_ID],
+        referenceTargets: [],
+        text,
+      },
+      resolvedStructuredTargets: {
+        profileIdsInTextOrder: [AGENT_BUDGET_ID],
+      },
+      text,
+    });
+  });
+
   it("normalizes canonical mentions into the message envelope", () => {
     expect(
       prepareSpaceComposerSubmission({
@@ -256,7 +303,7 @@ describe("space composer submission", () => {
     );
   });
 
-  it("rejects invalid target lookup and duplicate assignments", () => {
+  it("rejects invalid target lookup", () => {
     expect(() =>
       prepareSpaceComposerSubmission({
         missingSnapshotMessage: "missing snapshot",
@@ -266,17 +313,49 @@ describe("space composer submission", () => {
     ).toThrow(
       "That mention does not match a current member. Type @ and choose a member from the list."
     );
+  });
 
-    expect(() =>
+  it("keeps the first structured relation when a canonical target repeats", () => {
+    const text = [
+      "@Budget Analyst(wake) first",
+      "@Budget Analyst(reference) second",
+    ].join("\n");
+
+    expect(
       prepareSpaceComposerSubmission({
         missingSnapshotMessage: "missing snapshot",
-        text: [
-          "@Budget Analyst(wake) first",
-          "@Budget Analyst(reference) second",
-        ].join("\n"),
+        text,
         snapshot: createSnapshot(),
       })
-    ).toThrow("same target cannot appear in both wake and reference");
+    ).toMatchObject({
+      canonicalMentionsInTextOrder: [
+        {
+          profileId: AGENT_BUDGET_ID,
+          text: "@Budget Analyst(wake)",
+          type: "wake",
+        },
+        {
+          profileId: AGENT_BUDGET_ID,
+          text: "@Budget Analyst(reference)",
+          type: "reference",
+        },
+      ],
+      messageEnvelope: {
+        activationTargets: [AGENT_BUDGET_ID],
+        referenceTargets: [],
+        text,
+      },
+      resolvedStructuredTargets: {
+        canonicalMentionsInTextOrder: [
+          {
+            profileId: AGENT_BUDGET_ID,
+            text: "@Budget Analyst(wake)",
+            type: "wake",
+          },
+        ],
+        profileIdsInTextOrder: [AGENT_BUDGET_ID],
+      },
+    });
   });
 
   it("rejects wake mentions for human targets before submitting an envelope", () => {
@@ -340,21 +419,28 @@ describe("space composer submission", () => {
     });
   });
 
-  it("rejects duplicate targets inside the same relation before submitting an envelope", () => {
+  it("keeps repeated canonical text while waking the target once", () => {
+    const text = [
+      "@Budget Analyst(wake) first request.",
+      "@Budget Analyst(wake) duplicate request.",
+    ].join("\n");
+
     expect(
-      captureSubmissionError(() =>
-        prepareSpaceComposerSubmission({
-          missingSnapshotMessage: "missing snapshot",
-          text: [
-            "@Budget Analyst(wake) first request.",
-            "@Budget Analyst(wake) duplicate request.",
-          ].join("\n"),
-          snapshot: createSnapshot(),
-        })
-      )
+      prepareSpaceComposerSubmission({
+        missingSnapshotMessage: "missing snapshot",
+        text,
+        snapshot: createSnapshot(),
+      })
     ).toMatchObject({
-      code: "addressing.duplicate_target",
-      message: "same target appears more than once in wake",
+      messageEnvelope: {
+        activationTargets: [AGENT_BUDGET_ID],
+        referenceTargets: [],
+        text,
+      },
+      resolvedStructuredTargets: {
+        profileIdsInTextOrder: [AGENT_BUDGET_ID],
+      },
+      text,
     });
   });
 

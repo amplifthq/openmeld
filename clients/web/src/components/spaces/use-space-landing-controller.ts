@@ -57,7 +57,6 @@ import {
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
 import {
-	isSpaceComposerFileFailed,
 	isSpaceComposerFileInProgress,
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
@@ -307,24 +306,11 @@ function buildComposerFileSubmission(input: {
 	isPendingMessage: boolean;
 }) {
 	const composerFiles = input.isPendingMessage ? [] : input.files;
-	const messageFiles: SpaceMessageFileReference[] = [];
-	const previewUrlsByFileId = new Map<string, string>();
-
-	for (const file of composerFiles) {
-		if (file.status !== "ready" || file.descriptor === null) {
-			continue;
-		}
-		messageFiles.push(file.descriptor);
-		if (file.previewUrl) {
-			previewUrlsByFileId.set(file.descriptor.fileId, file.previewUrl);
-		}
-	}
 
 	return {
-		hasComposerFiles: composerFiles.length > 0,
-		messageFiles,
-		previewUrlsByFileId,
-		uploadFailed: composerFiles.some(isSpaceComposerFileFailed),
+		hasReadyFiles: composerFiles.some(
+			(file) => file.status === "ready" && file.upload !== null
+		),
 		uploadInProgress: composerFiles.some(isSpaceComposerFileInProgress),
 	};
 }
@@ -541,17 +527,11 @@ function prepareSpaceMessageSendAttempt(input: {
 	if (fileSubmission.uploadInProgress) {
 		return { errorMessage: null, status: "blocked" as const };
 	}
-	if (fileSubmission.uploadFailed) {
-		return {
-			errorMessage: "Remove files that could not be uploaded before sending.",
-			status: "blocked" as const,
-		};
-	}
 	const messageSeed = createSpaceMessageSendSeed({
 		composerText: input.composerText,
 		pendingMessage: input.pendingMessage,
 	});
-	if (messageSeed.text.length === 0 && !fileSubmission.hasComposerFiles) {
+	if (messageSeed.text.length === 0 && !fileSubmission.hasReadyFiles) {
 		return {
 			errorMessage: "Enter a message or add a file before sending.",
 			status: "blocked" as const,
@@ -587,9 +567,8 @@ function prepareMainComposerSubmission(input: {
 
 function resolveThreadComposerBlockedReason(input: {
 	hasActiveThread: boolean;
-	hasFiles: boolean;
+	hasReadyFiles: boolean;
 	text: string;
-	uploadFailed: boolean;
 	uploadInProgress: boolean;
 }): string | null {
 	if (!input.hasActiveThread) {
@@ -598,10 +577,7 @@ function resolveThreadComposerBlockedReason(input: {
 	if (input.uploadInProgress) {
 		return "Wait for files to finish uploading before sending.";
 	}
-	if (input.uploadFailed) {
-		return "Remove files that could not be uploaded before sending.";
-	}
-	if (input.text.length === 0 && !input.hasFiles) {
+	if (input.text.length === 0 && !input.hasReadyFiles) {
 		return "Enter a reply or add a file before sending.";
 	}
 	return null;
@@ -613,6 +589,22 @@ function clearManualComposerFiles(input: {
 }): void {
 	if (!input.isPendingMessage) {
 		input.clearFiles();
+	}
+}
+
+function hasNoPublishedComposerContent(input: {
+	files: readonly SpaceMessageFileReference[];
+	text: string;
+}): boolean {
+	return input.text.length === 0 && input.files.length === 0;
+}
+
+async function refreshStatusAfterProtectedComposerFailure(input: {
+	failure: StructuredApiClientFailure;
+	refetchStatus: () => Promise<unknown>;
+}): Promise<void> {
+	if (isProtectedSpaceFailure(input.failure)) {
+		await input.refetchStatus();
 	}
 }
 
@@ -2193,7 +2185,7 @@ export function useSpaceLandingController(input: {
 			});
 			return;
 		}
-		const { fileSubmission, messageSeed } = sendAttempt;
+		const { messageSeed } = sendAttempt;
 
 		setComposerErrorMessage(null);
 		setComposerBlockedWakeProfileId(null);
@@ -2203,6 +2195,23 @@ export function useSpaceLandingController(input: {
 		let postedMessage = false;
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		try {
+			const publishedFiles = options?.pendingMessage
+				? {
+						messageFiles: [] as SpaceMessageFileReference[],
+						previewUrlsByFileId: new Map<string, string>(),
+					}
+				: await composerFilesController.publishReadyFiles();
+			if (
+				hasNoPublishedComposerContent({
+					files: publishedFiles.messageFiles,
+					text: messageSeed.text,
+				})
+			) {
+				setComposerErrorMessage(
+					"None of the files could be sent. Add them again or enter a message."
+				);
+				return;
+			}
 			const missingMembersMessage =
 				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions.";
 			const preparedSubmission = prepareMainComposerSubmission({
@@ -2214,8 +2223,8 @@ export function useSpaceLandingController(input: {
 			pendingSubmission = preparedSubmission;
 			mentionAuthoring.recordPendingSubmission();
 			await sendPreparedSpaceMessage({
-				files: fileSubmission.messageFiles,
-				filePreviewUrlsById: fileSubmission.previewUrlsByFileId,
+				files: publishedFiles.messageFiles,
+				filePreviewUrlsById: publishedFiles.previewUrlsByFileId,
 				clientMessageId: messageSeed.clientMessageId,
 				createdAtMs: messageSeed.createdAtMs,
 				preparedSubmission,
@@ -2254,9 +2263,10 @@ export function useSpaceLandingController(input: {
 				resolveBlockedWakeProfileIdFromSubmissionError(originalError)
 			);
 
-			if (isProtectedSpaceFailure(failure)) {
-				await statusQuery.refetch();
-			}
+			await refreshStatusAfterProtectedComposerFailure({
+				failure,
+				refetchStatus: statusQuery.refetch,
+			});
 			throwSpaceSendFailureWhenRequested({
 				error: originalError,
 				postedMessage,
@@ -3075,9 +3085,8 @@ function useSpaceThreadController(input: {
 		});
 		const blockedReason = resolveThreadComposerBlockedReason({
 			hasActiveThread: thread !== null,
-			hasFiles: fileSubmission.hasComposerFiles,
+			hasReadyFiles: fileSubmission.hasReadyFiles,
 			text: trimmedText,
-			uploadFailed: fileSubmission.uploadFailed,
 			uploadInProgress: fileSubmission.uploadInProgress,
 		});
 		if (blockedReason) {
@@ -3095,6 +3104,16 @@ function useSpaceThreadController(input: {
 
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		try {
+			const publishedFiles = await composerFilesController.publishReadyFiles();
+			if (
+				trimmedText.length === 0 &&
+				publishedFiles.messageFiles.length === 0
+			) {
+				setComposerErrorMessage(
+					"None of the files could be sent. Add them again or enter a reply."
+				);
+				return;
+			}
 			const preparedSubmission =
 				trimmedText.length > 0
 					? mentionAuthoring.prepareSubmission(
@@ -3104,8 +3123,8 @@ function useSpaceThreadController(input: {
 			pendingSubmission = preparedSubmission;
 			mentionAuthoring.recordPendingSubmission();
 			await sendPreparedThreadMessage({
-				files: fileSubmission.messageFiles,
-				filePreviewUrlsById: fileSubmission.previewUrlsByFileId,
+				files: publishedFiles.messageFiles,
+				filePreviewUrlsById: publishedFiles.previewUrlsByFileId,
 				onPosted: () => {
 					mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
 					composerFilesController.clearFiles();

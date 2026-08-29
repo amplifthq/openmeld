@@ -11807,10 +11807,21 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("uploads a selected image as a Space File and reconciles its optimistic preview", async () => {
+	it("stages a selected image and publishes it as a Space File only on Send", async () => {
 		const descriptor = createSpaceFileDescriptor();
 		const messageFile = createSpaceMessageFileReference(descriptor);
-		const uploadFileMock = vi.fn().mockResolvedValue(descriptor);
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) =>
+			Promise.resolve(
+				createSpaceComposerUpload({
+					id: input.uploadId,
+					mimeType: input.mimeType,
+					name: input.name,
+					sizeBytes: input.bytes.size,
+				})
+			)
+		);
+		const publishComposerUploadMock = vi.fn().mockResolvedValue(descriptor);
+		const discardComposerUploadMock = vi.fn().mockResolvedValue(undefined);
 		const downloadFileContentMock = vi.fn().mockResolvedValue({
 			bytes: new TextEncoder().encode("image").buffer,
 			mimeType: "image/png",
@@ -11826,9 +11837,11 @@ describe("SpaceLanding", () => {
 				})
 		);
 		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: discardComposerUploadMock,
 			downloadFileContent: downloadFileContentMock,
 			postNormalMessage: postNormalMessageMock,
-			uploadFile: uploadFileMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: stageComposerUploadMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -11857,16 +11870,16 @@ describe("SpaceLanding", () => {
 				organizationSlug: "acme",
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
-			expect(uploadFileMock).toHaveBeenCalledWith({
+			expect(stageComposerUploadMock).toHaveBeenCalledWith({
 				bytes: expect.any(File),
-				clientMutationId: expect.any(String),
 				mimeType: "image/png",
 				name: "picnic.png",
-				parentId: null,
 				spaceId: "space-123",
+				uploadId: expect.any(String),
 			});
 			expect(screen.getByText("Ready")).toBeTruthy();
 		});
+		expect(publishComposerUploadMock).not.toHaveBeenCalled();
 		createWebSpaceApiMock.mockClear();
 
 		const textarea = screen.getByRole("textbox", {
@@ -11889,6 +11902,11 @@ describe("SpaceLanding", () => {
 				text: "Photos from the picnic",
 				timeoutMs: 30_000,
 			});
+		});
+		expect(publishComposerUploadMock).toHaveBeenCalledWith({
+			clientMutationId: expect.any(String),
+			spaceId: "space-123",
+			uploadId: expect.any(String),
 		});
 		const optimisticImage = document.querySelector(
 			'img[src="blob:source-image-preview"]'
@@ -11923,6 +11941,10 @@ describe("SpaceLanding", () => {
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith(
 			"blob:source-image-preview"
 		);
+		expect(discardComposerUploadMock).toHaveBeenCalledWith({
+			spaceId: "space-123",
+			uploadId: expect.any(String),
+		});
 	});
 
 	it("sends a Space File without requiring a text note", async () => {
@@ -11930,7 +11952,16 @@ describe("SpaceLanding", () => {
 			mimeType: "application/pdf",
 			name: "brief.pdf",
 		});
-		const uploadFileMock = vi.fn().mockResolvedValue(descriptor);
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) =>
+			Promise.resolve(
+				createSpaceComposerUpload({
+					id: input.uploadId,
+					mimeType: input.mimeType,
+					name: input.name,
+					sizeBytes: input.bytes.size,
+				})
+			)
+		);
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
 				files: [createSpaceMessageFileReference(descriptor)],
@@ -11939,8 +11970,10 @@ describe("SpaceLanding", () => {
 			})
 		);
 		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
-			uploadFile: uploadFileMock,
+			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			stageComposerUpload: stageComposerUploadMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -11982,26 +12015,46 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("blocks publication until an upload failure is removed", async () => {
-		const postNormalMessageMock = vi.fn().mockResolvedValue({
-			signal: createTextSignal({
-				id: "signal-after-failed-file-removed",
-				text: "Text can still be sent",
-			}),
+	it("sends the text and successful files when another upload fails", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "ready.txt",
 		});
-		const uploadFileMock = vi.fn().mockRejectedValue(
-			new OpenMeldApiClientHttpError({
-				code: "upstream_error",
-				message: "The Space does not belong to this Organization.",
-				rawBody: "",
-				requestId: "request-upload-403",
-				status: 403,
-				upstreamCode: "space.organization_mismatch",
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				files: [messageFile],
+				id: "signal-with-successful-file",
+				text: "Text can still be sent",
 			})
 		);
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) => {
+			if (input.name === "ready.txt") {
+				return Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				);
+			}
+			return Promise.reject(
+				new OpenMeldApiClientHttpError({
+					code: "upstream_error",
+					message: "The Space does not belong to this Organization.",
+					rawBody: "",
+					requestId: "request-upload-403",
+					status: 403,
+					upstreamCode: "space.organization_mismatch",
+				})
+			);
+		});
 		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
-			uploadFile: uploadFileMock,
+			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			stageComposerUpload: stageComposerUploadMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -12021,11 +12074,15 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding();
 		fireEvent.change(screen.getByLabelText("Choose files to send"), {
 			target: {
-				files: [new File(["source"], "broken.png", { type: "image/png" })],
+				files: [
+					new File(["ready"], "ready.txt", { type: "text/plain" }),
+					new File(["broken"], "broken.png", { type: "image/png" }),
+				],
 			},
 		});
 
 		await screen.findByText("The Space does not belong to this Organization.");
+		await screen.findByText("Ready");
 		expect(screen.getByText("Request ID: request-upload-403")).toBeTruthy();
 		setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
@@ -12033,51 +12090,202 @@ describe("SpaceLanding", () => {
 		);
 		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
 			"disabled",
-			true
+			false
 		);
 		expect(
-			screen.getByText(
-				"Remove files that could not be uploaded before sending."
-			)
+			screen.getByText("1 file couldn't be uploaded and won't be sent.")
 		).toBeTruthy();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 
-		fireEvent.click(screen.getByRole("button", { name: "Remove broken.png" }));
-		expect(
-			screen.queryByText("The Space does not belong to this Organization.")
-		).toBeNull();
-		expect(screen.queryByText("Request ID: request-upload-403")).toBeNull();
-		expect(URL.revokeObjectURL).toHaveBeenCalledWith(
-			"blob:source-image-preview"
-		);
-		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
-			"disabled",
-			false
-		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() => {
-			expect(postNormalMessageMock).toHaveBeenCalledWith(
-				expect.objectContaining({
-					spaceId: "space-123",
-					text: "Text can still be sent",
-				})
-			);
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				files: [messageFile],
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "Text can still be sent",
+				timeoutMs: 30_000,
+			});
 		});
 	});
 
-	it("accepts pasted and dropped files and stops at ten files", async () => {
-		let uploadCount = 0;
-		const uploadFileMock = vi.fn().mockImplementation(() => {
-			uploadCount += 1;
-			return createSpaceFileDescriptor({
-				id: `file-${String(uploadCount)}`,
-				mimeType: "text/plain",
-				name: `file-${String(uploadCount)}.txt`,
+	it("sends the text and successfully published files when another staged file cannot be published", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "ready.txt",
+		});
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		let failedUploadId: string | null = null;
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) => {
+			if (input.name === "broken.png") {
+				failedUploadId = input.uploadId;
+			}
+			return Promise.resolve(
+				createSpaceComposerUpload({
+					id: input.uploadId,
+					mimeType: input.mimeType,
+					name: input.name,
+					sizeBytes: input.bytes.size,
+				})
+			);
+		});
+		const publishComposerUploadMock = vi.fn().mockImplementation((input) => {
+			if (input.uploadId === failedUploadId) {
+				return Promise.reject(
+					new OpenMeldApiClientHttpError({
+						code: "upstream_error",
+						message: "This file could not be published.",
+						rawBody: "",
+						requestId: "request-publish-500",
+						status: 500,
+						upstreamCode: "space_file.publish_failed",
+					})
+				);
+			}
+			return Promise.resolve(descriptor);
+		});
+		let resolvePost:
+			| ((signal: ReturnType<typeof createTextSignal>) => void)
+			| null = null;
+		const postNormalMessageMock = vi.fn().mockImplementation(
+			() =>
+				new Promise<ReturnType<typeof createTextSignal>>((resolve) => {
+					resolvePost = resolve;
+				})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: stageComposerUploadMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [
+					new File(["ready"], "ready.txt", { type: "text/plain" }),
+					new File(["broken"], "broken.png", { type: "image/png" }),
+				],
+			},
+		});
+		await waitFor(() => {
+			expect(screen.getAllByText("Ready")).toHaveLength(2);
+		});
+		setComposerValue(
+			screen.getByRole("textbox", { name: "Message this space" }),
+			"Text can still be sent"
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await screen.findByText("This file could not be published.");
+		expect(screen.getByText("Request ID: request-publish-500")).toBeTruthy();
+		expect(
+			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+		).toBeTruthy();
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				files: [messageFile],
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "Text can still be sent",
+				timeoutMs: 30_000,
 			});
 		});
+
+		await act(async () => {
+			resolvePost?.(
+				createTextSignal({
+					files: [messageFile],
+					id: "signal-with-partial-publish",
+					text: "Text can still be sent",
+				})
+			);
+			await Promise.resolve();
+		});
+	});
+
+	it("keeps a file-only Composer open when its staged file cannot be published", async () => {
+		const postNormalMessageMock = vi.fn();
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: vi
+				.fn()
+				.mockRejectedValue(new Error("This file could not be published.")),
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["broken"], "broken.png", { type: "image/png" })],
+			},
+		});
+		await screen.findByText("Ready");
+
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await screen.findByText(
+			"None of the files could be sent. Add them again or enter a message."
+		);
+		expect(screen.getByText("This file could not be published.")).toBeTruthy();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("textbox", { name: "Message this space" })
+		).toBeTruthy();
+	});
+
+	it("accepts pasted and dropped files and stops at ten files", async () => {
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) =>
+			createSpaceComposerUpload({
+				id: input.uploadId,
+				mimeType: input.mimeType,
+				name: input.name,
+				sizeBytes: input.bytes.size,
+			})
+		);
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: vi.fn(),
-			uploadFile: uploadFileMock,
+			stageComposerUpload: stageComposerUploadMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -14780,6 +14988,154 @@ describe("SpaceLanding", () => {
 		expect(postThreadSignalMock).toHaveBeenCalledTimes(1);
 	});
 
+	it("sends a thread reply and successful files when another upload fails", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "thread-ready.txt",
+		});
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		const postedThreadSignal = createTextSignal({
+			files: [messageFile],
+			id: "sig-thread-with-successful-file",
+			text: "Thread text can still be sent",
+		});
+		const postThreadSignalMock = vi.fn().mockResolvedValue({
+			placement: {
+				createdAt: "2026-04-11T00:00:00.000Z",
+				placement: "thread",
+				signalId: postedThreadSignal.id,
+				threadId: "thread-1",
+			},
+			signal: postedThreadSignal,
+		});
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) => {
+			if (input.name === "thread-ready.txt") {
+				return Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				);
+			}
+			return Promise.reject(new Error("Thread file could not be uploaded."));
+		});
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+			getWakeProgress: vi.fn().mockResolvedValue({
+				items: [],
+				query: {
+					clientMessageId: "client-message-1",
+					spaceId: "space-123",
+					targetProfileId: null,
+				},
+			}),
+			leaveSpace: vi.fn(),
+			listSignalEnvelopes: vi.fn(),
+			postNormalMessage: vi.fn(),
+			postThreadSignal: postThreadSignalMock,
+			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			stageComposerUpload: stageComposerUploadMock,
+		});
+		const rootSignal = createTextSignal({
+			id: "sig-thread-file-root",
+			text: "Attach the thread notes here.",
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [rootSignal], nextCursor: null },
+			}),
+			threadSignals: createQueryResult({
+				isSuccess: true,
+				data: { signals: [rootSignal] },
+			}),
+			threads: createQueryResult({
+				isSuccess: true,
+				data: {
+					threads: [
+						{
+							threadId: "thread-1",
+							spaceId: "space-123",
+							rootSignalId: rootSignal.id,
+							createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+							createdAt: "2026-04-11T00:00:00.000Z",
+							updatedAt: "2026-04-11T00:00:00.000Z",
+						},
+					],
+				},
+			}),
+		});
+
+		renderSpaceLanding();
+		const rootMessage = screen
+			.getByText("Attach the thread notes here.")
+			.closest("[data-signal-id]");
+		expect(rootMessage).not.toBeNull();
+		fireEvent.mouseEnter(rootMessage as HTMLElement);
+		fireEvent.click(
+			within(rootMessage as HTMLElement).getAllByRole("button", {
+				name: "Open thread",
+			})[0] as HTMLElement
+		);
+
+		const threadPanel = screen.getByLabelText("Thread");
+		fireEvent.change(
+			within(threadPanel).getByLabelText("Choose files to send"),
+			{
+				target: {
+					files: [
+						new File(["ready"], "thread-ready.txt", {
+							type: "text/plain",
+						}),
+						new File(["broken"], "thread-broken.png", {
+							type: "image/png",
+						}),
+					],
+				},
+			}
+		);
+
+		await within(threadPanel).findByText("Thread file could not be uploaded.");
+		const threadComposer = within(threadPanel).getByRole("textbox", {
+			name: "Reply in thread",
+		});
+		setComposerValue(threadComposer, "Thread text can still be sent");
+		expect(
+			within(threadPanel).getByText(
+				"1 file couldn't be uploaded and won't be sent."
+			)
+		).toBeTruthy();
+		expect(
+			within(threadPanel).getByRole("button", { name: "Send reply" })
+		).toHaveProperty("disabled", false);
+
+		fireEvent.click(
+			within(threadPanel).getByRole("button", { name: "Send reply" })
+		);
+		await waitFor(() => {
+			expect(postThreadSignalMock).toHaveBeenCalledWith({
+				body: expect.objectContaining({
+					files: [messageFile],
+					text: "Thread text can still be sent",
+				}),
+				spaceId: "space-123",
+				threadId: "thread-1",
+				timeoutMs: 30_000,
+			});
+		});
+	});
+
 	it("keeps an outcome-unknown thread reply under one idempotent send identity", async () => {
 		const hangingRequest = createHangingFetchRequest();
 		const postThreadSignalMock = vi.fn(
@@ -17442,6 +17798,18 @@ function createSpaceFileDescriptor(
 		spaceId: "space-123",
 		updatedAt: "2026-07-11T00:00:00.000Z",
 		updatedBy: actor,
+	};
+}
+
+function createSpaceComposerUpload(input: {
+	id: string;
+	mimeType: string;
+	name: string;
+	sizeBytes: number;
+}) {
+	return {
+		expiresAt: "2026-07-12T00:00:00.000Z",
+		...input,
 	};
 }
 

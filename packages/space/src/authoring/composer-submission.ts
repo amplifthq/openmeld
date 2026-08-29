@@ -142,10 +142,7 @@ export function prepareSpaceComposerSubmission(input: {
   const replyToSignalId = normalizeReplyToSignalId(input.replyTo);
   const replyTo = replyToSignalId ? { signalId: replyToSignalId } : null;
 
-  if (
-    canonicalFragments.length === 0 &&
-    authoredMentionsInTextOrder.length === 0
-  ) {
+  if (hasNoAuthoredMentions(canonicalFragments, authoredMentionsInTextOrder)) {
     const normalizedText = normalizePlainTextOrThrow(input.text);
     const messageEnvelope = createMessageEnvelopeOrNull({
       activationTargets: [],
@@ -178,7 +175,10 @@ export function prepareSpaceComposerSubmission(input: {
   const catalog = createSpaceTargetCatalog(input.snapshot);
   const envelopeInput = createEnvelopeInput(input.text, replyToSignalId);
   const canonicalMentionsInTextOrder: SpaceCanonicalMentionInTextOrder[] = [];
+  const resolvedCanonicalMentionsInTextOrder: SpaceCanonicalMentionInTextOrder[] =
+    [];
   const profileIdsInTextOrder: string[] = [];
+  const structuredTargetProfileIds = new Set<string>();
 
   for (const fragment of canonicalFragments) {
     const parsedLiteral = fragment.parsedLiteral;
@@ -207,16 +207,23 @@ export function prepareSpaceComposerSubmission(input: {
       );
     }
 
-    const fieldName = resolveMessageEnvelopeTargetField(
-      parsedLiteral.type
-    ) as CanonicalMentionTargetField;
-    envelopeInput[fieldName].push(target.profileId);
-    profileIdsInTextOrder.push(target.profileId);
-    canonicalMentionsInTextOrder.push({
+    const canonicalMention = {
       profileId: target.profileId,
       text: fragment.text,
       type: parsedLiteral.type,
-    });
+    } satisfies SpaceCanonicalMentionInTextOrder;
+    canonicalMentionsInTextOrder.push(canonicalMention);
+    if (
+      appendStructuredTarget({
+        envelopeInput,
+        profileId: target.profileId,
+        profileIdsInTextOrder,
+        relation: parsedLiteral.type,
+        structuredTargetProfileIds,
+      })
+    ) {
+      resolvedCanonicalMentionsInTextOrder.push(canonicalMention);
+    }
   }
 
   for (const authoredMention of authoredMentionsInTextOrder) {
@@ -238,11 +245,13 @@ export function prepareSpaceComposerSubmission(input: {
       );
     }
 
-    const fieldName = resolveMessageEnvelopeTargetField(
-      authoredMention.relation
-    ) as CanonicalMentionTargetField;
-    envelopeInput[fieldName].push(target.profileId);
-    profileIdsInTextOrder.push(target.profileId);
+    appendStructuredTarget({
+      envelopeInput,
+      profileId: target.profileId,
+      profileIdsInTextOrder,
+      relation: authoredMention.relation,
+      structuredTargetProfileIds,
+    });
   }
 
   const messageEnvelope = createMessageEnvelopeOrNull(envelopeInput);
@@ -253,11 +262,37 @@ export function prepareSpaceComposerSubmission(input: {
     messageEnvelope,
     replyTo,
     resolvedStructuredTargets: {
-      canonicalMentionsInTextOrder,
+      canonicalMentionsInTextOrder: resolvedCanonicalMentionsInTextOrder,
       profileIdsInTextOrder,
     },
     text: messageEnvelope?.text ?? normalizePlainTextOrThrow(input.text),
   };
+}
+
+function hasNoAuthoredMentions(
+  canonicalFragments: ReturnType<typeof collectCanonicalMentionTextFragments>,
+  authoredMentions: readonly SpaceComposerAuthoredMentionInTextOrder[]
+): boolean {
+  return canonicalFragments.length === 0 && authoredMentions.length === 0;
+}
+
+function appendStructuredTarget(input: {
+  envelopeInput: MessageEnvelopeInput;
+  profileId: string;
+  profileIdsInTextOrder: string[];
+  relation: MessageMentionType;
+  structuredTargetProfileIds: Set<string>;
+}): boolean {
+  if (input.structuredTargetProfileIds.has(input.profileId)) {
+    return false;
+  }
+  input.structuredTargetProfileIds.add(input.profileId);
+  const fieldName = resolveMessageEnvelopeTargetField(
+    input.relation
+  ) as CanonicalMentionTargetField;
+  input.envelopeInput[fieldName].push(input.profileId);
+  input.profileIdsInTextOrder.push(input.profileId);
+  return true;
 }
 
 export function prepareSpaceFileOnlySubmission(input?: {

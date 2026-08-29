@@ -1987,7 +1987,7 @@ describe("SpaceConversationPanel", () => {
 		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
 	});
 
-	it("does not send while a failed file remains in the composer", () => {
+	it("sends the text while excluding a failed file", async () => {
 		const onSend = vi.fn(async () => undefined);
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
@@ -1998,14 +1998,12 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByText(
-				"Remove files that could not be uploaded before sending."
-			)
+			screen.getByText("1 file couldn't be uploaded and won't be sent.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send message" });
-		expect(sendButton).toHaveProperty("disabled", true);
+		expect(sendButton).toHaveProperty("disabled", false);
 		fireEvent.click(sendButton);
-		expect(onSend).not.toHaveBeenCalled();
+		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
 	});
 
 	it("opens an upward Files menu from the composer plus button", async () => {
@@ -4717,11 +4715,11 @@ function createSpaceConversationPanelProps(
 
 function createReadyComposerFile() {
 	return {
-		descriptor: {
-			fileId: "file-1",
+		upload: {
+			id: "11111111-1111-4111-8111-111111111111",
+			expiresAt: "2026-08-30T00:00:00.000Z",
 			mimeType: "application/pdf",
 			name: "launch-brief.pdf",
-			revision: 1,
 			sizeBytes: 4096,
 		},
 		errorMessage: null,
@@ -4731,13 +4729,14 @@ function createReadyComposerFile() {
 		mimeType: "application/pdf",
 		previewUrl: null,
 		progress: 1,
+		publishMutationId: "publish-file-1",
 		status: "ready" as const,
 	};
 }
 
 function createFailedComposerFile() {
 	return {
-		descriptor: null,
+		upload: null,
 		errorMessage: "OpenMeld couldn't add this file. Try again.",
 		errorRequestId: "request-file-failed",
 		fileName: "broken.pdf",
@@ -4745,6 +4744,7 @@ function createFailedComposerFile() {
 		mimeType: "application/pdf",
 		previewUrl: null,
 		progress: 100,
+		publishMutationId: "publish-file-failed",
 		status: "failed" as const,
 	};
 }

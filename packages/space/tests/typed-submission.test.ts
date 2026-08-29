@@ -210,7 +210,7 @@ describe("space typed submission", () => {
     );
   });
 
-  it("rejects relation eligibility and duplicate target assignments without blocking readiness-only wake targets", () => {
+  it("rejects relation eligibility and keeps only the first relation for repeated targets", () => {
     expect(() =>
       prepareHumanSpaceTypedSubmission({
         text: "@Alice(wake) hello",
@@ -232,7 +232,7 @@ describe("space typed submission", () => {
       hasCanonicalMentions: true,
     });
 
-    expect(() =>
+    expect(
       prepareHumanSpaceTypedSubmission({
         text: [
           "@Budget Analyst(wake) first",
@@ -240,9 +240,17 @@ describe("space typed submission", () => {
         ].join("\n"),
         snapshot: createSnapshot(),
       })
-    ).toThrow("same target appears more than once in wake");
+    ).toMatchObject({
+      messageEnvelope: {
+        activationTargets: [AGENT_BUDGET_ID],
+        referenceTargets: [],
+      },
+      resolvedStructuredTargets: {
+        profileIdsInTextOrder: [AGENT_BUDGET_ID],
+      },
+    });
 
-    expect(() =>
+    expect(
       prepareHumanSpaceTypedSubmission({
         text: [
           "@Budget Analyst(wake) first",
@@ -250,7 +258,15 @@ describe("space typed submission", () => {
         ].join("\n"),
         snapshot: createSnapshot(),
       })
-    ).toThrow("same target cannot appear in both wake and reference");
+    ).toMatchObject({
+      messageEnvelope: {
+        activationTargets: [AGENT_BUDGET_ID],
+        referenceTargets: [],
+      },
+      resolvedStructuredTargets: {
+        profileIdsInTextOrder: [AGENT_BUDGET_ID],
+      },
+    });
   });
 
   it("detects whether a text contains canonical mention attempts", () => {

@@ -836,6 +836,17 @@ read first resolves the authorized canonical revision descriptor through Space
 and only then reads the exact object. An R2 key or file id alone never grants
 access.
 
+Temporary Web Composer bytes use the same private R2 binding under the separate
+`composer-uploads/v1/` prefix. A Composer Upload object carries frozen scope,
+name, MIME type, size, upload identity, and expiry metadata, but it has no row in
+the Space File tree and is never a canonical read projection. Core authorizes
+the current Space member before staging, publishing, or discarding, derives the
+object key from that member scope, and rejects metadata or scope drift. Publish
+reads the staged bytes and enters the ordinary canonical Space File write path;
+it does not reinterpret the temporary object as canonical storage. Explicit
+discard and scheduled expiry cleanup delete temporary objects. Cleanup failures
+remain observable and do not convert abandoned uploads into Space Files.
+
 Trash is a reversible metadata state in the MVP. Trashing a folder requires it
 to be empty, so one mutation cannot silently hide a subtree. Revision objects
 remain private and retained. An active member may list Trash and restore the

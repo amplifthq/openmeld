@@ -64,6 +64,7 @@ import {
   remoteAgentWorkerCancellationResponseSchema,
   removeSpaceMembersBodySchema,
   resolveMappedPublicAgentFailureReason,
+  resolveSpaceComposerUploadScopeResponseSchema,
   resolveSpaceFileContentInputSchema,
   respondToSpaceAgentInteractionInputSchema,
   respondToSpaceAgentInteractionResponseSchema,
@@ -129,6 +130,7 @@ import type {
   RemoteAgentWorkerCancellationResponse,
   RemoveSpaceMembersResponse,
   ResolvedSpaceMemberProfile,
+  ResolveSpaceComposerUploadScopeResponse,
   ResolveSpaceFileContentResponse,
   RespondToSpaceAgentInteractionBody,
   RespondToSpaceAgentInteractionResponse,
@@ -2358,6 +2360,19 @@ export class Space extends DurableObject<CoreBindings> {
       parentId: input.query?.parentId,
       view: input.query?.view,
       canWrite,
+    });
+  }
+
+  async rpcResolveSpaceComposerUploadScope(input: {
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<ResolveSpaceComposerUploadScopeResponse> {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const meta = this.requireSpaceFileMetaRecord();
+    return resolveSpaceComposerUploadScopeResponseSchema.parse({
+      actorProfileId: actor.profileId,
+      organizationId: meta.organizationId,
     });
   }
 

@@ -1432,8 +1432,11 @@ function ThreadComposer(input: {
 		isSpaceComposerFileInProgress
 	);
 	const uploadFailed = input.composerFiles.some(isSpaceComposerFileFailed);
+	const readyFileCount = input.composerFiles.filter(
+		(file) => file.status === "ready"
+	).length;
 	const composerHasContent =
-		input.composerFiles.length > 0 || input.composerText.trim().length > 0;
+		readyFileCount > 0 || input.composerText.trim().length > 0;
 	const {
 		addFiles,
 		handleDragLeave,
@@ -1462,18 +1465,16 @@ function ThreadComposer(input: {
 		composerHint = "Uploading files before sending…";
 	}
 	if (uploadFailed) {
-		composerHint = "Remove files that could not be uploaded before sending.";
+		const failedCount = input.composerFiles.filter(
+			isSpaceComposerFileFailed
+		).length;
+		composerHint = `${String(failedCount)} ${failedCount === 1 ? "file" : "files"} couldn't be uploaded and won't be sent.`;
 	}
 	if (!(uploadInProgress || uploadFailed) && input.composerFiles.length > 0) {
-		composerHint = `${input.composerFiles.length} ${input.composerFiles.length === 1 ? "file" : "files"} ready to send`;
+		composerHint = `${String(readyFileCount)} ${readyFileCount === 1 ? "file" : "files"} ready to send`;
 	}
 	const submitComposer = () => {
-		if (
-			input.isSendingMessage ||
-			uploadInProgress ||
-			uploadFailed ||
-			!composerHasContent
-		) {
+		if (input.isSendingMessage || uploadInProgress || !composerHasContent) {
 			return;
 		}
 		input.onSend().catch((error) => {
@@ -1575,7 +1576,6 @@ function ThreadComposer(input: {
 									disabled={
 										input.isSendingMessage ||
 										uploadInProgress ||
-										uploadFailed ||
 										!composerHasContent
 									}
 									onClick={submitComposer}
