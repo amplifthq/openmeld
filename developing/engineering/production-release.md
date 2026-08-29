@@ -824,7 +824,18 @@ probes are read-only. A completed stage prints `SKIP (already done)` with its
 criterion; an incomplete stage prints `RUN` and executes the existing command
 and gates unchanged. If a completion probe cannot run because of network,
 credentials, or malformed output, the executor prints the probe failure and
-runs the stage. It never skips work on uncertain evidence.
+runs the stage only when that stage is safely repeatable. The immutable CLI
+binary stage is the exception: an inconclusive probe fails closed. When the
+production manifest has a semantically lower version, the new target may safely
+resume because artifacts publish before the manifest; this decision is made
+before requesting any artifact owned by the older manifest. A manifest version
+ahead of the target fails without mutation so the stable channel cannot move
+backward. Prerelease, build-metadata, non-canonical, or other suffix variants do
+not count as the target even when their numeric core matches; they fail closed.
+Only exact canonical `x.y.z` string equality permits target artifact probes.
+Once the manifest names that exact target version, any missing, incomplete,
+size-mismatched, hash-mismatched, or unreconstructable artifact fails without
+rebuilding or overwriting that version.
 
 The built-in production order is:
 
@@ -843,18 +854,21 @@ because they are safe, even though they create another Worker version.
 | Stage | `SKIP` criterion | Criterion level |
 | --- | --- | --- |
 | Production D1 migration application | `wrangler d1 migrations list --remote` reports no pending migrations | Remote pending-list truth |
-| CLI binary, signing, notarization, and R2 | The production manifest has the target version; the platform record has a valid sha256 and positive size; `HEAD` confirms the artifact is downloadable with that size | Published-record evidence; no local rebuild/hash comparison |
-| npm | `npm view` reports the target immutable version | Registry version existence |
+| CLI binary, signing, notarization, and R2 | The production manifest has the target version and the exact target `minRequiredCliVersion`; the platform record is complete; the raw and gzip artifacts are downloadable with their recorded sizes; the gzip sha256 matches and reconstructs the recorded raw binary | Immutable published-record evidence; any inconclusive or inconsistent target-version record fails closed |
+| npm | `npm view` reports the target immutable version and its `openmeld.minRequiredCliVersion` exactly matches the target floor | Registry version and floor existence |
 | Release tag | The target tag resolves to the current release commit both locally and on `origin` | Local and remote Git object identity |
 | Core projection | The active 100% production Worker version carries the stable tag derived from the release commit and `release/local-components.json` | Active Worker version identity |
-| Final channel alignment | R2, npm, and the active Core projection all satisfy their target criteria | Three-way published state |
+| Final channel alignment | R2 and npm expose the exact target version and `minRequiredCliVersion`, and the active Core projection satisfies its target criterion | Three-way published state |
 
 A release tag that exists at another commit locally or on `origin` fails
 immediately and is never moved. The resumable executor owns both local tag
 creation and exact-ref publication to `origin`; callers must not add a second
-tag-push path. A final channel-alignment failure includes the exact next release
-command. The normal recovery command is therefore the original command, not a
-manually shortened sequence:
+tag-push path. R2 and npm package versions are immutable too: if either already
+publishes the target version with a different CLI floor, the release fails
+before any mutation and requires a new version instead of overwriting artifacts.
+A final channel-alignment failure includes the exact next release command. The
+normal recovery command is therefore the original command, not a manually
+shortened sequence:
 
 ```sh
 pnpm run release:deploy:local -- --scope cli

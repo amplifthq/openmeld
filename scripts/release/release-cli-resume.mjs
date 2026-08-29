@@ -8,6 +8,7 @@ import { gunzipSync } from "node:zlib";
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
 import {
+  classifyCliBinaryManifestVersion,
   decideChannelAlignmentStage,
   decideCliBinaryStage,
   decideCoreProjectionStage,
@@ -58,6 +59,10 @@ export async function runResumableCliRelease(input) {
     tag,
     target,
   });
+  if (initial.alignment.action === "FAIL") {
+    printStageDecision("Final R2/npm/Core alignment", initial.alignment, write);
+    throw new Error(initial.alignment.reason);
+  }
   if (initial.alignment.action === "SKIP" && initial.tag.action === "SKIP") {
     printStageDecision(
       "Verify local-components release manifest",
@@ -280,6 +285,7 @@ function resolveCliReleaseTarget(input) {
   return {
     coreTag: resolveCoreProjectionTag(input),
     headSha,
+    minRequiredCliVersion: packageJson.openmeld?.minRequiredCliVersion ?? null,
     tagName: `v${packageJson.version}`,
     version: packageJson.version,
   };
@@ -290,6 +296,18 @@ async function probeCliBinaryStage(input) {
     const manifest = await fetchCliChannelManifest({
       fetch: input.adapters.fetch,
     });
+    const versionRelation = classifyCliBinaryManifestVersion({
+      stableVersion: manifest.channels.stable.version,
+      targetVersion: input.target.version,
+    });
+    if (versionRelation !== "exact") {
+      return decideCliBinaryStage({
+        manifest,
+        platform: CLI_BINARY_PLATFORM,
+        targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
+        targetVersion: input.target.version,
+      });
+    }
     const artifact =
       manifest?.channels?.stable?.platforms?.[CLI_BINARY_PLATFORM];
     const probeArtifact = async ({ archive, url }) => {
@@ -353,12 +371,14 @@ async function probeCliBinaryStage(input) {
       artifactProbe,
       manifest,
       platform: CLI_BINARY_PLATFORM,
+      targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
       targetVersion: input.target.version,
     });
   } catch (error) {
     return decideCliBinaryStage({
       platform: CLI_BINARY_PLATFORM,
       probeError: error instanceof Error ? error.message : String(error),
+      targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
       targetVersion: input.target.version,
     });
   }
@@ -367,13 +387,20 @@ async function probeCliBinaryStage(input) {
 async function probeNpmPublishStage(input) {
   try {
     const result = await input.adapters.runCommand({
-      args: ["view", `openmeld@${input.target.version}`, "version", "--json"],
+      args: [
+        "view",
+        `openmeld@${input.target.version}`,
+        "version",
+        "openmeld.minRequiredCliVersion",
+        "--json",
+      ],
       command: "npm",
       cwd: input.cwd,
       env: input.env,
     });
     return decideNpmPublishStage({
       ...result,
+      targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
       targetVersion: input.target.version,
     });
   } catch (error) {
@@ -381,6 +408,7 @@ async function probeNpmPublishStage(input) {
       status: 1,
       stderr: error instanceof Error ? error.message : String(error),
       stdout: "",
+      targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
       targetVersion: input.target.version,
     });
   }
@@ -566,9 +594,13 @@ function printStageDecision(label, decision, write) {
     );
     return;
   }
-  const probeFailure = decision.probeFailure
-    ? "; completion probe failed, fail-open to execution"
-    : "";
+  let probeFailure = "";
+  if (decision.probeFailure) {
+    probeFailure =
+      decision.action === "RUN"
+        ? "; completion probe failed, fail-open to execution"
+        : "; completion probe failed, fail-closed";
+  }
   write(
     `\n[release:cli] ${label} — ${decision.action}: ${decision.reason}${probeFailure}${currentVersions}\n`
   );

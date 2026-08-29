@@ -1,0 +1,8 @@
+{
+  "capturedAt": "2026-08-29T08:24:00Z",
+  "sourceCommand": "npm view openmeld@0.3.130 version openmeld.minRequiredCliVersion --json",
+  "response": {
+    "version": "0.3.130",
+    "openmeld.minRequiredCliVersion": "0.3.117"
+  }
+}

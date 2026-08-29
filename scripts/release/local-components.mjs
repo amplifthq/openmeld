@@ -1627,12 +1627,12 @@ function formatFloorProjectionSuffix(projection) {
   if (!projection.changed) {
     return base;
   }
-  // The floor only changes on a `required` release. The whole forced-update gate
-  // depends on npm preserving + serving the custom `openmeld.minRequiredCliVersion`
-  // field on the `latest` packument — an external assumption we can only confirm
-  // against the live registry AFTER publish. Print a loud, copy-pasteable check
-  // so whoever ships a required release (agent or human) verifies it instead of
-  // trusting it silently; if stripped, the gate silently never fires.
+  // A required release can project a new floor automatically. The forced-update
+  // gate depends on npm preserving + serving the custom
+  // `openmeld.minRequiredCliVersion` field on the `latest` packument — an external
+  // assumption we can only confirm against the live registry AFTER publish.
+  // Print a loud, copy-pasteable check so whoever ships that release verifies it
+  // instead of trusting it silently; if stripped, the gate silently never fires.
   return `${base}
 
   ⚠️  REQUIRED-RELEASE FOLLOW-UP — after \`npm publish\`, confirm the floor is live on npm:
@@ -1645,13 +1645,12 @@ function formatFloorProjectionSuffix(projection) {
 
 /**
  * Verifies the published floor stays consistent with the committed manifest so
- * a hand-edited package.json or manifest cannot silently turn a release into a
- * hard block (or un-gate one). The invariant: the floor may only ever change
- * via a `required` release, which pins it to that release's own version; every
- * other policy must carry the previous (base) floor forward unchanged. The
- * floor must also be valid and never exceed the published version. The
- * base-aware checks run only when a base ref is available (skipped for
- * `--current`).
+ * a hand-edited package.json or manifest cannot silently un-gate an unsafe CLI.
+ * A `required` release pins the floor to that release. A separately proven
+ * compatibility break may raise the floor only to its first safe version while
+ * leaving a newer release advisory. Every release must keep the floor valid,
+ * monotonic, and no newer than the published version. The base-aware checks run
+ * only when a base ref is available (skipped for `--current`).
  */
 export function resolveCliRequiredFloorVerificationErrors(input) {
   const errors = [];
@@ -1736,9 +1735,9 @@ function resolveBaseAwareCliRequiredFloorErrors(input) {
   }
   // The floor is monotonic: dropping it (or unsetting it) silently un-gates
   // older CLIs, so any regression below the base floor is rejected for every
-  // policy. Deliberately raising it outside a required release is allowed —
-  // it stays dormant until the next required release anyway, and that release
-  // pins the floor to its own version regardless.
+  // policy. Deliberately raising it outside a required release is allowed for a
+  // separately proven compatibility break: the package field is itself the CLI
+  // gate, while the surrounding release can remain advisory for supported CLIs.
   if (!baseFloor || floorsEqualOrAbove(floor, baseFloor)) {
     return [];
   }

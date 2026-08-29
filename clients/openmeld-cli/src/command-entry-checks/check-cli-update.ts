@@ -42,7 +42,7 @@ const CLI_UPDATE_STATUS_CODE = "command.entry.cli_update.status";
  * - `doctor`: surfaces the pending required update as its own top check instead
  *   of being blocked or prompted by the entry gate.
  *
- * Self-rescue commands (`upgrade`, `auth.*`, `reset`, `uninstall`,
+ * Self-rescue commands (`setup`, `upgrade`, `auth.*`, `reset`, `uninstall`,
  * `repair.local-state`) are already exempt structurally — they never carry the
  * check. `openmeld --version` is handled by the argument parser before any entry
  * check runs.
