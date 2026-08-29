@@ -1,9 +1,10 @@
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	isSpaceComposerSendOutcomeUnknown,
 	resolveSpaceComposerSendErrorMessage,
 	resolveSpaceImageUploadFailure,
+	runSpaceComposerIdempotentRequestWithRetry,
 } from "./errors";
 
 function failure(
@@ -22,12 +23,25 @@ describe("Space composer send errors", () => {
 	it.each([
 		"network.timeout",
 		"network.request_failed",
+		"upstream_unreachable",
 	] as const)("keeps %s honest about an unknown send outcome", (code) => {
 		const error = failure(code);
 		expect(isSpaceComposerSendOutcomeUnknown(error)).toBe(true);
 		expect(resolveSpaceComposerSendErrorMessage(error)).toBe(
 			"OpenMeld couldn't confirm this message yet. It may still appear in the Space, so wait a moment before sending it again."
 		);
+	});
+
+	it("retries an upstream outcome-unknown request with the same operation", async () => {
+		const request = vi
+			.fn<() => Promise<string>>()
+			.mockRejectedValueOnce(failure("upstream_unreachable"))
+			.mockResolvedValueOnce("published");
+
+		await expect(
+			runSpaceComposerIdempotentRequestWithRetry(request)
+		).resolves.toBe("published");
+		expect(request).toHaveBeenCalledTimes(2);
 	});
 
 	it("keeps a known server rejection distinct from an unknown outcome", () => {

@@ -59,7 +59,9 @@ export function isSpaceComposerSendOutcomeUnknown(
 	error: StructuredApiClientFailure
 ): boolean {
 	return (
-		error.code === "network.timeout" || error.code === "network.request_failed"
+		error.code === "network.timeout" ||
+		error.code === "network.request_failed" ||
+		error.code === "upstream_unreachable"
 	);
 }
 
