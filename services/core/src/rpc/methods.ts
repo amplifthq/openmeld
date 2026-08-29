@@ -17703,15 +17703,13 @@ export async function rpcPublishSpaceComposerUpload(
     uploadId,
   });
   const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  const committedFile = await stub.rpcResolveCommittedSpaceFileWrite({
-    clientMutationId,
-    expectedFileId: fileId,
-    spaceAccess,
-    spaceId: input.spaceId,
-  });
-  if (committedFile) {
-    return committedFile;
-  }
+  const resolveCommittedFile = async () =>
+    await stub.rpcResolveCommittedSpaceFileWrite({
+      clientMutationId,
+      expectedFileId: fileId,
+      spaceAccess,
+      spaceId: input.spaceId,
+    });
   let staged: Awaited<ReturnType<typeof readSpaceComposerUpload>>;
   try {
     staged = await readSpaceComposerUpload({
@@ -17721,6 +17719,15 @@ export async function rpcPublishSpaceComposerUpload(
       uploadId,
     });
   } catch (error) {
+    if (
+      error instanceof SpaceComposerUploadStorageError &&
+      (error.kind === "expired" || error.kind === "not_found")
+    ) {
+      const committedFile = await resolveCommittedFile();
+      if (committedFile) {
+        return committedFile;
+      }
+    }
     throw normalizeSpaceComposerUploadError(error);
   }
   const revisionId = await buildSpaceFileRevisionIdForMutation({
@@ -17731,6 +17738,17 @@ export async function rpcPublishSpaceComposerUpload(
     name: staged.descriptor.name,
     parentId: null,
   });
+  const committedFile = await resolveCommittedFile();
+  if (committedFile) {
+    if (committedFile.latestRevision.id !== revisionId) {
+      throw createCoreRpcHttpError({
+        code: "space_file.conflict",
+        reason: "This request ID was already used for another upload.",
+        status: 409,
+      });
+    }
+    return committedFile;
+  }
   return await rpcWriteSpaceFileContent(env, {
     bytes: staged.bytes,
     context: input.context,

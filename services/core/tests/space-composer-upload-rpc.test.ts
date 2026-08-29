@@ -2,6 +2,7 @@ import {
   buildSpaceComposerPublishedFileId,
   buildSpaceComposerUploadObjectKey,
   buildSpaceFileObjectKey,
+  buildSpaceFileRevisionIdForMutation,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
 } from "@openmeld/schemas";
 import type {
@@ -114,12 +115,18 @@ function makeEnv(input?: { expiresAtMs?: number }) {
     rpcCommitSpaceFileWrite: vi.fn(async () => FILE),
     rpcRecordSpaceFileAuditEvent: vi.fn(async () => undefined),
   };
-  const bucket = {
-    put: vi.fn(async (): Promise<R2Object | null> => ({}) as R2Object),
-    get: vi.fn(async () => ({
+  const get = vi.fn(
+    async (): Promise<{
+      arrayBuffer: () => Promise<ArrayBuffer>;
+      customMetadata: ReturnType<typeof createStageMetadata>;
+    } | null> => ({
       arrayBuffer: async () => Uint8Array.from(BYTES).buffer,
       customMetadata: createStageMetadata(input?.expiresAtMs),
-    })),
+    })
+  );
+  const bucket = {
+    put: vi.fn(async (): Promise<R2Object | null> => ({}) as R2Object),
+    get,
     delete: vi.fn(async () => undefined),
   };
   const namespace = {
@@ -268,6 +275,7 @@ describe("Core Space Composer upload RPC", () => {
   it("replays a committed publication after its temporary upload is gone", async () => {
     const { bucket, env, stub } = makeEnv();
     stub.rpcResolveCommittedSpaceFileWrite.mockResolvedValue(FILE);
+    bucket.get.mockResolvedValue(null);
 
     await expect(
       rpcPublishSpaceComposerUpload(env, {
@@ -288,7 +296,94 @@ describe("Core Space Composer upload RPC", () => {
       spaceAccess: expect.any(Object),
       spaceId: SPACE_ID,
     });
-    expect(bucket.get).not.toHaveBeenCalled();
+    expect(bucket.get).toHaveBeenCalledOnce();
+    expect(stub.rpcPrepareSpaceFileWrite).not.toHaveBeenCalled();
+    expect(stub.rpcCommitSpaceFileWrite).not.toHaveBeenCalled();
+  });
+
+  it("replays a committed publication while the exact temporary upload remains", async () => {
+    const { bucket, env, stub } = makeEnv();
+    const clientMutationId = "publish-composer-upload-test";
+    const committedRevisionId = await buildSpaceFileRevisionIdForMutation({
+      baseRevision: null,
+      bytes: Uint8Array.from(BYTES).buffer,
+      clientMutationId,
+      mimeType: "text/plain",
+      name: "notes.txt",
+      parentId: null,
+    });
+    const committedFile = {
+      ...FILE,
+      latestRevision: {
+        ...FILE.latestRevision,
+        id: committedRevisionId,
+      },
+    };
+    stub.rpcResolveCommittedSpaceFileWrite.mockResolvedValue(committedFile);
+
+    await expect(
+      rpcPublishSpaceComposerUpload(env, {
+        clientMutationId,
+        context: CONTEXT,
+        nowMs: NOW_MS,
+        spaceId: SPACE_ID,
+        uploadId: UPLOAD_ID,
+      })
+    ).resolves.toEqual(committedFile);
+
+    expect(bucket.get).toHaveBeenCalledOnce();
+    expect(stub.rpcPrepareSpaceFileWrite).not.toHaveBeenCalled();
+    expect(stub.rpcCommitSpaceFileWrite).not.toHaveBeenCalled();
+  });
+
+  it("rejects a committed publication replay after the upload ID is restaged with different content", async () => {
+    const { bucket, env, stub } = makeEnv();
+    const clientMutationId = "publish-composer-upload-test";
+    const restagedBytes = new TextEncoder().encode("Different attachment\n");
+    const committedRevisionId = await buildSpaceFileRevisionIdForMutation({
+      baseRevision: null,
+      bytes: Uint8Array.from(BYTES).buffer,
+      clientMutationId,
+      mimeType: "text/plain",
+      name: "notes.txt",
+      parentId: null,
+    });
+    stub.rpcResolveCommittedSpaceFileWrite.mockResolvedValue({
+      ...FILE,
+      latestRevision: {
+        ...FILE.latestRevision,
+        id: committedRevisionId,
+      },
+    });
+    bucket.get.mockResolvedValue({
+      arrayBuffer: async () => Uint8Array.from(restagedBytes).buffer,
+      customMetadata: {
+        ...createStageMetadata(),
+        sizeBytes: String(restagedBytes.byteLength),
+      },
+    });
+
+    await expect(
+      rpcPublishSpaceComposerUpload(env, {
+        clientMutationId,
+        context: CONTEXT,
+        nowMs: NOW_MS,
+        spaceId: SPACE_ID,
+        uploadId: UPLOAD_ID,
+      })
+    ).rejects.toMatchObject({
+      code: "space_file.conflict",
+      status: 409,
+    });
+
+    expect(bucket.get).toHaveBeenCalledWith(
+      buildSpaceComposerUploadObjectKey({
+        actorProfileId: PROFILE_ID,
+        organizationId: ORGANIZATION_ID,
+        spaceId: SPACE_ID,
+        uploadId: UPLOAD_ID,
+      })
+    );
     expect(stub.rpcPrepareSpaceFileWrite).not.toHaveBeenCalled();
     expect(stub.rpcCommitSpaceFileWrite).not.toHaveBeenCalled();
   });
@@ -297,6 +392,7 @@ describe("Core Space Composer upload RPC", () => {
     const { bucket, env, stub } = makeEnv();
     const clientMutationId = "m".repeat(128);
     stub.rpcResolveCommittedSpaceFileWrite.mockResolvedValue(FILE);
+    bucket.get.mockResolvedValue(null);
 
     await expect(
       rpcPublishSpaceComposerUpload(env, {
@@ -314,7 +410,7 @@ describe("Core Space Composer upload RPC", () => {
       spaceAccess: expect.any(Object),
       spaceId: SPACE_ID,
     });
-    expect(bucket.get).not.toHaveBeenCalled();
+    expect(bucket.get).toHaveBeenCalledOnce();
   });
 
   it("discards only the current actor's temporary upload", async () => {
