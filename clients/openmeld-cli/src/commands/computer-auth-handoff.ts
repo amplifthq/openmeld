@@ -108,6 +108,7 @@ async function runPreparedComputerAuthHandoff(
 
   const transition = await beginComputerSessionTransition({
     candidate,
+    expectedPreviousSession: currentSession,
     gatewayUrl,
   });
 
@@ -206,11 +207,13 @@ async function resolveCurrentComputerSession(
 
 async function beginComputerSessionTransition(input: {
   candidate: PreparedAuthSession;
+  expectedPreviousSession: StoredAuthSession | null;
   gatewayUrl: string;
 }): Promise<Awaited<ReturnType<typeof beginAuthSessionTransition>>> {
   try {
     return await beginAuthSessionTransition(input.candidate, {
       computerHandoff: { gatewayUrl: input.gatewayUrl },
+      expectedPreviousSession: input.expectedPreviousSession,
     });
   } catch (error) {
     const revoked = await revokePreparedAuthSession(input.candidate);

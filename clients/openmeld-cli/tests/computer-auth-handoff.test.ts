@@ -223,6 +223,7 @@ describe("Computer authorization handoff", () => {
         computerHandoff: {
           gatewayUrl: "https://gateway.openmeld.test",
         },
+        expectedPreviousSession: existingSession,
       }
     );
   });

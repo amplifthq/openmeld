@@ -482,7 +482,14 @@ describe("auth session storage", () => {
       );
       const committedJournal = JSON.parse(
         await readFile(transitionPath, "utf8")
-      ) as Record<string, unknown>;
+      ) as Record<string, unknown> & {
+        candidatePayload: Record<string, unknown>;
+      };
+      await writeFile(
+        join(home, ".openmeld", "auth", "session.json"),
+        `${JSON.stringify(committedJournal.candidatePayload)}\n`,
+        "utf8"
+      );
       await writeFile(
         transitionPath,
         `${JSON.stringify({ ...committedJournal, state: "committed" })}\n`,

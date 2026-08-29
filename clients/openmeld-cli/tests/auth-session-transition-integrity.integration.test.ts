@@ -79,12 +79,125 @@ describe("auth session transition integrity", () => {
         await readFile(join(authDirectory, "session.json"), "utf8")
       ) as { user?: { id?: string } };
       expect(journal.candidatePayload.user?.id).toBe(winner?.userId);
-      expect(session.user?.id).toBe(winner?.userId);
+      expect(session.user?.id).toBe("previous-owner");
       expect(
         (await readdir(join(authDirectory, "tokens"))).filter((name) =>
           name.endsWith(".token")
         )
       ).toHaveLength(2);
+    });
+  });
+
+  it("rejects a confirmed account switch when another process changes the committed session", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "confirmed-previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "confirmed-previous-owner" },
+      });
+      const confirmedState = await getAuthSessionState({
+        validateRemote: false,
+      });
+      expect(confirmedState).toMatchObject({
+        state: "valid",
+        session: { user: { id: "confirmed-previous-owner" } },
+      });
+
+      const replacement = spawnCommittedAuthSessionReplacement({
+        accessToken: "intervening-token",
+        userId: "intervening-owner",
+      });
+      await expect(replacement.result).resolves.toMatchObject({
+        status: "success",
+        userId: "intervening-owner",
+      });
+
+      await expect(
+        beginAuthSessionTransition(
+          {
+            accessToken: "candidate-token",
+            authBaseUrl: "https://auth.openmeld.invalid",
+            clientId: "openmeld-cli",
+            user: { id: "candidate-owner" },
+          },
+          { expectedPreviousSession: confirmedState.session }
+        )
+      ).rejects.toMatchObject({
+        name: "AuthSessionChangedBeforeTransitionError",
+        reason: "previous_session_changed",
+      });
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "intervening-token",
+          user: { id: "intervening-owner" },
+        },
+      });
+      await expect(readStoredTokenInventory(home)).resolves.toEqual([
+        "intervening-token",
+      ]);
+    });
+  });
+
+  it("keeps a candidate session private until commit while its Service uses it", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      const confirmedState = await getAuthSessionState({
+        validateRemote: false,
+      });
+      const transition = await beginAuthSessionTransition(
+        {
+          accessToken: "candidate-token",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "candidate-owner" },
+        },
+        { expectedPreviousSession: confirmedState.session }
+      );
+
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "candidate-token",
+          user: { id: "candidate-owner" },
+        },
+      });
+      await expect(
+        spawnOrdinaryAuthSessionRead().result
+      ).resolves.toMatchObject({
+        status: "success",
+        userId: "previous-owner",
+      });
+      await expect(
+        spawnCandidateServiceAuthSessionRead().result
+      ).resolves.toMatchObject({
+        status: "success",
+        userId: "candidate-owner",
+      });
+      const canonicalBeforeCommit = JSON.parse(
+        await readFile(join(home, ".openmeld", "auth", "session.json"), "utf8")
+      ) as { user?: { id?: string } };
+      expect(canonicalBeforeCommit.user?.id).toBe("previous-owner");
+
+      await transition.commit();
+
+      await expect(
+        spawnOrdinaryAuthSessionRead().result
+      ).resolves.toMatchObject({
+        status: "success",
+        userId: "candidate-owner",
+      });
+      await expect(readStoredTokenInventory(home)).resolves.toEqual([
+        "candidate-token",
+      ]);
     });
   });
 
@@ -179,7 +292,7 @@ describe("auth session transition integrity", () => {
       const currentPayload = JSON.parse(
         await readFile(join(authDirectory, "session.json"), "utf8")
       ) as { user?: { id?: string } };
-      expect(currentPayload.user?.id).toBe("candidate-owner");
+      expect(currentPayload.user?.id).toBe("previous-owner");
     });
   });
 
@@ -275,11 +388,11 @@ describe("auth session transition integrity", () => {
             name: "New Organization",
             slug: "new-organization",
           },
-          user: { id: "candidate-owner" },
+          user: { id: "previous-owner" },
         },
       });
       await expect(readStoredTokenInventory(home)).resolves.toEqual([
-        "candidate-token",
+        "previous-token",
       ]);
     });
   });
@@ -346,7 +459,7 @@ describe("auth session transition integrity", () => {
         await readFile(join(authDirectory, "session.json"), "utf8")
       ) as { user?: { id?: string } };
       expect(journal.candidatePayload.user?.id).toBe("next-candidate-owner");
-      expect(session.user?.id).toBe("next-candidate-owner");
+      expect(session.user?.id).toBe("previous-owner");
       expect(
         (await readdir(join(authDirectory, "tokens"))).filter((name) =>
           name.endsWith(".token")
@@ -753,6 +866,110 @@ function spawnAuthSessionFixture(input: {
   };
 }
 
+function spawnCommittedAuthSessionReplacement(input: {
+  accessToken: string;
+  userId: string;
+}): {
+  child: ChildProcessWithoutNullStreams;
+  result: Promise<RacingAuthSessionTransitionResult>;
+} {
+  const { authSessionModuleUrl, tsxLoaderPath } = resolveAuthSessionFixture();
+  const script = `
+    const { setAuthSession } = await import(${JSON.stringify(authSessionModuleUrl)});
+    try {
+      await setAuthSession({
+        accessToken: ${JSON.stringify(input.accessToken)},
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: ${JSON.stringify(input.userId)} },
+      });
+      process.stdout.write(JSON.stringify({
+        status: "success",
+        userId: ${JSON.stringify(input.userId)},
+      }));
+    } catch (error) {
+      process.stdout.write(JSON.stringify({
+        status: "error",
+        userId: ${JSON.stringify(input.userId)},
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  `;
+  return spawnAuthSessionFixture({ script, tsxLoaderPath });
+}
+
+function spawnOrdinaryAuthSessionRead(): {
+  child: ChildProcessWithoutNullStreams;
+  result: Promise<RacingAuthSessionTransitionResult>;
+} {
+  return spawnAuthSessionRead();
+}
+
+function spawnCandidateServiceAuthSessionRead(): {
+  child: ChildProcessWithoutNullStreams;
+  result: Promise<RacingAuthSessionTransitionResult>;
+} {
+  return spawnAuthSessionRead({ runtimeMode: "background" });
+}
+
+function spawnAuthSessionRead(
+  input: {
+    preserveTransitionJournal?: boolean;
+    runtimeMode?: "background";
+    startedPath?: string;
+  } = {}
+): {
+  child: ChildProcessWithoutNullStreams;
+  result: Promise<RacingAuthSessionTransitionResult>;
+} {
+  const { authSessionModuleUrl, tsxLoaderPath } = resolveAuthSessionFixture();
+  const script = `
+    import fs from "node:fs";
+    import { syncBuiltinESMExports } from "node:module";
+
+    ${
+      input.preserveTransitionJournal
+        ? `const originalRm = fs.promises.rm.bind(fs.promises);
+    fs.promises.rm = async (...args) => {
+      const target = String(args[0]);
+      if (target.endsWith("/auth/session-transition.json")) {
+        const error = new Error("fixture preserves committed journal");
+        error.code = "EACCES";
+        throw error;
+      }
+      return await originalRm(...args);
+    };
+    syncBuiltinESMExports();`
+        : ""
+    }
+
+    const { getAuthSessionState } = await import(${JSON.stringify(authSessionModuleUrl)});
+    ${input.startedPath ? `await fs.promises.writeFile(${JSON.stringify(input.startedPath)}, "started\\n", "utf8");` : ""}
+    try {
+      const auth = await getAuthSessionState({ validateRemote: false });
+      process.stdout.write(JSON.stringify({
+        status: "success",
+        userId: auth.session?.user?.id ?? "",
+      }));
+    } catch (error) {
+      process.stdout.write(JSON.stringify({
+        status: "error",
+        userId: "",
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  `;
+  return spawnAuthSessionFixture({
+    env: input.runtimeMode
+      ? { OPENMELD_DAEMON_RUNTIME_MODE: input.runtimeMode }
+      : undefined,
+    script,
+    tsxLoaderPath,
+  });
+}
+
 async function waitForFileWithin(
   path: string,
   timeoutMs: number
@@ -853,45 +1070,11 @@ function spawnServiceAuthRead(input: { barrierDirectory: string }): {
   child: ChildProcessWithoutNullStreams;
   result: Promise<RacingAuthSessionTransitionResult>;
 } {
-  const { authSessionModuleUrl, tsxLoaderPath } = resolveAuthSessionFixture();
   const startedPath = join(input.barrierDirectory, "service.started");
-  const script = `
-    import fs from "node:fs";
-    import { syncBuiltinESMExports } from "node:module";
-
-    const originalRm = fs.promises.rm.bind(fs.promises);
-    fs.promises.rm = async (...args) => {
-      const target = String(args[0]);
-      if (target.endsWith("/auth/session-transition.json")) {
-        const error = new Error("fixture preserves committed journal");
-        error.code = "EACCES";
-        throw error;
-      }
-      return await originalRm(...args);
-    };
-    syncBuiltinESMExports();
-
-    const { getAuthSessionState } = await import(${JSON.stringify(authSessionModuleUrl)});
-    await fs.promises.writeFile(${JSON.stringify(startedPath)}, "started\\n", "utf8");
-    try {
-      const auth = await getAuthSessionState();
-      process.stdout.write(JSON.stringify({
-        status: "success",
-        userId: auth.session?.user?.id ?? "",
-      }));
-    } catch (error) {
-      process.stdout.write(JSON.stringify({
-        status: "error",
-        userId: "",
-        errorName: error instanceof Error ? error.name : "UnknownError",
-        errorMessage: error instanceof Error ? error.message : String(error),
-      }));
-    }
-  `;
-  return spawnAuthSessionFixture({
-    env: { OPENMELD_DAEMON_RUNTIME_MODE: "background" },
-    script,
-    tsxLoaderPath,
+  return spawnAuthSessionRead({
+    preserveTransitionJournal: true,
+    runtimeMode: "background",
+    startedPath,
   });
 }
 
