@@ -370,6 +370,66 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.getAllByText("Approve for me").length).toBeGreaterThan(0);
 	});
 
+	it("renders one selected Agent as an inline detail workspace", async () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "detail" }
+		);
+
+		expect(
+			await screen.findByTestId("agent-profile-workspace-detail")
+		).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { name: "Research Agent" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Direct Message" }).textContent
+		).toContain("Direct Message");
+		expect(
+			screen.getByRole("button", { name: "Edit Agent" }).textContent
+		).toContain("Edit Agent");
+		expect(screen.queryByRole("button", { name: "About profile" })).toBeNull();
+		expect(screen.getByText("Agent Controller Permission Mode")).toBeTruthy();
+	});
+
+	it("edits in place and Cancel restores the read-only detail without saving", async () => {
+		renderAgentProfilesCard({}, undefined, { presentation: "detail" });
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit Agent" }));
+		expect(screen.getByTestId("agent-profile-inline-editor")).toBeTruthy();
+		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+			target: { value: "Unsaved Agent" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+		expect(screen.queryByTestId("agent-profile-inline-editor")).toBeNull();
+		expect(screen.getByText("Agent Controller Permission Mode")).toBeTruthy();
+		expect(renameOpenMeldProfileMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps the inline draft and visible diagnostic when saving fails", async () => {
+		renameOpenMeldProfileMock.mockRejectedValueOnce(
+			new Error("The Agent name could not be saved.")
+		);
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+		renderAgentProfilesCard({}, undefined, { presentation: "detail" });
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit Agent" }));
+		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+			target: { value: "Still in the form" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"The Agent name could not be saved."
+		);
+		expect(screen.getByTestId("agent-profile-inline-editor")).toBeTruthy();
+		expect(
+			(screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement).value
+		).toBe("Still in the form");
+	});
+
 	it("shows the current native Session title and links back to Agent Activity", async () => {
 		const baseBinding =
 			createPrimaryBindingResponse("codex:approveForMe").binding;

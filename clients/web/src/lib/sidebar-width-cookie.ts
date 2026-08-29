@@ -27,6 +27,7 @@ const SIDEBAR_STATE_COOKIE_NAMES = {
 } as const;
 const INNER_SIDEBAR_STATE_COOKIE_NAMES = {
 	"agent-activity": "openmeld_sidebar_inner_agent_activity",
+	agents: "openmeld_sidebar_inner_agents",
 	"center-agent": "openmeld_sidebar_inner_center_agent",
 	"direct-messages": "openmeld_sidebar_inner_direct_messages",
 	people: "openmeld_sidebar_inner_people",
@@ -285,6 +286,7 @@ function readAppSidebarStateCatalogFromCookieHeader(
 				cookieHeader,
 				"agent-activity"
 			),
+			agents: readInnerSidebarStateFromCookieHeader(cookieHeader, "agents"),
 			"center-agent": readInnerSidebarStateFromCookieHeader(
 				cookieHeader,
 				"center-agent"

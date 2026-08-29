@@ -266,10 +266,12 @@ The destinations resolve in that group order:
    are available there.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
-   remains the internal identity-model term. The page shows each Agent's
-   identity, owner visibility, authoritative readiness, and execution
-   relationship in plain language such as **Uses Codex on Felix's MacBook Pro**.
-   The managed Center Agent remains in the separate Center Agent product home.
+   remains the internal identity-model term. Its secondary sidebar groups
+   Agents by owner and the main content shows the selected Agent's complete
+   detail. The page shows each Agent's identity, owner visibility,
+   authoritative readiness, and execution relationship in plain language such
+   as **Uses Codex on Felix's MacBook Pro**. The managed Center Agent remains in
+   the separate Center Agent product home.
 6. **Projects** — the first-level home for choosing, creating, and connecting
    the code Projects used by local Agents. Project records are scoped to the
    selected Organization; local folder connections remain owner-self,
@@ -501,15 +503,16 @@ placeholder and return Artifacts to navigation only when it has real product
 content and passes the Use vs. Configure test.
 
 The product destinations that own a secondary sidebar are **Spaces**, **Direct
-Messages**, **People**, and **Agent Activity**. The Settings utility owns its
-own secondary sidebar. **Agents** is an independent full-width home. People
-uses its sidebar only to select a Human Profile; the selected Human Profile's
-complete detail is the canonical main content, including that person's
-Computers. Center Agent is also
+Messages**, **People**, **Agents**, and **Agent Activity**. The Settings utility
+owns its own secondary sidebar. People uses its sidebar only to select a Human
+Profile; the selected Human Profile's complete detail is the canonical main
+content, including that person's Computers. Agents uses the same two-pane
+topology for owner-grouped selection and the selected Agent's complete detail.
+Center Agent is
 a full-width home: its primary work lives in the shared header and its lower-frequency
 capabilities and configuration live in one header menu.
 
-Each of those five route families owns one independent browser-persisted
+Each of those six route families owns one independent browser-persisted
 secondary-sidebar width. Child routes and selected records within a family
 share that width, as do different Organizations. The preference boundary is the
 stable route family, never the full pathname or a specific Organization, Space,
@@ -1681,6 +1684,41 @@ link with **Copy**, **Reset**, and **Revoke**. These lower-frequency controls do
 not consume permanent main-content space. Personal workspaces keep the button's
 position but show the existing Organization guidance instead of pretending an
 invitation is available.
+
+Agents is a two-pane workspace that shares People’s shell geometry, responsive
+sidebar behavior, selection treatment, and content spacing. The secondary
+sidebar keeps **Create Agent** as its primary entry and, in an Organization,
+keeps one fixed **Agent requests** entry above the Agent groups. Its explanatory
+copy is **Approve requests for Agents you’re being asked to own, and track
+requests you sent.** A pending badge counts only the existing Core-owned Agent
+Profile Creation Request projection; Web never creates a parallel request
+state.
+
+The sidebar groups ordinary Agents by owner name. The signed-in member’s group
+is first, and remaining groups use a stable owner-name and owner-ID order. Each
+row shows the Agent avatar, name, a compact Controller and model summary when
+known, and the existing Core-owned Wake availability projection. Route-online,
+Binding existence, browser-local recovery state, and completed Prepare evidence
+cannot substitute for that readiness. The selected `profileId` remains in the
+route search contract so refresh, back, forward, and request-to-Agent navigation
+open the exact same Agent.
+
+The selected Agent’s right-hand detail uses the same Profile Details section
+model, permissions, queries, mutations, execution-target locks, and diagnostic
+facts as the existing About and edit surfaces. Read-only detail is the default.
+**Direct Message** is a primary header action. An authorized owner may choose
+**Edit Agent** to edit in place, then explicitly **Save changes** or **Cancel**;
+a failed save keeps the draft and its diagnostic visible. Dangerous or
+low-frequency actions remain in the overflow menu. This presentation does not
+create a second Agent Profile, Binding, readiness, request, or edit authority.
+The Members panel continues to open the compact Profile Details dialog as a
+quick preview rather than navigating into this workspace.
+
+Below `md`, Agents uses the shared modal secondary-sidebar drawer with the
+**Agents** title and dismisses it after selection. At `md` and wider, the same
+sidebar stays inline and uses the Agents route-family’s persisted width and
+collapsed state. Loading, failure, filtered-empty, and true-empty states remain
+distinct and keep **Create Agent** reachable.
 
 ### Projects
 
