@@ -249,10 +249,13 @@ async function buildAuthProxyErrorResponse(input: {
 							: "Authentication request failed.",
 				});
 
+	const headers = buildDownstreamAuthProxyHeaders(
+		input.upstreamResponse.headers
+	);
+	headers.set("content-type", "application/json; charset=utf-8");
+
 	return new Response(body, {
-		headers: {
-			"content-type": "application/json; charset=utf-8",
-		},
+		headers,
 		status: resolveAuthProxyErrorStatus(input.upstreamResponse.status),
 	});
 }

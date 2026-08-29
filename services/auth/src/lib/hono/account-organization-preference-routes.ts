@@ -8,16 +8,10 @@ import type { Context, Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { AppContext } from "../context";
 import { requireTrustedCookieOrigin } from "../middlewares/trusted-origin";
+import { toDiagnosticError } from "../observability/diagnostic-error";
 import { logError } from "../utils/loggers";
 import { ACCOUNT_LAST_SELECTED_ORGANIZATION_ROUTE } from "./account-route-paths";
 import { requireAuthenticatedUser } from "./authenticated-user";
-
-type DiagnosticError = {
-  cause?: DiagnosticError;
-  message: string;
-  name: string | null;
-  stack?: string;
-};
 
 type AccountPreferenceErrorResponseInput = {
   code: SelectLastSelectedOrganizationErrorCode;
@@ -168,27 +162,4 @@ function logAccountPreferenceSelectionFailure(
     path: c.req.path,
     requestId: c.var.requestId,
   });
-}
-
-function toDiagnosticError(
-  error: unknown,
-  remainingCauseDepth = 2
-): DiagnosticError {
-  if (!(error instanceof Error)) {
-    return {
-      message: String(error),
-      name: null,
-    };
-  }
-
-  return {
-    message: error.message,
-    name: error.name,
-    ...(error.stack ? { stack: error.stack } : {}),
-    ...(remainingCauseDepth > 0 && error.cause !== undefined
-      ? {
-          cause: toDiagnosticError(error.cause, remainingCauseDepth - 1),
-        }
-      : {}),
-  };
 }
