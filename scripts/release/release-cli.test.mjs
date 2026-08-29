@@ -38,6 +38,8 @@ const IMMUTABLE_TAG_CONFLICT_RE =
   /refusing to overwrite an immutable release tag/u;
 const IMMUTABLE_NPM_METADATA_RE =
   /npm openmeld@0\.7\.96 is immutable with required floor 0\.7\.95/u;
+const IMMUTABLE_R2_METADATA_RE =
+  /production CLI manifest for 0\.7\.96 is immutable with required floor 0\.7\.95/u;
 const MANIFEST_GATE_EXPLODED_RE = /manifest gate exploded/u;
 const QUEUE_GATE_EXPLODED_RE = /queue gate exploded/u;
 const RELEASE_RESUME_COMMAND_RE =
@@ -589,6 +591,7 @@ test("preserves a failed stage error and prints the canonical resume command", a
                 channels: {
                   stable: {
                     version: "0.7.96",
+                    minRequiredCliVersion: "0.7.96",
                     platforms: {
                       "darwin-arm64": {
                         url: "https://openmeld.test/cli-0.7.96",
@@ -673,6 +676,7 @@ test("stops before binary, npm, tag, and Core when the Queue gate fails", async 
                 channels: {
                   stable: {
                     version: "0.7.96",
+                    minRequiredCliVersion: "0.7.96",
                     platforms: {
                       "darwin-arm64": {
                         url: "https://openmeld.test/cli-0.7.96",
@@ -922,6 +926,82 @@ test("stops before every release mutation when immutable npm metadata is wrong",
         withBinary: true,
       }),
       IMMUTABLE_NPM_METADATA_RE
+    );
+    assert.deepEqual(sideEffects, []);
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("stops before every release mutation when immutable R2 metadata is wrong", async () => {
+  const { git, repoRoot } = await createReleaseRepo("0.7.96");
+  await mkdir(join(repoRoot, "release"), { recursive: true });
+  await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
+  await git("add", "release/local-components.json");
+  await git("commit", "-m", "add release manifest");
+  await configureTestOrigin({ git, repoRoot });
+  const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
+  const sideEffects = [];
+
+  try {
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          fetch: (url, options) => {
+            const manifest = buildTestCliManifest("0.7.96");
+            manifest.channels.stable.minRequiredCliVersion = "0.7.95";
+            if (options?.method === "HEAD") {
+              return new Response(null, {
+                headers: {
+                  "content-length": String(TEST_CLI_BINARY.byteLength),
+                },
+                status: 200,
+              });
+            }
+            if (String(url).endsWith(".gz")) {
+              return new Response(TEST_CLI_ARCHIVE, { status: 200 });
+            }
+            return new Response(JSON.stringify(manifest), { status: 200 });
+          },
+          runCommand: ({ args, command }) => {
+            const key = [command, ...args].join(" ");
+            if (key.startsWith("npm view")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout:
+                  '{"version":"0.7.96","openmeld.minRequiredCliVersion":"0.7.96"}\n',
+              };
+            }
+            if (key.includes("wrangler deployments list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(WRANGLER_RELEASE_STATE.deployments),
+              };
+            }
+            if (key.includes("wrangler versions list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(
+                  WRANGLER_RELEASE_STATE.versions.map((version) => ({
+                    ...version,
+                    annotations: { "workers/tag": coreTag },
+                  }))
+                ),
+              };
+            }
+            throw new Error(`Unexpected read-only command: ${key}`);
+          },
+          runStep: (step) => sideEffects.push(step.label),
+          publishCliReleaseTag: () => sideEffects.push("tag"),
+        },
+        cwd: repoRoot,
+        env: {},
+        withBinary: true,
+      }),
+      IMMUTABLE_R2_METADATA_RE
     );
     assert.deepEqual(sideEffects, []);
   } finally {

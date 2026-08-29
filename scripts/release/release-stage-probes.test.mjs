@@ -112,14 +112,14 @@ test("skips the CLI binary channel at the published-record criterion", () => {
   });
 });
 
-test("reruns the CLI binary publication when R2 has the right version but the wrong required floor", () => {
+test("fails before mutating immutable R2 artifacts when the version exists with the wrong required floor", () => {
   const input = completeBinaryInput();
   input.manifest.channels.stable.minRequiredCliVersion = "0.2.39";
 
   assert.deepEqual(decideCliBinaryStage(input), {
-    action: "RUN",
+    action: "FAIL",
     reason:
-      "the production CLI manifest required floor is 0.2.39, not target 0.2.40",
+      "the production CLI manifest for 0.2.43 is immutable with required floor 0.2.39, not target 0.2.40; publish a new release instead of retrying this version",
   });
 });
 

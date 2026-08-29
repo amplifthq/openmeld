@@ -52,8 +52,8 @@ export function decideCliBinaryStage(input) {
     stable.minRequiredCliVersion !== input.targetMinRequiredCliVersion
   ) {
     return {
-      action: "RUN",
-      reason: `the production CLI manifest required floor is ${String(stable.minRequiredCliVersion ?? "missing")}, not target ${input.targetMinRequiredCliVersion}`,
+      action: "FAIL",
+      reason: `the production CLI manifest for ${input.targetVersion} is immutable with required floor ${String(stable.minRequiredCliVersion ?? "missing")}, not target ${input.targetMinRequiredCliVersion}; publish a new release instead of retrying this version`,
     };
   }
   const artifact = stable.platforms?.[input.platform];

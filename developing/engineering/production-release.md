@@ -843,18 +843,21 @@ because they are safe, even though they create another Worker version.
 | Stage | `SKIP` criterion | Criterion level |
 | --- | --- | --- |
 | Production D1 migration application | `wrangler d1 migrations list --remote` reports no pending migrations | Remote pending-list truth |
-| CLI binary, signing, notarization, and R2 | The production manifest has the target version; the platform record has a valid sha256 and positive size; `HEAD` confirms the artifact is downloadable with that size | Published-record evidence; no local rebuild/hash comparison |
-| npm | `npm view` reports the target immutable version | Registry version existence |
+| CLI binary, signing, notarization, and R2 | The production manifest has the target version and the exact target `minRequiredCliVersion`; the platform record has a valid sha256 and positive size; `HEAD` confirms the artifact is downloadable with that size | Published-record evidence; no local rebuild/hash comparison |
+| npm | `npm view` reports the target immutable version and its `openmeld.minRequiredCliVersion` exactly matches the target floor | Registry version and floor existence |
 | Release tag | The target tag resolves to the current release commit both locally and on `origin` | Local and remote Git object identity |
 | Core projection | The active 100% production Worker version carries the stable tag derived from the release commit and `release/local-components.json` | Active Worker version identity |
-| Final channel alignment | R2, npm, and the active Core projection all satisfy their target criteria | Three-way published state |
+| Final channel alignment | R2 and npm expose the exact target version and `minRequiredCliVersion`, and the active Core projection satisfies its target criterion | Three-way published state |
 
 A release tag that exists at another commit locally or on `origin` fails
 immediately and is never moved. The resumable executor owns both local tag
 creation and exact-ref publication to `origin`; callers must not add a second
-tag-push path. A final channel-alignment failure includes the exact next release
-command. The normal recovery command is therefore the original command, not a
-manually shortened sequence:
+tag-push path. R2 and npm package versions are immutable too: if either already
+publishes the target version with a different CLI floor, the release fails
+before any mutation and requires a new version instead of overwriting artifacts.
+A final channel-alignment failure includes the exact next release command. The
+normal recovery command is therefore the original command, not a manually
+shortened sequence:
 
 ```sh
 pnpm run release:deploy:local -- --scope cli
