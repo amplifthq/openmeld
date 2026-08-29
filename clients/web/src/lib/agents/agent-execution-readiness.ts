@@ -6,7 +6,7 @@ import type {
 	AgentExecutionReadinessTargetRuntime,
 	GetAgentExecutionReadinessBatchResponse,
 } from "@openmeld/schemas/types";
-import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export const AGENT_EXECUTION_READINESS_REQUEST_BATCH_SIZE = 100;
 export const AGENT_EXECUTION_READINESS_UI_BATCH_SIZE = 12;
@@ -24,11 +24,14 @@ export function chunkAgentExecutionReadinessProfileIds(
 
 export async function readAgentExecutionReadinessBatch(input: {
 	agentProfileIds: readonly string[];
+	organizationId: string;
 	targetRuntime?: AgentExecutionReadinessTargetRuntime;
 }): Promise<GetAgentExecutionReadinessBatchResponse> {
 	try {
 		const api = createAgentProfileBindingApi(
-			createUnscopedWebOpenMeldApiFoundation()
+			createOrganizationScopedWebOpenMeldApiFoundation({
+				organizationId: input.organizationId,
+			})
 		);
 		const responses: GetAgentExecutionReadinessBatchResponse[] = [];
 		for (const agentProfileIds of chunkAgentExecutionReadinessProfileIds(
@@ -54,10 +57,13 @@ export async function readAgentExecutionReadinessBatch(input: {
 
 export async function notifyAgentExecutionReadinessRefresh(input: {
 	agentProfileIds: readonly string[];
+	organizationId: string;
 }): Promise<void> {
 	try {
 		const api = createAgentProfileBindingApi(
-			createUnscopedWebOpenMeldApiFoundation()
+			createOrganizationScopedWebOpenMeldApiFoundation({
+				organizationId: input.organizationId,
+			})
 		);
 		const uniqueProfileIds = [...new Set(input.agentProfileIds)];
 		if (uniqueProfileIds.length === 0) {

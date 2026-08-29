@@ -692,6 +692,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				await refreshWebAgentReadinessFacts({
 					agentProfileIds: profileIdsNeedingRouteRefresh,
 					includeLocalRuntimeCaches: false,
+					organizationId: currentOrganization.id,
 					queryClient: input.queryClient,
 					storageScope: input.recovery.storageScope,
 				});
@@ -699,6 +700,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 			await refreshWebAgentReadinessSharedCaches({
 				agentProfileIds: profileIdsToRefresh,
 				includeLocalRuntimeCaches: false,
+				organizationId: currentOrganization.id,
 				queryClient: input.queryClient,
 				storageScope: input.recovery.storageScope,
 			});
@@ -744,6 +746,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 	}, [
 		autoRefreshingProfileKey,
 		autoRefreshingProfileStateKey,
+		currentOrganization.id,
 		input.queryClient,
 		input.recovery.storageScope,
 	]);
@@ -1107,6 +1110,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		try {
 			await refreshWebAgentReadinessFacts({
 				agentProfileIds: [profile.openMeldProfileId],
+				organizationId: currentOrganization.id,
 				queryClient: input.queryClient,
 				storageScope: input.recovery.storageScope,
 			});
@@ -1187,6 +1191,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				}),
 				refreshWebAgentReadinessFacts({
 					agentProfileIds: [profile.openMeldProfileId],
+					organizationId: currentOrganization.id,
 					queryClient: input.queryClient,
 					storageScope: input.recovery.storageScope,
 				}),
@@ -1248,6 +1253,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				}),
 				refreshWebAgentReadinessSharedCaches({
 					agentProfileIds: [profile.openMeldProfileId],
+					organizationId: currentOrganization.id,
 					queryClient: input.queryClient,
 					storageScope: input.recovery.storageScope,
 				}),

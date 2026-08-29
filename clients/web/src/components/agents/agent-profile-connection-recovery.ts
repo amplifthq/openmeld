@@ -84,6 +84,7 @@ export async function refreshSavedAgentProfileConnections(input: {
 		}),
 		refreshWebAgentReadinessFacts({
 			agentProfileIds: input.profileIds,
+			organizationId: input.organizationId,
 			queryClient: input.queryClient,
 			storageScope: input.storageScope,
 		}),

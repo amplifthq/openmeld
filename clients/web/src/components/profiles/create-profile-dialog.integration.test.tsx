@@ -1208,10 +1208,10 @@ describe("CreateProfileDialog", () => {
 			});
 			expect(invalidateQueriesSpy).toHaveBeenCalledWith(
 				expect.objectContaining({
-					queryKey:
-						agentExecutionReadinessQueryKeys.batchesForStorageScope(
-							"scope-test"
-						),
+					queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+						"scope-test",
+						"organization-123"
+					),
 				})
 			);
 			expect(onAfterJoin).toHaveBeenCalledWith({

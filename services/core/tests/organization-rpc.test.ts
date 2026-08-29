@@ -8443,14 +8443,23 @@ describe("organization Core RPC", () => {
       members: [memberRow("member-a", "org-a", "user-a", "member")],
       spaces: [
         spaceRow({
-          organizationId: "org-a",
+          organizationId: "org-b",
           spaceId,
-          spaceName: "Organization A Room",
+          spaceName: "Stale Organization B Projection",
           visibility: "private",
         }),
       ],
     });
-    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const spaceStub = createSpaceStub({
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId,
+          spaceName: "Canonical Organization A Room",
+          visibility: "private",
+        }),
+      ],
+    });
     const env = buildEnv({ db, spaceStub });
     const context = buildContext({
       activeOrganizationId: "org-a",
@@ -8477,10 +8486,16 @@ describe("organization Core RPC", () => {
       rpcAddSpaceMembers(env, {
         context,
         members: [sameOrganizationAgent, humanMember],
+        password: "space-password",
         spaceId,
       })
     ).resolves.toMatchObject({
       addedMemberIds: [sameOrganizationAgentProfileId, HUMAN_PROFILE_ID],
+    });
+    expect(spaceStub.rpcGetMeta).toHaveBeenCalledWith({
+      context,
+      password: "space-password",
+      spaceId,
     });
     expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
 
@@ -8489,6 +8504,8 @@ describe("organization Core RPC", () => {
       profileId: foreignAgentProfileId,
       profileName: "Foreign Agent",
     };
+    // Exercise the Core DTO seam directly so an older Gateway/client cannot
+    // bypass canonical Space and Agent Profile Organization validation.
     await expect(
       rpcAddSpaceMembers(env, {
         context,
@@ -8506,15 +8523,45 @@ describe("organization Core RPC", () => {
         context,
         members: [
           {
-            ...foreignAgent,
+            ...sameOrganizationAgent,
             profileKind: "human",
           },
         ],
         spaceId,
       })
     ).rejects.toMatchObject({
-      code: "agent_profile.organization_mismatch",
-      status: 403,
+      code: "space.member_profile_kind_mismatch",
+      status: 409,
+    });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+
+    spaceStub.rpcGetMeta.mockRejectedValueOnce(
+      new Error("canonical Space metadata lookup failed")
+    );
+    await expect(
+      rpcAddSpaceMembers(env, {
+        context,
+        members: [sameOrganizationAgent],
+        spaceId,
+      })
+    ).rejects.toMatchObject({
+      code: "space.organization_lookup_failed",
+      status: 503,
+    });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+
+    db.prepare.mockImplementationOnce(() => {
+      throw new Error("canonical Agent Profile lookup failed");
+    });
+    await expect(
+      rpcAddSpaceMembers(env, {
+        context,
+        members: [sameOrganizationAgent],
+        spaceId,
+      })
+    ).rejects.toMatchObject({
+      code: "agent_profile.organization_lookup_failed",
+      status: 503,
     });
     expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
   });
@@ -13055,6 +13102,24 @@ function createSpaceStub(
     }
   );
   return {
+    rpcGetMeta: vi.fn((request: { spaceId: string }) => {
+      const space = spaces.find((item) => item.spaceId === request.spaceId);
+      if (!space) {
+        return Promise.reject(
+          Object.assign(new Error("Space was not found."), {
+            code: "space.not_found",
+            status: 404,
+          })
+        );
+      }
+      return Promise.resolve({
+        ...(space.spaceName ? { name: space.spaceName } : {}),
+        organizationId: space.organizationId,
+        ...(space.spacePurpose ? { purpose: space.spacePurpose } : {}),
+        spaceId: space.spaceId,
+        visibility: space.visibility,
+      });
+    }),
     rpcInitializeDirectMessageMeta: initializeDirectMessageMeta,
     rpcConvertDirectMessageToSpace: vi.fn(
       (request: {

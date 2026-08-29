@@ -353,6 +353,46 @@ describe("agent wake availability", () => {
     });
   });
 
+  it("keeps a hosted Center Agent workspace mismatch explicit", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      runtimeReadiness: {
+        displayState: "unavailable",
+        ready: false,
+        reasonCodes: ["agent_profile.organization_mismatch"],
+      },
+    });
+
+    expect(resolveHostedAgentWakeAvailability({ readiness })).toMatchObject({
+      badgeLabel: "Wrong workspace",
+      label: "Wrong workspace",
+      reasonCode: "agent_profile.organization_mismatch",
+      status: "unavailable_for_wake",
+      summary: "This Agent Profile belongs to a different workspace.",
+      tooltip: "This Agent Profile belongs to another workspace",
+    });
+  });
+
+  it("keeps a hosted Center Agent missing workspace context explicit", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      runtimeReadiness: {
+        displayState: "unavailable",
+        ready: false,
+        reasonCodes: ["agent_profile.organization_context_missing"],
+      },
+    });
+
+    expect(resolveHostedAgentWakeAvailability({ readiness })).toMatchObject({
+      badgeLabel: "Workspace unavailable",
+      label: "Workspace unavailable",
+      reasonCode: "agent_profile.organization_context_missing",
+      status: "unavailable_for_wake",
+    });
+  });
+
   it("fails closed when a ready path only has a weak ready route status", () => {
     const readiness = resolveAgentExecutionStatus({
       agentProfileId,

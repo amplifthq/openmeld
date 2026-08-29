@@ -2416,6 +2416,7 @@ async function refreshCreatedAgentProfileLocalState(input: {
 		refreshWebAgentReadinessFacts({
 			agentProfileIds: [input.createdProfile.openMeldProfileId],
 			maxAttempts: 3,
+			organizationId: input.organizationId,
 			queryClient: input.queryClient,
 			storageScope: input.recovery.storageScope,
 		}),

@@ -116,7 +116,11 @@ function createBindingsMock() {
     rpcPostStatusSignal: vi.fn(),
     rpcPostSystemNoticeSignal: vi.fn(),
     rpcPostTransientSignal: vi.fn(async () => undefined),
-    rpcGetMeta: vi.fn(async () => ({ spaceId: "space-1" })),
+    rpcGetMeta: vi.fn(async (request: { spaceId: string }) => ({
+      organizationId: "org-1",
+      spaceId: request.spaceId,
+      visibility: "private" as const,
+    })),
     rpcPatchMeta: vi.fn(async () => ({ spaceId: "space-1" })),
     rpcPatchMetaWithPasswordAtomic: vi.fn(async () => ({
       spaceId: "space-1",

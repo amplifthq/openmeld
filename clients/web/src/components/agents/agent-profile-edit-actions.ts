@@ -143,6 +143,7 @@ export async function changeAgentProfileController(input: {
 	});
 	await refreshWebAgentReadinessFacts({
 		agentProfileIds: [input.context.profile.openMeldProfileId],
+		organizationId: input.context.organizationId,
 		queryClient: input.context.queryClient,
 		storageScope: input.context.storageScope,
 	});

@@ -504,6 +504,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			);
 			expect(refreshReadinessSharedCachesMock).toHaveBeenCalledWith({
 				agentProfileIds: [AGENT_PROFILE_ID],
+				organizationId: "org-acme",
 				queryClient,
 				storageScope: "test-scope",
 			});

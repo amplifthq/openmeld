@@ -618,7 +618,7 @@ async function enrichAgentBindingSnapshot(input: {
           env: input.env,
           resolveRuntimeClaimDiagnostics: async () => ({
             reasonCodes: [],
-            status: "accepted",
+            status: "not_checked",
           }),
         })
     );
@@ -791,7 +791,7 @@ async function createHostedAgentBindingSnapshot(input: {
   snapshot: ProfileIdentitySnapshot;
 }): Promise<AgentBindingSnapshot> {
   const readiness =
-    input.claimDiagnostics?.status === "accepted"
+    input.claimDiagnostics?.status === "not_checked"
       ? await resolveHostedCenterAgentReadiness({
           activeOrganizationId: input.activeOrganizationId,
           agentProfileId: input.agent.profileId,
@@ -1475,11 +1475,15 @@ export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
   resolveRuntimeClaimDiagnostics: () => Promise<AgentExecutionClaimDiagnosticEvidence | null>;
 }): Promise<AgentExecutionClaimDiagnosticEvidence | null> {
   const runtimeClaimDiagnostics = await input.resolveRuntimeClaimDiagnostics();
+  if (!input.activeOrganizationId) {
+    return mergeAgentProfileOrganizationClaimFailure({
+      reasonCode: "agent_profile.organization_context_missing",
+      runtimeClaimDiagnostics,
+      status: "unavailable",
+    });
+  }
   if (
-    !(
-      input.activeOrganizationId &&
-      isAgentProfileBindingProjection(input.binding)
-    ) ||
+    !isAgentProfileBindingProjection(input.binding) ||
     input.binding.bindingState !== "enabled_primary" ||
     !input.binding.bindingId
   ) {
@@ -1515,10 +1519,7 @@ export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
       })
     ) {
       return mergeAgentProfileOrganizationClaimFailure({
-        reasonCode:
-          profileContext.managedRole === "center_agent"
-            ? "center_agent.organization_mismatch"
-            : "agent_profile.organization_mismatch",
+        reasonCode: "agent_profile.organization_mismatch",
         runtimeClaimDiagnostics,
         status: "rejected",
       });

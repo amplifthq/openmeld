@@ -1,9 +1,13 @@
 import type { OpenMeldDaemonDispatchQueueMessage } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveTargetBindingOrganizationScope } from "../src/dispatch/application/dispatch-execution-service";
 import type { CoreBindings } from "../src/lib/bindings";
 
 describe("dispatch Agent Profile Organization scope", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("accepts a Binding whose Agent Profile belongs to the Space Organization without legacy Wake access", async () => {
     const result = await resolveTargetBindingOrganizationScope({
       bindingId: "binding-acme",
@@ -35,13 +39,55 @@ describe("dispatch Agent Profile Organization scope", () => {
       ok: false,
     });
   });
+
+  it("logs safe dispatch correlation when the Organization lookup fails", async () => {
+    const log = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const result = await resolveTargetBindingOrganizationScope({
+      bindingId: "binding-acme",
+      env: createFailingScopeEnv(new Error("D1 lookup failed")),
+      message: createDispatchMessage(),
+    });
+
+    expect(result).toMatchObject({
+      errorCode: "agent_profile.organization_lookup_failed",
+      finalStatus: "failed_retryable",
+      ok: false,
+    });
+    expect(log).toHaveBeenCalledWith(
+      "[core.openMeldDaemon.dispatch_execution.agent_profile_organization_lookup_failed]",
+      {
+        bindingId: "binding-acme",
+        dispatchId: "dispatch-1",
+        error: "D1 lookup failed",
+        event:
+          "core.openMeldDaemon.dispatch_execution.agent_profile_organization_lookup_failed",
+        sourceEventId: "source-event-1",
+        spaceId: "space-acme",
+        targetProfileId: "agent-profile-1",
+        taskId: "task-1",
+      }
+    );
+  });
 });
 
 function createDispatchMessage(): OpenMeldDaemonDispatchQueueMessage {
   return {
+    dispatchId: "dispatch-1",
     spaceId: "space-acme",
+    sourceEventId: "source-event-1",
     targetProfileId: "agent-profile-1",
+    taskId: "task-1",
   } as OpenMeldDaemonDispatchQueueMessage;
+}
+
+function createFailingScopeEnv(error: Error): CoreBindings {
+  return {
+    OPENMELD_DB: {
+      prepare: () => {
+        throw error;
+      },
+    } as unknown as D1Database,
+  } as CoreBindings;
 }
 
 function createScopeEnv(input: {

@@ -124,6 +124,7 @@ export type OpenMeldServiceCardOwnerProps = {
 	isCurrentComputer: boolean;
 	isReconcilingStatus: boolean;
 	onFocusConsumed?: () => void;
+	organizationId: string;
 	queryClient: QueryClient;
 	replyReadiness: ComputerReplyReadiness | null;
 	recovery: AgentsPageController;
@@ -290,6 +291,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 		setIsCheckingStatus(true);
 		try {
 			await refreshWebAgentReadinessSharedCaches({
+				organizationId: input.organizationId,
 				queryClient: input.queryClient,
 				storageScope: input.recovery.storageScope,
 			});
@@ -307,12 +309,14 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	};
 	const refreshServiceStatus = useCallback(async () => {
 		await refreshWebAgentReadinessSharedCaches({
+			organizationId: input.organizationId,
 			queryClient: input.queryClient,
 			storageScope: input.recovery.storageScope,
 		});
 		await input.recovery.refreshAll();
 	}, [
 		input.queryClient,
+		input.organizationId,
 		input.recovery.refreshAll,
 		input.recovery.storageScope,
 	]);

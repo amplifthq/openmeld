@@ -1,4 +1,8 @@
-import { createAgentProfileBindingDisplayProjection } from "@openmeld/agent-runtime";
+import {
+  createAgentExecutionStatusDisplayRows,
+  createAgentProfileBindingDisplayProjection,
+  resolveHostedAgentWakeAvailability,
+} from "@openmeld/agent-runtime";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
@@ -68,6 +72,29 @@ describe("agent-execution-readiness-service", () => {
     expect(readiness).toEqual({ reasonCodes: [], status: "accepted" });
   });
 
+  it("fails closed when Agent Profile readiness has no active Organization", async () => {
+    const readiness = await resolveAgentProfileOrganizationClaimDiagnostics({
+      activeOrganizationId: null,
+      binding: createPrimaryBinding(),
+      env: createAuthorizationEnv(null, {
+        managed_role: null,
+        organization_id: "org-acme",
+        owner_user_id: "user-1",
+        profile_kind: "agent",
+        profile_name: "Acme Agent",
+      }),
+      resolveRuntimeClaimDiagnostics: async () => ({
+        reasonCodes: [],
+        status: "accepted",
+      }),
+    });
+
+    expect(readiness).toEqual({
+      reasonCodes: ["agent_profile.organization_context_missing"],
+      status: "unavailable",
+    });
+  });
+
   it("blocks an ordinary Agent Profile owned by another Organization even when legacy Wake access remains", async () => {
     const readiness = await resolveAgentProfileOrganizationClaimDiagnostics({
       activeOrganizationId: "org-acme",
@@ -127,7 +154,7 @@ describe("agent-execution-readiness-service", () => {
     });
 
     expect(readiness).toEqual({
-      reasonCodes: ["center_agent.organization_mismatch"],
+      reasonCodes: ["agent_profile.organization_mismatch"],
       status: "rejected",
     });
   });
@@ -177,10 +204,58 @@ describe("agent-execution-readiness-service", () => {
         claim: {
           executionBlocked: false,
           reasonCodes: [],
-          source: "claim_diagnostics",
+          source: "not_checked",
         },
       },
       primaryAction: "none",
+    });
+    expect(
+      createAgentExecutionStatusDisplayRows(
+        readiness.agentExecutionReadiness
+      ).find((row) => row.label === "Wake")
+    ).toEqual({
+      label: "Wake",
+      value: "Wake has not been checked yet.",
+    });
+    expect(
+      resolveHostedAgentWakeAvailability({
+        readiness: readiness.agentExecutionReadiness,
+      })
+    ).toMatchObject({
+      badgeLabel: "Available",
+      reasonCode: "remote_agent.available",
+      status: "available_for_wake",
+      summary: "Center Agent can answer now.",
+    });
+  });
+
+  it("does not expose hosted readiness as Available without an active Organization", async () => {
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createHostedCenterAgentReadinessEnv({
+        profileOrganizationId: "org-acme",
+      }),
+      generatedAt: "2026-05-10T00:00:00.000Z",
+      profileId: "agt_readiness_without_snapshot",
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "blocked",
+      facts: {
+        claim: {
+          executionBlocked: true,
+          reasonCodes: ["agent_profile.organization_context_missing"],
+          source: "claim_diagnostics",
+        },
+      },
+    });
+    expect(
+      resolveHostedAgentWakeAvailability({
+        readiness: readiness.agentExecutionReadiness,
+      })
+    ).toMatchObject({
+      badgeLabel: "Workspace unavailable",
+      reasonCode: "agent_profile.organization_context_missing",
+      status: "unavailable_for_wake",
     });
   });
 
@@ -199,17 +274,29 @@ describe("agent-execution-readiness-service", () => {
       facts: {
         claim: {
           executionBlocked: true,
-          reasonCodes: ["center_agent.organization_mismatch"],
+          reasonCodes: ["agent_profile.organization_mismatch"],
           source: "claim_diagnostics",
         },
       },
     });
     expect(readiness.agentExecutionReadiness.reasonCodes).toContain(
-      "center_agent.organization_mismatch"
+      "agent_profile.organization_mismatch"
     );
     expect(readiness.spaceMemberAgentExecutionReadiness.displayState).toBe(
       "blocked"
     );
+    expect(
+      resolveHostedAgentWakeAvailability({
+        readiness: readiness.agentExecutionReadiness,
+      })
+    ).toMatchObject({
+      badgeLabel: "Wrong workspace",
+      label: "Wrong workspace",
+      reasonCode: "agent_profile.organization_mismatch",
+      status: "unavailable_for_wake",
+      summary: "This Agent Profile belongs to a different workspace.",
+      tooltip: "This Agent Profile belongs to another workspace",
+    });
   });
 });
 

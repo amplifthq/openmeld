@@ -271,6 +271,11 @@ export function resolveHostedAgentWakeAvailability(input: {
   readiness: AgentExecutionStatusProjection;
 }): AgentWakeAvailability {
   const { readiness } = input;
+  if (
+    collectReasonCodes(readiness).some(isAgentProfileWorkspaceBlockerReasonCode)
+  ) {
+    return createUnavailableWakeAvailability(readiness);
+  }
   const reasonCode = pickHostedAgentReasonCode(readiness);
 
   if (hasReasonCode(readiness, "agent_profile.not_found")) {

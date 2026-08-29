@@ -1198,7 +1198,7 @@ import {
   requireCurrentLocalRuntimeExecutionTarget,
   requireCurrentLocalRuntimeServiceTarget,
 } from "./current-local-control-target";
-import { createCoreRpcHttpError } from "./errors";
+import { createCoreRpcHttpError, readCoreRpcHttpStatus } from "./errors";
 import {
   requireAcceptedLocalAgentControlPayload,
   requireAcceptedLocalAgentInstallationPayload,
@@ -18623,9 +18623,12 @@ export async function rpcAddSpaceMembers(
   const context = requireRpcContext(input.context);
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   await assertAgentProfileMembersBelongToSpaceOrganization({
+    context,
     env,
     members: input.members,
+    ...(input.password === undefined ? {} : { password: input.password }),
     spaceId,
+    stub,
   });
   await assertAdditionalMembersCanBeAddedToSpace({
     env,
@@ -18644,19 +18647,25 @@ export async function rpcAddSpaceMembers(
 }
 
 async function assertAgentProfileMembersBelongToSpaceOrganization(input: {
+  context: CoreRpcContextInput;
   env: CoreBindings;
   members: readonly ResolvedSpaceMemberProfile[];
+  password?: string;
   spaceId: string;
+  stub: SpaceRpcStub;
 }): Promise<void> {
-  let spaceTarget: Awaited<
-    ReturnType<typeof readSpaceIndexOrganizationJoinTarget>
-  >;
+  let spaceMeta: SpaceMeta;
   try {
-    spaceTarget = await readSpaceIndexOrganizationJoinTarget({
-      db: requireSpaceIndexDb(input.env),
+    spaceMeta = await input.stub.rpcGetMeta({
+      context: input.context,
+      ...(input.password === undefined ? {} : { password: input.password }),
       spaceId: input.spaceId,
     });
   } catch (error) {
+    const status = readCoreRpcHttpStatus(error);
+    if (status !== null && status < 500) {
+      throw error;
+    }
     console.error("[core.space_member.organization_lookup_failed]", {
       event: "core.space_member.organization_lookup_failed",
       error: toErrorMessage(error),
@@ -18666,13 +18675,6 @@ async function assertAgentProfileMembersBelongToSpaceOrganization(input: {
       code: "space.organization_lookup_failed",
       reason: "Space workspace could not be verified.",
       status: 503,
-    });
-  }
-  if (!spaceTarget) {
-    throw createCoreRpcHttpError({
-      code: "space.not_found",
-      reason: "Space was not found.",
-      status: 404,
     });
   }
 
@@ -18712,6 +18714,13 @@ async function assertAgentProfileMembersBelongToSpaceOrganization(input: {
       }
       continue;
     }
+    if (member.profileKind !== profileContext.profileKind) {
+      throw createCoreRpcHttpError({
+        code: "space.member_profile_kind_mismatch",
+        reason: "Space member profile kind does not match canonical identity.",
+        status: 409,
+      });
+    }
     if (profileContext.profileKind !== "agent") {
       continue;
     }
@@ -18719,7 +18728,7 @@ async function assertAgentProfileMembersBelongToSpaceOrganization(input: {
       isAgentProfileEligibleForOrganization({
         managedRole: profileContext.managedRole,
         profileOrganizationId: profileContext.organizationId,
-        targetOrganizationId: spaceTarget.organizationId,
+        targetOrganizationId: spaceMeta.organizationId,
       })
     ) {
       continue;

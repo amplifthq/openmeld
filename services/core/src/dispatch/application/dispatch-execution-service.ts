@@ -5586,7 +5586,21 @@ export const resolveTargetBindingOrganizationScope = async (input: {
       ok: true,
       organizationId,
     };
-  } catch {
+  } catch (error) {
+    console.warn(
+      "[core.openMeldDaemon.dispatch_execution.agent_profile_organization_lookup_failed]",
+      {
+        bindingId: input.bindingId,
+        dispatchId: input.message.dispatchId,
+        error: toErrorMessage(error),
+        event:
+          "core.openMeldDaemon.dispatch_execution.agent_profile_organization_lookup_failed",
+        sourceEventId: input.message.sourceEventId,
+        spaceId: input.message.spaceId,
+        targetProfileId: input.message.targetProfileId,
+        taskId: input.message.taskId,
+      }
+    );
     return {
       ok: false,
       errorCode: "agent_profile.organization_lookup_failed",
