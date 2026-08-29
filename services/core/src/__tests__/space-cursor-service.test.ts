@@ -38,6 +38,7 @@ function toPublicSpaceCursor(cursor: SpaceCursorRecord): SpaceCursor {
 function createCursorHarness(input?: {
   existing?: SpaceCursorRecord | null;
   mentionAliasOwners?: Map<string, string>;
+  nowMs?: number;
 }) {
   let storedCursor = input?.existing ?? null;
   const mentionAliasOwners = input?.mentionAliasOwners ?? new Map();
@@ -49,6 +50,7 @@ function createCursorHarness(input?: {
         body,
         profileId: PROFILE_ID,
         spaceId: SPACE_ID,
+        nowMs: () => input?.nowMs ?? 1000,
         readSpaceCursorRecord: () => storedCursor,
         readCursorProfileIdByMentionAlias: (mentionAlias) =>
           mentionAliasOwners.get(mentionAlias) ?? null,
@@ -85,6 +87,18 @@ describe("space cursor service", () => {
       lastSeenTs: 0,
     });
     expect(harness.getStoredCursor()?.lastSeenTs).toBe(0);
+  });
+
+  it("rejects a lastSeenTs far in the future", async () => {
+    const harness = createCursorHarness({ nowMs: 1000 });
+
+    const response = harness.patch({ lastSeenTs: 301_001 });
+
+    expect(response.status).toBe(400);
+    await expect(response.text()).resolves.toBe(
+      "lastSeenTs is too far in the future"
+    );
+    expect(harness.getStoredCursor()).toBeNull();
   });
 
   it("rejects a non-finite-only lastSeenTs patch as empty", async () => {

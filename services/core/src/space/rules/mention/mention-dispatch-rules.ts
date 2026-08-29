@@ -5,8 +5,10 @@ import {
   MENTION_DISPATCH_ERROR_CODES,
   planTargetDispatchDecisions,
 } from "@openmeld/schemas";
-import type { OpenMeldDaemonMentionDispatchResultPayload } from "@openmeld/schemas/types";
-import { resolveSpaceDispatchPolicyForTarget } from "../../infrastructure/sql/space-dispatch-policy-repo";
+import type {
+  OpenMeldDaemonMentionDispatchResultPayload,
+  RuntimeDispatchPolicy,
+} from "@openmeld/schemas/types";
 import { resolveSpaceMentionDispatchRuleSet } from "../../infrastructure/sql/space-dispatch-rule-repo";
 import { listSpaceMemberRecords } from "../../infrastructure/sql/space-member-repo";
 import { parseStoredSignal } from "../parsers/stored-signal";
@@ -64,23 +66,8 @@ export const isSpaceHistoryEligibleMentionFailureDecision = (
   );
 };
 
-export function resolveMentionDispatchDecisionsForSignal(input: {
-  mentionTargetAliases?: Map<string, Set<string>>;
-  sessions: Iterable<{
-    profile?: Profile;
-    enforcedProfile?: Profile;
-  }> | null;
-  signal: SignalEnvelope;
-  sql: SqlStorage;
-}): OpenMeldDaemonMentionDispatchResultPayload[] {
-  return resolveDispatchPlannerDecisionsForSignal({
-    sessions: input.sessions,
-    signal: input.signal,
-    sql: input.sql,
-  });
-}
-
 export function resolveDispatchPlannerDecisionsForSignal(input: {
+  dispatchPolicy: RuntimeDispatchPolicy;
   sessions: Iterable<{
     profile?: Profile;
     enforcedProfile?: Profile;
@@ -116,13 +103,8 @@ export function resolveDispatchPlannerDecisionsForSignal(input: {
     input.sql,
     Date.now()
   );
-  const defaultDispatchPolicy = resolveSpaceDispatchPolicyForTarget(input.sql, {
-    nowMs: Date.now(),
-    targetProfileId: "",
-  }).dispatchPolicy;
-
   return planTargetDispatchDecisions({
-    dispatchPolicy: defaultDispatchPolicy,
+    dispatchPolicy: input.dispatchPolicy,
     dispatchRules,
     resolveTargetProfile: (targetProfileId) =>
       activeAgentProfileIds.has(targetProfileId)

@@ -213,6 +213,79 @@ describe("useSpaceUnread", () => {
 		expect(onViewedThroughTs).toHaveBeenLastCalledWith(40);
 	});
 
+	it("persists to Core when the handler becomes available after the view is ready", async () => {
+		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
+		const { rerender } = renderHook(
+			({ persist }) =>
+				useSpaceUnread({
+					envelopes: [textSignal(40)],
+					isViewingLatest: true,
+					onViewedThroughTs: persist,
+					spaceId: "space-center-agent",
+					openMeldProfileId: "profile-human",
+				}),
+			{
+				initialProps: {
+					persist: undefined as
+						| ((throughTs: number) => Promise<void>)
+						| undefined,
+				},
+			}
+		);
+
+		await act(async () => {
+			await Promise.resolve();
+			vi.advanceTimersByTime(800);
+			await Promise.resolve();
+		});
+		expect(onViewedThroughTs).not.toHaveBeenCalled();
+
+		rerender({ persist: onViewedThroughTs });
+		await act(async () => {
+			vi.advanceTimersByTime(800);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(onViewedThroughTs).toHaveBeenCalledOnce();
+		expect(onViewedThroughTs).toHaveBeenCalledWith(40);
+	});
+
+	it("does not let a late cursor seed move a newer local read position backwards", async () => {
+		let resolveCursor: ((value: number | null) => void) | undefined;
+		readSpaceCursorLastSeenTsMock.mockReturnValue(
+			new Promise<number | null>((resolve) => {
+				resolveCursor = resolve;
+			})
+		);
+		const { rerender, result } = renderHook(
+			({ isViewingLatest }) =>
+				useSpaceUnread({
+					envelopes: [textSignal(50, "signal-latest")],
+					isViewingLatest,
+					spaceId: "space-center-agent",
+					openMeldProfileId: "profile-human",
+				}),
+			{ initialProps: { isViewingLatest: true } }
+		);
+
+		await act(async () => {
+			vi.advanceTimersByTime(800);
+			await Promise.resolve();
+		});
+		await act(async () => {
+			resolveCursor?.(40);
+			await Promise.resolve();
+		});
+		rerender({ isViewingLatest: false });
+
+		expect(result.current).toEqual({
+			count: 0,
+			firstSignalId: null,
+			isReady: true,
+		});
+	});
+
 	it("requires the document and latest position to remain visible for the full debounce", async () => {
 		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
 		const { rerender } = renderHook(

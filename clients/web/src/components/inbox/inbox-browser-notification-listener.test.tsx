@@ -7,7 +7,7 @@ import { InboxBrowserNotificationListener } from "./inbox-browser-notification-l
 const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
 const usePathnameMock = vi.hoisted(() => vi.fn());
 const showInboxBrowserNotificationMock = vi.hoisted(() => vi.fn());
-const invalidateInboxSummaryMock = vi.hoisted(() => vi.fn());
+const invalidateInboxFactsMock = vi.hoisted(() => vi.fn());
 const getCurrentInboxItemMock = vi.hoisted(() => vi.fn());
 const queryClientMock = vi.hoisted(() => ({ fetchQuery: vi.fn() }));
 const pendingItemIds = vi.hoisted(() => new Set<string>());
@@ -111,7 +111,7 @@ vi.mock("#/query/organizations/inbox", () => ({
 		staleTime: 0,
 	}),
 	inboxItemsInfiniteQueryOptions: (input: unknown) => input,
-	invalidateInboxSummary: invalidateInboxSummaryMock,
+	invalidateInboxFacts: invalidateInboxFactsMock,
 }));
 
 describe("InboxBrowserNotificationListener", () => {
@@ -138,7 +138,7 @@ describe("InboxBrowserNotificationListener", () => {
 		showInboxBrowserNotificationMock
 			.mockReset()
 			.mockResolvedValue({ notification: {}, status: "delivered" });
-		invalidateInboxSummaryMock.mockReset().mockResolvedValue(undefined);
+		invalidateInboxFactsMock.mockReset().mockResolvedValue(undefined);
 		queryClientMock.fetchQuery.mockReset();
 		getCurrentInboxItemMock.mockReset();
 		usePathnameMock.mockReset().mockReturnValue("/o/amplift/home");
@@ -187,7 +187,7 @@ describe("InboxBrowserNotificationListener", () => {
 		);
 
 		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
-		expect(invalidateInboxSummaryMock).toHaveBeenCalledWith({
+		expect(invalidateInboxFactsMock).toHaveBeenCalledWith({
 			organizationId: "organization-123",
 			queryClient: queryClientMock,
 		});
@@ -1078,7 +1078,7 @@ describe("InboxBrowserNotificationListener", () => {
 		);
 
 		expect(showInboxBrowserNotificationMock).not.toHaveBeenCalled();
-		expect(invalidateInboxSummaryMock).toHaveBeenCalledOnce();
+		expect(invalidateInboxFactsMock).toHaveBeenCalledOnce();
 	});
 
 	it("delivers a directly addressed reply and reports whether the source session is being viewed", () => {

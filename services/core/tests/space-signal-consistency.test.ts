@@ -15,6 +15,7 @@ import {
   OPENMELD_HEADER_VISITED_PROFILE_IDS,
   OPENMELD_HEADER_VISITED_PROFILE_IDS_HASH,
 } from "../src/shared/context/openmeld-context";
+import { buildDefaultSpaceContract } from "../src/space/application/space-contract-service";
 import {
   type SignalTextBuildOptions,
   SPACE_WAKE_HANDOFF_SEED_FAILED_ERROR_CODE,
@@ -914,6 +915,7 @@ const createDispatchRulesSqlStub = (
       profile_id: string | null;
       mention_alias: string | null;
     }[];
+    failOnLegacyDispatchPolicyQuery?: boolean;
     spaceMemberRows?: Record<string, unknown>[];
   }
 ) => {
@@ -923,6 +925,12 @@ const createDispatchRulesSqlStub = (
   return {
     exec: vi.fn((query: string, ...params: unknown[]) => {
       const normalizedQuery = query.replace(/\s+/g, " ").trim();
+      if (
+        options?.failOnLegacyDispatchPolicyQuery === true &&
+        normalizedQuery.includes("space_dispatch_policies")
+      ) {
+        throw new Error("legacy space dispatch policy storage was queried");
+      }
       if (
         normalizedQuery.includes("SELECT") &&
         normalizedQuery.includes("space_dispatch_rules")
@@ -1406,6 +1414,194 @@ describe("space signal consistency matrix", () => {
     ]);
   });
 
+  it("uses SpaceContract mention_only without querying legacy policy storage", () => {
+    const targetProfileId = "agt_contract_target";
+    const otherAgentProfileId = "agt_contract_other";
+    const signal: SignalEnvelope = {
+      v: 1,
+      id: "sig-contract-mention-only",
+      spaceId: "space-1",
+      ts: Date.now(),
+      profile: {
+        kind: "human",
+        profileId: "human-contract-sender",
+        profileName: "Contract Sender",
+      },
+      type: "signal.text",
+      data: {
+        text: "Please handle this.",
+        messageEnvelope: createMessageEnvelope({
+          text: "Please handle this.",
+          activationTargets: [targetProfileId],
+        }),
+      },
+    };
+    const contract = {
+      ...buildDefaultSpaceContract(),
+      dispatchPolicy: { mode: "mention_only" as const },
+    };
+    const records = prepareDispatchOutboxRecordsForSignal.call(
+      {
+        ctx: {
+          storage: {
+            sql: createDispatchRulesSqlStub(1, {
+              failOnLegacyDispatchPolicyQuery: true,
+              spaceMemberRows: [
+                createDispatchRulesSpaceMemberRow({
+                  profileId: targetProfileId,
+                  profileName: "Target Agent",
+                }),
+                createDispatchRulesSpaceMemberRow({
+                  profileId: otherAgentProfileId,
+                  profileName: "Other Agent",
+                }),
+              ],
+            }),
+          },
+        },
+        readSpaceContractRecord: vi.fn(() => contract),
+      },
+      signal
+    );
+
+    expect(
+      records.map((record) => ({
+        dispatchPolicy: record.dispatchPolicy,
+        targetProfileId: record.targetProfileId,
+      }))
+    ).toEqual([
+      {
+        dispatchPolicy: "mention_only",
+        targetProfileId,
+      },
+    ]);
+  });
+
+  it("uses SpaceContract listen_all for explicit and implicit agent targets", () => {
+    const explicitTargetProfileId = "agt_contract_explicit";
+    const listeningAgentProfileId = "agt_contract_listener";
+    const signal: SignalEnvelope = {
+      v: 1,
+      id: "sig-contract-listen-all",
+      spaceId: "space-1",
+      ts: Date.now(),
+      profile: {
+        kind: "human",
+        profileId: "human-contract-sender",
+        profileName: "Contract Sender",
+      },
+      type: "signal.text",
+      data: {
+        text: "Please route this update.",
+        messageEnvelope: createMessageEnvelope({
+          text: "Please route this update.",
+          activationTargets: [explicitTargetProfileId],
+        }),
+      },
+    };
+    const contract = {
+      ...buildDefaultSpaceContract(),
+      dispatchPolicy: { mode: "listen_all" as const },
+    };
+    const records = prepareDispatchOutboxRecordsForSignal.call(
+      {
+        ctx: {
+          storage: {
+            sql: createDispatchRulesSqlStub(1, {
+              failOnLegacyDispatchPolicyQuery: true,
+              spaceMemberRows: [
+                createDispatchRulesSpaceMemberRow({
+                  profileId: explicitTargetProfileId,
+                  profileName: "Explicit Agent",
+                }),
+                createDispatchRulesSpaceMemberRow({
+                  profileId: listeningAgentProfileId,
+                  profileName: "Listening Agent",
+                }),
+              ],
+            }),
+          },
+        },
+        readSpaceContractRecord: vi.fn(() => contract),
+      },
+      signal
+    );
+
+    expect(
+      records.map((record) => ({
+        dispatchPolicy: record.dispatchPolicy,
+        ruleId: record.ruleId,
+        targetProfileId: record.targetProfileId,
+      }))
+    ).toEqual([
+      {
+        dispatchPolicy: "listen_all",
+        ruleId: "space.default.all_members.v1",
+        targetProfileId: explicitTargetProfileId,
+      },
+      {
+        dispatchPolicy: "listen_all",
+        ruleId: "space_contract.listen_all",
+        targetProfileId: listeningAgentProfileId,
+      },
+    ]);
+  });
+
+  it("keeps agent Direct Message dispatch independent of mention policy storage", () => {
+    const humanProfileId = "human-dm-sender";
+    const agentProfileId = "agt-dm-target";
+    const signal: SignalEnvelope = {
+      v: 1,
+      id: "sig-contract-direct-message",
+      spaceId: "space-1",
+      ts: Date.now(),
+      profile: {
+        kind: "human",
+        profileId: humanProfileId,
+        profileName: "DM Sender",
+      },
+      type: "signal.text",
+      data: {
+        text: "Can you help?",
+        messageEnvelope: createMessageEnvelope({ text: "Can you help?" }),
+      },
+    };
+    const records = prepareDispatchOutboxRecordsForSignal.call(
+      {
+        ctx: {
+          storage: {
+            sql: createDispatchRulesSqlStub(1, {
+              failOnLegacyDispatchPolicyQuery: true,
+              spaceMemberRows: [
+                createDispatchRulesSpaceMemberRow({
+                  profileId: humanProfileId,
+                  profileKind: "human",
+                  profileName: "DM Sender",
+                }),
+                createDispatchRulesSpaceMemberRow({
+                  profileId: agentProfileId,
+                  profileName: "DM Agent",
+                }),
+              ],
+            }),
+          },
+        },
+        readSpaceContractRecord: vi.fn(() => buildDefaultSpaceContract()),
+        readSpaceMetaRecord: vi.fn(() => ({
+          purpose: "openmeld_dm_space",
+        })),
+      },
+      signal
+    );
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      dispatchPolicy: "mention_only",
+      ruleId: "space_direct_message.auto_agent.v1",
+      targetProfileId: agentProfileId,
+    });
+  });
+
   it("records dispatch owner authority from target member owner snapshots", () => {
     const signal: SignalEnvelope = {
       v: 1,
@@ -1690,6 +1886,7 @@ describe("space signal consistency matrix", () => {
     };
 
     const decisions = resolveDispatchPlannerDecisionsForSignal({
+      dispatchPolicy: "mention_only",
       sessions: null,
       signal,
       sql: createDispatchRulesSqlStub(1, {
@@ -1864,6 +2061,7 @@ describe("space signal consistency matrix", () => {
     };
 
     const decisions = resolveDispatchPlannerDecisionsForSignal({
+      dispatchPolicy: "mention_only",
       sessions: null,
       signal,
       sql: createDispatchRulesSqlStub(1, {
@@ -1913,6 +2111,7 @@ describe("space signal consistency matrix", () => {
     };
 
     const decisions = resolveDispatchPlannerDecisionsForSignal({
+      dispatchPolicy: "mention_only",
       sessions: null,
       signal,
       sql: createDispatchRulesSqlStub(1, {

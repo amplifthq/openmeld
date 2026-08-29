@@ -34,6 +34,28 @@ describe("planTargetDispatchDecisions", () => {
     ]);
   });
 
+  it("keeps explicit activation targets dispatchable under listen_all", () => {
+    const decisions = planTargetDispatchDecisions({
+      dispatchPolicy: "listen_all",
+      resolveTargetProfile: (targetProfileId) => ({
+        bindingState: "bound",
+        enabled: true,
+        targetProfileId,
+      }),
+      senderProfileId: HUMAN_PROFILE_ID,
+      sourceEventId: "evt-listen-all",
+      targetProfileIds: [READY_AGENT_PROFILE_ID],
+    });
+
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        status: "dispatch_ready",
+        sourceEventId: "evt-listen-all",
+        targetProfileId: READY_AGENT_PROFILE_ID,
+      }),
+    ]);
+  });
+
   it("blocks self-triggered activation targets", () => {
     const decisions = planTargetDispatchDecisions({
       resolveTargetProfile: (targetProfileId) => ({
@@ -88,6 +110,29 @@ describe("planTargetDispatchDecisions", () => {
 });
 
 describe("planMentionDispatchDecisions", () => {
+  it("does not treat parsed mention labels as listen-all activation targets", () => {
+    const decisions = planMentionDispatchDecisions({
+      dispatchPolicy: "listen_all",
+      resolveMentionTargetLabel: () => ({
+        bindingState: "bound",
+        enabled: true,
+        targetProfileId: READY_AGENT_PROFILE_ID,
+      }),
+      senderProfileId: HUMAN_PROFILE_ID,
+      sourceEventId: "evt-listen-all-mention",
+      text: "hello @Ready Agent(wake)",
+    });
+
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        errorCode: MENTION_DISPATCH_ERROR_CODES.dispatchPolicyUnsupported,
+        sourceEventId: "evt-listen-all-mention",
+        status: "blocked",
+        targetProfileId: READY_AGENT_PROFILE_ID,
+      }),
+    ]);
+  });
+
   it("keeps canonical mention-label lookup misses tagged as mention target failures", () => {
     const decisions = planMentionDispatchDecisions({
       resolveMentionTargetLabel: () => null,

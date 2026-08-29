@@ -1,5 +1,6 @@
 import type { SpaceCursor } from "@openmeld/protocol";
 import { normalizeSpaceCursorPatch } from "@openmeld/schemas";
+import { isReadPositionWithinAllowedFutureSkew } from "../../shared/read-position";
 import type { SpaceCursorRecord } from "../rules/parsers/space-cursor";
 
 type NormalizedSpaceCursorPatch = Extract<
@@ -10,6 +11,7 @@ type CursorStringField = "role" | "mentionAlias";
 
 export function handlePatchCursorUseCase(input: {
   body: unknown;
+  nowMs?: () => number;
   profileId: string;
   spaceId: string;
   readSpaceCursorRecord: (profileId: string) => SpaceCursorRecord | null;
@@ -20,6 +22,17 @@ export function handlePatchCursorUseCase(input: {
   const cursorPatch = normalizeSpaceCursorPatch(input.body);
   if (!cursorPatch.ok) {
     return new Response(cursorPatch.message, { status: 400 });
+  }
+  const nowMs = input.nowMs?.() ?? Date.now();
+  if (
+    hasCursorPatchField(cursorPatch.value, "lastSeenTs") &&
+    typeof cursorPatch.value.lastSeenTs === "number" &&
+    !isReadPositionWithinAllowedFutureSkew({
+      nowMs,
+      positionMs: cursorPatch.value.lastSeenTs,
+    })
+  ) {
+    return new Response("lastSeenTs is too far in the future", { status: 400 });
   }
 
   const existing = input.readSpaceCursorRecord(input.profileId);
@@ -65,7 +78,7 @@ export function handlePatchCursorUseCase(input: {
     return Response.json(input.toPublicSpaceCursor(existing));
   }
 
-  const now = new Date().toISOString();
+  const now = new Date(nowMs).toISOString();
   const next: SpaceCursorRecord = {
     v: 1,
     spaceId: input.spaceId,

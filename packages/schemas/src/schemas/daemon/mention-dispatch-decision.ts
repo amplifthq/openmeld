@@ -253,6 +253,7 @@ const resolveDecisionForTarget = (input: {
   resolvedTarget: MentionTargetResolution;
   seenKeys: Set<string>;
   sourceEventId: string;
+  targetKind: "mention_label" | "profile_target";
 }): MentionDispatchDecision | null => {
   const targetProfileId = normalizeProfileIdForComparison(
     input.resolvedTarget.targetProfileId
@@ -291,7 +292,11 @@ const resolveDecisionForTarget = (input: {
     });
   }
 
-  if (input.dispatchPolicy !== "mention_only") {
+  const dispatchPolicySupported =
+    input.dispatchPolicy === "mention_only" ||
+    (input.targetKind === "profile_target" &&
+      input.dispatchPolicy === "listen_all");
+  if (!dispatchPolicySupported) {
     return createDecision({
       createDispatchId: input.createDispatchId,
       sourceEventId: input.sourceEventId,
@@ -392,6 +397,7 @@ export const planMentionDispatchDecisions = (
       resolvedTarget: resolvedMention.resolvedTarget,
       seenKeys,
       sourceEventId: input.sourceEventId,
+      targetKind: "mention_label",
     });
     if (decision) {
       decisions.push(decision);
@@ -449,6 +455,7 @@ export const planTargetDispatchDecisions = (
       resolvedTarget,
       seenKeys,
       sourceEventId: input.sourceEventId,
+      targetKind: "profile_target",
     });
     if (decision) {
       decisions.push(decision);
