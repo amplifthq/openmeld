@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { daemonRuntimeLeasePath } from "../src/config/daemon-runtime-lease";
 import { daemonServiceContractPath } from "../src/config/daemon-service-contract";
+import { resolveDaemonServiceUpdateWorkerRegistrationPath } from "../src/config/daemon-service-update-worker-registration";
 import {
   daemonLifecycleJournalPath,
   installDaemon,
@@ -33,11 +34,13 @@ import {
   readDaemonActiveBundleState,
   resolveAlignedDaemonActiveBundleEntryPath,
   resolveCurrentDaemonSourceDistFingerprint,
+  resolveDaemonBundleEntryPathFromState,
   resolveDaemonBundleRootPath,
   verifyDaemonActiveBundleIntegrity,
   writeDaemonServiceExecutableWrapper,
 } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { ensureDaemonSystemServiceCommandFiles } from "../src/local-service/lifecycle/daemon-service-command-spec";
+import { persistPendingDaemonServiceUpdate } from "../src/local-service/lifecycle/daemon-service-update-state";
 import { withTempHome } from "./helpers/fs";
 
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/u;
@@ -1334,6 +1337,76 @@ describe("local service bundle", () => {
         await expect(
           stat(resolveDaemonBundleRootPath(activeBundle.bundleId))
         ).resolves.toBeDefined();
+      } finally {
+        await fixture?.cleanup();
+        if (previousPreset === undefined) {
+          Reflect.deleteProperty(process.env, "OPENMELD_ENV_PRESET");
+        } else {
+          process.env.OPENMELD_ENV_PRESET = previousPreset;
+        }
+      }
+    });
+  });
+
+  it("keeps the registered worker carrier restartable across replacement cleanup", async () => {
+    await withTempHome(async (home) => {
+      const previousPreset = process.env.OPENMELD_ENV_PRESET;
+      let fixture: DaemonBundleFixture | null = null;
+      process.env.OPENMELD_ENV_PRESET = "dev-local";
+
+      try {
+        fixture = await createDaemonBundleFixture("workspace");
+        const registeredWorkerBundle = await prepareDaemonServiceBundle({
+          daemonVersion: "1.0.0",
+          cliScriptPath: fixture.cliScriptPath,
+        });
+        const inactiveBundle = await prepareDaemonServiceBundle({
+          daemonVersion: "1.5.0",
+          cliScriptPath: fixture.cliScriptPath,
+        });
+        const replacementBundle = await prepareDaemonServiceBundle({
+          daemonVersion: "2.0.0",
+          cliScriptPath: fixture.cliScriptPath,
+        });
+        const registeredEntryPath = await resolveDaemonBundleEntryPathFromState(
+          registeredWorkerBundle
+        );
+        expect(registeredEntryPath).not.toBeNull();
+        const registrationPath =
+          resolveDaemonServiceUpdateWorkerRegistrationPath(
+            { homeDir: home },
+            process.platform
+          );
+        if (!(registeredEntryPath && registrationPath)) {
+          throw new Error("The test update worker carrier is unavailable.");
+        }
+        await mkdir(dirname(registrationPath), { recursive: true });
+        await writeFile(registrationPath, registeredEntryPath);
+        await persistPendingDaemonServiceUpdate({
+          v: 2,
+          schema: "openmeld-daemon-service-update-job-v2",
+          attempts: 0,
+          desiredState: "background",
+          errorMessage: null,
+          jobId: "replacement-update",
+          phase: "waiting_for_work",
+          preparedBundle: replacementBundle,
+          requestedAt: "2026-08-29T00:00:00.000Z",
+          requestSource: "automatic",
+          targetVersion: replacementBundle.daemonVersion,
+          updatedAt: "2026-08-29T00:00:00.000Z",
+          urgency: "available",
+        });
+
+        await cleanupInactiveDaemonServiceBundles();
+
+        await expect(stat(registeredEntryPath)).resolves.toBeDefined();
+        await expect(
+          stat(resolveDaemonBundleRootPath(replacementBundle.bundleId))
+        ).resolves.toBeDefined();
+        await expect(
+          stat(resolveDaemonBundleRootPath(inactiveBundle.bundleId))
+        ).rejects.toThrow();
       } finally {
         await fixture?.cleanup();
         if (previousPreset === undefined) {

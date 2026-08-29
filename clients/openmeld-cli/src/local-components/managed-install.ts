@@ -22,12 +22,15 @@ import {
   runWithHeldLock,
 } from "../config/lock";
 import {
+  type OpenMeldPathResolutionInput,
   openMeldBinDir,
   openMeldManagedBinaryPath,
   openMeldManagedVersionBinaryPath,
   openMeldManagedVersionDir,
 } from "../config/paths";
+import { assertNoPublishedProductionMutationDuringTests } from "../config/published-production-safety";
 import { compareSemver } from "../config/version-state";
+import { readPendingDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-state";
 import { OPENMELD_VERSION } from "../runtime/version";
 import { pruneManagedVersions } from "./managed-version-pruning";
 
@@ -94,9 +97,16 @@ async function isUsableManagedBinary(target: string): Promise<boolean> {
 // The version the current pointer resolves to, read from its symlink target's
 // versions/<version>/ segment. Returns null when there is no pointer yet or it
 // does not resolve into the managed layout.
-async function readCurrentPointerVersion(): Promise<string | null> {
-  const pointerPath = openMeldManagedBinaryPath();
-  const target = await readlink(pointerPath).catch(() => null);
+async function readCurrentPointerVersion(
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<string | null> {
+  const pointerPath = openMeldManagedBinaryPath(pathInput);
+  const target = await readlink(pointerPath).catch((error) => {
+    if (isErrorWithCode(error, "ENOENT") || isErrorWithCode(error, "EINVAL")) {
+      return null;
+    }
+    throw error;
+  });
   if (!target) {
     return null;
   }
@@ -119,9 +129,75 @@ export async function performManagedInstall(input?: {
   // Defaults to process.execPath (this running binary); injectable for tests.
   sourceBinaryPath?: string;
 }): Promise<CliInstallSelfOutcome> {
-  return await withManagedInstallLock(async () =>
+  return await withManagedInstallTransaction(async () =>
     performManagedInstallLocked(input)
   );
+}
+
+export async function withManagedInstallTransaction<T>(
+  run: () => Promise<T>,
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<T> {
+  const startedAtMs = Date.now();
+
+  for (;;) {
+    try {
+      const lock = await acquireLock({
+        openMeldProfileId: MANAGED_INSTALL_LOCK_PROFILE,
+        key: MANAGED_INSTALL_LOCK_KEY,
+        meta: { component: "managed_cli.install" },
+        pathResolution: pathInput,
+      });
+      return await runWithHeldLock({
+        lock,
+        run,
+        releaseContext: {
+          component: "managed_cli.install",
+          lockKey: MANAGED_INSTALL_LOCK_KEY,
+          openMeldProfileId: MANAGED_INSTALL_LOCK_PROFILE,
+        },
+      });
+    } catch (error) {
+      if (
+        !isOpenMeldLockError(error) ||
+        isOpenMeldOrphanedLockError(error) ||
+        Date.now() - startedAtMs >= MANAGED_INSTALL_LOCK_TIMEOUT_MS
+      ) {
+        throw error;
+      }
+      await delay(MANAGED_INSTALL_LOCK_RETRY_DELAY_MS);
+    }
+  }
+}
+
+/**
+ * Prune managed CLI versions only while holding the install transaction lock.
+ * The current pointer and every durable Service update target are re-read in
+ * the lock, so cleanup cannot race an install or use a stale pending snapshot.
+ */
+export async function pruneManagedInstallVersions(input: {
+  pathInput: OpenMeldPathResolutionInput;
+  preferredRollbackVersion?: string | null;
+}): Promise<void> {
+  const pathInput = input.pathInput;
+  assertNoPublishedProductionMutationDuringTests(
+    pathInput,
+    "managed CLI versions"
+  );
+  await withManagedInstallTransaction(async () => {
+    const currentVersion = await readCurrentPointerVersion(pathInput);
+    if (currentVersion === null) {
+      return;
+    }
+    const protectedVersions =
+      await readManagedInstallProtectedVersions(pathInput);
+    await pruneManagedVersions({
+      currentVersion,
+      pathInput,
+      preferredRollbackVersion: input.preferredRollbackVersion,
+      protectedVersions,
+    });
+  }, pathInput);
 }
 
 async function performManagedInstallLocked(input?: {
@@ -134,8 +210,7 @@ async function performManagedInstallLocked(input?: {
   const currentPointerPath = openMeldManagedBinaryPath();
   const managedBinaryPath = openMeldManagedVersionBinaryPath(version);
   const previousVersion = await readCurrentPointerVersion();
-  const protectedVersions =
-    await readDaemonServiceUpdateWorkerProtectedManagedVersions();
+  const protectedVersions = await readManagedInstallProtectedVersions();
 
   const baseOutcome = {
     version,
@@ -191,36 +266,17 @@ async function performManagedInstallLocked(input?: {
   return { ...baseOutcome, result: "installed" };
 }
 
-async function withManagedInstallLock<T>(run: () => Promise<T>): Promise<T> {
-  const startedAtMs = Date.now();
-
-  for (;;) {
-    try {
-      const lock = await acquireLock({
-        openMeldProfileId: MANAGED_INSTALL_LOCK_PROFILE,
-        key: MANAGED_INSTALL_LOCK_KEY,
-        meta: { component: "managed_cli.install" },
-      });
-      return await runWithHeldLock({
-        lock,
-        run,
-        releaseContext: {
-          component: "managed_cli.install",
-          lockKey: MANAGED_INSTALL_LOCK_KEY,
-          openMeldProfileId: MANAGED_INSTALL_LOCK_PROFILE,
-        },
-      });
-    } catch (error) {
-      if (
-        !isOpenMeldLockError(error) ||
-        isOpenMeldOrphanedLockError(error) ||
-        Date.now() - startedAtMs >= MANAGED_INSTALL_LOCK_TIMEOUT_MS
-      ) {
-        throw error;
-      }
-      await delay(MANAGED_INSTALL_LOCK_RETRY_DELAY_MS);
-    }
+async function readManagedInstallProtectedVersions(
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<Set<string>> {
+  const [protectedVersions, pendingServiceUpdate] = await Promise.all([
+    readDaemonServiceUpdateWorkerProtectedManagedVersions(pathInput),
+    readPendingDaemonServiceUpdate(pathInput),
+  ]);
+  if (pendingServiceUpdate?.preparedBundle.bundleFormat === "binary_v1") {
+    protectedVersions.add(pendingServiceUpdate.preparedBundle.daemonVersion);
   }
+  return protectedVersions;
 }
 
 async function placeVersionedBinary(

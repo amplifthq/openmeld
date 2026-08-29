@@ -10,6 +10,8 @@ import {
 
 const MANAGED_VERSION_FROM_EXECUTABLE_PATTERN =
   /[\\/]versions[\\/](v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)[\\/]openmeld(?:\.exe)?/gu;
+const SELF_CONTAINED_BUNDLE_FROM_EXECUTABLE_PATTERN =
+  /[\\/]runtime[\\/]daemon[\\/]bundles[\\/]([0-9A-Za-z._-]+)[\\/]/gu;
 
 export type DaemonServiceUpdateWorkerIdentity = {
   launchdLabel: string;
@@ -79,22 +81,26 @@ export async function readDaemonServiceUpdateWorkerProtectedManagedVersions(
   pathInput: OpenMeldPathResolutionInput = {},
   platform: NodeJS.Platform = process.platform
 ): Promise<Set<string>> {
-  const registrationPath = resolveDaemonServiceUpdateWorkerRegistrationPath(
+  const contents = await readDaemonServiceUpdateWorkerRegistration(
     pathInput,
     platform
   );
-  if (registrationPath === null) {
-    return new Set();
-  }
-  const contents = await readFile(registrationPath, "utf8").catch((error) => {
-    if (getErrorCode(error) === "ENOENT") {
-      return null;
-    }
-    throw error;
-  });
   return contents === null
     ? new Set()
     : readManagedVersionsFromUpdateWorkerRegistration(contents);
+}
+
+export async function readDaemonServiceUpdateWorkerProtectedBundleIds(
+  pathInput: OpenMeldPathResolutionInput = {},
+  platform: NodeJS.Platform = process.platform
+): Promise<Set<string>> {
+  const contents = await readDaemonServiceUpdateWorkerRegistration(
+    pathInput,
+    platform
+  );
+  return contents === null
+    ? new Set()
+    : readBundleIdsFromUpdateWorkerRegistration(contents);
 }
 
 export function readManagedVersionsFromUpdateWorkerRegistration(
@@ -112,6 +118,21 @@ export function readManagedVersionsFromUpdateWorkerRegistration(
   return versions;
 }
 
+export function readBundleIdsFromUpdateWorkerRegistration(
+  contents: string
+): Set<string> {
+  const bundleIds = new Set<string>();
+  for (const match of contents.matchAll(
+    SELF_CONTAINED_BUNDLE_FROM_EXECUTABLE_PATTERN
+  )) {
+    const bundleId = match[1];
+    if (bundleId) {
+      bundleIds.add(bundleId);
+    }
+  }
+  return bundleIds;
+}
+
 export function resolveDaemonServiceUpdateWorkerRegistrationPath(
   pathInput: OpenMeldPathResolutionInput,
   platform: NodeJS.Platform
@@ -126,6 +147,25 @@ export function resolveDaemonServiceUpdateWorkerRegistrationPath(
     return resolveDaemonServiceUpdateWorkerWindowsScriptPath(pathInput);
   }
   return null;
+}
+
+async function readDaemonServiceUpdateWorkerRegistration(
+  pathInput: OpenMeldPathResolutionInput,
+  platform: NodeJS.Platform
+): Promise<string | null> {
+  const registrationPath = resolveDaemonServiceUpdateWorkerRegistrationPath(
+    pathInput,
+    platform
+  );
+  if (registrationPath === null) {
+    return null;
+  }
+  return await readFile(registrationPath, "utf8").catch((error) => {
+    if (getErrorCode(error) === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
 }
 
 function getErrorCode(error: unknown): string | null {

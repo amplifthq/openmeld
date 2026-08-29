@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const spawnMock = vi.hoisted(() => vi.fn());
-const pruneManagedVersionsMock = vi.hoisted(() => vi.fn());
+const pruneManagedInstallVersionsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("node:child_process", () => ({
   spawn: (...args: unknown[]) => spawnMock(...args),
@@ -26,9 +26,9 @@ vi.mock("../src/local-service/lifecycle/daemon-service-bundle", () => ({
 vi.mock("../src/local-service/lifecycle/daemon-service-manager", () => ({
   resolveDaemonServiceManager: vi.fn(),
 }));
-vi.mock("../src/local-components/managed-version-pruning", () => ({
-  pruneManagedVersions: (...args: unknown[]) =>
-    pruneManagedVersionsMock(...args),
+vi.mock("../src/local-components/managed-install", () => ({
+  pruneManagedInstallVersions: (...args: unknown[]) =>
+    pruneManagedInstallVersionsMock(...args),
 }));
 
 import {
@@ -45,6 +45,7 @@ import {
   buildSystemdServiceUpdateWorkerPathUnit,
   buildSystemdServiceUpdateWorkerUnit,
   installDaemonServiceUpdateWorker,
+  pruneDaemonServiceUpdateWorkerManagedVersions,
 } from "../src/local-service/lifecycle/daemon-service-update-worker-manager";
 
 const SPEC = {
@@ -66,7 +67,7 @@ describe("daemon service update worker manager", () => {
 
   afterEach(() => {
     spawnMock.mockReset();
-    pruneManagedVersionsMock.mockReset();
+    pruneManagedInstallVersionsMock.mockReset();
     vi.mocked(readDaemonActiveBundleState).mockReset();
     vi.mocked(ensureDaemonServiceUpdateWorkerBinaryExecutable).mockReset();
     if (originalPlatformDescriptor) {
@@ -166,7 +167,7 @@ describe("daemon service update worker manager", () => {
     expect(pathUnit).toContain("WantedBy=default.target");
   });
 
-  it("registers the stable worker before pruning versioned binaries", async () => {
+  it("registers the stable worker without pruning versioned binaries", async () => {
     const homeDir = await mkdtemp(
       `${tmpdir()}/openmeld-update-worker-registration-`
     );
@@ -197,7 +198,7 @@ describe("daemon service update worker manager", () => {
         "/tmp/openmeld-home/runtime/daemon/service-manager/OpenMeld Service Binary",
       workingDirectory: SPEC.workingDirectory,
     });
-    pruneManagedVersionsMock.mockResolvedValue(undefined);
+    pruneManagedInstallVersionsMock.mockResolvedValue(undefined);
     const job = createBinaryUpdateJob();
     const pathInput = {
       env: {
@@ -216,17 +217,67 @@ describe("daemon service update worker manager", () => {
     expect(
       ensureDaemonServiceUpdateWorkerBinaryExecutable
     ).toHaveBeenCalledWith(job.preparedBundle, pathInput);
-    expect(pruneManagedVersionsMock).toHaveBeenCalledWith({
-      currentVersion: "0.3.98",
+    expect(pruneManagedInstallVersionsMock).not.toHaveBeenCalled();
+  });
+
+  it("prunes managed versions only when the coordinator requests it", async () => {
+    vi.mocked(readDaemonActiveBundleState).mockResolvedValue({
+      daemonVersion: "0.3.97",
+    } as never);
+    pruneManagedInstallVersionsMock.mockResolvedValue(undefined);
+    const job = createBinaryUpdateJob();
+    const homeDir = await mkdtemp(
+      `${tmpdir()}/openmeld-update-worker-prune-success-`
+    );
+    const pathInput = {
+      env: {
+        ...process.env,
+        OPENMELD_ENV_PRESET: "dev-local",
+        OPENMELD_HOME: homeDir,
+      },
+      homeDir,
+    };
+
+    try {
+      await pruneDaemonServiceUpdateWorkerManagedVersions(job, pathInput);
+    } finally {
+      await rm(homeDir, { force: true, recursive: true });
+    }
+
+    expect(readDaemonActiveBundleState).toHaveBeenCalledWith(pathInput);
+    expect(pruneManagedInstallVersionsMock).toHaveBeenCalledWith({
       pathInput,
       preferredRollbackVersion: "0.3.97",
     });
-    const lastRegistrationCallOrder = Math.max(
-      ...spawnMock.mock.invocationCallOrder
+  });
+
+  it("fails closed when the active rollback bundle cannot be read", async () => {
+    vi.mocked(readDaemonActiveBundleState).mockRejectedValue(
+      new Error("active bundle state is unreadable")
     );
-    expect(
-      pruneManagedVersionsMock.mock.invocationCallOrder[0]
-    ).toBeGreaterThan(lastRegistrationCallOrder);
+    const job = createBinaryUpdateJob();
+    const homeDir = await mkdtemp(
+      `${tmpdir()}/openmeld-update-worker-prune-failure-`
+    );
+    const pathInput = {
+      env: {
+        ...process.env,
+        OPENMELD_ENV_PRESET: "dev-local",
+        OPENMELD_HOME: homeDir,
+      },
+      homeDir,
+    };
+
+    try {
+      await expect(
+        pruneDaemonServiceUpdateWorkerManagedVersions(job, pathInput)
+      ).rejects.toThrow("active bundle state is unreadable");
+    } finally {
+      await rm(homeDir, { force: true, recursive: true });
+    }
+
+    expect(readDaemonActiveBundleState).toHaveBeenCalledWith(pathInput);
+    expect(pruneManagedInstallVersionsMock).not.toHaveBeenCalled();
   });
 });
 

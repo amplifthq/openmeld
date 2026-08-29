@@ -19,6 +19,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readDaemonRuntimeLease } from "../../config/daemon-runtime-lease";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
+import { readDaemonServiceUpdateWorkerProtectedBundleIds } from "../../config/daemon-service-update-worker-registration";
 import {
   daemonRuntimeBundlesPath,
   daemonRuntimeRootPath,
@@ -47,6 +48,7 @@ import {
 } from "../../runtime/distribution";
 import { emitDaemonLifecycleEvent } from "./daemon-lifecycle-journal";
 import { resolveDaemonServiceArtifact } from "./daemon-service-artifact";
+import { readPendingDaemonServiceUpdate } from "./daemon-service-update-state";
 
 const DAEMON_ACTIVE_BUNDLE_SCHEMA = "openmeld-daemon-active-bundle-v2";
 const DAEMON_ACTIVE_BUNDLE_LEGACY_SCHEMA = "openmeld-daemon-active-bundle-v1";
@@ -151,15 +153,18 @@ export function isDaemonBundleSourceAllowedForLane(input: {
   return resolveOpenMeldEnvPreset(input.pathInput) === "dev-local";
 }
 
-export async function readDaemonActiveBundleState(): Promise<DaemonActiveBundleState | null> {
-  const raw = await readFile(daemonServiceActiveBundlePath(), "utf8").catch(
-    (error) => {
-      if (getErrorCode(error) === "ENOENT") {
-        return null;
-      }
-      throw error;
+export async function readDaemonActiveBundleState(
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<DaemonActiveBundleState | null> {
+  const raw = await readFile(
+    daemonServiceActiveBundlePath(pathInput),
+    "utf8"
+  ).catch((error) => {
+    if (getErrorCode(error) === "ENOENT") {
+      return null;
     }
-  );
+    throw error;
+  });
   if (raw === null) {
     return null;
   }
@@ -891,15 +896,27 @@ export async function clearDaemonServiceBundles(): Promise<void> {
 export async function cleanupInactiveDaemonServiceBundles(
   input: { retainBundleIds?: string[] } = {}
 ): Promise<void> {
-  const [active, serviceContract, runtimeLease] = await Promise.all([
+  const [
+    active,
+    serviceContract,
+    runtimeLease,
+    registeredWorkerBundleIds,
+    pendingUpdate,
+  ] = await Promise.all([
     readDaemonActiveBundleState(),
     readDaemonServiceContract().catch(() => null),
     readDaemonRuntimeLease().catch(() => null),
+    readDaemonServiceUpdateWorkerProtectedBundleIds(),
+    readPendingDaemonServiceUpdate(),
   ]);
   const retain = new Set([
     ...(active ? [active.bundleId] : []),
     ...(serviceContract?.bundleId ? [serviceContract.bundleId] : []),
     ...(runtimeLease?.bundleId ? [runtimeLease.bundleId] : []),
+    ...registeredWorkerBundleIds,
+    ...(pendingUpdate?.preparedBundle.bundleFormat === "self_contained_v1"
+      ? [pendingUpdate.preparedBundle.bundleId]
+      : []),
     ...(input.retainBundleIds ?? []),
   ]);
   const bundleEntries = await readDirectoryNames(daemonRuntimeBundlesPath());

@@ -1724,10 +1724,14 @@ not sufficient evidence. Each accepted Wake stays on the Service version that
 accepted it, and an update must never retry or silently replay it.
 
 Waiting for that safe-switch fact must not hold the Service lifecycle lock.
-The worker acquires the lock only for the short switch and verification phase,
-so a newer request can replace an older prepared target and a required request
-can escalate an available one. Requests coalesce into the existing operation;
-they never create parallel Service update lifecycles.
+The worker uses one short lock transaction to normalize the pending job before
+waiting, then re-reads that job under the lock before the switch and
+verification phase. A waiting worker may write an error only when the durable
+job still names the same target, prepared bundle, urgency, phase, and attempt.
+This allows a newer request to replace an older prepared target or a required
+request to escalate an available one without a stale worker restoring the old
+state. Requests coalesce into the existing operation; they never create
+parallel Service update lifecycles.
 
 After the safe switch begins, RuntimeCoordinator remains the in-flight Wake
 authority. New Wake work may wait for the replacement route and resume after
@@ -1751,12 +1755,28 @@ the current version is left in an explicit stopped-safe state; the system must
 not create a process that appears healthy locally but is known to be rejected
 by Core.
 
-The update worker itself runs from a stable lane-owned carrier, not from a
-version directory. Migration may temporarily protect a legacy worker's pinned
-version in addition to the current and rollback versions. The update transaction
-must copy and verify the stable worker, rewrite and verify the OS registration,
-and only then prune managed versions. After successful re-registration, pruning
-keeps the current version and one verified rollback version.
+The binary update worker runs from a stable lane-owned carrier, not from a
+version directory. A self-contained npm update worker runs from the prepared
+bundle named by its OS registration. Bundle cleanup treats both that
+registration and the durable pending job as recovery references, so neither the
+registered carrier nor the replacement target can be removed while the handoff
+is recoverable. Migration may likewise protect a legacy worker's pinned managed
+version in addition to the current and rollback versions.
+
+The update transaction must copy and verify the stable binary worker and
+rewrite and verify the OS registration before publishing the initial pending
+job. When replacing a pending target, every resource referenced by the current
+durable job remains recoverable until the replacement job is atomically
+committed; replacement must not disruptively re-register the already-owned OS
+worker before that commit. Preparing the stable binary worker carrier and
+committing the durable replacement share the managed-install transaction lock,
+so another CLI install cannot prune the new target between preparation and
+commit. The existing worker is started after the commit and before cleanup, so
+cleanup failure cannot strand a durable required update. Managed-version
+pruning uses the same lock and re-reads the current CLI pointer and durable
+pending target inside that lock. It then keeps both, plus one verified rollback
+version. Cleanup failures remain observable but do not undo a durable worker
+handoff.
 
 Controlled update, reinstall, and repair use a quiesce-and-drain stop. The
 Service first rejects new dispatch admission with `service.draining` while

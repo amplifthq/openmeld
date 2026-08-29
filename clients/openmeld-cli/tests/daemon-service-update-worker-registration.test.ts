@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  readBundleIdsFromUpdateWorkerRegistration,
   readDaemonServiceUpdateWorkerProtectedManagedVersions,
   readManagedVersionsFromUpdateWorkerRegistration,
   resolveDaemonServiceUpdateWorkerLaunchdPlistPath,
@@ -88,5 +89,16 @@ describe("daemon service update worker registration", () => {
         "/Users/test/.openmeld/runtime/daemon/service-manager/OpenMeld Update Worker Binary"
       )
     ).toEqual(new Set());
+  });
+
+  it("recognizes every self-contained bundle still referenced by the worker registration", () => {
+    expect(
+      readBundleIdsFromUpdateWorkerRegistration(
+        [
+          "/Users/test/.openmeld/runtime/daemon/bundles/0.3.120-old/dist/openmeld.js",
+          "C:\\Users\\test\\.openmeld\\runtime\\daemon\\bundles\\0.3.121-new\\dist\\openmeld.js",
+        ].join("\n")
+      )
+    ).toEqual(new Set(["0.3.120-old", "0.3.121-new"]));
   });
 });
