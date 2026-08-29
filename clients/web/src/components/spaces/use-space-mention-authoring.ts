@@ -847,6 +847,7 @@ function toAuthoredMentionInput(
 	return {
 		profileId: mention.profileId,
 		relation: mention.relation,
+		start: mention.start,
 		text: mention.text,
 	};
 }

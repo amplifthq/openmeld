@@ -50,7 +50,22 @@ export type SpaceCanonicalMentionInTextOrder = {
 export type SpaceComposerAuthoredMentionInTextOrder = {
   profileId: string;
   relation: MessageMentionType;
+  start?: number;
   text: string;
+};
+
+type PositionedSpaceComposerAuthoredMention =
+  SpaceComposerAuthoredMentionInTextOrder & {
+    start: number;
+  };
+
+type StructuredMentionCandidate = {
+  canonicalMention?: SpaceCanonicalMentionInTextOrder;
+  profileId: string;
+  relation: MessageMentionType;
+  sequence: number;
+  sourcePriority: 0 | 1;
+  start: number;
 };
 
 export type SpaceResolvedStructuredTargetSet = {
@@ -175,10 +190,9 @@ export function prepareSpaceComposerSubmission(input: {
   const catalog = createSpaceTargetCatalog(input.snapshot);
   const envelopeInput = createEnvelopeInput(input.text, replyToSignalId);
   const canonicalMentionsInTextOrder: SpaceCanonicalMentionInTextOrder[] = [];
-  const resolvedCanonicalMentionsInTextOrder: SpaceCanonicalMentionInTextOrder[] =
-    [];
   const profileIdsInTextOrder: string[] = [];
   const structuredTargetProfileIds = new Set<string>();
+  const structuredMentionCandidates: StructuredMentionCandidate[] = [];
 
   for (const fragment of canonicalFragments) {
     const parsedLiteral = fragment.parsedLiteral;
@@ -213,17 +227,14 @@ export function prepareSpaceComposerSubmission(input: {
       type: parsedLiteral.type,
     } satisfies SpaceCanonicalMentionInTextOrder;
     canonicalMentionsInTextOrder.push(canonicalMention);
-    if (
-      appendStructuredTarget({
-        envelopeInput,
-        profileId: target.profileId,
-        profileIdsInTextOrder,
-        relation: parsedLiteral.type,
-        structuredTargetProfileIds,
-      })
-    ) {
-      resolvedCanonicalMentionsInTextOrder.push(canonicalMention);
-    }
+    structuredMentionCandidates.push({
+      canonicalMention,
+      profileId: target.profileId,
+      relation: parsedLiteral.type,
+      sequence: structuredMentionCandidates.length,
+      sourcePriority: 0,
+      start: fragment.start,
+    });
   }
 
   for (const authoredMention of authoredMentionsInTextOrder) {
@@ -245,14 +256,22 @@ export function prepareSpaceComposerSubmission(input: {
       );
     }
 
-    appendStructuredTarget({
-      envelopeInput,
+    structuredMentionCandidates.push({
       profileId: target.profileId,
-      profileIdsInTextOrder,
       relation: authoredMention.relation,
-      structuredTargetProfileIds,
+      sequence: structuredMentionCandidates.length,
+      sourcePriority: 1,
+      start: authoredMention.start,
     });
   }
+
+  const resolvedCanonicalMentionsInTextOrder =
+    appendStructuredMentionCandidates({
+      candidates: structuredMentionCandidates,
+      envelopeInput,
+      profileIdsInTextOrder,
+      structuredTargetProfileIds,
+    });
 
   const messageEnvelope = createMessageEnvelopeOrNull(envelopeInput);
   return {
@@ -295,6 +314,41 @@ function appendStructuredTarget(input: {
   return true;
 }
 
+function compareStructuredMentionCandidates(
+  left: StructuredMentionCandidate,
+  right: StructuredMentionCandidate
+): number {
+  return (
+    left.start - right.start ||
+    left.sourcePriority - right.sourcePriority ||
+    left.sequence - right.sequence
+  );
+}
+
+function appendStructuredMentionCandidates(input: {
+  candidates: StructuredMentionCandidate[];
+  envelopeInput: MessageEnvelopeInput;
+  profileIdsInTextOrder: string[];
+  structuredTargetProfileIds: Set<string>;
+}): SpaceCanonicalMentionInTextOrder[] {
+  const resolvedCanonicalMentionsInTextOrder: SpaceCanonicalMentionInTextOrder[] =
+    [];
+  input.candidates.sort(compareStructuredMentionCandidates);
+  for (const candidate of input.candidates) {
+    const appended = appendStructuredTarget({
+      envelopeInput: input.envelopeInput,
+      profileId: candidate.profileId,
+      profileIdsInTextOrder: input.profileIdsInTextOrder,
+      relation: candidate.relation,
+      structuredTargetProfileIds: input.structuredTargetProfileIds,
+    });
+    if (appended && candidate.canonicalMention) {
+      resolvedCanonicalMentionsInTextOrder.push(candidate.canonicalMention);
+    }
+  }
+  return resolvedCanonicalMentionsInTextOrder;
+}
+
 export function prepareSpaceFileOnlySubmission(input?: {
   replyTo?: SpaceComposerReplyTarget | null;
 }): PreparedSpaceComposerSubmission {
@@ -316,8 +370,9 @@ function normalizeAuthoredMentionsInTextOrder(input: {
     | null
     | undefined;
   text: string;
-}): SpaceComposerAuthoredMentionInTextOrder[] {
-  const normalizedMentions: SpaceComposerAuthoredMentionInTextOrder[] = [];
+}): PositionedSpaceComposerAuthoredMention[] {
+  const normalizedMentions: PositionedSpaceComposerAuthoredMention[] = [];
+  let searchStart = 0;
 
   for (const mention of input.mentions ?? []) {
     const profileId = normalizeOptionalText(mention.profileId);
@@ -336,15 +391,26 @@ function normalizeAuthoredMentionsInTextOrder(input: {
       );
     }
 
-    if (!input.text.includes(text)) {
+    const declaredStart = mention.start;
+    const hasValidDeclaredStart =
+      Number.isInteger(declaredStart) &&
+      (declaredStart ?? -1) >= searchStart &&
+      input.text.slice(declaredStart, (declaredStart ?? 0) + text.length) ===
+        text;
+    const start = hasValidDeclaredStart
+      ? (declaredStart as number)
+      : input.text.indexOf(text, searchStart);
+    if (start < 0) {
       continue;
     }
 
     normalizedMentions.push({
       profileId,
       relation: mention.relation,
+      start,
       text,
     });
+    searchStart = start + text.length;
   }
 
   return normalizedMentions;

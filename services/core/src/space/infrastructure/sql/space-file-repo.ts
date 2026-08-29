@@ -2,6 +2,7 @@ import {
   SPACE_FILE_MAX_FOLDER_DEPTH,
   SPACE_FILE_MAX_NAME_LENGTH,
   spaceFileActorSchema,
+  spaceFileDescriptorSchema,
   spaceFileEntrySchema,
 } from "@openmeld/schemas";
 import type {
@@ -230,6 +231,27 @@ export class SpaceFileRepository {
       );
     }
     return null;
+  }
+
+  resolveCommittedWrite(clientMutationId: string): SpaceFileDescriptor | null {
+    const row = first(
+      this.sql.exec<SpaceFileMutationRow>(
+        `
+          SELECT action, request_fingerprint, response_json
+          FROM space_file_mutations
+          WHERE client_mutation_id = ?
+          LIMIT 1
+        `,
+        clientMutationId
+      )
+    );
+    if (!row) {
+      return null;
+    }
+    if (row.action !== "commit_write") {
+      throw conflict("This request ID was already used for another change.");
+    }
+    return spaceFileDescriptorSchema.parse(JSON.parse(row.response_json));
   }
 
   createFolder(input: {

@@ -1,4 +1,7 @@
-import type { StructuredApiClientFailure } from "@openmeld/api-client";
+import {
+	type StructuredApiClientFailure,
+	toStructuredApiClientFailure,
+} from "@openmeld/api-client";
 
 export type SpaceImageUploadFailure = {
 	message: string;
@@ -58,6 +61,21 @@ export function isSpaceComposerSendOutcomeUnknown(
 	return (
 		error.code === "network.timeout" || error.code === "network.request_failed"
 	);
+}
+
+export async function runSpaceComposerIdempotentRequestWithRetry<T>(
+	request: () => Promise<T>
+): Promise<T> {
+	try {
+		return await request();
+	} catch (error) {
+		if (
+			!isSpaceComposerSendOutcomeUnknown(toStructuredApiClientFailure(error))
+		) {
+			throw error;
+		}
+		return await request();
+	}
 }
 
 export function resolveSpaceImageUploadFailure(

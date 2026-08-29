@@ -85,6 +85,7 @@ import {
   spaceAgentStreamTerminalFrameSchema,
   spaceBoardRoomProjectionSchema,
   spaceFileAuditEventSchema,
+  spaceFileClientMutationIdSchema,
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
@@ -2555,6 +2556,21 @@ export class Space extends DurableObject<CoreBindings> {
       }),
       ...(committedFile ? { committedFile } : {}),
     };
+  }
+
+  async rpcResolveCommittedSpaceFileWrite(input: {
+    clientMutationId: unknown;
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<SpaceFileDescriptor | null> {
+    const clientMutationId = spaceFileClientMutationIdSchema.parse(
+      input.clientMutationId
+    );
+    this.applySpaceRef(input.spaceId);
+    await this.requireSpaceFileWriteActor(input.spaceAccess);
+    return this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.resolveCommittedWrite(clientMutationId)
+    );
   }
 
   async rpcCommitSpaceFileWrite(input: {

@@ -68,6 +68,7 @@ import {
 	isProtectedSpaceFailure,
 	isSpaceComposerSendOutcomeUnknown,
 	resolveSpaceComposerSendErrorMessage,
+	runSpaceComposerIdempotentRequestWithRetry,
 } from "#/lib/spaces/errors";
 import { applySpaceBootstrapSnapshotToCache } from "#/lib/spaces/member-cache";
 import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
@@ -211,21 +212,6 @@ class PreparedSpaceMessageSendError extends Error {
 		this.originalError = input.originalError;
 		this.outcomeUnknown = input.outcomeUnknown;
 		this.postedMessage = input.postedMessage;
-	}
-}
-
-async function postSpaceMessageWithIdempotentRetry<T>(
-	post: () => Promise<T>
-): Promise<T> {
-	try {
-		return await post();
-	} catch (error) {
-		if (
-			!isSpaceComposerSendOutcomeUnknown(toStructuredApiClientFailure(error))
-		) {
-			throw error;
-		}
-		return await post();
 	}
 }
 
@@ -2358,7 +2344,7 @@ export function useSpaceLandingController(input: {
 				spaceId: input.spaceId,
 				text: sendInput.preparedSubmission.text,
 			});
-			const signal = await postSpaceMessageWithIdempotentRetry(
+			const signal = await runSpaceComposerIdempotentRequestWithRetry(
 				async () => await spaceApi.postNormalMessage(postInput)
 			);
 			postedMessage = true;
@@ -3321,7 +3307,7 @@ function useSpaceThreadController(input: {
 				threadId: sendInput.thread.threadId,
 				timeoutMs: SPACE_MESSAGE_SEND_TIMEOUT_MS,
 			};
-			const response = await postSpaceMessageWithIdempotentRetry(
+			const response = await runSpaceComposerIdempotentRequestWithRetry(
 				async () =>
 					await createUnscopedWebSpaceApi({
 						openMeldProfileId: input.profileId,

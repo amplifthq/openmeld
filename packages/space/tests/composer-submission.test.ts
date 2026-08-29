@@ -358,6 +358,39 @@ describe("space composer submission", () => {
     });
   });
 
+  it("keeps an earlier authored relation ahead of a later canonical relation", () => {
+    const text = [
+      "@Budget Analyst please keep an eye on this.",
+      "@Budget Analyst(wake) should remain ordinary repeated text.",
+    ].join("\n");
+
+    expect(
+      prepareSpaceComposerSubmission({
+        authoredMentionsInTextOrder: [
+          {
+            profileId: AGENT_BUDGET_ID,
+            relation: "reference",
+            start: 0,
+            text: "@Budget Analyst",
+          },
+        ],
+        missingSnapshotMessage: "missing snapshot",
+        text,
+        snapshot: createSnapshot(),
+      })
+    ).toMatchObject({
+      messageEnvelope: {
+        activationTargets: [],
+        referenceTargets: [AGENT_BUDGET_ID],
+        text,
+      },
+      resolvedStructuredTargets: {
+        canonicalMentionsInTextOrder: [],
+        profileIdsInTextOrder: [AGENT_BUDGET_ID],
+      },
+    });
+  });
+
   it("rejects wake mentions for human targets before submitting an envelope", () => {
     expect(
       captureSubmissionError(() =>

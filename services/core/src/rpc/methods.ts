@@ -17697,6 +17697,15 @@ export async function rpcPublishSpaceComposerUpload(
     env,
     input
   );
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const committedFile = await stub.rpcResolveCommittedSpaceFileWrite({
+    clientMutationId,
+    spaceAccess,
+    spaceId: input.spaceId,
+  });
+  if (committedFile) {
+    return committedFile;
+  }
   let staged: Awaited<ReturnType<typeof readSpaceComposerUpload>>;
   try {
     staged = await readSpaceComposerUpload({

@@ -9,6 +9,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import { runSpaceComposerIdempotentRequestWithRetry } from "#/lib/spaces/errors";
 
 export function useSpaceComposerFiles(input: {
 	organizationSlug: string;
@@ -302,14 +303,18 @@ async function publishPendingFile(input: {
 		return null;
 	}
 	try {
-		const descriptor = await createOrganizationScopedWebSpaceApi({
+		const api = createOrganizationScopedWebSpaceApi({
 			organizationSlug: input.organizationSlug,
 			openMeldProfileId: input.profileId,
-		}).publishComposerUpload({
-			clientMutationId: input.file.publishMutationId,
-			spaceId: input.spaceId,
-			uploadId: upload.id,
 		});
+		const descriptor = await runSpaceComposerIdempotentRequestWithRetry(
+			async () =>
+				await api.publishComposerUpload({
+					clientMutationId: input.file.publishMutationId,
+					spaceId: input.spaceId,
+					uploadId: upload.id,
+				})
+		);
 		return {
 			file: toMessageFileReference(descriptor),
 			previewUrl: input.file.previewUrl,

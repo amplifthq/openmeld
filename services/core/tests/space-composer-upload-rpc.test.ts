@@ -91,6 +91,9 @@ function createStageMetadata(expiresAtMs = EXPIRES_AT_MS) {
 function makeEnv(input?: { expiresAtMs?: number }) {
   const stub = {
     rpcResolveSpaceComposerUploadScope: vi.fn(async () => SCOPE),
+    rpcResolveCommittedSpaceFileWrite: vi.fn(
+      async (): Promise<typeof FILE | null> => null
+    ),
     rpcPrepareSpaceFileWrite: vi.fn(
       async (request: {
         write: { fileId: string; revisionId: string };
@@ -204,6 +207,30 @@ describe("Core Space Composer upload RPC", () => {
     );
     expect(stub.rpcCommitSpaceFileWrite).toHaveBeenCalledOnce();
     expect(bucket.delete).not.toHaveBeenCalled();
+  });
+
+  it("replays a committed publication after its temporary upload is gone", async () => {
+    const { bucket, env, stub } = makeEnv();
+    stub.rpcResolveCommittedSpaceFileWrite.mockResolvedValue(FILE);
+
+    await expect(
+      rpcPublishSpaceComposerUpload(env, {
+        clientMutationId: "publish-composer-upload-test",
+        context: CONTEXT,
+        nowMs: NOW_MS,
+        spaceId: SPACE_ID,
+        uploadId: UPLOAD_ID,
+      })
+    ).resolves.toEqual(FILE);
+
+    expect(stub.rpcResolveCommittedSpaceFileWrite).toHaveBeenCalledWith({
+      clientMutationId: "publish-composer-upload-test",
+      spaceAccess: expect.any(Object),
+      spaceId: SPACE_ID,
+    });
+    expect(bucket.get).not.toHaveBeenCalled();
+    expect(stub.rpcPrepareSpaceFileWrite).not.toHaveBeenCalled();
+    expect(stub.rpcCommitSpaceFileWrite).not.toHaveBeenCalled();
   });
 
   it("discards only the current actor's temporary upload", async () => {

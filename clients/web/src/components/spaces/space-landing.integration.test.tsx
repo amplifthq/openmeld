@@ -12220,6 +12220,88 @@ describe("SpaceLanding", () => {
 		});
 	});
 
+	it("retries an outcome-unknown publication once with the same mutation", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "retriable.txt",
+		});
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		const publishComposerUploadMock = vi
+			.fn()
+			.mockRejectedValueOnce(
+				createStructuredFailure({
+					code: "network.request_failed",
+					message: "The publication response was lost.",
+				})
+			)
+			.mockResolvedValueOnce(descriptor);
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				files: [messageFile],
+				id: "signal-after-publication-retry",
+				text: "Send this with the file",
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["retry"], "retriable.txt", { type: "text/plain" })],
+			},
+		});
+		await screen.findByText("Ready");
+		setComposerValue(
+			screen.getByRole("textbox", { name: "Message this space" }),
+			"Send this with the file"
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() =>
+			expect(publishComposerUploadMock).toHaveBeenCalledTimes(2)
+		);
+		expect(publishComposerUploadMock.mock.calls[1]?.[0]).toEqual(
+			publishComposerUploadMock.mock.calls[0]?.[0]
+		);
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				files: [messageFile],
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "Send this with the file",
+				timeoutMs: 30_000,
+			});
+		});
+	});
+
 	it("keeps a file-only Composer open when its staged file cannot be published", async () => {
 		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
