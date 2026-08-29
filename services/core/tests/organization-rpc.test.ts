@@ -3495,6 +3495,14 @@ describe("organization Core RPC", () => {
         }),
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PRIVATE_SPACE_ID,
+          spaceName: "Joined room",
+          visibility: "private",
+        }),
+      ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
     const env = buildEnv({ db, spaceStub });
@@ -8406,6 +8414,109 @@ describe("organization Core RPC", () => {
         spaceId: ordinaryDirectMessageSpaceId,
       })
     );
+  });
+
+  it("keeps Space member writes inside the Agent Profile's canonical Organization", async () => {
+    const spaceId =
+      "abababababababababababababababababababababababababababababababab";
+    const sameOrganizationAgentProfileId = AGENT_PROFILE_ID;
+    const foreignAgentProfileId = SECOND_AGENT_PROFILE_ID;
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "same-org-agent",
+          profileId: sameOrganizationAgentProfileId,
+          profileName: "Same Organization Agent",
+          status: "active",
+        },
+        {
+          organizationId: "org-b",
+          ownerUserId: "user-a",
+          profileHandle: "foreign-agent",
+          profileId: foreignAgentProfileId,
+          profileName: "Foreign Agent",
+          status: "active",
+        },
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "member")],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId,
+          spaceName: "Organization A Room",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = buildEnv({ db, spaceStub });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+    const sameOrganizationAgent = {
+      agentControllerRef: null,
+      ownerName: "Ava",
+      ownerUserId: "user-a",
+      profileId: sameOrganizationAgentProfileId,
+      profileKind: "agent" as const,
+      profileName: "Same Organization Agent",
+    };
+    const humanMember = {
+      agentControllerRef: null,
+      ownerName: "Ava",
+      ownerUserId: "user-a",
+      profileId: HUMAN_PROFILE_ID,
+      profileKind: "human" as const,
+      profileName: "Ava",
+    };
+
+    await expect(
+      rpcAddSpaceMembers(env, {
+        context,
+        members: [sameOrganizationAgent, humanMember],
+        spaceId,
+      })
+    ).resolves.toMatchObject({
+      addedMemberIds: [sameOrganizationAgentProfileId, HUMAN_PROFILE_ID],
+    });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+
+    const foreignAgent = {
+      ...sameOrganizationAgent,
+      profileId: foreignAgentProfileId,
+      profileName: "Foreign Agent",
+    };
+    await expect(
+      rpcAddSpaceMembers(env, {
+        context,
+        members: [foreignAgent],
+        spaceId,
+      })
+    ).rejects.toMatchObject({
+      code: "agent_profile.organization_mismatch",
+      status: 403,
+    });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+
+    await expect(
+      rpcAddSpaceMembers(env, {
+        context,
+        members: [
+          {
+            ...foreignAgent,
+            profileKind: "human",
+          },
+        ],
+        spaceId,
+      })
+    ).rejects.toMatchObject({
+      code: "agent_profile.organization_mismatch",
+      status: 403,
+    });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
   });
 
   it("rejects Center Agent DM member, lifecycle, and access mutations while ordinary DMs still forward them", async () => {

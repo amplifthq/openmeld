@@ -1,4 +1,9 @@
 import { createAgentProfileBindingDisplayProjection } from "@openmeld/agent-runtime";
+import {
+  HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+  HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+} from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
   resolveAgentProfileOrganizationClaimDiagnostics,
@@ -155,6 +160,57 @@ describe("agent-execution-readiness-service", () => {
 
     expect(readiness).toEqual({ reasonCodes: [], status: "accepted" });
   });
+
+  it("shows an Organization's hosted Center Agent as ready only after canonical Organization verification", async () => {
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      activeOrganizationId: "org-acme",
+      env: createHostedCenterAgentReadinessEnv({
+        profileOrganizationId: "org-acme",
+      }),
+      generatedAt: "2026-05-10T00:00:00.000Z",
+      profileId: "agt_readiness_without_snapshot",
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "ready",
+      facts: {
+        claim: {
+          executionBlocked: false,
+          reasonCodes: [],
+          source: "claim_diagnostics",
+        },
+      },
+      primaryAction: "none",
+    });
+  });
+
+  it("blocks a hosted designation that points to a foreign canonical Agent Profile", async () => {
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      activeOrganizationId: "org-acme",
+      env: createHostedCenterAgentReadinessEnv({
+        profileOrganizationId: "org-foreign",
+      }),
+      generatedAt: "2026-05-10T00:00:00.000Z",
+      profileId: "agt_readiness_without_snapshot",
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "blocked",
+      facts: {
+        claim: {
+          executionBlocked: true,
+          reasonCodes: ["center_agent.organization_mismatch"],
+          source: "claim_diagnostics",
+        },
+      },
+    });
+    expect(readiness.agentExecutionReadiness.reasonCodes).toContain(
+      "center_agent.organization_mismatch"
+    );
+    expect(readiness.spaceMemberAgentExecutionReadiness.displayState).toBe(
+      "blocked"
+    );
+  });
 });
 
 function createPrimaryBinding() {
@@ -189,4 +245,97 @@ function createAuthorizationEnv(
       }),
     } as unknown as D1Database,
   } as CoreBindings;
+}
+
+function createHostedCenterAgentReadinessEnv(input: {
+  profileOrganizationId: string;
+}): CoreBindings {
+  const profileId = "agt_readiness_without_snapshot";
+  const db = {
+    prepare: (sql: string) => {
+      const normalizedSql = sql.toLowerCase();
+      return {
+        bind: () => ({
+          first: () => {
+            if (
+              normalizedSql.includes(
+                "from openmelddaemon_agent_profile_bindings"
+              )
+            ) {
+              return {
+                agent_controller_collaboration_mode: null,
+                agent_controller_conversation_id: null,
+                agent_controller_permission_mode: null,
+                agent_controller_ref: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+                agent_profile_id: profileId,
+                binding_id: "binding-hosted-center-agent",
+                binding_state: "enabled_primary",
+                configuration_revision: 1,
+                created_at_ms: 1,
+                created_by_profile_id: null,
+                disabled_at_ms: null,
+                hosted_runtime_identity_json: JSON.stringify(
+                  HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+                ),
+                model_id: null,
+                opencode_permission: null,
+                owner_id: "user-1",
+                owner_kind: "owner_account",
+                reason_code: "center_agent.remote_agent_designation",
+                reasoning_level: null,
+                runtime_kind: "hosted_center_agent",
+                updated_at_ms: 1,
+                openmeld_service_runtime_id:
+                  HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+              };
+            }
+            if (normalizedSql.includes("from center_agent_designations")) {
+              return {
+                agent_profile_id: profileId,
+                created_at: 1,
+                designated_by: "user-1",
+                duty: null,
+                operating_state: "active",
+                organization_id: "org-acme",
+                paused_at: null,
+                paused_by_user_id: null,
+              };
+            }
+            if (normalizedSql.includes("from openmeld_profiles")) {
+              return {
+                managed_role: "center_agent",
+                organization_id: input.profileOrganizationId,
+                owner_user_id: "user-1",
+                profile_kind: "agent",
+                profile_name: "Center Agent",
+              };
+            }
+            return null;
+          },
+        }),
+      };
+    },
+  } as unknown as D1Database;
+  return {
+    OPENMELD_AUTH_WORKER: {
+      resolveProfileById: async () => ({
+        ok: true as const,
+        profile: {
+          ownerUserId: "user-1",
+          profileHandle: "center-agent",
+          profileId,
+          profileKind: "agent" as const,
+          profileName: "Center Agent",
+          status: "active" as const,
+        },
+      }),
+    },
+    OPENMELD_DB: db,
+    OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "true",
+    OPENMELD_REMOTE_AGENT_WORKER: {
+      submitConversationTurn: async () => ({
+        accepted: true,
+      }),
+    },
+  } as unknown as CoreBindings;
 }

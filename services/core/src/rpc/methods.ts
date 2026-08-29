@@ -18622,6 +18622,11 @@ export async function rpcAddSpaceMembers(
 ): Promise<PostSpaceMembersResponse> {
   const context = requireRpcContext(input.context);
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  await assertAgentProfileMembersBelongToSpaceOrganization({
+    env,
+    members: input.members,
+    spaceId,
+  });
   await assertAdditionalMembersCanBeAddedToSpace({
     env,
     members: input.members,
@@ -18636,6 +18641,96 @@ export async function rpcAddSpaceMembers(
     ...(input.password === undefined ? {} : { password: input.password }),
     context,
   });
+}
+
+async function assertAgentProfileMembersBelongToSpaceOrganization(input: {
+  env: CoreBindings;
+  members: readonly ResolvedSpaceMemberProfile[];
+  spaceId: string;
+}): Promise<void> {
+  let spaceTarget: Awaited<
+    ReturnType<typeof readSpaceIndexOrganizationJoinTarget>
+  >;
+  try {
+    spaceTarget = await readSpaceIndexOrganizationJoinTarget({
+      db: requireSpaceIndexDb(input.env),
+      spaceId: input.spaceId,
+    });
+  } catch (error) {
+    console.error("[core.space_member.organization_lookup_failed]", {
+      event: "core.space_member.organization_lookup_failed",
+      error: toErrorMessage(error),
+      spaceId: input.spaceId,
+    });
+    throw createCoreRpcHttpError({
+      code: "space.organization_lookup_failed",
+      reason: "Space workspace could not be verified.",
+      status: 503,
+    });
+  }
+  if (!spaceTarget) {
+    throw createCoreRpcHttpError({
+      code: "space.not_found",
+      reason: "Space was not found.",
+      status: 404,
+    });
+  }
+
+  const identityDb = requireIdentityDb(input.env);
+  const profileContexts = await Promise.all(
+    input.members.map(async (member) => {
+      try {
+        return await readAgentProfileOrganizationContext({
+          agentProfileId: member.profileId,
+          db: identityDb,
+        });
+      } catch (error) {
+        console.error("[core.space_member.agent_profile_lookup_failed]", {
+          event: "core.space_member.agent_profile_lookup_failed",
+          error: toErrorMessage(error),
+          profileId: member.profileId,
+          spaceId: input.spaceId,
+        });
+        throw createCoreRpcHttpError({
+          code: "agent_profile.organization_lookup_failed",
+          reason: "Agent Profile workspace could not be verified.",
+          status: 503,
+        });
+      }
+    })
+  );
+
+  for (const [index, member] of input.members.entries()) {
+    const profileContext = profileContexts[index] ?? null;
+    if (!profileContext) {
+      if (member.profileKind === "agent") {
+        throw createCoreRpcHttpError({
+          code: "agent_profile.not_found",
+          reason: "Agent Profile was not found.",
+          status: 404,
+        });
+      }
+      continue;
+    }
+    if (profileContext.profileKind !== "agent") {
+      continue;
+    }
+    if (
+      isAgentProfileEligibleForOrganization({
+        managedRole: profileContext.managedRole,
+        profileOrganizationId: profileContext.organizationId,
+        targetOrganizationId: spaceTarget.organizationId,
+      })
+    ) {
+      continue;
+    }
+    throw createCoreRpcHttpError({
+      code: "agent_profile.organization_mismatch",
+      reason:
+        "Agent Profile can only join Spaces in the workspace where it was created.",
+      status: 403,
+    });
+  }
 }
 
 export async function rpcRemoveSpaceMembers(

@@ -608,6 +608,20 @@ async function enrichAgentBindingSnapshot(input: {
     bindingProjection &&
     isHostedCenterAgentControllerRef(parsedAgentControllerRef?.ref)
   ) {
+    const claimDiagnostics = await measureReadinessStep(
+      input.timing,
+      "claim_diagnostics_read",
+      () =>
+        resolveAgentProfileOrganizationClaimDiagnostics({
+          activeOrganizationId: input.activeOrganizationId,
+          binding: agentExecutionBinding,
+          env: input.env,
+          resolveRuntimeClaimDiagnostics: async () => ({
+            reasonCodes: [],
+            status: "accepted",
+          }),
+        })
+    );
     return await createHostedAgentBindingSnapshot({
       activeOrganizationId: input.activeOrganizationId,
       agent: input.agent,
@@ -616,6 +630,7 @@ async function enrichAgentBindingSnapshot(input: {
       bindingEnabled,
       bindingProjection,
       bindingState,
+      claimDiagnostics,
       env: input.env,
       generatedAt: input.generatedAt,
       ownerUserId: input.snapshot.ownerUserId,
@@ -767,6 +782,7 @@ async function createHostedAgentBindingSnapshot(input: {
   bindingEnabled: boolean;
   bindingProjection: AgentProfileBindingDisplayProjection;
   bindingState: "bound" | "missing";
+  claimDiagnostics: AgentExecutionClaimDiagnosticEvidence | null;
   env: CoreBindings;
   generatedAt: string;
   ownerUserId: string | null;
@@ -774,11 +790,21 @@ async function createHostedAgentBindingSnapshot(input: {
   profileName: string | null;
   snapshot: ProfileIdentitySnapshot;
 }): Promise<AgentBindingSnapshot> {
-  const readiness = await resolveHostedCenterAgentReadiness({
-    activeOrganizationId: input.activeOrganizationId,
-    agentProfileId: input.agent.profileId,
-    env: input.env,
-  });
+  const readiness =
+    input.claimDiagnostics?.status === "accepted"
+      ? await resolveHostedCenterAgentReadiness({
+          activeOrganizationId: input.activeOrganizationId,
+          agentProfileId: input.agent.profileId,
+          env: input.env,
+        })
+      : {
+          available: false,
+          reasonCodes: [
+            ...(input.claimDiagnostics?.reasonCodes ?? [
+              "agent_profile.organization_lookup_failed",
+            ]),
+          ],
+        };
   const routeEvidence: AgentExecutionRouteEvidence = readiness.available
     ? {
         observedAt: input.generatedAt,
@@ -810,9 +836,7 @@ async function createHostedAgentBindingSnapshot(input: {
     agentControllerRef: input.agentControllerRef,
     bindingEnabled: input.bindingEnabled,
     bindingState: input.bindingState,
-    claimDiagnostics: {
-      status: "not_checked",
-    },
+    claimDiagnostics: input.claimDiagnostics,
     daemonRouteObservation,
     localService: {
       reachable: readiness.available,

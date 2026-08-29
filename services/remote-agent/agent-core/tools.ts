@@ -914,6 +914,7 @@ function resolveAgentProfileCreationSelection(
       input.configuration?.agentControllerCollaborationMode ?? null,
     agentControllerPermissionMode:
       input.configuration?.agentControllerPermissionMode ?? null,
+    authorizeForOrganization: true,
     defaultProjectId: input.configuration?.defaultProjectId ?? null,
     modelId: input.configuration?.modelId ?? null,
     openCodePermission: input.configuration?.openCodePermission ?? null,
