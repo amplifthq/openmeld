@@ -25,7 +25,7 @@ import {
 	CopyIcon,
 	KeyRoundIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CrossPageHeader } from "#/components/app/cross-page-header";
 import {
@@ -139,7 +139,7 @@ export function AgentInterfacePage({
 		};
 	}, []);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		if (isAuthenticated) {
 			return;
 		}
@@ -513,7 +513,7 @@ export function AgentInterfacePage({
 											<div className="flex flex-wrap items-end justify-between gap-3">
 												<Button
 													aria-busy={pendingPromptAction === "copy"}
-													disabled={isPromptActionPending}
+													disabled={!isAuthenticated || isPromptActionPending}
 													onClick={() => startPromptAction("copy")}
 													type="button"
 													variant="secondary"

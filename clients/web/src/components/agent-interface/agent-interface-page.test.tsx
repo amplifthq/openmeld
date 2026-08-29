@@ -6,6 +6,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { useLayoutEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { AgentInterfacePage } from "./agent-interface-page";
@@ -549,6 +550,86 @@ describe("AgentInterfacePage", () => {
 		expect(freshPromptRegion.textContent).toContain("preptok_fresh");
 	});
 
+	it("fences a prompt response synchronously when sign-out commits", async () => {
+		const pendingPrepareSession = createDeferred<{
+			opaqueToken: string;
+			opaqueTokenExpiresAt: string;
+			snapshot: object;
+		}>();
+		createPrepareSessionMock.mockImplementationOnce(
+			() => pendingPrepareSession.promise
+		);
+		const signOutReady = createDeferred<() => void>();
+		const copiedBeforePassiveEffects = createDeferred<number>();
+		const resolveAfterSignOutCommit = vi.fn(() => {
+			pendingPrepareSession.resolve({
+				opaqueToken: "preptok_after_sign_out",
+				opaqueTokenExpiresAt: new Date(
+					Date.now() + 10 * 60 * 1000
+				).toISOString(),
+				snapshot: {},
+			});
+		});
+		const actEnvironment = globalThis as typeof globalThis & {
+			IS_REACT_ACT_ENVIRONMENT?: boolean;
+		};
+		const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+
+		try {
+			render(
+				<AuthenticationTransitionHarness
+					onBeforePassiveEffects={() => {
+						copiedBeforePassiveEffects.resolve(
+							copyTextToClipboardMock.mock.calls.length
+						);
+					}}
+					onReady={signOutReady.resolve}
+					onSignedOutCommit={resolveAfterSignOutCommit}
+				/>
+			);
+			await waitFor(() => {
+				expect(listStartProfilesMock).toHaveBeenCalled();
+			});
+			fireEvent.click(
+				screen.getByRole("tab", { name: "Generate agent prompt" })
+			);
+			await waitFor(() => {
+				expect(createPrepareSessionMock).toHaveBeenCalledTimes(1);
+			});
+
+			actEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
+			const signOut = await signOutReady.promise;
+			signOut();
+			const copyCountAtTheSignedOutCommit =
+				await copiedBeforePassiveEffects.promise;
+
+			expect(resolveAfterSignOutCommit).toHaveBeenCalledTimes(1);
+			expect(copyCountAtTheSignedOutCommit).toBe(0);
+			expect(copyTextToClipboardMock).not.toHaveBeenCalled();
+			expect(
+				screen.queryByRole("region", { name: "Generated agent prompt" })
+			).toBeNull();
+		} finally {
+			actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+		}
+	});
+
+	it("disables an existing Copy action after sign-out", async () => {
+		const page = renderPage({ isAuthenticated: true });
+		await waitFor(() => {
+			expect(listStartProfilesMock).toHaveBeenCalled();
+		});
+		fireEvent.click(screen.getByRole("tab", { name: "Generate agent prompt" }));
+		await screen.findByRole("button", { name: "Copy again" });
+
+		page.rerender(renderPageElement({ isAuthenticated: false }));
+
+		expect(
+			(screen.getByRole("button", { name: "Copy again" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+	});
+
 	it("does not copy a prompt after the page unmounts", async () => {
 		const pendingPrepareSession = createDeferred<{
 			opaqueToken: string;
@@ -594,6 +675,33 @@ function renderPageElement(input: { isAuthenticated: boolean }) {
 			<AgentInterfacePage isAuthenticated={input.isAuthenticated} />
 		</TestQueryClientProvider>
 	);
+}
+
+function AuthenticationTransitionHarness(input: {
+	onBeforePassiveEffects: () => void;
+	onReady: (signOut: () => void) => void;
+	onSignedOutCommit: () => void;
+}) {
+	const [isAuthenticated, setIsAuthenticated] = useState(true);
+	useLayoutEffect(() => {
+		input.onReady(() => setIsAuthenticated(false));
+	}, [input.onReady]);
+	useLayoutEffect(() => {
+		if (!isAuthenticated) {
+			input.onSignedOutCommit();
+			observeAfterPendingPromptContinuations(input.onBeforePassiveEffects);
+		}
+	}, [input.onBeforePassiveEffects, input.onSignedOutCommit, isAuthenticated]);
+
+	return renderPageElement({ isAuthenticated });
+}
+
+function observeAfterPendingPromptContinuations(observe: () => void) {
+	let pendingContinuations = Promise.resolve();
+	for (let index = 0; index < 12; index += 1) {
+		pendingContinuations = pendingContinuations.then(() => undefined);
+	}
+	pendingContinuations.then(observe);
 }
 
 function createDeferred<T>() {
