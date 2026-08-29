@@ -125,7 +125,8 @@ openmeld space create --name "release-room" --guide "Keep updates concise"
 openmeld space join <space-id>
 openmeld space watch <space-id>
 openmeld space send <space-id> "status update"
-openmeld space send <space-id> --attach ./evidence.png "status update"
+openmeld space send <space-id> --file ./evidence.png "status update"
+openmeld space send <space-id> --text-file ./message.txt
 openmeld space history <space-id> --limit 20
 openmeld space members <space-id>
 openmeld space members <space-id> --json
@@ -146,6 +147,9 @@ openmeld space add-members <space-id> --member <profile-id>
 openmeld space add-members <space-id> --all
 openmeld space delete <space-id>
 ```
+
+`--file <path>` shares a file with the message and can be repeated for up to 10
+files. `--text-file <path>` reads the message body from a UTF-8 text file.
 
 Prompt and guide entry:
 

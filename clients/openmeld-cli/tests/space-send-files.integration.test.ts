@@ -4,6 +4,8 @@ import {
   gatewayErrorEnvelopeSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_MESSAGE_FILE_MAX_COUNT,
+  trashSpaceFileEntryResponseSchema,
+  uploadSpaceFileResponseSchema,
 } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runSend } from "../src/space/send";
@@ -70,6 +72,18 @@ function createSignalEnvelope(files: unknown[]) {
   };
 }
 
+function createUploadFileResponse(
+  file: ReturnType<typeof createFileDescriptor>
+): Response {
+  return new Response(
+    JSON.stringify(uploadSpaceFileResponseSchema.parse({ file })),
+    {
+      status: 201,
+      headers: { "content-type": "application/json" },
+    }
+  );
+}
+
 function createSignalResponse(files: unknown[]) {
   return new Response(JSON.stringify(createSignalEnvelope(files)), {
     status: 200,
@@ -111,10 +125,7 @@ describe("space send files", () => {
           expect(new Headers(init?.headers).get("content-type")).toBe(
             "application/pdf"
           );
-          return new Response(JSON.stringify({ file }), {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          });
+          return createUploadFileResponse(file);
         }
         if (method === "POST" && url.pathname.endsWith("/signals")) {
           const body = JSON.parse(String(init?.body)) as { files?: unknown[] };
@@ -170,10 +181,7 @@ describe("space send files", () => {
         const url = new URL(String(request));
         const method = String(init?.method ?? "GET").toUpperCase();
         if (method === "POST" && url.pathname.endsWith("/files")) {
-          return new Response(JSON.stringify({ file }), {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          });
+          return createUploadFileResponse(file);
         }
         if (method === "POST" && url.pathname.endsWith("/signals")) {
           const body = JSON.parse(String(init?.body)) as {
@@ -223,10 +231,7 @@ describe("space send files", () => {
         const url = new URL(String(request));
         const method = String(init?.method ?? "GET").toUpperCase();
         if (method === "POST" && url.pathname.endsWith("/files")) {
-          return new Response(JSON.stringify({ file }), {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          });
+          return createUploadFileResponse(file);
         }
         if (method === "GET" && url.pathname.endsWith("/threads")) {
           return new Response(
@@ -329,6 +334,301 @@ describe("space send files", () => {
     });
   });
 
+  it("moves files uploaded by this send to Trash when a later upload fails", async () => {
+    await withTempHome(async (home) => {
+      const firstPath = join(home, "first.txt");
+      const secondPath = join(home, "second.txt");
+      await writeFile(firstPath, "First file");
+      await writeFile(secondPath, "Second file");
+      const firstFile = createFileDescriptor({
+        fileId: "file-first",
+        mimeType: "text/plain",
+        name: "first.txt",
+        sizeBytes: 10,
+      });
+      const trashedEntryIds: string[] = [];
+      const fetchMock = vi.fn((request: string | URL, init?: RequestInit) => {
+        const url = new URL(String(request));
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (
+          method === "POST" &&
+          url.pathname.endsWith("/files") &&
+          url.searchParams.get("name") === "first.txt"
+        ) {
+          return createUploadFileResponse(firstFile);
+        }
+        if (
+          method === "POST" &&
+          url.pathname.endsWith("/files") &&
+          url.searchParams.get("name") === "second.txt"
+        ) {
+          return new Response(
+            JSON.stringify(
+              gatewayErrorEnvelopeSchema.parse({
+                ok: false,
+                error: {
+                  code: "upstream_unreachable",
+                  message:
+                    "Space File audit event content_write:request-1 conflicts with an existing event.",
+                  requestId: "request-1",
+                },
+              })
+            ),
+            {
+              status: 502,
+              headers: {
+                "content-type": "application/json",
+                "x-openmeld-request-id": "request-1",
+              },
+            }
+          );
+        }
+        if (
+          method === "DELETE" &&
+          url.pathname.endsWith(`/files/${firstFile.id}`)
+        ) {
+          const body = JSON.parse(String(init?.body)) as {
+            clientMutationId?: unknown;
+          };
+          expect(body.clientMutationId).toEqual(expect.any(String));
+          trashedEntryIds.push(firstFile.id);
+          return new Response(
+            JSON.stringify(
+              trashSpaceFileEntryResponseSchema.parse({
+                entryId: firstFile.id,
+                trashedAt: CREATED_AT,
+              })
+            ),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        throw new Error(`unexpected request: ${method} ${url.toString()}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        runSend({
+          openMeldProfile: PROFILE,
+          baseUrl: "https://gateway.openmeld.invalid",
+          space: "demo",
+          filePaths: [firstPath, secondPath],
+          plainText: true,
+          text: "Deployment evidence",
+          view: "agent",
+        })
+      ).rejects.toMatchObject({
+        code: "upstream_unreachable",
+        requestId: "request-1",
+        status: 502,
+      });
+      expect(trashedEntryIds).toEqual([firstFile.id]);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  it("preserves exact recovery guidance when partial-upload cleanup fails", async () => {
+    await withTempHome(async (home) => {
+      const spacePassword = "space-password-must-stay-secret";
+      const firstPath = join(home, "first.txt");
+      const secondPath = join(home, "second.txt");
+      await writeFile(firstPath, "First file");
+      await writeFile(secondPath, "Second file");
+      const firstFile = createFileDescriptor({
+        fileId: "file-cleanup-failed",
+        mimeType: "text/plain",
+        name: "first.txt",
+        sizeBytes: 10,
+      });
+      const fetchMock = vi.fn((request: string | URL, init?: RequestInit) => {
+        const url = new URL(String(request));
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (
+          method === "POST" &&
+          url.pathname.endsWith("/files") &&
+          url.searchParams.get("name") === "first.txt"
+        ) {
+          return createUploadFileResponse(firstFile);
+        }
+        const isSecondUpload =
+          method === "POST" &&
+          url.pathname.endsWith("/files") &&
+          url.searchParams.get("name") === "second.txt";
+        const isCleanup =
+          method === "DELETE" &&
+          url.pathname.endsWith(`/files/${firstFile.id}`);
+        if (isSecondUpload || isCleanup) {
+          const requestId = isCleanup
+            ? "request-cleanup-1"
+            : "request-upload-2";
+          return new Response(
+            JSON.stringify(
+              gatewayErrorEnvelopeSchema.parse({
+                ok: false,
+                error: {
+                  code: "upstream_unreachable",
+                  message: isCleanup
+                    ? "The file could not be moved to Trash."
+                    : "The second file could not be added.",
+                  requestId,
+                },
+              })
+            ),
+            {
+              status: 502,
+              headers: {
+                "content-type": "application/json",
+                "x-openmeld-request-id": requestId,
+              },
+            }
+          );
+        }
+        throw new Error(`unexpected request: ${method} ${url.toString()}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      let caught: unknown;
+      try {
+        await runSend({
+          openMeldProfile: PROFILE,
+          baseUrl: "https://gateway.openmeld.invalid",
+          space: "demo",
+          filePaths: [firstPath, secondPath],
+          password: spacePassword,
+          plainText: true,
+          text: "Deployment evidence",
+          view: "agent",
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toMatchObject({
+        code: "upstream_unreachable",
+        requestId: "request-upload-2",
+      });
+      expect((caught as Error).message).toContain("request-cleanup-1");
+      expect((caught as Error).message).toContain(
+        `openmeld space files trash demo ${firstFile.id} --profile ${PROFILE.openMeldProfileId}`
+      );
+      expect((caught as Error).message).toContain(
+        "This Space is password protected. Add `--password` with the same Space password you used for this send; OpenMeld does not include the password in this message."
+      );
+      expect((caught as Error).message).not.toContain(spacePassword);
+    });
+  });
+
+  it("retries a partial multi-file send without keeping or reusing the first attempt", async () => {
+    await withTempHome(async (home) => {
+      const firstPath = join(home, "first.txt");
+      const secondPath = join(home, "second.txt");
+      await writeFile(firstPath, "First file");
+      await writeFile(secondPath, "Second file");
+      const firstAttemptFile = createFileDescriptor({
+        fileId: "file-first-attempt",
+        mimeType: "text/plain",
+        name: "first.txt",
+        sizeBytes: 10,
+      });
+      const retryFiles = [
+        createFileDescriptor({
+          fileId: "file-retry-first",
+          mimeType: "text/plain",
+          name: "first.txt",
+          sizeBytes: 10,
+        }),
+        createFileDescriptor({
+          fileId: "file-retry-second",
+          mimeType: "text/plain",
+          name: "second.txt",
+          sizeBytes: 11,
+        }),
+      ] as const;
+      const uploadCounts = new Map<string, number>();
+      const uploadMutationIds: string[] = [];
+      const trashedEntryIds: string[] = [];
+      let sentFileIds: string[] = [];
+      const fetchMock = vi.fn((request: string | URL, init?: RequestInit) => {
+        const url = new URL(String(request));
+        const method = String(init?.method ?? "GET").toUpperCase();
+        const name = url.searchParams.get("name");
+        if (method === "POST" && url.pathname.endsWith("/files") && name) {
+          uploadMutationIds.push(
+            String(url.searchParams.get("clientMutationId"))
+          );
+          const count = (uploadCounts.get(name) ?? 0) + 1;
+          uploadCounts.set(name, count);
+          if (name === "first.txt") {
+            const file = count === 1 ? firstAttemptFile : retryFiles[0];
+            return createUploadFileResponse(file);
+          }
+          if (name === "second.txt" && count === 1) {
+            return new Response(
+              JSON.stringify(
+                gatewayErrorEnvelopeSchema.parse({
+                  ok: false,
+                  error: {
+                    code: "upstream_unreachable",
+                    message: "The second file could not be added.",
+                    requestId: "request-first-attempt",
+                  },
+                })
+              ),
+              {
+                status: 502,
+                headers: { "content-type": "application/json" },
+              }
+            );
+          }
+          if (name === "second.txt") {
+            return createUploadFileResponse(retryFiles[1]);
+          }
+        }
+        if (
+          method === "DELETE" &&
+          url.pathname.endsWith(`/files/${firstAttemptFile.id}`)
+        ) {
+          trashedEntryIds.push(firstAttemptFile.id);
+          return new Response(
+            JSON.stringify(
+              trashSpaceFileEntryResponseSchema.parse({
+                entryId: firstAttemptFile.id,
+                trashedAt: CREATED_AT,
+              })
+            ),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        if (method === "POST" && url.pathname.endsWith("/signals")) {
+          const body = JSON.parse(String(init?.body)) as {
+            files?: Array<{ fileId: string }>;
+          };
+          sentFileIds = (body.files ?? []).map((file) => file.fileId);
+          return createSignalResponse(body.files ?? []);
+        }
+        throw new Error(`unexpected request: ${method} ${url.toString()}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const input = {
+        openMeldProfile: PROFILE,
+        baseUrl: "https://gateway.openmeld.invalid",
+        space: "demo",
+        filePaths: [firstPath, secondPath],
+        plainText: true,
+        text: "Deployment evidence",
+        view: "agent" as const,
+      };
+      await expect(runSend(input)).rejects.toMatchObject({
+        requestId: "request-first-attempt",
+      });
+      await runSend(input);
+
+      expect(trashedEntryIds).toEqual([firstAttemptFile.id]);
+      expect(sentFileIds).toEqual(retryFiles.map((file) => file.id));
+      expect(new Set(uploadMutationIds).size).toBe(uploadMutationIds.length);
+      expect(sentFileIds).not.toContain(firstAttemptFile.id);
+    });
+  });
+
   it("accepts arbitrary file types instead of limiting messages to images", async () => {
     await withTempHome(async (home) => {
       const filePath = join(home, "archive.custom");
@@ -345,10 +645,7 @@ describe("space send files", () => {
           expect(new Headers(init?.headers).get("content-type")).toBe(
             "application/octet-stream"
           );
-          return new Response(JSON.stringify({ file }), {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          });
+          return createUploadFileResponse(file);
         }
         if (method === "POST" && url.pathname.endsWith("/signals")) {
           return createSignalResponse([

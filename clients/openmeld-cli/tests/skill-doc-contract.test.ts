@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 const TEST_DIR = fileURLToPath(new URL(".", import.meta.url));
 const CLI_ROOT = join(TEST_DIR, "..");
 
+const README_PATH = join(CLI_ROOT, "README.md");
 const SKILL_DIR = join(CLI_ROOT, "skills", "openmeld-cli");
 const SKILL_FILE_PATH = join(SKILL_DIR, "SKILL.md");
 const AGENT_ONBOARDING_PATH = join(
@@ -26,6 +27,11 @@ const RUNTIME_REFERENCE_PATH = join(
 );
 const OPENMELD_SOURCE_PATH = join(CLI_ROOT, "src", "openmeld.ts");
 const RAW_SPACE_ACTION_COMMAND_PATTERN = /^openmeld space action /m;
+const EXACT_ATTACH_FLAG_PATTERN = /--attach(?=$|[\s`'",=])/m;
+const SPACE_SEND_FILE_FLAG_PATTERN =
+  /^openmeld space send .*--file (?:<[^>]+>|\S+)/m;
+const SPACE_SEND_TEXT_FILE_FLAG_PATTERN =
+  /^openmeld space send .*--text-file (?:<[^>]+>|\S+)/m;
 
 const REQUIRED_SKILL_LINKS = [
   "playbooks/agent-onboarding.md",
@@ -257,6 +263,35 @@ describe("openmeld-cli skill docs contract", () => {
     }
   });
 
+  it("keeps Space message file flags aligned with the real CLI", async () => {
+    const docs = await Promise.all(
+      [
+        README_PATH,
+        SKILL_FILE_PATH,
+        SPACE_OPS_PATH,
+        COMMANDS_REFERENCE_PATH,
+      ].map(async (path) => await readFile(path, "utf8"))
+    );
+    const openMeldSourceRaw = await readFile(OPENMELD_SOURCE_PATH, "utf8");
+    const spaceSendSource =
+      extractSpaceSendCommandDefinition(openMeldSourceRaw);
+
+    expect(spaceSendSource).toContain('"--file <path>"');
+    expect(spaceSendSource).toContain('"--text-file <path>"');
+    expect(spaceSendSource).not.toMatch(EXACT_ATTACH_FLAG_PATTERN);
+    for (const raw of docs) {
+      expect(raw).toMatch(SPACE_SEND_FILE_FLAG_PATTERN);
+      expect(raw).toMatch(SPACE_SEND_TEXT_FILE_FLAG_PATTERN);
+      expect(raw).not.toMatch(EXACT_ATTACH_FLAG_PATTERN);
+      expect(normalizeMarkdownWhitespace(raw)).toContain(
+        "`--file <path>` shares a file with the message"
+      );
+      expect(normalizeMarkdownWhitespace(raw)).toContain(
+        "`--text-file <path>` reads the message body from a UTF-8 text file"
+      );
+    }
+  });
+
   it("documents Organization Skill reads and exact-release loading", async () => {
     const commandsReferenceRaw = await readFile(
       COMMANDS_REFERENCE_PATH,
@@ -325,6 +360,18 @@ async function fileExists(path: string): Promise<boolean> {
 
 function normalizeMarkdownWhitespace(value: string): string {
   return value.replace(/\s+/gu, " ").trim();
+}
+
+function extractSpaceSendCommandDefinition(source: string): string {
+  const commandStart = source.indexOf('spaceCmd\n    .command("send")');
+  if (commandStart < 0) {
+    throw new Error("Could not find the openmeld space send command.");
+  }
+  const actionStart = source.indexOf(").action(", commandStart);
+  if (actionStart < 0) {
+    throw new Error("Could not find the openmeld space send action boundary.");
+  }
+  return source.slice(commandStart, actionStart);
 }
 
 function extractTopLevelProgramCommands(source: string): Set<string> {

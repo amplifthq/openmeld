@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { toStructuredApiClientFailure } from "@openmeld/api-client";
+import {
+  type StructuredApiClientFailure,
+  toStructuredApiClientFailure,
+} from "@openmeld/api-client";
 import {
   resolveSpaceFileMimeType,
   SPACE_FILE_MAX_SIZE_BYTES,
@@ -17,6 +20,11 @@ type PreparedSpaceFile = {
   bytes: Uint8Array;
   name: string;
   mimeType: string;
+};
+
+type SpaceFileCleanupFailure = {
+  failure: StructuredApiClientFailure;
+  fileId: string;
 };
 
 export class SpaceSendFileError extends Error {
@@ -102,9 +110,28 @@ export async function uploadPreparedSpaceFiles(input: {
       });
     } catch (error) {
       const failure = toStructuredApiClientFailure(error);
+      const cleanupFailures = await moveUploadedFilesToTrash({
+        files: uploaded,
+        password: input.password,
+        requestContext: input.requestContext,
+        spaceApi: input.spaceApi,
+        spaceId: input.spaceId,
+      });
+      let cleanupMessage = "";
+      if (uploaded.length > 0) {
+        cleanupMessage =
+          cleanupFailures.length === 0
+            ? " Files added earlier in this send were moved to Trash."
+            : ` ${formatCleanupFailures({
+                failures: cleanupFailures,
+                passwordProtected: input.password !== undefined,
+                profileId: input.requestContext.actorContext.openMeldProfileId,
+                spaceId: input.spaceId,
+              })}`;
+      }
       throw new SpaceSendFileError({
         code: failure.code ?? "space.file.upload_failed",
-        message: `Could not add file "${file.name}" to this Space. The message was not sent. ${failure.message}`,
+        message: `Could not add file "${file.name}" to this Space. The message was not sent. ${failure.message}${cleanupMessage}`,
         cause: error,
         requestId: failure.requestId,
         status: failure.status,
@@ -113,6 +140,59 @@ export async function uploadPreparedSpaceFiles(input: {
     }
   }
   return uploaded;
+}
+
+async function moveUploadedFilesToTrash(input: {
+  files: readonly SpaceMessageFileReference[];
+  password?: string;
+  requestContext: OpenMeldRequestContext;
+  spaceApi: SpaceApi;
+  spaceId: string;
+}): Promise<readonly SpaceFileCleanupFailure[]> {
+  const failures: SpaceFileCleanupFailure[] = [];
+  for (const file of input.files) {
+    try {
+      await input.spaceApi.trashFileEntry({
+        clientMutationId: crypto.randomUUID(),
+        entryId: file.fileId,
+        requestContext: input.requestContext,
+        spaceId: input.spaceId,
+        ...(input.password === undefined
+          ? {}
+          : { spacePassword: input.password }),
+      });
+    } catch (error) {
+      failures.push({
+        failure: toStructuredApiClientFailure(error),
+        fileId: file.fileId,
+      });
+    }
+  }
+  return failures;
+}
+
+function formatCleanupFailures(input: {
+  failures: readonly SpaceFileCleanupFailure[];
+  passwordProtected: boolean;
+  profileId: string;
+  spaceId: string;
+}): string {
+  const failureMessages = input.failures
+    .map(({ failure, fileId }) => {
+      const evidence = [
+        failure.code ? `code ${failure.code}` : null,
+        failure.requestId ? `request ${failure.requestId}` : null,
+      ]
+        .filter((value): value is string => value !== null)
+        .join(", ");
+      const evidenceText = evidence ? ` (${evidence})` : "";
+      return `Could not move file ${fileId} to Trash${evidenceText}: ${failure.message} Run \`openmeld space files trash ${input.spaceId} ${fileId} --profile ${input.profileId}\` to finish cleanup.`;
+    })
+    .join(" ");
+  const passwordGuidance = input.passwordProtected
+    ? " This Space is password protected. Add `--password` with the same Space password you used for this send; OpenMeld does not include the password in this message."
+    : "";
+  return `${failureMessages}${passwordGuidance}`;
 }
 
 async function prepareSpaceSendFile(

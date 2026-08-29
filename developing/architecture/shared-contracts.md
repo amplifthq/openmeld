@@ -1175,6 +1175,15 @@ request and operation correlation, result, and a bounded failure code. It never
 carries a file name, content, byte count, object key, or raw error. Core and the
 Space Durable Object use this one envelope for R2 outcomes and Space-owned
 metadata mutations instead of constructing separate log shapes.
+The audit event identity includes the request correlation and, when it differs,
+the operation id. Multiple file writes in one request therefore remain
+distinct, while an exact replay of one operation remains the same logical
+audit event. New event ids use a versioned, length-delimited tuple so delimiter
+characters inside either correlation id cannot alias another operation. During
+rollout, an exact replay also reuses a matching legacy
+`<operation>:<requestId>` event instead of appending a second audit row; a
+different operation id that previously shared that legacy key remains a
+distinct event.
 
 The list contract names either the active tree or Trash. Trash reads and all
 restore mutations require active Space membership. Entry restore clears Trash
@@ -1229,9 +1238,11 @@ A text signal may have empty text only when it carries at least one canonical
 Space File. Web and CLI may therefore publish a file-only
 message without synthetic text. File selection creates the Space File before
 message publication; a message-send failure may leave that ordinary uploaded
-file visible in Files, but an upload failure must prevent message publication.
-This is one canonical file with two references, not an atomic upload-and-send
-transaction or a hidden cleanup policy.
+file visible in Files. A multi-file upload failure is narrower: CLI moves only
+files confirmed as newly uploaded by that same not-yet-published invocation to
+recoverable Trash and reports exact ids for any cleanup that fails. This is one
+canonical file with two references, not an atomic upload-and-send transaction;
+cleanup never infers ownership from a file name or removes pre-existing files.
 
 `space.files.changed` is an additive invalidation topic. It carries no file
 metadata and grants no access. Clients refresh the shared file-list contract.
@@ -1338,6 +1349,13 @@ files, uploaded every attachment before posting, and failed instead of silently
 publishing an attachment-free message. Current CLI releases use
 `space send --file <path>` and canonical Space File references; `--attach` is
 not a second authoring path.
+
+The multi-file reliability rollout deploys Core's per-operation Space File
+audit identity before publishing the corrected CLI and managed Skill. Old CLI
+releases remain compatible with the new Core behavior. A corrected CLI against
+an old Core may still hit the old second-write audit collision, so cleanup is
+recovery behavior rather than a substitute for that deploy order. No shared
+schema or local runtime contract version changes.
 
 The hosted-image rollout is a third cloud-only ordering exception. Deploy the
 Remote Agent worker with its optional attachment consumer and read-only R2

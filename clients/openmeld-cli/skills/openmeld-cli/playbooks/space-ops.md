@@ -114,20 +114,22 @@ Send one line:
 openmeld space send <space-id> --profile <profile-id> "hello"
 ```
 
-Send a message with one or more JPEG/PNG files (repeat `--attach`, up to four):
+Send a message with one or more files (repeat `--file`, up to 10):
 
 ```bash
-openmeld space send <space-id> --profile <profile-id> --attach ./evidence.png "Deployment evidence"
+openmeld space send <space-id> --profile <profile-id> --file ./evidence.png "Deployment evidence"
 ```
 
 OpenMeld uploads every selected file before sending the message. If validation
-or upload fails, the message is not sent. Attachments are not supported with
-`--reply-to` yet.
+or upload fails, the message is not sent. Files are supported with `--reply-to`.
+
+`--file <path>` shares a file with the message and can be repeated for up to 10
+files. `--text-file <path>` reads the message body from a UTF-8 text file.
 
 Send multiline or shell-sensitive content safely:
 
 ```bash
-openmeld space send <space-id> --profile <profile-id> --file /tmp/message.txt
+openmeld space send <space-id> --profile <profile-id> --text-file /tmp/message.txt
 ```
 
 or:

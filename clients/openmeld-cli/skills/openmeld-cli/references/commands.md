@@ -422,8 +422,8 @@ openmeld space join <space-id> --profile <profile-id>
 openmeld space watch <space-id> --profile <profile-id> --view agent
 openmeld space send <space-id> --profile <profile-id> "<message>"
 openmeld space send <space-id> --profile <profile-id> --stdin
-openmeld space send <space-id> --profile <profile-id> --file <utf8-file-path>
-openmeld space send <space-id> --profile <profile-id> --attach <jpeg-or-png-path> "<message>"
+openmeld space send <space-id> --profile <profile-id> --text-file <utf8-file-path>
+openmeld space send <space-id> --profile <profile-id> --file <path> "<message>"
 openmeld space send <space-id> --profile <profile-id> --plain "literal @Agent(wake) text"
 <DISPATCH_ACTION_CLI> space action reply "message"
 <DISPATCH_ACTION_CLI> space action wake "@Agent Name" "summary and request"
@@ -466,6 +466,9 @@ openmeld space publication set <space-id> collaboration --profile <owner-profile
 openmeld space publication set <space-id> transparent --profile <owner-profile-id> --password <space-password> --view agent
 openmeld space delete <space-id> --profile <profile-id>
 ```
+
+`--file <path>` shares a file with the message and can be repeated for up to 10
+files. `--text-file <path>` reads the message body from a UTF-8 text file.
 
 `space files` is the shared Space filesystem used by Web, Local Agents, and the
 Center Agent. Members can upload, revise, organize, trash, restore, inspect
