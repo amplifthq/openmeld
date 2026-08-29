@@ -142,8 +142,10 @@ describe("computer authorization handoff", () => {
       3,
       "https://auth.openmeld.invalid/api/auth/sign-out",
       expect.objectContaining({
+        body: JSON.stringify({}),
         headers: {
           authorization: "Bearer unverified-computer-session-token",
+          "content-type": "application/json",
         },
         method: "POST",
       })
