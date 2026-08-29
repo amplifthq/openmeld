@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-29T04:18:02.145Z",
+  "updatedAt": "2026-08-28T23:16:37.866Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.128",
+      "packageVersion": "0.3.127",
       "updatePolicy": "available",
       "reason": "Receiver-first rollout publishes the new CLI before Web emits --device-code; the Web bootstrap installs the current CLI, and existing CLI commands remain compatible with both cloud versions."
     },
     "service": {
-      "bundleHash": "2b1c08063a59d55cfea2d9bfc4ebe495fafcb244aa52247a79d22961ad7d774d",
-      "bundleVersion": "0.3.128",
+      "bundleHash": "a9ae8722b53d9842123e99e47935b25f0498d17f785b75a1d6114720c8fee652",
+      "bundleVersion": "0.3.127",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "No wire contract changed; 0.3.128 fixes local crash recovery and diagnostics while older Services remain cloud-compatible."
+      "reason": "Existing Services remain compatible with current and new cloud APIs; crash-safe credential handoff changes local ownership only and preserves existing Wake and reconnect contracts."
     },
     "skills": {
       "bundleHash": "3b9b009ba253a1ec80240545d016a238505cd21ec6b11b34a10eea755f2e2683",
