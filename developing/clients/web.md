@@ -981,7 +981,7 @@ invite, and ready. Detailed product semantics live in
 - Organization join flows update route-scope caches optimistically without
   writing Better Auth active-Organization session state. Creation waits for the
   Auth-generated slug because Web cannot invent a truthful provisional URL;
-- Slack, Lark/Feishu, Apps, connector requests, Prepare, memory, Wake access,
+- Slack, Lark/Feishu, Apps, connector requests, Prepare, memory,
   Organization documents, Information Protection, and invitations reuse their
   existing query keys and mutations;
 - role-gated sections do not mount unauthorized reads;
@@ -992,10 +992,11 @@ invite, and ready. Detailed product semantics live in
   local-runtime, local-agent, and invitation projections.
 
 The former blocking `OrganizationEntryOnboardingDialog`, its two steps, local
-hook, and tests are removed. Wake access and Organization memory are no longer a
-separate consent corridor: untouched values default on in Setup Studio,
-explicit prior choices remain authoritative, and the same settings remain
-available in their normal management homes.
+hook, and tests are removed. Organization memory is no longer a separate
+consent corridor: its untouched value defaults on in Setup Studio, explicit
+prior choices remain authoritative, and the same setting remains available in
+its normal management home. Agent Profile Organization ownership has no
+preference or onboarding surface.
 
 ### Retired and relocated surfaces
 
@@ -2376,7 +2377,8 @@ Loading or failed capability reads fail closed for Human creation. UI gating is
 presentation only; Auth still rejects direct or stale-client Human creation
 requests.
 
-The Organization **Agents** home has one secondary **Requests** view. It lists
+The Organization **Agents** home has one fixed **Agent requests** entry in its
+secondary sidebar. It lists
 the current member's incoming and outgoing Agent Profile Creation Requests,
 shows their source and current status, and exposes only the actions the member
 may perform: approve or decline as target owner, cancel as requester, retry a
@@ -2454,18 +2456,17 @@ When Web opens Agent Profile creation from an organization-scoped creation
 surface, including Agent Profiles and Space member creation flows, Web must
 preserve both ownership facts: the signed-in account owns the Agent Profile,
 and the explicitly selected Organization contains it. Web must create the
-Profile in that Organization before it creates or authorizes a Binding, and all
-later working-folder, Default Project, Wake-access, and Space-membership writes
-must keep the same Organization id. Web then authorizes the new Binding when
-the user confirms or when the user's per-Organization auto-authorization
-preference is already enabled. An unbound Agent Profile still belongs to its
-Organization, but it has no Binding to authorize and must not be presented as
-wakeable until the user connects a local agent.
+Profile in that Organization before it creates a Binding, and all
+later working-folder, Default Project, Binding, readiness, and Space-membership
+writes must keep the same Organization id. Web exposes no cross-Organization
+authorization or future-authorization choice. An unbound Agent Profile still
+belongs to its Organization and must not be presented as wakeable until the
+user connects a local agent.
 
 Web treats the successful Auth Profile create response as an irreversible
 creation commit point. It then records Space membership, local Binding,
-working-folder, Default Project, and Organization Wake-access work as explicit
-follow-up outcomes for that same Profile. A follow-up failure must close the
+working-folder, and Default Project work as explicit follow-up outcomes for
+that same Profile. A follow-up failure must close the
 create transaction as partial success, refresh the committed Profile into the
 relevant lists, and show recovery copy that says what did and did not finish;
 it must not leave the form in a state where submitting again creates a duplicate
@@ -2695,10 +2696,10 @@ with the resolved Space name. Web may perform one bounded refetch for newly
 observed unresolved references, then respect the refresh cooldown. Anonymous
 views keep the public route behavior.
 
-An Organization Wake-access failure is actionable configuration, not a
-destructive system crash. Space outcome rows present it in amber, state that
-Wake access is off in plain language, and link directly to Organization Wake
-Access. Other terminal execution failures keep their own severity.
+An Agent Profile Organization mismatch is an identity failure, not actionable
+configuration. Space outcome rows state that the Agent belongs to another
+Workspace, present no Wake-access repair action, and keep destructive failure
+severity. Web must never deep-link to a retired authorization surface.
 
 Thread placement is conversation placement. It is not execution truth.
 
@@ -3258,9 +3259,9 @@ still be resolved per Agent Profile: the current Runtime must be able to receive
 Wake work, the matching local Agent Controller must be runnable on that Runtime,
 and Core must have returned `reconnect_binding` guidance for that profile. The
 bulk action performs the existing reconnect write once per eligible profile,
-preserves same-controller Binding settings and conversations, carries forward
-eligible Organization Wake access through Core policy, and reports partial
-success honestly. It is a user-confirmed convenience over per-profile writes;
+preserves same-controller Binding settings and conversations, keeps each
+Profile in its canonical Organization, and reports partial success honestly.
+It is a user-confirmed convenience over per-profile writes;
 it is not an automatic side effect of service setup, Computer reconnect, or
 device-name matching.
 

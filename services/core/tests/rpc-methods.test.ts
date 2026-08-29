@@ -74,6 +74,13 @@ function createRpcMethodsDbMock(): D1Database {
           if (MEMBERS_TABLE_QUERY_PATTERN.test(query)) {
             return Promise.resolve({ id: "member-owner", role: "owner" });
           }
+          if (query.includes("FROM space_index_spaces")) {
+            return Promise.resolve({
+              organization_id: "org-1",
+              organization_visibility: "private",
+              space_id: SPACE_ID,
+            });
+          }
           return Promise.resolve(null);
         }),
         all: vi.fn(() => Promise.resolve({ results: [] })),
@@ -109,7 +116,11 @@ function createBindingsMock() {
     rpcPostStatusSignal: vi.fn(),
     rpcPostSystemNoticeSignal: vi.fn(),
     rpcPostTransientSignal: vi.fn(async () => undefined),
-    rpcGetMeta: vi.fn(async () => ({ spaceId: "space-1" })),
+    rpcGetMeta: vi.fn(async (request: { spaceId: string }) => ({
+      organizationId: "org-1",
+      spaceId: request.spaceId,
+      visibility: "private" as const,
+    })),
     rpcPatchMeta: vi.fn(async () => ({ spaceId: "space-1" })),
     rpcPatchMetaWithPasswordAtomic: vi.fn(async () => ({
       spaceId: "space-1",

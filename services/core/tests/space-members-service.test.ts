@@ -425,6 +425,7 @@ type RouteTruthD1DatabaseInput = {
   deviceId?: string;
   failBindingRead?: boolean;
   ownerUserId?: string;
+  profileOrganizationId?: string;
   runtimeDeviceDisplayName?: string;
   openMeldServiceRuntimeId?: string;
   runtimeLane?: string;
@@ -443,11 +444,24 @@ function createRouteTruthD1Database(
   const runtimeLane = input.runtimeLane ?? "dev-local";
   const runtimeDeviceDisplayName =
     input.runtimeDeviceDisplayName ?? "Felix's composer";
+  const profileOrganizationId = input.profileOrganizationId ?? "org-1";
 
   function firstForSql(
     sql: string,
     params: readonly unknown[]
   ): Record<string, unknown> | null {
+    if (sql.toLowerCase().includes("from openmeld_profiles")) {
+      return {
+        managed_role:
+          agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF
+            ? "center_agent"
+            : null,
+        organization_id: profileOrganizationId,
+        owner_user_id: ownerUserId,
+        profile_kind: "agent",
+        profile_name: "Center Agent",
+      };
+    }
     if (sql.toLowerCase().includes("from center_agent_designations")) {
       const organizationId = String(params[0] ?? "");
       if (organizationId !== input.centerAgentDesignationOrganizationId) {
@@ -2543,6 +2557,10 @@ describe("space-members-service", () => {
       sql: sql as unknown as SqlStorage,
       env: env as unknown as CoreBindings,
       spaceId: "space-members-route-online",
+      metaRecord: createReadinessMetaRecord(
+        "space-members-route-online",
+        "hum-members-host-route-online"
+      ),
       viewerOwnerUserId: "owner-1",
       viewerProfileId: "hum-members-host-route-online",
       liveSessions: [],
@@ -2552,6 +2570,10 @@ describe("space-members-service", () => {
       sql: sql as unknown as SqlStorage,
       env: env as unknown as CoreBindings,
       spaceId: "space-members-route-online",
+      metaRecord: createReadinessMetaRecord(
+        "space-members-route-online",
+        "hum-members-host-route-online"
+      ),
       viewerOwnerUserId: "owner-2",
       viewerProfileId: "hum-outsider-route-online",
       liveSessions: [],
@@ -2683,6 +2705,10 @@ describe("space-members-service", () => {
     const snapshot = await listSpaceMembersSnapshotUseCase({
       env: env as unknown as CoreBindings,
       liveSessions: [],
+      metaRecord: createReadinessMetaRecord(
+        "space-members-codex-sign-in-warning",
+        "hum-members-host-codex-sign-in-warning"
+      ),
       nowIso: "2026-03-06T13:11:00.000Z",
       spaceId: "space-members-codex-sign-in-warning",
       sql: sql as unknown as SqlStorage,
@@ -2838,6 +2864,10 @@ describe("space-members-service", () => {
       sql: sql as unknown as SqlStorage,
       env: env as unknown as CoreBindings,
       spaceId: "space-members-batch-routes",
+      metaRecord: createReadinessMetaRecord(
+        "space-members-batch-routes",
+        "hum-members-host-batch-routes"
+      ),
       viewerOwnerUserId: "owner-1",
       viewerProfileId: "hum-members-host-batch-routes",
       liveSessions: [],
@@ -2948,6 +2978,10 @@ describe("space-members-service", () => {
     const snapshotPromise = listSpaceMembersSnapshotUseCase({
       env: env as unknown as CoreBindings,
       liveSessions: [],
+      metaRecord: createReadinessMetaRecord(
+        "space-members-parallel-preloads",
+        "hum-members-host-parallel-preloads"
+      ),
       nowIso: "2026-03-06T13:11:00.000Z",
       spaceId: "space-members-parallel-preloads",
       sql: sql as unknown as SqlStorage,
@@ -3062,6 +3096,10 @@ describe("space-members-service", () => {
       sql: sql as unknown as SqlStorage,
       env: env as unknown as CoreBindings,
       spaceId: "space-members-identity-unavailable",
+      metaRecord: createReadinessMetaRecord(
+        "space-members-identity-unavailable",
+        "hum-members-host-identity-unavailable"
+      ),
       viewerOwnerUserId: "owner-1",
       viewerProfileId: "hum-members-host-identity-unavailable",
       liveSessions: [],
@@ -3169,6 +3207,10 @@ describe("space-members-service", () => {
       sql: sql as unknown as SqlStorage,
       env: env as unknown as CoreBindings,
       spaceId: "space-members-profile-deleted",
+      metaRecord: createReadinessMetaRecord(
+        "space-members-profile-deleted",
+        "hum-members-host-profile-deleted"
+      ),
       viewerOwnerUserId: "owner-1",
       viewerProfileId: "hum-members-host-profile-deleted",
       liveSessions: [],
@@ -3261,6 +3303,10 @@ describe("space-members-service", () => {
       sql: sql as unknown as SqlStorage,
       env: env as unknown as CoreBindings,
       spaceId: "space-members-route-offline",
+      metaRecord: createReadinessMetaRecord(
+        "space-members-route-offline",
+        "hum-members-host-route-offline"
+      ),
       viewerOwnerUserId: "owner-1",
       viewerProfileId: "hum-members-host-route-offline",
       liveSessions: [],
@@ -3371,6 +3417,10 @@ describe("space-members-service", () => {
       sql: sql as unknown as SqlStorage,
       env: env as unknown as CoreBindings,
       spaceId: "space-members-report-covered",
+      metaRecord: createReadinessMetaRecord(
+        "space-members-report-covered",
+        "hum-members-host-report-covered"
+      ),
       viewerOwnerUserId: "owner-1",
       viewerProfileId: "hum-members-host-report-covered",
       liveSessions: [],
@@ -3457,6 +3507,10 @@ describe("space-members-service", () => {
       sql: sql as unknown as SqlStorage,
       env: env as unknown as CoreBindings,
       spaceId: "space-members-route-lease-reaped",
+      metaRecord: createReadinessMetaRecord(
+        "space-members-route-lease-reaped",
+        "hum-members-host-route-lease-reaped"
+      ),
       viewerOwnerUserId: "owner-1",
       viewerProfileId: "hum-members-host-route-lease-reaped",
       liveSessions: [],
@@ -3549,6 +3603,10 @@ describe("space-members-service", () => {
       sql: sql as unknown as SqlStorage,
       env: env as unknown as CoreBindings,
       spaceId: "space-members-route-update-required",
+      metaRecord: createReadinessMetaRecord(
+        "space-members-route-update-required",
+        "hum-members-host-route-update-required"
+      ),
       viewerOwnerUserId: "owner-1",
       viewerProfileId: "hum-members-host-route-update-required",
       liveSessions: [],
@@ -3633,6 +3691,10 @@ describe("space-members-service", () => {
       sql: sql as unknown as SqlStorage,
       env: env as unknown as CoreBindings,
       spaceId: "space-members-route-unavailable",
+      metaRecord: createReadinessMetaRecord(
+        "space-members-route-unavailable",
+        "hum-members-host-route-unavailable"
+      ),
       viewerOwnerUserId: "owner-1",
       viewerProfileId: "hum-members-host-route-unavailable",
       liveSessions: [],
@@ -3725,6 +3787,10 @@ describe("space-members-service", () => {
       sql: sql as unknown as SqlStorage,
       env: env as unknown as CoreBindings,
       spaceId: "space-members-binding-unavailable",
+      metaRecord: createReadinessMetaRecord(
+        "space-members-binding-unavailable",
+        "hum-members-host-binding-unavailable"
+      ),
       viewerOwnerUserId: "owner-1",
       viewerProfileId: "hum-members-host-binding-unavailable",
       liveSessions: [],
@@ -3901,6 +3967,7 @@ describe("space-members-service", () => {
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
       centerAgentDesignationOrganizationId: "org-1",
       ownerUserId: "owner-center-agent",
+      profileOrganizationId: "org-1",
     });
     const env = {
       OPENMELD_AUTH_WORKER: {
@@ -3991,6 +4058,7 @@ describe("space-members-service", () => {
       agentProfileId,
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
       ownerUserId: "owner-center-agent",
+      profileOrganizationId: "org-1",
     });
     const env = {
       OPENMELD_AUTH_WORKER: {
@@ -4200,6 +4268,21 @@ function createMetaRecord(input: {
     createdAt: input.createdAt,
     updatedAt: input.updatedAt,
   };
+}
+
+function createReadinessMetaRecord(
+  spaceId: string,
+  creatorProfileId: string
+): SpaceMetaRecord {
+  return createMetaRecord({
+    spaceId,
+    createdAt: "2026-03-06T13:00:00.000Z",
+    updatedAt: "2026-03-06T13:00:00.000Z",
+    creator: createHumanCreator(creatorProfileId, "Owner One", {
+      ownerUserId: "owner-1",
+      ownerName: "Owner One",
+    }),
+  });
 }
 
 function createHumanCreator(

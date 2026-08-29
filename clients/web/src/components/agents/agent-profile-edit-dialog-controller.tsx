@@ -54,6 +54,7 @@ export function AgentProfileEditDialogController(input: {
 		agentProfilePrimaryBindingQueryOptions({
 			agentProfileId: input.profile.openMeldProfileId,
 			enabled: input.open,
+			organizationId: input.context.organizationId,
 			storageScope: input.context.storageScope,
 		})
 	);
@@ -61,6 +62,7 @@ export function AgentProfileEditDialogController(input: {
 		agentProfileControllerChangeEligibilityQueryOptions({
 			agentProfileId: input.profile.openMeldProfileId,
 			enabled: input.open,
+			organizationId: input.context.organizationId,
 			storageScope: input.context.storageScope,
 		})
 	);

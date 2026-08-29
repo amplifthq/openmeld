@@ -264,10 +264,7 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 vi.mock("#/components/profiles/create-profile-dialog", () => ({
 	CreateProfileDialog: (props: {
 		onProfileCreated?: (profile: AuthProfileView) => void;
-		organizationAuthorizationContext?: {
-			organizationId: string;
-			organizationName: string;
-		};
+		organizationId: string;
 	}) => {
 		createProfileDialogSpy(props);
 		return (
@@ -884,6 +881,22 @@ describe("PeopleAndAgentsPage", () => {
 			name: "Personal",
 			slug: "personal",
 		});
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			return queryKey.includes("directory")
+				? {
+						data: { ...buildOrganizationDirectory(), agentProfiles: [] },
+						error: null,
+						isError: false,
+						isPending: false,
+					}
+				: {
+						data: [buildHumanProfile("human-default")],
+						error: null,
+						isError: false,
+						isPending: false,
+					};
+		});
 
 		render(
 			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
@@ -895,7 +908,7 @@ describe("PeopleAndAgentsPage", () => {
 		expect(screen.queryByRole("button", { name: "Agent requests" })).toBeNull();
 	});
 
-	it("passes organization authorization context when creating from organization Agents", () => {
+	it("creates organization Agents directly in the active workspace", () => {
 		render(
 			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
 		);
@@ -903,16 +916,11 @@ describe("PeopleAndAgentsPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 
 		expect(createProfileDialogSpy).toHaveBeenCalledWith(
-			expect.objectContaining({
-				organizationAuthorizationContext: {
-					organizationId: "org-123",
-					organizationName: "Acme",
-				},
-			})
+			expect.objectContaining({ organizationId: "org-123" })
 		);
 	});
 
-	it("does not pass organization authorization context from People", () => {
+	it("creates Human Profiles directly in the active workspace", () => {
 		render(
 			<PeopleAndAgentsPage
 				activeSectionId="people"
@@ -923,9 +931,7 @@ describe("PeopleAndAgentsPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Create Profile" }));
 
 		expect(createProfileDialogSpy).toHaveBeenCalledWith(
-			expect.objectContaining({
-				organizationAuthorizationContext: undefined,
-			})
+			expect.objectContaining({ organizationId: "org-123" })
 		);
 	});
 

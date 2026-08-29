@@ -454,13 +454,17 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		const agentProfileIds = [...readinessInvalidationProfileIdsRef.current];
 		readinessInvalidationProfileIdsRef.current.clear();
 		readinessInvalidationRefreshTimerRef.current = null;
+		if (!organizationId) {
+			return;
+		}
 		await refreshWebAgentReadinessSharedCaches({
 			agentProfileIds,
 			includeLocalRuntimeCaches: false,
+			organizationId,
 			queryClient,
 			storageScope: recovery.storageScope,
 		});
-	}, [queryClient, recovery.storageScope]);
+	}, [organizationId, queryClient, recovery.storageScope]);
 	const refreshAgentReadinessInvalidated = useCallback(
 		(input: { agentProfileIds: readonly string[] }) => {
 			for (const agentProfileId of input.agentProfileIds) {
@@ -800,7 +804,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			});
 			const currentOwnerEvidenceAvailable =
 				membersSnapshot !== null && currentOwnerUserId !== null;
-			if (currentOwnerAgentProfileIds.length > 0) {
+			if (organizationId && currentOwnerAgentProfileIds.length > 0) {
 				startLocalAgentRecoveryRefreshWindow();
 				await refreshWebAgentReadinessAfterCoreFactsChanged({
 					agentProfileIds: currentOwnerAgentProfileIds,
@@ -812,10 +816,15 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 							spaceId: input.spaceId,
 						}),
 					maxAttempts: 2,
+					organizationId,
 					queryClient,
 					storageScope: recovery.storageScope,
 				});
-			} else if (!currentOwnerEvidenceAvailable && agentProfileIds.length > 0) {
+			} else if (
+				organizationId &&
+				!currentOwnerEvidenceAvailable &&
+				agentProfileIds.length > 0
+			) {
 				await refreshWebAgentReadinessAfterCoreFactsChanged({
 					agentProfileIds: [],
 					includeLocalRuntimeCaches: false,
@@ -826,6 +835,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 							spaceId: input.spaceId,
 						}),
 					maxAttempts: 2,
+					organizationId,
 					queryClient,
 					storageScope: recovery.storageScope,
 				});
@@ -850,6 +860,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		currentOwnerUserId,
 		input.spaceId,
 		membersSnapshot,
+		organizationId,
 		queryClient,
 		recovery.storageScope,
 		startLocalAgentRecoveryRefreshWindow,
@@ -874,17 +885,19 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 								snapshot: controller.membersSnapshot,
 							})
 						);
-			if (requestedAgentProfileIds.length > 0) {
+			if (organizationId && requestedAgentProfileIds.length > 0) {
 				await refreshWebAgentReadinessFacts({
 					agentProfileIds: profileIdsToRefresh,
 					includeLocalRuntimeCaches: false,
+					organizationId,
 					queryClient,
 					storageScope: recovery.storageScope,
 				});
-			} else {
+			} else if (organizationId) {
 				await refreshWebAgentReadinessAfterCoreFactsChanged({
 					agentProfileIds: profileIdsToRefresh,
 					includeLocalRuntimeCaches: false,
+					organizationId,
 					queryClient,
 					storageScope: recovery.storageScope,
 				});
@@ -903,6 +916,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	}, [
 		controller,
 		currentOwnerUserId,
+		organizationId,
 		queryClient,
 		recovery.refreshAll,
 		recovery.storageScope,
@@ -970,18 +984,20 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 				profileIdsNeedingRouteCatalogRefresh.push(profileId);
 			}
 		}
-		if (profileIdsNeedingRouteCatalogRefresh.length > 0) {
+		if (organizationId && profileIdsNeedingRouteCatalogRefresh.length > 0) {
 			await refreshWebAgentReadinessFacts({
 				agentProfileIds: profileIdsNeedingRouteCatalogRefresh,
 				includeLocalRuntimeCaches: false,
+				organizationId,
 				queryClient,
 				storageScope: recovery.storageScope,
 			});
 		}
-		if (profileIdsNeedingReadOnlyRefresh.length > 0) {
+		if (organizationId && profileIdsNeedingReadOnlyRefresh.length > 0) {
 			await refreshWebAgentReadinessAfterCoreFactsChanged({
 				agentProfileIds: profileIdsNeedingReadOnlyRefresh,
 				includeLocalRuntimeCaches: false,
+				organizationId,
 				queryClient,
 				storageScope: recovery.storageScope,
 			});
@@ -1008,12 +1024,15 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 				currentOwnerUserId,
 				snapshot: controller.membersSnapshot,
 			});
-			await refreshWebAgentReadinessAfterCoreFactsChanged({
-				agentProfileIds: profileIdsToRefresh,
-				includeLocalRuntimeCaches: false,
-				queryClient,
-				storageScope: recovery.storageScope,
-			});
+			if (organizationId) {
+				await refreshWebAgentReadinessAfterCoreFactsChanged({
+					agentProfileIds: profileIdsToRefresh,
+					includeLocalRuntimeCaches: false,
+					organizationId,
+					queryClient,
+					storageScope: recovery.storageScope,
+				});
+			}
 			await controller.onRefreshStatusAndMembers();
 		}
 	);
@@ -1176,17 +1195,26 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 					connectedRuntimeTarget?.runtimeLane ?? recovery.runtimeLane,
 			});
 			startLocalAgentRecoveryRefreshWindow();
-			await refreshWebAgentReadinessFacts({
-				agentProfileIds: [plan.profileId],
-				queryClient,
-				storageScope: recovery.storageScope,
-			});
+			if (organizationId) {
+				await refreshWebAgentReadinessFacts({
+					agentProfileIds: [plan.profileId],
+					organizationId,
+					queryClient,
+					storageScope: recovery.storageScope,
+				});
+			}
 			await Promise.all([
 				recovery.refreshAll(),
 				controller.onRefreshStatusAndMembers(),
 			]);
 		},
-		[controller, queryClient, recovery, startLocalAgentRecoveryRefreshWindow]
+		[
+			controller,
+			organizationId,
+			queryClient,
+			recovery,
+			startLocalAgentRecoveryRefreshWindow,
+		]
 	);
 	const handleMembersOpenChange = useCallback(
 		(open: boolean) => {
@@ -1434,6 +1462,7 @@ function SpaceLandingReady({
 		membersPanelWidth,
 		modelCatalog,
 		navigate,
+		organizationId,
 		recovery,
 		refreshCurrentSpaceMemberFacts,
 		setupRecallAction,
@@ -1511,6 +1540,7 @@ function SpaceLandingReady({
 				recovery.refreshAll(),
 			]);
 		},
+		organizationId,
 		recovery,
 	});
 	const pendingAgentActions = useSpacePendingAgentActions({
@@ -2120,9 +2150,10 @@ function resolveSpaceMembersLoadErrorMessage(error: unknown) {
 
 function resolveAgentProfileEditDialogContext(input: {
 	onSaved: (profileId: string) => Promise<void>;
+	organizationId: string | null;
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
 }): AgentProfileEditDialogContext | undefined {
-	if (!input.recovery.selectedHumanProfileId) {
+	if (!(input.organizationId && input.recovery.selectedHumanProfileId)) {
 		return undefined;
 	}
 	return {
@@ -2132,6 +2163,7 @@ function resolveAgentProfileEditDialogContext(input: {
 			input.recovery
 		),
 		onSaved: input.onSaved,
+		organizationId: input.organizationId,
 		runtimeLane: input.recovery.runtimeLane,
 		storageScope: input.recovery.storageScope,
 	};
@@ -2297,10 +2329,11 @@ function useSpaceAddProfilesHandler(input: {
 			});
 
 			(async () => {
-				if (agentProfileIdsToRefresh.length > 0) {
+				if (input.organizationId && agentProfileIdsToRefresh.length > 0) {
 					await refreshWebAgentReadinessAfterCoreFactsChanged({
 						agentProfileIds: agentProfileIdsToRefresh,
 						includeLocalRuntimeCaches: false,
+						organizationId: input.organizationId,
 						queryClient: input.queryClient,
 						storageScope: input.storageScope,
 					});

@@ -103,6 +103,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		await vi.waitFor(() => {
 			expect(updateWorkspaceMock).toHaveBeenCalledWith({
 				actorProfileId: "human-1",
+				organizationId: "organization-1",
 				profileId: "profile-agent",
 				workspaceMode: "custom",
 				workspacePath: "/Users/felix/Private Workspace ",
@@ -129,6 +130,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		await vi.waitFor(() => {
 			expect(updateWorkspaceMock).toHaveBeenCalledWith({
 				actorProfileId: "human-1",
+				organizationId: "organization-1",
 				profileId: "profile-agent",
 				workspaceMode: "openmeld_managed",
 			});

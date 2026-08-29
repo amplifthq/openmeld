@@ -503,10 +503,13 @@ for Default Project, model, reasoning effort, Agent Controller Permission Mode,
 Agent Controller Collaboration Mode, and controller-specific permissions.
 Web, CLI, Local Agent, and Center Agent creation reuse that selection rather
 than defining surface-specific subsets. The Agent Profile Creation Request adds
-only execution targeting and Organization Wake authorization; Core remains the
-single preference writer and reuses the existing Binding and Default Project
-owners. Stored requests written before Collaboration Mode parse that additive
-field as `null`; new writers always send the explicit field. The model-visible
+only execution targeting; Core reuses the existing Binding and Default Project
+owners. Legacy `authorizeForOrganization` remains a required-looking
+compatibility boolean on serialized requests and responses during the rolling
+retirement window. New clients send the fixed value `true`, and new Core
+versions ignore it completely; there is no product preference or authorization
+effect behind the field. This keeps old readers and writers schema-compatible
+until the consumer-retirement release is fully deployed. The model-visible
 Center Agent input carries a cloud Project ID and never a local path.
 
 Auth also owns the shared `resolveOrganizationAccountIdentity` RPC projection
@@ -756,13 +759,12 @@ Auth owns the private Organization Directory identity projections.
 `resolveOrganizationDirectoryMembers` returns current membership, account
 identity, and the account-scoped default Human Profile.
 `resolveOrganizationDirectoryAgentProfiles` returns Auth-owned Agent Profile
-identity for profiles owned by the Organization plus any identity matching the
-exact additional profile ids requested by Core. The additional lookup is
-identity resolution, not Binding authorization.
+identity only for profiles owned by the Organization. Core must not request or
+merge additional cross-Organization Profile ids from legacy authorization
+state.
 
-Core derives those additional ids only from its own Organization Binding
-authorization and Binding records. It then combines the Auth projections with
-Core-owned Center Agent designation and readiness. When a caller explicitly
+Core combines the Auth projections with Core-owned Center Agent designation and
+readiness. When a caller explicitly
 requests `includeMemberLastActiveAt=true`, Core also overlays its own optional
 member `lastActiveAt` projection. This ISO timestamp is tied to the member's
 current Human Profile and advances only from an accepted, persisted Human text

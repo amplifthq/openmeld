@@ -2,16 +2,10 @@ import {
 	type AgentRecoveryActionId,
 	resolvePublicAgentFailureRecovery,
 } from "@openmeld/schemas";
-import { isOrganizationWakeAccessReasonCode } from "./wake-access-reason-code";
 
 export type WakeFailureDisplay =
 	| {
-			actionTarget:
-				| "agents"
-				| "computer"
-				| "cursor_account"
-				| "org_wake_access"
-				| "prepare_setup";
+			actionTarget: "agents" | "computer" | "cursor_account" | "prepare_setup";
 			body: string;
 			primaryActionId: AgentRecoveryActionId;
 			primaryActionLabel: string;
@@ -37,15 +31,6 @@ export function resolveWakeFailureDisplay(input: {
 	targetLabel: string;
 }): WakeFailureDisplay | null {
 	const targetName = formatTargetName(input.targetLabel);
-	const organizationFailure = resolveOrganizationWakeFailureDisplay({
-		failureReasonCode: input.failureReasonCode,
-		isPersonalContext: input.isPersonalContext === true,
-		targetName,
-	});
-	if (organizationFailure) {
-		return organizationFailure;
-	}
-
 	const recovery = resolvePublicAgentFailureRecovery({
 		errorCode: input.failureReasonCode,
 		targetLabel: targetName,
@@ -79,31 +64,6 @@ export function resolveWakeFailureDisplay(input: {
 		body: recovery.body,
 		primaryActionId: recovery.primaryActionId,
 		primaryActionLabel: recovery.primaryActionLabel,
-	};
-}
-
-function resolveOrganizationWakeFailureDisplay(input: {
-	failureReasonCode: string | null | undefined;
-	isPersonalContext: boolean;
-	targetName: string;
-}): WakeFailureDisplay | null {
-	const reasonCode = normalizeOptionalText(input.failureReasonCode);
-	if (!isOrganizationWakeAccessReasonCode(reasonCode)) {
-		return null;
-	}
-
-	if (input.isPersonalContext) {
-		return {
-			actionTarget: null,
-			body: `${input.targetName} could not be woken because Wake access is not ready for this Agent Profile yet. Open Wake details for diagnostics, then try the Wake again.`,
-		};
-	}
-
-	return {
-		actionTarget: "org_wake_access",
-		body: `Wake access is off for ${input.targetName} in this organization. Turn it on to let ${input.targetName} reply in this Space.`,
-		primaryActionId: "review_agent_settings",
-		primaryActionLabel: "Turn on Wake access",
 	};
 }
 

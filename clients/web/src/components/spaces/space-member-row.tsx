@@ -1,4 +1,5 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import { isAgentProfileWorkspaceBlockerReasonCode } from "@openmeld/agent-runtime";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
@@ -29,10 +30,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME } from "#/components/app/app-nav-item-style";
 import { AgentProfileListItem } from "#/components/profiles/profile-list-item";
-import { buildOrganizationWakeAccessPath } from "#/lib/organizations/organization-routes";
 import { buildOpenMeldServiceSettingsPath } from "#/lib/settings-routes";
 import { resolveSpaceMemberStatusBadgeDisplay } from "#/lib/spaces/presentation";
-import { isOrganizationWakeAccessReasonCode } from "#/lib/spaces/wake-access-reason-code";
 import {
 	isManualOnlyAgentRecoveryPlan,
 	MANUAL_ONLY_AGENT_BADGE_LABEL,
@@ -128,7 +127,10 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 	const displayedAgentRecoveryPlan =
 		input.entry.presenceStatus === "wakeable" ||
 		rawDisplayedMemberTransientState === "checking" ||
-		isOrganizationWakeAccessReasonCode(input.entry.availabilityReasonCode)
+		(input.entry.availabilityReasonCode !== null &&
+			isAgentProfileWorkspaceBlockerReasonCode(
+				input.entry.availabilityReasonCode
+			))
 			? null
 			: manageableAgentRecoveryPlan;
 	const availabilityIndicatorLabel = resolvePresenceStatusLabel({
@@ -701,10 +703,6 @@ function resolvePresenceIndicatorHref(input: {
 	entry: SpaceMemberDirectoryEntry;
 	orgSlug: string;
 }): string | undefined {
-	if (isOrganizationWakeAccessReasonCode(input.entry.availabilityReasonCode)) {
-		return buildOrganizationWakeAccessPath(input.orgSlug);
-	}
-
 	if (
 		input.entry.profileKind !== "agent" ||
 		!(

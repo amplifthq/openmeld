@@ -9,6 +9,7 @@ export type AgentExecutionStatusDisplayRow = {
 export function createAgentExecutionStatusDisplayRows(
   projection: AgentExecutionStatusProjection
 ): AgentExecutionStatusDisplayRow[] {
+  const isNativeRuntime = isNativeRuntimeProjection(projection);
   const rows: AgentExecutionStatusDisplayRow[] = [
     {
       label: "Reply status",
@@ -16,10 +17,10 @@ export function createAgentExecutionStatusDisplayRows(
     },
     {
       label: "Connection",
-      value: formatBindingEvidence(projection),
+      value: formatBindingEvidence(projection, isNativeRuntime),
     },
     {
-      label: "Local agent capability",
+      label: isNativeRuntime ? "Hosted runtime" : "Local agent capability",
       value: formatRuntimeEvidence(projection),
     },
     {
@@ -27,7 +28,7 @@ export function createAgentExecutionStatusDisplayRows(
       value: formatLocalServiceEvidence(projection),
     },
     {
-      label: "Reply route",
+      label: isNativeRuntime ? "Hosted reply route" : "Reply route",
       value: formatRouteEvidence(projection),
     },
     {
@@ -44,7 +45,9 @@ function formatAgentExecutionStatus(
 ): string {
   switch (projection.displayState) {
     case "ready":
-      return "Available for Wake · This agent can reply from this computer.";
+      return isNativeRuntimeProjection(projection)
+        ? "Available for Wake · Center Agent can answer now."
+        : "Available for Wake · This agent can reply from this computer.";
     case "blocked":
       return `Blocked · ${formatBlockingReason(projection)}`;
     case "not_ready":
@@ -81,10 +84,13 @@ function formatBlockingReason(
 }
 
 function formatBindingEvidence(
-  projection: AgentExecutionStatusProjection
+  projection: AgentExecutionStatusProjection,
+  isNativeRuntime: boolean
 ): string {
   if (projection.facts.binding.routable) {
-    return "Local agent connection is set.";
+    return isNativeRuntime
+      ? "Hosted agent connection is set."
+      : "Local agent connection is set.";
   }
   if (projection.facts.binding.source === "missing") {
     return "Choose a local agent for this profile.";
@@ -118,6 +124,14 @@ function formatLocalServiceEvidence(
 function formatRuntimeEvidence(
   projection: AgentExecutionStatusProjection
 ): string {
+  if (projection.facts.runtime.source === "native_runtime") {
+    return projection.facts.runtime.ready
+      ? "Hosted runtime is available."
+      : formatPrimaryReason(projection.facts.runtime.reasonCodes);
+  }
+  if (projection.facts.runtime.source === "not_checked") {
+    return "Hosted runtime has not been checked yet.";
+  }
   if (projection.facts.runtime.ready) {
     return "Local agent capability is current.";
   }
@@ -137,6 +151,14 @@ function formatRuntimeEvidence(
 function formatRouteEvidence(
   projection: AgentExecutionStatusProjection
 ): string {
+  if (projection.facts.route.source === "hosted_route") {
+    return projection.facts.route.online
+      ? "Hosted reply route is available."
+      : formatPrimaryReason(projection.facts.route.reasonCodes);
+  }
+  if (projection.facts.route.source === "not_checked") {
+    return "Hosted reply route has not been checked yet.";
+  }
   if (!projection.facts.service.executionCompatible) {
     return "Update OpenMeld Service before checking this agent's local reply route.";
   }
@@ -147,6 +169,17 @@ function formatRouteEvidence(
     return REPLY_ROUTE_RECONNECTING_REASON;
   }
   return formatPrimaryReason(projection.facts.route.reasonCodes);
+}
+
+function isNativeRuntimeProjection(
+  projection: AgentExecutionStatusProjection
+): boolean {
+  return (
+    projection.facts.runtime.source === "native_runtime" ||
+    projection.facts.runtime.source === "not_checked" ||
+    projection.facts.route.source === "hosted_route" ||
+    projection.facts.route.source === "not_checked"
+  );
 }
 
 function formatClaimEvidence(

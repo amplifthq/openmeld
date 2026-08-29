@@ -343,6 +343,7 @@ describe("SpaceMembersSidePanel", () => {
 						deviceId: "device-1",
 						executionTarget: null,
 						onSaved: async () => undefined,
+						organizationId: "org-acme",
 						runtimeLane: "dev-local",
 						storageScope: "test-scope",
 					}}
@@ -436,6 +437,7 @@ describe("SpaceMembersSidePanel", () => {
 						deviceId: "device-1",
 						executionTarget: null,
 						onSaved,
+						organizationId: "org-acme",
 						runtimeLane: "dev-local",
 						storageScope: "test-scope",
 					}}
@@ -493,6 +495,7 @@ describe("SpaceMembersSidePanel", () => {
 				actorProfileId,
 				agentControllerCollaborationMode: "codex:plan",
 				agentProfileId,
+				organizationId: "org-acme",
 			});
 		});
 		expect(onSaved).toHaveBeenCalledWith(agentProfileId);

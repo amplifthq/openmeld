@@ -33,7 +33,10 @@ import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildProfileHomeRoutes } from "#/lib/profile-routes";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
-import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import {
+	organizationDirectoryQueryOptions,
+	organizationQueryKeys,
+} from "#/query/organizations/organization-directory";
 import { agentProfileCreationRequestsQueryOptions } from "#/query/profiles/agent-profile-creation-requests";
 import { startQueryKeys } from "#/query/query-keys";
 
@@ -97,12 +100,12 @@ export function PeopleAndAgentsPage(input: {
 	});
 	const organizationDirectoryQuery = useQuery(
 		organizationDirectoryQueryOptions({
-			enabled: isOrganizationContext,
+			enabled: true,
 			organizationId: currentOrganization.id,
 		})
 	);
 	const agentProfileFilterCounts = useMemo(() => {
-		if (isOrganizationContext && organizationDirectoryQuery.data) {
+		if (organizationDirectoryQuery.data) {
 			return summarizeOrganizationAgentProfileAvailabilityFilters(
 				organizationDirectoryQuery.data.agentProfiles.filter(
 					(profile) => profile.managedRole !== "center_agent"
@@ -116,7 +119,6 @@ export function PeopleAndAgentsPage(input: {
 			readinessByProfileId: recovery.agentExecutionReadinessByProfileId,
 		});
 	}, [
-		isOrganizationContext,
 		organizationDirectoryQuery.data,
 		recovery.agentExecutionReadinessByProfileId,
 		recovery.agentExecutionReadinessErrorByProfileId,
@@ -124,16 +126,19 @@ export function PeopleAndAgentsPage(input: {
 		recovery.agentProfiles,
 	]);
 	const handleProfileCreated = (profile: AuthProfileView) => {
-		queryClient
-			.invalidateQueries({
+		Promise.all([
+			queryClient.invalidateQueries({
 				queryKey: startQueryKeys.profilesForStorageScope(recovery.storageScope),
-			})
-			.catch((error: unknown) => {
-				console.error(
-					"Failed to refresh Profiles after profile creation.",
-					error
-				);
-			});
+			}),
+			queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.directory(currentOrganization.id),
+			}),
+		]).catch((error: unknown) => {
+			console.error(
+				"Failed to refresh Profiles after profile creation.",
+				error
+			);
+		});
 		const targetRoute =
 			profile.profileKind === "agent"
 				? profileHomeRoutes.agents
@@ -164,14 +169,6 @@ export function PeopleAndAgentsPage(input: {
 			onOpenChange={setIsCreateProfileOpen}
 			onProfileCreated={handleProfileCreated}
 			open={true}
-			organizationAuthorizationContext={
-				isOrganizationContext && input.activeSectionId === "agents"
-					? {
-							organizationId: currentOrganization.id,
-							organizationName: currentOrganization.name,
-						}
-					: undefined
-			}
 			organizationId={currentOrganization.id}
 			recovery={recovery}
 		/>

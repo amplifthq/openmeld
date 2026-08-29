@@ -22,7 +22,6 @@ import type {
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
 	ModelCatalog,
-	OrganizationBindingAuthorizationProfile,
 	ProfileDetailsSnapshot,
 	ProfileDetailsViewerScope,
 } from "@openmeld/schemas/types";
@@ -42,7 +41,6 @@ import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { Switch } from "@openmeld/ui/components/switch";
 import {
 	Tooltip,
 	TooltipContent,
@@ -125,10 +123,6 @@ import { resolveWebAgentControllerPermissionModeDisplayFromBinding } from "#/lib
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 import { disableAgentProfilePrimaryBinding } from "#/lib/profiles/agent-profile-primary-binding";
 import { deleteStartAgentProfile } from "#/lib/profiles/delete-agent-profile";
-import {
-	authorizeAgentProfileBindingForCurrentOrganization,
-	revokeAgentProfileBindingForCurrentOrganization,
-} from "#/lib/profiles/organization-binding-authorizations";
 import { resolveProfileBindingCatalogExecutionTarget } from "#/lib/profiles/profile-binding-target";
 import { formatProfileDate } from "#/lib/profiles/profile-date-format";
 import { isAgentExecutionSelfHealingReadiness } from "#/lib/spaces/agent-route-status";
@@ -142,11 +136,6 @@ import {
 } from "#/query/agents/execution-readiness";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
 import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
-import {
-	currentUserAgentProfileOrganizationWakeAccessQueryOptions,
-	organizationBindingAuthorizationProfilesQueryOptions,
-	organizationBindingAuthorizationQueryKeys,
-} from "#/query/profiles/organization-binding-authorizations";
 import {
 	agentProfileControllerChangeEligibilityQueryOptions,
 	agentProfilePrimaryBindingQueryKeys,
@@ -358,37 +347,6 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 	const wakeAvailabilityDisplayOverrideByProfileId =
 		useAgentWakeAvailabilityDisplayDebounce(wakeAvailabilityDisplayInputs);
 	const canManageProfile = input.canManageProfile ?? (() => true);
-	const isPersonalOrganizationContext = currentOrganization.isPersonal === true;
-	const organizationWakeAccessProfilesQuery = useQuery(
-		organizationBindingAuthorizationProfilesQueryOptions({
-			enabled: !isPersonalOrganizationContext,
-			organizationId: currentOrganization.id,
-		})
-	);
-	const organizationWakeAccessByProfileId = useMemo(() => {
-		const next = new Map<string, OrganizationBindingAuthorizationProfile>();
-		for (const profile of organizationWakeAccessProfilesQuery.data?.profiles ??
-			[]) {
-			next.set(profile.agentProfileId, profile);
-		}
-		return next;
-	}, [organizationWakeAccessProfilesQuery.data]);
-	const currentUserOrganizationWakeAccessQuery = useQuery(
-		currentUserAgentProfileOrganizationWakeAccessQueryOptions({
-			enabled: isPersonalOrganizationContext,
-		})
-	);
-	const organizationMembershipsByProfileId = useMemo(() => {
-		const next = new Map<
-			string,
-			readonly { organizationId: string; organizationName: string }[]
-		>();
-		for (const profile of currentUserOrganizationWakeAccessQuery.data
-			?.profiles ?? []) {
-			next.set(profile.agentProfileId, profile.organizations);
-		}
-		return next;
-	}, [currentUserOrganizationWakeAccessQuery.data]);
 	const [pendingRemoveProfileId, setPendingRemoveProfileId] = useState<
 		string | null
 	>(null);
@@ -448,10 +406,6 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 	>(null);
 	const [pendingDirectMessageProfileId, setPendingDirectMessageProfileId] =
 		useState<string | null>(null);
-	const [
-		pendingOrganizationWakeAccessProfileId,
-		setPendingOrganizationWakeAccessProfileId,
-	] = useState<string | null>(null);
 	const [
 		pendingControllerPermissionModeProfileId,
 		setPendingControllerPermissionModeProfileId,
@@ -748,6 +702,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				await refreshWebAgentReadinessFacts({
 					agentProfileIds: profileIdsNeedingRouteRefresh,
 					includeLocalRuntimeCaches: false,
+					organizationId: currentOrganization.id,
 					queryClient: input.queryClient,
 					storageScope: input.recovery.storageScope,
 				});
@@ -755,6 +710,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 			await refreshWebAgentReadinessSharedCaches({
 				agentProfileIds: profileIdsToRefresh,
 				includeLocalRuntimeCaches: false,
+				organizationId: currentOrganization.id,
 				queryClient: input.queryClient,
 				storageScope: input.recovery.storageScope,
 			});
@@ -800,6 +756,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 	}, [
 		autoRefreshingProfileKey,
 		autoRefreshingProfileStateKey,
+		currentOrganization.id,
 		input.queryClient,
 		input.recovery.storageScope,
 	]);
@@ -812,6 +769,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 			action,
 			actorProfileId: input.recovery.selectedHumanProfileId,
 			deviceId: input.recovery.deviceId,
+			organizationId: currentOrganization.id,
 			profile,
 			runtimeLane: input.recovery.runtimeLane,
 		});
@@ -833,6 +791,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				});
 			},
 			profileIds,
+			organizationId: currentOrganization.id,
 			queryClient: input.queryClient,
 			refreshAll: input.recovery.refreshAll,
 			storageScope: input.recovery.storageScope,
@@ -978,6 +937,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		},
 		profile,
 		queryClient: input.queryClient,
+		organizationId: currentOrganization.id,
 		runtimeLane: input.recovery.runtimeLane,
 		storageScope: input.recovery.storageScope,
 	});
@@ -1160,6 +1120,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		try {
 			await refreshWebAgentReadinessFacts({
 				agentProfileIds: [profile.openMeldProfileId],
+				organizationId: currentOrganization.id,
 				queryClient: input.queryClient,
 				storageScope: input.recovery.storageScope,
 			});
@@ -1183,6 +1144,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 			const response = await disableAgentProfilePrimaryBinding({
 				actorProfileId: input.recovery.selectedHumanProfileId,
 				agentProfileId: profile.openMeldProfileId,
+				organizationId: currentOrganization.id,
 			});
 			if (!(response.disabled || response.status === "missing")) {
 				if (
@@ -1239,6 +1201,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				}),
 				refreshWebAgentReadinessFacts({
 					agentProfileIds: [profile.openMeldProfileId],
+					organizationId: currentOrganization.id,
 					queryClient: input.queryClient,
 					storageScope: input.recovery.storageScope,
 				}),
@@ -1300,6 +1263,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				}),
 				refreshWebAgentReadinessSharedCaches({
 					agentProfileIds: [profile.openMeldProfileId],
+					organizationId: currentOrganization.id,
 					queryClient: input.queryClient,
 					storageScope: input.recovery.storageScope,
 				}),
@@ -1314,40 +1278,6 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 			);
 		}
 		setPendingRemoveProfileId(null);
-	};
-
-	const handleToggleOrganizationWakeAccess = async (
-		profile: AuthProfileView,
-		authorized: boolean
-	) => {
-		setPendingOrganizationWakeAccessProfileId(profile.openMeldProfileId);
-		try {
-			if (authorized) {
-				await authorizeAgentProfileBindingForCurrentOrganization({
-					agentProfileId: profile.openMeldProfileId,
-					organizationId: currentOrganization.id,
-				});
-			} else {
-				await revokeAgentProfileBindingForCurrentOrganization({
-					agentProfileId: profile.openMeldProfileId,
-					organizationId: currentOrganization.id,
-				});
-			}
-			await input.queryClient.invalidateQueries({
-				queryKey: organizationBindingAuthorizationQueryKeys.profiles(
-					currentOrganization.id
-				),
-			});
-		} catch (error) {
-			toast.error(
-				formatMutationError(
-					error,
-					`OpenMeld could not update Wake access for ${profile.profileName}.`
-				)
-			);
-		} finally {
-			setPendingOrganizationWakeAccessProfileId(null);
-		}
 	};
 
 	const handleOpenDirectMessage = async (profile: AuthProfileView) => {
@@ -1397,17 +1327,13 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		handleOpenDirectMessage,
 		handleRemoveProfile,
 		handleRenameProfile,
-		handleToggleOrganizationWakeAccess,
 		handleUpdateProfileControllerCollaborationMode,
 		handleUpdateProfileControllerPermissionMode,
 		handleUpdateProfileModelSelection,
 		handleUpdateProfileOpenCodePermission,
 		highlightedProfileId,
-		isPersonalOrganizationContext,
 		localAgentCatalogEntries,
 		modelCatalog,
-		organizationMembershipsByProfileId,
-		organizationWakeAccessByProfileId,
 		pendingCheckProfileId,
 		pendingControllerChangeProfileId,
 		pendingControllerCollaborationModeProfileId,
@@ -1416,7 +1342,6 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		pendingDisablePrimaryBindingProfileId,
 		pendingModelSelectionProfileId,
 		pendingOpenCodePermissionProfileId,
-		pendingOrganizationWakeAccessProfileId,
 		pendingRemoveProfileId,
 		pendingRenameProfileId,
 		pendingRepairProfileIds,
@@ -1591,28 +1516,6 @@ function AgentProfileDirectoryRow(input: {
 				readiness,
 			})
 		: null;
-	const organizationWakeAccessRecord =
-		controller.organizationWakeAccessByProfileId.get(
-			profile.openMeldProfileId
-		) ?? null;
-	const organizationWakeAccess =
-		!controller.isPersonalOrganizationContext &&
-		canManage &&
-		organizationWakeAccessRecord?.bindingId
-			? {
-					authorized: organizationWakeAccessRecord.authorized,
-					isPending:
-						controller.pendingOrganizationWakeAccessProfileId ===
-						profile.openMeldProfileId,
-					onToggle: (authorized: boolean) =>
-						controller.handleToggleOrganizationWakeAccess(profile, authorized),
-				}
-			: null;
-	const organizationMemberships = controller.isPersonalOrganizationContext
-		? (controller.organizationMembershipsByProfileId.get(
-				profile.openMeldProfileId
-			) ?? [])
-		: [];
 	const primaryBinding =
 		controller.primaryBindingByProfileId.get(profile.openMeldProfileId) ?? null;
 	const modelCompatibilityContext =
@@ -1700,8 +1603,6 @@ function AgentProfileDirectoryRow(input: {
 				await controller.handleConnectProfileToComputer(profile, action)
 			}
 			organizationId={controller.currentOrganization.id}
-			organizationMemberships={organizationMemberships}
-			organizationWakeAccess={organizationWakeAccess}
 			pendingState={{
 				checkAgain:
 					controller.pendingCheckProfileId === profile.openMeldProfileId,
@@ -2029,16 +1930,7 @@ type AgentProfileExecutionReadinessRowProps = {
 	onRepairAction: (action: AgentProfileRepairAction) => Promise<void>;
 	onRenameProfile: (profileName: string) => Promise<void>;
 	onRemoveProfile: () => Promise<void>;
-	organizationMemberships: readonly {
-		organizationId: string;
-		organizationName: string;
-	}[];
 	organizationId: string;
-	organizationWakeAccess: {
-		authorized: boolean;
-		isPending: boolean;
-		onToggle: (authorized: boolean) => void;
-	} | null;
 	profile: AuthProfileView;
 	primaryBinding: GetAgentProfilePrimaryBindingResponse["binding"] | null;
 	pendingState: AgentProfileActionPendingState;
@@ -2200,15 +2092,7 @@ function AgentProfileExecutionReadinessRow(
 		repairIsPending: input.pendingState.repair,
 		setupAction: input.setupAction,
 	});
-	const organizationAccessRow = renderAgentProfileOrganizationAccessRow({
-		organizationMemberships: input.organizationMemberships,
-		organizationWakeAccess: input.organizationWakeAccess,
-		profileName: input.profile.profileName,
-	});
-	const supportingContent = combineAgentProfileCardMiddleContent(
-		organizationAccessRow,
-		cardActions
-	);
+	const supportingContent = cardActions;
 	const presentations: Record<
 		AgentProfileExecutionReadinessRowProps["presentation"],
 		ReactNode
@@ -2424,92 +2308,6 @@ function renderAgentProfileCardActions(input: {
 		<div className="flex flex-col gap-2">
 			{recoveryAction}
 			{checkAgainAction}
-		</div>
-	);
-}
-
-function renderAgentProfileOrganizationAccessRow(input: {
-	organizationMemberships: readonly {
-		organizationId: string;
-		organizationName: string;
-	}[];
-	organizationWakeAccess: {
-		authorized: boolean;
-		isPending: boolean;
-		onToggle: (authorized: boolean) => void;
-	} | null;
-	profileName: string;
-}): ReactNode {
-	if (input.organizationWakeAccess) {
-		return (
-			<AgentProfileOrganizationWakeAccessRow
-				authorized={input.organizationWakeAccess.authorized}
-				isPending={input.organizationWakeAccess.isPending}
-				onToggle={input.organizationWakeAccess.onToggle}
-				profileName={input.profileName}
-			/>
-		);
-	}
-	return (
-		<AgentProfileOrganizationMembershipDetail
-			organizations={input.organizationMemberships}
-		/>
-	);
-}
-
-function combineAgentProfileCardMiddleContent(
-	organizationAccessRow: ReactNode,
-	cardActions: ReactNode
-): ReactNode {
-	if (!(organizationAccessRow || cardActions)) {
-		return null;
-	}
-	return (
-		<div className="flex flex-col gap-3">
-			{organizationAccessRow}
-			{cardActions}
-		</div>
-	);
-}
-
-function AgentProfileOrganizationWakeAccessRow(input: {
-	authorized: boolean;
-	isPending: boolean;
-	onToggle: (authorized: boolean) => void;
-	profileName: string;
-}) {
-	return (
-		<div className="flex items-center justify-between gap-3 border-border/70 border-t pt-3">
-			<span className="text-muted-foreground text-xs">
-				Organization Wake Access
-			</span>
-			<Switch
-				aria-label={`Authorize ${input.profileName} for this organization's Wake access`}
-				checked={input.authorized}
-				disabled={input.isPending}
-				onCheckedChange={input.onToggle}
-			/>
-		</div>
-	);
-}
-
-function AgentProfileOrganizationMembershipDetail(input: {
-	organizations: readonly {
-		organizationId: string;
-		organizationName: string;
-	}[];
-}) {
-	if (input.organizations.length === 0) {
-		return null;
-	}
-	return (
-		<div className="border-border/70 border-t pt-3">
-			<span className="text-muted-foreground text-xs">
-				Wake access:{" "}
-				{input.organizations
-					.map((organization) => organization.organizationName)
-					.join(", ")}
-			</span>
 		</div>
 	);
 }
@@ -3071,6 +2869,7 @@ function AgentProfileRowMoreMenu(input: {
 				isProfileEditDialogOpen,
 				isUnbindControllerDialogOpen,
 			}),
+			organizationId: input.organizationId,
 			storageScope: input.storageScope,
 		})
 	);

@@ -187,7 +187,7 @@ describe("agent failure reason", () => {
     ).toBe(CODEX_UPGRADE_REQUIRED_REASON);
   });
 
-  it("explains organization Wake-access denial precisely instead of falling back to a generic reason", () => {
+  it("keeps retired cross-workspace authorization failures non-actionable", () => {
     expect(
       resolvePublicAgentFailureReason({
         defaultReason:
@@ -196,7 +196,7 @@ describe("agent failure reason", () => {
         errorMessage: null,
       })
     ).toBe(
-      "Wake access is off for This agent in this organization. Turn it on to let This agent reply in this Space."
+      "This agent cannot be used in this workspace. Choose an Agent Profile created here."
     );
   });
 

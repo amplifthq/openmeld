@@ -11,10 +11,7 @@ export function isAgentProfileEligibleForOrganization(input: {
   profileOrganizationId: string | null;
   targetOrganizationId: string;
 }): boolean {
-  return (
-    input.managedRole !== "center_agent" ||
-    input.profileOrganizationId === input.targetOrganizationId
-  );
+  return input.profileOrganizationId === input.targetOrganizationId;
 }
 
 export async function readAgentProfileOrganizationContext(input: {

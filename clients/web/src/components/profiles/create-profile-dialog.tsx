@@ -69,7 +69,6 @@ import {
 	SessionProfileCreationRolledBackError,
 	type SpaceJoinedProfileReference,
 } from "#/lib/profiles/create-profile-orchestration";
-import { setOrganizationBindingAuthorizationPreference } from "#/lib/profiles/organization-binding-authorizations";
 import {
 	bindableLocalAgentIdsFromTarget,
 	resolveProfileBindingCatalogExecutionTarget,
@@ -89,10 +88,6 @@ import {
 import { projectsQueryOptions } from "#/query/organizations/projects";
 import { agentProfileCreationDefaultsQueryOptions } from "#/query/profiles/agent-profile-creation-defaults";
 import { agentProfileCreationRequestQueryKeys } from "#/query/profiles/agent-profile-creation-requests";
-import {
-	organizationBindingAuthorizationPreferenceQueryOptions,
-	organizationBindingAuthorizationQueryKeys,
-} from "#/query/profiles/organization-binding-authorizations";
 import {
 	agentProfilePrimaryBindingQueryKeys,
 	agentProfilePrimaryBindingQueryOptions,
@@ -124,11 +119,6 @@ type RecoveryController = ReturnType<typeof useLocalAgentRecoveryController>;
 
 export type { CreateProfileSpaceContext } from "#/lib/profiles/create-profile-orchestration";
 
-export type CreateProfileOrganizationAuthorizationContext = {
-	organizationId: string;
-	organizationName: string;
-};
-
 export type CreateProfileAgentActivitySessionPreset = {
 	agentControllerRef: string;
 	computerId: string;
@@ -145,7 +135,6 @@ export type CreateProfileAgentActivitySessionPreset = {
 
 type CreateProfileDialogFormState = {
 	agentBindingValue: string;
-	authorizeForOrganization: boolean;
 	boundAgentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
 	boundAgentControllerPermissionModeConfirmed: boolean;
@@ -153,7 +142,6 @@ type CreateProfileDialogFormState = {
 	boundModelId: string;
 	boundOpenCodePermission: AgentProfileBindingOpenCodePermission | null;
 	boundReasoningLevel: string;
-	enableFutureOrganizationAuthorization: boolean;
 	errorState: NewProfileErrorState | null;
 	ownerMode: AgentProfileOwnerMode;
 	profileKind: NewProfileKind | null;
@@ -196,7 +184,6 @@ function createInitialCreateProfileDialogFormState(input: {
 			input.initialOwnerMode === "teammate" && input.initialSessionPreset
 				? `${input.initialSessionPreset.computerId}:${input.initialSessionPreset.agentControllerRef}`
 				: "",
-		authorizeForOrganization: true,
 		boundAgentControllerCollaborationMode: null,
 		boundAgentControllerPermissionMode:
 			DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
@@ -205,7 +192,6 @@ function createInitialCreateProfileDialogFormState(input: {
 		boundModelId: "",
 		boundOpenCodePermission: null,
 		boundReasoningLevel: "",
-		enableFutureOrganizationAuthorization: false,
 		errorState: null,
 		ownerMode: input.initialOwnerMode,
 		profileKind: input.initialSessionPreset ? "agent" : null,
@@ -238,7 +224,6 @@ function createProfileDialogFormSetters(
 
 	return {
 		setAgentBindingValue: setField("agentBindingValue"),
-		setAuthorizeForOrganization: setField("authorizeForOrganization"),
 		setBoundAgentControllerCollaborationMode: setField(
 			"boundAgentControllerCollaborationMode"
 		),
@@ -252,9 +237,6 @@ function createProfileDialogFormSetters(
 		setBoundModelId: setField("boundModelId"),
 		setBoundOpenCodePermission: setField("boundOpenCodePermission"),
 		setBoundReasoningLevel: setField("boundReasoningLevel"),
-		setEnableFutureOrganizationAuthorization: setField(
-			"enableFutureOrganizationAuthorization"
-		),
 		setErrorState: setField("errorState"),
 		setOwnerMode: setField("ownerMode"),
 		setProfileKind: setField("profileKind"),
@@ -295,7 +277,6 @@ type CreateProfileDialogProps = {
 	onProfileCreated?: (profile: AuthProfileView) => void;
 	open: boolean;
 	organizationId: string;
-	organizationAuthorizationContext?: CreateProfileOrganizationAuthorizationContext;
 	orgSlug?: string;
 	recovery: RecoveryController;
 	spaceContext?: CreateProfileSpaceContext;
@@ -336,7 +317,6 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 	);
 	const {
 		agentBindingValue,
-		authorizeForOrganization,
 		boundAgentControllerCollaborationMode,
 		boundAgentControllerPermissionMode,
 		boundAgentControllerPermissionModeConfirmed,
@@ -344,7 +324,6 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		boundModelId,
 		boundOpenCodePermission,
 		boundReasoningLevel,
-		enableFutureOrganizationAuthorization,
 		errorState,
 		ownerMode,
 		profileKind,
@@ -359,7 +338,6 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 	} = formState;
 	const {
 		setAgentBindingValue,
-		setAuthorizeForOrganization,
 		setBoundAgentControllerCollaborationMode,
 		setBoundAgentControllerPermissionMode,
 		setBoundAgentControllerPermissionModeConfirmed,
@@ -367,7 +345,6 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		setBoundModelId,
 		setBoundOpenCodePermission,
 		setBoundReasoningLevel,
-		setEnableFutureOrganizationAuthorization,
 		setErrorState,
 		setOwnerMode,
 		setProfileKind,
@@ -409,8 +386,6 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 	const { data: modelCatalog = null } = useQuery(modelCatalogQueryOptions());
 	const currentOrgSlug = useOptionalCurrentOrganizationSlug();
 	const orgSlug = input.orgSlug ?? currentOrgSlug;
-	const organizationAuthorizationContext =
-		input.organizationAuthorizationContext;
 	const organizationId = input.organizationId;
 	const dialogTitle = resolveCreateProfileDialogTitle({
 		additionalHumanProfileCreationEnabled,
@@ -472,16 +447,6 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			organizationId,
 		})
 	);
-	const organizationAuthorizationPreferenceQuery = useQuery(
-		organizationBindingAuthorizationPreferenceQueryOptions({
-			enabled: shouldReadOrganizationAuthorizationPreference({
-				organizationAuthorizationContext,
-				ownerMode,
-			}),
-			organizationId: organizationAuthorizationContext?.organizationId ?? "",
-		})
-	);
-
 	const recovery = input.recovery;
 	const spaceContext = input.spaceContext;
 	// Resolve the execution target once: it provides both the bindable local
@@ -625,20 +590,14 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 						boundAgentId,
 					}),
 				agentControllerRef,
-				authorizeForOrganization,
-				autoAuthorizeAgentProfileBindings:
-					organizationAuthorizationPreferenceQuery.data
-						?.autoAuthorizeAgentProfileBindings ?? false,
 				bindingTarget,
 				boundAgentId,
 				boundModelId,
 				boundOpenCodePermission,
 				boundReasoningLevel,
-				enableFutureOrganizationAuthorization,
 				currentUserId,
 				idempotencyKey: submission.idempotencyKey,
 				onAfterJoin: input.onAfterJoin,
-				organizationAuthorizationContext,
 				organizationId,
 				ownerMode,
 				profileKind: selectableProfileKind,
@@ -688,23 +647,6 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		onSettled: () => {
 			submissionInFlightRef.current = false;
 		},
-	});
-	const organizationWakeAccessSlot = renderOrganizationWakeAccessSlot({
-		authorizeForOrganization,
-		autoAuthorizeAgentProfileBindings:
-			organizationAuthorizationPreferenceQuery.data
-				?.autoAuthorizeAgentProfileBindings ?? false,
-		boundAgentId,
-		disabled: createProfileMutation.isPending,
-		enableFutureOrganizationAuthorization,
-		isPreferenceError: organizationAuthorizationPreferenceQuery.isError,
-		isPreferencePending: organizationAuthorizationPreferenceQuery.isPending,
-		onAuthorizeForOrganizationChange: setAuthorizeForOrganization,
-		onEnableFutureOrganizationAuthorizationChange:
-			setEnableFutureOrganizationAuthorization,
-		organizationAuthorizationContext,
-		ownerMode,
-		profileKind: selectableProfileKind,
 	});
 	const projectSelectionBlockReason =
 		resolveAgentProfileProjectSelectionBlockReason({
@@ -1001,7 +943,6 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 				event,
 				fingerprint: buildCreationFingerprint({
 					agentBindingValue,
-					authorizeForOrganization,
 					boundAgentControllerCollaborationMode,
 					boundAgentControllerPermissionMode,
 					boundAgentId,
@@ -1025,7 +966,6 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 				submissionInFlightRef,
 			});
 		},
-		organizationWakeAccessSlot,
 		profileKind: selectableProfileKind,
 		profileName,
 		projectFolderPath,
@@ -1297,20 +1237,14 @@ type CreateProfileSubmissionInput = {
 	agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	agentControllerPermissionMode: AgentControllerPermissionMode | null;
 	agentControllerRef: string;
-	authorizeForOrganization: boolean;
-	autoAuthorizeAgentProfileBindings: boolean;
 	bindingTarget: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>;
 	boundAgentId: string;
 	boundModelId: string;
 	boundOpenCodePermission: AgentProfileBindingOpenCodePermission | null;
 	boundReasoningLevel: string;
-	enableFutureOrganizationAuthorization: boolean;
 	currentUserId: string;
 	idempotencyKey: string;
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
-	organizationAuthorizationContext:
-		| CreateProfileOrganizationAuthorizationContext
-		| undefined;
 	organizationId: string;
 	ownerMode: AgentProfileOwnerMode;
 	profileKind: NewProfileKind | null;
@@ -1385,7 +1319,6 @@ function handleProfileCreationSuccess(input: {
 	showCreatedProfileToast({
 		creationDefaultsUpdateFailed: input.result.creationDefaultsUpdateFailed,
 		followUpIssues: input.result.creationOutcome.followUpIssues,
-		organizationAuthorization: input.result.organizationAuthorization,
 		profile: input.result.profile,
 		spaceContext: input.spaceContext,
 	});
@@ -1467,7 +1400,7 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 			agentControllerCollaborationMode: input.agentControllerCollaborationMode,
 			agentControllerPermissionMode: input.agentControllerPermissionMode,
 			agentControllerRef: connection.agentControllerRef,
-			authorizeForOrganization: input.authorizeForOrganization,
+			authorizeForOrganization: true,
 			defaultProjectId,
 			modelId:
 				input.boundAgentId && input.boundModelId ? input.boundModelId : null,
@@ -1492,7 +1425,6 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 		sessionStrategy: input.sessionStrategy,
 		targetOwnerUserId: resolveRequestedAgentOwnerUserId(input),
 	});
-	await rememberRequestedAgentOrganizationAuthorization(input);
 	await configureRequestedAgentCustomWorkingFolder({
 		defaultProjectId,
 		request: result.request,
@@ -1533,29 +1465,6 @@ function resolveRequestedAgentOwnerUserId(
 	);
 }
 
-async function rememberRequestedAgentOrganizationAuthorization(
-	input: CreateProfileSubmissionInput
-): Promise<void> {
-	if (
-		input.ownerMode === "self" &&
-		input.boundAgentId &&
-		input.enableFutureOrganizationAuthorization &&
-		!input.autoAuthorizeAgentProfileBindings &&
-		input.organizationAuthorizationContext
-	) {
-		const preferenceUpdateFailed =
-			await setCreatedProfileOrganizationAuthorizationPreference({
-				organizationId: input.organizationAuthorizationContext.organizationId,
-			});
-		if (!preferenceUpdateFailed) {
-			await refreshOrganizationAuthorizationCaches({
-				organizationId: input.organizationAuthorizationContext.organizationId,
-				queryClient: input.queryClient,
-			});
-		}
-	}
-}
-
 async function configureRequestedAgentCustomWorkingFolder(input: {
 	defaultProjectId: string | null;
 	request: AgentProfileCreationRequest;
@@ -1572,6 +1481,7 @@ async function configureRequestedAgentCustomWorkingFolder(input: {
 		await configureNewAgentProfileWorkspace({
 			agentProfileId: input.request.createdAgentProfileId,
 			bindingEstablished: true,
+			organizationId: input.submission.organizationId,
 			projectFolderPath: input.submission.projectFolderPath,
 			selectedHumanProfileId:
 				input.submission.selectedHumanProfile?.openMeldProfileId ?? null,
@@ -1603,12 +1513,11 @@ async function createHumanProfile(input: CreateProfileSubmissionInput) {
 		spaceContext: input.spaceContext,
 	});
 	const { profile } = creationOutcome;
-	const organizationAuthorization = { status: "not_applicable" as const };
 	refreshCreatedProfileCaches({
 		boundAgentId: "",
 		createdProfile: profile,
 		onAfterJoin: input.onAfterJoin,
-		organizationAuthorization,
+		organizationId: input.organizationId,
 		queryClient: input.queryClient,
 		recovery: input.recovery,
 		spaceJoined: creationOutcome.spaceJoined,
@@ -1623,7 +1532,6 @@ async function createHumanProfile(input: CreateProfileSubmissionInput) {
 		kind: "profile" as const,
 		creationDefaultsUpdateFailed: false,
 		creationOutcome,
-		organizationAuthorization,
 		profile,
 	};
 }
@@ -1685,63 +1593,6 @@ function useRememberedCreationDefaults(input: {
 		);
 		input.appliedCreationDefaultsKeyRef.current = applyKey;
 	}, [input]);
-}
-
-function renderOrganizationWakeAccessSlot(input: {
-	authorizeForOrganization: boolean;
-	autoAuthorizeAgentProfileBindings: boolean;
-	boundAgentId: string;
-	disabled: boolean;
-	enableFutureOrganizationAuthorization: boolean;
-	isPreferenceError: boolean;
-	isPreferencePending: boolean;
-	onAuthorizeForOrganizationChange: (checked: boolean) => void;
-	onEnableFutureOrganizationAuthorizationChange: (checked: boolean) => void;
-	organizationAuthorizationContext:
-		| CreateProfileOrganizationAuthorizationContext
-		| undefined;
-	ownerMode: AgentProfileOwnerMode;
-	profileKind: NewProfileKind | null;
-}): ReactNode {
-	if (!input.organizationAuthorizationContext) {
-		return null;
-	}
-	if (input.ownerMode === "teammate") {
-		return (
-			<RequestedAgentOrganizationWakeAccessChoice
-				authorizeForOrganization={input.authorizeForOrganization}
-				boundAgentId={input.boundAgentId}
-				disabled={input.disabled}
-				onAuthorizeForOrganizationChange={
-					input.onAuthorizeForOrganizationChange
-				}
-				organizationName={
-					input.organizationAuthorizationContext.organizationName
-				}
-			/>
-		);
-	}
-	return (
-		<CreateProfileOrganizationWakeAccessChoice
-			authorizeForOrganization={input.authorizeForOrganization}
-			autoAuthorizeAgentProfileBindings={
-				input.autoAuthorizeAgentProfileBindings
-			}
-			boundAgentId={input.boundAgentId}
-			disabled={input.disabled}
-			enableFutureOrganizationAuthorization={
-				input.enableFutureOrganizationAuthorization
-			}
-			isPreferenceError={input.isPreferenceError}
-			isPreferencePending={input.isPreferencePending}
-			onAuthorizeForOrganizationChange={input.onAuthorizeForOrganizationChange}
-			onEnableFutureOrganizationAuthorizationChange={
-				input.onEnableFutureOrganizationAuthorizationChange
-			}
-			organizationName={input.organizationAuthorizationContext.organizationName}
-			profileKind={input.profileKind}
-		/>
-	);
 }
 
 function renderProjectSelectionSlot(input: {
@@ -1935,17 +1786,6 @@ function shouldReadCreationDefaults(input: {
 	);
 }
 
-function shouldReadOrganizationAuthorizationPreference(input: {
-	organizationAuthorizationContext:
-		| CreateProfileOrganizationAuthorizationContext
-		| undefined;
-	ownerMode: AgentProfileOwnerMode;
-}): boolean {
-	return Boolean(
-		input.organizationAuthorizationContext && input.ownerMode === "self"
-	);
-}
-
 function resolveAgentControllerRef(boundAgentId: string): string {
 	return boundAgentId ? buildBuiltinAgentControllerRef(boundAgentId) : "";
 }
@@ -2015,7 +1855,6 @@ function handleProfileKindSelection(input: {
 
 function buildCreationFingerprint(input: {
 	agentBindingValue: string;
-	authorizeForOrganization: boolean;
 	boundAgentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
 	boundAgentId: string;
@@ -2047,7 +1886,6 @@ function buildCreationFingerprint(input: {
 		input.boundReasoningLevel,
 		input.selectedProjectId,
 		input.sessionPresetKey,
-		input.authorizeForOrganization,
 		input.spaceId,
 		input.selectedHumanProfileId,
 	]);
@@ -2476,72 +2314,12 @@ function resolveCreateAgentControllerCollaborationMode(input: {
 	);
 }
 
-type CreatedProfileOrganizationAuthorizationResult =
-	| {
-			organizationId: string;
-			organizationName: string;
-			preferenceUpdateFailed: boolean;
-			status: "authorized";
-	  }
-	| {
-			errorMessage: string;
-			organizationName: string;
-			status: "failed";
-	  }
-	| {
-			status: "not_applicable" | "skipped";
-	  };
-
-async function setCreatedProfileOrganizationAuthorizationPreference(input: {
-	organizationId: string;
-}): Promise<boolean> {
-	try {
-		await setOrganizationBindingAuthorizationPreference({
-			autoAuthorizeAgentProfileBindings: true,
-			organizationId: input.organizationId,
-		});
-		return false;
-	} catch (error) {
-		console.warn(
-			"OpenMeld authorized the new Agent but could not update the organization Wake access preference.",
-			error
-		);
-		return true;
-	}
-}
-
-async function refreshOrganizationAuthorizationCaches(input: {
-	organizationId: string;
-	queryClient: QueryClient;
-}): Promise<void> {
-	await Promise.allSettled([
-		input.queryClient.invalidateQueries({
-			queryKey: organizationQueryKeys.directory(input.organizationId),
-		}),
-		input.queryClient.invalidateQueries({
-			queryKey: organizationBindingAuthorizationQueryKeys.byOrganization(
-				input.organizationId
-			),
-		}),
-		input.queryClient.invalidateQueries({
-			queryKey: organizationBindingAuthorizationQueryKeys.preference(
-				input.organizationId
-			),
-		}),
-	]);
-}
-
 function showCreatedProfileToast(input: {
 	creationDefaultsUpdateFailed: boolean;
 	followUpIssues: CreatedProfileFollowUpIssue[];
-	organizationAuthorization: CreatedProfileOrganizationAuthorizationResult;
 	profile: AuthProfileView;
 	spaceContext: CreateProfileSpaceContext | undefined;
 }) {
-	const authorizationIssueSentence =
-		toOrganizationAuthorizationFollowUpSentence(
-			input.organizationAuthorization
-		);
 	const spaceJoinIssue = input.followUpIssues.find(
 		(issue) => issue.kind === "space_join"
 	);
@@ -2553,38 +2331,19 @@ function showCreatedProfileToast(input: {
 			? ` Local setup also needs attention: ${localSetupIssue.message}`
 			: "";
 		toast.error(
-			`${input.profile.profileName} was created, but OpenMeld couldn't add it to ${input.spaceContext?.spaceName ?? "the Space"}. Add the existing profile from the Members panel.${localSetupSentence}${authorizationIssueSentence}`
+			`${input.profile.profileName} was created, but OpenMeld couldn't add it to ${input.spaceContext?.spaceName ?? "the Space"}. Add the existing profile from the Members panel.${localSetupSentence}`
 		);
 		return;
 	}
 	if (localSetupIssue) {
 		toast.warning(
-			`${input.profile.profileName} was created${input.spaceContext ? ` and added to ${input.spaceContext.spaceName ?? "this Space"}` : ""}, but local setup isn't complete. ${localSetupIssue.message}${authorizationIssueSentence}`
-		);
-		return;
-	}
-	if (input.organizationAuthorization.status === "failed") {
-		toast.error(
-			`${input.profile.profileName} was created, but OpenMeld couldn't authorize it for ${input.organizationAuthorization.organizationName}. ${input.organizationAuthorization.errorMessage}`
+			`${input.profile.profileName} was created${input.spaceContext ? ` and added to ${input.spaceContext.spaceName ?? "this Space"}` : ""}, but local setup isn't complete. ${localSetupIssue.message}`
 		);
 		return;
 	}
 	if (input.creationDefaultsUpdateFailed) {
 		toast.warning(
 			`${input.profile.profileName} was created, but OpenMeld couldn't remember these setup choices for next time.`
-		);
-		return;
-	}
-
-	if (input.organizationAuthorization.status === "authorized") {
-		if (input.organizationAuthorization.preferenceUpdateFailed) {
-			toast.warning(
-				`${input.profile.profileName} was created and authorized for ${input.organizationAuthorization.organizationName}. OpenMeld couldn't update automatic authorization.`
-			);
-			return;
-		}
-		toast.success(
-			`${input.profile.profileName} was created and authorized for ${input.organizationAuthorization.organizationName}.`
 		);
 		return;
 	}
@@ -2596,168 +2355,6 @@ function showCreatedProfileToast(input: {
 	);
 }
 
-function toOrganizationAuthorizationFollowUpSentence(
-	result: CreatedProfileOrganizationAuthorizationResult
-): string {
-	if (result.status === "failed") {
-		return ` Wake access also needs attention: ${result.errorMessage}`;
-	}
-	if (result.status === "authorized" && result.preferenceUpdateFailed) {
-		return ` This Agent is authorized for ${result.organizationName}, but OpenMeld couldn't save automatic authorization for future Agents.`;
-	}
-	return "";
-}
-
-function CreateProfileOrganizationWakeAccessChoice(input: {
-	authorizeForOrganization: boolean;
-	autoAuthorizeAgentProfileBindings: boolean;
-	boundAgentId: string;
-	disabled: boolean;
-	enableFutureOrganizationAuthorization: boolean;
-	isPreferenceError: boolean;
-	isPreferencePending: boolean;
-	onAuthorizeForOrganizationChange: (checked: boolean) => void;
-	onEnableFutureOrganizationAuthorizationChange: (checked: boolean) => void;
-	organizationName: string;
-	profileKind: NewProfileKind | null;
-}) {
-	if (input.profileKind !== "agent") {
-		return null;
-	}
-
-	if (!input.boundAgentId.trim()) {
-		return (
-			<div className="grid gap-1 py-1">
-				<p className="font-medium text-sm">
-					Use this Agent in {input.organizationName}
-				</p>
-				<p className="text-muted-foreground text-xs leading-5">
-					Choose a local agent above to let {input.organizationName} Wake this
-					Agent from its Spaces. Choose later creates it only in your account
-					for now.
-				</p>
-			</div>
-		);
-	}
-
-	if (input.autoAuthorizeAgentProfileBindings) {
-		return (
-			<div className="grid gap-1 py-1">
-				<p className="font-medium text-sm">
-					Will be available in {input.organizationName}
-				</p>
-				<p className="text-muted-foreground text-xs leading-5">
-					New connected Agents are automatically authorized for this
-					organization.
-				</p>
-			</div>
-		);
-	}
-
-	return (
-		<div className="grid gap-3 py-1">
-			<label className="flex items-start gap-3 text-sm">
-				<input
-					checked={input.authorizeForOrganization}
-					className="mt-0.5 size-4 shrink-0 accent-foreground"
-					disabled={input.disabled}
-					onChange={(event) => {
-						input.onAuthorizeForOrganizationChange(event.target.checked);
-						if (!event.target.checked) {
-							input.onEnableFutureOrganizationAuthorizationChange(false);
-						}
-					}}
-					type="checkbox"
-				/>
-				<span>
-					<span className="block font-medium text-foreground">
-						Use this Agent in {input.organizationName}
-					</span>
-					<span className="mt-1 block text-muted-foreground text-xs leading-5">
-						Members of {input.organizationName} will be able to Wake this Agent
-						from {input.organizationName} Spaces.
-					</span>
-				</span>
-			</label>
-			{input.authorizeForOrganization ? (
-				<label className="flex items-start gap-3 text-sm">
-					<input
-						checked={input.enableFutureOrganizationAuthorization}
-						className="mt-0.5 size-4 shrink-0 accent-foreground"
-						disabled={input.disabled}
-						onChange={(event) => {
-							input.onEnableFutureOrganizationAuthorizationChange(
-								event.target.checked
-							);
-						}}
-						type="checkbox"
-					/>
-					<span>
-						<span className="block font-medium text-foreground">
-							Automatically authorize my new Agents in {input.organizationName}
-						</span>
-						<span className="mt-1 block text-muted-foreground text-xs leading-5">
-							Future connected Agents you create from this organization will
-							receive Wake access automatically.
-						</span>
-					</span>
-				</label>
-			) : null}
-			{input.isPreferencePending || input.isPreferenceError ? (
-				<p className="text-muted-foreground text-xs leading-5">
-					{input.isPreferencePending
-						? `Checking ${input.organizationName} Wake access preference.`
-						: `OpenMeld could not read ${input.organizationName} Wake access preference, so this choice applies to this profile only.`}
-				</p>
-			) : null}
-		</div>
-	);
-}
-
-function RequestedAgentOrganizationWakeAccessChoice(input: {
-	authorizeForOrganization: boolean;
-	boundAgentId: string;
-	disabled: boolean;
-	onAuthorizeForOrganizationChange: (checked: boolean) => void;
-	organizationName: string;
-}) {
-	if (!input.boundAgentId) {
-		return (
-			<div className="grid gap-1 py-1">
-				<p className="font-medium text-sm">
-					Use this Agent in {input.organizationName}
-				</p>
-				<p className="text-muted-foreground text-xs leading-5">
-					Choose a local agent above to request Wake access now. If you let the
-					owner choose later, they can turn it on when they connect the Agent.
-				</p>
-			</div>
-		);
-	}
-	return (
-		<label className="flex items-start gap-3 py-1 text-sm">
-			<input
-				checked={input.authorizeForOrganization}
-				className="mt-0.5 size-4 shrink-0 accent-foreground"
-				disabled={input.disabled}
-				onChange={(event) =>
-					input.onAuthorizeForOrganizationChange(event.target.checked)
-				}
-				type="checkbox"
-			/>
-			<span>
-				<span className="block font-medium text-foreground">
-					Use this Agent in {input.organizationName}
-				</span>
-				<span className="mt-1 block text-muted-foreground text-xs leading-5">
-					If the owner approves, members can Wake this Agent from
-					{input.organizationName} Spaces.
-				</span>
-			</span>
-		</label>
-	);
-}
-
 function buildBuiltinAgentControllerRef(agentId: string): string {
 	return `builtin:${agentId}`;
 }
@@ -2766,7 +2363,7 @@ async function refreshCreatedProfileCaches(input: {
 	boundAgentId: string;
 	createdProfile: AuthProfileView;
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
-	organizationAuthorization: CreatedProfileOrganizationAuthorizationResult;
+	organizationId: string;
 	queryClient: QueryClient;
 	recovery: RecoveryController;
 	spaceJoined: boolean;
@@ -2784,7 +2381,10 @@ async function refreshCreatedProfileCaches(input: {
 			input.createdProfile.profileKind === "agent" &&
 			input.boundAgentId.trim().length > 0
 		) {
-			await refreshOrganizationDirectoryAfterCreatedProfileAuthorization(input);
+			await input.queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.directory(input.organizationId),
+				refetchType: "active",
+			});
 			await refreshCreatedAgentProfileLocalState(input);
 			if (input.spaceContext && input.spaceJoined) {
 				await Promise.resolve(input.onAfterJoin?.(input.createdProfile)).catch(
@@ -2806,23 +2406,9 @@ async function refreshCreatedProfileCaches(input: {
 	}
 }
 
-async function refreshOrganizationDirectoryAfterCreatedProfileAuthorization(input: {
-	organizationAuthorization: CreatedProfileOrganizationAuthorizationResult;
-	queryClient: QueryClient;
-}): Promise<void> {
-	if (input.organizationAuthorization.status !== "authorized") {
-		return;
-	}
-	await input.queryClient.invalidateQueries({
-		queryKey: organizationQueryKeys.directory(
-			input.organizationAuthorization.organizationId
-		),
-		refetchType: "active",
-	});
-}
-
 async function refreshCreatedAgentProfileLocalState(input: {
 	createdProfile: AuthProfileView;
+	organizationId: string;
 	queryClient: QueryClient;
 	recovery: RecoveryController;
 }) {
@@ -2830,6 +2416,7 @@ async function refreshCreatedAgentProfileLocalState(input: {
 		refreshWebAgentReadinessFacts({
 			agentProfileIds: [input.createdProfile.openMeldProfileId],
 			maxAttempts: 3,
+			organizationId: input.organizationId,
 			queryClient: input.queryClient,
 			storageScope: input.recovery.storageScope,
 		}),
@@ -2848,6 +2435,7 @@ async function refreshCreatedAgentProfileLocalState(input: {
 
 async function refreshCreatedAgentProfilePrimaryBinding(input: {
 	createdProfile: AuthProfileView;
+	organizationId: string;
 	queryClient: QueryClient;
 	recovery: RecoveryController;
 }) {
@@ -2860,6 +2448,7 @@ async function refreshCreatedAgentProfilePrimaryBinding(input: {
 		agentProfilePrimaryBindingQueryOptions({
 			agentProfileId: input.createdProfile.openMeldProfileId,
 			enabled: true,
+			organizationId: input.organizationId,
 			storageScope: input.recovery.storageScope,
 		})
 	);

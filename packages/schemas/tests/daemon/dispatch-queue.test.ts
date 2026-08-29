@@ -16,6 +16,7 @@ describe("openMeldDaemonDispatchQueueMessageSchema", () => {
       v: 2,
       dispatchId: "dsp-1",
       spaceId: "space-1",
+      organizationId: "org-1",
       sourceEventId: "evt-1",
       sourceClientMessageId: "client-1",
       dispatchOwner: {
@@ -74,6 +75,7 @@ describe("openMeldDaemonDispatchQueueMessageSchema", () => {
       return;
     }
     expect(parsed.data.sourceClientMessageId).toBe("client-1");
+    expect(parsed.data.organizationId).toBe("org-1");
     expect(parsed.data.dispatchOwner).toEqual({
       id: "owner-1",
       kind: "owner_account",
@@ -137,6 +139,7 @@ describe("openMeldDaemonDispatchQueueMessageSchema", () => {
       return;
     }
     expect(parsed.receivedQueueSchemaVersion).toBe(2);
+    expect(parsed.message.organizationId).toBeUndefined();
   });
 
   it("parses legacy v1 queue ingress through the shared parser", () => {

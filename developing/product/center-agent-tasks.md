@@ -474,9 +474,9 @@ accepted result before interpreting later policy changes. Reusing the operation
 id with different input is a conflict, never a silent replay. Any new mutation,
 delayed attempt creation, or still-pending external admission rechecks current
 membership, Task access, Center Agent designation, active managed profile,
-primary hosted Binding, Organization Binding authorization, runtime policy, and
-model route. This distinction preserves both idempotency and fail-closed
-current authority.
+primary hosted Binding, canonical Organization identity, runtime policy, and
+model route. This distinction preserves both idempotency and fail-closed current
+authority.
 
 An execution result carries the exact `contextRevision` it observed. The complete
 model may later queue an ordinary message as the next turn, but Phase 1 does not

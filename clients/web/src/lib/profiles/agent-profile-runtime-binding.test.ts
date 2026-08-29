@@ -2,7 +2,7 @@ import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	checkWebAgentProfileRuntimeReadiness,
-	ensureWebAgentProfileRuntimeBinding,
+	ensureWebAgentProfileRuntimeBinding as ensureWebAgentProfileRuntimeBindingWithoutDefaults,
 	formatWebAgentProfileRuntimeBindingFailure,
 	formatWebAgentProfileRuntimeBindingFailureActionLabel,
 } from "./agent-profile-runtime-binding";
@@ -15,6 +15,19 @@ const createWebOpenMeldApiFoundationMock = vi.hoisted(() => vi.fn());
 const createOrganizationScopedWebOpenMeldApiFoundationMock = vi.hoisted(() =>
 	vi.fn()
 );
+const ORGANIZATION_ID = "organization-1";
+
+function ensureWebAgentProfileRuntimeBinding(
+	input: Omit<
+		Parameters<typeof ensureWebAgentProfileRuntimeBindingWithoutDefaults>[0],
+		"organizationId"
+	> & { organizationId?: string }
+) {
+	return ensureWebAgentProfileRuntimeBindingWithoutDefaults({
+		...input,
+		organizationId: input.organizationId ?? ORGANIZATION_ID,
+	});
+}
 
 vi.mock("@openmeld/api-client", async () => {
 	const actual = await vi.importActual<typeof import("@openmeld/api-client")>(
@@ -111,6 +124,12 @@ describe("ensureWebAgentProfileRuntimeBinding", () => {
 		expect(getExecutionReadinessMock).not.toHaveBeenCalled();
 		expect(createWebOpenMeldApiFoundationMock).toHaveBeenCalledWith({
 			openMeldProfileId: "human-1",
+		});
+		expect(
+			createOrganizationScopedWebOpenMeldApiFoundationMock
+		).toHaveBeenCalledWith({
+			openMeldProfileId: "human-1",
+			organizationId: ORGANIZATION_ID,
 		});
 		expect(getPrepareReadinessMock).toHaveBeenCalledWith({
 			agentControllerRefs: ["builtin:codex"],

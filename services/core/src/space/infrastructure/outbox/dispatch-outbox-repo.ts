@@ -116,6 +116,7 @@ export const createDispatchOutboxRecord = (input: {
   sourceVisitedProfileIds?: string[];
   senderProfileId: string;
   spaceId: string;
+  organizationId?: string;
   spaceContractSnapshot?: OpenMeldDaemonDispatchQueueMessage["spaceContractSnapshot"];
   sourceEventId: string;
   sourceClientMessageId?: string | null;
@@ -133,6 +134,7 @@ export const createDispatchOutboxRecord = (input: {
   const transportMode =
     input.transportMode === "local-cli" ? "local-cli" : null;
   const spacePassword = normalizeOptionalSnapshot(input.spacePassword);
+  const organizationId = normalizeOptionalSnapshot(input.organizationId);
   const contextIdMappingSpec = input.contextIdMappingSpec ?? null;
   const dispatchSnapshot: OpenMeldDaemonDispatchQueueMessage["dispatchSnapshot"] =
     {
@@ -172,6 +174,7 @@ export const createDispatchOutboxRecord = (input: {
     v: OPENMELD_DAEMON_DISPATCH_QUEUE_SCHEMA_VERSION,
     dispatchId,
     spaceId: input.spaceId,
+    ...(organizationId ? { organizationId } : {}),
     sourceEventId: input.sourceEventId,
     ...(typeof input.sourceClientMessageId === "string" &&
     input.sourceClientMessageId.trim().length > 0

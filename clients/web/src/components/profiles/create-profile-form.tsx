@@ -96,7 +96,6 @@ export function CreateProfileForm(input: {
 	modelCatalog: ModelCatalog | null;
 	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
 	localFolderPickerDeviceId: string | null;
-	organizationWakeAccessSlot?: ReactNode;
 	projectSelectionBlockReason?: string | null;
 	projectSelectionSlot?: ReactNode;
 	projectFolderPath: string;
@@ -174,7 +173,6 @@ export function CreateProfileForm(input: {
 							input={input}
 						/>
 					) : null}
-					{input.organizationWakeAccessSlot}
 					{input.errorState ? (
 						<div className="grid gap-3 rounded-md border border-destructive/40 p-4">
 							<p className="text-destructive text-sm">

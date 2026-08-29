@@ -278,6 +278,18 @@ function buildRuntimeRegistrationChannel(input: {
   fact: AgentExecutionStatusProjection["facts"]["runtime"];
   generatedAt: string;
 }): EvidenceSyncHealthChannel {
+  if (input.fact.source === "not_checked") {
+    return createChannel({
+      generatedAt: input.generatedAt,
+      id: "runtime_registration",
+      label: "Runtime registration",
+      reasonCodes: [],
+      role: "wake_path_evidence",
+      source: input.fact.source,
+      status: "not_checked",
+      summary: "Runtime registration was not checked in this diagnostic read.",
+    });
+  }
   if (input.fact.ready) {
     return createChannel({
       generatedAt: input.generatedAt,
@@ -307,6 +319,18 @@ function buildRouteCatalogSyncChannel(input: {
   fact: AgentExecutionStatusProjection["facts"]["route"];
   generatedAt: string;
 }): EvidenceSyncHealthChannel {
+  if (input.fact.source === "not_checked") {
+    return createChannel({
+      generatedAt: input.generatedAt,
+      id: "route_catalog_sync",
+      label: "Route catalog sync",
+      reasonCodes: [],
+      role: "wake_path_evidence",
+      source: input.fact.source,
+      status: "not_checked",
+      summary: "Reply route was not checked in this diagnostic read.",
+    });
+  }
   if (input.fact.online) {
     return createChannel({
       generatedAt: input.generatedAt,

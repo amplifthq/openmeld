@@ -2,20 +2,22 @@ import {
 	createCurrentDeviceApi,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
-import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export async function updateAgentProfileWorkspace(input: {
 	actorProfileId?: string | null;
+	organizationId: string;
 	profileId: string;
 	workspaceMode: "custom" | "openmeld_managed";
 	workspacePath?: string;
 }): Promise<void> {
 	try {
 		await createCurrentDeviceApi(
-			createUnscopedWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),
+				organizationId: input.organizationId,
 			})
 		).setCurrentAgentProfileWorkspace({
 			agentProfileId: input.profileId,

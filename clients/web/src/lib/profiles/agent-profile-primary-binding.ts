@@ -11,14 +11,17 @@ import type {
 	GetAgentProfileControllerChangeEligibilityResponse,
 	GetAgentProfilePrimaryBindingResponse,
 } from "@openmeld/schemas/types";
-import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export async function readAgentProfilePrimaryBinding(input: {
 	agentProfileId: string;
+	organizationId: string;
 }): Promise<GetAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createUnscopedWebOpenMeldApiFoundation()
+			createOrganizationScopedWebOpenMeldApiFoundation({
+				organizationId: input.organizationId,
+			})
 		).getPrimaryBinding({
 			agentProfileId: input.agentProfileId,
 		});
@@ -29,10 +32,13 @@ export async function readAgentProfilePrimaryBinding(input: {
 
 export async function readAgentProfileControllerChangeEligibility(input: {
 	agentProfileId: string;
+	organizationId: string;
 }): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createUnscopedWebOpenMeldApiFoundation()
+			createOrganizationScopedWebOpenMeldApiFoundation({
+				organizationId: input.organizationId,
+			})
 		).getControllerChangeEligibility({
 			agentProfileId: input.agentProfileId,
 		});
@@ -45,13 +51,15 @@ export async function updateAgentProfilePrimaryBindingAgentControllerPermissionM
 	actorProfileId?: string | null;
 	agentControllerPermissionMode: AgentControllerPermissionMode;
 	agentProfileId: string;
+	organizationId: string;
 }): Promise<EnsureAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createUnscopedWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),
+				organizationId: input.organizationId,
 			})
 		).updatePrimaryBindingAgentControllerPermissionMode({
 			agentControllerPermissionMode: input.agentControllerPermissionMode,
@@ -66,13 +74,15 @@ export async function updateAgentProfilePrimaryBindingAgentControllerCollaborati
 	actorProfileId?: string | null;
 	agentControllerCollaborationMode: AgentControllerCollaborationMode;
 	agentProfileId: string;
+	organizationId: string;
 }): Promise<EnsureAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createUnscopedWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),
+				organizationId: input.organizationId,
 			})
 		).updatePrimaryBindingAgentControllerCollaborationMode({
 			agentControllerCollaborationMode: input.agentControllerCollaborationMode,
@@ -87,14 +97,16 @@ export async function updateAgentProfilePrimaryBindingModelSelection(input: {
 	actorProfileId?: string | null;
 	agentProfileId: string;
 	modelId: string;
+	organizationId: string;
 	reasoningLevel?: string | null;
 }): Promise<EnsureAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createUnscopedWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),
+				organizationId: input.organizationId,
 			})
 		).updatePrimaryBindingModelSelection({
 			agentProfileId: input.agentProfileId,
@@ -110,13 +122,15 @@ export async function updateAgentProfilePrimaryBindingOpenCodePermission(input: 
 	actorProfileId?: string | null;
 	agentProfileId: string;
 	openCodePermission: AgentProfileBindingOpenCodePermission | null;
+	organizationId: string;
 }): Promise<EnsureAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createUnscopedWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),
+				organizationId: input.organizationId,
 			})
 		).updatePrimaryBindingOpenCodePermission({
 			agentProfileId: input.agentProfileId,
@@ -130,13 +144,15 @@ export async function updateAgentProfilePrimaryBindingOpenCodePermission(input: 
 export async function disableAgentProfilePrimaryBinding(input: {
 	actorProfileId?: string | null;
 	agentProfileId: string;
+	organizationId: string;
 }): Promise<DisableAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createUnscopedWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),
+				organizationId: input.organizationId,
 			})
 		).disablePrimaryBinding({
 			agentProfileId: input.agentProfileId,
