@@ -8,6 +8,8 @@ import { buildLazyRuntimeModules } from "./build-lazy-runtime-modules.mjs";
 
 const CREATE_AUTH_EXPORT_PATTERN = /createAuth/u;
 const REQUEST_STATE_EXPORT_PATTERN = /runWithAuthRequestState/u;
+const STATIC_ASYNC_LOCAL_STORAGE_IMPORT_PATTERN =
+  /from["']node:async_hooks["']/u;
 
 test("builds a reusable request-only Better Auth module", async () => {
   const outputDirectory = mkdtempSync(
@@ -22,6 +24,7 @@ test("builds a reusable request-only Better Auth module", async () => {
     assert.equal(second.changed, false);
     assert.match(output, CREATE_AUTH_EXPORT_PATTERN);
     assert.match(output, REQUEST_STATE_EXPORT_PATTERN);
+    assert.match(output, STATIC_ASYNC_LOCAL_STORAGE_IMPORT_PATTERN);
   } finally {
     rmSync(outputDirectory, { force: true, recursive: true });
   }
