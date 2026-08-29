@@ -2033,8 +2033,15 @@ function AgentProfileExecutionReadinessRow(
 			readiness: input.readiness,
 		}
 	);
-	const rowMoreMenu = (details: ProfileDetailsSnapshot) => (
-		<AgentProfileExecutionReadinessRowMenu details={details} row={input} />
+	const rowMoreMenu = (
+		details: ProfileDetailsSnapshot,
+		supportingContent: ReactNode = null
+	) => (
+		<AgentProfileExecutionReadinessRowMenu
+			details={details}
+			row={input}
+			supportingContent={supportingContent}
+		/>
 	);
 	const readiness = input.readiness;
 	if (readiness === null || input.errorMessage) {
@@ -2157,16 +2164,17 @@ function AgentProfileExecutionReadinessRow(
 		organizationWakeAccess: input.organizationWakeAccess,
 		profileName: input.profile.profileName,
 	});
+	const supportingContent = combineAgentProfileCardMiddleContent(
+		organizationAccessRow,
+		cardActions
+	);
 	const presentations: Record<
 		AgentProfileExecutionReadinessRowProps["presentation"],
 		ReactNode
 	> = {
 		cards: (
 			<ProfileCard
-				actions={combineAgentProfileCardMiddleContent(
-					organizationAccessRow,
-					cardActions
-				)}
+				actions={supportingContent}
 				className={cn(
 					"min-h-40",
 					resolveFocusedAgentProfileClassName(input.rowState.isFocused)
@@ -2212,7 +2220,7 @@ function AgentProfileExecutionReadinessRow(
 				title={input.profile.profileName}
 			/>
 		),
-		detail: rowMoreMenu(profileDetails),
+		detail: rowMoreMenu(profileDetails, supportingContent),
 	};
 	return presentations[input.presentation];
 }
@@ -2247,6 +2255,7 @@ function renderUnavailableAgentProfilePresentation(input: {
 function AgentProfileExecutionReadinessRowMenu(input: {
 	details: ProfileDetailsSnapshot;
 	row: AgentProfileExecutionReadinessRowProps;
+	supportingContent?: ReactNode;
 }) {
 	return (
 		<AgentProfileRowMoreMenu
@@ -2305,6 +2314,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 					: null
 			}
 			storageScope={input.row.storageScope}
+			supportingContent={input.supportingContent}
 			wakeAvailability={input.row.readiness?.agentWakeAvailability ?? null}
 		/>
 	);
@@ -3001,6 +3011,7 @@ function AgentProfileRowMoreMenu(input: {
 	presentation?: "cards" | "detail";
 	runtimeComputer: { deviceId: string; displayName: string } | null;
 	storageScope: string;
+	supportingContent?: ReactNode;
 	wakeAvailability: AgentWakeAvailability | null;
 }) {
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -3383,6 +3394,7 @@ function AgentProfileWorkspacePresentation(input: {
 				}}
 				overflowActions={overflowActions}
 				profile={input.input.profile}
+				supportingContent={input.input.supportingContent}
 				wakeAvailability={input.input.wakeAvailability}
 				wakeAvailabilityErrorMessage={input.input.readinessErrorMessage}
 				wakeAvailabilityIsPending={input.input.readinessIsPending}

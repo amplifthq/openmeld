@@ -36,6 +36,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	onOpenDirectMessage: () => void;
 	overflowActions: ReactNode;
 	profile: AuthProfileView;
+	supportingContent?: ReactNode;
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityErrorMessage: string | null;
 	wakeAvailabilityIsPending: boolean;
@@ -153,6 +154,9 @@ export function AgentProfileWorkspaceDetail(input: {
 					{input.overflowActions}
 				</div>
 			</div>
+			{input.supportingContent ? (
+				<div className="max-w-3xl">{input.supportingContent}</div>
+			) : null}
 
 			{input.editing ? (
 				input.editContent

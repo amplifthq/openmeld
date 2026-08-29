@@ -419,6 +419,19 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.getByText("Unavailable")).toBeTruthy();
 	});
 
+	it("keeps the Core recovery action in the selected Agent detail", async () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "detail" }
+		);
+
+		const reconnectLink = await screen.findByRole("link", {
+			name: "Reconnect OpenMeld Service",
+		});
+		expect(reconnectLink.getAttribute("href")).toBe("/app/connect");
+	});
+
 	it("edits in place and Cancel restores the read-only detail without saving", async () => {
 		renderAgentProfilesCard({}, undefined, { presentation: "detail" });
 
