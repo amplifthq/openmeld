@@ -3480,14 +3480,17 @@ the same Computer projection. Operation updates with the same id are monotonic:
 an older `updatedAt` snapshot, or an equal-time snapshot from an earlier phase,
 must not move the visible operation backward. `updated` means only that the
 installation operation ended; Web continues to show **Verifying update** and
-polls until both the Service and CLI projections reach the operation target and
-the aggregate component projection no longer reports an actionable update. A
-stale refetch must not erase the local accepted-operation evidence, and a
+polls until both the Service and CLI projections reach that exact operation
+target. A newer release becoming available does not reopen or hold the previous
+operation in verification; it becomes a separate actionable update. A stale
+refetch must not erase the local accepted-operation evidence, and a
 `current` control response must not produce **Up to date** until the component
 projection agrees. Request completion and installation completion are not
 verified update completion. Service connection recovery remains explicitly
-**Connect OpenMeld Service** or **Reconnect OpenMeld Service**, and the Reconnect
-action remains the CLI fallback.
+**Connect OpenMeld Service** or **Reconnect manually**. When Service is offline,
+both the card action and its More menu use **Reconnect manually** and open the
+existing Connect/CLI path; Web never pretends it can send a managed reconnect
+through the disconnected Service.
 
 This verification contract survives a reload or a new tab: browser-local
 request state may improve the immediate click response, but it never decides

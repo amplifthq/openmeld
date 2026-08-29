@@ -445,6 +445,46 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
 	});
 
+	it("settles an exact update target when a newer release is already available", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					cli: {
+						commandContractVersion:
+							"openmeld-cli-command-contract-2026-05-local-components-v1",
+						installedPackageVersion: "0.8.0",
+						latestPackageVersion: "0.9.0",
+						reasonCodes: ["cli.package_update_available"],
+						requiredCommandContractVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.8.0",
+						latestVersion: "0.9.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase: "updated" }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
+		expect(screen.queryByText("Verifying update")).toBeNull();
+		expect(screen.queryByText("Up to date")).toBeNull();
+	});
+
 	it("does not let a stale refetch move the same update operation backward", async () => {
 		requestCurrentOpenMeldToolsUpdateMock.mockResolvedValueOnce({
 			operation: {
@@ -1294,8 +1334,17 @@ describe("OpenMeldServiceCard", () => {
 			screen.getByText("OpenMeld Service is not connected").className
 		).toContain("text-destructive");
 		expect(
-			screen.getByRole("link", { name: "Reconnect OpenMeld Service" }).className
+			screen.getByRole("link", { name: "Reconnect manually" }).className
 		).toContain("text-destructive");
+		fireEvent.click(
+			screen.getByRole("button", { name: "OpenMeld tools options" })
+		);
+		expect(
+			screen.getAllByRole("link", { name: "Reconnect manually" })
+		).toHaveLength(2);
+		expect(
+			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
+		).toBeNull();
 		expect(
 			screen.queryByLabelText("OpenMeld Service connection: Not connected")
 		).toBeNull();
@@ -1320,7 +1369,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getByText("OpenMeld Service is not connected")).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Reconnect OpenMeld Service" })
+			screen.getByRole("link", { name: "Reconnect manually" })
 		).toBeTruthy();
 		expect(screen.queryByText("OpenMeld Service is connected")).toBeNull();
 	});

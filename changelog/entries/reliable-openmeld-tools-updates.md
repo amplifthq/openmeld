@@ -17,3 +17,5 @@ The Computer page now keeps update progress honest until both OpenMeld Service
 and CLI report the installed target version. If Web cannot verify the result,
 it stops checking automatically and keeps a clear **Update manually** fallback;
 older Services that cannot manage their own update show only that manual path.
+An offline Service now uses **Reconnect manually** everywhere instead of
+suggesting that Web can control a disconnected process.

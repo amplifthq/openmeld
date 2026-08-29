@@ -100,6 +100,7 @@ type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
 const OPENMELD_TOOLS_CARD_TITLE = "OpenMeld Tools";
 const OPENMELD_SKILLS_MANAGEMENT_COMMAND = "npx -y openmeld@latest skills";
+const RECONNECT_MANUALLY_LABEL = "Reconnect manually";
 const UPDATE_MANUALLY_LABEL = "Update manually";
 const UPDATE_STATUS_REFRESH_INTERVAL_MS = 2000;
 const UPDATE_STATUS_MAX_REFRESH_ATTEMPTS = 60;
@@ -616,7 +617,7 @@ function OpenMeldServiceMoreMenu(input: {
 }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const showCheckStatus = input.showCheckStatus ?? true;
-	const setupLabel = input.setupLabel ?? "Reconnect OpenMeld Service";
+	const setupLabel = input.setupLabel ?? RECONNECT_MANUALLY_LABEL;
 
 	const checkStatus = () => {
 		setIsOpen(false);
@@ -817,6 +818,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		localComponents,
 		targetVersion: updateTargetVersion,
 	});
+	const nextUpdateAvailable = hasActionableOpenMeldToolsUpdate(localComponents);
 	const updateIsActive =
 		!input.updateVerificationExhausted &&
 		(input.isUpdatingTools ||
@@ -934,6 +936,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 						input.pendingManagedUpdate?.kind === "confirmation"
 					}
 					disabled={input.isSavingAutomaticUpdates}
+					nextUpdateAvailable={nextUpdateAvailable}
 					onAutomaticUpdatesChange={input.onAutomaticUpdatesChange}
 					operation={updateOperation}
 					requestFailed={input.updateRequestFailed && updateOperation === null}
@@ -1010,7 +1013,7 @@ function resolveOpenMeldToolsServiceBoundaryDisplay(
 			hideVersionDetails: false,
 			primaryAction: {
 				kind: "link",
-				label: formatLocalSetupActionLabel("reconnect_service"),
+				label: RECONNECT_MANUALLY_LABEL,
 				path: input.setupPath,
 			},
 			statusLabel: "OpenMeld Service is not connected",
@@ -1173,9 +1176,7 @@ function hasObservedOpenMeldToolsUpdateTarget(input: {
 		input.localComponents &&
 			input.targetVersion &&
 			input.localComponents.service.installedVersion === input.targetVersion &&
-			input.localComponents.cli.installedPackageVersion ===
-				input.targetVersion &&
-			!hasActionableOpenMeldToolsUpdate(input.localComponents)
+			input.localComponents.cli.installedPackageVersion === input.targetVersion
 	);
 }
 
@@ -1385,8 +1386,11 @@ function resolveOpenMeldServiceActionLabel(input: {
 	const actionLabel = resolveCurrentLocalRuntimeServiceActionLabel(
 		input.replyReadiness
 	);
-	return actionLabel === formatLocalSetupActionLabel("connect_local_agent")
-		? null
+	if (actionLabel === formatLocalSetupActionLabel("connect_local_agent")) {
+		return null;
+	}
+	return actionLabel === formatLocalSetupActionLabel("reconnect_service")
+		? RECONNECT_MANUALLY_LABEL
 		: actionLabel;
 }
 
@@ -1554,6 +1558,7 @@ function OpenMeldToolsMaintenanceControls(input: {
 	automaticUpdatesEnabled: boolean;
 	confirmationPending: boolean;
 	disabled: boolean;
+	nextUpdateAvailable: boolean;
 	onAutomaticUpdatesChange: (enabled: boolean) => Promise<void>;
 	operation:
 		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
@@ -1588,6 +1593,7 @@ function OpenMeldToolsMaintenanceControls(input: {
 
 function resolveOpenMeldToolsUpdateStatus(input: {
 	confirmationPending: boolean;
+	nextUpdateAvailable: boolean;
 	operation:
 		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
 		| null;
@@ -1607,6 +1613,13 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 	}
 	if (input.requesting) {
 		return "Checking for updates";
+	}
+	if (
+		input.operation?.phase === "updated" &&
+		input.targetObserved &&
+		input.nextUpdateAvailable
+	) {
+		return null;
 	}
 	return input.operation
 		? formatOpenMeldToolsUpdatePhase({
