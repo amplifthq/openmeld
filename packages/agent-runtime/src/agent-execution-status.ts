@@ -44,6 +44,7 @@ export type AgentExecutionRouteEvidence =
       lane?: string | null;
       observedAt?: string | null;
       reasonCodes?: readonly string[];
+      source?: "daemon_route" | "hosted_route";
       status: "online";
     }
   | {
@@ -51,6 +52,7 @@ export type AgentExecutionRouteEvidence =
       lane?: string | null;
       observedAt?: string | null;
       reasonCodes: readonly string[];
+      source?: "daemon_route" | "hosted_route" | "not_checked";
       status: "offline" | "unavailable";
     };
 
@@ -113,6 +115,7 @@ export type AgentExecutionStatusInput = {
   agentProfileId: string;
   binding?: AgentExecutionBindingEvidence | null;
   claimDiagnostics?: AgentExecutionClaimDiagnosticEvidence | null;
+  executionFamily?: "native" | "workstation";
   localService?: AgentExecutionLocalServiceEvidence | null;
   profile?: AgentExecutionProfileEvidence | null;
   providerAccount?: AgentExecutionProviderAccountEvidence | null;
@@ -198,12 +201,16 @@ export type AgentExecutionStatusProjection = {
       observedAt: string | null;
       online: boolean;
       reasonCodes: readonly string[];
-      source: "daemon_route" | "missing";
+      source: "daemon_route" | "hosted_route" | "missing" | "not_checked";
     };
     runtime: {
       ready: boolean;
       reasonCodes: readonly string[];
-      source: "missing" | "prepare_readiness";
+      source:
+        | "missing"
+        | "native_runtime"
+        | "not_checked"
+        | "prepare_readiness";
     };
   };
   primaryAction: AgentExecutionPrimaryAction;
@@ -218,6 +225,7 @@ export type AgentExecutionSelfHealingReadinessInput = Pick<
 export function resolveAgentExecutionStatus(
   input: AgentExecutionStatusInput
 ): AgentExecutionStatusProjection {
+  const executionFamily = input.executionFamily ?? "workstation";
   const profile = resolveProfileFact(input.profile);
   const binding = resolveBindingFact({
     agentProfileId: input.agentProfileId,
@@ -236,6 +244,7 @@ export function resolveAgentExecutionStatus(
   });
   const service = resolveServiceFact(input.service);
   const runtime = resolveRuntimeFact({
+    executionFamily,
     runtimeReadiness: input.runtimeReadiness,
     service,
   });
@@ -256,6 +265,7 @@ export function resolveAgentExecutionStatus(
     bindingBlocked: binding.source === "blocked",
     bindingRoutable: binding.routable,
     claimBlocked: claim.executionBlocked,
+    executionFamily,
     localServiceReachable: localService.reachable,
     profile,
     providerAccountBlocked: providerAccount.blocked,
@@ -284,6 +294,7 @@ export function resolveAgentExecutionStatus(
       binding,
       claim,
       displayState,
+      executionFamily,
       localService,
       profile,
       providerAccount,
@@ -523,11 +534,19 @@ function isUnavailableBindingEvidence(
 }
 
 function resolveRuntimeFact(input: {
+  executionFamily: "native" | "workstation";
   runtimeReadiness: PrepareReadinessSummary | null | undefined;
   service: AgentExecutionStatusProjection["facts"]["service"];
 }): AgentExecutionStatusProjection["facts"]["runtime"] {
-  const { runtimeReadiness, service } = input;
+  const { executionFamily, runtimeReadiness, service } = input;
   if (!runtimeReadiness) {
+    if (executionFamily === "native") {
+      return {
+        ready: false,
+        reasonCodes: [],
+        source: "not_checked",
+      };
+    }
     return {
       ready: false,
       reasonCodes: ["runtime.projection_missing"],
@@ -536,11 +555,14 @@ function resolveRuntimeFact(input: {
   }
   return {
     ready:
-      runtimeReadiness.ready ||
-      (service.executionCompatible &&
-        hasOnlyAdvisoryServiceDriftReason(runtimeReadiness.reasonCodes)),
+      executionFamily === "native"
+        ? runtimeReadiness.ready
+        : runtimeReadiness.ready ||
+          (service.executionCompatible &&
+            hasOnlyAdvisoryServiceDriftReason(runtimeReadiness.reasonCodes)),
     reasonCodes: runtimeReadiness.reasonCodes,
-    source: "prepare_readiness",
+    source:
+      executionFamily === "native" ? "native_runtime" : "prepare_readiness",
   };
 }
 
@@ -593,7 +615,7 @@ function resolveRouteFact(
       observedAt: route.observedAt?.trim() || null,
       online: true,
       reasonCodes: route.reasonCodes ?? [],
-      source: "daemon_route",
+      source: route.source ?? "daemon_route",
     };
   }
 
@@ -603,7 +625,7 @@ function resolveRouteFact(
     observedAt: route.observedAt?.trim() || null,
     online: false,
     reasonCodes: route.reasonCodes,
-    source: "daemon_route",
+    source: route.source ?? "daemon_route",
   };
 }
 
@@ -611,6 +633,7 @@ function resolveDisplayState(input: {
   bindingBlocked: boolean;
   bindingRoutable: boolean;
   claimBlocked: boolean;
+  executionFamily: "native" | "workstation";
   localServiceReachable: boolean;
   profile: AgentExecutionStatusProjection["facts"]["profile"];
   providerAccountBlocked: boolean;
@@ -642,7 +665,7 @@ function resolveDisplayState(input: {
   }
   if (
     input.bindingRoutable &&
-    input.localServiceReachable &&
+    (input.executionFamily === "native" || input.localServiceReachable) &&
     input.serviceExecutionCompatible &&
     input.runtimeReady &&
     input.routeOnline
@@ -656,6 +679,7 @@ function resolvePrimaryAction(input: {
   binding: AgentExecutionStatusProjection["facts"]["binding"];
   claim: AgentExecutionStatusProjection["facts"]["claim"];
   displayState: AgentExecutionDisplayState;
+  executionFamily: "native" | "workstation";
   localService: AgentExecutionStatusProjection["facts"]["localService"];
   profile: AgentExecutionStatusProjection["facts"]["profile"];
   providerAccount: AgentExecutionStatusProjection["facts"]["providerAccount"];
@@ -676,6 +700,9 @@ function resolvePrimaryAction(input: {
       input.binding.source === "not_checked"
       ? "check_status"
       : "reconnect_binding";
+  }
+  if (input.executionFamily === "native") {
+    return "check_status";
   }
   const serviceAction = resolveServicePrimaryAction(input);
   if (serviceAction) {

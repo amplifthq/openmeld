@@ -206,17 +206,59 @@ describe("agent-execution-readiness-service", () => {
           reasonCodes: [],
           source: "not_checked",
         },
+        localService: {
+          reachable: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        route: {
+          online: true,
+          reasonCodes: ["remote_agent.available"],
+          source: "hosted_route",
+        },
+        runtime: {
+          ready: true,
+          reasonCodes: [],
+          source: "native_runtime",
+        },
+        service: {
+          executionCompatible: true,
+          observedEpoch: null,
+          reasonCodes: [],
+          source: "not_checked",
+        },
       },
       primaryAction: "none",
     });
-    expect(
-      createAgentExecutionStatusDisplayRows(
-        readiness.agentExecutionReadiness
-      ).find((row) => row.label === "Wake")
-    ).toEqual({
+    const displayRows = createAgentExecutionStatusDisplayRows(
+      readiness.agentExecutionReadiness
+    );
+    expect(displayRows.find((row) => row.label === "Wake")).toEqual({
       label: "Wake",
       value: "Wake has not been checked yet.",
     });
+    expect(displayRows).toEqual(
+      expect.arrayContaining([
+        {
+          label: "Reply status",
+          value: "Available for Wake · Center Agent can answer now.",
+        },
+        {
+          label: "Hosted runtime",
+          value: "Hosted runtime is available.",
+        },
+        {
+          label: "OpenMeld Service",
+          value: "OpenMeld Service has not been checked for this agent yet.",
+        },
+        {
+          label: "Hosted reply route",
+          value: "Hosted reply route is available.",
+        },
+      ])
+    );
+    expect(JSON.stringify(displayRows)).not.toContain("this computer");
+    expect(JSON.stringify(displayRows)).not.toContain("Local agent");
     expect(
       resolveHostedAgentWakeAvailability({
         readiness: readiness.agentExecutionReadiness,
@@ -246,7 +288,29 @@ describe("agent-execution-readiness-service", () => {
           reasonCodes: ["agent_profile.organization_context_missing"],
           source: "claim_diagnostics",
         },
+        localService: {
+          reachable: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        route: {
+          online: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        runtime: {
+          ready: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        service: {
+          executionCompatible: true,
+          observedEpoch: null,
+          reasonCodes: [],
+          source: "not_checked",
+        },
       },
+      primaryAction: "check_status",
     });
     expect(
       resolveHostedAgentWakeAvailability({
@@ -277,7 +341,29 @@ describe("agent-execution-readiness-service", () => {
           reasonCodes: ["agent_profile.organization_mismatch"],
           source: "claim_diagnostics",
         },
+        localService: {
+          reachable: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        route: {
+          online: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        runtime: {
+          ready: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        service: {
+          executionCompatible: true,
+          observedEpoch: null,
+          reasonCodes: [],
+          source: "not_checked",
+        },
       },
+      primaryAction: "check_status",
     });
     expect(readiness.agentExecutionReadiness.reasonCodes).toContain(
       "agent_profile.organization_mismatch"
@@ -296,6 +382,59 @@ describe("agent-execution-readiness-service", () => {
       status: "unavailable_for_wake",
       summary: "This Agent Profile belongs to a different workspace.",
       tooltip: "This Agent Profile belongs to another workspace",
+    });
+  });
+
+  it("keeps hosted capability failure separate from workstation readiness", async () => {
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      activeOrganizationId: "org-acme",
+      env: createHostedCenterAgentReadinessEnv({
+        profileOrganizationId: "org-acme",
+        remoteAgentWorkerAvailable: false,
+      }),
+      generatedAt: "2026-05-10T00:00:00.000Z",
+      profileId: "agt_readiness_without_snapshot",
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "not_ready",
+      facts: {
+        claim: {
+          executionBlocked: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        localService: {
+          reachable: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        route: {
+          online: false,
+          reasonCodes: ["remote_agent.worker_unavailable"],
+          source: "hosted_route",
+        },
+        runtime: {
+          ready: false,
+          reasonCodes: ["remote_agent.worker_unavailable"],
+          source: "native_runtime",
+        },
+        service: {
+          executionCompatible: true,
+          observedEpoch: null,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+      },
+      primaryAction: "check_status",
+    });
+    expect(
+      resolveHostedAgentWakeAvailability({
+        readiness: readiness.agentExecutionReadiness,
+      })
+    ).toMatchObject({
+      reasonCode: "remote_agent.worker_unavailable",
+      status: "unavailable_for_wake",
     });
   });
 });
@@ -336,6 +475,7 @@ function createAuthorizationEnv(
 
 function createHostedCenterAgentReadinessEnv(input: {
   profileOrganizationId: string;
+  remoteAgentWorkerAvailable?: boolean;
 }): CoreBindings {
   const profileId = "agt_readiness_without_snapshot";
   const db = {
@@ -419,10 +559,14 @@ function createHostedCenterAgentReadinessEnv(input: {
     },
     OPENMELD_DB: db,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "true",
-    OPENMELD_REMOTE_AGENT_WORKER: {
-      submitConversationTurn: async () => ({
-        accepted: true,
-      }),
-    },
+    ...(input.remoteAgentWorkerAvailable === false
+      ? {}
+      : {
+          OPENMELD_REMOTE_AGENT_WORKER: {
+            submitConversationTurn: async () => ({
+              accepted: true,
+            }),
+          },
+        }),
   } as unknown as CoreBindings;
 }

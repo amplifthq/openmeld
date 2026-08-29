@@ -266,6 +266,11 @@ export async function resolveCoreAgentExecutionReadiness(input: {
     agentProfileId: input.agent.profileId,
     binding: bindingSnapshot.agentExecutionBinding,
     claimDiagnostics: bindingSnapshot.claimDiagnostics,
+    executionFamily: isHostedCenterAgentControllerRef(
+      bindingSnapshot.agentControllerRef
+    )
+      ? "native"
+      : "workstation",
     route:
       bindingSnapshot.routeEvidence ??
       createAgentExecutionRouteEvidence({
@@ -797,38 +802,16 @@ async function createHostedAgentBindingSnapshot(input: {
           agentProfileId: input.agent.profileId,
           env: input.env,
         })
-      : {
-          available: false,
-          reasonCodes: [
-            ...(input.claimDiagnostics?.reasonCodes ?? [
-              "agent_profile.organization_lookup_failed",
-            ]),
-          ],
-        };
-  const routeEvidence: AgentExecutionRouteEvidence = readiness.available
-    ? {
-        observedAt: input.generatedAt,
-        reasonCodes: ["remote_agent.available"],
-        status: "online",
-      }
-    : {
-        observedAt: input.generatedAt,
-        reasonCodes: readiness.reasonCodes,
-        status: "unavailable",
-      };
-  const daemonRouteObservation: DaemonRouteObservationSummary =
-    readiness.available
-      ? {
-          observedAt: input.generatedAt,
-          reasonCode: "online",
-          status: "online",
-        }
-      : {
-          observedAt: input.generatedAt,
-          reasonCode: "not_requested",
-          status: "unavailable",
-        };
-  const observedAtMs = Date.parse(input.generatedAt);
+      : null;
+  const routeEvidence = createHostedAgentRouteEvidence({
+    generatedAt: input.generatedAt,
+    readiness,
+  });
+  const daemonRouteObservation: DaemonRouteObservationSummary = {
+    observedAt: input.generatedAt,
+    reasonCode: "not_requested",
+    status: "unavailable",
+  };
 
   return {
     ...input.snapshot,
@@ -839,52 +822,67 @@ async function createHostedAgentBindingSnapshot(input: {
     claimDiagnostics: input.claimDiagnostics,
     daemonRouteObservation,
     localService: {
-      reachable: readiness.available,
+      reachable: false,
       refreshable: false,
-      reasonCodes: readiness.reasonCodes,
-      source: readiness.available ? "runtime_transport" : "unavailable",
+      reasonCodes: [],
+      source: "not_checked",
     },
     providerAccount: null,
     providerConversation: null,
-    readinessImpact: readiness.available
-      ? null
-      : {
-          blocked: true,
-          expiresAtMs: observedAtMs + 60_000,
-          impactKind: "local_execution",
-          observedAtMs,
-          reasonCodes: readiness.reasonCodes,
-          source: "wake_failure",
-        },
+    readinessImpact: null,
     primaryBinding: input.bindingProjection,
     agentWakeRouteRegistration: {
       daemonSessionId: null,
       deviceId: null,
       lane: null,
-      reasonCode: readiness.reasonCodes[0] ?? null,
-      reportedAtMs: Date.parse(input.generatedAt),
+      reasonCode: "not_requested",
+      reportedAtMs: null,
       serviceVersion: null,
-      status: readiness.available ? "registered" : "unavailable",
+      status: "skipped",
     },
-    wakeRouteStatus: readiness.available
-      ? { status: "checking" }
-      : { status: "unavailable" },
+    wakeRouteStatus: { status: "unavailable" },
     routeEvidence,
     routeDeviceId: null,
     routeLane: null,
     runtimeDeviceDisplayName: "Remote Agent",
-    runtimeReadiness: {
-      ready: readiness.available,
-      displayState: readiness.available ? "ready" : "unavailable",
-      reasonCodes: readiness.reasonCodes,
-    },
-    service: {
-      executionCompatible: readiness.available,
-      expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      reasonCodes: readiness.reasonCodes,
-      source: readiness.available ? "runtime_transport" : "unavailable",
-    },
+    runtimeReadiness: readiness
+      ? {
+          ready: readiness.available,
+          displayState: readiness.available ? "ready" : "unavailable",
+          reasonCodes: readiness.reasonCodes,
+        }
+      : null,
+    service: createNotCheckedServiceEvidence(),
+  };
+}
+
+function createHostedAgentRouteEvidence(input: {
+  generatedAt: string;
+  readiness: {
+    available: boolean;
+    reasonCodes: string[];
+  } | null;
+}): AgentExecutionRouteEvidence {
+  if (!input.readiness) {
+    return {
+      reasonCodes: [],
+      source: "not_checked",
+      status: "unavailable",
+    };
+  }
+  if (input.readiness.available) {
+    return {
+      observedAt: input.generatedAt,
+      reasonCodes: ["remote_agent.available"],
+      source: "hosted_route",
+      status: "online",
+    };
+  }
+  return {
+    observedAt: input.generatedAt,
+    reasonCodes: input.readiness.reasonCodes,
+    source: "hosted_route",
+    status: "unavailable",
   };
 }
 
