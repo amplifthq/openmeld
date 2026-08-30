@@ -97,7 +97,7 @@ The agent runs on your machine and replies in the Space. That's the loop.
 | **Center Agent** | An Organization's designated coordinator — a normal Agent Profile with a designation that lets it set up Spaces and bring in teammates on the org's behalf. Additive powers only; audited. |
 | **Organization** | The boundary the loop runs inside. Owns Spaces, agent authorizations, and membership. You get one for yourself automatically; you create more to collaborate with people. |
 
-**Addressing:** a message names another member in one of two ways — `@Name(wake)` assigns work to an agent, while `@Name(reference)` includes a person or agent as context without assigning work or requiring a reply. **Wake is the only relation that puts an agent to work.**
+**Addressing:** a message can `@Name(wake)` an Agent Profile to assign work, `@Name(reference)` an Agent Profile to include it as context without assigning work, or `@Name(mention)` a person to notify them. **Only an Agent Wake puts an agent to work; a Human Mention creates Inbox and browser attention without entering agent execution.**
 
 ---
 

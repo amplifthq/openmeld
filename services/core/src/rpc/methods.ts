@@ -15414,7 +15414,7 @@ function buildCenterAgentWakeClientMessageId(input: {
   return `ca-wake:${hashClientMessageIdMaterial(material)}`;
 }
 
-function resolveCenterAgentSpaceAddressingVersion(
+export function resolveCenterAgentSpaceAddressingVersion(
   mentionProfileIds: readonly string[] | undefined
 ): typeof OPENMELD_SPACE_ADDRESSING_VERSION | undefined {
   return mentionProfileIds === undefined

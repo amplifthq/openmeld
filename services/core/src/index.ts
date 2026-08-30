@@ -724,6 +724,7 @@ import {
   type RestoreSpaceFileRevisionInput,
   type ResumeRoutineInput,
   type RevokeAgentProfileBindingForOrganizationInput,
+  resolveCenterAgentSpaceAddressingVersion,
   rpcAddCenterAgentToSpace,
   rpcAddOrganizationDirectoryProfilesToSpace,
   rpcAddSpaceMembers,
@@ -3074,8 +3075,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentPostSpaceMessage(
     input: CenterAgentPostSpaceMessageInput
   ): Promise<CenterAgentPostSpaceMessageResponse> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcCenterAgentPostSpaceMessage(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcCenterAgentPostSpaceMessage(this.env, input),
+      resolveCenterAgentSpaceAddressingVersion(input.mentionProfileIds)
     );
   }
 
@@ -3124,8 +3126,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentWakeAgentProfilesInSpace(
     input: CenterAgentWakeAgentProfilesInSpaceInput
   ): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcCenterAgentWakeAgentProfilesInSpace(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcCenterAgentWakeAgentProfilesInSpace(this.env, input),
+      resolveCenterAgentSpaceAddressingVersion(input.mentionProfileIds)
     );
   }
 

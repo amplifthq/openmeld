@@ -21,6 +21,7 @@ import * as centerAgentWakePublicationService from "../src/center-agent/applicat
 import type { CenterAgentWakePublicationRecord } from "../src/center-agent/infrastructure/d1/center-agent-wake-publication-repo";
 // biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM export used by the RPC orchestration module.
 import * as runtimeTransportClient from "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client";
+import { CenterAgentRpcEntrypoint } from "../src/index";
 import type { CoreBindings } from "../src/lib/bindings";
 // biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM export used by the RPC orchestration module.
 import * as organizationComputersService from "../src/organizations/organization-computers-service";
@@ -111,6 +112,16 @@ const OTHER_ORG_PUBLIC_SPACE_ID =
   "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const TEST_NOW_MS = Date.parse("2026-07-08T00:00:00.000Z");
 const CENTER_AGENT_WAKE_CLIENT_MESSAGE_ID_PATTERN = /^ca-wake:/;
+
+function createCenterAgentRpcEntrypoint(
+  env: CoreBindings
+): CenterAgentRpcEntrypoint {
+  const entrypoint = Object.create(
+    CenterAgentRpcEntrypoint.prototype
+  ) as CenterAgentRpcEntrypoint;
+  Reflect.set(entrypoint, "env", env);
+  return entrypoint;
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -4013,7 +4024,7 @@ describe("organization Core RPC", () => {
     });
 
     await expect(
-      rpcCenterAgentPostSpaceMessage(env, {
+      createCenterAgentRpcEntrypoint(env).centerAgentPostSpaceMessage({
         context,
         mentionProfileIds: [HUMAN_PROFILE_ID],
         onBehalfOf: { profileId: HUMAN_PROFILE_ID },
@@ -4139,7 +4150,9 @@ describe("organization Core RPC", () => {
       structuredReferenceTargets: true,
     });
 
-    const result = await rpcCenterAgentPostSpaceMessage(env, {
+    const result = await createCenterAgentRpcEntrypoint(
+      env
+    ).centerAgentPostSpaceMessage({
       context,
       onBehalfOf: { profileId: HUMAN_PROFILE_ID },
       referenceProfileIds: [HUMAN_PROFILE_ID],
@@ -4158,6 +4171,7 @@ describe("organization Core RPC", () => {
     );
     expect(result.signal.data.messageEnvelope).toEqual({
       activationTargets: [],
+      ccTargets: [],
       referenceTargets: [HUMAN_PROFILE_ID],
       text: "Please review the launch notes.",
     });
@@ -6328,10 +6342,10 @@ describe("organization Core RPC", () => {
       spaceId: JOINED_PRIVATE_SPACE_ID,
       text: "Please review the launch checklist.",
     };
-    const firstWake = await rpcCenterAgentWakeAgentProfilesInSpace(
-      env,
-      wakeInput
-    );
+    const firstWake =
+      await createCenterAgentRpcEntrypoint(
+        env
+      ).centerAgentWakeAgentProfilesInSpace(wakeInput);
     if (firstWake.publicationStatus === "pending") {
       throw new Error("direct Center Agent Wake must be accepted");
     }
@@ -6631,7 +6645,9 @@ describe("organization Core RPC", () => {
       };
     });
 
-    const wake = await rpcCenterAgentWakeAgentProfilesInSpace(env, {
+    const wake = await createCenterAgentRpcEntrypoint(
+      env
+    ).centerAgentWakeAgentProfilesInSpace({
       agentProfileIds: [SECOND_AGENT_PROFILE_ID],
       completionMode: "resume_parent_when_all_terminal",
       context: {
