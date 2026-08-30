@@ -2886,6 +2886,15 @@ under that message says it is queued and may include its position. Web does not
 hold the message above the Composer or claim that the Agent is working before
 the Wake reaches the Profile's current slot.
 
+While an Agent Profile is working, Agent settings must state when a saved
+change takes effect. Controller changes stay disabled because rebinding would
+interrupt the current Wake. Model, reasoning effort, collaboration mode, and
+OpenCode permission changes apply to the next Wake. Permission Mode timing
+comes from the versioned Local Agent capability matrix: supported live updates
+may affect later tool requests in the current Wake, while other controllers use
+the saved mode on the next Wake. Web must not present a live update as applied
+without the controller acknowledgement owned by the local runtime.
+
 When a Local Agent or model provider returns a user-facing error, owner-only
 Message details may show the bounded original text with its source label. Web
 does not replace it with a large provider-specific translation matrix. It must
