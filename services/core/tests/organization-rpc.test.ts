@@ -4002,17 +4002,22 @@ describe("organization Core RPC", () => {
     });
 
     await expect(
-      rpcCenterAgentReadSpaceAuthoringContract(env, { context })
+      rpcCenterAgentReadSpaceAuthoringContract(env, {
+        context,
+        requestedAddressingModel: "wake_reference_mention",
+      })
     ).resolves.toEqual({
-      addressingModel: "wake_reference",
+      addressingModel: "wake_reference_mention",
+      structuredMentionTargets: true,
       structuredReferenceTargets: true,
     });
 
     await expect(
       rpcCenterAgentPostSpaceMessage(env, {
         context,
+        mentionProfileIds: [HUMAN_PROFILE_ID],
         onBehalfOf: { profileId: HUMAN_PROFILE_ID },
-        referenceProfileIds: [HUMAN_PROFILE_ID],
+        referenceProfileIds: [],
         spaceId: JOINED_PRIVATE_SPACE_ID,
         text: "I moved the launch notes into this Space.",
       })
@@ -4030,7 +4035,8 @@ describe("organization Core RPC", () => {
         data: {
           messageEnvelope: {
             activationTargets: [],
-            referenceTargets: [HUMAN_PROFILE_ID],
+            mentionTargets: [HUMAN_PROFILE_ID],
+            referenceTargets: [],
             text: "I moved the launch notes into this Space.",
           },
           text: "I moved the launch notes into this Space.",
@@ -4050,7 +4056,8 @@ describe("organization Core RPC", () => {
         authoringPolicy: "user_authored",
         messageEnvelope: {
           activationTargets: [],
-          referenceTargets: [HUMAN_PROFILE_ID],
+          mentionTargets: [HUMAN_PROFILE_ID],
+          referenceTargets: [],
           text: "I moved the launch notes into this Space.",
         },
         spaceId: JOINED_PRIVATE_SPACE_ID,
@@ -4067,6 +4074,92 @@ describe("organization Core RPC", () => {
         resourceType: "space",
       }),
     ]);
+  });
+
+  it("keeps an old Remote Agent compatible after Space normalizes a Human Reference into a Mention", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PRIVATE_SPACE_ID,
+          spaceName: "Launch Room",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({
+      enforceAddressingTargetMembership: true,
+      initialActiveMemberProfileIdsBySpace: {
+        [JOINED_PRIVATE_SPACE_ID]: [HUMAN_PROFILE_ID],
+      },
+      spaces: db.spaces,
+    });
+    spaceStub.rpcPostSignal.mockImplementationOnce(async (request) => ({
+      data: {
+        messageEnvelope: {
+          activationTargets: [],
+          mentionTargets: [HUMAN_PROFILE_ID],
+          referenceTargets: [],
+          text: request.text,
+        },
+        text: request.text,
+      },
+      id: "signal_999",
+      profile: {
+        ...request.profile,
+        kind: request.profile.kind ?? "agent",
+      },
+      spaceId: request.spaceId,
+      ts: TEST_NOW_MS,
+      type: "signal.text" as const,
+      v: 1 as const,
+    }));
+    const env = buildEnv({ db, spaceStub });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent",
+      userId: "user-a",
+    });
+
+    await expect(
+      rpcCenterAgentReadSpaceAuthoringContract(env, { context })
+    ).resolves.toEqual({
+      addressingModel: "wake_reference",
+      structuredReferenceTargets: true,
+    });
+
+    const result = await rpcCenterAgentPostSpaceMessage(env, {
+      context,
+      onBehalfOf: { profileId: HUMAN_PROFILE_ID },
+      referenceProfileIds: [HUMAN_PROFILE_ID],
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+      text: "Please review the launch notes.",
+    });
+
+    expect(spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageEnvelope: {
+          activationTargets: [],
+          referenceTargets: [HUMAN_PROFILE_ID],
+          text: "Please review the launch notes.",
+        },
+      })
+    );
+    expect(result.signal.data.messageEnvelope).toEqual({
+      activationTargets: [],
+      referenceTargets: [HUMAN_PROFILE_ID],
+      text: "Please review the launch notes.",
+    });
   });
 
   it("rejects a Center Agent plain post that References a non-member", async () => {
@@ -6310,7 +6403,7 @@ describe("organization Core RPC", () => {
     );
   });
 
-  it("rejects a direct Center Agent Wake after a Reference member is removed", async () => {
+  it("rejects a direct Center Agent Wake after a mentioned Human is removed", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow(),
@@ -6363,8 +6456,9 @@ describe("organization Core RPC", () => {
             "remote-agent-tool:openmeld_wake_agent_profiles_in_space:removed_reference",
           userId: "user-a",
         }),
+        mentionProfileIds: [HUMAN_PROFILE_ID],
         onBehalfOf: { profileId: HUMAN_PROFILE_ID },
-        referenceProfileIds: [HUMAN_PROFILE_ID],
+        referenceProfileIds: [],
         spaceId: JOINED_PRIVATE_SPACE_ID,
         text: "Review with the removed member as context.",
       })
@@ -6377,7 +6471,8 @@ describe("organization Core RPC", () => {
     );
   });
 
-  it("preserves structured References through the complete delegated Center Agent Wake path", async () => {
+  it("preserves Human Mentions and Agent References through a delegated Center Agent Wake", async () => {
+    const planningAgentProfileId = "agt_00000000-0000-4000-8000-000000000009";
     const db = createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow(),
@@ -6387,6 +6482,14 @@ describe("organization Core RPC", () => {
           profileHandle: "reviewer",
           profileId: SECOND_AGENT_PROFILE_ID,
           profileName: "Reviewer",
+          status: "active",
+        },
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "planner",
+          profileId: planningAgentProfileId,
+          profileName: "Planner",
           status: "active",
         },
       ],
@@ -6410,7 +6513,11 @@ describe("organization Core RPC", () => {
     const spaceStub = createSpaceStub({
       enforceAddressingTargetMembership: true,
       initialActiveMemberProfileIdsBySpace: {
-        [JOINED_PRIVATE_SPACE_ID]: [HUMAN_PROFILE_ID, SECOND_AGENT_PROFILE_ID],
+        [JOINED_PRIVATE_SPACE_ID]: [
+          HUMAN_PROFILE_ID,
+          planningAgentProfileId,
+          SECOND_AGENT_PROFILE_ID,
+        ],
       },
       spaces: db.spaces,
     });
@@ -6476,8 +6583,9 @@ describe("organization Core RPC", () => {
         }),
         agentControllerConversationId: "submission-parent",
       },
+      mentionProfileIds: [HUMAN_PROFILE_ID],
       onBehalfOf: { profileId: HUMAN_PROFILE_ID },
-      referenceProfileIds: [HUMAN_PROFILE_ID],
+      referenceProfileIds: [planningAgentProfileId],
       spaceId: JOINED_PRIVATE_SPACE_ID,
       text: "Review the launch checklist with Ava as context.",
     });
@@ -6489,7 +6597,8 @@ describe("organization Core RPC", () => {
       expect.objectContaining({
         command: expect.objectContaining({
           activationTargets: [SECOND_AGENT_PROFILE_ID],
-          referenceTargets: [HUMAN_PROFILE_ID],
+          mentionTargets: [HUMAN_PROFILE_ID],
+          referenceTargets: [planningAgentProfileId],
         }),
       })
     );
@@ -6502,12 +6611,15 @@ describe("organization Core RPC", () => {
     ]);
     expect(
       wake.childTasks?.some(
-        (child) => child.task.targetProfileId === HUMAN_PROFILE_ID
+        (child) =>
+          child.task.targetProfileId === HUMAN_PROFILE_ID ||
+          child.task.targetProfileId === planningAgentProfileId
       )
     ).toBe(false);
     expect(wake.signal.data.messageEnvelope).toEqual({
       activationTargets: [SECOND_AGENT_PROFILE_ID],
-      referenceTargets: [HUMAN_PROFILE_ID],
+      mentionTargets: [HUMAN_PROFILE_ID],
+      referenceTargets: [planningAgentProfileId],
       text: "Review the launch checklist with Ava as context.",
     });
   });
@@ -6553,7 +6665,8 @@ describe("organization Core RPC", () => {
         profileId: AGENT_PROFILE_ID,
         profileName: "Center Agent",
       },
-      referenceTargets: [HUMAN_PROFILE_ID],
+      mentionTargets: [HUMAN_PROFILE_ID],
+      referenceTargets: [],
       spaceId: JOINED_PRIVATE_SPACE_ID,
       subscriptionIds: ["subscription-1"],
       text: "Review the launch checklist with Ava as context.",
@@ -6572,7 +6685,8 @@ describe("organization Core RPC", () => {
       data: {
         messageEnvelope: {
           activationTargets: [SECOND_AGENT_PROFILE_ID],
-          referenceTargets: [HUMAN_PROFILE_ID],
+          mentionTargets: [HUMAN_PROFILE_ID],
+          referenceTargets: [],
         },
       },
     });
@@ -6580,7 +6694,8 @@ describe("organization Core RPC", () => {
       expect.objectContaining({
         messageEnvelope: {
           activationTargets: [SECOND_AGENT_PROFILE_ID],
-          referenceTargets: [HUMAN_PROFILE_ID],
+          mentionTargets: [HUMAN_PROFILE_ID],
+          referenceTargets: [],
           text: "Review the launch checklist with Ava as context.",
         },
       })
@@ -12980,6 +13095,7 @@ function createSpaceStub(
     authoringPolicy?: "system_emitted" | "user_authored";
     messageEnvelope?: {
       activationTargets: string[];
+      mentionTargets?: string[];
       referenceTargets: string[];
       text: string;
     };
@@ -13007,6 +13123,19 @@ function createSpaceStub(
       const reason = `Wake target ${missingActivationTargetProfileId} is not an active Space member.`;
       throw Object.assign(new Error(reason), {
         code: "space.wake.target_invalid",
+        reason,
+        status: 422,
+      });
+    }
+    const missingMentionTargetProfileId =
+      request.messageEnvelope?.mentionTargets?.find(
+        (profileId) =>
+          !memberProfileIdsBySpace.get(request.spaceId)?.has(profileId)
+      );
+    if (missingMentionTargetProfileId) {
+      const reason = `Human Mention target ${missingMentionTargetProfileId} is not an active Space member.`;
+      throw Object.assign(new Error(reason), {
+        code: "space.addressing.target_invalid",
         reason,
         status: 422,
       });

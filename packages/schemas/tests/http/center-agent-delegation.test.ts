@@ -35,6 +35,20 @@ describe("Center Agent Space authoring contract", () => {
       }).success
     ).toBe(false);
   });
+
+  it("advertises the current Human Mention authoring capability", () => {
+    expect(
+      centerAgentSpaceAuthoringContractResponseSchema.parse({
+        addressingModel: "wake_reference_mention",
+        structuredMentionTargets: true,
+        structuredReferenceTargets: true,
+      })
+    ).toEqual({
+      addressingModel: "wake_reference_mention",
+      structuredMentionTargets: true,
+      structuredReferenceTargets: true,
+    });
+  });
 });
 
 describe("Center Agent delegation request", () => {
@@ -87,6 +101,23 @@ describe("Center Agent delegation request", () => {
     });
   });
 
+  it("keeps Human Mentions separate from Agent Wake and Reference targets", () => {
+    expect(
+      centerAgentWakeAgentProfilesInSpaceBodySchema.parse({
+        agentProfileIds: [PRIMARY],
+        completionMode: "resume_parent_when_all_terminal",
+        mentionProfileIds: [HUMAN_REFERENCE],
+        referenceProfileIds: [SECONDARY],
+        spaceId: "space-1",
+        text: "Run the checks and notify the launch owner.",
+      })
+    ).toMatchObject({
+      agentProfileIds: [PRIMARY],
+      mentionProfileIds: [HUMAN_REFERENCE],
+      referenceProfileIds: [SECONDARY],
+    });
+  });
+
   it("accepts a Reference-only Center Agent Space message", () => {
     expect(
       centerAgentPostSpaceMessageBodySchema.parse({
@@ -96,6 +127,20 @@ describe("Center Agent delegation request", () => {
       })
     ).toMatchObject({
       referenceProfileIds: [HUMAN_REFERENCE, SECONDARY],
+    });
+  });
+
+  it("accepts a Human Mention on a Center Agent Space message", () => {
+    expect(
+      centerAgentPostSpaceMessageBodySchema.parse({
+        mentionProfileIds: [HUMAN_REFERENCE],
+        referenceProfileIds: [SECONDARY],
+        spaceId: "space-1",
+        text: "The launch notes are ready.",
+      })
+    ).toMatchObject({
+      mentionProfileIds: [HUMAN_REFERENCE],
+      referenceProfileIds: [SECONDARY],
     });
   });
 
@@ -128,11 +173,20 @@ describe("Center Agent delegation request", () => {
   });
 
   it("normalizes a legacy delegated publication command to no References", () => {
+    const command = centerAgentWakePublicationCommandSchema.parse(
+      buildWakePublicationCommand()
+    );
+    expect(command.referenceTargets).toEqual([]);
+    expect(command.mentionTargets).toEqual([]);
+  });
+
+  it("persists Human Mentions in delegated Wake publication commands", () => {
     expect(
-      centerAgentWakePublicationCommandSchema.parse(
-        buildWakePublicationCommand()
-      ).referenceTargets
-    ).toEqual([]);
+      centerAgentWakePublicationCommandSchema.parse({
+        ...buildWakePublicationCommand(),
+        mentionTargets: [HUMAN_REFERENCE],
+      }).mentionTargets
+    ).toEqual([HUMAN_REFERENCE]);
   });
 
   it.each([

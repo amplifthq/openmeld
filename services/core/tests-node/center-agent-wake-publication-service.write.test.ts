@@ -684,6 +684,7 @@ function buildCommand(input: {
       profileId: CENTER_AGENT_PROFILE_ID,
       profileName: "Center Agent",
     },
+    mentionTargets: [],
     referenceTargets: input.referenceTargets ?? [],
     spaceId: "space-child",
     subscriptionIds: input.subscriptionIds,

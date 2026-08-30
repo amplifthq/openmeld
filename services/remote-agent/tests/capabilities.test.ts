@@ -314,7 +314,8 @@ describe("remote agent Flue capability inventory", () => {
     const tools = await getRemoteAgentFlueTools({
       coreWorker: {
         centerAgentReadSpaceAuthoringContract: vi.fn(async () => ({
-          addressingModel: "wake_reference" as const,
+          addressingModel: "wake_reference_mention" as const,
+          structuredMentionTargets: true as const,
           structuredReferenceTargets: true as const,
         })),
         centerAgentWakeAgentProfilesInSpace,
@@ -345,9 +346,16 @@ describe("remote agent Flue capability inventory", () => {
           enum: [...CENTER_AGENT_DELEGATION_COMPLETION_MODES],
           type: "string",
         },
+        mentionProfileIds: {
+          description:
+            "Every exact Human Profile ID this Space message should notify with a Human Mention. Pass an empty array only when no person should be notified.",
+          items: { type: "string" },
+          maxItems: 25,
+          type: "array",
+        },
         referenceProfileIds: {
           description:
-            "Every exact Human or Agent Profile ID that this Space message includes as context without assigning work. Pass an empty array only when no context-only profile is requested.",
+            "Every exact Agent Profile ID that this Space message includes as context without assigning work. Pass an empty array only when no Agent Reference is requested.",
           items: { type: "string" },
           maxItems: 25,
           type: "array",
@@ -355,6 +363,7 @@ describe("remote agent Flue capability inventory", () => {
       },
       required: [
         "agentProfileIds",
+        "mentionProfileIds",
         "referenceProfileIds",
         "completionMode",
         "spaceId",
@@ -372,7 +381,7 @@ describe("remote agent Flue capability inventory", () => {
           text: "Please review this.",
         },
       } as never)
-    ).rejects.toThrow("referenceProfileIds");
+    ).rejects.toThrow("mentionProfileIds");
     expect(centerAgentWakeAgentProfilesInSpace).not.toHaveBeenCalled();
   });
 

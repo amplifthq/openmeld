@@ -2995,6 +2995,7 @@ export type CenterAgentPostSpaceMessageInput =
 
 export type CenterAgentReadSpaceAuthoringContractInput = {
   context?: CoreRpcContextInput;
+  requestedAddressingModel?: "wake_reference_mention";
 };
 
 export type CenterAgentPostSlackChannelMessageInput =
@@ -13778,6 +13779,9 @@ export async function rpcCenterAgentPostSpaceMessage(
   });
   const parsed = centerAgentPostSpaceMessageBodySchema.safeParse({
     ...(input.files === undefined ? {} : { files: input.files }),
+    ...(input.mentionProfileIds === undefined
+      ? {}
+      : { mentionProfileIds: input.mentionProfileIds }),
     ...(input.onBehalfOf === undefined ? {} : { onBehalfOf: input.onBehalfOf }),
     ...(input.referenceProfileIds === undefined
       ? {}
@@ -13819,6 +13823,11 @@ export async function rpcCenterAgentPostSpaceMessage(
     context: authorization.context,
     messageEnvelope: {
       activationTargets: [],
+      ...(parsed.data.mentionProfileIds === undefined
+        ? {}
+        : {
+            mentionTargets: [...new Set(parsed.data.mentionProfileIds)].sort(),
+          }),
       referenceTargets: [
         ...new Set(parsed.data.referenceProfileIds ?? []),
       ].sort(),
@@ -13841,6 +13850,13 @@ export async function rpcCenterAgentPostSpaceMessage(
       `Center Agent Space message expected signal.text but received ${signal.type}`
     );
   }
+  const responseSignal =
+    input.mentionProfileIds === undefined
+      ? projectLegacyCenterAgentSpaceAddressingSignal({
+          referenceProfileIds: parsed.data.referenceProfileIds ?? [],
+          signal,
+        })
+      : signal;
   const attribution = await writeCenterAgentAuditEntry({
     action: "post_space_message",
     authorization,
@@ -13851,7 +13867,7 @@ export async function rpcCenterAgentPostSpaceMessage(
     attribution,
     organizationId: authorization.activeOrganization.organizationId,
     resource: { type: "space", id: parsed.data.spaceId },
-    signal,
+    signal: responseSignal,
     spaceId: parsed.data.spaceId,
   };
   const validated =
@@ -13872,10 +13888,39 @@ export async function rpcCenterAgentReadSpaceAuthoringContract(
     context: requireRpcContext(input.context),
     env,
   });
+  if (input.requestedAddressingModel === "wake_reference_mention") {
+    return centerAgentSpaceAuthoringContractResponseSchema.parse({
+      addressingModel: "wake_reference_mention",
+      structuredMentionTargets: true,
+      structuredReferenceTargets: true,
+    });
+  }
   return centerAgentSpaceAuthoringContractResponseSchema.parse({
     addressingModel: "wake_reference",
     structuredReferenceTargets: true,
   });
+}
+
+function projectLegacyCenterAgentSpaceAddressingSignal(input: {
+  referenceProfileIds: readonly string[];
+  signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+}): Extract<SignalEnvelope, { type: "signal.text" }> {
+  const messageEnvelope = input.signal.data.messageEnvelope;
+  if (!messageEnvelope) {
+    return input.signal;
+  }
+  const { mentionTargets: _mentionTargets, ...legacyMessageEnvelope } =
+    messageEnvelope;
+  return {
+    ...input.signal,
+    data: {
+      ...input.signal.data,
+      messageEnvelope: {
+        ...legacyMessageEnvelope,
+        referenceTargets: [...new Set(input.referenceProfileIds)].sort(),
+      },
+    },
+  };
 }
 
 export async function rpcCenterAgentPostSlackChannelMessage(
@@ -14584,14 +14629,9 @@ function resolveCenterAgentConnectorAuditAction(
   }
 }
 
-export async function rpcCenterAgentWakeAgentProfilesInSpace(
-  env: CoreBindings,
+function parseCenterAgentWakeAgentProfilesInSpaceInput(
   input: CenterAgentWakeAgentProfilesInSpaceInput
-): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
-    context: requireRpcContext(input.context),
-    env,
-  });
+) {
   const parsed = centerAgentWakeAgentProfilesInSpaceBodySchema.safeParse({
     agentProfileIds: input.agentProfileIds,
     ...(input.completionMode === undefined
@@ -14600,6 +14640,9 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
     ...(input.fallbackAgentProfileId === undefined
       ? {}
       : { fallbackAgentProfileId: input.fallbackAgentProfileId }),
+    ...(input.mentionProfileIds === undefined
+      ? {}
+      : { mentionProfileIds: input.mentionProfileIds }),
     ...(input.onBehalfOf === undefined ? {} : { onBehalfOf: input.onBehalfOf }),
     ...(input.referenceProfileIds === undefined
       ? {}
@@ -14616,24 +14659,35 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
       code: "invalid_payload",
     });
   }
+  return parsed.data;
+}
+
+export async function rpcCenterAgentWakeAgentProfilesInSpace(
+  env: CoreBindings,
+  input: CenterAgentWakeAgentProfilesInSpaceInput
+): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: requireRpcContext(input.context),
+    env,
+  });
+  const parsed = parseCenterAgentWakeAgentProfilesInSpaceInput(input);
 
   await requireCenterAgentSpaceInActiveOrganization({
     authorization,
     env,
-    spaceId: parsed.data.spaceId,
+    spaceId: parsed.spaceId,
   });
 
   const db = requireCenterAgentDb(env);
   const taskCoordinationDb = requireAgentTaskCoordinationDb(env);
-  const targetProfileIds = [...new Set(parsed.data.agentProfileIds)].sort();
+  const targetProfileIds = [...new Set(parsed.agentProfileIds)].sort();
   const referenceProfileIds = [
-    ...new Set(parsed.data.referenceProfileIds ?? []),
+    ...new Set(parsed.referenceProfileIds ?? []),
   ].sort();
+  const mentionProfileIds = [...new Set(parsed.mentionProfileIds ?? [])].sort();
   const validatedProfileIds = [
     ...targetProfileIds,
-    ...(parsed.data.fallbackAgentProfileId
-      ? [parsed.data.fallbackAgentProfileId]
-      : []),
+    ...(parsed.fallbackAgentProfileId ? [parsed.fallbackAgentProfileId] : []),
   ];
   const centerAgentMember = await requireCenterAgentWakeMembers({
     actorProfileId: authorization.actorProfileId,
@@ -14642,7 +14696,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
     targetProfileIds: validatedProfileIds,
   });
 
-  if (parsed.data.onBehalfOf?.profileId === authorization.actorProfileId) {
+  if (parsed.onBehalfOf?.profileId === authorization.actorProfileId) {
     throw createCoreRpcHttpError({
       status: 400,
       reason:
@@ -14653,13 +14707,14 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
 
   const clientMessageId = buildCenterAgentWakeClientMessageId({
     activationTargets: targetProfileIds,
-    completionMode: parsed.data.completionMode,
+    completionMode: parsed.completionMode,
     context: authorization.context,
-    onBehalfOfProfileId: parsed.data.onBehalfOf?.profileId ?? null,
-    fallbackAgentProfileId: parsed.data.fallbackAgentProfileId ?? null,
-    spaceId: parsed.data.spaceId,
+    onBehalfOfProfileId: parsed.onBehalfOf?.profileId ?? null,
+    fallbackAgentProfileId: parsed.fallbackAgentProfileId ?? null,
+    mentionProfileIds,
+    spaceId: parsed.spaceId,
     referenceProfileIds,
-    text: parsed.data.text,
+    text: parsed.text,
   });
   const profile = buildProfileDisplay({
     agentControllerRef: centerAgentMember.agentControllerRef,
@@ -14680,20 +14735,21 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
         publicationStatus: "pending";
         retryAfterSeconds: number;
       };
-  if (parsed.data.completionMode) {
+  if (parsed.completionMode) {
     const delegatedWake = await executeCenterAgentDelegatedWake({
       authorization,
       clientMessageId,
-      completionMode: parsed.data.completionMode,
+      completionMode: parsed.completionMode,
       db: taskCoordinationDb,
       env,
-      fallbackAgentProfileId: parsed.data.fallbackAgentProfileId ?? null,
-      onBehalfOfProfileId: parsed.data.onBehalfOf?.profileId ?? null,
+      fallbackAgentProfileId: parsed.fallbackAgentProfileId ?? null,
+      mentionProfileIds,
+      onBehalfOfProfileId: parsed.onBehalfOf?.profileId ?? null,
       profile,
       referenceProfileIds,
-      spaceId: parsed.data.spaceId,
+      spaceId: parsed.spaceId,
       targetProfileIds,
-      text: parsed.data.text,
+      text: parsed.text,
     });
     attribution = delegatedWake.attribution;
     delegation = delegatedWake.delegation;
@@ -14713,13 +14769,16 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
       context: authorization.context,
       messageEnvelope: {
         activationTargets: targetProfileIds,
+        ...(input.mentionProfileIds === undefined
+          ? {}
+          : { mentionTargets: mentionProfileIds }),
         referenceTargets: referenceProfileIds,
-        text: parsed.data.text,
+        text: parsed.text,
       },
       meta: { clientMessageId },
       profile,
-      spaceId: parsed.data.spaceId,
-      text: parsed.data.text,
+      spaceId: parsed.spaceId,
+      text: parsed.text,
     });
     if (postedSignal.type !== "signal.text") {
       throw new Error(
@@ -14732,18 +14791,28 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
     attribution = await writeCenterAgentAuditEntry({
       action: "wake_agent_profiles_in_space",
       authorization,
-      onBehalfOfProfileId: parsed.data.onBehalfOf?.profileId ?? null,
-      resource: { type: "space", id: parsed.data.spaceId },
+      onBehalfOfProfileId: parsed.onBehalfOf?.profileId ?? null,
+      resource: { type: "space", id: parsed.spaceId },
     });
   }
-  return buildCenterAgentWakeAgentProfilesInSpaceResponse({
+  const response = buildCenterAgentWakeAgentProfilesInSpaceResponse({
     agentProfileIds: targetProfileIds,
     attribution,
     delegation,
     organizationId: authorization.activeOrganization.organizationId,
     publication,
-    spaceId: parsed.data.spaceId,
+    spaceId: parsed.spaceId,
   });
+  if (input.mentionProfileIds !== undefined || !("signal" in response)) {
+    return response;
+  }
+  return {
+    ...response,
+    signal: projectLegacyCenterAgentSpaceAddressingSignal({
+      referenceProfileIds,
+      signal: response.signal,
+    }),
+  };
 }
 
 function buildCenterAgentWakeAgentProfilesInSpaceResponse(input: {
@@ -15153,6 +15222,7 @@ async function executeCenterAgentDelegatedWake(input: {
   db: D1Database;
   env: CoreBindings;
   fallbackAgentProfileId: string | null;
+  mentionProfileIds: string[];
   onBehalfOfProfileId: string | null;
   profile: Profile;
   referenceProfileIds: string[];
@@ -15209,6 +15279,7 @@ async function executeCenterAgentDelegatedWake(input: {
       organizationId: input.authorization.activeOrganization.organizationId,
       parentSubmissionId,
       profile: input.profile,
+      mentionTargets: input.mentionProfileIds,
       referenceTargets: input.referenceProfileIds,
       spaceId: input.spaceId,
       subscriptionIds: delegation.subscriptionIds,
@@ -15268,6 +15339,9 @@ export async function rpcPostCenterAgentWakePublicationSignal(
     context: command.context,
     messageEnvelope: {
       activationTargets: command.activationTargets,
+      ...(command.mentionTargets.length > 0
+        ? { mentionTargets: command.mentionTargets }
+        : {}),
       referenceTargets: command.referenceTargets,
       text: command.text,
     },
@@ -15295,6 +15369,7 @@ function buildCenterAgentWakeClientMessageId(input: {
   completionMode?: CenterAgentDelegationCompletionMode;
   context: CoreRpcContextInput;
   fallbackAgentProfileId: string | null;
+  mentionProfileIds: readonly string[];
   onBehalfOfProfileId: string | null;
   referenceProfileIds: readonly string[];
   spaceId: string;
@@ -15307,6 +15382,9 @@ function buildCenterAgentWakeClientMessageId(input: {
       input.context.agentControllerConversationId ?? null,
     completionMode: input.completionMode ?? null,
     fallbackAgentProfileId: input.fallbackAgentProfileId,
+    ...(input.mentionProfileIds.length > 0
+      ? { mentions: [...input.mentionProfileIds].sort() }
+      : {}),
     onBehalfOfProfileId: input.onBehalfOfProfileId,
     profileId: actorContext.openMeldProfileId,
     ...(input.referenceProfileIds.length > 0
