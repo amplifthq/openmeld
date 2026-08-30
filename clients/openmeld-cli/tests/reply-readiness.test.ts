@@ -221,6 +221,59 @@ describe("reply readiness runtime preparation integration", () => {
     ).toHaveBeenCalled();
   });
 
+  it("trusts a live Core Wake route over advisory local service drift", async () => {
+    const readiness = await resolveAgentReplyReadinessStatus({
+      coreWakeRouteOnline: true,
+      deviceReplyReadiness: {
+        reasonCodes: ["service.drifted"],
+        reasonText:
+          "OpenMeld Service is running, but its local service files are not current",
+        replyReadiness: "blocked",
+        serviceWakeability: {
+          advisoryCodes: [],
+          blockingCodes: ["bundle_missing"],
+          conditionalCodes: ["bundle_missing"],
+          executionEvidenceSafe: false,
+        },
+        updatedAt: "2026-03-23T00:00:00.000Z",
+        wakeableRouteCount: 0,
+      },
+      profile: createAgentProfile("builtin:openclaw"),
+      profileWorkspaceRuntimeResolution: createReadyWorkspaceResolution(
+        "/tmp/daemon-workdir"
+      ),
+    });
+
+    expect(readiness?.replyReadiness).toBe("ready");
+    expect(readiness?.reasonCodes).toEqual([]);
+  });
+
+  it("keeps a real service drift blocker when Core has a live Wake route", async () => {
+    const readiness = await resolveAgentReplyReadinessStatus({
+      coreWakeRouteOnline: true,
+      deviceReplyReadiness: {
+        reasonCodes: ["service.drifted"],
+        reasonText: "OpenMeld Service has multiple active owners",
+        replyReadiness: "blocked",
+        serviceWakeability: {
+          advisoryCodes: [],
+          blockingCodes: ["multiple_active_owners"],
+          conditionalCodes: [],
+          executionEvidenceSafe: false,
+        },
+        updatedAt: "2026-03-23T00:00:00.000Z",
+        wakeableRouteCount: 1,
+      },
+      profile: createAgentProfile("builtin:openclaw"),
+      profileWorkspaceRuntimeResolution: createReadyWorkspaceResolution(
+        "/tmp/daemon-workdir"
+      ),
+    });
+
+    expect(readiness?.replyReadiness).toBe("blocked");
+    expect(readiness?.reasonCodes).toEqual(["service.drifted"]);
+  });
+
   it("surfaces bootstrap failures as a blocked readiness reason", async () => {
     prepareProviderRuntimeMock.mockRejectedValueOnce(
       Object.assign(new Error('Agent "openmeld-demo-bot" already exists.'), {

@@ -14,7 +14,11 @@ import { getDaemonStatus } from "../config/daemon-state";
 import type { OpenMeldProfile } from "../config/openmeld-profiles-api";
 import { createDefaultRuntimeAgentControllerSettings } from "../config/runtime-config";
 import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
-import { classifyDaemonServiceWakeability } from "../local-service/lifecycle/daemon-service-anomaly-groups";
+import {
+  classifyDaemonServiceWakeability,
+  DAEMON_SERVICE_WAKEABILITY_CONDITIONAL_ANOMALIES,
+  type DaemonServiceWakeabilityClassification,
+} from "../local-service/lifecycle/daemon-service-anomaly-groups";
 import type { DaemonServiceInventory } from "../local-service/lifecycle/daemon-service-inventory";
 import { inspectDaemonServiceInventory } from "../local-service/lifecycle/daemon-service-inventory";
 import {
@@ -90,6 +94,13 @@ export type DeviceReplyReadinessStatus = {
   reasonCodes: ReplyReadinessReasonCode[];
   reasonText: string;
   replyReadiness: ReplyReadinessLevel;
+  serviceWakeability?: Pick<
+    DaemonServiceWakeabilityClassification,
+    | "advisoryCodes"
+    | "blockingCodes"
+    | "conditionalCodes"
+    | "executionEvidenceSafe"
+  >;
   updatedAt: string;
   wakeableRouteCount: number;
 };
@@ -289,6 +300,7 @@ export async function resolveAgentReplyReadinessStatus(
   const deviceReasonCodes = resolveAgentDeviceReasonCodes({
     coreWakeRouteOnline: input.coreWakeRouteOnline === true,
     deviceReasonCodes: deviceReplyReadiness.reasonCodes,
+    serviceWakeability: deviceReplyReadiness.serviceWakeability,
   });
   const reasonCodes = collectAgentReplyReadinessReasonCodes({
     bindingReady:
@@ -372,6 +384,7 @@ export async function resolveAgentReplyReadinessStatus(
 function resolveAgentDeviceReasonCodes(input: {
   coreWakeRouteOnline: boolean;
   deviceReasonCodes: readonly ReplyReadinessReasonCode[];
+  serviceWakeability?: DeviceReplyReadinessStatus["serviceWakeability"];
 }): ReplyReadinessReasonCode[] {
   if (!input.coreWakeRouteOnline) {
     return [...input.deviceReasonCodes];
@@ -381,7 +394,22 @@ function resolveAgentDeviceReasonCodes(input: {
     (reasonCode) =>
       reasonCode !== "service.not_running" &&
       reasonCode !== "route.offline" &&
-      reasonCode !== "route.not_registered"
+      reasonCode !== "route.not_registered" &&
+      !(
+        reasonCode === "service.drifted" &&
+        isConditionalServiceDrift(input.serviceWakeability)
+      )
+  );
+}
+
+function isConditionalServiceDrift(
+  serviceWakeability: DeviceReplyReadinessStatus["serviceWakeability"]
+): boolean {
+  if (!serviceWakeability || serviceWakeability.blockingCodes.length === 0) {
+    return false;
+  }
+  return serviceWakeability.blockingCodes.every((code) =>
+    DAEMON_SERVICE_WAKEABILITY_CONDITIONAL_ANOMALIES.has(code)
   );
 }
 
@@ -803,6 +831,9 @@ async function resolveDeviceReplyReadinessFromServiceState(input: {
   runtimeStatus: DaemonServiceRuntimeStatus | null;
   status: DaemonStatus;
 }): Promise<DeviceReplyReadinessStatus | null> {
+  const wakeability = classifyDaemonServiceWakeability({
+    inventory: input.inventory,
+  });
   const effectiveRuntimeStatus = await resolveEffectiveRuntimeStatus({
     inventory: input.inventory,
     runtimeStatus: input.runtimeStatus,
@@ -827,20 +858,17 @@ async function resolveDeviceReplyReadinessFromServiceState(input: {
       wakeableRouteCount: input.localDemand?.localExecutionRouteCount ?? 0,
     });
   }
-  if (hasServiceDrift(input.inventory)) {
+  if (wakeability.blocksWake) {
     return createDeviceReplyReadinessStatus({
       reasonCode: "service.drifted",
       reasonText:
         resolveReplyReadinessAvailabilityReasonCopy("service.drifted"),
       replyReadiness: "blocked",
+      serviceWakeability: wakeability,
       wakeableRouteCount: input.localDemand?.localExecutionRouteCount ?? 0,
     });
   }
   return null;
-}
-
-function hasServiceDrift(inventory?: DaemonServiceInventory | null): boolean {
-  return classifyDaemonServiceWakeability({ inventory }).blocksWake;
 }
 
 function resolveDeviceReplyReadinessFromRuntimeProjection(
@@ -938,6 +966,7 @@ function createDeviceReplyReadinessStatus(input: {
   reasonCode?: ReplyReadinessReasonCode;
   reasonText: string;
   replyReadiness: ReplyReadinessLevel;
+  serviceWakeability?: DeviceReplyReadinessStatus["serviceWakeability"];
   wakeableRouteCount: number;
 }): DeviceReplyReadinessStatus {
   return {
@@ -946,6 +975,9 @@ function createDeviceReplyReadinessStatus(input: {
     ),
     reasonText: input.reasonText,
     replyReadiness: input.replyReadiness,
+    ...(input.serviceWakeability
+      ? { serviceWakeability: input.serviceWakeability }
+      : {}),
     updatedAt: new Date().toISOString(),
     wakeableRouteCount: input.wakeableRouteCount,
   };
