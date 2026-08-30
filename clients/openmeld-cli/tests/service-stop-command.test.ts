@@ -145,13 +145,70 @@ describe("managed OpenMeld Service stop", () => {
       expect(calls).toEqual(["disableAutostart", "enableAutostart"]);
     });
   });
+
+  it("stops a candidate Service after its launchd definition disappeared", async () => {
+    await withTempHome(async () => {
+      const calls: string[] = [];
+      const managerStatus = {
+        commandSummary: null,
+        controller: "launchd" as const,
+        definitionPath: null,
+        enabled: false,
+        installed: false,
+        running: false,
+      };
+      const serviceManager = createServiceManager(managerStatus, calls);
+      serviceManager.disableAutostart = () => {
+        calls.push("disableAutostart");
+        return Promise.reject(
+          new Error("OpenMeld Service is not installed for launchd.")
+        );
+      };
+      const runtimeStatus: DaemonServiceRuntimeStatus = {
+        autoStart: true,
+        managedBySystemService: true,
+        mode: "foreground",
+        pid: 2468,
+        serviceController: "launchd",
+        startedAt: "2026-08-30T00:00:00.000Z",
+        status: "running",
+        updatedAt: "2026-08-30T00:00:01.000Z",
+      };
+      const ownerSnapshot: DaemonOwnerSnapshot = {
+        activeOwnerKinds: ["system_service"],
+        effectiveRuntimeStatus: "running",
+        mustStopManagerFirst: true,
+        ownedProcesses: [],
+        ownerSetSummary: "single_owner",
+        runtimeStatus,
+        serviceManager,
+        serviceManagerStatus: { ...managerStatus },
+        systemServiceRegistrationPresent: true,
+      };
+      requestLocalDaemonShutdownMock.mockResolvedValueOnce({
+        accepted: true,
+        gracePeriodMs: 2000,
+        mode: "graceful",
+      });
+
+      await expect(
+        stopManagedCurrentLaneDaemonService({
+          mode: "best_effort",
+          ownerSnapshot,
+          runtime,
+        })
+      ).resolves.toMatchObject({ status: "stopped", signal: "system" });
+
+      expect(calls).toEqual(["stop", "status"]);
+    });
+  });
 });
 
 function createServiceManager(
   status: {
-    commandSummary: string;
+    commandSummary: string | null;
     controller: "launchd";
-    definitionPath: string;
+    definitionPath: string | null;
     enabled: boolean;
     installed: boolean;
     running: boolean;

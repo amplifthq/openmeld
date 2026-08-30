@@ -99,6 +99,22 @@ export type DaemonServiceManager = {
   readJobDiagnostics?: () => Promise<DaemonServiceJobDiagnostics | null>;
 };
 
+/**
+ * Disables autostart only when the OS definition is already committed.
+ * Setup can run a candidate Service from its stable carrier before that
+ * definition exists; the process can still be stopped without toggling it.
+ */
+export async function disableDaemonServiceAutostartIfConfigured(input: {
+  manager: DaemonServiceManager;
+  status: DaemonServiceManagerRuntimeStatus | null;
+}): Promise<boolean> {
+  if (!(input.status?.installed === true && input.status.enabled === true)) {
+    return false;
+  }
+  await input.manager.disableAutostart();
+  return true;
+}
+
 const SHELL_QUOTING_PATTERN = /[\s"\\]/g;
 const SHELL_BACKSLASH_PATTERN = /\\/g;
 const SHELL_DOUBLE_QUOTE_PATTERN = /"/g;

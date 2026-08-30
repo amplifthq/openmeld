@@ -88,6 +88,7 @@ import { inspectDaemonServiceInventory } from "./daemon-service-inventory";
 import { cleanupLegacySharedDaemonServiceState } from "./daemon-service-legacy-shared";
 import {
   type DaemonServiceManager,
+  disableDaemonServiceAutostartIfConfigured,
   isDaemonServiceWaitTimeoutError,
   resolveDaemonServiceManager,
 } from "./daemon-service-manager";
@@ -1308,8 +1309,10 @@ async function stopLifecycleSystemServiceRuntime(input: {
   serviceManager: DaemonServiceManager;
 }): Promise<void> {
   const restoreAutostartOnDrainFailure =
-    input.inventory.serviceManagerStatus?.enabled === true;
-  await input.serviceManager.disableAutostart();
+    await disableDaemonServiceAutostartIfConfigured({
+      manager: input.serviceManager,
+      status: input.inventory.serviceManagerStatus,
+    });
   let drained = false;
   try {
     drained =

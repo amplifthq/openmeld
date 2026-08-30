@@ -12,6 +12,7 @@ import {
   emitDaemonLifecycleEvent,
   runDaemonServiceManagerAction,
 } from "../local-service/lifecycle/daemon-lifecycle-journal";
+import { disableDaemonServiceAutostartIfConfigured } from "../local-service/lifecycle/daemon-service-manager";
 import {
   type DaemonOwnerSnapshot,
   hasActiveDaemonOwners,
@@ -300,8 +301,10 @@ async function prepareManagedDaemonServiceForStop(input: {
   }
 
   const shouldRestoreAutostart =
-    input.ownerSnapshot.serviceManagerStatus?.enabled === true;
-  await serviceManager.disableAutostart();
+    await disableDaemonServiceAutostartIfConfigured({
+      manager: serviceManager,
+      status: input.ownerSnapshot.serviceManagerStatus,
+    });
   if (input.force === true) {
     return null;
   }
