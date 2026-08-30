@@ -89,10 +89,16 @@ export type BuiltinAgentControllerDefinition = {
   adapterId: string;
   agentId: string;
   capabilities: AgentControllerInterfaceCapabilities;
+  conversationOccupancy: BuiltinAgentControllerConversationOccupancySupport;
   installResolver: BuiltinControllerInstallResolver;
   nativeInterface: AgentControllerInterfaceNativeInterface;
   usageLimitSupport: BuiltinAgentControllerUsageLimitSupport;
   versionMaintenance?: BuiltinAgentControllerVersionMaintenanceDefinition;
+};
+
+export type BuiltinAgentControllerConversationOccupancySupport = {
+  contractVersion: 1;
+  mode: "official_atomic_admission_and_release_signal" | "unsupported";
 };
 
 export type BuiltinAgentControllerUsageLimitSupport =
@@ -121,6 +127,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       permissionModes: true,
       structuredUserInput: false,
     },
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
       resolveInstalledLaunchCandidates:
         resolveInstalledClaudeCodeLaunchCandidates,
@@ -154,6 +161,10 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       permissionModes: true,
       structuredUserInput: false,
     },
+    conversationOccupancy: {
+      contractVersion: 1,
+      mode: "official_atomic_admission_and_release_signal",
+    },
     installResolver: {
       resolveInstalledLaunchCandidates: resolveInstalledCodexLaunchCandidates,
       verifyLaunchContract: verifyCodexLaunchContract,
@@ -170,6 +181,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     adapterId: "openclaw",
     agentId: "openclaw",
     capabilities: EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
       resolveInstalledLaunchCandidates:
         resolveInstalledOpenClawLaunchCandidates,
@@ -191,6 +203,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       permissionModes: true,
       structuredUserInput: false,
     },
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
       refreshPersistedLaunchContract: refreshCursorPersistedLaunchContract,
       resolveInstalledLaunchCandidates: resolveInstalledCursorLaunchCandidates,
@@ -222,6 +235,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       permissionModes: true,
       structuredUserInput: true,
     },
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
       resolveInstalledLaunchCandidates:
         resolveInstalledGrokBuildLaunchCandidates,
@@ -255,6 +269,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       permissionModes: false,
       structuredUserInput: false,
     },
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
       resolveInstalledLaunchCandidates:
         resolveInstalledOpenCodeLaunchCandidates,

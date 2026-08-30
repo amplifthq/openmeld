@@ -23,6 +23,7 @@ import type {
   OpenMeldDaemonTaskResultEnvelope,
   OpenMeldDaemonTaskResultPayload,
   RuntimeCoordinatorExecutionTokenEcho,
+  RuntimeTransportAgentControllerConversationOccupancy,
   RuntimeTransportDispatchLifecyclePhase,
   RuntimeTransportDispatchLocalQueueDiagnostics,
   RuntimeTransportDispatchRuntimeEvidencePhase,
@@ -100,6 +101,7 @@ export function sendDispatchResultEnvelopeFrame(input: {
 }
 
 export function sendDispatchLifecycleFrame(input: {
+  agentControllerConversationOccupancy?: RuntimeTransportAgentControllerConversationOccupancy | null;
   attemptId: string;
   connectionGeneration: number;
   daemonSessionId: string;
@@ -127,6 +129,13 @@ export function sendDispatchLifecycleFrame(input: {
       leaseEpoch: input.leaseEpoch,
       phase: input.phase,
       lifecycleAtMs: Date.now(),
+      ...(input.agentControllerConversationOccupancy === undefined ||
+      input.agentControllerConversationOccupancy === null
+        ? {}
+        : {
+            agentControllerConversationOccupancy:
+              input.agentControllerConversationOccupancy,
+          }),
       ...(input.localQueue === undefined || input.localQueue === null
         ? {}
         : { localQueue: input.localQueue }),

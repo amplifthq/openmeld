@@ -661,6 +661,14 @@ Wake. A Space outbox handoff, Dispatch lookup, or RuntimeCoordinator
 `created`/`delivery_pending` status alone stays neutral as a sent request; none
 of those facts proves Profile FIFO waiting.
 
+The current Wake may also wait because the official Local Agent has given a
+different process exclusive writer ownership of the exact Agent Controller
+conversation. That Wake remains current, later Wakes remain behind it, and no
+Wake failure is published. OpenMeld retries immediately after an official
+provider release signal; an alarm is only a recovery backstop. This fact comes
+from provider admission, never from Agent Activity, process presence, or a
+guess based on recent output.
+
 Usage participates in Wakeability only when the Local Agent exposes structured,
 reliable Usage Limits. A Local Agent that explicitly reports Usage as
 unsupported, or that has no reliable Usage capability because reporting is

@@ -1704,6 +1704,13 @@ export const runtimeTransportDispatchLifecyclePhaseSchema = z.enum([
   "completed_local",
 ]);
 
+export const runtimeTransportAgentControllerConversationOccupancySchema =
+  z.strictObject({
+    agentControllerConversationId: z.string().trim().min(1),
+    contractVersion: z.literal(1),
+    state: z.enum(["available", "occupied"]),
+  });
+
 export const runtimeTransportDispatchLocalQueueWaitReasonSchema = z.enum([
   "global_concurrency",
   "local_execution_lane_concurrency",
@@ -1734,6 +1741,8 @@ export const runtimeTransportDispatchLifecycleRequestSchema = z.strictObject({
   leaseEpoch: z.number().int().positive(),
   phase: runtimeTransportDispatchLifecyclePhaseSchema,
   lifecycleAtMs: z.number().int().nonnegative(),
+  agentControllerConversationOccupancy:
+    runtimeTransportAgentControllerConversationOccupancySchema.optional(),
   localQueue: runtimeTransportDispatchLocalQueueDiagnosticsSchema.optional(),
 });
 

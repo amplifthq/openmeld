@@ -509,6 +509,7 @@ export {
   localAgentToolActivityNameSchema,
   localWakeRouteReportSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  runtimeTransportAgentControllerConversationOccupancySchema,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
   runtimeTransportAgentProfileExecutionStateResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,

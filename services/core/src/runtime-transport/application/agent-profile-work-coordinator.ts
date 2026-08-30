@@ -4,6 +4,7 @@ export type AgentProfileWorkCoordinatorItem = {
   dispatchId: string;
   enqueuedAtMs: number;
   targetWakeLifecycleId: string;
+  waitReason?: "controller_conversation_occupied";
 };
 
 export type AgentProfileWorkRecoveryGate = {
@@ -28,11 +29,46 @@ export type AgentProfileWorkCoordinator = {
 };
 
 export type AgentProfileWorkCoordinatorSummary = {
+  currentWaitReason?: "controller_conversation_occupied";
   currentWork: AgentProfileWorkCoordinatorItem | null;
   queuedWork: readonly AgentProfileWorkCoordinatorItem[];
   status: "idle" | "paused" | "working";
   waitingCount: number;
 };
+
+export function markAgentProfileWorkControllerConversationOccupancy(input: {
+  coordinator: AgentProfileWorkCoordinator;
+  dispatchId: string;
+  nowMs: number;
+  state: "available" | "occupied";
+}): { coordinator: AgentProfileWorkCoordinator; changed: boolean } {
+  const currentWork = input.coordinator.workItems[0];
+  if (!currentWork || currentWork.dispatchId !== input.dispatchId) {
+    return { coordinator: input.coordinator, changed: false };
+  }
+  const currentlyOccupied =
+    currentWork.waitReason === "controller_conversation_occupied";
+  if (currentlyOccupied === (input.state === "occupied")) {
+    return { coordinator: input.coordinator, changed: false };
+  }
+  const { waitReason: _waitReason, ...baseCurrentWork } = currentWork;
+  const nextCurrentWork: AgentProfileWorkCoordinatorItem =
+    input.state === "occupied"
+      ? {
+          ...baseCurrentWork,
+          waitReason: "controller_conversation_occupied",
+        }
+      : baseCurrentWork;
+  return {
+    changed: true,
+    coordinator: {
+      ...input.coordinator,
+      revision: input.coordinator.revision + 1,
+      updatedAtMs: input.nowMs,
+      workItems: [nextCurrentWork, ...input.coordinator.workItems.slice(1)],
+    },
+  };
+}
 
 type AgentProfileWorkAcceptance = {
   coordinator: AgentProfileWorkCoordinator;
@@ -305,6 +341,9 @@ export function summarizeAgentProfileWorkCoordinator(
   }
   const [currentWork = null, ...queuedWork] = coordinator.workItems;
   return {
+    ...(currentWork?.waitReason
+      ? { currentWaitReason: currentWork.waitReason }
+      : {}),
     currentWork,
     queuedWork,
     status: currentWork ? "working" : "idle",

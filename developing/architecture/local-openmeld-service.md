@@ -395,7 +395,18 @@ because the Service needs the controller conversation identity, model, and
 instruction source rather than a duplicate copy of provider history. Passive
 provider-conversation proof must use the same metadata-only boundary: it must
 not set approval, sandbox, model, collaboration-mode, or other turn policy on
-the canonical controller conversation. If an existing controller conversation
+the canonical controller conversation. Codex's official cross-process thread
+writer lock makes `thread/resume` the atomic occupancy admission boundary. The
+exact App Server `-32600` response `thread <id> already has an active writer`
+for that resume is structured Agent Controller conversation occupancy, not a
+Wake failure. OpenMeld keeps the task at the Profile FIFO head, observes the
+official lock release, and retries that same metadata-only resume immediately.
+A low-frequency recovery retry handles a missed filesystem event or abrupt
+writer exit; normal execution adds no extra query or network round trip. No
+other RPC code, message, timeout, stderr, process presence, or Agent Activity
+fact may be promoted to occupancy.
+
+If an existing controller conversation
 is missing or does not acknowledge resume within the short resume admission
 window, the adapter starts one fresh thread and delivers the complete current
 instruction plan exactly once. The resulting context delta replaces the
@@ -422,6 +433,24 @@ OpenMeld must not automatically resubmit `turn/start` after an acknowledgement
 timeout: the controller may already have accepted the turn, so resubmission
 could duplicate user work. Once a turn is accepted, no fixed total wall-clock
 timeout applies to the healthy running execution.
+
+The version 1 Local Agent capability matrix currently marks only Codex App
+Server as `official_atomic_admission_and_release_signal`. Claude Code, Cursor,
+Grok Build, OpenCode, and OpenClaw remain explicitly unsupported because the
+interfaces OpenMeld consumes do not yet provide an official, deterministic
+cross-process occupancy fact and release signal. Unsupported means OpenMeld
+does not invent a preflight; each adapter continues to use its real provider
+submission contract, and an outcome-ambiguous submission fails closed through
+the existing execution reconciliation path.
+
+Deploy the Core lifecycle receiver before publishing the matching local
+component. An older Service sends no occupancy evidence to a newer Core. If a
+newer Service briefly reaches an older Core, that Core may reject the one
+additive occupancy lifecycle frame, but the Service continues ordinary running
+keepalives, retains the same Wake locally, and retries only the provider's
+official admission. The mixed-version window therefore loses the new trace
+detail without failing the Wake or promoting later work; no local-component
+contract floor bump is required.
 
 Controller context fullness, token usage, cache state, or compaction must never
 decide whether required instructions are present. These are diagnostic and

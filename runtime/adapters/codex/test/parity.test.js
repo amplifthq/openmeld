@@ -38,6 +38,151 @@ const createNodeScriptLaunchContract = (scriptPath) => ({
   scriptPath,
 });
 
+test("codex classifies only its official thread writer conflict as conversation occupancy", async () => {
+  const { classifyCodexThreadWriterConflict } = await import(
+    "../dist/index.js"
+  );
+
+  assert.deepEqual(
+    classifyCodexThreadWriterConflict({
+      agentControllerConversationId: "01a04ded-5af8-7f00-a2dd-4abee50f8724",
+      operation: "thread/resume",
+      rpcErrorCode: -32_600,
+      rpcErrorMessage:
+        "thread 01a04ded-5af8-7f00-a2dd-4abee50f8724 already has an active writer",
+    }),
+    {
+      agentControllerConversationId: "01a04ded-5af8-7f00-a2dd-4abee50f8724",
+      contractVersion: 1,
+      state: "occupied",
+    }
+  );
+
+  for (const candidate of [
+    {
+      operation: "turn/start",
+      rpcErrorCode: -32_600,
+      rpcErrorMessage:
+        "thread 01a04ded-5af8-7f00-a2dd-4abee50f8724 already has an active writer",
+    },
+    {
+      operation: "thread/resume",
+      rpcErrorCode: -32_000,
+      rpcErrorMessage:
+        "thread 01a04ded-5af8-7f00-a2dd-4abee50f8724 already has an active writer",
+    },
+    {
+      operation: "thread/resume",
+      rpcErrorCode: -32_600,
+      rpcErrorMessage: "transport busy",
+    },
+  ]) {
+    assert.equal(
+      classifyCodexThreadWriterConflict({
+        agentControllerConversationId: "01a04ded-5af8-7f00-a2dd-4abee50f8724",
+        ...candidate,
+      }),
+      null
+    );
+  }
+});
+
+test("codex waits on an official writer conflict and retries the same dispatch", async () => {
+  const { CodexAppServerTransportError, createCodexAdapter } = await import(
+    "../dist/index.js"
+  );
+  const events = [];
+  let dispatchCalls = 0;
+  let availabilityWaits = 0;
+  const occupancy = {
+    agentControllerConversationId: "thread-occupied",
+    contractVersion: 1,
+    state: "occupied",
+  };
+  const adapter = createCodexAdapter({
+    invokeByMode: {
+      "codex-app-server": () => {
+        dispatchCalls += 1;
+        if (dispatchCalls === 1) {
+          throw new CodexAppServerTransportError({
+            agentControllerConversationOccupancy: occupancy,
+            code: "agent_controller.conversation_occupied",
+            errorType: "adapter",
+            message: "thread thread-occupied already has an active writer",
+            rpcErrorCode: -32_600,
+          });
+        }
+        return {
+          contextDelta: {
+            agentControllerConversationId: "thread-occupied",
+          },
+          output: "accepted after release",
+        };
+      },
+    },
+    waitForThreadWriterAvailability: ({ occupancy: observed }) => {
+      availabilityWaits += 1;
+      assert.deepEqual(observed, occupancy);
+    },
+  });
+
+  const result = await adapter.dispatch({
+    agentControllerConversationId: "thread-occupied",
+    agentId: "agt-demo",
+    onRuntimeEvent: (event) => {
+      if (event.phase.startsWith("agent_controller_conversation_")) {
+        events.push(event.phase);
+      }
+    },
+    prompt: "continue",
+    runtimeContext: createRuntimeContext(),
+    sourceEventId: "evt-occupied",
+    spaceId: "space-1",
+    taskId: "task-occupied",
+    transportMode: "codex-app-server",
+  });
+
+  assert.equal(result.status, "success");
+  assert.equal(result.output, "accepted after release");
+  assert.equal(dispatchCalls, 2);
+  assert.equal(availabilityWaits, 1);
+  assert.deepEqual(events, [
+    "agent_controller_conversation_occupied",
+    "agent_controller_conversation_available",
+  ]);
+});
+
+test("codex retries immediately when the official writer lock is released", async () => {
+  const { waitForCodexThreadWriterAvailability } = await import(
+    "../dist/index.js"
+  );
+  const codexHome = await mkdtemp(join(tmpdir(), "codex-home-lock-"));
+  const lockDirectory = join(codexHome, "thread-writer-locks");
+  const lockPath = join(lockDirectory, "thread-release.lock");
+  await mkdir(lockDirectory, { recursive: true });
+  await writeFile(lockPath, "");
+
+  try {
+    const startedAtMs = Date.now();
+    const waiting = waitForCodexThreadWriterAvailability({
+      env: { CODEX_HOME: codexHome },
+      occupancy: {
+        agentControllerConversationId: "thread-release",
+        contractVersion: 1,
+        state: "occupied",
+      },
+      recoveryRetryMs: 2000,
+    });
+    setTimeout(() => {
+      rm(lockPath, { force: true }).catch(() => undefined);
+    }, 25);
+    await waiting;
+    assert.ok(Date.now() - startedAtMs < 1000);
+  } finally {
+    await rm(codexHome, { force: true, recursive: true });
+  }
+});
+
 test("codex distinguishes subscription access from a transient rate limit", async () => {
   const { classifyCodexProviderAccountFailure } = await import(
     "../dist/output/codex-provider-failure.js"

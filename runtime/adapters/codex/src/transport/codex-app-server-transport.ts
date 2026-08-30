@@ -1,6 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { tmpdir } from "node:os";
 import type {
+  AdapterAgentControllerConversationOccupancy,
   AdapterComputerFileAccessBoundary,
   AdapterDispatchExecutionMode,
   AdapterDispatchTelemetry,
@@ -20,6 +21,7 @@ import type {
   SpawnedAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import {
+  AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION,
   classifyRuntimePermissionDenialMessage,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
@@ -193,25 +195,56 @@ const APP_SERVER_PROCESS_KILL_GRACE_MS = 1000;
 const DEFAULT_APP_SERVER_STARTUP_TIMEOUT_MS = 15_000;
 
 export class CodexAppServerTransportError extends Error {
+  readonly agentControllerConversationOccupancy?: AdapterAgentControllerConversationOccupancy;
   readonly code: string;
   readonly errorType: AdapterErrorType;
   readonly originalError?: string;
   readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
+  readonly rpcErrorCode?: number;
 
   constructor(input: {
+    agentControllerConversationOccupancy?: AdapterAgentControllerConversationOccupancy;
     code: string;
     errorType: AdapterErrorType;
     message: string;
     originalError?: string;
     providerAccessEvidence?: AdapterProviderAccessEvidence;
+    rpcErrorCode?: number;
   }) {
     super(input.message);
     this.name = "CodexAppServerTransportError";
+    this.agentControllerConversationOccupancy =
+      input.agentControllerConversationOccupancy;
     this.code = input.code;
     this.errorType = input.errorType;
     this.originalError = input.originalError;
     this.providerAccessEvidence = input.providerAccessEvidence;
+    this.rpcErrorCode = input.rpcErrorCode;
   }
+}
+
+export function classifyCodexThreadWriterConflict(input: {
+  agentControllerConversationId: string;
+  operation: CodexAppServerControlOperation;
+  rpcErrorCode: number | undefined;
+  rpcErrorMessage: string;
+}): AdapterAgentControllerConversationOccupancy | null {
+  const agentControllerConversationId =
+    input.agentControllerConversationId.trim();
+  if (
+    !agentControllerConversationId ||
+    input.operation !== "thread/resume" ||
+    input.rpcErrorCode !== -32_600 ||
+    input.rpcErrorMessage !==
+      `thread ${agentControllerConversationId} already has an active writer`
+  ) {
+    return null;
+  }
+  return {
+    agentControllerConversationId,
+    contractVersion: AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION,
+    state: "occupied",
+  };
 }
 
 export async function probeCodexAppServerAccount(input: {
@@ -559,22 +592,46 @@ async function resolveDispatchThreadContext(input: {
         sourceThreadId: existingThreadId,
       });
     }
-    const response = await input.session.requestControl(
-      "thread/resume",
-      {
-        ...(input.conversationPolicyParams.model
-          ? { model: input.conversationPolicyParams.model }
-          : {}),
-        ...input.permissionModeParams,
-        cwd: input.codexWorkdir,
-        excludeTurns: true,
-        threadId: existingThreadId,
-      },
-      {
-        code: "context.resume_timeout",
-        operation: "thread/resume",
+    let response: unknown;
+    try {
+      response = await input.session.requestControl(
+        "thread/resume",
+        {
+          ...(input.conversationPolicyParams.model
+            ? { model: input.conversationPolicyParams.model }
+            : {}),
+          ...input.permissionModeParams,
+          cwd: input.codexWorkdir,
+          excludeTurns: true,
+          threadId: existingThreadId,
+        },
+        {
+          code: "context.resume_timeout",
+          operation: "thread/resume",
+        }
+      );
+    } catch (error) {
+      const transportError =
+        error instanceof CodexAppServerTransportError ? error : null;
+      const occupancy = transportError
+        ? classifyCodexThreadWriterConflict({
+            agentControllerConversationId: existingThreadId,
+            operation: "thread/resume",
+            rpcErrorCode: transportError.rpcErrorCode,
+            rpcErrorMessage: transportError.message,
+          })
+        : null;
+      if (!occupancy) {
+        throw error;
       }
-    );
+      throw new CodexAppServerTransportError({
+        agentControllerConversationOccupancy: occupancy,
+        code: "agent_controller.conversation_occupied",
+        errorType: "adapter",
+        message: transportError?.message ?? "Codex thread writer is occupied",
+        rpcErrorCode: transportError?.rpcErrorCode,
+      });
+    }
     return readThreadContextFromResponse(response);
   }
 
@@ -2527,6 +2584,7 @@ function toJsonRpcTransportError(
     code: "upstream_unreachable",
     errorType: "adapter",
     message,
+    ...(typeof error.code === "number" ? { rpcErrorCode: error.code } : {}),
   });
 }
 

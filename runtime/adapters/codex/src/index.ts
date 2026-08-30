@@ -1,5 +1,6 @@
 // biome-ignore-all lint/performance/noBarrelFile: Package entrypoint intentionally re-exports Codex runtime helpers.
 import {
+  type AdapterAgentControllerConversationOccupancy,
   type AdapterCancelRequest,
   type AdapterComputerFileAccessVerificationResult,
   type AdapterDispatchContextDelta,
@@ -38,6 +39,10 @@ import {
   buildCodexFileAccessBoundaryGlobalArgs,
   redactCodexFileAccessBoundaryDispatchFailure,
 } from "./transport/codex-file-access-boundary.js";
+import {
+  type WaitForCodexThreadWriterAvailability,
+  waitForCodexThreadWriterAvailability,
+} from "./transport/codex-thread-writer-availability.js";
 
 export type CodexInvokeResult = {
   contextDelta?: AdapterDispatchContextDelta;
@@ -82,6 +87,7 @@ export type CodexAdapterOptions = {
   sendCancel?: CodexCancelSignalFn;
   sendInterrupt?: CodexInterruptSignalFn;
   waitForMs?: WaitForMs;
+  waitForThreadWriterAvailability?: WaitForCodexThreadWriterAvailability;
 };
 
 export {
@@ -105,6 +111,7 @@ export { extractCodexToolActivityEvent } from "./output/codex-tool-activity.js";
 export {
   type CodexAppServerAccountProbeResult,
   CodexAppServerTransportError,
+  classifyCodexThreadWriterConflict,
   forkCodexAppServerThread,
   invokeCodexAppServerTransport,
   probeCodexAppServerAccount,
@@ -114,6 +121,7 @@ export {
   CodexCliTransportError,
   invokeCodexCliTransport,
 } from "./transport/codex-cli-transport.js";
+export { waitForCodexThreadWriterAvailability } from "./transport/codex-thread-writer-availability.js";
 export { projectCodexUsageLimits } from "./usage/codex-usage-limits.js";
 
 const CODEX_CONVERSATION_BRIDGE_SPEC =
@@ -190,14 +198,38 @@ export const createCodexAdapter = (
     runtimeOptions: options,
   });
   const dispatch: RuntimeAdapter["dispatch"] = async (request) => {
-    const result = await sharedDispatch(request);
-    if (
-      result.status === "failed" &&
-      request.computerFileAccessBoundary !== undefined
-    ) {
-      return redactCodexFileAccessBoundaryDispatchFailure(result);
+    while (true) {
+      const result = await sharedDispatch(request);
+      const occupancy = readCodexConversationOccupancy(result, request);
+      if (occupancy) {
+        await request.onRuntimeEvent?.({
+          agentControllerConversationId:
+            occupancy.agentControllerConversationId,
+          contractVersion: occupancy.contractVersion,
+          phase: "agent_controller_conversation_occupied",
+          tsMs: Date.now(),
+        });
+        await (
+          options.waitForThreadWriterAvailability ??
+          waitForCodexThreadWriterAvailability
+        )({ env: request.env, occupancy });
+        await request.onRuntimeEvent?.({
+          agentControllerConversationId:
+            occupancy.agentControllerConversationId,
+          contractVersion: occupancy.contractVersion,
+          phase: "agent_controller_conversation_available",
+          tsMs: Date.now(),
+        });
+        continue;
+      }
+      if (
+        result.status === "failed" &&
+        request.computerFileAccessBoundary !== undefined
+      ) {
+        return redactCodexFileAccessBoundaryDispatchFailure(result);
+      }
+      return result;
     }
-    return result;
   };
 
   return {
@@ -298,6 +330,20 @@ export const createCodexAdapter = (
     },
   };
 };
+
+function readCodexConversationOccupancy(
+  result: Awaited<ReturnType<RuntimeAdapter["dispatch"]>>,
+  request: AdapterDispatchRequest
+): AdapterAgentControllerConversationOccupancy | null {
+  if (
+    result.status !== "failed" ||
+    request.transportMode !== "codex-app-server" ||
+    !result.agentControllerConversationOccupancy
+  ) {
+    return null;
+  }
+  return result.agentControllerConversationOccupancy;
+}
 
 function rememberComputerFileAccessAttestation(input: {
   attestations: Map<string, ComputerFileAccessAttestation>;

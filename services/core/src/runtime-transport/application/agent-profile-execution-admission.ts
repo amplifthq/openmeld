@@ -17,6 +17,7 @@ import {
   approveAgentProfileWorkQueue,
   authorizeAgentProfileWorkContinuation,
   createAgentProfileWorkCoordinator,
+  markAgentProfileWorkControllerConversationOccupancy,
   markAgentProfileWorkUsageAvailable,
   removeAgentProfileWork,
   settleAgentProfileWork,
@@ -993,6 +994,40 @@ export type AgentProfileWorkCoordinatorHeadWriteResult =
   AgentProfileWorkCoordinatorHeadWriteBaseResult & {
     pendingPromotion?: PendingAgentProfileWorkPromotion;
   };
+
+export async function markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy(input: {
+  dispatchId: string;
+  nowMs: number;
+  state: "available" | "occupied";
+  storage: ExecutionAdmissionStorage;
+  targetProfileId: string;
+}): Promise<{ changed: boolean }> {
+  const storageKey = buildExecutionAdmissionStorageKey(input.targetProfileId);
+  return await input.storage.transaction(async (transaction) => {
+    const admission = parseExecutionAdmissionRecord(
+      await transaction.get<unknown>(storageKey)
+    );
+    if (!admission || admission.targetProfileId !== input.targetProfileId) {
+      return { changed: false };
+    }
+    const result = markAgentProfileWorkControllerConversationOccupancy({
+      coordinator: projectAgentProfileWorkCoordinator(admission),
+      dispatchId: input.dispatchId,
+      nowMs: input.nowMs,
+      state: input.state,
+    });
+    if (!result.changed) {
+      return { changed: false };
+    }
+    await transaction.put(storageKey, {
+      ...admission,
+      revision: result.coordinator.revision,
+      updatedAtMs: result.coordinator.updatedAtMs,
+      workItems: result.coordinator.workItems,
+    } satisfies AgentProfileExecutionAdmissionRecord);
+    return { changed: true };
+  });
+}
 
 export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input: {
   nowMs: number;
@@ -3038,6 +3073,12 @@ function isAgentProfileWorkCoordinatorItemsOrLegacy(
       candidate.targetWakeLifecycleId.length === 0 ||
       lifecycleIds.has(candidate.targetWakeLifecycleId) ||
       dispatchIds.has(candidate.dispatchId)
+    ) {
+      return false;
+    }
+    if (
+      candidate.waitReason !== undefined &&
+      candidate.waitReason !== "controller_conversation_occupied"
     ) {
       return false;
     }

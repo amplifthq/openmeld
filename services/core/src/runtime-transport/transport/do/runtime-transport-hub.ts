@@ -293,6 +293,7 @@ import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   approveRuntimeCoordinatorAgentProfileWorkQueue,
   authorizeRuntimeCoordinatorAgentProfileWorkContinuation,
+  markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy,
   markRuntimeCoordinatorAgentProfileWorkUsageAvailable,
   readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs,
   readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission,
@@ -7272,6 +7273,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
+    await this.syncAgentProfileWorkControllerConversationOccupancy({
+      request: parsed.data,
+      tokenValidationContext,
+    });
     if (!pending && commandState) {
       await this.writeRuntimeCoordinatorRunCommandState(
         buildRuntimeCoordinatorRunCommandStateFromLifecycle({
@@ -7372,6 +7377,42 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       profileIds: [input.tokenValidationContext.executionScope.targetProfileId],
       reason: "matching_execution_running",
     });
+  }
+
+  private async syncAgentProfileWorkControllerConversationOccupancy(input: {
+    request: RuntimeTransportDispatchLifecycleRequest;
+    tokenValidationContext: RuntimeCoordinatorTokenValidationContext;
+  }): Promise<void> {
+    const occupancy =
+      input.request.agentControllerConversationOccupancy ?? null;
+    if (!occupancy) {
+      return;
+    }
+    try {
+      await markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy(
+        {
+          dispatchId: input.request.dispatchId,
+          nowMs: Date.now(),
+          state: occupancy.state,
+          storage: this.ctx.storage,
+          targetProfileId:
+            input.tokenValidationContext.executionScope.targetProfileId,
+        }
+      );
+    } catch (error) {
+      console.warn(
+        "[core.runtime_transport.agent_controller_conversation_occupancy_sync_failed]",
+        {
+          dispatchId: input.request.dispatchId,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          runtimeCoordinatorExecutionId:
+            input.tokenValidationContext.runtimeCoordinatorExecutionId,
+          state: occupancy.state,
+          targetProfileId:
+            input.tokenValidationContext.executionScope.targetProfileId,
+        }
+      );
+    }
   }
 
   private async readRuntimeCoordinatorRunCommandStateForLifecycle(input: {
@@ -8048,9 +8089,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       writeRuntimeCoordinatorExecutionEventFromParts({
         db,
         eventType,
-        idempotencyKey: `lifecycle:${request.dispatchId}:${request.attemptId}:${request.phase}`,
+        idempotencyKey: `lifecycle:${request.dispatchId}:${request.attemptId}:${request.phase}:${request.agentControllerConversationOccupancy?.state ?? "progress"}`,
         observedAtMs: nowMs,
         payload: {
+          agentControllerConversationOccupancy:
+            request.agentControllerConversationOccupancy ?? null,
           lifecycleAtMs: request.lifecycleAtMs,
           localQueue: request.localQueue ?? null,
           phase: request.phase,
@@ -11812,9 +11855,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       writeRuntimeCoordinatorExecutionEventFromParts({
         db,
         eventType,
-        idempotencyKey: `lifecycle:${input.request.dispatchId}:${input.request.attemptId}:${input.request.phase}`,
+        idempotencyKey: `lifecycle:${input.request.dispatchId}:${input.request.attemptId}:${input.request.phase}:${input.request.agentControllerConversationOccupancy?.state ?? "progress"}`,
         observedAtMs: nowMs,
         payload: {
+          agentControllerConversationOccupancy:
+            input.request.agentControllerConversationOccupancy ?? null,
           lifecycleAtMs: input.request.lifecycleAtMs,
           localQueue: input.request.localQueue ?? null,
           phase: input.request.phase,

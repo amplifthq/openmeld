@@ -334,6 +334,14 @@ Important execution rules:
   computer. If the runtime has not started yet, the local service must attach
   queue diagnostics so Trace can explain whether the task is waiting for the
   same local execution lane, global local capacity, or runtime startup.
+- A provider's versioned Agent Controller conversation occupancy contract may
+  keep the current Wake at the Profile FIFO head after local execution starts.
+  A structured occupied admission is non-terminal: the Service reports it as
+  lifecycle evidence, waits for the official release signal, and retries the
+  same provider admission. It must not submit a result, promote the next Wake,
+  infer occupancy from Agent Activity, or classify generic transport failures
+  as busy. A recovery alarm may retry after a missed signal, but it is not the
+  normal availability loop.
 - Compatibility claim endpoints may exist during migration, but they must not
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come

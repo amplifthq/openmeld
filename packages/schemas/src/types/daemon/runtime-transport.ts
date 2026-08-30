@@ -370,6 +370,11 @@ export type RuntimeTransportDispatchLifecyclePhase = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportDispatchLifecyclePhaseSchema"]
 >;
 
+export type RuntimeTransportAgentControllerConversationOccupancy =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentControllerConversationOccupancySchema"]
+  >;
+
 export type RuntimeTransportDispatchLocalQueueWaitReason =
   import("zod/v4").infer<
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportDispatchLocalQueueWaitReasonSchema"]

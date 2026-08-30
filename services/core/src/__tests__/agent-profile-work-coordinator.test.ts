@@ -5,6 +5,7 @@ import {
   approveAgentProfileWorkQueue,
   authorizeAgentProfileWorkContinuation,
   createAgentProfileWorkCoordinator,
+  markAgentProfileWorkControllerConversationOccupancy,
   markAgentProfileWorkUsageAvailable,
   removeAgentProfileWork,
   settleAgentProfileWork,
@@ -148,6 +149,57 @@ describe("Agent Profile Work Coordinator", () => {
     expect(
       settled.coordinator.workItems.map((item) => item.dispatchId)
     ).toEqual(["dispatch-2", "dispatch-3"]);
+  });
+
+  it("keeps an occupied controller conversation at the FIFO head until provider admission becomes available", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (let index = 1; index <= 3; index += 1) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: workItem(index),
+        nowMs: 1_700_000_000_000 + index,
+      }).coordinator;
+    }
+
+    const occupied = markAgentProfileWorkControllerConversationOccupancy({
+      coordinator,
+      dispatchId: "dispatch-1",
+      nowMs: 1_700_000_000_100,
+      state: "occupied",
+    });
+
+    expect(occupied.changed).toBe(true);
+    expect(occupied.coordinator.workItems).toEqual([
+      { ...workItem(1), waitReason: "controller_conversation_occupied" },
+      workItem(2),
+      workItem(3),
+    ]);
+    expect(summarizeAgentProfileWorkCoordinator(occupied.coordinator)).toEqual({
+      currentWaitReason: "controller_conversation_occupied",
+      currentWork: {
+        ...workItem(1),
+        waitReason: "controller_conversation_occupied",
+      },
+      queuedWork: [workItem(2), workItem(3)],
+      status: "working",
+      waitingCount: 2,
+    });
+
+    const available = markAgentProfileWorkControllerConversationOccupancy({
+      coordinator: occupied.coordinator,
+      dispatchId: "dispatch-1",
+      nowMs: 1_700_000_000_200,
+      state: "available",
+    });
+    expect(available.changed).toBe(true);
+    expect(available.coordinator.workItems).toEqual([
+      workItem(1),
+      workItem(2),
+      workItem(3),
+    ]);
   });
 
   it("removes cancelled waiting work without disturbing the current item", () => {

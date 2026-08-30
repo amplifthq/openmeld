@@ -99,6 +99,27 @@ describe("builtin agent controller definitions", () => {
     });
   });
 
+  it("declares reliable controller conversation occupancy support explicitly", () => {
+    const supportByAgentId = Object.fromEntries(
+      listBuiltinAgentControllerDefinitions().map((definition) => [
+        definition.agentId,
+        definition.conversationOccupancy,
+      ])
+    );
+
+    expect(supportByAgentId).toEqual({
+      "claude-code": { contractVersion: 1, mode: "unsupported" },
+      codex: {
+        contractVersion: 1,
+        mode: "official_atomic_admission_and_release_signal",
+      },
+      cursor: { contractVersion: 1, mode: "unsupported" },
+      "grok-build": { contractVersion: 1, mode: "unsupported" },
+      openclaw: { contractVersion: 1, mode: "unsupported" },
+      opencode: { contractVersion: 1, mode: "unsupported" },
+    });
+  });
+
   it("declares the Homebrew package kind and name for maintained controllers", () => {
     const homebrewPackages = Object.fromEntries(
       listBuiltinAgentControllerDefinitions()
