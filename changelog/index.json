@@ -75,6 +75,26 @@
       "body": "When a newer OpenMeld Service version becomes available while an update is\nalready waiting, OpenMeld now replaces the older target with the newer version.\nThe existing update remains recoverable until the newer target is safely saved,\nand an older worker or queued request cannot overwrite that target or move the\nService back to an earlier version."
     },
     {
+      "id": "keep-space-conversations-comfortably-centered",
+      "title": "Keep Space conversations comfortably centered",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-30",
+      "evidence": [
+        "pr:477",
+        "commit:e9f7b8efb238b97c25cc1d1e8bb854ae6d264c98",
+        "worker-version:f5a4534d-cda5-426e-a4d5-a89ad76b79fc",
+        "smoke:chrome:space-conversation-width-20260830"
+      ],
+      "body": "Space conversations now stay comfortably centered on wide screens while still\nadapting to smaller windows, so messages remain easier to follow without\nstretching across the page."
+    },
+    {
       "id": "manage-agents-in-one-workspace",
       "title": "Manage Agents in one focused workspace",
       "kind": "improved",
@@ -90,10 +110,12 @@
       "evidence": [
         "pr:479",
         "commit:4a5d699fd48f46684b57bfd42da8fe548774b6be",
-        "worker-version:2ce1f5f8-c550-4845-8735-057712bda82c",
-        "smoke:chrome:agents-secondary-sidebar-20260830"
+        "pr:486",
+        "commit:8de7896afc0287fc586eec944c8ed4ca74b28bea",
+        "worker-version:f5a4534d-cda5-426e-a4d5-a89ad76b79fc",
+        "smoke:chrome:agents-search-and-save-20260830"
       ],
-      "body": "Agents now uses the same focused sidebar-and-detail layout as People. Browse\nAgents by owner, review their real Wake availability, handle Agent requests,\nopen a Direct Message, and edit an Agent in place without losing your current\nselection."
+      "body": "Agents now uses the same focused sidebar-and-detail layout as People. Browse\nAgents by owner, review their real Wake availability, handle Agent requests,\nopen a Direct Message, and edit an Agent in place without losing your current\nselection. Search by name, owner, Controller, or model, and scan compact Agent\nicons that stay visually aligned with People avatars."
     },
     {
       "id": "clarify-space-access-output",
