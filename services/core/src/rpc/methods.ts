@@ -13207,6 +13207,9 @@ export async function rpcCenterAgentReadSpaceContext(
       ? {}
       : { afterSignalId: input.afterSignalId }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
+    ...(input.requestedAddressingModel === undefined
+      ? {}
+      : { requestedAddressingModel: input.requestedAddressingModel }),
     ...(input.scope === undefined ? {} : { scope: input.scope }),
     ...(input.sourceSignalId === undefined
       ? {}
@@ -13842,9 +13845,7 @@ export async function rpcCenterAgentPostSpaceMessage(
       profileKind: "agent",
       profileName: centerAgentMember.profileName,
     }),
-    spaceAddressingVersion: resolveCenterAgentSpaceAddressingVersion(
-      input.mentionProfileIds
-    ),
+    spaceAddressingVersion: resolveCenterAgentSpaceAddressingVersion(input),
     spaceId: parsed.data.spaceId,
     text: parsed.data.text,
     ...(parsed.data.files ? { files: parsed.data.files } : {}),
@@ -14689,9 +14690,8 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
     ...new Set(parsed.referenceProfileIds ?? []),
   ].sort();
   const mentionProfileIds = [...new Set(parsed.mentionProfileIds ?? [])].sort();
-  const spaceAddressingVersion = resolveCenterAgentSpaceAddressingVersion(
-    input.mentionProfileIds
-  );
+  const spaceAddressingVersion =
+    resolveCenterAgentSpaceAddressingVersion(input);
   const validatedProfileIds = [
     ...targetProfileIds,
     ...(parsed.fallbackAgentProfileId ? [parsed.fallbackAgentProfileId] : []),
@@ -15414,12 +15414,14 @@ function buildCenterAgentWakeClientMessageId(input: {
   return `ca-wake:${hashClientMessageIdMaterial(material)}`;
 }
 
-export function resolveCenterAgentSpaceAddressingVersion(
-  mentionProfileIds: readonly string[] | undefined
-): typeof OPENMELD_SPACE_ADDRESSING_VERSION | undefined {
-  return mentionProfileIds === undefined
-    ? undefined
-    : OPENMELD_SPACE_ADDRESSING_VERSION;
+export function resolveCenterAgentSpaceAddressingVersion(input: {
+  mentionProfileIds?: readonly string[];
+  requestedAddressingModel?: "wake_reference_mention";
+}): typeof OPENMELD_SPACE_ADDRESSING_VERSION | undefined {
+  return input.mentionProfileIds !== undefined ||
+    input.requestedAddressingModel === "wake_reference_mention"
+    ? OPENMELD_SPACE_ADDRESSING_VERSION
+    : undefined;
 }
 
 function hashClientMessageIdMaterial(value: string): string {

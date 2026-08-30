@@ -6940,6 +6940,100 @@ describe("organization Core RPC", () => {
     ]);
   });
 
+  it("preserves Human Mentions for current Center Agent context reads without changing legacy reads", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PRIVATE_SPACE_ID,
+          spaceName: "Launch Room",
+          visibility: "private",
+        }),
+      ],
+    });
+    const text = "Ava, please review the launch notes.";
+    const mentionedSignal: SignalTextEnvelope = {
+      ...createTextSignal({
+        id: "signal-human-mention",
+        text,
+        ts: TEST_NOW_MS,
+      }),
+      data: {
+        messageEnvelope: {
+          activationTargets: [],
+          mentionTargets: [HUMAN_PROFILE_ID],
+          referenceTargets: [],
+          text,
+        },
+        text,
+      },
+    };
+    const env = buildEnv({
+      db,
+      spaceStub: createSpaceStub({
+        initialSignals: [mentionedSignal],
+        spaces: db.spaces,
+      }),
+    });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent",
+      userId: "user-a",
+    });
+    const entrypoint = createCenterAgentRpcEntrypoint(env);
+
+    const current = await entrypoint.centerAgentReadSpaceContext({
+      context,
+      requestedAddressingModel: "wake_reference_mention",
+      scope: "history",
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    });
+    const legacy = await entrypoint.centerAgentReadSpaceContext({
+      context,
+      scope: "history",
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    });
+
+    expect(current).toMatchObject({
+      context: {
+        signals: [
+          {
+            data: {
+              messageEnvelope: {
+                mentionTargets: [HUMAN_PROFILE_ID],
+                referenceTargets: [],
+              },
+            },
+          },
+        ],
+      },
+    });
+    expect(legacy).toMatchObject({
+      context: {
+        signals: [
+          {
+            data: {
+              messageEnvelope: {
+                ccTargets: [],
+                referenceTargets: [HUMAN_PROFILE_ID],
+              },
+            },
+          },
+        ],
+      },
+    });
+  });
+
   it("uses the Center Agent's own Space access when listing shared files", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [

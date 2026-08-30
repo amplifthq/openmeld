@@ -680,6 +680,7 @@ export const centerAgentReadSpaceContextBodySchema = z
   .strictObject({
     afterSignalId: trimmedNonEmptyStringSchema.optional(),
     limit: z.number().int().min(1).max(100).optional(),
+    requestedAddressingModel: z.literal("wake_reference_mention").optional(),
     scope: centerAgentSpaceContextScopeSchema.optional(),
     sourceSignalId: trimmedNonEmptyStringSchema.optional(),
     spaceId: trimmedNonEmptyStringSchema,

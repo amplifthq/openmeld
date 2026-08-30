@@ -3066,6 +3066,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
               ? {}
               : { afterSignalId: payload.afterSignalId }),
             ...(payload.limit === undefined ? {} : { limit: payload.limit }),
+            requestedAddressingModel: "wake_reference_mention",
             ...(payload.scope === undefined ? {} : { scope: payload.scope }),
             ...(payload.sourceSignalId === undefined
               ? {}

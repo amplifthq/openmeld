@@ -3037,8 +3037,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentReadSpaceContext(
     input: CenterAgentReadSpaceContextInput
   ): Promise<CenterAgentReadSpaceContextResponse> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcCenterAgentReadSpaceContext(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcCenterAgentReadSpaceContext(this.env, input),
+      resolveCenterAgentSpaceAddressingVersion(input)
     );
   }
 
@@ -3077,7 +3078,7 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<CenterAgentPostSpaceMessageResponse> {
     return withSpaceAddressingRpcOutput(
       rpcCenterAgentPostSpaceMessage(this.env, input),
-      resolveCenterAgentSpaceAddressingVersion(input.mentionProfileIds)
+      resolveCenterAgentSpaceAddressingVersion(input)
     );
   }
 
@@ -3128,7 +3129,7 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
     return withSpaceAddressingRpcOutput(
       rpcCenterAgentWakeAgentProfilesInSpace(this.env, input),
-      resolveCenterAgentSpaceAddressingVersion(input.mentionProfileIds)
+      resolveCenterAgentSpaceAddressingVersion(input)
     );
   }
 
@@ -5131,12 +5132,6 @@ function toSpaceAddressingRpcOutput<T>(
   return spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION
     ? value
     : toLegacySpaceAddressingRpcOutput(value);
-}
-
-async function withLegacySpaceAddressingRpcOutput<T>(
-  value: Promise<T>
-): Promise<T> {
-  return toLegacySpaceAddressingRpcOutput(await value);
 }
 
 async function withSpaceAddressingRpcOutput<T>(

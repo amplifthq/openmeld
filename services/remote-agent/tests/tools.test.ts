@@ -5961,7 +5961,11 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_center_agent_turn_diagnostics",
     },
     {
-      expectedPayload: { limit: 25, spaceId: SPACE_ID },
+      expectedPayload: {
+        limit: 25,
+        requestedAddressingModel: "wake_reference_mention",
+        spaceId: SPACE_ID,
+      },
       input: { limit: 25, spaceId: SPACE_ID },
       response: readSpaceContextResponse(),
       rpcName: "centerAgentReadSpaceContext",
@@ -5970,6 +5974,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         limit: 25,
+        requestedAddressingModel: "wake_reference_mention",
         scope: "source",
         sourceSignalId: "signal-source",
         spaceId: SPACE_ID,

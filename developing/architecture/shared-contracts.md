@@ -4546,6 +4546,14 @@ capability fence, not a second addressing fact: Core remains the sole owner of
 the response, and a current Remote Agent uses it only to reject an incompatible
 old Core before any Space write.
 
+Current Remote Agent Space-context reads use the same explicit model request:
+`centerAgentReadSpaceContext.requestedAddressingModel = wake_reference_mention`.
+Core returns `mentionTargets` unchanged only for that current request. An older
+Remote Agent omits the field and receives the legacy Reference/cc response
+projection, so mixed-version reads never expose Human Mention as an Agent
+Reference to a current model and never expose an unknown relation to an old
+model.
+
 For Core-first rollout compatibility, an older Remote Agent may still send a
 Human Profile in `referenceProfileIds`. The current Core lets the Space
 authoring boundary translate that active Human into persisted Human Mention
