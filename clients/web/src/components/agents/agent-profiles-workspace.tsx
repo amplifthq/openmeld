@@ -47,6 +47,7 @@ export type AgentProfilesWorkspaceProps = {
 	currentUserId: string;
 	filterControl?: ReactNode;
 	hasAnyProfiles?: boolean;
+	isSearchActive?: boolean;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	onCreateAgent: () => void;
 	onSelectProfile: (profileId: string) => void;
@@ -61,6 +62,7 @@ export type AgentProfilesWorkspaceProps = {
 	renderProfilesController: () => ReactNode;
 	renderProfileDetail: (profile: AuthProfileView) => ReactNode;
 	requestPanel: ReactNode;
+	searchControl?: ReactNode;
 	selectedProfileId: string | null;
 	showAgentRequests?: boolean;
 };
@@ -227,8 +229,9 @@ function AgentProfilesWorkspaceSidebar(input: {
 							) : null}
 						</Button>
 					)}
-					{input.input.filterControl ? (
-						<div className="flex justify-end px-1 pt-1">
+					{input.input.searchControl || input.input.filterControl ? (
+						<div className="flex min-w-0 items-center gap-1.5 px-1 pt-1">
+							{input.input.searchControl}
 							{input.input.filterControl}
 						</div>
 					) : null}
@@ -330,17 +333,21 @@ function AgentProfilesWorkspaceEmptyState(input: {
 	input: AgentProfilesWorkspaceProps;
 }) {
 	const isFiltered = input.input.hasAnyProfiles === true;
+	const isSearchActive = input.input.isSearchActive === true;
+	let title = "No Agents yet";
+	let description = "Create an Agent to give your team an AI teammate.";
+	if (isSearchActive) {
+		title = "No Agents found";
+		description = "Try another name, owner, Controller, or model.";
+	} else if (isFiltered) {
+		title = "No Agents match this filter";
+		description = "Choose another Wake availability filter to see more Agents.";
+	}
 	return (
 		<div className="grid min-h-full place-items-center px-6 py-12 text-center">
 			<div className="max-w-sm space-y-2">
-				<h1 className="font-medium text-base">
-					{isFiltered ? "No Agents match this filter" : "No Agents yet"}
-				</h1>
-				<p className="text-muted-foreground text-sm">
-					{isFiltered
-						? "Choose another Wake availability filter to see more Agents."
-						: "Create an Agent to give your team an AI teammate."}
-				</p>
+				<h1 className="font-medium text-base">{title}</h1>
+				<p className="text-muted-foreground text-sm">{description}</p>
 				{isFiltered ? null : (
 					<Button onClick={input.input.onCreateAgent} size="sm" type="button">
 						<PlusIcon aria-hidden="true" data-icon="inline-start" />

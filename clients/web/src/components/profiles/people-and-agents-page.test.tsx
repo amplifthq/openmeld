@@ -217,6 +217,7 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 	AgentProfilesWorkspace: (props: {
 		activeView: "agents" | "requests";
 		filterControl?: ReactNode;
+		isSearchActive?: boolean;
 		onCreateAgent: () => void;
 		onSelectProfile: (profileId: string) => void;
 		onViewChange: (view: "agents" | "requests") => void;
@@ -227,6 +228,7 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 		requestPanel: ReactNode;
 		selectedProfileId: string | null;
 		showAgentRequests?: boolean;
+		searchControl?: ReactNode;
 	}) => {
 		agentProfilesWorkspaceSpy(props);
 		const selectedProfile =
@@ -254,6 +256,7 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 							Agent requests
 						</button>
 					)}
+					{props.searchControl}
 					{props.filterControl}
 				</aside>
 				{content}
@@ -1055,6 +1058,126 @@ describe("PeopleAndAgentsPage", () => {
 					presentation: "controller",
 				})
 			);
+		});
+	});
+
+	it("searches Agents by name, handle, owner, Controller, and model", async () => {
+		const directory = buildOrganizationDirectory();
+		const firstAgent = directory.agentProfiles[0];
+		if (!firstAgent) {
+			throw new Error("Expected the directory Agent fixture.");
+		}
+		firstAgent.readiness = {
+			...firstAgent.readiness,
+			primaryBinding: {
+				executionTarget: { agentControllerRef: "builtin:codex" },
+				modelSelection: { modelId: "gpt-5.6-sol" },
+			},
+		} as unknown as typeof firstAgent.readiness;
+		const secondAgent = {
+			...firstAgent,
+			ownerName: "Mira Chen",
+			ownerUserId: "user-456",
+			profileHandle: "research-analyst",
+			profileId: "agt_22222222-2222-4222-8222-222222222222",
+			profileName: "Market Analyst",
+			readiness: {
+				...firstAgent.readiness,
+				agentControllerRef: "builtin:opencode",
+				primaryBinding: {
+					executionTarget: { agentControllerRef: "builtin:opencode" },
+					modelSelection: { modelId: "glm-4.5" },
+				},
+			} as unknown as typeof firstAgent.readiness,
+		};
+		directory.agentProfiles = [firstAgent, secondAgent];
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			if (queryKey.includes("directory")) {
+				return {
+					data: directory,
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: { organizationId: "org-123", requests: [] },
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={firstAgent.profileId}
+			/>
+		);
+
+		const search = screen.getByRole("searchbox", { name: "Search Agents" });
+		for (const query of [
+			"Market Analyst",
+			"research analyst",
+			"Mira",
+			"OpenCode",
+			"glm 4.5",
+		]) {
+			fireEvent.change(search, { target: { value: query } });
+			await waitFor(() => {
+				expect(
+					agentProfilesWorkspaceSpy.mock.calls
+						.at(-1)?.[0]
+						.profiles.map((profile: AuthProfileView) => profile.profileName)
+				).toEqual(["Market Analyst"]);
+				expect(
+					agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].selectedProfileId
+				).toBeNull();
+			});
+		}
+
+		fireEvent.change(search, { target: { value: "Codex gpt" } });
+		await waitFor(() => {
+			expect(
+				agentProfilesWorkspaceSpy.mock.calls
+					.at(-1)?.[0]
+					.profiles.map((profile: AuthProfileView) => profile.profileName)
+			).toEqual(["Scout"]);
+		});
+
+		fireEvent.change(search, { target: { value: "no matching Agent" } });
+		await waitFor(() => {
+			expect(agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].profiles).toEqual(
+				[]
+			);
+			expect(
+				agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].isSearchActive
+			).toBe(true);
+		});
+
+		fireEvent.change(search, { target: { value: "" } });
+		await waitFor(() => {
+			const restoredProfiles =
+				agentProfilesWorkspaceSpy.mock.calls
+					.at(-1)?.[0]
+					.profiles.map((profile: AuthProfileView) => profile.profileName) ??
+				[];
+			expect(restoredProfiles).toHaveLength(2);
+			expect(restoredProfiles).toEqual(
+				expect.arrayContaining(["Scout", "Market Analyst"])
+			);
+			expect(
+				agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].selectedProfileId
+			).toBe(firstAgent.profileId);
 		});
 	});
 

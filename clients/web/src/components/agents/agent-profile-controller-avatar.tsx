@@ -18,14 +18,18 @@ export function AgentProfileControllerAvatar(input: {
 		<span
 			aria-hidden="true"
 			className={cn(
-				"inline-flex shrink-0 items-center justify-center text-muted-foreground",
+				"inline-flex shrink-0 items-center justify-center overflow-hidden rounded-lg text-muted-foreground",
 				input.className
 			)}
 			data-testid={`agent-profile-controller-avatar-${input.profileId}`}
 			style={{ height: input.size, width: input.size }}
 		>
 			{hasControllerLogo ? (
-				<LocalAgentLogo agentId={agentId} className="h-full w-full" size="md" />
+				<LocalAgentLogo
+					agentId={agentId}
+					className="h-[88%] w-[88%] overflow-hidden rounded-[22%]"
+					size="md"
+				/>
 			) : (
 				<RobotIcon
 					aria-hidden="true"

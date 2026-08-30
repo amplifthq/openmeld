@@ -1,17 +1,21 @@
 "use client";
 
-import { resolveAgentWakeAvailabilityDisplayCategory } from "@openmeld/agent-runtime";
+import {
+	parseAgentControllerRef,
+	resolveAgentWakeAvailabilityDisplayCategory,
+} from "@openmeld/agent-runtime";
 import type {
 	AuthProfileView,
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
+import { Input } from "@openmeld/ui/components/input";
 import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import { FunnelSimpleIcon } from "@phosphor-icons/react";
+import { FunnelSimpleIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
@@ -28,6 +32,7 @@ import { useLocalAgentRecoveryController } from "#/components/agents/use-local-a
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { DirectoryMembersOverview } from "#/components/directory/directory-members-overview";
 import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
+import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildProfileHomeRoutes } from "#/lib/profile-routes";
@@ -85,6 +90,7 @@ export function PeopleAndAgentsPage(input: {
 	const [isCreateProfileOpen, setIsCreateProfileOpen] = useState(false);
 	const [agentProfileFilter, setAgentProfileFilter] =
 		useState<AgentProfileListFilter>("all");
+	const [agentProfileSearchQuery, setAgentProfileSearchQuery] = useState("");
 	const isOrganizationContext = currentOrganization.isPersonal !== true;
 	const activeAgentView = resolveActiveAgentView({
 		activeAgentView: input.activeAgentView,
@@ -181,6 +187,7 @@ export function PeopleAndAgentsPage(input: {
 		<>
 			<AgentsWorkspaceHome
 				activeView={activeAgentView}
+				agentProfileSearchQuery={agentProfileSearchQuery}
 				availabilityFilter={resolveAgentProfileAvailabilityFilter(
 					agentProfileFilter
 				)}
@@ -213,6 +220,12 @@ export function PeopleAndAgentsPage(input: {
 				organizationId={currentOrganization.id}
 				orgSlug={orgSlug}
 				recovery={recovery}
+				searchControl={
+					<AgentProfileSearchInput
+						onValueChange={setAgentProfileSearchQuery}
+						value={agentProfileSearchQuery}
+					/>
+				}
 				selectedProfileId={input.focusProfileId}
 			/>
 			{createProfileDialog}
@@ -235,6 +248,7 @@ function resolveActiveAgentView(input: {
 function AgentsWorkspaceHome(input: {
 	activeView: "agents" | "requests";
 	availabilityFilter: AgentProfileAvailabilityFilter;
+	agentProfileSearchQuery: string;
 	currentUserId: string;
 	directoryQuery: OrganizationDirectoryQueryState;
 	fallbackOwnerLabel: string;
@@ -248,6 +262,7 @@ function AgentsWorkspaceHome(input: {
 	organizationId: string;
 	orgSlug: string;
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
+	searchControl: ReactNode;
 	selectedProfileId: string | null;
 }) {
 	const queryClient = useQueryClient();
@@ -278,7 +293,7 @@ function AgentsWorkspaceHome(input: {
 	const readinessByProfileId = organizationAgentProjection.readinessByProfileId;
 	const errorByProfileId = EMPTY_AGENT_PROFILE_READINESS_ERROR_BY_PROFILE_ID;
 	const pendingProfileIds = EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS;
-	const visibleAgentProfiles = useMemo(
+	const availabilityFilteredAgentProfiles = useMemo(
 		() =>
 			sortAgentProfilesForDisplay({
 				profiles: agentProfiles,
@@ -295,11 +310,33 @@ function AgentsWorkspaceHome(input: {
 			),
 		[agentProfiles, input.availabilityFilter, readinessByProfileId]
 	);
+	const normalizedSearchQuery = normalizeAgentProfileSearchText(
+		input.agentProfileSearchQuery
+	);
+	const visibleAgentProfiles = useMemo(
+		() =>
+			normalizedSearchQuery.length === 0
+				? availabilityFilteredAgentProfiles
+				: availabilityFilteredAgentProfiles.filter((profile) =>
+						matchesAgentProfileSearch({
+							profile,
+							query: normalizedSearchQuery,
+							readiness:
+								readinessByProfileId.get(profile.openMeldProfileId) ?? null,
+						})
+					),
+		[
+			availabilityFilteredAgentProfiles,
+			normalizedSearchQuery,
+			readinessByProfileId,
+		]
+	);
 	const sidebarAgentProfiles = useMemo(() => {
 		const selectedProfile = agentProfiles.find(
 			(profile) => profile.openMeldProfileId === input.selectedProfileId
 		);
 		if (
+			normalizedSearchQuery.length > 0 ||
 			!selectedProfile ||
 			visibleAgentProfiles.some(
 				(profile) =>
@@ -309,7 +346,20 @@ function AgentsWorkspaceHome(input: {
 			return visibleAgentProfiles;
 		}
 		return [selectedProfile, ...visibleAgentProfiles];
-	}, [agentProfiles, input.selectedProfileId, visibleAgentProfiles]);
+	}, [
+		agentProfiles,
+		input.selectedProfileId,
+		normalizedSearchQuery,
+		visibleAgentProfiles,
+	]);
+	const sidebarSelectedProfileId =
+		normalizedSearchQuery.length > 0 &&
+		input.selectedProfileId !== null &&
+		!sidebarAgentProfiles.some(
+			(profile) => profile.openMeldProfileId === input.selectedProfileId
+		)
+			? null
+			: input.selectedProfileId;
 	const requestsQuery = useQuery(
 		agentProfileCreationRequestsQueryOptions({
 			enabled: input.isOrganizationContext,
@@ -360,6 +410,7 @@ function AgentsWorkspaceHome(input: {
 			filterControl={input.filterControl}
 			hasAnyProfiles={agentProfiles.length > 0}
 			initialSidebarStates={input.initialSidebarStates}
+			isSearchActive={normalizedSearchQuery.length > 0}
 			onCreateAgent={input.onCreateAgent}
 			onSelectProfile={input.onSelectProfile}
 			onViewChange={input.onViewChange}
@@ -414,10 +465,73 @@ function AgentsWorkspaceHome(input: {
 				/>
 			)}
 			requestPanel={requestPanel}
-			selectedProfileId={input.selectedProfileId}
+			searchControl={input.searchControl}
+			selectedProfileId={sidebarSelectedProfileId}
 			showAgentRequests={input.isOrganizationContext}
 		/>
 	);
+}
+
+function AgentProfileSearchInput(input: {
+	onValueChange: (value: string) => void;
+	value: string;
+}) {
+	return (
+		<div className="relative min-w-0 flex-1">
+			<MagnifyingGlassIcon
+				aria-hidden="true"
+				className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+			/>
+			<Input
+				aria-label="Search Agents"
+				autoComplete="off"
+				className="pl-7"
+				name="agent-search"
+				onChange={(event) => input.onValueChange(event.target.value)}
+				placeholder="Search Agents"
+				spellCheck={false}
+				type="search"
+				value={input.value}
+			/>
+		</div>
+	);
+}
+
+function matchesAgentProfileSearch(input: {
+	profile: AuthProfileView;
+	query: string;
+	readiness:
+		| OrganizationDirectoryResponse["agentProfiles"][number]["readiness"]
+		| null;
+}): boolean {
+	const agentControllerRef =
+		input.readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
+		input.readiness?.agentControllerRef ??
+		null;
+	const parsedControllerRef = parseAgentControllerRef(agentControllerRef);
+	const searchableText = normalizeAgentProfileSearchText(
+		[
+			input.profile.profileName,
+			input.profile.profileHandle,
+			input.profile.ownerName,
+			parsedControllerRef?.id,
+			parsedControllerRef
+				? formatLocalAgentDisplayName(parsedControllerRef.id)
+				: null,
+			input.readiness?.primaryBinding?.modelSelection?.modelId,
+		]
+			.filter((value): value is string => Boolean(value))
+			.join(" ")
+	);
+	return input.query.split(" ").every((term) => searchableText.includes(term));
+}
+
+function normalizeAgentProfileSearchText(value: string): string {
+	return value
+		.normalize("NFKD")
+		.toLocaleLowerCase("en")
+		.replace(/[^a-z0-9]+/g, " ")
+		.trim();
 }
 
 function resolveAgentProfilesStatus(input: {
@@ -463,12 +577,12 @@ function AgentProfileFilterSelect(input: {
 		>
 			<SelectTrigger
 				aria-label={`Filter Agents. Current filter: ${displayValue}.`}
-				className="size-7 min-w-0 justify-center px-0 text-muted-foreground hover:text-foreground [&>span>span]:sr-only [&>span]:flex-none [&>svg]:hidden"
+				className="size-8 min-w-0 justify-center px-0 text-muted-foreground hover:text-foreground [&>span>span]:sr-only [&>span]:flex-none [&>svg]:hidden"
 				displayValue={displayValue}
 				icon={FunnelSimpleIcon}
 				variant="borderless"
 			/>
-			<SelectContent className="w-44 -translate-x-[calc(100%-1.75rem)]">
+			<SelectContent className="w-44 -translate-x-[calc(100%-2rem)]">
 				{options.map((option, index) => (
 					<SelectItem index={index} key={option.value} value={option.value}>
 						<span className="sr-only">
