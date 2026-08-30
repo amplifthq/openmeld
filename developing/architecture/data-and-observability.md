@@ -93,6 +93,17 @@ Forward cleanup uses exact keys in the terminal transaction; old inactive rows
 are removed only by the existing 128-row index-repair pages. Neither path scans
 the owner shard or adds work to new-Wake admission.
 
+Queued-work recovery Inbox projection uses a current intent in the same owner
+shard. Creating or replacing the intent schedules the shared Durable Object
+alarm. Housekeeping reads at most eight pending intents per run; Profile state
+and Operational Context reads never fan out into Inbox writes. After the
+idempotent D1 Inbox write succeeds, one Durable Object transaction verifies the
+same intent, interrupted head, and admission state. Resolving an item deletes
+the intent and retires the exact current head and lifecycle-index reference in
+that transaction. Any D1 or Durable Object failure leaves the intent available
+for the next alarm retry. This uses no cron, owner-shard scan, or Wake hot-path
+work.
+
 The long-term data domains are:
 
 Auth also owns the account's last-selected Organization entry preference. Auth

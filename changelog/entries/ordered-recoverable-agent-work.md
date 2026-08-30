@@ -15,5 +15,6 @@ conversation, OpenMeld keeps the Wake at the front of the queue and continues
 as soon as Codex releases it instead of reporting a false failure. Stopping that
 Wake ends the wait immediately, even when Codex's local writer signal is
 temporarily unavailable. Work details also stay reliable in large Agent
-directories, and finished work no longer leaves stale coordinator state
+directories, recovery prompts retry safely after temporary storage failures,
+and finished work no longer leaves stale coordinator state
 accumulating behind the scenes.

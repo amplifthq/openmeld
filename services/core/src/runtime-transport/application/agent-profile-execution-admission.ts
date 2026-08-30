@@ -29,8 +29,11 @@ import {
   type PendingAgentProfileWorkPromotion,
 } from "./agent-profile-work-promotion";
 import {
+  type AgentProfileWorkRecoveryInboxProjectionIntent,
   buildAgentProfileWorkRecoveryInboxProjectionIntent,
   buildAgentProfileWorkRecoveryInboxProjectionStorageKey,
+  parseAgentProfileWorkRecoveryInboxProjectionIntent,
+  sameAgentProfileWorkRecoveryInboxProjectionIntent,
 } from "./agent-profile-work-recovery-inbox-projection";
 import {
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
@@ -65,6 +68,7 @@ const EXECUTION_INDEX_REPAIR_RETRY_BASE_MS = 5000;
 const EXECUTION_INDEX_REPAIR_RETRY_MAX_MS = 5 * 60_000;
 const EXECUTION_TARGET_MUTATION_LEASE_MS = 5 * 60_000;
 const DURABLE_OBJECT_STORAGE_GET_MAX_KEYS = 128;
+const DURABLE_OBJECT_STORAGE_GET_MAX_CONCURRENCY = 4;
 const MAX_EXECUTION_ADMISSION_REFERENCES_PER_KIND = 128;
 const EXECUTION_STATE_UNAVAILABLE_REASON =
   "runtime_coordinator.execution_state_unavailable";
@@ -838,7 +842,8 @@ export async function releaseRuntimeCoordinatorAgentProfileExecutionTargetMutati
   });
 }
 
-export async function retireRuntimeCoordinatorAgentProfileHeadCurrentState(input: {
+export async function completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxProjection(input: {
+  intent: AgentProfileWorkRecoveryInboxProjectionIntent;
   nowMs: number;
   record: RuntimeCoordinatorHeadLifecycleRecord;
   storage: ExecutionAdmissionStorage;
@@ -864,16 +869,28 @@ export async function retireRuntimeCoordinatorAgentProfileHeadCurrentState(input
           )
         ),
       ]);
-    if (rawHead === undefined) {
-      return true;
-    }
+    const recoveryProjection =
+      parseAgentProfileWorkRecoveryInboxProjectionIntent(rawRecoveryProjection);
     if (
-      !isRuntimeCoordinatorHeadLifecycleRecord(rawHead) ||
+      !(
+        recoveryProjection &&
+        sameAgentProfileWorkRecoveryInboxProjectionIntent(
+          recoveryProjection,
+          input.intent
+        ) &&
+        isRuntimeCoordinatorHeadLifecycleRecord(rawHead)
+      ) ||
       rawHead.ownerUserId !== input.record.ownerUserId ||
       rawHead.targetWakeLifecycleId !== input.record.targetWakeLifecycleId ||
       rawHead.targetWakeLifecycleIdentity.targetProfileId !== targetProfileId
     ) {
       return false;
+    }
+    const recoveryProjectionStorageKey =
+      buildAgentProfileWorkRecoveryInboxProjectionStorageKey(targetProfileId);
+    if (input.intent.desiredStatus === "open") {
+      await transaction.delete(recoveryProjectionStorageKey);
+      return true;
     }
     const admission = parseExecutionAdmissionRecord(rawAdmission);
     if (
@@ -886,10 +903,6 @@ export async function retireRuntimeCoordinatorAgentProfileHeadCurrentState(input
       currentStateReferenceRetainsHead(
         rawPromotion,
         input.record.targetWakeLifecycleId
-      ) ||
-      currentStateReferenceRetainsHead(
-        rawRecoveryProjection,
-        input.record.targetWakeLifecycleId
       )
     ) {
       return false;
@@ -899,6 +912,7 @@ export async function retireRuntimeCoordinatorAgentProfileHeadCurrentState(input
       RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY
     );
     const writes: Promise<unknown>[] = [
+      transaction.delete(recoveryProjectionStorageKey),
       transaction.delete(headStorageKey),
       transaction.put(
         RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
@@ -1260,6 +1274,7 @@ export async function approveRuntimeCoordinatorAgentProfileWorkQueue(input: {
           updatedAtMs: input.nowMs,
         })
       ),
+      transaction.setAlarm(input.nowMs),
     ]);
     return { pendingPromotion, status: "approved" as const };
   });
@@ -2755,20 +2770,23 @@ async function removeTerminalAgentProfileWorkAndPromoteSuccessor(input: {
     coordinator.recoveryGate?.status === "continuation_running" &&
     removal.coordinator.recoveryGate?.status === "awaiting_owner_approval"
   ) {
-    await input.transaction.put(
-      buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
-        input.admission.targetProfileId
+    await Promise.all([
+      input.transaction.put(
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+          input.admission.targetProfileId
+        ),
+        buildAgentProfileWorkRecoveryInboxProjectionIntent({
+          desiredStatus: "open",
+          occurredAtMs: removal.coordinator.recoveryGate.updatedAtMs,
+          targetProfileId: input.admission.targetProfileId,
+          targetWakeLifecycleId:
+            removal.coordinator.recoveryGate.interruptedWork
+              .targetWakeLifecycleId,
+          updatedAtMs: input.nowMs,
+        })
       ),
-      buildAgentProfileWorkRecoveryInboxProjectionIntent({
-        desiredStatus: "open",
-        occurredAtMs: removal.coordinator.recoveryGate.updatedAtMs,
-        targetProfileId: input.admission.targetProfileId,
-        targetWakeLifecycleId:
-          removal.coordinator.recoveryGate.interruptedWork
-            .targetWakeLifecycleId,
-        updatedAtMs: input.nowMs,
-      })
-    );
+      input.transaction.setAlarm(input.nowMs),
+    ]);
   }
   if (!removal.promotedItem) {
     return { admission: nextAdmission, pendingPromotion: null };
@@ -3447,10 +3465,24 @@ async function readStorageValuesInBatches(
       keys.slice(offset, offset + DURABLE_OBJECT_STORAGE_GET_MAX_KEYS)
     );
   }
-  const results = await Promise.all(
-    batches.map((batch) => storage.get<unknown>(batch))
-  );
-  return new Map(results.flatMap((result) => [...result.entries()]));
+  const values = new Map<string, unknown>();
+  for (
+    let offset = 0;
+    offset < batches.length;
+    offset += DURABLE_OBJECT_STORAGE_GET_MAX_CONCURRENCY
+  ) {
+    const results = await Promise.all(
+      batches
+        .slice(offset, offset + DURABLE_OBJECT_STORAGE_GET_MAX_CONCURRENCY)
+        .map((batch) => storage.get<unknown>(batch))
+    );
+    for (const result of results) {
+      for (const [key, value] of result) {
+        values.set(key, value);
+      }
+    }
+  }
+  return values;
 }
 
 // Kept exported for storage-level tests and compatibility repair diagnostics.

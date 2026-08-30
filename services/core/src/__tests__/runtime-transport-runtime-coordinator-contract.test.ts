@@ -39,6 +39,10 @@ import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys,
 } from "../runtime-transport/application/agent-profile-execution-admission";
+import {
+  buildAgentProfileWorkRecoveryInboxProjectionIntent,
+  buildAgentProfileWorkRecoveryInboxProjectionStorageKey,
+} from "../runtime-transport/application/agent-profile-work-recovery-inbox-projection";
 import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
 import {
   buildRuntimeCoordinatorFinalizationOutcomeStorageKey,
@@ -1077,20 +1081,29 @@ const createHarness = (input?: {
     return Promise.resolve();
   });
   let maxStorageGetKeys = input?.maxStorageGetKeys;
-  const storageGet = vi.fn((key: string | string[]) => {
-    if (
-      Array.isArray(key) &&
-      maxStorageGetKeys !== undefined &&
-      key.length > maxStorageGetKeys
-    ) {
-      return Promise.reject(
-        new Error(
-          `Durable Object storage.get exceeded ${maxStorageGetKeys} keys`
-        )
+  let activeArrayStorageGetCount = 0;
+  let maxConcurrentArrayStorageGetCount = 0;
+  const storageGet = vi.fn(async (key: string | string[]) => {
+    const isArrayRead = Array.isArray(key);
+    if (isArrayRead) {
+      activeArrayStorageGetCount += 1;
+      maxConcurrentArrayStorageGetCount = Math.max(
+        maxConcurrentArrayStorageGetCount,
+        activeArrayStorageGetCount
       );
+      await Promise.resolve();
     }
-    return Promise.resolve(
-      Array.isArray(key)
+    try {
+      if (
+        isArrayRead &&
+        maxStorageGetKeys !== undefined &&
+        key.length > maxStorageGetKeys
+      ) {
+        throw new Error(
+          `Durable Object storage.get exceeded ${maxStorageGetKeys} keys`
+        );
+      }
+      return isArrayRead
         ? new Map(
             key.flatMap((entry) =>
               storageRecords.has(entry)
@@ -1098,8 +1111,12 @@ const createHarness = (input?: {
                 : []
             )
           )
-        : storageRecords.get(key)
-    );
+        : storageRecords.get(key);
+    } finally {
+      if (isArrayRead) {
+        activeArrayStorageGetCount -= 1;
+      }
+    }
   });
   const storageDelete = vi.fn(async (key: string) =>
     storageRecords.delete(key)
@@ -1279,9 +1296,14 @@ const createHarness = (input?: {
     appliedFailurePublicationCommands,
     appliedFinalizationCommands,
     recordingD1,
+    getMaxConcurrentArrayStorageGets: () => maxConcurrentArrayStorageGetCount,
     queuedObservationRedrives,
     queueSend,
     sentFrames,
+    resetArrayStorageGetConcurrency: () => {
+      activeArrayStorageGetCount = 0;
+      maxConcurrentArrayStorageGetCount = 0;
+    },
     setMaxStorageGetKeys: (value: number | undefined) => {
       maxStorageGetKeys = value;
     },
@@ -3692,7 +3714,6 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "reply_published",
       },
     });
-
     const admissionAfterTerminal = storageRecords.get(
       runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
         TARGET_AGENT_PROFILE_ID
@@ -4250,8 +4271,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("projects and resolves the queued-work approval from Coordinator truth", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness();
+    const {
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+      storageSetAlarm,
+    } = createHarness();
     const { admissionKey, authority } =
       await prepareRunningContinuationWithQueuedWork({
         hub,
@@ -4261,6 +4289,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         state,
         storageRecords,
       });
+    storageSetAlarm.mockClear();
     await (
       hub as unknown as {
         writeRuntimeCoordinatorTokenAuthority: (
@@ -4276,6 +4305,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "reply_published",
       },
     });
+    expect(storageSetAlarm).toHaveBeenCalledWith(expect.any(Number));
 
     expect(storageRecords.get(admissionKey)).toMatchObject({
       recoveryGate: { status: "awaiting_owner_approval" },
@@ -4283,6 +4313,22 @@ describe("runtime transport runtime coordinator transport contract", () => {
         expect.objectContaining({ dispatchId: "dispatch-owner-approval" }),
       ],
     });
+    expect([...recordingD1.interactionInboxRows.values()]).toEqual([]);
+    await (
+      hub as unknown as {
+        rpcReadAgentProfileOperationalContexts: (input: {
+          includeWorkReferences: boolean;
+          ownerUserId: string;
+          targetProfileIds: string[];
+        }) => Promise<unknown>;
+      }
+    ).rpcReadAgentProfileOperationalContexts({
+      includeWorkReferences: false,
+      ownerUserId: "owner-1",
+      targetProfileIds: [TARGET_AGENT_PROFILE_ID],
+    });
+    expect([...recordingD1.interactionInboxRows.values()]).toEqual([]);
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([
       expect.objectContaining({
         attention: "action_required",
@@ -4329,18 +4375,97 @@ describe("runtime transport runtime coordinator transport contract", () => {
       [...recordingD1.interactionInboxRows.values()].find(
         (row) => row.source_key === projectedApproval?.source_key
       )
+    ).toMatchObject({ resolution_status: "open" });
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect(
+      [...recordingD1.interactionInboxRows.values()].find(
+        (row) => row.source_key === projectedApproval?.source_key
+      )
     ).toMatchObject({ resolution_status: "resolved" });
     expect(
       recordingD1.interactionInboxRows.get("unrelated-recovery")
     ).toMatchObject({ resolution_status: "open" });
   });
 
-  it("repairs queued-work Inbox projection without rolling back Coordinator truth", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness({
-        interactionInboxResolveFailures: 1,
-        interactionInboxWriteFailures: 1,
+  it("bounds recovery Inbox projection work per housekeeping alarm", async () => {
+    const { hub, recordingD1, storageRecords } = createHarness();
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const baseIdentity =
+      buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
+    const baseHead = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        baseIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const projectionKeys: string[] = [];
+
+    for (let index = 0; index < 9; index += 1) {
+      const targetProfileId = `agt_${(index + 20)
+        .toString(16)
+        .padStart(8, "0")}-3333-4333-8333-${(index + 20)
+        .toString(16)
+        .padStart(12, "0")}`;
+      const dispatchId = `dispatch-recovery-housekeeping-${index}`;
+      const identity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `client-message-recovery-housekeeping-${index}`,
+        dispatchId,
+        sourceSignalId: `signal-recovery-housekeeping-${index}`,
+        spaceId: String(index + 1).repeat(64),
+        targetProfileId,
       });
+      storageRecords.set(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          identity.targetWakeLifecycleId
+        ),
+        {
+          ...baseHead,
+          primaryDispatchId: dispatchId,
+          primaryIdempotencyKey: `idempotency-recovery-housekeeping-${index}`,
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: identity,
+        }
+      );
+      const projectionKey =
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(targetProfileId);
+      projectionKeys.push(projectionKey);
+      storageRecords.set(
+        projectionKey,
+        buildAgentProfileWorkRecoveryInboxProjectionIntent({
+          desiredStatus: "open",
+          occurredAtMs: 1_700_000_000_000 + index,
+          targetProfileId,
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+          updatedAtMs: 1_700_000_000_000 + index,
+        })
+      );
+    }
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect(recordingD1.interactionInboxRows.size).toBe(8);
+    expect(
+      projectionKeys.filter((key) => storageRecords.has(key))
+    ).toHaveLength(1);
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect(recordingD1.interactionInboxRows.size).toBe(9);
+    expect(
+      projectionKeys.filter((key) => storageRecords.has(key))
+    ).toHaveLength(0);
+  });
+
+  it("repairs queued-work Inbox projection without rolling back Coordinator truth", async () => {
+    const {
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+      storageTransaction,
+    } = createHarness({
+      interactionInboxResolveFailures: 1,
+      interactionInboxWriteFailures: 1,
+    });
     const { admissionKey, authority } =
       await prepareRunningContinuationWithQueuedWork({
         hub,
@@ -4373,9 +4498,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([]);
 
-    await authorityWriter.writeRuntimeCoordinatorTokenAuthority(
-      terminalAuthority
-    );
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...recordingD1.interactionInboxRows.values()]).toEqual([]);
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([
       expect.objectContaining({ resolution_status: "open" }),
     ]);
@@ -4417,8 +4543,39 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     ).resolves.toEqual({ status: "active" });
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({ resolution_status: "open" }),
+    ]);
+
+    const recoveryProjectionKey =
+      buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const resolvedIntent = storageRecords.get(recoveryProjectionKey) as {
+      targetWakeLifecycleId: string;
+    };
+    const interruptedHeadKey = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+      resolvedIntent.targetWakeLifecycleId
+    );
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({ resolution_status: "open" }),
+    ]);
+    expect(storageRecords.has(recoveryProjectionKey)).toBe(true);
+    expect(storageRecords.has(interruptedHeadKey)).toBe(true);
+
+    storageTransaction.mockRejectedValueOnce(
+      new Error("recovery projection transaction unavailable")
+    );
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
       expect.objectContaining({ resolution_status: "resolved" }),
     ]);
+    expect(storageRecords.has(recoveryProjectionKey)).toBe(true);
+    expect(storageRecords.has(interruptedHeadKey)).toBe(true);
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect(storageRecords.has(recoveryProjectionKey)).toBe(false);
+    expect(storageRecords.has(interruptedHeadKey)).toBe(false);
   });
 
   it("atomically approves and redrives queued work after the interrupted continuation succeeds", async () => {
@@ -4514,6 +4671,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
       path: "/internal/dispatches/dispatch-recovery-approved/redrive",
     });
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
     expect(
       storageRecords.has(
         buildRuntimeCoordinatorHeadLifecycleStorageKey(
@@ -5195,35 +5353,43 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("reads owner work references in Cloudflare-safe batches across Profiles", async () => {
-    const { hub, setMaxStorageGetKeys, storageGet } = createHarness();
-    const targetProfileIds = [
-      TARGET_AGENT_PROFILE_ID,
-      "agt_22222222-2222-4222-8222-222222222222",
-      "agt_33333333-3333-4333-8333-333333333333",
-    ];
+    const {
+      getMaxConcurrentArrayStorageGets,
+      hub,
+      resetArrayStorageGetConcurrency,
+      setMaxStorageGetKeys,
+      storageGet,
+      storageRecords,
+    } = createHarness();
+    const targetProfileIds = Array.from({ length: 100 }, (_, index) =>
+      index === 0
+        ? TARGET_AGENT_PROFILE_ID
+        : `agt_${(index + 1).toString(16).padStart(8, "0")}-2222-4222-8222-${(
+            index + 1
+          )
+            .toString(16)
+            .padStart(12, "0")}`
+    );
 
-    for (const [profileIndex, targetProfileId] of targetProfileIds.entries()) {
-      for (let workIndex = 0; workIndex <= 50; workIndex += 1) {
-        const suffix = `${profileIndex}-${workIndex}`;
-        const dispatchId = `dispatch-batched-context-${suffix}`;
-        const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
-          clientMessageId: `client-message-batched-context-${suffix}`,
+    for (let workIndex = 0; workIndex <= 50; workIndex += 1) {
+      const dispatchId = `dispatch-batched-context-0-${workIndex}`;
+      const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `client-message-batched-context-0-${workIndex}`,
+        dispatchId,
+        sourceSignalId: `signal-batched-context-0-${workIndex}`,
+        spaceId: "1".repeat(64),
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+      const response = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        buildRuntimeCoordinatorHeadAcceptRequest({
           dispatchId,
-          sourceSignalId: `signal-batched-context-${suffix}`,
-          spaceId: String(profileIndex + 1).repeat(64),
-          targetProfileId,
-        });
-        const response = await fetchRuntimeTransportJson(
-          hub,
-          "/runtime-coordinator/head/accept",
-          buildRuntimeCoordinatorHeadAcceptRequest({
-            dispatchId,
-            idempotencyKey: `idempotency-batched-context-${suffix}`,
-            targetWakeLifecycleIdentity,
-          })
-        );
-        expect(response.status).toBe(200);
-      }
+          idempotencyKey: `idempotency-batched-context-0-${workIndex}`,
+          targetWakeLifecycleIdentity,
+        })
+      );
+      expect(response.status).toBe(200);
     }
     await (
       hub as unknown as {
@@ -5236,10 +5402,89 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).rpcReadAgentProfileOperationalContexts({
       includeWorkReferences: false,
       ownerUserId: "owner-1",
-      targetProfileIds,
+      targetProfileIds: [TARGET_AGENT_PROFILE_ID],
     });
     await finishExecutionIndexGenerationRepair(hub);
+    const sourceAdmissionKey =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const sourceAdmission = storageRecords.get(sourceAdmissionKey) as {
+      activeHeadLifecycleIds: string[];
+      generation: number;
+      workItems: Array<{
+        dispatchId: string;
+        enqueuedAtMs: number;
+        targetWakeLifecycleId: string;
+      }>;
+    } & Record<string, unknown>;
+    const sourceHeads = sourceAdmission.workItems.map(
+      ({ targetWakeLifecycleId }) =>
+        storageRecords.get(
+          buildRuntimeCoordinatorHeadLifecycleStorageKey(targetWakeLifecycleId)
+        ) as RuntimeCoordinatorHeadLifecycleRecord
+    );
+    for (const [profileIndex, targetProfileId] of targetProfileIds
+      .slice(1)
+      .entries()) {
+      const workItems = sourceAdmission.workItems.map(
+        (sourceWork, workIndex) => {
+          const suffix = `${profileIndex + 1}-${workIndex}`;
+          const dispatchId = `dispatch-batched-context-${suffix}`;
+          const targetWakeLifecycleIdentity =
+            projectTargetWakeLifecycleIdentity({
+              clientMessageId: `client-message-batched-context-${suffix}`,
+              dispatchId,
+              sourceSignalId: `signal-batched-context-${suffix}`,
+              spaceId: String((profileIndex % 9) + 1).repeat(64),
+              targetProfileId,
+            });
+          const sourceHead = sourceHeads[workIndex];
+          if (!sourceHead) {
+            throw new Error("Expected source work head.");
+          }
+          storageRecords.set(
+            buildRuntimeCoordinatorHeadLifecycleStorageKey(
+              targetWakeLifecycleIdentity.targetWakeLifecycleId
+            ),
+            {
+              ...sourceHead,
+              primaryDispatchId: dispatchId,
+              primaryIdempotencyKey: `idempotency-batched-context-${suffix}`,
+              targetWakeLifecycleId:
+                targetWakeLifecycleIdentity.targetWakeLifecycleId,
+              targetWakeLifecycleIdentity,
+            }
+          );
+          return {
+            dispatchId,
+            enqueuedAtMs: sourceWork.enqueuedAtMs,
+            targetWakeLifecycleId:
+              targetWakeLifecycleIdentity.targetWakeLifecycleId,
+          };
+        }
+      );
+      storageRecords.set(
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+          targetProfileId
+        ),
+        {
+          ...sourceAdmission,
+          activeHeadLifecycleIds: [workItems[0]?.targetWakeLifecycleId],
+          targetProfileId,
+          workItems,
+        }
+      );
+    }
+    const activeProfileIndex = storageRecords.get(
+      "runtime-coordinator:agent-profile-active-index:v1"
+    ) as Record<string, unknown>;
+    storageRecords.set("runtime-coordinator:agent-profile-active-index:v1", {
+      ...activeProfileIndex,
+      targetProfileIds,
+    });
     setMaxStorageGetKeys(128);
+    resetArrayStorageGetConcurrency();
 
     const operationalContextHub = hub as unknown as {
       rpcReadAgentProfileOperationalContexts: (input: {
@@ -5268,38 +5513,24 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(
       result.contexts.map(({ targetProfileId }) => targetProfileId)
     ).toEqual(targetProfileIds);
+    expect(result.contexts).toHaveLength(100);
     expect(
-      result.contexts.map(({ operationalContext }) => ({
-        current: operationalContext.currentWorkReference?.sourceSignalId,
-        queued: operationalContext.queuedWorkReferences?.length,
-        status: operationalContext.status,
-        waitingCount: operationalContext.waitingCount,
-      }))
-    ).toEqual([
-      {
-        current: "signal-batched-context-0-0",
-        queued: 50,
-        status: "working",
-        waitingCount: 50,
-      },
-      {
-        current: "signal-batched-context-1-0",
-        queued: 50,
-        status: "working",
-        waitingCount: 50,
-      },
-      {
-        current: "signal-batched-context-2-0",
-        queued: 50,
-        status: "working",
-        waitingCount: 50,
-      },
-    ]);
+      result.contexts.every(
+        ({ operationalContext }) =>
+          operationalContext.status === "working" &&
+          operationalContext.waitingCount === 50 &&
+          operationalContext.queuedWorkReferences?.length === 50
+      )
+    ).toBe(true);
+    expect(result.contexts[0]?.operationalContext).toMatchObject({
+      currentWorkReference: { sourceSignalId: "signal-batched-context-0-0" },
+    });
     expect(
       storageGet.mock.calls
         .map(([key]) => (Array.isArray(key) ? key.length : 1))
         .every((keyCount) => keyCount <= 128)
     ).toBe(true);
+    expect(getMaxConcurrentArrayStorageGets()).toBeLessThanOrEqual(4);
   });
 
   it("preserves recovery-only work across an execution-index generation repair", async () => {
