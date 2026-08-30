@@ -29,6 +29,10 @@ import {
   resolveInstalledOpenCodeLaunchCandidates,
   verifyOpenCodeLaunchContract,
 } from "@openmeld/adapter-opencode";
+import {
+  type AgentControllerUsageLimitSupport,
+  resolveAgentControllerUsageLimitSupport,
+} from "@openmeld/agent-runtime";
 import type {
   AgentControllerInterfaceCapabilities,
   AgentControllerInterfaceNativeInterface,
@@ -92,10 +96,7 @@ export type BuiltinAgentControllerDefinition = {
 };
 
 export type BuiltinAgentControllerUsageLimitSupport =
-  | "native"
-  | "not_evaluated"
-  | "passive"
-  | "unsupported";
+  AgentControllerUsageLimitSupport;
 
 export const EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES = {
   approvals: false,
@@ -126,7 +127,9 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyClaudeCodeLaunchContract,
     },
     nativeInterface: "claude-agent-sdk",
-    usageLimitSupport: "passive",
+    usageLimitSupport: resolveAgentControllerUsageLimitSupport(
+      "builtin:claude-code"
+    ),
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "claude-code" },
       npmPackageName: "@anthropic-ai/claude-code",
@@ -156,7 +159,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyCodexLaunchContract,
     },
     nativeInterface: "codex-app-server",
-    usageLimitSupport: "native",
+    usageLimitSupport: resolveAgentControllerUsageLimitSupport("builtin:codex"),
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "codex" },
       hostApplicationPath: isCodexHostApplicationCommandPath,
@@ -173,7 +176,8 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyOpenClawLaunchContract,
     },
     nativeInterface: "local-cli",
-    usageLimitSupport: "not_evaluated",
+    usageLimitSupport:
+      resolveAgentControllerUsageLimitSupport("builtin:openclaw"),
   },
   {
     adapterId: "cursor",
@@ -193,7 +197,8 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyCursorLaunchContract,
     },
     nativeInterface: "acp",
-    usageLimitSupport: "unsupported",
+    usageLimitSupport:
+      resolveAgentControllerUsageLimitSupport("builtin:cursor"),
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "cursor-cli" },
       officialChannels: [
@@ -223,7 +228,8 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyGrokBuildLaunchContract,
     },
     nativeInterface: "acp",
-    usageLimitSupport: "native",
+    usageLimitSupport:
+      resolveAgentControllerUsageLimitSupport("builtin:grok-build"),
     versionMaintenance: {
       officialChannels: [
         {
@@ -255,7 +261,8 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyOpenCodeLaunchContract,
     },
     nativeInterface: "local-cli",
-    usageLimitSupport: "unsupported",
+    usageLimitSupport:
+      resolveAgentControllerUsageLimitSupport("builtin:opencode"),
     versionMaintenance: {
       homebrewPackage: { kind: "formula", name: "opencode" },
       npmPackageName: "opencode-ai",

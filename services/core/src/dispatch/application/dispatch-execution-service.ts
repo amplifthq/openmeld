@@ -3194,6 +3194,7 @@ async function resolveTargetUsageWakeability(input: {
     !targetBindingSnapshot.agentControllerRef
   ) {
     return resolveAgentProfileUsageWakeability({
+      agentControllerRef: targetBindingSnapshot.agentControllerRef ?? "",
       nowMs: Date.now(),
       report: null,
     });
@@ -3208,6 +3209,7 @@ async function resolveTargetUsageWakeability(input: {
       },
     });
     return resolveAgentProfileUsageWakeability({
+      agentControllerRef: targetBindingSnapshot.agentControllerRef,
       nowMs: Date.now(),
       report: report
         ? {
@@ -3224,6 +3226,7 @@ async function resolveTargetUsageWakeability(input: {
       openMeldServiceRuntimeId: targetBindingSnapshot.openMeldServiceRuntimeId,
     });
     return resolveAgentProfileUsageWakeability({
+      agentControllerRef: targetBindingSnapshot.agentControllerRef,
       nowMs: Date.now(),
       report: null,
     });

@@ -49,6 +49,11 @@ export {
   runtimeAgentControllerRefMatchesAdapterSnapshot,
 } from "./agent-controller-ref";
 export {
+  AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+  type AgentControllerUsageLimitSupport,
+  resolveAgentControllerUsageLimitSupport,
+} from "./agent-controller-usage-limit-support";
+export {
   DUPLICATE_REPLY_CONVERSATION_CONTEXT,
   DUPLICATE_REPLY_CONVERSATION_REASON,
   DUPLICATE_REPLY_CONVERSATION_TOOLTIP,

@@ -1130,6 +1130,7 @@ async function resolveAgentRuntimeReadiness(input: {
         report.agentControllerRef === executionTarget.agentControllerRef
     );
     const usageWakeability = resolveAgentProfileUsageWakeability({
+      agentControllerRef: executionTarget.agentControllerRef,
       nowMs: parseGeneratedAtMs(input.generatedAt),
       report: currentReport
         ? {
@@ -1140,6 +1141,9 @@ async function resolveAgentRuntimeReadiness(input: {
         : null,
     });
     if (usageWakeability.status === "available") {
+      return readiness;
+    }
+    if (usageWakeability.status === "checking" && !readiness.ready) {
       return readiness;
     }
     let displayState = readiness.displayState;

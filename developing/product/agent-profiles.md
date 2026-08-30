@@ -659,12 +659,16 @@ Usage participates in Wakeability only when the Local Agent exposes structured,
 reliable Usage Limits. A Local Agent that explicitly reports Usage as
 unsupported, or that has no reliable Usage capability because reporting is
 passive or not evaluated, does not use Usage as an admission condition. Once a
-structured report establishes supported Usage, a missing, stale, expired, or
-currently unavailable observation projects `Checking` and rejects a new Wake;
+Local Agent's versioned capability matrix declares native Usage support, a
+missing, stale, expired, or currently unavailable observation projects
+`Checking` and rejects a new Wake;
 OpenMeld must not promise acceptance while the required fact is unknown. A
 fresh exhausted Usage Limit projects `Unavailable` and blocks the Wake before
 admission. These decisions use the current report already held by Core and must
-not add a provider call to the Wake hot path.
+not add a provider call to the Wake hot path. Core and the Local Service consume
+the same matrix from `@openmeld/agent-runtime`; a Local Agent upgrade changes
+this behavior only through one reviewed matrix update backed by official
+provider evidence and a real smoke test.
 
 If a running Wake reports a structured `usage_exhausted` outcome, that Wake ends
 as a visible failure and the Coordinator holds every later Wake. When fresh

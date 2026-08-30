@@ -714,11 +714,12 @@ drift.
 
 Core may project `Unavailable` before a new Wake when the exact current Agent
 Controller report contains a reliable, fresh Usage Limit that explicitly says
-Usage is exhausted. After structured evidence establishes that the Local Agent
-supports reliable Usage, a missing, stale, expired, unavailable, or otherwise
-unconfirmed current observation projects `Checking` and rejects new Wake
-admission. Explicitly unsupported Usage and Local Agents whose Usage reporting
-is passive or not evaluated do not use Usage as an admission condition. A
+Usage is exhausted. When the shared versioned Local Agent capability matrix
+declares native Usage support, a missing, stale, expired, unavailable, or
+otherwise unconfirmed current observation projects `Checking` and rejects new
+Wake admission. Core and the Local Service must consume that same matrix.
+Explicitly unsupported Usage and Local Agents whose Usage reporting is passive
+or not evaluated do not use Usage as an admission condition. A
 percentage alone, low-capacity warning, generic quota wording, or ordinary
 transient `429` is never proof of exhaustion. Core derives all three outcomes
 from the already-held structured report and does not call the provider on the

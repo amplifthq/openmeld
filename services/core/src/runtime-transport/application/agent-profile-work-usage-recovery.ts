@@ -32,6 +32,7 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
   resumeInterruptedWork: ResumeUsageExhaustedAgentProfileWork;
 }): Promise<void> {
   const availability = resolveAgentProfileUsageRecoveryAvailability({
+    agentControllerRef: input.currentReport.agentControllerRef,
     nowMs: input.nowMs,
     report: {
       expiresAtMs: input.currentReport.expiresAtMs,

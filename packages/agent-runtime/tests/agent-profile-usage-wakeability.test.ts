@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+  resolveAgentControllerUsageLimitSupport,
   resolveAgentProfileUsageRecoveryAvailability,
   resolveAgentProfileUsageWakeability,
 } from "../src";
@@ -37,6 +39,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
   it("blocks new work only for reliable fresh Usage that is explicitly exhausted", () => {
     expect(
       resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:codex",
         nowMs: NOW_MS,
         report: {
           expiresAtMs: NOW_MS + 60_000,
@@ -54,10 +57,10 @@ describe("resolveAgentProfileUsageWakeability", () => {
   it.each([
     ["available", createUsageLimit("available")],
     ["unsupported", createUsageLimit("unsupported")],
-    ["not evaluated", undefined],
   ] as const)("does not let %s Usage block Wakeability", (_label, usageLimit) => {
     expect(
       resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:codex",
         nowMs: NOW_MS,
         report: {
           expiresAtMs: NOW_MS + 60_000,
@@ -78,6 +81,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
   ] as const)("keeps supported %s Usage in Checking until it can confirm capacity", (_label, usageLimit) => {
     expect(
       resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:codex",
         nowMs: NOW_MS,
         report: {
           expiresAtMs: NOW_MS + 60_000,
@@ -119,6 +123,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
     for (const value of cases) {
       expect(
         resolveAgentProfileUsageWakeability({
+          agentControllerRef: "builtin:codex",
           nowMs: NOW_MS,
           report: { ...value, status: "ready" },
         })
@@ -130,19 +135,66 @@ describe("resolveAgentProfileUsageWakeability", () => {
     }
   });
 
-  it("does not block when no report has established reliable Usage support", () => {
+  it("keeps a native Usage provider in Checking before its first reliable report", () => {
     expect(
-      resolveAgentProfileUsageWakeability({ nowMs: NOW_MS, report: null })
+      resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:codex",
+        nowMs: NOW_MS,
+        report: null,
+      })
     ).toEqual({
-      blocksNewWork: false,
-      reasonCode: null,
-      status: "available",
+      blocksNewWork: true,
+      reasonCode: "usage_checking",
+      status: "checking",
     });
+  });
+
+  it("does not use unreliable or unsupported Usage as a Wake condition", () => {
+    for (const agentControllerRef of [
+      "builtin:claude-code",
+      "builtin:cursor",
+      "builtin:opencode",
+      "builtin:openclaw",
+      "custom:unknown",
+    ]) {
+      expect(
+        resolveAgentProfileUsageWakeability({
+          agentControllerRef,
+          nowMs: NOW_MS,
+          report: {
+            expiresAtMs: NOW_MS + 60_000,
+            status: "ready",
+            usageLimits: [createUsageLimit("exhausted")],
+          },
+        })
+      ).toEqual({
+        blocksNewWork: false,
+        reasonCode: null,
+        status: "available",
+      });
+    }
+  });
+
+  it("keeps one versioned Usage support matrix for Core and the Local Service", () => {
+    expect(AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION).toBe(1);
+    expect(resolveAgentControllerUsageLimitSupport("builtin:codex")).toBe(
+      "native"
+    );
+    expect(resolveAgentControllerUsageLimitSupport("builtin:grok-build")).toBe(
+      "native"
+    );
+    expect(resolveAgentControllerUsageLimitSupport("builtin:claude-code")).toBe(
+      "passive"
+    );
+    expect(resolveAgentControllerUsageLimitSupport("builtin:cursor")).toBe(
+      "unsupported"
+    );
   });
 
   it("keeps known supported Usage in Checking while its controller report is non-ready", () => {
     expect(
       resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:codex",
         nowMs: NOW_MS,
         report: {
           expiresAtMs: NOW_MS + 60_000,
@@ -162,6 +214,7 @@ describe("resolveAgentProfileUsageRecoveryAvailability", () => {
   it("requires a fresh ready report whose supported Usage Limits are all explicitly available", () => {
     expect(
       resolveAgentProfileUsageRecoveryAvailability({
+        agentControllerRef: "builtin:codex",
         nowMs: NOW_MS,
         report: {
           expiresAtMs: NOW_MS + 60_000,
@@ -180,6 +233,7 @@ describe("resolveAgentProfileUsageRecoveryAvailability", () => {
   it("ignores explicitly unsupported limits when supported Usage has recovered", () => {
     expect(
       resolveAgentProfileUsageRecoveryAvailability({
+        agentControllerRef: "builtin:codex",
         nowMs: NOW_MS,
         report: {
           expiresAtMs: NOW_MS + 60_000,
@@ -208,6 +262,7 @@ describe("resolveAgentProfileUsageRecoveryAvailability", () => {
   ] as const)("does not claim Usage recovered when evidence is %s", (_label, limits) => {
     expect(
       resolveAgentProfileUsageRecoveryAvailability({
+        agentControllerRef: "builtin:codex",
         nowMs: NOW_MS,
         report: {
           expiresAtMs: NOW_MS + 60_000,

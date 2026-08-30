@@ -1,5 +1,6 @@
 import { AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS } from "@openmeld/schemas";
 import type { AgentControllerUsageLimit } from "@openmeld/schemas/types";
+import { resolveAgentControllerUsageLimitSupport } from "./agent-controller-usage-limit-support";
 import type { RuntimeAgentControllerReportStatus } from "./runtime-registry-contract";
 
 export const AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE =
@@ -31,18 +32,28 @@ export type AgentProfileUsageRecoveryAvailability = {
 };
 
 export function resolveAgentProfileUsageWakeability(input: {
+  agentControllerRef: string;
   nowMs: number;
   report?: AgentProfileUsageWakeabilityReport | null;
 }): AgentProfileUsageWakeability {
+  if (
+    resolveAgentControllerUsageLimitSupport(input.agentControllerRef) !==
+    "native"
+  ) {
+    return ALLOWS_NEW_WORK;
+  }
   const report = input.report;
   if (!report) {
-    return ALLOWS_NEW_WORK;
+    return CHECKING_USAGE;
   }
   const supportedUsageLimits = report.usageLimits?.filter(
     (usageLimit) => usageLimit.status !== "unsupported"
   );
-  if (!supportedUsageLimits?.length) {
+  if (report.usageLimits?.length && !supportedUsageLimits?.length) {
     return ALLOWS_NEW_WORK;
+  }
+  if (!supportedUsageLimits?.length) {
+    return CHECKING_USAGE;
   }
 
   if (report.status !== "ready" || report.expiresAtMs <= input.nowMs) {
@@ -72,9 +83,16 @@ export function resolveAgentProfileUsageWakeability(input: {
 }
 
 export function resolveAgentProfileUsageRecoveryAvailability(input: {
+  agentControllerRef: string;
   nowMs: number;
   report?: AgentProfileUsageWakeabilityReport | null;
 }): AgentProfileUsageRecoveryAvailability {
+  if (
+    resolveAgentControllerUsageLimitSupport(input.agentControllerRef) !==
+    "native"
+  ) {
+    return USAGE_RECOVERY_UNAVAILABLE;
+  }
   const report = input.report;
   const supportedUsageLimits = report?.usageLimits?.filter(
     (usageLimit) => usageLimit.status !== "unsupported"

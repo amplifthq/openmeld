@@ -1945,17 +1945,23 @@ function mockReadyBindingAndRuntime(
     status: "found",
   });
   vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValue([
-    {
-      agentControllerRef,
-      expiresAtMs: GENERATED_AT_MS + 60_000,
-      observedAtMs: GENERATED_AT_MS,
-      reasonCodes: [],
-      openMeldServiceRuntimeId: {
-        source: "runtime_registry_authority",
-        value: "runtime-1",
-      },
-      status: "ready",
-    },
+    agentControllerRef === "builtin:codex" ||
+    agentControllerRef === "builtin:grok-build"
+      ? createRuntimeReportWithUsage(
+          createUsageLimit({ status: "available", usedPercent: 42 }),
+          agentControllerRef
+        )
+      : {
+          agentControllerRef,
+          expiresAtMs: GENERATED_AT_MS + 60_000,
+          observedAtMs: GENERATED_AT_MS,
+          reasonCodes: [],
+          openMeldServiceRuntimeId: {
+            source: "runtime_registry_authority",
+            value: "runtime-1",
+          },
+          status: "ready",
+        },
   ]);
 }
 
