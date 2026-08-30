@@ -1331,7 +1331,7 @@ describe("connect experience enhancements", () => {
       const { stdout } = await connectPromise;
       const normalizedStdout = stripTerminalControl(stdout);
       expect(normalizedStdout).toContain(
-        "Press @ to insert @Name(wake) or @Name(reference)."
+        "Press @ to insert an Agent Wake, Agent Reference, or Human Mention."
       );
       expect(normalizedStdout).toContain(
         "Type your message and press Enter to send."
