@@ -1189,7 +1189,7 @@ describe("space timeline helpers", () => {
 				clientMessageId: null,
 				dispatchId: "dispatch-1",
 				failureReasonCode: null,
-				message: "Starting Wake for @runner...",
+				message: "Wake for @runner is queued.",
 				phase: "queued",
 				sourceSignalId: null,
 				targetLabel: "@runner",

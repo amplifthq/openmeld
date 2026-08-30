@@ -1,8 +1,10 @@
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
+  AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION,
   listAgentControllerCollaborationModeOptions,
   listAgentControllerPermissionModeOptions,
+  resolveAgentProfileEditApplicationTiming,
   resolveAgentProfileEditCapabilities,
 } from "../src";
 
@@ -296,5 +298,56 @@ describe("resolveAgentProfileEditCapabilities", () => {
       })
     );
     expect(missingCatalog.collaborationMode.editable).toBe(true);
+  });
+});
+
+describe("resolveAgentProfileEditApplicationTiming", () => {
+  it("keeps the provider timing matrix explicit and versioned", () => {
+    expect(AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION).toBe(1);
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:claude-code",
+        field: "permission_mode",
+      })
+    ).toBe("applies_now");
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:cursor",
+        field: "permission_mode",
+      })
+    ).toBe("applies_now");
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:codex",
+        field: "permission_mode",
+      })
+    ).toBe("applies_next_wake");
+  });
+
+  it("keeps future-work settings and unsupported fields honest", () => {
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:claude-code",
+        field: "model",
+      })
+    ).toBe("applies_next_wake");
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:codex",
+        field: "collaboration_mode",
+      })
+    ).toBe("applies_next_wake");
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:opencode",
+        field: "permission_mode",
+      })
+    ).toBe("not_supported");
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:unknown",
+        field: "permission_mode",
+      })
+    ).toBe("not_supported");
   });
 });

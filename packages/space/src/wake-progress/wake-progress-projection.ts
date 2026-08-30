@@ -82,7 +82,7 @@ export function buildWakeProgressMessage(input: {
     case "request_sent":
       return `Wake request sent to ${targetLabel}.`;
     case "queued":
-      return `Starting Wake for ${targetLabel}...`;
+      return `Wake for ${targetLabel} is queued.`;
     case "connecting":
       return `Connecting to ${targetLabel} ${runtimeLocation}...`;
     case "running":

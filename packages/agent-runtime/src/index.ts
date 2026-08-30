@@ -114,6 +114,12 @@ export {
   resolveAgentProfileBindingTruthWriteBoundary,
 } from "./agent-profile-binding";
 export {
+  AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION,
+  type AgentProfileEditApplicationTiming,
+  type AgentProfileRuntimeEditField,
+  resolveAgentProfileEditApplicationTiming,
+} from "./agent-profile-edit-application";
+export {
   type AgentProfileCollaborationModeEditCapability,
   type AgentProfileControllerChangeEditCapability,
   type AgentProfileEditCapabilities,

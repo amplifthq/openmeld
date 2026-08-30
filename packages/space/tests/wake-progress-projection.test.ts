@@ -148,7 +148,7 @@ describe("Wake progress projection", () => {
     expect(items[0]).toMatchObject({
       dispatchId: "dispatch-1",
       phase: "queued",
-      message: "Starting Wake for @Codex...",
+      message: "Wake for @Codex is queued.",
     });
 
     items = applyWakeProgressSignals({

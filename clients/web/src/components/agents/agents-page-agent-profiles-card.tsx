@@ -10,6 +10,7 @@ import {
 	getAgentControllerPermissionModeDisplayMetadata,
 	parseAgentControllerRef,
 	resolveAgentControllerPermissionModeForController,
+	resolveAgentProfileEditApplicationTiming,
 	resolveAgentProfileEditCapabilities,
 	resolveAgentWakeAvailabilityDisplayCategory,
 	resolveNativeAgentControllerCollaborationModeForController,
@@ -205,6 +206,9 @@ import {
 	isAgentProfileAlreadyRemovedError,
 } from "./agents-page-formatters";
 import { useAgentWakeAvailabilityDisplayDebounce } from "./use-agent-wake-availability-display-debounce";
+
+const AGENT_PROFILE_CHANGE_TIMING_SUMMARY =
+	"Saved changes are used for future Wakes. Some controllers can also apply Permission Mode changes to a Wake already in progress; the field explains when.";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 type DeviceAgentCatalog = LocalRuntimeExecutionTarget["localAgentCatalog"];
@@ -3591,9 +3595,7 @@ function AgentProfileInlineEditorContent(
 							}
 						/>
 						<TooltipContent className="max-w-80" side="top">
-							Runtime setting changes apply to new work after the local OpenMeld
-							Service syncs. Work already running continues with the settings it
-							started with.
+							{AGENT_PROFILE_CHANGE_TIMING_SUMMARY}
 						</TooltipContent>
 					</Tooltip>
 				</div>
@@ -3819,9 +3821,7 @@ function AgentProfileEditDialogContent(
 								}
 							/>
 							<TooltipContent className="max-w-80" side="top">
-								Runtime setting changes apply to new work after the local
-								OpenMeld Service syncs. Work already running continues with the
-								settings it started with.
+								{AGENT_PROFILE_CHANGE_TIMING_SUMMARY}
 							</TooltipContent>
 						</Tooltip>
 					</DialogTitle>
@@ -3990,10 +3990,16 @@ function AgentProfileEditDialogFields(input: {
 						options={input.controllerChangeOptions}
 					/>
 					{input.controllerChangeEligibilityStatus === "blocked" ? (
-						<p className="text-muted-foreground text-xs leading-5">
-							Controller changes are unavailable while this Agent is working
-							because reconnecting would interrupt the current Wake.
-						</p>
+						<div className="grid gap-1 text-muted-foreground text-xs leading-5">
+							<p>
+								Controller changes are unavailable while this Agent is working
+								because reconnecting would interrupt the current Wake.
+							</p>
+							<p>
+								Model, reasoning effort, collaboration mode, and OpenCode
+								permission changes apply to the next Wake.
+							</p>
+						</div>
 					) : null}
 					{input.controllerChangeEligibilityStatus === "unavailable" ? (
 						<p className="text-muted-foreground text-xs leading-5">
@@ -4024,6 +4030,9 @@ function AgentProfileEditDialogFields(input: {
 						disabled={input.disabled}
 						draftKey={input.draftKey}
 						focusRef={input.permissionControlRef}
+						isAgentWorking={
+							input.controllerChangeEligibilityStatus === "blocked"
+						}
 						onDraftChange={input.onDraftChange}
 						selectedPolicy={input.dialogState.selectedPolicy}
 					/>
@@ -4577,6 +4586,7 @@ function AgentProfilePermissionModeEditSection(input: {
 	confirmationId: string;
 	controllerPermissionMode: AgentProfileControllerPermissionModeEditState | null;
 	disabled: boolean;
+	isAgentWorking: boolean;
 	draftKey: string;
 	focusRef: Ref<HTMLButtonElement>;
 	onDraftChange: (draft: AgentProfileEditDraft) => void;
@@ -4607,6 +4617,10 @@ function AgentProfilePermissionModeEditSection(input: {
 		input.selectedPolicy,
 		{ agentControllerRef: input.controllerPermissionMode.agentControllerRef }
 	);
+	const applicationTiming = resolveAgentProfileEditApplicationTiming({
+		agentControllerRef: input.controllerPermissionMode.agentControllerRef,
+		field: "permission_mode",
+	});
 	const requiresConfirmation = selectedMetadata.requiresExplicitConfirmation;
 	return (
 		<div
@@ -4662,6 +4676,13 @@ function AgentProfilePermissionModeEditSection(input: {
 			>
 				{selectedMetadata.description}
 			</p>
+			{input.isAgentWorking ? (
+				<p className="text-muted-foreground text-xs leading-5">
+					{applicationTiming === "applies_now"
+						? "This controller can apply a saved Permission Mode to later tool requests in the current Wake. If the current session cannot accept it, the next Wake uses it."
+						: "A saved Permission Mode applies to the next Wake. The current Wake keeps its existing mode."}
+				</p>
+			) : null}
 			{requiresConfirmation ? (
 				<label
 					className="flex items-start gap-2 text-destructive text-xs leading-5"

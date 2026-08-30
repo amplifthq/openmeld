@@ -17,6 +17,23 @@ const TARGET_PROFILE_ID = "agt_22222222-2222-2222-2222-222222222222";
 const SECOND_TARGET_PROFILE_ID = "agt_33333333-3333-3333-3333-333333333333";
 
 describe("resolveSpaceMessageWakeProgressState", () => {
+	it("shows queued work plainly under the source message", () => {
+		const state = resolveSpaceMessageWakeProgressState({
+			item: createTimelineItem(),
+			items: [
+				createWakeProgressItem({
+					message: "Wake for @runner is queued.",
+					phase: "queued",
+					updatedAtMs: 1,
+				}),
+			],
+		});
+
+		expect(state.thinkingEntries).toEqual([
+			expect.objectContaining({ text: "Wake is queued" }),
+		]);
+	});
+
 	it("uses Wake detail steps for non-terminal source message thinking copy", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			item: createTimelineItem(),
