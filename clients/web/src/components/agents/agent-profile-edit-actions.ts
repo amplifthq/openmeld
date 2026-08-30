@@ -242,6 +242,16 @@ export async function renameAgentProfile(input: {
 		profileId: input.context.profile.openMeldProfileId,
 		profileName: input.profileName,
 	});
+	await Promise.all([
+		input.context.queryClient.cancelQueries({
+			queryKey: startQueryKeys.profilesForStorageScope(
+				input.context.storageScope
+			),
+		}),
+		input.context.queryClient.cancelQueries(
+			organizationDirectoryQueryFilters()
+		),
+	]);
 	updateAgentProfileListCaches({
 		profile: updatedProfile,
 		queryClient: input.context.queryClient,

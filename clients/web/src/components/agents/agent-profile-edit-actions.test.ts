@@ -55,6 +55,9 @@ describe("Agent Profile edit list caches", () => {
 
 	it("refreshes only Agent list and directory projections after a rename", async () => {
 		const queryClient = new QueryClient();
+		const cancelQueries = vi
+			.spyOn(queryClient, "cancelQueries")
+			.mockResolvedValue(undefined);
 		const invalidateQueries = vi
 			.spyOn(queryClient, "invalidateQueries")
 			.mockResolvedValue(undefined);
@@ -77,6 +80,15 @@ describe("Agent Profile edit list caches", () => {
 			profileName: "After",
 		});
 
+		expect(cancelQueries).toHaveBeenCalledWith({
+			queryKey: startQueryKeys.profilesForStorageScope("account-1"),
+		});
+		expect(cancelQueries).toHaveBeenCalledWith(
+			expect.objectContaining({
+				predicate: expect.any(Function),
+				queryKey: organizationQueryKeys.all,
+			})
+		);
 		expect(invalidateQueries).toHaveBeenCalledWith({
 			queryKey: startQueryKeys.profilesForStorageScope("account-1"),
 			refetchType: "none",
@@ -91,6 +103,51 @@ describe("Agent Profile edit list caches", () => {
 		expect(invalidateQueries).not.toHaveBeenCalledWith({
 			queryKey: organizationQueryKeys.all,
 		});
+	});
+
+	it("keeps the saved name when an older profile read finishes late", async () => {
+		const queryClient = new QueryClient();
+		const profilesQueryKey =
+			startQueryKeys.profilesForStorageScope("account-1");
+		const profile = createProfile("agt-edit", "Before");
+		queryClient.setQueryData(profilesQueryKey, [profile]);
+		let finishStaleRead:
+			| ((profiles: readonly AuthProfileView[]) => void)
+			| undefined;
+		const staleRead = queryClient
+			.fetchQuery({
+				queryFn: async () =>
+					await new Promise<readonly AuthProfileView[]>((resolve) => {
+						finishStaleRead = resolve;
+					}),
+				queryKey: profilesQueryKey,
+			})
+			.catch(() => undefined);
+		renameOpenMeldProfileMock.mockResolvedValueOnce(
+			createProfile("agt-edit", "After")
+		);
+
+		await renameAgentProfile({
+			context: {
+				actorProfileId: "human-1",
+				deviceId: null,
+				executionTarget: null,
+				organizationId: "org-acme",
+				profile,
+				queryClient,
+				runtimeLane: null,
+				storageScope: "account-1",
+			},
+			profileName: "After",
+		});
+		finishStaleRead?.([profile]);
+		await staleRead;
+
+		expect(
+			queryClient.getQueryData<readonly AuthProfileView[]>(
+				profilesQueryKey
+			)?.[0]?.profileName
+		).toBe("After");
 	});
 });
 
