@@ -64,12 +64,13 @@ git fetch origin main --tags
 pnpm run release:status -- --ref origin/main
 ```
 
-This command is read-only. It reads Git history plus GitHub workflow, job, and
-checkout-log results, reports the production components whose deployed commits are behind
-the selected ref, and fails closed while push checks for that ref are red or
-still running. It does not dispatch a workflow, deploy a component, or edit a
-release file. Its `Deployment state` describes deployment history, not permission
-to release. `Source validation` reports exact-SHA push evidence when present and
+This command is read-only. It reads Git history, GitHub workflow/job results,
+and the durable exact-SHA refs published by successful guarded local releases.
+It reports the production components whose deployed commits are behind the
+selected ref and fails closed while push checks for that ref are red or still
+running. It does not dispatch a workflow, deploy a component, or edit a release
+file. Its `Deployment state` describes deployment history, not permission to
+release. `Source validation` reports exact-SHA push evidence when present and
 otherwise tells the operator to confirm exact Final Candidate evidence. Use
 `--json` for automation.
 
@@ -77,17 +78,25 @@ The resolved source SHA is the cutoff for that release. Commits that reach
 `main` after the cutoff belong to the next release; do not restart or widen an
 already-running release merely to chase a newer `main`.
 
-GitHub cannot discover a deployment performed only from a workstation. When a
-guarded local release is newer than the latest successful GitHub job, provide
-that known source explicitly instead of inventing another state ledger:
+After every fully successful guarded local release, the executor atomically
+advances one ref per completed scope under
+`refs/heads/openmeld-production-release-evidence/<scope>`. Each ref points
+directly to the exact released first-parent `main` commit. `release:status`
+combines those refs with hosted release jobs and uses the newest proven ancestor
+for each scope, so a workstation release cannot disappear merely because no
+GitHub deployment job ran.
+
+`--deployed` remains a one-run diagnostic override for historical releases that
+predate these refs. It is not the normal completion path:
 
 ```sh
 pnpm run release:status -- --ref origin/main \
   --deployed web=<exact-deployed-commit>
 ```
 
-Repeat `--deployed` for multiple local releases. The command accepts an
-override only when that commit is an ancestor of the selected ref.
+Repeat `--deployed` for multiple historical scopes. The command accepts an
+override only when that commit is an ancestor of the selected ref and never
+persists the override.
 
 When closing one exact merged change, also pass its exact merge parent:
 
@@ -356,9 +365,12 @@ SHA, refreshes current `origin/main`, rejects any source outside its first-paren
 chain, runs the cheap deployment preflight, checks that the worktree and SHA
 stay unchanged, acquires each selected shared production scope lease in stable
 order, deploys in safe order, and runs the selected component health check
-before moving on. It releases held scopes in reverse order even when deployment
-fails. It does not repeat package checks, unit tests, or integration tests that
-already established confidence in the commit.
+before moving on. After every selected scope succeeds, it atomically publishes
+the exact guarded-local completion refs while the same leases are still held,
+then releases held scopes in reverse order. Deployment or evidence publication
+failure remains red and still releases the leases. It does not repeat package
+checks, unit tests, or integration tests that already established confidence in
+the commit.
 
 The shared lease is a Git compare-and-swap ref under
 `refs/heads/openmeld-production-leases/<scope>`. Its canonical metadata records

@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { buildProductionReleasePlan } from "./production-release.mjs";
+import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
 
 const DEFAULT_REF = "origin/main";
 const execFileAsync = promisify(execFile);
@@ -138,6 +139,12 @@ export async function runProductionReleaseStatus(input = {}) {
     sourceIsAncestor: (candidateSha) =>
       adapters.sourceIsAncestor(candidateSha, sourceSha),
   });
+  mergeGuardedLocalReleaseSources({
+    localSources: await adapters.readLocalReleaseSources(repo),
+    sourceIsAncestor: adapters.sourceIsAncestor,
+    sourceSha,
+    sources,
+  });
   applyDeployedOverrides({
     deployed: options.deployed,
     sourceIsAncestor: adapters.sourceIsAncestor,
@@ -236,6 +243,28 @@ export async function runProductionReleaseStatus(input = {}) {
       : formatReleaseStatus(result)
   );
   return blockers.length > 0 ? 1 : 0;
+}
+
+function mergeGuardedLocalReleaseSources(input) {
+  for (const [scope, localSource] of input.localSources) {
+    if (
+      !(
+        RELEASE_SCOPES.includes(scope) &&
+        input.sourceIsAncestor(localSource.sha, input.sourceSha)
+      )
+    ) {
+      continue;
+    }
+    const current = input.sources.get(scope);
+    if (
+      current &&
+      current.sha !== localSource.sha &&
+      !input.sourceIsAncestor(current.sha, localSource.sha)
+    ) {
+      continue;
+    }
+    input.sources.set(scope, localSource);
+  }
 }
 
 function buildReleaseStatusBlockers(input) {
@@ -415,6 +444,7 @@ function defaultAdapters() {
           "workflowName,status,conclusion,event,url,createdAt",
         ])
       ).filter((run) => run.event === "push"),
+    readLocalReleaseSources: async () => readGuardedLocalReleaseSources(),
     readJobReleaseSha: async (job, repo, run) => {
       const titleSource = RELEASE_TITLE_SOURCE_REGEX.exec(
         run.displayTitle ?? ""

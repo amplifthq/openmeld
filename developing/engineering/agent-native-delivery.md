@@ -255,7 +255,10 @@ After merge, follow `developing/engineering/production-release.md`. Plan the
 exact merged SHA, release only affected scopes, and use the guarded hosted or
 local entrypoint selected there. Git-backed scope leases serialize only the
 same production scope; they do not block unrelated development, merges, or
-compatible releases.
+compatible releases. A successful guarded local release publishes durable
+per-scope refs pointing to its exact first-parent `main` source before releasing
+those leases. `release:status` combines that evidence with hosted release jobs;
+operators do not have to remember ephemeral workstation-only overrides.
 
 When the exact release includes changed CLI, OpenMeld Service, or bundled
 skills, run the local-component plan and supply the explicit policy and reason

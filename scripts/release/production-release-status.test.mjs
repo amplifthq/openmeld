@@ -233,6 +233,54 @@ test("uses successful deploy jobs even when a parent workflow later fails", () =
   );
 });
 
+test("recognizes guarded local release evidence without manual deployed overrides", async () => {
+  let output = "";
+  const adapters = releaseStatusAdapters({ pushChecks: [] });
+  adapters.buildPlan = () => ({ changedPaths: [], scopes: [] });
+  adapters.readReleaseRuns = async () =>
+    RELEASE_RUNS.filter((run) => run.databaseId !== 29_441_305_612);
+  adapters.readLocalReleaseSources = async () =>
+    new Map([
+      [
+        "cli",
+        {
+          sha: SOURCE_SHA,
+          source: "guarded-local",
+          url: undefined,
+        },
+      ],
+      [
+        "core",
+        {
+          sha: SOURCE_SHA,
+          source: "guarded-local",
+          url: undefined,
+        },
+      ],
+    ]);
+
+  const exitCode = await runProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", "origin/main", "--json"],
+    write: (value) => {
+      output += value;
+    },
+  });
+
+  assert.equal(exitCode, 0, output);
+  const result = JSON.parse(output);
+  assert.equal(result.globalState, "current");
+  assert.deepEqual(result.globalPendingScopes, []);
+  assert.equal(
+    result.components.find((component) => component.scope === "cli").source,
+    "guarded-local"
+  );
+  assert.equal(
+    result.components.find((component) => component.scope === "core").source,
+    "guarded-local"
+  );
+});
+
 test("reports pending full release scopes and fails closed on a red push check", async () => {
   let output = "";
   const exitCode = await runProductionReleaseStatus({
@@ -325,6 +373,7 @@ function releaseStatusAdapters({ pushChecks }) {
     }),
     readPushChecks: async () => pushChecks,
     readJobReleaseSha: async (job) => job.releaseSha,
+    readLocalReleaseSources: async () => new Map(),
     readReleaseJobs: async (runId) => JOBS_BY_RUN.get(runId) ?? [],
     readReleaseRuns: async () => RELEASE_RUNS,
     resolveRef: () => SOURCE_SHA,
