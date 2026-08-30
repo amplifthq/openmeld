@@ -1,5 +1,8 @@
-import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import type {
+  AgentControllerInterfaceSnapshot,
+  OpenMeldRequestContext,
+} from "@openmeld/schemas/types";
+import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   rpcSubmitRuntimeAgentControllerReports,
@@ -133,6 +136,84 @@ describe("runtime reporting Core RPC write", () => {
           },
         ],
         status: "accepted",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("retries the owner recovery gate projection for an identical fresh Usage report", async () => {
+    const harness = createSqliteD1Harness();
+    applyRuntimeReportingMigrations(harness);
+    try {
+      const markUsageAvailable = vi.fn().mockResolvedValue({
+        changedProfileIds: [],
+        status: "updated",
+      });
+      const ownerShard = {
+        rpcMarkAgentProfileWorkUsageAvailable: markUsageAvailable,
+      };
+      const env = {
+        ...coreEnv(harness.db),
+        OPENMELD_RUNTIME_TRANSPORT: {
+          get: vi.fn(() => ownerShard),
+          idFromName: vi.fn((name: string) => name),
+        },
+      } as unknown as CoreBindings;
+      const registration = await rpcSubmitRuntimeRegistration(env, {
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+      });
+      if (!registration.openMeldServiceRuntimeId) {
+        throw new Error(
+          "test registration did not return openMeldServiceRuntimeId"
+        );
+      }
+      const observedAtMs = Date.now();
+      insertPrimaryAgentProfileBinding(harness, {
+        agentControllerConversationId: "conversation-usage-recovery",
+        agentControllerRef: "builtin:codex",
+        agentProfileId: "agt_usage_recovery",
+        bindingId: "binding-usage-recovery",
+        nowMs: observedAtMs,
+        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId.value,
+        ownerId: "owner-1",
+      });
+      const report = {
+        agentControllerInterface: createAvailableUsageInterface(),
+        agentControllerRef: "builtin:codex",
+        expiresAtMs: observedAtMs + 60_000,
+        observedAtMs,
+        reasonCodes: ["runtime.agent_controller_report.ready"],
+        status: "ready" as const,
+      };
+
+      const first = await rpcSubmitRuntimeAgentControllerReports(env, {
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        reports: [report],
+        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
+      });
+      const retry = await rpcSubmitRuntimeAgentControllerReports(env, {
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        reports: [report],
+        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
+      });
+
+      expect(first.reports[0]).toMatchObject({ outcome: "created" });
+      expect(retry.reports[0]).toMatchObject({ outcome: "reused" });
+      expect(markUsageAvailable).toHaveBeenCalledTimes(2);
+      expect(markUsageAvailable).toHaveBeenNthCalledWith(1, {
+        ownerUserId: "owner-1",
+        targetProfileIds: ["agt_usage_recovery"],
+      });
+      expect(markUsageAvailable).toHaveBeenNthCalledWith(2, {
+        ownerUserId: "owner-1",
+        targetProfileIds: ["agt_usage_recovery"],
       });
     } finally {
       harness.close();
@@ -594,4 +675,47 @@ function insertPrimaryAgentProfileBinding(
       input.nowMs,
     ],
   });
+}
+
+function createAvailableUsageInterface() {
+  const observedAt = new Date().toISOString();
+  return {
+    agentControllerRef: "builtin:codex",
+    auth: { status: "authenticated" as const },
+    capabilities: {
+      approvals: true,
+      cancel: true,
+      interrupt: true,
+      modelSelection: true,
+      nativeEventStream: true,
+      permissionModes: true,
+      structuredUserInput: true,
+    },
+    checkedAt: observedAt,
+    controllerId: "codex",
+    displayName: "Codex",
+    launch: {
+      argsPrefix: [],
+      commandPath: "/usr/local/bin/codex",
+      installChoiceCount: 1,
+      status: "ready" as const,
+    },
+    message: null,
+    models: [],
+    nativeInterface: "codex-app-server" as const,
+    schemaVersion: 1 as const,
+    skills: [],
+    status: "ready" as const,
+    usageLimits: [
+      {
+        key: "five_hour",
+        label: "5-hour Usage Limit",
+        observedAt,
+        resetsAt: new Date(Date.now() + 60_000).toISOString(),
+        status: "available" as const,
+        usedPercent: 42,
+      },
+    ],
+    version: "1.0.0",
+  } satisfies AgentControllerInterfaceSnapshot;
 }

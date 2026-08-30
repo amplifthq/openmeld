@@ -1,78 +1,92 @@
 import type { AdapterErrorType } from "@openmeld/adapter-core";
-import { classifyRuntimePermissionDenialMessage } from "@openmeld/adapter-core";
+import {
+  classifyRuntimePermissionDenialMessage,
+  createProviderOriginalError,
+} from "@openmeld/adapter-core";
 
 export type OpenClawFailureClassification = {
   code: string;
   errorType: AdapterErrorType;
   message: string;
+  originalError?: string;
 };
 
 const HTTP_401_TOKEN_RE = /\b401\b/;
 const HTTP_429_TOKEN_RE = /\b429\b/;
 
 export function classifyOpenClawFailureMessage(input: {
+  includeOriginalError?: boolean;
   message: string;
   isContextLost?: (message: string) => boolean;
 }): OpenClawFailureClassification {
   const normalizedMessage =
     normalizeOpenClawFailureMessage(input.message) ?? "openclaw command failed";
   const lowered = normalizedMessage.toLowerCase();
+  const originalError = input.includeOriginalError
+    ? createProviderOriginalError(normalizedMessage)
+    : null;
+  const withOriginalError = (
+    value: OpenClawFailureClassification
+  ): OpenClawFailureClassification => ({
+    ...value,
+    ...(originalError ? { originalError } : {}),
+  });
 
   const permissionDenial = classifyRuntimePermissionDenialMessage({
     message: normalizedMessage,
     source: "openclaw",
   });
   if (permissionDenial) {
-    return permissionDenial;
+    return withOriginalError(permissionDenial);
   }
 
   if (isUnsupportedModelFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "model.unsupported",
       errorType: "config",
       message: normalizedMessage,
-    };
+    });
   }
   if (isAuthFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "auth.required",
       errorType: "auth",
       message: normalizedMessage,
-    };
+    });
   }
   if (isQuotaFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "quota.exceeded",
       errorType: "adapter",
       message: normalizedMessage,
-    };
+    });
   }
   if (isRateLimitFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "rate_limited",
       errorType: "adapter",
       message: normalizedMessage,
-    };
+    });
   }
   if (input.isContextLost?.(normalizedMessage)) {
-    return {
+    return withOriginalError({
       code: "context.lost",
       errorType: "adapter",
       message: normalizedMessage,
-    };
+    });
   }
   if (isInputSelectorFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "schema.invalid",
       errorType: "config",
       message: normalizedMessage,
-    };
+    });
   }
-  return {
+  return withOriginalError({
     code: "upstream_unreachable",
     errorType: "adapter",
     message: normalizedMessage,
-  };
+  });
 }
 
 export function normalizeOpenClawFailureMessage(

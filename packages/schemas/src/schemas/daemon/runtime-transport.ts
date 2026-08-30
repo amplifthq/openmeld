@@ -19,6 +19,7 @@ import {
   agentInteractionResponseSchema,
 } from "../protocol/agent-interaction";
 import { agentStreamToolPartSchema } from "../protocol/agent-stream";
+import { clientMessageIdSchema } from "../protocol/client-message-id";
 import {
   MAX_PROFILE_NAME_LENGTH,
   MAX_TEXT_LENGTH,
@@ -116,6 +117,131 @@ export const runtimeTransportAgentProfileExecutionStateResponseSchema =
       status: z.literal("unavailable"),
     }),
   ]);
+
+const runtimeTransportAgentProfileWorkReferenceSchema = z.strictObject({
+  sourceSignalId: z.string().trim().min(1).max(512),
+  spaceId: z.string().trim().min(1).max(512),
+});
+
+export const runtimeTransportAgentProfileWorkRecoveryActionSchema = z.enum([
+  "continue_interrupted_work",
+  "approve_queued_work",
+]);
+
+export const runtimeTransportAgentProfileWorkRecoveryReadRequestSchema =
+  z.strictObject({
+    ownerUserId: z.string().trim().min(1).max(256),
+    targetProfileId: agentProfileIdSchema,
+  });
+
+export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      action: runtimeTransportAgentProfileWorkRecoveryActionSchema,
+      authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
+      interruptedClientMessageId: clientMessageIdSchema,
+      interruptedDispatchId: z.string().trim().min(1).max(512),
+      spaceId: z.string().trim().min(1).max(512),
+      status: z.literal("available"),
+    }),
+    z.strictObject({ status: z.literal("not_pending") }),
+    z.strictObject({ status: z.literal("unavailable") }),
+  ]);
+
+export const runtimeTransportAgentProfileOperationalContextSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      reasonCode: z.string().trim().min(1).max(256),
+      status: z.literal("checking"),
+    }),
+    z.strictObject({
+      status: z.literal("idle"),
+      waitingCount: z.literal(0),
+    }),
+    z.strictObject({
+      currentWorkReference:
+        runtimeTransportAgentProfileWorkReferenceSchema.optional(),
+      queuedWorkReferences: z
+        .array(runtimeTransportAgentProfileWorkReferenceSchema)
+        .max(50)
+        .optional(),
+      status: z.literal("working"),
+      waitingCount: z.number().int().min(0).max(50),
+    }),
+    z.strictObject({
+      currentWorkReference:
+        runtimeTransportAgentProfileWorkReferenceSchema.optional(),
+      queuedWorkReferences: z
+        .array(runtimeTransportAgentProfileWorkReferenceSchema)
+        .max(50)
+        .optional(),
+      recoveryAction:
+        runtimeTransportAgentProfileWorkRecoveryActionSchema.optional(),
+      status: z.literal("paused"),
+      waitingCount: z.number().int().min(0).max(50),
+    }),
+  ]);
+
+export const runtimeTransportAgentProfileOperationalContextsRequestSchema =
+  z.strictObject({
+    includeWorkReferences: z.boolean(),
+    ownerUserId: z.string().trim().min(1).max(256),
+    targetProfileIds: z.array(agentProfileIdSchema).min(1).max(100),
+  });
+
+export const runtimeTransportAgentProfileOperationalContextsResponseSchema =
+  z.strictObject({
+    contexts: z
+      .array(
+        z.strictObject({
+          operationalContext:
+            runtimeTransportAgentProfileOperationalContextSchema,
+          targetProfileId: agentProfileIdSchema,
+        })
+      )
+      .max(100),
+  });
+
+const runtimeTransportAgentProfileWorkRecoveryTargetSchema = z.strictObject({
+  ownerUserId: z.string().trim().min(1).max(256),
+  targetProfileId: agentProfileIdSchema,
+});
+
+export const runtimeTransportAgentProfileWorkUsageAvailableRequestSchema =
+  z.strictObject({
+    ownerUserId: z.string().trim().min(1).max(256),
+    targetProfileIds: z.array(agentProfileIdSchema).min(1).max(100),
+  });
+
+export const runtimeTransportAgentProfileWorkUsageAvailableResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      changedProfileIds: z.array(agentProfileIdSchema).max(100),
+      status: z.literal("updated"),
+    }),
+    z.strictObject({
+      changedProfileIds: z.tuple([]),
+      status: z.literal("unavailable"),
+    }),
+  ]);
+
+export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    continuationClientMessageId: clientMessageIdSchema,
+  });
+
+export const runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema =
+  z.strictObject({
+    status: z.enum(["authorized", "not_pending", "unavailable"]),
+  });
+
+export const runtimeTransportAgentProfileWorkQueueApproveRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema;
+
+export const runtimeTransportAgentProfileWorkQueueApproveResponseSchema =
+  z.strictObject({
+    status: z.enum(["approved", "not_pending", "unavailable"]),
+  });
 
 export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =
   z.strictObject({
@@ -1096,6 +1222,7 @@ export const runtimeTransportDeletedAgentProfileWakeCancellationResponseSchema =
 export const runtimeTransportRuntimeCoordinatorHeadAcceptActionSchema = z.enum([
   "create_execution",
   "skip_duplicate",
+  "wait_in_queue",
 ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadAcceptRequestSchema =
@@ -1132,11 +1259,30 @@ export const runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema =
       targetWakeLifecycleId: z.string().min(1).max(2048),
     }),
     z.strictObject({
+      action: z.literal("wait_in_queue"),
+      ok: z.literal(true),
+      primaryDispatchId: z.string().min(1),
+      queuePosition: z.number().int().positive().max(50),
+      reasonCode: z.literal("agent_profile_work_coordinator.queued"),
+      runtimeCoordinatorExecutionId: z.null(),
+      status: z.literal("queued"),
+      targetWakeLifecycleId: z.string().min(1).max(2048),
+      waitingCount: z.number().int().positive().max(50),
+    }),
+    z.strictObject({
       ok: z.literal(false),
       primaryDispatchId: z.string().min(1).nullable(),
       reasonCode: z.string().min(1).max(160),
       status: z.enum(["conflict", "retry_later"]),
       targetWakeLifecycleId: z.string().min(1).max(2048),
+    }),
+    z.strictObject({
+      ok: z.literal(false),
+      primaryDispatchId: z.null(),
+      reasonCode: z.literal("agent_profile_work_coordinator.queue_full"),
+      status: z.literal("queue_full"),
+      targetWakeLifecycleId: z.string().min(1).max(2048),
+      waitingCount: z.literal(50),
     }),
   ]);
 
@@ -1145,6 +1291,7 @@ export const runtimeTransportRuntimeCoordinatorHeadLifecycleStatusSchema =
     "accepted",
     "execution_linked",
     "publication_intent_ready",
+    "queued",
     "stopped_before_execution",
     "waiting",
   ]);

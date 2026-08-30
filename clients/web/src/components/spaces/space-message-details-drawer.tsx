@@ -1222,6 +1222,15 @@ function buildWakeTargetTechnicalDetailFields(
 			target.reasonCode
 				? { label: `${labelPrefix} reason code`, value: target.reasonCode }
 				: null,
+			target.originalError
+				? {
+						label:
+							wakeContext.targets.length === 1
+								? "Original error"
+								: `${labelPrefix} original error`,
+						value: target.originalError,
+					}
+				: null,
 		];
 	});
 }

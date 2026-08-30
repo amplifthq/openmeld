@@ -18,6 +18,7 @@ import type {
 import {
   AcpProcessSession,
   buildAcpDispatchSpaceActionMcpServers,
+  createProviderOriginalError,
 } from "@openmeld/adapter-core";
 import { createCursorAcpToolActivityTracker } from "../output/cursor-tool-activity.js";
 import {
@@ -76,6 +77,7 @@ export class CursorAcpTransportError extends Error {
   readonly code: string;
   readonly diagnostics?: AdapterDispatchDiagnostics;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
 
   constructor(input: {
     cause?: unknown;
@@ -83,6 +85,7 @@ export class CursorAcpTransportError extends Error {
     diagnostics?: AdapterDispatchDiagnostics;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
   }) {
     super(
       input.message,
@@ -92,6 +95,7 @@ export class CursorAcpTransportError extends Error {
     this.code = input.code;
     this.diagnostics = input.diagnostics;
     this.errorType = input.errorType;
+    this.originalError = input.originalError;
   }
 }
 
@@ -344,6 +348,7 @@ async function applyCursorSessionModel(input: {
         diagnostics: { modelNegotiation: input.diagnostics },
         errorType: "config",
         message: `model.unavailable: Cursor ACP rejected model '${model}' for this session`,
+        ...(error.originalError ? { originalError: error.originalError } : {}),
       });
     }
     throw error;
@@ -371,6 +376,7 @@ async function applyLegacyCursorSessionModel(input: {
         diagnostics: { modelNegotiation: input.diagnostics },
         errorType: "config",
         message: `model.unavailable: Cursor ACP rejected model '${input.model}' for this session`,
+        ...(error.originalError ? { originalError: error.originalError } : {}),
       });
     }
     throw error;
@@ -523,6 +529,9 @@ class CursorAcpSession {
             errorType: "adapter",
             message:
               "context_not_found: Cursor ACP could not load the persisted conversation",
+            ...(error.originalError
+              ? { originalError: error.originalError }
+              : {}),
           });
         }
         throw error;
@@ -1071,11 +1080,13 @@ function toJsonRpcTransportError(
   error: AcpJsonRpcError
 ): CursorAcpTransportError {
   const message = normalizeOptionalText(error.message) ?? "Cursor ACP error";
+  const originalError = createProviderOriginalError(message);
   if (error.code === -32_601) {
     return new CursorAcpTransportError({
       code: "protocol.method_not_found",
       errorType: "adapter",
       message,
+      ...(originalError ? { originalError } : {}),
     });
   }
   if (error.code === -32_602) {
@@ -1083,9 +1094,10 @@ function toJsonRpcTransportError(
       code: "protocol.invalid_params",
       errorType: "config",
       message,
+      ...(originalError ? { originalError } : {}),
     });
   }
-  return classifyCursorFailure(message);
+  return classifyCursorFailure(message, originalError);
 }
 
 function toCursorAcpTransportError(
@@ -1101,6 +1113,9 @@ function toCursorAcpTransportError(
           diagnostics,
           errorType: error.errorType,
           message: error.message,
+          ...(error.originalError
+            ? { originalError: error.originalError }
+            : {}),
         });
   }
   const combined = [toErrorMessage(error), normalizeOptionalText(stderr)]
@@ -1117,7 +1132,10 @@ function toCursorAcpTransportError(
     : classified;
 }
 
-function classifyCursorFailure(message: string): CursorAcpTransportError {
+function classifyCursorFailure(
+  message: string,
+  originalError: string | null = null
+): CursorAcpTransportError {
   const normalized = normalizeOptionalText(message) ?? "Cursor ACP error";
   const lowered = normalized.toLowerCase();
   if (isCursorPlanUpgradeRequired(normalized)) {
@@ -1125,6 +1143,7 @@ function classifyCursorFailure(message: string): CursorAcpTransportError {
       code: "cursor.plan_upgrade_required",
       errorType: "adapter",
       message: normalized,
+      ...(originalError ? { originalError } : {}),
     });
   }
   if (
@@ -1138,6 +1157,7 @@ function classifyCursorFailure(message: string): CursorAcpTransportError {
       code: "network.unavailable",
       errorType: "network",
       message: normalized,
+      ...(originalError ? { originalError } : {}),
     });
   }
   if (
@@ -1151,6 +1171,7 @@ function classifyCursorFailure(message: string): CursorAcpTransportError {
       code: "auth.required",
       errorType: "auth",
       message: normalized,
+      ...(originalError ? { originalError } : {}),
     });
   }
   if (
@@ -1161,12 +1182,14 @@ function classifyCursorFailure(message: string): CursorAcpTransportError {
       code: "context_not_found",
       errorType: "config",
       message: normalized,
+      ...(originalError ? { originalError } : {}),
     });
   }
   return new CursorAcpTransportError({
     code: "upstream_unreachable",
     errorType: "adapter",
     message: normalized,
+    ...(originalError ? { originalError } : {}),
   });
 }
 

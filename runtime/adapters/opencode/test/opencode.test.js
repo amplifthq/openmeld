@@ -488,6 +488,10 @@ test("opencode cli transport maps auth failures to auth.required", async () => {
       (error) => {
         assert.equal(error.code, "auth.required");
         assert.equal(error.errorType, "auth");
+        assert.equal(
+          error.originalError,
+          "Not logged in. Please run opencode auth login"
+        );
         assert.match(error.message, AUTH_RE);
         return true;
       }
@@ -548,6 +552,10 @@ test("opencode cli transport maps provider balance failures to provider.insuffic
           reasonCode: "provider_account.capacity_exhausted",
           source: "wake_failure",
         });
+        assert.equal(
+          error.originalError,
+          "AI_APICallError: Insufficient Balance"
+        );
         assert.match(error.message, PROVIDER_INSUFFICIENT_BALANCE_CODE_RE);
         assert.match(error.message, INSUFFICIENT_BALANCE_RE);
         return true;
@@ -565,6 +573,7 @@ test("opencode distinguishes subscription access from a transient rate limit", a
   const isContextLost = () => false;
 
   const subscription = classifyOpenCodeFailureMessage({
+    includeOriginalError: true,
     isContextLost,
     message: "This model is not included in your subscription plan.",
   });
@@ -572,6 +581,10 @@ test("opencode distinguishes subscription access from a transient rate limit", a
   assert.equal(
     subscription.providerAccessEvidence.reasonCode,
     "provider_account.subscription_access_unavailable"
+  );
+  assert.equal(
+    subscription.originalError,
+    "This model is not included in your subscription plan."
   );
 
   const transientRateLimit = classifyOpenCodeFailureMessage({
@@ -587,6 +600,7 @@ test("opencode distinguishes subscription access from a transient rate limit", a
   });
   assert.equal(overlappingTransientRateLimit.code, "provider.rate_limited");
   assert.equal(overlappingTransientRateLimit.providerAccessEvidence, undefined);
+  assert.equal(overlappingTransientRateLimit.originalError, undefined);
 });
 
 test("opencode cli transport maps raw permission auto-reject stdout to public runtime permission copy", async () => {

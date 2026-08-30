@@ -12,6 +12,44 @@ const nullableTrimmedStringSchema = z.union([
   z.null(),
 ]);
 
+export const organizationDirectoryAgentProfileWorkLocationSchema =
+  z.strictObject({
+    spaceId: z.string().trim().min(1).max(512),
+    spaceName: trimmedNonEmptyStringSchema,
+  });
+
+export const organizationDirectoryAgentProfileOperationalContextSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({ status: z.literal("checking") }),
+    z.strictObject({
+      status: z.literal("idle"),
+      waitingCount: z.literal(0),
+    }),
+    z.strictObject({
+      currentWorkLocation:
+        organizationDirectoryAgentProfileWorkLocationSchema.optional(),
+      queuedWorkLocations: z
+        .array(organizationDirectoryAgentProfileWorkLocationSchema)
+        .max(50)
+        .optional(),
+      status: z.literal("working"),
+      waitingCount: z.number().int().min(0).max(50),
+    }),
+    z.strictObject({
+      currentWorkLocation:
+        organizationDirectoryAgentProfileWorkLocationSchema.optional(),
+      queuedWorkLocations: z
+        .array(organizationDirectoryAgentProfileWorkLocationSchema)
+        .max(50)
+        .optional(),
+      recoveryAction: z
+        .enum(["continue_interrupted_work", "approve_queued_work"])
+        .optional(),
+      status: z.literal("paused"),
+      waitingCount: z.number().int().min(0).max(50),
+    }),
+  ]);
+
 export const organizationDirectoryHumanProfileSchema = z.strictObject({
   lastUsedAt: z.union([ISO_DATE_TIME_SCHEMA, z.null()]).optional(),
   profileId: uuidProfileIdSchema,
@@ -59,6 +97,8 @@ export const organizationDirectoryAgentProfileIdentitySchema = z.strictObject({
 export const organizationDirectoryAgentProfileSchema =
   organizationDirectoryAgentProfileIdentitySchema.extend({
     isCenterAgent: z.boolean().optional(),
+    operationalContext:
+      organizationDirectoryAgentProfileOperationalContextSchema.optional(),
     readiness: getAgentExecutionReadinessResponseSchema,
   });
 

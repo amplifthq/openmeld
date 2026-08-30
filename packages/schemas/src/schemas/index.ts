@@ -514,6 +514,18 @@ export {
   runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
+  runtimeTransportAgentProfileOperationalContextSchema,
+  runtimeTransportAgentProfileOperationalContextsRequestSchema,
+  runtimeTransportAgentProfileOperationalContextsResponseSchema,
+  runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema,
+  runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
+  runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
+  runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
+  runtimeTransportAgentProfileWorkRecoveryActionSchema,
+  runtimeTransportAgentProfileWorkRecoveryReadRequestSchema,
+  runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
+  runtimeTransportAgentProfileWorkUsageAvailableRequestSchema,
+  runtimeTransportAgentProfileWorkUsageAvailableResponseSchema,
   runtimeTransportBaseCapabilitiesSchema,
   runtimeTransportCapabilitiesSchema,
   runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema,
@@ -644,7 +656,10 @@ export {
   storedDaemonServiceUpdateJobSchema,
 } from "./daemon/service-update-job";
 export {
+  isOriginalErrorSafeForMessageDetails,
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  OPENMELD_ORIGINAL_ERROR_MAX_LENGTH,
+  openMeldDaemonOriginalErrorSchema,
   openMeldDaemonProviderAccessEvidenceProviderSchema,
   openMeldDaemonProviderAccessEvidenceReasonCodeSchema,
   openMeldDaemonProviderAccessEvidenceSchema,
@@ -901,6 +916,12 @@ export {
   reconcileDeletedAgentProfileResponseSchema,
   reconcileDeletedAgentProfileSpaceOutcomeSchema,
 } from "./http/agent-profile-lifecycle";
+export {
+  agentProfileWorkRecoveryActionSchema,
+  agentProfileWorkRecoveryRouteParamsSchema,
+  executeAgentProfileWorkRecoveryBodySchema,
+  executeAgentProfileWorkRecoveryResponseSchema,
+} from "./http/agent-profile-work-recovery";
 export * from "./http/auth-device-authorization";
 export {
   setAuthPasswordBodySchema,
@@ -1559,7 +1580,9 @@ export {
   centerAgentListOrganizationMembersResponseSchema,
   centerAgentListOrganizationMembersToolRpcInputSchema,
   organizationDirectoryAgentProfileIdentitySchema,
+  organizationDirectoryAgentProfileOperationalContextSchema,
   organizationDirectoryAgentProfileSchema,
+  organizationDirectoryAgentProfileWorkLocationSchema,
   organizationDirectoryHumanProfileSchema,
   organizationDirectoryMemberSchema,
   organizationDirectoryResponseSchema,
@@ -2391,6 +2414,8 @@ export {
   profileDetailsFieldSourceSchema,
   profileDetailsFieldValueKindSchema,
   profileDetailsFieldVisibilitySchema,
+  profileDetailsRecoveryActionKindSchema,
+  profileDetailsRecoveryActionSchema,
   profileDetailsSectionIdSchema,
   profileDetailsSectionSchema,
   profileDetailsSnapshotSchema,

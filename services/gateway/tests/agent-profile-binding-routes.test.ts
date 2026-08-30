@@ -8,6 +8,7 @@ type CoreRpcMock = {
   bulkAuthorizeAgentProfileBindingsForOrganization: ReturnType<typeof vi.fn>;
   disableAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   ensureAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
+  executeAgentProfileWorkRecovery: ReturnType<typeof vi.fn>;
   getAgentExecutionReadinessBatch: ReturnType<typeof vi.fn>;
   getAgentExecutionReadiness: ReturnType<typeof vi.fn>;
   getAgentProfileCreationDefaults: ReturnType<typeof vi.fn>;
@@ -73,6 +74,10 @@ function makeEnv(input?: {
       outcome: "created",
       reasonCodes: ["agent_profile_binding.command_eligible"],
       routable: true,
+      status: "accepted",
+    })),
+    executeAgentProfileWorkRecovery: vi.fn(async (input) => ({
+      action: input.body.action,
       status: "accepted",
     })),
     updateAgentProfilePrimaryBindingModelSelection: vi.fn(async () => ({
@@ -362,6 +367,54 @@ function readyWakeRouteStatus() {
 }
 
 describe("agent profile binding routes", () => {
+  it("forwards work recovery body and canonical Organization context to Core", async () => {
+    const { coreRpc, env } = makeEnv({
+      authOverrides: {
+        resolveRequestAuth: vi.fn(async () => ({
+          ok: true,
+          claims: {
+            activeOrganizationId: "org-1",
+            authMethod: "session",
+            authenticated: true,
+            ownerIds: ["owner-1"],
+            requestId: "req-agent-profile-work-recovery-route",
+          },
+        })),
+      },
+    });
+
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/work-recovery`,
+        {
+          body: JSON.stringify({ action: "continue_interrupted_work" }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      action: "continue_interrupted_work",
+      status: "accepted",
+    });
+    expect(coreRpc.executeAgentProfileWorkRecovery).toHaveBeenCalledOnce();
+    expect(coreRpc.executeAgentProfileWorkRecovery).toHaveBeenCalledWith({
+      agentProfileId: AGENT_PROFILE_ID,
+      body: { action: "continue_interrupted_work" },
+      context: expect.objectContaining({
+        activeOrganizationId: "org-1",
+        actorContext: expect.objectContaining({
+          ownerUserId: "owner-1",
+          requestId: "req-agent-profile-work-recovery-route",
+        }),
+      }),
+    });
+  });
+
   it("reads and saves Agent Profile creation defaults for one Local Agent", async () => {
     const { coreRpc, env } = makeEnv();
     const url =

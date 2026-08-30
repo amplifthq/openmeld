@@ -33,18 +33,21 @@ export type CodexInvokeResult = {
 export class CodexRuntimeError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
   readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
     providerAccessEvidence?: AdapterProviderAccessEvidence;
   }) {
     super(input.message);
     this.name = "CodexRuntimeError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.originalError = input.originalError;
     this.providerAccessEvidence = input.providerAccessEvidence;
   }
 }
@@ -245,6 +248,7 @@ function toCodexRuntimeError(error: unknown): CodexRuntimeError {
       code: (error as { code: string }).code,
       errorType: (error as { errorType: AdapterErrorType }).errorType,
       message: error.message,
+      originalError: (error as { originalError?: string }).originalError,
       providerAccessEvidence: (
         error as { providerAccessEvidence?: AdapterProviderAccessEvidence }
       ).providerAccessEvidence,

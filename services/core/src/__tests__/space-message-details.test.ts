@@ -12,6 +12,57 @@ const SPACE_ID = "space-1";
 const SENT_AT_MS = Date.UTC(2026, 5, 4, 6, 8);
 
 describe("space Message Details projection", () => {
+  it("keeps a bounded Local Agent original error owner-only in Message Details", () => {
+    const wakeSourceSignal = createTextSignal({
+      id: "sig-original-error",
+      profile: humanProfile(),
+      text: "@Codex investigate",
+      messageEnvelope: {
+        activationTargets: ["agt-codex"],
+        referenceTargets: [],
+        text: "@Codex investigate",
+      },
+      meta: { clientMessageId: "client-original-error" },
+    });
+    const wakeTraceItem = createWakeTraceItem({
+      clientMessageId: "client-original-error",
+      reasonCode: "usage_exhausted",
+      status: "failed",
+      targetLabel: "Codex",
+      targetProfileId: "agt-codex",
+      terminalStep: "result",
+    });
+    const baseInput = {
+      originalErrorByTargetProfileId: new Map([
+        ["agt-codex", "You've hit your usage limit. Try again at 2:03 AM."],
+      ]),
+      replySignal: null,
+      signal: wakeSourceSignal,
+      spaceId: SPACE_ID,
+      targetOwnerUserIdByProfileId: new Map([["agt-codex", "owner-1"]]),
+      visibleReplySignal: null,
+      visibleSignal: wakeSourceSignal,
+      wakeSourceSignal,
+      wakeTraceItems: [wakeTraceItem],
+    };
+
+    const ownerDetails = projectSpaceMessageDetails({
+      ...baseInput,
+      viewerOwnerUserId: "owner-1",
+    });
+    expect(ownerDetails.wakeContext.targets[0]?.originalError).toBe(
+      "You've hit your usage limit. Try again at 2:03 AM."
+    );
+
+    const teammateDetails = projectSpaceMessageDetails({
+      ...baseInput,
+      viewerOwnerUserId: "owner-2",
+    });
+    expect(
+      teammateDetails.wakeContext.targets[0]?.originalError
+    ).toBeUndefined();
+  });
+
   it("marks agent context as not applicable for human messages", () => {
     const signal = createTextSignal({
       id: "sig-human-1",

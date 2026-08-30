@@ -4,6 +4,8 @@ import {
   disableAgentProfilePrimaryBindingResponseSchema,
   ensureAgentProfilePrimaryBindingBodySchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
+  executeAgentProfileWorkRecoveryBodySchema,
+  executeAgentProfileWorkRecoveryResponseSchema,
   getAgentExecutionReadinessBatchBodySchema,
   getAgentExecutionReadinessBatchResponseSchema,
   getAgentExecutionReadinessResponseSchema,
@@ -58,10 +60,63 @@ const AGENT_EXECUTION_READINESS_ROUTE =
   "/v1/agent-profiles/:agentProfileId/execution-readiness";
 const AGENT_EXECUTION_READINESS_BATCH_ROUTE =
   "/v1/agent-profiles/execution-readiness/batch";
+const AGENT_PROFILE_WORK_RECOVERY_ROUTE =
+  "/v1/agent-profiles/:agentProfileId/work-recovery";
 
 export function registerAgentProfileBindingRoutes(
   app: Hono<HonoBindings>
 ): void {
+  app.post(AGENT_PROFILE_WORK_RECOVERY_ROUTE, async (c) => {
+    const routeParams = parseAgentProfileBindingRouteParams({
+      agentProfileId: c.req.param("agentProfileId"),
+    });
+    if (!routeParams.ok) {
+      return respondBadRequest({
+        c,
+        route: AGENT_PROFILE_WORK_RECOVERY_ROUTE,
+        method: "POST",
+        code: "invalid_payload",
+        message: routeParams.message,
+      });
+    }
+    const bodyResult = await readJsonRequestBody(c.req.raw);
+    if (!bodyResult.ok) {
+      return respondBadRequest({
+        c,
+        route: AGENT_PROFILE_WORK_RECOVERY_ROUTE,
+        method: "POST",
+        code: "invalid_json",
+        message: bodyResult.message,
+      });
+    }
+    const body = executeAgentProfileWorkRecoveryBodySchema.safeParse(
+      bodyResult.value
+    );
+    if (!body.success) {
+      return respondBadRequest({
+        c,
+        route: AGENT_PROFILE_WORK_RECOVERY_ROUTE,
+        method: "POST",
+        code: "invalid_payload",
+        message:
+          body.error.issues[0]?.message ??
+          "Agent Profile work recovery payload is invalid",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: AGENT_PROFILE_WORK_RECOVERY_ROUTE,
+      method: "POST",
+      responseSchema: executeAgentProfileWorkRecoveryResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.executeAgentProfileWorkRecovery({
+          agentProfileId: routeParams.value.agentProfileId,
+          body: body.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+
   app.patch(AGENT_PROFILE_DEFAULT_PROJECT_ROUTE, async (c) => {
     const routeParams =
       updateAgentProfileDefaultProjectRouteParamsSchema.safeParse({

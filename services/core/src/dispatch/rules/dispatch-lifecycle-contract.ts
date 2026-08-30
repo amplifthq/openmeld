@@ -19,6 +19,7 @@ export const OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE = {
   dispatching: "dispatching",
   failedRetryable: "failed_retryable",
   failedTerminal: "failed_terminal",
+  profileQueueWaiting: "profile_queue_waiting",
   succeeded: "succeeded",
   superseded: "superseded",
   timedOut: "timed_out",

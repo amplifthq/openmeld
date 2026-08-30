@@ -82,6 +82,7 @@ type ClaudeAgentSdkProviderAccessEvidence = NonNullable<
 export class ClaudeAgentSdkTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
   readonly providerAccessEvidence?: ClaudeAgentSdkProviderAccessEvidence;
   readonly telemetry?: AdapterDispatchTelemetry;
 
@@ -89,6 +90,7 @@ export class ClaudeAgentSdkTransportError extends Error {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
     providerAccessEvidence?: ClaudeAgentSdkProviderAccessEvidence;
     telemetry?: AdapterDispatchTelemetry;
   }) {
@@ -96,6 +98,9 @@ export class ClaudeAgentSdkTransportError extends Error {
     this.name = "ClaudeAgentSdkTransportError";
     this.code = input.code;
     this.errorType = input.errorType;
+    if (input.originalError) {
+      this.originalError = input.originalError;
+    }
     if (input.providerAccessEvidence) {
       this.providerAccessEvidence = input.providerAccessEvidence;
     }
@@ -294,12 +299,14 @@ export async function invokeClaudeAgentSdkTransport(input: {
     });
     const classifiedFailure = classifyClaudeFailure({
       providerErrorMessages,
+      providerOriginalErrorMessages: providerErrorMessages,
       stderrText: stderrChunks.join(""),
     });
     throw new ClaudeAgentSdkTransportError({
       code: classifiedFailure.code,
       errorType: classifiedFailure.errorType,
       message: classifiedFailure.message,
+      ...projectClaudeOriginalError(classifiedFailure),
       ...(classifiedFailure.providerAccessEvidence
         ? { providerAccessEvidence: classifiedFailure.providerAccessEvidence }
         : {}),
@@ -323,12 +330,14 @@ export async function invokeClaudeAgentSdkTransport(input: {
     });
     const classifiedFailure = classifyClaudeFailure({
       providerErrorMessages,
+      providerOriginalErrorMessages: providerErrorMessages,
       stderrText: stderrChunks.join(""),
     });
     throw new ClaudeAgentSdkTransportError({
       code: classifiedFailure.code,
       errorType: classifiedFailure.errorType,
       message: classifiedFailure.message,
+      ...projectClaudeOriginalError(classifiedFailure),
       ...(classifiedFailure.providerAccessEvidence
         ? { providerAccessEvidence: classifiedFailure.providerAccessEvidence }
         : {}),
@@ -934,16 +943,18 @@ function toClaudeAgentSdkTransportError(input: {
   const fallbackMessage =
     input.error instanceof Error ? input.error.message : String(input.error);
   const classifiedFailure = classifyClaudeFailure({
-    providerErrorMessages: [
-      ...input.providerErrorMessages,
-      normalizeOptionalText(fallbackMessage) ?? "",
-    ],
-    stderrText: input.stderrText,
+    providerErrorMessages: input.providerErrorMessages,
+    providerOriginalErrorMessages: input.providerErrorMessages,
+    stderrText: [fallbackMessage, input.stderrText]
+      .map(normalizeOptionalText)
+      .filter((value): value is string => value !== null)
+      .join("\n"),
   });
   return new ClaudeAgentSdkTransportError({
     code: classifiedFailure.code,
     errorType: classifiedFailure.errorType,
     message: classifiedFailure.message,
+    ...projectClaudeOriginalError(classifiedFailure),
     ...(classifiedFailure.providerAccessEvidence
       ? { providerAccessEvidence: classifiedFailure.providerAccessEvidence }
       : {}),
@@ -957,6 +968,12 @@ function toClaudeAgentSdkTransportError(input: {
       timeoutTriggeredAtMs: input.timeoutTriggeredAtMs,
     }),
   });
+}
+
+function projectClaudeOriginalError(input: { originalError?: string }): {
+  originalError?: string;
+} {
+  return input.originalError ? { originalError: input.originalError } : {};
 }
 
 function buildPosixWrapperScript(input: {

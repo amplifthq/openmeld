@@ -127,6 +127,161 @@ describe("Profile Details snapshot", () => {
     ).toBe("Read-only");
   });
 
+  it("shows the same Agent Profile work summary while keeping work locations owner-only", () => {
+    const input = {
+      agentControllerPermissionModeDetail: null,
+      modelDetail: null,
+      operationalContext: {
+        currentWorkLocation: "Launch planning",
+        queuedWorkLocations: ["Customer follow-up", "Release review"],
+        recoveryAction: null,
+        status: "working" as const,
+        waitingCount: 2,
+      },
+      primaryBinding: null,
+      profile: {
+        openMeldProfileId: "agt_7600b644-500a-4955-b807-ece84ecc68187",
+        createdAt: "2026-06-18T00:00:00.000Z",
+        createdByUserId: "user-1",
+        creatorProfileId: "human-1",
+        isDefault: false,
+        lastUsedAt: null,
+        managedRole: null,
+        ownerName: "Felix",
+        ownerUserId: "user-1",
+        profileHandle: "research-agent",
+        profileKind: "agent" as const,
+        profileName: "Research Agent",
+        source: "web_create",
+        status: "active" as const,
+        updatedAt: "2026-06-19T00:00:00.000Z",
+      },
+      readiness: null,
+    };
+    const owner = buildProfileDetailsSnapshotFromAuthProfile({
+      ...input,
+      viewerScope: "owner_self",
+    });
+    const observer = buildProfileDetailsSnapshotFromAuthProfile({
+      ...input,
+      viewerScope: "observer",
+    });
+
+    expect(findRowValue(owner, "activity", "Work")).toBe("Working · 2 queued");
+    expect(findRowValue(observer, "activity", "Work")).toBe(
+      "Working · 2 queued"
+    );
+    expect(findRowValue(owner, "activity", "Working in")).toBe(
+      "Launch planning"
+    );
+    expect(findRowValue(owner, "activity", "Queued 1")).toBe(
+      "Customer follow-up"
+    );
+    expect(findRowValue(observer, "activity", "Working in")).toBeNull();
+    expect(findRowValue(observer, "activity", "Queued 1")).toBeNull();
+
+    const pausedInput = {
+      ...input,
+      operationalContext: {
+        ...input.operationalContext,
+        status: "paused" as const,
+      },
+    };
+    const pausedOwner = buildProfileDetailsSnapshotFromAuthProfile({
+      ...pausedInput,
+      viewerScope: "owner_self",
+    });
+    const pausedObserver = buildProfileDetailsSnapshotFromAuthProfile({
+      ...pausedInput,
+      viewerScope: "observer",
+    });
+
+    expect(findRowValue(pausedOwner, "activity", "Work")).toBe(
+      "Paused · 2 queued"
+    );
+    expect(findRowValue(pausedObserver, "activity", "Work")).toBe(
+      "Paused · 2 queued"
+    );
+    expect(findRowValue(pausedOwner, "activity", "Paused in")).toBe(
+      "Launch planning"
+    );
+    expect(findRowValue(pausedOwner, "activity", "Queued 1")).toBe(
+      "Customer follow-up"
+    );
+    expect(findRowValue(pausedObserver, "activity", "Paused in")).toBeNull();
+    expect(findRowValue(pausedObserver, "activity", "Queued 1")).toBeNull();
+
+    const pausedWithoutQueue = buildProfileDetailsSnapshotFromAuthProfile({
+      ...pausedInput,
+      operationalContext: {
+        ...pausedInput.operationalContext,
+        queuedWorkLocations: [],
+        waitingCount: 0,
+      },
+      viewerScope: "observer",
+    });
+    expect(findRowValue(pausedWithoutQueue, "activity", "Work")).toBe("Paused");
+  });
+
+  it("adds an owner-only recovery action without changing the compact workload copy", () => {
+    const input = {
+      agentControllerPermissionModeDetail: null,
+      modelDetail: null,
+      operationalContext: {
+        currentWorkLocation: "Launch planning",
+        queuedWorkLocations: ["Customer follow-up"],
+        recoveryAction: {
+          kind: "continue_interrupted_work" as const,
+        },
+        status: "paused" as const,
+        waitingCount: 1,
+      },
+      primaryBinding: null,
+      profile: {
+        openMeldProfileId: "agt_7600b644-500a-4955-b807-ece84ecc68187",
+        createdAt: "2026-06-18T00:00:00.000Z",
+        createdByUserId: "user-1",
+        creatorProfileId: "human-1",
+        isDefault: false,
+        lastUsedAt: null,
+        managedRole: null,
+        ownerName: "Felix",
+        ownerUserId: "user-1",
+        profileHandle: "research-agent",
+        profileKind: "agent" as const,
+        profileName: "Research Agent",
+        source: "web_create",
+        status: "active" as const,
+        updatedAt: "2026-06-19T00:00:00.000Z",
+      },
+      readiness: null,
+    };
+    const owner = buildProfileDetailsSnapshotFromAuthProfile({
+      ...input,
+      viewerScope: "owner_self",
+    });
+    const observer = buildProfileDetailsSnapshotFromAuthProfile({
+      ...input,
+      viewerScope: "observer",
+    });
+
+    expect(findRowValue(owner, "activity", "Work")).toBe("Paused · 1 queued");
+    expect(findRowValue(observer, "activity", "Work")).toBe(
+      "Paused · 1 queued"
+    );
+    expect(
+      owner.sections.find((section) => section.id === "activity")
+    ).toMatchObject({
+      recoveryAction: {
+        kind: "continue_interrupted_work",
+        visibility: "owner_self",
+      },
+    });
+    expect(
+      observer.sections.find((section) => section.id === "activity")
+    ).toMatchObject({ recoveryAction: null });
+  });
+
   it("keeps owner Space Profile Details rich without moving Space context into profile identity", () => {
     const snapshot = buildProfileDetailsSnapshotFromSpaceMember({
       agentControllerPermissionModeDetail: "Approve for me",

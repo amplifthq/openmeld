@@ -31,6 +31,7 @@ export const openMeldDaemonDispatchDeliveryRecoveryReasonSchema = z.enum([
 ]);
 export const openMeldDaemonDispatchQueueRecoveryReasonSchema = z.union([
   openMeldDaemonDispatchDeliveryRecoveryReasonSchema,
+  z.literal("agent_profile_work_coordinator_promoted"),
   z.literal("hosted_admission_incomplete"),
 ]);
 

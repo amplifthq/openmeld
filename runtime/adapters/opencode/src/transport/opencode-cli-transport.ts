@@ -33,18 +33,21 @@ export type OpenCodeCliTransportResult = {
 export class OpenCodeCliTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
   readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
     providerAccessEvidence?: AdapterProviderAccessEvidence;
   }) {
     super(input.message);
     this.name = "OpenCodeCliTransportError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.originalError = input.originalError;
     this.providerAccessEvidence = input.providerAccessEvidence;
   }
 }
@@ -184,6 +187,7 @@ export async function invokeOpenCodeCliTransport(input: {
       code: classifiedFailure.code,
       errorType: classifiedFailure.errorType,
       message: classifiedFailure.message,
+      originalError: classifiedFailure.originalError,
       providerAccessEvidence: classifiedFailure.providerAccessEvidence,
     });
   }
@@ -198,6 +202,7 @@ export async function invokeOpenCodeCliTransport(input: {
       code: classifiedFailure.code,
       errorType: classifiedFailure.errorType,
       message: classifiedFailure.message,
+      originalError: classifiedFailure.originalError,
       providerAccessEvidence: classifiedFailure.providerAccessEvidence,
     });
   }
@@ -223,6 +228,7 @@ export async function invokeOpenCodeCliTransport(input: {
         code: classifiedFailure.code,
         errorType: classifiedFailure.errorType,
         message: classifiedFailure.message,
+        originalError: classifiedFailure.originalError,
         providerAccessEvidence: classifiedFailure.providerAccessEvidence,
       });
     }
@@ -240,6 +246,7 @@ export async function invokeOpenCodeCliTransport(input: {
         code: classifiedFailure.code,
         errorType: classifiedFailure.errorType,
         message: classifiedFailure.message,
+        originalError: classifiedFailure.originalError,
         providerAccessEvidence: classifiedFailure.providerAccessEvidence,
       });
     }
@@ -371,6 +378,7 @@ const toOpenCodeCliTransportError = (
         code: classifiedFailure.code,
         errorType: classifiedFailure.errorType,
         message: classifiedFailure.message,
+        originalError: classifiedFailure.originalError,
         providerAccessEvidence: classifiedFailure.providerAccessEvidence,
       });
     }
@@ -393,11 +401,16 @@ const classifyOpenCodeFailure = (input: {
   code: string;
   errorType: AdapterErrorType;
   message: string;
+  originalError?: string;
   providerAccessEvidence?: AdapterProviderAccessEvidence;
 } => {
+  const hasProviderOwnedMessage =
+    input.providerErrorMessages.length > 0 ||
+    extractErrorMessagesFromStdout(input.stdoutText).length > 0;
   const providerMessage = resolveProviderFailureMessage(input);
   if (providerMessage) {
     return classifyOpenCodeFailureMessage({
+      includeOriginalError: hasProviderOwnedMessage,
       isContextLost: isLikelyOpenCodeContextLostError,
       message: providerMessage,
     });

@@ -71,8 +71,6 @@ const INTERACTION_PLAN_REQUIRED_PUBLIC_COPY =
   "The local agent asked for plan approval before it could continue. OpenMeld cannot collect that approval yet. Run the task directly in the local agent, or use a mode that does not require plan approval, then wake it again.";
 const INTERACTION_UNSUPPORTED_PUBLIC_COPY =
   "The local agent requested an interactive response that OpenMeld does not support yet. Run the task directly in the local agent, resolve the request there, then wake it again.";
-const OPENCLAW_PERMISSION_REQUIRED_RE = /\b[a-z0-9_]+_permission_required\b/;
-const LEADING_ERROR_CODE_PREFIX_RE = /^[a-z][\w.]*:\s+/i;
 const HTML_ERROR_BODY_RE = /^\s*</;
 
 export const DISPATCH_ERROR_SUMMARY_MAX_LENGTH = 512;
@@ -606,6 +604,17 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       primaryActionId: "manage_cursor_plan",
       preferMappedReasonOverDetail: true,
       recoveryTarget: "cursor_account",
+    },
+    {
+      body: (targetName) =>
+        `${targetName} reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again.`,
+      kind: "account_access",
+      mappedReasonBody: (targetName) =>
+        `${targetName} reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again.`,
+      patterns: ["=usage_exhausted"],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "agents",
     },
     {
       body: (targetName) =>
@@ -1365,75 +1374,6 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
   ] as const;
 
-export function resolveDetailedPublicAgentFailureReason(
-  errorMessage: string | null | undefined
-): string | null {
-  const normalizedMessage = normalizeProviderFailureMessage(errorMessage);
-  if (!normalizedMessage) {
-    return null;
-  }
-
-  const lowered = normalizedMessage.toLowerCase();
-  const usageLimitReason = resolveProviderUsageLimitPassthroughReason(
-    normalizedMessage,
-    lowered
-  );
-  if (usageLimitReason) {
-    return usageLimitReason;
-  }
-  const providerFailureReason =
-    resolveRuntimeOrProviderAccountFailureReason(lowered);
-  if (providerFailureReason) {
-    return providerFailureReason;
-  }
-  if (
-    lowered.includes("model is not supported") &&
-    lowered.includes("chatgpt account")
-  ) {
-    return "The current Codex model is not available for this ChatGPT-backed account.";
-  }
-  if (lowered.includes("requires a newer version of codex")) {
-    return CODEX_UPGRADE_REQUIRED_REASON;
-  }
-  if (
-    lowered.includes("model is not supported") ||
-    lowered.includes("unsupported model")
-  ) {
-    return UNSUPPORTED_MODEL_PUBLIC_COPY;
-  }
-  if (
-    lowered.includes("oauth token refresh failed") ||
-    lowered.includes("failed to refresh oauth token")
-  ) {
-    if (lowered.includes("openclaw logs --follow")) {
-      return "Authentication failed in OpenClaw. Run `openclaw logs --follow`, re-authenticate, then retry.";
-    }
-    return "Authentication failed while refreshing the provider token. Re-authenticate in the provider CLI, then retry.";
-  }
-  if (isClaudeCodeSubscriptionAccessFailure(lowered)) {
-    return "Claude Code subscription access is unavailable. Check your Claude Code subscription, then try again.";
-  }
-  if (isClaudeCodeAccountAccessFailure(lowered)) {
-    return "Claude Code access is disabled for this account or organization. Enable Claude Code access in Claude, then try again.";
-  }
-  if (lowered.includes("openclaw is not installed or not on path")) {
-    return "OpenMeld could not start OpenClaw on this device. Install OpenClaw or fix its PATH for background services, then try again.";
-  }
-  if (lowered.includes("launch contract is required for runtime dispatch")) {
-    return "OpenMeld could not start this agent on this device. Repair it on this device, then try again.";
-  }
-  if (
-    lowered.includes("openmeld found more than one") &&
-    lowered.includes("install")
-  ) {
-    return "OpenMeld found more than one install for this agent on this device. Choose which one OpenMeld should use here, then try again.";
-  }
-  if (isProviderUnreachableFailure(lowered)) {
-    return "The model provider was unreachable. Check provider status or network access, then wake the agent again.";
-  }
-  return null;
-}
-
 export function resolvePublicAgentFailureRecovery(input: {
   errorCode: string | null | undefined;
   includeUnknown?: boolean;
@@ -1612,216 +1552,6 @@ function resolveControllerSignInAvailabilityCopy(
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = typeof value === "string" ? value.trim() : "";
   return normalized.length > 0 ? normalized : null;
-}
-
-function isProviderBalanceFailure(value: string): boolean {
-  return (
-    value.includes("insufficient balance") ||
-    value.includes("insufficient_balance") ||
-    value.includes("not enough credits") ||
-    value.includes("out of credits") ||
-    value.includes("credits exhausted") ||
-    value.includes("credit balance") ||
-    value.includes("account balance") ||
-    value.includes("balance is too low") ||
-    value.includes("payment required")
-  );
-}
-
-function isRuntimePermissionApprovalFailure(value: string): boolean {
-  return (
-    value.includes("permission.denied.runtime") ||
-    (value.includes("permission requested") &&
-      (value.includes("auto-reject") ||
-        value.includes("auto rejecting") ||
-        value.includes("auto rejected") ||
-        value.includes("rejecting"))) ||
-    value.includes("permission for this tool use was denied") ||
-    value.includes("permission for this action was denied") ||
-    value.includes("permission for this action has been denied") ||
-    value.includes("denied by auto mode classifier") ||
-    value.includes("user rejected tool use") ||
-    value.includes("command denied by sandbox:") ||
-    value.includes("sandbox denied exec error") ||
-    value.includes("this action was rejected due to unacceptable risk") ||
-    (value.includes("execution denied:") &&
-      (value.includes("policy") ||
-        value.includes("forbidden") ||
-        value.includes("approval") ||
-        value.includes("sandbox"))) ||
-    (value.includes("rejected:") && value.includes("blocked by policy")) ||
-    (value.includes("requires approval") && value.includes("policy")) ||
-    value.includes("policy forbids commands starting") ||
-    value.includes("system_run_denied:") ||
-    value.includes("system_run_disabled: security=deny") ||
-    value.includes("exec denied:") ||
-    value.includes("exec.denied") ||
-    value.includes("permission:screenrecording") ||
-    OPENCLAW_PERMISSION_REQUIRED_RE.test(value)
-  );
-}
-
-function resolveProviderUsageLimitPassthroughReason(
-  rawMessage: string,
-  lowered: string
-): string | null {
-  if (
-    !(
-      lowered.includes("usage limit") ||
-      lowered.includes("hit your usage limit")
-    )
-  ) {
-    return null;
-  }
-  // A provider usage-limit notice already reads as native, actionable copy —
-  // what happened, what to do, and when it resets. Surface it verbatim (minus
-  // the diagnostic error-code prefix) so the user sees the real reason and the
-  // reset time instead of a generic fallback (experience-principles #1, #8).
-  return normalizeOptionalText(stripLeadingErrorCodePrefix(rawMessage));
-}
-
-function stripLeadingErrorCodePrefix(value: string): string {
-  return value.replace(LEADING_ERROR_CODE_PREFIX_RE, "");
-}
-
-function resolveRuntimeOrProviderAccountFailureReason(
-  value: string
-): string | null {
-  if (isRuntimePermissionApprovalFailure(value)) {
-    return RUNTIME_PERMISSION_DENIAL_PUBLIC_COPY;
-  }
-  if (isProviderBalanceFailure(value)) {
-    return "The model provider rejected this request because the provider account does not have enough credits. Add credits or update billing directly with the provider, then wake the agent again.";
-  }
-  if (isProviderCredentialFailure(value)) {
-    return "The model provider rejected this request because the local provider login expired. Re-authenticate the local agent on its computer, then wake the agent again.";
-  }
-  if (isProviderRateLimitFailure(value)) {
-    return "The model provider rate-limited this request. Wait a moment, then wake the agent again.";
-  }
-  if (isProviderUnavailableFailure(value)) {
-    return PROVIDER_UNAVAILABLE_PUBLIC_COPY;
-  }
-  return null;
-}
-
-function isProviderCredentialFailure(value: string): boolean {
-  return (
-    value.includes("invalid api key") ||
-    value.includes("invalid token") ||
-    value.includes("expired token") ||
-    value.includes("missing api key") ||
-    value.includes("missing credentials") ||
-    value.includes("authentication_failed") ||
-    value.includes("oauth_org_not_allowed") ||
-    value.includes("failed to authenticate") ||
-    value.includes("oauth session expired") ||
-    value.includes("unauthorized") ||
-    value.includes("not logged in") ||
-    value.includes("401")
-  );
-}
-
-function isProviderRateLimitFailure(value: string): boolean {
-  return (
-    value.includes("rate limit") ||
-    value.includes("rate_limit") ||
-    value.includes("too many requests") ||
-    value.includes("throttl") ||
-    value.includes("429")
-  );
-}
-
-function isProviderUnavailableFailure(value: string): boolean {
-  return (
-    value.includes("bad gateway") ||
-    value.includes("gateway timeout") ||
-    value.includes("service unavailable") ||
-    value.includes("provider unavailable") ||
-    value.includes("provider is unavailable") ||
-    value.includes("socket hang up") ||
-    value.includes("econnreset") ||
-    value.includes("etimedout")
-  );
-}
-
-function isProviderUnreachableFailure(value: string): boolean {
-  const hasProviderContext =
-    value.includes("provider") ||
-    value.includes("upstream") ||
-    value.includes("network") ||
-    value.includes("connection") ||
-    value.includes("request");
-  return (
-    value.includes("upstream_unreachable") ||
-    value.includes("provider_unreachable") ||
-    value.includes("provider unavailable") ||
-    value.includes("provider is unavailable") ||
-    value.includes("upstream unavailable") ||
-    value.includes("connection refused") ||
-    value.includes("network unreachable") ||
-    value.includes("dns") ||
-    ((value.includes("timeout") || value.includes("timed out")) &&
-      hasProviderContext)
-  );
-}
-
-function isClaudeCodeAccountAccessFailure(value: string): boolean {
-  return (
-    (value.includes("organization") &&
-      value.includes("disabled") &&
-      value.includes("access")) ||
-    (value.includes("claude code") &&
-      (value.includes("access is disabled") ||
-        value.includes("disabled claude code") ||
-        value.includes("access unavailable") ||
-        value.includes("not enabled")))
-  );
-}
-
-function isClaudeCodeSubscriptionAccessFailure(value: string): boolean {
-  return (
-    value.includes("subscription") &&
-    (value.includes("disabled") ||
-      value.includes("inactive") ||
-      value.includes("required") ||
-      value.includes("unavailable"))
-  );
-}
-
-function normalizeProviderFailureMessage(
-  value: string | null | undefined
-): string | null {
-  const normalized = normalizeOptionalText(value);
-  if (!normalized) {
-    return null;
-  }
-
-  const extractedJsonDetail = extractJsonDetail(normalized);
-  return normalizeOptionalText(extractedJsonDetail) ?? normalized;
-}
-
-function extractJsonDetail(value: string): string | null {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const record = parsed as Record<string, unknown>;
-    return (
-      normalizeOptionalText(record.detail) ??
-      normalizeOptionalText(record.message) ??
-      (record.error &&
-      typeof record.error === "object" &&
-      !Array.isArray(record.error)
-        ? normalizeOptionalText(
-            (record.error as Record<string, unknown>).message
-          )
-        : null)
-    );
-  } catch {
-    return null;
-  }
 }
 
 function formatObjectTargetName(targetName: string): string {

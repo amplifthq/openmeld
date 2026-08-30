@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   centerAgentListOrganizationMembersResponseSchema,
   centerAgentListOrganizationMembersToolRpcInputSchema,
+  organizationDirectoryAgentProfileOperationalContextSchema,
 } from "../../src/schemas/http/organization-directory";
 
 const context = {
@@ -58,5 +59,88 @@ describe("Center Agent Organization member list contracts", () => {
 
     expect(response.totalMembers).toBe(1);
     expect(response).not.toHaveProperty("agentProfiles");
+  });
+});
+
+describe("Organization directory Agent Profile Operational Context", () => {
+  it("keeps the public workload summary stable while owner locations remain optional", () => {
+    expect(
+      organizationDirectoryAgentProfileOperationalContextSchema.parse({
+        status: "working",
+        waitingCount: 2,
+      })
+    ).toEqual({ status: "working", waitingCount: 2 });
+
+    expect(
+      organizationDirectoryAgentProfileOperationalContextSchema.parse({
+        currentWorkLocation: {
+          spaceId: "space-current",
+          spaceName: "Launch planning",
+        },
+        queuedWorkLocations: [
+          { spaceId: "space-next", spaceName: "Customer follow-up" },
+        ],
+        status: "working",
+        waitingCount: 1,
+      })
+    ).toMatchObject({
+      currentWorkLocation: { spaceName: "Launch planning" },
+      queuedWorkLocations: [{ spaceName: "Customer follow-up" }],
+      status: "working",
+      waitingCount: 1,
+    });
+  });
+
+  it("accepts paused workload without exposing owner-action or task details", () => {
+    expect(
+      organizationDirectoryAgentProfileOperationalContextSchema.parse({
+        status: "paused",
+        waitingCount: 2,
+      })
+    ).toEqual({ status: "paused", waitingCount: 2 });
+
+    expect(
+      organizationDirectoryAgentProfileOperationalContextSchema.parse({
+        currentWorkLocation: {
+          spaceId: "space-current",
+          spaceName: "Launch planning",
+        },
+        queuedWorkLocations: [
+          { spaceId: "space-next", spaceName: "Customer follow-up" },
+        ],
+        status: "paused",
+        waitingCount: 1,
+      })
+    ).toMatchObject({
+      currentWorkLocation: { spaceName: "Launch planning" },
+      queuedWorkLocations: [{ spaceName: "Customer follow-up" }],
+      status: "paused",
+      waitingCount: 1,
+    });
+
+    for (const privateField of ["gateReason", "taskIds", "sourceData"]) {
+      expect(
+        organizationDirectoryAgentProfileOperationalContextSchema.safeParse({
+          [privateField]: "private",
+          status: "paused",
+          waitingCount: 0,
+        }).success
+      ).toBe(false);
+    }
+  });
+
+  it("rejects impossible idle and checking queue counts", () => {
+    expect(
+      organizationDirectoryAgentProfileOperationalContextSchema.safeParse({
+        status: "idle",
+        waitingCount: 1,
+      }).success
+    ).toBe(false);
+    expect(
+      organizationDirectoryAgentProfileOperationalContextSchema.safeParse({
+        status: "checking",
+        waitingCount: 0,
+      }).success
+    ).toBe(false);
   });
 });

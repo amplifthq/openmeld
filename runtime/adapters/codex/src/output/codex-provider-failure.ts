@@ -2,16 +2,18 @@ import type {
   AdapterErrorType,
   AdapterProviderAccessEvidence,
 } from "@openmeld/adapter-core";
+import { createProviderOriginalError } from "@openmeld/adapter-core";
 
 export type CodexProviderFailureClassification = {
   code: string;
   errorType: AdapterErrorType;
+  originalError?: string;
   providerAccessEvidence?: AdapterProviderAccessEvidence;
 };
 
 /**
  * Codex provider-account failure classification shared by the CLI and
- * app-server transports so both surface the same `quota.exceeded` /
+ * app-server transports so both surface the same `usage_exhausted` /
  * `rate_limited` / `auth.required` codes for the same provider failure.
  *
  * Wording covers both the ChatGPT-subscription Codex ("You've hit your usage
@@ -20,7 +22,7 @@ export type CodexProviderFailureClassification = {
  * - app-server turn.error: `{ message: "You've hit your usage limit. …", codexErrorInfo: "usageLimitExceeded" }`
  * - exec turn.failed: `{ error: { message: "You've hit your usage limit. …" } }`
  */
-export function isCodexQuotaFailure(value: string): boolean {
+export function isCodexUsageExhaustedFailure(value: string): boolean {
   return (
     value.includes("usage limit") ||
     value.includes("purchase more credits") ||
@@ -35,22 +37,6 @@ export function isCodexQuotaFailure(value: string): boolean {
     value.includes("balance is too low") ||
     value.includes("payment required") ||
     value.includes("billing")
-  );
-}
-
-function isDefinitiveCodexCapacityFailure(value: string): boolean {
-  return (
-    value.includes("purchase more credits") ||
-    value.includes("insufficient_quota") ||
-    value.includes("insufficient balance") ||
-    value.includes("insufficient_balance") ||
-    value.includes("quota exceeded") ||
-    value.includes("exceeded your current quota") ||
-    value.includes("not enough credits") ||
-    value.includes("out of credits") ||
-    value.includes("credits exhausted") ||
-    value.includes("balance is too low") ||
-    value.includes("payment required")
   );
 }
 
@@ -98,52 +84,67 @@ export function classifyCodexProviderAccountFailure(input: {
   )?.toLowerCase();
   if (codexErrorInfo === "usagelimitexceeded") {
     return buildHardProviderFailure({
-      code: "quota.exceeded",
-      reasonCode: "provider_account.capacity_exhausted",
+      code: "usage_exhausted",
+      originalError: createProviderOriginalError(input.message),
+      reasonCode: "usage_exhausted",
     });
   }
 
   const lowered = input.message.toLowerCase();
-  if (isDefinitiveCodexCapacityFailure(lowered)) {
-    return buildHardProviderFailure({
-      code: "quota.exceeded",
-      reasonCode: "provider_account.capacity_exhausted",
-    });
-  }
   if (isCodexRateLimitFailure(lowered)) {
-    return { code: "rate_limited", errorType: "adapter" };
+    return withOriginalError(
+      { code: "rate_limited", errorType: "adapter" },
+      input.message
+    );
   }
   if (isCodexSubscriptionAccessFailure(lowered)) {
     return buildHardProviderFailure({
       code: "provider.subscription_access_unavailable",
+      originalError: createProviderOriginalError(input.message),
       reasonCode: "provider_account.subscription_access_unavailable",
     });
   }
-  if (isCodexQuotaFailure(lowered)) {
-    return buildHardProviderFailure({
-      code: "quota.exceeded",
-      reasonCode: "provider_account.capacity_exhausted",
-    });
+  if (isCodexUsageExhaustedFailure(lowered)) {
+    return withOriginalError(
+      { code: "usage_exhausted", errorType: "adapter" },
+      input.message
+    );
   }
   if (isCodexAuthFailure(lowered)) {
-    return { code: "auth.required", errorType: "auth" };
+    return withOriginalError(
+      { code: "auth.required", errorType: "auth" },
+      input.message
+    );
   }
   return null;
 }
 
 function buildHardProviderFailure(input: {
   code: string;
+  originalError: string | null;
   reasonCode: AdapterProviderAccessEvidence["reasonCode"];
 }): CodexProviderFailureClassification {
   return {
     code: input.code,
     errorType: "adapter",
+    ...(input.originalError ? { originalError: input.originalError } : {}),
     providerAccessEvidence: {
       observedAtMs: Date.now(),
       provider: "codex",
       reasonCode: input.reasonCode,
       source: "wake_failure",
     },
+  };
+}
+
+function withOriginalError(
+  classification: CodexProviderFailureClassification,
+  message: string
+): CodexProviderFailureClassification {
+  const originalError = createProviderOriginalError(message);
+  return {
+    ...classification,
+    ...(originalError ? { originalError } : {}),
   };
 }
 

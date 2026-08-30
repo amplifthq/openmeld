@@ -32,16 +32,19 @@ export type OpenClawCliTransportResult = {
 export class OpenClawCliTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
   }) {
     super(input.message);
     this.name = "OpenClawCliTransportError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.originalError = input.originalError;
   }
 }
 
@@ -79,6 +82,7 @@ export async function invokeOpenClawCliTransport(input: {
   let latestResultIsError = false;
   let resolvedSessionId = initialSessionId;
   const providerErrorMessages: string[] = [];
+  const providerOriginalErrorMessages: string[] = [];
   const invokedAtMs = Date.now();
   let firstStdoutAtMs: number | null = null;
   let firstStderrAtMs: number | null = null;
@@ -119,6 +123,7 @@ export async function invokeOpenClawCliTransport(input: {
 
         if (parsedLine.errorMessage) {
           providerErrorMessages.push(parsedLine.errorMessage);
+          providerOriginalErrorMessages.push(parsedLine.errorMessage);
         }
 
         if (parsedLine.isErrorResult === true) {
@@ -150,14 +155,11 @@ export async function invokeOpenClawCliTransport(input: {
   if (driverResult.exitCode !== 0 || latestResultIsError) {
     const classifiedFailure = classifyOpenClawFailure({
       providerErrorMessages,
+      providerOriginalErrorMessages,
       stderrText: driverResult.stderrText,
       stdoutText: driverResult.stdoutText,
     });
-    throw new OpenClawCliTransportError({
-      code: classifiedFailure.code,
-      errorType: classifiedFailure.errorType,
-      message: classifiedFailure.message,
-    });
+    throw new OpenClawCliTransportError(classifiedFailure);
   }
 
   const documentParsed = parseOpenClawOutputDocument(driverResult.stdoutText);
@@ -170,18 +172,16 @@ export async function invokeOpenClawCliTransport(input: {
     }
     if (documentParsed.errorMessage) {
       providerErrorMessages.push(documentParsed.errorMessage);
+      providerOriginalErrorMessages.push(documentParsed.errorMessage);
     }
     if (documentParsed.isErrorResult === true) {
       const classifiedFailure = classifyOpenClawFailure({
         providerErrorMessages,
+        providerOriginalErrorMessages,
         stderrText: driverResult.stderrText,
         stdoutText: driverResult.stdoutText,
       });
-      throw new OpenClawCliTransportError({
-        code: classifiedFailure.code,
-        errorType: classifiedFailure.errorType,
-        message: classifiedFailure.message,
-      });
+      throw new OpenClawCliTransportError(classifiedFailure);
     }
   }
 
@@ -194,14 +194,11 @@ export async function invokeOpenClawCliTransport(input: {
       if (providerErrorMessages.length > 0) {
         const classifiedFailure = classifyOpenClawFailure({
           providerErrorMessages,
+          providerOriginalErrorMessages,
           stderrText: driverResult.stderrText,
           stdoutText: driverResult.stdoutText,
         });
-        throw new OpenClawCliTransportError({
-          code: classifiedFailure.code,
-          errorType: classifiedFailure.errorType,
-          message: classifiedFailure.message,
-        });
+        throw new OpenClawCliTransportError(classifiedFailure);
       }
       throw new OpenClawCliTransportError({
         code: "runtime.output.empty",
@@ -318,14 +315,11 @@ const toOpenClawCliTransportError = (
     if (error.code === "process.non_zero_exit") {
       const classifiedFailure = classifyOpenClawFailure({
         providerErrorMessages: [],
+        providerOriginalErrorMessages: [],
         stderrText: error.stderrText,
         stdoutText: error.stdoutText,
       });
-      return new OpenClawCliTransportError({
-        code: classifiedFailure.code,
-        errorType: classifiedFailure.errorType,
-        message: classifiedFailure.message,
-      });
+      return new OpenClawCliTransportError(classifiedFailure);
     }
   }
 
@@ -340,16 +334,23 @@ const toOpenClawCliTransportError = (
 
 const classifyOpenClawFailure = (input: {
   providerErrorMessages: string[];
+  providerOriginalErrorMessages?: string[];
   stderrText?: string;
   stdoutText?: string;
 }): {
   code: string;
   errorType: AdapterErrorType;
   message: string;
+  originalError?: string;
 } => {
+  const trustedProviderMessages = new Set([
+    ...(input.providerOriginalErrorMessages ?? []),
+    ...extractErrorMessagesFromStdout(input.stdoutText),
+  ]);
   const providerMessage = resolveProviderFailureMessage(input);
   if (providerMessage) {
     return classifyOpenClawFailureMessage({
+      includeOriginalError: trustedProviderMessages.has(providerMessage),
       isContextLost: isLikelyOpenClawContextLostError,
       message: providerMessage,
     });
@@ -373,6 +374,7 @@ const classifyOpenClawFailure = (input: {
 
 const resolveProviderFailureMessage = (input: {
   providerErrorMessages: string[];
+  providerOriginalErrorMessages?: string[];
   stderrText?: string;
   stdoutText?: string;
 }): string | null => {

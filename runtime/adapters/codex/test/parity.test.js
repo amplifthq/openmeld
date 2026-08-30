@@ -1633,11 +1633,8 @@ test("codex app-server transport maps failed turn approval denial to public runt
   }
 });
 
-test("codex app-server transport maps a usage-limit turn failure to quota.exceeded and passes the provider notice through", async () => {
+test("codex app-server transport submits structured Usage exhaustion and a bounded original error", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");
-  const { resolveDetailedPublicAgentFailureReason } = await import(
-    "../../../../packages/schemas/dist/index.js"
-  );
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-server-"));
   const dispatchDir = await mkdtemp(join(tmpdir(), "codex-app-dispatch-"));
   const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
@@ -1664,19 +1661,14 @@ test("codex app-server transport maps a usage-limit turn failure to quota.exceed
         threadId: "thread-existing-1",
       }),
       (error) => {
-        assert.equal(error.code, "quota.exceeded");
+        assert.equal(error.code, "usage_exhausted");
         assert.equal(error.errorType, "adapter");
         assert.equal(
           error.providerAccessEvidence.reasonCode,
-          "provider_account.capacity_exhausted"
+          "usage_exhausted"
         );
         assert.equal(error.message, usageLimitMessage);
-        assert.equal(
-          resolveDetailedPublicAgentFailureReason(
-            `${error.code}: ${error.message}`
-          ),
-          usageLimitMessage
-        );
+        assert.equal(error.originalError, usageLimitMessage);
         return true;
       }
     );
@@ -1686,7 +1678,7 @@ test("codex app-server transport maps a usage-limit turn failure to quota.exceed
   }
 });
 
-test("codex cli transport maps a usage-limit turn failure to quota.exceeded", async () => {
+test("codex cli text can explain Usage exhaustion without changing Wakeability", async () => {
   const { invokeCodexCliTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-cli-fixture-"));
   const fixturePath = join(fixtureDir, "codex-fixture-usage-limit.mjs");
@@ -1711,12 +1703,9 @@ test("codex cli transport maps a usage-limit turn failure to quota.exceeded", as
         threadId: null,
       }),
       (error) => {
-        assert.equal(error.code, "quota.exceeded");
+        assert.equal(error.code, "usage_exhausted");
         assert.equal(error.errorType, "adapter");
-        assert.equal(
-          error.providerAccessEvidence.reasonCode,
-          "provider_account.capacity_exhausted"
-        );
+        assert.equal(error.providerAccessEvidence, undefined);
         assert.match(error.message, USAGE_LIMIT_RE);
         return true;
       }
@@ -2811,11 +2800,12 @@ test("codex cli transport fails when provider terminal error arrives before proc
         threadId: null,
       }),
       (error) => {
-        assert.equal(error.code, "quota.exceeded");
+        assert.equal(error.code, "usage_exhausted");
         assert.equal(error.errorType, "adapter");
+        assert.equal(error.providerAccessEvidence, undefined);
         assert.equal(
-          error.providerAccessEvidence.reasonCode,
-          "provider_account.capacity_exhausted"
+          error.originalError,
+          "insufficient_quota: quota exceeded for current billing period"
         );
         assert.match(error.message, QUOTA_RE);
         return true;
@@ -3009,7 +2999,7 @@ test("codex cli transport ignores commentary messages before the final answer", 
   }
 });
 
-test("codex cli transport maps quota and rate-limit failures from stdout events", async () => {
+test("codex cli transport separates text-only Usage failures from rate limits", async () => {
   const { invokeCodexCliTransport } = await import("../dist/index.js");
 
   const quotaDir = await mkdtemp(join(tmpdir(), "codex-cli-fixture-"));
@@ -3048,8 +3038,9 @@ test("codex cli transport maps quota and rate-limit failures from stdout events"
         threadId: null,
       }),
       (error) => {
-        assert.equal(error.code, "quota.exceeded");
+        assert.equal(error.code, "usage_exhausted");
         assert.equal(error.errorType, "adapter");
+        assert.equal(error.providerAccessEvidence, undefined);
         assert.match(error.message, QUOTA_RE);
         return true;
       }

@@ -230,6 +230,10 @@ function createDefaultCursorInvoke(input: {
               ...(error instanceof CursorAcpTransportError && error.diagnostics
                 ? { diagnostics: error.diagnostics }
                 : {}),
+              ...(error instanceof CursorAcpTransportError &&
+              error.originalError
+                ? { originalError: error.originalError }
+                : {}),
               errorType: "adapter",
               message: `context.rebuild_failed: ${toErrorMessage(error)}`,
             }),

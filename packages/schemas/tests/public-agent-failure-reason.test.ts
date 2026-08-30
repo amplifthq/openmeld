@@ -5,7 +5,6 @@ import {
   isProjectLocalConnectionFailureReasonCode,
   projectLocalConnectionFailureReasonCodeSchema,
   resolveCenterAgentCallbackFailureMessage,
-  resolveDetailedPublicAgentFailureReason,
   resolveMappedPublicAgentFailureReason,
   resolvePublicAgentAvailabilityCopy,
   resolvePublicAgentFailureRecovery,
@@ -270,12 +269,7 @@ describe("public agent failure reason mapping", () => {
     });
   });
 
-  it("maps provider account balance failures to actionable safe copy", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "upstream_unreachable: Insufficient Balance"
-      )
-    ).toBe(PROVIDER_CREDITS_COPY);
+  it("maps structured provider account balance failures to actionable safe copy", () => {
     expect(
       resolveMappedPublicAgentFailureReason("provider.insufficient_balance")
     ).toBe(PROVIDER_CREDITS_COPY);
@@ -291,6 +285,24 @@ describe("public agent failure reason mapping", () => {
       body: "Runner's model provider account does not have enough credits for this Wake. Add credits or update billing directly with the provider, then wake the agent again.",
       kind: "system_retry",
       recoveryTarget: null,
+    });
+  });
+
+  it("maps exact Usage exhaustion without exposing provider wording", () => {
+    expect(resolveMappedPublicAgentFailureReason("usage_exhausted")).toBe(
+      "This agent reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again."
+    );
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: "usage_exhausted",
+        targetLabel: "Runner",
+      })
+    ).toEqual({
+      body: "Runner reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again.",
+      kind: "account_access",
+      primaryActionId: "review_agent_settings",
+      primaryActionLabel: "Review agent settings",
+      recoveryTarget: "agents",
     });
   });
 
@@ -473,36 +485,10 @@ describe("public agent failure reason mapping", () => {
     });
   });
 
-  it("keeps unsupported-model free-form failure copy aligned with the reason-code mapping", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "provider rejected the unsupported model"
-      )
-    ).toBe(UNSUPPORTED_MODEL_COPY);
-  });
-
-  it("surfaces Codex usage-limit notices verbatim with the reset time", () => {
-    const codexUsageLimit =
-      "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 2:03 AM.";
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        `quota.exceeded: ${codexUsageLimit}`
-      )
-    ).toBe(codexUsageLimit);
-    expect(resolveDetailedPublicAgentFailureReason(codexUsageLimit)).toBe(
-      codexUsageLimit
-    );
+  it("keeps provider behavior and public guidance on structured reason codes", () => {
     expect(resolveMappedPublicAgentFailureReason("quota.exceeded")).toBe(
       PROVIDER_CREDITS_COPY
     );
-  });
-
-  it("maps provider auth, rate-limit, and unreachable failures to actionable safe copy", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "AI_APICallError: invalid API key"
-      )
-    ).toBe(PROVIDER_CREDENTIALS_COPY);
     expect(resolveMappedPublicAgentFailureReason("auth.required")).toBe(
       PROVIDER_CREDENTIALS_COPY
     );
@@ -514,17 +500,9 @@ describe("public agent failure reason mapping", () => {
     ).toBe(
       "Runner's provider subscription does not include the access this agent needs. Review the provider plan or account on its computer before waking it again."
     );
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "provider returned 429: too many requests"
-      )
-    ).toBe(PROVIDER_RATE_LIMIT_COPY);
     expect(resolveMappedPublicAgentFailureReason("provider.rate_limit")).toBe(
       PROVIDER_RATE_LIMIT_COPY
     );
-    expect(
-      resolveDetailedPublicAgentFailureReason("AI_APICallError: Bad Gateway")
-    ).toBe(PROVIDER_UNAVAILABLE_COPY);
     expect(resolveMappedPublicAgentFailureReason("provider.unavailable")).toBe(
       PROVIDER_UNAVAILABLE_COPY
     );
@@ -540,37 +518,12 @@ describe("public agent failure reason mapping", () => {
       primaryActionLabel: "Review agent settings",
       recoveryTarget: "agents",
     });
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "upstream_unreachable: provider connection refused"
-      )
-    ).toBe(PROVIDER_UNREACHABLE_COPY);
     expect(resolveMappedPublicAgentFailureReason("upstream_unreachable")).toBe(
       PROVIDER_UNREACHABLE_COPY
     );
   });
 
-  it("maps local runtime permission denials before provider credential and unreachable fallbacks", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "permission.denied.runtime: permission requested: external_directory (/tmp/*); auto-rejecting; provider returned 401 unauthorized"
-      )
-    ).toBe(RUNTIME_PERMISSION_DENIAL_COPY);
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "Permission for this action has been denied. Reason: write outside the workspace"
-      )
-    ).toBe(RUNTIME_PERMISSION_DENIAL_COPY);
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "Command denied by sandbox: write access outside workspace"
-      )
-    ).toBe(RUNTIME_PERMISSION_DENIAL_COPY);
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "SYSTEM_RUN_DENIED: approval required"
-      )
-    ).toBe(RUNTIME_PERMISSION_DENIAL_COPY);
+  it("maps structured local runtime permission denials", () => {
     expect(
       resolveMappedPublicAgentFailureReason("permission.denied.runtime")
     ).toBe(RUNTIME_PERMISSION_DENIAL_COPY);
@@ -586,29 +539,6 @@ describe("public agent failure reason mapping", () => {
       primaryActionLabel: "Review Agent Profile permissions",
       recoveryTarget: "agents",
     });
-  });
-
-  it("does not classify provider outage or credentials as runtime permission denials", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "upstream_unreachable: provider connection refused"
-      )
-    ).toBe(PROVIDER_UNREACHABLE_COPY);
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "provider returned 401 unauthorized"
-      )
-    ).toBe(PROVIDER_CREDENTIALS_COPY);
-  });
-
-  it("keeps local agent bootstrap failures more specific than provider unreachable", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "upstream_unreachable: openclaw command failed: openclaw is not installed or not on PATH"
-      )
-    ).toBe(
-      "OpenMeld could not start OpenClaw on this device. Install OpenClaw or fix its PATH for background services, then try again."
-    );
   });
 
   it("returns structured account recovery for owner mismatch codes", () => {

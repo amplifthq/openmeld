@@ -1707,6 +1707,12 @@ open the exact same Agent.
 The selected Agent’s right-hand detail uses the same Profile Details section
 model, permissions, queries, mutations, execution-target locks, and diagnostic
 facts as the existing About and edit surfaces. Read-only detail is the default.
+Its Agent Profile Operational Context includes one **Activity** section. Owners
+and other members see the same compact workload copy, for example
+**Working · 3 queued**. Selecting that summary keeps the user in Profile Details:
+the owner may see the current Space and queued task references, while another
+member sees only neutral working and queue-count facts. Neither view infers work
+from Agent Activity, browser timers, or message age.
 **Direct Message** is a primary header action. An authorized owner may choose
 **Edit Agent** to edit in place, then explicitly **Save changes** or **Cancel**;
 a failed save keeps the draft and its diagnostic visible. Dangerous or
@@ -2873,6 +2879,20 @@ for that key may be visible at a time: opening Message details moves the action
 there and hides the timeline copy; closing it restores the timeline copy.
 Pointer, touch, keyboard, and rapid repeated activation all enter the same
 pending fence and issue one execute command.
+
+For workstation Wakes, the user's source message enters the Space or Direct
+Message timeline immediately. If the Agent Profile is occupied, the Wake status
+under that message says it is queued and may include its position. Web does not
+hold the message above the Composer or claim that the Agent is working before
+the Wake reaches the Profile's current slot.
+
+When a Local Agent or model provider returns a user-facing error, owner-only
+Message details may show the bounded original text with its source label. Web
+does not replace it with a large provider-specific translation matrix. It must
+still hide secrets, stdout, stderr, stack traces, commands, local paths, and raw
+payloads. OpenMeld-owned identity, security, routing, queue, and publication
+failures continue to use precise OpenMeld-authored copy and one practical next
+action.
 
 A single terminal execution failure with no recoverable result shows
 **Retry as new execution** inline when Web can

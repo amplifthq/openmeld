@@ -224,6 +224,7 @@ type BuildTaskResultPayloadInput = {
   errorMessage?: string;
   errorType?: TaskResultErrorType;
   output?: string;
+  originalError?: string;
   partialReason?: string;
   providerAccessEvidence?: OpenMeldDaemonProviderAccessEvidence;
   sourceEventId: string;
@@ -245,6 +246,7 @@ type TaskResultCommonFields = {
 type TaskResultErrorFields = {
   errorCode?: string;
   errorMessage?: string;
+  originalError?: string;
 };
 
 export const buildTaskResultPayloadFromOutcome = (
@@ -305,5 +307,6 @@ function buildTaskResultErrorFields(
   return {
     ...(input.errorCode ? { errorCode: input.errorCode } : {}),
     ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
+    ...(input.originalError ? { originalError: input.originalError } : {}),
   };
 }

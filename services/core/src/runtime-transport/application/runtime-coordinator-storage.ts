@@ -12,6 +12,7 @@ import {
   writeRuntimeCoordinatorHeadLifecycleWithAdmission,
   writeRuntimeCoordinatorTokenAuthorityWithAdmission,
 } from "./agent-profile-execution-admission";
+import type { PendingAgentProfileWorkPromotion } from "./agent-profile-work-promotion";
 import {
   buildRuntimeCoordinatorDecisionLogStorageKey,
   buildRuntimeCoordinatorFinalizationCommandStorageKey,
@@ -141,8 +142,8 @@ export const readRuntimeCoordinatorTokenAuthorityFromStorage = async (
 export const writeRuntimeCoordinatorTokenAuthorityToStorage = async (
   storage: RuntimeCoordinatorStorage,
   authority: RuntimeCoordinatorExecutionTokenAuthorityRecord
-): Promise<void> => {
-  await writeRuntimeCoordinatorTokenAuthorityWithAdmission({
+): Promise<PendingAgentProfileWorkPromotion | null> => {
+  return await writeRuntimeCoordinatorTokenAuthorityWithAdmission({
     authority,
     nowMs: Date.now(),
     storage,
@@ -264,13 +265,14 @@ export const readRuntimeCoordinatorHeadLifecycleRecordFromStorage = async (
 export const writeRuntimeCoordinatorHeadLifecycleRecordToStorage = async (
   storage: RuntimeCoordinatorStorage,
   record: RuntimeCoordinatorHeadLifecycleRecord
-): Promise<void> => {
-  await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
+): Promise<PendingAgentProfileWorkPromotion | null> => {
+  const result = await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
     blockForExecutionTargetMutation: false,
     nowMs: record.updatedAtMs,
     record,
     storage,
   });
+  return result.pendingPromotion ?? null;
 };
 
 export const readRuntimeCoordinatorHeadLifecycleRecordsFromStorageIndex =

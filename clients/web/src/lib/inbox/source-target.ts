@@ -9,6 +9,7 @@ import {
 	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
+import { buildAgentProfilePath } from "#/lib/profile-routes";
 
 export type InboxVisibleConversation = {
 	kind: "space";
@@ -22,6 +23,14 @@ export function buildInboxItemSourceNavigation(input: {
 }): { href: string; openInNewTab: boolean } {
 	const target = input.item.sourceTarget;
 	switch (target.kind) {
+		case "agent_profile":
+			return {
+				href: buildAgentProfilePath({
+					orgSlug: input.orgSlug,
+					profileId: target.profileId,
+				}),
+				openInNewTab: false,
+			};
 		case "agent_profile_creation_request":
 			return {
 				href: buildOrganizationAgentCreationRequestsPath({

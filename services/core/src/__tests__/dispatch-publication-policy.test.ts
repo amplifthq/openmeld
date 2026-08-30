@@ -157,35 +157,6 @@ describe("dispatch publication policy", () => {
     });
   });
 
-  it("surfaces actionable upstream model errors instead of the generic invalid-action message", () => {
-    const plan = resolveDispatchPublicationPlan({
-      actorName: "openclaw-phase-one",
-      dispatchMessage: createDispatchMessage(),
-      payload: {
-        status: "failed",
-        errorCode: "openmeld.space_action.repair_failed",
-        errorMessage:
-          '{"detail":"The \'gpt-5.3-codex-spark\' model is not supported when using Codex with a ChatGPT account."}',
-      },
-      replyText: null,
-      targetProfileName: null,
-    });
-
-    expect(plan).toMatchObject({
-      kind: "system_notice",
-      noticeType: "terminal_failure",
-      publicOutcome: "system_notice",
-      reason:
-        "The current Codex model is not available for this ChatGPT-backed account.",
-    });
-    if (plan.kind !== "system_notice") {
-      throw new Error("expected a system notice publication plan");
-    }
-    expect(plan.text).toBe(
-      "openclaw-phase-one couldn't reply: The current Codex model is not available for this ChatGPT-backed account."
-    );
-  });
-
   it("keeps internal failure codes structured instead of appending them to user-facing copy", () => {
     const plan = resolveDispatchPublicationPlan({
       actorName: "Cursor",
@@ -213,7 +184,7 @@ describe("dispatch publication policy", () => {
     expect(plan.text).not.toContain("model.inventory_unavailable");
   });
 
-  it("surfaces actionable provider balance failures without leaking raw provider text", () => {
+  it("does not infer provider balance from mutable provider text", () => {
     const plan = resolveDispatchPublicationPlan({
       actorName: "wake-speed-test-opencode",
       dispatchMessage: createDispatchMessage(),
@@ -230,14 +201,15 @@ describe("dispatch publication policy", () => {
       kind: "system_notice",
       noticeType: "terminal_failure",
       publicOutcome: "system_notice",
-      reason: PROVIDER_CREDITS_COPY,
+      reason:
+        "The model provider was unreachable. Check provider status or network access, then wake the agent again.",
       reasonCode: "upstream_unreachable",
     });
     if (plan.kind !== "system_notice") {
       throw new Error("expected a system notice publication plan");
     }
     expect(plan.text).toBe(
-      `wake-speed-test-opencode couldn't reply: ${PROVIDER_CREDITS_COPY}`
+      "wake-speed-test-opencode couldn't reply: The model provider was unreachable. Check provider status or network access, then wake the agent again."
     );
     expect(plan.text).not.toContain("Insufficient Balance");
   });

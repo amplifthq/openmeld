@@ -1162,6 +1162,12 @@ async function resolveAgentProviderAccountEvidence(input: {
     if (!evidence) {
       return null;
     }
+    if (evidence.reasonCode === "provider_account.capacity_exhausted") {
+      // Mixed-version services may still submit the legacy wording-derived
+      // classification. It is diagnostic compatibility only; only the exact
+      // structured Usage classification can change Wakeability.
+      return null;
+    }
     // This fresh, accepted Wake failure is bound to the exact execution
     // identity and is more specific than generic controller sign-in guidance,
     // so it remains blocking and takes precedence.

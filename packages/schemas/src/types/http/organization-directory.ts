@@ -6,6 +6,10 @@ type OrganizationDirectoryMemberSchema =
   typeof import("../../schemas/http/organization-directory")["organizationDirectoryMemberSchema"];
 type OrganizationDirectoryAgentProfileSchema =
   typeof import("../../schemas/http/organization-directory")["organizationDirectoryAgentProfileSchema"];
+type OrganizationDirectoryAgentProfileOperationalContextSchema =
+  typeof import("../../schemas/http/organization-directory")["organizationDirectoryAgentProfileOperationalContextSchema"];
+type OrganizationDirectoryAgentProfileWorkLocationSchema =
+  typeof import("../../schemas/http/organization-directory")["organizationDirectoryAgentProfileWorkLocationSchema"];
 type OrganizationDirectoryAgentProfileIdentitySchema =
   typeof import("../../schemas/http/organization-directory")["organizationDirectoryAgentProfileIdentitySchema"];
 type OrganizationDirectoryResponseSchema =
@@ -25,6 +29,10 @@ export type OrganizationDirectoryMember =
   z.infer<OrganizationDirectoryMemberSchema>;
 export type OrganizationDirectoryAgentProfile =
   z.infer<OrganizationDirectoryAgentProfileSchema>;
+export type OrganizationDirectoryAgentProfileOperationalContext =
+  z.infer<OrganizationDirectoryAgentProfileOperationalContextSchema>;
+export type OrganizationDirectoryAgentProfileWorkLocation =
+  z.infer<OrganizationDirectoryAgentProfileWorkLocationSchema>;
 export type OrganizationDirectoryAgentProfileIdentity =
   z.infer<OrganizationDirectoryAgentProfileIdentitySchema>;
 export type OrganizationDirectoryResponse =

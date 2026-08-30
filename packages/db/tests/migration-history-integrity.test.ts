@@ -1736,6 +1736,135 @@ describe("shared drizzle migration history integrity", () => {
     expect(LATEST_SHARED_MIGRATION_ID).toBe(journal.entries.length);
   });
 
+  it("preserves Inbox history while admitting Agent Profile work recovery items", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const migrationFileName = listSqlMigrationFiles().find((fileName) =>
+        fileName.startsWith("0147_")
+      );
+      expect(migrationFileName).toBeDefined();
+      if (!migrationFileName) {
+        return;
+      }
+      applyMigrationFiles(
+        database,
+        listSqlMigrationFiles().filter(
+          (fileName) => fileName.localeCompare(migrationFileName) < 0
+        )
+      );
+      database.exec(`
+        INSERT INTO organizations (id, name, slug, created_at)
+        VALUES ('recovery-org', 'Recovery Org', 'recovery-org', 1000);
+        INSERT INTO users (id, name, email)
+        VALUES ('recovery-owner', 'Recovery Owner', 'recovery@example.com');
+        INSERT INTO inbox_items (
+          id,
+          organization_id,
+          recipient_user_id,
+          kind,
+          attention,
+          importance,
+          title,
+          preview,
+          context_label,
+          source_kind,
+          source_key,
+          source_target_json,
+          resolution_status,
+          occurred_at_ms,
+          created_at_ms,
+          updated_at_ms
+        ) VALUES (
+          'existing-item',
+          'recovery-org',
+          'recovery-owner',
+          'system_issue',
+          'action_required',
+          'normal',
+          'Existing action',
+          'Review the existing action.',
+          'Existing context',
+          'system_attention_event',
+          'existing-source',
+          '{"kind":"settings","section":"notifications"}',
+          'open',
+          1000,
+          1000,
+          1000
+        );
+      `);
+      const recoveryInsert = `
+        INSERT INTO inbox_items (
+          id,
+          organization_id,
+          recipient_user_id,
+          kind,
+          attention,
+          importance,
+          title,
+          preview,
+          context_label,
+          source_kind,
+          source_key,
+          source_target_json,
+          resolution_status,
+          occurred_at_ms,
+          created_at_ms,
+          updated_at_ms
+        ) VALUES (
+          'recovery-item',
+          'recovery-org',
+          'recovery-owner',
+          'system_issue',
+          'action_required',
+          'urgent',
+          'Continue interrupted work',
+          'Usage is available again.',
+          'Release Reviewer',
+          'agent_profile_work_recovery',
+          'recovery-source',
+          '{"kind":"agent_profile","profileId":"profile-one"}',
+          'open',
+          2000,
+          2000,
+          2000
+        )
+      `;
+
+      expectStatementToThrow(
+        database,
+        recoveryInsert,
+        "inbox_items_source_kind_check"
+      );
+      applyMigrationFiles(database, [migrationFileName]);
+      database.exec(recoveryInsert);
+
+      expect(
+        database
+          .prepare(
+            `SELECT id, source_kind AS sourceKind
+             FROM inbox_items
+             ORDER BY id ASC`
+          )
+          .all()
+      ).toEqual([
+        { id: "existing-item", sourceKind: "system_attention_event" },
+        {
+          id: "recovery-item",
+          sourceKind: "agent_profile_work_recovery",
+        },
+      ]);
+      expect(listTableIndexes(database, "inbox_items")).toEqual(
+        expect.arrayContaining([
+          "inbox_items_recipient_source_unique",
+          "inbox_items_source_resolution_idx",
+        ])
+      );
+    } finally {
+      database.close();
+    }
+  });
+
   it("preserves member research tasks while adding the structured report result", () => {
     const database = new DatabaseSync(":memory:");
     try {

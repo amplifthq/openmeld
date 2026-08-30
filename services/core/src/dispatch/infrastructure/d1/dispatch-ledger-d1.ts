@@ -479,10 +479,11 @@ const commitDispatchAttemptClaim = async (input: {
   dispatchId: string;
   idempotencyKey: string;
   ledgerMutation: D1PreparedStatement;
+  supersededProfileQueueAttemptId?: string | null;
   targetProfileId: string;
   taskId: string;
 }): Promise<OpenMeldDaemonDispatchAttemptClaimResult> => {
-  const [ledgerResult, attemptResult] = await input.db.batch([
+  const statements = [
     input.ledgerMutation,
     prepareDispatchAttemptRow({
       attemptId: input.attemptId,
@@ -495,13 +496,55 @@ const commitDispatchAttemptClaim = async (input: {
       targetProfileId: input.targetProfileId,
       taskId: input.taskId,
     }),
-  ]);
+  ];
+  if (input.supersededProfileQueueAttemptId) {
+    statements.push(
+      input.db
+        .prepare(
+          `
+            UPDATE openMeldDaemon_dispatch_attempts
+            SET
+              status = ?,
+              finished_at_ms = ?,
+              error_code = ?,
+              error_message = ?
+            WHERE attempt_id = ?
+              AND status = ?
+              AND EXISTS (
+                SELECT 1
+                FROM openMeldDaemon_dispatch_ledger
+                WHERE idempotency_key = ?
+                  AND latest_attempt_id = ?
+                  AND attempt_count = ?
+              )
+          `
+        )
+        .bind(
+          OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.superseded,
+          input.createdAtMs,
+          "agent_profile_work_coordinator.promoted",
+          "Coordinator promotion superseded the profile queue waiting attempt",
+          input.supersededProfileQueueAttemptId,
+          OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.profileQueueWaiting,
+          input.idempotencyKey,
+          input.attemptId,
+          input.attemptNo
+        )
+    );
+  }
+  const [ledgerResult, attemptResult, supersedeResult] =
+    await input.db.batch(statements);
   if (!didWriteRows(ledgerResult)) {
     return { status: "deduped" };
   }
   if (!didWriteRows(attemptResult)) {
     throw new Error(
       "dispatch attempt aggregate write did not create its claimed attempt"
+    );
+  }
+  if (input.supersededProfileQueueAttemptId && !didWriteRows(supersedeResult)) {
+    throw new Error(
+      "dispatch promotion claim did not supersede its profile queue waiting attempt"
     );
   }
   return buildClaimedDispatchAttemptResult({
@@ -646,6 +689,8 @@ const tryClaimRecoveryDispatchAttempt = (input: {
 
   const attemptId = crypto.randomUUID();
   const attemptNo = Math.max(1, input.existing.attemptCount + 1);
+  const isProfileQueuePromotion =
+    input.deliveryRecoveryReason === "agent_profile_work_coordinator_promoted";
   const ledgerMutation = prepareExistingDispatchLedgerForNewAttempt({
     db: input.db,
     message: input.message,
@@ -657,11 +702,27 @@ const tryClaimRecoveryDispatchAttempt = (input: {
           AND status IS ?
           AND last_attempt_at_ms = ?
           AND latest_attempt_id IS ?
+          ${
+            isProfileQueuePromotion
+              ? `AND EXISTS (
+                  SELECT 1
+                  FROM openMeldDaemon_dispatch_attempts
+                  WHERE attempt_id = ?
+                    AND status = ?
+                )`
+              : ""
+          }
     `,
     whereBindings: [
       input.existingStatus,
       input.lastAttemptAtMs,
       input.existing.latestAttemptId,
+      ...(isProfileQueuePromotion
+        ? [
+            input.existing.latestAttemptId,
+            OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.profileQueueWaiting,
+          ]
+        : []),
     ],
   });
 
@@ -674,6 +735,9 @@ const tryClaimRecoveryDispatchAttempt = (input: {
     dispatchId: input.existing.dispatchId,
     idempotencyKey: input.message.idempotencyKey,
     ledgerMutation,
+    supersededProfileQueueAttemptId: isProfileQueuePromotion
+      ? input.existing.latestAttemptId
+      : null,
     targetProfileId: input.message.targetProfileId,
     taskId: input.message.taskId,
   });
@@ -1269,6 +1333,13 @@ const resolveRuntimeCoordinatorQueueDecisionForClaim = (input: {
   latestAttempt: DispatchAttemptLedgerRow;
   message: OpenMeldDaemonDispatchQueueMessage;
 }): RuntimeCoordinatorQueueDecision => {
+  if (
+    input.claimDecision.kind === "claim_recovery" &&
+    input.claimDecision.deliveryRecoveryReason ===
+      "agent_profile_work_coordinator_promoted"
+  ) {
+    return { kind: "allow" };
+  }
   if (
     shouldRetryRuntimeCoordinatorHeadAcceptAfterRetryableFailure({
       claimDecision: input.claimDecision,

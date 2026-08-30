@@ -49,6 +49,9 @@ owners.
   one OpenMeld Service Runtime and Agent Controller.
 - Runtime owns machine identity, lane identity, heartbeat, and observed
   Agent Controller availability.
+- Agent Profile Work Coordinator owns one workstation Agent Profile's current
+  admission slot, bounded FIFO order, and recovery hold. It does not own the
+  Wake payload or concrete execution truth.
 - The Space durable dispatch outbox is the production acceptance and recovery
   conveyor for interactive Space Wakes. After the current Core-owned Binding
   preflight, a workstation Wake goes directly from that outbox to
@@ -80,7 +83,10 @@ flowchart LR
   C -->|"Wake"| E["Core creates one Wake intent"]
   E --> F["Space durable outbox accepts the work item"]
   F --> G["Core directly asks RuntimeCoordinator to accept or dedupe it"]
-  G --> H["RuntimeCoordinator routes the work to the live OpenMeld Service"]
+  G --> G2{"Profile work slot"}
+  G2 -->|"Available"| H["RuntimeCoordinator routes the work to the live OpenMeld Service"]
+  G2 -->|"Occupied"| G3["Coordinator retains the Wake in Profile FIFO"]
+  G3 --> G2
   H --> I["OpenMeld Service executes only with a coordinator token"]
   I --> J["Runtime reports lifecycle and one result"]
   J --> K["RuntimeCoordinator decides the final outcome"]
@@ -124,6 +130,23 @@ The direct path returns only after RuntimeCoordinator head acceptance and local
 delivery acceptance have completed or produced a durable retry decision. Its
 correctness must not depend on `DurableObjectState.waitUntil`, because that API
 does not extend a Durable Object's lifetime.
+
+For workstation Wakes targeting one Agent Profile, owner-sharded admission is
+one current Wake plus at most 50 waiting Wakes. The order is the Durable Object
+transaction acceptance order across Spaces and Direct Messages. The
+Coordinator stores only identifiers and minimum scheduling metadata; the Space
+outbox retains the complete payload while the head lifecycle is `queued`.
+`profile_queue_waiting` is a D1 ledger projection, not scheduling authority.
+Seeing that projection must retain the handed-off Space outbox item without
+resubmitting it on an ordinary alarm.
+
+When the current Wake becomes terminal, the same owner-shard transaction
+releases it, selects the next queued head, and records the minimum pending
+promotion marker. The normal path requests exact Space redrive immediately
+after that transaction. The existing alarm retries only a promotion whose
+external redrive did not complete. A repeated terminal event is idempotent and
+cannot promote a second item. Route or Service `waiting` does not release the
+Profile work slot.
 
 Provider-native instruction delivery is an adapter optimization inside the
 local execution carrier. It must not change outbox admission,
@@ -191,8 +214,9 @@ at Binding and local Agent Context boundaries.
 
 RuntimeCoordinator execution follows one authority path:
 
-1. Accept, dedupe, or stop one target Wake intent at the RuntimeCoordinator head
-   lifecycle boundary.
+1. Accept, dedupe, queue, or stop one target Wake intent at the
+   RuntimeCoordinator head lifecycle boundary and Agent Profile Work
+   Coordinator admission transaction.
 2. Resolve the target Agent Profile, Binding, OpenMeld Service Runtime, Agent
    Controller availability evidence, owner evidence, and Space policy snapshot.
 3. Reserve one current execution owner for the authoritative `openMeldServiceRuntimeId`.
@@ -671,20 +695,24 @@ a real Wake failure, and a real Wake failure must be preserved as
 execution/diagnostic evidence instead of being rewritten as generic availability
 drift.
 
-A provider failure changes later Wake availability only when the accepted
-result carries fresh structured hard-blocker evidence for the exact Agent
-Profile, Binding, device, runtime lane, OpenMeld Service Runtime, Agent
-Controller, and provider. Organization access disabled, subscription access
-unavailable, and exhausted hard quota/credit capacity may project
-`Unavailable`. A passive usage percentage, old capacity snapshot, generic quota
-wording, or ordinary transient `429` remains diagnostic evidence for that Wake
-and must not become a durable availability blocker. A later accepted success
-for the same exact execution identity may clear only evidence no newer than
-that success. Core durably retains the latest accepted-result watermark even
-when no failure row existed, so a delayed older failure cannot reopen cleared
-evidence. Accepted-result time is the persisted ordering key; an exact-time
-success/failure tie fails closed in favor of the hard failure, while delayed
-failures and successes cannot overwrite newer accepted facts.
+Core may project `Unavailable` before a new Wake when the exact current Agent
+Controller report contains a reliable, fresh Usage Limit that explicitly says
+Usage is exhausted. A percentage alone, low-capacity warning, elapsed reset,
+old snapshot, unsupported or unavailable Usage source, generic quota wording,
+or ordinary transient `429` does not block a Wake.
+
+After a Wake is accepted, a provider failure changes later Wake availability
+only when the result carries fresh structured hard-blocker evidence for the
+exact Agent Profile, Binding, device, runtime lane, OpenMeld Service Runtime,
+Agent Controller, and provider. Organization access disabled, subscription
+access unavailable, and exhausted hard quota/credit capacity may project
+`Unavailable`. A later accepted success for the same exact execution identity
+may clear only evidence no newer than that success. Core durably retains the
+latest accepted-result watermark even when no failure row existed, so a delayed
+older failure cannot reopen cleared evidence. Accepted-result time is the
+persisted ordering key; an exact-time success/failure tie fails closed in favor
+of the hard failure, while delayed failures and successes cannot overwrite
+newer accepted facts.
 
 The canonical read paths are:
 

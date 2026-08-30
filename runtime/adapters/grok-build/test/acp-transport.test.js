@@ -187,6 +187,11 @@ async function createFixture() {
         }
         if (message.method === "session/prompt") {
           pendingPromptId = message.id;
+          if (scenario === "raw_stderr_exit") {
+            process.stderr.write("raw stderr: /private/openmeld/secret.txt");
+            process.exit(1);
+            return;
+          }
           if (scenario === "quota_exhausted") {
             send({ id: message.id, error: { code: -32603, message: "Usage limit reached" } });
             pendingPromptId = null;
@@ -556,6 +561,48 @@ test("Grok Build ACP classifies a wrapped authentication failure", async () => {
         error instanceof GrokBuildAcpTransportError &&
         error.code === "auth.failed"
     );
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("Grok Build ACP exposes an official ACP error but never raw stderr", async () => {
+  const fixture = await createFixture();
+  try {
+    const adapter = createGrokBuildAdapter({
+      grokBuildTimeoutMs: 2000,
+      launchContract: {
+        kind: "node_script",
+        nodePath: process.execPath,
+        scriptPath: fixture.scriptPath,
+      },
+    });
+    const dispatch = (scenario, taskId) =>
+      adapter.dispatch({
+        agentControllerPermissionMode: "grok-build:default",
+        agentId: "grok-build",
+        env: {
+          GROK_TEST_SCENARIO: scenario,
+          GROK_TEST_TRANSCRIPT: fixture.transcriptPath,
+        },
+        prompt: "Say hello",
+        runtimeContext: {
+          providerRuntimeWorkingDirectory: fixture.fixtureDir,
+        },
+        sourceEventId: `source-${taskId}`,
+        spaceId: "space-grok-original-error",
+        taskId,
+        transportMode: "acp",
+      });
+
+    const officialResult = await dispatch("auth_expired", "official-acp");
+    assert.equal(officialResult.status, "failed");
+    assert.equal(officialResult.errorCode, "auth.failed");
+    assert.equal(officialResult.originalError, "Authentication token expired");
+
+    const stderrResult = await dispatch("raw_stderr_exit", "raw-stderr");
+    assert.equal(stderrResult.status, "failed");
+    assert.equal(stderrResult.originalError, undefined);
   } finally {
     await rm(fixture.fixtureDir, { force: true, recursive: true });
   }

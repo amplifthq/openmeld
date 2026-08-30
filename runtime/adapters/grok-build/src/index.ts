@@ -164,6 +164,9 @@ function createDefaultGrokBuildInvoke(input: {
           ...(error instanceof GrokBuildAcpTransportError && error.diagnostics
             ? { diagnostics: error.diagnostics }
             : {}),
+          ...(error instanceof GrokBuildAcpTransportError && error.originalError
+            ? { originalError: error.originalError }
+            : {}),
           errorType: "adapter",
           message: `context.rebuild_failed: ${toErrorMessage(error)}`,
         }),

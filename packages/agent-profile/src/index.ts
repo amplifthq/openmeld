@@ -1,5 +1,6 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared agent-profile package intentionally exposes a stable root entrypoint.
 export {
+  type AgentProfileOperationalContextInput,
   buildProfileDetailsSnapshotFromAuthProfile,
   buildProfileDetailsSnapshotFromHumanProfile,
   buildProfileDetailsSnapshotFromSpaceMember,

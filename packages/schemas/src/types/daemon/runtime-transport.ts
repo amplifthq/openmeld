@@ -49,6 +49,66 @@ export type RuntimeTransportAgentProfileExecutionStateResponse =
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionStateResponseSchema"]
   >;
 
+export type RuntimeTransportAgentProfileOperationalContext =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileOperationalContextSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileOperationalContextsRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileOperationalContextsRequestSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileOperationalContextsResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileOperationalContextsResponseSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkRecoveryAction =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkRecoveryActionSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkRecoveryReadRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkRecoveryReadRequestSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkRecoveryReadResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkRecoveryReadResponseSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkUsageAvailableRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkUsageAvailableRequestSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkUsageAvailableResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkUsageAvailableResponseSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkContinuationAuthorizeRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkQueueApproveRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkQueueApproveRequestSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkQueueApproveResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkQueueApproveResponseSchema"]
+  >;
+
 export type RuntimeTransportAgentProfileExecutionTargetMutationRequest =
   import("zod/v4").infer<
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionTargetMutationRequestSchema"]

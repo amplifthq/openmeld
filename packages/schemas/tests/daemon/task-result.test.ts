@@ -114,7 +114,7 @@ describe("daemon task-result schema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts hard provider capacity evidence without treating a transient rate limit as account evidence", () => {
+  it("accepts an explicit Usage exhaustion classification with bounded original error", () => {
     const hardFailure = openMeldDaemonTaskResultEnvelopeSchema.safeParse({
       v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
       code: "service.task_result",
@@ -122,14 +122,14 @@ describe("daemon task-result schema", () => {
         agentId: "agt_11111111-1111-4111-8111-111111111111",
         attemptId: "attempt-provider-capacity-1",
         deduped: false,
-        errorCode: "quota.exceeded",
-        errorMessage:
-          "This provider account has exhausted its available quota.",
+        errorCode: "usage_exhausted",
+        errorMessage: "The provider reported that Usage is exhausted.",
         errorType: "adapter",
+        originalError: "You've hit your usage limit. Try again at 2:03 AM.",
         providerAccessEvidence: {
           observedAtMs: 1_770_000_000_000,
           provider: "opencode",
-          reasonCode: "provider_account.capacity_exhausted",
+          reasonCode: "usage_exhausted",
           source: "wake_failure",
         },
         sourceEventId: "evt-provider-capacity-1",
@@ -139,6 +139,53 @@ describe("daemon task-result schema", () => {
     });
 
     expect(hardFailure.success).toBe(true);
+  });
+
+  it("rejects original errors beyond the Message Details boundary", () => {
+    const result = openMeldDaemonTaskResultEnvelopeSchema.safeParse({
+      v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+      code: "service.task_result",
+      payload: {
+        agentId: "agt_11111111-1111-4111-8111-111111111111",
+        attemptId: "attempt-original-error-1",
+        deduped: false,
+        errorCode: "provider.failure",
+        errorMessage: "The Local Agent failed.",
+        errorType: "adapter",
+        originalError: "x".repeat(2001),
+        sourceEventId: "evt-original-error-1",
+        status: "failed",
+        taskId: "task-original-error-1",
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it.each([
+    "stderr: permission denied",
+    "Error: failed\n    at run (/Users/felix/private/file.js:1:1)",
+    '{"raw_payload":{"token":"secret"}}',
+    "command: codex exec --dangerously-bypass-approvals-and-sandbox",
+  ])("rejects unsafe original error diagnostics: %s", (originalError) => {
+    const result = openMeldDaemonTaskResultEnvelopeSchema.safeParse({
+      v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+      code: "service.task_result",
+      payload: {
+        agentId: "agt_11111111-1111-4111-8111-111111111111",
+        attemptId: "attempt-unsafe-original-error-1",
+        deduped: false,
+        errorCode: "provider.failure",
+        errorMessage: "The Local Agent failed.",
+        errorType: "adapter",
+        originalError,
+        sourceEventId: "evt-unsafe-original-error-1",
+        status: "failed",
+        taskId: "task-unsafe-original-error-1",
+      },
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it("accepts path-free Default Project failure trace context", () => {

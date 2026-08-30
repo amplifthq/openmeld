@@ -1,5 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import type {
+  AcpJsonRpcError,
   AdapterDispatchDiagnostics,
   AdapterDispatchTelemetry,
   AdapterErrorType,
@@ -19,6 +20,7 @@ import {
   AcpProcessSession,
   buildAcpDispatchSpaceActionMcpServers,
   createAcpToolActivityTracker,
+  createProviderOriginalError,
   createUnavailableProviderUsageLimits,
 } from "@openmeld/adapter-core";
 import { projectGrokBuildUsageLimits } from "../usage/grok-build-usage-limits.js";
@@ -88,6 +90,7 @@ export class GrokBuildAcpTransportError extends Error {
   readonly code: string;
   readonly diagnostics?: AdapterDispatchDiagnostics;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
 
   constructor(input: {
     cause?: unknown;
@@ -95,6 +98,7 @@ export class GrokBuildAcpTransportError extends Error {
     diagnostics?: AdapterDispatchDiagnostics;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
   }) {
     super(
       input.message,
@@ -104,6 +108,7 @@ export class GrokBuildAcpTransportError extends Error {
     this.code = input.code;
     this.diagnostics = input.diagnostics;
     this.errorType = input.errorType;
+    this.originalError = input.originalError;
   }
 }
 
@@ -246,6 +251,9 @@ export function upgradePromptProtocolFailureWithExhaustedUsage(
     errorType: "auth",
     message:
       "grok-build.quota_or_entitlement: the provider account has used all of its included credits for this period",
+    ...(classified.originalError
+      ? { originalError: classified.originalError }
+      : {}),
   });
 }
 
@@ -310,6 +318,7 @@ class GrokBuildAcpSession {
         GROK_DISABLE_AUTOUPDATER: "1",
       },
       launchContract: input.launchContract,
+      mapJsonRpcError: toGrokBuildJsonRpcTransportError,
       onClientRequest: (request) => this.#handleClientRequest(request),
       onLifecycleEvent: (event) => this.#emitRuntimeEvent(event),
       onNotification: (notification) => this.#handleNotification(notification),
@@ -436,6 +445,9 @@ class GrokBuildAcpSession {
           errorType: "adapter",
           message:
             "context_not_found: Grok Build could not resume the persisted conversation",
+          ...(error instanceof GrokBuildAcpTransportError && error.originalError
+            ? { originalError: error.originalError }
+            : {}),
         });
       }
       throw error;
@@ -517,6 +529,9 @@ class GrokBuildAcpSession {
           diagnostics: { modelNegotiation: input.descriptor.diagnostics },
           errorType: "config",
           message: `model.unavailable: Grok Build rejected model '${modelId}' or its reasoning effort for this session`,
+          ...(error.originalError
+            ? { originalError: error.originalError }
+            : {}),
         });
       }
       throw error;
@@ -1031,7 +1046,13 @@ function toGrokBuildTransportError(
   const providerFailure =
     !(error instanceof GrokBuildAcpTransportError) ||
     error.code.startsWith("protocol.")
-      ? classifyGrokBuildProviderFailure(combined)
+      ? classifyGrokBuildProviderFailure({
+          message: combined,
+          originalError:
+            error instanceof GrokBuildAcpTransportError
+              ? error.originalError
+              : undefined,
+        })
       : null;
   if (providerFailure) {
     return diagnostics
@@ -1041,6 +1062,9 @@ function toGrokBuildTransportError(
           diagnostics,
           errorType: providerFailure.errorType,
           message: providerFailure.message,
+          ...(providerFailure.originalError
+            ? { originalError: providerFailure.originalError }
+            : {}),
         })
       : providerFailure;
   }
@@ -1053,6 +1077,9 @@ function toGrokBuildTransportError(
           diagnostics,
           errorType: error.errorType,
           message: error.message,
+          ...(error.originalError
+            ? { originalError: error.originalError }
+            : {}),
         });
   }
   const classified = new GrokBuildAcpTransportError({
@@ -1071,15 +1098,39 @@ function toGrokBuildTransportError(
     : classified;
 }
 
-function classifyGrokBuildProviderFailure(
-  message: string
-): GrokBuildAcpTransportError | null {
-  const normalized = normalizeOptionalText(message) ?? "Grok Build ACP error";
+function toGrokBuildJsonRpcTransportError(
+  error: AcpJsonRpcError
+): GrokBuildAcpTransportError {
+  let code = "protocol.request_failed";
+  let errorType: AdapterErrorType = "adapter";
+  if (error.code === -32_601) {
+    code = "protocol.method_not_found";
+  } else if (error.code === -32_602) {
+    code = "protocol.invalid_params";
+    errorType = "config";
+  }
+  const message = normalizeOptionalText(error.message) ?? "ACP request failed";
+  const originalError = createProviderOriginalError(message);
+  return new GrokBuildAcpTransportError({
+    code,
+    errorType,
+    message: `${code}: ${message}`,
+    ...(originalError ? { originalError } : {}),
+  });
+}
+
+function classifyGrokBuildProviderFailure(input: {
+  message: string;
+  originalError?: string;
+}): GrokBuildAcpTransportError | null {
+  const normalized =
+    normalizeOptionalText(input.message) ?? "Grok Build ACP error";
   if (AUTH_FAILURE_RE.test(normalized)) {
     return new GrokBuildAcpTransportError({
       code: "auth.failed",
       errorType: "auth",
       message: `auth.failed: ${normalized}`,
+      ...(input.originalError ? { originalError: input.originalError } : {}),
     });
   }
   return null;

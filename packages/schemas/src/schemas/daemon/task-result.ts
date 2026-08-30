@@ -36,10 +36,44 @@ export const openMeldDaemonProviderAccessEvidenceProviderSchema = z.enum([
 ]);
 
 export const openMeldDaemonProviderAccessEvidenceReasonCodeSchema = z.enum([
+  "usage_exhausted",
+  // Accepted only for mixed-version local services. New adapters emit the
+  // canonical Usage classification above.
   "provider_account.capacity_exhausted",
   "provider_account.organization_access_disabled",
   "provider_account.subscription_access_unavailable",
 ]);
+
+export const OPENMELD_ORIGINAL_ERROR_MAX_LENGTH = 2000;
+const ORIGINAL_ERROR_DIAGNOSTIC_FIELD_PATTERN =
+  /(?:^|\n)\s*(?:args|command|cwd|raw(?:[_ ]payload)?|stack|stderr|stdout)\s*:/i;
+const ORIGINAL_ERROR_LOCAL_PATH_PATTERN =
+  /(?:^|[\s('"`])(?:\/(?:Users|home|private|tmp|var)\/|[a-z]:\\)/i;
+const ORIGINAL_ERROR_RAW_PAYLOAD_PATTERN = /^\s*[[{]/;
+const ORIGINAL_ERROR_SECRET_PATTERN =
+  /(?:\bsk-[a-z0-9_-]{16,}|\b(?:api[_ -]?key|authorization|access[_ -]?token)\s*[:=]\s*\S+)/i;
+const ORIGINAL_ERROR_STACK_TRACE_PATTERN =
+  /(?:^|\n)\s*(?:at\s+\S+|Error:.*\n\s*at\s+)/;
+
+export function isOriginalErrorSafeForMessageDetails(value: string): boolean {
+  return !(
+    ORIGINAL_ERROR_DIAGNOSTIC_FIELD_PATTERN.test(value) ||
+    ORIGINAL_ERROR_LOCAL_PATH_PATTERN.test(value) ||
+    ORIGINAL_ERROR_RAW_PAYLOAD_PATTERN.test(value) ||
+    ORIGINAL_ERROR_SECRET_PATTERN.test(value) ||
+    ORIGINAL_ERROR_STACK_TRACE_PATTERN.test(value)
+  );
+}
+
+export const openMeldDaemonOriginalErrorSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(OPENMELD_ORIGINAL_ERROR_MAX_LENGTH)
+  .refine(isOriginalErrorSafeForMessageDetails, {
+    message:
+      "original error must not contain diagnostics, sensitive values, or local paths",
+  });
 
 export const openMeldDaemonProviderAccessEvidenceSourceSchema =
   z.literal("wake_failure");
@@ -249,6 +283,7 @@ const openMeldDaemonTaskResultFailedPayloadSchema =
     errorType: openMeldDaemonTaskResultErrorTypeSchema,
     errorCode: z.string().min(1).optional(),
     errorMessage: z.string().min(1).optional(),
+    originalError: openMeldDaemonOriginalErrorSchema.optional(),
     providerAccessEvidence:
       openMeldDaemonProviderAccessEvidenceSchema.optional(),
   });

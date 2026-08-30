@@ -26,15 +26,18 @@ export type OpenClawGatewayTransportResult = {
 export class OpenClawGatewayTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
   }) {
     super(input.message);
     this.code = input.code;
     this.errorType = input.errorType;
+    this.originalError = input.originalError;
     this.name = "OpenClawGatewayTransportError";
   }
 }
@@ -157,6 +160,7 @@ async function promoteGatewayFailureFromSessionStore(input: {
   }
 
   const classified = classifyOpenClawFailureMessage({
+    includeOriginalError: true,
     message: sessionErrorMessage,
   });
   const normalizedFallbackMessage =
@@ -232,7 +236,7 @@ function normalizeOpenClawGatewayAgentResult(
     normalizeOptionalText(record.summary) ??
     normalizeOptionalText(record.error) ??
     `openclaw gateway agent returned status '${status}'`;
-  throw classifyGatewayFailure(summary);
+  throw classifyGatewayFailure(summary, true);
 }
 
 function extractSuccessfulAgentResult(
@@ -349,13 +353,17 @@ function toOpenClawGatewayTransportError(
   const stderr = normalizeOptionalText((error as { stderr?: unknown })?.stderr);
   const stdout = normalizeOptionalText((error as { stdout?: unknown })?.stdout);
   const message = stderr ?? stdout ?? toErrorMessage(error);
-  return classifyGatewayFailure(message);
+  return classifyGatewayFailure(message, false);
 }
 
 function classifyGatewayFailure(
-  message: string
+  message: string,
+  includeOriginalError: boolean
 ): OpenClawGatewayTransportError {
-  const classified = classifyOpenClawFailureMessage({ message });
+  const classified = classifyOpenClawFailureMessage({
+    includeOriginalError,
+    message,
+  });
   return new OpenClawGatewayTransportError(classified);
 }
 

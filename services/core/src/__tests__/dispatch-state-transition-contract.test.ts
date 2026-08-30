@@ -191,6 +191,12 @@ describe("dispatch state transition contract", () => {
           OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.waitingResult,
       })
     ).toEqual(DISPATCH_ATTEMPT_TRANSITION_MATRIX.supersedeStaleAttempt);
+    expect(
+      resolveSupersededAttemptTransition({
+        latestAttemptStatus:
+          OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.profileQueueWaiting,
+      })
+    ).toEqual(DISPATCH_ATTEMPT_TRANSITION_MATRIX.supersedeStaleAttempt);
   });
 
   it("rejects impossible transition mappings", () => {

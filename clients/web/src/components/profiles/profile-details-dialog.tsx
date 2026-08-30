@@ -3,6 +3,7 @@
 import { formatProfileKind } from "@openmeld/agent-profile";
 import type {
 	ProfileDetailsField,
+	ProfileDetailsRecoveryAction,
 	ProfileDetailsSection,
 	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
@@ -32,6 +33,8 @@ export function ProfileDetailsDialog(input: {
 	};
 	details: ProfileDetailsSnapshot;
 	isDirectMessagePending?: boolean;
+	isRecoveryActionPending?: boolean;
+	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	onOpenDirectMessage?: () => void;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
@@ -52,7 +55,9 @@ export function ProfileDetailsDialog(input: {
 					currentSession={input.currentSession}
 					details={input.details}
 					isDirectMessagePending={input.isDirectMessagePending}
+					isRecoveryActionPending={input.isRecoveryActionPending}
 					onOpenDirectMessage={input.onOpenDirectMessage}
+					onRecoveryAction={input.onRecoveryAction}
 					testId="profile-details-dialog-scroll-area"
 				/>
 			</DialogContent>
@@ -69,6 +74,8 @@ export function ProfileDetailsContent(input: {
 	};
 	details: ProfileDetailsSnapshot;
 	isDirectMessagePending?: boolean;
+	isRecoveryActionPending?: boolean;
+	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	onOpenDirectMessage?: () => void;
 	showSummary?: boolean;
 	testId?: string;
@@ -126,14 +133,24 @@ export function ProfileDetailsContent(input: {
 
 			<div className="mt-5 min-w-0 space-y-5">
 				{input.details.sections.map((section) => (
-					<ProfileDetailsSectionView key={section.id} section={section} />
+					<ProfileDetailsSectionView
+						isRecoveryActionPending={input.isRecoveryActionPending === true}
+						key={section.id}
+						onRecoveryAction={input.onRecoveryAction}
+						section={section}
+					/>
 				))}
 			</div>
 		</div>
 	);
 }
 
-function ProfileDetailsSectionView(input: { section: ProfileDetailsSection }) {
+function ProfileDetailsSectionView(input: {
+	isRecoveryActionPending: boolean;
+	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
+	section: ProfileDetailsSection;
+}) {
+	const recoveryAction = input.section.recoveryAction;
 	return (
 		<section className="min-w-0 space-y-2">
 			<h3 className="font-medium text-muted-foreground text-xs">
@@ -147,8 +164,37 @@ function ProfileDetailsSectionView(input: { section: ProfileDetailsSection }) {
 					/>
 				))}
 			</div>
+			{recoveryAction && input.onRecoveryAction ? (
+				<Button
+					disabled={input.isRecoveryActionPending}
+					onClick={() => input.onRecoveryAction?.(recoveryAction)}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					{input.isRecoveryActionPending
+						? formatProfileDetailsRecoveryActionPendingLabel(recoveryAction)
+						: formatProfileDetailsRecoveryActionLabel(recoveryAction)}
+				</Button>
+			) : null}
 		</section>
 	);
+}
+
+function formatProfileDetailsRecoveryActionPendingLabel(
+	recoveryAction: ProfileDetailsRecoveryAction
+): string {
+	return recoveryAction.kind === "continue_interrupted_work"
+		? "Continuing interrupted work…"
+		: "Starting queued work…";
+}
+
+function formatProfileDetailsRecoveryActionLabel(
+	recoveryAction: ProfileDetailsRecoveryAction
+): string {
+	return recoveryAction.kind === "continue_interrupted_work"
+		? "Continue interrupted work"
+		: "Start queued work";
 }
 
 function ProfileDetailsFieldRow(input: { row: ProfileDetailsField }) {

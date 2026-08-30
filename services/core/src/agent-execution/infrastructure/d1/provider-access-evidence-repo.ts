@@ -304,6 +304,7 @@ function normalizeProviderAccessReasonCode(
   value: unknown
 ): OpenMeldDaemonProviderAccessEvidence["reasonCode"] | null {
   if (
+    value === "usage_exhausted" ||
     value === "provider_account.capacity_exhausted" ||
     value === "provider_account.organization_access_disabled" ||
     value === "provider_account.subscription_access_unavailable"

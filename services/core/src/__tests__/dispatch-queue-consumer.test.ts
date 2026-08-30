@@ -684,6 +684,7 @@ describe("handleDispatchQueueBatch", () => {
       runtimeKind?: unknown;
       spaceOrganizationId?: unknown;
       openMeldServiceRuntimeId?: unknown;
+      runtimeAgentControllerInterfaceJson?: unknown;
     } | null
   ) =>
     ({
@@ -819,6 +820,7 @@ describe("handleDispatchQueueBatch", () => {
       runtimeKind?: unknown;
       spaceOrganizationId?: unknown;
       openMeldServiceRuntimeId?: unknown;
+      runtimeAgentControllerInterfaceJson?: unknown;
     } | null;
   }) => {
     if (input.normalizedSql.includes("openmelddaemon_forgotten_devices")) {
@@ -830,6 +832,28 @@ describe("handleDispatchQueueBatch", () => {
       )
     ) {
       return null;
+    }
+    if (
+      input.normalizedSql.includes(
+        "openmelddaemon_runtime_agent_controller_reports"
+      )
+    ) {
+      if (typeof input.row?.runtimeAgentControllerInterfaceJson !== "string") {
+        return null;
+      }
+      const nowMs = Date.now();
+      return {
+        accepted_at_ms: nowMs,
+        agent_controller_interface_json:
+          input.row.runtimeAgentControllerInterfaceJson,
+        agent_controller_ref: "builtin:codex",
+        expires_at_ms: nowMs + 60_000,
+        observed_at_ms: nowMs,
+        openmeld_service_runtime_id: "runtime-usage-wakeability",
+        report_status: "ready",
+        reported_reason_codes_json: "[]",
+        updated_at_ms: nowMs,
+      };
     }
     if (
       input.normalizedSql.includes("openmelddaemon_runtime_registry_records")
@@ -1200,6 +1224,95 @@ describe("handleDispatchQueueBatch", () => {
     expect(message.retry).toHaveBeenCalledTimes(1);
   });
 
+  it("acks coordinator queue waiting without delivery, Wake failure, or retry backoff", async () => {
+    const message = createDispatchQueueMessage({
+      dispatchId: "dispatch-profile-queue-waiting-1",
+      sourceEventId: "evt-profile-queue-waiting-1",
+      targetProfileId: "agt-profile-queue-waiting-1",
+      visitedProfileIdsHash: "hash-profile-queue-waiting-1",
+    });
+    const body = message.body as OpenMeldDaemonDispatchQueueMessage;
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockResolvedValueOnce({
+      action: "wait_in_queue",
+      ok: true,
+      primaryDispatchId: body.dispatchId,
+      queuePosition: 2,
+      reasonCode: "agent_profile_work_coordinator.queued",
+      runtimeCoordinatorExecutionId: null,
+      status: "queued",
+      targetWakeLifecycleId:
+        "twl_v1|7:space-1|27:evt-profile-queue-waiting-1|45:agt_profile_queue_waiting_1",
+      waitingCount: 1,
+    });
+
+    await runDispatchQueueMessage(message);
+
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptStatus: "profile_queue_waiting",
+        errorCode: "agent_profile_work_coordinator.queued",
+        idempotencyKey: body.idempotencyKey,
+        status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      })
+    );
+    expect(message.ack).toHaveBeenCalledTimes(1);
+    expect(message.retry).not.toHaveBeenCalled();
+    expect(rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+    expect(writeDispatchDlq).not.toHaveBeenCalled();
+  });
+
+  it("publishes queue_full as a terminal visible failure without retrying or delivering", async () => {
+    const message = createDispatchQueueMessage({
+      dispatchId: "dispatch-profile-queue-full-1",
+      sourceEventId: "evt-profile-queue-full-1",
+      targetProfileId: "agt-profile-queue-full-1",
+      targetProfileNameSnapshot: "Codex",
+      visitedProfileIdsHash: "hash-profile-queue-full-1",
+    });
+    const body = message.body as OpenMeldDaemonDispatchQueueMessage;
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockResolvedValueOnce({
+      ok: false,
+      primaryDispatchId: null,
+      reasonCode: "agent_profile_work_coordinator.queue_full",
+      status: "queue_full",
+      targetWakeLifecycleId:
+        "twl_v1|7:space-1|24:evt-profile-queue-full-1|42:agt_profile_queue_full_1",
+      waitingCount: 50,
+    });
+
+    await runDispatchQueueMessage(message);
+
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
+        errorCode: "agent_profile_work_coordinator.queue_full",
+        idempotencyKey: body.idempotencyKey,
+        status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      })
+    );
+    expect(rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        data: expect.objectContaining({
+          reasonCode: "agent_profile_work_coordinator.queue_full",
+          text: expect.stringContaining("queue is full"),
+        }),
+      })
+    );
+    expect(message.ack).toHaveBeenCalledTimes(1);
+    expect(message.retry).not.toHaveBeenCalled();
+  });
+
   it("submits a dispatch outbox message directly without Cloudflare Queue", async () => {
     const queueMessage = createDispatchQueueMessage({
       dispatchId: "dispatch-direct-submitted-1",
@@ -1227,6 +1340,51 @@ describe("handleDispatchQueueBatch", () => {
     ).toHaveBeenCalledTimes(1);
     expect(queueMessage.ack).not.toHaveBeenCalled();
     expect(queueMessage.retry).not.toHaveBeenCalled();
+  });
+
+  it("treats coordinator queue waiting as a successful durable direct handoff", async () => {
+    const queueMessage = createDispatchQueueMessage({
+      dispatchId: "dispatch-direct-profile-queue-waiting-1",
+      sourceEventId: "evt-direct-profile-queue-waiting-1",
+      targetProfileId: "agt-direct-profile-queue-waiting-1",
+      visitedProfileIdsHash: "hash-direct-profile-queue-waiting-1",
+    });
+    const body = queueMessage.body as OpenMeldDaemonDispatchQueueMessage;
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockResolvedValueOnce({
+      action: "wait_in_queue",
+      ok: true,
+      primaryDispatchId: body.dispatchId,
+      queuePosition: 2,
+      reasonCode: "agent_profile_work_coordinator.queued",
+      runtimeCoordinatorExecutionId: null,
+      status: "queued",
+      targetWakeLifecycleId:
+        "twl_v1|7:space-1|34:evt-direct-profile-queue-waiting-1|52:agt_direct_profile_queue_waiting_1",
+      waitingCount: 1,
+    });
+
+    const outcome = await dispatchProductionOutboxMessageDirectly({
+      ctx: { waitUntil: vi.fn() },
+      env: makeEnvWithBindings(),
+      message: body,
+    });
+
+    expect(outcome).toEqual({
+      retryDelaySeconds: null,
+      status: "submitted",
+    });
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptStatus: "profile_queue_waiting",
+        idempotencyKey: body.idempotencyKey,
+        status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+      })
+    );
   });
 
   it("keeps workstation dispatch on Queue when hosted direct delivery is attempted", async () => {
@@ -2882,6 +3040,7 @@ describe("handleDispatchQueueBatch", () => {
         agentControllerRef: "builtin:codex",
         controllerNormalization: null,
         hostedRuntimeIdentity: null,
+        openMeldServiceRuntimeId: "runtime-controller-snapshot-1",
         organizationId: "org-controller-snapshot-1",
         runtimeKind: "openmeld_service",
         ownerUserId: "owner-1",
@@ -8797,6 +8956,73 @@ describe("handleDispatchQueueBatch", () => {
       },
     });
     await expect(preflight).resolves.toMatchObject({ ok: true });
+  });
+
+  it("blocks workstation Wake when reliable fresh Usage is exhausted", async () => {
+    const message = createDispatchBody({
+      dispatchId: "dispatch-usage-exhausted-1",
+      sourceEventId: "evt-usage-exhausted-1",
+      targetProfileId: "agt-usage-exhausted-1",
+      visitedProfileIdsHash: "stable32:usage-exhausted-1",
+    });
+    const observedAt = new Date().toISOString();
+    const db = createOpenMeldDbWithProfileRow({
+      agentControllerRef: "builtin:codex",
+      controllerEnabled: 1,
+      openMeldServiceRuntimeId: "runtime-usage-wakeability",
+      profileKind: "agent",
+      profileStatus: "active",
+      runtimeAgentControllerInterfaceJson: JSON.stringify({
+        agentControllerRef: "builtin:codex",
+        auth: { status: "authenticated" },
+        capabilities: {
+          approvals: true,
+          cancel: true,
+          interrupt: true,
+          modelSelection: true,
+          nativeEventStream: true,
+          permissionModes: true,
+          structuredUserInput: true,
+        },
+        checkedAt: observedAt,
+        controllerId: "codex",
+        displayName: "Codex",
+        launch: {
+          argsPrefix: [],
+          commandPath: "/opt/openmeld/codex",
+          installChoiceCount: 1,
+          status: "ready",
+        },
+        message: null,
+        models: [],
+        nativeInterface: "codex-app-server",
+        schemaVersion: 1,
+        skills: [],
+        status: "ready",
+        usageLimits: [
+          {
+            key: "five_hour",
+            label: "5-hour Usage Limit",
+            observedAt,
+            resetsAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+            status: "exhausted",
+            usedPercent: 100,
+          },
+        ],
+        version: "1.0.0",
+      }),
+    });
+
+    await expect(
+      runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(db),
+        message,
+      })
+    ).resolves.toMatchObject({
+      errorCode: "usage_exhausted",
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      ok: false,
+    });
   });
 
   it("retries when Core primary binding storage is unavailable", async () => {

@@ -10,6 +10,7 @@ export const profileDetailsContextSchema = z.enum(["account", "space"]);
 
 export const profileDetailsSectionIdSchema = z.enum([
   "profile",
+  "activity",
   "space_membership",
   "connection",
   "agent_controller_permission_mode",
@@ -19,6 +20,7 @@ export const profileDetailsSectionIdSchema = z.enum([
 
 export const profileDetailsFieldSourceSchema = z.enum([
   "profile_identity",
+  "agent_profile_work_coordinator",
   "space_membership",
   "binding",
   "readiness",
@@ -38,6 +40,16 @@ export const profileDetailsFieldVisibilitySchema = z.enum([
   "owner_self",
 ]);
 
+export const profileDetailsRecoveryActionKindSchema = z.enum([
+  "continue_interrupted_work",
+  "approve_queued_work",
+]);
+
+export const profileDetailsRecoveryActionSchema = z.strictObject({
+  kind: profileDetailsRecoveryActionKindSchema,
+  visibility: z.literal("owner_self"),
+});
+
 export const profileDetailsCopyActionSchema = z.strictObject({
   label: z.string().min(1),
   successMessage: z.string().min(1),
@@ -53,17 +65,42 @@ export const profileDetailsFieldSchema = z.strictObject({
   visibility: profileDetailsFieldVisibilitySchema,
 });
 
-export const profileDetailsSectionSchema = z.strictObject({
-  id: profileDetailsSectionIdSchema,
+const profileDetailsSectionFields = {
   rows: z.array(profileDetailsFieldSchema).min(1),
   title: z.string().min(1),
-});
+};
 
-export const profileDetailsSnapshotSchema = z.strictObject({
-  context: profileDetailsContextSchema,
-  profileId: z.string().min(1),
-  profileKind: authProfileKindSchema,
-  profileName: z.string().min(1),
-  sections: z.array(profileDetailsSectionSchema),
-  viewerScope: profileDetailsViewerScopeSchema,
-});
+export const profileDetailsSectionSchema = z.discriminatedUnion("id", [
+  z.strictObject({
+    id: z.literal("activity"),
+    recoveryAction: z.union([profileDetailsRecoveryActionSchema, z.null()]),
+    ...profileDetailsSectionFields,
+  }),
+  z.strictObject({
+    id: profileDetailsSectionIdSchema.exclude(["activity"]),
+    recoveryAction: z.null(),
+    ...profileDetailsSectionFields,
+  }),
+]);
+
+export const profileDetailsSnapshotSchema = z
+  .strictObject({
+    context: profileDetailsContextSchema,
+    profileId: z.string().min(1),
+    profileKind: authProfileKindSchema,
+    profileName: z.string().min(1),
+    sections: z.array(profileDetailsSectionSchema),
+    viewerScope: profileDetailsViewerScopeSchema,
+  })
+  .superRefine((snapshot, refinementContext) => {
+    if (
+      snapshot.viewerScope === "observer" &&
+      snapshot.sections.some((section) => section.recoveryAction !== null)
+    ) {
+      refinementContext.addIssue({
+        code: "custom",
+        message: "Recovery actions are visible only to the profile owner.",
+        path: ["sections"],
+      });
+    }
+  });

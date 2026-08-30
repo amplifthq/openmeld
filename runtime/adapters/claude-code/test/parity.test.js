@@ -2106,6 +2106,7 @@ test("claude cli transport maps not logged in failures to auth.required", async 
       (error) => {
         assert.equal(error.code, "auth.required");
         assert.equal(error.errorType, "auth");
+        assert.equal(error.originalError, "Not logged in · Please run /login");
         assert.match(error.message, AUTH_RE);
         return true;
       }
@@ -2163,6 +2164,10 @@ test("claude cli transport maps account and organization access failures to exis
         assert.equal(error.code, "auth.required");
         assert.equal(error.errorType, "auth");
         assert.match(error.message, ORGANIZATION_ACCESS_RE);
+        assert.equal(
+          error.originalError,
+          "Your organization has disabled Claude Code access for this account."
+        );
         assert.ok(error.providerAccessEvidence);
         assert.deepEqual(error.providerAccessEvidence, {
           observedAtMs: error.providerAccessEvidence.observedAtMs,
@@ -2190,6 +2195,10 @@ test("claude cli transport maps account and organization access failures to exis
         assert.equal(error.code, "quota.exceeded");
         assert.equal(error.errorType, "adapter");
         assert.match(error.message, SUBSCRIPTION_DISABLED_RE);
+        assert.equal(
+          error.originalError,
+          "Claude Code subscription is disabled for this account."
+        );
         assert.ok(error.providerAccessEvidence);
         assert.deepEqual(error.providerAccessEvidence, {
           observedAtMs: error.providerAccessEvidence.observedAtMs,
@@ -2310,6 +2319,10 @@ test("claude cli transport maps quota and rate-limit failures", async () => {
       (error) => {
         assert.equal(error.code, "quota.exceeded");
         assert.equal(error.errorType, "adapter");
+        assert.equal(
+          error.originalError,
+          "insufficient_quota: You exceeded your current quota."
+        );
         assert.match(error.message, QUOTA_RE);
         return true;
       }
@@ -2326,6 +2339,7 @@ test("claude cli transport maps quota and rate-limit failures", async () => {
       (error) => {
         assert.equal(error.code, "rate_limited");
         assert.equal(error.errorType, "adapter");
+        assert.equal(error.originalError, undefined);
         assert.match(error.message, RATE_LIMIT_RE);
         return true;
       }

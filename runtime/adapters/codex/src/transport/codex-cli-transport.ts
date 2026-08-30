@@ -38,18 +38,21 @@ export type CodexCliTransportResult = {
 export class CodexCliTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
   readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
     providerAccessEvidence?: AdapterProviderAccessEvidence;
   }) {
     super(input.message);
     this.name = "CodexCliTransportError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.originalError = input.originalError;
     this.providerAccessEvidence = input.providerAccessEvidence;
   }
 }
@@ -182,6 +185,7 @@ export async function invokeCodexCliTransport(input: {
       code: classifiedFailure.code,
       errorType: classifiedFailure.errorType,
       message: classifiedFailure.message,
+      originalError: classifiedFailure.originalError,
       providerAccessEvidence: classifiedFailure.providerAccessEvidence,
     });
   }
@@ -198,6 +202,7 @@ export async function invokeCodexCliTransport(input: {
         code: classifiedFailure.code,
         errorType: classifiedFailure.errorType,
         message: classifiedFailure.message,
+        originalError: classifiedFailure.originalError,
         providerAccessEvidence: classifiedFailure.providerAccessEvidence,
       });
     }
@@ -545,6 +550,7 @@ const toCodexCliTransportError = (
         code: classifiedFailure.code,
         errorType: classifiedFailure.errorType,
         message: classifiedFailure.message,
+        originalError: classifiedFailure.originalError,
         providerAccessEvidence: classifiedFailure.providerAccessEvidence,
       });
     }
@@ -614,6 +620,7 @@ const classifyCodexFailure = (input: {
   code: string;
   errorType: AdapterErrorType;
   message: string;
+  originalError?: string;
   providerAccessEvidence?: AdapterProviderAccessEvidence;
 } => {
   const providerMessage = resolveProviderFailureMessage(input);

@@ -559,6 +559,10 @@ test("openclaw gateway transport maps unsupported-model errors to model.unsuppor
         assert.equal(error.code, "model.unsupported");
         assert.equal(error.errorType, "config");
         assert.match(error.message, CHATGPT_ACCOUNT_RE);
+        assert.equal(
+          error.originalError,
+          "The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account."
+        );
         return true;
       }
     );
@@ -638,6 +642,10 @@ test("openclaw gateway transport falls back to the recent session-store error wh
         assert.equal(error.code, "model.unsupported");
         assert.equal(error.errorType, "config");
         assert.match(error.message, CHATGPT_ACCOUNT_RE);
+        assert.equal(
+          error.originalError,
+          "The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account."
+        );
         return true;
       }
     );
@@ -863,7 +871,9 @@ test("openclaw cli transport starts fresh turns with an explicit session id", as
 });
 
 test("openclaw cli transport maps auth failures to auth.required", async () => {
-  const { invokeOpenClawCliTransport } = await import("../dist/index.js");
+  const { createOpenClawAdapter, invokeOpenClawCliTransport } = await import(
+    "../dist/index.js"
+  );
   const fixtureDir = await mkdtemp(join(tmpdir(), "openclaw-cli-fixture-"));
   const fixturePath = join(fixtureDir, "openclaw-fixture-auth.mjs");
 
@@ -871,6 +881,7 @@ test("openclaw cli transport maps auth failures to auth.required", async () => {
     fixturePath,
     [
       "#!/usr/bin/env node",
+      "if (process.argv.includes('--version')) { console.log('OpenClaw 2026.3.13'); process.exit(0); }",
       "console.log(JSON.stringify({ ok: false, error: { message: 'Not logged in. Please run /login' } }));",
       "process.exit(1);",
     ].join("\n"),
@@ -892,8 +903,27 @@ test("openclaw cli transport maps auth failures to auth.required", async () => {
         assert.equal(error.code, "auth.required");
         assert.equal(error.errorType, "auth");
         assert.match(error.message, AUTH_RE);
+        assert.equal(error.originalError, "Not logged in. Please run /login");
         return true;
       }
+    );
+
+    const dispatchResult = await createOpenClawAdapter({
+      openClawAgentId: "main",
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      openClawTimeoutMs: 5000,
+    }).dispatch({
+      agentId: "agt-demo",
+      prompt: "hello",
+      runtimeContext: createRuntimeContext(),
+      sourceEventId: "evt-auth-error-details-1",
+      spaceId: "space-1",
+      taskId: "task-auth-error-details-1",
+    });
+    assert.equal(dispatchResult.status, "failed");
+    assert.equal(
+      dispatchResult.originalError,
+      "Not logged in. Please run /login"
     );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
@@ -933,6 +963,10 @@ test("openclaw cli transport maps unsupported-model errors to model.unsupported"
         assert.equal(error.code, "model.unsupported");
         assert.equal(error.errorType, "config");
         assert.match(error.message, CHATGPT_ACCOUNT_RE);
+        assert.equal(
+          error.originalError,
+          "The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account."
+        );
         return true;
       }
     );
@@ -1128,6 +1162,7 @@ test("openclaw cli transport maps quota and rate-limit failures", async () => {
         assert.equal(error.code, "quota.exceeded");
         assert.equal(error.errorType, "adapter");
         assert.match(error.message, QUOTA_RE);
+        assert.equal(error.originalError, undefined);
         return true;
       }
     );
@@ -1145,6 +1180,7 @@ test("openclaw cli transport maps quota and rate-limit failures", async () => {
         assert.equal(error.code, "rate_limited");
         assert.equal(error.errorType, "adapter");
         assert.match(error.message, RATE_LIMIT_RE);
+        assert.equal(error.originalError, undefined);
         return true;
       }
     );

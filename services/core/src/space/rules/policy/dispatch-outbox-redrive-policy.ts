@@ -160,6 +160,9 @@ export const resolveHandedOffOutboxCandidatePolicyDecision = (input: {
   if (isTerminalDispatchState(input.ledgerRow.status)) {
     return { kind: "delete" };
   }
+  if (input.ledgerRow.latestAttemptStatus === "profile_queue_waiting") {
+    return { kind: "skip" };
+  }
   const hostedHandoffState =
     input.hostedNativeDeliveryHandoffState ?? "not_applicable";
   if (hostedHandoffState === "evidence_unavailable") {
@@ -181,6 +184,15 @@ export const resolveHandedOffOutboxCandidatePolicyDecision = (input: {
       kind: "submit",
       loopSuspected: false,
     };
+  }
+  if (hostedHandoffState === "durably_owned") {
+    return { kind: "delete" };
+  }
+  if (input.ledgerRow.latestAttemptStatus === "waiting_result") {
+    return { kind: "delete" };
+  }
+  if (input.ledgerRow.latestAttemptStatus === "dispatching") {
+    return { kind: "skip" };
   }
   return { kind: "delete" };
 };

@@ -603,6 +603,7 @@ export type RuntimeCoordinatorHeadLifecycleRecord = {
     | "accepted"
     | "execution_linked"
     | "publication_intent_ready"
+    | "queued"
     | "stopped_before_execution"
     | "waiting";
   /** User-safe Stop context retained separately from technical reason codes. */
@@ -2216,6 +2217,9 @@ export const resolveRuntimeCoordinatorHeadDuplicateReasonCode = (
   if (status === "stopped_before_execution") {
     return "runtime_coordinator.pre_agent_stop_already_recorded";
   }
+  if (status === "queued") {
+    return "agent_profile_work_coordinator.duplicate_while_queued";
+  }
   if (status === "waiting") {
     return "runtime_coordinator.head_duplicate_while_waiting";
   }
@@ -2345,6 +2349,7 @@ export const isRuntimeCoordinatorHeadLifecycleRecord = (
     (record.status === "accepted" ||
       record.status === "execution_linked" ||
       record.status === "publication_intent_ready" ||
+      record.status === "queued" ||
       record.status === "stopped_before_execution" ||
       record.status === "waiting") &&
     (record.runtimeCoordinatorExecutionId === null ||

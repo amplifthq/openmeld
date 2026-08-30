@@ -321,6 +321,7 @@ const resolveTaskOutcome = (input: {
   errorMessage?: string;
   errorType?: TaskResultErrorType;
   output?: string;
+  originalError?: string;
   providerAccessEvidence?: OpenMeldDaemonProviderAccessEvidence;
   telemetry?: AdapterDispatchTelemetry;
 } => {
@@ -361,6 +362,9 @@ const resolveTaskOutcome = (input: {
     errorType: mapAdapterErrorType(
       input.dispatchResult.adapterResult.errorType
     ),
+    ...(input.dispatchResult.adapterResult.originalError
+      ? { originalError: input.dispatchResult.adapterResult.originalError }
+      : {}),
     ...(input.dispatchResult.adapterResult.providerAccessEvidence
       ? {
           providerAccessEvidence:
@@ -811,6 +815,7 @@ const resolveRuntimeTaskOutcomeResult = (input: {
     ...(outcome.errorMessage ? { errorMessage: outcome.errorMessage } : {}),
     ...(outcome.errorType ? { errorType: outcome.errorType } : {}),
     ...(outcome.output ? { output: outcome.output } : {}),
+    ...(outcome.originalError ? { originalError: outcome.originalError } : {}),
     ...(outcome.providerAccessEvidence
       ? { providerAccessEvidence: outcome.providerAccessEvidence }
       : {}),

@@ -19,16 +19,19 @@ export type OpenClawInvokeResult = {
 export class OpenClawRuntimeError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
   }) {
     super(input.message);
     this.name = "OpenClawRuntimeError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.originalError = input.originalError;
   }
 }
 
@@ -139,6 +142,12 @@ async function invokeOpenClawOnce(input: {
         code: (error as { code: string }).code,
         errorType: (error as { errorType: AdapterErrorType }).errorType,
         message: error.message,
+        ...("originalError" in error &&
+        typeof (error as { originalError?: unknown }).originalError === "string"
+          ? {
+              originalError: (error as { originalError: string }).originalError,
+            }
+          : {}),
       });
     }
 

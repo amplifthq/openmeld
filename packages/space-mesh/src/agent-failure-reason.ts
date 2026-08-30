@@ -1,6 +1,5 @@
 import {
   resolveMappedPublicAgentFailureReason,
-  resolveDetailedPublicAgentFailureReason as resolveSharedDetailedPublicAgentFailureReason,
   shouldPreferMappedPublicAgentFailureReason,
 } from "@openmeld/schemas";
 
@@ -19,28 +18,16 @@ export function resolvePublicAgentFailureReason(
     input.errorCode,
     input.targetLabel
   );
-  const detailedReason = resolveDetailedPublicAgentFailureReason(
-    input.errorMessage
-  );
   if (
     shouldPreferMappedPublicAgentFailureReason(errorCode, input.errorMessage)
   ) {
     return mappedReason ?? normalizeOptionalText(input.defaultReason);
-  }
-  if (detailedReason) {
-    return detailedReason;
   }
 
   if (!errorCode) {
     return normalizeOptionalText(input.defaultReason);
   }
   return mappedReason ?? normalizeOptionalText(input.defaultReason);
-}
-
-export function resolveDetailedPublicAgentFailureReason(
-  errorMessage: string | null | undefined
-): string | null {
-  return resolveSharedDetailedPublicAgentFailureReason(errorMessage);
 }
 
 function normalizeOptionalText(value: unknown): string | null {

@@ -47,6 +47,16 @@ import {
   runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
+  runtimeTransportAgentProfileOperationalContextsRequestSchema,
+  runtimeTransportAgentProfileOperationalContextsResponseSchema,
+  runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema,
+  runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
+  runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
+  runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
+  runtimeTransportAgentProfileWorkRecoveryReadRequestSchema,
+  runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
+  runtimeTransportAgentProfileWorkUsageAvailableRequestSchema,
+  runtimeTransportAgentProfileWorkUsageAvailableResponseSchema,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
   runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema,
@@ -163,6 +173,16 @@ import type {
   RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationRequest,
+  RuntimeTransportAgentProfileOperationalContextsRequest,
+  RuntimeTransportAgentProfileOperationalContextsResponse,
+  RuntimeTransportAgentProfileWorkContinuationAuthorizeRequest,
+  RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse,
+  RuntimeTransportAgentProfileWorkQueueApproveRequest,
+  RuntimeTransportAgentProfileWorkQueueApproveResponse,
+  RuntimeTransportAgentProfileWorkRecoveryReadRequest,
+  RuntimeTransportAgentProfileWorkRecoveryReadResponse,
+  RuntimeTransportAgentProfileWorkUsageAvailableRequest,
+  RuntimeTransportAgentProfileWorkUsageAvailableResponse,
   RuntimeTransportDeletedAgentProfileWakeCancellationRequest,
   RuntimeTransportDeletedAgentProfileWakeCancellationResponse,
   RuntimeTransportDeliverDispatchRequest,
@@ -234,6 +254,7 @@ import {
   recordRuntimeCoordinatorPublicationFailedTaskOutcome,
   recordRuntimeCoordinatorStoppedTaskOutcome,
 } from "../../../agent-task-coordination/application/runtime-coordinator-task-outcome";
+import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
 import {
   readDispatchAttemptExecutionOwnershipFact,
   readDispatchAttemptResultAcceptanceFact,
@@ -270,11 +291,31 @@ import { listActiveSpaceIdsForProfileFromSpaceIndex } from "../../../space-index
 import {
   acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
+  approveRuntimeCoordinatorAgentProfileWorkQueue,
+  authorizeRuntimeCoordinatorAgentProfileWorkContinuation,
+  markRuntimeCoordinatorAgentProfileWorkUsageAvailable,
   readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs,
   readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission,
+  readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission,
+  readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission,
   releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   writeRuntimeCoordinatorHeadLifecycleWithAdmission,
 } from "../../application/agent-profile-execution-admission";
+import {
+  clearPendingAgentProfileWorkPromotion,
+  deferPendingAgentProfileWorkPromotion,
+  type PendingAgentProfileWorkPromotion,
+  readNextPendingAgentProfileWorkPromotionAlarmAtMs,
+  readPendingAgentProfileWorkPromotions,
+} from "../../application/agent-profile-work-promotion";
+import {
+  projectAgentProfileWorkRecoveryInboxItem,
+  resolveAgentProfileWorkRecoveryInboxItem,
+} from "../../application/agent-profile-work-recovery-inbox-producer";
+import {
+  clearAgentProfileWorkRecoveryInboxProjectionIntent,
+  readAgentProfileWorkRecoveryInboxProjectionIntent,
+} from "../../application/agent-profile-work-recovery-inbox-projection";
 import {
   publishAgentReadinessInvalidationToSpaces,
   resolveRouteCatalogChangedInvalidationProfileIds,
@@ -349,6 +390,7 @@ import {
   buildRuntimeCoordinatorFinalizationCommandStorageKey,
   buildRuntimeCoordinatorFinalizationOutcomeStorageKey,
   buildRuntimeCoordinatorHeadFailurePublicationCommand,
+  buildRuntimeCoordinatorHeadLifecycleStorageKey,
   buildRuntimeCoordinatorHeadPublicationExhaustion,
   buildRuntimeCoordinatorHeadPublicationIntentId,
   buildRuntimeCoordinatorHeadPublicationIntentReadyRecord,
@@ -371,6 +413,7 @@ import {
   incrementRuntimeCoordinatorFinalizationRetryEntry,
   isHistoricalPublicationClosureEvidence,
   isRuntimeCoordinatorFinalizationRetryParkLimitReached,
+  isRuntimeCoordinatorHeadLifecycleRecord,
   isRuntimeCoordinatorHeadWaitingRecoveryCandidate,
   isRuntimeCoordinatorLateResultRecoverable,
   isRuntimeCoordinatorPublicationProjectionSettled,
@@ -410,7 +453,6 @@ import {
   resolveRuntimeCoordinatorDecisionRun,
   resolveRuntimeCoordinatorDecisionScopeMismatchReason,
   resolveRuntimeCoordinatorFinalizationCommandIdFromClosureDiagnosticInput,
-  resolveRuntimeCoordinatorHeadDuplicateAcceptStatus,
   resolveRuntimeCoordinatorHeadDuplicateReasonCode,
   resolveRuntimeCoordinatorHeadTargetDisplay,
   resolveRuntimeCoordinatorHeadWaitingDecision,
@@ -567,6 +609,8 @@ const createWebSocketPair = (): AcceptableWebSocketPair => {
 const RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_MAX_WORK_UNITS = 25;
 const RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_MAX_RUN_MS = 5000;
 const RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_CONTINUATION_DELAY_MS = 1000;
+const AGENT_PROFILE_WORK_COORDINATOR_PROMOTION_REDRIVE_REASON =
+  "agent_profile_work_coordinator_promotion" as const;
 const RUNTIME_COORDINATOR_INTERACTION_INBOX_REPAIR_STORAGE_PREFIX =
   "runtime-coordinator:interaction-inbox-repair:";
 const RUNTIME_COORDINATOR_INTERACTION_INBOX_RETRY_DELAYS_MS = [
@@ -630,6 +674,7 @@ export function resolveLocalAgentControlResponseTimeoutMs(
 
 type RuntimeTransportHubHousekeepingAlarmPhase =
   | "local_agent_stream_closure_retry"
+  | "runtime_coordinator_agent_profile_work_promotion"
   | "runtime_coordinator_agent_profile_execution_index"
   | "runtime_coordinator_finalization_retry"
   | "runtime_coordinator_watchdog"
@@ -1136,6 +1181,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
       await this.runHousekeepingAlarmPhase(
         run,
+        "runtime_coordinator_agent_profile_work_promotion",
+        () => this.processAgentProfileWorkPromotionAlarm(nowMs, run)
+      );
+      await this.runHousekeepingAlarmPhase(
+        run,
         "runtime_coordinator_watchdog",
         () => this.processRuntimeCoordinatorWatchdogAlarm(nowMs, run)
       );
@@ -1259,9 +1309,215 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
     }
+    await this.tryApplyAgentProfileWorkRecoveryInboxProjection(
+      parsed.data.targetProfileId
+    );
     return runtimeTransportAgentProfileExecutionStateResponseSchema.parse(
       response
     );
+  }
+
+  async rpcReadAgentProfileOperationalContexts(
+    input: RuntimeTransportAgentProfileOperationalContextsRequest
+  ): Promise<RuntimeTransportAgentProfileOperationalContextsResponse> {
+    const parsed =
+      runtimeTransportAgentProfileOperationalContextsRequestSchema.safeParse(
+        input
+      );
+    if (!parsed.success) {
+      return { contexts: [] };
+    }
+    const response =
+      await readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission({
+        includeWorkReferences: parsed.data.includeWorkReferences,
+        nowMs: Date.now(),
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileIds: parsed.data.targetProfileIds,
+      });
+    if (
+      response.contexts.some(
+        ({ operationalContext }) =>
+          operationalContext.status === "checking" &&
+          (operationalContext.reasonCode ===
+            "runtime_coordinator.execution_state_rebuilding" ||
+            operationalContext.reasonCode ===
+              "runtime_coordinator.execution_state_repair_failed")
+      )
+    ) {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    await Promise.all(
+      parsed.data.targetProfileIds.map((targetProfileId) =>
+        this.tryApplyAgentProfileWorkRecoveryInboxProjection(targetProfileId)
+      )
+    );
+    return runtimeTransportAgentProfileOperationalContextsResponseSchema.parse(
+      response
+    );
+  }
+
+  async rpcMarkAgentProfileWorkUsageAvailable(
+    input: RuntimeTransportAgentProfileWorkUsageAvailableRequest
+  ): Promise<RuntimeTransportAgentProfileWorkUsageAvailableResponse> {
+    const parsed =
+      runtimeTransportAgentProfileWorkUsageAvailableRequestSchema.safeParse(
+        input
+      );
+    if (!parsed.success) {
+      return { changedProfileIds: [], status: "unavailable" };
+    }
+    const nowMs = Date.now();
+    const response = await markRuntimeCoordinatorAgentProfileWorkUsageAvailable(
+      {
+        nowMs,
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileIds: parsed.data.targetProfileIds,
+      }
+    );
+    if (response.status === "unavailable") {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    if (response.changedProfileIds.length > 0) {
+      this.publishAgentReadinessInvalidated({
+        profileIds: response.changedProfileIds,
+        reason: "agent_profile_work_coordinator.changed",
+      });
+    }
+    if (response.pendingInboxProjections.length > 0) {
+      const profileDb = localStateDb(this.env);
+      const targetInboxDb = inboxDb(this.env);
+      if (!(profileDb && targetInboxDb)) {
+        throw new Error(
+          "runtime.transport.agent_profile_work_recovery_inbox_db_unavailable"
+        );
+      }
+      for (const projection of response.pendingInboxProjections) {
+        const profile = await readAgentProfileOrganizationContext({
+          agentProfileId: projection.targetProfileId,
+          db: profileDb,
+        });
+        if (
+          profile?.organizationId === null ||
+          profile?.ownerUserId !== parsed.data.ownerUserId ||
+          profile?.profileKind !== "agent"
+        ) {
+          continue;
+        }
+        await projectAgentProfileWorkRecoveryInboxItem({
+          db: targetInboxDb,
+          interruptedClientMessageId: projection.interruptedClientMessageId,
+          nowMs,
+          occurredAtMs: projection.recoveryAvailableAtMs,
+          organizationId: profile.organizationId,
+          ownerUserId: profile.ownerUserId,
+          profileId: projection.targetProfileId,
+          profileName: profile.profileName,
+          stage: "continue_interrupted_work",
+        });
+      }
+    }
+    return runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse({
+      changedProfileIds: response.changedProfileIds,
+      status: response.status,
+    });
+  }
+
+  async rpcReadAgentProfileWorkRecovery(
+    input: RuntimeTransportAgentProfileWorkRecoveryReadRequest
+  ): Promise<RuntimeTransportAgentProfileWorkRecoveryReadResponse> {
+    const parsed =
+      runtimeTransportAgentProfileWorkRecoveryReadRequestSchema.safeParse(
+        input
+      );
+    if (!parsed.success) {
+      return { status: "unavailable" };
+    }
+    const response =
+      await readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission({
+        nowMs: Date.now(),
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileId: parsed.data.targetProfileId,
+      });
+    if (response.status === "unavailable") {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    return runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
+      response
+    );
+  }
+
+  async rpcAuthorizeAgentProfileWorkContinuation(
+    input: RuntimeTransportAgentProfileWorkContinuationAuthorizeRequest
+  ): Promise<RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse> {
+    const parsed =
+      runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.safeParse(
+        input
+      );
+    if (!parsed.success) {
+      return { status: "unavailable" };
+    }
+    const response =
+      await authorizeRuntimeCoordinatorAgentProfileWorkContinuation({
+        continuationClientMessageId: parsed.data.continuationClientMessageId,
+        nowMs: Date.now(),
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileId: parsed.data.targetProfileId,
+      });
+    if (response.status === "unavailable") {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    if (response.status === "authorized") {
+      this.publishAgentReadinessInvalidated({
+        profileIds: [parsed.data.targetProfileId],
+        reason: "agent_profile_work_coordinator.changed",
+      });
+    }
+    return runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema.parse(
+      response
+    );
+  }
+
+  async rpcApproveAgentProfileWorkQueue(
+    input: RuntimeTransportAgentProfileWorkQueueApproveRequest
+  ): Promise<RuntimeTransportAgentProfileWorkQueueApproveResponse> {
+    const parsed =
+      runtimeTransportAgentProfileWorkQueueApproveRequestSchema.safeParse(
+        input
+      );
+    if (!parsed.success) {
+      return { status: "unavailable" };
+    }
+    const response = await approveRuntimeCoordinatorAgentProfileWorkQueue({
+      nowMs: Date.now(),
+      ownerUserId: parsed.data.ownerUserId,
+      storage: this.ctx.storage,
+      targetProfileId: parsed.data.targetProfileId,
+    });
+    if (response.status === "unavailable") {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    if (response.status === "approved") {
+      this.publishAgentReadinessInvalidated({
+        profileIds: [parsed.data.targetProfileId],
+        reason: "agent_profile_work_coordinator.changed",
+      });
+      await this.tryApplyAgentProfileWorkRecoveryInboxProjection(
+        parsed.data.targetProfileId
+      );
+    }
+    if (response.pendingPromotion) {
+      await this.requestSpaceDispatchOutboxRedriveForPromotion(
+        response.pendingPromotion,
+        "terminal_transaction"
+      );
+    }
+    return runtimeTransportAgentProfileWorkQueueApproveResponseSchema.parse({
+      status: response.status,
+    });
   }
 
   async rpcCancelDeletedAgentProfileWakes(
@@ -9722,10 +9978,109 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async writeRuntimeCoordinatorTokenAuthority(
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord
   ): Promise<void> {
-    await writeRuntimeCoordinatorTokenAuthorityToStorage(
-      this.ctx.storage,
-      authority
-    );
+    const pendingPromotion =
+      await writeRuntimeCoordinatorTokenAuthorityToStorage(
+        this.ctx.storage,
+        authority
+      );
+    if (authority.terminalOutcome || pendingPromotion) {
+      this.publishAgentReadinessInvalidated({
+        profileIds: [authority.executionScope.targetProfileId],
+        reason: "agent_profile_work_coordinator.changed",
+      });
+    }
+    if (authority.terminalOutcome) {
+      await this.tryApplyAgentProfileWorkRecoveryInboxProjection(
+        authority.executionScope.targetProfileId
+      );
+    }
+    if (pendingPromotion) {
+      await this.requestSpaceDispatchOutboxRedriveForPromotion(
+        pendingPromotion,
+        "terminal_transaction"
+      );
+    }
+  }
+
+  private async tryApplyAgentProfileWorkRecoveryInboxProjection(
+    targetProfileId: string
+  ): Promise<void> {
+    try {
+      const intent = await readAgentProfileWorkRecoveryInboxProjectionIntent(
+        this.ctx.storage,
+        targetProfileId
+      );
+      if (!intent) {
+        return;
+      }
+      const profileDb = localStateDb(this.env);
+      const targetInboxDb = inboxDb(this.env);
+      if (!(profileDb && targetInboxDb)) {
+        throw new Error(
+          "runtime_coordinator.agent_profile_work_recovery_inbox.db_unavailable"
+        );
+      }
+      const [profile, interruptedHead] = await Promise.all([
+        readAgentProfileOrganizationContext({
+          agentProfileId: intent.targetProfileId,
+          db: profileDb,
+        }),
+        this.ctx.storage.get<unknown>(
+          buildRuntimeCoordinatorHeadLifecycleStorageKey(
+            intent.targetWakeLifecycleId
+          )
+        ),
+      ]);
+      if (
+        profile?.organizationId === null ||
+        profile?.profileKind !== "agent" ||
+        !isRuntimeCoordinatorHeadLifecycleRecord(interruptedHead) ||
+        interruptedHead.ownerUserId !== profile.ownerUserId ||
+        interruptedHead.targetWakeLifecycleIdentity.targetProfileId !==
+          intent.targetProfileId ||
+        !interruptedHead.targetWakeLifecycleIdentity.clientMessageId
+      ) {
+        throw new Error(
+          "runtime_coordinator.agent_profile_work_recovery_inbox.context_unavailable"
+        );
+      }
+      const interruptedClientMessageId =
+        interruptedHead.targetWakeLifecycleIdentity.clientMessageId;
+      if (intent.desiredStatus === "open") {
+        await projectAgentProfileWorkRecoveryInboxItem({
+          db: targetInboxDb,
+          interruptedClientMessageId,
+          nowMs: intent.updatedAtMs,
+          occurredAtMs: intent.occurredAtMs,
+          organizationId: profile.organizationId,
+          ownerUserId: profile.ownerUserId,
+          profileId: intent.targetProfileId,
+          profileName: profile.profileName,
+          stage: "approve_queued_work",
+        });
+      } else {
+        await resolveAgentProfileWorkRecoveryInboxItem({
+          db: targetInboxDb,
+          interruptedClientMessageId,
+          organizationId: profile.organizationId,
+          profileId: intent.targetProfileId,
+          resolvedAtMs: intent.updatedAtMs,
+          stage: "approve_queued_work",
+        });
+      }
+      await clearAgentProfileWorkRecoveryInboxProjectionIntent(
+        this.ctx.storage,
+        intent
+      );
+    } catch (error) {
+      console.warn(
+        "[core.runtime_transport.agent_profile_work_recovery_inbox_projection_deferred]",
+        {
+          error: error instanceof Error ? error.message : String(error),
+          targetProfileId,
+        }
+      );
+    }
   }
 
   private async readRuntimeCoordinatorRunCommandState(
@@ -10138,130 +10493,140 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     // local service executes anything.
     const nowMs = Date.now();
     const identity = request.targetWakeLifecycleIdentity;
-    const existing = await this.readRuntimeCoordinatorHeadLifecycleRecord(
-      identity.targetWakeLifecycleId
-    );
-    if (!existing) {
-      const nextRecord: RuntimeCoordinatorHeadLifecycleRecord = {
-        createdAtMs: nowMs,
-        duplicateDispatches: [],
-        executionLinkedAtMs: null,
-        modelVersion: RUNTIME_COORDINATOR_HEAD_LIFECYCLE_MODEL_VERSION,
-        ownerUserId: request.ownerUserId,
-        primaryDispatchId: request.dispatchId,
-        primaryIdempotencyKey: request.idempotencyKey,
-        runtimeCoordinatorExecutionId: null,
-        status: "accepted",
-        targetWakeLifecycleIdentity: identity,
-        targetWakeLifecycleId: identity.targetWakeLifecycleId,
-        targetDisplay: resolveRuntimeCoordinatorHeadTargetDisplay(request),
-        updatedAtMs: nowMs,
-      };
-      const admission = await writeRuntimeCoordinatorHeadLifecycleWithAdmission(
-        {
-          blockForExecutionTargetMutation: true,
-          nowMs,
-          record: nextRecord,
-          storage: this.ctx.storage,
-        }
-      );
-      if (admission === "execution_target_mutation_in_progress") {
-        return {
-          ok: false,
-          primaryDispatchId: null,
-          reasonCode:
-            "runtime_coordinator.execution_target_mutation_in_progress",
-          status: "retry_later",
-          targetWakeLifecycleId: identity.targetWakeLifecycleId,
-        };
-      }
+    const nextRecord: RuntimeCoordinatorHeadLifecycleRecord = {
+      createdAtMs: nowMs,
+      duplicateDispatches: [],
+      executionLinkedAtMs: null,
+      modelVersion: RUNTIME_COORDINATOR_HEAD_LIFECYCLE_MODEL_VERSION,
+      ownerUserId: request.ownerUserId,
+      primaryDispatchId: request.dispatchId,
+      primaryIdempotencyKey: request.idempotencyKey,
+      runtimeCoordinatorExecutionId: null,
+      status: "accepted",
+      targetWakeLifecycleIdentity: identity,
+      targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      targetDisplay: resolveRuntimeCoordinatorHeadTargetDisplay(request),
+      updatedAtMs: nowMs,
+    };
+    const admission = await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
+      blockForExecutionTargetMutation: true,
+      nowMs,
+      record: nextRecord,
+      storage: this.ctx.storage,
+    });
+    if (admission.status === "queued" || admission.status === "started") {
+      this.publishAgentReadinessInvalidated({
+        profileIds: [identity.targetProfileId],
+        reason: "agent_profile_work_coordinator.changed",
+      });
+    }
+    if (
+      admission.status === "execution_target_mutation_in_progress" ||
+      admission.status === "legacy_execution_active" ||
+      admission.status === "written"
+    ) {
       return {
-        action: "create_execution",
-        ok: true,
-        primaryDispatchId: request.dispatchId,
-        reasonCode: "runtime_coordinator.head_accepted",
-        runtimeCoordinatorExecutionId: null,
-        status: "accepted",
+        ok: false,
+        primaryDispatchId: null,
+        reasonCode:
+          admission.status === "execution_target_mutation_in_progress"
+            ? "runtime_coordinator.execution_target_mutation_in_progress"
+            : "runtime_coordinator.agent_profile_execution_active",
+        status: "retry_later",
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
-    if (!isSameRuntimeCoordinatorHeadAuthority(existing, request)) {
+    if (admission.status === "queue_full") {
       return {
         ok: false,
-        primaryDispatchId: existing.primaryDispatchId,
+        primaryDispatchId: null,
+        reasonCode: "agent_profile_work_coordinator.queue_full",
+        status: "queue_full",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        waitingCount: 50,
+      };
+    }
+    if (admission.status === "conflict") {
+      return {
+        ok: false,
+        primaryDispatchId: admission.effectiveRecord.primaryDispatchId,
         reasonCode: "runtime_coordinator.head_authority_conflict",
         status: "conflict",
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
-    if (existing.primaryDispatchId === request.dispatchId) {
-      if (existing.status === "stopped_before_execution") {
-        return {
-          action: "skip_duplicate",
-          ok: true,
-          primaryDispatchId: existing.primaryDispatchId,
-          reasonCode: "runtime_coordinator.pre_agent_stop_already_recorded",
-          runtimeCoordinatorExecutionId: null,
-          status: "stopped_before_execution",
-          targetWakeLifecycleId: existing.targetWakeLifecycleId,
-        };
-      }
-      if (existing.status === "publication_intent_ready") {
-        return {
-          action: "skip_duplicate",
-          ok: true,
-          primaryDispatchId: existing.primaryDispatchId,
-          reasonCode:
-            "runtime_coordinator.head_publication_intent_already_ready",
-          runtimeCoordinatorExecutionId: null,
-          status: "publication_intent_ready",
-          targetWakeLifecycleId: existing.targetWakeLifecycleId,
-        };
-      }
+    if (admission.status === "queued") {
       return {
-        action:
-          existing.status === "execution_linked"
-            ? "skip_duplicate"
-            : "create_execution",
+        action: "wait_in_queue",
         ok: true,
-        primaryDispatchId: existing.primaryDispatchId,
-        reasonCode:
-          existing.status === "execution_linked"
-            ? "runtime_coordinator.head_execution_already_linked"
-            : "runtime_coordinator.head_primary_reaccepted",
-        runtimeCoordinatorExecutionId: existing.runtimeCoordinatorExecutionId,
-        status:
-          existing.status === "execution_linked"
-            ? "execution_linked"
-            : "already_accepted",
-        targetWakeLifecycleId: existing.targetWakeLifecycleId,
+        primaryDispatchId: admission.effectiveRecord.primaryDispatchId,
+        queuePosition: admission.queuePosition,
+        reasonCode: "agent_profile_work_coordinator.queued",
+        runtimeCoordinatorExecutionId: null,
+        status: "queued",
+        targetWakeLifecycleId: admission.effectiveRecord.targetWakeLifecycleId,
+        waitingCount: admission.waitingCount,
+      };
+    }
+    if (admission.status === "started") {
+      return {
+        action: "create_execution",
+        ok: true,
+        primaryDispatchId: admission.effectiveRecord.primaryDispatchId,
+        reasonCode: "runtime_coordinator.head_accepted",
+        runtimeCoordinatorExecutionId: null,
+        status: "accepted",
+        targetWakeLifecycleId: admission.effectiveRecord.targetWakeLifecycleId,
       };
     }
 
-    const duplicateReasonCode =
-      resolveRuntimeCoordinatorHeadDuplicateReasonCode(existing.status);
-    const withDuplicate = appendRuntimeCoordinatorHeadDuplicateObservation({
-      nowMs,
-      record: existing,
-      request,
-      reasonCode: duplicateReasonCode,
-    });
-    await this.writeRuntimeCoordinatorHeadLifecycleRecord(withDuplicate);
+    const existing = admission.effectiveRecord;
+    if (existing.status === "stopped_before_execution") {
+      return {
+        action: "skip_duplicate",
+        ok: true,
+        primaryDispatchId: existing.primaryDispatchId,
+        reasonCode: "runtime_coordinator.pre_agent_stop_already_recorded",
+        runtimeCoordinatorExecutionId: null,
+        status: "stopped_before_execution",
+        targetWakeLifecycleId: existing.targetWakeLifecycleId,
+      };
+    }
+    if (existing.status === "publication_intent_ready") {
+      return {
+        action: "skip_duplicate",
+        ok: true,
+        primaryDispatchId: existing.primaryDispatchId,
+        reasonCode: "runtime_coordinator.head_publication_intent_already_ready",
+        runtimeCoordinatorExecutionId: null,
+        status: "publication_intent_ready",
+        targetWakeLifecycleId: existing.targetWakeLifecycleId,
+      };
+    }
+    const isPrimaryDispatch = existing.primaryDispatchId === request.dispatchId;
+    let reasonCode = resolveRuntimeCoordinatorHeadDuplicateReasonCode(
+      existing.status
+    );
+    if (isPrimaryDispatch) {
+      reasonCode =
+        existing.status === "execution_linked"
+          ? "runtime_coordinator.head_execution_already_linked"
+          : "runtime_coordinator.head_primary_reaccepted";
+    }
     return {
-      action: "skip_duplicate",
+      action:
+        existing.status === "execution_linked" || !isPrimaryDispatch
+          ? "skip_duplicate"
+          : "create_execution",
       ok: true,
-      primaryDispatchId: withDuplicate.primaryDispatchId,
-      reasonCode: resolveRuntimeCoordinatorHeadDuplicateReasonCode(
-        withDuplicate.status
-      ),
-      runtimeCoordinatorExecutionId:
-        withDuplicate.runtimeCoordinatorExecutionId,
-      status: resolveRuntimeCoordinatorHeadDuplicateAcceptStatus(
-        withDuplicate.status
-      ),
-      targetWakeLifecycleId: withDuplicate.targetWakeLifecycleId,
+      primaryDispatchId: existing.primaryDispatchId,
+      reasonCode,
+      runtimeCoordinatorExecutionId: existing.runtimeCoordinatorExecutionId,
+      status:
+        existing.status === "execution_linked"
+          ? "execution_linked"
+          : "already_accepted",
+      targetWakeLifecycleId: existing.targetWakeLifecycleId,
     };
   }
 
@@ -11042,10 +11407,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async writeRuntimeCoordinatorHeadLifecycleRecord(
     record: RuntimeCoordinatorHeadLifecycleRecord
   ): Promise<void> {
-    await writeRuntimeCoordinatorHeadLifecycleRecordToStorage(
-      this.ctx.storage,
-      record
-    );
+    const pendingPromotion =
+      await writeRuntimeCoordinatorHeadLifecycleRecordToStorage(
+        this.ctx.storage,
+        record
+      );
+    this.publishAgentReadinessInvalidated({
+      profileIds: [record.targetWakeLifecycleIdentity.targetProfileId],
+      reason: "agent_profile_work_coordinator.changed",
+    });
+    if (pendingPromotion) {
+      await this.requestSpaceDispatchOutboxRedriveForPromotion(
+        pendingPromotion,
+        "terminal_transaction"
+      );
+    }
   }
 
   private async escalateRuntimeCoordinatorHeadWaitingDeadline(input: {
@@ -15430,6 +15806,177 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
   }
 
+  private async processAgentProfileWorkPromotionAlarm(
+    nowMs: number,
+    run?: RuntimeTransportHubHousekeepingAlarmRun
+  ): Promise<void> {
+    const pendingPromotions = (
+      await readPendingAgentProfileWorkPromotions(this.ctx.storage)
+    ).sort(
+      (left, right) =>
+        left.nextAttemptAtMs - right.nextAttemptAtMs ||
+        left.targetProfileId.localeCompare(right.targetProfileId)
+    );
+    for (const pendingPromotion of pendingPromotions) {
+      if (pendingPromotion.nextAttemptAtMs > nowMs) {
+        break;
+      }
+      if (
+        run &&
+        !this.reserveHousekeepingAlarmWorkUnit(
+          run,
+          "runtime_coordinator_agent_profile_work_promotion"
+        )
+      ) {
+        return;
+      }
+      await this.requestSpaceDispatchOutboxRedriveForPromotion(
+        pendingPromotion,
+        "alarm_recovery"
+      );
+    }
+  }
+
+  private async requestSpaceDispatchOutboxRedriveForPromotion(
+    pendingPromotion: PendingAgentProfileWorkPromotion,
+    trigger: "alarm_recovery" | "terminal_transaction"
+  ): Promise<void> {
+    const nowMs = Date.now();
+    try {
+      const head = await this.readRuntimeCoordinatorHeadLifecycleRecord(
+        pendingPromotion.targetWakeLifecycleId
+      );
+      if (
+        !head ||
+        head.primaryDispatchId !== pendingPromotion.dispatchId ||
+        head.targetWakeLifecycleIdentity.targetProfileId !==
+          pendingPromotion.targetProfileId
+      ) {
+        throw new Error(
+          "runtime_coordinator.agent_profile_work_promotion_head_mismatch"
+        );
+      }
+      if (head.status !== "accepted") {
+        if (head.status === "queued") {
+          throw new Error(
+            "runtime_coordinator.agent_profile_work_promotion_not_accepted"
+          );
+        }
+        await clearPendingAgentProfileWorkPromotion(
+          this.ctx.storage,
+          pendingPromotion
+        );
+        await this.syncHousekeepingAlarm();
+        return;
+      }
+
+      const parsedBody = postSpaceDispatchOutboxRedriveBodySchema.safeParse({
+        reason: AGENT_PROFILE_WORK_COORDINATOR_PROMOTION_REDRIVE_REASON,
+        targetProfileId: pendingPromotion.targetProfileId,
+        targetWakeLifecycleId: pendingPromotion.targetWakeLifecycleId,
+      });
+      if (!parsedBody.success) {
+        throw new Error(
+          "runtime_coordinator.agent_profile_work_promotion_request_invalid"
+        );
+      }
+      const identity = head.targetWakeLifecycleIdentity;
+      const spaceStub = resolveSpaceStub(
+        this.env.OPENMELD_SPACES,
+        identity.spaceId
+      );
+      if (!spaceStub) {
+        throw new Error(
+          "runtime_coordinator.agent_profile_work_promotion_space_unavailable"
+        );
+      }
+      const redriveUrl = new URL(
+        `https://openmeld.internal/internal/dispatches/${encodeURIComponent(
+          pendingPromotion.dispatchId
+        )}/redrive`
+      );
+      redriveUrl.searchParams.set("space", identity.spaceId);
+      const response = await spaceStub.fetch(
+        new Request(redriveUrl.toString(), {
+          body: JSON.stringify(parsedBody.data),
+          headers: {
+            "content-type": "application/json",
+            [RUNTIME_COORDINATOR_HEAD_WAITING_RECOVERY_REDRIVE_HEADER]:
+              AGENT_PROFILE_WORK_COORDINATOR_PROMOTION_REDRIVE_REASON,
+          },
+          method: "POST",
+        })
+      );
+      const parsedResponse =
+        postSpaceDispatchOutboxRedriveResponseSchema.safeParse(
+          await response.json().catch(() => null)
+        );
+      if (!(response.ok && parsedResponse.success && parsedResponse.data.ok)) {
+        throw new Error(
+          parsedResponse.success && !parsedResponse.data.ok
+            ? parsedResponse.data.reasonCode
+            : "runtime_coordinator.agent_profile_work_promotion_response_invalid"
+        );
+      }
+      if (parsedResponse.data.status === "retry_scheduled") {
+        const deferred = await deferPendingAgentProfileWorkPromotion({
+          expected: pendingPromotion,
+          nowMs,
+          storage: this.ctx.storage,
+        });
+        console.info(
+          "[core.runtime_transport.agent_profile_work_promotion_retry_scheduled]",
+          {
+            attemptCount:
+              deferred?.attemptCount ?? pendingPromotion.attemptCount,
+            dispatchId: pendingPromotion.dispatchId,
+            nextAttemptAtMs: deferred?.nextAttemptAtMs ?? null,
+            spaceId: identity.spaceId,
+            targetProfileId: pendingPromotion.targetProfileId,
+            targetWakeLifecycleId: pendingPromotion.targetWakeLifecycleId,
+            trigger,
+          }
+        );
+        await this.syncHousekeepingAlarm();
+        return;
+      }
+      await clearPendingAgentProfileWorkPromotion(
+        this.ctx.storage,
+        pendingPromotion
+      );
+      console.info(
+        "[core.runtime_transport.agent_profile_work_promotion_redriven]",
+        {
+          dispatchId: pendingPromotion.dispatchId,
+          redriveStatus: parsedResponse.data.status,
+          spaceId: identity.spaceId,
+          targetProfileId: pendingPromotion.targetProfileId,
+          targetWakeLifecycleId: pendingPromotion.targetWakeLifecycleId,
+          trigger,
+        }
+      );
+    } catch (error) {
+      const deferred = await deferPendingAgentProfileWorkPromotion({
+        expected: pendingPromotion,
+        nowMs,
+        storage: this.ctx.storage,
+      });
+      console.warn(
+        "[core.runtime_transport.agent_profile_work_promotion_redrive_failed]",
+        {
+          attemptCount: deferred?.attemptCount ?? pendingPromotion.attemptCount,
+          dispatchId: pendingPromotion.dispatchId,
+          error: error instanceof Error ? error.message : String(error),
+          nextAttemptAtMs: deferred?.nextAttemptAtMs ?? null,
+          targetProfileId: pendingPromotion.targetProfileId,
+          targetWakeLifecycleId: pendingPromotion.targetWakeLifecycleId,
+          trigger,
+        }
+      );
+    }
+    await this.syncHousekeepingAlarm();
+  }
+
   private async triggerRuntimeCoordinatorHeadWaitingRecovery(input: {
     ownerUserId: string;
     profileIds: readonly string[] | null;
@@ -15941,7 +16488,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
     const coordinatorAlarmAtMs = minNullableTimestamp(
       minNullableTimestamp(
-        await this.resolveNextRuntimeCoordinatorWatchdogAlarmAtMs(),
+        minNullableTimestamp(
+          await this.resolveNextRuntimeCoordinatorWatchdogAlarmAtMs(),
+          await readNextPendingAgentProfileWorkPromotionAlarmAtMs(
+            this.ctx.storage
+          )
+        ),
         await readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs(
           this.ctx.storage,
           Date.now()

@@ -12,6 +12,8 @@ import {
   runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
+  runtimeTransportAgentProfileOperationalContextsRequestSchema,
+  runtimeTransportAgentProfileOperationalContextsResponseSchema,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
   runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema,
@@ -69,6 +71,7 @@ import type {
   RuntimeTransportAgentProfileExecutionStateResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
+  RuntimeTransportAgentProfileOperationalContextsResponse,
   RuntimeTransportDeletedAgentProfileWakeCancellationResponse,
   RuntimeTransportDisconnectRatesResponse,
   RuntimeTransportForkAgentSessionResult,
@@ -278,6 +281,68 @@ export const readRuntimeTransportAgentProfileExecutionState = async (input: {
     status: "unavailable",
   };
 };
+
+export const readRuntimeTransportAgentProfileOperationalContexts =
+  async (input: {
+    env: CoreBindings;
+    includeWorkReferences: boolean;
+    ownerUserId: string;
+    targetProfileIds: readonly string[];
+  }): Promise<RuntimeTransportAgentProfileOperationalContextsResponse> => {
+    const fallback =
+      (): RuntimeTransportAgentProfileOperationalContextsResponse => ({
+        contexts: input.targetProfileIds.map((targetProfileId) => ({
+          operationalContext: {
+            reasonCode: "runtime_coordinator.operational_context_unavailable",
+            status: "checking",
+          },
+          targetProfileId,
+        })),
+      });
+    const parsedRequest =
+      runtimeTransportAgentProfileOperationalContextsRequestSchema.safeParse({
+        includeWorkReferences: input.includeWorkReferences,
+        ownerUserId: input.ownerUserId,
+        targetProfileIds: input.targetProfileIds,
+      });
+    if (!parsedRequest.success) {
+      return fallback();
+    }
+    try {
+      const shard = resolveRuntimeTransportOwnerShard(
+        input.env,
+        input.ownerUserId
+      );
+      const response = await shard.rpcReadAgentProfileOperationalContexts(
+        parsedRequest.data
+      );
+      const parsedResponse =
+        runtimeTransportAgentProfileOperationalContextsResponseSchema.safeParse(
+          response
+        );
+      if (parsedResponse.success) {
+        return parsedResponse.data;
+      }
+      console.warn(
+        "[core.runtime_coordinator.operational_context_response_invalid]",
+        {
+          error: parsedResponse.error.message,
+          ownerUserId: input.ownerUserId,
+          targetProfileCount: input.targetProfileIds.length,
+        }
+      );
+    } catch (error) {
+      console.warn(
+        "[core.runtime_coordinator.operational_context_read_failed]",
+        {
+          error: error instanceof Error ? error.message : String(error),
+          ownerUserId: input.ownerUserId,
+          targetProfileCount: input.targetProfileIds.length,
+        }
+      );
+    }
+    return fallback();
+  };
 
 export const lookupRuntimeTransportRoute = async (input: {
   blockForgottenDevices?: boolean;

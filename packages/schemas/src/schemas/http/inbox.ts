@@ -55,6 +55,7 @@ export const inboxSourceKindSchema = z.enum([
   "organization_document_draft",
   "organization_opportunity",
   "organization_member_request",
+  "agent_profile_work_recovery",
   "system_attention_event",
 ]);
 
@@ -105,6 +106,10 @@ export const slackInboxSourceTargetSchema = z.strictObject({
 });
 
 export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("agent_profile"),
+    profileId: identifierSchema,
+  }),
   z.strictObject({
     kind: z.literal("agent_profile_creation_request"),
     requestId: identifierSchema,

@@ -3,7 +3,6 @@ import {
   AGENT_REPLYING_PURPOSE,
   resolveMappedPublicAgentFailureReason,
 } from "@openmeld/schemas";
-import { resolveDetailedPublicAgentFailureReason } from "@openmeld/space-mesh";
 
 export const DISPATCH_HINT_SYSTEM_PROFILE_ID = "openmeld-system";
 export const DISPATCH_HINT_SYSTEM_PROFILE_NAME = "OpenMeld System";
@@ -11,7 +10,6 @@ export const DISPATCH_REPLYING_HINT_START_PURPOSE = AGENT_REPLYING_PURPOSE;
 export const DISPATCH_REPLYING_HINT_END_PURPOSE = AGENT_REPLYING_END_PURPOSE;
 
 const DISPATCH_REPLYING_HINT_SUFFIX = "is replying...";
-const DISPATCH_RAW_HINT_MAX_CHARS = 600;
 const DISPATCH_TARGET_PROFILE_IDENTITY_RETRYABLE_ERROR_CODES = [
   "dispatch.target_profile_identity.auth_rpc_unavailable",
   "dispatch.target_profile_identity.auth_rpc_failed",
@@ -22,6 +20,7 @@ const DISPATCH_TARGET_PROFILE_IDENTITY_NON_RETRYABLE_ERROR_CODES = [
 ] as const;
 
 const DISPATCH_HINT_ELIGIBLE_ERROR_CODES = new Set([
+  "agent_profile_work_coordinator.queue_full",
   "daemon.profile.offline",
   "daemon.profile.configuration_not_synced",
   "daemon.delivery.timeout",
@@ -54,6 +53,7 @@ const DISPATCH_HINT_ELIGIBLE_ERROR_CODES = new Set([
   "model.unavailable",
   "model.reasoning_unsupported",
   "auth.required",
+  "usage_exhausted",
   "quota.exceeded",
   "rate_limited",
   "schema.invalid.runtime_response",
@@ -113,16 +113,14 @@ const resolveDispatchFailureCopy = (input: {
   }
 
   if (DISPATCH_RAW_ERROR_HINT_CODES.has(input.errorCode)) {
-    const detailedReason = resolveDetailedPublicAgentFailureReason(
-      input.errorMessage
-    );
-    const passthroughText =
-      detailedReason ?? truncateErrorHintText(input.errorMessage);
     return {
       activityText: `${formatDispatchActivityTargetLabel(input.targetProfileLabel)} needs access to reply`,
       transcriptText:
-        passthroughText ??
-        `${input.targetProfileLabel} requires authentication or billing access. Please check runtime credentials and retry.`,
+        resolveMappedPublicAgentFailureReason(
+          input.errorCode,
+          input.targetProfileLabel
+        ) ??
+        `${input.targetProfileLabel} couldn't reply because its local agent returned an error. The Agent Profile owner can open Message Details to see the original response.`,
     };
   }
 
@@ -211,6 +209,8 @@ const resolveKnownDispatchFailureHintText = (input: {
   targetProfileLabel: string;
 }): string | null => {
   switch (input.errorCode) {
+    case "agent_profile_work_coordinator.queue_full":
+      return `${input.targetProfileLabel}'s local work queue is full, so this Wake was not accepted. Wait for an earlier Wake to finish, then try again.`;
     case "daemon.profile.offline":
     case "daemon.session.not_found":
       return `${input.targetProfileLabel} is offline or reconnecting. OpenMeld service may be running, but this target profile has no active daemon route right now. Retry in a few seconds.`;
@@ -250,10 +250,7 @@ const resolveKnownDispatchFailureHintText = (input: {
     case "config.invalid":
       return `${input.targetProfileLabel} has invalid local runtime setup. Ask the owner to check the controller CLI settings, especially the selected model, then retry.`;
     case "controller.client.upgrade_required":
-      return (
-        resolveDetailedPublicAgentFailureReason(input.errorMessage) ??
-        `${input.targetProfileLabel} is using an older local Codex install than the current model requires. Upgrade Codex on the target device, then retry.`
-      );
+      return `${input.targetProfileLabel} is using an older local Codex install than the current model requires. Upgrade Codex on the target device, then retry.`;
     case "schema.invalid.runtime_response":
     case "runtime.reply.metadata_missing.agent_controller_ref":
       return `${input.targetProfileLabel} returned an invalid reply. Check OpenMeld runtime logs on the target device and retry.`;
@@ -283,6 +280,8 @@ const resolveKnownDispatchFailureActivityText = (input: {
     input.targetProfileLabel
   );
   switch (input.errorCode) {
+    case "agent_profile_work_coordinator.queue_full":
+      return `${activityTargetLabel}'s local work queue is full`;
     case "daemon.profile.offline":
     case "daemon.session.not_found":
       return `${activityTargetLabel} is offline right now`;
@@ -336,17 +335,6 @@ const resolveKnownDispatchFailureActivityText = (input: {
     default:
       return `${activityTargetLabel} couldn't reply right now`;
   }
-};
-
-const truncateErrorHintText = (value: string | undefined): string | null => {
-  const normalized = normalizeOptionalText(value);
-  if (!normalized) {
-    return null;
-  }
-  if (normalized.length <= DISPATCH_RAW_HINT_MAX_CHARS) {
-    return normalized;
-  }
-  return `${normalized.slice(0, DISPATCH_RAW_HINT_MAX_CHARS).trimEnd()}...`;
 };
 
 const normalizeText = (value: unknown): string => {

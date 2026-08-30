@@ -109,7 +109,6 @@ export {
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
   resolveCenterAgentCallbackFailureMessage,
-  resolveDetailedPublicAgentFailureReason,
   resolveMappedPublicAgentFailureReason,
   resolvePublicAgentAvailabilityCopy,
   resolvePublicAgentFailureRecovery,

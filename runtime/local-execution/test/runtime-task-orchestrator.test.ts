@@ -958,6 +958,7 @@ describe("ledger-recovery+mention-dispatch runtime orchestration", () => {
       errorMessage:
         "Claude Code subscription access is unavailable for this account.",
       errorType: "adapter",
+      originalError: "Your account does not have access to this model.",
       providerAccessEvidence,
       status: "failed",
     });
@@ -1002,6 +1003,7 @@ describe("ledger-recovery+mention-dispatch runtime orchestration", () => {
       errorMessage:
         "Claude Code subscription access is unavailable for this account.",
       errorType: "adapter",
+      originalError: "Your account does not have access to this model.",
       providerAccessEvidence,
       status: "failed",
       taskId: "task-provider-access-1",

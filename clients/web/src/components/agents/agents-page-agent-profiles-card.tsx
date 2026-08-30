@@ -1,7 +1,10 @@
 "use client";
 
 import { Popover } from "@base-ui/react/popover";
-import { buildProfileDetailsSnapshotFromAuthProfile } from "@openmeld/agent-profile";
+import {
+	type AgentProfileOperationalContextInput,
+	buildProfileDetailsSnapshotFromAuthProfile,
+} from "@openmeld/agent-profile";
 import {
 	type AgentWakeAvailabilityCategory,
 	getAgentControllerPermissionModeDisplayMetadata,
@@ -22,6 +25,7 @@ import type {
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
 	ModelCatalog,
+	ProfileDetailsRecoveryAction,
 	ProfileDetailsSnapshot,
 	ProfileDetailsViewerScope,
 } from "@openmeld/schemas/types";
@@ -122,6 +126,7 @@ import {
 import { resolveWebAgentControllerPermissionModeDisplayFromBinding } from "#/lib/profiles/agent-controller-permission-mode-display";
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 import { disableAgentProfilePrimaryBinding } from "#/lib/profiles/agent-profile-primary-binding";
+import { executeAgentProfileWorkRecovery } from "#/lib/profiles/agent-profile-work-recovery";
 import { deleteStartAgentProfile } from "#/lib/profiles/delete-agent-profile";
 import { resolveProfileBindingCatalogExecutionTarget } from "#/lib/profiles/profile-binding-target";
 import { formatProfileDate } from "#/lib/profiles/profile-date-format";
@@ -136,6 +141,8 @@ import {
 } from "#/query/agents/execution-readiness";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
 import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
+import { inboxQueryKeys } from "#/query/organizations/inbox";
+import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import {
 	agentProfileControllerChangeEligibilityQueryOptions,
 	agentProfilePrimaryBindingQueryKeys,
@@ -266,6 +273,10 @@ const EMPTY_PRIMARY_BINDING_BY_PROFILE_ID: ReadonlyMap<
 	string,
 	NonNullable<GetAgentExecutionReadinessResponse["primaryBinding"]>
 > = new Map();
+const EMPTY_AGENT_PROFILE_OPERATIONAL_CONTEXT_BY_PROFILE_ID: ReadonlyMap<
+	string,
+	AgentProfileOperationalContextInput
+> = new Map();
 const AGENT_PROFILE_ROW_SKELETON_IDS = [
 	"first",
 	"second",
@@ -289,6 +300,10 @@ function pruneInactiveProfileIds(
 
 export type AgentProfilesCardProps = {
 	availabilityFilter: AgentProfileAvailabilityFilter;
+	agentProfileOperationalContextByProfileId?: ReadonlyMap<
+		string,
+		AgentProfileOperationalContextInput
+	>;
 	agentExecutionReadinessByProfileId?: ReadonlyMap<
 		string,
 		GetAgentExecutionReadinessResponse
@@ -306,6 +321,7 @@ export type AgentProfilesCardProps = {
 	isCurrentComputer: boolean;
 	onCreateProfile?: () => void;
 	onFocusProfileConsumed?: () => void;
+	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	presentation?: "cards" | "controller" | "detail";
 	queryClient: QueryClient;
 	recovery: AgentsPageController;
@@ -323,6 +339,9 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 	const navigate = useNavigate();
 	const { currentOrganization } = useAppOrganization();
 	const agentProfiles = input.agentProfiles ?? input.recovery.agentProfiles;
+	const agentProfileOperationalContextByProfileId =
+		input.agentProfileOperationalContextByProfileId ??
+		EMPTY_AGENT_PROFILE_OPERATIONAL_CONTEXT_BY_PROFILE_ID;
 	const agentExecutionReadinessByProfileId =
 		input.agentExecutionReadinessByProfileId ??
 		input.recovery.agentExecutionReadinessByProfileId;
@@ -405,6 +424,8 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		string | null
 	>(null);
 	const [pendingDirectMessageProfileId, setPendingDirectMessageProfileId] =
+		useState<string | null>(null);
+	const [pendingRecoveryActionProfileId, setPendingRecoveryActionProfileId] =
 		useState<string | null>(null);
 	const [
 		pendingControllerPermissionModeProfileId,
@@ -1316,7 +1337,60 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		}
 	};
 
+	const handleAgentProfileWorkRecovery = async (
+		profile: AuthProfileView,
+		recoveryAction: ProfileDetailsRecoveryAction
+	) => {
+		setPendingRecoveryActionProfileId(profile.openMeldProfileId);
+		try {
+			await executeAgentProfileWorkRecovery({
+				action: recoveryAction.kind,
+				agentProfileId: profile.openMeldProfileId,
+				organizationId: currentOrganization.id,
+			});
+			try {
+				await Promise.all([
+					input.queryClient.invalidateQueries({
+						queryKey: organizationQueryKeys.directory(currentOrganization.id),
+					}),
+					input.queryClient.invalidateQueries({
+						queryKey: inboxQueryKeys.organization(currentOrganization.id),
+					}),
+				]);
+			} catch (refreshError) {
+				console.error(
+					"Agent work recovery was accepted, but its status refresh failed.",
+					refreshError
+				);
+				toast.warning(
+					"The action was accepted, but OpenMeld could not refresh its status. Refresh this page to check it again."
+				);
+				return;
+			}
+			toast.success(
+				recoveryAction.kind === "continue_interrupted_work"
+					? `Continuing ${profile.profileName}'s interrupted work.`
+					: `Starting ${profile.profileName}'s queued work.`
+			);
+		} catch (error) {
+			console.error("Failed to recover Agent Profile work.", error);
+			toast.error(
+				formatMutationError(
+					error,
+					`OpenMeld could not ${
+						recoveryAction.kind === "continue_interrupted_work"
+							? "continue the interrupted work"
+							: "start the queued work"
+					} for ${profile.profileName}.`
+				)
+			);
+		} finally {
+			setPendingRecoveryActionProfileId(null);
+		}
+	};
+
 	return {
+		agentProfileOperationalContextByProfileId,
 		agentExecutionReadinessByProfileId,
 		agentExecutionReadinessErrorByProfileId,
 		agentExecutionReadinessPendingProfileIds,
@@ -1334,6 +1408,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		handleCheckProfileAgain,
 		handleConnectProfileToComputer,
 		handleDisableProfilePrimaryBinding,
+		handleAgentProfileWorkRecovery,
 		handleOpenDirectMessage,
 		handleRemoveProfile,
 		handleRenameProfile,
@@ -1353,6 +1428,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		pendingModelSelectionProfileId,
 		pendingOpenCodePermissionProfileId,
 		pendingRemoveProfileId,
+		pendingRecoveryActionProfileId,
 		pendingRenameProfileId,
 		pendingRepairProfileIds,
 		primaryBindingByProfileId,
@@ -1604,6 +1680,17 @@ function AgentProfileDirectoryRow(input: {
 					storageScope: input.cardInput.recovery.storageScope,
 				});
 			}}
+			onRecoveryAction={(recoveryAction) => {
+				if (input.cardInput.onRecoveryAction) {
+					input.cardInput.onRecoveryAction(recoveryAction);
+					return;
+				}
+				controller
+					.handleAgentProfileWorkRecovery(profile, recoveryAction)
+					.catch((error: unknown) => {
+						console.error("Agent work recovery action failed.", error);
+					});
+			}}
 			onRemoveProfile={async () => {
 				await controller.handleRemoveProfile(profile);
 			}}
@@ -1612,6 +1699,11 @@ function AgentProfileDirectoryRow(input: {
 			}}
 			onRepairAction={async (action) =>
 				await controller.handleConnectProfileToComputer(profile, action)
+			}
+			operationalContext={
+				controller.agentProfileOperationalContextByProfileId.get(
+					profile.openMeldProfileId
+				) ?? null
 			}
 			organizationId={controller.currentOrganization.id}
 			pendingState={{
@@ -1640,6 +1732,9 @@ function AgentProfileDirectoryRow(input: {
 					profile.openMeldProfileId,
 				remove: controller.pendingRemoveProfileId !== null,
 				rename: controller.pendingRenameProfileId === profile.openMeldProfileId,
+				recoveryAction:
+					controller.pendingRecoveryActionProfileId ===
+					profile.openMeldProfileId,
 				repair: controller.pendingRepairProfileIds.has(
 					profile.openMeldProfileId
 				),
@@ -1908,6 +2003,7 @@ type AgentProfileActionPendingState = {
 	openCodePermission: boolean;
 	remove: boolean;
 	rename: boolean;
+	recoveryAction: boolean;
 	repair: boolean;
 };
 
@@ -1937,11 +2033,13 @@ type AgentProfileExecutionReadinessRowProps = {
 	) => Promise<void>;
 	onCheckAgain: () => Promise<void>;
 	onOpenDirectMessage: () => Promise<void>;
+	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	onProfileUpdated: (profile: AuthProfileView) => void;
 	onRepairAction: (action: AgentProfileRepairAction) => Promise<void>;
 	onRenameProfile: (profileName: string) => Promise<void>;
 	onRemoveProfile: () => Promise<void>;
 	organizationId: string;
+	operationalContext: AgentProfileOperationalContextInput | null;
 	profile: AuthProfileView;
 	primaryBinding: GetAgentProfilePrimaryBindingResponse["binding"] | null;
 	pendingState: AgentProfileActionPendingState;
@@ -1970,6 +2068,7 @@ function AgentProfileExecutionReadinessRow(
 			agentControllerPermissionModeDetail:
 				controllerPermissionModeDisplay?.label ?? null,
 			modelDetail: null,
+			operationalContext: input.operationalContext,
 			primaryBinding: input.primaryBinding,
 			profile: input.profile,
 			readiness: input.readiness,
@@ -2082,6 +2181,7 @@ function AgentProfileExecutionReadinessRow(
 		agentControllerPermissionModeDetail:
 			controllerPermissionModeDisplay?.label ?? null,
 		modelDetail: controllerModelDetail,
+		operationalContext: input.operationalContext,
 		primaryBinding: input.primaryBinding,
 		profile: input.profile,
 		readiness,
@@ -2221,6 +2321,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 			onOpenCodePermissionUpdate={input.row.onOpenCodePermissionUpdate}
 			onOpenDirectMessage={input.row.onOpenDirectMessage}
 			onProfileUpdated={input.row.onProfileUpdated}
+			onRecoveryAction={input.row.onRecoveryAction}
 			onRemoveProfile={input.row.onRemoveProfile}
 			onRenameProfile={input.row.onRenameProfile}
 			onRepairAction={input.row.onRepairAction}
@@ -2844,6 +2945,7 @@ function AgentProfileRowMoreMenu(input: {
 		openCodePermission: AgentProfileBindingOpenCodePermission | null
 	) => Promise<void>;
 	onOpenDirectMessage: () => Promise<void>;
+	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	onProfileUpdated: (profile: AuthProfileView) => void;
 	onRepairAction: (action: AgentProfileRepairAction) => Promise<void>;
 	onRenameProfile: (profileName: string) => Promise<void>;
@@ -3056,12 +3158,14 @@ function AgentProfileRowMoreMenu(input: {
 				currentSession={currentSessionLink}
 				details={input.details}
 				isDirectMessagePending={input.pendingState.directMessage}
+				isRecoveryActionPending={input.pendingState.recoveryAction}
 				onOpenChange={setIsDetailsDialogOpen}
 				onOpenDirectMessage={() => {
 					input.onOpenDirectMessage().catch((error) => {
 						console.error("Direct Message action failed.", error);
 					});
 				}}
+				onRecoveryAction={input.onRecoveryAction}
 				open={isDetailsDialogOpen}
 			/>
 			<AgentProfileProjectSettingsDialog
@@ -3241,6 +3345,7 @@ function AgentProfileWorkspacePresentation(input: {
 				}
 				editing={input.presentationState.profileEditOpen}
 				isDirectMessagePending={input.input.pendingState.directMessage}
+				isRecoveryActionPending={input.input.pendingState.recoveryAction}
 				onEdit={() => {
 					input.onOpenChange.menu(false);
 					input.onOpenChange.profileEdit(true);
@@ -3250,6 +3355,7 @@ function AgentProfileWorkspacePresentation(input: {
 						console.error("Direct Message action failed.", error);
 					});
 				}}
+				onRecoveryAction={input.input.onRecoveryAction}
 				overflowActions={overflowActions}
 				profile={input.input.profile}
 				supportingContent={input.input.supportingContent}

@@ -5,6 +5,7 @@ import {
   INBOX_SPACE_SUMMARY_MAX_SPACES,
   inboxItemSchema,
   inboxSourceCandidateSchema,
+  inboxSourceKindSchema,
   listInboxItemsQuerySchema,
   markInboxItemReadBodySchema,
   markSpaceInboxReadThroughBodySchema,
@@ -78,6 +79,36 @@ describe("Inbox HTTP contracts", () => {
     ).toMatchObject({
       sourceTarget: { kind: "center_agent_task", taskId: "task_1" },
     });
+  });
+
+  it("accepts the minimal Agent Profile recovery target without copying work details", () => {
+    expect(inboxSourceKindSchema.parse("agent_profile_work_recovery")).toBe(
+      "agent_profile_work_recovery"
+    );
+    expect(
+      inboxItemSchema.parse({
+        ...item,
+        kind: "system_issue",
+        sourceTarget: {
+          kind: "agent_profile",
+          profileId: "profile_1",
+        },
+      })
+    ).toMatchObject({
+      kind: "system_issue",
+      sourceTarget: { kind: "agent_profile", profileId: "profile_1" },
+    });
+    expect(
+      inboxItemSchema.safeParse({
+        ...item,
+        kind: "system_issue",
+        sourceTarget: {
+          kind: "agent_profile",
+          profileId: "profile_1",
+          queuedTaskIds: ["private-task_1"],
+        },
+      }).success
+    ).toBe(false);
   });
 
   it("accepts an exact Message Channel target after its receivers are deployed", () => {

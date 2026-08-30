@@ -416,6 +416,40 @@ test("adapter-core dispatch failure keeps explicit adapter error type", async ()
   });
 });
 
+test("adapter-core preserves only an explicitly bounded provider original error", async () => {
+  const core = await import("../dist/index.js");
+  const error = Object.assign(new Error("internal wrapper"), {
+    originalError:
+      "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage.",
+  });
+
+  const failure = core.toAdapterDispatchFailure(error, "adapter");
+  assert.equal(
+    failure.originalError,
+    "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage."
+  );
+  assert.equal(
+    core.toAdapterDispatchFailure(new Error("/Users/felix/private/file"))
+      .originalError,
+    undefined
+  );
+});
+
+test("adapter-core rejects unsafe provider original error diagnostics", async () => {
+  const core = await import("../dist/index.js");
+  for (const originalError of [
+    "stderr: permission denied",
+    "Error: failed\n    at run (/Users/felix/private/file.js:1:1)",
+    '{"raw_payload":{"token":"secret"}}',
+    "command: codex exec --dangerously-bypass-approvals-and-sandbox",
+  ]) {
+    const failure = core.toAdapterDispatchFailure(
+      Object.assign(new Error("Provider failed"), { originalError })
+    );
+    assert.equal(failure.originalError, undefined);
+  }
+});
+
 test("adapter-core dispatch failure preserves provider account evidence", async () => {
   const core = await import("../dist/index.js");
   const error = Object.assign(new Error("Claude Code account access failed"), {
@@ -438,15 +472,15 @@ test("adapter-core dispatch failure preserves provider account evidence", async 
   });
 });
 
-test("adapter-core preserves provider-neutral hard capacity evidence", async () => {
+test("adapter-core preserves an explicit Usage exhaustion classification", async () => {
   const core = await import("../dist/index.js");
-  const error = Object.assign(new Error("OpenCode quota exhausted"), {
-    code: "quota.exceeded",
+  const error = Object.assign(new Error("OpenCode Usage exhausted"), {
+    code: "usage_exhausted",
     errorType: "adapter",
     providerAccessEvidence: {
       observedAtMs: 1_770_000_000_000,
       provider: "opencode",
-      reasonCode: "provider_account.capacity_exhausted",
+      reasonCode: "usage_exhausted",
       source: "wake_failure",
     },
   });
@@ -455,7 +489,7 @@ test("adapter-core preserves provider-neutral hard capacity evidence", async () 
   assert.deepEqual(failure.providerAccessEvidence, {
     observedAtMs: 1_770_000_000_000,
     provider: "opencode",
-    reasonCode: "provider_account.capacity_exhausted",
+    reasonCode: "usage_exhausted",
     source: "wake_failure",
   });
 });

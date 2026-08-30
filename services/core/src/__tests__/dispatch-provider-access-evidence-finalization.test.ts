@@ -486,6 +486,38 @@ describe("dispatch provider access evidence finalization", () => {
     });
   });
 
+  it("does not let a legacy wording-derived capacity classification change Wakeability", async () => {
+    const legacyCapacityTaskResult = {
+      ...codexFailedTaskResult,
+      payload: {
+        ...codexFailedTaskResult.payload,
+        errorCode: "quota.exceeded",
+        providerAccessEvidence: {
+          ...codexFailedTaskResult.payload.providerAccessEvidence,
+          reasonCode: "provider_account.capacity_exhausted" as const,
+        },
+      },
+    } satisfies OpenMeldDaemonTaskResultEnvelope;
+
+    await expect(
+      finalizeAcceptedDispatchResult({
+        db: {} as D1Database,
+        dispatchMessage: codexDispatchMessage,
+        env: buildEnv(),
+        inboxRecord: buildInboxRecord(legacyCapacityTaskResult),
+        recordPublicationProjection: false,
+        targetOwnerUserId: "owner-1",
+        targetProfileMentionLabel: "Codex",
+        targetProfileName: "Codex",
+      })
+    ).resolves.toMatchObject({
+      publishState: "reply_published",
+      status: "finalized",
+    });
+
+    expect(writeAcceptedProviderAccessFailureEvidence).not.toHaveBeenCalled();
+  });
+
   it("writes readiness impact from an accepted failed result covered by policy", async () => {
     await expect(
       finalizeAcceptedDispatchResult({

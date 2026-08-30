@@ -33,6 +33,7 @@ const currentOrganizationMock = vi.hoisted(() => ({
 const useQueryMock = vi.hoisted(() => vi.fn());
 const useQueryClientMock = vi.hoisted(() => vi.fn());
 const useLocalAgentRecoveryControllerMock = vi.hoisted(() => vi.fn());
+let organizationDirectoryFixture: OrganizationDirectoryResponse;
 const FILTER_AGENTS_NAME = /Filter Agents/;
 const CHECKING_AGENTS_FILTER_NAME = /Current filter: Checking, 0 Agents/;
 const PERSONAL_ALL_AGENTS_FILTER_NAME = /Current filter: All, 1 Agent/;
@@ -161,6 +162,7 @@ vi.mock("#/components/agents/use-local-agent-recovery-controller", () => ({
 
 vi.mock("#/components/agents/agents-page-agent-profiles-card", () => ({
 	AgentProfilesCard: (props: {
+		agentProfileOperationalContextByProfileId?: ReadonlyMap<string, unknown>;
 		agentProfiles?: readonly AuthProfileView[];
 		availabilityFilter: string;
 		canManageProfile?: (profile: AuthProfileView) => boolean;
@@ -359,6 +361,20 @@ function buildOrganizationDirectory(): OrganizationDirectoryResponse {
 				profileKind: "agent",
 				profileId: "agt_11111111-1111-4111-8111-111111111111",
 				profileName: "Scout",
+				operationalContext: {
+					currentWorkLocation: {
+						spaceId: "space-launch",
+						spaceName: "Launch planning",
+					},
+					queuedWorkLocations: [
+						{
+							spaceId: "space-follow-up",
+							spaceName: "Customer follow-up",
+						},
+					],
+					status: "working",
+					waitingCount: 1,
+				},
 				source: "cli_create",
 				readiness: {
 					agentControllerRef: "builtin:codex",
@@ -587,6 +603,7 @@ describe("PeopleAndAgentsPage", () => {
 			name: "Acme",
 			slug: "acme",
 		});
+		organizationDirectoryFixture = buildOrganizationDirectory();
 		useQueryMock
 			.mockReset()
 			.mockImplementation((options: { queryKey?: unknown }) => {
@@ -595,7 +612,7 @@ describe("PeopleAndAgentsPage", () => {
 					: [];
 				if (queryKey.includes("directory")) {
 					return {
-						data: buildOrganizationDirectory(),
+						data: organizationDirectoryFixture,
 						error: null,
 						isError: false,
 						isPending: false,
@@ -739,6 +756,66 @@ describe("PeopleAndAgentsPage", () => {
 				profileId: "agt_11111111-1111-4111-8111-111111111111",
 			},
 			to: "/o/acme/agents",
+		});
+	});
+
+	it("passes the Core-owned workload summary and owner locations into Profile Details", () => {
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		const detailCall = [...agentProfilesCardSpy.mock.calls]
+			.reverse()
+			.find(([props]) => props.presentation === "detail")?.[0];
+		expect(
+			detailCall?.agentProfileOperationalContextByProfileId?.get(
+				"agt_11111111-1111-4111-8111-111111111111"
+			)
+		).toEqual({
+			currentWorkLocation: "Launch planning",
+			queuedWorkLocations: ["Customer follow-up"],
+			recoveryAction: null,
+			status: "working",
+			waitingCount: 1,
+		});
+	});
+
+	it("passes paused owner locations without adding recovery details", () => {
+		const profile = organizationDirectoryFixture.agentProfiles[0];
+		if (
+			!profile?.operationalContext ||
+			profile.operationalContext.status !== "working"
+		) {
+			throw new Error("Expected the Agent workload fixture.");
+		}
+		profile.operationalContext = {
+			...profile.operationalContext,
+			status: "paused",
+		};
+
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		const detailCall = [...agentProfilesCardSpy.mock.calls]
+			.reverse()
+			.find(([props]) => props.presentation === "detail")?.[0];
+		expect(
+			detailCall?.agentProfileOperationalContextByProfileId?.get(
+				"agt_11111111-1111-4111-8111-111111111111"
+			)
+		).toEqual({
+			currentWorkLocation: "Launch planning",
+			queuedWorkLocations: ["Customer follow-up"],
+			recoveryAction: null,
+			status: "paused",
+			waitingCount: 1,
 		});
 	});
 

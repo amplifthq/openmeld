@@ -11,7 +11,7 @@ import {
 } from "../space/rules/policy/dispatch-outbox-redrive-policy";
 
 describe("dispatch outbox redrive policy", () => {
-  it("retires handed-off seeds after durable dispatch intake and leaves untracked candidates ready to submit", () => {
+  it("retains handed-off seeds until execution acceptance and leaves untracked candidates ready to submit", () => {
     expect(
       resolveHandedOffOutboxCandidatePolicyDecision({
         outboxStatus: "pending",
@@ -48,7 +48,25 @@ describe("dispatch outbox redrive policy", () => {
         recentInflightSkipWithinMs: 20_000,
         staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
       })
-    ).toEqual({ kind: "delete" });
+    ).toEqual({ kind: "skip" });
+
+    expect(
+      resolveHandedOffOutboxCandidatePolicyDecision({
+        outboxStatus: "handed_off",
+        ledgerRow: {
+          status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+          lastAttemptAtMs: 1000,
+          latestAttemptStatus: "profile_queue_waiting",
+          latestAttemptErrorCode: "agent_profile_work_coordinator.queued",
+          daemonSessionId: null,
+          connectionGeneration: null,
+          leaseEpoch: null,
+        },
+        nowMs: 1000 + DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS * 10,
+        recentInflightSkipWithinMs: 20_000,
+        staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+      })
+    ).toEqual({ kind: "skip" });
   });
 
   it("retires intake-confirmed handoff evidence without using attempt state as outbox authority", () => {

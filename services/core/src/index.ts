@@ -160,6 +160,7 @@ import type {
   DispatchResult,
   DispatchStorageReadiness,
   EnsureAgentProfilePrimaryBindingResponse,
+  ExecuteAgentProfileWorkRecoveryResponse,
   ExecuteExecutionRecoveryResponse,
   FeedbackIssueRecord,
   FeedbackIssueSubmitRpcRequest,
@@ -612,6 +613,7 @@ import {
   type DiscoverProjectsInput,
   type EnrollLocalRuntimeInput,
   type EnsureAgentProfilePrimaryBindingInput,
+  type ExecuteAgentProfileWorkRecoveryInput,
   type ExecuteExecutionRecoveryInput,
   type ForgetComputerInput,
   type GetActiveSpaceWakeProgressInput,
@@ -821,6 +823,7 @@ import {
   rpcDiscoverProjects,
   rpcEnrollLocalRuntime,
   rpcEnsureAgentProfilePrimaryBinding,
+  rpcExecuteAgentProfileWorkRecovery,
   rpcExecuteExecutionRecovery,
   rpcForgetComputer,
   rpcForgetCurrentComputer,
@@ -2148,6 +2151,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetAgentProfilePrimaryBindingInput
   ): Promise<GetAgentProfilePrimaryBindingResponse> {
     return rpcGetAgentProfilePrimaryBinding(this.env, input);
+  }
+
+  executeAgentProfileWorkRecovery(
+    input: ExecuteAgentProfileWorkRecoveryInput
+  ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
+    return rpcExecuteAgentProfileWorkRecovery(this.env, input);
   }
 
   getAgentProfileControllerChangeEligibility(
@@ -4085,6 +4094,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetAgentProfilePrimaryBindingInput
   ): Promise<GetAgentProfilePrimaryBindingResponse> {
     return super.getAgentProfilePrimaryBinding(input);
+  }
+
+  executeAgentProfileWorkRecovery(
+    input: ExecuteAgentProfileWorkRecoveryInput
+  ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
+    return super.executeAgentProfileWorkRecovery(input);
   }
 
   getAgentProfileControllerChangeEligibility(

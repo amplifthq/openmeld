@@ -25,6 +25,7 @@ type WakeSourceSignal = Extract<SignalEnvelope, { type: "signal.text" }>;
 const LEADING_AT_PATTERN = /^@/;
 
 export type ProjectSpaceMessageDetailsInput = {
+  originalErrorByTargetProfileId?: ReadonlyMap<string, string>;
   replySignal: VisibleMessageSignal | null;
   signal: VisibleMessageSignal;
   spaceId: string;
@@ -33,6 +34,8 @@ export type ProjectSpaceMessageDetailsInput = {
   wakeSourceSignal: WakeSourceSignal | null;
   wakeTraceItems?: readonly WakeTraceWaterfallItem[];
   workingDetails?: SpaceMessageDetailsWorkingDetails | null;
+  targetOwnerUserIdByProfileId?: ReadonlyMap<string, string | null>;
+  viewerOwnerUserId?: string | null;
 };
 
 export function projectSpaceMessageDetails(
@@ -40,6 +43,11 @@ export function projectSpaceMessageDetails(
 ): GetSpaceMessageDetailsResponse {
   const replyToSignalId = readReplyToSignalId(input.signal);
   const wakeContext = projectWakeContext({
+    originalErrorByTargetProfileId:
+      input.originalErrorByTargetProfileId ?? new Map(),
+    targetOwnerUserIdByProfileId:
+      input.targetOwnerUserIdByProfileId ?? new Map(),
+    viewerOwnerUserId: normalizeOptionalText(input.viewerOwnerUserId),
     wakeSourceSignal: input.wakeSourceSignal,
     wakeTraceItems: input.wakeTraceItems ?? [],
   });
@@ -172,6 +180,9 @@ function buildNotApplicableAgentContext(): SpaceMessageDetailsAgentContext {
 }
 
 function projectWakeContext(input: {
+  originalErrorByTargetProfileId: ReadonlyMap<string, string>;
+  targetOwnerUserIdByProfileId: ReadonlyMap<string, string | null>;
+  viewerOwnerUserId: string | null;
   wakeSourceSignal: WakeSourceSignal | null;
   wakeTraceItems: readonly WakeTraceWaterfallItem[];
 }): SpaceMessageDetailsWakeContext {
@@ -197,6 +208,12 @@ function projectWakeContext(input: {
     targets: readWakeTargetProfileIds(input.wakeSourceSignal).map(
       (targetProfileId) =>
         projectWakeTarget({
+          originalError:
+            input.viewerOwnerUserId &&
+            input.viewerOwnerUserId ===
+              input.targetOwnerUserIdByProfileId.get(targetProfileId)
+              ? input.originalErrorByTargetProfileId.get(targetProfileId)
+              : undefined,
           targetProfileId,
           wakeTraceItem:
             wakeTraceItemByTargetProfileId.get(targetProfileId) ?? null,
@@ -206,6 +223,7 @@ function projectWakeContext(input: {
 }
 
 function projectWakeTarget(input: {
+  originalError?: string;
   targetProfileId: string;
   wakeTraceItem: WakeTraceWaterfallItem | null;
 }): SpaceMessageDetailsWakeTarget {
@@ -222,6 +240,7 @@ function projectWakeTarget(input: {
     status: input.wakeTraceItem.summary.status,
     terminalStep: input.wakeTraceItem.summary.terminalStep,
     reasonCode: input.wakeTraceItem.summary.reasonCode,
+    ...(input.originalError ? { originalError: input.originalError } : {}),
     agentContext: projectWakeTargetAgentContext(input.wakeTraceItem),
     steps: input.wakeTraceItem.steps,
   };

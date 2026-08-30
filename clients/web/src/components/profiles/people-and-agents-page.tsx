@@ -1,5 +1,6 @@
 "use client";
 
+import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
 import {
 	parseAgentControllerRef,
 	resolveAgentWakeAvailabilityDisplayCategory,
@@ -276,6 +277,10 @@ function AgentsWorkspaceHome(input: {
 	});
 	const organizationAgentProjection = useMemo(() => {
 		const profiles: AuthProfileView[] = [];
+		const operationalContextByProfileId = new Map<
+			string,
+			AgentProfileOperationalContextInput
+		>();
 		const readinessByProfileId = new Map<
 			string,
 			OrganizationDirectoryResponse["agentProfiles"][number]["readiness"]
@@ -286,11 +291,19 @@ function AgentsWorkspaceHome(input: {
 			}
 			profiles.push(buildAuthProfileViewFromOrganizationAgentProfile(profile));
 			readinessByProfileId.set(profile.profileId, profile.readiness);
+			if (profile.operationalContext) {
+				operationalContextByProfileId.set(
+					profile.profileId,
+					projectAgentProfileOperationalContext(profile.operationalContext)
+				);
+			}
 		}
-		return { profiles, readinessByProfileId };
+		return { operationalContextByProfileId, profiles, readinessByProfileId };
 	}, [input.directoryQuery.data?.agentProfiles]);
 	const agentProfiles = organizationAgentProjection.profiles;
 	const readinessByProfileId = organizationAgentProjection.readinessByProfileId;
+	const operationalContextByProfileId =
+		organizationAgentProjection.operationalContextByProfileId;
 	const errorByProfileId = EMPTY_AGENT_PROFILE_READINESS_ERROR_BY_PROFILE_ID;
 	const pendingProfileIds = EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS;
 	const availabilityFilteredAgentProfiles = useMemo(
@@ -426,6 +439,9 @@ function AgentsWorkspaceHome(input: {
 					agentExecutionReadinessByProfileId={readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={errorByProfileId}
 					agentExecutionReadinessPendingProfileIds={pendingProfileIds}
+					agentProfileOperationalContextByProfileId={
+						operationalContextByProfileId
+					}
 					agentProfiles={agentProfiles}
 					agentProfilesQueryState={{ isError: false, isPending: false }}
 					availabilityFilter="all"
@@ -448,6 +464,9 @@ function AgentsWorkspaceHome(input: {
 					agentExecutionReadinessByProfileId={readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={errorByProfileId}
 					agentExecutionReadinessPendingProfileIds={pendingProfileIds}
+					agentProfileOperationalContextByProfileId={
+						operationalContextByProfileId
+					}
 					agentProfiles={agentProfiles}
 					agentProfilesQueryState={{ isError: false, isPending: false }}
 					availabilityFilter="all"
@@ -682,5 +701,28 @@ function buildAuthProfileViewFromOrganizationAgentProfile(
 		status: profile.status,
 		updatedAt: profile.updatedAt,
 		openMeldProfileId: profile.profileId,
+	};
+}
+
+function projectAgentProfileOperationalContext(
+	operationalContext: NonNullable<
+		OrganizationDirectoryResponse["agentProfiles"][number]["operationalContext"]
+	>
+): AgentProfileOperationalContextInput {
+	const hasWorkLocations =
+		operationalContext.status === "working" ||
+		operationalContext.status === "paused";
+	return {
+		currentWorkLocation: hasWorkLocations
+			? (operationalContext.currentWorkLocation?.spaceName ?? null)
+			: null,
+		queuedWorkLocations: hasWorkLocations
+			? (operationalContext.queuedWorkLocations?.map(
+					(location) => location.spaceName
+				) ?? [])
+			: [],
+		recoveryAction: null,
+		status: operationalContext.status,
+		waitingCount: hasWorkLocations ? operationalContext.waitingCount : 0,
 	};
 }

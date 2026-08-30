@@ -69,6 +69,7 @@ export const spaceDispatchTraceAttemptStatusSchema = z.enum([
   "dispatching",
   "failed_retryable",
   "failed_terminal",
+  "profile_queue_waiting",
   "succeeded",
   "superseded",
   "timed_out",
@@ -422,6 +423,7 @@ const publishedRuntimeCoordinatorHeadLifecycleStatusSchema = z.enum([
   "accepted",
   "execution_linked",
   "publication_intent_ready",
+  "queued",
   "stopped_before_execution",
   "waiting",
 ]);

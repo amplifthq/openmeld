@@ -1,4 +1,3 @@
-import { CODEX_UPGRADE_REQUIRED_REASON } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
   buildDispatchingActivityText,
@@ -263,7 +262,9 @@ describe("resolveDispatchFailureHintText", () => {
           "controller.client.upgrade_required: The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
         targetProfileLabel: 'Agent "ops-bot"',
       })
-    ).toBe(CODEX_UPGRADE_REQUIRED_REASON);
+    ).toBe(
+      'Agent "ops-bot" is using an older local Codex install than the current model requires. Upgrade Codex on the target device, then retry.'
+    );
 
     expect(
       resolveDispatchFailureActivityText({
@@ -305,16 +306,18 @@ describe("resolveDispatchFailureHintText", () => {
     ).toBe("Couldn't resolve @ops-bot right now");
   });
 
-  it("normalizes actionable OpenClaw OAuth refresh failures into short guidance", () => {
-    expect(
-      resolveDispatchFailureHintText({
-        errorCode: "auth.required",
-        errorMessage:
-          "OAuth token refresh failed for openai-codex: Failed to refresh OAuth token for openai-codex. Please try again or re-authenticate. Logs: openclaw logs --follow",
-        targetProfileLabel: 'Agent "ops-bot"',
-      })
-    ).toBe(
-      "Authentication failed in OpenClaw. Run `openclaw logs --follow`, re-authenticate, then retry."
+  it("uses the structured reason code instead of publishing provider prose", () => {
+    const providerMessage =
+      "OAuth token refresh failed for openai-codex: secret provider detail";
+    const copy = resolveDispatchFailureHintText({
+      errorCode: "auth.required",
+      errorMessage: providerMessage,
+      targetProfileLabel: 'Agent "ops-bot"',
+    });
+
+    expect(copy).toBe(
+      "The model provider rejected this request because the local provider login expired. Re-authenticate the local agent on its computer, then wake the agent again."
     );
+    expect(copy).not.toContain(providerMessage);
   });
 });

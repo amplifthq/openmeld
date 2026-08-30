@@ -1256,7 +1256,7 @@ describe("Core Agent Execution Readiness", () => {
     });
   });
 
-  it("projects specific Codex access failure evidence ahead of sign-in guidance", async () => {
+  it("projects exact Codex Usage exhaustion evidence ahead of sign-in guidance", async () => {
     mockReadyBindingAndRuntime("agt_provider_access", "builtin:codex");
     vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
       {
@@ -1279,7 +1279,7 @@ describe("Core Agent Execution Readiness", () => {
       expiresAtMs: GENERATED_AT_MS + 60 * 60 * 1000,
       observedAtMs: GENERATED_AT_MS,
       provider: "codex",
-      reasonCode: "provider_account.capacity_exhausted",
+      reasonCode: "usage_exhausted",
       source: "wake_failure",
     });
 
@@ -1311,7 +1311,7 @@ describe("Core Agent Execution Readiness", () => {
         providerAccount: {
           blocked: true,
           provider: "codex",
-          reasonCodes: ["provider_account.capacity_exhausted"],
+          reasonCodes: ["usage_exhausted"],
           source: "wake_failure",
         },
       },
@@ -1328,7 +1328,7 @@ describe("Core Agent Execution Readiness", () => {
       action: "fix_provider_account",
       category: "unavailable",
       phase: "provider_blocked",
-      reasonCode: "provider_account.capacity_exhausted",
+      reasonCode: "usage_exhausted",
       status: "unavailable_for_wake",
     });
   });

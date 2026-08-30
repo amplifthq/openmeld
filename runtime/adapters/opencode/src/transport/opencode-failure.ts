@@ -2,34 +2,50 @@ import type {
   AdapterErrorType,
   AdapterProviderAccessEvidence,
 } from "@openmeld/adapter-core";
-import { classifyRuntimePermissionDenialMessage } from "@openmeld/adapter-core";
+import {
+  classifyRuntimePermissionDenialMessage,
+  createProviderOriginalError,
+} from "@openmeld/adapter-core";
 
 export function classifyOpenCodeFailureMessage(input: {
+  includeOriginalError?: boolean;
   isContextLost: (message: string) => boolean;
   message: string;
 }): {
   code: string;
   errorType: AdapterErrorType;
   message: string;
+  originalError?: string;
   providerAccessEvidence?: AdapterProviderAccessEvidence;
 } {
   const normalized = input.message.trim();
   const lowered = normalized.toLowerCase();
+  const originalError = input.includeOriginalError
+    ? createProviderOriginalError(normalized)
+    : null;
+  const withOriginalError = <T extends object>(
+    value: T
+  ): T & {
+    originalError?: string;
+  } => ({
+    ...value,
+    ...(originalError ? { originalError } : {}),
+  });
 
   const permissionDenial = classifyRuntimePermissionDenialMessage({
     message: normalized,
     source: "opencode",
   });
   if (permissionDenial) {
-    return permissionDenial;
+    return withOriginalError(permissionDenial);
   }
 
   if (input.isContextLost(normalized)) {
-    return {
+    return withOriginalError({
       code: "context.lost",
       errorType: "adapter",
       message: `context.lost: ${normalized}`,
-    };
+    });
   }
 
   if (
@@ -38,11 +54,11 @@ export function classifyOpenCodeFailureMessage(input: {
     lowered.includes("authentication") ||
     lowered.includes("credentials")
   ) {
-    return {
+    return withOriginalError({
       code: "auth.required",
       errorType: "auth",
       message: `auth.required: ${normalized}`,
-    };
+    });
   }
 
   if (
@@ -51,78 +67,78 @@ export function classifyOpenCodeFailureMessage(input: {
     lowered.includes("invalid model") ||
     lowered.includes("model not found")
   ) {
-    return {
+    return withOriginalError({
       code: "model.unsupported",
       errorType: "config",
       message: `model.unsupported: ${normalized}`,
-    };
+    });
   }
 
   if (isInsufficientBalanceFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "provider.insufficient_balance",
       errorType: "adapter",
       message: `provider.insufficient_balance: ${normalized}`,
       providerAccessEvidence: buildProviderAccessEvidence(
         "provider_account.capacity_exhausted"
       ),
-    };
+    });
   }
 
   if (isDefinitiveHardQuotaFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "quota.exceeded",
       errorType: "adapter",
       message: `quota.exceeded: ${normalized}`,
       providerAccessEvidence: buildProviderAccessEvidence(
         "provider_account.capacity_exhausted"
       ),
-    };
+    });
   }
 
   if (isTransientRateLimitFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "provider.rate_limited",
       errorType: "network",
       message: `provider.rate_limited: ${normalized}`,
-    };
+    });
   }
 
   if (isSubscriptionAccessFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "provider.subscription_access_unavailable",
       errorType: "adapter",
       message: `provider.subscription_access_unavailable: ${normalized}`,
       providerAccessEvidence: buildProviderAccessEvidence(
         "provider_account.subscription_access_unavailable"
       ),
-    };
+    });
   }
 
   if (isProviderUnavailableFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "provider.unavailable",
       errorType: "network",
       message: `provider.unavailable: ${normalized}`,
-    };
+    });
   }
 
   if (isHardQuotaFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "quota.exceeded",
       errorType: "adapter",
       message: `quota.exceeded: ${normalized}`,
       providerAccessEvidence: buildProviderAccessEvidence(
         "provider_account.capacity_exhausted"
       ),
-    };
+    });
   }
 
-  return {
+  return withOriginalError({
     code: "upstream_unreachable",
     errorType: "adapter",
     message: `upstream_unreachable: ${normalized}`,
-  };
+  });
 }
 
 function buildProviderAccessEvidence(

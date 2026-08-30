@@ -161,6 +161,11 @@ type OrganizationSpaceDirectoryRow = {
   latest_joined_at_ms: number | null;
 };
 
+type SpaceIndexNameRow = {
+  space_id: string;
+  space_name: string | null;
+};
+
 type RoutineTargetSpaceRow = {
   center_agent_can_publish: number | boolean;
   is_active: number | boolean;
@@ -797,6 +802,35 @@ export async function listOrganizationSpacesFromSpaceIndex(input: {
         updatedAt: timestampMsToIso(row.source_updated_at_ms),
       })),
   };
+}
+
+export async function readSpaceIndexNamesByIds(input: {
+  db: D1Database;
+  organizationId: string;
+  spaceIds: readonly string[];
+}): Promise<Map<string, string>> {
+  const spaceIds = [...new Set(input.spaceIds.filter((spaceId) => spaceId))];
+  if (spaceIds.length === 0) {
+    return new Map();
+  }
+  const { results } = await input.db
+    .prepare(
+      `
+        SELECT space_id, space_name
+        FROM space_index_spaces
+        WHERE organization_id = ?
+          AND status = 'active'
+          AND space_id IN (SELECT value FROM json_each(?))
+      `
+    )
+    .bind(input.organizationId, JSON.stringify(spaceIds))
+    .all<SpaceIndexNameRow>();
+  return new Map(
+    (results ?? []).map((row) => [
+      row.space_id,
+      normalizeSpaceName(row.space_name),
+    ])
+  );
 }
 
 export async function listRoutineTargetSpacesFromSpaceIndex(input: {

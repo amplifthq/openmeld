@@ -17,6 +17,7 @@ import {
   buildProviderExitError,
   classifyCliDriverTimeoutFailure,
   classifyRuntimePermissionDenialMessage,
+  createProviderOriginalError,
   looksLikeRuntimePermissionDenialMessage,
   resolveDispatchSpaceActionMcpServer,
 } from "@openmeld/adapter-core";
@@ -43,9 +44,18 @@ type ClaudeCliProviderAccessEvidence = NonNullable<
   AdapterDispatchFailure["providerAccessEvidence"]
 >;
 
+type ClaudeFailureClassification = {
+  code: string;
+  errorType: AdapterErrorType;
+  message: string;
+  originalError?: string;
+  providerAccessEvidence?: ClaudeCliProviderAccessEvidence;
+};
+
 export class ClaudeCliTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
   readonly providerAccessEvidence?: ClaudeCliProviderAccessEvidence;
   readonly telemetry?: AdapterDispatchTelemetry;
 
@@ -53,6 +63,7 @@ export class ClaudeCliTransportError extends Error {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
     providerAccessEvidence?: ClaudeCliProviderAccessEvidence;
     telemetry?: AdapterDispatchTelemetry;
   }) {
@@ -60,6 +71,9 @@ export class ClaudeCliTransportError extends Error {
     this.name = "ClaudeCliTransportError";
     this.code = input.code;
     this.errorType = input.errorType;
+    if (input.originalError) {
+      this.originalError = input.originalError;
+    }
     if (input.providerAccessEvidence) {
       this.providerAccessEvidence = input.providerAccessEvidence;
     }
@@ -116,6 +130,7 @@ export async function invokeClaudeCliTransport(input: {
   let latestResultIsError = false;
   let resolvedSessionId = normalizeOptionalText(input.sessionId);
   const providerErrorMessages: string[] = [];
+  const providerOriginalErrorMessages: string[] = [];
   let firstStdoutAtMs: number | null = null;
   let firstOutputAtMs: number | null = null;
   const previewEmitter = createClaudePreviewEmitter({
@@ -146,6 +161,7 @@ export async function invokeClaudeCliTransport(input: {
           latestResultIsError,
           previewEmitter,
           providerErrorMessages,
+          providerOriginalErrorMessages,
           resolvedSessionId,
         });
         firstOutputAtMs = nextState.firstOutputAtMs;
@@ -185,6 +201,7 @@ export async function invokeClaudeCliTransport(input: {
     const classifiedFailure = classifyClaudeFailure({
       exitSignal: driverResult.signal,
       providerErrorMessages,
+      providerOriginalErrorMessages,
       stderrText: driverResult.stderrText,
       stdoutText: driverResult.stdoutText,
     });
@@ -192,6 +209,9 @@ export async function invokeClaudeCliTransport(input: {
       code: classifiedFailure.code,
       errorType: classifiedFailure.errorType,
       message: classifiedFailure.message,
+      ...(classifiedFailure.originalError
+        ? { originalError: classifiedFailure.originalError }
+        : {}),
       ...(classifiedFailure.providerAccessEvidence
         ? { providerAccessEvidence: classifiedFailure.providerAccessEvidence }
         : {}),
@@ -387,6 +407,7 @@ const handleClaudeStdoutLine = (input: {
   latestResultIsError: boolean;
   previewEmitter: ReturnType<typeof createClaudePreviewEmitter>;
   providerErrorMessages: string[];
+  providerOriginalErrorMessages: string[];
   resolvedSessionId: string | null;
 }): {
   firstOutputAtMs: number | null;
@@ -436,6 +457,7 @@ const handleClaudeStdoutLine = (input: {
 
   if (parsedLine.errorMessage) {
     input.providerErrorMessages.push(parsedLine.errorMessage);
+    input.providerOriginalErrorMessages.push(parsedLine.errorMessage);
   }
 
   if (parsedLine.isErrorResult === true) {
@@ -494,6 +516,9 @@ const toClaudeCliTransportError = (
         code: classifiedFailure.code,
         errorType: classifiedFailure.errorType,
         message: classifiedFailure.message,
+        ...(classifiedFailure.originalError
+          ? { originalError: classifiedFailure.originalError }
+          : {}),
         ...(classifiedFailure.providerAccessEvidence
           ? { providerAccessEvidence: classifiedFailure.providerAccessEvidence }
           : {}),
@@ -513,17 +538,20 @@ const toClaudeCliTransportError = (
 export const classifyClaudeFailure = (input: {
   exitSignal?: NodeJS.Signals | null;
   providerErrorMessages: string[];
+  providerOriginalErrorMessages?: string[];
   stderrText?: string;
   stdoutText?: string;
-}): {
-  code: string;
-  errorType: AdapterErrorType;
-  message: string;
-  providerAccessEvidence?: ClaudeCliProviderAccessEvidence;
-} => {
+}): ClaudeFailureClassification => {
+  const trustedProviderMessages = new Set([
+    ...(input.providerOriginalErrorMessages ?? []),
+    ...extractErrorMessagesFromStdout(input.stdoutText),
+  ]);
   const providerMessage = resolveProviderFailureMessage(input);
   if (providerMessage) {
-    const classified = classifyProviderMessageFailure(providerMessage);
+    const classified = classifyProviderMessageFailure(
+      providerMessage,
+      trustedProviderMessages.has(providerMessage)
+    );
     if (classified) {
       return classified;
     }
@@ -554,69 +582,74 @@ export const classifyClaudeFailure = (input: {
 };
 
 const classifyProviderMessageFailure = (
-  providerMessage: string
-): {
-  code: string;
-  errorType: AdapterErrorType;
-  message: string;
-  providerAccessEvidence?: ClaudeCliProviderAccessEvidence;
-} | null => {
+  providerMessage: string,
+  includeOriginalError: boolean
+): ClaudeFailureClassification | null => {
   const lowered = providerMessage.toLowerCase();
+  const originalError = includeOriginalError
+    ? createProviderOriginalError(providerMessage)
+    : null;
+  const withOriginalError = (
+    value: ClaudeFailureClassification
+  ): ClaudeFailureClassification => ({
+    ...value,
+    ...(originalError ? { originalError } : {}),
+  });
   const providerAccessEvidence = buildClaudeCodeProviderAccessEvidence(lowered);
   const permissionDenial = classifyRuntimePermissionDenialMessage({
     message: providerMessage,
     source: "claude-code",
   });
   if (permissionDenial) {
-    return {
+    return withOriginalError({
       code: permissionDenial.code,
       errorType: permissionDenial.errorType,
       message: permissionDenial.message,
-    };
+    });
   }
   if (isAuthFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "auth.required",
       errorType: "auth",
       message: providerMessage,
       ...(providerAccessEvidence ? { providerAccessEvidence } : {}),
-    };
+    });
   }
   if (isQuotaFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "quota.exceeded",
       errorType: "adapter",
       message: providerMessage,
       ...(providerAccessEvidence ? { providerAccessEvidence } : {}),
-    };
+    });
   }
   if (isRateLimitFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "rate_limited",
       errorType: "adapter",
       message: providerMessage,
-    };
+    });
   }
   if (isProviderOverloadedFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "provider.unavailable",
       errorType: "adapter",
       message: providerMessage,
-    };
+    });
   }
   if (isModelConfigFailure(lowered)) {
-    return {
+    return withOriginalError({
       code: "config.invalid",
       errorType: "config",
       message: toConfigInvalidMessage(providerMessage),
-    };
+    });
   }
   if (isLikelyClaudeContextLostError(providerMessage)) {
-    return {
+    return withOriginalError({
       code: "context.lost",
       errorType: "adapter",
       message: providerMessage,
-    };
+    });
   }
   return null;
 };

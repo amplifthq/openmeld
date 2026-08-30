@@ -58,6 +58,7 @@ type ClaudeInvokeOnceInput = {
 export class ClaudeRuntimeError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
   readonly providerAccessEvidence?: ClaudeProviderAccessEvidence;
   readonly telemetry?: AdapterDispatchTelemetry;
 
@@ -65,6 +66,7 @@ export class ClaudeRuntimeError extends Error {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
     providerAccessEvidence?: ClaudeProviderAccessEvidence;
     telemetry?: AdapterDispatchTelemetry;
   }) {
@@ -72,6 +74,9 @@ export class ClaudeRuntimeError extends Error {
     this.name = "ClaudeRuntimeError";
     this.code = input.code;
     this.errorType = input.errorType;
+    if (input.originalError) {
+      this.originalError = input.originalError;
+    }
     if (input.providerAccessEvidence) {
       this.providerAccessEvidence = input.providerAccessEvidence;
     }
@@ -113,11 +118,13 @@ export async function invokeClaudeWithSingleContextHeal(input: {
     contextLossPolicy: input.executionMode === "repair" ? "fail" : "rebuild",
     createRebuildFailedError: (error) => {
       const providerAccessEvidence = getClaudeProviderAccessEvidence(error);
+      const originalError = getClaudeOriginalError(error);
       const telemetry = getClaudeTelemetry(error);
       return new ClaudeRuntimeError({
         code: "context.rebuild_failed",
         errorType: "adapter",
         message: `context.rebuild_failed: ${toErrorMessage(error)}`,
+        ...(originalError ? { originalError } : {}),
         ...(providerAccessEvidence ? { providerAccessEvidence } : {}),
         ...(telemetry ? { telemetry } : {}),
       });
@@ -197,11 +204,13 @@ async function invokeClaudeOnce(
       error instanceof Error
     ) {
       const providerAccessEvidence = getClaudeProviderAccessEvidence(error);
+      const originalError = getClaudeOriginalError(error);
       const telemetry = getClaudeTelemetry(error);
       throw new ClaudeRuntimeError({
         code: (error as { code: string }).code,
         errorType: (error as { errorType: AdapterErrorType }).errorType,
         message: error.message,
+        ...(originalError ? { originalError } : {}),
         ...(providerAccessEvidence ? { providerAccessEvidence } : {}),
         ...(telemetry ? { telemetry } : {}),
       });
@@ -279,6 +288,14 @@ function getClaudeProviderAccessEvidence(
     return null;
   }
   return evidence as ClaudeProviderAccessEvidence;
+}
+
+function getClaudeOriginalError(error: unknown): string | null {
+  if (!(error && typeof error === "object")) {
+    return null;
+  }
+  const originalError = (error as { originalError?: unknown }).originalError;
+  return typeof originalError === "string" ? originalError : null;
 }
 
 function getClaudeTelemetry(error: unknown): AdapterDispatchTelemetry | null {

@@ -3,6 +3,7 @@
 import type {
 	AgentWakeAvailability,
 	AuthProfileView,
+	ProfileDetailsRecoveryAction,
 	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
@@ -32,8 +33,10 @@ export function AgentProfileWorkspaceDetail(input: {
 	editDisabled: boolean;
 	editing: boolean;
 	isDirectMessagePending: boolean;
+	isRecoveryActionPending: boolean;
 	onEdit: () => void;
 	onOpenDirectMessage: () => void;
+	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	overflowActions: ReactNode;
 	profile: AuthProfileView;
 	supportingContent?: ReactNode;
@@ -171,6 +174,8 @@ export function AgentProfileWorkspaceDetail(input: {
 				<ProfileDetailsContent
 					currentSession={input.currentSession}
 					details={input.details}
+					isRecoveryActionPending={input.isRecoveryActionPending}
+					onRecoveryAction={input.onRecoveryAction}
 					showSummary={false}
 				/>
 			)}

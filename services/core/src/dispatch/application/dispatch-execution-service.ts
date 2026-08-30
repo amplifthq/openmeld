@@ -5,6 +5,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   hasRuntimeAdapterCapabilityForRef,
   parseAgentControllerRef,
+  resolveAgentProfileUsageWakeability,
 } from "@openmeld/agent-runtime";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
@@ -66,6 +67,7 @@ import {
   emitSpaceSystemNoticeSignal,
   emitSpaceTextSignal,
 } from "../../rpc/space-signal-emitter";
+import { readCurrentRuntimeAgentControllerReport } from "../../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
 import {
   readRuntimeDeviceDisplayNameByRuntimeId,
   readRuntimeRegistryRecordByRuntimeId,
@@ -238,6 +240,7 @@ export type EffectiveTargetBindingSnapshot = {
   runtimeKind: "openmeld_service" | "hosted_center_agent" | null;
   hostedRuntimeIdentity: HostedCenterAgentRuntimeIdentity | null;
   modelRoute?: CenterAgentModelRoute | null;
+  openMeldServiceRuntimeId: string | null;
 };
 
 export type TargetBindingSource = "core_primary_binding";
@@ -1702,6 +1705,14 @@ async function recordProviderAccessEvidenceFromAcceptedFailure(input: {
   if (!providerAccessEvidence) {
     return;
   }
+  if (
+    providerAccessEvidence.reasonCode === "provider_account.capacity_exhausted"
+  ) {
+    // Older adapters inferred this classification from provider wording.
+    // Preserve schema compatibility without letting raw text change future
+    // Wakeability. New adapters submit the exact structured Usage reason.
+    return;
+  }
   // Keep accepted-result handling provider-agnostic. The repository validates
   // that evidence matches the exact controller in the execution identity.
   const executionIdentity = await readMatchingDispatchAttemptExecutionIdentity({
@@ -3129,6 +3140,22 @@ export const runDispatchExecutionPreflightGate = async (input: {
     };
   }
 
+  const usageWakeability = await resolveTargetUsageWakeability({
+    db: localStateDb(input.env),
+    targetBindingSnapshot,
+  });
+  if (usageWakeability.blocksNewWork) {
+    return {
+      ok: false,
+      errorCode: usageWakeability.reasonCode,
+      errorMessage:
+        "This Agent Profile has reached a current Usage Limit and cannot start new work.",
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      bindingSource: targetBindingResolution.source,
+      targetOwnerUserId: targetBindingSnapshot.ownerUserId,
+    };
+  }
+
   // Auto-relay revisits are allowed by policy: agents may loop
   // (A -> B -> A -> ...) without a human turn between rounds. The chain
   // telemetry that used to feed the removed cycle gate (dispatchChainId,
@@ -3152,6 +3179,54 @@ export const runDispatchExecutionPreflightGate = async (input: {
     bindingSource: targetBindingResolution.source,
   };
 };
+
+async function resolveTargetUsageWakeability(input: {
+  db?: D1Database;
+  targetBindingSnapshot: EffectiveTargetBindingSnapshot;
+}) {
+  const { targetBindingSnapshot } = input;
+  if (
+    !input.db ||
+    targetBindingSnapshot.runtimeKind !== "openmeld_service" ||
+    !targetBindingSnapshot.openMeldServiceRuntimeId ||
+    !targetBindingSnapshot.agentControllerRef
+  ) {
+    return resolveAgentProfileUsageWakeability({
+      nowMs: Date.now(),
+      report: null,
+    });
+  }
+
+  try {
+    const report = await readCurrentRuntimeAgentControllerReport({
+      agentControllerRef: targetBindingSnapshot.agentControllerRef,
+      db: input.db,
+      openMeldServiceRuntimeId: {
+        value: targetBindingSnapshot.openMeldServiceRuntimeId,
+      },
+    });
+    return resolveAgentProfileUsageWakeability({
+      nowMs: Date.now(),
+      report: report
+        ? {
+            expiresAtMs: report.expiresAtMs,
+            status: report.status,
+            usageLimits: report.agentControllerInterface?.usageLimits,
+          }
+        : null,
+    });
+  } catch (error) {
+    console.warn("[core.agent_execution.usage_wakeability_read_failed]", {
+      agentControllerRef: targetBindingSnapshot.agentControllerRef,
+      errorMessage: toErrorMessage(error),
+      openMeldServiceRuntimeId: targetBindingSnapshot.openMeldServiceRuntimeId,
+    });
+    return resolveAgentProfileUsageWakeability({
+      nowMs: Date.now(),
+      report: null,
+    });
+  }
+}
 
 export const applyEffectiveTargetBindingSnapshotToMessage = (input: {
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -5379,6 +5454,7 @@ const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
       controllerNormalization: null,
       hostedRuntimeIdentity: null,
       modelRoute: null,
+      openMeldServiceRuntimeId: null,
       organizationId: null,
       runtimeKind: null,
       ownerUserId: input.ownerUserId,
@@ -5457,6 +5533,7 @@ const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
     controllerNormalization,
     hostedRuntimeIdentity,
     modelRoute,
+    openMeldServiceRuntimeId: binding.openMeldServiceRuntimeId,
     organizationId: null,
     ownerUserId: input.ownerUserId,
     runtimeKind,

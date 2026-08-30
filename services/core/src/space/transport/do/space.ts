@@ -46,6 +46,7 @@ import {
   listSpaceThreadSignalsQuerySchema,
   MENTION_DISPATCH_ERROR_CODES,
   normalizeSpaceCursorPatch,
+  openMeldDaemonTaskResultEnvelopeSchema,
   parseOptionalClientMessageId,
   patchSpaceContractBodySchema,
   postResolvedSpaceMembersBodySchema,
@@ -84,6 +85,7 @@ import {
   spaceAgentStreamSnapshotSchema,
   spaceAgentStreamTerminalFrameSchema,
   spaceBoardRoomProjectionSchema,
+  spaceDispatchOutboxRedriveReasonSchema,
   spaceFileAuditEventSchema,
   spaceFileClientMutationIdSchema,
   spaceFileEntryIdSchema,
@@ -156,6 +158,7 @@ import type {
   SpaceBootstrapResponse,
   SpaceContract,
   SpaceDispatchLookupMatch,
+  SpaceDispatchOutboxRedriveReason,
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceSnapshot,
   SpaceFileActor,
@@ -177,6 +180,7 @@ import type {
   UpdateSpaceFileEntryResponse,
   WakeProgressItem,
   WakeProgressPhase,
+  WakeTraceWaterfallItem,
 } from "@openmeld/schemas/types";
 import {
   buildWakeProgressMessage,
@@ -659,8 +663,6 @@ const RECENT_HISTORY_SCAN_MAX_LIMIT = 400;
 const INTERNAL_ERROR_MESSAGE = "internal_error";
 const INTERNAL_DISPATCH_OUTBOX_REDRIVE_HEADER =
   "x-openmeld-internal-dispatch-redrive";
-const INTERNAL_DISPATCH_OUTBOX_REDRIVE_REASON =
-  "runtime_coordinator_head_waiting_recovery";
 const INTERNAL_SPACE_INDEX_REPROJECT_HEADER =
   "x-openmeld-internal-space-index-reproject";
 const INTERNAL_SPACE_INDEX_REPROJECT_HEADER_VALUE = "space-do-truth";
@@ -13622,10 +13624,10 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
 
-    if (
-      request.headers.get(INTERNAL_DISPATCH_OUTBOX_REDRIVE_HEADER) !==
-      INTERNAL_DISPATCH_OUTBOX_REDRIVE_REASON
-    ) {
+    const parsedHeaderReason = spaceDispatchOutboxRedriveReasonSchema.safeParse(
+      request.headers.get(INTERNAL_DISPATCH_OUTBOX_REDRIVE_HEADER)
+    );
+    if (!parsedHeaderReason.success) {
       return this.buildDispatchOutboxRedriveResponse(
         {
           dispatchId,
@@ -13651,6 +13653,18 @@ export class Space extends DurableObject<CoreBindings> {
           targetProfileId: null,
         },
         400
+      );
+    }
+    if (parsedBody.data.reason !== parsedHeaderReason.data) {
+      return this.buildDispatchOutboxRedriveResponse(
+        {
+          dispatchId,
+          ok: false,
+          reasonCode: "space.dispatch_outbox_redrive_unauthorized",
+          status: "unauthorized",
+          targetProfileId: parsedBody.data.targetProfileId,
+        },
+        403
       );
     }
 
@@ -13747,11 +13761,13 @@ export class Space extends DurableObject<CoreBindings> {
 
     const dispatchMessage = this.buildDispatchMessageFromRecoveryCandidate(
       outboxRecord,
-      "route_lost"
+      parsedBody.data.reason === "agent_profile_work_coordinator_promotion"
+        ? "agent_profile_work_coordinator_promoted"
+        : "route_lost"
     );
     const submission = await this.submitDispatchOutboxMessage(
       dispatchMessage,
-      "runtime_coordinator_head_waiting_recovery",
+      parsedBody.data.reason,
       buildDispatchOutboxEnqueueContext(outboxRecord)
     );
     if (submission.status === "queue_unavailable") {
@@ -13789,9 +13805,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async submitDispatchOutboxMessage(
     message: OpenMeldDaemonDispatchQueueMessage,
-    reason:
-      | "flush_pending_outbox"
-      | "runtime_coordinator_head_waiting_recovery",
+    reason: "flush_pending_outbox" | SpaceDispatchOutboxRedriveReason,
     candidate?: {
       outboxStatus: string;
       handedOffAtMs: number | null;
@@ -13884,9 +13898,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async enqueueDispatchMessageWithRetry(
     message: OpenMeldDaemonDispatchQueueMessage,
-    reason:
-      | "flush_pending_outbox"
-      | "runtime_coordinator_head_waiting_recovery",
+    reason: "flush_pending_outbox" | SpaceDispatchOutboxRedriveReason,
     candidate?: {
       outboxStatus: string;
       handedOffAtMs: number | null;
@@ -14460,9 +14472,13 @@ export class Space extends DurableObject<CoreBindings> {
     );
     const ledgerRow =
       ledgerEvidence.kind === "found" ? ledgerEvidence.row : null;
-    const hostedNativeDeliveryHandoffState = ledgerRow
-      ? await this.readHostedNativeDeliveryHandoffState(candidate)
-      : "not_applicable";
+    const shouldReadHostedNativeDeliveryHandoffState =
+      ledgerRow !== null &&
+      ledgerRow.latestAttemptStatus !== "profile_queue_waiting";
+    const hostedNativeDeliveryHandoffState =
+      shouldReadHostedNativeDeliveryHandoffState
+        ? await this.readHostedNativeDeliveryHandoffState(candidate)
+        : "not_applicable";
     const policyDecision = resolveHandedOffOutboxCandidatePolicyDecision({
       hostedNativeDeliveryHandoffState,
       outboxStatus: candidate.outboxStatus,
@@ -14495,9 +14511,9 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
     if (policyDecision.kind === "delete") {
-      // Durable dispatch intake evidence proves that Queue accepted ownership,
-      // so only this local conveyor seed is retired. D1 still does not decide
-      // the in-flight Wake or publish a final Space outcome.
+      // Terminal or execution-acceptance evidence means this local conveyor
+      // seed is no longer needed. D1 still does not decide the in-flight Wake
+      // or publish a final Space outcome.
       return {
         kind: "delete",
         human,
@@ -15844,11 +15860,27 @@ export class Space extends DurableObject<CoreBindings> {
       signalId: signal.id,
       nowMs: Date.now(),
     });
+    const activeMemberRecords = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
+    const targetOwnerUserIdByProfileId = new Map(
+      activeMemberRecords.map(
+        (record) => [record.profileId, record.ownerUserIdSnapshot] as const
+      )
+    );
+    const originalErrorByTargetProfileId =
+      await this.readOwnerVisibleOriginalErrors({
+        targetOwnerUserIdByProfileId,
+        viewerOwnerUserId: input.viewer?.viewerOwnerUserId,
+        wakeTraceItems,
+      });
 
     return projectSpaceMessageDetails({
+      originalErrorByTargetProfileId,
       replySignal,
       signal,
       spaceId: this.spaceId,
+      targetOwnerUserIdByProfileId,
       visibleReplySignal: isMessageDetailsSignal(visibleReplySignal)
         ? visibleReplySignal
         : null,
@@ -15856,7 +15888,86 @@ export class Space extends DurableObject<CoreBindings> {
       wakeSourceSignal,
       wakeTraceItems,
       workingDetails,
+      viewerOwnerUserId: input.viewer?.viewerOwnerUserId,
     });
+  }
+
+  private async readOwnerVisibleOriginalErrors(input: {
+    targetOwnerUserIdByProfileId: ReadonlyMap<string, string | null>;
+    viewerOwnerUserId?: string;
+    wakeTraceItems: readonly WakeTraceWaterfallItem[];
+  }): Promise<ReadonlyMap<string, string>> {
+    const viewerOwnerUserId = normalizeOptionalText(input.viewerOwnerUserId);
+    const db = localStateDb(this.bindings);
+    if (!(viewerOwnerUserId && db)) {
+      return new Map();
+    }
+
+    const authorizedTargets = input.wakeTraceItems.flatMap((item) => {
+      const dispatchId = normalizeOptionalText(item.correlation.dispatchId);
+      return dispatchId &&
+        input.targetOwnerUserIdByProfileId.get(item.targetProfileId) ===
+          viewerOwnerUserId
+        ? [{ dispatchId, targetProfileId: item.targetProfileId }]
+        : [];
+    });
+    if (authorizedTargets.length === 0) {
+      return new Map();
+    }
+
+    const whereSql = authorizedTargets
+      .map(() => "(dispatch_id = ? AND target_profile_id = ?)")
+      .join(" OR ");
+    try {
+      const rows = await db
+        .prepare(
+          `
+            SELECT target_profile_id, result_payload_json
+            FROM openMeldDaemon_dispatch_result_inbox
+            WHERE ${whereSql}
+            ORDER BY accepted_at_ms DESC
+          `
+        )
+        .bind(
+          ...authorizedTargets.flatMap((target) => [
+            target.dispatchId,
+            target.targetProfileId,
+          ])
+        )
+        .all<{
+          result_payload_json: string;
+          target_profile_id: string;
+        }>();
+      const originalErrorByTargetProfileId = new Map<string, string>();
+      for (const row of rows.results) {
+        if (originalErrorByTargetProfileId.has(row.target_profile_id)) {
+          continue;
+        }
+        const parsedJson: unknown = JSON.parse(row.result_payload_json);
+        const parsed =
+          openMeldDaemonTaskResultEnvelopeSchema.safeParse(parsedJson);
+        if (!(parsed.success && parsed.data.payload.status === "failed")) {
+          continue;
+        }
+        const originalError =
+          "originalError" in parsed.data.payload
+            ? parsed.data.payload.originalError
+            : undefined;
+        if (originalError) {
+          originalErrorByTargetProfileId.set(
+            row.target_profile_id,
+            originalError
+          );
+        }
+      }
+      return originalErrorByTargetProfileId;
+    } catch (error) {
+      console.warn("[core.space.message_details.original_error_read_failed]", {
+        errorMessage: formatUnknownErrorMessage(error),
+        spaceId: this.spaceId,
+      });
+      return new Map();
+    }
   }
 
   private async readSpaceWakeTraceWaterfall(input: {

@@ -12,6 +12,13 @@ import {
   runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
+  runtimeTransportAgentProfileOperationalContextSchema,
+  runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema,
+  runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
+  runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
+  runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
+  runtimeTransportAgentProfileWorkUsageAvailableRequestSchema,
+  runtimeTransportAgentProfileWorkUsageAvailableResponseSchema,
   runtimeTransportCapabilitiesSchema,
   runtimeTransportDeliverDispatchPayloadSchema,
   runtimeTransportDeliverDispatchRequestSchema,
@@ -977,6 +984,126 @@ describe("runtime transport schema", () => {
       });
 
     expect(parsed.success).toBe(true);
+  });
+
+  it("accepts Agent Profile Work Coordinator queue responses", () => {
+    expect(
+      runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema.safeParse({
+        action: "wait_in_queue",
+        ok: true,
+        primaryDispatchId: "dispatch-2",
+        queuePosition: 1,
+        reasonCode: "agent_profile_work_coordinator.queued",
+        runtimeCoordinatorExecutionId: null,
+        status: "queued",
+        targetWakeLifecycleId: "twl_v1|7:space-1|8:signal-2|7:agent-1",
+        waitingCount: 1,
+      }).success
+    ).toBe(true);
+  });
+
+  it("accepts Agent Profile Work Coordinator full-queue responses", () => {
+    expect(
+      runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema.safeParse({
+        ok: false,
+        primaryDispatchId: null,
+        reasonCode: "agent_profile_work_coordinator.queue_full",
+        status: "queue_full",
+        targetWakeLifecycleId: "twl_v1|7:space-1|9:signal-52|7:agent-1",
+        waitingCount: 50,
+      }).success
+    ).toBe(true);
+  });
+
+  it("accepts a privacy-safe paused Agent Profile workload", () => {
+    expect(
+      runtimeTransportAgentProfileOperationalContextSchema.parse({
+        currentWorkReference: {
+          sourceSignalId: "signal-current",
+          spaceId: "space-current",
+        },
+        queuedWorkReferences: [
+          { sourceSignalId: "signal-next", spaceId: "space-next" },
+        ],
+        status: "paused",
+        waitingCount: 1,
+      })
+    ).toEqual({
+      currentWorkReference: {
+        sourceSignalId: "signal-current",
+        spaceId: "space-current",
+      },
+      queuedWorkReferences: [
+        { sourceSignalId: "signal-next", spaceId: "space-next" },
+      ],
+      status: "paused",
+      waitingCount: 1,
+    });
+
+    expect(
+      runtimeTransportAgentProfileOperationalContextSchema.safeParse({
+        gateReason: "usage_recovered",
+        status: "paused",
+        waitingCount: 0,
+      }).success
+    ).toBe(false);
+  });
+
+  it("accepts strict Agent Profile work recovery commands", () => {
+    const firstProfileId = "agt_11111111-1111-4111-8111-111111111111";
+    const secondProfileId = "agt_22222222-2222-4222-8222-222222222222";
+    expect(
+      runtimeTransportAgentProfileWorkUsageAvailableRequestSchema.parse({
+        ownerUserId: "owner-1",
+        targetProfileIds: [firstProfileId, secondProfileId],
+      })
+    ).toEqual({
+      ownerUserId: "owner-1",
+      targetProfileIds: [firstProfileId, secondProfileId],
+    });
+    expect(
+      runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse({
+        changedProfileIds: [firstProfileId],
+        status: "updated",
+      })
+    ).toEqual({ changedProfileIds: [firstProfileId], status: "updated" });
+    expect(
+      runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.parse({
+        continuationClientMessageId: "client-continuation-1",
+        ownerUserId: "owner-1",
+        targetProfileId: firstProfileId,
+      })
+    ).toEqual({
+      continuationClientMessageId: "client-continuation-1",
+      ownerUserId: "owner-1",
+      targetProfileId: firstProfileId,
+    });
+    expect(
+      runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema.parse(
+        { status: "authorized" }
+      )
+    ).toEqual({ status: "authorized" });
+    expect(
+      runtimeTransportAgentProfileWorkQueueApproveRequestSchema.parse({
+        ownerUserId: "owner-1",
+        targetProfileId: firstProfileId,
+      })
+    ).toEqual({ ownerUserId: "owner-1", targetProfileId: firstProfileId });
+    expect(
+      runtimeTransportAgentProfileWorkQueueApproveResponseSchema.parse({
+        status: "approved",
+      })
+    ).toEqual({ status: "approved" });
+    expect(
+      runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.safeParse(
+        {
+          continuationClientMessageId: "client-continuation-1",
+          ownerUserId: "owner-1",
+          targetProfileId: firstProfileId,
+          queuedTaskIds: ["private-task-1"],
+        }
+      ).success
+    ).toBe(false);
   });
 
   it("accepts RuntimeCoordinator no-execution publication intent requests", () => {

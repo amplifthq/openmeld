@@ -1,9 +1,6 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes a stable public entrypoint.
 
-export {
-  resolveDetailedPublicAgentFailureReason,
-  resolvePublicAgentFailureReason,
-} from "./agent-failure-reason";
+export { resolvePublicAgentFailureReason } from "./agent-failure-reason";
 export {
   buildAgentFacingMentalModelLines,
   buildAgentFacingMentalModelParagraph,

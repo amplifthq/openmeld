@@ -52,6 +52,7 @@ const updatePrimaryBindingAgentControllerCollaborationModeMock = vi.hoisted(
 const updatePrimaryBindingModelSelectionMock = vi.hoisted(() => vi.fn());
 const updatePrimaryBindingOpenCodePermissionMock = vi.hoisted(() => vi.fn());
 const openCurrentDirectMessageSpaceMock = vi.hoisted(() => vi.fn());
+const executeAgentProfileWorkRecoveryMock = vi.hoisted(() => vi.fn());
 const readCurrentAgentActivitySessionsMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() =>
@@ -125,6 +126,12 @@ vi.mock("#/lib/profiles/delete-agent-profile", () => ({
 	deleteStartAgentProfile: (
 		...args: Parameters<typeof deleteStartAgentProfileMock>
 	) => deleteStartAgentProfileMock(...args),
+}));
+
+vi.mock("#/lib/profiles/agent-profile-work-recovery", () => ({
+	executeAgentProfileWorkRecovery: (
+		...args: Parameters<typeof executeAgentProfileWorkRecoveryMock>
+	) => executeAgentProfileWorkRecoveryMock(...args),
 }));
 
 vi.mock("#/lib/spaces/direct-message", () => ({
@@ -219,6 +226,10 @@ type RecoveryController = AgentProfilesCardProps["recovery"];
 
 describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 	beforeEach(() => {
+		executeAgentProfileWorkRecoveryMock.mockReset().mockResolvedValue({
+			action: "continue_interrupted_work",
+			status: "accepted",
+		});
 		ensureRuntimeBindingMock
 			.mockReset()
 			.mockResolvedValue({ status: "accepted" });
@@ -361,6 +372,159 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				.getByTestId("agent-profile-workspace-detail")
 				.querySelector('[data-profile-kind="center-agent"]')
 		).toBeNull();
+	});
+
+	it("shows the Coordinator workload summary and owner-only work locations in Profile Details", () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: "Launch planning",
+							queuedWorkLocations: ["Customer follow-up"],
+							recoveryAction: null,
+							status: "working",
+							waitingCount: 1,
+						},
+					],
+				]),
+			}
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "About profile" }));
+
+		expect(screen.getByText("Activity")).toBeTruthy();
+		expect(screen.getByText("Working · 1 queued")).toBeTruthy();
+		expect(screen.getByText("Launch planning")).toBeTruthy();
+		expect(screen.getByText("Customer follow-up")).toBeTruthy();
+	});
+
+	it("renders owner recovery actions in the Profile Details dialog and invokes the supplied handler", () => {
+		const onRecoveryAction = vi.fn();
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: "Launch planning",
+							queuedWorkLocations: [],
+							recoveryAction: {
+								kind: "continue_interrupted_work",
+							},
+							status: "paused",
+							waitingCount: 0,
+						},
+					],
+				]),
+				onRecoveryAction,
+			}
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "About profile" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Continue interrupted work" })
+		);
+
+		expect(onRecoveryAction).toHaveBeenCalledWith({
+			kind: "continue_interrupted_work",
+			visibility: "owner_self",
+		});
+	});
+
+	it("renders owner recovery actions in the selected Agent detail", async () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: null,
+							queuedWorkLocations: [],
+							recoveryAction: {
+								kind: "approve_queued_work",
+							},
+							status: "paused",
+							waitingCount: 1,
+						},
+					],
+				]),
+				onRecoveryAction: vi.fn(),
+				presentation: "detail",
+			}
+		);
+
+		expect(
+			await screen.findByRole("button", { name: "Start queued work" })
+		).toBeTruthy();
+	});
+
+	it("executes the owner recovery action and keeps the button pending until Core accepts it", async () => {
+		let resolveRecovery: (value: unknown) => void = () => undefined;
+		const recoveryPromise = new Promise((resolve) => {
+			resolveRecovery = resolve;
+		});
+		executeAgentProfileWorkRecoveryMock.mockReturnValue(recoveryPromise);
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: "Launch planning",
+							queuedWorkLocations: [],
+							recoveryAction: { kind: "continue_interrupted_work" },
+							status: "paused",
+							waitingCount: 0,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Continue interrupted work" })
+		);
+
+		expect(executeAgentProfileWorkRecoveryMock).toHaveBeenCalledWith({
+			action: "continue_interrupted_work",
+			agentProfileId: AGENT_PROFILE_ID,
+			organizationId: "org-acme",
+		});
+		const pendingButton = await screen.findByRole("button", {
+			name: "Continuing interrupted work…",
+		});
+		expect((pendingButton as HTMLButtonElement).disabled).toBe(true);
+
+		resolveRecovery({
+			action: "continue_interrupted_work",
+			status: "accepted",
+		});
+		await waitFor(() => {
+			expect(toastMock.success).toHaveBeenCalledWith(
+				"Continuing Research Agent's interrupted work."
+			);
+		});
 	});
 
 	it("redacts owner-only diagnostics from a teammate Agent detail", async () => {

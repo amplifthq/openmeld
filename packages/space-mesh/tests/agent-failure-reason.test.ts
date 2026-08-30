@@ -1,9 +1,6 @@
 import { CODEX_UPGRADE_REQUIRED_REASON } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
-import {
-  resolveDetailedPublicAgentFailureReason,
-  resolvePublicAgentFailureReason,
-} from "../src";
+import { resolvePublicAgentFailureReason } from "../src";
 
 const PROVIDER_CREDITS_COPY =
   "The model provider rejected this request because the provider account does not have enough credits. Add credits or update billing directly with the provider, then wake the agent again.";
@@ -13,72 +10,6 @@ const CURSOR_MODEL_INVENTORY_UNAVAILABLE_COPY =
   "Cursor couldn't confirm which models are available right now. Try waking the agent again.";
 
 describe("agent failure reason", () => {
-  it("extracts the ChatGPT-backed Codex unsupported-model detail from JSON payloads", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        '{"detail":"The \'gpt-5.3-codex-spark\' model is not supported when using Codex with a ChatGPT account."}'
-      )
-    ).toBe(
-      "The current Codex model is not available for this ChatGPT-backed account."
-    );
-  });
-
-  it("extracts an actionable OpenClaw OAuth refresh failure hint", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "OAuth token refresh failed for openai-codex: Failed to refresh OAuth token for openai-codex. Please try again or re-authenticate. Logs: openclaw logs --follow"
-      )
-    ).toBe(
-      "Authentication failed in OpenClaw. Run `openclaw logs --follow`, re-authenticate, then retry."
-    );
-  });
-
-  it("extracts a generic OAuth refresh failure hint when no OpenClaw log command is available", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "OAuth token refresh failed for openai-codex: Failed to refresh OAuth token for openai-codex. Please try again or re-authenticate."
-      )
-    ).toBe(
-      "Authentication failed while refreshing the provider token. Re-authenticate in the provider CLI, then retry."
-    );
-  });
-
-  it("surfaces Claude Code account and organization access failures", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "Your organization has disabled Claude Code access for this account."
-      )
-    ).toBe(
-      "Claude Code access is disabled for this account or organization. Enable Claude Code access in Claude, then try again."
-    );
-
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "Claude Code subscription is disabled for this account."
-      )
-    ).toBe(
-      "Claude Code subscription access is unavailable. Check your Claude Code subscription, then try again."
-    );
-  });
-
-  it("surfaces a plain-language OpenClaw bootstrap failure when the binary is missing from PATH", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        "controller.bootstrap.failed: openclaw command failed: openclaw is not installed or not on PATH"
-      )
-    ).toBe(
-      "OpenMeld could not start OpenClaw on this device. Install OpenClaw or fix its PATH for background services, then try again."
-    );
-  });
-
-  it("extracts a plain-language Codex upgrade hint from provider errors", () => {
-    expect(
-      resolveDetailedPublicAgentFailureReason(
-        'config.invalid: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-5.5\' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}}'
-      )
-    ).toBe(CODEX_UPGRADE_REQUIRED_REASON);
-  });
-
   it("falls back to public error-code mapping when no detailed message exists", () => {
     expect(
       resolvePublicAgentFailureReason({
@@ -111,20 +42,6 @@ describe("agent failure reason", () => {
       })
     ).toBe(
       "Cursor answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted."
-    );
-  });
-
-  it("keeps actionable provider details for malformed Space reply failures", () => {
-    expect(
-      resolvePublicAgentFailureReason({
-        defaultReason: "Codex couldn't reply.",
-        errorCode: "openmeld.space_action.repair_failed",
-        errorMessage:
-          "The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account.",
-        targetLabel: "Codex",
-      })
-    ).toBe(
-      "The current Codex model is not available for this ChatGPT-backed account."
     );
   });
 
@@ -305,11 +222,13 @@ describe("agent failure reason", () => {
     );
   });
 
-  it("surfaces provider account balance failures without leaking raw provider text", () => {
+  it("uses structured provider codes instead of mutable provider text", () => {
     expect(
-      resolveDetailedPublicAgentFailureReason(
-        "upstream_unreachable: Insufficient Balance"
-      )
+      resolvePublicAgentFailureReason({
+        defaultReason: "fallback",
+        errorCode: "provider.insufficient_balance",
+        errorMessage: "upstream_unreachable: Insufficient Balance",
+      })
     ).toBe(PROVIDER_CREDITS_COPY);
     expect(
       resolvePublicAgentFailureReason({
@@ -317,6 +236,8 @@ describe("agent failure reason", () => {
         errorCode: "upstream_unreachable",
         errorMessage: "upstream_unreachable: Insufficient Balance",
       })
-    ).toBe(PROVIDER_CREDITS_COPY);
+    ).toBe(
+      "The model provider was unreachable. Check provider status or network access, then wake the agent again."
+    );
   });
 });

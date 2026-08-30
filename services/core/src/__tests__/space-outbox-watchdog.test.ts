@@ -444,6 +444,54 @@ describe("space outbox watchdog", () => {
     );
   });
 
+  it("redrives the exact Space-owned outbox seed after coordinator promotion", async () => {
+    const outboxRecord = createRuntimeCoordinatorRedriveOutboxRecord();
+    const queueSend = vi.fn(async () => undefined);
+    const space = createInternalRedriveHarness({
+      dispatchId: outboxRecord.dispatchId,
+      payloadJson: outboxRecord.payloadJson,
+      queueSend,
+    });
+
+    const response = await space.fetch(
+      new Request(
+        `https://space.test/internal/dispatches/${outboxRecord.dispatchId}/redrive?space=space-1`,
+        {
+          body: JSON.stringify({
+            reason: "agent_profile_work_coordinator_promotion",
+            targetProfileId: "agt-1",
+            targetWakeLifecycleId: "twl_v1|7:space-1|8:signal-1|5:agt-1",
+          }),
+          headers: {
+            "content-type": "application/json",
+            "x-openmeld-internal-dispatch-redrive":
+              "agent_profile_work_coordinator_promotion",
+          },
+          method: "POST",
+        }
+      )
+    );
+
+    await expect(response.json()).resolves.toMatchObject({
+      dispatchId: outboxRecord.dispatchId,
+      ok: true,
+      status: "enqueued",
+      targetProfileId: "agt-1",
+    });
+    expect(queueSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deliveryRecoveryReason: "agent_profile_work_coordinator_promoted",
+        dispatchId: outboxRecord.dispatchId,
+        sourceSignalSnapshot: {
+          profileId: "human-1",
+          profileKind: "human",
+          text: "@agent(wake) hello",
+        },
+        targetProfileId: "agt-1",
+      })
+    );
+  });
+
   it("reports a durable workstation outbox retry without inventing a Queue failure", async () => {
     const outboxRecord = createRuntimeCoordinatorRedriveOutboxRecord();
     const directDelivery = vi

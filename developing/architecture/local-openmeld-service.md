@@ -289,10 +289,13 @@ provider account. An account change, signed-out state, or missing stable account
 identity fails closed to the current `unavailable` evidence instead of carrying
 capacity between accounts. A provider that has never returned usable evidence
 is `unavailable`. A controller with no supported native source is explicitly
-`unsupported`. These passive Usage Limit states do not alter Agent Profile
-readiness, Binding, Wake admission, RuntimeCoordinator, routing, or agent
-selection. A separate structured provider-access evidence field may be emitted
-only after an ordinary Wake is accepted and returns a definitive account
+`unsupported`. The Service does not decide Agent Profile Wakeability, Binding,
+Wake admission, RuntimeCoordinator, routing, or agent selection from these
+states. Core may use only a reliable, fresh, explicitly exhausted Usage Limit
+as one input to its final Wakeability decision. Available, stale, unavailable,
+unsupported, unknown, low-capacity, or elapsed-reset evidence does not block a
+Wake. A separate structured provider-access evidence field may be emitted only
+after an ordinary Wake is accepted and returns a definitive account
 blocker: organization access disabled, subscription access unavailable, or
 exhausted hard quota/credit capacity. Authentication failure remains ACI
 authentication evidence. A generic quota percentage, low-capacity warning,

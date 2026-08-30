@@ -1030,6 +1030,13 @@
       "when": 1787759373666,
       "tag": "0146_failed_wake_inbox_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "6",
+      "when": 1788063964591,
+      "tag": "0147_purple_wolfpack",
+      "breakpoints": true
     }
   ]
 }

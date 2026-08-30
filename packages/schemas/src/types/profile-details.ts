@@ -12,6 +12,10 @@ type ProfileDetailsFieldValueKindSchema =
   typeof import("../schemas/profile-details")["profileDetailsFieldValueKindSchema"];
 type ProfileDetailsFieldVisibilitySchema =
   typeof import("../schemas/profile-details")["profileDetailsFieldVisibilitySchema"];
+type ProfileDetailsRecoveryActionKindSchema =
+  typeof import("../schemas/profile-details")["profileDetailsRecoveryActionKindSchema"];
+type ProfileDetailsRecoveryActionSchema =
+  typeof import("../schemas/profile-details")["profileDetailsRecoveryActionSchema"];
 type ProfileDetailsSectionIdSchema =
   typeof import("../schemas/profile-details")["profileDetailsSectionIdSchema"];
 type ProfileDetailsSectionSchema =
@@ -30,6 +34,10 @@ export type ProfileDetailsFieldValueKind =
   z.infer<ProfileDetailsFieldValueKindSchema>;
 export type ProfileDetailsFieldVisibility =
   z.infer<ProfileDetailsFieldVisibilitySchema>;
+export type ProfileDetailsRecoveryActionKind =
+  z.infer<ProfileDetailsRecoveryActionKindSchema>;
+export type ProfileDetailsRecoveryAction =
+  z.infer<ProfileDetailsRecoveryActionSchema>;
 export type ProfileDetailsSectionId = z.infer<ProfileDetailsSectionIdSchema>;
 export type ProfileDetailsSection = z.infer<ProfileDetailsSectionSchema>;
 export type ProfileDetailsSnapshot = z.infer<ProfileDetailsSnapshotSchema>;

@@ -286,7 +286,7 @@ describe("provider access evidence repo", () => {
       evidence: {
         observedAtMs: 2000,
         provider: "codex",
-        reasonCode: "provider_account.capacity_exhausted",
+        reasonCode: "usage_exhausted",
         source: "wake_failure",
       },
       executionIdentity,
@@ -314,7 +314,7 @@ describe("provider access evidence repo", () => {
       })
     ).resolves.toMatchObject({
       observedAtMs: 2000,
-      reasonCode: "provider_account.capacity_exhausted",
+      reasonCode: "usage_exhausted",
     });
   });
 

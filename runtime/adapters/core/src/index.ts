@@ -30,6 +30,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { AgentControllerProcessSignalTarget } from "./agent-controller-process.js";
 import type { AdapterConversationBridgeSpec } from "./conversation-bridge.js";
+import { createProviderOriginalError } from "./provider-original-error.js";
 
 export {
   type AcpClientRequestHandler,
@@ -124,6 +125,7 @@ export {
   verifyCliLaunchContract,
   verifyLaunchContractFiles,
 } from "./launch-contract.js";
+export { createProviderOriginalError } from "./provider-original-error.js";
 export {
   type AdapterProviderUsageLimit,
   createUnavailableProviderUsageLimits,
@@ -359,6 +361,7 @@ export type AdapterDispatchFailure = {
   errorCode?: string;
   errorMessage: string;
   errorType: AdapterErrorType;
+  originalError?: string;
   providerAccessEvidence?: OpenMeldDaemonProviderAccessEvidence;
   status: "failed";
   telemetry?: AdapterDispatchTelemetry;
@@ -884,6 +887,7 @@ export const toAdapterDispatchFailure = (
   const errorType = extractErrorType(error) ?? defaultErrorType;
   const diagnostics = extractDispatchDiagnostics(error);
   const providerAccessEvidence = extractProviderAccessEvidence(error);
+  const originalError = extractProviderOriginalError(error);
   const telemetry = extractDispatchTelemetry(error);
   return {
     ...(diagnostics ? { diagnostics } : {}),
@@ -891,10 +895,20 @@ export const toAdapterDispatchFailure = (
     errorMessage:
       error instanceof Error ? error.message : "adapter dispatch failed",
     errorType,
+    ...(originalError ? { originalError } : {}),
     ...(providerAccessEvidence ? { providerAccessEvidence } : {}),
     status: "failed",
     ...(telemetry ? { telemetry } : {}),
   };
+};
+
+const extractProviderOriginalError = (error: unknown): string | null => {
+  if (!(error && typeof error === "object")) {
+    return null;
+  }
+  return createProviderOriginalError(
+    (error as { originalError?: unknown }).originalError
+  );
 };
 
 const extractDispatchTelemetry = (

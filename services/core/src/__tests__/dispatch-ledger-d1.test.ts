@@ -553,6 +553,41 @@ const createInMemoryDispatchLedgerDb = (options?: {
 
             if (
               queryIncludes("update openMeldDaemon_dispatch_attempts") &&
+              queryIncludes("finished_at_ms = ?") &&
+              queryIncludes("and exists")
+            ) {
+              const [
+                status,
+                finishedAtMs,
+                errorCode,
+                errorMessage,
+                attemptId,
+                expectedStatus,
+                idempotencyKey,
+                expectedLatestAttemptId,
+                expectedAttemptCount,
+              ] = args;
+              const row = attempts.get(String(attemptId ?? ""));
+              const ledgerRow = rows.get(String(idempotencyKey ?? ""));
+              if (
+                !row ||
+                row.status !== String(expectedStatus ?? "") ||
+                !ledgerRow ||
+                ledgerRow.latestAttemptId !==
+                  String(expectedLatestAttemptId ?? "") ||
+                ledgerRow.attemptCount !== Number(expectedAttemptCount)
+              ) {
+                return Promise.resolve({ meta: { changes: 0 } });
+              }
+              row.status = String(status);
+              row.finishedAtMs = Number(finishedAtMs);
+              row.errorCode = String(errorCode);
+              row.errorMessage = String(errorMessage);
+              return Promise.resolve({ meta: { changes: 1 } });
+            }
+
+            if (
+              queryIncludes("update openMeldDaemon_dispatch_attempts") &&
               queryIncludes("set daemon_session_id = ?") &&
               queryIncludes("and dispatch_id = ?") &&
               queryIncludes("and status = ?")
@@ -915,6 +950,19 @@ const createInMemoryDispatchLedgerDb = (options?: {
                     : String(expectedLatestAttemptId))
               ) {
                 return Promise.resolve({ meta: { changes: 0 } });
+              }
+              if (queryIncludes("from openMeldDaemon_dispatch_attempts")) {
+                const expectedAttemptId = args[argIndex++];
+                const expectedAttemptStatus = args[argIndex++];
+                const expectedAttempt = attempts.get(
+                  String(expectedAttemptId ?? "")
+                );
+                if (
+                  !expectedAttempt ||
+                  expectedAttempt.status !== String(expectedAttemptStatus ?? "")
+                ) {
+                  return Promise.resolve({ meta: { changes: 0 } });
+                }
               }
               row.dispatchId = String(dispatchId);
               row.spaceId = String(spaceId);
@@ -2658,6 +2706,65 @@ describe("claimDispatchAttempt", () => {
       status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
     });
     expect(readAttempt(redriveClaim.attemptId)).toMatchObject({
+      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching,
+    });
+  });
+
+  it("supersedes the queue-wait attempt when coordinator promotion claims fresh delivery", async () => {
+    const { db, readAttempt, readRow } = createInMemoryDispatchLedgerDb();
+    const message = buildDispatchMessage({
+      dispatchId: "dispatch-profile-queue-promotion-1",
+      sourceEventId: "evt-profile-queue-promotion-1",
+      targetProfileId: "agt-profile-queue-promotion-1",
+    });
+    const firstClaim = await claimDispatchAttempt({
+      db,
+      message,
+      attempt: 1,
+      nowMs: 1000,
+    });
+    if (firstClaim.status !== "claimed") {
+      throw new Error("expected first claim to be claimed");
+    }
+    await markDispatchStatus({
+      attemptId: firstClaim.attemptId,
+      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.profileQueueWaiting,
+      db,
+      errorCode: "agent_profile_work_coordinator.queued",
+      errorMessage: "waiting behind the active profile Wake",
+      idempotencyKey: message.idempotencyKey,
+      nowMs: 1100,
+      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+    });
+
+    const promotedClaim = await claimDispatchAttempt({
+      db,
+      message: {
+        ...message,
+        deliveryRecoveryReason: "agent_profile_work_coordinator_promoted",
+      },
+      attempt: 2,
+      nowMs: 2000,
+    });
+
+    expect(promotedClaim).toMatchObject({
+      attemptNo: 2,
+      deliveryRecoveryReason: "agent_profile_work_coordinator_promoted",
+      status: "claimed",
+    });
+    if (promotedClaim.status !== "claimed") {
+      throw new Error("expected promotion to create a new attempt");
+    }
+    expect(readRow(message.idempotencyKey)).toMatchObject({
+      attemptCount: 2,
+      latestAttemptId: promotedClaim.attemptId,
+      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+    });
+    expect(readAttempt(firstClaim.attemptId)).toMatchObject({
+      errorCode: "agent_profile_work_coordinator.promoted",
+      status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.superseded,
+    });
+    expect(readAttempt(promotedClaim.attemptId)).toMatchObject({
       status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching,
     });
   });

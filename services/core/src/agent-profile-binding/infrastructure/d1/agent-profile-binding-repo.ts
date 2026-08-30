@@ -1001,6 +1001,58 @@ export async function listEnabledPrimaryAgentProfileBindingRecords(input: {
   return (result.results ?? []).map((row) => mapAgentProfileBindingRow(row));
 }
 
+export async function listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController(input: {
+  agentControllerRef: string;
+  db: D1Database;
+  openMeldServiceRuntimeId: string;
+  owner: AgentProfileBindingOwner;
+}): Promise<AgentProfileBindingRecord[]> {
+  const result = await input.db
+    .prepare(
+      `
+        SELECT
+          binding_id,
+          owner_kind,
+          owner_id,
+          agent_profile_id,
+          openmeld_service_runtime_id,
+          runtime_kind,
+          hosted_runtime_identity_json,
+          agent_controller_ref,
+          agent_controller_conversation_id,
+          binding_state,
+          created_at_ms,
+          updated_at_ms,
+          disabled_at_ms,
+	          created_by_profile_id,
+	          reason_code,
+	          agent_controller_collaboration_mode,
+	          agent_controller_permission_mode,
+	          configuration_revision,
+	          model_id,
+	          opencode_permission,
+	          reasoning_level
+	        FROM openMeldDaemon_agent_profile_bindings
+        WHERE openmeld_service_runtime_id = ?
+          AND agent_controller_ref = ?
+          AND owner_kind = ?
+          AND owner_id = ?
+          AND runtime_kind = 'openmeld_service'
+          AND binding_state = 'enabled_primary'
+        ORDER BY agent_profile_id ASC
+      `
+    )
+    .bind(
+      input.openMeldServiceRuntimeId,
+      input.agentControllerRef,
+      input.owner.kind,
+      input.owner.id
+    )
+    .all<AgentProfileBindingRow>();
+
+  return (result.results ?? []).map((row) => mapAgentProfileBindingRow(row));
+}
+
 export async function disablePrimaryAgentProfileBindingRecord(input: {
   agentProfileId: string;
   db: D1Database;

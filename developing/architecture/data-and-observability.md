@@ -69,6 +69,21 @@ Agent Profile state; Core remains the only owner and writer of those facts.
 
 OpenMeld separates durable truth from query projections.
 
+Agent Profile Work Coordinator state lives in the existing owner-sharded
+RuntimeTransportHub Durable Object. Each Profile has one current record with
+the running lifecycle id, at most 50 ordered waiting lifecycle ids, and only the
+minimum pending-promotion or recovery-hold metadata. It is current scheduling
+state, not an append-only history. Complete prompts, attachments, and Space
+context remain in the Space durable outbox; durable execution and final-outcome
+evidence remain in the existing RuntimeCoordinator and Dispatch Ledger domains.
+
+D1 may project `profile_queue_waiting`, queue counts, and correlation ids for
+queries and diagnostics. Those rows never promote work, reconstruct a Wake
+payload, or decide execution. Durable evidence useful for one collaboration's
+audit or trace follows the existing retention policy. Current coordinator
+snapshots and resolved recovery markers are removed when they no longer own
+active work; cleanup stays bounded and outside the Wake hot path.
+
 The long-term data domains are:
 
 Auth also owns the account's last-selected Organization entry preference. Auth

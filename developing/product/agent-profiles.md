@@ -622,6 +622,76 @@ future Wakes and new sessions. Product copy must say that the current session
 will not be moved. Project identity, local connection invariants, and public
 failure semantics belong to `developing/product/projects.md`.
 
+## Agent Profile Work Coordinator
+
+The Agent Profile Work Coordinator is the workstation-only admission and FIFO
+owner for work sent to one ordinary Agent Profile. Remote Agents and the hosted
+Center Agent do not use this state machine or execution chain.
+
+For one Agent Profile, the Coordinator owns exactly these facts:
+
+- which accepted Wake currently owns the Profile's work slot
+- the ordered Wakes waiting behind it
+- whether queued work is held for an explicit recovery approval
+- the current privacy-safe workload projection
+
+RuntimeCoordinator still owns whether the current Wake is accepted, running,
+stopped, failed, or terminal. The Space outbox still owns the complete Wake
+payload. Agent Activity still owns provider-observed coding-session awareness.
+The Coordinator must not duplicate any of those truths.
+
+One Agent Profile may have one current Wake and at most 50 waiting Wakes. FIFO
+order is the owner-shard transaction acceptance order across every Space and
+Direct Message that targets that Profile. There is no priority system in this
+version. A source message is visible in its conversation immediately; its Wake
+may show that it is queued, but Web does not hide or stack the message above the
+Composer until execution starts. Different Agent Profiles remain independently
+admissible and may work in parallel.
+
+`Queued` means another Wake owns this Profile's work slot. It is not the
+existing RuntimeCoordinator `waiting` state used after a Wake reaches the head
+but is waiting for an OpenMeld Service route. Normal queue time has no fixed
+failure deadline. A terminal current Wake promotes the next queued Wake
+immediately; an alarm repairs only a crashed or failed promotion and is not the
+normal scheduler.
+
+Usage participates in Wakeability only when current evidence is both reliable
+and fresh. Proven exhausted Usage blocks new Wake admission before the product
+promises that the Agent accepted the task. Unsupported, stale, unavailable, or
+not-yet-evaluated Usage does not block Wakeability by itself. If a running Wake
+reports a structured `usage_exhausted` outcome, that Wake ends as a visible
+failure and the Coordinator holds every queued Wake. Current supported Local
+Agents do not expose a proven idempotent operation that reopens the same
+terminal provider turn, so OpenMeld must not disguise a new turn as automatic
+same-turn recovery. After fresh reliable Usage becomes available, the Profile
+owner may explicitly continue the interrupted work as a new provider turn.
+Successful continuation still requires a separate owner approval before the
+held queue starts. A new Wake submitted after recovery is new intent, but it
+stays behind that held work instead of bypassing FIFO. A provider may gain
+automatic same-turn recovery only after its versioned capability has official
+protocol evidence and a real failure-to-recovery smoke test.
+
+Owners may keep editing settings while work is queued or running under the
+existing capability rules. A running Wake keeps its accepted Binding and
+configuration revision. Saved model, reasoning, controller, and launch-only
+permission changes apply to future work. A native live permission update is
+shown as applied only after the provider acknowledges it.
+
+## Agent Profile Operational Context
+
+Agent Profile Operational Context is the read projection that composes Agent
+Profile identity, Wakeability, current workload, applied execution settings,
+Usage, and recovery actions. It does not own those facts and cannot decide
+execution by itself.
+
+Owners and other Organization members see the same compact workload summary,
+such as `Working · 3 queued`. Profile Details may show the owner where the
+current Wake is running and which tasks are queued. Other members see only
+neutral workload state and count; they do not receive Space names, task text,
+controller conversation identifiers, local paths, or other owner diagnostics.
+This projection belongs in the existing Profile Details surface, not a separate
+status product.
+
 ## Readiness And Recovery Surfaces
 
 Readiness may appear on Agent Profile surfaces because users need to know
@@ -656,11 +726,12 @@ not separate public states.
 
 `Offline` is reserved for stable Computer, OpenMeld Service, or route liveness
 loss. A signed-out controller, unavailable provider subscription, organization
-access block, or fresh proven hard quota exhaustion is `Unavailable`, with the
-provider-account next action. That action reviews the Agent Profile and provider
-account; it does not send the user through local-agent reconnect or Prepare.
-Quota copy names a reset time only when current authoritative evidence actually
-provides one. These account states do not become a red launch error or
+access block, or fresh reliable Usage Limit evidence that proves no remaining
+Usage is `Unavailable`, with the provider-account next action. That action
+reviews the Agent Profile and provider account; it does not send the user
+through local-agent reconnect or Prepare. Usage Limit copy names a reset time
+only when current authoritative evidence actually provides one. These account
+states do not become a red launch error or
 `needs_repair`; actual launch verification failure remains a distinct local
 setup error.
 

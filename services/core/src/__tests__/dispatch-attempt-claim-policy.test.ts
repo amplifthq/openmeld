@@ -75,6 +75,38 @@ describe("dispatch attempt claim policy", () => {
     ).toBe("connection_replaced");
   });
 
+  it("claims an explicit coordinator promotion only from the matching queue-wait attempt", () => {
+    expect(
+      resolveDispatchAttemptClaimDecision({
+        existing: buildExisting(),
+        latestAttempt: buildLatestAttempt({
+          connectionGeneration: null,
+          daemonSessionId: null,
+          leaseEpoch: null,
+          status: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.profileQueueWaiting,
+        }),
+        nowMs: 5000,
+        requestedDispatchId: "dispatch-1",
+        requestedRecoveryReason: "agent_profile_work_coordinator_promoted",
+        staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+      })
+    ).toEqual({
+      deliveryRecoveryReason: "agent_profile_work_coordinator_promoted",
+      kind: "claim_recovery",
+    });
+
+    expect(
+      resolveDispatchAttemptClaimDecision({
+        existing: buildExisting(),
+        latestAttempt: buildLatestAttempt(),
+        nowMs: 5000,
+        requestedDispatchId: "dispatch-1",
+        requestedRecoveryReason: "agent_profile_work_coordinator_promoted",
+        staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+      })
+    ).toEqual({ kind: "dedupe" });
+  });
+
   it("continues waiting-result attempts that still own a daemon lease", () => {
     expect(
       resolveDispatchAttemptClaimDecision({

@@ -115,6 +115,17 @@ export const resolveDispatchAttemptClaimDecision = (input: {
     return { kind: "claim_new" };
   }
 
+  const profileQueuePromotionDecision =
+    resolveProfileQueuePromotionDecision(input);
+  if (profileQueuePromotionDecision) {
+    return profileQueuePromotionDecision;
+  }
+  if (
+    input.requestedRecoveryReason === "agent_profile_work_coordinator_promoted"
+  ) {
+    return { kind: "dedupe" };
+  }
+
   const hostedAdmissionRecoveryDecision =
     resolveHostedAdmissionRecoveryDecision(input);
   if (hostedAdmissionRecoveryDecision) {
@@ -203,6 +214,33 @@ export const resolveDispatchAttemptClaimDecision = (input: {
   return {
     kind: "claim_existing_inside_window",
     deliveryRecoveryReason,
+  };
+};
+
+const resolveProfileQueuePromotionDecision = (input: {
+  existing: DispatchClaimExistingLedgerSnapshot;
+  latestAttempt: DispatchClaimLatestAttemptSnapshot;
+  requestedDispatchId?: string;
+  requestedRecoveryReason?: DispatchQueueRecoveryReason | null;
+}): Extract<
+  DispatchAttemptClaimDecision,
+  { kind: "claim_recovery" }
+> | null => {
+  if (
+    input.requestedRecoveryReason !==
+      "agent_profile_work_coordinator_promoted" ||
+    !input.existing ||
+    input.existing.dispatchId !== input.requestedDispatchId ||
+    input.existing.status !== OPENMELD_DAEMON_DISPATCH_STATE.queued ||
+    input.latestAttempt?.attemptId !== input.existing.latestAttemptId ||
+    input.latestAttempt.status !==
+      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.profileQueueWaiting
+  ) {
+    return null;
+  }
+  return {
+    deliveryRecoveryReason: "agent_profile_work_coordinator_promoted",
+    kind: "claim_recovery",
   };
 };
 

@@ -81,6 +81,10 @@ describe("buildInboxItemSourceNavigation", () => {
 
 	it.each([
 		[
+			{ kind: "agent_profile", profileId: "profile/with spaces" } as const,
+			"/o/amplift/agents?profileId=profile%2Fwith+spaces",
+		],
+		[
 			{
 				kind: "agent_profile_creation_request",
 				requestId: "request/with spaces",

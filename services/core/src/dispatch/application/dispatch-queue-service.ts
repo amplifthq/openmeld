@@ -1349,24 +1349,19 @@ const processDispatchQueueMessageExecution = async (input: {
         targetOwnerUserId,
       })
   );
-  if (headAcceptance.status === "retry") {
-    retryQueueMessageWithBackoff(
-      input.message,
-      executionAttemptNo,
-      headAcceptance.reasonCode
-    );
+  const settledHeadAdmission = await settleFreshHeadAdmissionWithoutDelivery({
+    db: input.db,
+    dispatchMessage: effectiveDispatchMessage,
+    env: input.env,
+    executionAttemptId,
+    executionAttemptNo,
+    headAcceptance,
+    message: input.message,
+    nowMs: input.nowMs,
+  });
+  if (settledHeadAdmission) {
     logServerTiming();
-    return {
-      controllerWaitPromise: null,
-      shouldAck: false,
-    };
-  }
-  if (headAcceptance.status === "skip_duplicate") {
-    logServerTiming();
-    return {
-      controllerWaitPromise: null,
-      shouldAck: true,
-    };
+    return settledHeadAdmission;
   }
 
   const result = await beginFreshDispatchDeliveryPhase({
@@ -1383,6 +1378,55 @@ const processDispatchQueueMessageExecution = async (input: {
   });
   logServerTiming();
   return result;
+};
+
+const settleFreshHeadAdmissionWithoutDelivery = async (input: {
+  db: D1Database;
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  env: CoreBindings;
+  executionAttemptId: string;
+  executionAttemptNo: number;
+  headAcceptance: RuntimeCoordinatorHeadAcceptanceOutcome;
+  message: QueueBatchMessage;
+  nowMs: number;
+}): Promise<DispatchQueueMessageExecutionResult | null> => {
+  if (input.headAcceptance.status === "retry") {
+    retryQueueMessageWithBackoff(
+      input.message,
+      input.executionAttemptNo,
+      input.headAcceptance.reasonCode
+    );
+    return {
+      controllerWaitPromise: null,
+      shouldAck: false,
+    };
+  }
+  if (input.headAcceptance.status === "queue_full") {
+    return {
+      controllerWaitPromise: null,
+      shouldAck: await settleVisiblePreHeadFailure({
+        db: input.db,
+        dispatchMessage: input.dispatchMessage,
+        env: input.env,
+        errorCode: input.headAcceptance.reasonCode,
+        errorMessage: input.headAcceptance.errorMessage,
+        executionAttemptId: input.executionAttemptId,
+        finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+        message: input.message,
+        nowMs: input.nowMs,
+      }),
+    };
+  }
+  if (
+    input.headAcceptance.status === "profile_queue_waiting" ||
+    input.headAcceptance.status === "skip_duplicate"
+  ) {
+    return {
+      controllerWaitPromise: null,
+      shouldAck: true,
+    };
+  }
+  return null;
 };
 
 const resumeExistingPreHeadFailurePublication = async (input: {
@@ -1562,6 +1606,118 @@ const handlePreAgentStoppedBeforeDeliveryIfNeeded = async (input: {
   return { handled: true };
 };
 
+type RuntimeCoordinatorHeadAcceptanceOutcome =
+  | { status: "proceed" }
+  | { status: "profile_queue_waiting" }
+  | {
+      errorMessage: string;
+      reasonCode: "agent_profile_work_coordinator.queue_full";
+      status: "queue_full";
+    }
+  | { reasonCode: string; status: "retry" }
+  | { status: "publication_intent_ready" }
+  | { status: "skip_duplicate" };
+
+const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
+  db: D1Database;
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  executionAttemptId: string;
+  nowMs: number;
+  response: Awaited<
+    ReturnType<typeof acceptRuntimeTransportRuntimeCoordinatorHead>
+  >;
+  targetWakeLifecycleId: string;
+}): Promise<RuntimeCoordinatorHeadAcceptanceOutcome | null> => {
+  const { response } = input;
+  if (!response.ok && response.status === "retry_later") {
+    await markDispatchStatus({
+      attemptId: input.executionAttemptId,
+      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      db: input.db,
+      errorCode: response.reasonCode,
+      errorMessage:
+        "RuntimeCoordinator head accept returned retry_later before execution creation",
+      idempotencyKey: input.dispatchMessage.idempotencyKey,
+      nowMs: input.nowMs,
+      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+    });
+    await writeOpenMeldDaemonOpsDecision({
+      db: input.db,
+      decisionCode: "runtime_coordinator.head_accept_retry_later",
+      decisionPayload: {
+        dispatchId: input.dispatchMessage.dispatchId,
+        reasonCode: response.reasonCode,
+        targetProfileId: input.dispatchMessage.targetProfileId,
+        targetWakeLifecycleId: input.targetWakeLifecycleId,
+      },
+      decidedBy: "core.dispatch_queue.runtime_coordinator_head",
+      decidedAtMs: input.nowMs,
+      expectedRecoveryCriteria:
+        "RuntimeCoordinator head accept must succeed before execution creation; Queue will retry this target Wake.",
+      source: "dispatch_queue",
+      correlationId: input.dispatchMessage.dispatchId,
+    });
+    return {
+      reasonCode: response.reasonCode,
+      status: "retry",
+    };
+  }
+
+  if (
+    response.ok &&
+    response.action === "wait_in_queue" &&
+    response.status === "queued"
+  ) {
+    await markDispatchStatus({
+      attemptId: input.executionAttemptId,
+      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.profileQueueWaiting,
+      db: input.db,
+      errorCode: response.reasonCode,
+      errorMessage: `RuntimeCoordinator queued this Wake at profile position ${response.queuePosition}`,
+      idempotencyKey: input.dispatchMessage.idempotencyKey,
+      nowMs: input.nowMs,
+      status: OPENMELD_DAEMON_DISPATCH_STATE.queued,
+    });
+    await writeOpenMeldDaemonOpsDecision({
+      db: input.db,
+      decisionCode: "agent_profile_work_coordinator.queue_waiting",
+      decisionPayload: {
+        dispatchId: input.dispatchMessage.dispatchId,
+        queuePosition: response.queuePosition,
+        reasonCode: response.reasonCode,
+        targetProfileId: input.dispatchMessage.targetProfileId,
+        targetWakeLifecycleId: response.targetWakeLifecycleId,
+      },
+      decidedBy: "core.dispatch_queue.runtime_coordinator_head",
+      decidedAtMs: input.nowMs,
+      expectedRecoveryCriteria:
+        "Agent Profile Work Coordinator promotion explicitly redrives this retained outbox seed before local execution delivery.",
+      source: "dispatch_queue",
+      correlationId: input.dispatchMessage.dispatchId,
+    });
+    console.info(
+      "[core.openmeld.dispatch.agent_profile_work_coordinator_queue_waiting]",
+      {
+        dispatchId: input.dispatchMessage.dispatchId,
+        queuePosition: response.queuePosition,
+        reasonCode: response.reasonCode,
+        targetProfileId: input.dispatchMessage.targetProfileId,
+        targetWakeLifecycleId: response.targetWakeLifecycleId,
+      }
+    );
+    return { status: "profile_queue_waiting" };
+  }
+
+  if (!response.ok && response.status === "queue_full") {
+    return {
+      errorMessage: `Agent Profile Work Coordinator rejected this Wake because ${response.waitingCount} items are already waiting`,
+      reasonCode: response.reasonCode,
+      status: "queue_full",
+    };
+  }
+  return null;
+};
+
 const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   allowPublicationIntentReconcile?: boolean;
   db: D1Database;
@@ -1570,12 +1726,7 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   executionAttemptId: string;
   nowMs: number;
   targetOwnerUserId: string;
-}): Promise<
-  | { status: "proceed" }
-  | { reasonCode: string; status: "retry" }
-  | { status: "publication_intent_ready" }
-  | { status: "skip_duplicate" }
-> => {
+}): Promise<RuntimeCoordinatorHeadAcceptanceOutcome> => {
   const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
     clientMessageId: input.dispatchMessage.sourceClientMessageId ?? null,
     dispatchId: input.dispatchMessage.dispatchId,
@@ -1616,39 +1767,16 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     },
   });
 
-  if (!response.ok && response.status === "retry_later") {
-    await markDispatchStatus({
-      attemptId: input.executionAttemptId,
-      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
-      db: input.db,
-      errorCode: response.reasonCode,
-      errorMessage:
-        "RuntimeCoordinator head accept returned retry_later before execution creation",
-      idempotencyKey: input.dispatchMessage.idempotencyKey,
-      nowMs: input.nowMs,
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
-    });
-    await writeOpenMeldDaemonOpsDecision({
-      db: input.db,
-      decisionCode: "runtime_coordinator.head_accept_retry_later",
-      decisionPayload: {
-        dispatchId: input.dispatchMessage.dispatchId,
-        reasonCode: response.reasonCode,
-        targetProfileId: input.dispatchMessage.targetProfileId,
-        targetWakeLifecycleId:
-          targetWakeLifecycleIdentity.targetWakeLifecycleId,
-      },
-      decidedBy: "core.dispatch_queue.runtime_coordinator_head",
-      decidedAtMs: input.nowMs,
-      expectedRecoveryCriteria:
-        "RuntimeCoordinator head accept must succeed before execution creation; Queue will retry this target Wake.",
-      source: "dispatch_queue",
-      correlationId: input.dispatchMessage.dispatchId,
-    });
-    return {
-      reasonCode: response.reasonCode,
-      status: "retry",
-    };
+  const admissionOutcome = await settleRuntimeCoordinatorHeadAdmissionResponse({
+    db: input.db,
+    dispatchMessage: input.dispatchMessage,
+    executionAttemptId: input.executionAttemptId,
+    nowMs: input.nowMs,
+    response,
+    targetWakeLifecycleId: targetWakeLifecycleIdentity.targetWakeLifecycleId,
+  });
+  if (admissionOutcome) {
+    return admissionOutcome;
   }
 
   if (
@@ -1825,6 +1953,25 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
         headAcceptance.reasonCode
       );
       return { handled: true, shouldAck: false };
+    }
+    if (headAcceptance.status === "profile_queue_waiting") {
+      return { handled: true, shouldAck: true };
+    }
+    if (headAcceptance.status === "queue_full") {
+      return {
+        handled: true,
+        shouldAck: await settleVisiblePreHeadFailure({
+          db: input.db,
+          dispatchMessage: input.dispatchMessage,
+          env: input.env,
+          errorCode: headAcceptance.reasonCode,
+          errorMessage: headAcceptance.errorMessage,
+          executionAttemptId: input.executionAttemptId,
+          finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+          message: input.message,
+          nowMs: input.nowMs,
+        }),
+      };
     }
     if (headAcceptance.status === "skip_duplicate") {
       return { handled: true, shouldAck: true };
@@ -3346,6 +3493,25 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
     );
     return { handled: true, shouldAck: false };
   }
+  if (headAcceptance.status === "profile_queue_waiting") {
+    return { handled: true, shouldAck: true };
+  }
+  if (headAcceptance.status === "queue_full") {
+    return {
+      handled: true,
+      shouldAck: await settleVisiblePreHeadFailure({
+        db: input.db,
+        dispatchMessage: input.dispatchMessage,
+        env: input.env,
+        errorCode: headAcceptance.reasonCode,
+        errorMessage: headAcceptance.errorMessage,
+        executionAttemptId: input.executionAttemptId,
+        finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+        message: input.message,
+        nowMs: input.failureAtMs,
+      }),
+    };
+  }
   if (headAcceptance.status === "skip_duplicate") {
     return { handled: true, shouldAck: true };
   }
@@ -4164,20 +4330,47 @@ const handlePreflightDispatchCheckFailure = async (input: {
       ? OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal
       : input.preflightCheck.finalStatus;
 
+  return await settleVisiblePreHeadFailure({
+    db: input.db,
+    dispatchMessage: input.dispatchMessage,
+    env: input.env,
+    errorCode: input.preflightCheck.errorCode,
+    errorMessage: input.preflightCheck.errorMessage,
+    executionAttemptId: input.executionAttemptId,
+    finalStatus,
+    message: input.message,
+    nowMs: input.nowMs,
+    recordProfileNotFoundObservation:
+      input.preflightCheck.targetProfileIdentityVerdict === "not_found",
+  });
+};
+
+const settleVisiblePreHeadFailure = async (input: {
+  db: D1Database;
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  env: CoreBindings;
+  errorCode: string;
+  errorMessage: string | null;
+  executionAttemptId: string;
+  finalStatus:
+    | typeof OPENMELD_DAEMON_DISPATCH_STATE.blocked
+    | typeof OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal;
+  message: QueueBatchMessage;
+  nowMs: number;
+  recordProfileNotFoundObservation?: boolean;
+}): Promise<boolean> => {
   await emitDispatchFailureActivitySignal({
     env: input.env,
     message: input.dispatchMessage,
-    errorCode: input.preflightCheck.errorCode,
-    ...(input.preflightCheck.errorMessage
-      ? { errorMessage: input.preflightCheck.errorMessage }
-      : {}),
+    errorCode: input.errorCode,
+    ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
   });
   const redriveMessage = createPreHeadFailureRedriveMessage(
     input.dispatchMessage
   );
   const publicationCommand = buildPreHeadFailurePublicationCommand({
-    errorCode: input.preflightCheck.errorCode,
-    errorMessage: input.preflightCheck.errorMessage,
+    errorCode: input.errorCode,
+    errorMessage: input.errorMessage,
     message: redriveMessage,
   });
   const recoveryDb = dispatchRecoveryDb(input.env);
@@ -4190,13 +4383,13 @@ const handlePreflightDispatchCheckFailure = async (input: {
       attemptId: input.executionAttemptId,
       createdAtMs: input.nowMs,
       dispatchMessage: redriveMessage,
-      errorCode: input.preflightCheck.errorCode,
-      errorMessage: input.preflightCheck.errorMessage,
-      finalStatus,
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+      finalStatus: input.finalStatus,
       idempotencyKey: input.dispatchMessage.idempotencyKey,
       publicationCommand,
       recordProfileNotFoundObservation:
-        input.preflightCheck.targetProfileIdentityVerdict === "not_found",
+        input.recordProfileNotFoundObservation === true,
     }),
   });
   return await resumePreHeadFailurePublication({
@@ -4265,6 +4458,10 @@ const resumePreHeadFailurePublication = async (input: {
     });
     await markDispatchStatus({
       attemptId: intent.attemptId,
+      attemptStatus:
+        intent.finalStatus === OPENMELD_DAEMON_DISPATCH_STATE.blocked
+          ? OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.blocked
+          : OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
       db: input.evidenceDb,
       idempotencyKey: intent.idempotencyKey,
       status: intent.finalStatus,

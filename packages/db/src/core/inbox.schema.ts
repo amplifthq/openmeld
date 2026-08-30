@@ -89,7 +89,7 @@ export const inboxItems = sqliteTable(
     ),
     check(
       "inbox_items_source_kind_check",
-      sql`"source_kind" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'organization_member_request', 'system_attention_event')`
+      sql`"source_kind" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'organization_member_request', 'agent_profile_work_recovery', 'system_attention_event')`
     ),
     check(
       "inbox_items_resolution_check",

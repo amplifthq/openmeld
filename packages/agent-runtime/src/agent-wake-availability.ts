@@ -748,13 +748,15 @@ function createUnavailableWakeAvailability(
   }
 
   if (readiness.primaryAction === "fix_provider_account") {
+    const usageExhausted = hasReasonCode(readiness, "usage_exhausted");
     return createAvailability(readiness, {
       ...unavailableWakeAvailabilityFallbackCopy,
       category: "unavailable",
       isRefreshing: false,
-      label: "Provider access needed",
+      label: usageExhausted ? "Usage Limit reached" : "Provider access needed",
       phase: "provider_blocked",
       reasonCode: pickReasonCode(readiness, [
+        "usage_exhausted",
         "provider_account.capacity_exhausted",
         "provider_account.subscription_access_unavailable",
         "provider_account.organization_access_disabled",

@@ -6,6 +6,7 @@ import type {
   ProfileDetailsFieldSource,
   ProfileDetailsFieldValueKind,
   ProfileDetailsFieldVisibility,
+  ProfileDetailsRecoveryAction,
   ProfileDetailsSection,
   ProfileDetailsSnapshot,
   ProfileDetailsViewerScope,
@@ -37,6 +38,16 @@ export type HumanProfileDetailsInput = {
   viewerScope: ProfileDetailsViewerScope;
 };
 
+export type AgentProfileOperationalContextInput = {
+  currentWorkLocation: string | null;
+  queuedWorkLocations: readonly string[];
+  recoveryAction: {
+    kind: "continue_interrupted_work" | "approve_queued_work";
+  } | null;
+  status: "checking" | "idle" | "paused" | "working";
+  waitingCount: number;
+};
+
 const PROFILE_DETAILS_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   month: "short",
@@ -60,6 +71,7 @@ export function buildProfileDetailsSnapshotFromHumanProfile(
 export function buildProfileDetailsSnapshotFromAuthProfile(input: {
   agentControllerPermissionModeDetail: string | null;
   modelDetail: string | null;
+  operationalContext?: AgentProfileOperationalContextInput | null;
   primaryBinding: GetAgentProfilePrimaryBindingResponse["binding"] | null;
   profile: AuthProfileView;
   readiness: GetAgentExecutionReadinessResponse | null;
@@ -134,6 +146,7 @@ export function buildProfileDetailsSnapshotFromAuthProfile(input: {
           value: formatProfileDetailsDate(input.profile.updatedAt),
         }),
       ]),
+      buildAgentProfileActivitySection(input.operationalContext),
       buildConnectionSection({
         agentControllerRef:
           executionTarget?.agentControllerRef ??
@@ -279,6 +292,71 @@ function buildConnectionSection(input: {
       visibility: "owner_self",
     }),
   ]);
+}
+
+function buildAgentProfileActivitySection(
+  operationalContext: AgentProfileOperationalContextInput | null | undefined
+): ProfileDetailsSection | null {
+  if (!operationalContext) {
+    return null;
+  }
+
+  return section(
+    "activity",
+    "Activity",
+    [
+      textRow({
+        id: "work_summary",
+        label: "Work",
+        source: "agent_profile_work_coordinator",
+        value: formatAgentProfileWorkSummary(operationalContext),
+        valueKind: "status",
+      }),
+      textRow({
+        id: "current_work_location",
+        label:
+          operationalContext.status === "paused" ? "Paused in" : "Working in",
+        source: "agent_profile_work_coordinator",
+        value: operationalContext.currentWorkLocation,
+        visibility: "owner_self",
+      }),
+      ...operationalContext.queuedWorkLocations.map((location, index) =>
+        textRow({
+          id: `queued_work_${index + 1}`,
+          label: `Queued ${index + 1}`,
+          source: "agent_profile_work_coordinator",
+          value: location,
+          visibility: "owner_self",
+        })
+      ),
+    ],
+    operationalContext.recoveryAction
+      ? {
+          kind: operationalContext.recoveryAction.kind,
+          visibility: "owner_self",
+        }
+      : null
+  );
+}
+
+function formatAgentProfileWorkSummary(
+  operationalContext: AgentProfileOperationalContextInput
+): string {
+  if (operationalContext.status === "checking") {
+    return "Checking";
+  }
+  if (operationalContext.status === "idle") {
+    return "Idle";
+  }
+  if (operationalContext.status === "paused") {
+    return operationalContext.waitingCount === 0
+      ? "Paused"
+      : `Paused · ${operationalContext.waitingCount} queued`;
+  }
+  if (operationalContext.waitingCount === 0) {
+    return "Working";
+  }
+  return `Working · ${operationalContext.waitingCount} queued`;
 }
 
 function buildAgentControllerPermissionModeSection(input: {
@@ -476,18 +554,25 @@ function redactDetailsSectionForViewer(
   }
 
   const rows = section.rows.filter((row) => row.visibility !== "owner_self");
-  return rows.length > 0 ? { ...section, rows } : null;
+  return rows.length > 0 ? { ...section, recoveryAction: null, rows } : null;
 }
 
 function section(
   id: ProfileDetailsSection["id"],
   title: string,
-  rows: readonly (ProfileDetailsField | null)[]
+  rows: readonly (ProfileDetailsField | null)[],
+  recoveryAction: ProfileDetailsRecoveryAction | null = null
 ): ProfileDetailsSection | null {
   const visibleRows = rows.filter(
     (row): row is ProfileDetailsField => row !== null
   );
-  return visibleRows.length > 0 ? { id, rows: visibleRows, title } : null;
+  if (visibleRows.length === 0) {
+    return null;
+  }
+  if (id === "activity") {
+    return { id, recoveryAction, rows: visibleRows, title };
+  }
+  return { id, recoveryAction: null, rows: visibleRows, title };
 }
 
 function textRow(input: {

@@ -91,18 +91,21 @@ type OpenCodeServerLifecycleInput = Pick<
 export class OpenCodeServerTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
+  readonly originalError?: string;
   readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
 
   constructor(input: {
     code: string;
     errorType: AdapterErrorType;
     message: string;
+    originalError?: string;
     providerAccessEvidence?: AdapterProviderAccessEvidence;
   }) {
     super(input.message);
     this.name = "OpenCodeServerTransportError";
     this.code = input.code;
     this.errorType = input.errorType;
+    this.originalError = input.originalError;
     this.providerAccessEvidence = input.providerAccessEvidence;
   }
 }
@@ -750,7 +753,15 @@ function dispatchOpenCodeEvent(
     properties
   );
   if (eventFailure) {
-    input.eventFailure.reject(new Error(eventFailure));
+    input.eventFailure.reject(
+      new OpenCodeServerTransportError(
+        classifyOpenCodeFailureMessage({
+          includeOriginalError: true,
+          isContextLost: isLikelyOpenCodeContextLostError,
+          message: eventFailure,
+        })
+      )
+    );
     return;
   }
   if (

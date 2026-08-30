@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { openMeldDaemonOriginalErrorSchema } from "../daemon/task-result";
 import { agentStreamToolPartSchema } from "../protocol/agent-stream";
 import { clientMessageIdSchema } from "../protocol/client-message-id";
 import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";
@@ -96,6 +97,7 @@ export const spaceMessageDetailsWakeTargetSchema = z.strictObject({
   status: wakeTraceWaterfallSummaryStatusSchema.optional(),
   terminalStep: wakeTraceWaterfallStepNameSchema.nullable().optional(),
   reasonCode: nullableReasonCodeSchema.optional(),
+  originalError: openMeldDaemonOriginalErrorSchema.optional(),
   agentContext: spaceMessageDetailsAgentContextSchema.optional(),
   steps: z.array(wakeTraceWaterfallStepSchema).optional(),
 });

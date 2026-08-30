@@ -92,6 +92,33 @@ describe("SpaceMessageDetailsDrawer", () => {
 		useQueryMock.mockReset();
 	});
 
+	it("shows the owner-visible Local Agent original error only in Technical details", () => {
+		const details = createHumanMessageDetails();
+		details.wakeContext = {
+			clientMessageId: notApplicableFact(),
+			sourceSignalId: notApplicableFact(),
+			state: "recorded",
+			targets: [
+				{
+					originalError: "You've hit your usage limit. Try again at 2:03 AM.",
+					targetLabel: "Codex",
+					targetProfileId: "agt-codex",
+				},
+			],
+		};
+		useQueryMock.mockReturnValue(createQueryResult({ data: details }));
+
+		renderMessageDetailsPanel();
+		const technicalDetails = openTechnicalDetails();
+
+		expect(within(technicalDetails).getByText("Original error")).toBeTruthy();
+		expect(
+			within(technicalDetails).getByText(
+				"You've hit your usage limit. Try again at 2:03 AM."
+			)
+		).toBeTruthy();
+	});
+
 	it("renders a human message from the backend Message Details model", () => {
 		const details = createHumanMessageDetails();
 		useQueryMock.mockReturnValue(createQueryResult({ data: details }));

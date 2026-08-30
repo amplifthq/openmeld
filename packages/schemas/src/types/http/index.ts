@@ -166,6 +166,12 @@ export type {
   ReconcileDeletedAgentProfileSpaceOutcome,
 } from "./agent-profile-lifecycle";
 export type {
+  AgentProfileWorkRecoveryAction,
+  AgentProfileWorkRecoveryRouteParams,
+  ExecuteAgentProfileWorkRecoveryBody,
+  ExecuteAgentProfileWorkRecoveryResponse,
+} from "./agent-profile-work-recovery";
+export type {
   SetAuthPasswordBody,
   SetAuthPasswordResponse,
 } from "./auth-password";

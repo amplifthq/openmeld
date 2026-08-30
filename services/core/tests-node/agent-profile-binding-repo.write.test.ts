@@ -16,6 +16,7 @@ import {
   disablePrimaryAgentProfileBindingRecord,
   ensurePrimaryAgentProfileBindingRecord,
   listEnabledPrimaryAgentProfileBindingRecordsForProfile,
+  listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
   readPrimaryAgentProfileBindingRecord,
   reconnectPrimaryAgentProfileBindingRecord,
   updatePrimaryAgentProfileBindingAgentControllerCollaborationModeRecord,
@@ -1483,6 +1484,47 @@ describe("Agent Profile Binding repo write-side", () => {
         routable: true,
         status: "accepted",
       });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("lists only enabled Profiles bound to the reported Runtime and Agent Controller", async () => {
+    const harness = createSqliteD1Harness();
+    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    try {
+      await ensurePrimaryAgentProfileBindingRecord({
+        db: harness.db,
+        record: createBindingRecord({
+          agentControllerRef: "builtin:codex",
+          bindingId: "binding_codex_target",
+          openMeldServiceRuntimeId: "runtime_target",
+        }),
+      });
+      await ensurePrimaryAgentProfileBindingRecord({
+        db: harness.db,
+        record: createBindingRecord({
+          agentControllerRef: "builtin:claude-code",
+          agentProfileId: OTHER_AGENT_PROFILE_ID,
+          bindingId: "binding_claude_other",
+          openMeldServiceRuntimeId: "runtime_target",
+        }),
+      });
+
+      await expect(
+        listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController({
+          agentControllerRef: "builtin:codex",
+          db: harness.db,
+          openMeldServiceRuntimeId: "runtime_target",
+          owner: OWNER,
+        })
+      ).resolves.toMatchObject([
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime_target",
+        },
+      ]);
     } finally {
       harness.close();
     }

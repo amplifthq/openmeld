@@ -25,6 +25,9 @@ describe("dispatch lifecycle contract", () => {
     expect(toOpenMeldDaemonDispatchAttemptState("waiting_result")).toBe(
       OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.waitingResult
     );
+    expect(toOpenMeldDaemonDispatchAttemptState("profile_queue_waiting")).toBe(
+      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.profileQueueWaiting
+    );
     expect(toOpenMeldDaemonDispatchAttemptState("unknown")).toBeNull();
     expect(toOpenMeldDaemonDispatchAttemptState(undefined)).toBeNull();
   });
@@ -82,6 +85,16 @@ describe("dispatch lifecycle contract", () => {
     expect(
       isActiveDispatchAttemptState(
         OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable
+      )
+    ).toBe(false);
+    expect(
+      isActiveDispatchAttemptState(
+        OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.profileQueueWaiting
+      )
+    ).toBe(false);
+    expect(
+      isTerminalDispatchAttemptState(
+        OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.profileQueueWaiting
       )
     ).toBe(false);
   });

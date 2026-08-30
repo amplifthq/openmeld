@@ -1,6 +1,7 @@
 import * as z from "zod/v4";
 
 export const spaceDispatchOutboxRedriveReasonSchema = z.enum([
+  "agent_profile_work_coordinator_promotion",
   "runtime_coordinator_head_waiting_recovery",
 ]);
 

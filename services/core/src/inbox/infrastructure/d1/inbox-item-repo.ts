@@ -197,6 +197,7 @@ function readMainInboxTargetSpaceId(
     case "center_agent":
       return target.spaceId ?? null;
     case "agent_interaction":
+    case "agent_profile":
     case "agent_profile_creation_request":
     case "center_agent_task":
     case "message_channel":
