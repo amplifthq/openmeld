@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-29T23:32:01.807Z",
+  "updatedAt": "2026-08-30T08:28:15.087Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.134",
+      "packageVersion": "0.3.135",
       "updatePolicy": "available",
-      "reason": "Existing CLI setup, workspace, and Wake commands remain compatible with both cloud versions."
+      "reason": "Existing CLI commands and cloud responses remain compatible; 0.3.135 only adds richer Work Coordinator and Wakeability output."
     },
     "service": {
-      "bundleHash": "fb60a32722d8d0e4a902e84d8168373517652ec9abebe31e3df6a1eed0828d5e",
-      "bundleVersion": "0.3.134",
+      "bundleHash": "5a5dc457dcea272f4a4af07056b0cb59b3119d631d011227c6a6f8c31cb26aef",
+      "bundleVersion": "0.3.135",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "The Organization field is additive and optional during rollout, so existing Services continue safe Wake work through the explicit compatibility path."
+      "reason": "Existing Services keep current Wake behavior; 0.3.135 uses backward-compatible coordination and error fields understood by current cloud."
     },
     "skills": {
       "bundleHash": "302eb02cf945624527f272c4f2c0e812d414ab39a878ec58ef53ca832a44e056",
