@@ -22,6 +22,9 @@ recovery is still in progress, OpenMeld keeps the restored sign-in untouched
 until Service repair finishes. Recovery also closes the unused temporary
 sign-in correctly, so later status and repair checks do not leave the
 interrupted handoff deferred.
+Fresh setup also keeps that candidate sign-in available while the account
+check refreshes it and overlapping Service starts finish, so a new Computer no
+longer falls back to “Sign In Needed” before setup commits the handoff.
 Sign-in and Service status remain available for diagnosis. CLI and OpenMeld
 Service requests now refresh an expired local session when possible, then stop
 locally with clear auth diagnostics instead of continuing without authentication
