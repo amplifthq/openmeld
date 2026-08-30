@@ -4,7 +4,7 @@ import type {
 	OrganizationMemberOpenMeldServiceStatusesResponse,
 	OrganizationSpaceDirectoryWithMemberCountsResponse,
 } from "@openmeld/schemas/types";
-import { queryOptions } from "@tanstack/react-query";
+import { type QueryKey, queryOptions } from "@tanstack/react-query";
 import {
 	type OrganizationComputersFailure,
 	readCurrentOrganizationComputers,
@@ -66,6 +66,16 @@ export const organizationQueryKeys = {
 	spaces: (organizationId: string) =>
 		[...organizationQueryKeys.organization(organizationId), "spaces"] as const,
 };
+
+export function organizationDirectoryQueryFilters() {
+	return {
+		predicate: (query: { queryKey: QueryKey }) =>
+			query.queryKey.length === 3 &&
+			query.queryKey[0] === organizationQueryKeys.all[0] &&
+			query.queryKey[2] === "directory",
+		queryKey: organizationQueryKeys.all,
+	};
+}
 
 export function organizationComputersQueryOptions(input: {
 	enabled: boolean;

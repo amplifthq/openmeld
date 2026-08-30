@@ -25,7 +25,10 @@ import {
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { renameOpenMeldProfile } from "#/lib/profiles/rename-profile";
 import { refreshWebAgentReadinessFacts } from "#/query/agents/execution-readiness";
-import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import {
+	organizationDirectoryQueryFilters,
+	organizationQueryKeys,
+} from "#/query/organizations/organization-directory";
 import {
 	agentProfilePrimaryBindingQueryKeys,
 	agentProfilePrimaryBindingQueryOptions,
@@ -274,9 +277,7 @@ export function updateAgentProfileListCaches(input: {
 			)
 	);
 	input.queryClient.setQueriesData<OrganizationDirectoryResponse>(
-		{
-			queryKey: organizationQueryKeys.all,
-		},
+		organizationDirectoryQueryFilters(),
 		(current) =>
 			current
 				? {
