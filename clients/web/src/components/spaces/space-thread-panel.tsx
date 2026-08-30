@@ -104,14 +104,8 @@ import {
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 import { SpaceMentionPopover } from "./space-mention-popover";
-import {
-	MessageDetailsActionButton,
-	MessageHoverActionSlot,
-} from "./space-message-actions";
 import { SpaceMessageBody } from "./space-message-body";
 import {
-	resolveSpaceMessageActionButtonClassName,
-	resolveSpaceMessageActionPlacementClassName,
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
 	resolveSpaceMessageContentPaddingClassName,
@@ -120,8 +114,14 @@ import {
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 } from "./space-message-bubble-style";
+import { copySpaceTimelineItemWithFeedback } from "./space-message-copy";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
+import {
+	resolveSpaceMessageFooterAddressingTargets,
+	resolveSpaceMessageFooterFailureSummary,
+	SpaceMessageFooter,
+} from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
@@ -947,7 +947,7 @@ function ThreadTimeline(input: {
 											className={cn(
 												"flex w-full justify-start",
 												SPACE_MESSAGE_ROW_LAYOUT_CLASS,
-												"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[highlighted=true]:rounded-md data-[highlighted=true]:bg-ring/10 data-[highlighted=true]:ring-1 data-[highlighted=true]:ring-ring/50"
+												"focus-visible:outline-none data-[highlighted=true]:rounded-md data-[highlighted=true]:bg-muted/50"
 											)}
 											data-message-row-id={item.id}
 											data-signal-id={item.id}
@@ -1097,6 +1097,18 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	>;
 	wakeStopTargetLabelsByProfileId: ReadonlyMap<string, string>;
 }) {
+	const anchoredOutcomeNotices =
+		input.anchoredOutcomeNoticesBySourceSignalId.get(input.item.id) ??
+		EMPTY_ANCHORED_OUTCOME_NOTICES;
+	const failureSummary = resolveSpaceMessageFooterFailureSummary({
+		notices: anchoredOutcomeNotices,
+		resolveTargetLabel: (targetProfileId) =>
+			input.wakeStopTargetLabelsByProfileId.get(targetProfileId) ?? null,
+	});
+	const addressingTargets = resolveSpaceMessageFooterAddressingTargets({
+		item: input.item,
+		profilePresentationsById: input.profilePresentationsById,
+	});
 	const wakeProgressState = resolveSpaceMessageWakeProgressState({
 		agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
 		isPersonalContext: input.isPersonalContext,
@@ -1149,9 +1161,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	});
 	const isSelfMessage = input.item.actorProfileId === input.selfProfileId;
 	const messageAlign = resolveThreadMessageDirectionalAlign(isSelfMessage);
-	const actionPlacementClassName = resolveSpaceMessageActionPlacementClassName({
-		isSelf: isSelfMessage,
-	});
 	const selfMessageContentLayoutClassName =
 		resolveSpaceMessageContentLayoutClassName({ isSelf: isSelfMessage });
 	const messageContentPaddingClassName =
@@ -1201,10 +1210,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						<span className="min-w-0 truncate font-bold text-foreground text-sm">
 							{input.item.actorName}
 						</span>
-						<span className="shrink-0 text-muted-foreground">·</span>
-						<span className="shrink-0 text-muted-foreground">
-							{THREAD_TIME_FORMATTER.format(input.item.createdAtMs)}
-						</span>
 						{agentControlLabel ? (
 							<>
 								<span className="shrink-0 text-muted-foreground">·</span>
@@ -1215,28 +1220,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						) : null}
 					</MessageHeader>
 					<Bubble align={messageAlign}>
-						{messageDetailsItem ? (
-							<div
-								className={cn(
-									"pointer-events-none absolute -top-6 z-20",
-									actionPlacementClassName
-								)}
-								data-slot="message-hover-actions"
-								data-space-message-actions-offset="outside"
-							>
-								<MessageHoverActionSlot>
-									<MessageDetailsActionButton
-										buttonClassName={resolveSpaceMessageActionButtonClassName(
-											{}
-										)}
-										hasWakeProblem={hasWakeProblem}
-										onClick={() =>
-											input.onOpenMessageDetails(messageDetailsItem)
-										}
-									/>
-								</MessageHoverActionSlot>
-							</div>
-						) : null}
 						<BubbleContent
 							className={cn(
 								"group/thread-message relative flex w-full flex-col gap-2 transition-colors motion-reduce:transition-none",
@@ -1246,7 +1229,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								resolveSpaceMessageBubblePresentationClass({
 									isSelf: isSelfMessage,
 								}),
-								"data-[highlighted=true]:border-ring/40 data-[highlighted=true]:bg-ring/10 data-[highlighted=true]:ring-1 data-[highlighted=true]:ring-ring/50",
+								"data-[highlighted=true]:bg-muted/50",
 								input.item.deliveryState === "pending" ? "opacity-70" : null
 							)}
 							data-signal-id={input.item.id}
@@ -1306,10 +1289,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							) : null}
 							{renderAnchoredThreadOutcomeRows({
 								align: messageAlign,
-								notices:
-									input.anchoredOutcomeNoticesBySourceSignalId.get(
-										input.item.id
-									) ?? EMPTY_ANCHORED_OUTCOME_NOTICES,
+								notices: anchoredOutcomeNotices,
 								onOpenMessageDetails: input.onOpenMessageDetails,
 								onRecoverExecution: input.onRecoverExecution,
 								onRetryWakeTarget: input.onRetryWakeTarget,
@@ -1320,6 +1300,30 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							})}
 						</BubbleContent>
 					</Bubble>
+					{input.item.transientActivityPurpose === null ? (
+						<SpaceMessageFooter
+							addressingTargets={addressingTargets}
+							align={messageAlign}
+							details={
+								messageDetailsItem
+									? {
+											hasProblem: hasWakeProblem || failureSummary !== null,
+											onSelect: () =>
+												input.onOpenMessageDetails(messageDetailsItem),
+										}
+									: undefined
+							}
+							failureSummary={failureSummary}
+							onCopy={() =>
+								copySpaceTimelineItemWithFeedback({
+									item: input.item,
+									openMeldProfileId: input.selfProfileId,
+									organizationSlug: input.orgSlug,
+								})
+							}
+							timestamp={THREAD_TIME_FORMATTER.format(input.item.createdAtMs)}
+						/>
+					) : null}
 					<SpaceMessageProgressStatus
 						align={messageAlign}
 						control={wakeStopControl}
@@ -1635,7 +1639,14 @@ function renderAnchoredThreadOutcomeRows(input: {
 		return null;
 	}
 
-	const outcomeNotices = input.notices.filter(isSpaceOutcomeNoticeItem);
+	const outcomeNotices = input.notices.filter(
+		(notice) =>
+			isSpaceOutcomeNoticeItem(notice) &&
+			notice.systemNoticeType !== "terminal_failure"
+	);
+	if (outcomeNotices.length === 0) {
+		return null;
+	}
 	const groups = groupAnchoredOutcomeNotices(outcomeNotices);
 
 	return (

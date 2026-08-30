@@ -237,109 +237,47 @@ describe("SpaceThreadPanel", () => {
 		expect(screen.queryByText("Couldn't load message details.")).toBeNull();
 	});
 
-	it("uses the shared visible action slot for thread message details on hover", () => {
+	it("uses the shared reserved footer for thread message actions", () => {
 		renderThreadPanel();
 
 		const threadMessage = screen
 			.getByText("Thread message")
-			.closest("[data-signal-id]");
-		expect(threadMessage).not.toBeNull();
-		const expectedTime = formatTestTime(Date.UTC(2026, 4, 27, 10, 0, 7));
-		const avatar = screen.getByTestId(
-			"space-human-profile-avatar-human-profile-1"
-		);
-
-		expect(
-			avatar.querySelector('[data-slot="avatar-image"]')?.getAttribute("src")
-		).toBe("https://example.com/felix.png");
-		expect(avatar.className).toContain("size-6");
-		expect(avatar.className).toContain("after:border-0");
-		expect(screen.getByText(expectedTime)).toBeTruthy();
-		expect(threadMessage?.textContent).not.toContain(expectedTime);
-		expect(threadMessage?.classList.contains("border")).toBe(true);
-		expect(threadMessage?.classList.contains("border-transparent")).toBe(true);
-		expect(threadMessage?.classList.contains("bg-muted/35")).toBe(true);
-		expect(threadMessage?.classList.contains("rounded-md")).toBe(true);
-		expect(threadMessage?.classList.contains("max-w-full")).toBe(true);
-		expect(threadMessage?.classList.contains("items-start")).toBe(true);
-		expect(threadMessage?.classList.contains("text-start")).toBe(true);
-		expect(threadMessage?.classList.contains("text-right")).toBe(false);
-		expect(threadMessage?.classList.contains("px-3")).toBe(true);
-		expect(threadMessage?.classList.contains("py-2")).toBe(true);
-		expect(threadMessage?.classList.contains("sm:px-4")).toBe(true);
-		expect(threadMessage?.classList.contains("max-w-[62ch]")).toBe(false);
-		expect(screen.getByText("Thread message").className).not.toContain(
-			"text-right"
-		);
-
+			.closest("[data-signal-id='sig-thread-1']");
 		const bubbleRoot = threadMessage?.closest("[data-slot='bubble']");
 		const messageRow = threadMessage?.closest(
 			"[data-message-row-id='sig-thread-1']"
 		);
-		const scrollerItem = messageRow?.closest(
-			"[data-slot='message-scroller-item']"
+		const footer = messageRow?.querySelector('[data-slot="message-footer"]');
+		const actions = footer?.querySelector(
+			'[data-slot="message-footer-primary-actions"]'
 		);
 
-		expect(messageRow?.getAttribute("data-align")).toBe("end");
-		expect(messageRow?.getAttribute("data-space-self-message")).toBe("true");
-		expect(bubbleRoot?.getAttribute("data-variant")).toBe("space");
-		expect(bubbleRoot?.getAttribute("data-align")).toBe("end");
-		expect(bubbleRoot?.className).toContain("w-full");
 		expect(messageRow).not.toBeNull();
-		if (!(messageRow instanceof HTMLElement)) {
-			throw new Error("Expected the thread message row to render.");
-		}
-		const profileName = within(messageRow).getByText("Felix");
-		expect(profileName.className).toContain("font-bold");
-		expect(profileName.className).toContain("text-sm");
-		expect(messageRow?.className).toContain("hover:bg-muted/35");
-		expect(messageRow?.className).toContain("focus-within:bg-muted/35");
-		expect(messageRow?.className).toContain("rounded-md");
-		expect(messageRow?.contains(avatar)).toBe(true);
-		expect(scrollerItem?.getAttribute("data-message-id")).toBe("sig-thread-1");
-		expect(scrollerItem?.getAttribute("data-scroll-anchor")).toBe("false");
-
-		const detailsButton = within(messageRow as HTMLElement).getByRole(
-			"button",
-			{ name: "Message details" }
-		);
-		expect(threadMessage?.contains(detailsButton)).toBe(false);
-		expect(bubbleRoot?.contains(detailsButton)).toBe(true);
-		const actionSlot = detailsButton.closest("[data-message-action-slot]");
-
-		expect(actionSlot?.getAttribute("data-message-action-slot")).toBe("hover");
-		expect(actionSlot?.className).toContain("opacity-0");
-		expect(actionSlot?.className).not.toContain("blur-[3px]");
-		expect(actionSlot?.className).not.toContain("blur-0");
-		// The shared action slot must gate only on the per-message row group; the
-		// thread panel never groups messages, but the gating classes are shared
-		// with the main panel so this locks the same regression there.
-		expect(actionSlot?.className).not.toContain(
-			"group-hover/message:opacity-100"
-		);
-		expect(actionSlot?.className).not.toContain(
-			"group-focus-within/message:opacity-100"
-		);
-		expect(actionSlot?.className).toContain(
-			"group-hover/message-row:opacity-100"
-		);
-		expect(actionSlot?.className).toContain(
+		expect(footer).not.toBeNull();
+		expect(messageRow?.contains(footer ?? null)).toBe(true);
+		expect(bubbleRoot?.contains(footer ?? null)).toBe(false);
+		expect(footer?.className).toContain("min-h-7");
+		expect(actions?.className).toContain("opacity-0");
+		expect(actions?.className).toContain("group-hover/message-row:opacity-100");
+		expect(actions?.className).toContain(
 			"group-focus-within/message-row:opacity-100"
 		);
-		expect(actionSlot?.parentElement?.className).toContain("-top-6");
-		expect(actionSlot?.parentElement?.className).toContain("-left-1");
-		expect(actionSlot?.parentElement?.className).not.toContain("-right-1");
 		expect(
-			actionSlot?.parentElement?.getAttribute(
-				"data-space-message-actions-offset"
-			)
-		).toBe("outside");
-		expect(detailsButton.className).not.toContain("blur-[3px]");
-		expect(detailsButton.classList.contains("bg-background/95")).toBe(true);
-		expect(detailsButton.classList.contains("border-0")).toBe(true);
-		expect(detailsButton.classList.contains("border-border")).toBe(false);
-	});
+			messageRow?.querySelector("[data-slot='message-hover-actions']")
+		).toBeNull();
 
+		const detailsButton = within(footer as HTMLElement).getByRole("button", {
+			name: "Message details",
+		});
+		const copyButton = within(footer as HTMLElement).getByRole("button", {
+			name: "Copy message",
+		});
+		for (const button of [copyButton, detailsButton]) {
+			expect(button.className).toContain("size-7");
+			expect(button.className).toContain("border-0");
+			expect(button.className).toContain("bg-transparent");
+		}
+	});
 	it("uses the member Agent identity in Message details opened from a thread", async () => {
 		const details = createMinimalMessageDetailsResponse();
 		useQueryMock.mockReturnValue({
@@ -623,7 +561,7 @@ describe("SpaceThreadPanel", () => {
 		expect(scrollerItem?.getAttribute("data-scroll-anchor")).toBe("false");
 	});
 
-	it("summarizes an anchored thread failure with the Agent name", () => {
+	it("moves an anchored thread failure into the source message footer", () => {
 		const detailedFailure =
 			"The model provider was unreachable. Check provider status or network access, then wake the Agent again.";
 		renderThreadPanel({
@@ -649,48 +587,53 @@ describe("SpaceThreadPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-thread-wake']");
 		expect(sourceMessage).not.toBeNull();
+		const footer = sourceMessage?.querySelector("[data-slot='message-footer']");
+		expect(footer).not.toBeNull();
 		expect(
-			within(sourceMessage as HTMLElement).getByText(
-				"Codex 5.6 Sol couldn’t reply"
-			)
+			within(footer as HTMLElement).getByText("Codex 5.6 Sol couldn’t reply")
 		).toBeTruthy();
 		expect(
 			within(sourceMessage as HTMLElement).queryByText(detailedFailure)
 		).toBeNull();
 		expect(
-			within(sourceMessage as HTMLElement).getByRole("button", {
-				name: "Open message details",
+			within(sourceMessage as HTMLElement).queryByTestId("space-outcome-row")
+		).toBeNull();
+		expect(
+			within(footer as HTMLElement).getByRole("button", {
+				name: "Message details",
 			})
 		).toBeTruthy();
 	});
 
-	it("starts one fresh execution through recovery control from its anchored thread outcome row", async () => {
+	it("offers thread recovery only inside Message details", async () => {
 		const onRecoverExecution = createFreshExecutionRecoveryHandler();
-		const onRetryWakeTarget = vi.fn().mockResolvedValue(undefined);
 		renderThreadPanel({
 			onRecoverExecution,
-			onRetryWakeTarget,
 			signals: [
 				createWakeTextSignal({
 					text: "@Runner(wake) please investigate",
 				}),
 				createSystemNoticeSignal({
 					actorProfileId: TARGET_PROFILE_ID,
+					dispatchId: "dispatch-1",
 					id: "sig-thread-failure",
 					noticeType: "terminal_failure",
 					replyToSignalId: "sig-thread-wake",
 					text: "Runner could not reply.",
-					ts: Date.UTC(2026, 4, 27, 10, 0, 30),
 				}),
 			],
 		});
 
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Retry as new execution" })
-		);
-
+		expect(
+			screen.queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		const retry = await screen.findByRole("button", {
+			name: "Retry as new execution",
+		});
+		fireEvent.click(retry);
 		await waitFor(() => {
-			expect(onRecoverExecution).toHaveBeenLastCalledWith({
+			expect(onRecoverExecution).toHaveBeenCalledWith({
 				action: "retry_as_new_execution",
 				dispatchId: "dispatch-1",
 				operationId: expect.any(String),
@@ -698,70 +641,9 @@ describe("SpaceThreadPanel", () => {
 				targetProfileId: TARGET_PROFILE_ID,
 			});
 		});
-		expect(onRetryWakeTarget).not.toHaveBeenCalled();
 	});
 
-	it("links an independent late-result notice to the exact thread failure", async () => {
-		const onRecoverExecution = vi.fn<SpaceExecutionRecoveryHandler>(
-			async (attempt) =>
-				attempt.action === null
-					? {
-							action: "recover_result",
-							label: "Recover result",
-							status: "available",
-							warning: null,
-						}
-					: {
-							action: null,
-							label: null,
-							status: "in_progress",
-							warning: null,
-						}
-		);
-		renderThreadPanel({
-			onRecoverExecution,
-			signals: [
-				createWakeTextSignal({
-					text: "@Runner(wake) please investigate",
-				}),
-				createSystemNoticeSignal({
-					actorProfileId: TARGET_PROFILE_ID,
-					dispatchId: "dispatch-thread",
-					id: "sig-thread-failure",
-					noticeType: "terminal_failure",
-					reasonCode: "runtime.progress_stale",
-					replyToSignalId: "sig-thread-wake",
-					text: "Runner stopped making progress.",
-				}),
-				createSystemNoticeSignal({
-					actorProfileId: TARGET_PROFILE_ID,
-					dispatchId: "dispatch-thread",
-					id: "sig-thread-recovery",
-					noticeType: "execution_recovery_available",
-					replyToSignalId: "sig-thread-wake",
-					resultRef: "dispatch-thread::result-1",
-					text: "A completed result is ready to recover.",
-				}),
-			],
-		});
-
-		expect(
-			await screen.findAllByRole("button", { name: "Recover result" })
-		).toHaveLength(1);
-		expect(
-			screen.queryByRole("button", { name: "Retry as new execution" })
-		).toBeNull();
-		expect(onRecoverExecution).toHaveBeenCalledOnce();
-		expect(onRecoverExecution).toHaveBeenCalledWith({
-			action: null,
-			dispatchId: "dispatch-thread",
-			operationId: null,
-			resultRef: "dispatch-thread::result-1",
-			targetProfileId: TARGET_PROFILE_ID,
-		});
-	});
-
-	it("renders one shared recovery CTA while thread details move it between surfaces", async () => {
+	it("keeps thread footer recovery fenced to one operation", async () => {
 		const execution = createVoidDeferred();
 		const onRecoverExecution = vi.fn<SpaceExecutionRecoveryHandler>(
 			async (attempt) => {
@@ -809,67 +691,19 @@ describe("SpaceThreadPanel", () => {
 			],
 		});
 
-		expect(
-			await screen.findAllByRole("button", { name: "Recover result" })
-		).toHaveLength(1);
-		fireEvent.click(
-			within(screen.getByTestId("space-outcome-row")).getByRole("button", {
-				name: "Open message details",
-			})
-		);
-		await screen.findByRole("dialog", { name: "Message details" });
-		expect(
-			await screen.findAllByRole("button", { name: "Recover result" })
-		).toHaveLength(1);
-		expect(
-			onRecoverExecution.mock.calls.filter(
-				([attempt]) => attempt.action === null
-			)
-		).toHaveLength(1);
-
-		fireEvent.keyDown(document, { key: "Escape" });
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("dialog", { name: "Message details" })
-			).toBeNull();
-		});
-		expect(
-			await screen.findAllByRole("button", { name: "Recover result" })
-		).toHaveLength(1);
-		expect(
-			onRecoverExecution.mock.calls.filter(
-				([attempt]) => attempt.action === null
-			)
-		).toHaveLength(1);
-
-		fireEvent.click(
-			within(screen.getByTestId("space-outcome-row")).getByRole("button", {
-				name: "Open message details",
-			})
-		);
-		await screen.findByRole("dialog", { name: "Message details" });
-		expect(
-			await screen.findAllByRole("button", { name: "Recover result" })
-		).toHaveLength(1);
-
-		const recoverButton = screen.getByRole("button", {
+		expect(screen.queryByRole("button", { name: "Recover result" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		const recoverButton = await screen.findByRole("button", {
 			name: "Recover result",
 		});
-		fireEvent.touchStart(recoverButton, {
-			changedTouches: [{ clientX: 10, clientY: 10 }],
-			touches: [{ clientX: 10, clientY: 10 }],
-		});
 		fireEvent.click(recoverButton);
 		fireEvent.click(recoverButton);
 
-		const actionCalls = onRecoverExecution.mock.calls.filter(
-			([attempt]) => attempt.action === "recover_result"
-		);
-		expect(actionCalls).toHaveLength(1);
-		expect(actionCalls[0]?.[0].operationId).toBe(
-			`space-execution-recovery:dispatch-thread:${TARGET_PROFILE_ID}:recover_result`
-		);
-
+		expect(
+			onRecoverExecution.mock.calls.filter(
+				([attempt]) => attempt.action === "recover_result"
+			)
+		).toHaveLength(1);
 		execution.resolve();
 		await waitFor(() => {
 			expect(
@@ -878,317 +712,54 @@ describe("SpaceThreadPanel", () => {
 		});
 	});
 
-	it.each([
-		{
-			action: "recover_result" as const,
-			activation: "double_click" as const,
-			label: "Recover result" as const,
-			surface: "timeline" as const,
-		},
-		{
-			action: "resume_controller_conversation" as const,
-			activation: "keyboard" as const,
-			label: "Recover reply" as const,
-			surface: "timeline" as const,
-		},
-		{
-			action: "retry_as_new_execution" as const,
-			activation: "touch" as const,
-			label: "Retry as new execution" as const,
-			surface: "timeline" as const,
-		},
-		{
-			action: "recover_result" as const,
-			activation: "touch" as const,
-			label: "Recover result" as const,
-			surface: "details" as const,
-		},
-		{
-			action: "resume_controller_conversation" as const,
-			activation: "double_click" as const,
-			label: "Recover reply" as const,
-			surface: "details" as const,
-		},
-		{
-			action: "retry_as_new_execution" as const,
-			activation: "keyboard" as const,
-			label: "Retry as new execution" as const,
-			surface: "details" as const,
-		},
-	])("fences $action on the thread $surface for $activation activation", async ({
-		action,
-		activation,
-		label,
-		surface,
-	}) => {
-		const execution = createVoidDeferred();
-		const dispatchId = `dispatch-${action}`;
-		const resultRef =
-			action === "recover_result" ? `${dispatchId}::result-1` : null;
-		const onRecoverExecution = vi.fn<SpaceExecutionRecoveryHandler>(
-			async (attempt) => {
-				if (attempt.action === null) {
-					return {
-						action,
-						label,
-						status: "available",
-						warning:
-							action === "retry_as_new_execution"
-								? "This starts a new execution and may run the task and its side effects again."
-								: null,
-					};
-				}
-				await execution.promise;
-				return {
-					action: null,
-					label: null,
-					status: "recovered",
-					warning: null,
-				};
-			}
-		);
-		renderThreadPanel({
-			onRecoverExecution,
-			signals: [
-				createWakeTextSignal({
-					text: "@Runner(wake) please investigate",
-				}),
-				createSystemNoticeSignal({
-					actorProfileId: TARGET_PROFILE_ID,
-					dispatchId,
-					id: "sig-thread-failure",
-					noticeType: "terminal_failure",
-					reasonCode: "runtime.progress_stale",
-					replyToSignalId: "sig-thread-wake",
-					text: "Runner stopped making progress.",
-				}),
-				...(resultRef
-					? [
-							createSystemNoticeSignal({
-								actorProfileId: TARGET_PROFILE_ID,
-								dispatchId,
-								id: "sig-thread-recovery",
-								noticeType: "execution_recovery_available",
-								replyToSignalId: "sig-thread-wake",
-								resultRef,
-								text: "A completed result is ready to recover.",
-							}),
-						]
-					: []),
-			],
-		});
-
-		await screen.findByRole("button", { name: label });
-		if (surface === "details") {
-			fireEvent.click(
-				within(screen.getByTestId("space-outcome-row")).getByRole("button", {
-					name: "Open message details",
-				})
-			);
-			await screen.findByRole("dialog", { name: "Message details" });
-		}
-		expect(await screen.findAllByRole("button", { name: label })).toHaveLength(
-			1
-		);
-
-		const recoveryButton = screen.getByRole("button", { name: label });
-		activateRecoveryButton(recoveryButton, activation);
-
-		const actionCalls = onRecoverExecution.mock.calls.filter(
-			([attempt]) => attempt.action === action
-		);
-		expect(actionCalls).toHaveLength(1);
-		expect(actionCalls[0]?.[0]).toEqual({
-			action,
-			dispatchId,
-			operationId: `space-execution-recovery:${dispatchId}:${TARGET_PROFILE_ID}:${action}`,
-			resultRef,
-			targetProfileId: TARGET_PROFILE_ID,
-		});
-		const inspectCalls = onRecoverExecution.mock.calls.filter(
-			([attempt]) => attempt.action === null
-		);
-		expect(inspectCalls).toHaveLength(1);
-		for (const [attempt] of inspectCalls) {
-			expect(attempt).toEqual({
-				action: null,
-				dispatchId,
-				operationId: null,
-				resultRef,
-				targetProfileId: TARGET_PROFILE_ID,
-			});
-		}
-
-		execution.resolve();
-		await waitFor(() => {
-			expect(screen.queryByRole("button", { name: label })).toBeNull();
-		});
-	});
-
-	it("does not carry one thread's Message Details recovery into another thread", async () => {
-		const onRecoverExecution = createFreshExecutionRecoveryHandler();
-		const onRetryWakeTarget = vi.fn().mockResolvedValue(undefined);
-		const view = renderThreadPanel({
-			onRecoverExecution,
-			onRetryWakeTarget,
-			signals: [
-				createWakeTextSignal({
-					text: "@Runner(wake) please investigate thread A",
-				}),
-				createSystemNoticeSignal({
-					actorProfileId: TARGET_PROFILE_ID,
-					id: "sig-thread-failure",
-					noticeType: "terminal_failure",
-					replyToSignalId: "sig-thread-wake",
-					text: "Runner could not reply.",
-					ts: Date.UTC(2026, 4, 27, 10, 0, 30),
-				}),
-			],
-		});
-
-		fireEvent.click(
-			within(screen.getByTestId("space-outcome-row")).getByRole("button", {
-				name: "Open message details",
-			})
-		);
-		expect(
-			await within(screen.getByTestId("message-details-drawer")).findByRole(
-				"button",
-				{
-					name: "Retry as new execution",
-				}
-			)
-		).toBeTruthy();
-
-		view.rerenderThreadPanel({
-			activeThread: {
-				createdAt: "2026-04-11T00:01:00.000Z",
-				createdByProfileId: "human-profile-1",
-				rootSignalId: "sig-root-b",
-				spaceId: "space-123",
-				threadId: "thread-2",
-				updatedAt: "2026-04-11T00:01:00.000Z",
-			},
+	it("aligns anchored thread failure footers with their source messages", () => {
+		const { rerenderThreadPanel } = renderThreadPanel({
+			selfProfileId: "human-profile-1",
 			signals: [
 				createTextSignal({
-					id: "sig-thread-b",
-					text: "Thread B message",
-				}),
-			],
-		});
-
-		expect(
-			screen.queryByRole("button", { name: "Retry as new execution" })
-		).toBeNull();
-		expect(onRetryWakeTarget).not.toHaveBeenCalled();
-	});
-
-	it("renders the anchored thread outcome row inside the source message's bubble content so it inherits the card's hover/rounded/padding treatment", () => {
-		renderThreadPanel({
-			signals: [
-				createTextSignal({
-					id: "sig-thread-wake",
-					text: "@Runner(wake) please investigate",
-					ts: Date.UTC(2026, 4, 27, 10, 0, 0),
-				}),
-				createSystemNoticeSignal({
-					id: "sig-thread-failure",
-					noticeType: "terminal_failure",
-					replyToSignalId: "sig-thread-wake",
-					text: "Runner could not reply.",
-					ts: Date.UTC(2026, 4, 27, 10, 0, 30),
-				}),
-			],
-		});
-
-		const outcomeRow = screen.getByTestId("space-outcome-row");
-		const bubbleContent = outcomeRow.closest("[data-slot='bubble-content']");
-		expect(bubbleContent).not.toBeNull();
-		expect(
-			within(bubbleContent as HTMLElement).getByText(
-				"@Runner(wake) please investigate"
-			)
-		).toBeTruthy();
-	});
-
-	it("right-aligns an anchored thread outcome row under the current user's own message", () => {
-		renderThreadPanel({
-			signals: [
-				createTextSignal({
-					id: "sig-thread-wake",
 					profileId: "human-profile-1",
+					id: "sig-thread-wake",
 					text: "@Runner(wake) please investigate",
-					ts: Date.UTC(2026, 4, 27, 10, 0, 0),
 				}),
 				createSystemNoticeSignal({
 					id: "sig-thread-failure",
 					noticeType: "terminal_failure",
 					replyToSignalId: "sig-thread-wake",
 					text: "Runner could not reply.",
-					ts: Date.UTC(2026, 4, 27, 10, 0, 30),
 				}),
 			],
 		});
 
-		const outcomeRow = screen.getByTestId("space-outcome-row");
-		expect(outcomeRow.className).toContain("justify-end");
-		expect(outcomeRow.className).not.toContain("justify-start");
-	});
+		let sourceMessage = screen
+			.getByText("@Runner(wake) please investigate")
+			.closest("[data-message-row-id='sig-thread-wake']");
+		expect(
+			sourceMessage?.querySelector("[data-slot='message-footer']")?.className
+		).toContain("justify-end");
 
-	it("left-aligns an anchored thread outcome row under another member's message", () => {
-		renderThreadPanel({
+		rerenderThreadPanel({
+			selfProfileId: "human-profile-1",
 			signals: [
 				createTextSignal({
-					id: "sig-thread-wake",
-					profileId: "human-profile-2",
 					profileName: "Mira",
-					text: "@Runner(wake) please investigate",
-					ts: Date.UTC(2026, 4, 27, 10, 0, 0),
-				}),
-				createSystemNoticeSignal({
-					id: "sig-thread-failure",
-					noticeType: "terminal_failure",
-					replyToSignalId: "sig-thread-wake",
-					text: "Runner could not reply.",
-					ts: Date.UTC(2026, 4, 27, 10, 0, 30),
-				}),
-			],
-		});
-
-		const outcomeRow = screen.getByTestId("space-outcome-row");
-		expect(outcomeRow.className).toContain("justify-start");
-		expect(outcomeRow.className).not.toContain("justify-end");
-	});
-
-	it("opens the source thread message's own details -- not the notice's -- from an anchored outcome row's Message details action", () => {
-		const onReportMessage = vi.fn().mockResolvedValue(undefined);
-		renderThreadPanel({
-			onReportMessage,
-			signals: [
-				createTextSignal({
+					profileId: "human-profile-2",
 					id: "sig-thread-wake",
 					text: "@Runner(wake) please investigate",
-					ts: Date.UTC(2026, 4, 27, 10, 0, 0),
 				}),
 				createSystemNoticeSignal({
 					id: "sig-thread-failure",
 					noticeType: "terminal_failure",
 					replyToSignalId: "sig-thread-wake",
 					text: "Runner could not reply.",
-					ts: Date.UTC(2026, 4, 27, 10, 0, 30),
 				}),
 			],
 		});
-
-		const outcomeRow = screen.getByTestId("space-outcome-row");
-		fireEvent.click(
-			within(outcomeRow).getByRole("button", { name: "Open message details" })
-		);
-
-		fireEvent.click(screen.getByRole("button", { name: "Send report" }));
-
-		expect(onReportMessage).toHaveBeenCalledOnce();
-		expect(onReportMessage.mock.calls[0]?.[0]?.id).toBe("sig-thread-wake");
+		sourceMessage = screen
+			.getByText("@Runner(wake) please investigate")
+			.closest("[data-message-row-id='sig-thread-wake']");
+		expect(
+			sourceMessage?.querySelector("[data-slot='message-footer']")?.className
+		).toContain("justify-start");
 	});
 
 	it("gives a stopped Wake a muted outcome row in the thread instead of a destructive one", () => {
@@ -1995,30 +1566,6 @@ function createVoidDeferred(): {
 	};
 }
 
-function activateRecoveryButton(
-	button: HTMLElement,
-	activation: "double_click" | "keyboard" | "touch"
-): void {
-	if (activation === "keyboard") {
-		button.focus();
-		fireEvent.keyDown(button, { key: "Enter" });
-		fireEvent.click(button, { detail: 0 });
-		fireEvent.click(button, { detail: 0 });
-		return;
-	}
-	if (activation === "touch") {
-		fireEvent.touchStart(button, {
-			changedTouches: [{ clientX: 10, clientY: 10 }],
-			touches: [{ clientX: 10, clientY: 10 }],
-		});
-		fireEvent.touchEnd(button, {
-			changedTouches: [{ clientX: 10, clientY: 10 }],
-		});
-	}
-	fireEvent.click(button);
-	fireEvent.click(button);
-}
-
 function notApplicableAgentContext(): GetSpaceMessageDetailsResponse["agentContext"] {
 	return {
 		agentControllerConversationId: notApplicableFact(),
@@ -2039,12 +1586,4 @@ function notApplicableFact(): GetSpaceMessageDetailsResponse["agentContext"]["pr
 		state: "not_applicable",
 		value: null,
 	};
-}
-
-function formatTestTime(createdAtMs: number): string {
-	return new Intl.DateTimeFormat(undefined, {
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-	}).format(createdAtMs);
 }
