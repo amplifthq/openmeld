@@ -1269,6 +1269,13 @@ not membership, readiness, presence, or execution authority. Agent View emits
 the full validated directory through the presenter protocol; explicit `--json`
 emits the strict versioned `space.members` envelope.
 
+Current CLI HTTP reads declare Space Addressing response version 1, and current
+Space WebSocket sessions declare `spaceMessageAddressing` in the hello
+capabilities. Outbound messages with a Human Mention preserve `mentionTargets`;
+messages without Human Mention keep the empty retired wire field during the
+compatibility window. This negotiation must not change Wake, Reference, Mention,
+membership, or readiness semantics.
+
 `space send --file <path>` accepts up to ten repeatable local paths of any MIME
 type admitted by the shared Space File contract. The CLI validates every file,
 uploads every canonical Space File, and only then posts the normal or thread

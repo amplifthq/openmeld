@@ -6,6 +6,7 @@ import {
 } from "@openmeld/schemas";
 import type { CatchupResponse } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { currentSpaceAddressingHeaders } from "./addressing-contract";
 import { buildSpaceSignalsPath } from "./routes";
 import type {
   SpaceHistorySignalKind,
@@ -40,6 +41,7 @@ export async function listSpaceSignals(
   return await client.requestJson({
     url: buildSpaceSignalsReadPath(input.spaceId, input.query),
     operation: "space.signals.read",
+    headers: currentSpaceAddressingHeaders(),
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,

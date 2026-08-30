@@ -3,6 +3,10 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   resolveWakeStopEligibility,
 } from "@openmeld/agent-runtime";
+import {
+  OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_ADDRESSING_VERSION,
+} from "@openmeld/gateway-contract";
 import type {
   Profile,
   SignalEnvelope,
@@ -8045,6 +8049,7 @@ export class Space extends DurableObject<CoreBindings> {
         return accessResult.response;
       }
       return this.handleListThreads(
+        request,
         await this.resolveReadViewerIdentity(spaceAccess, lineageLoader),
         bootstrapTiming
       );
@@ -8121,12 +8126,14 @@ export class Space extends DurableObject<CoreBindings> {
       return accessResult.response;
     }
     return this.handleGetThread(
+      request,
       threadId,
       await this.resolveReadViewerIdentity(spaceAccess)
     );
   }
 
   private handleListThreads(
+    request: Request,
     viewer: SpaceReadViewerIdentity,
     bootstrapTiming?: SpaceBootstrapBranchTiming
   ): Response {
@@ -8136,7 +8143,7 @@ export class Space extends DurableObject<CoreBindings> {
       "list threads",
       () => listSpaceThreads(this.ctx.storage.sql)
     );
-    return legacySpaceAddressingJsonResponse({
+    return spaceAddressingJsonResponse(request, {
       threads,
       previews: this.measureBootstrapBranchTimingSync(
         bootstrapTiming,
@@ -8267,7 +8274,7 @@ export class Space extends DurableObject<CoreBindings> {
       rootSignal.id
     );
     if (existingThread && existingPlacement?.placement === "root") {
-      return legacySpaceAddressingJsonResponse({
+      return spaceAddressingJsonResponse(request, {
         thread: existingThread,
         rootSignal,
         placement: existingPlacement,
@@ -8315,7 +8322,7 @@ export class Space extends DurableObject<CoreBindings> {
       createdAt: now,
     });
 
-    return legacySpaceAddressingJsonResponse({
+    return spaceAddressingJsonResponse(request, {
       thread,
       rootSignal,
       placement,
@@ -8323,6 +8330,7 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   private handleGetThread(
+    request: Request,
     threadId: string,
     viewer: SpaceReadViewerIdentity
   ): Response {
@@ -8335,7 +8343,7 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
     const rootSignal = this.readSignalById(thread.rootSignalId);
-    return legacySpaceAddressingJsonResponse({
+    return spaceAddressingJsonResponse(request, {
       thread,
       rootSignal: rootSignal
         ? this.redactSignalForReadViewer(rootSignal, viewer)
@@ -8401,7 +8409,7 @@ export class Space extends DurableObject<CoreBindings> {
       .map((placement) => this.readSignalById(placement.signalId))
       .filter((signal): signal is SignalEnvelope => signal !== null)
       .map((signal) => this.redactSignalForReadViewer(signal, input.viewer));
-    return legacySpaceAddressingJsonResponse({ signals, placements });
+    return spaceAddressingJsonResponse(input.request, { signals, placements });
   }
 
   private async handlePostThreadSignal(input: {
@@ -8455,7 +8463,7 @@ export class Space extends DurableObject<CoreBindings> {
         );
       }
       if (existingRetry.status === "replay") {
-        return legacySpaceAddressingJsonResponse({
+        return spaceAddressingJsonResponse(input.request, {
           signal: existingRetry.signal,
           placement: existingRetry.placement,
         });
@@ -8515,7 +8523,7 @@ export class Space extends DurableObject<CoreBindings> {
         updatedAt: signalCreatedAt,
       });
 
-      return legacySpaceAddressingJsonResponse({
+      return spaceAddressingJsonResponse(input.request, {
         signal,
         placement: createSpaceThreadSignalPlacement({
           threadId: thread.threadId,
@@ -12981,16 +12989,21 @@ export class Space extends DurableObject<CoreBindings> {
           session,
         })
       ) {
-        return JSON.stringify(toLegacySpaceAddressingWireValue(redactedSignal));
+        return JSON.stringify(
+          spaceAddressingWireValueForSession(redactedSignal, session)
+        );
       }
       const frameForSession = session.supportsLiveSignalHistory
         ? message
         : stripLiveSignalHistory(message);
       return JSON.stringify(
-        toLegacySpaceAddressingWireValue({
-          ...frameForSession,
-          signal: redactedSignal,
-        })
+        spaceAddressingWireValueForSession(
+          {
+            ...frameForSession,
+            signal: redactedSignal,
+          },
+          session
+        )
       );
     }
     if (isSpaceLiveInvalidationFrame(message)) {
@@ -13000,8 +13013,9 @@ export class Space extends DurableObject<CoreBindings> {
       return JSON.stringify(message);
     }
     return JSON.stringify(
-      toLegacySpaceAddressingWireValue(
-        this.redactSignalForViewer(message, session)
+      spaceAddressingWireValueForSession(
+        this.redactSignalForViewer(message, session),
+        session
       )
     );
   }
@@ -16591,11 +16605,26 @@ export class Space extends DurableObject<CoreBindings> {
   }
 }
 
-function legacySpaceAddressingJsonResponse(
+function spaceAddressingJsonResponse(
+  request: Request,
   value: unknown,
   init?: ResponseInit
 ): Response {
-  return Response.json(toLegacySpaceAddressingWireValue(value), init);
+  const responseValue =
+    request.headers.get(OPENMELD_HEADER_SPACE_ADDRESSING_VERSION) ===
+    OPENMELD_SPACE_ADDRESSING_VERSION
+      ? value
+      : toLegacySpaceAddressingWireValue(value);
+  return Response.json(responseValue, init);
+}
+
+function spaceAddressingWireValueForSession(
+  value: unknown,
+  session: Session
+): unknown {
+  return session.supportsSpaceMessageAddressing
+    ? value
+    : toLegacySpaceAddressingWireValue(value);
 }
 
 function decodeMessage(msg: string | ArrayBuffer): string {

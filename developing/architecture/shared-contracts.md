@@ -4555,9 +4555,21 @@ boundary for retired CC wire data. Its removal points are explicit:
   `allowedRelations.cc` field only while parsing old member-directory
   projections and returns the current three-relation capability object.
 - `compatibility/legacy-space-addressing-wire.ts` is the outbound compatibility
-  encoder for supported old-client transports. It may add only an empty
-  `ccTargets` field and the retired `allowedRelations.cc = false` capability
-  flag.
+  boundary for supported old-client transports. The request helper preserves a
+  non-empty `mentionTargets` list and otherwise may add only an empty
+  `ccTargets` field. The response encoder may add only that empty field and the
+  retired `allowedRelations.cc = false` capability flag.
+
+Current HTTP clients declare
+`x-openmeld-space-addressing-version: 1`. Gateway obtains the current projection
+from Core and returns it only to that negotiated consumer; a request without the
+header receives the strict legacy projection. Current Space WebSocket clients
+declare `capabilities.spaceMessageAddressing = true` in `hello`, and Core stores
+that capability with the session before selecting the live wire projection.
+Core's typed Space RPC adapter always requests the current in-process projection;
+the service-binding RPC method version argument then selects current output for
+current Gateway while preserving legacy output for an already-deployed Gateway.
+Compatibility selection is transport metadata, never Space business state.
 
 These three owner points are one package-owned compatibility boundary, not
 three business facts. Neither retired field is a current fact, writer input,
@@ -4570,9 +4582,9 @@ The Contract Impact Audit for this retirement is:
 | Old CLI or OpenMeld Service -> new Core                    | New shared request schemas accept the retired empty or populated field only at preprocessing, merge historical targets into Reference, and return a current addressing object. This includes daemon result frames. |
 | New CLI or OpenMeld Service -> old Core                    | Not supported once `mentionTargets` is authored. The guarded rollout deploys current readers before current Human Mention writers.                                                                                |
 | Old Web or API client -> new Gateway/Core                  | New request schemas normalize the retired field at the boundary. Old response readers receive only the empty compatibility field.                                                                                    |
-| New Web or API client -> old Gateway/Core                  | The shared API client's outbound adapter supplies the empty compatibility field, and current response readers normalize old persisted values into Reference.                                                         |
+| New Web or API client -> old Gateway/Core                  | Requests without Human Mention retain the empty compatibility field. A request with non-empty `mentionTargets` requires current readers; the guarded rollout deploys those readers first. Current response readers normalize old persisted values into Reference.              |
 | Old Gateway or Remote Agent -> new Core                    | New Core request schemas normalize the retired field before current RPC or authoring logic can observe it.                                                                                                           |
-| New Core -> old Gateway, Remote Agent, or OpenMeld Service | Core RPC, thread HTTP, Space live, and daemon delivery responses add only empty retired fields after current-domain validation so strict old consumers can read them.                                                |
+| New Core -> old Gateway, Remote Agent, or OpenMeld Service | Consumers that omit the HTTP/RPC response version or WebSocket capability receive only empty retired fields after current-domain validation. Negotiated current consumers receive `mentionTargets` and `allowedRelations.mention` unchanged.                            |
 | New Gateway or Remote Agent -> old Core                    | Not a supported mixed-version direction. The guarded rollout must deploy Core first.                                                                                                                                |
 | Historical persisted Signal -> current read projection     | Shared preprocessing merges historical CC targets into Reference before timeline, details, prompt, or dispatch code can observe the message. It never creates work.                                                  |
 

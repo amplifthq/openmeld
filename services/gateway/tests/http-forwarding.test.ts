@@ -1,4 +1,8 @@
 import {
+  OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_ADDRESSING_VERSION,
+} from "@openmeld/gateway-contract";
+import {
   createDaemonRouteObservationSummary,
   DB_FACT_SCHEMA_VERSION,
   type DbDiagnosticsPayload,
@@ -734,7 +738,8 @@ function makeEnv(input?: {
           profileIdShort: "11111",
           allowedRelations: {
             wake: false,
-            reference: true,
+            reference: false,
+            mention: true,
           },
           ownerUserId: "owner-001",
           ownerName: "Mira",
@@ -2189,7 +2194,15 @@ describe("gateway http forwarding", () => {
 
   it("forwards GET /v1/spaces/:spaceId/member-directory to core RPC", async () => {
     const { env, rpc } = makeEnv();
-    const request = new Request("http://local/v1/spaces/demo/member-directory");
+    const request = new Request(
+      "http://local/v1/spaces/demo/member-directory",
+      {
+        headers: {
+          [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
+            OPENMELD_SPACE_ADDRESSING_VERSION,
+        },
+      }
+    );
 
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
     expect(response.status).toBe(200);
@@ -2201,20 +2214,24 @@ describe("gateway http forwarding", () => {
           allowedRelations: {
             wake: false,
             reference: false,
+            mention: true,
           },
         },
       ],
     });
-    expect(rpc.getSpaceMemberDirectory).toHaveBeenCalledWith({
-      spaceId: "demo",
-      spaceAccess: expect.objectContaining({
-        actor: expect.objectContaining({
-          kind: "authenticated",
-          requestContext: EXPECTED_CORE_CONTEXT,
+    expect(rpc.getSpaceMemberDirectory).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        spaceAccess: expect.objectContaining({
+          actor: expect.objectContaining({
+            kind: "authenticated",
+            requestContext: EXPECTED_CORE_CONTEXT,
+          }),
+          proof: expect.objectContaining({ kind: "none" }),
         }),
-        proof: expect.objectContaining({ kind: "none" }),
-      }),
-    });
+      },
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
     expect(rpc.getSpaceMembers).not.toHaveBeenCalled();
   });
 
@@ -2245,20 +2262,23 @@ describe("gateway http forwarding", () => {
         previews: [],
       },
     });
-    expect(rpc.getSpaceBootstrapWithTiming).toHaveBeenCalledWith({
-      spaceId: "demo",
-      recent: true,
-      limit: 30,
-      includeAgentStreamPresence: true,
-      signalTypes: ["signal.text", "signal.status"],
-      spaceAccess: expect.objectContaining({
-        actor: expect.objectContaining({
-          kind: "authenticated",
-          requestContext: EXPECTED_CORE_CONTEXT,
+    expect(rpc.getSpaceBootstrapWithTiming).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        recent: true,
+        limit: 30,
+        includeAgentStreamPresence: true,
+        signalTypes: ["signal.text", "signal.status"],
+        spaceAccess: expect.objectContaining({
+          actor: expect.objectContaining({
+            kind: "authenticated",
+            requestContext: EXPECTED_CORE_CONTEXT,
+          }),
+          proof: expect.objectContaining({ kind: "none" }),
         }),
-        proof: expect.objectContaining({ kind: "none" }),
-      }),
-    });
+      },
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
     expect(rpc.getSpaceBootstrap).not.toHaveBeenCalled();
     expect(rpc.getSpaceStatus).not.toHaveBeenCalled();
     expect(rpc.getSpaceMembers).not.toHaveBeenCalled();
@@ -4307,10 +4327,13 @@ describe("gateway http forwarding", () => {
       signals: [{ type: "signal.text", data: { text: "ok" } }],
       nextCursor: null,
     });
-    expect(rpc.listSignals).toHaveBeenCalledWith({
-      spaceId: "demo",
-      spaceAccess: expectedAuthenticatedSpaceAccess("demo"),
-    });
+    expect(rpc.listSignals).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        spaceAccess: expectedAuthenticatedSpaceAccess("demo"),
+      },
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
     expect(authRpc.resolveRequestAuth).toHaveBeenCalledWith(
       expect.objectContaining({ requestId: "req-123" })
     );
@@ -4328,10 +4351,13 @@ describe("gateway http forwarding", () => {
 
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
     expect(response.status).toBe(200);
-    expect(rpc.listSignals).toHaveBeenCalledWith({
-      spaceId: "demo",
-      spaceAccess: expectedAuthenticatedSpaceAccess("demo", "pass-01"),
-    });
+    expect(rpc.listSignals).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        spaceAccess: expectedAuthenticatedSpaceAccess("demo", "pass-01"),
+      },
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
   });
 
   it("retries GET /signals once for transient upstream errors", async () => {
@@ -4383,14 +4409,17 @@ describe("gateway http forwarding", () => {
       signals: [{ type: "signal.text", data: { text: "page-1" } }],
       nextCursor: "cursor-2",
     });
-    expect(rpc.listSignals).toHaveBeenCalledWith({
-      spaceId: "demo",
-      afterTs: 123,
-      limit: 2,
-      cursor: "cursor-1",
-      recent: true,
-      spaceAccess: expectedAuthenticatedSpaceAccess("demo"),
-    });
+    expect(rpc.listSignals).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        afterTs: 123,
+        limit: 2,
+        cursor: "cursor-1",
+        recent: true,
+        spaceAccess: expectedAuthenticatedSpaceAccess("demo"),
+      },
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
   });
 
   it("rejects invalid afterTs query values with 400 and does not call core", async () => {
@@ -4929,17 +4958,20 @@ describe("gateway http forwarding", () => {
 
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
     expect(response.status).toBe(200);
-    expect(rpc.postSignal).toHaveBeenCalledWith({
-      spaceId: "demo",
-      profile: {
-        kind: "human",
-        profileId: "11111111-1111-4111-8111-111111111111",
-        profileName: "Mira",
+    expect(rpc.postSignal).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        profile: {
+          kind: "human",
+          profileId: "11111111-1111-4111-8111-111111111111",
+          profileName: "Mira",
+        },
+        text: "hello",
+        authoringPolicy: "user_authored",
+        context: EXPECTED_CORE_CONTEXT,
       },
-      text: "hello",
-      authoringPolicy: "user_authored",
-      context: EXPECTED_CORE_CONTEXT,
-    });
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
   });
 
   it("forwards POST /signals attachment references to Core", async () => {
@@ -4966,18 +4998,21 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
 
     expect(response.status).toBe(200);
-    expect(rpc.postSignal).toHaveBeenCalledWith({
-      spaceId: "demo",
-      profile: {
-        kind: "human",
-        profileId: "11111111-1111-4111-8111-111111111111",
-        profileName: "Mira",
+    expect(rpc.postSignal).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        profile: {
+          kind: "human",
+          profileId: "11111111-1111-4111-8111-111111111111",
+          profileName: "Mira",
+        },
+        text: "Here is the diagram.",
+        attachments,
+        authoringPolicy: "user_authored",
+        context: EXPECTED_CORE_CONTEXT,
       },
-      text: "Here is the diagram.",
-      attachments,
-      authoringPolicy: "user_authored",
-      context: EXPECTED_CORE_CONTEXT,
-    });
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
   });
 
   it("preserves invalid attachment reference errors from Core", async () => {
@@ -5071,25 +5106,28 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
 
     expect(response.status).toBe(200);
-    expect(rpc.postSignal).toHaveBeenCalledWith({
-      spaceId: "demo",
-      profile: {
-        kind: "human",
-        profileId: "11111111-1111-4111-8111-111111111111",
-        profileName: "Mira",
-      },
-      text: "@Demo Agent(wake) hello",
-      authoringPolicy: "user_authored",
-      messageEnvelope: {
+    expect(rpc.postSignal).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        profile: {
+          kind: "human",
+          profileId: "11111111-1111-4111-8111-111111111111",
+          profileName: "Mira",
+        },
         text: "@Demo Agent(wake) hello",
-        activationTargets: [VALID_TARGET_AGENT_PROFILE_ID],
-        referenceTargets: [],
+        authoringPolicy: "user_authored",
+        messageEnvelope: {
+          text: "@Demo Agent(wake) hello",
+          activationTargets: [VALID_TARGET_AGENT_PROFILE_ID],
+          referenceTargets: [],
+        },
+        meta: {
+          clientMessageId: "client-message-1",
+        },
+        context: EXPECTED_CORE_CONTEXT,
       },
-      meta: {
-        clientMessageId: "client-message-1",
-      },
-      context: EXPECTED_CORE_CONTEXT,
-    });
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
   });
 
   it("forwards POST /signals meta to core RPC", async () => {
@@ -5112,25 +5150,28 @@ describe("gateway http forwarding", () => {
 
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
     expect(response.status).toBe(200);
-    expect(rpc.postSignal).toHaveBeenCalledWith({
-      spaceId: "demo",
-      profile: {
-        kind: "human",
-        profileId: "11111111-1111-4111-8111-111111111111",
-        profileName: "Mira",
+    expect(rpc.postSignal).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        profile: {
+          kind: "human",
+          profileId: "11111111-1111-4111-8111-111111111111",
+          profileName: "Mira",
+        },
+        text: "Mira added Demo Bot to this space.",
+        authoringPolicy: "user_authored",
+        meta: {
+          purpose: "space_membership_join_notice",
+          targetProfileId: VALID_MEMBER_NOTICE_TARGET_PROFILE_ID,
+          targetProfileKind: "agent",
+          targetProfileName: "Demo Bot",
+          addedByProfileId: VALID_MEMBER_NOTICE_ACTOR_PROFILE_ID,
+          addedByDisplayName: "Mira",
+        },
+        context: EXPECTED_CORE_CONTEXT,
       },
-      text: "Mira added Demo Bot to this space.",
-      authoringPolicy: "user_authored",
-      meta: {
-        purpose: "space_membership_join_notice",
-        targetProfileId: VALID_MEMBER_NOTICE_TARGET_PROFILE_ID,
-        targetProfileKind: "agent",
-        targetProfileName: "Demo Bot",
-        addedByProfileId: VALID_MEMBER_NOTICE_ACTOR_PROFILE_ID,
-        addedByDisplayName: "Mira",
-      },
-      context: EXPECTED_CORE_CONTEXT,
-    });
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
   });
 
   it("forwards current addressing and keeps the retired response field empty for old clients", async () => {
@@ -5188,29 +5229,99 @@ describe("gateway http forwarding", () => {
       };
     };
     expect(payload.data?.messageEnvelope?.ccTargets).toEqual([]);
-    expect(rpc.postSignal).toHaveBeenCalledWith({
-      spaceId: "demo",
-      profile: {
-        kind: "human",
-        profileId: "11111111-1111-4111-8111-111111111111",
-        profileName: "Mira",
-      },
-      text: "hello",
-      authoringPolicy: "user_authored",
-      messageEnvelope: {
+    expect(rpc.postSignal).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        profile: {
+          kind: "human",
+          profileId: "11111111-1111-4111-8111-111111111111",
+          profileName: "Mira",
+        },
         text: "hello",
-        activationTargets: [],
-        referenceTargets: ["agt_9a7252af-d284-4c4a-bf1c-ceeb96656b71"],
+        authoringPolicy: "user_authored",
+        messageEnvelope: {
+          text: "hello",
+          activationTargets: [],
+          referenceTargets: ["agt_9a7252af-d284-4c4a-bf1c-ceeb96656b71"],
+        },
+        replyTo: {
+          signalId: "sig-current-reply",
+          profileId: "agt_9a7252af-d284-4c4a-bf1c-ceeb96656b71",
+          profileKind: "agent",
+          profileName: "Phase 2a Agent",
+          previewText: "Previous reply",
+        },
+        context: EXPECTED_CORE_CONTEXT,
       },
-      replyTo: {
-        signalId: "sig-current-reply",
-        profileId: "agt_9a7252af-d284-4c4a-bf1c-ceeb96656b71",
-        profileKind: "agent",
-        profileName: "Phase 2a Agent",
-        previewText: "Previous reply",
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
+  });
+
+  it("preserves Human Mention fields for current clients", async () => {
+    const humanMentionTargetId = "22222222-2222-4222-8222-222222222222";
+    const { env, rpc } = makeEnv({
+      coreOverrides: {
+        postSignal: vi.fn(async () => ({
+          v: 1,
+          id: "evt-current-addressing",
+          spaceId: "demo",
+          ts: 1,
+          profile: {
+            kind: "human",
+            profileId: VALID_HUMAN_PROFILE_ID,
+            profileName: "Mira",
+          },
+          type: "signal.text",
+          data: {
+            text: "@Felix please review",
+            messageEnvelope: {
+              text: "@Felix please review",
+              activationTargets: [],
+              referenceTargets: [],
+              mentionTargets: [humanMentionTargetId],
+            },
+          },
+        })),
       },
-      context: EXPECTED_CORE_CONTEXT,
     });
+    const request = new Request("http://local/v1/spaces/demo/signals", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
+          OPENMELD_SPACE_ADDRESSING_VERSION,
+      },
+      body: JSON.stringify({
+        text: "@Felix please review",
+        messageEnvelope: {
+          text: "@Felix please review",
+          activationTargets: [],
+          referenceTargets: [],
+          mentionTargets: [humanMentionTargetId],
+        },
+      }),
+    });
+
+    const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        messageEnvelope: {
+          activationTargets: [],
+          referenceTargets: [],
+          mentionTargets: [humanMentionTargetId],
+        },
+      },
+    });
+    expect(rpc.postSignal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageEnvelope: expect.objectContaining({
+          mentionTargets: [humanMentionTargetId],
+        }),
+      }),
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
   });
 
   it("does not emit signal_posted runtime evidence before success payload validation", async () => {
@@ -5631,13 +5742,16 @@ describe("gateway http forwarding", () => {
         }),
       ],
     });
-    expect(rpc.getSpaceUpdates).toHaveBeenCalledWith({
-      spaceId: "demo",
-      afterSignalId: "sig-1",
-      limit: 25,
-      password: "secret-updates",
-      context: EXPECTED_CORE_CONTEXT,
-    });
+    expect(rpc.getSpaceUpdates).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        afterSignalId: "sig-1",
+        limit: 25,
+        password: "secret-updates",
+        context: EXPECTED_CORE_CONTEXT,
+      },
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
   });
 
   it("rejects invalid GET /updates query before forwarding", async () => {
@@ -5671,11 +5785,14 @@ describe("gateway http forwarding", () => {
         dispatchId: "dispatch-1",
       })
     );
-    expect(rpc.getSpaceDispatchResult).toHaveBeenCalledWith({
-      spaceId: "demo",
-      dispatchId: "dispatch-1",
-      context: EXPECTED_CORE_CONTEXT,
-    });
+    expect(rpc.getSpaceDispatchResult).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        dispatchId: "dispatch-1",
+        context: EXPECTED_CORE_CONTEXT,
+      },
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
   });
 
   it("forwards GET /result by resultRef to core RPC", async () => {
@@ -5690,11 +5807,14 @@ describe("gateway http forwarding", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(rpc.getSpaceDispatchResult).toHaveBeenCalledWith({
-      spaceId: "demo",
-      resultRef: "dispatch-result:result-1",
-      context: EXPECTED_CORE_CONTEXT,
-    });
+    expect(rpc.getSpaceDispatchResult).toHaveBeenCalledWith(
+      {
+        spaceId: "demo",
+        resultRef: "dispatch-result:result-1",
+        context: EXPECTED_CORE_CONTEXT,
+      },
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
   });
 
   it("rejects invalid GET /result query before forwarding", async () => {

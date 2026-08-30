@@ -1,3 +1,4 @@
+import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
 import {
   leaveSpaceResponseSchema,
   postSpaceMembersResponseSchema,
@@ -63,10 +64,13 @@ export function registerMembersRoutes(app: Hono<HonoBindings>): void {
       spaceId,
       includeLegacySpaceAddressingWireFields: true,
       execute: async () => {
-        return await c.var.coreRpc.getSpaceMemberDirectory({
-          spaceId,
-          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
-        });
+        return await c.var.coreRpc.getSpaceMemberDirectory(
+          {
+            spaceId,
+            spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
+          },
+          OPENMELD_SPACE_ADDRESSING_VERSION
+        );
       },
       responseSchema: spaceMemberDirectorySchema,
     });

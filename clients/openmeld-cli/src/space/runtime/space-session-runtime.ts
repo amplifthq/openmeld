@@ -1,7 +1,7 @@
 import type { Profile } from "@openmeld/protocol";
 import {
   parseOptionalClientMessageId,
-  toLegacySpaceAddressingWireValue,
+  toCompatibleSpaceAddressingRequestWireValue,
 } from "@openmeld/schemas";
 import type {
   MessageEnvelope,
@@ -189,7 +189,7 @@ export class SpaceSessionRuntime {
     try {
       this.#ws.send(
         JSON.stringify(
-          toLegacySpaceAddressingWireValue(
+          toCompatibleSpaceAddressingRequestWireValue(
             makeTextSignal(text, {
               ...(input.messageEnvelope
                 ? { messageEnvelope: input.messageEnvelope }

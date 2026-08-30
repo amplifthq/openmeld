@@ -49,6 +49,9 @@ export const OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION =
   "x-openmeld-inbox-source-target-version";
 export const OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION =
   "x-openmeld-inbox-item-kind-version";
+export const OPENMELD_HEADER_SPACE_ADDRESSING_VERSION =
+  "x-openmeld-space-addressing-version";
+export const OPENMELD_SPACE_ADDRESSING_VERSION = "1";
 export const OPENMELD_INBOX_ITEM_KIND_VERSION = "1";
 export const OPENMELD_INBOX_SOURCE_TARGET_THREAD_UNAWARE_VERSION = "3";
 export const OPENMELD_INBOX_SOURCE_TARGET_VERSION = "4";

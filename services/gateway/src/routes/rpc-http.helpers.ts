@@ -2,6 +2,8 @@ import type { GatewayErrorCode } from "@openmeld/gateway-contract";
 import {
   contextAuditFields,
   jsonErrorResponse,
+  OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_ADDRESSING_VERSION,
   toErrorMessage,
   withRequestIdHeader,
 } from "@openmeld/gateway-contract";
@@ -259,9 +261,11 @@ export async function executeRpcRoute(
       result,
       status,
     });
-    const responsePayload = input.includeLegacySpaceAddressingWireFields
-      ? toLegacySpaceAddressingWireValue(validatedResult.payload)
-      : validatedResult.payload;
+    const responsePayload =
+      input.includeLegacySpaceAddressingWireFields &&
+      !supportsCurrentSpaceAddressing(c.req.raw.headers)
+        ? toLegacySpaceAddressingWireValue(validatedResult.payload)
+        : validatedResult.payload;
     return withRequestIdHeader(
       Response.json(responsePayload, {
         ...(successHeaders ? { headers: successHeaders } : {}),
@@ -330,9 +334,11 @@ export async function executePublicRpcRoute(
       requestId,
     });
 
-    const responsePayload = input.includeLegacySpaceAddressingWireFields
-      ? toLegacySpaceAddressingWireValue(validatedResult.payload)
-      : validatedResult.payload;
+    const responsePayload =
+      input.includeLegacySpaceAddressingWireFields &&
+      !supportsCurrentSpaceAddressing(c.req.raw.headers)
+        ? toLegacySpaceAddressingWireValue(validatedResult.payload)
+        : validatedResult.payload;
     return withRequestIdHeader(
       Response.json(responsePayload, {
         status: input.successStatus ?? 200,
@@ -347,6 +353,13 @@ export async function executePublicRpcRoute(
       method,
     });
   }
+}
+
+function supportsCurrentSpaceAddressing(headers: Headers): boolean {
+  return (
+    headers.get(OPENMELD_HEADER_SPACE_ADDRESSING_VERSION) ===
+    OPENMELD_SPACE_ADDRESSING_VERSION
+  );
 }
 
 async function executeRpcWithRetryPolicy(

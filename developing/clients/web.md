@@ -2990,6 +2990,13 @@ explicitly instead of relying on Core to infer Wake from arbitrary bare text.
 Changing a semantic control changes the authored structured relation; AI
 interpretation must never silently rewrite it.
 
+The shared Web API client sends the current Space Addressing response-version
+header, and the Web Gateway proxy forwards it unchanged. The live Space proxy
+declares the matching `spaceMessageAddressing` hello capability. Therefore a
+Human Mention remains structured after the optimistic message is replaced,
+after refresh, and on live delivery; compatibility projection for an old client
+must never run on these current paths.
+
 For Web-authored Wake messages, Web must create and preserve a non-empty
 `clientMessageId` before the first network hop. That key is the browser-authored
 user-action key for later trace lookup.

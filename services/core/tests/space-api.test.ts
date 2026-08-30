@@ -5990,6 +5990,94 @@ describe("OpenMeld Core", () => {
     observer.close(1000, "done");
   });
 
+  it("preserves Human Mention across current live and history transports", async () => {
+    const spaceId = await createSpace();
+    const observerProfile = {
+      kind: "human",
+      profileId: "mention-observer",
+      profileName: "Mention Observer",
+    };
+    const observerProfileId = toCanonicalOpenMeldProfileId(
+      observerProfile.profileId,
+      "human"
+    );
+    const observer = await openPendingSpaceSocket(spaceId, observerProfile);
+    const helloAck = waitForJsonMessage(
+      observer,
+      (data) => data.type === "system.hello.ack"
+    );
+    observer.send(
+      JSON.stringify({
+        type: "hello",
+        profile: observerProfile,
+        capabilities: { spaceMessageAddressing: true },
+      })
+    );
+    await helloAck;
+
+    const text = "@Mention Observer please review";
+    const liveMention = waitForJsonMessage(
+      observer,
+      (data) =>
+        data.type === "signal.text" &&
+        (data.data as { text?: string }).text === text
+    );
+    const postResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-openmeld-space-addressing-version": "1",
+        },
+        body: JSON.stringify({
+          type: "signal.text",
+          data: {
+            text,
+            messageEnvelope: {
+              text,
+              activationTargets: [],
+              referenceTargets: [],
+              mentionTargets: [observerProfileId],
+            },
+          },
+        }),
+      }
+    );
+    expect(postResponse.status).toBe(200);
+
+    const liveMessage = await liveMention;
+    expect(
+      (
+        liveMessage.data as {
+          messageEnvelope?: { mentionTargets?: string[] };
+        }
+      ).messageEnvelope?.mentionTargets
+    ).toEqual([observerProfileId]);
+
+    const historyResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`,
+      { headers: { "x-openmeld-space-addressing-version": "1" } }
+    );
+    expect(historyResponse.status).toBe(200);
+    const history = (await historyResponse.json()) as {
+      signals?: Array<{
+        data?: {
+          text?: string;
+          messageEnvelope?: { mentionTargets?: string[] };
+        };
+      }>;
+    };
+    const persisted = history.signals?.find(
+      (signal) => signal.data?.text === text
+    );
+    expect(persisted?.data?.messageEnvelope?.mentionTargets).toEqual([
+      observerProfileId,
+    ]);
+
+    observer.close(1000, "done");
+  });
+
   it("does not let an ordinary user forge durable Center Agent Task references", async () => {
     const spaceId = await createSpace();
     const text = "I created a Task that does not exist.";

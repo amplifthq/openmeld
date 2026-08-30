@@ -74,6 +74,17 @@ describe("SpaceSessionRuntime", () => {
     });
 
     const startResult = await runtime.start();
+    expect(JSON.parse(String(harness.send.mock.calls[0]?.[0] ?? "{}"))).toEqual(
+      {
+        type: "hello",
+        profile: {
+          kind: "human",
+          profileId: "self-profile",
+          profileName: "Felix",
+        },
+        capabilities: { spaceMessageAddressing: true },
+      }
+    );
     harness.emit(
       createSignalTextRawEvent({
         id: "live-1",
@@ -267,6 +278,48 @@ describe("SpaceSessionRuntime", () => {
         }),
       })
     );
+  });
+
+  it("keeps Human Mention targets on current websocket frames", async () => {
+    const harness = createWsHarness();
+    connectWebSocketMock.mockResolvedValue(harness.client);
+    const humanProfileId = "11111111-2222-4333-8444-555555555555";
+    const runtime = new SpaceSessionRuntime({
+      wsUrl: "wss://example.com/v1/spaces/ops-room",
+      wsHeaders: {},
+      helloProfile: {
+        kind: "human",
+        profileId: "self-profile",
+        profileName: "Felix",
+      },
+      selfProfileId: "self-profile",
+      loadMembers: () => Promise.resolve(null),
+      replayHistory: () => Promise.resolve({ synced: true }),
+      formatError: (error) => String(error),
+      scheduleDeferredWork: (work) => {
+        work();
+      },
+    });
+
+    await runtime.start();
+    runtime.sendText({
+      text: "@Mira(mention) please review",
+      messageEnvelope: {
+        activationTargets: [],
+        referenceTargets: [],
+        mentionTargets: [humanProfileId],
+        text: "@Mira(mention) please review",
+      },
+    });
+
+    const sent = JSON.parse(String(harness.send.mock.calls[1]?.[0] ?? "{}"));
+    expect(sent.data.messageEnvelope).toEqual({
+      activationTargets: [],
+      referenceTargets: [],
+      mentionTargets: [humanProfileId],
+      text: "@Mira(mention) please review",
+    });
+    expect(sent.data.messageEnvelope).not.toHaveProperty("ccTargets");
   });
 
   it("emits send.failed when the server returns an error frame for a pending send", async () => {

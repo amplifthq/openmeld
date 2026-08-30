@@ -20,6 +20,31 @@ export function toLegacySpaceAddressingWireValue(value: unknown): unknown {
   return encodeLegacySpaceAddressingWireValue(value, null);
 }
 
+/**
+ * Keeps Human Mention requests current while retaining the old request shape
+ * for messages that do not use the new relation.
+ */
+export function toCompatibleSpaceAddressingRequestWireValue(
+  value: unknown
+): unknown {
+  return containsHumanMentionTarget(value)
+    ? value
+    : toLegacySpaceAddressingWireValue(value);
+}
+
+function containsHumanMentionTarget(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(containsHumanMentionTarget);
+  }
+  if (!isJsonRecord(value)) {
+    return false;
+  }
+  if (Array.isArray(value.mentionTargets) && value.mentionTargets.length > 0) {
+    return true;
+  }
+  return Object.values(value).some(containsHumanMentionTarget);
+}
+
 function encodeLegacySpaceAddressingWireValue(
   value: unknown,
   fieldName: string | null

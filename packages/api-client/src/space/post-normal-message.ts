@@ -1,13 +1,14 @@
 import {
   postNormalMessageBodySchema,
   postNormalMessageResponseSchema,
-  toLegacySpaceAddressingWireValue,
+  toCompatibleSpaceAddressingRequestWireValue,
 } from "@openmeld/schemas";
 import type {
   PostNormalMessageBody,
   PostNormalMessageResponse,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { currentSpaceAddressingHeaders } from "./addressing-contract";
 import { buildSpaceSignalsPath } from "./routes";
 import type { SpaceRequestInput } from "./types";
 
@@ -36,10 +37,10 @@ export async function postSpaceNormalMessage(
     url: buildSpaceSignalsPath(input.spaceId),
     operation: "space.send",
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(toLegacySpaceAddressingWireValue(parsedBody.data)),
+    headers: currentSpaceAddressingHeaders("application/json"),
+    body: JSON.stringify(
+      toCompatibleSpaceAddressingRequestWireValue(parsedBody.data)
+    ),
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,

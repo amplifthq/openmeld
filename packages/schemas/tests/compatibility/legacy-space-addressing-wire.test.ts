@@ -2,6 +2,7 @@ import {
   messageEnvelopeSchema,
   normalizeMessageEnvelope,
   spaceMemberDirectoryAllowedRelationsSchema,
+  toCompatibleSpaceAddressingRequestWireValue,
   toLegacySpaceAddressingWireValue,
 } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
@@ -22,6 +23,38 @@ const legacyAllowedRelationsSchema = z.strictObject({
 });
 
 describe("legacy Space Addressing wire compatibility", () => {
+  it("keeps Human Mention requests current and downgrades requests without them", () => {
+    const currentMentionRequest = {
+      messageEnvelope: {
+        activationTargets: [],
+        referenceTargets: [],
+        mentionTargets: [HUMAN_PROFILE_ID],
+        text: "@Felix please review",
+      },
+    };
+    expect(
+      toCompatibleSpaceAddressingRequestWireValue(currentMentionRequest)
+    ).toEqual(currentMentionRequest);
+
+    expect(
+      toCompatibleSpaceAddressingRequestWireValue({
+        messageEnvelope: {
+          activationTargets: [AGENT_PROFILE_ID],
+          referenceTargets: [],
+          mentionTargets: [],
+          text: "Please investigate",
+        },
+      })
+    ).toEqual({
+      messageEnvelope: {
+        activationTargets: [AGENT_PROFILE_ID],
+        referenceTargets: [],
+        ccTargets: [],
+        text: "Please investigate",
+      },
+    });
+  });
+
   it("adds retired fields only to the serialized wire projection", () => {
     const currentValue = {
       member: {
