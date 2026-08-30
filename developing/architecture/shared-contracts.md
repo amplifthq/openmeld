@@ -4487,15 +4487,16 @@ and already-deployed strict consumers remain compatible during rollout.
 contracts for Space member snapshots, public Wake availability fields, owner
 diagnostics, and Space member directory entries.
 
-Current Space Message Addressing has exactly two shared-schema relations:
-Wake (`activationTargets`) and Reference (`referenceTargets`). Wake is the only
-relation that may create executable work. Reference is context only and must
+Current Space Message Addressing has exactly three shared-schema relations:
+Wake (`activationTargets`) and Reference (`referenceTargets`) target Agent
+Profiles; Human Mention (`mentionTargets`) targets Human Profiles. Wake is the only
+relation that may create executable work. Reference and Human Mention must
 not enter dispatch, claim, RuntimeCoordinator, Delegation, or continuation
 coordination.
 
 The Space Durable Object is the write-time authority for Message Addressing
 target membership. Before persisting a new text signal, it validates every
-`activationTargets` and `referenceTargets` entry against its own active Space
+`activationTargets`, `referenceTargets`, and `mentionTargets` entry against its own active Space
 member records. Center Agent, HTTP, thread, WebSocket, and idempotent publication
 paths cannot replace this check with Organization Profile data or a client
 member-directory snapshot. Idempotent retries validate the submitted target set
@@ -4533,7 +4534,7 @@ boundary for retired CC wire data. Its removal points are explicit:
   `referenceTargets` before returning a current-domain object.
 - `schemas/http/space-members.ts` accepts the retired
   `allowedRelations.cc` field only while parsing old member-directory
-  projections and returns the current two-relation capability object.
+  projections and returns the current three-relation capability object.
 - `compatibility/legacy-space-addressing-wire.ts` is the outbound compatibility
   encoder for supported old-client transports. It may add only an empty
   `ccTargets` field and the retired `allowedRelations.cc = false` capability
@@ -4547,13 +4548,13 @@ The Contract Impact Audit for this retirement is:
 
 | Direction                                                  | Compatibility rule                                                                                                                                                                                                   |
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Old CLI or OpenMeld Service -> new Core                    | New shared request schemas accept the retired empty or populated field only at preprocessing, merge historical targets into Reference, and return a current two-relation object. This includes daemon result frames. |
-| New CLI or OpenMeld Service -> old Core                    | The centralized outbound wire adapter supplies an empty retired field on Space authoring and daemon result frames; current authoring can express only Wake or Reference.                                             |
+| Old CLI or OpenMeld Service -> new Core                    | New shared request schemas accept the retired empty or populated field only at preprocessing, merge historical targets into Reference, and return a current addressing object. This includes daemon result frames. |
+| New CLI or OpenMeld Service -> old Core                    | Not supported once `mentionTargets` is authored. The guarded rollout deploys current readers before current Human Mention writers.                                                                                |
 | Old Web or API client -> new Gateway/Core                  | New request schemas normalize the retired field at the boundary. Old response readers receive only the empty compatibility field.                                                                                    |
 | New Web or API client -> old Gateway/Core                  | The shared API client's outbound adapter supplies the empty compatibility field, and current response readers normalize old persisted values into Reference.                                                         |
 | Old Gateway or Remote Agent -> new Core                    | New Core request schemas normalize the retired field before current RPC or authoring logic can observe it.                                                                                                           |
 | New Core -> old Gateway, Remote Agent, or OpenMeld Service | Core RPC, thread HTTP, Space live, and daemon delivery responses add only empty retired fields after current-domain validation so strict old consumers can read them.                                                |
-| New Gateway or Remote Agent -> old Core                    | Not a supported mixed-version direction. The guarded rollout must deploy Core first because current cloud consumers intentionally do not send a third current relation.                                              |
+| New Gateway or Remote Agent -> old Core                    | Not a supported mixed-version direction. The guarded rollout must deploy Core first.                                                                                                                                |
 | Historical persisted Signal -> current read projection     | Shared preprocessing merges historical CC targets into Reference before timeline, details, prompt, or dispatch code can observe the message. It never creates work.                                                  |
 
 The Center Agent structured-Reference extension follows the same rollout
@@ -4569,7 +4570,7 @@ missing `referenceTargets` to an empty current-domain list.
 
 Remove all three compatibility owner points together after the minimum
 supported Web, CLI, OpenMeld Service, Gateway, Core, and Remote Agent versions
-use the two-relation model and one production Space-history retention window
+use the three-relation model and one production Space-history retention window
 has elapsed. Until then, production rollout is Core first, then Gateway and
 Remote Agent, then Web, and finally the published CLI, OpenMeld Service, and
 managed skill bundle. Rollback reverses that order. The release fence is

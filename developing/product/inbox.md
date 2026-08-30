@@ -62,7 +62,7 @@ material failure. An ordinary unread update is not automatically urgent.
 Phase 1 source kinds are:
 
 - `space_message`
-- `space_reference`
+- `space_mention`
 - `agent_reply`
 - `agent_interaction`
 - `wake_outcome`
@@ -74,6 +74,10 @@ Phase 1 source kinds are:
 Source adapters choose these values from explicit source facts. Inbox must not
 infer urgency from free text, model output, UI copy, elapsed time, or missing
 data.
+
+A structured Human Mention produces one `space_mention` update for that person.
+It replaces the ordinary Space-message update for the same source and recipient,
+so one message never creates duplicate Inbox or browser notifications.
 
 ## Item contract and ownership
 

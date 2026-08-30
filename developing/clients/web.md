@@ -2959,21 +2959,33 @@ not be used as a status.
 
 ## Wake Authoring And Details
 
-Web must preserve the submitted difference between Wake and Reference.
+Web must preserve the submitted difference between Agent Wake, Agent Reference,
+and Human Mention.
 
-A Wake creates executable work. Reference creates collaboration context, not
-dispatch work. Web must not silently rewrite Reference into Wake.
+A Wake creates executable work. Reference creates Agent collaboration context,
+and Human Mention directs a person's attention. Neither creates dispatch work.
+Web must not silently rewrite one relation into another.
 
-The primary Space composer `@` picker optimizes for the common user action:
+Ordinary Space, Direct Message, and Thread composers place a visible `@` button
+beside the file button. Clicking it inserts `@` at the current selection and
+opens the same picker without losing keyboard focus. The primary Space composer
+uses `To wake an agent, type @, then pick the agent.` as its placeholder;
+Human-only DMs use `Message {name}…`, Agent DMs use `Message {name}…`, Center
+Agent DMs use `Tell Center Agent what you need…`, and Threads use
+`Reply in thread…`.
+
+The `@` picker optimizes for the common user action:
 selecting an Agent Profile authors Wake by default while keeping the visible
 composer text as a plain `@Name` mention. The same picker surface exposes the
 other allowed relation without a required second dialog: Wake uses `@`, and
-Reference uses a link-style symbol. Human Profile selection cannot create Wake.
+Reference uses a link-style symbol. Selecting a Human Profile creates a fixed
+Human Mention mark; people never receive an Agent relation selector.
 
 After selection, Web renders one persistent editable semantic control per
 structured target. The control identifies both the target and its current
 relation, and a multi-target message shows a quiet summary such as
-`Waking 3 agents · Referencing 0`. Web submits the structured relations
+`Waking 3 agents · Referencing 1 agent`. Human Mentions are intentionally omitted
+from this Agent-only summary. Web submits all structured relations
 explicitly instead of relying on Core to infer Wake from arbitrary bare text.
 Changing a semantic control changes the authored structured relation; AI
 interpretation must never silently rewrite it.
