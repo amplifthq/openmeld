@@ -2200,7 +2200,7 @@ describe("gateway http forwarding", () => {
           profileId: "11111111-1111-4111-8111-111111111111",
           allowedRelations: {
             wake: false,
-            reference: true,
+            reference: false,
           },
         },
       ],
