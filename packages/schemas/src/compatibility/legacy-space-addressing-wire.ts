@@ -47,13 +47,13 @@ function encodeLegacySpaceAddressingWireValue(
     isCurrentMessageEnvelope(encoded)
   ) {
     return {
-      ...encoded,
+      ...omitJsonField(encoded, "mentionTargets"),
       ccTargets: [],
     };
   }
   if (fieldName === "allowedRelations" && isCurrentAllowedRelations(encoded)) {
     return {
-      ...encoded,
+      ...omitJsonField(encoded, "mention"),
       cc: false,
     };
   }
@@ -78,4 +78,10 @@ function isCurrentAllowedRelations(value: JsonRecord): boolean {
 
 function isJsonRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null;
+}
+
+function omitJsonField(value: JsonRecord, fieldName: string): JsonRecord {
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== fieldName)
+  );
 }

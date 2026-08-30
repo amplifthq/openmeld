@@ -1490,8 +1490,16 @@ const assertCurrentSpaceAddressingTargetsAreActiveMembers = (input: {
     });
   }
   for (const targetProfileId of input.messageEnvelope.mentionTargets ?? []) {
-    if (isActiveSpaceMember(targetProfileId)) {
+    const member = readSpaceMemberRecord(input.sql, targetProfileId);
+    if (member?.status === "active" && member.profileKindSnapshot === "human") {
       continue;
+    }
+    if (member?.status === "active") {
+      throw new SpaceSignalAuthoringError({
+        code: SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
+        message: `OpenMeld could not mention ${targetProfileId} because Human Mention only supports people. The message was not sent. Choose a person or use Wake or Reference for an agent.`,
+        targetProfileId,
+      });
     }
     throw new SpaceSignalAuthoringError({
       code: SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,

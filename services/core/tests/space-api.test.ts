@@ -4427,6 +4427,73 @@ describe("OpenMeld Core", () => {
     expect(list.signals).toEqual([]);
   });
 
+  it("rejects active Agent profiles used as Human Mention targets", async () => {
+    const spaceId = await createSpace();
+    const agentProfileId = "agt_55555555-5555-4555-8555-555555555555";
+    const addResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            {
+              profileId: agentProfileId,
+              profileName: "Mention Boundary Agent",
+              profileKind: "agent",
+              ownerUserId: "owner-mention-boundary-agent",
+              ownerName: "Mention Boundary Owner",
+              agentControllerRef: "builtin:codex",
+            },
+          ],
+        }),
+      }
+    );
+    expect(addResponse.status).toBe(200);
+
+    const clientMessageId = `mention-agent-target-${randomUUID()}`;
+    const postResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          profile: {
+            kind: "human",
+            profileId: DEFAULT_HUMAN_PROFILE_ID,
+            profileName: "Test User",
+          },
+          type: "signal.text",
+          data: {
+            text: "@Mention Boundary Agent please review",
+            messageEnvelope: {
+              text: "@Mention Boundary Agent please review",
+              activationTargets: [],
+              referenceTargets: [],
+              mentionTargets: [agentProfileId],
+            },
+            meta: { clientMessageId },
+          },
+        }),
+      }
+    );
+
+    expect(postResponse.status).toBe(422);
+    await expect(postResponse.json()).resolves.toEqual({
+      ok: false,
+      code: "space.addressing.target_invalid",
+      message: `OpenMeld could not mention ${agentProfileId} because Human Mention only supports people. The message was not sent. Choose a person or use Wake or Reference for an agent.`,
+      targetProfileId: agentProfileId,
+    });
+
+    const listResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`
+    );
+    expect(listResponse.status).toBe(200);
+    const list = (await listResponse.json()) as { signals?: unknown[] };
+    expect(list.signals).toEqual([]);
+  });
+
   it("rejects Reference targets after their Space membership is removed", async () => {
     const spaceId = await createSpace();
     const addResponse = await fetchWithOpenMeldAuth(
