@@ -465,6 +465,41 @@ describe("local service lifecycle", () => {
     expect(serviceManager.install).toHaveBeenCalledTimes(1);
   });
 
+  it("repairs a candidate Service when its launchd definition disappeared", async () => {
+    const missingDefinitionInventory = buildInitialInventory(serviceManager);
+    missingDefinitionInventory.serviceManagerStatus = {
+      installed: false,
+      running: false,
+      enabled: false,
+      definitionPath: null,
+      commandSummary: null,
+    };
+    serviceManager.disableAutostart = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("OpenMeld Service is not installed for launchd.")
+      );
+    inspectDaemonServiceInventoryMock
+      .mockReset()
+      .mockResolvedValueOnce(missingDefinitionInventory)
+      .mockResolvedValue(buildFinalInventory(serviceManager));
+
+    const result = await runDaemonServiceLifecycle({
+      expectedVersion: EXPECTED_VERSION,
+      operation: "startup_repair",
+      installSource: "daemon.command.install",
+      desiredState: "stopped",
+      shouldStartAfterLifecycle: false,
+      forceReinstall: true,
+    });
+
+    expect(result.status).toBe("aligned");
+    expect(serviceManager.disableAutostart).not.toHaveBeenCalled();
+    expect(serviceManager.stop).toHaveBeenCalledTimes(1);
+    expect(serviceManager.uninstall).toHaveBeenCalledTimes(1);
+    expect(serviceManager.install).toHaveBeenCalledTimes(1);
+  });
+
   it("drains active local work before asking the system service manager to stop an upgrade", async () => {
     let drainCompleted = false;
     requestLocalDaemonShutdownMock.mockImplementation(() => {
