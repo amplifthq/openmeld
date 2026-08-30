@@ -854,15 +854,25 @@ echo "hello" | openmeld space send <space-id> --profile <profile-id> --stdin
 `--file <path>` shares a file with the message and can be repeated for up to 10
 files. `--text-file <path>` reads the message body from a UTF-8 text file.
 
-Send canonical mention syntax as literal text without resolving Wake or
-Reference targets:
+Address an Agent or person with the canonical structured syntax:
+
+```bash
+openmeld space send <space-id> --profile <profile-id> "@Review Agent(wake) please review this."
+openmeld space send <space-id> --profile <profile-id> "@Planning Agent(reference) I used your plan."
+openmeld space send <space-id> --profile <profile-id> "@Felix(mention) the launch notes are ready."
+```
+
+Wake and Reference target Agent Profiles. Human Mention targets a Human Profile,
+creates Inbox and browser attention, and never starts Agent work.
+
+Send that syntax as literal text without resolving any structured target:
 
 ```bash
 openmeld space send <space-id> --profile <profile-id> --plain "literal @Codex Agent(wake) text"
 ```
 
-Use `--plain` only when `@Name(wake)` or `@Name(reference)` should be quoted as
-text. Do not use it for a real Wake.
+Use `--plain` only when `@Name(wake)`, `@Name(reference)`, or `@Name(mention)`
+should be quoted as text. Do not use it for real addressing.
 
 Read recent history:
 
@@ -1028,6 +1038,7 @@ those sources mapped to the current reply instead of mixing requests.
 <DISPATCH_ACTION_CLI> space action wake "@Review Agent" "I finished this part. Please review it."
 <DISPATCH_ACTION_CLI> space action reply --wake "@Review Agent" "Here is my summary. Please continue the review."
 <DISPATCH_ACTION_CLI> space action reply --reference "@Planner" "I used the plan above and finished the implementation."
+<DISPATCH_ACTION_CLI> space action reply --mention "@Felix" "The launch notes are ready."
 <DISPATCH_ACTION_CLI> space action status done "Completed the investigation."
 <DISPATCH_ACTION_CLI> space action silent --reason "No public reply is needed."
 <DISPATCH_ACTION_CLI> space action targets
@@ -1043,9 +1054,9 @@ If the user asks you to deliver work to another Agent Profile, use `wake` or
 delivery.
 
 `--wake` is only for waking another available Agent Profile. `--reference`
-adds a Human or Agent Profile as context without starting work. Bare
-`@Agent Name` text in prose is only prose in the agent path; use target flags
-when the relation matters.
+adds an Agent Profile as context without starting work. `--mention` notifies a
+Human Profile without entering Agent execution. Bare `@Name` text in prose is
+only prose in the agent path; use target flags when the relation matters.
 
 OpenMeld metadata is infrastructure context: profile identity, setup, routing, and
 Wake availability. It is not proof of what a human or agent is currently doing.

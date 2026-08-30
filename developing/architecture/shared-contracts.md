@@ -4524,27 +4524,36 @@ publication remains the successful idempotent result after later membership
 changes. Historical signal reads do not run this authoring check; their
 compatibility projection remains readable after membership changes.
 
-Center Agent Space-authoring RPC requests use `referenceProfileIds` as their
-model-facing input. Core validates and normalizes those IDs, then writes them as
+Current Center Agent Space-authoring RPC requests use `mentionProfileIds` for
+Human Profiles and `referenceProfileIds` for Agent Profiles. Core validates and
+normalizes both sets, then writes them as `mentionTargets` and
 `referenceTargets` in the current Message Envelope. A delegated Wake
-publication command persists the same `referenceTargets` so event-driven retry
-cannot lose structured addressing. Older persisted commands that predate this
-field normalize to an empty list when read. No caller may infer Reference from
-message text. The deterministic Center Agent `clientMessageId` includes a
-non-empty normalized Reference set, while omitting the key for an empty set to
-preserve the pre-extension idempotency key across a Core rollout.
+publication command persists both sets so event-driven retry cannot lose
+structured addressing. Older persisted commands normalize missing lists to
+empty current-domain lists. No caller may infer either relation from message
+text. The deterministic Center Agent `clientMessageId` includes each non-empty
+normalized set while omitting empty keys to preserve older idempotency keys.
 
 Before either Center Agent Space-authoring RPC can publish, the current Remote
-Agent must call Core's `centerAgentReadSpaceAuthoringContract` RPC and validate
-the shared `addressingModel = wake_reference` and
-`structuredReferenceTargets = true` response. This is a capability fence, not a
-second addressing fact: Core remains the sole owner of the response, and the
-Remote Agent uses it only to reject an incompatible deployment before any
-Space write. The accepted publication response remains a postcondition check
-that the requested Reference targets were preserved. If that postcondition
-fails, the Remote Agent locks every later Space-authoring call in the same
-submission to the same non-retryable contract error, so a model retry cannot
-repeat a non-idempotent publication.
+Agent calls Core's `centerAgentReadSpaceAuthoringContract` RPC with
+`requestedAddressingModel = wake_reference_mention` and validates the matching
+response plus `structuredMentionTargets = true` and
+`structuredReferenceTargets = true`. An older Remote Agent omits the request
+field and receives the legacy `wake_reference` response. This negotiation is a
+capability fence, not a second addressing fact: Core remains the sole owner of
+the response, and a current Remote Agent uses it only to reject an incompatible
+old Core before any Space write.
+
+For Core-first rollout compatibility, an older Remote Agent may still send a
+Human Profile in `referenceProfileIds`. The current Core lets the Space
+authoring boundary translate that active Human into persisted Human Mention
+truth, then projects only the RPC response back to the requested legacy
+Reference set so the old caller's postcondition does not falsely report failure
+after a successful publication. A current caller receives no such projection:
+its accepted response must preserve every requested Human Mention and Agent
+Reference. If that postcondition fails, Remote Agent locks every later
+Space-authoring call in the same submission to the same non-retryable contract
+error, so a model retry cannot repeat a non-idempotent publication.
 
 The `packages/schemas` package is the single shared-schema compatibility
 boundary for retired CC wire data. Its removal points are explicit:
@@ -4596,21 +4605,22 @@ The Contract Impact Audit for this retirement is:
 | New CLI or OpenMeld Service -> old Core                    | Not supported once `mentionTargets` is authored. The guarded rollout deploys current readers before current Human Mention writers.                                                                                |
 | Old Web or API client -> new Gateway/Core                  | New request schemas normalize the retired field at the boundary. Gateway preserves the caller's missing version, and Core translates active Human References into Human Mentions before current validation. Old response readers receive only the empty compatibility field.         |
 | New Web or API client -> old Gateway/Core                  | Requests without Human Mention retain the empty compatibility field. A request with non-empty `mentionTargets` requires current readers; the guarded rollout deploys those readers first. Current response readers normalize old persisted values into Reference.              |
-| Old Gateway or Remote Agent -> new Core                    | New Core request schemas normalize the retired field before current RPC or authoring logic can observe it.                                                                                                           |
-| New Core -> old Gateway, Remote Agent, or OpenMeld Service | Consumers that omit the HTTP/RPC response version or WebSocket capability receive only empty retired fields after current-domain validation. Negotiated current consumers receive `mentionTargets` and `allowedRelations.mention` unchanged.                            |
-| New Gateway or Remote Agent -> old Core                    | Not a supported mixed-version direction. The guarded rollout must deploy Core first.                                                                                                                                |
+| Old Gateway or Remote Agent -> new Core                    | New Core request schemas normalize retired wire fields. For Center Agent authoring, an old Remote Agent receives the legacy contract and response projection while persisted Human targets become Mentions.                                                                         |
+| New Core -> old Gateway, Remote Agent, or OpenMeld Service | Consumers that omit the HTTP/RPC response version or WebSocket capability receive their supported legacy projection after current-domain validation. Negotiated current consumers receive `mentionTargets` and `allowedRelations.mention` unchanged.                               |
+| New Gateway or Remote Agent -> old Core                    | Not a supported authoring direction. Current Web/API writers roll out after Core/Gateway, and current Remote Agent detects the old authoring contract and fails before a Space write.                                                                                                 |
 | Historical persisted Signal -> current read projection     | Shared preprocessing merges historical CC targets into Reference before timeline, details, prompt, or dispatch code can observe the message. It never creates work.                                                  |
 
-The Center Agent structured-Reference extension follows the same rollout
-boundary. The request fields remain optional at the Core compatibility
-boundary, so old Remote Agent producers continue to work with new Core. A new
-Remote Agent refuses to publish through an old Core because that Core cannot
-satisfy `centerAgentReadSpaceAuthoringContract`; it does not rely on an unknown
-request field being rejected or on a post-publication comparison. Guarded
-production rollout must therefore deploy Core before Remote Agent, and rollback
-must remove the new Remote Agent before rolling back Core. Old persisted
-delegated publication commands remain readable because Core normalizes their
-missing `referenceTargets` to an empty current-domain list.
+The Center Agent Human Mention extension follows the same rollout boundary.
+The request fields remain optional at the Core compatibility boundary, so old
+Remote Agent producers continue to work with new Core. A current Remote Agent
+refuses to publish through an old Core because that Core cannot satisfy its
+requested `centerAgentReadSpaceAuthoringContract`; it does not rely on an
+unknown authoring field being rejected or on a post-publication comparison.
+Guarded production rollout must therefore deploy Core before Remote Agent, and
+rollback must remove the current Remote Agent before rolling back Core. Old
+persisted delegated publication commands remain readable because Core
+normalizes missing `mentionTargets` and `referenceTargets` to empty
+current-domain lists.
 
 Remove all three compatibility owner points together after the minimum
 supported Web, CLI, OpenMeld Service, Gateway, Core, and Remote Agent versions
