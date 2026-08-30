@@ -3,7 +3,7 @@ import {
 	createSpaceMemberHumanSnapshot,
 	createSpaceMembersSnapshot,
 } from "@openmeld/schemas/testing";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	buildSpaceComposerAddressingSummary,
@@ -159,6 +159,63 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 				relation: "wake",
 			}),
 		]);
+	});
+
+	it("migrates a restored Human Reference into a Human Mention", async () => {
+		const humanProfileId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const composer = renderHook(() =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: {
+					kind: "space",
+					ownerAccountId: "account-1",
+					profileId: "human-1",
+					spaceId: "space-1",
+				},
+				initialComposerDraft: {
+					authoredMentions: [
+						{
+							end: 6,
+							profileId: humanProfileId,
+							relation: "reference",
+							start: 0,
+							text: "@Felix",
+						},
+					],
+					replyToSignalId: null,
+					text: "@Felix please review this.",
+					updatedAtMs: 1,
+					version: 1,
+				},
+				isMembersLoading: false,
+				membersErrorMessage: null,
+				openMeldProfileId: "human-1",
+				snapshot: createSpaceMembersSnapshot({
+					humans: [
+						createSpaceMemberHumanSnapshot({
+							profileId: humanProfileId,
+							profileName: "Felix",
+						}),
+					],
+				}),
+				spaceId: "space-1",
+			})
+		);
+
+		await waitFor(() => {
+			expect(composer.result.current.addressingTargets).toEqual([
+				expect.objectContaining({
+					profileId: humanProfileId,
+					relation: "mention",
+				}),
+			]);
+		});
+		expect(
+			composer.result.current.prepareSubmission("Members are required.")
+				.messageEnvelope
+		).toMatchObject({
+			mentionTargets: [humanProfileId],
+			referenceTargets: [],
+		});
 	});
 
 	it("rewrites the owning canonical mention when its relation changes", () => {

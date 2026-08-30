@@ -177,6 +177,34 @@ export function useSpaceMentionAuthoring(input: {
 		[addressingMentions, input.snapshot]
 	);
 
+	useEffect(() => {
+		const snapshot = input.snapshot;
+		if (!snapshot) {
+			return;
+		}
+		const restoredAuthoredMentions = normalizeRestoredHumanMentionRelations({
+			mentions: authoredMentions,
+			snapshot,
+		});
+		if (restoredAuthoredMentions === authoredMentions) {
+			return;
+		}
+
+		composerDraft.setContent((currentDraft) => {
+			const nextAuthoredMentions = normalizeRestoredHumanMentionRelations({
+				mentions: currentDraft.authoredMentions,
+				snapshot,
+			});
+			if (nextAuthoredMentions === currentDraft.authoredMentions) {
+				return currentDraft;
+			}
+			return {
+				...currentDraft,
+				authoredMentions: nextAuthoredMentions,
+			};
+		});
+	}, [authoredMentions, composerDraft.setContent, input.snapshot]);
+
 	// biome-ignore lint/correctness/useExhaustiveDependencies: Changing conversation identity must reset ephemeral picker and selection state even though the key is not rendered.
 	useEffect(() => {
 		const nextComposerText = currentComposerTextRef.current;
@@ -968,6 +996,29 @@ export function buildSpaceComposerAddressingSummary(
 		return null;
 	}
 	return segments.join(" · ");
+}
+
+function normalizeRestoredHumanMentionRelations(input: {
+	mentions: readonly TrackedComposerAuthoredMention[];
+	snapshot: SpaceMembersSnapshot;
+}): readonly TrackedComposerAuthoredMention[] {
+	const catalog = createSpaceTargetCatalog(input.snapshot);
+	let changed = false;
+	const mentions = input.mentions.map((mention) => {
+		if (mention.relation !== "reference") {
+			return mention;
+		}
+		const target = catalog.byProfileId.get(mention.profileId);
+		if (
+			!target?.allowedRelations.mention ||
+			target.allowedRelations.reference
+		) {
+			return mention;
+		}
+		changed = true;
+		return { ...mention, relation: "mention" as const };
+	});
+	return changed ? mentions : input.mentions;
 }
 
 export function buildSpaceComposerAddressingTargets(input: {
