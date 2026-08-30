@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-29T17:50:42.074Z",
+  "updatedAt": "2026-08-29T23:32:01.807Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.133",
+      "packageVersion": "0.3.134",
       "updatePolicy": "available",
-      "reason": "Existing CLI setup, Space, and Wake commands remain interoperable; the new behavior is additive or recoverable against the current cloud."
+      "reason": "Existing CLI setup, workspace, and Wake commands remain compatible with both cloud versions."
     },
     "service": {
-      "bundleHash": "777636908ac9a359ce225080fc8f24e6f9ca2b515ad24edd8f9783b7b6feffd4",
-      "bundleVersion": "0.3.133",
+      "bundleHash": "fb60a32722d8d0e4a902e84d8168373517652ec9abebe31e3df6a1eed0828d5e",
+      "bundleVersion": "0.3.134",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "The Composer upload contract is additive and cloud-owned; existing Services neither call nor receive it, so old and new Services remain compatible with both cloud versions."
+      "reason": "The Organization field is additive and optional during rollout, so existing Services continue safe Wake work through the explicit compatibility path."
     },
     "skills": {
-      "bundleHash": "8962ec12246fa12842f60f7bf6cbbf50e52bac61855afe8fdee04d4defecac1f",
+      "bundleHash": "302eb02cf945624527f272c4f2c0e812d414ab39a878ec58ef53ca832a44e056",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Managed Skill changes document the additive multi-file send flow and remain compatible with existing CLI commands."
+      "reason": "The bundled command reference update is additive and does not change existing skill behavior."
     }
   }
 }
