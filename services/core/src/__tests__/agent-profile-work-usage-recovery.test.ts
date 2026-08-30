@@ -8,17 +8,21 @@ import type { AcceptedRuntimeAgentControllerReport } from "../runtime-registry/a
 import { notifyAgentProfileWorkUsageRecoveryAvailable } from "../runtime-transport/application/agent-profile-work-usage-recovery";
 
 const NOW_MS = Date.parse("2026-08-30T00:10:00.000Z");
+const PROFILE_1 = "agt_11111111-1111-4111-8111-111111111111";
+const PROFILE_2 = "agt_22222222-2222-4222-8222-222222222222";
 
 describe("Agent Profile work Usage recovery", () => {
   it("notifies the owner shard only for Profiles on the exact reported Runtime and Agent Controller", async () => {
     const listBindings = vi
       .fn()
       .mockResolvedValue([
-        { agentProfileId: "agt_profile_1" },
-        { agentProfileId: "agt_profile_2" },
+        { agentProfileId: PROFILE_1 },
+        { agentProfileId: PROFILE_2 },
       ]);
     const notifyUsageAvailable = vi.fn().mockResolvedValue({
-      continuationProfileIds: ["agt_profile_2"],
+      changedProfileIds: [PROFILE_2],
+      continuationProfileIds: [PROFILE_2],
+      status: "updated",
     });
     const resumeInterruptedWork = vi.fn().mockResolvedValue(undefined);
     const report = createReport("available");
@@ -39,11 +43,11 @@ describe("Agent Profile work Usage recovery", () => {
     });
     expect(notifyUsageAvailable).toHaveBeenCalledWith({
       ownerUserId: "owner-1",
-      targetProfileIds: ["agt_profile_1", "agt_profile_2"],
+      targetProfileIds: [PROFILE_1, PROFILE_2],
     });
     expect(resumeInterruptedWork).toHaveBeenCalledWith({
       ownerUserId: "owner-1",
-      targetProfileIds: ["agt_profile_2"],
+      targetProfileIds: [PROFILE_2],
     });
     expect(notifyUsageAvailable.mock.invocationCallOrder[0]).toBeLessThan(
       resumeInterruptedWork.mock.invocationCallOrder[0] ?? 0
@@ -88,6 +92,28 @@ describe("Agent Profile work Usage recovery", () => {
     });
 
     expect(notifyUsageAvailable).not.toHaveBeenCalled();
+    expect(resumeInterruptedWork).not.toHaveBeenCalled();
+  });
+
+  it("accepts an old owner shard response without continuation Profile ids", async () => {
+    const resumeInterruptedWork = vi.fn();
+
+    await notifyAgentProfileWorkUsageRecoveryAvailable({
+      bindingStore: {
+        listBindings: vi
+          .fn()
+          .mockResolvedValue([{ agentProfileId: PROFILE_1 }]),
+      },
+      currentReport: createReport("available"),
+      notifyUsageAvailable: vi.fn().mockResolvedValue({
+        changedProfileIds: [PROFILE_1],
+        status: "updated",
+      }),
+      nowMs: NOW_MS,
+      ownerUserId: "owner-1",
+      resumeInterruptedWork,
+    });
+
     expect(resumeInterruptedWork).not.toHaveBeenCalled();
   });
 });

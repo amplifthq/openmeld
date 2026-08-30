@@ -391,4 +391,50 @@ describe("Agent Profile Work Coordinator", () => {
       waitingCount: 2,
     });
   });
+
+  it("keeps the original interrupted work identity when a continuation fails", () => {
+    let coordinator = acceptAgentProfileWork({
+      coordinator: createAgentProfileWorkCoordinator({
+        nowMs: 1_700_000_000_000,
+        targetProfileId: PROFILE_ID,
+      }),
+      item: workItem(1),
+      nowMs: 1_700_000_000_001,
+    }).coordinator;
+    coordinator = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_100,
+      outcome: "usage_exhausted",
+      targetWakeLifecycleId: "wake-1",
+    }).coordinator;
+    coordinator = markAgentProfileWorkUsageAvailable({
+      coordinator,
+      nowMs: 1_700_000_000_200,
+    }).coordinator;
+    coordinator = authorizeAgentProfileWorkContinuation({
+      continuationClientMessageId: "client-continuation-1",
+      coordinator,
+      nowMs: 1_700_000_000_300,
+    }).coordinator;
+    coordinator = acceptAgentProfileWork({
+      continuationClientMessageId: "client-continuation-1",
+      coordinator,
+      item: workItem(10),
+      nowMs: 1_700_000_000_400,
+    }).coordinator;
+
+    const failedContinuation = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_500,
+      outcome: "failed",
+      targetWakeLifecycleId: "wake-10",
+    });
+
+    expect(failedContinuation.coordinator.recoveryGate).toMatchObject({
+      continuationClientMessageId: null,
+      interruptedWork: workItem(1),
+      status: "continuation_pending",
+    });
+    expect(failedContinuation.coordinator.workItems).toEqual([]);
+  });
 });

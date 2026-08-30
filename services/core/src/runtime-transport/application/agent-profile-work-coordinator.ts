@@ -224,6 +224,9 @@ export function settleAgentProfileWork(input: {
   const continuationRunning =
     input.coordinator.recoveryGate?.status === "continuation_running";
   if (input.outcome === "usage_exhausted" || continuationRunning) {
+    const recoveryInterruptedWork = continuationRunning
+      ? (input.coordinator.recoveryGate?.interruptedWork ?? interruptedWork)
+      : interruptedWork;
     let status: AgentProfileWorkRecoveryGate["status"];
     if (input.outcome === "usage_exhausted") {
       status = "awaiting_usage";
@@ -237,7 +240,7 @@ export function settleAgentProfileWork(input: {
         ...input.coordinator,
         recoveryGate: {
           continuationClientMessageId: null,
-          interruptedWork,
+          interruptedWork: recoveryInterruptedWork,
           status,
           updatedAtMs: input.nowMs,
         },

@@ -1,4 +1,5 @@
 import { resolveAgentProfileUsageRecoveryAvailability } from "@openmeld/agent-runtime";
+import { runtimeTransportAgentProfileWorkUsageAvailableResponseSchema } from "@openmeld/schemas";
 import type { AcceptedRuntimeAgentControllerReport } from "../../runtime-registry/application/runtime-agent-controller-report-service";
 
 type AgentProfileWorkUsageRecoveryBinding = {
@@ -16,7 +17,7 @@ export type AgentProfileWorkUsageRecoveryBindingStore = {
 export type NotifyAgentProfileWorkUsageAvailable = (input: {
   ownerUserId: string;
   targetProfileIds: readonly string[];
-}) => Promise<{ continuationProfileIds: readonly string[] }>;
+}) => Promise<unknown>;
 
 export type ResumeUsageExhaustedAgentProfileWork = (input: {
   ownerUserId: string;
@@ -58,12 +59,16 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
     ownerUserId: input.ownerUserId,
     targetProfileIds: bindings.map((binding) => binding.agentProfileId),
   };
-  const marked = await input.notifyUsageAvailable(recoveryTargets);
-  if (marked.continuationProfileIds.length === 0) {
+  const marked =
+    runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse(
+      await input.notifyUsageAvailable(recoveryTargets)
+    );
+  const continuationProfileIds = marked.continuationProfileIds;
+  if (continuationProfileIds.length === 0) {
     return;
   }
   await input.resumeInterruptedWork({
     ownerUserId: input.ownerUserId,
-    targetProfileIds: marked.continuationProfileIds,
+    targetProfileIds: continuationProfileIds,
   });
 }
