@@ -1,6 +1,9 @@
 import { AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS } from "@openmeld/schemas";
 import type { AgentControllerUsageLimit } from "@openmeld/schemas/types";
-import { resolveAgentControllerUsageLimitSupport } from "./agent-controller-usage-limit-support";
+import {
+  AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+  resolveAgentControllerUsageLimitSupport,
+} from "./agent-controller-usage-limit-support";
 import type { RuntimeAgentControllerReportStatus } from "./runtime-registry-contract";
 
 export const AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE =
@@ -12,6 +15,7 @@ export type AgentProfileUsageWakeabilityReport = {
   expiresAtMs: number;
   status: RuntimeAgentControllerReportStatus;
   usageLimits?: readonly AgentControllerUsageLimit[];
+  usageLimitsSupportMatrixVersion?: number;
 };
 
 export type AgentProfileUsageWakeability =
@@ -53,7 +57,10 @@ export function resolveAgentProfileUsageWakeability(input: {
     return ALLOWS_NEW_WORK;
   }
   if (!supportedUsageLimits?.length) {
-    return CHECKING_USAGE;
+    return report.usageLimitsSupportMatrixVersion ===
+      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION
+      ? CHECKING_USAGE
+      : ALLOWS_NEW_WORK;
   }
 
   if (report.status !== "ready" || report.expiresAtMs <= input.nowMs) {

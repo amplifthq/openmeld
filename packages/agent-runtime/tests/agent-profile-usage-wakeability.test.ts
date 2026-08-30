@@ -149,6 +149,45 @@ describe("resolveAgentProfileUsageWakeability", () => {
     });
   });
 
+  it.each([
+    "builtin:codex",
+    "builtin:grok-build",
+  ])("keeps Wake available for a legacy %s report without a Usage support contract", (agentControllerRef) => {
+    expect(
+      resolveAgentProfileUsageWakeability({
+        agentControllerRef,
+        nowMs: NOW_MS,
+        report: {
+          expiresAtMs: NOW_MS + 60_000,
+          status: "ready",
+        },
+      })
+    ).toEqual({
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
+    });
+  });
+
+  it("keeps a current native Usage contract in Checking until it reports a limit", () => {
+    expect(
+      resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:codex",
+        nowMs: NOW_MS,
+        report: {
+          expiresAtMs: NOW_MS + 60_000,
+          status: "ready",
+          usageLimitsSupportMatrixVersion:
+            AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+        },
+      })
+    ).toEqual({
+      blocksNewWork: true,
+      reasonCode: "usage_checking",
+      status: "checking",
+    });
+  });
+
   it("does not use unreliable or unsupported Usage as a Wake condition", () => {
     for (const agentControllerRef of [
       "builtin:claude-code",

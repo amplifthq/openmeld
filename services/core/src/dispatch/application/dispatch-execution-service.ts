@@ -3216,6 +3216,8 @@ async function resolveTargetUsageWakeability(input: {
             expiresAtMs: report.expiresAtMs,
             status: report.status,
             usageLimits: report.agentControllerInterface?.usageLimits,
+            usageLimitsSupportMatrixVersion:
+              report.agentControllerInterface?.usageLimitsSupportMatrixVersion,
           }
         : null,
     });

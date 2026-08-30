@@ -676,7 +676,10 @@ passive or not evaluated, does not use Usage as an admission condition. Once a
 Local Agent's versioned capability matrix declares native Usage support, a
 missing, stale, expired, or currently unavailable observation projects
 `Checking` and rejects a new Wake; OpenMeld must not promise acceptance while
-the required fact is unknown. A
+the required fact is unknown. During a mixed-version rollout, a legacy Local
+Agent that does not declare its Usage support-matrix version remains outside
+this admission condition; a newer Core must not reinterpret that omission as
+`Checking`. A
 fresh exhausted Usage Limit projects `Unavailable` and blocks the Wake before
 admission. These decisions use the current report already held by Core and must
 not add a provider call to the Wake hot path. Core and the Local Service consume

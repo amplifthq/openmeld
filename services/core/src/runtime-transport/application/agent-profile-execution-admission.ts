@@ -2719,6 +2719,9 @@ async function resolveHeadTerminalWorkTransition(input: {
     admission: input.admission,
     dispatchId: input.record.primaryDispatchId,
     nowMs: input.nowMs,
+    ...(input.record.status === "stopped_before_execution"
+      ? { outcome: "stopped" as const }
+      : {}),
     targetWakeLifecycleId: input.record.targetWakeLifecycleId,
     transaction: input.transaction,
   });
@@ -2786,6 +2789,27 @@ async function removeTerminalAgentProfileWorkAndPromoteSuccessor(input: {
           targetWakeLifecycleId:
             removal.coordinator.recoveryGate.interruptedWork
               .targetWakeLifecycleId,
+          updatedAtMs: input.nowMs,
+        })
+      ),
+      input.transaction.setAlarm(input.nowMs),
+    ]);
+  }
+  if (
+    coordinator.recoveryGate?.status === "awaiting_owner_approval" &&
+    removal.coordinator.recoveryGate === null
+  ) {
+    await Promise.all([
+      input.transaction.put(
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+          input.admission.targetProfileId
+        ),
+        buildAgentProfileWorkRecoveryInboxProjectionIntent({
+          desiredStatus: "resolved",
+          occurredAtMs: coordinator.recoveryGate.updatedAtMs,
+          targetProfileId: input.admission.targetProfileId,
+          targetWakeLifecycleId:
+            coordinator.recoveryGate.interruptedWork.targetWakeLifecycleId,
           updatedAtMs: input.nowMs,
         })
       ),

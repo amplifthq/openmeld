@@ -179,14 +179,23 @@ export function removeAgentProfileWork(input: {
   const workItems = input.coordinator.workItems.filter(
     (_item, index) => index !== removedIndex
   );
+  const recoveryGate =
+    input.coordinator.recoveryGate?.status === "awaiting_owner_approval" &&
+    workItems.length === 0
+      ? null
+      : input.coordinator.recoveryGate;
   return {
     coordinator: {
       ...input.coordinator,
+      recoveryGate,
       revision: input.coordinator.revision + 1,
       updatedAtMs: input.nowMs,
       workItems,
     },
-    promotedItem: removedIndex === 0 ? (workItems[0] ?? null) : null,
+    promotedItem:
+      removedIndex === 0 && !isAgentProfileWorkPaused(input.coordinator)
+        ? (workItems[0] ?? null)
+        : null,
     removed: true,
   };
 }

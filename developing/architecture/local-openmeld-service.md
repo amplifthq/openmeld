@@ -292,7 +292,14 @@ is `unavailable`. A controller with no supported native source is explicitly
 `unsupported`. The Service does not decide Agent Profile Wakeability, Binding,
 Wake admission, RuntimeCoordinator, routing, or agent selection from these
 states. Core applies the shared versioned capability matrix to the report it
-already holds; it never calls the provider on the Wake hot path. For a
+already holds; it never calls the provider on the Wake hot path. The Service
+stamps each current ACI report with `usageLimitsSupportMatrixVersion`; this
+explicitly tells Core that missing or unconfirmed native Usage evidence must
+fail closed. A legacy Service report without that optional declaration remains
+valid during mixed-version rollout and does not acquire a new Usage admission
+condition solely from a newer Core matrix. When retrying against an older Core
+contract, the Service omits both the Usage projection and its support-matrix
+declaration. For a
 controller whose matrix entry declares native Usage support, a reliable fresh
 `available` observation permits Usage admission, a reliable fresh explicitly
 `exhausted` observation blocks the Wake as `Unavailable`, and missing, stale,

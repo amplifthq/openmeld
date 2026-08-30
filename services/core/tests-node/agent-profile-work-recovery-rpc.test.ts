@@ -283,6 +283,48 @@ describe("Agent Profile work recovery Core RPC", () => {
       harness.close();
     }
   });
+
+  it("defers a continuation from an older owner shard before any Space side effect", async () => {
+    const harness = createRecoveryHarness();
+    const recovery = buildAvailableRecovery({
+      action: "continue_interrupted_work",
+    });
+    const {
+      interruptedSourceSignalId: _missingOnOlderShard,
+      ...legacyRecovery
+    } = recovery;
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: legacyRecovery,
+    });
+    const spaceGet = vi.fn();
+    const env = {
+      ...createEnv({ db: harness.db, runtimeTransportStub }),
+      OPENMELD_SPACES: {
+        get: spaceGet,
+        idFromString: vi.fn((value: string) => value),
+      },
+    } as unknown as CoreBindings;
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          body: { action: "continue_interrupted_work" },
+          context: CONTEXT,
+        })
+      ).rejects.toMatchObject({
+        cause: {
+          code: "agent_profile_work_recovery.temporarily_unavailable",
+          status: 503,
+        },
+      });
+      expect(spaceGet).not.toHaveBeenCalled();
+      expect(
+        runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation
+      ).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
 });
 
 function createRecoveryHarness() {
@@ -338,6 +380,10 @@ function createRecoveryHarness() {
 function createRuntimeTransportStub(input?: {
   recovery?:
     | ReturnType<typeof buildAvailableRecovery>
+    | Omit<
+        ReturnType<typeof buildAvailableRecovery>,
+        "interruptedSourceSignalId"
+      >
     | { status: "not_pending" }
     | (() =>
         | ReturnType<typeof buildAvailableRecovery>

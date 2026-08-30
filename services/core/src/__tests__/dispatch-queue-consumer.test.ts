@@ -173,6 +173,7 @@ const buildAvailableCodexInterfaceJson = (nowMs: number): string => {
     schemaVersion: 1,
     skills: [],
     status: "ready",
+    usageLimitsSupportMatrixVersion: 1,
     usageLimits: [
       {
         key: "five_hour",
@@ -9167,6 +9168,38 @@ describe("handleDispatchQueueBatch", () => {
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
       ok: false,
     });
+  });
+
+  it("accepts workstation Wake from a legacy native controller report without a Usage support contract", async () => {
+    const message = createDispatchBody({
+      dispatchId: "dispatch-legacy-usage-contract-1",
+      sourceEventId: "evt-legacy-usage-contract-1",
+      targetProfileId: "agt-legacy-usage-contract-1",
+      visitedProfileIdsHash: "stable32:legacy-usage-contract-1",
+    });
+    const currentSnapshot = JSON.parse(
+      buildAvailableCodexInterfaceJson(Date.now())
+    ) as Record<string, unknown>;
+    const {
+      usageLimits: _usageLimits,
+      usageLimitsSupportMatrixVersion: _usageLimitsSupportMatrixVersion,
+      ...legacySnapshot
+    } = currentSnapshot;
+    const db = createOpenMeldDbWithProfileRow({
+      agentControllerRef: "builtin:codex",
+      controllerEnabled: 1,
+      openMeldServiceRuntimeId: "runtime-usage-wakeability",
+      profileKind: "agent",
+      profileStatus: "active",
+      runtimeAgentControllerInterfaceJson: JSON.stringify(legacySnapshot),
+    });
+
+    const preflight = await runDispatchExecutionPreflightGate({
+      env: makeEnvWithBindings(db),
+      message,
+    });
+
+    expect(preflight).not.toMatchObject({ errorCode: "usage_checking" });
   });
 
   it("retries when Core primary binding storage is unavailable", async () => {

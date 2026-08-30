@@ -379,7 +379,10 @@ Important execution rules:
   the Coordinator's exact interrupted dispatch, source Signal, Space, and target
   Profile identity. After Space verifies the trace, the replayed Wake preserves
   the source Signal's author; the Agent owner's Human context is never presented
-  as the original message author.
+  as the original message author. During a rolling Core deployment, an older
+  owner shard may temporarily omit the source Signal identity. A newer caller
+  must defer before any Space side effect and retry the same deterministic
+  continuation only after the complete identity is available.
 
 ### Local Agent Human Interaction
 
@@ -744,7 +747,13 @@ declares native Usage support, a missing, stale, expired, unavailable, or
 otherwise unconfirmed current observation projects `Checking` and rejects new
 Wake admission. Core and the Local Service must consume that same matrix.
 Explicitly unsupported Usage and Local Agents whose Usage reporting is passive
-or not evaluated do not use Usage as an admission condition. A
+or not evaluated do not use Usage as an admission condition. An ACI report
+declares the matrix it implements through
+`usageLimitsSupportMatrixVersion`. If that optional field is absent, Core
+treats the report as a legacy contract and does not make Usage an admission
+condition merely because Core's newer matrix now marks the controller native.
+Once a report declares the current matrix version, missing or unconfirmed Usage
+fails closed as `Checking`. A
 percentage alone, low-capacity warning, generic quota wording, or ordinary
 transient `429` is never proof of exhaustion. Core derives all three outcomes
 from the already-held structured report and does not call the provider on the

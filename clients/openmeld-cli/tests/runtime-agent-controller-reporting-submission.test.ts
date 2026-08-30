@@ -159,6 +159,7 @@ describe("Runtime Agent Controller reporting submission", () => {
     schemaVersion: 1,
     skills: [],
     status: "ready",
+    usageLimitsSupportMatrixVersion: 1,
     version: "0.1.0",
     versionAdvisory: {
       checkedAt: "2026-06-28T00:00:00.000Z",
@@ -424,6 +425,42 @@ describe("Runtime Agent Controller reporting submission", () => {
       submitAgentControllerReportsMock.mock.calls[1]?.[0]?.reports?.[0]
         ?.agentControllerInterface
     ).not.toHaveProperty("usageLimits");
+    expect(
+      submitAgentControllerReportsMock.mock.calls[1]?.[0]?.reports?.[0]
+        ?.agentControllerInterface
+    ).not.toHaveProperty("usageLimitsSupportMatrixVersion");
+  });
+
+  it("retries without the Usage support declaration when an older Core rejects that nested field", async () => {
+    submitAgentControllerReportsMock.mockRejectedValueOnce(
+      Object.assign(
+        new Error('Unrecognized key: "usageLimitsSupportMatrixVersion"'),
+        {
+          code: "invalid_payload",
+          status: 400,
+        }
+      )
+    );
+    const { submitRuntimeAgentControllerReport } = await import(
+      "../src/local-service/reporting/runtime-agent-controller-reporting-submission"
+    );
+
+    await submitRuntimeAgentControllerReport({
+      agentControllerRef: "builtin:codex",
+      agentControllerInterface: CODEX_AGENT_CONTROLLER_INTERFACE,
+      localParticipationState: "ready",
+      reasonCodes: [],
+    });
+
+    expect(submitAgentControllerReportsMock).toHaveBeenCalledTimes(2);
+    expect(
+      submitAgentControllerReportsMock.mock.calls[0]?.[0]?.reports?.[0]
+        ?.agentControllerInterface
+    ).toHaveProperty("usageLimitsSupportMatrixVersion", 1);
+    expect(
+      submitAgentControllerReportsMock.mock.calls[1]?.[0]?.reports?.[0]
+        ?.agentControllerInterface
+    ).not.toHaveProperty("usageLimitsSupportMatrixVersion");
   });
 
   it("submits selected Runtime Agent Controller Reports in one write after one Runtime registration", async () => {

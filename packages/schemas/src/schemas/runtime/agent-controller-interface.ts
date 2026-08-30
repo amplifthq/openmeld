@@ -202,6 +202,7 @@ export const agentControllerInterfaceSnapshotSchema = z.strictObject({
   skills: z.array(agentControllerInterfaceSkillSchema).max(512),
   status: agentControllerInterfaceStatusSchema,
   usageLimits: agentControllerUsageLimitsSchema.optional(),
+  usageLimitsSupportMatrixVersion: z.int().positive().optional(),
   version: ACI_BOUNDED_ID_SCHEMA.nullable(),
   versionAdvisory: agentControllerInterfaceVersionAdvisorySchema.optional(),
 });

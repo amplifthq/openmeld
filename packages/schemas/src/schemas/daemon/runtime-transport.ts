@@ -141,7 +141,9 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
-      interruptedSourceSignalId: z.string().trim().min(1).max(512),
+      // Older owner shards omit this during a rolling Core deployment. Current
+      // writers always include it; callers must defer side effects until it exists.
+      interruptedSourceSignalId: z.string().trim().min(1).max(512).optional(),
       spaceId: z.string().trim().min(1).max(512),
       status: z.literal("available"),
     }),

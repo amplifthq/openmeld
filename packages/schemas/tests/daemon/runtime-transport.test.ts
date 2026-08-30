@@ -17,6 +17,7 @@ import {
   runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
+  runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   runtimeTransportAgentProfileWorkUsageAvailableRequestSchema,
   runtimeTransportAgentProfileWorkUsageAvailableResponseSchema,
   runtimeTransportCapabilitiesSchema,
@@ -1081,6 +1082,23 @@ describe("runtime transport schema", () => {
       changedProfileIds: [],
       continuationProfileIds: [],
       status: "updated",
+    });
+    expect(
+      runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse({
+        action: "continue_interrupted_work",
+        authorizedContinuationClientMessageId: null,
+        interruptedClientMessageId: "client-interrupted",
+        interruptedDispatchId: "dispatch-interrupted",
+        spaceId: "space-interrupted",
+        status: "available",
+      })
+    ).toEqual({
+      action: "continue_interrupted_work",
+      authorizedContinuationClientMessageId: null,
+      interruptedClientMessageId: "client-interrupted",
+      interruptedDispatchId: "dispatch-interrupted",
+      spaceId: "space-interrupted",
+      status: "available",
     });
     expect(
       runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.parse({

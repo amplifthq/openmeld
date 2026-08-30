@@ -153,6 +153,145 @@ test("codex waits on an official writer conflict and retries the same dispatch",
   ]);
 });
 
+test("codex default app-server path preserves writer occupancy and retries after release", async () => {
+  const { createCodexAdapter } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(
+    join(tmpdir(), "codex-default-writer-occupancy-")
+  );
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-default-writer-occupancy-dispatch-")
+  );
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const startupAttemptPath = join(fixtureDir, "startup-attempt.txt");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const events = [];
+    let availabilityWaits = 0;
+    const adapter = createCodexAdapter({
+      codexTimeoutMs: 5000,
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      waitForThreadWriterAvailability: ({ occupancy }) => {
+        availabilityWaits += 1;
+        assert.deepEqual(occupancy, {
+          agentControllerConversationId: "thread-default-occupied",
+          contractVersion: 1,
+          state: "occupied",
+        });
+        return Promise.resolve("release_observed");
+      },
+    });
+
+    const result = await adapter.dispatch({
+      agentControllerConversationId: "thread-default-occupied",
+      agentId: "agt-demo",
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_RESUME_WRITER_ATTEMPTS: "1",
+        OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: startupAttemptPath,
+      },
+      onRuntimeEvent: (event) => {
+        if (event.phase.startsWith("agent_controller_conversation_")) {
+          events.push(event.phase);
+        }
+      },
+      prompt: "continue after the writer releases",
+      runtimeContext: createRuntimeContext(dispatchDir),
+      sourceEventId: "evt-default-occupied",
+      spaceId: "space-1",
+      taskId: "task-default-occupied",
+      transportMode: "codex-app-server",
+    });
+    const methods = await readFakeAppServerMethods(logPath);
+
+    assert.equal(result.status, "success");
+    assert.equal(availabilityWaits, 1);
+    assert.equal(
+      methods.filter((method) => method === "thread/resume").length,
+      2
+    );
+    assert.equal(methods.filter((method) => method === "turn/start").length, 1);
+    assert.deepEqual(events, [
+      "agent_controller_conversation_occupied",
+      "agent_controller_conversation_available",
+    ]);
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("codex Stop fences the default app-server path while writer occupancy waits", async () => {
+  const { createCodexAdapter } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(
+    join(tmpdir(), "codex-default-writer-stop-")
+  );
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-default-writer-stop-dispatch-")
+  );
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const startupAttemptPath = join(fixtureDir, "startup-attempt.txt");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    let waitStartedResolve;
+    const waitStarted = new Promise((resolve) => {
+      waitStartedResolve = resolve;
+    });
+    const adapter = createCodexAdapter({
+      codexTimeoutMs: 5000,
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      waitForThreadWriterAvailability: ({ signal }) => {
+        waitStartedResolve();
+        if (!signal) {
+          throw new Error("expected the task AbortSignal at the writer wait");
+        }
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", () => resolve("aborted"), {
+            once: true,
+          });
+        });
+      },
+    });
+    const dispatchOutcome = adapter.dispatch({
+      agentControllerConversationId: "thread-default-stop",
+      agentId: "agt-demo",
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_RESUME_WRITER_ATTEMPTS: "1",
+        OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: startupAttemptPath,
+      },
+      prompt: "do not continue after Stop",
+      runtimeContext: createRuntimeContext(dispatchDir),
+      sourceEventId: "evt-default-stop",
+      spaceId: "space-1",
+      taskId: "task-default-stop",
+      transportMode: "codex-app-server",
+    });
+
+    await waitStarted;
+    const stopResult = await adapter.cancel({ taskId: "task-default-stop" });
+    const dispatchResult = await dispatchOutcome;
+    const methods = await readFakeAppServerMethods(logPath);
+
+    assert.equal(stopResult.accepted, true);
+    assert.equal(dispatchResult.status, "failed");
+    assert.equal(dispatchResult.errorCode, "runtime.turn.cancelled");
+    assert.equal(
+      methods.filter((method) => method === "thread/resume").length,
+      1
+    );
+    assert.equal(methods.filter((method) => method === "turn/start").length, 0);
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
 test("codex retry due never claims the conversation became available", async () => {
   const { CodexAppServerTransportError, createCodexAdapter } = await import(
     "../dist/index.js"
@@ -573,6 +712,11 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    return;",
       "  }",
       "  if (message.method === 'thread/resume') {",
+      "    const rejectResumeWriterAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_RESUME_WRITER_ATTEMPTS ?? '0');",
+      "    if (startupAttempt <= rejectResumeWriterAttempts) {",
+      "      write({ jsonrpc: '2.0', id: message.id, error: { code: -32600, message: 'thread ' + message.params.threadId + ' already has an active writer' } });",
+      "      return;",
+      "    }",
       "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_RESUME_NO_ROLLOUT === '1') {",
       "      write({ jsonrpc: '2.0', id: message.id, error: { code: -32600, message: 'no rollout found for thread id ' + message.params.threadId } });",
       "      return;",

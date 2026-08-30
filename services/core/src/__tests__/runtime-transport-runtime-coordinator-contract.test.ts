@@ -2134,6 +2134,7 @@ const prepareRunningContinuationWithQueuedWork = async (input: {
 }): Promise<{
   admissionKey: string;
   authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
+  queuedIdentity: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest["targetWakeLifecycleIdentity"];
 }> => {
   await issueDeliveryToken({
     hub: input.hub,
@@ -2193,7 +2194,88 @@ const prepareRunningContinuationWithQueuedWork = async (input: {
   if (!authority) {
     throw new Error("Expected continuation execution authority.");
   }
-  return { admissionKey, authority };
+  return { admissionKey, authority, queuedIdentity };
+};
+
+const prepareAwaitingOwnerApprovalWorkQueue = async (input: {
+  hub: RuntimeTransportHub;
+  queuedWorkNames: readonly [string, ...string[]];
+  sentFrames: unknown[];
+  socket: WebSocket;
+  state: RuntimeTransportMutableState;
+  storageRecords: Map<string, unknown>;
+}): Promise<{
+  admissionKey: string;
+  interruptedTargetWakeLifecycleId: string;
+  queuedIdentities: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest["targetWakeLifecycleIdentity"][];
+}> => {
+  const [firstQueuedWorkName, ...laterQueuedWorkNames] = input.queuedWorkNames;
+  const { admissionKey, authority, queuedIdentity } =
+    await prepareRunningContinuationWithQueuedWork({
+      hub: input.hub,
+      queuedWorkName: firstQueuedWorkName,
+      sentFrames: input.sentFrames,
+      socket: input.socket,
+      state: input.state,
+      storageRecords: input.storageRecords,
+    });
+  await (
+    input.hub as unknown as {
+      writeRuntimeCoordinatorTokenAuthority: (
+        nextAuthority: RuntimeCoordinatorExecutionTokenAuthorityRecord
+      ) => Promise<void>;
+    }
+  ).writeRuntimeCoordinatorTokenAuthority({
+    ...authority,
+    terminalOutcome: {
+      finalizedAtMs: Date.now(),
+      reasonCode: "completed",
+      replySignalId: `signal-${firstQueuedWorkName}-continuation-final`,
+      status: "reply_published",
+    },
+  });
+
+  const queuedIdentities = [queuedIdentity];
+  for (const [index, queuedWorkName] of laterQueuedWorkNames.entries()) {
+    const dispatchId = `dispatch-${queuedWorkName}`;
+    const identity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: `client-message-${queuedWorkName}`,
+      dispatchId,
+      sourceSignalId: `signal-${queuedWorkName}`,
+      spaceId: String.fromCharCode("c".charCodeAt(0) + index).repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    await fetchRuntimeTransportJson(
+      input.hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId,
+        idempotencyKey: `idempotency-${queuedWorkName}`,
+        targetWakeLifecycleIdentity: identity,
+      })
+    );
+    queuedIdentities.push(identity);
+  }
+
+  const admission = input.storageRecords.get(admissionKey) as {
+    recoveryGate?: {
+      interruptedWork?: { targetWakeLifecycleId?: string };
+      status?: string;
+    };
+  };
+  const interruptedTargetWakeLifecycleId =
+    admission.recoveryGate?.interruptedWork?.targetWakeLifecycleId;
+  if (
+    admission.recoveryGate?.status !== "awaiting_owner_approval" ||
+    !interruptedTargetWakeLifecycleId
+  ) {
+    throw new Error("Expected an owner-approval recovery gate.");
+  }
+  return {
+    admissionKey,
+    interruptedTargetWakeLifecycleId,
+    queuedIdentities,
+  };
 };
 
 const requestRuntimeCoordinatorWakeStop = (
@@ -5110,6 +5192,283 @@ describe("runtime transport runtime coordinator transport contract", () => {
         request.path.startsWith("/internal/dispatches/")
       )
     ).toHaveLength(0);
+  });
+
+  it("settles a pre-link stopped continuation and keeps its successor behind owner approval", async () => {
+    const { hub, spaceFetchRequests, storageRecords } = createHarness();
+    const continuationIdentity =
+      buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
+    const successorIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-pre-link-stopped-successor",
+      dispatchId: "dispatch-pre-link-stopped-successor",
+      sourceSignalId: "signal-pre-link-stopped-successor",
+      spaceId: "b".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId: "dispatch-pre-link-stopped-successor",
+        idempotencyKey: "idempotency-pre-link-stopped-successor",
+        targetWakeLifecycleIdentity: successorIdentity,
+      })
+    );
+    const admissionKey =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const admission = storageRecords.get(admissionKey) as {
+      recoveryGate: unknown;
+      revision: number;
+      updatedAtMs: number;
+      workItems: Array<{
+        dispatchId: string;
+        enqueuedAtMs: number;
+        targetWakeLifecycleId: string;
+      }>;
+    };
+    const continuationWork = admission.workItems[0];
+    if (!continuationWork) {
+      throw new Error("Expected the pre-link continuation work.");
+    }
+    storageRecords.set(admissionKey, {
+      ...admission,
+      recoveryGate: {
+        continuationClientMessageId: null,
+        interruptedWork: continuationWork,
+        status: "continuation_running",
+        updatedAtMs: Date.now(),
+      },
+      revision: admission.revision + 1,
+      updatedAtMs: Date.now(),
+    });
+
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/pre-agent-stop",
+      buildRuntimeCoordinatorHeadPreAgentStopRequest({
+        targetWakeLifecycleIdentity: continuationIdentity,
+      })
+    );
+
+    expect(storageRecords.get(admissionKey)).toMatchObject({
+      recoveryGate: { status: "awaiting_owner_approval" },
+      workItems: [
+        expect.objectContaining({
+          dispatchId: "dispatch-pre-link-stopped-successor",
+        }),
+      ],
+    });
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          successorIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({ status: "queued" });
+    expect(
+      spaceFetchRequests.filter((request) =>
+        request.path.startsWith("/internal/dispatches/")
+      )
+    ).toHaveLength(0);
+    expect(
+      storageRecords.get(
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+          TARGET_AGENT_PROFILE_ID
+        )
+      )
+    ).toMatchObject({ desiredStatus: "open" });
+  });
+
+  it("clears recovery when a pre-link stopped continuation has no successor", async () => {
+    const { hub, storageRecords } = createHarness();
+    const continuationIdentity =
+      buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const admissionKey =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const admission = storageRecords.get(admissionKey) as {
+      recoveryGate: unknown;
+      revision: number;
+      updatedAtMs: number;
+      workItems: Array<{
+        dispatchId: string;
+        enqueuedAtMs: number;
+        targetWakeLifecycleId: string;
+      }>;
+    };
+    const continuationWork = admission.workItems[0];
+    if (!continuationWork) {
+      throw new Error("Expected the pre-link continuation work.");
+    }
+    storageRecords.set(admissionKey, {
+      ...admission,
+      recoveryGate: {
+        continuationClientMessageId: null,
+        interruptedWork: continuationWork,
+        status: "continuation_running",
+        updatedAtMs: Date.now(),
+      },
+      revision: admission.revision + 1,
+      updatedAtMs: Date.now(),
+    });
+
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/pre-agent-stop",
+      buildRuntimeCoordinatorHeadPreAgentStopRequest({
+        targetWakeLifecycleIdentity: continuationIdentity,
+      })
+    );
+
+    expect(storageRecords.has(admissionKey)).toBe(false);
+    expect(
+      storageRecords.has(
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+          TARGET_AGENT_PROFILE_ID
+        )
+      )
+    ).toBe(false);
+  });
+
+  it("keeps Q2 paused when Q1 is stopped behind owner approval", async () => {
+    const {
+      hub,
+      sentFrames,
+      socket,
+      spaceFetchRequests,
+      state,
+      storageRecords,
+    } = createHarness();
+    const { admissionKey, queuedIdentities } =
+      await prepareAwaitingOwnerApprovalWorkQueue({
+        hub,
+        queuedWorkNames: ["stop-paused-q1", "stop-paused-q2"],
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+      });
+    const [q1Identity, q2Identity] = queuedIdentities;
+    if (!(q1Identity && q2Identity)) {
+      throw new Error("Expected Q1 and Q2 identities.");
+    }
+    const redriveCount = spaceFetchRequests.filter((request) =>
+      request.path.startsWith("/internal/dispatches/")
+    ).length;
+
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/pre-agent-stop",
+      buildRuntimeCoordinatorHeadPreAgentStopRequest({
+        dispatchId: "dispatch-stop-paused-q1",
+        idempotencyKey: "idempotency-stop-paused-q1",
+        targetWakeLifecycleIdentity: q1Identity,
+      })
+    );
+
+    expect(storageRecords.get(admissionKey)).toMatchObject({
+      recoveryGate: { status: "awaiting_owner_approval" },
+      workItems: [
+        expect.objectContaining({ dispatchId: "dispatch-stop-paused-q2" }),
+      ],
+    });
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          q2Identity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({ status: "queued" });
+    expect(
+      spaceFetchRequests.filter((request) =>
+        request.path.startsWith("/internal/dispatches/")
+      )
+    ).toHaveLength(redriveCount);
+  });
+
+  it("keeps Q1 paused when Q2 is stopped behind owner approval", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { admissionKey, queuedIdentities } =
+      await prepareAwaitingOwnerApprovalWorkQueue({
+        hub,
+        queuedWorkNames: ["keep-paused-q1", "stop-paused-later-q2"],
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+      });
+    const [q1Identity, q2Identity] = queuedIdentities;
+    if (!(q1Identity && q2Identity)) {
+      throw new Error("Expected Q1 and Q2 identities.");
+    }
+
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/pre-agent-stop",
+      buildRuntimeCoordinatorHeadPreAgentStopRequest({
+        dispatchId: "dispatch-stop-paused-later-q2",
+        idempotencyKey: "idempotency-stop-paused-later-q2",
+        targetWakeLifecycleIdentity: q2Identity,
+      })
+    );
+
+    expect(storageRecords.get(admissionKey)).toMatchObject({
+      recoveryGate: { status: "awaiting_owner_approval" },
+      workItems: [
+        expect.objectContaining({ dispatchId: "dispatch-keep-paused-q1" }),
+      ],
+    });
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          q1Identity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({ status: "queued" });
+  });
+
+  it("clears owner approval and records resolved Inbox intent when its last Q1 is stopped", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { admissionKey, interruptedTargetWakeLifecycleId, queuedIdentities } =
+      await prepareAwaitingOwnerApprovalWorkQueue({
+        hub,
+        queuedWorkNames: ["stop-last-paused-q1"],
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+      });
+    const [q1Identity] = queuedIdentities;
+    if (!q1Identity) {
+      throw new Error("Expected the last Q1 identity.");
+    }
+
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/pre-agent-stop",
+      buildRuntimeCoordinatorHeadPreAgentStopRequest({
+        dispatchId: "dispatch-stop-last-paused-q1",
+        idempotencyKey: "idempotency-stop-last-paused-q1",
+        targetWakeLifecycleIdentity: q1Identity,
+      })
+    );
+
+    expect(storageRecords.has(admissionKey)).toBe(false);
+    expect(
+      storageRecords.get(
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+          TARGET_AGENT_PROFILE_ID
+        )
+      )
+    ).toMatchObject({
+      desiredStatus: "resolved",
+      targetWakeLifecycleId: interruptedTargetWakeLifecycleId,
+    });
   });
 
   it("promotes after the running head is stopped before execution and stays idempotent on replay", async () => {

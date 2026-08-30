@@ -1137,6 +1137,9 @@ async function resolveAgentRuntimeReadiness(input: {
             expiresAtMs: currentReport.expiresAtMs,
             status: currentReport.status,
             usageLimits: currentReport.agentControllerInterface?.usageLimits,
+            usageLimitsSupportMatrixVersion:
+              currentReport.agentControllerInterface
+                ?.usageLimitsSupportMatrixVersion,
           }
         : null,
     });
