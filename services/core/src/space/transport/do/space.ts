@@ -15737,7 +15737,7 @@ export class Space extends DurableObject<CoreBindings> {
     outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate;
     targetLabel: string;
   }): Promise<{
-    errorCode: string;
+    errorCode: string | null;
     message: string;
     phase: WakeProgressPhase;
     terminal: boolean;
@@ -15785,14 +15785,26 @@ export class Space extends DurableObject<CoreBindings> {
       });
     if (
       headLifecycleTrace?.ok !== true ||
-      headLifecycleTrace.readStatus !== "found" ||
-      !headLifecycleTrace.lifecycle.waitingBoundary
+      headLifecycleTrace.readStatus !== "found"
     ) {
       return null;
     }
 
-    const waitingBoundary = headLifecycleTrace.lifecycle.waitingBoundary;
+    const lifecycle = headLifecycleTrace.lifecycle;
     const targetLabel = formatWakeProgressTargetLabel(input.targetLabel);
+    if (lifecycle.status === "queued") {
+      return {
+        errorCode: null,
+        message: buildWakeProgressMessage({ phase: "queued", targetLabel }),
+        phase: "queued",
+        terminal: false,
+        updatedAtMs: lifecycle.updatedAtMs,
+      };
+    }
+    const waitingBoundary = lifecycle.waitingBoundary;
+    if (!waitingBoundary) {
+      return null;
+    }
     const isPastSoftWait = Date.now() >= waitingBoundary.softDeadlineAtMs;
     return {
       errorCode: waitingBoundary.reasonCode,
@@ -15802,7 +15814,7 @@ export class Space extends DurableObject<CoreBindings> {
       phase: "retrying",
       terminal: false,
       updatedAtMs: Math.max(
-        headLifecycleTrace.lifecycle.updatedAtMs,
+        lifecycle.updatedAtMs,
         waitingBoundary.observedAtMs
       ),
     };
@@ -17240,7 +17252,7 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
   targetLabel: string;
   trace: SpaceDispatchTraceSnapshot | null;
 }): {
-  errorCode: string;
+  errorCode: string | null;
   message: string;
   phase: WakeProgressPhase;
   terminal: boolean;
@@ -17263,6 +17275,17 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
   }
   if (headLifecycle.readStatus !== "found") {
     return null;
+  }
+  if (headLifecycle.status === "queued") {
+    return {
+      errorCode: null,
+      message: buildWakeProgressMessage({
+        phase: "queued",
+        targetLabel,
+      }),
+      phase: "queued",
+      terminal: false,
+    };
   }
   if (
     headLifecycle.status === "stopped_before_execution" ||
@@ -17371,9 +17394,9 @@ function resolveWakeProgressPhaseFromDispatchEvidence(input: {
     case "dispatching":
       return "connecting";
     case "queued":
-      return "queued";
+      return "request_sent";
     default:
-      return "queued";
+      return "request_sent";
   }
 }
 
@@ -17402,7 +17425,7 @@ function resolveWakeProgressPhaseFromOutboxEvidence(input: {
   if (input.nativeDeliveryEvidence) {
     return input.nativeDeliveryEvidence.phase;
   }
-  return "queued";
+  return "request_sent";
 }
 
 function buildDispatchTargetKey(input: {
@@ -17418,7 +17441,7 @@ function resolveWakeProgressPhaseFromRuntimeCoordinatorStatus(
   switch (status) {
     case "created":
     case "delivery_pending":
-      return "queued";
+      return "request_sent";
     case "cancellation_requested":
       return "running";
     case "delivery_accepted":

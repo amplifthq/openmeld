@@ -373,7 +373,7 @@ function resolveWakeProgressPhaseFromPurpose(
 ): WakeProgressPhase | null {
   switch (purpose) {
     case DISPATCH_ACTIVITY_DISPATCHING_PURPOSE:
-      return "queued";
+      return "request_sent";
     case DISPATCH_ACTIVITY_RETRYING_PURPOSE:
       return "retrying";
     case DISPATCH_ACTIVITY_FAILED_PURPOSE:

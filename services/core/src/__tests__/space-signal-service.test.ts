@@ -1090,7 +1090,12 @@ function createWakeEvidenceDb(
 }
 
 function createRuntimeTransportBindings(input: {
-  headLifecycleReadStatus: "missing" | "stopped" | "unavailable" | "waiting";
+  headLifecycleReadStatus:
+    | "missing"
+    | "queued"
+    | "stopped"
+    | "unavailable"
+    | "waiting";
 }): Pick<CoreBindings, "OPENMELD_RUNTIME_TRANSPORT"> {
   const fetch = vi.fn((_url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body ?? "{}")) as {
@@ -1154,6 +1159,30 @@ function createRuntimeTransportBindings(input: {
         },
       });
     }
+    if (input.headLifecycleReadStatus === "queued") {
+      const nowMs = Date.now();
+      return Response.json({
+        ok: true,
+        readStatus: "found",
+        lifecycle: {
+          createdAtMs: nowMs,
+          duplicateDispatchCount: 0,
+          executionLinkedAtMs: null,
+          modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+          noExecutionDecision: null,
+          ownerUserId: "owner-1",
+          primaryDispatchId: body.targetWakeLifecycleIdentity.dispatchId,
+          publicationIntent: null,
+          runtimeCoordinatorExecutionId: null,
+          status: "queued",
+          targetWakeLifecycleIdentity: body.targetWakeLifecycleIdentity,
+          targetWakeLifecycleId:
+            body.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+          updatedAtMs: nowMs + 1000,
+          waitingBoundary: null,
+        },
+      });
+    }
     return Response.json({
       ok: true,
       readStatus: "found",
@@ -1209,7 +1238,12 @@ async function readActiveWakeProgressForTest(input: {
   }) => Promise<WakeProgressItem["pendingInteraction"]>;
   sourceSignals?: readonly Extract<SignalEnvelope, { type: "signal.text" }>[];
   targetProfileId?: string;
-  headLifecycleReadStatus?: "missing" | "stopped" | "unavailable" | "waiting";
+  headLifecycleReadStatus?:
+    | "missing"
+    | "queued"
+    | "stopped"
+    | "unavailable"
+    | "waiting";
 }): Promise<GetActiveSpaceWakeProgressResponse> {
   const wakeEvidenceDb = createWakeEvidenceDb({
     activeDispatchRows: input.activeDispatchRows,
@@ -4210,6 +4244,32 @@ describe("space signal service", () => {
     expect(publishTextSignal).toHaveBeenCalledTimes(1);
   });
 
+  it("shows queued Wake progress only from the Agent Profile Work Coordinator head", async () => {
+    const item = await buildWakeProgressItemFromLookupTrace(
+      {
+        runtimeCoordinatorExecution: null,
+        runtimeCoordinatorHeadLifecycle: {
+          factSource: "runtime_coordinator_head_lifecycle",
+          readStatus: "found",
+          status: "queued",
+        },
+      } as unknown as SpaceDispatchTraceSnapshot,
+      [],
+      {
+        latestAttemptErrorCode: null,
+        latestAttemptStatus: "profile_queue_waiting",
+        status: "queued",
+      }
+    );
+
+    expect(item).toMatchObject({
+      failureReasonCode: null,
+      message: "Wake for @Codex Agent is queued.",
+      phase: "queued",
+      terminal: false,
+    });
+  });
+
   it("shows RuntimeCoordinator head no-execution in Wake progress without claiming final Space failure publication", async () => {
     const item = await buildWakeProgressItemFromLookupTrace({
       runtimeCoordinatorExecution: null,
@@ -4547,7 +4607,7 @@ describe("space signal service", () => {
     });
   });
 
-  it("projects OpenMeld-owned pre-agent Wake Stop eligibility into active queued Wake progress", async () => {
+  it("keeps ordinary handed-off Wake progress neutral before Coordinator evidence", async () => {
     const outboxRecord = createWakeProgressOutboxRecord({
       outboxStatus: "handed_off",
     });
@@ -4561,7 +4621,8 @@ describe("space signal service", () => {
     expect(response.items[0]).toMatchObject({
       clientMessageId: "client-message-1",
       dispatchId: outboxRecord.dispatchId,
-      phase: "queued",
+      message: "Wake request sent to @Codex Agent.",
+      phase: "request_sent",
       terminal: false,
       wakeStopEligibility: {
         controlMode: "openmeld_owned_pre_agent_cancel",
@@ -4569,6 +4630,27 @@ describe("space signal service", () => {
         reliability: "openmeld_owned_pre_agent",
         status: "eligible",
       },
+    });
+  });
+
+  it("projects Profile FIFO queued progress from the Coordinator head lifecycle", async () => {
+    const outboxRecord = createWakeProgressOutboxRecord({
+      outboxStatus: "handed_off",
+    });
+
+    const response = await readActiveWakeProgressForTest({
+      headLifecycleReadStatus: "queued",
+      includeWakeStopEligibility: true,
+      outboxRows: [outboxRecord],
+    });
+
+    expect(response.items).toHaveLength(1);
+    expect(response.items[0]).toMatchObject({
+      clientMessageId: "client-message-1",
+      dispatchId: outboxRecord.dispatchId,
+      message: "Wake for @Codex Agent is queued.",
+      phase: "queued",
+      terminal: false,
     });
   });
 
@@ -4593,7 +4675,7 @@ describe("space signal service", () => {
     expect(response.items[0]).toMatchObject({
       clientMessageId: null,
       dispatchId: outboxRecord.dispatchId,
-      phase: "queued",
+      phase: "request_sent",
       sourceSignalId: sourceSignal.id,
       targetProfileId: outboxRecord.targetProfileId,
       terminal: false,
@@ -4818,8 +4900,8 @@ describe("space signal service", () => {
   });
 
   it.each([
-    ["created", "queued"],
-    ["delivery_pending", "queued"],
+    ["created", "request_sent"],
+    ["delivery_pending", "request_sent"],
     ["delivery_accepted", "connecting"],
   ] as const)("keeps RuntimeCoordinator status authoritative when its summary is %s", async (executionStatus, expectedPhase) => {
     const readSpaceWakeProgress = vi.fn();
@@ -4877,7 +4959,7 @@ describe("space signal service", () => {
       expect.objectContaining({
         clientMessageId: outboxRecord.sourceClientMessageId,
         dispatchId: outboxRecord.dispatchId,
-        phase: "queued",
+        phase: "request_sent",
         sourceSignalId: outboxRecord.sourceEventId,
         targetProfileId: outboxRecord.targetProfileId,
         terminal: false,
@@ -5275,7 +5357,7 @@ describe("space signal service", () => {
     expect(response.items).toHaveLength(1);
     const item = response.items[0];
     expect(item).toMatchObject({
-      phase: "queued",
+      phase: "request_sent",
       terminal: false,
     });
     expect(item && "wakeStopEligibility" in item).toBe(false);
@@ -5292,7 +5374,7 @@ describe("space signal service", () => {
 
     expect(response.items).toHaveLength(1);
     expect(response.items[0]).toMatchObject({
-      phase: "queued",
+      phase: "request_sent",
       terminal: false,
       wakeStopEligibility: {
         controlMode: null,

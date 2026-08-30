@@ -140,6 +140,13 @@ outbox retains the complete payload while the head lifecycle is `queued`.
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.
 
+User-facing Wake progress may project explicit Profile FIFO `queued` copy only
+from the Coordinator-owned head lifecycle `queued` state. Space outbox status,
+Dispatch lookup status, and RuntimeCoordinator `created` or `delivery_pending`
+remain neutral pre-delivery progress. They must not infer that another Wake
+owns the Profile work slot, and the D1 `profile_queue_waiting` projection must
+not become a second presentation authority.
+
 When the current Wake becomes terminal, the same owner-shard transaction
 releases it, selects the next queued head, and records the minimum pending
 promotion marker. The normal path requests exact Space redrive immediately

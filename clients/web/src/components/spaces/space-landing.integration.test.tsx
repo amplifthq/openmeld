@@ -2705,6 +2705,7 @@ describe("SpaceLanding", () => {
 			sourceMessageGroup as HTMLElement
 		).getByTestId("space-wake-thinking-indicator");
 		expect(thinkingIndicator.textContent).toContain("Sending to agent");
+		expect(thinkingIndicator.textContent).not.toContain("Wake is queued");
 		expect(screen.queryByText("Starting Wake for @runner...")).toBeNull();
 		expect(screen.queryByText("OpenMeld System")).toBeNull();
 	});
