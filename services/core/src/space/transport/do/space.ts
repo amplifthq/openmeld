@@ -1526,10 +1526,14 @@ const normalizeLegacyHumanReferencesAsMentions = (input: {
   signal: SignalEnvelope;
   signalContext?: SignalPublishContext;
 }): SignalEnvelope => {
+  const authoringPolicy = input.signalContext?.authoringPolicy;
+  const isLegacyUserAuthoredRequest =
+    authoringPolicy === "user_authored" &&
+    input.signalContext?.supportsCurrentSpaceAddressing === false;
+  const isServiceAuthoredReply = authoringPolicy === "system_emitted";
   if (
     input.signal.type !== "signal.text" ||
-    input.signalContext?.authoringPolicy !== "user_authored" ||
-    input.signalContext.supportsCurrentSpaceAddressing !== false
+    !(isLegacyUserAuthoredRequest || isServiceAuthoredReply)
   ) {
     return input.signal;
   }

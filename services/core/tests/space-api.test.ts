@@ -6986,6 +6986,103 @@ describe("OpenMeld Core", () => {
     });
   });
 
+  it("translates legacy Human References from OpenMeld Service replies", async () => {
+    const spaceId = await createSpace();
+    const agentProfileId = `agt_${randomUUID()}`;
+    const addResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            {
+              profileId: SECOND_HUMAN_PROFILE_ID,
+              profileName: "Legacy Service Mention Target",
+              profileKind: "human",
+              ownerUserId: "owner-legacy-service-mention-target",
+              ownerName: "Legacy Service Mention Target",
+              agentControllerRef: null,
+            },
+            {
+              profileId: agentProfileId,
+              profileName: "Legacy Service Agent",
+              profileKind: "agent",
+              ownerUserId: "owner-legacy-service-agent",
+              ownerName: "Legacy Service Owner",
+              agentControllerRef: "builtin:codex",
+            },
+          ],
+        }),
+      }
+    );
+    expect(addResponse.status).toBe(200);
+
+    const rpcContext = createRpcContext({
+      requestId: "legacy-service-human-reference-rpc",
+      profileId: agentProfileId,
+      profileKind: "agent",
+      profileName: "Legacy Service Agent",
+      ownerUserId: "owner-legacy-service-agent",
+    });
+    const rpc = SELF as unknown as {
+      listSignals: (
+        input: { context: typeof rpcContext; spaceId: string },
+        spaceAddressingVersion?: string
+      ) => Promise<{ signals: SignalEnvelope[] }>;
+      postSignal: (input: {
+        authoringPolicy: "system_emitted";
+        context: typeof rpcContext;
+        messageEnvelope: {
+          activationTargets: string[];
+          referenceTargets: string[];
+          text: string;
+        };
+        profile: {
+          kind: "agent";
+          profileId: string;
+          profileName: string;
+        };
+        spaceId: string;
+        text: string;
+      }) => Promise<SignalEnvelope>;
+    };
+
+    const text = "@Legacy Service Mention Target please review";
+    await rpc.postSignal({
+      authoringPolicy: "system_emitted",
+      context: rpcContext,
+      messageEnvelope: {
+        activationTargets: [],
+        referenceTargets: [SECOND_HUMAN_PROFILE_ID],
+        text,
+      },
+      profile: {
+        kind: "agent",
+        profileId: agentProfileId,
+        profileName: "Legacy Service Agent",
+      },
+      spaceId,
+      text,
+    });
+
+    const currentHistory = await rpc.listSignals(
+      { context: rpcContext, spaceId },
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
+    const persisted = currentHistory.signals.find(
+      (signal) => signal.type === "signal.text" && signal.data.text === text
+    );
+    expect(
+      persisted?.type === "signal.text"
+        ? persisted.data.messageEnvelope
+        : undefined
+    ).toMatchObject({
+      mentionTargets: [SECOND_HUMAN_PROFILE_ID],
+      referenceTargets: [],
+    });
+  });
+
   it("opens the Center Agent DM through the real Space DO member path", async () => {
     const organizationId = `org-center-dm-${randomUUID()}`;
     const ownerUserId = `user-center-dm-${randomUUID()}`;

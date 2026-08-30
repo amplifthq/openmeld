@@ -4577,8 +4577,12 @@ validation and persistence, Core translates only active Human member targets
 from that legacy request into `mentionTargets`; Agent References remain
 References, and inactive targets still fail. A negotiated current caller does
 not receive this translation, so Human Reference remains invalid on every
-current path. This compatibility step never infers addressing from text and
-never rewrites an already persisted signal.
+current user-authored path. Core applies the same translation to
+`system_emitted` Agent replies because already-published OpenMeld Services
+encoded Human attention as Reference and do not carry the HTTP or WebSocket
+negotiation marker. Current Agent reply producers cannot validly author a Human
+Reference. This compatibility step never infers addressing from text and never
+rewrites an already persisted signal.
 
 These three owner points are one package-owned compatibility boundary, not
 three business facts. Neither retired field is a current fact, writer input,
