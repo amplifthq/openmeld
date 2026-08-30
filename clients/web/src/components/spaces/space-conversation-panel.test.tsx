@@ -27,7 +27,10 @@ import {
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
 import { notifyResizeObservers } from "#/test-support/dom-observers.setup";
-import { SPACE_WAKE_COMPOSER_HINT } from "./space-composer-copy";
+import {
+	SPACE_COMPOSER_ACCESSIBLE_NAME,
+	SPACE_WAKE_COMPOSER_HINT,
+} from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import type { SpaceView } from "./space-view";
 import { SpaceViewTabs } from "./space-view-tabs";
@@ -184,7 +187,7 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			(
 				screen.getByRole("textbox", {
-					name: SPACE_WAKE_COMPOSER_HINT,
+					name: SPACE_COMPOSER_ACCESSIBLE_NAME,
 				}) as HTMLTextAreaElement
 			).value
 		).toBe("Draft the follow-up.");
@@ -194,7 +197,9 @@ describe("SpaceConversationPanel", () => {
 			null
 		);
 		expect(
-			screen.queryByRole("textbox", { name: SPACE_WAKE_COMPOSER_HINT })
+			screen.queryByRole("textbox", {
+				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
+			})
 		).toBeNull();
 		expect(screen.getByRole("region", { name: "Space Graph" })).toBeTruthy();
 		expect(screen.getByText("Review the release plan.")).toBeTruthy();
@@ -206,7 +211,7 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			(
 				screen.getByRole("textbox", {
-					name: SPACE_WAKE_COMPOSER_HINT,
+					name: SPACE_COMPOSER_ACCESSIBLE_NAME,
 				}) as HTMLTextAreaElement
 			).value
 		).toBe("Draft the follow-up.");
@@ -2056,7 +2061,9 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByRole("textbox", { name: SPACE_WAKE_COMPOSER_HINT })
+			screen.getByRole("textbox", {
+				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
+			})
 		).toHaveProperty("placeholder", SPACE_WAKE_COMPOSER_HINT);
 		fireEvent.click(screen.getByRole("button", { name: "Mention a member" }));
 		expect(onMentionButtonClick).toHaveBeenCalledOnce();
@@ -2079,7 +2086,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByRole("textbox", { name: "Message Codex…" })
+			screen.getByRole("textbox", { name: "Message Codex" })
 		).toHaveProperty("placeholder", "Message Codex…");
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
@@ -2107,7 +2114,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByRole("textbox", { name: "Message Felix…" })
+			screen.getByRole("textbox", { name: "Message Felix" })
 		).toHaveProperty("placeholder", "Message Felix…");
 	});
 
@@ -2122,7 +2129,7 @@ describe("SpaceConversationPanel", () => {
 
 		expect(
 			screen.getByRole("textbox", {
-				name: "Tell Center Agent what you need…",
+				name: "Message Center Agent",
 			})
 		).toHaveProperty("placeholder", "Tell Center Agent what you need…");
 		expect(
@@ -2214,7 +2221,7 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen
 				.getByRole("textbox", {
-					name: "Posting is unavailable in this space right now",
+					name: SPACE_COMPOSER_ACCESSIBLE_NAME,
 				})
 				.closest("[data-space-conversation-content-width]")
 		).toBeTruthy();

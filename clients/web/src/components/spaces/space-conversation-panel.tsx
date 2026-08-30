@@ -125,6 +125,7 @@ import {
 } from "./space-collaboration-profile";
 import { SpaceComposerAddressingChips } from "./space-composer-addressing";
 import {
+	resolveSpaceComposerAccessibleName,
 	resolveSpaceComposerPlaceholder,
 	resolveSpaceComposerWakeTextHint,
 	type SpaceAgentDirectConversationComposerHintKind,
@@ -614,13 +615,19 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		() => buildThreadPreviewByThreadId(input.threadPreviews),
 		[input.threadPreviews]
 	);
+	const composerContext = resolveConversationComposerContext(input);
+	const composerTargetName = resolveDirectMessageTargetName(input);
+	const composerAccessibleName = resolveSpaceComposerAccessibleName({
+		context: composerContext,
+		targetName: composerTargetName,
+	});
 	const composerPlaceholder = resolveSpaceComposerPlaceholder({
 		canSendMessage,
-		context: resolveConversationComposerContext(input),
+		context: composerContext,
 		readOnlyPlaceholder: isReadOnly
 			? input.readOnlyComposerPlaceholder
 			: undefined,
-		targetName: resolveDirectMessageTargetName(input),
+		targetName: composerTargetName,
 	});
 	const sendButtonLabel = resolveSendButtonLabel(input.isSendingMessage);
 	const wakeTextHint = input.agentDirectConversationKind
@@ -1095,6 +1102,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 					{input.pendingActionSurface}
 					<SpaceComposerSection
 						canSendMessage={canSendMessage}
+						composerAccessibleName={composerAccessibleName}
 						composerPlaceholder={composerPlaceholder}
 						composerSendBlocked={composerSendBlocked}
 						handleComposerKeyDown={handleComposerKeyDown}
@@ -1413,6 +1421,7 @@ function SpaceConversationTopOverlay(input: {
 
 function SpaceComposerSection(input: {
 	canSendMessage: boolean;
+	composerAccessibleName: string;
 	composerSendBlocked: boolean;
 	composerPlaceholder: string;
 	handleComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -1508,7 +1517,7 @@ function SpaceComposerSection(input: {
 							onRemove={panel.onRemoveComposerFile}
 						/>
 						<PromptInputTextarea
-							aria-label={input.composerPlaceholder}
+							aria-label={input.composerAccessibleName}
 							autoComplete="off"
 							className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
 							name="space-message"
