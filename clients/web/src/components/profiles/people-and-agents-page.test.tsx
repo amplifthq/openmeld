@@ -35,6 +35,7 @@ const useQueryClientMock = vi.hoisted(() => vi.fn());
 const useLocalAgentRecoveryControllerMock = vi.hoisted(() => vi.fn());
 const FILTER_AGENTS_NAME = /Filter Agents/;
 const CHECKING_AGENTS_FILTER_NAME = /Current filter: Checking, 0 Agents/;
+const PERSONAL_ALL_AGENTS_FILTER_NAME = /Current filter: All, 1 Agent/;
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -295,6 +296,22 @@ function buildHumanProfile(profileId: string): AuthProfileView {
 		source: "auth_bootstrap",
 		status: "active",
 		updatedAt: "2026-06-02T00:00:00.000Z",
+	};
+}
+
+function buildAgentProfile(
+	profileId: string,
+	profileName: string
+): AuthProfileView {
+	return {
+		...buildHumanProfile(profileId),
+		isDefault: false,
+		managedRole: null,
+		openMeldProfileId: profileId,
+		profileHandle: profileId,
+		profileKind: "agent",
+		profileName,
+		source: "cli_create",
 	};
 }
 
@@ -906,6 +923,71 @@ describe("PeopleAndAgentsPage", () => {
 
 		expect(createProfileDialogSpy).toHaveBeenCalled();
 		expect(screen.queryByRole("button", { name: "Agent requests" })).toBeNull();
+	});
+
+	it("uses only the canonical Personal Workspace directory instead of account-wide Agent Profiles", () => {
+		Object.assign(currentOrganizationMock, {
+			id: "org-personal",
+			isPersonal: true,
+			name: "Personal",
+			slug: "personal",
+		});
+		const directory = buildOrganizationDirectory();
+		directory.organizationId = "org-personal";
+		directory.agentProfiles = directory.agentProfiles.map((profile) => ({
+			...profile,
+			organizationId: "org-personal",
+			profileName: "Personal Scout",
+		}));
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			return queryKey.includes("directory")
+				? {
+						data: directory,
+						error: null,
+						isError: false,
+						isPending: false,
+					}
+				: {
+						data: [buildHumanProfile("human-default")],
+						error: null,
+						isError: false,
+						isPending: false,
+					};
+		});
+		useLocalAgentRecoveryControllerMock.mockReturnValue({
+			...buildRecoveryStub(),
+			agentProfiles: [
+				buildAgentProfile("agent-amplift", "Codex - openmeld"),
+				buildAgentProfile(
+					"agent-production-smoke",
+					"Production Smoke Codex — Aug 28"
+				),
+			],
+		});
+
+		render(
+			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
+		);
+
+		expect(useLocalAgentRecoveryControllerMock).toHaveBeenCalledWith(
+			expect.objectContaining({ loadAgentProfiles: false })
+		);
+		expect(
+			agentProfilesWorkspaceSpy.mock.calls
+				.at(-1)?.[0]
+				.profiles.map((profile: AuthProfileView) => profile.profileName)
+		).toEqual(["Personal Scout"]);
+		expect(
+			agentProfilesCardSpy.mock.calls
+				.at(-1)?.[0]
+				.agentProfiles.map((profile: AuthProfileView) => profile.profileName)
+		).toEqual(["Personal Scout"]);
+		expect(
+			screen.getByRole("combobox", {
+				name: PERSONAL_ALL_AGENTS_FILTER_NAME,
+			})
+		).toBeTruthy();
 	});
 
 	it("creates organization Agents directly in the active workspace", () => {

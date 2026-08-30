@@ -22,7 +22,6 @@ import {
 	type AgentProfileAvailabilityFilterCounts,
 	resolveAgentProfileAvailabilityFilterState,
 	sortAgentProfilesForDisplay,
-	summarizeAgentProfileAvailabilityFilters,
 } from "#/components/agents/agents-page-agent-profile-helpers";
 import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profiles-card";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
@@ -96,6 +95,7 @@ export function PeopleAndAgentsPage(input: {
 		(account.name ?? account.email ?? "This member").trim() || "This member";
 	const recovery = useLocalAgentRecoveryController({
 		agentExecutionReadinessScope: "bound_runtime",
+		loadAgentProfiles: false,
 		loadSetupState: false,
 	});
 	const organizationDirectoryQuery = useQuery(
@@ -105,26 +105,12 @@ export function PeopleAndAgentsPage(input: {
 		})
 	);
 	const agentProfileFilterCounts = useMemo(() => {
-		if (organizationDirectoryQuery.data) {
-			return summarizeOrganizationAgentProfileAvailabilityFilters(
-				organizationDirectoryQuery.data.agentProfiles.filter(
-					(profile) => profile.managedRole !== "center_agent"
-				)
-			);
-		}
-		return summarizeAgentProfileAvailabilityFilters({
-			errorByProfileId: recovery.agentExecutionReadinessErrorByProfileId,
-			pendingProfileIds: recovery.agentExecutionReadinessPendingProfileIds,
-			profiles: recovery.agentProfiles,
-			readinessByProfileId: recovery.agentExecutionReadinessByProfileId,
-		});
-	}, [
-		organizationDirectoryQuery.data,
-		recovery.agentExecutionReadinessByProfileId,
-		recovery.agentExecutionReadinessErrorByProfileId,
-		recovery.agentExecutionReadinessPendingProfileIds,
-		recovery.agentProfiles,
-	]);
+		return summarizeOrganizationAgentProfileAvailabilityFilters(
+			(organizationDirectoryQuery.data?.agentProfiles ?? []).filter(
+				(profile) => profile.managedRole !== "center_agent"
+			)
+		);
+	}, [organizationDirectoryQuery.data?.agentProfiles]);
 	const handleProfileCreated = (profile: AuthProfileView) => {
 		Promise.all([
 			queryClient.invalidateQueries({
@@ -288,18 +274,10 @@ function AgentsWorkspaceHome(input: {
 		}
 		return { profiles, readinessByProfileId };
 	}, [input.directoryQuery.data?.agentProfiles]);
-	const agentProfiles = input.isOrganizationContext
-		? organizationAgentProjection.profiles
-		: input.recovery.agentProfiles;
-	const readinessByProfileId = input.isOrganizationContext
-		? organizationAgentProjection.readinessByProfileId
-		: input.recovery.agentExecutionReadinessByProfileId;
-	const errorByProfileId = input.isOrganizationContext
-		? EMPTY_AGENT_PROFILE_READINESS_ERROR_BY_PROFILE_ID
-		: input.recovery.agentExecutionReadinessErrorByProfileId;
-	const pendingProfileIds = input.isOrganizationContext
-		? EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS
-		: input.recovery.agentExecutionReadinessPendingProfileIds;
+	const agentProfiles = organizationAgentProjection.profiles;
+	const readinessByProfileId = organizationAgentProjection.readinessByProfileId;
+	const errorByProfileId = EMPTY_AGENT_PROFILE_READINESS_ERROR_BY_PROFILE_ID;
+	const pendingProfileIds = EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS;
 	const visibleAgentProfiles = useMemo(
 		() =>
 			sortAgentProfilesForDisplay({
@@ -315,13 +293,7 @@ function AgentsWorkspaceHome(input: {
 						readinessByProfileId,
 					}) === input.availabilityFilter
 			),
-		[
-			agentProfiles,
-			errorByProfileId,
-			input.availabilityFilter,
-			pendingProfileIds,
-			readinessByProfileId,
-		]
+		[agentProfiles, input.availabilityFilter, readinessByProfileId]
 	);
 	const sidebarAgentProfiles = useMemo(() => {
 		const selectedProfile = agentProfiles.find(
@@ -349,15 +321,10 @@ function AgentsWorkspaceHome(input: {
 			(request) => request.status === "pending"
 		).length ?? 0;
 	const profilesStatus = resolveAgentProfilesStatus({
-		isOrganizationContext: input.isOrganizationContext,
-		organizationIsError: input.directoryQuery.isError,
-		organizationIsPending: input.directoryQuery.isPending,
-		personalIsError: input.recovery.agentProfilesQuery.isError,
-		personalIsPending: input.recovery.agentProfilesQuery.isPending,
+		isError: input.directoryQuery.isError,
+		isPending: input.directoryQuery.isPending,
 	});
-	const profilesErrorMessage = input.isOrganizationContext
-		? input.directoryQuery.error?.message
-		: undefined;
+	const profilesErrorMessage = input.directoryQuery.error?.message;
 	let requestPanel: ReactNode = null;
 	if (input.directoryQuery.data) {
 		requestPanel = (
@@ -454,22 +421,13 @@ function AgentsWorkspaceHome(input: {
 }
 
 function resolveAgentProfilesStatus(input: {
-	isOrganizationContext: boolean;
-	organizationIsError: boolean;
-	organizationIsPending: boolean;
-	personalIsError: boolean;
-	personalIsPending: boolean;
+	isError: boolean;
+	isPending: boolean;
 }): "error" | "loading" | "ready" {
-	const isPending = input.isOrganizationContext
-		? input.organizationIsPending
-		: input.personalIsPending;
-	if (isPending) {
+	if (input.isPending) {
 		return "loading";
 	}
-	const isError = input.isOrganizationContext
-		? input.organizationIsError
-		: input.personalIsError;
-	return isError ? "error" : "ready";
+	return input.isError ? "error" : "ready";
 }
 
 function AgentProfileFilterSelect(input: {
