@@ -60,12 +60,14 @@ export function parseStagingWebSetupCommand(command) {
 
 export function buildStagingSmokeSetupArgs(parsedCommand) {
   const values = readSetupArgumentValues(parsedCommand.setupArgs);
+  const authArgs = values.deviceCode
+    ? ["--device-code", values.deviceCode]
+    : ["--ott", values.ott];
   return [
     "setup",
     "--start-session",
     values.startSession,
-    "--ott",
-    values.ott,
+    ...authArgs,
     "--view",
     "agent",
   ];
@@ -74,16 +76,18 @@ export function buildStagingSmokeSetupArgs(parsedCommand) {
 export function redactStagingSetupCommand(command) {
   const parsed = parseStagingWebSetupCommand(command);
   const redactedArgs = [...parsed.setupArgs];
-  for (const flag of ["--start-session", "--ott"]) {
+  for (const flag of ["--start-session", "--device-code", "--ott"]) {
     const index = redactedArgs.indexOf(flag);
-    redactedArgs[index + 1] = "[redacted]";
+    if (index >= 0) {
+      redactedArgs[index + 1] = "[redacted]";
+    }
   }
   return `curl -fsSL '${parsed.setupUrl}' | sh -s -- ${redactedArgs.join(" ")}`;
 }
 
 export function readStagingSetupSensitiveValues(args) {
   const values = readSetupArgumentValues(args);
-  return [values.startSession, values.ott].filter(Boolean);
+  return [values.startSession, values.deviceCode, values.ott].filter(Boolean);
 }
 
 export function buildStagingComputerSmokePlan() {
@@ -180,13 +184,16 @@ function validateSetupArgs(args) {
     throw new Error("Setup arguments must start with setup.");
   }
   const values = readSetupArgumentValues(args);
-  if (!(values.startSession && values.ott && values.view)) {
+  const authCredentialCount =
+    Number(Boolean(values.deviceCode)) + Number(Boolean(values.ott));
+  if (!(values.startSession && values.view) || authCredentialCount !== 1) {
     throw new Error("Setup handoff credentials are missing.");
   }
 }
 
 function readSetupArgumentValues(args) {
   const values = {
+    deviceCode: null,
     localAgents: null,
     ott: null,
     startSession: null,
@@ -200,6 +207,7 @@ function readSetupArgumentValues(args) {
       !(
         flag in
         {
+          "--device-code": true,
           "--local-agents": true,
           "--ott": true,
           "--start-session": true,
@@ -222,6 +230,10 @@ function readSetupArgumentValues(args) {
 }
 
 function assignSetupArgument(input) {
+  if (input.flag === "--device-code") {
+    input.values.deviceCode = input.value;
+    return;
+  }
   if (input.flag === "--local-agents") {
     if (input.value !== "all" && input.value !== "none") {
       throw new Error("Local Agent selection must be all or none.");
