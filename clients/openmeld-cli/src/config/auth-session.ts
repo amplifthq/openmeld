@@ -50,6 +50,8 @@ type AuthSessionTransitionJournalV1 = {
   ownerProcessStartedAt: string;
   previousPayload: AuthSessionV1 | null;
   candidatePayload: AuthSessionV1;
+  candidateServiceProcesses?: ProcessIdentity[];
+  /** @deprecated Read and write until in-flight v1 journals from older builds expire. */
   candidateServiceProcess?: ProcessIdentity;
   computerHandoff?: {
     gatewayUrl: string;
@@ -69,6 +71,8 @@ type ProcessIdentity = {
   ownerPid: number;
   ownerProcessStartedAt: string;
 };
+
+const MAX_CANDIDATE_SERVICE_PROCESSES = 16;
 
 class AuthSessionStorageError extends Error {
   readonly reason: "corrupt" | "unreadable";
@@ -368,12 +372,21 @@ async function resolveRemotelyValidatedAuthSession(input: {
     if (!(error instanceof AuthSessionRecoveryInProgressError)) {
       throw error;
     }
-    // Remote validation is a read. A valid response may offer a refreshed
-    // token or expiry, but an interrupted Computer handoff still owns the
-    // auth mutation boundary. Keep that journal and its token ownership
-    // intact, then re-read the currently restored session in case another
-    // owner won while the remote request was in flight.
-    return await getLocalAuthSessionState({ recover: false });
+    // Remote validation already proved this exact in-memory session is valid.
+    // Another process may still own the Computer handoff transaction, so this
+    // reader cannot persist the refreshed token or expiry yet. Keep using the
+    // validated session in memory instead of falling back to the committed
+    // session file, which is intentionally absent on a fresh Computer.
+    return {
+      state: "valid",
+      session: {
+        ...input.localState.session,
+        accessToken:
+          input.remoteValidation.accessToken ??
+          input.localState.session.accessToken,
+        expiresAt: input.remoteValidation.expiresAt,
+      },
+    };
   }
 
   if (!refreshedSession) {
@@ -1555,11 +1568,12 @@ function resolveRemoteAuthSessionReasonCode(
 async function readSessionPayload(): Promise<Partial<AuthSessionV1> | null> {
   await recoverInterruptedAuthSessionTransition();
   const journal = await readAuthSessionTransitionJournal();
-  if (
-    journal?.state === "pending" &&
-    isAuthSessionTransitionCandidateVisibleToCurrentProcess(journal)
-  ) {
-    return journal.candidatePayload;
+  if (journal?.state === "pending") {
+    const candidateVisible =
+      isAuthSessionTransitionCandidateVisibleToCurrentProcess(journal);
+    if (candidateVisible) {
+      return journal.candidatePayload;
+    }
   }
   return await readSessionPayloadFile();
 }
@@ -1570,10 +1584,12 @@ function isAuthSessionTransitionCandidateVisibleToCurrentProcess(
   if (activeAuthSessionTransitionIds.has(journal.id)) {
     return true;
   }
-  return (
-    journal.candidateServiceProcess?.ownerPid === process.pid &&
-    journal.candidateServiceProcess.ownerProcessStartedAt ===
-      CURRENT_PROCESS_START_IDENTITY
+  return getRegisteredCandidateServiceProcesses(journal).some(
+    (candidateServiceProcess) =>
+      isSameProcessIdentity(candidateServiceProcess, {
+        ownerPid: process.pid,
+        ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
+      })
   );
 }
 
@@ -1700,9 +1716,10 @@ async function registerCurrentCandidateServiceProcess(
     ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
   };
   if (
-    journal.candidateServiceProcess?.ownerPid === currentProcess.ownerPid &&
-    journal.candidateServiceProcess.ownerProcessStartedAt ===
-      currentProcess.ownerProcessStartedAt
+    getRegisteredCandidateServiceProcesses(journal).some(
+      (candidateServiceProcess) =>
+        isSameProcessIdentity(candidateServiceProcess, currentProcess)
+    )
   ) {
     return journal;
   }
@@ -1710,8 +1727,18 @@ async function registerCurrentCandidateServiceProcess(
   if (currentJournal?.id !== journal.id || currentJournal.state !== "pending") {
     return currentJournal ?? journal;
   }
+  const candidateServiceProcesses = getRegisteredCandidateServiceProcesses(
+    currentJournal
+  ).filter(isProcessIdentityAlive);
+  candidateServiceProcesses.push(currentProcess);
+  if (candidateServiceProcesses.length > MAX_CANDIDATE_SERVICE_PROCESSES) {
+    throw new Error(
+      `auth session transition has more than ${String(MAX_CANDIDATE_SERVICE_PROCESSES)} live candidate OpenMeld Service processes`
+    );
+  }
   const updatedJournal = {
     ...currentJournal,
+    candidateServiceProcesses,
     candidateServiceProcess: currentProcess,
   };
   await writeAuthSessionTransitionJournalIfOwned(
@@ -1724,25 +1751,56 @@ async function registerCurrentCandidateServiceProcess(
 function stopRegisteredCandidateService(
   journal: AuthSessionTransitionJournalV1
 ): void {
-  const candidateServiceProcess = journal.candidateServiceProcess;
-  if (
-    !(
-      candidateServiceProcess && isProcessIdentityAlive(candidateServiceProcess)
-    )
-  ) {
-    return;
-  }
-  try {
-    process.kill(candidateServiceProcess.ownerPid, "SIGTERM");
-  } catch (error) {
-    if (!isFileNotFoundErrorCode(error, "ESRCH")) {
-      throw new AuthSessionStorageError({
-        message: `candidate OpenMeld Service process ${String(candidateServiceProcess.ownerPid)} could not be stopped: ${toErrorMessage(error)}`,
-        reason: "unreadable",
-        cause: error,
-      });
+  for (const candidateServiceProcess of getRegisteredCandidateServiceProcesses(
+    journal
+  )) {
+    if (!isProcessIdentityAlive(candidateServiceProcess)) {
+      continue;
+    }
+    try {
+      process.kill(candidateServiceProcess.ownerPid, "SIGTERM");
+    } catch (error) {
+      if (!isFileNotFoundErrorCode(error, "ESRCH")) {
+        throw new AuthSessionStorageError({
+          message: `candidate OpenMeld Service process ${String(candidateServiceProcess.ownerPid)} could not be stopped: ${toErrorMessage(error)}`,
+          reason: "unreadable",
+          cause: error,
+        });
+      }
     }
   }
+}
+
+function getRegisteredCandidateServiceProcesses(
+  journal: AuthSessionTransitionJournalV1
+): ProcessIdentity[] {
+  const candidates = [
+    ...(journal.candidateServiceProcesses ?? []),
+    ...(journal.candidateServiceProcess
+      ? [journal.candidateServiceProcess]
+      : []),
+  ];
+  const uniqueCandidates: ProcessIdentity[] = [];
+  for (const candidate of candidates) {
+    if (
+      !uniqueCandidates.some((existing) =>
+        isSameProcessIdentity(existing, candidate)
+      )
+    ) {
+      uniqueCandidates.push(candidate);
+    }
+  }
+  return uniqueCandidates;
+}
+
+function isSameProcessIdentity(
+  left: ProcessIdentity,
+  right: ProcessIdentity
+): boolean {
+  return (
+    left.ownerPid === right.ownerPid &&
+    left.ownerProcessStartedAt === right.ownerProcessStartedAt
+  );
 }
 
 function isCurrentProcessCandidateService(): boolean {
@@ -1891,19 +1949,32 @@ function isAuthSessionTransitionJournal(
     (value.previousPayload === null ||
       isAuthSessionPayload(value.previousPayload)) &&
     isAuthSessionPayload(value.candidatePayload) &&
+    isOptionalProcessIdentityList(value.candidateServiceProcesses) &&
     isOptionalProcessIdentity(value.candidateServiceProcess) &&
     isOptionalComputerHandoffRecovery(value.computerHandoff)
   );
 }
 
-function isOptionalProcessIdentity(value: unknown): boolean {
+function isOptionalProcessIdentityList(value: unknown): boolean {
   return (
     value === undefined ||
-    (isRecord(value) &&
-      Number.isSafeInteger(value.ownerPid) &&
-      Number(value.ownerPid) > 0 &&
-      typeof value.ownerProcessStartedAt === "string" &&
-      value.ownerProcessStartedAt.length > 0)
+    (Array.isArray(value) &&
+      value.length <= MAX_CANDIDATE_SERVICE_PROCESSES &&
+      value.every((candidate) => isProcessIdentity(candidate)))
+  );
+}
+
+function isOptionalProcessIdentity(value: unknown): boolean {
+  return value === undefined || isProcessIdentity(value);
+}
+
+function isProcessIdentity(value: unknown): value is ProcessIdentity {
+  return (
+    isRecord(value) &&
+    Number.isSafeInteger(value.ownerPid) &&
+    Number(value.ownerPid) > 0 &&
+    typeof value.ownerProcessStartedAt === "string" &&
+    value.ownerProcessStartedAt.length > 0
   );
 }
 
