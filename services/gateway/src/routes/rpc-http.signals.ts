@@ -23,6 +23,7 @@ import {
   readSpacePasswordHeader,
   respondBadRequest,
   respondPublicBadRequest,
+  supportsCurrentSpaceAddressing,
 } from "./rpc-http.helpers";
 import {
   parsePostSignalBody,
@@ -384,7 +385,9 @@ export function registerSignalsRoutes(app: Hono<HonoBindings>): void {
               profile,
               spaceId,
             }),
-            OPENMELD_SPACE_ADDRESSING_VERSION
+            supportsCurrentSpaceAddressing(c.req.raw.headers)
+              ? OPENMELD_SPACE_ADDRESSING_VERSION
+              : undefined
           );
         } catch (error) {
           emitGatewaySignalPostRuntimeEvidence({

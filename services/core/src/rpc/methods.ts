@@ -2023,6 +2023,7 @@ export type PostSignalInput = {
   password?: string;
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
+  spaceAddressingVersion?: string;
   threadContext?: SpaceThreadContext;
 };
 
@@ -17057,6 +17058,9 @@ export async function rpcPostSignal(
       : {}),
     ...(password === undefined ? {} : { password }),
     ...(input.threadContext ? { threadContext: input.threadContext } : {}),
+    ...(input.spaceAddressingVersion
+      ? { spaceAddressingVersion: input.spaceAddressingVersion }
+      : {}),
     context,
     ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
   };
@@ -17110,6 +17114,9 @@ export async function rpcPostSignalOnceByClientMessageId(
       : {}),
     ...(password === undefined ? {} : { password }),
     ...(input.threadContext ? { threadContext: input.threadContext } : {}),
+    ...(input.spaceAddressingVersion
+      ? { spaceAddressingVersion: input.spaceAddressingVersion }
+      : {}),
     context,
     ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
   });

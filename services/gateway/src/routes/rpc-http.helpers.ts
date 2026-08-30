@@ -355,7 +355,7 @@ export async function executePublicRpcRoute(
   }
 }
 
-function supportsCurrentSpaceAddressing(headers: Headers): boolean {
+export function supportsCurrentSpaceAddressing(headers: Headers): boolean {
   return (
     headers.get(OPENMELD_HEADER_SPACE_ADDRESSING_VERSION) ===
     OPENMELD_SPACE_ADDRESSING_VERSION

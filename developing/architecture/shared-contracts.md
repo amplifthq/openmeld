@@ -4571,6 +4571,15 @@ the service-binding RPC method version argument then selects current output for
 current Gateway while preserving legacy output for an already-deployed Gateway.
 Compatibility selection is transport metadata, never Space business state.
 
+An old authoring client that omits this version or WebSocket capability may
+still encode a Human target in `referenceTargets`. Before current target-kind
+validation and persistence, Core translates only active Human member targets
+from that legacy request into `mentionTargets`; Agent References remain
+References, and inactive targets still fail. A negotiated current caller does
+not receive this translation, so Human Reference remains invalid on every
+current path. This compatibility step never infers addressing from text and
+never rewrites an already persisted signal.
+
 These three owner points are one package-owned compatibility boundary, not
 three business facts. Neither retired field is a current fact, writer input,
 prompt concept, or UI state. No consumer may branch business behavior on them.
@@ -4581,7 +4590,7 @@ The Contract Impact Audit for this retirement is:
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Old CLI or OpenMeld Service -> new Core                    | New shared request schemas accept the retired empty or populated field only at preprocessing, merge historical targets into Reference, and return a current addressing object. This includes daemon result frames. |
 | New CLI or OpenMeld Service -> old Core                    | Not supported once `mentionTargets` is authored. The guarded rollout deploys current readers before current Human Mention writers.                                                                                |
-| Old Web or API client -> new Gateway/Core                  | New request schemas normalize the retired field at the boundary. Old response readers receive only the empty compatibility field.                                                                                    |
+| Old Web or API client -> new Gateway/Core                  | New request schemas normalize the retired field at the boundary. Gateway preserves the caller's missing version, and Core translates active Human References into Human Mentions before current validation. Old response readers receive only the empty compatibility field.         |
 | New Web or API client -> old Gateway/Core                  | Requests without Human Mention retain the empty compatibility field. A request with non-empty `mentionTargets` requires current readers; the guarded rollout deploys those readers first. Current response readers normalize old persisted values into Reference.              |
 | Old Gateway or Remote Agent -> new Core                    | New Core request schemas normalize the retired field before current RPC or authoring logic can observe it.                                                                                                           |
 | New Core -> old Gateway, Remote Agent, or OpenMeld Service | Consumers that omit the HTTP/RPC response version or WebSocket capability receive only empty retired fields after current-domain validation. Negotiated current consumers receive `mentionTargets` and `allowedRelations.mention` unchanged.                            |

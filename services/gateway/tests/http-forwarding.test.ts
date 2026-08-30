@@ -4970,7 +4970,7 @@ describe("gateway http forwarding", () => {
         authoringPolicy: "user_authored",
         context: EXPECTED_CORE_CONTEXT,
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      undefined
     );
   });
 
@@ -5011,7 +5011,7 @@ describe("gateway http forwarding", () => {
         authoringPolicy: "user_authored",
         context: EXPECTED_CORE_CONTEXT,
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      undefined
     );
   });
 
@@ -5126,7 +5126,7 @@ describe("gateway http forwarding", () => {
         },
         context: EXPECTED_CORE_CONTEXT,
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      undefined
     );
   });
 
@@ -5170,11 +5170,11 @@ describe("gateway http forwarding", () => {
         },
         context: EXPECTED_CORE_CONTEXT,
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      undefined
     );
   });
 
-  it("forwards current addressing and keeps the retired response field empty for old clients", async () => {
+  it("preserves legacy addressing for old clients", async () => {
     const { env, rpc } = makeEnv({
       coreOverrides: {
         postSignal: vi.fn(async () => ({
@@ -5253,7 +5253,7 @@ describe("gateway http forwarding", () => {
         },
         context: EXPECTED_CORE_CONTEXT,
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      undefined
     );
   });
 

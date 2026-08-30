@@ -1521,6 +1521,56 @@ const assertCurrentSpaceAddressingTargetsAreActiveMembers = (input: {
   }
 };
 
+const normalizeLegacyHumanReferencesAsMentions = (input: {
+  readMember: (profileId: string) => ReturnType<typeof readSpaceMemberRecord>;
+  signal: SignalEnvelope;
+  signalContext?: SignalPublishContext;
+}): SignalEnvelope => {
+  if (
+    input.signal.type !== "signal.text" ||
+    input.signalContext?.authoringPolicy !== "user_authored" ||
+    input.signalContext.supportsCurrentSpaceAddressing !== false
+  ) {
+    return input.signal;
+  }
+
+  const messageEnvelope = input.signal.data.messageEnvelope;
+  if (!messageEnvelope || messageEnvelope.referenceTargets.length === 0) {
+    return input.signal;
+  }
+
+  const referenceTargets: string[] = [];
+  const mentionTargets = [...(messageEnvelope.mentionTargets ?? [])];
+  let translatedHumanReference = false;
+  for (const targetProfileId of messageEnvelope.referenceTargets) {
+    const member = input.readMember(targetProfileId);
+    if (member?.status === "active" && member.profileKindSnapshot === "human") {
+      translatedHumanReference = true;
+      if (!mentionTargets.includes(targetProfileId)) {
+        mentionTargets.push(targetProfileId);
+      }
+      continue;
+    }
+    referenceTargets.push(targetProfileId);
+  }
+
+  if (!translatedHumanReference) {
+    return input.signal;
+  }
+
+  return {
+    ...input.signal,
+    data: {
+      ...input.signal.data,
+      messageEnvelope: {
+        ...messageEnvelope,
+        mentionTargets,
+        referenceTargets,
+      },
+    },
+  };
+};
+
 const assertAgentReplyObservationTransactionCommitted = <T>(input: {
   result: AgentReplyObservationTransactionResult<T>;
   signalContext?: SignalPublishContext;
@@ -1605,6 +1655,7 @@ type SpaceDispatchAccessOptions = {
   finalOutcomeAuthority?: SignalPublishContext["finalOutcomeAuthority"];
   requireActiveActorMembership?: boolean;
   spaceAccess?: SpaceAccessContext;
+  supportsCurrentSpaceAddressing?: boolean;
 };
 type SpaceBootstrapLineageLoader = (
   ownerUserId: string
@@ -2043,6 +2094,8 @@ export const handleWebSocketTextSignal = async (input: {
   try {
     await input.publishTextSignal(signal, {
       authoringPolicy: "user_authored",
+      supportsCurrentSpaceAddressing:
+        input.session.supportsSpaceMessageAddressing,
       ...(input.session.spacePassword
         ? { spacePassword: input.session.spacePassword }
         : {}),
@@ -3967,6 +4020,8 @@ export class Space extends DurableObject<CoreBindings> {
         ? { finalOutcomeAuthority: input.finalOutcomeAuthority }
         : {}),
       ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
+      supportsCurrentSpaceAddressing:
+        input.spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION,
     });
     return readSpaceRpcJsonOrThrow(response);
   }
@@ -4078,6 +4133,9 @@ export class Space extends DurableObject<CoreBindings> {
       ...(input.input.replyTo ? { replyTo: input.input.replyTo } : {}),
       ...(input.input.spaceAccess
         ? { spaceAccess: input.input.spaceAccess }
+        : {}),
+      ...(input.input.spaceAddressingVersion
+        ? { spaceAddressingVersion: input.input.spaceAddressingVersion }
         : {}),
       spaceId: input.input.spaceId,
       text: input.input.text,
@@ -4219,6 +4277,8 @@ export class Space extends DurableObject<CoreBindings> {
             : input.context
         ),
         ...(spacePassword === undefined ? {} : { spacePassword }),
+        supportsCurrentSpaceAddressing:
+          input.spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION,
         threadContext: input.threadContext,
         threadPlacement: "thread",
       });
@@ -7941,6 +8001,9 @@ export class Space extends DurableObject<CoreBindings> {
         agentStreamId: options.agentStreamId,
         authoringPolicy: options.authoringPolicy ?? "user_authored",
         finalOutcomeAuthority: options.finalOutcomeAuthority,
+        supportsCurrentSpaceAddressing:
+          options.supportsCurrentSpaceAddressing ??
+          requestSupportsCurrentSpaceAddressing(request),
       });
     }
 
@@ -7954,6 +8017,7 @@ export class Space extends DurableObject<CoreBindings> {
       agentStreamId?: string;
       authoringPolicy: NonNullable<SignalPublishContext["authoringPolicy"]>;
       finalOutcomeAuthority?: SignalPublishContext["finalOutcomeAuthority"];
+      supportsCurrentSpaceAddressing: boolean;
     }
   ): Promise<Response> {
     const accessResult = await this.authorizeWritableSpaceAccess(spaceAccess);
@@ -7986,6 +8050,7 @@ export class Space extends DurableObject<CoreBindings> {
           ? { finalOutcomeAuthority: options.finalOutcomeAuthority }
           : {}),
         spacePassword: getSpaceAccessPassword(spaceAccess),
+        supportsCurrentSpaceAddressing: options.supportsCurrentSpaceAddressing,
       }
     );
   }
@@ -8499,6 +8564,9 @@ export class Space extends DurableObject<CoreBindings> {
           ...(input.spacePassword === undefined
             ? {}
             : { spacePassword: input.spacePassword }),
+          supportsCurrentSpaceAddressing: requestSupportsCurrentSpaceAddressing(
+            input.request
+          ),
           threadContext,
           threadPlacement: "thread",
         });
@@ -16340,12 +16408,18 @@ export class Space extends DurableObject<CoreBindings> {
     signal: SignalEnvelope,
     signalContext?: SignalPublishContext
   ): Promise<void> {
-    let signalWithAgentActivity = signal;
+    const normalizedSignal = normalizeLegacyHumanReferencesAsMentions({
+      readMember: (profileId) =>
+        readSpaceMemberRecord(this.ctx.storage.sql, profileId),
+      signal,
+      signalContext,
+    });
+    let signalWithAgentActivity = normalizedSignal;
     try {
       signalWithAgentActivity = await attachAgentActivityToFinalReply({
         agentStreamId: signalContext?.agentStreamId,
         storage: this.agentStreamProjectionStorage,
-        signal,
+        signal: normalizedSignal,
         nowMs: Date.now(),
       });
     } catch (error) {
@@ -16610,12 +16684,17 @@ function spaceAddressingJsonResponse(
   value: unknown,
   init?: ResponseInit
 ): Response {
-  const responseValue =
+  const responseValue = requestSupportsCurrentSpaceAddressing(request)
+    ? value
+    : toLegacySpaceAddressingWireValue(value);
+  return Response.json(responseValue, init);
+}
+
+function requestSupportsCurrentSpaceAddressing(request: Request): boolean {
+  return (
     request.headers.get(OPENMELD_HEADER_SPACE_ADDRESSING_VERSION) ===
     OPENMELD_SPACE_ADDRESSING_VERSION
-      ? value
-      : toLegacySpaceAddressingWireValue(value);
-  return Response.json(responseValue, init);
+  );
 }
 
 function spaceAddressingWireValueForSession(

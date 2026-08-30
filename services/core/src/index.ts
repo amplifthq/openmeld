@@ -1665,7 +1665,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     });
 
     try {
-      const signal = await rpcPostSignal(this.env, input);
+      const signal = await rpcPostSignal(this.env, {
+        ...input,
+        ...(spaceAddressingVersion ? { spaceAddressingVersion } : {}),
+      });
       emitCoreCloudflareRuntimeEvidence(this.env, {
         event: "core.openmeld.space.signal_posted",
         workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
