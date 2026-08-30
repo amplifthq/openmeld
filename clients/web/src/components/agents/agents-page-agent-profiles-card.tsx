@@ -4268,6 +4268,7 @@ async function submitAgentProfileEditDialogChanges(
 		completedMutation = true;
 	};
 	try {
+		await submitAgentProfileBindingChanges({ input, runMutation });
 		if (input.dialogState.profileNameChanged) {
 			await runMutation(
 				async () =>
@@ -4276,7 +4277,6 @@ async function submitAgentProfileEditDialogChanges(
 					)
 			);
 		}
-		await submitAgentProfileBindingChanges({ input, runMutation });
 	} catch (error) {
 		if (completedMutation) {
 			await input.onSaveComplete?.();

@@ -1169,7 +1169,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(document.activeElement).toBe(nameInput);
 	});
 
-	it("refreshes completed Agent changes when a later field fails to save", async () => {
+	it("keeps an Agent rename pending when another setting fails to save", async () => {
 		const onControllerCollaborationModeUpdate = vi.fn(() =>
 			Promise.reject(new Error("Collaboration Mode update failed"))
 		);
@@ -1216,12 +1216,12 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
 		await waitFor(() => {
-			expect(onRenameProfile).toHaveBeenCalledWith("Renamed Research Agent");
 			expect(onControllerCollaborationModeUpdate).toHaveBeenCalledWith(
 				"codex:plan"
 			);
-			expect(onSaveComplete).toHaveBeenCalledTimes(1);
 		});
+		expect(onRenameProfile).not.toHaveBeenCalled();
+		expect(onSaveComplete).not.toHaveBeenCalled();
 		expect(onOpenChange).not.toHaveBeenCalledWith(false);
 		expect(consoleError).toHaveBeenCalledWith(
 			"Failed to update Agent Profile.",
