@@ -1354,6 +1354,7 @@ describe("connect experience enhancements", () => {
 
   it("renders replying status line with system and agent emoji prefixes", async () => {
     const harness = createMessageStreamHarness();
+    const promptObserver = createConnectPromptObserver("- Codex (agent): ");
     mockConnectFetchSuccess();
     let observedStdout = "";
     let closeAndSettle: (() => Promise<void>) | undefined;
@@ -1391,11 +1392,13 @@ describe("connect experience enhancements", () => {
         {
           onStdout: (text) => {
             observedStdout += text;
+            promptObserver.observe(text);
           },
         }
       );
 
       await harness.waitUntilReady();
+      await promptObserver.waitUntilReady();
       let streamClosed = false;
       closeAndSettle = async () => {
         if (!streamClosed) {
@@ -1534,6 +1537,7 @@ describe("connect experience enhancements", () => {
 
   it("keeps a sending row visible alongside an active replying row", async () => {
     const harness = createMessageStreamHarness();
+    const promptObserver = createConnectPromptObserver("- Codex (agent): ");
     mockConnectFetchSuccess();
     let observedStdout = "";
     let closeAndSettle: (() => Promise<void>) | undefined;
@@ -1581,11 +1585,13 @@ describe("connect experience enhancements", () => {
         {
           onStdout: (text) => {
             observedStdout += text;
+            promptObserver.observe(text);
           },
         }
       );
 
       await harness.waitUntilReady();
+      await promptObserver.waitUntilReady();
       let streamClosed = false;
       closeAndSettle = async () => {
         if (!streamClosed) {
@@ -4502,6 +4508,27 @@ function createMessageStreamHarness(): {
       resolveClosed();
     },
     send,
+  };
+}
+
+function createConnectPromptObserver(prompt: string): {
+  observe: (text: string) => void;
+  waitUntilReady: () => Promise<void>;
+} {
+  let stdout = "";
+
+  return {
+    observe: (text) => {
+      stdout += text;
+    },
+    waitUntilReady: async () => {
+      await vi.waitFor(() => {
+        const readyComposer = `What would you like to say in this space?\n${prompt}`;
+        if (!stripTerminalControl(stdout).includes(readyComposer)) {
+          throw new Error("connect composer prompt is not ready");
+        }
+      });
+    },
   };
 }
 
