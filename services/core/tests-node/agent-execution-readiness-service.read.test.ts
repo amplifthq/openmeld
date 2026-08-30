@@ -11,6 +11,7 @@ import { ensurePrimaryAgentProfileBindingRecord } from "../src/agent-profile-bin
 import type { CoreBindings } from "../src/lib/bindings";
 import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
+import { createAvailableCodexAgentControllerInterface } from "./helpers/agent-controller-interface.test-support";
 import {
   applyDrizzleMigrationForTable as applyMigrationForTable,
   createSqliteD1Harness,
@@ -21,6 +22,8 @@ const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const ORGANIZATION_ID = "org-1";
 const GENERATED_AT = "2026-05-10T00:00:00.000Z";
 const GENERATED_AT_MS = Date.parse(GENERATED_AT);
+const AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE =
+  createAvailableCodexAgentControllerInterface({ observedAt: GENERATED_AT });
 // These readiness fixtures represent a supported Service. Keep the version
 // explicit so a release manifest that still describes the previous public
 // version cannot silently turn unrelated readiness tests into update tests.
@@ -62,6 +65,7 @@ describe("agent execution readiness service D1 read model", () => {
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
+          agentControllerInterface: AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE,
           agentControllerRef: "builtin:codex",
           expiresAtMs: GENERATED_AT_MS + 60_000,
           observedAtMs: GENERATED_AT_MS,
@@ -156,6 +160,7 @@ describe("agent execution readiness service D1 read model", () => {
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
+          agentControllerInterface: AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE,
           agentControllerRef: "builtin:codex",
           expiresAtMs: GENERATED_AT_MS + 60_000,
           observedAtMs: GENERATED_AT_MS,
@@ -243,6 +248,7 @@ describe("agent execution readiness service D1 read model", () => {
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
+          agentControllerInterface: AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE,
           agentControllerRef: "builtin:codex",
           expiresAtMs: GENERATED_AT_MS + 60_000,
           observedAtMs: GENERATED_AT_MS,
@@ -338,6 +344,7 @@ describe("agent execution readiness service D1 read model", () => {
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
+          agentControllerInterface: AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE,
           agentControllerRef: "builtin:codex",
           expiresAtMs: GENERATED_AT_MS + 60_000,
           observedAtMs: GENERATED_AT_MS,
@@ -444,6 +451,7 @@ describe("agent execution readiness service D1 read model", () => {
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
+          agentControllerInterface: AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE,
           agentControllerRef: "builtin:codex",
           expiresAtMs: GENERATED_AT_MS + 60_000,
           observedAtMs: GENERATED_AT_MS,
@@ -562,6 +570,7 @@ describe("agent execution readiness service D1 read model", () => {
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
+          agentControllerInterface: AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE,
           agentControllerRef: "builtin:codex",
           expiresAtMs: GENERATED_AT_MS + 60_000,
           observedAtMs: GENERATED_AT_MS,
@@ -895,6 +904,7 @@ function applyReadinessMigrations(
     harness,
     "openMeldDaemon_provider_conversation_proofs"
   );
+  applyMigrationForTable(harness, "openMeldDaemon_provider_access_evidence");
   applyMigrationForTable(
     harness,
     "openMeldDaemon_agent_execution_readiness_impacts"
