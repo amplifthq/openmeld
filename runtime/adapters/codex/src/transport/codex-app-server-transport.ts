@@ -223,6 +223,17 @@ export class CodexAppServerTransportError extends Error {
   }
 }
 
+function throwIfCodexDispatchCancelled(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw new CodexAppServerTransportError({
+    code: "runtime.turn.cancelled",
+    errorType: "adapter",
+    message: "runtime.turn.cancelled: Codex was stopped before starting a turn",
+  });
+}
+
 export function classifyCodexThreadWriterConflict(input: {
   agentControllerConversationId: string;
   operation: CodexAppServerControlOperation;
@@ -272,6 +283,7 @@ export async function probeCodexAppServerAccount(input: {
 
 export async function invokeCodexAppServerTransport(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
+  cancellationSignal?: AbortSignal;
   codexTimeoutMs: number | null;
   codexWorkdir: string;
   controlRequestTimeoutMs?: number;
@@ -292,6 +304,7 @@ export async function invokeCodexAppServerTransport(input: {
   conversationPolicy?: ConversationPolicy;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
 }): Promise<CodexAppServerTransportResult> {
+  throwIfCodexDispatchCancelled(input.cancellationSignal);
   const prompt = normalizeOptionalText(input.prompt);
   if (!prompt) {
     throw new CodexAppServerTransportError({
@@ -325,7 +338,9 @@ export async function invokeCodexAppServerTransport(input: {
       startupTimeoutMs: input.startupTimeoutMs,
     },
     async (session) => {
+      throwIfCodexDispatchCancelled(input.cancellationSignal);
       const threadContext = await resolveDispatchThreadContext({
+        cancellationSignal: input.cancellationSignal,
         conversationPolicyParams,
         codexWorkdir: input.codexWorkdir,
         executionMode: input.executionMode,
@@ -352,6 +367,7 @@ export async function invokeCodexAppServerTransport(input: {
         threadSource: threadContext.threadSource,
       });
       session.emitProviderConversationObserved(continuityThreadId);
+      throwIfCodexDispatchCancelled(input.cancellationSignal);
       const turnResponse = await session.requestControl(
         "turn/start",
         {
@@ -381,6 +397,12 @@ export async function invokeCodexAppServerTransport(input: {
         threadId: executionThreadId,
         turnId,
       });
+      if (input.cancellationSignal?.aborted && turn.status !== "completed") {
+        await session.request("turn/interrupt", {
+          threadId: executionThreadId,
+          turnId,
+        });
+      }
       let completedTurn: AppServerTurn;
       try {
         completedTurn =
@@ -573,6 +595,7 @@ export async function forkCodexAppServerThread(input: {
 }
 
 async function resolveDispatchThreadContext(input: {
+  cancellationSignal?: AbortSignal;
   conversationPolicyParams: CodexAppServerConversationPolicyParams;
   codexWorkdir: string;
   executionMode?: AdapterDispatchExecutionMode;
@@ -594,6 +617,7 @@ async function resolveDispatchThreadContext(input: {
     }
     let response: unknown;
     try {
+      throwIfCodexDispatchCancelled(input.cancellationSignal);
       response = await input.session.requestControl(
         "thread/resume",
         {

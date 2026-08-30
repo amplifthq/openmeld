@@ -53,8 +53,12 @@ export type CodexInvokeResult = {
   telemetry?: AdapterDispatchTelemetry;
 };
 
+type CodexDispatchRequest = AdapterDispatchRequest & {
+  cancellationSignal?: AbortSignal;
+};
+
 export type CodexInvokeFn = (
-  input: AdapterDispatchRequest & {
+  input: CodexDispatchRequest & {
     onPreview?: AdapterPreviewCallback;
   }
 ) => Promise<CodexInvokeResult>;
@@ -445,7 +449,9 @@ export const buildCodexCancelRequest = (input: {
 async function dispatchCodexWithConversationOccupancy(input: {
   occupiedDispatches: Map<string, OccupiedCodexDispatch>;
   request: AdapterDispatchRequest;
-  sharedDispatch: RuntimeAdapter["dispatch"];
+  sharedDispatch: (
+    request: CodexDispatchRequest
+  ) => Promise<AdapterDispatchResult>;
   waitForThreadWriterAvailability: WaitForCodexThreadWriterAvailability;
 }): Promise<AdapterDispatchResult> {
   const state: OccupiedCodexDispatchState = {
@@ -454,7 +460,15 @@ async function dispatchCodexWithConversationOccupancy(input: {
   };
   try {
     while (true) {
-      const result = await input.sharedDispatch(input.request);
+      const cancellationSignal =
+        state.registration?.abortController.signal ?? undefined;
+      if (cancellationSignal?.aborted) {
+        return buildCodexWriterWaitCancelledResult();
+      }
+      const result = await input.sharedDispatch({
+        ...input.request,
+        ...(cancellationSignal ? { cancellationSignal } : {}),
+      });
       if (state.registration?.abortController.signal.aborted) {
         return buildCodexWriterWaitCancelledResult();
       }
@@ -655,6 +669,7 @@ const resolveDefaultCodexAppServerInvoke = (input: {
     const result = await invokeCodexAppServerLocal({
       agentControllerPermissionMode:
         dispatchInput.agentControllerPermissionMode,
+      cancellationSignal: dispatchInput.cancellationSignal,
       computerFileAccessBoundary: dispatchInput.computerFileAccessBoundary,
       launchContract,
       codexTimeoutMs,

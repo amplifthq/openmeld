@@ -283,6 +283,79 @@ test("codex Stop aborts an occupied writer wait without resuming the thread agai
   }
 });
 
+test("codex Stop fences a released writer before the retry starts another turn", async () => {
+  const { CodexAppServerTransportError, createCodexAdapter } = await import(
+    "../dist/index.js"
+  );
+  let dispatchCalls = 0;
+  let turnStartCount = 0;
+  let retryReachedProviderBoundaryResolve;
+  const retryReachedProviderBoundary = new Promise((resolve) => {
+    retryReachedProviderBoundaryResolve = resolve;
+  });
+  let releaseRetryResolve;
+  const releaseRetry = new Promise((resolve) => {
+    releaseRetryResolve = resolve;
+  });
+  const occupancy = {
+    agentControllerConversationId: "thread-stop-after-release",
+    contractVersion: 1,
+    state: "occupied",
+  };
+  const adapter = createCodexAdapter({
+    invokeByMode: {
+      "codex-app-server": async (input) => {
+        dispatchCalls += 1;
+        if (dispatchCalls === 1) {
+          throw new CodexAppServerTransportError({
+            agentControllerConversationOccupancy: occupancy,
+            code: "agent_controller.conversation_occupied",
+            errorType: "adapter",
+            message:
+              "thread thread-stop-after-release already has an active writer",
+            rpcErrorCode: -32_600,
+          });
+        }
+        retryReachedProviderBoundaryResolve();
+        await releaseRetry;
+        if (!input.cancellationSignal?.aborted) {
+          turnStartCount += 1;
+        }
+        return {
+          contextDelta: {
+            agentControllerConversationId: "thread-stop-after-release",
+          },
+          output: "retry completed",
+        };
+      },
+    },
+    waitForThreadWriterAvailability: async () => "release_observed",
+  });
+  const dispatchOutcome = adapter.dispatch({
+    agentControllerConversationId: "thread-stop-after-release",
+    agentId: "agt-demo",
+    prompt: "continue",
+    runtimeContext: createRuntimeContext(),
+    sourceEventId: "evt-stop-after-release",
+    spaceId: "space-1",
+    taskId: "task-stop-after-release",
+    transportMode: "codex-app-server",
+  });
+
+  await retryReachedProviderBoundary;
+  const stopResult = await adapter.cancel({
+    taskId: "task-stop-after-release",
+  });
+  releaseRetryResolve();
+  const dispatchResult = await dispatchOutcome;
+
+  assert.equal(stopResult.accepted, true);
+  assert.equal(dispatchResult.status, "failed");
+  assert.equal(dispatchResult.errorCode, "runtime.turn.cancelled");
+  assert.equal(dispatchCalls, 2);
+  assert.equal(turnStartCount, 0);
+});
+
 test("codex retries immediately when the official writer lock is released", async () => {
   const { waitForCodexThreadWriterAvailability } = await import(
     "../dist/index.js"
@@ -512,7 +585,9 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    if (startupAttempt <= hangingResumeAttempts) return;",
       "    const model = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_OMIT_THREAD_MODEL === '1' ? {} : { model: 'gpt-5' };",
       "    const threadSource = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user';",
-      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread(message.params.threadId, threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, reasoningEffort: null } });",
+      "    const respond = () => write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread(message.params.threadId, threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, reasoningEffort: null } });",
+      "    const resumeResponseDelayMs = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_RESUME_RESPONSE_DELAY_MS ?? '0');",
+      "    if (resumeResponseDelayMs > 0) setTimeout(respond, resumeResponseDelayMs); else respond();",
       "    return;",
       "  }",
       "  if (message.method === 'thread/fork') {",
@@ -1141,6 +1216,52 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
         totalTokens: 1900,
       },
     });
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("codex app-server does not start a turn when Stop lands during thread resume", async () => {
+  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-stop-resume-"));
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-app-stop-resume-dispatch-")
+  );
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const cancellation = new AbortController();
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const outcome = invokeCodexAppServerTransport({
+      cancellationSignal: cancellation.signal,
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: 5000,
+      codexWorkdir: dispatchDir,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_RESUME_RESPONSE_DELAY_MS: "100",
+      },
+      prompt: "continue",
+      taskId: "task-stop-during-resume",
+      threadId: "thread-stop-during-resume",
+    });
+
+    await waitForFakeAppServerMethod(logPath, "thread/resume");
+    cancellation.abort();
+    await assert.rejects(
+      outcome,
+      (error) => error?.code === "runtime.turn.cancelled"
+    );
+    const methods = await readFakeAppServerMethods(logPath);
+
+    assert.equal(
+      methods.filter((method) => method === "thread/resume").length,
+      1
+    );
+    assert.equal(methods.filter((method) => method === "turn/start").length, 0);
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });

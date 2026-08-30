@@ -126,6 +126,7 @@ export async function invokeCodexWithSingleContextHeal(input: {
 export async function invokeCodexAppServer(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
+  cancellationSignal?: AbortSignal;
   codexTimeoutMs: number | null;
   codexWorkdir: string;
   controlRequestTimeoutMs?: number;
