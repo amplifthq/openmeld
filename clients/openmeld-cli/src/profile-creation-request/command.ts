@@ -33,7 +33,6 @@ export type ProfileCreationRequestCreateInput =
     agentController?: string;
     agentControllerCollaborationMode?: string;
     agentControllerPermissionModeInput?: string;
-    authorizeForOrganization?: boolean;
     confirmDangerousAgentControllerPermissionMode?: boolean;
     defaultProjectId?: string;
     idempotencyKey?: string;
@@ -127,7 +126,6 @@ async function resolveRequestConfiguration(options: {
     agentControllerPermissionMode:
       permissionMode.agentControllerPermissionMode ?? null,
     agentControllerRef: agentControllerRef ?? null,
-    authorizeForOrganization: input.authorizeForOrganization !== false,
     defaultProjectId: await resolveRequestDefaultProjectId({
       agentControllerRef,
       context,

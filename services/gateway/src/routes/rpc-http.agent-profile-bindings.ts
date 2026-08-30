@@ -1,7 +1,6 @@
 import {
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
-  authorizeAgentProfileBindingForOrganizationResponseSchema,
   disableAgentProfilePrimaryBindingResponseSchema,
   ensureAgentProfilePrimaryBindingBodySchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
@@ -10,12 +9,9 @@ import {
   getAgentExecutionReadinessResponseSchema,
   getAgentProfileControllerChangeEligibilityResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
-  listCurrentUserAgentProfileOrganizationWakeAccessResponseSchema,
-  listOrganizationBindingAuthorizationsResponseSchema,
   notifyAgentProfileRouteCatalogChangedBodySchema,
   notifyAgentProfileRouteCatalogChangedResponseSchema,
   notifyAgentProfilesRouteCatalogChangedBodySchema,
-  revokeAgentProfileBindingForOrganizationResponseSchema,
   updateAgentProfileDefaultProjectBodySchema,
   updateAgentProfileDefaultProjectResponseSchema,
   updateAgentProfileDefaultProjectRouteParamsSchema,
@@ -29,6 +25,7 @@ import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
+  respondAgentProfileOrganizationOwnershipRequired,
   respondBadRequest,
 } from "./rpc-http.helpers";
 import { readJsonRequestBody } from "./rpc-http.parsers";
@@ -203,86 +200,37 @@ export function registerAgentProfileBindingRoutes(
     });
   });
 
-  app.put(AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE, (c) => {
-    const routeParams = parseAgentProfileBindingRouteParams({
-      agentProfileId: c.req.param("agentProfileId"),
-    });
-    if (!routeParams.ok) {
-      return respondBadRequest({
-        c,
-        route: AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE,
-        method: "PUT",
-        code: "invalid_payload",
-        message: routeParams.message,
-      });
-    }
-
-    return executeRpcRoute({
+  app.put(AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE, (c) =>
+    respondAgentProfileOrganizationOwnershipRequired({
       c,
       route: AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE,
       method: "PUT",
-      responseSchema: authorizeAgentProfileBindingForOrganizationResponseSchema,
-      execute: async () =>
-        await c.var.coreRpc.authorizeAgentProfileBindingForOrganization({
-          agentProfileId: routeParams.value.agentProfileId,
-          context: buildCoreRpcContext(c),
-        }),
-    });
-  });
+    })
+  );
 
   app.get(AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATIONS_ROUTE, (c) =>
-    executeRpcRoute({
+    respondAgentProfileOrganizationOwnershipRequired({
       c,
       route: AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATIONS_ROUTE,
       method: "GET",
-      responseSchema: listOrganizationBindingAuthorizationsResponseSchema,
-      execute: async () =>
-        await c.var.coreRpc.listOrganizationBindingAuthorizations({
-          context: buildCoreRpcContext(c),
-        }),
     })
   );
 
   app.get(AGENT_PROFILE_ORGANIZATION_WAKE_ACCESS_ROUTE, (c) =>
-    executeRpcRoute({
+    respondAgentProfileOrganizationOwnershipRequired({
       c,
       route: AGENT_PROFILE_ORGANIZATION_WAKE_ACCESS_ROUTE,
       method: "GET",
-      responseSchema:
-        listCurrentUserAgentProfileOrganizationWakeAccessResponseSchema,
-      execute: async () =>
-        await c.var.coreRpc.listCurrentUserAgentProfileOrganizationWakeAccess({
-          context: buildCoreRpcContext(c),
-        }),
     })
   );
 
-  app.delete(AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE, (c) => {
-    const routeParams = parseAgentProfileBindingRouteParams({
-      agentProfileId: c.req.param("agentProfileId"),
-    });
-    if (!routeParams.ok) {
-      return respondBadRequest({
-        c,
-        route: AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE,
-        method: "DELETE",
-        code: "invalid_payload",
-        message: routeParams.message,
-      });
-    }
-
-    return executeRpcRoute({
+  app.delete(AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE, (c) =>
+    respondAgentProfileOrganizationOwnershipRequired({
       c,
       route: AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE,
       method: "DELETE",
-      responseSchema: revokeAgentProfileBindingForOrganizationResponseSchema,
-      execute: async () =>
-        await c.var.coreRpc.revokeAgentProfileBindingForOrganization({
-          agentProfileId: routeParams.value.agentProfileId,
-          context: buildCoreRpcContext(c),
-        }),
-    });
-  });
+    })
+  );
 
   app.get(AGENT_EXECUTION_READINESS_ROUTE, (c) => {
     const routeParams = parseAgentExecutionReadinessRouteParams({

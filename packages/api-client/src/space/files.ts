@@ -1,12 +1,15 @@
 import {
   createSpaceFolderResponseSchema,
+  discardSpaceComposerUploadResponseSchema,
   getSpaceFileResponseSchema,
   listSpaceFileRevisionsResponseSchema,
   listSpaceFilesResponseSchema,
+  publishSpaceComposerUploadResponseSchema,
   restoreSpaceFileEntryResponseSchema,
   restoreSpaceFileRevisionResponseSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
   spaceFileMimeTypeSchema,
+  stageSpaceComposerUploadResponseSchema,
   trashSpaceFileEntryResponseSchema,
   updateSpaceFileEntryResponseSchema,
   uploadSpaceFileResponseSchema,
@@ -18,6 +21,7 @@ import type {
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesQuery,
   ListSpaceFilesResponse,
+  SpaceComposerUploadDescriptor,
   SpaceFileDescriptor,
   SpaceFileEntry,
   TrashSpaceFileEntryResponse,
@@ -29,6 +33,8 @@ import {
   readApiClientTextResponse,
 } from "../errors";
 import {
+  buildSpaceComposerUploadPath,
+  buildSpaceComposerUploadPublishPath,
   buildSpaceFileContentPath,
   buildSpaceFileEntryPath,
   buildSpaceFileFoldersPath,
@@ -229,6 +235,65 @@ export async function uploadSpaceFile(
     invalidMessage: "invalid Space file upload response",
   });
   return response.file;
+}
+
+export async function stageSpaceComposerUpload(
+  client: OpenMeldApiClientFoundation,
+  input: SpaceRequestInput & {
+    bytes: SpaceFileContentBytes;
+    mimeType: string;
+    name: string;
+    uploadId: string;
+  }
+): Promise<SpaceComposerUploadDescriptor> {
+  const body = toRequestBody(input.bytes);
+  validateSize(body);
+  const mimeType = parseMimeType(input.mimeType);
+  const response = await client.requestJson({
+    ...requestFields(input),
+    body,
+    headers: { "content-type": mimeType },
+    invalidMessage: "invalid Space Composer upload response",
+    method: "PUT",
+    operation: "space.composer_uploads.stage",
+    schema: stageSpaceComposerUploadResponseSchema,
+    url: buildSpaceComposerUploadPath(input),
+  });
+  return response.upload;
+}
+
+export async function publishSpaceComposerUpload(
+  client: OpenMeldApiClientFoundation,
+  input: SpaceRequestInput & {
+    clientMutationId: string;
+    uploadId: string;
+  }
+): Promise<SpaceFileDescriptor> {
+  const response = await client.requestJson({
+    ...requestFields(input),
+    body: JSON.stringify({ clientMutationId: input.clientMutationId }),
+    headers: { "content-type": "application/json" },
+    invalidMessage: "invalid Space Composer upload publication response",
+    method: "POST",
+    operation: "space.composer_uploads.publish",
+    schema: publishSpaceComposerUploadResponseSchema,
+    url: buildSpaceComposerUploadPublishPath(input),
+  });
+  return response.file;
+}
+
+export async function discardSpaceComposerUpload(
+  client: OpenMeldApiClientFoundation,
+  input: SpaceRequestInput & { uploadId: string }
+): Promise<void> {
+  await client.requestJson({
+    ...requestFields(input),
+    invalidMessage: "invalid Space Composer upload discard response",
+    method: "DELETE",
+    operation: "space.composer_uploads.discard",
+    schema: discardSpaceComposerUploadResponseSchema,
+    url: buildSpaceComposerUploadPath(input),
+  });
 }
 
 export async function updateSpaceFileContent(

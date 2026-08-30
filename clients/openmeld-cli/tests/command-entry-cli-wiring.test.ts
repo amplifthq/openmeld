@@ -606,7 +606,6 @@ describe("command entry CLI wiring", () => {
       "request-key-2",
       "--organization",
       "amplift",
-      "--no-organization-wake-access",
     ]);
 
     expect(runMocks.runProfileCreationRequestCreate).toHaveBeenCalledOnce();
@@ -614,7 +613,6 @@ describe("command entry CLI wiring", () => {
       agentController: "builtin:codex",
       agentControllerCollaborationMode: "codex:plan",
       agentControllerPermissionModeInput: "approve-for-me",
-      authorizeForOrganization: false,
       confirmDangerousAgentControllerPermissionMode: false,
       defaultProjectId: "project-1",
       idempotencyKey: "request-key-2",

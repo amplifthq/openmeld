@@ -47,65 +47,89 @@ export function ProfileDetailsDialog(input: {
 					</DialogDescription>
 				</DialogHeader>
 
-				<div
+				<ProfileDetailsContent
 					className="min-h-0 flex-1 overflow-y-auto pr-1"
-					data-testid="profile-details-dialog-scroll-area"
-				>
-					<div className="flex min-w-0 items-start justify-between gap-3">
-						<div className="min-w-0">
-							<p className="break-words font-medium text-sm">
-								{input.details.profileName}
-							</p>
-							<p className="text-muted-foreground text-xs">
-								{formatProfileKind(input.details.profileKind)}
-							</p>
-						</div>
-						{input.onOpenDirectMessage ? (
-							<Button
-								className="shrink-0"
-								disabled={input.isDirectMessagePending === true}
-								onClick={input.onOpenDirectMessage}
-								size="sm"
-								type="button"
-								variant="outline"
-							>
-								<ChatCircleTextIcon data-icon="inline-start" />
-								Direct Message
-							</Button>
-						) : null}
-					</div>
-					{input.currentSession ? (
-						<div className="mt-5 flex min-w-0 items-start justify-between gap-3 rounded-md border border-border px-3 py-3">
-							<div className="min-w-0 space-y-1">
-								<p className="text-muted-foreground text-xs">Current Session</p>
-								<p className="break-words font-medium text-sm">
-									{input.currentSession.title}
-								</p>
-								<p className="break-all font-mono text-muted-foreground text-xs">
-									{input.currentSession.nativeSessionId}
-								</p>
-							</div>
-							<Link
-								className={cn(
-									buttonVariants({ size: "sm", variant: "outline" }),
-									"shrink-0"
-								)}
-								to={input.currentSession.href}
-							>
-								<ArrowSquareOutIcon data-icon="inline-start" />
-								View Session
-							</Link>
-						</div>
-					) : null}
-
-					<div className="mt-5 min-w-0 space-y-5">
-						{input.details.sections.map((section) => (
-							<ProfileDetailsSectionView key={section.id} section={section} />
-						))}
-					</div>
-				</div>
+					currentSession={input.currentSession}
+					details={input.details}
+					isDirectMessagePending={input.isDirectMessagePending}
+					onOpenDirectMessage={input.onOpenDirectMessage}
+					testId="profile-details-dialog-scroll-area"
+				/>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+export function ProfileDetailsContent(input: {
+	className?: string;
+	currentSession?: {
+		href: string;
+		nativeSessionId: string;
+		title: string;
+	};
+	details: ProfileDetailsSnapshot;
+	isDirectMessagePending?: boolean;
+	onOpenDirectMessage?: () => void;
+	showSummary?: boolean;
+	testId?: string;
+}) {
+	return (
+		<div className={cn("min-w-0", input.className)} data-testid={input.testId}>
+			{input.showSummary === false ? null : (
+				<div className="flex min-w-0 items-start justify-between gap-3">
+					<div className="min-w-0">
+						<p className="break-words font-medium text-sm">
+							{input.details.profileName}
+						</p>
+						<p className="text-muted-foreground text-xs">
+							{formatProfileKind(input.details.profileKind)}
+						</p>
+					</div>
+					{input.onOpenDirectMessage ? (
+						<Button
+							className="shrink-0"
+							disabled={input.isDirectMessagePending === true}
+							onClick={input.onOpenDirectMessage}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							<ChatCircleTextIcon data-icon="inline-start" />
+							Direct Message
+						</Button>
+					) : null}
+				</div>
+			)}
+			{input.currentSession ? (
+				<div className="mt-5 flex min-w-0 items-start justify-between gap-3 rounded-md border border-border px-3 py-3">
+					<div className="min-w-0 space-y-1">
+						<p className="text-muted-foreground text-xs">Current Session</p>
+						<p className="break-words font-medium text-sm">
+							{input.currentSession.title}
+						</p>
+						<p className="break-all font-mono text-muted-foreground text-xs">
+							{input.currentSession.nativeSessionId}
+						</p>
+					</div>
+					<Link
+						className={cn(
+							buttonVariants({ size: "sm", variant: "outline" }),
+							"shrink-0"
+						)}
+						to={input.currentSession.href}
+					>
+						<ArrowSquareOutIcon data-icon="inline-start" />
+						View Session
+					</Link>
+				</div>
+			) : null}
+
+			<div className="mt-5 min-w-0 space-y-5">
+				{input.details.sections.map((section) => (
+					<ProfileDetailsSectionView key={section.id} section={section} />
+				))}
+			</div>
+		</div>
 	);
 }
 

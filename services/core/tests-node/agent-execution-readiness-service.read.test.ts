@@ -18,6 +18,7 @@ import {
 
 const OWNER_USER_ID = "owner-1";
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
+const ORGANIZATION_ID = "org-1";
 const GENERATED_AT = "2026-05-10T00:00:00.000Z";
 const GENERATED_AT_MS = Date.parse(GENERATED_AT);
 // These readiness fixtures represent a supported Service. Keep the version
@@ -86,6 +87,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
           routeDeviceId: "device-current",
@@ -179,6 +181,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
           routeDeviceId: "device-current",
@@ -266,6 +269,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
           routeDeviceId: "device-current",
@@ -381,6 +385,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
           routeDeviceId: "device-current",
@@ -477,6 +482,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
           routeDeviceId: "device-current",
@@ -581,6 +587,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
           ownerServiceDeviceIds: [],
@@ -671,6 +678,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
           ownerServiceDeviceIds: [],
@@ -746,6 +754,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
           ownerServiceSessions: [
@@ -826,6 +835,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
           ownerServiceSessions: [
@@ -857,6 +867,24 @@ describe("agent execution readiness service D1 read model", () => {
 function applyReadinessMigrations(
   harness: Pick<ReturnType<typeof createSqliteD1Harness>, "run">
 ): void {
+  harness.run({
+    sql: `
+      CREATE TABLE openmeld_profiles (
+        profile_id text PRIMARY KEY NOT NULL,
+        profile_name text NOT NULL,
+        profile_handle text NOT NULL,
+        profile_kind text NOT NULL,
+        is_default integer NOT NULL,
+        status text NOT NULL,
+        organization_id text,
+        owner_user_id text NOT NULL,
+        source text NOT NULL,
+        managed_role text,
+        created_at integer NOT NULL,
+        updated_at integer NOT NULL
+      )
+    `,
+  });
   applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
   applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
   applyMigrationForTable(
@@ -871,6 +899,33 @@ function applyReadinessMigrations(
     harness,
     "openMeldDaemon_agent_execution_readiness_impacts"
   );
+  harness.run({
+    params: [
+      AGENT_PROFILE_ID,
+      "Codex",
+      "codex",
+      ORGANIZATION_ID,
+      OWNER_USER_ID,
+      GENERATED_AT_MS,
+      GENERATED_AT_MS,
+    ],
+    sql: `
+      INSERT INTO openmeld_profiles (
+        profile_id,
+        profile_name,
+        profile_handle,
+        profile_kind,
+        is_default,
+        status,
+        organization_id,
+        owner_user_id,
+        source,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, 'agent', 0, 'active', ?, ?, 'cli_create', ?, ?)
+    `,
+  });
 }
 
 function createReadinessEnv(input: {

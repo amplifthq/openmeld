@@ -2,10 +2,7 @@ import { buttonVariants } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowSquareOutIcon, WrenchIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import {
-	buildOrganizationComputersPath,
-	buildOrganizationWakeAccessPath,
-} from "#/lib/organizations/organization-routes";
+import { buildOrganizationComputersPath } from "#/lib/organizations/organization-routes";
 import {
 	buildAgentProfilePath,
 	buildProfileHomeRoutes,
@@ -84,9 +81,6 @@ function resolveWakeFailureActionHref(input: {
 					profileId: input.targetProfileId,
 				})
 			: input.directoryAgentsPath;
-	}
-	if (input.actionTarget === "org_wake_access") {
-		return buildOrganizationWakeAccessPath(input.orgSlug);
 	}
 	return input.directoryAgentsPath;
 }

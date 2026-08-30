@@ -50,7 +50,7 @@ const completeAgentProfileCreationConfigurationSchema =
   agentProfileCreationPreferenceSelectionSchema
     .safeExtend({
       agentControllerRef: agentControllerRefSchema.nullable(),
-      authorizeForOrganization: z.boolean(),
+      authorizeForOrganization: z.boolean().optional().default(true),
       localAgentConnectionCandidateId: identifierSchema.nullable().optional(),
       targetComputerId: identifierSchema.nullable(),
     })

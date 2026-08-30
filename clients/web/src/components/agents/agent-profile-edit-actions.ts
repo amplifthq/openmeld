@@ -25,7 +25,10 @@ import {
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { renameOpenMeldProfile } from "#/lib/profiles/rename-profile";
 import { refreshWebAgentReadinessFacts } from "#/query/agents/execution-readiness";
-import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import {
+	organizationDirectoryQueryFilters,
+	organizationQueryKeys,
+} from "#/query/organizations/organization-directory";
 import {
 	agentProfilePrimaryBindingQueryKeys,
 	agentProfilePrimaryBindingQueryOptions,
@@ -53,6 +56,7 @@ export type AgentProfileEditActionContext = {
 	onBindingUpdated?: (
 		binding: NonNullable<GetAgentProfilePrimaryBindingResponse["binding"]>
 	) => void;
+	organizationId: string;
 	profile: AuthProfileView;
 	queryClient: QueryClient;
 	runtimeLane: DaemonServiceLane | null;
@@ -106,6 +110,7 @@ export async function changeAgentProfileController(input: {
 		)
 			? input.update.openCodePermission
 			: null,
+		organizationId: input.context.organizationId,
 		reasoningLevel: input.update.reasoningLevel,
 		runtimeLane,
 		writeMode: "reconnect",
@@ -126,6 +131,7 @@ export async function changeAgentProfileController(input: {
 		agentProfilePrimaryBindingQueryOptions({
 			agentProfileId: input.context.profile.openMeldProfileId,
 			enabled: true,
+			organizationId: input.context.organizationId,
 			storageScope: input.context.storageScope,
 		})
 	);
@@ -140,6 +146,7 @@ export async function changeAgentProfileController(input: {
 	});
 	await refreshWebAgentReadinessFacts({
 		agentProfileIds: [input.context.profile.openMeldProfileId],
+		organizationId: input.context.organizationId,
 		queryClient: input.context.queryClient,
 		storageScope: input.context.storageScope,
 	});
@@ -160,6 +167,7 @@ export async function updateAgentProfileControllerCollaborationMode(input: {
 				agentControllerCollaborationMode:
 					input.agentControllerCollaborationMode,
 				agentProfileId: input.context.profile.openMeldProfileId,
+				organizationId: input.context.organizationId,
 			}),
 	});
 }
@@ -178,6 +186,7 @@ export async function updateAgentProfileControllerPermissionMode(input: {
 				actorProfileId: input.context.actorProfileId,
 				agentControllerPermissionMode: input.agentControllerPermissionMode,
 				agentProfileId: input.context.profile.openMeldProfileId,
+				organizationId: input.context.organizationId,
 			}),
 	});
 }
@@ -197,6 +206,7 @@ export async function updateAgentProfileModelSelection(input: {
 				actorProfileId: input.context.actorProfileId,
 				agentProfileId: input.context.profile.openMeldProfileId,
 				modelId: input.modelSelection.modelId,
+				organizationId: input.context.organizationId,
 				reasoningLevel: input.modelSelection.reasoningLevel,
 			}),
 	});
@@ -218,6 +228,7 @@ export async function updateAgentProfileOpenCodePermission(input: {
 				actorProfileId: input.context.actorProfileId,
 				agentProfileId: input.context.profile.openMeldProfileId,
 				openCodePermission: input.openCodePermission,
+				organizationId: input.context.organizationId,
 			}),
 	});
 }
@@ -242,9 +253,9 @@ export async function renameAgentProfile(input: {
 				input.context.storageScope
 			),
 		}),
-		input.context.queryClient.invalidateQueries({
-			queryKey: organizationQueryKeys.all,
-		}),
+		input.context.queryClient.invalidateQueries(
+			organizationDirectoryQueryFilters()
+		),
 	]);
 	return updatedProfile;
 }
@@ -266,9 +277,7 @@ export function updateAgentProfileListCaches(input: {
 			)
 	);
 	input.queryClient.setQueriesData<OrganizationDirectoryResponse>(
-		{
-			queryKey: organizationQueryKeys.all,
-		},
+		organizationDirectoryQueryFilters(),
 		(current) =>
 			current
 				? {

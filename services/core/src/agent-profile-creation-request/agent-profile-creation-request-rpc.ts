@@ -45,7 +45,6 @@ import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   type CenterAgentCreateConfiguredAgentProfileInput,
   rpcAddOrganizationDirectoryProfilesToSpace,
-  rpcAuthorizeAgentProfileBindingForOrganization,
   rpcCenterAgentCheckAgentProfileReadiness,
   rpcEnsureAgentProfilePrimaryBinding,
   rpcListLocalRuntimes,
@@ -855,15 +854,6 @@ async function connectRequestedAgentProfile(input: {
               context: targetContext,
               defaultProjectId: configuration.defaultProjectId,
               expectedOrganizationId: input.request.organizationId,
-            }),
-        }
-      : {}),
-    ...(configuration.authorizeForOrganization
-      ? {
-          authorizeForOrganization: async () =>
-            await rpcAuthorizeAgentProfileBindingForOrganization(input.env, {
-              agentProfileId: input.agentProfileId,
-              context: targetContext,
             }),
         }
       : {}),

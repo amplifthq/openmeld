@@ -157,6 +157,28 @@ export function buildSpaceFileUploadPath(input: {
   return `${buildSpaceFilesPath(input.spaceId)}?${searchParams.toString()}`;
 }
 
+export function buildSpaceComposerUploadPath(input: {
+  name?: string;
+  spaceId: string;
+  uploadId: string;
+}): string {
+  const path = `${buildSpaceRoutePath(
+    input.spaceId,
+    "composer-uploads"
+  )}/${encodeURIComponent(input.uploadId)}`;
+  if (input.name === undefined) {
+    return path;
+  }
+  return `${path}?${new URLSearchParams({ name: input.name }).toString()}`;
+}
+
+export function buildSpaceComposerUploadPublishPath(input: {
+  spaceId: string;
+  uploadId: string;
+}): string {
+  return `${buildSpaceComposerUploadPath(input)}/publish`;
+}
+
 export function buildSpaceAttachmentUploadPath(
   spaceId: string,
   query?: { fileName?: string; width?: number; height?: number }
@@ -265,6 +287,7 @@ function buildSpaceRoutePath(
     | "identity-directory"
     | "viewer-membership"
     | "attachments"
+    | "composer-uploads"
     | "files"
     | "join"
     | "center-agent"

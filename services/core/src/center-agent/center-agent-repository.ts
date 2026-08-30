@@ -50,7 +50,6 @@ type CenterAgentAttributionProfileRow = {
   owner_user_id: string;
   owner_name: string | null;
   member_user_id: string | null;
-  has_authorized_binding: number | boolean;
   is_default: number | boolean;
 };
 
@@ -477,7 +476,6 @@ export async function readResolvedOrganizationSpaceMember(input: {
   profileId: string;
 }): Promise<ResolvedSpaceMemberProfile | null> {
   const profile = await readOrganizationScopedAttributionProfile({
-    allowAuthorizedAgentProfile: true,
     db: input.db,
     organizationId: input.organizationId,
     profileId: input.profileId,
@@ -501,7 +499,6 @@ export async function readResolvedOrganizationDirectorySpaceMember(input: {
   profileId: string;
 }): Promise<ResolvedSpaceMemberProfile | null> {
   const profile = await readOrganizationScopedAttributionProfile({
-    allowAuthorizedAgentProfile: true,
     db: input.db,
     organizationId: input.organizationId,
     profileId: input.profileId,
@@ -521,7 +518,6 @@ export async function readResolvedOrganizationDirectorySpaceMember(input: {
 }
 
 async function readOrganizationScopedAttributionProfile(input: {
-  allowAuthorizedAgentProfile?: boolean;
   db: D1Database;
   organizationId: string;
   profileId: string;
@@ -546,15 +542,7 @@ async function readOrganizationScopedAttributionProfile(input: {
           profiles.managed_role,
           profiles.owner_user_id,
           users.name AS owner_name,
-          members.user_id AS member_user_id,
-          EXISTS (
-            SELECT 1
-            FROM organization_binding_authorizations AS authorizations
-            INNER JOIN openMeldDaemon_agent_profile_bindings AS bindings
-              ON bindings.binding_id = authorizations.binding_id
-            WHERE authorizations.organization_id = ?
-              AND bindings.agent_profile_id = profiles.profile_id
-          ) AS has_authorized_binding
+          members.user_id AS member_user_id
         FROM openmeld_profiles AS profiles
         LEFT JOIN users
           ON users.id = profiles.owner_user_id
@@ -565,7 +553,7 @@ async function readOrganizationScopedAttributionProfile(input: {
         LIMIT 1
       `
     )
-    .bind(input.organizationId, input.organizationId, input.profileId)
+    .bind(input.organizationId, input.profileId)
     .first<CenterAgentAttributionProfileRow>();
 
   if (row?.profile_status !== "active") {
@@ -579,15 +567,6 @@ async function readOrganizationScopedAttributionProfile(input: {
       profileOrganizationId: normalizeNullableText(row.organization_id),
       targetOrganizationId: input.organizationId,
     })
-  ) {
-    return null;
-  }
-  const hasAuthorizedBinding =
-    row.has_authorized_binding === true || row.has_authorized_binding === 1;
-  if (
-    profileKind === "agent" &&
-    row.organization_id !== input.organizationId &&
-    !(input.allowAuthorizedAgentProfile === true && hasAuthorizedBinding)
   ) {
     return null;
   }

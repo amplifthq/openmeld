@@ -39,7 +39,6 @@ import {
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
 } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
-import { readOrganizationBindingAuthorizationRecord } from "../../agent-profile-binding/infrastructure/d1/organization-binding-authorization-repo";
 import {
   isAgentProfileEligibleForOrganization,
   readAgentProfileOrganizationContext,
@@ -267,6 +266,11 @@ export async function resolveCoreAgentExecutionReadiness(input: {
     agentProfileId: input.agent.profileId,
     binding: bindingSnapshot.agentExecutionBinding,
     claimDiagnostics: bindingSnapshot.claimDiagnostics,
+    executionFamily: isHostedCenterAgentControllerRef(
+      bindingSnapshot.agentControllerRef
+    )
+      ? "native"
+      : "workstation",
     route:
       bindingSnapshot.routeEvidence ??
       createAgentExecutionRouteEvidence({
@@ -609,6 +613,20 @@ async function enrichAgentBindingSnapshot(input: {
     bindingProjection &&
     isHostedCenterAgentControllerRef(parsedAgentControllerRef?.ref)
   ) {
+    const claimDiagnostics = await measureReadinessStep(
+      input.timing,
+      "claim_diagnostics_read",
+      () =>
+        resolveAgentProfileOrganizationClaimDiagnostics({
+          activeOrganizationId: input.activeOrganizationId,
+          binding: agentExecutionBinding,
+          env: input.env,
+          resolveRuntimeClaimDiagnostics: async () => ({
+            reasonCodes: [],
+            status: "not_checked",
+          }),
+        })
+    );
     return await createHostedAgentBindingSnapshot({
       activeOrganizationId: input.activeOrganizationId,
       agent: input.agent,
@@ -617,6 +635,7 @@ async function enrichAgentBindingSnapshot(input: {
       bindingEnabled,
       bindingProjection,
       bindingState,
+      claimDiagnostics,
       env: input.env,
       generatedAt: input.generatedAt,
       ownerUserId: input.snapshot.ownerUserId,
@@ -665,7 +684,7 @@ async function enrichAgentBindingSnapshot(input: {
   ] = await Promise.all([
     runtimeReadinessPromise,
     measureReadinessStep(input.timing, "claim_diagnostics_read", () =>
-      resolveOrganizationAwareClaimDiagnostics({
+      resolveAgentProfileOrganizationClaimDiagnostics({
         activeOrganizationId: input.activeOrganizationId,
         binding: agentExecutionBinding,
         env: input.env,
@@ -768,6 +787,7 @@ async function createHostedAgentBindingSnapshot(input: {
   bindingEnabled: boolean;
   bindingProjection: AgentProfileBindingDisplayProjection;
   bindingState: "bound" | "missing";
+  claimDiagnostics: AgentExecutionClaimDiagnosticEvidence | null;
   env: CoreBindings;
   generatedAt: string;
   ownerUserId: string | null;
@@ -775,35 +795,23 @@ async function createHostedAgentBindingSnapshot(input: {
   profileName: string | null;
   snapshot: ProfileIdentitySnapshot;
 }): Promise<AgentBindingSnapshot> {
-  const readiness = await resolveHostedCenterAgentReadiness({
-    activeOrganizationId: input.activeOrganizationId,
-    agentProfileId: input.agent.profileId,
-    env: input.env,
+  const readiness =
+    input.claimDiagnostics?.status === "not_checked"
+      ? await resolveHostedCenterAgentReadiness({
+          activeOrganizationId: input.activeOrganizationId,
+          agentProfileId: input.agent.profileId,
+          env: input.env,
+        })
+      : null;
+  const routeEvidence = createHostedAgentRouteEvidence({
+    generatedAt: input.generatedAt,
+    readiness,
   });
-  const routeEvidence: AgentExecutionRouteEvidence = readiness.available
-    ? {
-        observedAt: input.generatedAt,
-        reasonCodes: ["remote_agent.available"],
-        status: "online",
-      }
-    : {
-        observedAt: input.generatedAt,
-        reasonCodes: readiness.reasonCodes,
-        status: "unavailable",
-      };
-  const daemonRouteObservation: DaemonRouteObservationSummary =
-    readiness.available
-      ? {
-          observedAt: input.generatedAt,
-          reasonCode: "online",
-          status: "online",
-        }
-      : {
-          observedAt: input.generatedAt,
-          reasonCode: "not_requested",
-          status: "unavailable",
-        };
-  const observedAtMs = Date.parse(input.generatedAt);
+  const daemonRouteObservation: DaemonRouteObservationSummary = {
+    observedAt: input.generatedAt,
+    reasonCode: "not_requested",
+    status: "unavailable",
+  };
 
   return {
     ...input.snapshot,
@@ -811,57 +819,70 @@ async function createHostedAgentBindingSnapshot(input: {
     agentControllerRef: input.agentControllerRef,
     bindingEnabled: input.bindingEnabled,
     bindingState: input.bindingState,
-    claimDiagnostics: {
-      status: "not_checked",
-    },
+    claimDiagnostics: input.claimDiagnostics,
     daemonRouteObservation,
     localService: {
-      reachable: readiness.available,
+      reachable: false,
       refreshable: false,
-      reasonCodes: readiness.reasonCodes,
-      source: readiness.available ? "runtime_transport" : "unavailable",
+      reasonCodes: [],
+      source: "not_checked",
     },
     providerAccount: null,
     providerConversation: null,
-    readinessImpact: readiness.available
-      ? null
-      : {
-          blocked: true,
-          expiresAtMs: observedAtMs + 60_000,
-          impactKind: "local_execution",
-          observedAtMs,
-          reasonCodes: readiness.reasonCodes,
-          source: "wake_failure",
-        },
+    readinessImpact: null,
     primaryBinding: input.bindingProjection,
     agentWakeRouteRegistration: {
       daemonSessionId: null,
       deviceId: null,
       lane: null,
-      reasonCode: readiness.reasonCodes[0] ?? null,
-      reportedAtMs: Date.parse(input.generatedAt),
+      reasonCode: "not_requested",
+      reportedAtMs: null,
       serviceVersion: null,
-      status: readiness.available ? "registered" : "unavailable",
+      status: "skipped",
     },
-    wakeRouteStatus: readiness.available
-      ? { status: "checking" }
-      : { status: "unavailable" },
+    wakeRouteStatus: { status: "unavailable" },
     routeEvidence,
     routeDeviceId: null,
     routeLane: null,
     runtimeDeviceDisplayName: "Remote Agent",
-    runtimeReadiness: {
-      ready: readiness.available,
-      displayState: readiness.available ? "ready" : "unavailable",
-      reasonCodes: readiness.reasonCodes,
-    },
-    service: {
-      executionCompatible: readiness.available,
-      expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      reasonCodes: readiness.reasonCodes,
-      source: readiness.available ? "runtime_transport" : "unavailable",
-    },
+    runtimeReadiness: readiness
+      ? {
+          ready: readiness.available,
+          displayState: readiness.available ? "ready" : "unavailable",
+          reasonCodes: readiness.reasonCodes,
+        }
+      : null,
+    service: createNotCheckedServiceEvidence(),
+  };
+}
+
+function createHostedAgentRouteEvidence(input: {
+  generatedAt: string;
+  readiness: {
+    available: boolean;
+    reasonCodes: string[];
+  } | null;
+}): AgentExecutionRouteEvidence {
+  if (!input.readiness) {
+    return {
+      reasonCodes: [],
+      source: "not_checked",
+      status: "unavailable",
+    };
+  }
+  if (input.readiness.available) {
+    return {
+      observedAt: input.generatedAt,
+      reasonCodes: ["remote_agent.available"],
+      source: "hosted_route",
+      status: "online",
+    };
+  }
+  return {
+    observedAt: input.generatedAt,
+    reasonCodes: input.readiness.reasonCodes,
+    source: "hosted_route",
+    status: "unavailable",
   };
 }
 
@@ -1445,18 +1466,22 @@ async function resolveAgentClaimDiagnostics(input: {
   }
 }
 
-export async function resolveOrganizationAwareClaimDiagnostics(input: {
+export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
   activeOrganizationId: string | null;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
   resolveRuntimeClaimDiagnostics: () => Promise<AgentExecutionClaimDiagnosticEvidence | null>;
 }): Promise<AgentExecutionClaimDiagnosticEvidence | null> {
   const runtimeClaimDiagnostics = await input.resolveRuntimeClaimDiagnostics();
+  if (!input.activeOrganizationId) {
+    return mergeAgentProfileOrganizationClaimFailure({
+      reasonCode: "agent_profile.organization_context_missing",
+      runtimeClaimDiagnostics,
+      status: "unavailable",
+    });
+  }
   if (
-    !(
-      input.activeOrganizationId &&
-      isAgentProfileBindingProjection(input.binding)
-    ) ||
+    !isAgentProfileBindingProjection(input.binding) ||
     input.binding.bindingState !== "enabled_primary" ||
     !input.binding.bindingId
   ) {
@@ -1465,8 +1490,8 @@ export async function resolveOrganizationAwareClaimDiagnostics(input: {
 
   const db = identityDb(input.env);
   if (!db) {
-    return mergeOrganizationWakeAccessClaimFailure({
-      reasonCode: "organization_binding_authorization.lookup_failed",
+    return mergeAgentProfileOrganizationClaimFailure({
+      reasonCode: "agent_profile.organization_lookup_failed",
       runtimeClaimDiagnostics,
       status: "unavailable",
     });
@@ -1478,7 +1503,7 @@ export async function resolveOrganizationAwareClaimDiagnostics(input: {
       db,
     });
     if (!profileContext) {
-      return mergeOrganizationWakeAccessClaimFailure({
+      return mergeAgentProfileOrganizationClaimFailure({
         reasonCode: "agent_profile.organization_context_missing",
         runtimeClaimDiagnostics,
         status: "unavailable",
@@ -1491,28 +1516,16 @@ export async function resolveOrganizationAwareClaimDiagnostics(input: {
         targetOrganizationId: input.activeOrganizationId,
       })
     ) {
-      return mergeOrganizationWakeAccessClaimFailure({
-        reasonCode: "center_agent.organization_mismatch",
+      return mergeAgentProfileOrganizationClaimFailure({
+        reasonCode: "agent_profile.organization_mismatch",
         runtimeClaimDiagnostics,
         status: "rejected",
       });
     }
-    const authorization = await readOrganizationBindingAuthorizationRecord({
-      bindingId: input.binding.bindingId,
-      db,
-      organizationId: input.activeOrganizationId,
-    });
-    if (authorization) {
-      return runtimeClaimDiagnostics;
-    }
-    return mergeOrganizationWakeAccessClaimFailure({
-      reasonCode: "organization_binding_authorization.required",
-      runtimeClaimDiagnostics,
-      status: "rejected",
-    });
+    return runtimeClaimDiagnostics;
   } catch (error) {
     console.warn(
-      "[core.agent_execution.organization_wake_access_lookup_failed]",
+      "[core.agent_execution.agent_profile_organization_lookup_failed]",
       {
         event: CORE_LOG_EVENTS.coreInternalError,
         agentProfileId: input.binding.agentProfileId,
@@ -1521,15 +1534,15 @@ export async function resolveOrganizationAwareClaimDiagnostics(input: {
         organizationId: input.activeOrganizationId,
       }
     );
-    return mergeOrganizationWakeAccessClaimFailure({
-      reasonCode: "organization_binding_authorization.lookup_failed",
+    return mergeAgentProfileOrganizationClaimFailure({
+      reasonCode: "agent_profile.organization_lookup_failed",
       runtimeClaimDiagnostics,
       status: "unavailable",
     });
   }
 }
 
-function mergeOrganizationWakeAccessClaimFailure(input: {
+function mergeAgentProfileOrganizationClaimFailure(input: {
   reasonCode: string;
   runtimeClaimDiagnostics: AgentExecutionClaimDiagnosticEvidence | null;
   status: "rejected" | "unavailable";

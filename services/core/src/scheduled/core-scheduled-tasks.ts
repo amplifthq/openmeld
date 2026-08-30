@@ -64,6 +64,7 @@ import {
   runSlackInstallationWelcomePreparationTick,
 } from "../rpc/methods";
 import { emitCoreCloudflareRuntimeEvidence } from "../shared/observability/cloudflare-runtime-evidence";
+import { deleteExpiredSpaceComposerUploads } from "../space/application/space-composer-upload-storage";
 
 export const ROUTINE_TICK_CRON = "* * * * *";
 export const WAKE_EVIDENCE_RETENTION_CRON = "0 4 * * *";
@@ -101,6 +102,7 @@ export async function runCoreScheduledTasks(input: {
   retryAgentProfileCreationRequestInboxProjections?: typeof retryAgentProfileCreationRequestInboxProjections;
   recoverStaleAgentProfileCreationRequests?: typeof recoverStaleAgentProfileCreationRequests;
   retrySessionInventoryMemberCleanups?: typeof retryAgentActivitySessionInventoryMemberCleanups;
+  deleteExpiredComposerUploads?: typeof deleteExpiredSpaceComposerUploads;
 }): Promise<void> {
   if (input.cron === EVAL_WEEKLY_REPORT_CRON) {
     await (input.runWeeklyEvalReport ?? runWeeklyEvalReport)({
@@ -220,6 +222,7 @@ export async function runCoreScheduledTasks(input: {
     return;
   }
 
+  await runSpaceComposerUploadCleanup(input);
   const scheduledRetentionFailures = await runScheduledRetention(input);
 
   const runWakeEvidenceRetention =
@@ -234,6 +237,36 @@ export async function runCoreScheduledTasks(input: {
     scheduledRetentionFailures.push(error);
   }
   throwScheduledRetentionFailures(scheduledRetentionFailures);
+}
+
+async function runSpaceComposerUploadCleanup(input: {
+  deleteExpiredComposerUploads?: typeof deleteExpiredSpaceComposerUploads;
+  env: CoreBindings;
+  nowMs: number;
+}): Promise<void> {
+  const bucket = input.env.OPENMELD_SPACE_ATTACHMENTS;
+  if (!bucket) {
+    return;
+  }
+  try {
+    const result = await (
+      input.deleteExpiredComposerUploads ?? deleteExpiredSpaceComposerUploads
+    )({ bucket, nowMs: input.nowMs });
+    if (result.deleted > 0) {
+      console.log(
+        JSON.stringify({
+          deleted: result.deleted,
+          event: "core.space_composer_upload.cleanup_completed",
+          scanned: result.scanned,
+        })
+      );
+    }
+  } catch (error) {
+    console.error("[core.space_composer_upload.cleanup_failed]", {
+      error,
+      event: "core.space_composer_upload.cleanup_failed",
+    });
+  }
 }
 
 async function runStaleAgentProfileCreationRequestRecovery(

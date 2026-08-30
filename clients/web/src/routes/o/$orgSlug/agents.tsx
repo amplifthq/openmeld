@@ -35,7 +35,7 @@ export const Route = createFileRoute("/o/$orgSlug/agents")({
 		}).catch((error: unknown) => {
 			console.error("Failed to prefetch the Agents route data.", error);
 		});
-		return { sidebarStates: await getAppSidebarStatesForRoute() };
+		return { sidebarStates: await getAppSidebarStatesForRoute("agents") };
 	},
 	component: AgentsRoute,
 });
@@ -53,27 +53,16 @@ function AgentsRoute() {
 			focusProfileId={search.profileId ?? null}
 			focusRequestId={search.requestId ?? null}
 			initialSidebarStates={sidebarStates}
-			onAgentViewChange={(view) => {
+			onAgentViewChange={(view, profileId) => {
+				const selectedProfileId = profileId ?? search.profileId;
 				navigate({
-					search: view === "agents" ? {} : { view },
+					search:
+						view === "agents"
+							? { profileId: selectedProfileId }
+							: { profileId: selectedProfileId, view },
 					to: buildOrganizationAgentsPath(orgSlug),
 				}).catch((error: unknown) => {
 					console.error("Failed to change the Agents view.", error);
-				});
-			}}
-			onFocusConsumed={() => {
-				if (!search.profileId) {
-					return;
-				}
-				navigate({
-					replace: true,
-					search: {},
-					to: buildOrganizationAgentsPath(orgSlug),
-				}).catch((error: unknown) => {
-					console.error(
-						"Failed to clear consumed Agent focus route state.",
-						error
-					);
 				});
 			}}
 		/>

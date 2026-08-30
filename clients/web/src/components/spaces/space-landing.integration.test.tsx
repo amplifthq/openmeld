@@ -448,6 +448,7 @@ function renderSpaceLanding(
 		} | null;
 		isCenterAgentDirectMessage?: boolean;
 		onInitialPendingMessageConsumed?: () => void;
+		organizationScope?: OrganizationScopeAuthorized;
 		presentation?: "compact" | "full";
 		profileId?: string;
 		queryClient?: QueryClient;
@@ -463,13 +464,19 @@ function renderSpaceLanding(
 	const queryClient = input.queryClient ?? createTestQueryClient();
 	const profileId = input.profileId ?? DEFAULT_SPACE_PROFILE_ID;
 	const spaceId = input.spaceId ?? "space-123";
+	const organizationScope =
+		input.organizationScope === undefined
+			? createOrganizationScope()
+			: input.organizationScope;
 	const wrap = (ui: ReactNode) => (
 		<TestQueryClientProvider queryClient={queryClient}>
 			<SpaceWakeProgressVisibleProjectionProvider>
 				{input.observeVisibleWakeProgress ? (
 					<WakeProgressVisibleProjectionProbe />
 				) : null}
-				{ui}
+				<AppOrganizationProvider scope={organizationScope}>
+					{ui}
+				</AppOrganizationProvider>
 			</SpaceWakeProgressVisibleProjectionProvider>
 		</TestQueryClientProvider>
 	);
@@ -574,8 +581,10 @@ function buildSharedReadinessCacheInvalidations(
 ) {
 	return [
 		{
-			queryKey:
-				agentExecutionReadinessQueryKeys.batchesForStorageScope(storageScope),
+			queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+				storageScope,
+				"org-acme"
+			),
 			refetchType: "active",
 		},
 	] as const;
@@ -1300,6 +1309,7 @@ describe("SpaceLanding", () => {
 					profileName: "Scout",
 				}),
 			],
+			organizationScope: createOrganizationScope({ isPersonal: true }),
 		});
 
 		fireEvent.click(
@@ -1410,6 +1420,7 @@ describe("SpaceLanding", () => {
 					profileName: "Scout",
 				}),
 			],
+			organizationScope: createOrganizationScope({ isPersonal: true }),
 		});
 
 		fireEvent.click(
@@ -1588,6 +1599,7 @@ describe("SpaceLanding", () => {
 		expect(addMembersMock).not.toHaveBeenCalled();
 		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 			agentProfileIds: [SECOND_AGENT_PROFILE_ID],
+			organizationId: "org-acme",
 		});
 		expect(
 			notifyAgentExecutionReadinessRefreshMock.mock.invocationCallOrder[0] ?? 0
@@ -3560,13 +3572,6 @@ describe("SpaceLanding", () => {
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
 				}
-				const organizationAuthorizationPreferenceResult =
-					resolveOrganizationAuthorizationPreferenceQueryResult(
-						options.queryKey
-					);
-				if (organizationAuthorizationPreferenceResult) {
-					return organizationAuthorizationPreferenceResult;
-				}
 				const [scope, kind, spaceId] = options.queryKey;
 				if (kind === "account-spaces") {
 					return createQueryResult({
@@ -4119,7 +4124,7 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding();
+		renderSpaceLanding({ organizationScope: createOrganizationScope() });
 
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -4133,12 +4138,14 @@ describe("SpaceLanding", () => {
 				agentProfileId: DEFAULT_AGENT_PROFILE_ID,
 				agentControllerRef: "builtin:codex",
 				deviceId: "device-office",
+				organizationId: "org-acme",
 				runtimeLane: "dev-local",
 				writeMode: "reconnect",
 			});
 		});
 		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 			agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+			organizationId: "org-acme",
 		});
 		for (const invalidation of buildSharedReadinessCacheInvalidations()) {
 			expect(invalidateQueriesMock).toHaveBeenCalledWith(
@@ -4651,6 +4658,7 @@ describe("SpaceLanding", () => {
 					profileName: "Scout",
 				}),
 			],
+			organizationScope: createOrganizationScope({ isPersonal: true }),
 		});
 
 		const setupActions = screen.getByRole("group", {
@@ -4843,6 +4851,7 @@ describe("SpaceLanding", () => {
 					profileName: "Scout",
 				}),
 			],
+			organizationScope: createOrganizationScope({ isPersonal: true }),
 		});
 
 		fireEvent.click(
@@ -6977,6 +6986,7 @@ describe("SpaceLanding", () => {
 
 		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 			agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+			organizationId: "org-acme",
 		});
 		expect(refreshAllMock).not.toHaveBeenCalled();
 		expect(statusRefetchMock).toHaveBeenCalledTimes(1);
@@ -7193,6 +7203,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 				agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+				organizationId: "org-acme",
 			});
 		});
 		expect(refreshAllMock).not.toHaveBeenCalled();
@@ -7512,6 +7523,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 				agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+				organizationId: "org-acme",
 			});
 		});
 		expect(refreshAllMock).not.toHaveBeenCalled();
@@ -8522,6 +8534,131 @@ describe("SpaceLanding", () => {
 		});
 	});
 
+	it("keeps the first picker relation when the same Agent is mentioned twice", async () => {
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "sig-repeated-runner-reference",
+				text: "@Runner for context, then @Runner again",
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		setComposerValue(textarea, "@");
+		await screen.findByRole("listbox", { name: "Mention target options" });
+		fireEvent.click(screen.getByRole("button", { name: "Reference Runner" }));
+		await waitFor(() => {
+			expect((textarea as HTMLTextAreaElement).value).toBe("@Runner ");
+		});
+
+		setComposerValue(textarea, "@Runner for context, then @Run");
+		fireEvent.mouseDown(
+			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
+		);
+		await waitFor(() => {
+			expect((textarea as HTMLTextAreaElement).value).toBe(
+				"@Runner for context, then @Runner "
+			);
+		});
+		setComposerValue(textarea, "@Runner for context, then @Runner again");
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				messageEnvelope: {
+					activationTargets: [],
+					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
+					text: "@Runner for context, then @Runner again",
+				},
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "@Runner for context, then @Runner again",
+				timeoutMs: 30_000,
+			});
+		});
+	});
+
+	it("uses a newly inserted earlier mention as the structured relation", async () => {
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "sig-earlier-runner-reference",
+				text: "@Runner  then @Runner ",
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		setComposerValue(textarea, "Then @Run");
+		fireEvent.mouseDown(
+			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
+		);
+		await waitFor(() => {
+			expect((textarea as HTMLTextAreaElement).value).toBe("Then @Runner ");
+		});
+
+		setComposerValue(textarea, "@Run then @Runner ", 4);
+		await screen.findByRole("listbox", { name: "Mention target options" });
+		fireEvent.click(screen.getByRole("button", { name: "Reference Runner" }));
+		await waitFor(() => {
+			expect((textarea as HTMLTextAreaElement).value).toBe(
+				"@Runner  then @Runner "
+			);
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				messageEnvelope: {
+					activationTargets: [],
+					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
+					text: "@Runner  then @Runner",
+				},
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "@Runner  then @Runner",
+				timeoutMs: 30_000,
+			});
+		});
+	});
+
 	it("shows a quiet summary for multiple structured targets", async () => {
 		const reviewerProfileId = "agt_33333333-3333-4333-8333-333333333333";
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
@@ -8778,13 +8915,6 @@ describe("SpaceLanding", () => {
 				);
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
-				}
-				const organizationAuthorizationPreferenceResult =
-					resolveOrganizationAuthorizationPreferenceQueryResult(
-						options.queryKey
-					);
-				if (organizationAuthorizationPreferenceResult) {
-					return organizationAuthorizationPreferenceResult;
 				}
 				if (
 					queryKey ===
@@ -9789,10 +9919,10 @@ describe("SpaceLanding", () => {
 		expect(refreshAllMock).not.toHaveBeenCalled();
 		expect(invalidateQueriesMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				queryKey:
-					agentExecutionReadinessQueryKeys.batchesForStorageScope(
-						"test-storage-scope"
-					),
+				queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+					"test-storage-scope",
+					"org-acme"
+				),
 				refetchType: "active",
 			})
 		);
@@ -10254,6 +10384,7 @@ describe("SpaceLanding", () => {
 		});
 		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 			agentProfileIds: [DEFAULT_AGENT_PROFILE_ID],
+			organizationId: "org-acme",
 		});
 		expect(refreshAllMock).not.toHaveBeenCalled();
 		expect(membersQueryResult.refetch).toHaveBeenCalled();
@@ -10472,10 +10603,10 @@ describe("SpaceLanding", () => {
 		expect(membersRefetchMock).toHaveBeenCalledTimes(2);
 		expect(invalidateQueriesMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				queryKey:
-					agentExecutionReadinessQueryKeys.batchesForStorageScope(
-						"test-storage-scope"
-					),
+				queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+					"test-storage-scope",
+					"org-acme"
+				),
 				refetchType: "active",
 			})
 		);
@@ -10564,10 +10695,10 @@ describe("SpaceLanding", () => {
 		);
 		expect(invalidateQueriesMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				queryKey:
-					agentExecutionReadinessQueryKeys.batchesForStorageScope(
-						"test-storage-scope"
-					),
+				queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+					"test-storage-scope",
+					"org-acme"
+				),
 				refetchType: "active",
 			})
 		);
@@ -10585,8 +10716,9 @@ describe("SpaceLanding", () => {
 			.spyOn(console, "warn")
 			.mockImplementation(() => undefined);
 		const readinessCachePrefix =
-			agentExecutionReadinessQueryKeys.batchesForStorageScope(
-				"test-storage-scope"
+			agentExecutionReadinessQueryKeys.batchesForOrganization(
+				"test-storage-scope",
+				"org-acme"
 			);
 		let rejectedReadinessCacheRefresh = false;
 		const invalidateQueriesMock = vi
@@ -10833,10 +10965,10 @@ describe("SpaceLanding", () => {
 		expect(refreshAllMock).not.toHaveBeenCalled();
 		expect(invalidateQueriesMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				queryKey:
-					agentExecutionReadinessQueryKeys.batchesForStorageScope(
-						"test-storage-scope"
-					),
+				queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+					"test-storage-scope",
+					"org-acme"
+				),
 				refetchType: "active",
 			})
 		);
@@ -10862,6 +10994,7 @@ describe("SpaceLanding", () => {
 			.mockResolvedValue({ items: [] });
 		const agentsPageBatchQueryKey = agentExecutionReadinessQueryKeys.batch(
 			"test-storage-scope",
+			"org-acme",
 			[DEFAULT_AGENT_PROFILE_ID],
 			undefined
 		);
@@ -11807,10 +11940,21 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("uploads a selected image as a Space File and reconciles its optimistic preview", async () => {
+	it("stages a selected image and publishes it as a Space File only on Send", async () => {
 		const descriptor = createSpaceFileDescriptor();
 		const messageFile = createSpaceMessageFileReference(descriptor);
-		const uploadFileMock = vi.fn().mockResolvedValue(descriptor);
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) =>
+			Promise.resolve(
+				createSpaceComposerUpload({
+					id: input.uploadId,
+					mimeType: input.mimeType,
+					name: input.name,
+					sizeBytes: input.bytes.size,
+				})
+			)
+		);
+		const publishComposerUploadMock = vi.fn().mockResolvedValue(descriptor);
+		const discardComposerUploadMock = vi.fn().mockResolvedValue(undefined);
 		const downloadFileContentMock = vi.fn().mockResolvedValue({
 			bytes: new TextEncoder().encode("image").buffer,
 			mimeType: "image/png",
@@ -11826,9 +11970,11 @@ describe("SpaceLanding", () => {
 				})
 		);
 		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: discardComposerUploadMock,
 			downloadFileContent: downloadFileContentMock,
 			postNormalMessage: postNormalMessageMock,
-			uploadFile: uploadFileMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: stageComposerUploadMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -11857,16 +12003,16 @@ describe("SpaceLanding", () => {
 				organizationSlug: "acme",
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
-			expect(uploadFileMock).toHaveBeenCalledWith({
+			expect(stageComposerUploadMock).toHaveBeenCalledWith({
 				bytes: expect.any(File),
-				clientMutationId: expect.any(String),
 				mimeType: "image/png",
 				name: "picnic.png",
-				parentId: null,
 				spaceId: "space-123",
+				uploadId: expect.any(String),
 			});
 			expect(screen.getByText("Ready")).toBeTruthy();
 		});
+		expect(publishComposerUploadMock).not.toHaveBeenCalled();
 		createWebSpaceApiMock.mockClear();
 
 		const textarea = screen.getByRole("textbox", {
@@ -11889,6 +12035,11 @@ describe("SpaceLanding", () => {
 				text: "Photos from the picnic",
 				timeoutMs: 30_000,
 			});
+		});
+		expect(publishComposerUploadMock).toHaveBeenCalledWith({
+			clientMutationId: expect.any(String),
+			spaceId: "space-123",
+			uploadId: expect.any(String),
 		});
 		const optimisticImage = document.querySelector(
 			'img[src="blob:source-image-preview"]'
@@ -11923,6 +12074,61 @@ describe("SpaceLanding", () => {
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith(
 			"blob:source-image-preview"
 		);
+		expect(discardComposerUploadMock).toHaveBeenCalledWith({
+			spaceId: "space-123",
+			uploadId: expect.any(String),
+		});
+	});
+
+	it("retries an outcome-unknown stage once with the same upload identity", async () => {
+		const stageComposerUploadMock = vi
+			.fn()
+			.mockRejectedValueOnce(
+				createStructuredFailure({
+					code: "network.request_failed",
+					message: "The stage response was lost.",
+				})
+			)
+			.mockImplementationOnce((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			);
+		createWebSpaceApiMock.mockReturnValue({
+			stageComposerUpload: stageComposerUploadMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["retry"], "retriable.txt", { type: "text/plain" })],
+			},
+		});
+
+		await screen.findByText("Ready");
+		expect(stageComposerUploadMock).toHaveBeenCalledTimes(2);
+		expect(stageComposerUploadMock.mock.calls[1]?.[0]).toEqual(
+			stageComposerUploadMock.mock.calls[0]?.[0]
+		);
 	});
 
 	it("sends a Space File without requiring a text note", async () => {
@@ -11930,7 +12136,16 @@ describe("SpaceLanding", () => {
 			mimeType: "application/pdf",
 			name: "brief.pdf",
 		});
-		const uploadFileMock = vi.fn().mockResolvedValue(descriptor);
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) =>
+			Promise.resolve(
+				createSpaceComposerUpload({
+					id: input.uploadId,
+					mimeType: input.mimeType,
+					name: input.name,
+					sizeBytes: input.bytes.size,
+				})
+			)
+		);
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
 				files: [createSpaceMessageFileReference(descriptor)],
@@ -11939,8 +12154,10 @@ describe("SpaceLanding", () => {
 			})
 		);
 		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
-			uploadFile: uploadFileMock,
+			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			stageComposerUpload: stageComposerUploadMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -11982,26 +12199,46 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("blocks publication until an upload failure is removed", async () => {
-		const postNormalMessageMock = vi.fn().mockResolvedValue({
-			signal: createTextSignal({
-				id: "signal-after-failed-file-removed",
-				text: "Text can still be sent",
-			}),
+	it("sends the text and successful files when another upload fails", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "ready.txt",
 		});
-		const uploadFileMock = vi.fn().mockRejectedValue(
-			new OpenMeldApiClientHttpError({
-				code: "upstream_error",
-				message: "The Space does not belong to this Organization.",
-				rawBody: "",
-				requestId: "request-upload-403",
-				status: 403,
-				upstreamCode: "space.organization_mismatch",
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				files: [messageFile],
+				id: "signal-with-successful-file",
+				text: "Text can still be sent",
 			})
 		);
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) => {
+			if (input.name === "ready.txt") {
+				return Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				);
+			}
+			return Promise.reject(
+				new OpenMeldApiClientHttpError({
+					code: "upstream_error",
+					message: "The Space does not belong to this Organization.",
+					rawBody: "",
+					requestId: "request-upload-403",
+					status: 403,
+					upstreamCode: "space.organization_mismatch",
+				})
+			);
+		});
 		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
-			uploadFile: uploadFileMock,
+			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			stageComposerUpload: stageComposerUploadMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -12021,11 +12258,15 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding();
 		fireEvent.change(screen.getByLabelText("Choose files to send"), {
 			target: {
-				files: [new File(["source"], "broken.png", { type: "image/png" })],
+				files: [
+					new File(["ready"], "ready.txt", { type: "text/plain" }),
+					new File(["broken"], "broken.png", { type: "image/png" }),
+				],
 			},
 		});
 
 		await screen.findByText("The Space does not belong to this Organization.");
+		await screen.findByText("Ready");
 		expect(screen.getByText("Request ID: request-upload-403")).toBeTruthy();
 		setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
@@ -12033,51 +12274,362 @@ describe("SpaceLanding", () => {
 		);
 		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
 			"disabled",
-			true
+			false
 		);
 		expect(
-			screen.getByText(
-				"Remove files that could not be uploaded before sending."
-			)
+			screen.getByText("1 file couldn't be uploaded and won't be sent.")
 		).toBeTruthy();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 
-		fireEvent.click(screen.getByRole("button", { name: "Remove broken.png" }));
-		expect(
-			screen.queryByText("The Space does not belong to this Organization.")
-		).toBeNull();
-		expect(screen.queryByText("Request ID: request-upload-403")).toBeNull();
-		expect(URL.revokeObjectURL).toHaveBeenCalledWith(
-			"blob:source-image-preview"
-		);
-		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
-			"disabled",
-			false
-		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() => {
-			expect(postNormalMessageMock).toHaveBeenCalledWith(
-				expect.objectContaining({
-					spaceId: "space-123",
-					text: "Text can still be sent",
-				})
-			);
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				files: [messageFile],
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "Text can still be sent",
+				timeoutMs: 30_000,
+			});
 		});
 	});
 
-	it("accepts pasted and dropped files and stops at ten files", async () => {
-		let uploadCount = 0;
-		const uploadFileMock = vi.fn().mockImplementation(() => {
-			uploadCount += 1;
-			return createSpaceFileDescriptor({
-				id: `file-${String(uploadCount)}`,
-				mimeType: "text/plain",
-				name: `file-${String(uploadCount)}.txt`,
+	it("sends the text and successfully published files when another staged file cannot be published", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "ready.txt",
+		});
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		let failedUploadId: string | null = null;
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) => {
+			if (input.name === "broken.png") {
+				failedUploadId = input.uploadId;
+			}
+			return Promise.resolve(
+				createSpaceComposerUpload({
+					id: input.uploadId,
+					mimeType: input.mimeType,
+					name: input.name,
+					sizeBytes: input.bytes.size,
+				})
+			);
+		});
+		const publishComposerUploadMock = vi.fn().mockImplementation((input) => {
+			if (input.uploadId === failedUploadId) {
+				return Promise.reject(
+					new OpenMeldApiClientHttpError({
+						code: "upstream_error",
+						message: "This file could not be published.",
+						rawBody: "",
+						requestId: "request-publish-500",
+						status: 500,
+						upstreamCode: "space_file.publish_failed",
+					})
+				);
+			}
+			return Promise.resolve(descriptor);
+		});
+		let resolvePost:
+			| ((signal: ReturnType<typeof createTextSignal>) => void)
+			| null = null;
+		const postNormalMessageMock = vi.fn().mockImplementation(
+			() =>
+				new Promise<ReturnType<typeof createTextSignal>>((resolve) => {
+					resolvePost = resolve;
+				})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: stageComposerUploadMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [
+					new File(["ready"], "ready.txt", { type: "text/plain" }),
+					new File(["broken"], "broken.png", { type: "image/png" }),
+				],
+			},
+		});
+		await waitFor(() => {
+			expect(screen.getAllByText("Ready")).toHaveLength(2);
+		});
+		setComposerValue(
+			screen.getByRole("textbox", { name: "Message this space" }),
+			"Text can still be sent"
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await screen.findByText("This file could not be published.");
+		expect(screen.getByText("Request ID: request-publish-500")).toBeTruthy();
+		expect(
+			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+		).toBeTruthy();
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				files: [messageFile],
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "Text can still be sent",
+				timeoutMs: 30_000,
 			});
 		});
+
+		await act(async () => {
+			resolvePost?.(
+				createTextSignal({
+					files: [messageFile],
+					id: "signal-with-partial-publish",
+					text: "Text can still be sent",
+				})
+			);
+			await Promise.resolve();
+		});
+	});
+
+	it("retries an outcome-unknown publication once with the same mutation", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "retriable.txt",
+		});
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		const publishComposerUploadMock = vi
+			.fn()
+			.mockRejectedValueOnce(
+				createStructuredFailure({
+					code: "network.request_failed",
+					message: "The publication response was lost.",
+				})
+			)
+			.mockResolvedValueOnce(descriptor);
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				files: [messageFile],
+				id: "signal-after-publication-retry",
+				text: "Send this with the file",
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["retry"], "retriable.txt", { type: "text/plain" })],
+			},
+		});
+		await screen.findByText("Ready");
+		setComposerValue(
+			screen.getByRole("textbox", { name: "Message this space" }),
+			"Send this with the file"
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() =>
+			expect(publishComposerUploadMock).toHaveBeenCalledTimes(2)
+		);
+		expect(publishComposerUploadMock.mock.calls[1]?.[0]).toEqual(
+			publishComposerUploadMock.mock.calls[0]?.[0]
+		);
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				files: [messageFile],
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "Send this with the file",
+				timeoutMs: 30_000,
+			});
+		});
+	});
+
+	it("validates mentions before publishing selected files", async () => {
+		const membersResult = createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+		});
+		const publishComposerUploadMock = vi.fn();
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: membersResult,
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		const view = renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
+			},
+		});
+		await screen.findByText("Ready");
+
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		setComposerValue(textarea, "@Run");
+		fireEvent.mouseDown(
+			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
+		);
+		await waitFor(() => {
+			expect((textarea as HTMLTextAreaElement).value).toBe("@Runner ");
+		});
+		setComposerValue(textarea, "@Runner review these notes");
+
+		Object.assign(membersResult, {
+			data: undefined,
+			error: new Error("members unavailable"),
+			isError: true,
+			isSuccess: false,
+		});
+		view.rerender(
+			<SpaceLanding
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await screen.findByText(
+			"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
+		);
+		expect(publishComposerUploadMock).not.toHaveBeenCalled();
+		expect(screen.getByText("Ready")).toBeTruthy();
+		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		expect((textarea as HTMLTextAreaElement).value).toBe(
+			"@Runner review these notes"
+		);
+	});
+
+	it("keeps a file-only Composer open when its staged file cannot be published", async () => {
+		const postNormalMessageMock = vi.fn();
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: vi
+				.fn()
+				.mockRejectedValue(new Error("This file could not be published.")),
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["broken"], "broken.png", { type: "image/png" })],
+			},
+		});
+		await screen.findByText("Ready");
+
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await screen.findByText(
+			"None of the files could be sent. Add them again or enter a message."
+		);
+		expect(screen.getByText("This file could not be published.")).toBeTruthy();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("textbox", { name: "Message this space" })
+		).toBeTruthy();
+	});
+
+	it("accepts pasted and dropped files and stops at ten files", async () => {
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) =>
+			createSpaceComposerUpload({
+				id: input.uploadId,
+				mimeType: input.mimeType,
+				name: input.name,
+				sizeBytes: input.bytes.size,
+			})
+		);
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: vi.fn(),
-			uploadFile: uploadFileMock,
+			stageComposerUpload: stageComposerUploadMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -12679,6 +13231,10 @@ describe("SpaceLanding", () => {
 	});
 
 	it("keeps an outcome-unknown main message under one idempotent send identity", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "pending-main.txt",
+		});
 		const hangingRequest = createHangingFetchRequest();
 		const postNormalMessageMock = vi.fn(
 			async (input: { timeoutMs?: number }) =>
@@ -12687,8 +13243,21 @@ describe("SpaceLanding", () => {
 					timeoutMs: input.timeoutMs,
 				})
 		);
+		const publishComposerUploadMock = vi.fn().mockResolvedValue(descriptor);
 		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -12706,6 +13275,16 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [
+					new File(["pending"], "pending-main.txt", {
+						type: "text/plain",
+					}),
+				],
+			},
+		});
+		await screen.findByText("Ready");
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -12757,6 +13336,11 @@ describe("SpaceLanding", () => {
 		expect(postNormalMessageMock.mock.calls[1]?.[0]).toEqual(
 			postNormalMessageMock.mock.calls[0]?.[0]
 		);
+		expect(screen.queryByText("Ready")).toBeNull();
+		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.click(sendButton);
+		expect(postNormalMessageMock).toHaveBeenCalledTimes(2);
+		expect(publishComposerUploadMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not show a send-failure banner when the message posted but a follow-up step failed", async () => {
@@ -14780,16 +15364,41 @@ describe("SpaceLanding", () => {
 		expect(postThreadSignalMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("keeps an outcome-unknown thread reply under one idempotent send identity", async () => {
-		const hangingRequest = createHangingFetchRequest();
-		const postThreadSignalMock = vi.fn(
-			async (input: { timeoutMs?: number }) =>
-				await hangingRequest.request({
-					operation: "space.thread.send",
-					timeoutMs: input.timeoutMs,
-				})
-		);
+	it("sends a thread reply and successful files when another upload fails", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "thread-ready.txt",
+		});
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		const postedThreadSignal = createTextSignal({
+			files: [messageFile],
+			id: "sig-thread-with-successful-file",
+			text: "Thread text can still be sent",
+		});
+		const postThreadSignalMock = vi.fn().mockResolvedValue({
+			placement: {
+				createdAt: "2026-04-11T00:00:00.000Z",
+				placement: "thread",
+				signalId: postedThreadSignal.id,
+				threadId: "thread-1",
+			},
+			signal: postedThreadSignal,
+		});
+		const stageComposerUploadMock = vi.fn().mockImplementation((input) => {
+			if (input.name === "thread-ready.txt") {
+				return Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				);
+			}
+			return Promise.reject(new Error("Thread file could not be uploaded."));
+		});
 		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
 			getWakeProgress: vi.fn().mockResolvedValue({
 				items: [],
@@ -14803,6 +15412,272 @@ describe("SpaceLanding", () => {
 			listSignalEnvelopes: vi.fn(),
 			postNormalMessage: vi.fn(),
 			postThreadSignal: postThreadSignalMock,
+			publishComposerUpload: vi.fn().mockResolvedValue(descriptor),
+			stageComposerUpload: stageComposerUploadMock,
+		});
+		const rootSignal = createTextSignal({
+			id: "sig-thread-file-root",
+			text: "Attach the thread notes here.",
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [rootSignal], nextCursor: null },
+			}),
+			threadSignals: createQueryResult({
+				isSuccess: true,
+				data: { signals: [rootSignal] },
+			}),
+			threads: createQueryResult({
+				isSuccess: true,
+				data: {
+					threads: [
+						{
+							threadId: "thread-1",
+							spaceId: "space-123",
+							rootSignalId: rootSignal.id,
+							createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+							createdAt: "2026-04-11T00:00:00.000Z",
+							updatedAt: "2026-04-11T00:00:00.000Z",
+						},
+					],
+				},
+			}),
+		});
+
+		renderSpaceLanding();
+		const rootMessage = screen
+			.getByText("Attach the thread notes here.")
+			.closest("[data-signal-id]");
+		expect(rootMessage).not.toBeNull();
+		fireEvent.mouseEnter(rootMessage as HTMLElement);
+		fireEvent.click(
+			within(rootMessage as HTMLElement).getAllByRole("button", {
+				name: "Open thread",
+			})[0] as HTMLElement
+		);
+
+		const threadPanel = screen.getByLabelText("Thread");
+		fireEvent.change(
+			within(threadPanel).getByLabelText("Choose files to send"),
+			{
+				target: {
+					files: [
+						new File(["ready"], "thread-ready.txt", {
+							type: "text/plain",
+						}),
+						new File(["broken"], "thread-broken.png", {
+							type: "image/png",
+						}),
+					],
+				},
+			}
+		);
+
+		await within(threadPanel).findByText("Thread file could not be uploaded.");
+		const threadComposer = within(threadPanel).getByRole("textbox", {
+			name: "Reply in thread",
+		});
+		setComposerValue(threadComposer, "Thread text can still be sent");
+		expect(
+			within(threadPanel).getByText(
+				"1 file couldn't be uploaded and won't be sent."
+			)
+		).toBeTruthy();
+		expect(
+			within(threadPanel).getByRole("button", { name: "Send reply" })
+		).toHaveProperty("disabled", false);
+
+		fireEvent.click(
+			within(threadPanel).getByRole("button", { name: "Send reply" })
+		);
+		await waitFor(() => {
+			expect(postThreadSignalMock).toHaveBeenCalledWith({
+				body: expect.objectContaining({
+					files: [messageFile],
+					text: "Thread text can still be sent",
+				}),
+				spaceId: "space-123",
+				threadId: "thread-1",
+				timeoutMs: 30_000,
+			});
+		});
+	});
+
+	it("validates thread mentions before publishing selected files", async () => {
+		const membersResult = createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+		});
+		const publishComposerUploadMock = vi.fn();
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
+		});
+		const rootSignal = createTextSignal({
+			id: "sig-thread-mention-file-root",
+			text: "Review the attached notes in this thread.",
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: membersResult,
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [rootSignal], nextCursor: null },
+			}),
+			threadSignals: createQueryResult({
+				isSuccess: true,
+				data: { signals: [rootSignal] },
+			}),
+			threads: createQueryResult({
+				isSuccess: true,
+				data: {
+					threads: [
+						{
+							threadId: "thread-1",
+							spaceId: "space-123",
+							rootSignalId: rootSignal.id,
+							createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+							createdAt: "2026-04-11T00:00:00.000Z",
+							updatedAt: "2026-04-11T00:00:00.000Z",
+						},
+					],
+				},
+			}),
+		});
+
+		const view = renderSpaceLanding();
+		const rootMessage = screen
+			.getByText("Review the attached notes in this thread.")
+			.closest("[data-signal-id]");
+		expect(rootMessage).not.toBeNull();
+		fireEvent.mouseEnter(rootMessage as HTMLElement);
+		fireEvent.click(
+			within(rootMessage as HTMLElement).getAllByRole("button", {
+				name: "Open thread",
+			})[0] as HTMLElement
+		);
+
+		let threadPanel = screen.getByLabelText("Thread");
+		fireEvent.change(
+			within(threadPanel).getByLabelText("Choose files to send"),
+			{
+				target: {
+					files: [
+						new File(["thread notes"], "thread-notes.txt", {
+							type: "text/plain",
+						}),
+					],
+				},
+			}
+		);
+		await within(threadPanel).findByText("Ready");
+		const threadComposer = within(threadPanel).getByRole("textbox", {
+			name: "Reply in thread",
+		});
+		setComposerValue(threadComposer, "@Run");
+		fireEvent.mouseDown(
+			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
+		);
+		await waitFor(() => {
+			expect((threadComposer as HTMLTextAreaElement).value).toBe("@Runner ");
+		});
+		setComposerValue(threadComposer, "@Runner review these thread notes");
+
+		Object.assign(membersResult, {
+			data: undefined,
+			error: new Error("members unavailable"),
+			isError: true,
+			isSuccess: false,
+		});
+		view.rerender(
+			<SpaceLanding
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		threadPanel = screen.getByLabelText("Thread");
+		fireEvent.click(
+			within(threadPanel).getByRole("button", { name: "Send reply" })
+		);
+
+		await within(threadPanel).findByText(
+			"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
+		);
+		expect(publishComposerUploadMock).not.toHaveBeenCalled();
+		expect(within(threadPanel).getByText("Ready")).toBeTruthy();
+		expect(within(threadPanel).getByText("1 file ready to send")).toBeTruthy();
+		expect(
+			(
+				within(threadPanel).getByRole("textbox", {
+					name: "Reply in thread",
+				}) as HTMLTextAreaElement
+			).value
+		).toBe("@Runner review these thread notes");
+	});
+
+	it("keeps an outcome-unknown thread reply under one idempotent send identity", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "pending-thread.txt",
+		});
+		const hangingRequest = createHangingFetchRequest();
+		const postThreadSignalMock = vi.fn(
+			async (input: { timeoutMs?: number }) =>
+				await hangingRequest.request({
+					operation: "space.thread.send",
+					timeoutMs: input.timeoutMs,
+				})
+		);
+		const publishComposerUploadMock = vi.fn().mockResolvedValue(descriptor);
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+			getWakeProgress: vi.fn().mockResolvedValue({
+				items: [],
+				query: {
+					clientMessageId: "client-message-1",
+					spaceId: "space-123",
+					targetProfileId: null,
+				},
+			}),
+			leaveSpace: vi.fn(),
+			listSignalEnvelopes: vi.fn(),
+			postNormalMessage: vi.fn(),
+			postThreadSignal: postThreadSignalMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
 		});
 		const rootSignal = createTextSignal({
 			id: "sig-thread-timeout-root",
@@ -14860,6 +15735,19 @@ describe("SpaceLanding", () => {
 			})[0] as HTMLElement
 		);
 		const threadPanel = screen.getByLabelText("Thread");
+		fireEvent.change(
+			within(threadPanel).getByLabelText("Choose files to send"),
+			{
+				target: {
+					files: [
+						new File(["pending"], "pending-thread.txt", {
+							type: "text/plain",
+						}),
+					],
+				},
+			}
+		);
+		await within(threadPanel).findByText("Ready");
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
@@ -14913,6 +15801,11 @@ describe("SpaceLanding", () => {
 		expect(postThreadSignalMock.mock.calls[1]?.[0]).toEqual(
 			postThreadSignalMock.mock.calls[0]?.[0]
 		);
+		expect(within(threadPanel).queryByText("Ready")).toBeNull();
+		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.click(sendButton);
+		expect(postThreadSignalMock).toHaveBeenCalledTimes(2);
+		expect(publishComposerUploadMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("records thread Wake diagnostics without rendering the old composer strip", async () => {
@@ -15537,11 +16430,6 @@ function mockSpaceQueries(input: {
 			if (organizationSpacesResult) {
 				return organizationSpacesResult;
 			}
-			const organizationAuthorizationPreferenceResult =
-				resolveOrganizationAuthorizationPreferenceQueryResult(options.queryKey);
-			if (organizationAuthorizationPreferenceResult) {
-				return organizationAuthorizationPreferenceResult;
-			}
 			if (
 				isExpectedSpace &&
 				options.queryKey[0] === "spaces" &&
@@ -15912,9 +16800,12 @@ function createAccountSpaceSections() {
 	};
 }
 
-function createOrganizationScope(): OrganizationScopeAuthorized {
+function createOrganizationScope(
+	input: { isPersonal?: boolean } = {}
+): OrganizationScopeAuthorized {
 	const currentOrganization = {
 		id: "org-acme",
+		...(input.isPersonal === true ? { isPersonal: true } : {}),
 		name: "Acme",
 		slug: "acme",
 	};
@@ -16067,22 +16958,6 @@ function resolveOrganizationSpacesQueryResult(queryKey: readonly unknown[]) {
 					generatedAt: "2026-07-08T00:00:00.000Z",
 					organizationId: String(queryKey[1] ?? ""),
 					spaces: [],
-				},
-			})
-		: null;
-}
-
-function resolveOrganizationAuthorizationPreferenceQueryResult(
-	queryKey: readonly unknown[]
-) {
-	return queryKey[0] === "agent-profile-binding" &&
-		queryKey[1] === "organization-authorizations" &&
-		queryKey[3] === "preference"
-		? createQueryResult({
-				isSuccess: true,
-				data: {
-					autoAuthorizeAgentProfileBindings: false,
-					organizationId: String(queryKey[2] ?? ""),
 				},
 			})
 		: null;
@@ -17442,6 +18317,18 @@ function createSpaceFileDescriptor(
 		spaceId: "space-123",
 		updatedAt: "2026-07-11T00:00:00.000Z",
 		updatedBy: actor,
+	};
+}
+
+function createSpaceComposerUpload(input: {
+	id: string;
+	mimeType: string;
+	name: string;
+	sizeBytes: number;
+}) {
+	return {
+		expiresAt: "2026-07-12T00:00:00.000Z",
+		...input,
 	};
 }
 

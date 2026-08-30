@@ -15,7 +15,6 @@ import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
 import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
-import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { startQueryKeys } from "#/query/query-keys";
 import {
 	createTestQueryClient,
@@ -32,12 +31,11 @@ const CHOOSE_LATER_PATTERN = /Choose later/i;
 const HUMAN_PROFILE_CARD_PATTERN = /Human profile/i;
 const AGENT_PROFILE_CARD_PATTERN = /Agent profile/i;
 const OPENCODE_AGENT_PATTERN = /opencode/i;
-const USE_AGENT_PROFILE_IN_ACME_PATTERN = /Use this Agent in Acme/;
-const AUTO_AUTHORIZE_NEW_AGENT_PROFILES_IN_ACME_PATTERN =
-	/Automatically authorize my new Agents in Acme/;
 const BORDER_CLASS_PATTERN = /\bborder\b/;
 const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld/;
 const DEFAULT_GPT_55_MODEL_PATTERN = /Use controller default \(GPT-5.5\)/;
+const AUTHORIZE_PATTERN = /authorize/i;
+const WAKE_ACCESS_PATTERN = /Wake access/i;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a human profile to this account before bringing profiles into this Space.";
 type WebCreateAgentProfileCreationRequestInput = Parameters<
@@ -55,15 +53,6 @@ const refreshAllMock = vi.hoisted(() => vi.fn());
 const checkRuntimeReadinessMock = vi.hoisted(() => vi.fn());
 const ensureRuntimeBindingMock = vi.hoisted(() => vi.fn());
 const setCurrentAgentProfileWorkspaceMock = vi.hoisted(() => vi.fn());
-const getOrganizationBindingAuthorizationPreferenceMock = vi.hoisted(() =>
-	vi.fn()
-);
-const bulkAuthorizeAgentProfileBindingsForOrganizationMock = vi.hoisted(() =>
-	vi.fn()
-);
-const setOrganizationBindingAuthorizationPreferenceMock = vi.hoisted(() =>
-	vi.fn()
-);
 const getAgentProfileCreationDefaultsMock = vi.hoisted(() => vi.fn());
 const setAgentProfileCreationDefaultsMock = vi.hoisted(() => vi.fn());
 const listProjectsMock = vi.hoisted(() => vi.fn());
@@ -153,24 +142,6 @@ vi.mock("#/lib/profiles/agent-profile-runtime-binding", () => ({
 	formatWebAgentProfileRuntimeReadinessFailure: () =>
 		"OpenMeld could not confirm this computer can use that local agent.",
 	shouldOfferWebAgentProfileSetupRefresh: () => false,
-}));
-
-vi.mock("#/lib/profiles/organization-binding-authorizations", () => ({
-	bulkAuthorizeAgentProfileBindingsForOrganization: (
-		...args: Parameters<
-			typeof bulkAuthorizeAgentProfileBindingsForOrganizationMock
-		>
-	) => bulkAuthorizeAgentProfileBindingsForOrganizationMock(...args),
-	getOrganizationBindingAuthorizationPreference: (
-		...args: Parameters<
-			typeof getOrganizationBindingAuthorizationPreferenceMock
-		>
-	) => getOrganizationBindingAuthorizationPreferenceMock(...args),
-	setOrganizationBindingAuthorizationPreference: (
-		...args: Parameters<
-			typeof setOrganizationBindingAuthorizationPreferenceMock
-		>
-	) => setOrganizationBindingAuthorizationPreferenceMock(...args),
 }));
 
 vi.mock(
@@ -643,21 +614,6 @@ describe("CreateProfileDialog", () => {
 			workspacePath:
 				"/Users/felix/.openmeld-dev/profiles/agt_99999999-9999-4999-8999-999999999999/workspace",
 		});
-		getOrganizationBindingAuthorizationPreferenceMock
-			.mockReset()
-			.mockResolvedValue({
-				autoAuthorizeAgentProfileBindings: false,
-			});
-		bulkAuthorizeAgentProfileBindingsForOrganizationMock
-			.mockReset()
-			.mockResolvedValue({
-				authorizations: [],
-			});
-		setOrganizationBindingAuthorizationPreferenceMock
-			.mockReset()
-			.mockResolvedValue({
-				autoAuthorizeAgentProfileBindings: true,
-			});
 		listProjectsMock.mockReset().mockResolvedValue({ projects: [] });
 		readOrganizationDirectoryMock.mockReset().mockResolvedValue({
 			agentProfiles: [],
@@ -902,10 +858,6 @@ describe("CreateProfileDialog", () => {
 			allowTeammateRequests: true,
 			currentUserId: "user-123",
 			onAfterJoin,
-			organizationAuthorizationContext: {
-				organizationId: "organization-123",
-				organizationName: "Acme",
-			},
 			spaceContext: { spaceId: "space-123", spaceName: "Design Room" },
 		});
 
@@ -1013,10 +965,6 @@ describe("CreateProfileDialog", () => {
 		const { onOpenChange } = renderCreateProfileDialog({
 			allowTeammateRequests: true,
 			currentUserId: "user-123",
-			organizationAuthorizationContext: {
-				organizationId: "organization-123",
-				organizationName: "Acme",
-			},
 		});
 
 		await waitFor(() => {
@@ -1104,10 +1052,6 @@ describe("CreateProfileDialog", () => {
 		renderCreateProfileDialog({
 			allowTeammateRequests: true,
 			currentUserId: "user-123",
-			organizationAuthorizationContext: {
-				organizationId: "organization-123",
-				organizationName: "Acme",
-			},
 		});
 
 		await waitFor(() => {
@@ -1164,10 +1108,6 @@ describe("CreateProfileDialog", () => {
 			},
 			allowTeammateRequests: true,
 			currentUserId: "user-123",
-			organizationAuthorizationContext: {
-				organizationId: "organization-123",
-				organizationName: "Acme",
-			},
 		});
 
 		expect(
@@ -1208,7 +1148,6 @@ describe("CreateProfileDialog", () => {
 				configuration: {
 					agentControllerPermissionMode: "codex:askForApproval",
 					agentControllerRef: "builtin:codex",
-					authorizeForOrganization: true,
 					defaultProjectId: "project-1",
 					modelId: "gpt-5.4-mini",
 					openCodePermission: null,
@@ -1269,10 +1208,10 @@ describe("CreateProfileDialog", () => {
 			});
 			expect(invalidateQueriesSpy).toHaveBeenCalledWith(
 				expect.objectContaining({
-					queryKey:
-						agentExecutionReadinessQueryKeys.batchesForStorageScope(
-							"scope-test"
-						),
+					queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+						"scope-test",
+						"organization-123"
+					),
 				})
 			);
 			expect(onAfterJoin).toHaveBeenCalledWith({
@@ -2000,132 +1939,9 @@ describe("CreateProfileDialog", () => {
 		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 	});
 
-	it("authorizes a bound Agent Profile for the current organization when created from Directory", async () => {
-		const { queryClient } = renderCreateProfileDialog({
-			organizationId: "org-123",
-			organizationAuthorizationContext: {
-				organizationId: "org-123",
-				organizationName: "Acme",
-			},
-			recovery: buildFakeRecovery([
-				buildCatalogEntry({
-					agentId: "codex",
-					launchStatus: "ready",
-					selectable: true,
-				}),
-			]),
-		});
-		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
-
-		await waitFor(() => {
-			expect(listStartProfilesMock).toHaveBeenCalled();
-		});
-		await selectAgentProfileKind();
-		fireEvent.change(screen.getByLabelText("Profile name"), {
-			target: { value: "Research Agent" },
-		});
-		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
-
-		const organizationAccessCheckbox = await screen.findByLabelText(
-			USE_AGENT_PROFILE_IN_ACME_PATTERN
-		);
-		expect((organizationAccessCheckbox as HTMLInputElement).checked).toBe(true);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
-		);
-
-		await waitFor(() => {
-			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
-				expect.objectContaining({
-					configuration: expect.objectContaining({
-						authorizeForOrganization: true,
-					}),
-					organizationId: "org-123",
-				})
-			);
-		});
-		expect(
-			bulkAuthorizeAgentProfileBindingsForOrganizationMock
-		).not.toHaveBeenCalled();
-		expect(
-			setOrganizationBindingAuthorizationPreferenceMock
-		).not.toHaveBeenCalled();
-		await waitFor(() => {
-			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
-				queryKey: organizationQueryKeys.directory("org-123"),
-				refetchType: "active",
-			});
-		});
-	});
-
-	it("can enable future organization authorization while authorizing the new Agent Profile", async () => {
+	it("creates the Agent in the selected workspace without cross-workspace authorization options", async () => {
 		renderCreateProfileDialog({
 			organizationId: "org-123",
-			organizationAuthorizationContext: {
-				organizationId: "org-123",
-				organizationName: "Acme",
-			},
-			recovery: buildFakeRecovery([
-				buildCatalogEntry({
-					agentId: "codex",
-					launchStatus: "ready",
-					selectable: true,
-				}),
-			]),
-		});
-
-		await waitFor(() => {
-			expect(listStartProfilesMock).toHaveBeenCalled();
-		});
-		await selectAgentProfileKind();
-		fireEvent.change(screen.getByLabelText("Profile name"), {
-			target: { value: "Research Agent" },
-		});
-		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
-		fireEvent.click(
-			await screen.findByLabelText(
-				AUTO_AUTHORIZE_NEW_AGENT_PROFILES_IN_ACME_PATTERN
-			)
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
-		);
-
-		await waitFor(() => {
-			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
-				expect.objectContaining({
-					configuration: expect.objectContaining({
-						authorizeForOrganization: true,
-					}),
-					organizationId: "org-123",
-				})
-			);
-		});
-		expect(
-			bulkAuthorizeAgentProfileBindingsForOrganizationMock
-		).not.toHaveBeenCalled();
-		await waitFor(() => {
-			expect(
-				setOrganizationBindingAuthorizationPreferenceMock
-			).toHaveBeenCalledWith({
-				autoAuthorizeAgentProfileBindings: true,
-				organizationId: "org-123",
-			});
-		});
-	});
-
-	it("does not ask again when new Agent Profiles are already automatically authorized for the organization", async () => {
-		getOrganizationBindingAuthorizationPreferenceMock.mockResolvedValue({
-			autoAuthorizeAgentProfileBindings: true,
-		});
-		renderCreateProfileDialog({
-			organizationId: "org-123",
-			organizationAuthorizationContext: {
-				organizationId: "org-123",
-				organizationName: "Acme",
-			},
 			recovery: buildFakeRecovery([
 				buildCatalogEntry({
 					agentId: "codex",
@@ -2144,16 +1960,8 @@ describe("CreateProfileDialog", () => {
 		});
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
 
-		await waitFor(() => {
-			expect(
-				screen.getByText(
-					"New connected Agents are automatically authorized for this organization."
-				)
-			).toBeTruthy();
-		});
-		expect(
-			screen.queryByLabelText(USE_AGENT_PROFILE_IN_ACME_PATTERN)
-		).toBeNull();
+		expect(screen.queryByText(AUTHORIZE_PATTERN)).toBeNull();
+		expect(screen.queryByText(WAKE_ACCESS_PATTERN)).toBeNull();
 
 		fireEvent.click(
 			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
@@ -2162,16 +1970,13 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
 				expect.objectContaining({
-					configuration: expect.objectContaining({
-						authorizeForOrganization: true,
-					}),
 					organizationId: "org-123",
 				})
 			);
 		});
 		expect(
-			bulkAuthorizeAgentProfileBindingsForOrganizationMock
-		).not.toHaveBeenCalled();
+			createAgentProfileCreationRequestMock.mock.calls[0]?.[0].configuration
+		).toMatchObject({ authorizeForOrganization: true });
 	});
 
 	it("uses the managed Project folder when a bound agent is created without a custom folder", async () => {

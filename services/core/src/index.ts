@@ -605,6 +605,7 @@ import {
   type DeleteSpaceResult,
   type DesignateCenterAgentInput,
   type DisableAgentProfilePrimaryBindingInput,
+  type DiscardSpaceComposerUploadRpcInput,
   type DisconnectCenterAgentSlackWorkspaceInput,
   type DisconnectLarkPlatformRegistrationInput,
   type DisconnectMessageChannelIdentityLinkInput,
@@ -689,6 +690,7 @@ import {
   type PostTransientSignalInput,
   type PreviewMessageChannelIdentityLinkInput,
   type PreviewSlackIdentityLinkInput,
+  type PublishSpaceComposerUploadRpcInput,
   type PutSpaceContractInput,
   type ReadAgentActivitySessionInventoryInput,
   type ReadAgentActivitySnapshotInput,
@@ -812,6 +814,7 @@ import {
   rpcDeleteSpaceAttachmentRecord,
   rpcDesignateCenterAgent,
   rpcDisableAgentProfilePrimaryBinding,
+  rpcDiscardSpaceComposerUpload,
   rpcDisconnectCenterAgentSlackWorkspace,
   rpcDisconnectLarkPlatformRegistration,
   rpcDisconnectMessageChannelIdentityLink,
@@ -902,6 +905,7 @@ import {
   rpcPrepareSpaceFileWrite,
   rpcPreviewMessageChannelIdentityLink,
   rpcPreviewSlackIdentityLink,
+  rpcPublishSpaceComposerUpload,
   rpcPutSpaceContract,
   rpcReadAgentActivitySessionInventory,
   rpcReadAgentActivitySnapshot,
@@ -945,6 +949,7 @@ import {
   rpcSetOrganizationBindingAuthorizationPreference,
   rpcSetOrganizationInformationProtectionPolicy,
   rpcSetSpaceAccessMode,
+  rpcStageSpaceComposerUpload,
   rpcSubmitAgentActivityEvents,
   rpcSubmitAgentActivitySessionReconciliation,
   rpcSubmitAgentControllerTaskLifecycleEvents,
@@ -988,6 +993,7 @@ import {
   type SpaceAccessModeStateResult,
   type SpaceFileWriteInput,
   type SpacePasswordStateResult,
+  type StageSpaceComposerUploadRpcInput,
   type SubmitAgentActivityEventsInput,
   type SubmitAgentActivitySessionReconciliationInput,
   type SubmitAgentControllerTaskLifecycleEventsInput,
@@ -1800,6 +1806,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: WriteSpaceFileContentRpcInput
   ): Promise<SpaceFileDescriptor> {
     return rpcWriteSpaceFileContent(this.env, input);
+  }
+
+  stageSpaceComposerUpload(input: StageSpaceComposerUploadRpcInput) {
+    return rpcStageSpaceComposerUpload(this.env, input);
+  }
+
+  publishSpaceComposerUpload(input: PublishSpaceComposerUploadRpcInput) {
+    return rpcPublishSpaceComposerUpload(this.env, input);
+  }
+
+  discardSpaceComposerUpload(input: DiscardSpaceComposerUploadRpcInput) {
+    return rpcDiscardSpaceComposerUpload(this.env, input);
   }
 
   listSpaceThreads(

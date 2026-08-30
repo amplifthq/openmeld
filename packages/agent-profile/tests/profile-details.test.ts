@@ -74,6 +74,7 @@ describe("Profile Details snapshot", () => {
         updatedAt: "2026-06-19T00:00:00.000Z",
       },
       readiness: null,
+      viewerScope: "owner_self",
     });
 
     expect(snapshot.viewerScope).toBe("owner_self");

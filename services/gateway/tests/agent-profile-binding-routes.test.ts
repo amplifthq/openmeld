@@ -5,6 +5,7 @@ import app from "../src/index";
 
 type CoreRpcMock = {
   authorizeAgentProfileBindingForOrganization: ReturnType<typeof vi.fn>;
+  bulkAuthorizeAgentProfileBindingsForOrganization: ReturnType<typeof vi.fn>;
   disableAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   ensureAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   getAgentExecutionReadinessBatch: ReturnType<typeof vi.fn>;
@@ -12,11 +13,14 @@ type CoreRpcMock = {
   getAgentProfileCreationDefaults: ReturnType<typeof vi.fn>;
   getAgentProfileControllerChangeEligibility: ReturnType<typeof vi.fn>;
   getAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
+  getOrganizationBindingAuthorizationPreference: ReturnType<typeof vi.fn>;
+  listCurrentUserAgentProfileOrganizationWakeAccess: ReturnType<typeof vi.fn>;
   listOrganizationBindingAuthorizationProfiles: ReturnType<typeof vi.fn>;
   listOrganizationBindingAuthorizations: ReturnType<typeof vi.fn>;
   revokeAgentProfileBindingForOrganization: ReturnType<typeof vi.fn>;
   saveOrganizationWakeAccessChoice: ReturnType<typeof vi.fn>;
   setAgentProfileCreationDefaults: ReturnType<typeof vi.fn>;
+  setOrganizationBindingAuthorizationPreference: ReturnType<typeof vi.fn>;
   updateAgentProfileDefaultProject: ReturnType<typeof vi.fn>;
   updateAgentProfilePrimaryBindingAgentControllerCollaborationMode: ReturnType<
     typeof vi.fn
@@ -52,6 +56,10 @@ function makeEnv(input?: {
       createdAt: "2026-07-04T00:00:00.000Z",
       organizationId: "org-1",
       status: "authorized",
+    })),
+    bulkAuthorizeAgentProfileBindingsForOrganization: vi.fn(async () => ({
+      authorized: [],
+      organizationId: "org-1",
     })),
     disableAgentProfilePrimaryBinding: vi.fn(async () => ({
       agentProfileId: AGENT_PROFILE_ID,
@@ -115,6 +123,14 @@ function makeEnv(input?: {
         "agent_profile_binding.controller_change_blocked_active_execution",
       status: "blocked",
     })),
+    getOrganizationBindingAuthorizationPreference: vi.fn(async () => ({
+      preference: {
+        autoAuthorizeAgentProfileBindings: false,
+        organizationId: "org-1",
+        updatedAt: "2026-07-16T00:00:00.000Z",
+        userId: "owner-1",
+      },
+    })),
     getAgentProfileCreationDefaults: vi.fn(async () => ({
       agentControllerCollaborationMode: "codex:plan",
       agentControllerPermissionMode: "codex:approveForMe",
@@ -150,6 +166,10 @@ function makeEnv(input?: {
         },
       ],
     })),
+    listCurrentUserAgentProfileOrganizationWakeAccess: vi.fn(async () => ({
+      organizationId: "org-1",
+      profiles: [],
+    })),
     listOrganizationBindingAuthorizationProfiles: vi.fn(async () => ({
       organizationId: "org-1",
       profiles: [
@@ -178,6 +198,14 @@ function makeEnv(input?: {
       alreadyAuthorizedCount: 0,
       authorizedCount: 1,
       organizationId: "org-1",
+      preference: {
+        autoAuthorizeAgentProfileBindings: true,
+        organizationId: "org-1",
+        updatedAt: "2026-07-16T00:00:00.000Z",
+        userId: "owner-1",
+      },
+    })),
+    setOrganizationBindingAuthorizationPreference: vi.fn(async () => ({
       preference: {
         autoAuthorizeAgentProfileBindings: true,
         organizationId: "org-1",
@@ -662,151 +690,92 @@ describe("agent profile binding routes", () => {
     );
   });
 
-  it("forwards Organization Binding authorization requests to Core", async () => {
+  it.each([
+    {
+      coreRpcMethod: "authorizeAgentProfileBindingForOrganization" as const,
+      method: "PUT",
+      name: "single-profile authorization",
+      path: `/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/primary-binding/organization-authorization`,
+    },
+    {
+      coreRpcMethod: "revokeAgentProfileBindingForOrganization" as const,
+      method: "DELETE",
+      name: "single-profile revocation",
+      path: `/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/primary-binding/organization-authorization`,
+    },
+    {
+      coreRpcMethod: "listOrganizationBindingAuthorizations" as const,
+      method: "GET",
+      name: "authorization listing",
+      path: "/v1/agent-profiles/primary-bindings/organization-authorizations",
+    },
+    {
+      coreRpcMethod:
+        "listCurrentUserAgentProfileOrganizationWakeAccess" as const,
+      method: "GET",
+      name: "Wake access listing",
+      path: "/v1/agent-profiles/primary-bindings/organization-wake-access",
+    },
+    {
+      body: { authorizations: [] },
+      coreRpcMethod:
+        "bulkAuthorizeAgentProfileBindingsForOrganization" as const,
+      method: "POST",
+      name: "bulk authorization",
+      path: "/v1/organizations/org-1/binding-authorizations/bulk",
+    },
+    {
+      coreRpcMethod: "listOrganizationBindingAuthorizationProfiles" as const,
+      method: "GET",
+      name: "authorization profile listing",
+      path: "/v1/organizations/org-1/binding-authorizations/profiles",
+    },
+    {
+      coreRpcMethod: "getOrganizationBindingAuthorizationPreference" as const,
+      method: "GET",
+      name: "authorization preference read",
+      path: "/v1/organizations/org-1/binding-authorization-preference",
+    },
+    {
+      body: { autoAuthorizeAgentProfileBindings: true },
+      coreRpcMethod: "setOrganizationBindingAuthorizationPreference" as const,
+      method: "PUT",
+      name: "authorization preference write",
+      path: "/v1/organizations/org-1/binding-authorization-preference",
+    },
+    {
+      body: { enableWakeAccess: true },
+      coreRpcMethod: "saveOrganizationWakeAccessChoice" as const,
+      method: "PUT",
+      name: "Wake access choice",
+      path: "/v1/organizations/org-1/wake-access-choice",
+    },
+  ])("rejects retired $name without calling Core", async (testCase) => {
     const { coreRpc, env } = makeEnv();
-
     const response = await app.fetch(
-      new Request(
-        `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/primary-binding/organization-authorization`,
-        {
-          method: "PUT",
-        }
-      ),
-      env,
-      TEST_EXECUTION_CONTEXT
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      agentProfileId: AGENT_PROFILE_ID,
-      organizationId: "org-1",
-      status: "authorized",
-    });
-    expect(
-      coreRpc.authorizeAgentProfileBindingForOrganization
-    ).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentProfileId: AGENT_PROFILE_ID,
-      })
-    );
-  });
-
-  it("lists Organization Binding authorizations through the collection route", async () => {
-    const { coreRpc, env } = makeEnv();
-
-    const response = await app.fetch(
-      new Request(
-        "http://local/v1/agent-profiles/primary-bindings/organization-authorizations"
-      ),
-      env,
-      TEST_EXECUTION_CONTEXT
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      organizationId: "org-1",
-      authorizations: [
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: "binding_opaque_1",
-        },
-      ],
-    });
-    expect(coreRpc.listOrganizationBindingAuthorizations).toHaveBeenCalledWith(
-      expect.objectContaining({
-        context: expect.any(Object),
-      })
-    );
-  });
-
-  it("lists Organization Wake Access profiles through the Organization route", async () => {
-    const { coreRpc, env } = makeEnv();
-
-    const response = await app.fetch(
-      new Request(
-        "http://local/v1/organizations/org-1/binding-authorizations/profiles"
-      ),
-      env,
-      TEST_EXECUTION_CONTEXT
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      organizationId: "org-1",
-      profiles: [
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          status: "binding_required",
-        },
-      ],
-    });
-    expect(
-      coreRpc.listOrganizationBindingAuthorizationProfiles
-    ).toHaveBeenCalledWith(
-      expect.objectContaining({
-        context: expect.any(Object),
-        organizationId: "org-1",
-      })
-    );
-  });
-
-  it("saves the Organization Wake access choice through one route", async () => {
-    const { coreRpc, env } = makeEnv();
-
-    const response = await app.fetch(
-      new Request("http://local/v1/organizations/org-1/wake-access-choice", {
-        body: JSON.stringify({ enableWakeAccess: true }),
-        headers: { "content-type": "application/json" },
-        method: "PUT",
+      new Request(`http://local${testCase.path}`, {
+        ...(testCase.body
+          ? {
+              body: JSON.stringify(testCase.body),
+              headers: { "content-type": "application/json" },
+            }
+          : {}),
+        method: testCase.method,
       }),
       env,
       TEST_EXECUTION_CONTEXT
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(410);
     await expect(response.json()).resolves.toMatchObject({
-      authorizedCount: 1,
-      organizationId: "org-1",
-      preference: { autoAuthorizeAgentProfileBindings: true },
+      error: {
+        code: "upstream_error",
+        message:
+          "Agent Profiles can only be used in the workspace where they were created.",
+        upstreamCode: "agent_profile.organization_ownership_required",
+      },
     });
-    expect(coreRpc.saveOrganizationWakeAccessChoice).toHaveBeenCalledWith(
-      expect.objectContaining({
-        context: expect.any(Object),
-        enableWakeAccess: true,
-        organizationId: "org-1",
-      })
-    );
-  });
-
-  it("revokes Organization Binding authorizations without disabling the primary Binding", async () => {
-    const { coreRpc, env } = makeEnv();
-
-    const response = await app.fetch(
-      new Request(
-        `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/primary-binding/organization-authorization`,
-        {
-          method: "DELETE",
-        }
-      ),
-      env,
-      TEST_EXECUTION_CONTEXT
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      agentProfileId: AGENT_PROFILE_ID,
-      organizationId: "org-1",
-      revoked: true,
-      status: "revoked",
-    });
-    expect(
-      coreRpc.revokeAgentProfileBindingForOrganization
-    ).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentProfileId: AGENT_PROFILE_ID,
-      })
-    );
-    expect(coreRpc.disableAgentProfilePrimaryBinding).not.toHaveBeenCalled();
+    expect(coreRpc[testCase.coreRpcMethod]).not.toHaveBeenCalled();
   });
 
   it("forwards model selection updates without runtime target fields", async () => {

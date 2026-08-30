@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentExecutionReadinessRouteParamsSchema,
+  agentExecutionReadinessSchema,
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   getAgentExecutionReadinessBatchBodySchema,
   getAgentExecutionReadinessBatchResponseSchema,
@@ -10,6 +11,49 @@ import {
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 describe("agent execution readiness http schemas", () => {
+  it("accepts native runtime facts without workstation readiness evidence", () => {
+    const readiness = readyExecutionReadiness();
+
+    const parsed = agentExecutionReadinessSchema.parse({
+      ...readiness,
+      displayState: "not_ready",
+      facts: {
+        ...readiness.facts,
+        localService: {
+          reachable: false,
+          refreshable: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        route: {
+          deviceId: null,
+          lane: null,
+          observedAt: "2026-05-10T00:00:00.000Z",
+          online: false,
+          reasonCodes: ["remote_agent.worker_unavailable"],
+          source: "hosted_route",
+        },
+        runtime: {
+          ready: false,
+          reasonCodes: ["remote_agent.worker_unavailable"],
+          source: "native_runtime",
+        },
+        service: {
+          executionCompatible: true,
+          expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+          observedEpoch: null,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+      },
+      primaryAction: "check_status",
+    });
+
+    expect(parsed.facts.route.source).toBe("hosted_route");
+    expect(parsed.facts.runtime.source).toBe("native_runtime");
+    expect(parsed.primaryAction).toBe("check_status");
+  });
+
   it("accepts the canonical Core Agent Execution Readiness response", () => {
     const parsed = getAgentExecutionReadinessResponseSchema.parse({
       agentExecutionReadiness: readyExecutionReadiness(),

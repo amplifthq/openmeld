@@ -6,7 +6,6 @@ import {
 } from "@openmeld/schemas";
 import type {
 	CenterAgentOrganizationMemoryPolicyResponse,
-	GetOrganizationBindingAuthorizationPreferenceResponse,
 	GetOrganizationDocumentResponse,
 	ListOrganizationDocumentsResponse,
 	OrganizationDocument,
@@ -25,7 +24,7 @@ import {
 	ShieldCheckIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { setCurrentOrganizationCenterAgentMemoryPolicy } from "#/lib/organizations/center-agent-memory";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -35,7 +34,6 @@ import {
 } from "#/lib/organizations/organization-documents";
 import { setCurrentOrganizationInformationProtection } from "#/lib/organizations/organization-information-protection";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
-import { saveOrganizationWakeAccessChoice } from "#/lib/profiles/organization-binding-authorizations";
 import {
 	centerAgentMemoryPolicyQueryOptions,
 	centerAgentQueryKeys,
@@ -50,10 +48,6 @@ import {
 	organizationInformationProtectionQueryKeys,
 	organizationInformationProtectionQueryOptions,
 } from "#/query/organizations/organization-information-protection";
-import {
-	organizationBindingAuthorizationPreferenceQueryOptions,
-	organizationBindingAuthorizationQueryKeys,
-} from "#/query/profiles/organization-binding-authorizations";
 
 function useSetupOnboardingStepController(input: { onContinue: () => void }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
@@ -63,7 +57,6 @@ function useSetupOnboardingStepController(input: { onContinue: () => void }) {
 	const [protectionExpanded, setProtectionExpanded] = useState(false);
 	const [briefDraft, setBriefDraft] = useState("");
 	const [protectionDraft, setProtectionDraft] = useState("");
-	const wakeAccessDefaultStartedRef = useRef(false);
 	const roleQuery = useQuery(
 		organizationMemberRoleQueryOptions({
 			enabled: !isPersonalWorkspace,
@@ -82,12 +75,6 @@ function useSetupOnboardingStepController(input: { onContinue: () => void }) {
 	const memoryPolicyQuery = useQuery(
 		centerAgentMemoryPolicyQueryOptions({
 			enabled: true,
-			organizationId: currentOrganization.id,
-		})
-	);
-	const wakeAccessPreferenceQuery = useQuery(
-		organizationBindingAuthorizationPreferenceQueryOptions({
-			enabled: !isPersonalWorkspace,
 			organizationId: currentOrganization.id,
 		})
 	);
@@ -157,61 +144,6 @@ function useSetupOnboardingStepController(input: { onContinue: () => void }) {
 			);
 		},
 	});
-	const wakeAccessMutation = useMutation<
-		GetOrganizationBindingAuthorizationPreferenceResponse,
-		unknown,
-		boolean,
-		{
-			previous:
-				| GetOrganizationBindingAuthorizationPreferenceResponse
-				| undefined;
-		}
-	>({
-		mutationFn: async (enableWakeAccess) =>
-			(
-				await saveOrganizationWakeAccessChoice({
-					enableWakeAccess,
-					organizationId: currentOrganization.id,
-				})
-			).preference,
-		onError: (_error, _enabled, context) => {
-			queryClient.setQueryData(
-				organizationBindingAuthorizationQueryKeys.preference(
-					currentOrganization.id
-				),
-				context?.previous
-			);
-		},
-		onMutate: async (autoAuthorizeAgentProfileBindings) => {
-			const queryKey = organizationBindingAuthorizationQueryKeys.preference(
-				currentOrganization.id
-			);
-			await queryClient.cancelQueries({ queryKey });
-			const previous =
-				queryClient.getQueryData<GetOrganizationBindingAuthorizationPreferenceResponse>(
-					queryKey
-				);
-			queryClient.setQueryData<GetOrganizationBindingAuthorizationPreferenceResponse>(
-				queryKey,
-				{
-					autoAuthorizeAgentProfileBindings,
-					organizationId: currentOrganization.id,
-					updatedAt: new Date().toISOString(),
-					userId: currentUserId,
-				}
-			);
-			return { previous };
-		},
-		onSuccess: (preference) => {
-			queryClient.setQueryData(
-				organizationBindingAuthorizationQueryKeys.preference(
-					currentOrganization.id
-				),
-				preference
-			);
-		},
-	});
-
 	const briefMutation = useMutation<
 		OrganizationDocument,
 		unknown,
@@ -403,23 +335,6 @@ function useSetupOnboardingStepController(input: { onContinue: () => void }) {
 			);
 		}
 	}, [informationProtectionQuery.data]);
-	useEffect(() => {
-		if (
-			wakeAccessDefaultStartedRef.current ||
-			isPersonalWorkspace ||
-			wakeAccessPreferenceQuery.data?.updatedAt !== null ||
-			wakeAccessMutation.isPending
-		) {
-			return;
-		}
-		wakeAccessDefaultStartedRef.current = true;
-		wakeAccessMutation.mutate(true);
-	}, [
-		isPersonalWorkspace,
-		wakeAccessMutation,
-		wakeAccessPreferenceQuery.data?.updatedAt,
-	]);
-
 	const briefContent = briefQuery.data?.document.content ?? "";
 	const normalizedBriefDraft = briefDraft.trim();
 	const briefChanged =
@@ -434,7 +349,6 @@ function useSetupOnboardingStepController(input: { onContinue: () => void }) {
 		normalizedProtectionDraft !== protectedInformation;
 	const mutationError =
 		memoryMutation.error ??
-		wakeAccessMutation.error ??
 		briefMutation.error ??
 		informationProtectionMutation.error;
 	const saving =
@@ -483,8 +397,6 @@ function useSetupOnboardingStepController(input: { onContinue: () => void }) {
 		setBriefExpanded,
 		setProtectionDraft,
 		setProtectionExpanded,
-		wakeAccessMutation,
-		wakeAccessPreferenceQuery,
 	};
 }
 
@@ -513,8 +425,6 @@ export function SetupOnboardingStep(input: { onContinue: () => void }) {
 		setBriefExpanded,
 		setProtectionDraft,
 		setProtectionExpanded,
-		wakeAccessMutation,
-		wakeAccessPreferenceQuery,
 	} = useSetupOnboardingStepController(input);
 
 	return (
@@ -534,22 +444,6 @@ export function SetupOnboardingStep(input: { onContinue: () => void }) {
 					}
 					onCheckedChange={(checked) => memoryMutation.mutate(checked)}
 				/>
-				{isPersonalWorkspace ? null : (
-					<EnabledSettingRow
-						checked={
-							wakeAccessPreferenceQuery.data
-								?.autoAuthorizeAgentProfileBindings ?? false
-						}
-						description="Your connected local agents can receive work from this organization."
-						disabled={
-							wakeAccessPreferenceQuery.isPending ||
-							wakeAccessPreferenceQuery.isError ||
-							wakeAccessMutation.isPending
-						}
-						label="Use my connected agents"
-						onCheckedChange={(checked) => wakeAccessMutation.mutate(checked)}
-					/>
-				)}
 			</div>
 
 			{documentsQuery.data?.canManage ? (

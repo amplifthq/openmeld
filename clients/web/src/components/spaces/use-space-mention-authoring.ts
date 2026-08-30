@@ -1,4 +1,8 @@
-import type { MessageMentionType } from "@openmeld/schemas";
+import {
+	collectCanonicalMentionTextFragments,
+	formatCanonicalMentionLiteral,
+	type MessageMentionType,
+} from "@openmeld/schemas";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import {
 	buildRecentMentionRankByProfileId,
@@ -7,6 +11,7 @@ import {
 	closeMentionPickerState,
 	createSpaceTargetCatalog,
 	extractMentionAuthoringPrefix,
+	isSpaceComposerSubmissionError,
 	isTargetPickerState,
 	listSpaceMentionSuggestions,
 	type MentionPickerState,
@@ -89,6 +94,12 @@ export type SpaceComposerAddressingTarget = {
 	wakeAvailability: SpaceSendTargetWakeAvailability;
 };
 
+type SpaceComposerAddressingMention = Pick<
+	SpaceComposerAuthoredMentionInTextOrder,
+	"profileId" | "relation"
+> &
+	Partial<Pick<SpaceComposerAuthoredMentionInTextOrder, "text">>;
+
 type TrackedComposerAuthoredMention =
 	SpaceComposerAuthoredMentionInTextOrder & {
 		end: number;
@@ -144,17 +155,26 @@ export function useSpaceMentionAuthoring(input: {
 	const [dismissedMentionStarts, setDismissedMentionStarts] = useState<
 		number[]
 	>([]);
+	const addressingMentions = useMemo(
+		() =>
+			resolveSpaceComposerAddressingMentions({
+				authoredMentions,
+				snapshot: input.snapshot,
+				text: composerText,
+			}),
+		[authoredMentions, composerText, input.snapshot]
+	);
 	const addressingSummary = useMemo(
-		() => buildSpaceComposerAddressingSummary(authoredMentions),
-		[authoredMentions]
+		() => buildSpaceComposerAddressingSummary(addressingMentions),
+		[addressingMentions]
 	);
 	const addressingTargets = useMemo(
 		() =>
 			buildSpaceComposerAddressingTargets({
-				mentions: authoredMentions,
+				mentions: addressingMentions,
 				snapshot: input.snapshot,
 			}),
-		[authoredMentions, input.snapshot]
+		[addressingMentions, input.snapshot]
 	);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: Changing conversation identity must reset ephemeral picker and selection state even though the key is not rendered.
@@ -446,25 +466,24 @@ export function useSpaceMentionAuthoring(input: {
 			profileId: string,
 			relation: MessageMentionType
 		) => {
-			if (!input.snapshot) {
+			const snapshot = input.snapshot;
+			if (!snapshot) {
 				return;
 			}
-			const target = createSpaceTargetCatalog(input.snapshot).byProfileId.get(
-				profileId
-			);
+			const target =
+				createSpaceTargetCatalog(snapshot).byProfileId.get(profileId);
 			if (!target?.allowedRelations[relation]) {
 				return;
 			}
 			composerDraft.setContent((currentDraft) => ({
 				...currentDraft,
-				authoredMentions: currentDraft.authoredMentions.map((mention) =>
-					mention.profileId === profileId
-						? {
-								...mention,
-								relation,
-							}
-						: mention
-				),
+				...applySpaceComposerRelationChange({
+					authoredMentions: currentDraft.authoredMentions,
+					profileId,
+					relation,
+					snapshot,
+					text: currentDraft.text,
+				}),
 			}));
 		},
 		onMentionPopoverClose,
@@ -645,30 +664,43 @@ export function useSpaceMentionAuthoring(input: {
 			start: nextCaretPosition,
 		};
 		composerDraft.setContent((currentDraft) => {
-			const retainedMentionInputs = reconcileTrackedAuthoredMentions({
+			const retainedMentions = reconcileTrackedAuthoredMentions({
 				mentions: currentDraft.authoredMentions,
 				nextText,
 				previousText: currentDraft.text,
-			}).reduce<SpaceComposerAuthoredMentionInTextOrder[]>(
-				(inputs, mention) => {
-					if (mention.profileId !== selectedItem.suggestion.profileId) {
-						inputs.push(toAuthoredMentionInput(mention));
-					}
-					return inputs;
-				},
-				[]
+			});
+			const retainedMentionForProfile = retainedMentions.find(
+				(mention) => mention.profileId === selectedItem.suggestion.profileId
+			);
+			const selectedMentionOwnsRelation =
+				!retainedMentionForProfile ||
+				activePrefixRange.start < retainedMentionForProfile.start;
+			const mentionInputs = retainedMentions.flatMap((mention) => {
+				if (
+					selectedMentionOwnsRelation &&
+					mention.profileId === selectedItem.suggestion.profileId
+				) {
+					return [];
+				}
+				return [toAuthoredMentionInput(mention)];
+			});
+			if (selectedMentionOwnsRelation) {
+				mentionInputs.push({
+					profileId: selectedItem.suggestion.profileId,
+					relation: selectedRelation,
+					start: activePrefixRange.start,
+					text: mentionText,
+				});
+			}
+			mentionInputs.sort(
+				(left, right) =>
+					(left.start ?? Number.MAX_SAFE_INTEGER) -
+					(right.start ?? Number.MAX_SAFE_INTEGER)
 			);
 			return {
 				...currentDraft,
 				authoredMentions: trackAuthoredMentionsInText({
-					mentions: [
-						...retainedMentionInputs,
-						{
-							profileId: selectedItem.suggestion.profileId,
-							relation: selectedRelation,
-							text: mentionText,
-						},
-					],
+					mentions: mentionInputs,
 					text: nextText,
 				}),
 				text: nextText,
@@ -689,6 +721,90 @@ export function useSpaceMentionAuthoring(input: {
 		setHighlightedIndex(-1);
 		setActivePrefixRange(null);
 	}
+}
+
+function applySpaceComposerRelationChange(input: {
+	authoredMentions: readonly TrackedComposerAuthoredMention[];
+	profileId: string;
+	relation: MessageMentionType;
+	snapshot: SpaceMembersSnapshot;
+	text: string;
+}): {
+	authoredMentions: TrackedComposerAuthoredMention[];
+	text: string;
+} {
+	const catalog = createSpaceTargetCatalog(input.snapshot);
+	const canonicalOwners = collectCanonicalMentionTextFragments(
+		input.text
+	).flatMap((fragment, sequence) => {
+		const parsedLiteral = fragment.parsedLiteral;
+		if (!parsedLiteral) {
+			return [];
+		}
+		const target = catalog.byExactMentionLabel.get(parsedLiteral.name);
+		if (target?.profileId !== input.profileId) {
+			return [];
+		}
+		return [
+			{
+				end: fragment.end,
+				kind: "canonical" as const,
+				name: parsedLiteral.name,
+				sequence,
+				start: fragment.start,
+			},
+		];
+	});
+	const authoredOwners = input.authoredMentions.flatMap((mention, sequence) =>
+		mention.profileId === input.profileId
+			? [
+					{
+						kind: "authored" as const,
+						mention,
+						sequence,
+						start: mention.start,
+					},
+				]
+			: []
+	);
+	const owner = [...canonicalOwners, ...authoredOwners].sort(
+		(left, right) =>
+			left.start - right.start ||
+			(left.kind === "canonical" ? 0 : 1) -
+				(right.kind === "canonical" ? 0 : 1) ||
+			left.sequence - right.sequence
+	)[0];
+	if (!owner) {
+		return {
+			authoredMentions: [...input.authoredMentions],
+			text: input.text,
+		};
+	}
+
+	if (owner.kind === "authored") {
+		return {
+			authoredMentions: input.authoredMentions.map((mention) =>
+				mention === owner.mention
+					? { ...mention, relation: input.relation }
+					: mention
+			),
+			text: input.text,
+		};
+	}
+
+	const canonicalText = formatCanonicalMentionLiteral({
+		name: owner.name,
+		type: input.relation,
+	});
+	const nextText = `${input.text.slice(0, owner.start)}${canonicalText}${input.text.slice(owner.end)}`;
+	return {
+		authoredMentions: reconcileTrackedAuthoredMentions({
+			mentions: input.authoredMentions,
+			nextText,
+			previousText: input.text,
+		}),
+		text: nextText,
+	};
 }
 
 export function buildSpaceMentionTargetItems(input: {
@@ -789,11 +905,13 @@ export function resolveDefaultSpaceComposerMentionRelation(
 }
 
 export function buildSpaceComposerAddressingSummary(
-	mentions: readonly SpaceComposerAuthoredMentionInTextOrder[]
+	mentions: readonly SpaceComposerAddressingMention[]
 ): string | null {
 	const relationByProfileId = new Map<string, MessageMentionType>();
 	for (const mention of mentions) {
-		relationByProfileId.set(mention.profileId, mention.relation);
+		if (!relationByProfileId.has(mention.profileId)) {
+			relationByProfileId.set(mention.profileId, mention.relation);
+		}
 	}
 	if (relationByProfileId.size < 2) {
 		return null;
@@ -816,7 +934,7 @@ export function buildSpaceComposerAddressingSummary(
 }
 
 export function buildSpaceComposerAddressingTargets(input: {
-	mentions: readonly SpaceComposerAuthoredMentionInTextOrder[];
+	mentions: readonly SpaceComposerAddressingMention[];
 	snapshot: SpaceMembersSnapshot | null;
 }): readonly SpaceComposerAddressingTarget[] {
 	if (!input.snapshot) {
@@ -826,6 +944,9 @@ export function buildSpaceComposerAddressingTargets(input: {
 	const catalog = createSpaceTargetCatalog(input.snapshot);
 	const targetByProfileId = new Map<string, SpaceComposerAddressingTarget>();
 	for (const mention of input.mentions) {
+		if (targetByProfileId.has(mention.profileId)) {
+			continue;
+		}
 		const target = catalog.byProfileId.get(mention.profileId);
 		if (!target?.allowedRelations[mention.relation]) {
 			continue;
@@ -841,12 +962,55 @@ export function buildSpaceComposerAddressingTargets(input: {
 	return [...targetByProfileId.values()];
 }
 
+export function resolveSpaceComposerAddressingMentions(input: {
+	authoredMentions: readonly SpaceComposerAuthoredMentionInTextOrder[];
+	snapshot: SpaceMembersSnapshot | null;
+	text: string;
+}): readonly SpaceComposerAddressingMention[] {
+	if (!input.snapshot) {
+		return input.authoredMentions;
+	}
+
+	try {
+		const preparedSubmission = prepareSpaceComposerSubmission({
+			authoredMentionsInTextOrder: input.authoredMentions,
+			missingSnapshotMessage: SPACE_MEMBERS_LOAD_ERROR_MESSAGE,
+			snapshot: input.snapshot,
+			text: input.text,
+		});
+		const activationProfileIds = new Set(
+			preparedSubmission.messageEnvelope?.activationTargets ?? []
+		);
+		const referenceProfileIds = new Set(
+			preparedSubmission.messageEnvelope?.referenceTargets ?? []
+		);
+
+		return preparedSubmission.resolvedStructuredTargets.profileIdsInTextOrder.flatMap(
+			(profileId): SpaceComposerAddressingMention[] => {
+				if (activationProfileIds.has(profileId)) {
+					return [{ profileId, relation: "wake" }];
+				}
+				if (referenceProfileIds.has(profileId)) {
+					return [{ profileId, relation: "reference" }];
+				}
+				return [];
+			}
+		);
+	} catch (error) {
+		if (!isSpaceComposerSubmissionError(error)) {
+			throw error;
+		}
+		return input.authoredMentions;
+	}
+}
+
 function toAuthoredMentionInput(
 	mention: TrackedComposerAuthoredMention
 ): SpaceComposerAuthoredMentionInTextOrder {
 	return {
 		profileId: mention.profileId,
 		relation: mention.relation,
+		start: mention.start,
 		text: mention.text,
 	};
 }

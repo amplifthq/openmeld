@@ -121,6 +121,7 @@ function renderPanel(
 			focusFileAccess={input.focusFileAccess ?? false}
 			focusService={false}
 			isReconcilingStatus={input.isReconcilingStatus ?? false}
+			organizationId="org-acme"
 			queryClient={queryClientStub}
 			recovery={input.recovery ?? buildRecoveryStub({ computer })}
 			setupCompleteRefreshPending={false}
@@ -168,6 +169,7 @@ describe("SelectedComputerPanel detail composition", () => {
 				focusService={false}
 				isReconcilingStatus={false}
 				onFocusConsumed={onFocusConsumed}
+				organizationId="org-acme"
 				queryClient={queryClientStub}
 				recovery={buildRecoveryStub({ computer })}
 				setupCompleteRefreshPending={false}

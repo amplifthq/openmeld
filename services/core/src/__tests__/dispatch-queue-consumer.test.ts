@@ -680,7 +680,9 @@ describe("handleDispatchQueueBatch", () => {
       hostedRuntimeIdentityJson?: unknown;
       modelId?: unknown;
       organizationBindingAuthorized?: unknown;
+      profileOrganizationId?: unknown;
       runtimeKind?: unknown;
+      spaceOrganizationId?: unknown;
       openMeldServiceRuntimeId?: unknown;
     } | null
   ) =>
@@ -813,7 +815,9 @@ describe("handleDispatchQueueBatch", () => {
       hostedRuntimeIdentityJson?: unknown;
       modelId?: unknown;
       organizationBindingAuthorized?: unknown;
+      profileOrganizationId?: unknown;
       runtimeKind?: unknown;
+      spaceOrganizationId?: unknown;
       openMeldServiceRuntimeId?: unknown;
     } | null;
   }) => {
@@ -844,6 +848,25 @@ describe("handleDispatchQueueBatch", () => {
         owner_kind: "owner_account",
         openmeld_service_runtime_id: openMeldServiceRuntimeId,
         updated_at_ms: 1,
+      };
+    }
+    if (
+      input.normalizedSql.includes("space_index_spaces") &&
+      input.normalizedSql.includes("openmeld_profiles")
+    ) {
+      const organizationId =
+        typeof input.row?.spaceOrganizationId === "string"
+          ? input.row.spaceOrganizationId
+          : "org-default";
+      let profileOrganizationId = organizationId;
+      if (typeof input.row?.profileOrganizationId === "string") {
+        profileOrganizationId = input.row.profileOrganizationId;
+      } else if (input.row?.organizationBindingAuthorized === false) {
+        profileOrganizationId = "org-other";
+      }
+      return {
+        organization_id: organizationId,
+        profile_organization_id: profileOrganizationId,
       };
     }
     if (input.normalizedSql.includes("openmelddaemon_agent_profile_bindings")) {
@@ -898,18 +921,6 @@ describe("handleDispatchQueueBatch", () => {
         runtime_kind: runtimeKind,
         openmeld_service_runtime_id: openMeldServiceRuntimeId,
         updated_at_ms: enabled ? 1 : 2,
-      };
-    }
-    if (
-      input.normalizedSql.includes("space_index_spaces") &&
-      input.normalizedSql.includes("organization_binding_authorizations")
-    ) {
-      return {
-        authorization_id:
-          input.row?.organizationBindingAuthorized === false
-            ? null
-            : "organization-binding-authorization-1",
-        organization_id: "org-default",
       };
     }
     return input.row;
@@ -7705,7 +7716,7 @@ describe("handleDispatchQueueBatch", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("rejects Wake before local delivery after revoke removes the Space Organization Binding authorization", async () => {
+  it("rejects a cross-workspace Agent Profile before local delivery", async () => {
     const authRpc = createAuthRpcWithBindingSnapshot({
       bindingState: "bound",
       bindingEnabled: true,
@@ -7747,7 +7758,7 @@ describe("handleDispatchQueueBatch", () => {
           profileStatus: "active",
           agentControllerRef: "builtin:codex",
           controllerEnabled: 1,
-          organizationBindingAuthorized: false,
+          profileOrganizationId: "org-other",
         }),
         authRpc
       ),
@@ -7756,26 +7767,19 @@ describe("handleDispatchQueueBatch", () => {
     expect(message.retry).not.toHaveBeenCalled();
     expect(message.ack).toHaveBeenCalledTimes(1);
     expect(rpcPostSignal).not.toHaveBeenCalled();
-    expect(writeDispatchDlq).not.toHaveBeenCalled();
-    expect(
-      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
-    ).toHaveBeenCalledWith(
+    expect(writeDispatchDlq).toHaveBeenCalledWith(
       expect.objectContaining({
-        noExecution: expect.objectContaining({
-          dispatchId: "dispatch-binding-org-unauthorized-1",
-          ownerUserId: "owner-default",
-          publicationCategory: "binding_required",
-          reasonCode: "organization_binding_authorization.required",
-          userRecoveryAction: "authorize_agent_binding_for_organization",
-        }),
-        ownerUserId: "owner-default",
+        errorCode: "agent_profile.organization_mismatch",
       })
     );
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+    ).not.toHaveBeenCalled();
     expect(markDispatchStatus).toHaveBeenCalledWith(
       expect.objectContaining({
-        errorCode: "organization_binding_authorization.required",
+        errorCode: "agent_profile.organization_mismatch",
         errorMessage:
-          "RuntimeCoordinator no-execution publication intent is ready before execution creation",
+          "This Agent Profile belongs to a different workspace than the Space.",
         status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
       })
     );
@@ -9186,7 +9190,7 @@ describe("handleDispatchQueueBatch", () => {
             first: vi.fn().mockImplementation(() => {
               if (
                 normalizedSql.includes("space_index_spaces") &&
-                normalizedSql.includes("organization_binding_authorizations")
+                normalizedSql.includes("openmeld_profiles")
               ) {
                 // The Space row is missing from the index projection, so the
                 // Space Organization cannot be verified.
@@ -9230,12 +9234,12 @@ describe("handleDispatchQueueBatch", () => {
     expect(message.ack).toHaveBeenCalledTimes(1);
     expect(writeDispatchDlq).toHaveBeenCalledWith(
       expect.objectContaining({
-        errorCode: "organization_binding_authorization.space_org_unavailable",
+        errorCode: "agent_profile.space_organization_unavailable",
       })
     );
     expect(markDispatchStatus).toHaveBeenCalledWith(
       expect.objectContaining({
-        errorCode: "organization_binding_authorization.space_org_unavailable",
+        errorCode: "agent_profile.space_organization_unavailable",
         status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
       })
     );
@@ -9247,8 +9251,7 @@ describe("handleDispatchQueueBatch", () => {
         data: expect.objectContaining({
           failureStage: "execution",
           noticeType: "terminal_failure",
-          reasonCode:
-            "organization_binding_authorization.space_org_unavailable",
+          reasonCode: "agent_profile.space_organization_unavailable",
           text: 'Agent "ops-bot" couldn\'t reply. This Wake failed and will not retry automatically.',
         }),
         spaceId: "space-1",

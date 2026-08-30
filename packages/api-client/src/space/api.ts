@@ -13,12 +13,15 @@ import {
 } from "./execution-recovery";
 import {
   createSpaceFolder,
+  discardSpaceComposerUpload,
   downloadSpaceFileContent,
   getSpaceFile,
   listSpaceFileRevisions,
   listSpaceFiles,
+  publishSpaceComposerUpload,
   restoreSpaceFileEntry,
   restoreSpaceFileRevision,
+  stageSpaceComposerUpload,
   trashSpaceFileEntry,
   updateSpaceFileContent,
   updateSpaceFileEntry,
@@ -83,6 +86,12 @@ export const createSpaceApi: CreateSpaceApi = (
     restoreFileRevision: async (input) =>
       await restoreSpaceFileRevision(client, input),
     uploadFile: async (input) => await uploadSpaceFile(client, input),
+    stageComposerUpload: async (input) =>
+      await stageSpaceComposerUpload(client, input),
+    publishComposerUpload: async (input) =>
+      await publishSpaceComposerUpload(client, input),
+    discardComposerUpload: async (input) =>
+      await discardSpaceComposerUpload(client, input),
     updateFileContent: async (input) =>
       await updateSpaceFileContent(client, input),
     downloadFileContent: async (input) =>

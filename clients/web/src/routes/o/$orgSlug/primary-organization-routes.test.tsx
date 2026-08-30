@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import type { ComponentType, ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Route as CenterAgentAppsRoute } from "./_center-agent/center-agent.apps";
 import { Route as CenterAgentChannelsRoute } from "./_center-agent/center-agent.channels";
 import { Route as CenterAgentMemoryRoute } from "./_center-agent/center-agent.memory";
@@ -19,6 +19,16 @@ import { Route as SettingsAppearanceRoute } from "./settings/appearance";
 import { Route as SettingsGeneralRoute } from "./settings/general";
 
 const ORGANIZATION_HEADING_NAME = /organization/i;
+const getAppSidebarStatesForRouteMock = vi.hoisted(() => vi.fn());
+const prefetchAgentsRouteDataMock = vi.hoisted(() => vi.fn());
+
+vi.mock("#/lib/sidebar-width-cookie", () => ({
+	getAppSidebarStatesForRoute: getAppSidebarStatesForRouteMock,
+}));
+
+vi.mock("#/lib/organizations/app-route-prefetch", () => ({
+	prefetchAgentsRouteData: prefetchAgentsRouteDataMock,
+}));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
 	const actual =
@@ -135,9 +145,29 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 	),
 }));
 
+beforeEach(() => {
+	getAppSidebarStatesForRouteMock.mockReset().mockResolvedValue(undefined);
+	prefetchAgentsRouteDataMock.mockReset().mockResolvedValue(undefined);
+});
+
 afterEach(cleanup);
 
 describe("primary organization routes", () => {
+	it("loads the Agents-specific sidebar state during SSR", async () => {
+		const loader = AgentsRoute.options.loader;
+		if (typeof loader !== "function") {
+			throw new Error("Expected the Agents route loader.");
+		}
+
+		await loader({
+			context: { queryClient: {}, queryPersistence: {} },
+			location: { href: "/o/acme/agents" },
+			params: { orgSlug: "acme" },
+		} as never);
+
+		expect(getAppSidebarStatesForRouteMock).toHaveBeenCalledWith("agents");
+	});
+
 	it("renders Project child routes through the Projects layout", () => {
 		const Component = ProjectsRoute.options.component as ComponentType;
 		render(<Component />);

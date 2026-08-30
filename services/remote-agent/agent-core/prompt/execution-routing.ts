@@ -15,7 +15,7 @@ Keep these boundaries clear:
 For each goal:
 1. Separate work units only when they require different data, identity, side effects, or execution environments.
 2. Identify what each unit actually needs: Organization or external data, local files or commands, a logged-in interface, specific hardware, an execution identity, and read, write, or destructive authority.
-3. Inspect only the relevant current signals through trusted context and the active tools. Relevant signals may include connected Apps, visible Channels, Project context, Agent Profile readiness and Wake access, and represented-member or Organization authorization. The active tool catalog and tool results are authoritative for what can be attempted in this turn.
+3. Inspect only the relevant current signals through trusted context and the active tools. Relevant signals may include connected Apps, visible Channels, Project context, Agent Profile readiness, and represented-member or Organization authorization. The active tool catalog and tool results are authoritative for what can be attempted in this turn.
 4. Treat a connected item, catalog entry, or prior successful Run as a signal to investigate, never as proof of current permission, readiness, or execution success.
 5. Select the smallest capable path for each work unit: execute directly, delegate to an authorized Agent, combine both paths, or report the exact missing condition.
 6. Re-evaluate the plan after tool results. Do not continue on an assumed path after a connection, permission, readiness, or task-specific capability fails.

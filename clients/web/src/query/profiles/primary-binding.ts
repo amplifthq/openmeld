@@ -35,6 +35,7 @@ export const agentProfilePrimaryBindingQueryKeys = {
 export function agentProfileControllerChangeEligibilityQueryOptions(input: {
 	agentProfileId: string;
 	enabled: boolean;
+	organizationId: string;
 	storageScope: string;
 }) {
 	return queryOptions<
@@ -48,6 +49,7 @@ export function agentProfileControllerChangeEligibilityQueryOptions(input: {
 		queryFn: async () =>
 			await readAgentProfileControllerChangeEligibility({
 				agentProfileId: input.agentProfileId,
+				organizationId: input.organizationId,
 			}),
 		enabled: input.enabled,
 		gcTime: baseQueryOptions.gcTime,
@@ -61,6 +63,7 @@ export function agentProfileControllerChangeEligibilityQueryOptions(input: {
 export function agentProfilePrimaryBindingQueryOptions(input: {
 	agentProfileId: string;
 	enabled: boolean;
+	organizationId: string;
 	storageScope: string;
 }) {
 	return queryOptions<
@@ -74,6 +77,7 @@ export function agentProfilePrimaryBindingQueryOptions(input: {
 		queryFn: async () =>
 			await readAgentProfilePrimaryBinding({
 				agentProfileId: input.agentProfileId,
+				organizationId: input.organizationId,
 			}),
 		enabled: input.enabled,
 		gcTime: baseQueryOptions.gcTime,

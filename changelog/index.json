@@ -75,6 +75,27 @@
       "body": "When a newer OpenMeld Service version becomes available while an update is\nalready waiting, OpenMeld now replaces the older target with the newer version.\nThe existing update remains recoverable until the newer target is safely saved,\nand an older worker or queued request cannot overwrite that target or move the\nService back to an earlier version."
     },
     {
+      "id": "manage-agents-in-one-workspace",
+      "title": "Manage Agents in one focused workspace",
+      "kind": "improved",
+      "areas": [
+        "agents",
+        "web"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-08-30",
+      "evidence": [
+        "pr:479",
+        "commit:4a5d699fd48f46684b57bfd42da8fe548774b6be",
+        "worker-version:2ce1f5f8-c550-4845-8735-057712bda82c",
+        "smoke:chrome:agents-secondary-sidebar-20260830"
+      ],
+      "body": "Agents now uses the same focused sidebar-and-detail layout as People. Browse\nAgents by owner, review their real Wake availability, handle Agent requests,\nopen a Direct Message, and edit an Agent in place without losing your current\nselection."
+    },
+    {
       "id": "clarify-space-access-output",
       "title": "See how a Space can be found and opened",
       "kind": "fixed",

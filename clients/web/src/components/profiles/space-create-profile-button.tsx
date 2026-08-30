@@ -67,14 +67,6 @@ function SpaceCreateProfileDialogMount(input: {
 		loadAgentProfiles: false,
 		loadSetupState: false,
 	});
-	const organizationAuthorizationContext =
-		currentOrganization.isPersonal === true
-			? undefined
-			: {
-					organizationId: currentOrganization.id,
-					organizationName: currentOrganization.name,
-				};
-
 	return (
 		<CreateProfileDialog
 			allowTeammateRequests={currentOrganization.isPersonal !== true}
@@ -86,7 +78,6 @@ function SpaceCreateProfileDialogMount(input: {
 				}
 			}}
 			open={true}
-			organizationAuthorizationContext={organizationAuthorizationContext}
 			organizationId={currentOrganization.id}
 			orgSlug={input.orgSlug}
 			recovery={recovery}

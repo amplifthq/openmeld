@@ -43,6 +43,7 @@ import { Route as DesktopDownloadRouteImport } from './routes/desktop/download'
 import { Route as CliManifestDotjsonRouteImport } from './routes/cli/manifest[.json]'
 import { Route as ApiWaitlistRouteImport } from './routes/api/waitlist'
 import { Route as AgentInterfaceGuideDotmdRouteImport } from './routes/agent-interface/guide[.md]'
+import { Route as V1ProfilesProfileIdRouteImport } from './routes/v1/profiles/$profileId'
 import { Route as V1AccountLastSelectedOrganizationRouteImport } from './routes/v1/account/last-selected-organization'
 import { Route as V1AccountDisplayNameRouteImport } from './routes/v1/account/display-name'
 import { Route as SlackOauthStartRouteImport } from './routes/slack/oauth/start'
@@ -284,6 +285,11 @@ const AgentInterfaceGuideDotmdRoute =
     path: '/guide.md',
     getParentRoute: () => AgentInterfaceRoute,
   } as any)
+const V1ProfilesProfileIdRoute = V1ProfilesProfileIdRouteImport.update({
+  id: '/v1/profiles/$profileId',
+  path: '/v1/profiles/$profileId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const V1AccountLastSelectedOrganizationRoute =
   V1AccountLastSelectedOrganizationRouteImport.update({
     id: '/v1/account/last-selected-organization',
@@ -719,6 +725,7 @@ export interface FileRoutesByFullPath {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
@@ -817,6 +824,7 @@ export interface FileRoutesByTo {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/computers/$deviceId': typeof OOrgSlugComputersDeviceIdRoute
@@ -919,6 +927,7 @@ export interface FileRoutesById {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/_center-agent/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
@@ -1025,6 +1034,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/profiles/$profileId'
     | '/o/$orgSlug/center-agent'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
@@ -1123,6 +1133,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/profiles/$profileId'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/computers/$deviceId'
@@ -1224,6 +1235,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/profiles/$profileId'
     | '/o/$orgSlug/_center-agent/center-agent'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
@@ -1310,6 +1322,7 @@ export interface RootRouteChildren {
   SlackOauthStartRoute: typeof SlackOauthStartRoute
   V1AccountDisplayNameRoute: typeof V1AccountDisplayNameRoute
   V1AccountLastSelectedOrganizationRoute: typeof V1AccountLastSelectedOrganizationRoute
+  V1ProfilesProfileIdRoute: typeof V1ProfilesProfileIdRoute
   V1SpacesSpaceIdStreamRoute: typeof V1SpacesSpaceIdStreamRoute
   V1PrepareSessionsPrepareSessionIdStreamRoute: typeof V1PrepareSessionsPrepareSessionIdStreamRoute
 }
@@ -1553,6 +1566,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/agent-interface/guide.md'
       preLoaderRoute: typeof AgentInterfaceGuideDotmdRouteImport
       parentRoute: typeof AgentInterfaceRoute
+    }
+    '/v1/profiles/$profileId': {
+      id: '/v1/profiles/$profileId'
+      path: '/v1/profiles/$profileId'
+      fullPath: '/v1/profiles/$profileId'
+      preLoaderRoute: typeof V1ProfilesProfileIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/v1/account/last-selected-organization': {
       id: '/v1/account/last-selected-organization'
@@ -2405,6 +2425,7 @@ const rootRouteChildren: RootRouteChildren = {
   V1AccountDisplayNameRoute: V1AccountDisplayNameRoute,
   V1AccountLastSelectedOrganizationRoute:
     V1AccountLastSelectedOrganizationRoute,
+  V1ProfilesProfileIdRoute: V1ProfilesProfileIdRoute,
   V1SpacesSpaceIdStreamRoute: V1SpacesSpaceIdStreamRoute,
   V1PrepareSessionsPrepareSessionIdStreamRoute:
     V1PrepareSessionsPrepareSessionIdStreamRoute,

@@ -1622,6 +1622,7 @@ function buildOpenMeldServiceCard(input: {
 				focusService={false}
 				isCurrentComputer={input.isCurrentComputer ?? true}
 				isReconcilingStatus={input.isReconcilingStatus ?? false}
+				organizationId="org-acme"
 				queryClient={queryClientStub}
 				recovery={buildRecoveryStub()}
 				replyReadiness={input.replyReadiness}

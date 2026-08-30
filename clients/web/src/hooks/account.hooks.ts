@@ -26,7 +26,10 @@ import {
 	updateAccountAvatar,
 	updateUserName,
 } from "#/query/auth-query";
-import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import {
+	organizationDirectoryQueryFilters,
+	organizationQueryKeys,
+} from "#/query/organizations/organization-directory";
 import { startQueryKeys, userQueryKeys } from "#/query/query-keys";
 import {
 	accountAvatarQueryOptionsClient,
@@ -341,16 +344,6 @@ function setSpaceHumanMemberAvatar(
 		};
 	});
 	return changed ? { ...snapshot, humans } : snapshot;
-}
-
-function organizationDirectoryQueryFilters() {
-	return {
-		predicate: (query: { queryKey: QueryKey }) =>
-			query.queryKey.length === 3 &&
-			query.queryKey[0] === organizationQueryKeys.all[0] &&
-			query.queryKey[2] === "directory",
-		queryKey: organizationQueryKeys.all,
-	};
 }
 
 type UpdateAccountAvatarInput = Parameters<typeof updateAccountAvatar>[0];

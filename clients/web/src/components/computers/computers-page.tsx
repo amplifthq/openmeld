@@ -79,6 +79,7 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	});
 	const setupCompleteRefreshStatus = useRefreshComputersAfterSetupComplete({
 		enabled: routeState.computersSetupCompleteRefresh,
+		organizationId: currentOrganization.id,
 		queryClient,
 		recovery,
 	});
@@ -239,6 +240,7 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 							console.error("Failed to refresh Computer details.", error);
 						});
 					}}
+					organizationId={currentOrganization.id}
 					orgSlug={orgSlug}
 					queryClient={queryClient}
 					recovery={recovery}
@@ -278,6 +280,7 @@ function ComputersPageBody(input: {
 	isReconcilingCurrentToolsStatus: boolean;
 	onRetry: () => void;
 	orgSlug: string;
+	organizationId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
 	routeState: ComputersRouteState;
@@ -298,6 +301,7 @@ function ComputersPageBody(input: {
 				focusService={input.routeState.computersFocusService}
 				isReconcilingStatus={input.isReconcilingCurrentToolsStatus}
 				onFocusConsumed={input.routeState.onFocusConsumed}
+				organizationId={input.organizationId}
 				queryClient={input.queryClient}
 				recovery={input.recovery}
 				setupCompleteRefreshPending={input.setupCompleteRefreshPending}

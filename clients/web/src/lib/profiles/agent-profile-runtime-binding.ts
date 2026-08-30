@@ -192,6 +192,7 @@ export async function ensureWebAgentProfileRuntimeBinding(input: {
 	deviceId: string | null;
 	modelId?: string | null;
 	openCodePermission?: AgentProfileBindingOpenCodePermission | null;
+	organizationId: string;
 	reasoningLevel?: string | null;
 	runtimeLane: DaemonServiceLane | null;
 	sessionInventorySelection?: AgentProfileBindingSessionInventorySelection;
@@ -301,17 +302,15 @@ export async function ensureWebAgentProfileRuntimeBinding(input: {
 
 function createBindingApiFoundation(input: {
 	actorProfileId?: string | null;
-	sessionInventorySelection?: AgentProfileBindingSessionInventorySelection;
+	organizationId: string;
 }) {
 	const actor = input.actorProfileId
 		? { openMeldProfileId: input.actorProfileId }
 		: {};
-	return input.sessionInventorySelection
-		? createOrganizationScopedWebOpenMeldApiFoundation({
-				...actor,
-				organizationId: input.sessionInventorySelection.organizationId,
-			})
-		: createUnscopedWebOpenMeldApiFoundation(actor);
+	return createOrganizationScopedWebOpenMeldApiFoundation({
+		...actor,
+		organizationId: input.organizationId,
+	});
 }
 
 function toSessionInventorySelectionRequestFields(

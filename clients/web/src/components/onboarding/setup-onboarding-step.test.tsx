@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { SetupOnboardingStep } from "./setup-onboarding-step";
@@ -13,8 +13,6 @@ const api = vi.hoisted(() => ({
 	readInformationProtection: vi.fn(),
 	readMemory: vi.fn(),
 	readRole: vi.fn(),
-	readWakeAccess: vi.fn(),
-	saveWakeAccess: vi.fn(),
 	setInformationProtection: vi.fn(),
 	setMemory: vi.fn(),
 	updateDocument: vi.fn(),
@@ -33,10 +31,6 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 
 vi.mock("#/lib/organizations/center-agent-memory", () => ({
 	setCurrentOrganizationCenterAgentMemoryPolicy: api.setMemory,
-}));
-
-vi.mock("#/lib/profiles/organization-binding-authorizations", () => ({
-	saveOrganizationWakeAccessChoice: api.saveWakeAccess,
 }));
 
 vi.mock("#/lib/organizations/organization-documents", () => ({
@@ -60,20 +54,6 @@ vi.mock("#/query/organizations/center-agent", () => ({
 			"center-agent",
 			organizationId,
 			"memory-policy",
-		],
-	},
-}));
-
-vi.mock("#/query/profiles/organization-binding-authorizations", () => ({
-	organizationBindingAuthorizationPreferenceQueryOptions: () => ({
-		queryFn: api.readWakeAccess,
-		queryKey: ["binding-authorization", "org-acme", "preference"],
-	}),
-	organizationBindingAuthorizationQueryKeys: {
-		preference: (organizationId: string) => [
-			"binding-authorization",
-			organizationId,
-			"preference",
 		],
 	},
 }));
@@ -133,12 +113,6 @@ describe("SetupOnboardingStep", () => {
 			updatedByUserId: null,
 		});
 		api.readRole.mockResolvedValue("owner");
-		api.readWakeAccess.mockResolvedValue({
-			autoAuthorizeAgentProfileBindings: false,
-			organizationId: "org-acme",
-			updatedAt: null,
-			userId: "user-1",
-		});
 		api.listDocuments.mockResolvedValue({
 			canManage: true,
 			currentUserId: "user-1",
@@ -159,40 +133,24 @@ describe("SetupOnboardingStep", () => {
 		vi.clearAllMocks();
 	});
 
-	it("renders the Core-owned memory default without manufacturing a user choice", async () => {
-		const wakeAccessWrite = deferred<{
-			preference: {
-				autoAuthorizeAgentProfileBindings: boolean;
-				organizationId: string;
-				updatedAt: string;
-				userId: string;
-			};
-		}>();
-		api.saveWakeAccess.mockReturnValue(wakeAccessWrite.promise);
-
+	it("renders the Core-owned memory default without cross-workspace Agent controls", async () => {
 		render(
 			<TestQueryClientProvider>
 				<SetupOnboardingStep onContinue={vi.fn()} />
 			</TestQueryClientProvider>
 		);
 
-		await waitFor(() => {
-			expect(api.saveWakeAccess).toHaveBeenCalledWith({
-				enableWakeAccess: true,
-				organizationId: "org-acme",
-			});
-		});
 		expect(api.setMemory).not.toHaveBeenCalled();
+		await waitFor(() => {
+			expect(
+				screen
+					.getByRole("switch", { name: "Organization memory" })
+					.getAttribute("aria-checked")
+			).toBe("true");
+		});
 		expect(
-			screen
-				.getByRole("switch", { name: "Organization memory" })
-				.getAttribute("aria-checked")
-		).toBe("true");
-		expect(
-			screen
-				.getByRole("switch", { name: "Use my connected agents" })
-				.getAttribute("aria-checked")
-		).toBe("true");
+			screen.queryByRole("switch", { name: "Use my connected agents" })
+		).toBeNull();
 		expect(
 			screen.getByRole("button", { name: ORGANIZATION_BRIEF_BUTTON_NAME })
 		).toBeTruthy();
@@ -201,18 +159,6 @@ describe("SetupOnboardingStep", () => {
 				name: INFORMATION_PROTECTION_BUTTON_NAME,
 			})
 		).toBeTruthy();
-
-		await act(async () => {
-			wakeAccessWrite.resolve({
-				preference: {
-					autoAuthorizeAgentProfileBindings: true,
-					organizationId: "org-acme",
-					updatedAt: "2026-07-29T00:00:00.000Z",
-					userId: "user-1",
-				},
-			});
-			await wakeAccessWrite.promise;
-		});
 	});
 
 	it("keeps information protection hidden from ordinary members", async () => {
@@ -222,14 +168,6 @@ describe("SetupOnboardingStep", () => {
 			organizationMemoryOptIn: true,
 			provider: "zep_cloud",
 			updatedByUserId: "user-1",
-		});
-		api.saveWakeAccess.mockResolvedValue({
-			preference: {
-				autoAuthorizeAgentProfileBindings: true,
-				organizationId: "org-acme",
-				updatedAt: "2026-07-29T00:00:00.000Z",
-				userId: "user-1",
-			},
 		});
 
 		render(
@@ -255,14 +193,6 @@ describe("SetupOnboardingStep", () => {
 			provider: "zep_cloud",
 			updatedByUserId: "user-1",
 		});
-		api.saveWakeAccess.mockResolvedValue({
-			preference: {
-				autoAuthorizeAgentProfileBindings: true,
-				organizationId: "org-acme",
-				updatedAt: "2026-07-29T00:00:00.000Z",
-				userId: "user-1",
-			},
-		});
 
 		render(
 			<TestQueryClientProvider>
@@ -280,11 +210,3 @@ describe("SetupOnboardingStep", () => {
 		expect(api.setMemory).not.toHaveBeenCalled();
 	});
 });
-
-function deferred<T>() {
-	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((resolvePromise) => {
-		resolve = resolvePromise;
-	});
-	return { promise, resolve };
-}

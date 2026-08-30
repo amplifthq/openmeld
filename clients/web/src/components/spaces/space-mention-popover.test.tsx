@@ -262,8 +262,7 @@ describe("SpaceMentionPopover", () => {
 			connectLocalAgent: "Connect a local agent before this profile can reply.",
 			providerSignIn:
 				"Sign in to the selected provider before this agent can reply.",
-			wakeAccess:
-				"Turn on Wake access before this agent can reply in this Organization.",
+			wrongWorkspace: "This Agent Profile belongs to a different workspace.",
 		} as const;
 		const items = buildSpaceMentionTargetItems({
 			query: "@",
@@ -271,8 +270,8 @@ describe("SpaceMentionPopover", () => {
 				agents: [
 					createSpaceMemberAgentSnapshot({
 						agentWakeAvailability: {
-							action: "reconnect_binding",
-							badgeLabel: "Connect",
+							action: "none",
+							badgeLabel: "Wrong workspace",
 							category: "unavailable",
 							isRefreshing: false,
 							label: "Connect local agent",
@@ -293,14 +292,13 @@ describe("SpaceMentionPopover", () => {
 							isRefreshing: false,
 							label: "Connect local agent",
 							phase: "unavailable",
-							reasonCode:
-								"organization_binding_authorization.wake_access_denied",
+							reasonCode: "agent_profile.organization_mismatch",
 							status: "unavailable_for_wake",
-							summary: summaries.wakeAccess,
-							tooltip: "Wake access is off for this Organization",
+							summary: summaries.wrongWorkspace,
+							tooltip: "This Agent Profile belongs to another workspace",
 						},
 						profileId: "agt_22222222-2222-4222-8222-222222222222",
-						profileName: "Wake Access Agent",
+						profileName: "Wrong Workspace Agent",
 					}),
 					createSpaceMemberAgentSnapshot({
 						agentWakeAvailability: {
@@ -349,7 +347,7 @@ describe("SpaceMentionPopover", () => {
 		});
 		for (const [profileName, summary] of [
 			["Connect Local Agent", summaries.connectLocalAgent],
-			["Wake Access Agent", summaries.wakeAccess],
+			["Wrong Workspace Agent", summaries.wrongWorkspace],
 			["Provider Sign-in Agent", summaries.providerSignIn],
 		] as const) {
 			const row = getMentionOption(targetList, profileName);

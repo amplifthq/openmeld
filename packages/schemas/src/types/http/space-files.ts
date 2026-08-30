@@ -11,6 +11,9 @@ export type SpaceFileAuditResult = z.infer<
   Schemas["spaceFileAuditResultSchema"]
 >;
 export type SpaceFileRevision = z.infer<Schemas["spaceFileRevisionSchema"]>;
+export type SpaceComposerUploadDescriptor = z.infer<
+  Schemas["spaceComposerUploadDescriptorSchema"]
+>;
 export type SpaceMessageFileReference = z.infer<
   Schemas["spaceMessageFileReferenceSchema"]
 >;
@@ -71,6 +74,24 @@ export type UpdateSpaceFileContentQuery = z.infer<
 >;
 export type UploadSpaceFileResponse = z.infer<
   Schemas["uploadSpaceFileResponseSchema"]
+>;
+export type StageSpaceComposerUploadQuery = z.infer<
+  Schemas["stageSpaceComposerUploadQuerySchema"]
+>;
+export type StageSpaceComposerUploadResponse = z.infer<
+  Schemas["stageSpaceComposerUploadResponseSchema"]
+>;
+export type PublishSpaceComposerUploadBody = z.infer<
+  Schemas["publishSpaceComposerUploadBodySchema"]
+>;
+export type PublishSpaceComposerUploadResponse = z.infer<
+  Schemas["publishSpaceComposerUploadResponseSchema"]
+>;
+export type DiscardSpaceComposerUploadResponse = z.infer<
+  Schemas["discardSpaceComposerUploadResponseSchema"]
+>;
+export type ResolveSpaceComposerUploadScopeResponse = z.infer<
+  Schemas["resolveSpaceComposerUploadScopeResponseSchema"]
 >;
 export type SpaceFileContentQuery = z.infer<
   Schemas["spaceFileContentQuerySchema"]

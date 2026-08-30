@@ -3,23 +3,13 @@ import type {
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
-import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { organizationDirectoryQueryFilters } from "#/query/organizations/organization-directory";
 import { startQueryKeys } from "#/query/query-keys";
 
 export type AgentProfileDeleteCacheSnapshot = {
 	directories: readonly [QueryKey, OrganizationDirectoryResponse | undefined][];
 	profiles: readonly [QueryKey, readonly AuthProfileView[] | undefined][];
 };
-
-function agentProfileDirectoryQueryFilters() {
-	return {
-		predicate: (query: { queryKey: QueryKey }) =>
-			query.queryKey.length === 3 &&
-			query.queryKey[0] === organizationQueryKeys.all[0] &&
-			query.queryKey[2] === "directory",
-		queryKey: organizationQueryKeys.all,
-	};
-}
 
 export async function optimisticallyRemoveAgentProfileFromListCaches(input: {
 	agentProfileId: string;
@@ -29,7 +19,7 @@ export async function optimisticallyRemoveAgentProfileFromListCaches(input: {
 	const profileQueryFilters = {
 		queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
 	};
-	const directoryQueryFilters = agentProfileDirectoryQueryFilters();
+	const directoryQueryFilters = organizationDirectoryQueryFilters();
 	await Promise.all([
 		input.queryClient.cancelQueries(profileQueryFilters),
 		input.queryClient.cancelQueries(directoryQueryFilters),
@@ -88,7 +78,7 @@ export async function invalidateAgentProfileListCaches(input: {
 		input.queryClient.invalidateQueries({
 			queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
 		}),
-		input.queryClient.invalidateQueries(agentProfileDirectoryQueryFilters()),
+		input.queryClient.invalidateQueries(organizationDirectoryQueryFilters()),
 	]);
 }
 

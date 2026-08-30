@@ -221,9 +221,15 @@ Spaces, Human Direct Messages, Agent Direct Messages, the Center Agent Direct
 Message, and threads. The shared Composer accepts up to ten files of any
 supported MIME type through **Add to message > Files**, file picker, paste, or
 drag and drop. Text is optional when at least one file is present. Upload begins
-before send and creates the canonical root-level Space File; the message is
-published only after every selected upload succeeds. A failed upload never
-degrades into a text-only or partially attached message.
+before send as a temporary Composer Upload that is not visible in Files and is
+not yet a Space File. Removing the selection discards that upload; abandoned
+uploads expire after 24 hours and Core removes expired objects. Send publishes
+each ready Composer Upload as a canonical root-level Space File and then places
+the returned immutable revision reference in the message. An in-progress
+upload blocks Send, but a failed upload is excluded: the member's text and any
+other successfully published files still send. If neither text nor a
+successfully published file remains, the Composer stays open with an explicit
+recovery message instead of posting an empty message.
 
 During a multi-file CLI send, the CLI keeps the exact ids of files created by
 that not-yet-published submission. If a later selected upload fails, it moves
@@ -478,7 +484,11 @@ allowed relation. Wake is represented by `@`, and Reference by a distinct
 link-style symbol. A persistent per-target semantic control shows and edits the
 chosen relation before send. The system may warn about a possible semantic
 mismatch, but it must not silently convert one structured relation into
-another.
+another. Repeating the same Agent mention in one message is not a second
+structured relation: the first occurrence owns the selected Wake or Reference,
+and later occurrences remain ordinary visible text. The exact text is
+preserved, while the Agent appears only once in the structured target set and
+therefore can be woken only once.
 
 When a message has multiple structured targets, the composer shows a quiet
 summary of the exact unique target set. The summary is a preview of structured
@@ -641,10 +651,10 @@ publication-failure notice with one action to Wake the Agent again and a path
 to diagnostics. That notice closes only publication, not the truth that the
 Agent produced a retained result.
 
-If the Wake is rejected because Organization Wake access is off, the outcome
-must name that exact condition and offer one direct action to turn it on. This
-is an actionable configuration warning, so the Space presents it in amber
-rather than as a destructive execution failure.
+If Wake is rejected because the Agent Profile belongs to another Organization,
+the outcome must name the Workspace mismatch and offer no authorization or
+reuse action. This is an identity boundary, not a configurable warning. The
+user creates or selects an Agent Profile that belongs to the current Workspace.
 
 One terminal execution failure may offer **Retry as new execution** beside its
 compact outcome only when Space can recover the exact source message text and

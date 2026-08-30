@@ -410,14 +410,12 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 	const composerFileUploadInProgress = input.composerFiles.some(
 		isSpaceComposerFileInProgress
 	);
-	const composerFileUploadFailed = input.composerFiles.some(
-		isSpaceComposerFileFailed
+	const composerHasReadyFile = input.composerFiles.some(
+		(file) => file.status === "ready"
 	);
 	const composerSendBlocked =
 		composerFileUploadInProgress ||
-		composerFileUploadFailed ||
-		(input.composerFiles.length === 0 &&
-			input.composerText.trim().length === 0);
+		(!composerHasReadyFile && input.composerText.trim().length === 0);
 	const showComposer = shouldRenderSpaceComposer({
 		activeView: input.activeSpaceView,
 		isReadOnly,
@@ -1406,7 +1404,6 @@ function SpaceComposerSection(input: {
 	const fileUploadInProgress = panel.composerFiles.some(
 		isSpaceComposerFileInProgress
 	);
-	const fileUploadFailed = panel.composerFiles.some(isSpaceComposerFileFailed);
 	const fileActionsDisabled = panel.isSendingMessage || !input.canSendMessage;
 	const {
 		addFiles,
@@ -1420,9 +1417,8 @@ function SpaceComposerSection(input: {
 		onAddFiles: panel.onAddComposerFiles,
 	});
 	const fileHint = resolveSpaceComposerFileHint({
-		fileCount: panel.composerFiles.length,
+		files: panel.composerFiles,
 		fileLimitReached: panel.composerFileLimitReached,
-		fileUploadFailed,
 		fileUploadInProgress,
 	});
 	const defaultComposerHint = panel.agentDirectConversationKind
@@ -1593,22 +1589,25 @@ function SpaceComposerSection(input: {
 }
 
 function resolveSpaceComposerFileHint(input: {
-	fileCount: number;
+	files: readonly SpaceComposerFile[];
 	fileLimitReached: boolean;
-	fileUploadFailed: boolean;
 	fileUploadInProgress: boolean;
 }): string | null {
 	if (input.fileUploadInProgress) {
 		return "Uploading files before sending…";
 	}
-	if (input.fileUploadFailed) {
-		return "Remove files that could not be uploaded before sending.";
+	const failedCount = input.files.filter(isSpaceComposerFileFailed).length;
+	if (failedCount > 0) {
+		return `${String(failedCount)} ${failedCount === 1 ? "file" : "files"} couldn't be uploaded and won't be sent.`;
 	}
 	if (input.fileLimitReached) {
 		return "You can add up to 10 files.";
 	}
-	if (input.fileCount > 0) {
-		return `${input.fileCount} ${input.fileCount === 1 ? "file" : "files"} ready to send`;
+	const readyCount = input.files.filter(
+		(file) => file.status === "ready"
+	).length;
+	if (readyCount > 0) {
+		return `${String(readyCount)} ${readyCount === 1 ? "file" : "files"} ready to send`;
 	}
 	return null;
 }

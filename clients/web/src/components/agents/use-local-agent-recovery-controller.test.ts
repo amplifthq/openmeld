@@ -46,6 +46,7 @@ describe("resolveShouldLoadAgentExecutionReadiness", () => {
 	it("loads bound-runtime readiness even when the current computer cannot reply", () => {
 		expect(
 			resolveShouldLoadAgentExecutionReadiness({
+				activeOrganizationId: "org-acme",
 				currentLocalRuntimeCanReply: false,
 				scope: "bound_runtime",
 				shouldLoadAgentExecutionReadinessBase: true,
@@ -56,6 +57,7 @@ describe("resolveShouldLoadAgentExecutionReadiness", () => {
 	it("keeps current-local-runtime readiness gated by the current computer", () => {
 		expect(
 			resolveShouldLoadAgentExecutionReadiness({
+				activeOrganizationId: "org-acme",
 				currentLocalRuntimeCanReply: false,
 				scope: "current_local_runtime",
 				shouldLoadAgentExecutionReadinessBase: true,
@@ -63,6 +65,7 @@ describe("resolveShouldLoadAgentExecutionReadiness", () => {
 		).toBe(false);
 		expect(
 			resolveShouldLoadAgentExecutionReadiness({
+				activeOrganizationId: "org-acme",
 				currentLocalRuntimeCanReply: true,
 				scope: "current_local_runtime",
 				shouldLoadAgentExecutionReadinessBase: true,
@@ -73,6 +76,7 @@ describe("resolveShouldLoadAgentExecutionReadiness", () => {
 	it("keeps the default setup scope gated by the current computer", () => {
 		expect(
 			resolveShouldLoadAgentExecutionReadiness({
+				activeOrganizationId: "org-acme",
 				currentLocalRuntimeCanReply: undefined,
 				scope: undefined,
 				shouldLoadAgentExecutionReadinessBase: true,
@@ -80,6 +84,7 @@ describe("resolveShouldLoadAgentExecutionReadiness", () => {
 		).toBe(false);
 		expect(
 			resolveShouldLoadAgentExecutionReadiness({
+				activeOrganizationId: "org-acme",
 				currentLocalRuntimeCanReply: true,
 				scope: undefined,
 				shouldLoadAgentExecutionReadinessBase: true,
@@ -90,9 +95,21 @@ describe("resolveShouldLoadAgentExecutionReadiness", () => {
 	it("does not load readiness when the caller disabled readiness loading", () => {
 		expect(
 			resolveShouldLoadAgentExecutionReadiness({
+				activeOrganizationId: "org-acme",
 				currentLocalRuntimeCanReply: true,
 				scope: "bound_runtime",
 				shouldLoadAgentExecutionReadinessBase: false,
+			})
+		).toBe(false);
+	});
+
+	it("does not load final Agent Profile readiness without a canonical Organization", () => {
+		expect(
+			resolveShouldLoadAgentExecutionReadiness({
+				activeOrganizationId: null,
+				currentLocalRuntimeCanReply: true,
+				scope: "bound_runtime",
+				shouldLoadAgentExecutionReadinessBase: true,
 			})
 		).toBe(false);
 	});

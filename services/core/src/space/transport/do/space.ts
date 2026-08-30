@@ -64,6 +64,7 @@ import {
   remoteAgentWorkerCancellationResponseSchema,
   removeSpaceMembersBodySchema,
   resolveMappedPublicAgentFailureReason,
+  resolveSpaceComposerUploadScopeResponseSchema,
   resolveSpaceFileContentInputSchema,
   respondToSpaceAgentInteractionInputSchema,
   respondToSpaceAgentInteractionResponseSchema,
@@ -84,6 +85,8 @@ import {
   spaceAgentStreamTerminalFrameSchema,
   spaceBoardRoomProjectionSchema,
   spaceFileAuditEventSchema,
+  spaceFileClientMutationIdSchema,
+  spaceFileEntryIdSchema,
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
@@ -129,6 +132,7 @@ import type {
   RemoteAgentWorkerCancellationResponse,
   RemoveSpaceMembersResponse,
   ResolvedSpaceMemberProfile,
+  ResolveSpaceComposerUploadScopeResponse,
   ResolveSpaceFileContentResponse,
   RespondToSpaceAgentInteractionBody,
   RespondToSpaceAgentInteractionResponse,
@@ -950,6 +954,7 @@ function resolvePublishedAgentProfileName(input: {
 
 function createPreparedDispatchOutboxRecordForDecision(input: {
   spaceId: string;
+  organizationId: string;
   ownerCreatorProfileIdsByOwnerUserId: Map<
     string,
     CreatorProfileIdsByProfileId
@@ -1012,6 +1017,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     ruleId: input.decision.ruleId,
     ruleReason: input.decision.ruleReason,
     spaceId: input.spaceId,
+    organizationId: input.organizationId,
     spaceContractSnapshot: input.spaceContract,
     spacePassword: input.signalContext?.spacePassword,
     sourceEventId: input.sourceEventId,
@@ -2361,6 +2367,19 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
+  async rpcResolveSpaceComposerUploadScope(input: {
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<ResolveSpaceComposerUploadScopeResponse> {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const meta = this.requireSpaceFileMetaRecord();
+    return resolveSpaceComposerUploadScopeResponseSchema.parse({
+      actorProfileId: actor.profileId,
+      organizationId: meta.organizationId,
+    });
+  }
+
   async rpcGetSpaceFile(input: {
     fileId: string;
     spaceAccess: SpaceAccessContext;
@@ -2540,6 +2559,26 @@ export class Space extends DurableObject<CoreBindings> {
       }),
       ...(committedFile ? { committedFile } : {}),
     };
+  }
+
+  async rpcResolveCommittedSpaceFileWrite(input: {
+    clientMutationId: unknown;
+    expectedFileId: unknown;
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<SpaceFileDescriptor | null> {
+    const clientMutationId = spaceFileClientMutationIdSchema.parse(
+      input.clientMutationId
+    );
+    const expectedFileId = spaceFileEntryIdSchema.parse(input.expectedFileId);
+    this.applySpaceRef(input.spaceId);
+    await this.requireSpaceFileWriteActor(input.spaceAccess);
+    return this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.resolveCommittedWrite(
+        clientMutationId,
+        expectedFileId
+      )
+    );
   }
 
   async rpcCommitSpaceFileWrite(input: {
@@ -13415,6 +13454,7 @@ export class Space extends DurableObject<CoreBindings> {
         plannerContext: null,
       };
     }
+    const spaceMeta = this.readSpaceMetaRecord();
     const { senderProfileId, sourceEventId, spaceContract } = plannerContext;
     const { mergedReadyDecisions, nonReadyDecisions } =
       evaluateDispatchPlannerDecisionsForSignal({
@@ -13422,7 +13462,7 @@ export class Space extends DurableObject<CoreBindings> {
         sessions: this.sessions?.values?.() ?? null,
         signal,
         spaceContract,
-        spacePurpose: this.readSpaceMetaRecord()?.purpose ?? null,
+        spacePurpose: spaceMeta?.purpose ?? null,
         sql: this.ctx.storage.sql,
       });
     assertVisibleWakeTargetsDispatchable({
@@ -13443,6 +13483,9 @@ export class Space extends DurableObject<CoreBindings> {
         outboxRecords: [],
         plannerContext,
       };
+    }
+    if (!spaceMeta) {
+      throw new Error("Space metadata is required for dispatch outbox seed");
     }
     const mentionTargetAliases = buildMentionTargetAliasIndexForDispatch(
       this.sessions?.values?.() ?? null,
@@ -13495,6 +13538,7 @@ export class Space extends DurableObject<CoreBindings> {
       outboxRecords.push(
         createPreparedDispatchOutboxRecordForDecision({
           spaceId: this.spaceId,
+          organizationId: spaceMeta.organizationId,
           ownerCreatorProfileIdsByOwnerUserId:
             this.ownerCreatorProfileIdsByOwnerUserId,
           signal,
@@ -13508,7 +13552,7 @@ export class Space extends DurableObject<CoreBindings> {
           senderProfileId,
           sourceEventId,
           sourceClientMessageId,
-          spacePurpose: this.readSpaceMetaRecord()?.purpose ?? null,
+          spacePurpose: spaceMeta.purpose ?? null,
           spaceContract,
           effectiveMentionLabelByProfileId,
           replyToSnapshot,
@@ -17670,6 +17714,9 @@ function buildDispatchQueueMessageFromOutboxRecord(
     v: outboxRecord.v,
     dispatchId: outboxRecord.dispatchId,
     spaceId: outboxRecord.spaceId,
+    ...(outboxRecord.organizationId
+      ? { organizationId: outboxRecord.organizationId }
+      : {}),
     sourceEventId: outboxRecord.sourceEventId,
     ...(outboxRecord.sourceClientMessageId
       ? { sourceClientMessageId: outboxRecord.sourceClientMessageId }

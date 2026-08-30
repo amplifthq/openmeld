@@ -82,13 +82,17 @@ belongs to that explicitly selected Organization. The route Organization is
 part of the creation command; it must not be inferred from a mutable Better
 Auth Session selection. Auth verifies that the signed-in account is currently a
 member before it writes the Profile. Later Binding, working-folder, Default
-Project, Organization Wake access, and Space-membership steps must keep that
-same Organization id. A mismatch fails before the Profile write instead of
-creating an identity in one Organization and configuring it through another.
+Project, readiness, Wake, and Space-membership steps must keep that same
+Organization id. Personal Workspace profiles remain in Personal Workspace;
+profiles created in another Organization remain in that Organization. No
+authorization row, preference, Binding, or membership may make an ordinary
+workstation Agent Profile usable by another Organization. A mismatch fails
+closed instead of creating, presenting, or executing a cross-Organization
+identity.
 
 A successful Agent Profile identity write is the creation commit point. A
 client must never report a later Binding, working-folder, Default Project,
-Organization Wake access, or Space-membership failure as if Profile creation
+readiness, or Space-membership failure as if Profile creation
 failed, because retrying the create would produce a second teammate identity.
 Every interactive creation intent carries one stable idempotency key until
 Auth returns the committed Agent Profile. An exact retry or concurrent replay
@@ -123,7 +127,7 @@ Each request freezes these product facts:
 - the selected Computer and Agent Controller, when known
 - the exact local-agent connection candidate ID when the Center Agent selected
   one from the current candidate projection
-- the requested Binding settings, Default Project, and Organization Wake access
+- the requested Binding settings and Default Project
 - an optional intended Space
 - one requester-scoped idempotency key
 
@@ -185,10 +189,10 @@ closed instead of reviving an older runnable state.
 
 Approval authorizes the request's complete frozen creation intent. Core still
 uses the existing owner contracts for each operation: Auth creates the Agent
-Profile identity, Space membership uses the normal Space mutation, and Binding,
-Default Project, and Organization Wake access use their existing Core-owned
-operations. The request state machine coordinates those operations; it does not
-create parallel mutation or authorization paths.
+Profile identity, Space membership uses the normal Space mutation, and Binding
+and Default Project use their existing Core-owned operations. The request state
+machine coordinates those operations; it does not create parallel mutation or
+authorization paths.
 
 The creation-request executor completes `new`, `resume`, and provider-native
 `fork`. Resume binds the selected native Session. Fork asks the selected local
@@ -222,13 +226,11 @@ be presented as wakeable. A wakeable local Agent Profile needs a Binding to a
 local OpenMeld Service Runtime and Agent Controller before a Space Wake can run it
 automatically.
 
-When the Center Agent creates and connects an Agent Profile for an
-Organization task, that configured creation operation must also turn on Wake
-access for the active Organization before it adds the profile to the Space.
-This is explicit delegated user intent, not the per-user auto-authorization
-preference. A failed authorization blocks the configured operation; the product
-must not report the profile as ready or leave the Space to discover the missing
-access only when the first Wake fails.
+When the Center Agent creates and connects an ordinary workstation Agent
+Profile for an Organization task, the new Profile is created in that
+Organization and may be added only to Spaces in that Organization. Delegated
+creation does not make the Profile portable and does not create a second Wake
+authorization fact.
 
 Keep the boundary simple:
 
@@ -368,21 +370,22 @@ with the requested permission, collaboration, model/reasoning, or OpenCode
 permission before showing “Settings saved.”
 
 The Agent Profile's authoritative `ownerUserId` is also the Binding owner and
-RuntimeCoordinator shard owner. An Organization admin may authorize or manage
-that Binding, but the admin remains the action and audit actor and must not
-become a second Binding owner. A write that discovers an older enabled Binding
-for the same Agent Profile under another owner must acquire mutation admission
-from every affected owner shard before changing the Binding. Disabling admitted
-legacy Bindings, installing or reusing the Profile owner's target, and carrying
-the Organization authorization are one atomic D1 write; any failed step leaves
-the previous enabled Bindings and their authorizations intact. Unavailable
-admission or an incomplete reconciliation fails closed. The D1 write boundary rejects a new or
-re-enabled primary Binding when its owner is not the Profile owner or another
-enabled primary Binding already exists for that Profile. The migration keeps
-pre-existing noncanonical rows available for explicit reconciliation instead
-of rewriting ownership silently. Profile-wide reconciliation inventory is
-bounded; an over-limit profile requires operator review before any admission or
-Binding write begins.
+RuntimeCoordinator shard owner. An administrator acting within the Profile's
+canonical Organization remains the action and audit actor and must not become a
+second Binding owner. A write that discovers an older enabled Binding for the
+same Agent Profile under another owner must acquire mutation admission from
+every affected owner shard before changing the Binding. Disabling admitted
+legacy Bindings and installing the Profile owner's target are one atomic D1
+write; any failed step leaves the previous enabled Bindings intact. Unavailable
+admission or an incomplete reconciliation fails closed. The D1 write boundary
+rejects a new or re-enabled primary Binding when its owner is not the Profile
+owner or another enabled primary Binding already exists for that Profile. The
+migration keeps pre-existing noncanonical rows available for explicit
+reconciliation instead of rewriting ownership silently. Profile-wide
+reconciliation inventory is bounded; an over-limit profile requires operator
+review before any admission or Binding write begins. None of these Binding
+repair rules can move or reuse the Agent Profile outside its canonical
+Organization.
 
 Codex Collaboration Mode is a separate per-profile Binding setting. `Default`
 starts an ordinary implementation turn. `Plan` starts Codex App Server with
@@ -525,6 +528,10 @@ Organization-shared data, Agent Activity, snapshot data, or Center Agent
 context. A missing or invalid custom folder fails closed; it does not silently
 become `openmeld_managed`.
 
+The working folder may be read or changed only while the Profile's canonical
+Organization is the active Workspace. Switching Workspaces never makes another
+Workspace's Agent Profile or its local execution configuration manageable.
+
 When the exact current Service advertises Local Folder Picker, a custom working
 folder uses **Choose folder on this computer** as the primary input action. The
 native chooser returns one folder because an Agent Profile has one working
@@ -631,10 +638,11 @@ Agent Profile identity does not own the answer.
 Final user-facing readiness comes from transport-owned evidence, not from Agent
 Profile identity. Route online is not enough. Binding existence is not enough.
 Completed Prepare evidence is not enough. Local process health is not enough.
-For an Organization Space, readiness must also verify that the active
-Organization has Wake access to the current primary Binding. Missing or
-unverifiable Organization Wake access is `Unavailable`, never `Available for
-Wake`, even when the Binding, Runtime, and route are otherwise healthy.
+For an Organization Space, readiness must verify that the Agent Profile's
+canonical `organizationId` equals the Space's Organization. Missing or
+unverifiable Organization identity, or any mismatch, is `Unavailable`, never
+`Available for Wake`, even when the Binding, Runtime, and route are otherwise
+healthy. Legacy authorization records never satisfy or override this check.
 
 Agent Profile surfaces may display `Available for Wake` only when the
 Core-owned readiness projection says the full reply path is aligned for the
@@ -735,6 +743,16 @@ must offer the exact Computer as the recovery path; it is never silently replace
 The computer display name is the one bounded exception: a current Organization
 member may see it in the read-only Organization Computers directory. That
 exception grants no local diagnostics or computer-management authority.
+
+The Agents home and compact About dialog are two presentations of the same
+Profile Details and edit contract, not separate Agent-management systems. The
+Agents home renders the selected Agent as persistent read-only detail and may
+enter owner-authorized editing in place with explicit save and cancel actions.
+It must reuse the existing mutations, execution-target locks, permissions, and
+failure diagnostics. A failed save preserves both the draft and the error
+instead of falling back to stale read-only state. Space Members continues to
+use the compact About dialog for quick preview. Presentation choice does not
+create another Profile, Binding, readiness, request, or edit source of truth.
 
 ## Owner Boundaries
 

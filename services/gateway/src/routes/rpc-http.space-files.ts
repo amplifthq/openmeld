@@ -12,20 +12,26 @@ import {
   createSpaceFileUploadQuerySchema,
   createSpaceFolderBodySchema,
   createSpaceFolderResponseSchema,
+  discardSpaceComposerUploadResponseSchema,
   getSpaceFileResponseSchema,
   listSpaceFileRevisionsResponseSchema,
   listSpaceFilesQuerySchema,
   listSpaceFilesResponseSchema,
+  publishSpaceComposerUploadBodySchema,
+  publishSpaceComposerUploadResponseSchema,
   resolveSpaceFileContentResponseSchema,
   restoreSpaceFileEntryBodySchema,
   restoreSpaceFileEntryResponseSchema,
   restoreSpaceFileRevisionBodySchema,
   restoreSpaceFileRevisionResponseSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
+  spaceComposerUploadIdSchema,
   spaceFileContentQuerySchema,
   spaceFileEntryIdSchema,
   spaceFileMimeTypeSchema,
   spaceFileRevisionNumberSchema,
+  stageSpaceComposerUploadQuerySchema,
+  stageSpaceComposerUploadResponseSchema,
   trashSpaceFileEntryBodySchema,
   trashSpaceFileEntryResponseSchema,
   updateSpaceFileContentQuerySchema,
@@ -60,9 +66,16 @@ const SPACE_FILE_REVISION_RESTORE_ROUTE =
   "/v1/spaces/:spaceId/files/:entryId/revisions/:revision/restore";
 const SPACE_FILE_RESTORE_ROUTE = "/v1/spaces/:spaceId/files/:entryId/restore";
 const SPACE_FILE_CONTENT_ROUTE = "/v1/spaces/:spaceId/files/:entryId/content";
+const SPACE_COMPOSER_UPLOAD_ROUTE =
+  "/v1/spaces/:spaceId/composer-uploads/:entryId";
+const SPACE_COMPOSER_UPLOAD_PUBLISH_ROUTE =
+  "/v1/spaces/:spaceId/composer-uploads/:entryId/publish";
 const PRIVATE_CONTENT_CACHE_CONTROL = "private, no-store";
 
 export function registerSpaceFileRoutes(app: Hono<HonoBindings>): void {
+  app.put(SPACE_COMPOSER_UPLOAD_ROUTE, stageSpaceComposerUpload);
+  app.delete(SPACE_COMPOSER_UPLOAD_ROUTE, discardSpaceComposerUpload);
+  app.post(SPACE_COMPOSER_UPLOAD_PUBLISH_ROUTE, publishSpaceComposerUpload);
   app.get(SPACE_FILES_ROUTE, listSpaceFiles);
   app.post(SPACE_FILES_ROUTE, uploadSpaceFile);
   app.post(SPACE_FILE_FOLDERS_ROUTE, createSpaceFolder);
@@ -74,6 +87,143 @@ export function registerSpaceFileRoutes(app: Hono<HonoBindings>): void {
   app.get(SPACE_FILE_ENTRY_ROUTE, getSpaceFile);
   app.patch(SPACE_FILE_ENTRY_ROUTE, updateSpaceFileEntry);
   app.delete(SPACE_FILE_ENTRY_ROUTE, trashSpaceFileEntry);
+}
+
+async function stageSpaceComposerUpload(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = parseEntryTarget(c, SPACE_COMPOSER_UPLOAD_ROUTE, "PUT");
+  if (!target.ok) {
+    return target.response;
+  }
+  const uploadId = spaceComposerUploadIdSchema.safeParse(target.entryId);
+  const query = stageSpaceComposerUploadQuerySchema.safeParse({
+    name: c.req.query("name"),
+  });
+  if (!(uploadId.success && query.success)) {
+    return respondFileError({
+      c,
+      code: "invalid_payload",
+      message:
+        uploadId.error?.issues[0]?.message ??
+        query.error?.issues[0]?.message ??
+        "Invalid Composer upload.",
+      method: "PUT",
+      route: SPACE_COMPOSER_UPLOAD_ROUTE,
+      spaceId: target.spaceId,
+      status: 400,
+    });
+  }
+  const body = await readSpaceFileBody({
+    c,
+    method: "PUT",
+    route: SPACE_COMPOSER_UPLOAD_ROUTE,
+    spaceId: target.spaceId,
+  });
+  if (!body.ok) {
+    return body.response;
+  }
+  return await executeRpcRoute({
+    c,
+    execute: () =>
+      c.var.coreRpc.stageSpaceComposerUpload({
+        bytes: body.bytes,
+        context: buildCoreRpcContext(c),
+        mimeType: body.mimeType,
+        name: query.data.name,
+        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+        spaceId: target.spaceId,
+        uploadId: uploadId.data,
+      }),
+    method: "PUT",
+    resolveSuccessPayload: (upload) => ({ upload }),
+    responseSchema: stageSpaceComposerUploadResponseSchema,
+    route: SPACE_COMPOSER_UPLOAD_ROUTE,
+    spaceId: target.spaceId,
+    successStatus: 201,
+  });
+}
+
+async function publishSpaceComposerUpload(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = parseEntryTarget(
+    c,
+    SPACE_COMPOSER_UPLOAD_PUBLISH_ROUTE,
+    "POST"
+  );
+  if (!target.ok) {
+    return target.response;
+  }
+  const uploadId = spaceComposerUploadIdSchema.safeParse(target.entryId);
+  const body = publishSpaceComposerUploadBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  if (!(uploadId.success && body.success)) {
+    return respondFileError({
+      c,
+      code: "invalid_payload",
+      message:
+        uploadId.error?.issues[0]?.message ??
+        body.error?.issues[0]?.message ??
+        "Invalid Composer upload publication.",
+      method: "POST",
+      route: SPACE_COMPOSER_UPLOAD_PUBLISH_ROUTE,
+      spaceId: target.spaceId,
+      status: 400,
+    });
+  }
+  return await executeRpcRoute({
+    c,
+    execute: () =>
+      c.var.coreRpc.publishSpaceComposerUpload({
+        clientMutationId: body.data.clientMutationId,
+        context: buildCoreRpcContext(c),
+        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+        spaceId: target.spaceId,
+        uploadId: uploadId.data,
+      }),
+    method: "POST",
+    resolveSuccessPayload: (file) => ({ file }),
+    responseSchema: publishSpaceComposerUploadResponseSchema,
+    route: SPACE_COMPOSER_UPLOAD_PUBLISH_ROUTE,
+    spaceId: target.spaceId,
+  });
+}
+
+async function discardSpaceComposerUpload(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = parseEntryTarget(c, SPACE_COMPOSER_UPLOAD_ROUTE, "DELETE");
+  if (!target.ok) {
+    return target.response;
+  }
+  const uploadId = spaceComposerUploadIdSchema.safeParse(target.entryId);
+  if (!uploadId.success) {
+    return respondFileError({
+      c,
+      code: "invalid_payload",
+      message: uploadId.error.issues[0]?.message ?? "Invalid Composer upload.",
+      method: "DELETE",
+      route: SPACE_COMPOSER_UPLOAD_ROUTE,
+      spaceId: target.spaceId,
+      status: 400,
+    });
+  }
+  return await executeRpcRoute({
+    c,
+    execute: () =>
+      c.var.coreRpc.discardSpaceComposerUpload({
+        context: buildCoreRpcContext(c),
+        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+        spaceId: target.spaceId,
+        uploadId: uploadId.data,
+      }),
+    method: "DELETE",
+    responseSchema: discardSpaceComposerUploadResponseSchema,
+    route: SPACE_COMPOSER_UPLOAD_ROUTE,
+    spaceId: target.spaceId,
+  });
 }
 
 async function restoreSpaceFileEntry(
@@ -375,7 +525,12 @@ async function uploadSpaceFile(c: Context<HonoBindings>): Promise<Response> {
       message: query.error.issues[0]?.message ?? "Invalid file upload.",
     });
   }
-  const body = await readSpaceFileBody(c, target.spaceId, "POST");
+  const body = await readSpaceFileBody({
+    c,
+    method: "POST",
+    route: SPACE_FILES_ROUTE,
+    spaceId: target.spaceId,
+  });
   if (!body.ok) {
     return body.response;
   }
@@ -441,7 +596,12 @@ async function updateSpaceFileContent(
       message: query.error.issues[0]?.message ?? "Invalid file update.",
     });
   }
-  const body = await readSpaceFileBody(c, target.spaceId, "PUT");
+  const body = await readSpaceFileBody({
+    c,
+    method: "PUT",
+    route: SPACE_FILE_CONTENT_ROUTE,
+    spaceId: target.spaceId,
+  });
   if (!body.ok) {
     return body.response;
   }
@@ -599,14 +759,16 @@ async function persistSpaceFileRevision(input: {
   }
 }
 
-async function readSpaceFileBody(
-  c: Context<HonoBindings>,
-  spaceId: string,
-  method: "POST" | "PUT"
-): Promise<
+async function readSpaceFileBody(input: {
+  c: Context<HonoBindings>;
+  method: "POST" | "PUT";
+  route: string;
+  spaceId: string;
+}): Promise<
   | { ok: true; bytes: ArrayBuffer; mimeType: string }
   | { ok: false; response: Response }
 > {
+  const { c, method, route, spaceId } = input;
   const declaredLength = Number(c.req.raw.headers.get("content-length"));
   if (
     Number.isFinite(declaredLength) &&
@@ -616,7 +778,7 @@ async function readSpaceFileBody(
       ok: false,
       response: respondFileError({
         c,
-        route: method === "POST" ? SPACE_FILES_ROUTE : SPACE_FILE_CONTENT_ROUTE,
+        route,
         method,
         spaceId,
         status: 413,
@@ -636,7 +798,7 @@ async function readSpaceFileBody(
       ok: false,
       response: respondFileError({
         c,
-        route: method === "POST" ? SPACE_FILES_ROUTE : SPACE_FILE_CONTENT_ROUTE,
+        route,
         method,
         spaceId,
         status: 415,
@@ -653,7 +815,7 @@ async function readSpaceFileBody(
       ok: false,
       response: respondFileError({
         c,
-        route: method === "POST" ? SPACE_FILES_ROUTE : SPACE_FILE_CONTENT_ROUTE,
+        route,
         method,
         spaceId,
         status: 400,
@@ -667,7 +829,7 @@ async function readSpaceFileBody(
       ok: false,
       response: respondFileError({
         c,
-        route: method === "POST" ? SPACE_FILES_ROUTE : SPACE_FILE_CONTENT_ROUTE,
+        route,
         method,
         spaceId,
         status: 413,

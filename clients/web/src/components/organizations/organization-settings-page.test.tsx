@@ -21,12 +21,11 @@ import {
 import { OrganizationSettingsPage } from "./organization-settings-page";
 
 const REMOVE_BUTTON_NAME = /^Remove /;
+const AUTOMATIC_AGENT_AUTHORIZATION_PATTERN =
+	/automatically authorize my new Agent Profiles/i;
 
 const getActiveOrganizationMemberRoleMock = vi.hoisted(() => vi.fn());
 const getOrganizationJoinLinkMock = vi.hoisted(() => vi.fn());
-const getOrganizationBindingAuthorizationPreferenceMock = vi.hoisted(() =>
-	vi.fn()
-);
 const deleteOrganizationMock = vi.hoisted(() => vi.fn());
 const clearOrganizationPersistenceMock = vi.hoisted(() => vi.fn());
 const listOrganizationInvitationsMock = vi.hoisted(() => vi.fn());
@@ -37,9 +36,6 @@ const readCurrentOrganizationInformationProtectionMock = vi.hoisted(() =>
 	vi.fn()
 );
 const removeOrganizationMemberMock = vi.hoisted(() => vi.fn());
-const setOrganizationBindingAuthorizationPreferenceMock = vi.hoisted(() =>
-	vi.fn()
-);
 const setCurrentOrganizationInformationProtectionMock = vi.hoisted(() =>
 	vi.fn()
 );
@@ -250,13 +246,6 @@ vi.mock(
 	})
 );
 
-vi.mock("#/lib/profiles/organization-binding-authorizations", () => ({
-	getOrganizationBindingAuthorizationPreference:
-		getOrganizationBindingAuthorizationPreferenceMock,
-	setOrganizationBindingAuthorizationPreference:
-		setOrganizationBindingAuthorizationPreferenceMock,
-}));
-
 vi.mock("#/components/directory/directory-members-overview", () => ({
 	InvitationForm: () => <form>Invite form</form>,
 }));
@@ -281,20 +270,6 @@ describe("OrganizationSettingsPage", () => {
 		deleteOrganizationMock.mockReset().mockResolvedValue(undefined);
 		getActiveOrganizationMemberRoleMock.mockReset().mockResolvedValue("member");
 		getOrganizationJoinLinkMock.mockReset().mockResolvedValue(null);
-		getOrganizationBindingAuthorizationPreferenceMock
-			.mockReset()
-			.mockResolvedValueOnce({
-				autoAuthorizeAgentProfileBindings: true,
-				organizationId: "org-acme",
-				updatedAt: "2026-07-05T00:00:00.000Z",
-				userId: "user-1",
-			})
-			.mockResolvedValue({
-				autoAuthorizeAgentProfileBindings: false,
-				organizationId: "org-acme",
-				updatedAt: "2026-07-05T00:00:01.000Z",
-				userId: "user-1",
-			});
 		listOrganizationInvitationsMock.mockReset().mockResolvedValue([]);
 		navigateMock.mockReset().mockResolvedValue(undefined);
 		routerInvalidateMock.mockReset().mockResolvedValue(undefined);
@@ -312,14 +287,6 @@ describe("OrganizationSettingsPage", () => {
 				updatedByUserId: "user-admin",
 			});
 		removeOrganizationMemberMock.mockReset().mockResolvedValue(undefined);
-		setOrganizationBindingAuthorizationPreferenceMock
-			.mockReset()
-			.mockResolvedValue({
-				autoAuthorizeAgentProfileBindings: false,
-				organizationId: "org-acme",
-				updatedAt: "2026-07-05T00:00:01.000Z",
-				userId: "user-1",
-			});
 		setCurrentOrganizationInformationProtectionMock
 			.mockReset()
 			.mockImplementation(
@@ -769,36 +736,18 @@ describe("OrganizationSettingsPage", () => {
 		});
 	});
 
-	it("reads, writes, and refetches the auto-authorize preference from the server", async () => {
+	it("does not expose the retired future Agent Profile authorization preference", () => {
 		render(
 			<TestQueryClientProvider>
 				<OrganizationSettingsPage />
 			</TestQueryClientProvider>
 		);
 
-		const preferenceSwitch = await screen.findByRole("switch", {
-			name: "Automatically authorize my new Agent Profiles in this organization",
-		});
-		await waitFor(() => {
-			expect(preferenceSwitch.getAttribute("aria-checked")).toBe("true");
-		});
-
-		fireEvent.click(preferenceSwitch);
-
-		await waitFor(() => {
-			expect(
-				setOrganizationBindingAuthorizationPreferenceMock
-			).toHaveBeenCalledWith({
-				autoAuthorizeAgentProfileBindings: false,
-				organizationId: "org-acme",
-			});
-		});
-		await waitFor(() => {
-			expect(
-				getOrganizationBindingAuthorizationPreferenceMock
-			).toHaveBeenCalledTimes(2);
-			expect(preferenceSwitch.getAttribute("aria-checked")).toBe("false");
-		});
+		expect(
+			screen.queryByRole("switch", {
+				name: AUTOMATIC_AGENT_AUTHORIZATION_PATTERN,
+			})
+		).toBeNull();
 		expect(screen.queryByText("Invite link")).toBeNull();
 		expect(getOrganizationJoinLinkMock).not.toHaveBeenCalled();
 	});
@@ -901,9 +850,6 @@ describe("OrganizationSettingsPage", () => {
 		});
 		expect(getActiveOrganizationMemberRoleMock).not.toHaveBeenCalled();
 		expect(readCurrentOrganizationDirectoryMock).not.toHaveBeenCalled();
-		expect(
-			getOrganizationBindingAuthorizationPreferenceMock
-		).not.toHaveBeenCalled();
 		expect(listOrganizationInvitationsMock).not.toHaveBeenCalled();
 		expect(getOrganizationJoinLinkMock).not.toHaveBeenCalled();
 		expect(deleteOrganizationMock).not.toHaveBeenCalled();

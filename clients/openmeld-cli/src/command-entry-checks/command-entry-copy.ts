@@ -114,30 +114,6 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "revoking the Organization invite link",
     serviceAction: null,
   },
-  "binding.menu": {
-    signInAction: "managing Binding authorizations",
-    profileAction: null,
-    cliUpdateAction: "managing Binding authorizations",
-    serviceAction: null,
-  },
-  "binding.authorize": {
-    signInAction: "authorizing this Binding",
-    profileAction: null,
-    cliUpdateAction: "authorizing this Binding",
-    serviceAction: null,
-  },
-  "binding.revoke": {
-    signInAction: "revoking this Binding authorization",
-    profileAction: null,
-    cliUpdateAction: "revoking this Binding authorization",
-    serviceAction: null,
-  },
-  "binding.list": {
-    signInAction: "listing Binding authorizations",
-    profileAction: null,
-    cliUpdateAction: "listing Binding authorizations",
-    serviceAction: null,
-  },
   "center_agent.menu": {
     signInAction: "managing the Center Agent",
     profileAction: null,

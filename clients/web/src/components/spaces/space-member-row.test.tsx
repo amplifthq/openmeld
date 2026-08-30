@@ -116,40 +116,64 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByText("Connected to Office Mac")).toBeNull();
 	});
 
-	it("marks agents that need organization Wake access authorization", () => {
+	it("marks cross-workspace Agent Profiles without offering a repair action", () => {
 		renderSpaceMemberRow({
 			agentRecoveryPlan: buildPreparePlan(),
 			entry: buildAgentEntry({
-				availabilityBadgeLabel: "Unavailable",
+				availabilityBadgeLabel: "Wrong workspace",
 				availabilityCategory: "unavailable",
 				availabilitySummary:
-					"Turn on Wake access before this agent can reply in this Organization.",
-				availabilityReasonCode: "organization_binding_authorization.required",
-				availabilityTooltip: "Wake access is not authorized.",
+					"This Agent Profile belongs to a different workspace.",
+				availabilityReasonCode: "agent_profile.organization_mismatch",
+				availabilityTooltip: "This Agent Profile belongs to another workspace",
 			}),
 		});
 
 		const indicator = getAgentAvailabilityIndicator();
 		expect(indicator.textContent).toBe("");
-		expect(indicator.getAttribute("aria-label")).toBe("Unavailable");
+		expect(indicator.getAttribute("aria-label")).toBe("Wrong workspace");
 		expect(indicator.getAttribute("title")).toBe(
-			"Wake access is not authorized."
+			"This Agent Profile belongs to another workspace"
 		);
 		expect(getAgentAvailabilityIndicatorDot().className).toContain("bg-amber-");
 		expect(getProfileNameElement("Codex").className).toContain(
 			"text-muted-foreground"
 		);
-		expect(indicator.getAttribute("href")).toBe(
-			"/o/acme/settings/general#organization-wake-access"
-		);
+		expect(indicator.getAttribute("href")).toBeNull();
 		expect(indicator.getAttribute("data-availability-reason-code")).toBe(
-			"organization_binding_authorization.required"
+			"agent_profile.organization_mismatch"
 		);
 		expect(
-			screen.getByText(
-				"Turn on Wake access before this agent can reply in this Organization."
-			)
+			screen.getByText("This Agent Profile belongs to a different workspace.")
 		).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Connect local agent" })
+		).toBeNull();
+		expect(screen.queryByText("Needs setup on this computer")).toBeNull();
+	});
+
+	it.each([
+		"agent_profile.organization_context_missing",
+		"agent_profile.organization_lookup_failed",
+		"agent_profile.space_organization_unavailable",
+		"organization_binding_authorization.lookup_failed",
+		"organization_binding_authorization.preference_unavailable",
+		"organization_binding_authorization.required",
+		"organization_binding_authorization.space_org_unavailable",
+	])("does not offer local recovery for workspace blocker %s", (reasonCode) => {
+		renderSpaceMemberRow({
+			agentRecoveryPlan: buildPreparePlan(),
+			entry: buildAgentEntry({
+				availabilityBadgeLabel: "Workspace unavailable",
+				availabilityCategory: "unavailable",
+				availabilityReasonCode: reasonCode,
+				availabilitySummary:
+					"OpenMeld could not verify this Agent Profile's workspace.",
+				availabilityTooltip:
+					"OpenMeld could not verify this Agent Profile's workspace",
+			}),
+		});
+
 		expect(
 			screen.queryByRole("link", { name: "Connect local agent" })
 		).toBeNull();

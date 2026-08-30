@@ -5,28 +5,16 @@ import {
   listEnabledPrimaryAgentProfileBindingRecordsForProfile,
   readPrimaryAgentProfileBindingRecord,
 } from "../../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
-import {
-  type OrganizationBindingAuthorizationRecord,
-  readOrganizationBindingAuthorizationRecord,
-} from "../../../agent-profile-binding/infrastructure/d1/organization-binding-authorization-repo";
 import { isHostedCenterAgentExecutionTarget } from "../../application/hosted-center-agent-binding";
 
-export type RemoteCenterAgentBindingAuthorizationInput = {
-  authorizedBy: string;
-  id: string;
-  organizationId: string;
-};
-
 export type ReconcileRemoteCenterAgentBindingResult = {
-  authorization: OrganizationBindingAuthorizationRecord;
-  authorizationStatus: "already_authorized" | "authorized";
   binding: AgentProfileBindingRecord;
   outcome: "created" | "reconnected" | "reused";
 };
 
 /**
- * Replaces every admitted enabled Binding for one Agent Profile and establishes
- * the hosted target's Organization authorization in one D1 transaction.
+ * Replaces every admitted enabled Binding for one Agent Profile with one
+ * canonical hosted target in one D1 transaction.
  *
  * RuntimeCoordinator admission is the concurrency boundary. A replacement is
  * inserted disabled behind the exact admitted Binding inventory, and every
@@ -35,7 +23,6 @@ export type ReconcileRemoteCenterAgentBindingResult = {
  * when a database write fails.
  */
 export async function reconcileRemoteCenterAgentBindingRecord(input: {
-  authorization: RemoteCenterAgentBindingAuthorizationInput;
   currentBindings: readonly AgentProfileBindingRecord[];
   db: D1Database;
   noncanonicalDisabledReasonCode: string;
@@ -69,7 +56,6 @@ export async function reconcileRemoteCenterAgentBindingRecord(input: {
     : [...input.currentBindings];
 
   const transition = prepareReconciliationTransition({
-    authorization: input.authorization,
     bindingsToDisable,
     currentBindings: input.currentBindings,
     db: input.db,
@@ -79,8 +65,11 @@ export async function reconcileRemoteCenterAgentBindingRecord(input: {
     reuseCanonical,
     targetRecord,
   });
-  const results = await input.db.batch(transition.statements);
-  const authorizationResult = readValidatedBatchAuthorizationResult({
+  const results =
+    transition.statements.length > 0
+      ? await input.db.batch(transition.statements)
+      : [];
+  assertValidatedBatchBindingTransition({
     cleanupBindingStatement: transition.cleanupBindingStatement,
     disableStatement: transition.disableStatement,
     enableBindingStatement: transition.enableBindingStatement,
@@ -90,7 +79,7 @@ export async function reconcileRemoteCenterAgentBindingRecord(input: {
     results,
   });
 
-  const [enabledBindings, binding, authorization] = await Promise.all([
+  const [enabledBindings, binding] = await Promise.all([
     listEnabledPrimaryAgentProfileBindingRecordsForProfile({
       agentProfileId: input.record.agentProfileId,
       db: input.db,
@@ -100,20 +89,14 @@ export async function reconcileRemoteCenterAgentBindingRecord(input: {
       db: input.db,
       owner: input.record.owner,
     }),
-    readOrganizationBindingAuthorizationRecord({
-      bindingId: targetRecord.bindingId,
-      db: input.db,
-      organizationId: input.authorization.organizationId,
-    }),
   ]);
   if (
     enabledBindings.length !== 1 ||
     enabledBindings[0]?.bindingId !== targetRecord.bindingId ||
-    !binding ||
-    !authorization
+    !binding
   ) {
     throw new Error(
-      "Remote Center Agent Binding reconciliation did not produce one authorized canonical target"
+      "Remote Center Agent Binding reconciliation did not produce one canonical hosted target"
     );
   }
   let outcome: ReconcileRemoteCenterAgentBindingResult["outcome"] = "created";
@@ -124,11 +107,6 @@ export async function reconcileRemoteCenterAgentBindingRecord(input: {
   }
 
   return {
-    authorization,
-    authorizationStatus:
-      getChangedRows(authorizationResult) === 1
-        ? "authorized"
-        : "already_authorized",
     binding,
     outcome,
   };
@@ -203,7 +181,6 @@ function resolveReplacementRecord(input: {
 }
 
 function prepareReconciliationTransition(input: {
-  authorization: RemoteCenterAgentBindingAuthorizationInput;
   bindingsToDisable: readonly AgentProfileBindingRecord[];
   currentBindings: readonly AgentProfileBindingRecord[];
   db: D1Database;
@@ -250,17 +227,6 @@ function prepareReconciliationTransition(input: {
         db: input.db,
         record: input.replacementRecord,
       });
-  const authorizationStatement = prepareGuardedAuthorizationInsert({
-    authorization: input.authorization,
-    db: input.db,
-    record: input.targetRecord,
-    transitionMarkerBindingId:
-      input.reuseCanonical && insertBindingStatement
-        ? transitionRecord.bindingId
-        : null,
-    transitionedBindings: input.bindingsToDisable,
-    updatedAtMs: input.record.updatedAtMs,
-  });
   const cleanupBindingStatement = insertBindingStatement
     ? prepareIncompleteTransitionCleanup({
         db: input.db,
@@ -279,7 +245,6 @@ function prepareReconciliationTransition(input: {
       ...(insertBindingStatement ? [insertBindingStatement] : []),
       ...(disableStatement ? [disableStatement] : []),
       ...(enableBindingStatement ? [enableBindingStatement] : []),
-      authorizationStatement,
       ...(cleanupBindingStatement ? [cleanupBindingStatement] : []),
     ],
   };
@@ -556,106 +521,6 @@ function prepareGuardedBindingDisable(input: {
     );
 }
 
-function prepareGuardedAuthorizationInsert(input: {
-  authorization: RemoteCenterAgentBindingAuthorizationInput;
-  db: D1Database;
-  record: AgentProfileBindingRecord | EnabledPrimaryAgentProfileBindingInput;
-  transitionMarkerBindingId: string | null;
-  transitionedBindings: readonly AgentProfileBindingRecord[];
-  updatedAtMs: number;
-}): D1PreparedStatement {
-  const expectedRevision =
-    "configurationRevision" in input.record
-      ? input.record.configurationRevision
-      : null;
-  const transitionGuard =
-    input.transitionedBindings.length === 0
-      ? ""
-      : `AND (
-          SELECT COUNT(*)
-          FROM openMeldDaemon_agent_profile_bindings AS transitioned
-          WHERE transitioned.binding_id IN (${input.transitionedBindings.map(() => "?").join(", ")})
-            AND transitioned.binding_state = 'disabled_historical'
-            AND transitioned.disabled_at_ms = ?
-          AND transitioned.updated_at_ms = ?
-        ) = ?`;
-  const transitionMarkerGuard = input.transitionMarkerBindingId
-    ? `AND EXISTS (
-        SELECT 1
-        FROM openMeldDaemon_agent_profile_bindings AS transition_marker
-        WHERE transition_marker.binding_id = ?
-          AND transition_marker.agent_profile_id = ?
-          AND transition_marker.binding_state = 'disabled_historical'
-      )`
-    : "";
-  return input.db
-    .prepare(
-      `
-        INSERT INTO organization_binding_authorizations (
-          id,
-          organization_id,
-          binding_id,
-          authorized_by,
-          created_at
-        )
-        SELECT ?, ?, ?, ?, ?
-        WHERE (
-          SELECT COUNT(*)
-          FROM openMeldDaemon_agent_profile_bindings
-          WHERE agent_profile_id = ?
-            AND binding_state = 'enabled_primary'
-        ) = 1
-          AND EXISTS (
-            SELECT 1
-            FROM openMeldDaemon_agent_profile_bindings
-            WHERE binding_id = ?
-              AND owner_kind = ?
-              AND owner_id = ?
-              AND agent_profile_id = ?
-              AND binding_state = 'enabled_primary'
-              AND openmeld_service_runtime_id = ?
-              AND runtime_kind = ?
-              AND hosted_runtime_identity_json = ?
-              AND agent_controller_ref = ?
-              AND agent_controller_conversation_id IS NULL
-              AND (? IS NULL OR configuration_revision = ?)
-          )
-          ${transitionGuard}
-          ${transitionMarkerGuard}
-        ON CONFLICT(organization_id, binding_id) DO NOTHING
-      `
-    )
-    .bind(
-      input.authorization.id,
-      input.authorization.organizationId,
-      input.record.bindingId,
-      input.authorization.authorizedBy,
-      input.updatedAtMs,
-      input.record.agentProfileId,
-      input.record.bindingId,
-      input.record.owner.kind,
-      input.record.owner.id,
-      input.record.agentProfileId,
-      input.record.openMeldServiceRuntimeId,
-      input.record.runtimeKind ?? "openmeld_service",
-      input.record.hostedRuntimeIdentityJson ?? null,
-      input.record.agentControllerRef,
-      expectedRevision,
-      expectedRevision,
-      ...input.transitionedBindings.map((binding) => binding.bindingId),
-      ...(input.transitionedBindings.length === 0
-        ? []
-        : [
-            input.updatedAtMs,
-            input.updatedAtMs,
-            input.transitionedBindings.length,
-          ]),
-      ...(input.transitionMarkerBindingId
-        ? [input.transitionMarkerBindingId, input.record.agentProfileId]
-        : [])
-    );
-}
-
 function serializeOpenCodePermission(
   value: OpenCodePermissionConfig | null | undefined
 ): string | null {
@@ -669,7 +534,7 @@ function normalizeNullableText(
   return normalized ? normalized : null;
 }
 
-function readValidatedBatchAuthorizationResult(input: {
+function assertValidatedBatchBindingTransition(input: {
   cleanupBindingStatement: D1PreparedStatement | null;
   disableStatement: D1PreparedStatement | null;
   enableBindingStatement: D1PreparedStatement | null;
@@ -677,7 +542,7 @@ function readValidatedBatchAuthorizationResult(input: {
   expectedDisabledCount: number;
   insertBindingStatement: D1PreparedStatement | null;
   results: D1Result[];
-}): D1Result {
+}): void {
   let resultIndex = 0;
   const insertResult = input.insertBindingStatement
     ? input.results[resultIndex++]
@@ -688,9 +553,8 @@ function readValidatedBatchAuthorizationResult(input: {
   const enableResult = input.enableBindingStatement
     ? input.results[resultIndex++]
     : null;
-  const authorizationResult = input.results[resultIndex++];
   const cleanupResult = input.cleanupBindingStatement
-    ? input.results[resultIndex]
+    ? input.results[resultIndex++]
     : null;
   if (insertResult && getChangedRows(insertResult) !== 1) {
     throw new Error(
@@ -710,11 +574,6 @@ function readValidatedBatchAuthorizationResult(input: {
       "Remote Center Agent Binding reconciliation did not create its hosted target"
     );
   }
-  if (!authorizationResult) {
-    throw new Error(
-      "Remote Center Agent Binding reconciliation did not execute authorization"
-    );
-  }
   if (
     cleanupResult &&
     getChangedRows(cleanupResult) !== input.expectedCleanupCount
@@ -723,7 +582,11 @@ function readValidatedBatchAuthorizationResult(input: {
       "Remote Center Agent Binding reconciliation did not finish its hosted target transition"
     );
   }
-  return authorizationResult;
+  if (resultIndex !== input.results.length) {
+    throw new Error(
+      "Remote Center Agent Binding reconciliation returned an unexpected result set"
+    );
+  }
 }
 
 function getChangedRows(result: D1Result): number {

@@ -864,7 +864,7 @@ function OrganizationSwitcherActions(input: {
 						Create organization
 					</span>
 					<span className="block text-xs">
-						Set up shared work and Wake access.
+						Set up shared work with your team.
 					</span>
 				</span>
 			</FluidActionListItem>
