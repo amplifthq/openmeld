@@ -147,7 +147,6 @@ type OccupiedCodexDispatch = {
 
 type OccupiedCodexDispatchState = {
   eventActive: boolean;
-  observedOccupancy: AdapterAgentControllerConversationOccupancy | null;
   registration: OccupiedCodexDispatch | null;
 };
 
@@ -451,7 +450,6 @@ async function dispatchCodexWithConversationOccupancy(input: {
 }): Promise<AdapterDispatchResult> {
   const state: OccupiedCodexDispatchState = {
     eventActive: false,
-    observedOccupancy: null,
     registration: null,
   };
   try {
@@ -472,11 +470,6 @@ async function dispatchCodexWithConversationOccupancy(input: {
         }
         continue;
       }
-      await emitCodexConversationAvailableAfterAdmission({
-        request: input.request,
-        result,
-        state,
-      });
       return finalizeCodexDispatchResult({ request: input.request, result });
     }
   } finally {
@@ -495,7 +488,6 @@ async function waitForOccupiedCodexConversation(input: {
   state: OccupiedCodexDispatchState;
   waitForThreadWriterAvailability: WaitForCodexThreadWriterAvailability;
 }): Promise<"cancelled" | "retry"> {
-  input.state.observedOccupancy = input.occupancy;
   const registration = ensureOccupiedCodexDispatchRegistration(input);
   if (!input.state.eventActive) {
     await input.request.onRuntimeEvent?.({
@@ -515,7 +507,7 @@ async function waitForOccupiedCodexConversation(input: {
   if (waitResult === "aborted" || registration.abortController.signal.aborted) {
     return "cancelled";
   }
-  if (waitResult === "available") {
+  if (waitResult === "release_observed") {
     await emitCodexConversationAvailable({
       occupancy: input.occupancy,
       request: input.request,
@@ -540,25 +532,6 @@ function ensureOccupiedCodexDispatchRegistration(input: {
   input.state.registration = registration;
   input.occupiedDispatches.set(input.request.taskId, registration);
   return registration;
-}
-
-async function emitCodexConversationAvailableAfterAdmission(input: {
-  request: AdapterDispatchRequest;
-  result: AdapterDispatchResult;
-  state: OccupiedCodexDispatchState;
-}): Promise<void> {
-  if (
-    input.result.status !== "success" ||
-    !input.state.eventActive ||
-    !input.state.observedOccupancy
-  ) {
-    return;
-  }
-  await emitCodexConversationAvailable({
-    occupancy: input.state.observedOccupancy,
-    request: input.request,
-  });
-  input.state.eventActive = false;
 }
 
 function finalizeCodexDispatchResult(input: {

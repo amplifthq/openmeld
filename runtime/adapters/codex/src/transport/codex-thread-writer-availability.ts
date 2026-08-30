@@ -11,8 +11,8 @@ const MAX_MISSING_LOCK_RETRY_MS = 2000;
 
 export type CodexThreadWriterAvailabilityWaitResult =
   | "aborted"
-  | "available"
-  | "recheck";
+  | "release_observed"
+  | "retry_due";
 
 export type WaitForCodexThreadWriterAvailability = (input: {
   env?: Record<string, string | undefined>;
@@ -71,7 +71,7 @@ export async function waitForCodexThreadWriterAvailability(input: {
         pathExists(lockPath)
           .then((exists) => {
             if (!exists) {
-              finish("available");
+              finish("release_observed");
             }
           })
           .catch(() => {
@@ -80,7 +80,7 @@ export async function waitForCodexThreadWriterAvailability(input: {
       };
       input.signal?.addEventListener("abort", handleAbort, { once: true });
       recoveryTimer = setTimeout(
-        () => finish("recheck"),
+        () => finish("retry_due"),
         input.recoveryRetryMs ?? CODEX_THREAD_WRITER_RECOVERY_RETRY_MS
       );
       recoveryTimer.unref?.();
@@ -106,14 +106,14 @@ export async function waitForCodexThreadWriterAvailability(input: {
 async function waitForRetryOrAbort(input: {
   delayMs: number;
   signal?: AbortSignal;
-}): Promise<"aborted" | "recheck"> {
+}): Promise<"aborted" | "retry_due"> {
   if (input.signal?.aborted) {
     return "aborted";
   }
   return await new Promise((resolve) => {
     let settled = false;
     let timer: NodeJS.Timeout | null = null;
-    const finish = (result: "aborted" | "recheck") => {
+    const finish = (result: "aborted" | "retry_due") => {
       if (settled) {
         return;
       }
@@ -127,7 +127,7 @@ async function waitForRetryOrAbort(input: {
     };
     const handleAbort = () => finish("aborted");
     input.signal?.addEventListener("abort", handleAbort, { once: true });
-    timer = setTimeout(() => finish("recheck"), input.delayMs);
+    timer = setTimeout(() => finish("retry_due"), input.delayMs);
     timer.unref?.();
   });
 }

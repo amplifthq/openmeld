@@ -123,6 +123,7 @@ test("codex waits on an official writer conflict and retries the same dispatch",
     waitForThreadWriterAvailability: ({ occupancy: observed }) => {
       availabilityWaits += 1;
       assert.deepEqual(observed, occupancy);
+      return Promise.resolve("release_observed");
     },
   });
 
@@ -150,6 +151,62 @@ test("codex waits on an official writer conflict and retries the same dispatch",
     "agent_controller_conversation_occupied",
     "agent_controller_conversation_available",
   ]);
+});
+
+test("codex retry due never claims the conversation became available", async () => {
+  const { CodexAppServerTransportError, createCodexAdapter } = await import(
+    "../dist/index.js"
+  );
+  let dispatchCalls = 0;
+  const events = [];
+  const occupancy = {
+    agentControllerConversationId: "thread-recheck",
+    contractVersion: 1,
+    state: "occupied",
+  };
+  const adapter = createCodexAdapter({
+    invokeByMode: {
+      "codex-app-server": () => {
+        dispatchCalls += 1;
+        if (dispatchCalls === 1) {
+          throw new CodexAppServerTransportError({
+            agentControllerConversationOccupancy: occupancy,
+            code: "agent_controller.conversation_occupied",
+            errorType: "adapter",
+            message: "thread thread-recheck already has an active writer",
+            rpcErrorCode: -32_600,
+          });
+        }
+        return {
+          contextDelta: {
+            agentControllerConversationId: "thread-recheck",
+          },
+          output: "accepted after a recovery recheck",
+        };
+      },
+    },
+    waitForThreadWriterAvailability: async () => "retry_due",
+  });
+
+  const result = await adapter.dispatch({
+    agentControllerConversationId: "thread-recheck",
+    agentId: "agt-demo",
+    onRuntimeEvent: (event) => {
+      if (event.phase.startsWith("agent_controller_conversation_")) {
+        events.push(event.phase);
+      }
+    },
+    prompt: "continue",
+    runtimeContext: createRuntimeContext(),
+    sourceEventId: "evt-recheck",
+    spaceId: "space-1",
+    taskId: "task-recheck",
+    transportMode: "codex-app-server",
+  });
+
+  assert.equal(result.status, "success");
+  assert.equal(dispatchCalls, 2);
+  assert.deepEqual(events, ["agent_controller_conversation_occupied"]);
 });
 
 test("codex Stop aborts an occupied writer wait without resuming the thread again", async () => {
@@ -250,7 +307,7 @@ test("codex retries immediately when the official writer lock is released", asyn
     setTimeout(() => {
       rm(lockPath, { force: true }).catch(() => undefined);
     }, 25);
-    await waiting;
+    assert.equal(await waiting, "release_observed");
     assert.ok(Date.now() - startedAtMs < 1000);
   } finally {
     await rm(codexHome, { force: true, recursive: true });
@@ -312,7 +369,7 @@ test("codex writer wait backs off when an occupied thread lock is not visible", 
 
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(settled, false);
-    assert.equal(await waiting, "recheck");
+    assert.equal(await waiting, "retry_due");
   } finally {
     await rm(codexHome, { force: true, recursive: true });
   }
