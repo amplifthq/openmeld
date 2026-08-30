@@ -240,10 +240,107 @@ describe("auth session transition integrity", () => {
     });
   });
 
-  it("keeps a remotely validated candidate usable while Setup owns the transition", async () => {
-    await withTempHome(async () => {
+  it("keeps a rotated candidate usable for later Service reads and commit", async () => {
+    await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
-      const server = createServer((_request, response) => {
+      let originalCandidateValidationCount = 0;
+      const server = createServer((request, response) => {
+        const authorization = request.headers.authorization;
+        if (authorization === "Bearer candidate-token") {
+          originalCandidateValidationCount += 1;
+          if (originalCandidateValidationCount > 1) {
+            response.writeHead(401).end();
+            return;
+          }
+        } else if (authorization !== "Bearer candidate-token-refreshed") {
+          response.writeHead(401).end();
+          return;
+        }
+        response.writeHead(200, {
+          "content-type": "application/json",
+          ...(authorization === "Bearer candidate-token"
+            ? { "set-auth-token": "candidate-token-refreshed" }
+            : {}),
+        });
+        response.end(
+          JSON.stringify({
+            session: {
+              expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              id: "candidate-session",
+            },
+            user: { id: "candidate-owner" },
+          })
+        );
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      try {
+        const address = server.address();
+        if (!(address && typeof address === "object")) {
+          throw new Error("candidate auth fixture did not bind a local port");
+        }
+        const authBaseUrl = `http://127.0.0.1:${String(address.port)}`;
+        await setAuthSession({
+          accessToken: "previous-token",
+          authBaseUrl,
+          clientId: "openmeld-cli",
+          user: { id: "previous-owner" },
+        });
+        const transition = await beginAuthSessionTransition({
+          accessToken: "candidate-token",
+          authBaseUrl,
+          clientId: "openmeld-cli",
+          user: { id: "candidate-owner" },
+        });
+
+        await expect(
+          spawnCandidateServiceAuthSessionRead({ validateRemote: true }).result
+        ).resolves.toMatchObject({
+          accessToken: "candidate-token-refreshed",
+          status: "success",
+          state: "valid",
+          userId: "candidate-owner",
+        });
+        await expect(
+          spawnCandidateServiceAuthSessionRead({ validateRemote: true }).result
+        ).resolves.toMatchObject({
+          accessToken: "candidate-token-refreshed",
+          status: "success",
+          state: "valid",
+          userId: "candidate-owner",
+        });
+
+        await transition.commit();
+
+        await expect(
+          spawnOrdinaryAuthSessionRead().result
+        ).resolves.toMatchObject({
+          accessToken: "candidate-token-refreshed",
+          status: "success",
+          state: "valid",
+          userId: "candidate-owner",
+        });
+        await expect(readStoredTokenInventory(home)).resolves.toEqual([
+          "candidate-token-refreshed",
+        ]);
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    });
+  });
+
+  it("restores the previous owner and removes every rotated candidate token on rollback", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      const server = createServer((request, response) => {
+        if (request.headers.authorization !== "Bearer candidate-token") {
+          response.writeHead(401).end();
+          return;
+        }
         response.writeHead(200, {
           "content-type": "application/json",
           "set-auth-token": "candidate-token-refreshed",
@@ -274,7 +371,7 @@ describe("auth session transition integrity", () => {
           clientId: "openmeld-cli",
           user: { id: "previous-owner" },
         });
-        await beginAuthSessionTransition({
+        const transition = await beginAuthSessionTransition({
           accessToken: "candidate-token",
           authBaseUrl,
           clientId: "openmeld-cli",
@@ -284,9 +381,25 @@ describe("auth session transition integrity", () => {
         await expect(
           spawnCandidateServiceAuthSessionRead({ validateRemote: true }).result
         ).resolves.toMatchObject({
+          accessToken: "candidate-token-refreshed",
           status: "success",
+          state: "valid",
           userId: "candidate-owner",
         });
+
+        await transition.rollback();
+
+        await expect(
+          spawnOrdinaryAuthSessionRead().result
+        ).resolves.toMatchObject({
+          accessToken: "previous-token",
+          status: "success",
+          state: "valid",
+          userId: "previous-owner",
+        });
+        await expect(readStoredTokenInventory(home)).resolves.toEqual([
+          "previous-token",
+        ]);
       } finally {
         await new Promise<void>((resolve, reject) => {
           server.close((error) => (error ? reject(error) : resolve()));
@@ -668,8 +781,10 @@ async function readStoredTokenInventory(home: string): Promise<string[]> {
 }
 
 type RacingAuthSessionTransitionResult = {
+  accessToken?: string;
   errorMessage?: string;
   errorName?: string;
+  state?: string;
   status: "error" | "success";
   userId: string;
 };
@@ -1110,7 +1225,9 @@ function spawnAuthSessionRead(
     try {
       const auth = await getAuthSessionState({ validateRemote: ${String(input.validateRemote === true)} });
       process.stdout.write(JSON.stringify({
+        accessToken: auth.session?.accessToken ?? "",
         status: "success",
+        state: auth.state,
         userId: auth.session?.user?.id ?? "",
       }));
     } catch (error) {

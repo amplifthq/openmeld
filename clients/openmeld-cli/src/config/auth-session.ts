@@ -50,6 +50,8 @@ type AuthSessionTransitionJournalV1 = {
   ownerProcessStartedAt: string;
   previousPayload: AuthSessionV1 | null;
   candidatePayload: AuthSessionV1;
+  candidateCredentialRefreshVersion?: 1;
+  candidateTokenRefs?: StoredTokenRef[];
   candidateServiceProcesses?: ProcessIdentity[];
   /** @deprecated Read and write until in-flight v1 journals from older builds expire. */
   candidateServiceProcess?: ProcessIdentity;
@@ -73,6 +75,7 @@ type ProcessIdentity = {
 };
 
 const MAX_CANDIDATE_SERVICE_PROCESSES = 16;
+const MAX_CANDIDATE_TOKEN_REFS = 64;
 
 class AuthSessionStorageError extends Error {
   readonly reason: "corrupt" | "unreadable";
@@ -532,6 +535,8 @@ export async function beginAuthSessionTransition(
       previousPayload:
         previousPayload?.v === 1 ? (previousPayload as AuthSessionV1) : null,
       candidatePayload: nextPayload,
+      candidateCredentialRefreshVersion: 1,
+      candidateTokenRefs: [tokenRef],
       ...(context.computerHandoff
         ? {
             computerHandoff: {
@@ -668,14 +673,17 @@ export async function beginAuthSessionTransition(
               reason: currentJournal.status,
             });
           }
+          const committedPayload = currentJournal.journal.candidatePayload;
+          const committedSession =
+            await readStoredAuthSessionFromPayload(committedPayload);
           await assertPreviousSessionCurrent();
-          await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
+          await writeSessionPayloadAtomically(
+            authSessionPath(),
+            committedPayload
+          );
           cacheAuthSession({
-            payload: nextPayload,
-            session: buildStoredAuthSession({
-              accessToken,
-              payload: nextPayload,
-            }),
+            payload: committedPayload,
+            session: committedSession,
           });
           const committedJournal: AuthSessionTransitionJournalV1 = {
             ...currentJournal.journal,
@@ -733,7 +741,7 @@ export async function beginAuthSessionTransition(
             );
             return;
           }
-          await deleteAccessTokenOrRetainForCleanup(tokenRef);
+          await cleanupCandidateTokenRefs(currentJournal.journal);
           await removeAuthSessionTransitionJournalIfOwned(
             currentJournal.journal
           );
@@ -889,9 +897,7 @@ export async function completeInterruptedComputerAuthSessionRecovery(
       );
     }
     try {
-      await deleteAccessTokenOrRetainForCleanup(
-        journal.candidatePayload.tokenRef
-      );
+      await cleanupCandidateTokenRefs(journal);
       await removeAuthSessionTransitionJournalIfOwned(journal);
       return true;
     } catch (error) {
@@ -1307,7 +1313,7 @@ async function cleanupTransitionTokensNotReferencedByCurrentSession(input: {
   );
   const transitionTokenRefs = [
     ...(previousTokenRef ? [previousTokenRef] : []),
-    input.journal.candidatePayload.tokenRef,
+    ...getCandidateTokenRefs(input.journal),
   ];
 
   for (const [index, tokenRef] of transitionTokenRefs.entries()) {
@@ -1354,6 +1360,41 @@ function areStoredTokenRefsEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function getUniqueTokenRefs(tokenRefs: StoredTokenRef[]): StoredTokenRef[] {
+  const uniqueTokenRefs: StoredTokenRef[] = [];
+  for (const tokenRef of tokenRefs) {
+    if (
+      !uniqueTokenRefs.some((existing) =>
+        areStoredTokenRefsEqual(existing, tokenRef)
+      )
+    ) {
+      uniqueTokenRefs.push(tokenRef);
+    }
+  }
+  return uniqueTokenRefs;
+}
+
+function getCandidateTokenRefs(
+  journal: AuthSessionTransitionJournalV1
+): StoredTokenRef[] {
+  return getUniqueTokenRefs([
+    ...(journal.candidateTokenRefs ?? []),
+    journal.candidatePayload.tokenRef,
+  ]);
+}
+
+async function cleanupCandidateTokenRefs(
+  journal: AuthSessionTransitionJournalV1,
+  keepTokenRef?: StoredTokenRef
+): Promise<void> {
+  for (const tokenRef of getCandidateTokenRefs(journal)) {
+    if (keepTokenRef && areStoredTokenRefsEqual(keepTokenRef, tokenRef)) {
+      continue;
+    }
+    await deleteAccessTokenOrRetainForCleanup(tokenRef);
+  }
+}
+
 async function persistRemoteSessionRefresh(input: {
   accessToken: string;
   expectedPayloadKey: string | null;
@@ -1361,75 +1402,196 @@ async function persistRemoteSessionRefresh(input: {
   previousAccessToken: string;
 }): Promise<StoredAuthSession | null> {
   return await withAuthSessionTransitionMutationLock(async () => {
-    await assertAuthSessionMutationAvailableWithOwnership();
-    const payload = await readSessionPayloadFile();
-    if (
-      payload?.v !== 1 ||
-      input.expectedPayloadKey === null ||
-      buildAuthSessionPayloadKey(payload) !== input.expectedPayloadKey
-    ) {
-      return null;
+    await recoverInterruptedAuthSessionTransitionWithOwnership();
+    const transitionJournal = await readAuthSessionTransitionJournal();
+    if (transitionJournal) {
+      if (
+        transitionJournal.state === "pending" &&
+        transitionJournal.candidateCredentialRefreshVersion === 1 &&
+        isAuthSessionTransitionCandidateVisibleToCurrentProcess(
+          transitionJournal
+        ) &&
+        input.expectedPayloadKey !== null &&
+        buildAuthSessionPayloadKey(transitionJournal.candidatePayload) ===
+          input.expectedPayloadKey
+      ) {
+        return await persistPendingCandidateRemoteSessionRefresh({
+          ...input,
+          journal: transitionJournal,
+        });
+      }
+      throw new AuthSessionRecoveryInProgressError();
     }
+    return await persistCommittedRemoteSessionRefresh(input);
+  });
+}
 
-    const tokenRef = normalizeTokenRef(payload.tokenRef);
-    const tokenType = normalizeOptionalString(payload.tokenType);
-    const authBaseUrl = normalizeOptionalString(payload.authBaseUrl);
-    const clientId = normalizeOptionalString(payload.clientId);
-    const createdAt = normalizeOptionalString(payload.createdAt);
-    if (!(tokenRef && tokenType && authBaseUrl && clientId && createdAt)) {
-      return null;
-    }
+async function persistCommittedRemoteSessionRefresh(input: {
+  accessToken: string;
+  expectedPayloadKey: string | null;
+  expiresAt: string;
+  previousAccessToken: string;
+}): Promise<StoredAuthSession | null> {
+  const payload = await readSessionPayloadFile();
+  if (
+    payload?.v !== 1 ||
+    input.expectedPayloadKey === null ||
+    buildAuthSessionPayloadKey(payload) !== input.expectedPayloadKey
+  ) {
+    return null;
+  }
+  const refresh = await prepareRemoteSessionRefresh({
+    ...input,
+    payload,
+    uniqueTokenRef: false,
+  });
+  if (!refresh) {
+    return null;
+  }
 
-    const nextAccessToken = normalizeOptionalString(input.accessToken);
-    if (!nextAccessToken) {
-      return null;
-    }
-    const nextTokenRef =
-      nextAccessToken === input.previousAccessToken
-        ? tokenRef
-        : await storeAccessToken({
-            accessToken: nextAccessToken,
-            authBaseUrl,
-            clientId,
-          });
-    const nextPayload: AuthSessionV1 = {
-      v: 1,
-      tokenRef: nextTokenRef,
-      tokenType,
-      authBaseUrl,
-      clientId,
-      createdAt,
-      expiresAt: input.expiresAt,
-      ...(typeof payload.scope === "string" && payload.scope.trim()
-        ? { scope: payload.scope.trim() }
-        : {}),
-      ...buildAuthUserPayload(payload.user),
-      ...buildActiveOrganizationPayload(payload.activeOrganization),
-    };
-    const nextSession = buildStoredAuthSession({
+  try {
+    await assertStoredAccessTokenReloads({
+      accessToken: refresh.nextSession.accessToken,
+      tokenRef: refresh.nextTokenRef,
+    });
+    await writeSessionPayloadAtomically(authSessionPath(), refresh.nextPayload);
+  } catch (error) {
+    await cleanupFailedRemoteSessionRefresh(refresh);
+    throw error;
+  }
+
+  cacheAuthSession({
+    payload: refresh.nextPayload,
+    session: refresh.nextSession,
+  });
+  if (!areStoredTokenRefsEqual(refresh.currentTokenRef, refresh.nextTokenRef)) {
+    await deleteAccessTokenOrRetainForCleanup(refresh.currentTokenRef);
+  }
+  return refresh.nextSession;
+}
+
+async function persistPendingCandidateRemoteSessionRefresh(input: {
+  accessToken: string;
+  expiresAt: string;
+  journal: AuthSessionTransitionJournalV1;
+  previousAccessToken: string;
+}): Promise<StoredAuthSession | null> {
+  const refresh = await prepareRemoteSessionRefresh({
+    ...input,
+    payload: input.journal.candidatePayload,
+    uniqueTokenRef: true,
+  });
+  if (!refresh) {
+    return null;
+  }
+  const candidateTokenRefs = getUniqueTokenRefs([
+    ...getCandidateTokenRefs(input.journal),
+    refresh.nextTokenRef,
+  ]);
+  if (candidateTokenRefs.length > MAX_CANDIDATE_TOKEN_REFS) {
+    await cleanupFailedRemoteSessionRefresh(refresh);
+    throw new AuthSessionStorageError({
+      message: `auth session transition has more than ${String(MAX_CANDIDATE_TOKEN_REFS)} candidate token rotations`,
+      reason: "unreadable",
+    });
+  }
+  const nextJournal: AuthSessionTransitionJournalV1 = {
+    ...input.journal,
+    candidatePayload: refresh.nextPayload,
+    candidateTokenRefs,
+  };
+
+  try {
+    await assertStoredAccessTokenReloads({
+      accessToken: refresh.nextSession.accessToken,
+      tokenRef: refresh.nextTokenRef,
+    });
+    await writeAuthSessionTransitionJournalIfOwned(input.journal, nextJournal);
+  } catch (error) {
+    await cleanupFailedRemoteSessionRefresh(refresh);
+    throw error;
+  }
+
+  cacheAuthSession({
+    payload: refresh.nextPayload,
+    session: refresh.nextSession,
+  });
+  return refresh.nextSession;
+}
+
+type PreparedRemoteSessionRefresh = {
+  currentTokenRef: StoredTokenRef;
+  nextPayload: AuthSessionV1;
+  nextSession: StoredAuthSession;
+  nextTokenRef: StoredTokenRef;
+};
+
+async function prepareRemoteSessionRefresh(input: {
+  accessToken: string;
+  expiresAt: string;
+  payload: Partial<AuthSessionV1>;
+  previousAccessToken: string;
+  uniqueTokenRef: boolean;
+}): Promise<PreparedRemoteSessionRefresh | null> {
+  const currentTokenRef = normalizeTokenRef(input.payload.tokenRef);
+  const tokenType = normalizeOptionalString(input.payload.tokenType);
+  const authBaseUrl = normalizeOptionalString(input.payload.authBaseUrl);
+  const clientId = normalizeOptionalString(input.payload.clientId);
+  const createdAt = normalizeOptionalString(input.payload.createdAt);
+  const nextAccessToken = normalizeOptionalString(input.accessToken);
+  if (
+    !(
+      currentTokenRef &&
+      tokenType &&
+      authBaseUrl &&
+      clientId &&
+      createdAt &&
+      nextAccessToken
+    )
+  ) {
+    return null;
+  }
+
+  const nextTokenRef =
+    nextAccessToken === input.previousAccessToken
+      ? currentTokenRef
+      : await storeAccessToken({
+          accessToken: nextAccessToken,
+          authBaseUrl,
+          clientId,
+          unique: input.uniqueTokenRef,
+        });
+  const nextPayload: AuthSessionV1 = {
+    v: 1,
+    tokenRef: nextTokenRef,
+    tokenType,
+    authBaseUrl,
+    clientId,
+    createdAt,
+    expiresAt: input.expiresAt,
+    ...(typeof input.payload.scope === "string" && input.payload.scope.trim()
+      ? { scope: input.payload.scope.trim() }
+      : {}),
+    ...buildAuthUserPayload(input.payload.user),
+    ...buildActiveOrganizationPayload(input.payload.activeOrganization),
+  };
+  return {
+    currentTokenRef,
+    nextPayload,
+    nextSession: buildStoredAuthSession({
       accessToken: nextAccessToken,
       payload: nextPayload,
-    });
+    }),
+    nextTokenRef,
+  };
+}
 
-    try {
-      await assertStoredAccessTokenReloads({
-        accessToken: nextAccessToken,
-        tokenRef: nextTokenRef,
-      });
-      await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
-    } catch (error) {
-      if (!areStoredTokenRefsEqual(tokenRef, nextTokenRef)) {
-        await deleteAccessTokenOrRetainForCleanup(nextTokenRef);
-      }
-      throw error;
-    }
-
-    cacheAuthSession({ payload: nextPayload, session: nextSession });
-    if (!areStoredTokenRefsEqual(tokenRef, nextTokenRef)) {
-      await deleteAccessTokenOrRetainForCleanup(tokenRef);
-    }
-    return nextSession;
-  });
+async function cleanupFailedRemoteSessionRefresh(
+  refresh: PreparedRemoteSessionRefresh
+): Promise<void> {
+  if (!areStoredTokenRefsEqual(refresh.currentTokenRef, refresh.nextTokenRef)) {
+    await deleteAccessTokenOrRetainForCleanup(refresh.nextTokenRef);
+  }
 }
 
 function normalizeTokenRef(input: unknown): StoredTokenRef | null {
@@ -1654,9 +1816,7 @@ async function recoverInterruptedAuthSessionTransitionWithOwnership(): Promise<v
       });
       return;
     }
-    await deleteAccessTokenOrRetainForCleanup(
-      journal.candidatePayload.tokenRef
-    );
+    await cleanupCandidateTokenRefs(journal);
     await removeAuthSessionTransitionJournalIfOwned(journal);
     return;
   }
@@ -1702,6 +1862,7 @@ async function finalizeCommittedAuthSessionTransition(
   ) {
     await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
   }
+  await cleanupCandidateTokenRefs(journal, journal.candidatePayload.tokenRef);
   await removeAuthSessionTransitionJournalIfOwned(journal);
 }
 
@@ -1949,9 +2110,21 @@ function isAuthSessionTransitionJournal(
     (value.previousPayload === null ||
       isAuthSessionPayload(value.previousPayload)) &&
     isAuthSessionPayload(value.candidatePayload) &&
+    (value.candidateCredentialRefreshVersion === undefined ||
+      value.candidateCredentialRefreshVersion === 1) &&
+    isOptionalStoredTokenRefList(value.candidateTokenRefs) &&
     isOptionalProcessIdentityList(value.candidateServiceProcesses) &&
     isOptionalProcessIdentity(value.candidateServiceProcess) &&
     isOptionalComputerHandoffRecovery(value.computerHandoff)
+  );
+}
+
+function isOptionalStoredTokenRefList(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.length <= MAX_CANDIDATE_TOKEN_REFS &&
+      value.every((tokenRef) => isStoredTokenRef(tokenRef)))
   );
 }
 
