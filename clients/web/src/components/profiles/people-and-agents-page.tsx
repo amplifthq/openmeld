@@ -530,7 +530,7 @@ function normalizeAgentProfileSearchText(value: string): string {
 	return value
 		.normalize("NFKD")
 		.toLocaleLowerCase("en")
-		.replace(/[^a-z0-9]+/g, " ")
+		.replace(/[^\p{L}\p{N}]+/gu, " ")
 		.trim();
 }
 

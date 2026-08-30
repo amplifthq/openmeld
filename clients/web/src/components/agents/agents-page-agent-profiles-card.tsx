@@ -1598,6 +1598,7 @@ function AgentProfileDirectoryRow(input: {
 			}}
 			onProfileUpdated={(updatedProfile) => {
 				updateAgentProfileListCaches({
+					organizationId: controller.currentOrganization.id,
 					profile: updatedProfile,
 					queryClient: input.cardInput.queryClient,
 					storageScope: input.cardInput.recovery.storageScope,

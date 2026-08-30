@@ -1076,7 +1076,7 @@ describe("PeopleAndAgentsPage", () => {
 		} as unknown as typeof firstAgent.readiness;
 		const secondAgent = {
 			...firstAgent,
-			ownerName: "Mira Chen",
+			ownerName: "李雷",
 			ownerUserId: "user-456",
 			profileHandle: "research-analyst",
 			profileId: "agt_22222222-2222-4222-8222-222222222222",
@@ -1128,7 +1128,7 @@ describe("PeopleAndAgentsPage", () => {
 		for (const query of [
 			"Market Analyst",
 			"research analyst",
-			"Mira",
+			"李雷",
 			"OpenCode",
 			"glm 4.5",
 		]) {

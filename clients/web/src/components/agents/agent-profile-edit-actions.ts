@@ -25,10 +25,7 @@ import {
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { renameOpenMeldProfile } from "#/lib/profiles/rename-profile";
 import { refreshWebAgentReadinessFacts } from "#/query/agents/execution-readiness";
-import {
-	organizationDirectoryQueryFilters,
-	organizationQueryKeys,
-} from "#/query/organizations/organization-directory";
+import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import {
 	agentProfilePrimaryBindingQueryKeys,
 	agentProfilePrimaryBindingQueryOptions,
@@ -248,11 +245,12 @@ export async function renameAgentProfile(input: {
 				input.context.storageScope
 			),
 		}),
-		input.context.queryClient.cancelQueries(
-			organizationDirectoryQueryFilters()
-		),
+		input.context.queryClient.cancelQueries({
+			queryKey: organizationQueryKeys.directory(input.context.organizationId),
+		}),
 	]);
 	updateAgentProfileListCaches({
+		organizationId: input.context.organizationId,
 		profile: updatedProfile,
 		queryClient: input.context.queryClient,
 		storageScope: input.context.storageScope,
@@ -265,7 +263,7 @@ export async function renameAgentProfile(input: {
 			refetchType: "none",
 		}),
 		input.context.queryClient.invalidateQueries({
-			...organizationDirectoryQueryFilters(),
+			queryKey: organizationQueryKeys.directory(input.context.organizationId),
 			refetchType: "none",
 		}),
 	]);
@@ -273,6 +271,7 @@ export async function renameAgentProfile(input: {
 }
 
 export function updateAgentProfileListCaches(input: {
+	organizationId: string;
 	profile: AuthProfileView;
 	queryClient: QueryClient;
 	storageScope: string;
@@ -288,8 +287,8 @@ export function updateAgentProfileListCaches(input: {
 					: profile
 			)
 	);
-	input.queryClient.setQueriesData<OrganizationDirectoryResponse>(
-		organizationDirectoryQueryFilters(),
+	input.queryClient.setQueryData<OrganizationDirectoryResponse>(
+		organizationQueryKeys.directory(input.organizationId),
 		(current) =>
 			current
 				? {
