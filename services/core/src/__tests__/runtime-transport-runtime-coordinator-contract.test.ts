@@ -1,5 +1,6 @@
 import {
   buildAgentTaskKey,
+  buildRuntimeCoordinatorExecutionId,
   buildRuntimeCoordinatorFinalizationCommandId,
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
@@ -1699,6 +1700,7 @@ const buildDeliverRequest = (
       rootSignalId: string;
       threadId: string;
     };
+    runtimeCoordinatorExecutionId?: string;
   } = {}
 ) => ({
   v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1729,7 +1731,9 @@ const buildDeliverRequest = (
     enqueuedAtMs: 1_700_000_000_000,
     executionIdentity: deliveryExecutionIdentity,
     idempotencyKey: "idempotency-1",
-    runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+    runtimeCoordinatorExecutionId:
+      overrides.runtimeCoordinatorExecutionId ??
+      RUNTIME_COORDINATOR_EXECUTION_ID,
     sourceEventId: "signal-1",
     sourceClientMessageId: "client-message-1",
     sourceSignal: {
@@ -4675,6 +4679,93 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(
       storageRecords.get(RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY)
     ).not.toContain(identity.targetWakeLifecycleId);
+  });
+
+  it("never admits an exact head replay after its execution reached a visible terminal outcome", async () => {
+    const { hub, socket, state, storageRecords } = createHarness();
+    configureCompatibleRoute({ socket, state });
+    const acceptRequest = buildRuntimeCoordinatorHeadAcceptRequest();
+    const identity = acceptRequest.targetWakeLifecycleIdentity;
+    const runtimeCoordinatorExecutionId = buildRuntimeCoordinatorExecutionId({
+      dispatchId: acceptRequest.dispatchId,
+      spaceId: identity.spaceId,
+      targetProfileId: identity.targetProfileId,
+    });
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      acceptRequest
+    );
+    const deliveryResponse = await (
+      hub as unknown as {
+        handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+      }
+    ).handleDeliverDispatchRequest(
+      new Request("https://runtime-transport.test/deliver-dispatch", {
+        body: JSON.stringify(
+          buildDeliverRequest({ runtimeCoordinatorExecutionId })
+        ),
+        method: "POST",
+      })
+    );
+    expect(deliveryResponse.status).toBe(200);
+    const authority =
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords);
+    expect(authority?.runtimeCoordinatorExecutionId).toBe(
+      runtimeCoordinatorExecutionId
+    );
+
+    await (
+      hub as unknown as {
+        writeRuntimeCoordinatorTokenAuthority: (
+          nextAuthority: RuntimeCoordinatorExecutionTokenAuthorityRecord
+        ) => Promise<void>;
+      }
+    ).writeRuntimeCoordinatorTokenAuthority({
+      ...(authority as RuntimeCoordinatorExecutionTokenAuthorityRecord),
+      terminalOutcome: {
+        finalizedAtMs: Date.now(),
+        reasonCode: "space.reply_published",
+        replySignalId: "signal-terminal-replay-proof",
+        status: "reply_published",
+      },
+    });
+    expect(
+      storageRecords.has(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          identity.targetWakeLifecycleId
+        )
+      )
+    ).toBe(false);
+
+    const replayResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      acceptRequest
+    );
+
+    expect(replayResponse.status).toBe(200);
+    await expect(replayResponse.json()).resolves.toMatchObject({
+      action: "skip_duplicate",
+      ok: true,
+      primaryDispatchId: acceptRequest.dispatchId,
+      runtimeCoordinatorExecutionId,
+      status: "execution_linked",
+    });
+    expect(
+      storageRecords.has(
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+          TARGET_AGENT_PROFILE_ID
+        )
+      )
+    ).toBe(false);
+    expect(
+      storageRecords.has(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          identity.targetWakeLifecycleId
+        )
+      )
+    ).toBe(false);
   });
 
   it("retains terminal head current state while final publication still needs repair", async () => {

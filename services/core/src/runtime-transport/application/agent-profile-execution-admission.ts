@@ -1,4 +1,7 @@
-import { runtimeCoordinatorExecutionTokenAuthorityRecordSchema } from "@openmeld/schemas";
+import {
+  buildRuntimeCoordinatorExecutionId,
+  runtimeCoordinatorExecutionTokenAuthorityRecordSchema,
+} from "@openmeld/schemas";
 import type {
   RuntimeTransportAgentProfileExecutionStateResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
@@ -1399,11 +1402,27 @@ async function resolveExistingHeadLifecycleWrite(input: {
   proposedRecord: RuntimeCoordinatorHeadLifecycleRecord;
   transaction: Pick<DurableObjectTransaction, "get" | "put">;
 }): Promise<AgentProfileWorkCoordinatorHeadWriteResult | null> {
-  const rawExistingHead = await input.transaction.get<unknown>(
-    input.headLifecycleStorageKey
-  );
+  const runtimeCoordinatorExecutionId = buildRuntimeCoordinatorExecutionId({
+    dispatchId: input.proposedRecord.primaryDispatchId,
+    spaceId: input.proposedRecord.targetWakeLifecycleIdentity.spaceId,
+    targetProfileId:
+      input.proposedRecord.targetWakeLifecycleIdentity.targetProfileId,
+  });
+  const tokenAuthorityStorageKey =
+    buildRuntimeCoordinatorTokenAuthorityStorageKey(
+      runtimeCoordinatorExecutionId
+    );
+  const storedCurrentState = await input.transaction.get<unknown>([
+    input.headLifecycleStorageKey,
+    tokenAuthorityStorageKey,
+  ]);
+  const rawExistingHead = storedCurrentState.get(input.headLifecycleStorageKey);
   if (rawExistingHead === undefined) {
-    return null;
+    return resolveTerminalExecutionHeadReplay({
+      proposedRecord: input.proposedRecord,
+      rawAuthority: storedCurrentState.get(tokenAuthorityStorageKey),
+      runtimeCoordinatorExecutionId,
+    });
   }
   if (!isRuntimeCoordinatorHeadLifecycleRecord(rawExistingHead)) {
     throw new Error("runtime_coordinator.head_lifecycle_record_invalid");
@@ -1444,6 +1463,55 @@ async function resolveExistingHeadLifecycleWrite(input: {
     queuePosition,
     status: "queued",
     waitingCount: Math.max(0, input.admission.workItems.length - 1),
+  };
+}
+
+function resolveTerminalExecutionHeadReplay(input: {
+  proposedRecord: RuntimeCoordinatorHeadLifecycleRecord;
+  rawAuthority: unknown;
+  runtimeCoordinatorExecutionId: string;
+}): AgentProfileWorkCoordinatorHeadWriteResult | null {
+  if (input.rawAuthority === undefined) {
+    return null;
+  }
+  const parsedAuthority =
+    runtimeCoordinatorExecutionTokenAuthorityRecordSchema.safeParse(
+      input.rawAuthority
+    );
+  if (!parsedAuthority.success) {
+    throw new Error("runtime_coordinator.execution_token_authority_invalid");
+  }
+  const authority = parsedAuthority.data;
+  if (!authority.terminalOutcome) {
+    return null;
+  }
+  const identity = input.proposedRecord.targetWakeLifecycleIdentity;
+  if (
+    authority.runtimeCoordinatorExecutionId !==
+      input.runtimeCoordinatorExecutionId ||
+    authority.executionScope.runtimeCoordinatorExecutionId !==
+      input.runtimeCoordinatorExecutionId ||
+    authority.executionScope.dispatchId !==
+      input.proposedRecord.primaryDispatchId ||
+    authority.executionScope.spaceId !== identity.spaceId ||
+    authority.executionScope.targetProfileId !== identity.targetProfileId
+  ) {
+    throw new Error("runtime_coordinator.execution_token_scope_mismatch");
+  }
+  const effectiveRecord = {
+    ...input.proposedRecord,
+    executionLinkedAtMs: authority.terminalOutcome.finalizedAtMs,
+    runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+    status: "execution_linked",
+    updatedAtMs: authority.terminalOutcome.finalizedAtMs,
+  } satisfies RuntimeCoordinatorHeadLifecycleRecord;
+  return {
+    effectiveRecord,
+    status:
+      authority.executionScope.sourceClientMessageId ===
+      identity.clientMessageId
+        ? "existing"
+        : "conflict",
   };
 }
 

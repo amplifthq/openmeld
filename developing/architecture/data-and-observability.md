@@ -85,7 +85,10 @@ snapshots, inactive admission rows, and execution head references are removed
 when they no longer own active work, recovery, promotion, or pending
 publication. Final publication records may keep their exact lifecycle record
 for idempotent replay, but they are removed from the historical lifecycle
-index. D1 retains the existing 30-day Wake evidence used for audit and trace.
+index. A completed execution head may be deleted only after its deterministic
+terminal execution-token authority can reject the same head and dispatch on
+replay; the D1 Dispatch Ledger remains audit evidence, never replay authority.
+D1 retains the existing 30-day Wake evidence used for audit and trace.
 Forward cleanup uses exact keys in the terminal transaction; old inactive rows
 are removed only by the existing 128-row index-repair pages. Neither path scans
 the owner shard or adds work to new-Wake admission.
