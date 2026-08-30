@@ -318,7 +318,7 @@ describe("space send OpenMeld profile identity", () => {
     });
   });
 
-  it("validates typed canonical mentions for human one-shot send before posting", async () => {
+  it("publishes typed canonical Wake input as a bare mention", async () => {
     await withTempHome(async () => {
       const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
         const url = new URL(String(input));
@@ -331,6 +331,10 @@ describe("space send OpenMeld profile identity", () => {
                 createHumanMember({
                   profileId: "aaaaaaaa-1111-2222-3333-000000000000",
                   profileName: "Mira",
+                }),
+                createHumanMember({
+                  profileId: "bbbbbbbb-1111-2222-3333-000000000000",
+                  profileName: "Jordan",
                 }),
               ],
               agents: [
@@ -361,21 +365,21 @@ describe("space send OpenMeld profile identity", () => {
           }),
           baseUrl: "https://gateway.openmeld.invalid",
           space: "demo",
-          text: "@Budget Analyst(wake) Please propose the rollout plan.",
+          text: "@Budget Analyst(wake) Please review the rollout plan with @Jordan(reference).",
           view: "human",
         });
       });
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(parsePostSignalBody(fetchMock)).toMatchObject({
-        text: "@Budget Analyst(wake) Please propose the rollout plan.",
+        text: "@Budget Analyst Please review the rollout plan with @Jordan.",
         meta: {
           clientMessageId: expect.any(String),
         },
         messageEnvelope: {
           activationTargets: ["agt_11111111-2222-4333-8444-555555555555"],
-          referenceTargets: [],
-          text: "@Budget Analyst(wake) Please propose the rollout plan.",
+          referenceTargets: ["bbbbbbbb-1111-2222-3333-000000000000"],
+          text: "@Budget Analyst Please review the rollout plan with @Jordan.",
         },
       });
       expect(
@@ -658,7 +662,7 @@ describe("space send OpenMeld profile identity", () => {
         messageEnvelope: {
           activationTargets: ["agt_11111111-2222-4333-8444-555555555555"],
           referenceTargets: [],
-          text: "@Budget Analyst(wake) and @Budget Analyst should only warn once.",
+          text: "@Budget Analyst and @Budget Analyst should only warn once.",
         },
       });
       const warning = findLineEnvelope(
@@ -1063,7 +1067,7 @@ describe("space send OpenMeld profile identity", () => {
         messageEnvelope: {
           activationTargets: ["agt_11111111-2222-4333-8444-555555555555"],
           referenceTargets: [],
-          text: "@Budget Analyst(wake) Leave this untouched.",
+          text: "@Budget Analyst Leave this untouched.",
         },
       });
       expect(
@@ -1126,14 +1130,14 @@ describe("space send OpenMeld profile identity", () => {
         expect.any(Object)
       );
       expect(parsePostSignalBody(fetchMock)).toMatchObject({
-        text: "@Blocked Agent(wake) keep this structured.",
+        text: "@Blocked Agent keep this structured.",
         meta: {
           clientMessageId: expect.any(String),
         },
         messageEnvelope: {
           activationTargets: ["agt_11111111-2222-4333-8444-555555555555"],
           referenceTargets: [],
-          text: "@Blocked Agent(wake) keep this structured.",
+          text: "@Blocked Agent keep this structured.",
         },
       });
       expect(

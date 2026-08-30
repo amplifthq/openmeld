@@ -1140,7 +1140,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 	});
 
-	it("shows a multi-target Wake receipt from member names in the read-only main timeline", () => {
+	it("keeps structured Wake metadata out of the read-only main timeline", () => {
 		const membersSnapshot = createWakeReceiptMembersSnapshot();
 		const wakeItem = createStructuredWakeTimelineItem({
 			activationTargets: [TARGET_PROFILE_ID, SECOND_TARGET_PROFILE_ID],
@@ -1154,14 +1154,8 @@ describe("SpaceConversationPanel", () => {
 			timelineItems: [wakeItem],
 		});
 
-		const receipt = screen.getByTestId("space-message-wake-receipt");
-		expect(receipt.textContent).toBe("→ woke Codex 5.6 Sol, Claude Opus 4.8");
-		expect(receipt.className).toContain("text-muted-foreground");
-		const bubbleContent = receipt.closest("[data-slot='bubble-content']");
-		expect(bubbleContent).not.toBeNull();
-		expect(
-			within(bubbleContent as HTMLElement).getByText("Coordinate the release.")
-		).toBeTruthy();
+		expect(screen.queryByTestId("space-message-wake-receipt")).toBeNull();
+		expect(screen.getByText("Coordinate the release.")).toBeTruthy();
 		expect(screen.queryByRole("textbox")).toBeNull();
 	});
 
@@ -1224,7 +1218,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 	});
 
-	it("omits the Wake receipt for ordinary messages and falls back to a missing target profile ID", () => {
+	it("keeps Wake metadata out of ordinary and structured messages", () => {
 		const missingTargetProfileId = "agt_99999999-9999-4999-8999-999999999999";
 		const ordinaryItem = createTimelineItem({
 			id: "sig-ordinary",
@@ -1249,9 +1243,8 @@ describe("SpaceConversationPanel", () => {
 				"space-message-wake-receipt"
 			)
 		).toBeNull();
-		expect(screen.getByTestId("space-message-wake-receipt").textContent).toBe(
-			`→ woke ${missingTargetProfileId}`
-		);
+		expect(screen.queryByTestId("space-message-wake-receipt")).toBeNull();
+		expect(screen.getByText("Please investigate.")).toBeTruthy();
 	});
 
 	it("stops advancing the unread watermark while the Graph is open", () => {

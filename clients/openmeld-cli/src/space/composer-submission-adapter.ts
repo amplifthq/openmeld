@@ -1,3 +1,4 @@
+import { collectCanonicalMentionTextFragments } from "@openmeld/schemas";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import {
   assertValidSpaceCanonicalMentionSyntax,
@@ -50,15 +51,43 @@ export async function prepareCliSpaceComposerSubmission(input: {
     snapshot: membersSnapshot,
     text: input.text,
   });
+  const outboundText = resolvePublishedMessageText(preparedSubmission.text);
+  const outboundMessageEnvelope = preparedSubmission.messageEnvelope
+    ? {
+        ...preparedSubmission.messageEnvelope,
+        text: outboundText,
+      }
+    : undefined;
 
   return {
-    ...(preparedSubmission.messageEnvelope
-      ? { outboundMessageEnvelope: preparedSubmission.messageEnvelope }
-      : {}),
+    ...(outboundMessageEnvelope ? { outboundMessageEnvelope } : {}),
     ...(preparedSubmission.replyTo
       ? { outboundReplyTo: preparedSubmission.replyTo }
       : {}),
-    outboundText: preparedSubmission.text,
+    outboundText,
     preparedSubmission,
   };
+}
+
+function resolvePublishedMessageText(text: string): string {
+  const canonicalMentions = collectCanonicalMentionTextFragments(text).flatMap(
+    (fragment) =>
+      fragment.parsedLiteral
+        ? [{ ...fragment, parsedLiteral: fragment.parsedLiteral }]
+        : []
+  );
+  if (canonicalMentions.length === 0) {
+    return text;
+  }
+
+  let cursor = 0;
+  const parts: string[] = [];
+  for (const mention of canonicalMentions) {
+    parts.push(text.slice(cursor, mention.start));
+    parts.push(`@${mention.parsedLiteral.name}`);
+    cursor = mention.end;
+  }
+  parts.push(text.slice(cursor));
+
+  return parts.join("");
 }

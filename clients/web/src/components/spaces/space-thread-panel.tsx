@@ -125,7 +125,6 @@ import { SpaceMessageInteractionSource } from "./space-message-interaction-sourc
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
-import { SpaceMessageWakeReceipt } from "./space-message-wake-receipt";
 import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
@@ -1293,10 +1292,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 									placement="message"
 								/>
 							) : null}
-							<SpaceMessageWakeReceipt
-								targetLabelsByProfileId={input.wakeStopTargetLabelsByProfileId}
-								targetProfileIds={input.item.wakeTargetProfileIds}
-							/>
 							{renderAnchoredThreadOutcomeRows({
 								align: messageAlign,
 								notices:

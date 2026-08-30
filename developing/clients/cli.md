@@ -1266,6 +1266,14 @@ not membership, readiness, presence, or execution authority. Agent View emits
 the full validated directory through the presenter protocol; explicit `--json`
 emits the strict versioned `space.members` envelope.
 
+`space send` treats `@Name(wake)` and `@Name(reference)` as CLI authoring
+controls. After validation and target resolution, the posted message text and
+message-envelope text use the bare `@Name`, while activation and reference
+targets retain the exact relation for agents. This keeps CLI-authored messages
+visually consistent with Web without weakening structured addressing. `--plain`
+is the explicit escape hatch that publishes either suffix literally and creates
+no structured target.
+
 `space send --file <path>` accepts up to ten repeatable local paths of any MIME
 type admitted by the shared Space File contract. The CLI validates every file,
 uploads every canonical Space File, and only then posts the normal or thread

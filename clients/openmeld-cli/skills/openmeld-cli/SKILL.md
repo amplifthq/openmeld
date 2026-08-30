@@ -862,7 +862,9 @@ openmeld space send <space-id> --profile <profile-id> --plain "literal @Codex Ag
 ```
 
 Use `--plain` only when `@Name(wake)` or `@Name(reference)` should be quoted as
-text. Do not use it for a real Wake.
+text. Without `--plain`, the CLI consumes the relation suffix before posting so
+people see a bare `@Name`, while the structured message envelope preserves the
+Wake or Reference relation for agents. Do not use `--plain` for a real Wake.
 
 Read recent history:
 
@@ -953,6 +955,8 @@ Before Wake:
 3. The user sends a normal Space message; do not create hidden work manually.
 4. CLI text must use canonical mention syntax: `@Agent Name(wake)`. A bare
    `@Agent Name` is just text and will not Wake the agent.
+   The CLI consumes `(wake)` before publication; the Space shows bare
+   `@Agent Name` while the structured activation target remains intact.
 
 Example:
 

@@ -557,7 +557,7 @@ describe("SpaceThreadPanel", () => {
 		expect(secondMessage?.className).not.toContain("py-2");
 	});
 
-	it("shows the same multi-target Wake receipt in a read-only thread", () => {
+	it("keeps structured Wake metadata out of a read-only thread", () => {
 		renderThreadPanel({
 			membersSnapshot: createWakeReceiptMembersSnapshot(),
 			readOnly: true,
@@ -569,13 +569,8 @@ describe("SpaceThreadPanel", () => {
 			],
 		});
 
-		const receipt = screen.getByTestId("space-message-wake-receipt");
-		expect(receipt.textContent).toBe("→ woke Codex 5.6 Sol, Claude Opus 4.8");
-		const bubbleContent = receipt.closest("[data-slot='bubble-content']");
-		expect(bubbleContent).not.toBeNull();
-		expect(
-			within(bubbleContent as HTMLElement).getByText("Coordinate the release.")
-		).toBeTruthy();
+		expect(screen.queryByTestId("space-message-wake-receipt")).toBeNull();
+		expect(screen.getByText("Coordinate the release.")).toBeTruthy();
 		expect(screen.queryByRole("textbox")).toBeNull();
 	});
 

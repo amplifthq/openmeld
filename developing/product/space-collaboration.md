@@ -486,8 +486,12 @@ chosen relation before send. The system may warn about a possible semantic
 mismatch, but it must not silently convert one structured relation into
 another. Repeating the same Agent mention in one message is not a second
 structured relation: the first occurrence owns the selected Wake or Reference,
-and later occurrences remain ordinary visible text. The exact text is
-preserved, while the Agent appears only once in the structured target set and
+and later occurrences remain ordinary visible text. Web preserves the authored
+visible text. The generic CLI accepts `@Name(wake)` and `@Name(reference)` as
+authoring controls, consumes the relation suffix before publication, and posts
+the same bare `@Name` that Web shows. The structured target set retains the
+exact relation, and `--plain` remains the explicit way to publish either suffix
+literally. The Profile appears only once in the structured target set and
 therefore can be woken only once.
 
 When a message has multiple structured targets, the composer shows a quiet

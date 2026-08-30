@@ -173,7 +173,6 @@ import {
 	resolveSpaceMessageStateTuningVisibility,
 	useSpaceMessageStateTuningPreviewItems,
 } from "./space-message-state-tuning-preview";
-import { SpaceMessageWakeReceipt } from "./space-message-wake-receipt";
 import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
@@ -2422,18 +2421,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 													align={messageAlign}
 													item={item}
 												/>
-												{shouldShowConversationWakeReceipt({
-													isCenterAgentDirectMessage:
-														input.isCenterAgentDirectMessage,
-													isCenterAgentOptimisticReplySource,
-												}) ? (
-													<SpaceMessageWakeReceipt
-														targetLabelsByProfileId={
-															input.wakeStopTargetLabelsByProfileId
-														}
-														targetProfileIds={item.wakeTargetProfileIds}
-													/>
-												) : null}
 												<ThreadPreview
 													membersSnapshot={input.membersSnapshot}
 													onOpenThread={input.onOpenThread}
@@ -2635,15 +2622,6 @@ function resolveIsCenterAgentConversationRun(input: {
 			(item) => item.optimisticAgentReplyState !== undefined
 		) ||
 		input.run.speaker.profileId === input.centerAgentProfileId
-	);
-}
-
-function shouldShowConversationWakeReceipt(input: {
-	isCenterAgentDirectMessage: boolean;
-	isCenterAgentOptimisticReplySource: boolean;
-}): boolean {
-	return !(
-		input.isCenterAgentDirectMessage || input.isCenterAgentOptimisticReplySource
 	);
 }
 
