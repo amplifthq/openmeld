@@ -10,4 +10,5 @@ Space messages now keep failure previews brief, leave complete error context in
 Message details, and offer recovery only when an action is available. Messages
 also omit redundant Wake receipts, while CLI-authored Wake and Reference
 instructions publish the same clean `@Name` people see on Web without losing
-structured targeting for agents.
+structured targeting for agents. Structured Agent Wakes are easier to scan on
+Web with a compact Agent icon and bold name directly in the message.

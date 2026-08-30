@@ -1140,12 +1140,12 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 	});
 
-	it("keeps structured Wake metadata out of the read-only main timeline", () => {
+	it("renders structured Wake targets as inline Agent identities in the read-only main timeline", () => {
 		const membersSnapshot = createWakeReceiptMembersSnapshot();
 		const wakeItem = createStructuredWakeTimelineItem({
 			activationTargets: [TARGET_PROFILE_ID, SECOND_TARGET_PROFILE_ID],
 			membersSnapshot,
-			text: "Coordinate the release.",
+			text: "@Codex 5.6 Sol coordinate with @Claude Opus 4.8.",
 		});
 
 		renderSpaceConversationPanel({
@@ -1155,7 +1155,14 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(screen.queryByTestId("space-message-wake-receipt")).toBeNull();
-		expect(screen.getByText("Coordinate the release.")).toBeTruthy();
+		expect(screen.getByText("Codex 5.6 Sol").tagName).toBe("STRONG");
+		expect(screen.getByText("Claude Opus 4.8").tagName).toBe("STRONG");
+		expect(
+			screen.getByTestId(`space-profile-icon-${TARGET_PROFILE_ID}`)
+		).toBeTruthy();
+		expect(
+			screen.getByTestId(`space-profile-icon-${SECOND_TARGET_PROFILE_ID}`)
+		).toBeTruthy();
 		expect(screen.queryByRole("textbox")).toBeNull();
 	});
 

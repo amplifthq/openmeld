@@ -92,6 +92,7 @@ import {
 	buildSpaceCollaborationProfilePresentations,
 	buildSpaceMemberDirectoryEntryByProfileId,
 	buildWakeStopTargetLabelsByProfileId,
+	type SpaceCollaborationProfilePresentation,
 } from "./space-collaboration-profile";
 import { SpaceComposerAddressingChips } from "./space-composer-addressing";
 import {
@@ -615,6 +616,7 @@ export function SpaceThreadPanel(input: {
 				}
 				orgSlug={input.orgSlug}
 				prepareSetupHref={input.prepareSetupHref}
+				profilePresentationsById={profilePresentationsById}
 				readOnly={input.readOnly === true}
 				registerMessageElement={registerMessageElement}
 				selfAvatarImageUrl={input.selfAvatarImageUrl ?? null}
@@ -881,6 +883,10 @@ function ThreadTimeline(input: {
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	orgSlug?: string;
 	prepareSetupHref?: string;
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
 	readOnly: boolean;
 	registerMessageElement: (
 		signalId: string,
@@ -1011,6 +1017,7 @@ function ThreadTimeline(input: {
 										onRetryWakeTarget={input.onRetryWakeTarget}
 										onWakeStopRequest={input.onWakeStopRequest}
 										orgSlug={input.orgSlug}
+										profilePresentationsById={input.profilePresentationsById}
 										readOnly={input.readOnly}
 										registerMessageElement={input.registerMessageElement}
 										selfAvatarImageUrl={input.selfAvatarImageUrl}
@@ -1066,6 +1073,10 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	orgSlug?: string;
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
 	readOnly: boolean;
 	registerMessageElement: (
 		signalId: string,
@@ -1252,6 +1263,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								onOpenSpaceFile={input.onOpenSpaceFile}
 								openMeldProfileId={input.selfProfileId}
 								orgSlug={input.orgSlug}
+								profilePresentationsById={input.profilePresentationsById}
 								spaceReferencesById={input.spaceReferencesById}
 							/>
 							<SpaceMessageInteractionSource

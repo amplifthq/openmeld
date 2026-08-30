@@ -494,6 +494,11 @@ exact relation, and `--plain` remains the explicit way to publish either suffix
 literally. The Profile appears only once in the structured target set and
 therefore can be woken only once.
 
+Web may enrich the first visible `@Name` owned by a structured Agent Wake with
+the Agent Profile icon and stronger name emphasis. This is presentation of the
+existing structured relation, not inference from message text; an ordinary
+bare `@Agent Name` remains ordinary prose.
+
 When a message has multiple structured targets, the composer shows a quiet
 summary of the exact unique target set. The summary is a preview of structured
 addressing, not an AI inference from prose.

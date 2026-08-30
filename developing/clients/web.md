@@ -2756,6 +2756,13 @@ Graph and the structured message envelope retain the exact Wake or Reference
 relation for agents and diagnostics. Message details remains the drill-in for
 complete execution and failure context.
 
+In the full message body on the main timeline and in the Thread panel, the
+first visible mention owned by each structured Agent Wake renders as one compact
+inline identity: `@`, the Agent's 14-pixel Profile icon, and its bold canonical
+name, without inserted spacing. Web derives this presentation only from the
+structured Wake target and resolved Profile presentation. It does not decorate
+ordinary mention-like text, code, links, or quoted reply previews.
+
 For a durable final reply, Web prefers the complete
 `signal.text.data.meta.agentWorkSummary` projection. It reads the legacy
 `agentActivity` field only when the complete field is absent, so cached older

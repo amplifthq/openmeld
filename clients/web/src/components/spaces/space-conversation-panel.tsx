@@ -122,6 +122,7 @@ import {
 	buildSpaceCollaborationProfilePresentations,
 	buildSpaceMemberDirectoryEntryByProfileId,
 	buildWakeStopTargetLabelsByProfileId,
+	type SpaceCollaborationProfilePresentation,
 } from "./space-collaboration-profile";
 import { SpaceComposerAddressingChips } from "./space-composer-addressing";
 import {
@@ -775,6 +776,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		orgSlug: input.orgSlug,
 		prepareSetupHref: input.prepareSetupHref,
 		profileEntriesById,
+		profilePresentationsById,
 		readOnly: isReadOnly,
 		showCenterAgentStarterActions:
 			messageStateTuningVisibility.showCenterAgentStarterActions,
@@ -1661,6 +1663,10 @@ function renderConversationBody(input: {
 	orgSlug?: string;
 	prepareSetupHref?: string;
 	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
 	readOnly: boolean;
 	showCenterAgentStarterActions: boolean;
 	showStarterComputerSetup: boolean;
@@ -1882,6 +1888,7 @@ function renderConversationBody(input: {
 							input.profileEntriesById.get(entry.run.speaker.profileId) ?? null
 						}
 						profileEntriesById={input.profileEntriesById}
+						profilePresentationsById={input.profilePresentationsById}
 						readOnly={input.readOnly}
 						registerMessageElement={input.registerMessageElement}
 						run={entry.run}
@@ -2068,6 +2075,10 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 	prepareSetupHref?: string;
 	profileDetailsEntry: SpaceMemberDirectoryEntry | null;
 	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
 	readOnly: boolean;
 	registerMessageElement: (
 		signalId: string,
@@ -2379,6 +2390,9 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 													onOpenSpaceFile={input.onOpenSpaceFile}
 													openMeldProfileId={input.selfProfileId}
 													orgSlug={input.orgSlug}
+													profilePresentationsById={
+														input.profilePresentationsById
+													}
 													spaceReferencesById={input.spaceReferencesById}
 												/>
 												<SpaceMessageInteractionSource
