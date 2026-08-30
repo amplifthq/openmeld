@@ -253,9 +253,9 @@ export async function renameAgentProfile(input: {
 				input.context.storageScope
 			),
 		}),
-		input.context.queryClient.invalidateQueries({
-			queryKey: organizationQueryKeys.all,
-		}),
+		input.context.queryClient.invalidateQueries(
+			organizationDirectoryQueryFilters()
+		),
 	]);
 	return updatedProfile;
 }
