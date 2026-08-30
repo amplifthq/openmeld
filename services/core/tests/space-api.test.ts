@@ -8095,6 +8095,7 @@ describe("OpenMeld Core", () => {
   });
 
   it("returns an accepted idempotent Reference after later membership removal", async () => {
+    const referenceAgentProfileId = "agt_22222222-2222-4222-8222-222222222222";
     const spaceId = await createSpace({
       name: `rpc-idempotent-reference-${Date.now()}`,
     });
@@ -8106,12 +8107,12 @@ describe("OpenMeld Core", () => {
         body: JSON.stringify({
           members: [
             {
-              profileId: SECOND_HUMAN_PROFILE_ID,
+              profileId: referenceAgentProfileId,
               profileName: "Reference Target",
-              profileKind: "human",
-              ownerUserId: null,
-              ownerName: null,
-              agentControllerRef: null,
+              profileKind: "agent",
+              ownerUserId: "owner-idempotent-reference-agent",
+              ownerName: "Reference Agent Owner",
+              agentControllerRef: "builtin:codex",
             },
           ],
         }),
@@ -8151,7 +8152,7 @@ describe("OpenMeld Core", () => {
       context: rpcContext,
       messageEnvelope: {
         activationTargets: [],
-        referenceTargets: [SECOND_HUMAN_PROFILE_ID],
+        referenceTargets: [referenceAgentProfileId],
         text: "@Reference Target(reference) keep this context",
       },
       meta: { clientMessageId },
@@ -8171,7 +8172,7 @@ describe("OpenMeld Core", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          memberProfileIds: [SECOND_HUMAN_PROFILE_ID],
+          memberProfileIds: [referenceAgentProfileId],
         }),
       }
     );
@@ -8194,7 +8195,7 @@ describe("OpenMeld Core", () => {
         id: accepted.id,
         data: expect.objectContaining({
           messageEnvelope: expect.objectContaining({
-            referenceTargets: [SECOND_HUMAN_PROFILE_ID],
+            referenceTargets: [referenceAgentProfileId],
           }),
         }),
       })
