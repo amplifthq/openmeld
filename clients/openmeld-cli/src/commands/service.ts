@@ -1829,9 +1829,19 @@ async function resolveDaemonRunAuthReadiness(input: {
     getAuthSessionState({
       validateRemote: false,
     })
-  ).catch(() => null);
+  ).catch((error: unknown) => {
+    console.warn("[openmeld.service.auth_session_read_failed]", {
+      error: toErrorMessage(error),
+    });
+    return null;
+  });
   const session = authState?.session ?? null;
   if (authState?.state !== "valid" || !session) {
+    console.warn("[openmeld.service.auth_session_not_ready]", {
+      error: authState?.errorMessage,
+      reasonCode: authState?.reasonCode ?? "session_state_unavailable",
+      state: authState?.state ?? "unavailable",
+    });
     const guidance = resolveAuthenticationGuidance({
       reason: "required",
       action: "starting OpenMeld Service",

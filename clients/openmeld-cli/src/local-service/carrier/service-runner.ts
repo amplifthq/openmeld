@@ -300,6 +300,11 @@ export async function resolveDaemonServiceOwnerContext(input: {
   }
 
   if (authState?.state !== "valid" || authSession === null) {
+    console.warn("[openmeld.daemon.owner_auth_not_ready]", {
+      error: authState?.errorMessage,
+      reasonCode: authState?.reasonCode ?? "session_state_unavailable",
+      state: authState?.state ?? "unavailable",
+    });
     throw new DaemonServiceRunError({
       code: "daemon.run.auth_required",
       message: "authentication required before starting OpenMeld Service",

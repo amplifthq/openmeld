@@ -8,6 +8,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -198,6 +199,99 @@ describe("auth session transition integrity", () => {
       await expect(readStoredTokenInventory(home)).resolves.toEqual([
         "candidate-token",
       ]);
+    });
+  });
+
+  it("keeps the candidate visible to overlapping Service startup attempts", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      await beginAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "candidate-owner" },
+      });
+
+      const barrierDirectory = join(home, "candidate-service-read-barrier");
+      await mkdir(barrierDirectory, { recursive: true });
+      const first = spawnPausedCandidateServiceAuthSessionRead({
+        barrierDirectory,
+      });
+      await waitForFile(join(barrierDirectory, "first.ready"));
+
+      await expect(
+        spawnCandidateServiceAuthSessionRead().result
+      ).resolves.toMatchObject({
+        status: "success",
+        userId: "candidate-owner",
+      });
+      await writeFile(join(barrierDirectory, "first.release"), "go\n", "utf8");
+
+      await expect(first.result).resolves.toMatchObject({
+        status: "success",
+        userId: "candidate-owner",
+      });
+    });
+  });
+
+  it("keeps a remotely validated candidate usable while Setup owns the transition", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      const server = createServer((_request, response) => {
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "set-auth-token": "candidate-token-refreshed",
+        });
+        response.end(
+          JSON.stringify({
+            session: {
+              expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              id: "candidate-session",
+            },
+            user: { id: "candidate-owner" },
+          })
+        );
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      try {
+        const address = server.address();
+        if (!(address && typeof address === "object")) {
+          throw new Error("candidate auth fixture did not bind a local port");
+        }
+        const authBaseUrl = `http://127.0.0.1:${String(address.port)}`;
+        await setAuthSession({
+          accessToken: "previous-token",
+          authBaseUrl,
+          clientId: "openmeld-cli",
+          user: { id: "previous-owner" },
+        });
+        await beginAuthSessionTransition({
+          accessToken: "candidate-token",
+          authBaseUrl,
+          clientId: "openmeld-cli",
+          user: { id: "candidate-owner" },
+        });
+
+        await expect(
+          spawnCandidateServiceAuthSessionRead({ validateRemote: true }).result
+        ).resolves.toMatchObject({
+          status: "success",
+          userId: "candidate-owner",
+        });
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
     });
   });
 
@@ -906,11 +1000,77 @@ function spawnOrdinaryAuthSessionRead(): {
   return spawnAuthSessionRead();
 }
 
-function spawnCandidateServiceAuthSessionRead(): {
+function spawnCandidateServiceAuthSessionRead(
+  input: { validateRemote?: boolean } = {}
+): {
   child: ChildProcessWithoutNullStreams;
   result: Promise<RacingAuthSessionTransitionResult>;
 } {
-  return spawnAuthSessionRead({ runtimeMode: "background" });
+  return spawnAuthSessionRead({
+    runtimeMode: "background",
+    validateRemote: input.validateRemote,
+  });
+}
+
+function spawnPausedCandidateServiceAuthSessionRead(input: {
+  barrierDirectory: string;
+}): {
+  child: ChildProcessWithoutNullStreams;
+  result: Promise<RacingAuthSessionTransitionResult>;
+} {
+  const { authSessionModuleUrl, tsxLoaderPath } = resolveAuthSessionFixture();
+  const readyPath = join(input.barrierDirectory, "first.ready");
+  const releasePath = join(input.barrierDirectory, "first.release");
+  const script = `
+    import fs from "node:fs";
+    import { syncBuiltinESMExports } from "node:module";
+    import { setTimeout as sleep } from "node:timers/promises";
+
+    const originalReadFile = fs.promises.readFile.bind(fs.promises);
+    let transitionJournalReadCount = 0;
+    fs.promises.readFile = async (...args) => {
+      const target = String(args[0]);
+      if (target.endsWith("/auth/session-transition.json")) {
+        transitionJournalReadCount += 1;
+        if (transitionJournalReadCount === 4) {
+          await fs.promises.writeFile(${JSON.stringify(readyPath)}, "ready\\n", "utf8");
+          while (true) {
+            const released = await originalReadFile(${JSON.stringify(releasePath)}, "utf8").then(
+              () => true,
+              (error) => error?.code === "ENOENT" ? false : Promise.reject(error)
+            );
+            if (released) {
+              break;
+            }
+            await sleep(10);
+          }
+        }
+      }
+      return await originalReadFile(...args);
+    };
+    syncBuiltinESMExports();
+
+    const { getAuthSessionState } = await import(${JSON.stringify(authSessionModuleUrl)});
+    try {
+      const auth = await getAuthSessionState({ validateRemote: false });
+      process.stdout.write(JSON.stringify({
+        status: "success",
+        userId: auth.session?.user?.id ?? "",
+      }));
+    } catch (error) {
+      process.stdout.write(JSON.stringify({
+        status: "error",
+        userId: "",
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  `;
+  return spawnAuthSessionFixture({
+    env: { OPENMELD_DAEMON_RUNTIME_MODE: "background" },
+    script,
+    tsxLoaderPath,
+  });
 }
 
 function spawnAuthSessionRead(
@@ -918,6 +1078,7 @@ function spawnAuthSessionRead(
     preserveTransitionJournal?: boolean;
     runtimeMode?: "background";
     startedPath?: string;
+    validateRemote?: boolean;
   } = {}
 ): {
   child: ChildProcessWithoutNullStreams;
@@ -947,7 +1108,7 @@ function spawnAuthSessionRead(
     const { getAuthSessionState } = await import(${JSON.stringify(authSessionModuleUrl)});
     ${input.startedPath ? `await fs.promises.writeFile(${JSON.stringify(input.startedPath)}, "started\\n", "utf8");` : ""}
     try {
-      const auth = await getAuthSessionState({ validateRemote: false });
+      const auth = await getAuthSessionState({ validateRemote: ${String(input.validateRemote === true)} });
       process.stdout.write(JSON.stringify({
         status: "success",
         userId: auth.session?.user?.id ?? "",
