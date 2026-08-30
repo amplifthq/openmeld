@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  assertGuardedLocalEvidenceRepository,
   parseProductionReleaseStatusArgs,
   resolveLatestSuccessfulReleaseSources,
   runProductionReleaseStatus,
@@ -38,6 +39,8 @@ const RECORDED_VALIDATION_REGEX =
   /Source validation: recorded push checks passed/u;
 const WEB_SCOPE_PATTERN = /web/u;
 const UNRELATED_MISSING_SCOPES_PATTERN = /db, gateway, auth, cli, core/u;
+const REPOSITORY_MISMATCH_PATTERN =
+  /does not match the current checkout repository/u;
 
 const RELEASE_RUNS = [
   releaseRun({
@@ -244,6 +247,7 @@ test("recognizes guarded local release evidence without manual deployed override
       [
         "cli",
         {
+          recordedAt: "2026-07-15T21:00:00Z",
           sha: SOURCE_SHA,
           source: "guarded-local",
           url: undefined,
@@ -252,6 +256,7 @@ test("recognizes guarded local release evidence without manual deployed override
       [
         "core",
         {
+          recordedAt: "2026-07-15T21:00:00Z",
           sha: SOURCE_SHA,
           source: "guarded-local",
           url: undefined,
@@ -278,6 +283,93 @@ test("recognizes guarded local release evidence without manual deployed override
   assert.equal(
     result.components.find((component) => component.scope === "core").source,
     "guarded-local"
+  );
+});
+
+test("uses a later guarded local rollback instead of a newer-SHA hosted release", async () => {
+  let output = "";
+  const adapters = releaseStatusAdapters({ pushChecks: [] });
+  adapters.buildPlan = () => ({ changedPaths: [], scopes: ["web"] });
+  adapters.readReleaseRuns = async () => [RELEASE_RUNS[1]];
+  adapters.readLocalReleaseSources = async () =>
+    new Map([
+      [
+        "web",
+        {
+          recordedAt: "2026-07-15T21:00:00Z",
+          sha: GATEWAY_REMOTE_SHA,
+          source: "guarded-local",
+          url: undefined,
+        },
+      ],
+    ]);
+  adapters.sourceIsAncestor = (candidateSha, sourceSha) =>
+    !(candidateSha === WEB_SHA && sourceSha === GATEWAY_REMOTE_SHA);
+
+  const exitCode = await runProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", "origin/main", "--change-base", CHANGE_BASE_SHA, "--json"],
+    write: (value) => {
+      output += value;
+    },
+  });
+
+  assert.equal(exitCode, 0, output);
+  const web = JSON.parse(output).components.find(
+    (component) => component.scope === "web"
+  );
+  assert.equal(web.sha, GATEWAY_REMOTE_SHA);
+  assert.equal(web.source, "guarded-local");
+});
+
+test("keeps a later hosted release ahead of stale guarded local evidence", async () => {
+  let output = "";
+  const adapters = releaseStatusAdapters({ pushChecks: [] });
+  adapters.buildPlan = () => ({ changedPaths: [], scopes: ["web"] });
+  adapters.readReleaseRuns = async () => [RELEASE_RUNS[1]];
+  adapters.readLocalReleaseSources = async () =>
+    new Map([
+      [
+        "web",
+        {
+          recordedAt: "2026-07-15T20:00:00Z",
+          sha: GATEWAY_REMOTE_SHA,
+          source: "guarded-local",
+          url: undefined,
+        },
+      ],
+    ]);
+
+  const exitCode = await runProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", "origin/main", "--change-base", CHANGE_BASE_SHA, "--json"],
+    write: (value) => {
+      output += value;
+    },
+  });
+
+  assert.equal(exitCode, 0, output);
+  const web = JSON.parse(output).components.find(
+    (component) => component.scope === "web"
+  );
+  assert.equal(web.sha, WEB_SHA);
+  assert.equal(web.source, "github");
+});
+
+test("does not mix guarded local evidence from another selected repository", () => {
+  assert.doesNotThrow(() =>
+    assertGuardedLocalEvidenceRepository(
+      "amplifthq/openmeld",
+      "AmpliftHQ/OpenMeld"
+    )
+  );
+  assert.throws(
+    () =>
+      assertGuardedLocalEvidenceRepository(
+        "another-owner/openmeld",
+        "amplifthq/openmeld"
+      ),
+    REPOSITORY_MISMATCH_PATTERN
   );
 });
 

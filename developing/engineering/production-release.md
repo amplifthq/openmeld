@@ -80,11 +80,13 @@ already-running release merely to chase a newer `main`.
 
 After every fully successful guarded local release, the executor atomically
 advances one ref per completed scope under
-`refs/heads/openmeld-production-release-evidence/<scope>`. Each ref points
-directly to the exact released first-parent `main` commit. `release:status`
-combines those refs with hosted release jobs and uses the newest proven ancestor
-for each scope, so a workstation release cannot disappear merely because no
-GitHub deployment job ran.
+`refs/heads/openmeld-production-release-evidence/<scope>`. Each ref advances an
+append-only evidence chain whose latest record contains the exact released
+first-parent `main` commit and completion time. `release:status` combines those
+records with hosted release jobs and uses the latest completed event for each
+scope. A workstation release therefore cannot disappear merely because no
+GitHub deployment job ran, and an explicit rollback remains visible as the
+latest deployed source instead of being mistaken for a failed evidence write.
 
 `--deployed` remains a one-run diagnostic override for historical releases that
 predate these refs. It is not the normal completion path:

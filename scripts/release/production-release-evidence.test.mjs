@@ -10,14 +10,12 @@ import {
   readGuardedLocalReleaseSources,
 } from "./production-release-evidence.mjs";
 
-const REFUSES_EVIDENCE_REGRESSION =
-  /refusing to move it backward or across history/u;
-
 test("publishes exact guarded local release sources for later status checks", () => {
   const fixture = createGitFixture();
   try {
     publishGuardedLocalReleaseEvidence({
       cwd: fixture.repository,
+      now: "2026-08-30T17:00:00.000Z",
       remote: fixture.remote,
       scopes: ["cli", "core"],
       sourceSha: fixture.sourceSha,
@@ -32,11 +30,13 @@ test("publishes exact guarded local release sources for later status checks", ()
       ),
       {
         cli: {
+          recordedAt: "2026-08-30T17:00:00.000Z",
           sha: fixture.sourceSha,
           source: "guarded-local",
           url: undefined,
         },
         core: {
+          recordedAt: "2026-08-30T17:00:00.000Z",
           sha: fixture.sourceSha,
           source: "guarded-local",
           url: undefined,
@@ -48,17 +48,19 @@ test("publishes exact guarded local release sources for later status checks", ()
   }
 });
 
-test("advances release evidence without allowing an older release to overwrite it", () => {
+test("records an intentional rollback as the latest guarded local release", () => {
   const fixture = createGitFixture();
   try {
     const firstPublish = publishGuardedLocalReleaseEvidence({
       cwd: fixture.repository,
+      now: "2026-08-30T17:00:00.000Z",
       remote: fixture.remote,
       scopes: ["web"],
       sourceSha: fixture.sourceSha,
     });
     const repeatedPublish = publishGuardedLocalReleaseEvidence({
       cwd: fixture.repository,
+      now: "2026-08-30T17:01:00.000Z",
       remote: fixture.remote,
       scopes: ["web"],
       sourceSha: fixture.sourceSha,
@@ -66,6 +68,7 @@ test("advances release evidence without allowing an older release to overwrite i
     const nextSourceSha = fixture.commit("next release evidence\n");
     const nextPublish = publishGuardedLocalReleaseEvidence({
       cwd: fixture.repository,
+      now: "2026-08-30T17:02:00.000Z",
       remote: fixture.remote,
       scopes: ["web"],
       sourceSha: nextSourceSha,
@@ -74,22 +77,20 @@ test("advances release evidence without allowing an older release to overwrite i
     assert.equal(firstPublish.published, true);
     assert.equal(repeatedPublish.published, false);
     assert.equal(nextPublish.published, true);
-    assert.throws(
-      () =>
-        publishGuardedLocalReleaseEvidence({
-          cwd: fixture.repository,
-          remote: fixture.remote,
-          scopes: ["web"],
-          sourceSha: fixture.sourceSha,
-        }),
-      REFUSES_EVIDENCE_REGRESSION
-    );
+    const rollbackPublish = publishGuardedLocalReleaseEvidence({
+      cwd: fixture.repository,
+      now: "2026-08-30T17:03:00.000Z",
+      remote: fixture.remote,
+      scopes: ["web"],
+      sourceSha: fixture.sourceSha,
+    });
+    assert.equal(rollbackPublish.published, true);
     assert.equal(
       readGuardedLocalReleaseSources({
         cwd: fixture.repository,
         remote: fixture.remote,
       }).get("web")?.sha,
-      nextSourceSha
+      fixture.sourceSha
     );
   } finally {
     rmSync(fixture.root, { force: true, recursive: true });

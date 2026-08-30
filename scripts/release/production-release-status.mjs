@@ -258,13 +258,21 @@ function mergeGuardedLocalReleaseSources(input) {
     const current = input.sources.get(scope);
     if (
       current &&
-      current.sha !== localSource.sha &&
-      !input.sourceIsAncestor(current.sha, localSource.sha)
+      readRecordedAt(localSource, "guarded local release evidence") <=
+        readRecordedAt(current, "hosted release evidence")
     ) {
       continue;
     }
     input.sources.set(scope, localSource);
   }
+}
+
+function readRecordedAt(source, label) {
+  const value = Date.parse(String(source.recordedAt ?? ""));
+  if (Number.isNaN(value)) {
+    throw new Error(`${label} requires a valid recordedAt timestamp.`);
+  }
+  return value;
 }
 
 function buildReleaseStatusBlockers(input) {
@@ -361,6 +369,7 @@ function addSuccessfulReleaseSources(input) {
         mapping.patterns.some((pattern) => pattern.test(job.name))
       ) {
         input.sources.set(mapping.scope, {
+          recordedAt: input.run.createdAt,
           runId: input.run.databaseId,
           sha: job.releaseSha,
           source: "github",
@@ -419,6 +428,18 @@ function describeSourceValidation(pushChecks, pushCheckBlockers) {
 }
 
 function defaultAdapters() {
+  let checkoutRepository;
+  const resolveCheckoutRepository = () => {
+    checkoutRepository ??= runGh([
+      "repo",
+      "view",
+      "--json",
+      "nameWithOwner",
+      "--jq",
+      ".nameWithOwner",
+    ]).trim();
+    return checkoutRepository;
+  };
   return {
     buildPlan: ({ base, sourceSha }) =>
       buildProductionReleasePlan({
@@ -444,7 +465,10 @@ function defaultAdapters() {
           "workflowName,status,conclusion,event,url,createdAt",
         ])
       ).filter((run) => run.event === "push"),
-    readLocalReleaseSources: async () => readGuardedLocalReleaseSources(),
+    readLocalReleaseSources: (repo) => {
+      assertGuardedLocalEvidenceRepository(repo, resolveCheckoutRepository());
+      return readGuardedLocalReleaseSources();
+    },
     readJobReleaseSha: async (job, repo, run) => {
       const titleSource = RELEASE_TITLE_SOURCE_REGEX.exec(
         run.displayTitle ?? ""
@@ -490,15 +514,7 @@ function defaultAdapters() {
       ]),
     resolveRef: (ref) =>
       runGit(["rev-parse", "--verify", `${ref}^{commit}`]).trim(),
-    resolveRepo: () =>
-      runGh([
-        "repo",
-        "view",
-        "--json",
-        "nameWithOwner",
-        "--jq",
-        ".nameWithOwner",
-      ]).trim(),
+    resolveRepo: resolveCheckoutRepository,
     sourceIsAncestor: (candidateSha, sourceSha) => {
       const result = spawnSync(
         resolveCommandBinary("git"),
@@ -516,6 +532,23 @@ function defaultAdapters() {
       );
     },
   };
+}
+
+export function assertGuardedLocalEvidenceRepository(
+  selectedRepository,
+  checkoutRepository
+) {
+  const selected = String(selectedRepository ?? "")
+    .trim()
+    .toLowerCase();
+  const checkout = String(checkoutRepository ?? "")
+    .trim()
+    .toLowerCase();
+  if (!(selected && checkout && selected === checkout)) {
+    throw new Error(
+      `Selected repository ${selectedRepository} does not match the current checkout repository ${checkoutRepository}; refusing to mix guarded local release evidence from origin.`
+    );
+  }
 }
 
 function latestPushCheckPerWorkflow(checks) {
