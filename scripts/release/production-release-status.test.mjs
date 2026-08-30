@@ -98,14 +98,19 @@ const JOBS_BY_RUN = new Map([
   [
     29_448_168_904,
     [
-      releaseJob(
-        "Release Core Worker / ⚙️ Deploy Core Worker",
-        WEB_SHA,
-        "failure"
-      ),
+      releaseJob("Release Core Worker / ⚙️ Deploy Core Worker", WEB_SHA, {
+        conclusion: "failure",
+      }),
     ],
   ],
-  [29_447_217_195, [releaseJob("Release Web / 🌐 Deploy Web", WEB_SHA)]],
+  [
+    29_447_217_195,
+    [
+      releaseJob("Release Web / 🌐 Deploy Web", WEB_SHA, {
+        completedAt: "2026-07-15T20:15:00Z",
+      }),
+    ],
+  ],
   [
     29_446_538_975,
     [releaseJob("Release Core Worker / ⚙️ Deploy Core Worker", CORE_SHA)],
@@ -234,6 +239,7 @@ test("uses successful deploy jobs even when a parent workflow later fails", () =
       web: WEB_SHA,
     }
   );
+  assert.equal(sources.get("web")?.recordedAt, "2026-07-15T20:15:00Z");
 });
 
 test("recognizes guarded local release evidence without manual deployed overrides", async () => {
@@ -485,6 +491,10 @@ function releaseRun(input) {
   };
 }
 
-function releaseJob(name, releaseSha, conclusion = "success") {
-  return { conclusion, name, releaseSha };
+function releaseJob(
+  name,
+  releaseSha,
+  { completedAt, conclusion = "success" } = {}
+) {
+  return { completed_at: completedAt, conclusion, name, releaseSha };
 }

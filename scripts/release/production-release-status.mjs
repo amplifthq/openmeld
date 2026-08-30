@@ -369,7 +369,8 @@ function addSuccessfulReleaseSources(input) {
         mapping.patterns.some((pattern) => pattern.test(job.name))
       ) {
         input.sources.set(mapping.scope, {
-          recordedAt: input.run.createdAt,
+          recordedAt:
+            job.completedAt ?? job.completed_at ?? input.run.createdAt,
           runId: input.run.databaseId,
           sha: job.releaseSha,
           source: "github",
