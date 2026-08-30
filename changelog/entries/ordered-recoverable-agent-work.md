@@ -12,6 +12,8 @@ waiting. If Usage runs out mid-task, OpenMeld resumes that interrupted task once
 current Usage returns, while later queued tasks stay paused until the owner
 explicitly approves them. When Codex is already using the same local
 conversation, OpenMeld keeps the Wake at the front of the queue and continues
-as soon as Codex releases it instead of reporting a false failure. Work details
-also stay reliable in large Agent directories, and finished work no longer
-leaves stale coordinator state accumulating behind the scenes.
+as soon as Codex releases it instead of reporting a false failure. Stopping that
+Wake ends the wait immediately, even when Codex's local writer signal is
+temporarily unavailable. Work details also stay reliable in large Agent
+directories, and finished work no longer leaves stale coordinator state
+accumulating behind the scenes.

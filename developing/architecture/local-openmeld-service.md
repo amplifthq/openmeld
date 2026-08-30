@@ -402,9 +402,12 @@ for that resume is structured Agent Controller conversation occupancy, not a
 Wake failure. OpenMeld keeps the task at the Profile FIFO head, observes the
 official lock release, and retries that same metadata-only resume immediately.
 A low-frequency recovery retry handles a missed filesystem event or abrupt
-writer exit; normal execution adds no extra query or network round trip. No
-other RPC code, message, timeout, stderr, process presence, or Agent Activity
-fact may be promoted to occupancy.
+writer exit. If the exact lock is unexpectedly not visible after Codex reports
+writer occupancy, the retry uses a short bounded backoff instead of spinning.
+Wake Stop aborts the task's lock watcher and retry boundary immediately, and
+that task must not issue another `thread/resume`. Normal execution adds no extra
+query or network round trip. No other RPC code, message, timeout, stderr,
+process presence, or Agent Activity fact may be promoted to occupancy.
 
 If an existing controller conversation
 is missing or does not acknowledge resume within the short resume admission

@@ -341,7 +341,10 @@ Important execution rules:
   same provider admission. It must not submit a result, promote the next Wake,
   infer occupancy from Agent Activity, or classify generic transport failures
   as busy. A recovery alarm may retry after a missed signal, but it is not the
-  normal availability loop.
+  normal availability loop. Wake Stop must cancel this wait immediately and
+  fence every later provider-admission retry for the stopped task. Missing
+  provider release evidence uses bounded backoff and must not become a tight
+  retry loop.
 - Compatibility claim endpoints may exist during migration, but they must not
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come

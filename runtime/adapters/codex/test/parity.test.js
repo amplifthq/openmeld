@@ -152,6 +152,80 @@ test("codex waits on an official writer conflict and retries the same dispatch",
   ]);
 });
 
+test("codex Stop aborts an occupied writer wait without resuming the thread again", async () => {
+  const { CodexAppServerTransportError, createCodexAdapter } = await import(
+    "../dist/index.js"
+  );
+
+  for (const control of ["cancel", "interrupt"]) {
+    let dispatchCalls = 0;
+    let waitStartedResolve;
+    const waitStarted = new Promise((resolve) => {
+      waitStartedResolve = resolve;
+    });
+    const events = [];
+    const adapter = createCodexAdapter({
+      invokeByMode: {
+        "codex-app-server": () => {
+          dispatchCalls += 1;
+          throw new CodexAppServerTransportError({
+            agentControllerConversationOccupancy: {
+              agentControllerConversationId: `thread-stop-${control}`,
+              contractVersion: 1,
+              state: "occupied",
+            },
+            code: "agent_controller.conversation_occupied",
+            errorType: "adapter",
+            message: `thread thread-stop-${control} already has an active writer`,
+            rpcErrorCode: -32_600,
+          });
+        },
+      },
+      waitForThreadWriterAvailability: ({ signal }) => {
+        waitStartedResolve();
+        if (!signal) {
+          throw new Error("expected the task AbortSignal at the writer wait");
+        }
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", () => resolve("aborted"), {
+            once: true,
+          });
+        });
+      },
+    });
+    const dispatchOutcome = adapter
+      .dispatch({
+        agentControllerConversationId: `thread-stop-${control}`,
+        agentId: "agt-demo",
+        onRuntimeEvent: (event) => {
+          if (event.phase.startsWith("agent_controller_conversation_")) {
+            events.push(event.phase);
+          }
+        },
+        prompt: "continue",
+        runtimeContext: createRuntimeContext(),
+        sourceEventId: `evt-stop-${control}`,
+        spaceId: "space-1",
+        taskId: `task-stop-${control}`,
+        transportMode: "codex-app-server",
+      })
+      .catch((error) => error);
+
+    await waitStarted;
+    const controlResult = await adapter[control]({
+      ...(control === "interrupt" ? { mode: "force" } : {}),
+      taskId: `task-stop-${control}`,
+    });
+    const dispatchResult = await dispatchOutcome;
+
+    assert.equal(controlResult.accepted, true);
+    assert.equal(dispatchResult.status, "failed");
+    assert.equal(dispatchResult.errorCode, "runtime.turn.cancelled");
+    assert.equal(dispatchCalls, 1);
+    assert.deepEqual(events, ["agent_controller_conversation_occupied"]);
+  }
+});
+
 test("codex retries immediately when the official writer lock is released", async () => {
   const { waitForCodexThreadWriterAvailability } = await import(
     "../dist/index.js"
@@ -178,6 +252,67 @@ test("codex retries immediately when the official writer lock is released", asyn
     }, 25);
     await waiting;
     assert.ok(Date.now() - startedAtMs < 1000);
+  } finally {
+    await rm(codexHome, { force: true, recursive: true });
+  }
+});
+
+test("codex writer wait closes immediately when the Wake is stopped", async () => {
+  const { waitForCodexThreadWriterAvailability } = await import(
+    "../dist/index.js"
+  );
+  const codexHome = await mkdtemp(join(tmpdir(), "codex-home-stop-lock-"));
+  const lockDirectory = join(codexHome, "thread-writer-locks");
+  const lockPath = join(lockDirectory, "thread-stop.lock");
+  const abortController = new AbortController();
+  await mkdir(lockDirectory, { recursive: true });
+  await writeFile(lockPath, "");
+
+  try {
+    const waiting = waitForCodexThreadWriterAvailability({
+      env: { CODEX_HOME: codexHome },
+      occupancy: {
+        agentControllerConversationId: "thread-stop",
+        contractVersion: 1,
+        state: "occupied",
+      },
+      recoveryRetryMs: 2000,
+      signal: abortController.signal,
+    });
+    setTimeout(() => abortController.abort(), 25);
+
+    assert.equal(await waiting, "aborted");
+    assert.equal(await readFile(lockPath, "utf8"), "");
+  } finally {
+    await rm(codexHome, { force: true, recursive: true });
+  }
+});
+
+test("codex writer wait backs off when an occupied thread lock is not visible", async () => {
+  const { waitForCodexThreadWriterAvailability } = await import(
+    "../dist/index.js"
+  );
+  const codexHome = await mkdtemp(join(tmpdir(), "codex-home-missing-lock-"));
+  let settled = false;
+
+  try {
+    const waiting = waitForCodexThreadWriterAvailability({
+      env: { CODEX_HOME: codexHome },
+      missingLockRetryMs: 100,
+      occupancy: {
+        agentControllerConversationId: "thread-missing-lock",
+        contractVersion: 1,
+        state: "occupied",
+      },
+      recoveryRetryMs: 2000,
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(settled, false);
+    assert.equal(await waiting, "recheck");
   } finally {
     await rm(codexHome, { force: true, recursive: true });
   }
