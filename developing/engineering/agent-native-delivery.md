@@ -39,7 +39,10 @@ unrelated agents to wait.
 
 1. Ordinary branch pushes do not trigger broad paid CI. An agent requests one
    Final Candidate only when one committed PR head is ready for final
-   evaluation.
+   evaluation. Final Candidate is paid, potentially high-latency merge
+   certification, not a development, debugging, or review-discovery loop. Use
+   one practical test: if a green result would not make merge the next action,
+   keep using the smallest focused or affected checks that prove the work.
 2. Candidate evidence identifies one exact `head SHA + validation base SHA +
    tree SHA`, plus candidate kind (`pull-request` or `merge-group`). Evidence
    never transfers to another identity.
@@ -88,6 +91,11 @@ Before requesting Final Candidate:
 3. fetch current `origin/main` and sync it into the branch;
 4. resolve conflicts and rerun checks affected by the sync; and
 5. confirm a clean worktree and an open, non-draft PR targeting `main`.
+
+These are engineering facts, not an approval form. Final Candidate does not
+require a waiting period, a fixed reviewer count, or permission from a central
+coordinator. The responsible agent keeps the judgment and may request stronger
+confidence when the actual risk warrants it.
 
 Do not ask unrelated agents to freeze `main`. If another operation genuinely
 blocks this task, preserve the exact SHA and completed evidence, state the one
@@ -283,8 +291,12 @@ Anything not run, with reason
 
 ## Failure And Recovery
 
-- Check or identity failure: keep the exact failure, fix the cause on a new
-  commit, sync `main`, and create one new candidate.
+- Check or identity failure: keep the exact failure and classify it before
+  spending another candidate run. Reproduce deterministic code or test failures
+  with the smallest useful local command, batch the known fixes, sync `main`,
+  and create one new candidate only after the branch is again ready to merge.
+  Retry the same SHA unchanged only when the evidence points to runner,
+  platform, network, or genuinely flaky-test failure.
 - Hosted candidate unavailable: use `status` or `wait` to preserve the exact
   GitHub reason. The trusted local fallback remains available; do not relabel
   the unchanged head repeatedly, weaken status protection, or invent success.

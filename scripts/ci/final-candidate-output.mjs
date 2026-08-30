@@ -27,6 +27,9 @@ export function printPlan(plan, dirtyPaths) {
       `Branch: ${plan.branchName}`,
       `Confidence: ${plan.confidence}`,
       `Risk: ${plan.riskTags.join(", ") || "none"}`,
+      "Cost: paid GitHub Actions when requested; selected checks may be high latency.",
+      "Use: final merge certification, not development, debugging, or review discovery.",
+      "Practical trigger: request only when a green result means the next action is merge.",
       "Changed paths:",
       ...(plan.changedPaths.length > 0
         ? plan.changedPaths.map((candidatePath) => `- ${candidatePath}`)

@@ -48,6 +48,12 @@ const DOCUMENTATION_CHECK_PATTERN = /documentation-contracts/u;
 const FAILURE_STATUS_PATTERN = /state=failure/u;
 const MAIN_ADVANCED_PATTERN = /Main advanced/u;
 const REMOTE_MODE_PATTERN = /Mode: remote/u;
+const PAID_HOSTED_COST_PATTERN =
+  /Cost: paid GitHub Actions when requested; selected checks may be high latency\./u;
+const FINAL_CERTIFICATION_PATTERN =
+  /Use: final merge certification, not development, debugging, or review discovery\./u;
+const PRACTICAL_TRIGGER_PATTERN =
+  /Practical trigger: request only when a green result means the next action is merge\./u;
 const PENDING_STATUS_PATTERN = /state=pending/u;
 const SANDBOX_DENIED_PATTERN = /sandbox denied/u;
 const SUCCESS_STATUS_PATTERN = /state=success/u;
@@ -181,6 +187,9 @@ test("a hosted request prints the authoritative remote plan from current main", 
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, REMOTE_MODE_PATTERN);
+    assert.match(result.stdout, PAID_HOSTED_COST_PATTERN);
+    assert.match(result.stdout, FINAL_CERTIFICATION_PATTERN);
+    assert.match(result.stdout, PRACTICAL_TRIGGER_PATTERN);
     assert.match(
       result.stdout,
       new RegExp(`Plan source: ${fixture.baseSha}`, "u")
