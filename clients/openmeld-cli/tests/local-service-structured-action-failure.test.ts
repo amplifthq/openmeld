@@ -733,7 +733,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       "Never put a Human Profile ID, sender ID, or reply recipient in activationTargets."
     );
     expect(prompt).toContain(
-      "For a normal reply to the current Wake, leave activationTargets and referenceTargets empty."
+      "For a normal reply to the current Wake, leave activationTargets, referenceTargets, and mentionTargets empty."
     );
     expect(prompt).toContain(
       'Use post_status only for final-safe outcomes: done, blocked, needs_input, or handoff. Do not use "working" or "ready" because post_status closes the Wake.'
@@ -822,7 +822,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       parseError: "invalid target profile",
       sendTargetReferenceLines: [
         "Budget Analyst -> agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa (wake | reference)",
-        "Mira -> 11111111-1111-4111-8111-111111111111 (reference)",
+        "Mira -> 11111111-1111-4111-8111-111111111111 (mention)",
       ],
       spaceId: "space-123",
     });
@@ -835,7 +835,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       "Budget Analyst -> agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa (wake | reference)"
     );
     expect(prompt).toContain(
-      "Mira -> 11111111-1111-4111-8111-111111111111 (reference)"
+      "Mira -> 11111111-1111-4111-8111-111111111111 (mention)"
     );
   });
 

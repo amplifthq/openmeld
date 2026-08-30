@@ -70,6 +70,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           label: "Ops Bot",
           description: "codex · by Felix",
           mentionAllowedRelations: {
+            mention: false,
             wake: true,
             reference: true,
           },
@@ -104,8 +105,9 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           label: "Felix Space",
           description: "Felix Space",
           mentionAllowedRelations: {
+            mention: true,
             wake: false,
-            reference: true,
+            reference: false,
           },
           mentionControllerDisplay: null,
           mentionAgentControllerRef: null,
@@ -139,6 +141,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           value: `__mention_relation_header__:${AGENT_OPS_ID}`,
           label: "Ops Bot",
           mentionAllowedRelations: {
+            mention: false,
             wake: true,
             reference: true,
           },
@@ -162,6 +165,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           label: "Wake",
           description: "Ask this agent to reply.",
           mentionAllowedRelations: {
+            mention: false,
             wake: true,
             reference: true,
           },
@@ -186,6 +190,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           label: "Reference",
           description: "Add context without asking for a reply.",
           mentionAllowedRelations: {
+            mention: false,
             wake: true,
             reference: true,
           },
@@ -210,6 +215,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           label: "Back",
           description: "Go back",
           mentionAllowedRelations: {
+            mention: false,
             wake: true,
             reference: true,
           },
