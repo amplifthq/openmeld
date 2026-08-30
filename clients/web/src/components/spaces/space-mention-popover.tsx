@@ -345,6 +345,9 @@ function MentionRelationActions(input: {
 	item: SpaceMentionPickerItem;
 	onSelect: (relation: MessageMentionType) => void;
 }) {
+	if (input.item.suggestion.profileKind === "human") {
+		return null;
+	}
 	const defaultRelation = resolveDefaultSpaceComposerMentionRelation(
 		input.item.suggestion
 	);

@@ -429,6 +429,7 @@ export function PublicSpacePage(input: {
 						isCreatingThread={false}
 						isDiagnosticReportPending={() => false}
 						isDiagnosticReportSent={() => false}
+						isDirectMessage={false}
 						isLoadingEarlierHistory={false}
 						isSendingMessage={false}
 						membersSnapshot={null}
@@ -442,6 +443,7 @@ export function PublicSpacePage(input: {
 						onComposerSelectionChange={() => undefined}
 						onCreateThread={noopPromise}
 						onLoadEarlierHistory={noopPromise}
+						onMentionButtonClick={() => undefined}
 						onMentionItemHover={() => undefined}
 						onMentionItemSelect={() => undefined}
 						onMentionPopoverClose={() => undefined}
@@ -493,6 +495,7 @@ export function PublicSpacePage(input: {
 						onComposerChange={() => undefined}
 						onComposerKeyDown={noopPromise}
 						onComposerSelectionChange={() => undefined}
+						onMentionButtonClick={() => undefined}
 						onMentionItemHover={() => undefined}
 						onMentionItemSelect={() => undefined}
 						onMentionPopoverClose={() => undefined}

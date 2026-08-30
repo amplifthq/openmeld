@@ -20,10 +20,6 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
-import {
-	SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT,
-	SPACE_WAKE_COMPOSER_HINT,
-} from "./space-composer-copy";
 import { SpaceThreadPanel } from "./space-thread-panel";
 import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 
@@ -147,15 +143,27 @@ describe("SpaceThreadPanel", () => {
 		);
 	});
 
-	it("explains that sending a Thread reply wakes the agent in an Agent DM", () => {
+	it("uses Thread-specific placeholder copy and keeps the @ button", () => {
 		renderThreadPanel({
 			agentDirectConversationKind: "direct_message",
 		});
 
 		expect(
-			screen.getByText(SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT)
+			screen.getByRole("textbox", { name: "Reply in thread" })
+		).toHaveProperty("placeholder", "Reply in thread…");
+		expect(
+			screen.getByRole("button", { name: "Mention a member" })
 		).toBeTruthy();
-		expect(screen.queryByText(SPACE_WAKE_COMPOSER_HINT)).toBeNull();
+	});
+
+	it("hides the @ button in a Center Agent DM thread", () => {
+		renderThreadPanel({
+			isCenterAgentDirectMessage: true,
+		});
+
+		expect(
+			screen.queryByRole("button", { name: "Mention a member" })
+		).toBeNull();
 	});
 
 	it("renders a live failure only when its trigger message belongs to this Thread", () => {
@@ -1581,6 +1589,7 @@ function renderThreadPanel(
 		onRemoveComposerFile: () => undefined,
 		onMentionItemHover: () => undefined,
 		onMentionItemSelect: () => undefined,
+		onMentionButtonClick: () => undefined,
 		onMentionPopoverClose: () => undefined,
 		onReportMessage: async () => undefined,
 		onOpenSpaceFile: () => undefined,

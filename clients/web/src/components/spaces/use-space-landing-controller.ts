@@ -1018,6 +1018,7 @@ export type SpaceLandingController =
 				index: number,
 				relation?: MessageMentionType
 			) => void;
+			onMentionButtonClick: () => void;
 			onMentionRelationChange: (
 				profileId: string,
 				relation: MessageMentionType
@@ -1048,6 +1049,7 @@ export type SpaceLandingController =
 				index: number,
 				relation?: MessageMentionType
 			) => void;
+			onThreadMentionButtonClick: () => void;
 			onThreadMentionRelationChange: (
 				profileId: string,
 				relation: MessageMentionType
@@ -2095,6 +2097,7 @@ export function useSpaceLandingController(input: {
 		onLeaveSpace: handleLeaveSpace,
 		onMentionItemHover: mentionAuthoring.onMentionItemHover,
 		onMentionItemSelect: mentionAuthoring.onMentionItemSelect,
+		onMentionButtonClick: mentionAuthoring.onMentionButtonClick,
 		onMentionRelationChange: mentionAuthoring.onMentionRelationChange,
 		onMentionPopoverClose: mentionAuthoring.onMentionPopoverClose,
 		onOpenThread: threadController.onOpenThread,
@@ -2129,6 +2132,7 @@ export function useSpaceLandingController(input: {
 			threadController.onThreadComposerSelectionChange,
 		onThreadMentionItemHover: threadController.onThreadMentionItemHover,
 		onThreadMentionItemSelect: threadController.onThreadMentionItemSelect,
+		onThreadMentionButtonClick: threadController.onThreadMentionButtonClick,
 		onThreadMentionRelationChange:
 			threadController.onThreadMentionRelationChange,
 		onThreadMentionPopoverClose: threadController.onThreadMentionPopoverClose,
@@ -3038,6 +3042,7 @@ function useSpaceThreadController(input: {
 		onThreadComposerSelectionChange: mentionAuthoring.onComposerSelectionChange,
 		onThreadMentionItemHover: mentionAuthoring.onMentionItemHover,
 		onThreadMentionItemSelect: mentionAuthoring.onMentionItemSelect,
+		onThreadMentionButtonClick: mentionAuthoring.onMentionButtonClick,
 		onThreadMentionRelationChange: mentionAuthoring.onMentionRelationChange,
 		onThreadMentionPopoverClose: mentionAuthoring.onMentionPopoverClose,
 		onThreadSend: sendMessage,

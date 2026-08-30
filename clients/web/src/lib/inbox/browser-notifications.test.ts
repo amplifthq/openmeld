@@ -493,7 +493,7 @@ describe("Inbox browser notifications", () => {
 			isInboxBrowserNotificationEligible(
 				createInboxItem({
 					importance: "normal",
-					kind: "space_reference",
+					kind: "space_mention",
 				})
 			)
 		).toBe(true);

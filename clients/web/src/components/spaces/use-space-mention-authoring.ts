@@ -458,6 +458,37 @@ export function useSpaceMentionAuthoring(input: {
 		onComposerSelectionChange: (selection: SpaceComposerSelection) => {
 			setComposerSelection(selection);
 		},
+		onMentionButtonClick: () => {
+			const nextText = `${composerText.slice(0, composerSelection.start)}@${composerText.slice(composerSelection.end)}`;
+			const nextCaretPosition = composerSelection.start + 1;
+			composerDraft.setContent((currentDraft) => ({
+				...currentDraft,
+				authoredMentions: reconcileTrackedAuthoredMentions({
+					mentions: currentDraft.authoredMentions,
+					nextText,
+					previousText: currentDraft.text,
+				}),
+				text: nextText,
+			}));
+			setDismissedMentionStarts((currentStarts) =>
+				reconcileDismissedMentionStarts({
+					starts: currentStarts.filter(
+						(start) => start !== composerSelection.start
+					),
+					nextText,
+					previousText: composerText,
+				})
+			);
+			setComposerSelection({
+				end: nextCaretPosition,
+				start: nextCaretPosition,
+			});
+			pendingSelectionRef.current = {
+				end: nextCaretPosition,
+				start: nextCaretPosition,
+			};
+			setHighlightedIndex(-1);
+		},
 		onMentionItemHover: (index: number) => {
 			setHighlightedIndex(index);
 		},
@@ -896,9 +927,9 @@ export function resolveDefaultSpaceComposerMentionRelation(
 
 	if (
 		suggestion.profileKind === "human" &&
-		suggestion.allowedRelations.reference
+		suggestion.allowedRelations.mention
 	) {
-		return "reference";
+		return "mention";
 	}
 
 	return null;
@@ -913,11 +944,8 @@ export function buildSpaceComposerAddressingSummary(
 			relationByProfileId.set(mention.profileId, mention.relation);
 		}
 	}
-	if (relationByProfileId.size < 2) {
-		return null;
-	}
-
 	const relationCounts: Record<MessageMentionType, number> = {
+		mention: 0,
 		reference: 0,
 		wake: 0,
 	};
@@ -925,11 +953,20 @@ export function buildSpaceComposerAddressingSummary(
 		relationCounts[relation] += 1;
 	}
 
-	const agentLabel = relationCounts.wake === 1 ? "agent" : "agents";
-	const segments = [
-		`Waking ${String(relationCounts.wake)} ${agentLabel}`,
-		`Referencing ${String(relationCounts.reference)}`,
-	];
+	const segments: string[] = [];
+	if (relationCounts.wake > 0) {
+		const agentLabel = relationCounts.wake === 1 ? "agent" : "agents";
+		segments.push(`Waking ${String(relationCounts.wake)} ${agentLabel}`);
+	}
+	if (relationCounts.reference > 0) {
+		const agentLabel = relationCounts.reference === 1 ? "agent" : "agents";
+		segments.push(
+			`Referencing ${String(relationCounts.reference)} ${agentLabel}`
+		);
+	}
+	if (segments.length === 0) {
+		return null;
+	}
 	return segments.join(" · ");
 }
 
@@ -984,6 +1021,9 @@ export function resolveSpaceComposerAddressingMentions(input: {
 		const referenceProfileIds = new Set(
 			preparedSubmission.messageEnvelope?.referenceTargets ?? []
 		);
+		const mentionProfileIds = new Set(
+			preparedSubmission.messageEnvelope?.mentionTargets ?? []
+		);
 
 		return preparedSubmission.resolvedStructuredTargets.profileIdsInTextOrder.flatMap(
 			(profileId): SpaceComposerAddressingMention[] => {
@@ -992,6 +1032,9 @@ export function resolveSpaceComposerAddressingMentions(input: {
 				}
 				if (referenceProfileIds.has(profileId)) {
 					return [{ profileId, relation: "reference" }];
+				}
+				if (mentionProfileIds.has(profileId)) {
+					return [{ profileId, relation: "mention" }];
 				}
 				return [];
 			}

@@ -3,6 +3,7 @@ import type { MessageMentionType } from "@openmeld/schemas/types";
 const COMPOSER_DRAFT_STORAGE_KEY_PREFIX = "openmeld.composer-draft:v1:";
 const COMPOSER_DRAFT_VERSION = 1 as const;
 const MESSAGE_MENTION_TYPES = new Set<MessageMentionType>([
+	"mention",
 	"reference",
 	"wake",
 ]);
