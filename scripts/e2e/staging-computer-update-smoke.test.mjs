@@ -19,7 +19,9 @@ import {
 import { formatStagingSmokeCleanupMessage } from "./staging-computer-update-smoke-runner.mjs";
 
 const SETUP_COMMAND =
-  "curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --local-agents all --ott ott_staging_demo --view human";
+  "curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --device-code device_staging_demo --view human";
+const LEGACY_OTT_SETUP_COMMAND =
+  "curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --ott ott_staging_demo --view human";
 const SETUP_FILE_REQUIRED_PATTERN = /requires --setup-command-file/u;
 const ONLY_ACCEPTS_PATTERN = /only accepts/u;
 const OFFICIAL_STAGING_COMMAND_PATTERN =
@@ -68,10 +70,8 @@ test("accepts only the official staging Canary binary setup handoff", () => {
     "setup",
     "--start-session",
     "start_staging_demo",
-    "--local-agents",
-    "all",
-    "--ott",
-    "ott_staging_demo",
+    "--device-code",
+    "device_staging_demo",
     "--view",
     "human",
   ]);
@@ -80,6 +80,10 @@ test("accepts only the official staging Canary binary setup handoff", () => {
     SETUP_COMMAND.replace("staging.openmeld.ai", "openmeld.ai"),
     SETUP_COMMAND.replace("staging.openmeld.ai", "staging.openmeld.invalid"),
     SETUP_COMMAND.replace("dist=binary&", ""),
+    SETUP_COMMAND.replace(
+      "--device-code device_staging_demo",
+      "--device-code device_staging_demo --ott ott_staging_demo"
+    ),
     `${SETUP_COMMAND}; touch /tmp/openmeld-unsafe`,
   ]) {
     assert.throws(
@@ -89,6 +93,23 @@ test("accepts only the official staging Canary binary setup handoff", () => {
   }
 });
 
+test("keeps compatibility with older Staging OTT handoffs", () => {
+  assert.deepEqual(
+    buildStagingSmokeSetupArgs(
+      parseStagingWebSetupCommand(LEGACY_OTT_SETUP_COMMAND)
+    ),
+    [
+      "setup",
+      "--start-session",
+      "start_staging_demo",
+      "--ott",
+      "ott_staging_demo",
+      "--view",
+      "agent",
+    ]
+  );
+});
+
 test("lets setup select healthy Local Agents and runs without prompts", () => {
   assert.deepEqual(
     buildStagingSmokeSetupArgs(parseStagingWebSetupCommand(SETUP_COMMAND)),
@@ -96,8 +117,8 @@ test("lets setup select healthy Local Agents and runs without prompts", () => {
       "setup",
       "--start-session",
       "start_staging_demo",
-      "--ott",
-      "ott_staging_demo",
+      "--device-code",
+      "device_staging_demo",
       "--view",
       "agent",
     ]
@@ -147,10 +168,10 @@ test("reads the running Service from the real daemon status envelope", () => {
 test("never prints the one-time setup credentials", () => {
   const redacted = redactStagingSetupCommand(SETUP_COMMAND);
   assert.equal(redacted.includes("start_staging_demo"), false);
-  assert.equal(redacted.includes("ott_staging_demo"), false);
+  assert.equal(redacted.includes("device_staging_demo"), false);
   assert.equal(
     redacted,
-    "curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session [redacted] --local-agents all --ott [redacted] --view human"
+    "curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session [redacted] --device-code [redacted] --view human"
   );
 });
 
