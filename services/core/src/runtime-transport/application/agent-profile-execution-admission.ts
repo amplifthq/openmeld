@@ -56,7 +56,7 @@ const EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY =
 const EXECUTION_INDEX_STORAGE_KEY =
   "runtime-coordinator:agent-profile-execution-index:v1";
 const EXECUTION_INDEX_REPAIR_PAGE_SIZE = 128;
-const EXECUTION_INDEX_INLINE_REPAIR_STEPS = 2;
+const EXECUTION_INDEX_INLINE_REPAIR_STEPS = 3;
 const EXECUTION_INDEX_REPAIR_RETRY_BASE_MS = 5000;
 const EXECUTION_INDEX_REPAIR_RETRY_MAX_MS = 5 * 60_000;
 const EXECUTION_TARGET_MUTATION_LEASE_MS = 5 * 60_000;
@@ -101,6 +101,11 @@ type AgentProfileActiveIndexRecord = {
   targetProfileIds: string[];
 };
 
+type AgentProfileExecutionIndexRepairPhase =
+  | "head_lifecycles"
+  | "run_command_states"
+  | "admissions";
+
 type AgentProfileExecutionIndexState =
   | {
       generation: number;
@@ -115,7 +120,7 @@ type AgentProfileExecutionIndexState =
       generation: number;
       modelVersion: typeof EXECUTION_INDEX_MODEL_VERSION;
       ownerUserId: string;
-      phase: "head_lifecycles" | "run_command_states";
+      phase: AgentProfileExecutionIndexRepairPhase;
       repairRequested: boolean;
       status: "rebuilding";
       updatedAtMs: number;
@@ -126,7 +131,7 @@ type AgentProfileExecutionIndexState =
       generation: number;
       modelVersion: typeof EXECUTION_INDEX_MODEL_VERSION;
       ownerUserId: string;
-      phase: "head_lifecycles" | "run_command_states";
+      phase: AgentProfileExecutionIndexRepairPhase;
       reasonCode: string;
       repairRequested: boolean;
       retryAtMs: number;
@@ -758,8 +763,8 @@ async function prepareMutationAdmissionTransaction(input: {
   const admission =
     current?.generation === input.currentIndex.generation
       ? current
-      : emptyExecutionAdmissionRecord({
-          executionTargetMutation: current?.executionTargetMutation ?? null,
+      : carryExecutionAdmissionIntoGeneration({
+          admission: current,
           generation: input.currentIndex.generation,
           nowMs: input.nowMs,
           targetProfileId: input.targetProfileId,
@@ -1467,9 +1472,8 @@ async function prepareHeadLifecycleAdmissionWrite(input: {
   const admission =
     parsedAdmission?.generation === index.generation
       ? parsedAdmission
-      : emptyExecutionAdmissionRecord({
-          executionTargetMutation:
-            parsedAdmission?.executionTargetMutation ?? null,
+      : carryExecutionAdmissionIntoGeneration({
+          admission: parsedAdmission,
           generation: index.generation,
           nowMs: input.nowMs,
           targetProfileId,
@@ -1497,16 +1501,13 @@ export async function writeRuntimeCoordinatorTokenAuthorityWithAdmission(input: 
     const admission =
       parsedAdmission?.generation === generation
         ? parsedAdmission
-        : emptyExecutionAdmissionRecord({
-            executionTargetMutation:
-              parsedAdmission?.executionTargetMutation ?? null,
+        : carryExecutionAdmissionIntoGeneration({
+            admission: parsedAdmission,
             generation,
             nowMs: input.nowMs,
             targetProfileId,
           });
     const executionId = input.authority.runtimeCoordinatorExecutionId;
-    const wasActiveExecution =
-      admission.activeExecutionIds.includes(executionId);
     const boundedExecutionReferences = input.authority.terminalOutcome
       ? {
           ids: admission.activeExecutionIds.filter((id) => id !== executionId),
@@ -1521,19 +1522,18 @@ export async function writeRuntimeCoordinatorTokenAuthorityWithAdmission(input: 
       revision: admission.revision + 1,
       updatedAtMs: input.nowMs,
     } satisfies AgentProfileExecutionAdmissionRecord;
-    const terminalTransition =
-      input.authority.terminalOutcome && wasActiveExecution
-        ? await removeTerminalExecutionAgentProfileWorkAndPromoteSuccessor({
-            admission: admissionAfterAuthorityWrite,
-            dispatchId: input.authority.executionScope.dispatchId,
-            nowMs: input.nowMs,
-            outcome: resolveAgentProfileWorkTerminalOutcome(
-              input.authority.terminalOutcome
-            ),
-            runtimeCoordinatorExecutionId: executionId,
-            transaction,
-          })
-        : { admission: admissionAfterAuthorityWrite, pendingPromotion: null };
+    const terminalTransition = input.authority.terminalOutcome
+      ? await removeTerminalExecutionAgentProfileWorkAndPromoteSuccessor({
+          admission: admissionAfterAuthorityWrite,
+          dispatchId: input.authority.executionScope.dispatchId,
+          nowMs: input.nowMs,
+          outcome: resolveAgentProfileWorkTerminalOutcome(
+            input.authority.terminalOutcome
+          ),
+          runtimeCoordinatorExecutionId: executionId,
+          transaction,
+        })
+      : { admission: admissionAfterAuthorityWrite, pendingPromotion: null };
     const nextAdmission = terminalTransition.admission;
     const rawActiveProfileIds = await transaction.get<unknown>(
       EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
@@ -1618,21 +1618,23 @@ export async function advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair(
     { status: "rebuilding" }
   >;
   try {
-    const prefix =
-      repairingState.phase === "head_lifecycles"
-        ? RUNTIME_COORDINATOR_HEAD_LIFECYCLE_STORAGE_KEY_PREFIX
-        : RUNTIME_COORDINATOR_RUN_COMMAND_STATE_STORAGE_KEY_PREFIX;
+    const prefix = resolveExecutionIndexRepairStoragePrefix(
+      repairingState.phase
+    );
     const page = await input.storage.list<unknown>({
       limit: EXECUTION_INDEX_REPAIR_PAGE_SIZE,
       prefix,
       ...(repairingState.cursor ? { startAfter: repairingState.cursor } : {}),
     });
-    const observations = await collectExecutionIndexRepairObservations({
-      ownerUserId: repairingState.ownerUserId,
-      page,
-      phase: repairingState.phase,
-      storage: input.storage,
-    });
+    const observations: ActiveObservationsByProfile =
+      repairingState.phase === "admissions"
+        ? new Map()
+        : await collectExecutionIndexRepairObservations({
+            ownerUserId: repairingState.ownerUserId,
+            page,
+            phase: repairingState.phase,
+            storage: input.storage,
+          });
     const nextState = resolveNextExecutionIndexRepairState({
       lastKey: [...page.keys()].at(-1) ?? null,
       nowMs: input.nowMs,
@@ -1650,47 +1652,22 @@ export async function advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair(
       if (!activeProfileIndex) {
         throw new Error("runtime_coordinator.active_profile_index_invalid");
       }
-      let activeProfileIds = activeProfileIndex.targetProfileIds;
-      for (const [targetProfileId, observed] of observations) {
-        const admissionKey = buildExecutionAdmissionStorageKey(targetProfileId);
-        const current = parseExecutionAdmissionRecord(
-          await transaction.get<unknown>(admissionKey)
-        );
-        const admission =
-          current?.generation === repairingState.generation
-            ? current
-            : emptyExecutionAdmissionRecord({
-                executionTargetMutation:
-                  current?.executionTargetMutation ?? null,
-                generation: repairingState.generation,
-                nowMs: input.nowMs,
-                targetProfileId,
-              });
-        const executionReferences = appendBoundedReferences(
-          admission.activeExecutionIds,
-          [...observed.executionIds]
-        );
-        const headReferences = appendBoundedReferences(
-          admission.activeHeadLifecycleIds,
-          [...observed.headLifecycleIds]
-        );
-        await transaction.put(admissionKey, {
-          ...admission,
-          activeExecutionIds: executionReferences.ids,
-          activeHeadLifecycleIds: headReferences.ids,
-          referencesOverflowed:
-            admission.referencesOverflowed ||
-            executionReferences.overflowed ||
-            headReferences.overflowed,
-          revision: admission.revision + 1,
-          updatedAtMs: input.nowMs,
-        } satisfies AgentProfileExecutionAdmissionRecord);
-        activeProfileIds = updateActiveProfileIds({
-          active: true,
-          activeProfileIds,
-          targetProfileId,
-        });
-      }
+      const activeProfileIds =
+        repairingState.phase === "admissions"
+          ? await carryAdmissionRepairPageIntoGeneration({
+              activeProfileIds: activeProfileIndex.targetProfileIds,
+              generation: repairingState.generation,
+              nowMs: input.nowMs,
+              page,
+              transaction,
+            })
+          : await applyExecutionReferenceRepairObservations({
+              activeProfileIds: activeProfileIndex.targetProfileIds,
+              generation: repairingState.generation,
+              nowMs: input.nowMs,
+              observations,
+              transaction,
+            });
       await transaction.put(
         EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
         createActiveProfileIndexRecord(
@@ -1712,10 +1689,101 @@ export async function advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair(
   }
 }
 
+async function carryAdmissionRepairPageIntoGeneration(input: {
+  activeProfileIds: readonly string[];
+  generation: number;
+  nowMs: number;
+  page: ReadonlyMap<string, unknown>;
+  transaction: DurableObjectTransaction;
+}): Promise<string[]> {
+  let activeProfileIds = [...input.activeProfileIds];
+  for (const admissionKey of input.page.keys()) {
+    const targetProfileId = parseExecutionAdmissionStorageKey(admissionKey);
+    const current = parseExecutionAdmissionRecord(
+      await input.transaction.get<unknown>(admissionKey)
+    );
+    if (!(targetProfileId && current)) {
+      throw new Error("runtime_coordinator.execution_admission_invalid");
+    }
+    if (current.targetProfileId !== targetProfileId) {
+      throw new Error(
+        "runtime_coordinator.execution_admission_profile_mismatch"
+      );
+    }
+    const nextAdmission =
+      current.generation === input.generation
+        ? current
+        : carryExecutionAdmissionIntoGeneration({
+            admission: current,
+            generation: input.generation,
+            nowMs: input.nowMs,
+            targetProfileId,
+          });
+    await input.transaction.put(admissionKey, nextAdmission);
+    activeProfileIds = updateActiveProfileIds({
+      active: admissionHasActiveReferences(nextAdmission),
+      activeProfileIds,
+      targetProfileId,
+    });
+  }
+  return activeProfileIds;
+}
+
+async function applyExecutionReferenceRepairObservations(input: {
+  activeProfileIds: readonly string[];
+  generation: number;
+  nowMs: number;
+  observations: ActiveObservationsByProfile;
+  transaction: DurableObjectTransaction;
+}): Promise<string[]> {
+  let activeProfileIds = [...input.activeProfileIds];
+  for (const [targetProfileId, observed] of input.observations) {
+    const admissionKey = buildExecutionAdmissionStorageKey(targetProfileId);
+    const current = parseExecutionAdmissionRecord(
+      await input.transaction.get<unknown>(admissionKey)
+    );
+    const admission =
+      current?.generation === input.generation
+        ? current
+        : carryExecutionAdmissionIntoGeneration({
+            admission: current,
+            generation: input.generation,
+            nowMs: input.nowMs,
+            targetProfileId,
+          });
+    const executionReferences = appendBoundedReferences(
+      admission.activeExecutionIds,
+      [...observed.executionIds]
+    );
+    const headReferences = appendBoundedReferences(
+      admission.activeHeadLifecycleIds,
+      [...observed.headLifecycleIds]
+    );
+    const nextAdmission = {
+      ...admission,
+      activeExecutionIds: executionReferences.ids,
+      activeHeadLifecycleIds: headReferences.ids,
+      referencesOverflowed:
+        admission.referencesOverflowed ||
+        executionReferences.overflowed ||
+        headReferences.overflowed,
+      revision: admission.revision + 1,
+      updatedAtMs: input.nowMs,
+    } satisfies AgentProfileExecutionAdmissionRecord;
+    await input.transaction.put(admissionKey, nextAdmission);
+    activeProfileIds = updateActiveProfileIds({
+      active: admissionHasActiveReferences(nextAdmission),
+      activeProfileIds,
+      targetProfileId,
+    });
+  }
+  return activeProfileIds;
+}
+
 async function collectExecutionIndexRepairObservations(input: {
   ownerUserId: string;
   page: Map<string, unknown>;
-  phase: "head_lifecycles" | "run_command_states";
+  phase: Exclude<AgentProfileExecutionIndexRepairPhase, "admissions">;
   storage: ExecutionAdmissionStorage;
 }): Promise<ActiveObservationsByProfile> {
   const observations: ActiveObservationsByProfile = new Map();
@@ -1766,6 +1834,10 @@ function collectHeadLifecycleRepairObservation(input: {
     return;
   }
   const targetProfileId = input.raw.targetWakeLifecycleIdentity.targetProfileId;
+  if (input.raw.status === "queued") {
+    readOrCreateProfileObservations(input.observations, targetProfileId);
+    return;
+  }
   if (input.raw.status === "accepted" || input.raw.status === "waiting") {
     observeActiveHead(
       input.observations,
@@ -1861,6 +1933,19 @@ function resolveNextExecutionIndexRepairState(input: {
       updatedAtMs: input.nowMs,
     };
   }
+  if (input.state.phase === "run_command_states") {
+    return {
+      cursor: null,
+      failureCount: 0,
+      generation: input.state.generation,
+      modelVersion: EXECUTION_INDEX_MODEL_VERSION,
+      ownerUserId: input.state.ownerUserId,
+      phase: "admissions",
+      repairRequested: input.state.repairRequested,
+      status: "rebuilding",
+      updatedAtMs: input.nowMs,
+    };
+  }
   return {
     generation: input.state.generation,
     modelVersion: EXECUTION_INDEX_MODEL_VERSION,
@@ -1868,6 +1953,25 @@ function resolveNextExecutionIndexRepairState(input: {
     status: "ready",
     updatedAtMs: input.nowMs,
   };
+}
+
+function resolveExecutionIndexRepairStoragePrefix(
+  phase: AgentProfileExecutionIndexRepairPhase
+): string {
+  switch (phase) {
+    case "head_lifecycles":
+      return RUNTIME_COORDINATOR_HEAD_LIFECYCLE_STORAGE_KEY_PREFIX;
+    case "run_command_states":
+      return RUNTIME_COORDINATOR_RUN_COMMAND_STATE_STORAGE_KEY_PREFIX;
+    case "admissions":
+      return EXECUTION_ADMISSION_STORAGE_KEY_PREFIX;
+    default:
+      return assertNeverExecutionIndexRepairPhase(phase);
+  }
+}
+
+function assertNeverExecutionIndexRepairPhase(value: never): never {
+  throw new Error(`Unsupported execution-index repair phase: ${String(value)}`);
 }
 
 function isLegacyExecutionIndexKey(key: string): boolean {
@@ -2274,7 +2378,7 @@ async function removeTerminalExecutionAgentProfileWorkAndPromoteSuccessor(input:
   pendingPromotion: PendingAgentProfileWorkPromotion | null;
 }> {
   const currentItem = input.admission.workItems[0];
-  if (!currentItem) {
+  if (!currentItem || currentItem.dispatchId !== input.dispatchId) {
     return { admission: input.admission, pendingPromotion: null };
   }
   const rawHead = await input.transaction.get<unknown>(
@@ -2532,6 +2636,28 @@ function emptyExecutionAdmissionRecord(input: {
   };
 }
 
+function carryExecutionAdmissionIntoGeneration(input: {
+  admission: AgentProfileExecutionAdmissionRecord | null;
+  generation: number;
+  nowMs: number;
+  targetProfileId: string;
+}): AgentProfileExecutionAdmissionRecord {
+  if (!input.admission) {
+    return emptyExecutionAdmissionRecord(input);
+  }
+  if (input.admission.targetProfileId !== input.targetProfileId) {
+    throw new Error("runtime_coordinator.execution_admission_profile_mismatch");
+  }
+  return {
+    ...input.admission,
+    activeExecutionIds: [],
+    activeHeadLifecycleIds: [],
+    generation: input.generation,
+    referencesOverflowed: false,
+    updatedAtMs: input.nowMs,
+  };
+}
+
 function rebuildingExecutionIndexState(input: {
   generation: number;
   nowMs: number;
@@ -2676,8 +2802,7 @@ function parseExecutionIndexState(
     state.status === "rebuilding" &&
     isNonnegativeInteger(state.failureCount) &&
     typeof state.repairRequested === "boolean" &&
-    (state.phase === "head_lifecycles" ||
-      state.phase === "run_command_states") &&
+    isExecutionIndexRepairPhase(state.phase) &&
     (state.cursor === null || typeof state.cursor === "string")
   ) {
     return state as AgentProfileExecutionIndexState;
@@ -2685,8 +2810,7 @@ function parseExecutionIndexState(
   if (
     state.status === "failed" &&
     isNonnegativeInteger(state.failureCount) &&
-    (state.phase === "head_lifecycles" ||
-      state.phase === "run_command_states") &&
+    isExecutionIndexRepairPhase(state.phase) &&
     (state.cursor === null || typeof state.cursor === "string") &&
     typeof state.reasonCode === "string" &&
     typeof state.repairRequested === "boolean" &&
@@ -2697,10 +2821,37 @@ function parseExecutionIndexState(
   return null;
 }
 
+function isExecutionIndexRepairPhase(
+  value: unknown
+): value is AgentProfileExecutionIndexRepairPhase {
+  return (
+    value === "head_lifecycles" ||
+    value === "run_command_states" ||
+    value === "admissions"
+  );
+}
+
 function buildExecutionAdmissionStorageKey(targetProfileId: string): string {
   return `${EXECUTION_ADMISSION_STORAGE_KEY_PREFIX}${encodeURIComponent(
     targetProfileId
   )}`;
+}
+
+function parseExecutionAdmissionStorageKey(key: string): string | null {
+  if (!key.startsWith(EXECUTION_ADMISSION_STORAGE_KEY_PREFIX)) {
+    return null;
+  }
+  try {
+    const targetProfileId = decodeURIComponent(
+      key.slice(EXECUTION_ADMISSION_STORAGE_KEY_PREFIX.length)
+    );
+    return targetProfileId &&
+      buildExecutionAdmissionStorageKey(targetProfileId) === key
+      ? targetProfileId
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function nextExecutionIndexGeneration(raw: unknown): number {
