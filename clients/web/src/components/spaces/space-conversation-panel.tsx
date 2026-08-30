@@ -125,6 +125,7 @@ import {
 } from "./space-collaboration-profile";
 import { SpaceComposerAddressingChips } from "./space-composer-addressing";
 import {
+	resolveSpaceAgentDirectConversationComposerHint,
 	resolveSpaceComposerAccessibleName,
 	resolveSpaceComposerPlaceholder,
 	resolveSpaceComposerWakeTextHint,
@@ -1451,8 +1452,16 @@ function SpaceComposerSection(input: {
 		fileLimitReached: panel.composerFileLimitReached,
 		fileUploadInProgress,
 	});
+	const defaultComposerHint = panel.agentDirectConversationKind
+		? resolveSpaceAgentDirectConversationComposerHint(
+				panel.agentDirectConversationKind
+			)
+		: null;
 	const composerHint =
-		fileHint ?? panel.composerAddressingSummary ?? input.wakeTextHint;
+		fileHint ??
+		panel.composerAddressingSummary ??
+		input.wakeTextHint ??
+		defaultComposerHint;
 	const composerHintClassName = input.wakeTextHint
 		? "text-foreground"
 		: "text-muted-foreground";

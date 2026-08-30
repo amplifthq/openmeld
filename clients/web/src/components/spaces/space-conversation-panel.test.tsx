@@ -28,6 +28,7 @@ import {
 } from "#/lib/spaces/timeline";
 import { notifyResizeObservers } from "#/test-support/dom-observers.setup";
 import {
+	SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT,
 	SPACE_COMPOSER_ACCESSIBLE_NAME,
 	SPACE_WAKE_COMPOSER_HINT,
 } from "./space-composer-copy";
@@ -2090,6 +2091,9 @@ describe("SpaceConversationPanel", () => {
 		).toHaveProperty("placeholder", "Message Codex…");
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
+		).toBeTruthy();
+		expect(
+			screen.getByText(SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT)
 		).toBeTruthy();
 	});
 

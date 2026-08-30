@@ -95,6 +95,7 @@ import {
 } from "./space-collaboration-profile";
 import { SpaceComposerAddressingChips } from "./space-composer-addressing";
 import {
+	resolveSpaceAgentDirectConversationComposerHint,
 	resolveSpaceComposerWakeTextHint,
 	type SpaceAgentDirectConversationComposerHintKind,
 } from "./space-composer-copy";
@@ -1457,7 +1458,13 @@ function ThreadComposer(input: {
 	const composerHintClassName = wakeTextHint
 		? "text-foreground"
 		: "text-muted-foreground";
-	let composerHint = input.composerAddressingSummary ?? wakeTextHint;
+	const defaultComposerHint = input.agentDirectConversationKind
+		? resolveSpaceAgentDirectConversationComposerHint(
+				input.agentDirectConversationKind
+			)
+		: null;
+	let composerHint =
+		input.composerAddressingSummary ?? wakeTextHint ?? defaultComposerHint;
 	if (uploadInProgress) {
 		composerHint = "Uploading files before sending…";
 	}

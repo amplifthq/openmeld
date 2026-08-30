@@ -20,6 +20,7 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
+import { SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT } from "./space-composer-copy";
 import { SpaceThreadPanel } from "./space-thread-panel";
 import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 
@@ -153,6 +154,9 @@ describe("SpaceThreadPanel", () => {
 		).toHaveProperty("placeholder", "Reply in thread…");
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
+		).toBeTruthy();
+		expect(
+			screen.getByText(SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT)
 		).toBeTruthy();
 	});
 
