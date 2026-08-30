@@ -107,7 +107,7 @@
   --sidebar-border: var(--border);
   --space-conversation-header-height: 4.3125rem;
   --space-conversation-navigation-height: 1.8125rem;
-  --space-conversation-centered-max-width: 64rem;
+  --space-conversation-centered-max-width: min(52rem, 90vw);
   --space-conversation-inline-padding: 1rem;
 }
 
