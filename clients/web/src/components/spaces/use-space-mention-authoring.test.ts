@@ -184,7 +184,7 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 					replyToSignalId: null,
 					text: "@Felix please review this.",
 					updatedAtMs: 1,
-					version: 1,
+					version: 2,
 				},
 				isMembersLoading: false,
 				membersErrorMessage: null,

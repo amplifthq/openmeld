@@ -1,7 +1,10 @@
 import type { MessageMentionType } from "@openmeld/schemas/types";
 
-const COMPOSER_DRAFT_STORAGE_KEY_PREFIX = "openmeld.composer-draft:v1:";
-const COMPOSER_DRAFT_VERSION = 1 as const;
+const COMPOSER_DRAFT_STORAGE_KEY_PREFIX = "openmeld.composer-draft:";
+const LEGACY_COMPOSER_DRAFT_STORAGE_KEY_PREFIX = `${COMPOSER_DRAFT_STORAGE_KEY_PREFIX}v1:`;
+const COMPOSER_DRAFT_STORAGE_KEY_PREFIX_V2 = `${COMPOSER_DRAFT_STORAGE_KEY_PREFIX}v2:`;
+const LEGACY_COMPOSER_DRAFT_VERSION = 1 as const;
+const COMPOSER_DRAFT_VERSION = 2 as const;
 const MESSAGE_MENTION_TYPES = new Set<MessageMentionType>([
 	"mention",
 	"reference",
@@ -26,6 +29,13 @@ export type ComposerDraftRecord = ComposerDraftContent & {
 	updatedAtMs: number;
 	version: typeof COMPOSER_DRAFT_VERSION;
 };
+
+type StoredComposerDraftRecord =
+	| ComposerDraftRecord
+	| (ComposerDraftContent & {
+			updatedAtMs: number;
+			version: typeof LEGACY_COMPOSER_DRAFT_VERSION;
+	  });
 
 export type ComposerDraftScope =
 	| {
@@ -75,6 +85,23 @@ export function createComposerDraftRecord(
 export function buildComposerDraftStorageKey(
 	scope: ComposerDraftScope
 ): string {
+	return buildComposerDraftStorageKeyWithPrefix(
+		scope,
+		COMPOSER_DRAFT_STORAGE_KEY_PREFIX_V2
+	);
+}
+
+function buildLegacyComposerDraftStorageKey(scope: ComposerDraftScope): string {
+	return buildComposerDraftStorageKeyWithPrefix(
+		scope,
+		LEGACY_COMPOSER_DRAFT_STORAGE_KEY_PREFIX
+	);
+}
+
+function buildComposerDraftStorageKeyWithPrefix(
+	scope: ComposerDraftScope,
+	prefix: string
+): string {
 	const identity = (() => {
 		switch (scope.kind) {
 			case "center_agent_pending":
@@ -114,7 +141,7 @@ export function buildComposerDraftStorageKey(
 		}
 	})();
 
-	return `${COMPOSER_DRAFT_STORAGE_KEY_PREFIX}${JSON.stringify(identity)}`;
+	return `${prefix}${JSON.stringify(identity)}`;
 }
 
 export function readComposerDraft(
@@ -124,35 +151,32 @@ export function readComposerDraft(
 		return null;
 	}
 
-	const storageKey = buildComposerDraftStorageKey(scope);
-	let rawValue: string | null;
-	try {
-		rawValue = window.localStorage.getItem(storageKey);
-	} catch (error) {
-		reportComposerDraftStorageFailure({ error, operation: "read", storageKey });
+	const currentDraft = readStoredComposerDraft(
+		buildComposerDraftStorageKey(scope),
+		COMPOSER_DRAFT_VERSION
+	);
+	const legacyDraft = readStoredComposerDraft(
+		buildLegacyComposerDraftStorageKey(scope),
+		LEGACY_COMPOSER_DRAFT_VERSION
+	);
+	const newestDraft =
+		legacyDraft &&
+		(!currentDraft || legacyDraft.updatedAtMs > currentDraft.updatedAtMs)
+			? legacyDraft
+			: currentDraft;
+	if (!newestDraft) {
 		return null;
 	}
-	if (rawValue === null) {
-		return null;
+	if (newestDraft.version === COMPOSER_DRAFT_VERSION) {
+		return newestDraft;
 	}
 
-	try {
-		const record = parseComposerDraftRecord(JSON.parse(rawValue) as unknown);
-		if (record === null) {
-			console.warn("Ignoring invalid Composer draft storage entry.", {
-				storageKey,
-			});
-			removeComposerDraft(scope);
-		}
-		return record;
-	} catch (error) {
-		console.warn("Ignoring invalid Composer draft storage entry.", {
-			errorName: resolveErrorName(error),
-			storageKey,
-		});
-		removeComposerDraft(scope);
-		return null;
-	}
+	const migratedDraft = createComposerDraftRecord(
+		newestDraft,
+		newestDraft.updatedAtMs
+	);
+	writeComposerDraft(scope, migratedDraft);
+	return migratedDraft;
 }
 
 export function writeComposerDraft(
@@ -185,18 +209,11 @@ export function removeComposerDraft(scope: ComposerDraftScope): boolean {
 		return false;
 	}
 
-	const storageKey = buildComposerDraftStorageKey(scope);
-	try {
-		window.localStorage.removeItem(storageKey);
-		return true;
-	} catch (error) {
-		reportComposerDraftStorageFailure({
-			error,
-			operation: "remove",
-			storageKey,
-		});
-		return false;
-	}
+	const removalResults = [
+		buildComposerDraftStorageKey(scope),
+		buildLegacyComposerDraftStorageKey(scope),
+	].map(removeComposerDraftStorageKey);
+	return removalResults.every(Boolean);
 }
 
 export function clearAllComposerDrafts(): void {
@@ -232,13 +249,53 @@ export function isComposerDraftEmpty(draft: ComposerDraftContent): boolean {
 	);
 }
 
-function parseComposerDraftRecord(value: unknown): ComposerDraftRecord | null {
+function readStoredComposerDraft(
+	storageKey: string,
+	expectedVersion: StoredComposerDraftRecord["version"]
+): StoredComposerDraftRecord | null {
+	let rawValue: string | null;
+	try {
+		rawValue = window.localStorage.getItem(storageKey);
+	} catch (error) {
+		reportComposerDraftStorageFailure({ error, operation: "read", storageKey });
+		return null;
+	}
+	if (rawValue === null) {
+		return null;
+	}
+
+	try {
+		const record = parseComposerDraftRecord(
+			JSON.parse(rawValue) as unknown,
+			expectedVersion
+		);
+		if (record === null) {
+			console.warn("Ignoring invalid Composer draft storage entry.", {
+				storageKey,
+			});
+			removeComposerDraftStorageKey(storageKey);
+		}
+		return record;
+	} catch (error) {
+		console.warn("Ignoring invalid Composer draft storage entry.", {
+			errorName: resolveErrorName(error),
+			storageKey,
+		});
+		removeComposerDraftStorageKey(storageKey);
+		return null;
+	}
+}
+
+function parseComposerDraftRecord(
+	value: unknown,
+	expectedVersion: StoredComposerDraftRecord["version"]
+): StoredComposerDraftRecord | null {
 	if (typeof value !== "object" || value === null) {
 		return null;
 	}
-	const record = value as Partial<ComposerDraftRecord>;
+	const record = value as Partial<StoredComposerDraftRecord>;
 	if (
-		record.version !== COMPOSER_DRAFT_VERSION ||
+		record.version !== expectedVersion ||
 		typeof record.text !== "string" ||
 		!Number.isSafeInteger(record.updatedAtMs) ||
 		(record.updatedAtMs ?? -1) < 0 ||
@@ -269,7 +326,7 @@ function parseComposerDraftRecord(value: unknown): ComposerDraftRecord | null {
 		replyToSignalId: record.replyToSignalId ?? null,
 		text: record.text,
 		updatedAtMs: record.updatedAtMs as number,
-		version: COMPOSER_DRAFT_VERSION,
+		version: expectedVersion,
 	};
 }
 
@@ -302,6 +359,20 @@ function normalizeScopePart(value: string, label: string): string {
 		throw new Error(`Composer draft ${label} must not be empty.`);
 	}
 	return normalized;
+}
+
+function removeComposerDraftStorageKey(storageKey: string): boolean {
+	try {
+		window.localStorage.removeItem(storageKey);
+		return true;
+	} catch (error) {
+		reportComposerDraftStorageFailure({
+			error,
+			operation: "remove",
+			storageKey,
+		});
+		return false;
+	}
 }
 
 function reportComposerDraftStorageFailure(input: {

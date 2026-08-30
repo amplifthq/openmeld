@@ -2997,6 +2997,14 @@ Human Mention remains structured after the optimistic message is replaced,
 after refresh, and on live delivery; compatibility projection for an old client
 must never run on these current paths.
 
+Browser Composer drafts that can contain Human Mention use the version 2 draft
+record and storage key. Current Web reads both version 2 and historical version
+1 records, chooses the newest valid record, and migrates a selected version 1
+record into version 2. It writes new drafts only to the version 2 key, so an
+already-open old Web tab cannot parse and delete a current Human Mention draft
+as invalid version 1 data. Sending, discarding, or clearing drafts removes both
+versions.
+
 For Web-authored Wake messages, Web must create and preserve a non-empty
 `clientMessageId` before the first network hop. That key is the browser-authored
 user-action key for later trace lookup.
