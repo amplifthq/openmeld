@@ -916,7 +916,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     }
     expect(payload.errorCode).toBe("openmeld.space_action.repair_failed");
     expect(payload.errorMessage).toBe(
-      "The current Codex model is not available for this ChatGPT-backed account."
+      "The selected model is no longer available for this account. Choose another model in the Agent Profile, then try again."
     );
   });
 
