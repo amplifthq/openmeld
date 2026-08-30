@@ -109,6 +109,19 @@ describe("AgentProfilesWorkspace", () => {
 		fireEvent.click(requests);
 	});
 
+	it("places Agent search before the availability filter", () => {
+		renderWorkspace({
+			filterControl: <button type="button">Filter Agents</button>,
+			searchControl: <input aria-label="Search Agents" type="search" />,
+		});
+
+		const search = screen.getByRole("searchbox", { name: "Search Agents" });
+		const filter = screen.getByRole("button", { name: "Filter Agents" });
+		expect(filter.parentElement?.firstElementChild?.contains(search)).toBe(
+			true
+		);
+	});
+
 	it("uses the shared collapsible sidebar and responsive drawer contract", () => {
 		renderWorkspace();
 
@@ -222,6 +235,13 @@ describe("AgentProfilesWorkspace", () => {
 		expect(
 			within(item).getByTestId("agent-profile-controller-avatar-agent-current")
 		).toBeTruthy();
+		const avatar = within(item).getByTestId(
+			"agent-profile-controller-avatar-agent-current"
+		);
+		expect(avatar.style.height).toBe("32px");
+		expect(avatar.style.width).toBe("32px");
+		expect(avatar.className).toContain("rounded-lg");
+		expect(avatar.className).toContain("overflow-hidden");
 		expect(item.querySelector('[data-profile-kind="center-agent"]')).toBeNull();
 		expect(within(item).getByText("Available").getAttribute("title")).toBe(
 			"Available for Wake"
@@ -268,6 +288,21 @@ describe("AgentProfilesWorkspace", () => {
 			screen.queryAllByRole("button", { name: "Create Agent" })
 		).toHaveLength(1);
 		expect(screen.getByTestId("profiles-controller")).toBeTruthy();
+	});
+
+	it("explains an empty Agent search without blaming the availability filter", () => {
+		renderWorkspace({
+			hasAnyProfiles: true,
+			isSearchActive: true,
+			profiles: [],
+		});
+
+		expect(
+			screen.getByRole("heading", { name: "No Agents found" })
+		).toBeTruthy();
+		expect(
+			screen.getByText("Try another name, owner, Controller, or model.")
+		).toBeTruthy();
 	});
 
 	it("distinguishes loading, failure, and the ready empty state", () => {

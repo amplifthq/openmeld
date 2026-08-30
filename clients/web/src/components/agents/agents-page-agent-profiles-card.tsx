@@ -1098,7 +1098,17 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				context: createAgentProfileEditActionContext(profile),
 				profileName,
 			});
-			await input.recovery.refreshAll();
+			Promise.resolve()
+				.then(() => input.recovery.refreshAll())
+				.catch((refreshError: unknown) => {
+					console.error(
+						"Agent was renamed, but current views could not be refreshed.",
+						refreshError
+					);
+					toast.warning(
+						"The Agent was renamed, but OpenMeld could not refresh every view. Refresh the page to see the latest details."
+					);
+				});
 			toast.success(`Agent renamed to ${updatedProfile.profileName}.`);
 		} catch (error) {
 			updateError = error;
@@ -1588,6 +1598,7 @@ function AgentProfileDirectoryRow(input: {
 			}}
 			onProfileUpdated={(updatedProfile) => {
 				updateAgentProfileListCaches({
+					organizationId: controller.currentOrganization.id,
 					profile: updatedProfile,
 					queryClient: input.cardInput.queryClient,
 					storageScope: input.cardInput.recovery.storageScope,
@@ -4257,6 +4268,7 @@ async function submitAgentProfileEditDialogChanges(
 		completedMutation = true;
 	};
 	try {
+		await submitAgentProfileBindingChanges({ input, runMutation });
 		if (input.dialogState.profileNameChanged) {
 			await runMutation(
 				async () =>
@@ -4265,7 +4277,6 @@ async function submitAgentProfileEditDialogChanges(
 					)
 			);
 		}
-		await submitAgentProfileBindingChanges({ input, runMutation });
 	} catch (error) {
 		if (completedMutation) {
 			await input.onSaveComplete?.();
