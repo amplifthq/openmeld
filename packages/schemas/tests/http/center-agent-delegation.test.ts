@@ -178,15 +178,17 @@ describe("Center Agent delegation request", () => {
     );
     expect(command.referenceTargets).toEqual([]);
     expect(command.mentionTargets).toEqual([]);
+    expect(command.spaceAddressingVersion).toBeUndefined();
   });
 
   it("persists Human Mentions in delegated Wake publication commands", () => {
-    expect(
-      centerAgentWakePublicationCommandSchema.parse({
-        ...buildWakePublicationCommand(),
-        mentionTargets: [HUMAN_REFERENCE],
-      }).mentionTargets
-    ).toEqual([HUMAN_REFERENCE]);
+    const command = centerAgentWakePublicationCommandSchema.parse({
+      ...buildWakePublicationCommand(),
+      mentionTargets: [HUMAN_REFERENCE],
+      spaceAddressingVersion: "1",
+    });
+    expect(command.mentionTargets).toEqual([HUMAN_REFERENCE]);
+    expect(command.spaceAddressingVersion).toBe("1");
   });
 
   it.each([

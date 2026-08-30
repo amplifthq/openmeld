@@ -11,6 +11,7 @@ import {
   memberRoleHasOrganizationPermission,
   type OrganizationPermissionCheck,
 } from "@openmeld/auth/organization-policy";
+import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
 import type {
   Profile,
   SignalEnvelope,
@@ -13841,6 +13842,9 @@ export async function rpcCenterAgentPostSpaceMessage(
       profileKind: "agent",
       profileName: centerAgentMember.profileName,
     }),
+    spaceAddressingVersion: resolveCenterAgentSpaceAddressingVersion(
+      input.mentionProfileIds
+    ),
     spaceId: parsed.data.spaceId,
     text: parsed.data.text,
     ...(parsed.data.files ? { files: parsed.data.files } : {}),
@@ -14685,6 +14689,9 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
     ...new Set(parsed.referenceProfileIds ?? []),
   ].sort();
   const mentionProfileIds = [...new Set(parsed.mentionProfileIds ?? [])].sort();
+  const spaceAddressingVersion = resolveCenterAgentSpaceAddressingVersion(
+    input.mentionProfileIds
+  );
   const validatedProfileIds = [
     ...targetProfileIds,
     ...(parsed.fallbackAgentProfileId ? [parsed.fallbackAgentProfileId] : []),
@@ -14714,6 +14721,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
     mentionProfileIds,
     spaceId: parsed.spaceId,
     referenceProfileIds,
+    spaceAddressingVersion,
     text: parsed.text,
   });
   const profile = buildProfileDisplay({
@@ -14747,6 +14755,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
       onBehalfOfProfileId: parsed.onBehalfOf?.profileId ?? null,
       profile,
       referenceProfileIds,
+      spaceAddressingVersion,
       spaceId: parsed.spaceId,
       targetProfileIds,
       text: parsed.text,
@@ -14777,6 +14786,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
       },
       meta: { clientMessageId },
       profile,
+      spaceAddressingVersion,
       spaceId: parsed.spaceId,
       text: parsed.text,
     });
@@ -15226,6 +15236,7 @@ async function executeCenterAgentDelegatedWake(input: {
   onBehalfOfProfileId: string | null;
   profile: Profile;
   referenceProfileIds: string[];
+  spaceAddressingVersion?: typeof OPENMELD_SPACE_ADDRESSING_VERSION;
   spaceId: string;
   targetProfileIds: string[];
   text: string;
@@ -15281,6 +15292,7 @@ async function executeCenterAgentDelegatedWake(input: {
       profile: input.profile,
       mentionTargets: input.mentionProfileIds,
       referenceTargets: input.referenceProfileIds,
+      spaceAddressingVersion: input.spaceAddressingVersion,
       spaceId: input.spaceId,
       subscriptionIds: delegation.subscriptionIds,
       text: input.text,
@@ -15347,6 +15359,7 @@ export async function rpcPostCenterAgentWakePublicationSignal(
     },
     meta: { clientMessageId: command.clientMessageId },
     profile: command.profile,
+    spaceAddressingVersion: command.spaceAddressingVersion,
     spaceId: command.spaceId,
     text: command.text,
   });
@@ -15372,6 +15385,7 @@ function buildCenterAgentWakeClientMessageId(input: {
   mentionProfileIds: readonly string[];
   onBehalfOfProfileId: string | null;
   referenceProfileIds: readonly string[];
+  spaceAddressingVersion?: typeof OPENMELD_SPACE_ADDRESSING_VERSION;
   spaceId: string;
   text: string;
 }): string {
@@ -15390,11 +15404,22 @@ function buildCenterAgentWakeClientMessageId(input: {
     ...(input.referenceProfileIds.length > 0
       ? { references: [...input.referenceProfileIds].sort() }
       : {}),
+    ...(input.spaceAddressingVersion
+      ? { spaceAddressingVersion: input.spaceAddressingVersion }
+      : {}),
     spaceId: input.spaceId,
     targets: [...input.activationTargets].sort(),
     text: input.text.trim(),
   });
   return `ca-wake:${hashClientMessageIdMaterial(material)}`;
+}
+
+function resolveCenterAgentSpaceAddressingVersion(
+  mentionProfileIds: readonly string[] | undefined
+): typeof OPENMELD_SPACE_ADDRESSING_VERSION | undefined {
+  return mentionProfileIds === undefined
+    ? undefined
+    : OPENMELD_SPACE_ADDRESSING_VERSION;
 }
 
 function hashClientMessageIdMaterial(value: string): string {

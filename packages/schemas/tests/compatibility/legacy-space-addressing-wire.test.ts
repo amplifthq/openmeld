@@ -74,6 +74,7 @@ describe("legacy Space Addressing wire compatibility", () => {
           messageEnvelope: {
             activationTargets: [AGENT_PROFILE_ID],
             referenceTargets: [HUMAN_PROFILE_ID],
+            mentionTargets: [HUMAN_PROFILE_ID],
             text: "Please review.",
           },
         },
@@ -157,7 +158,7 @@ describe("legacy Space Addressing wire compatibility", () => {
       legacyAllowedRelationsSchema.parse(legacyWireRelations.allowedRelations)
     ).toEqual({
       cc: false,
-      reference: false,
+      reference: true,
       wake: false,
     });
     expect(
@@ -165,7 +166,7 @@ describe("legacy Space Addressing wire compatibility", () => {
         legacyWireRelations.allowedRelations
       )
     ).toEqual({
-      mention: false,
+      mention: true,
       reference: false,
       wake: false,
     });

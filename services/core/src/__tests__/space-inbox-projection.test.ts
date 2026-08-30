@@ -7,7 +7,10 @@ import {
   attemptSpaceInboxProjectionOutboxRecord,
   resolveSpaceInboxRecipientEligibility,
 } from "../space/application/space-inbox-projection-outbox-service";
-import type { SpaceInboxProjectionOutboxRecord } from "../space/infrastructure/sql/space-inbox-projection-outbox-repo";
+import {
+  listDueSpaceInboxProjectionOutboxRecords,
+  type SpaceInboxProjectionOutboxRecord,
+} from "../space/infrastructure/sql/space-inbox-projection-outbox-repo";
 import type { SpaceMemberRecord } from "../space/infrastructure/sql/space-member-repo";
 import { Space } from "../space/transport/do/space";
 
@@ -42,6 +45,41 @@ const publishTextSignal = (
 ).publishTextSignal;
 
 describe("Space Inbox projection", () => {
+  it("decodes a persisted rollout-only Human Reference before retrying the outbox", () => {
+    const legacyCandidate = {
+      ...candidate("user-1"),
+      kind: "space_reference",
+    };
+    const sql = {
+      exec() {
+        return {
+          toArray: () => [
+            {
+              attempt_count: 0,
+              candidates_json: JSON.stringify([legacyCandidate]),
+              completed_at_ms: null,
+              created_at_ms: 1000,
+              last_error_code: null,
+              next_retry_at_ms: null,
+              projection_id: "signal-1",
+              signal_id: "signal-1",
+              space_id: "space-1",
+              status: "pending",
+              updated_at_ms: 1000,
+            },
+          ],
+        };
+      },
+    } as unknown as SqlStorage;
+
+    expect(
+      listDueSpaceInboxProjectionOutboxRecords(sql, {
+        limit: 10,
+        nowMs: 2000,
+      })[0]?.candidates[0]?.kind
+    ).toBe("space_mention");
+  });
+
   it("truncates Inbox copy without splitting a surrogate pair", () => {
     const truncated = truncateInboxText("aa😀tail", 4);
 

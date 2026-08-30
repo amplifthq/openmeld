@@ -1,3 +1,7 @@
+import {
+  OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_ADDRESSING_VERSION,
+} from "@openmeld/gateway-contract";
 import { getSpaceDispatchResultResponseSchema } from "@openmeld/schemas";
 import type {
   DispatchResult,
@@ -29,11 +33,15 @@ export async function fetchSpaceDispatchResult(input: {
     url: endpoint.toString(),
     operation: "space.result.read",
     init: {
-      headers: await buildOpenMeldRequestContextHeadersWithAuth({
-        requestUrl: endpoint.toString(),
-        requestContext: input.requestContext,
-        spacePassword: input.password,
-      }),
+      headers: {
+        ...(await buildOpenMeldRequestContextHeadersWithAuth({
+          requestUrl: endpoint.toString(),
+          requestContext: input.requestContext,
+          spacePassword: input.password,
+        })),
+        [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
+          OPENMELD_SPACE_ADDRESSING_VERSION,
+      },
     },
   });
   const raw = await readGatewayTextResponse({ response });

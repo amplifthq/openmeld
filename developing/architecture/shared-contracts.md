@@ -4528,11 +4528,13 @@ Current Center Agent Space-authoring RPC requests use `mentionProfileIds` for
 Human Profiles and `referenceProfileIds` for Agent Profiles. Core validates and
 normalizes both sets, then writes them as `mentionTargets` and
 `referenceTargets` in the current Message Envelope. A delegated Wake
-publication command persists both sets so event-driven retry cannot lose
-structured addressing. Older persisted commands normalize missing lists to
-empty current-domain lists. No caller may infer either relation from message
-text. The deterministic Center Agent `clientMessageId` includes each non-empty
-normalized set while omitting empty keys to preserve older idempotency keys.
+publication command persists both sets and the current addressing version so
+event-driven retry cannot lose structured addressing or its validation mode.
+Older persisted commands normalize missing lists to empty current-domain lists
+and keep the legacy unversioned mode. No caller may infer either relation from
+message text. The deterministic Center Agent `clientMessageId` includes the
+current addressing version for a current caller plus each non-empty normalized
+set; legacy callers omit the version and preserve their older idempotency keys.
 
 Before either Center Agent Space-authoring RPC can publish, the current Remote
 Agent calls Core's `centerAgentReadSpaceAuthoringContract` RPC with
@@ -4566,8 +4568,9 @@ boundary for retired CC wire data. Its removal points are explicit:
 - `compatibility/legacy-space-addressing-wire.ts` is the outbound compatibility
   boundary for supported old-client transports. The request helper preserves a
   non-empty `mentionTargets` list and otherwise may add only an empty
-  `ccTargets` field. The response encoder may add only that empty field and the
-  retired `allowedRelations.cc = false` capability flag.
+  `ccTargets` field. The response encoder folds Human Mention targets and
+  capabilities into the retired client's Reference projection, while adding
+  only the empty `ccTargets` field and `allowedRelations.cc = false` flag.
 
 Current HTTP clients declare
 `x-openmeld-space-addressing-version: 1`. Gateway obtains the current projection
@@ -4603,7 +4606,7 @@ The Contract Impact Audit for this retirement is:
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Old CLI or OpenMeld Service -> new Core                    | New shared request schemas accept the retired empty or populated field only at preprocessing, merge historical targets into Reference, and return a current addressing object. This includes daemon result frames. |
 | New CLI or OpenMeld Service -> old Core                    | Not supported once `mentionTargets` is authored. The guarded rollout deploys current readers before current Human Mention writers.                                                                                |
-| Old Web or API client -> new Gateway/Core                  | New request schemas normalize the retired field at the boundary. Gateway preserves the caller's missing version, and Core translates active Human References into Human Mentions before current validation. Old response readers receive only the empty compatibility field.         |
+| Old Web or API client -> new Gateway/Core                  | New request schemas normalize the retired field at the boundary. Gateway preserves the caller's missing version, and Core translates active Human References into Human Mentions before current validation. Old response readers receive Human Mentions through their legacy Reference projection. |
 | New Web or API client -> old Gateway/Core                  | Requests without Human Mention retain the empty compatibility field. A request with non-empty `mentionTargets` requires current readers; the guarded rollout deploys those readers first. Current response readers normalize old persisted values into Reference.              |
 | Old Gateway or Remote Agent -> new Core                    | New Core request schemas normalize retired wire fields. For Center Agent authoring, an old Remote Agent receives the legacy contract and response projection while persisted Human targets become Mentions.                                                                         |
 | New Core -> old Gateway, Remote Agent, or OpenMeld Service | Consumers that omit the HTTP/RPC response version or WebSocket capability receive their supported legacy projection after current-domain validation. Negotiated current consumers receive `mentionTargets` and `allowedRelations.mention` unchanged.                               |
@@ -4620,7 +4623,7 @@ Guarded production rollout must therefore deploy Core before Remote Agent, and
 rollback must remove the current Remote Agent before rolling back Core. Old
 persisted delegated publication commands remain readable because Core
 normalizes missing `mentionTargets` and `referenceTargets` to empty
-current-domain lists.
+current-domain lists and treats a missing addressing version as legacy.
 
 Remove all three compatibility owner points together after the minimum
 supported Web, CLI, OpenMeld Service, Gateway, Core, and Remote Agent versions

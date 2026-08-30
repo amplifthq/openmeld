@@ -949,17 +949,19 @@ diagnostics, not primary user copy.
 
 ## Wake Outcome Contract
 
-Space Message Addressing has exactly two current relations:
+Space Message Addressing has exactly three current relations:
 
-| Relation  | Target support                 | Dispatches work |
-| --------- | ------------------------------ | --------------- |
-| Wake      | Agent Profile only             | Yes             |
-| Reference | Human Profile or Agent Profile | No              |
+| Relation      | Target support     | Dispatches work |
+| ------------- | ------------------ | --------------- |
+| Wake          | Agent Profile only | Yes             |
+| Reference     | Agent Profile only | No              |
+| Human Mention | Human Profile only | No              |
 
 Canonical message envelope fields stay stable:
 
 - Wake: `activationTargets`
 - Reference: `referenceTargets`
+- Human Mention: `mentionTargets`
 
 Every visible `activationTargets` entry on an authoritative system final signal
 must have a prepared durable dispatch handoff seed in the same Space write
@@ -967,9 +969,12 @@ plan. If the planner cannot prepare that seed, Space rejects the signal before
 publication. A same-profile Wake may wait behind an existing local conversation
 lane, but it must never appear in Space without a real dispatch.
 
-Historical signals that used the retired CC relation are normalized to
-Reference at the centralized shared-schema compatibility boundary. That legacy
-wire input never becomes current addressing state and never enters dispatch.
+Historical signals that used the retired CC relation are normalized at the
+centralized shared-schema compatibility boundary. During the mixed-version
+window, an unversioned authoring request that puts an active Human Profile in
+`referenceTargets` is translated to Human Mention before current validation;
+current callers cannot author a Human Reference. Neither compatibility path
+creates executable work or enters dispatch.
 
 Runtime results use the Space action contract:
 

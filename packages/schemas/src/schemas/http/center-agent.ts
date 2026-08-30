@@ -959,6 +959,7 @@ export const centerAgentWakePublicationCommandSchema = z
       .array(openMeldRuntimeProfileIdSchema)
       .max(25)
       .default([]),
+    spaceAddressingVersion: z.literal("1").optional(),
     spaceId: trimmedNonEmptyStringSchema,
     subscriptionIds: z.array(trimmedNonEmptyStringSchema).min(1),
     text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),

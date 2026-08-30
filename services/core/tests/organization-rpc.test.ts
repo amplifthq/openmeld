@@ -4060,6 +4060,7 @@ describe("organization Core RPC", () => {
           referenceTargets: [],
           text: "I moved the launch notes into this Space.",
         },
+        spaceAddressingVersion: "1",
         spaceId: JOINED_PRIVATE_SPACE_ID,
         text: "I moved the launch notes into this Space.",
       })
@@ -4209,6 +4210,51 @@ describe("organization Core RPC", () => {
       status: 422,
     });
     expect(spaceStub.rpcPostSignal).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks current Center Agent Space posts before target-kind validation", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PRIVATE_SPACE_ID,
+          spaceName: "Launch Room",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({
+      enforceAddressingTargetMembership: true,
+      initialActiveMemberProfileIdsBySpace: {
+        [JOINED_PRIVATE_SPACE_ID]: [HUMAN_PROFILE_ID],
+      },
+      spaces: db.spaces,
+    });
+
+    await rpcCenterAgentPostSpaceMessage(buildEnv({ db, spaceStub }), {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        profileId: AGENT_PROFILE_ID,
+        profileKind: "agent",
+        userId: "user-a",
+      }),
+      mentionProfileIds: [],
+      referenceProfileIds: [HUMAN_PROFILE_ID],
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+      text: "Please review the launch notes.",
+    });
+    expect(spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+      expect.objectContaining({ spaceAddressingVersion: "1" })
+    );
   });
 
   it("posts ordered Slack messages with independent retry identities", async () => {
@@ -6401,6 +6447,22 @@ describe("organization Core RPC", () => {
     expect(alternateReferenceWake.signal.data.meta?.clientMessageId).not.toBe(
       legacyCompatibleWake.signal.data.meta?.clientMessageId
     );
+
+    const currentWake = await rpcCenterAgentWakeAgentProfilesInSpace(env, {
+      ...wakeInput,
+      mentionProfileIds: [],
+    });
+    if (currentWake.publicationStatus === "pending") {
+      throw new Error("direct Center Agent Wake must be accepted");
+    }
+    expect(currentWake.signal.data.meta?.clientMessageId).not.toBe(
+      firstWake.signal.data.meta?.clientMessageId
+    );
+    expect(
+      spaceStub.rpcPostSignalOnceByClientMessageId
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({ spaceAddressingVersion: "1" })
+    );
   });
 
   it("rejects a direct Center Agent Wake after a mentioned Human is removed", async () => {
@@ -6599,6 +6661,7 @@ describe("organization Core RPC", () => {
           activationTargets: [SECOND_AGENT_PROFILE_ID],
           mentionTargets: [HUMAN_PROFILE_ID],
           referenceTargets: [planningAgentProfileId],
+          spaceAddressingVersion: "1",
         }),
       })
     );

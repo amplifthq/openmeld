@@ -71,15 +71,23 @@ function encodeLegacySpaceAddressingWireValue(
         MESSAGE_ENVELOPE_WIRE_FIELD_NAMES.has(fieldName))) &&
     isCurrentMessageEnvelope(encoded)
   ) {
+    const mentionTargets = Array.isArray(encoded.mentionTargets)
+      ? encoded.mentionTargets
+      : [];
+    const referenceTargets = Array.isArray(encoded.referenceTargets)
+      ? encoded.referenceTargets
+      : [];
     return {
       ...omitJsonField(encoded, "mentionTargets"),
       ccTargets: [],
+      referenceTargets: [...new Set([...referenceTargets, ...mentionTargets])],
     };
   }
   if (fieldName === "allowedRelations" && isCurrentAllowedRelations(encoded)) {
     return {
       ...omitJsonField(encoded, "mention"),
       cc: false,
+      reference: encoded.reference === true || encoded.mention === true,
     };
   }
   return encoded;
