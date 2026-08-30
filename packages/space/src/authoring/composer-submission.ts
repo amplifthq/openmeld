@@ -13,16 +13,16 @@ const CANONICAL_MENTION_TYPES = new Set<MessageMentionType>(
   MESSAGE_MENTION_TYPE_VALUES
 );
 const DUPLICATE_TARGET_ISSUE_PATTERN =
-  /^(activationTargets|referenceTargets) must not contain duplicate profileId$/u;
+  /^(activationTargets|referenceTargets|mentionTargets) must not contain duplicate profileId$/u;
 const DISTINCT_TARGET_ISSUE_PATTERN =
-  /^(activationTargets|referenceTargets) must not reuse profileId from (activationTargets|referenceTargets)$/u;
+  /^(activationTargets|referenceTargets|mentionTargets) must not reuse profileId from (activationTargets|referenceTargets|mentionTargets)$/u;
 const REMOVED_CC_RELATION_SUFFIX_PATTERN = /\(cc\)$/u;
 const INVALID_MENTION_GUIDANCE =
   "That mention is not valid. Type @ and choose a member from the list.";
 const MISSING_MENTION_TARGET_GUIDANCE =
   "That mention does not match a current member. Type @ and choose a member from the list.";
 const INVALID_MENTION_ACTION_GUIDANCE =
-  "Mention action must be Wake or Reference. Type @ and choose from the list.";
+  "Mention action must be Wake, Reference, or Mention. Type @ and choose from the list.";
 export function formatRemovedCcRelationMessage(
   replacement: "Reference" | "--reference"
 ): string {
@@ -31,12 +31,13 @@ export function formatRemovedCcRelationMessage(
 
 type CanonicalMentionTargetField = keyof Pick<
   MessageEnvelope,
-  "activationTargets" | "referenceTargets"
+  "activationTargets" | "referenceTargets" | "mentionTargets"
 >;
 
 type MessageEnvelopeInput = {
   activationTargets: string[];
   referenceTargets: string[];
+  mentionTargets: string[];
   replyToSignalId?: string;
   text: string;
 };
@@ -162,6 +163,7 @@ export function prepareSpaceComposerSubmission(input: {
     const messageEnvelope = createMessageEnvelopeOrNull({
       activationTargets: [],
       referenceTargets: [],
+      mentionTargets: [],
       ...(replyToSignalId ? { replyToSignalId } : {}),
       text: normalizedText,
     });
@@ -466,6 +468,7 @@ function createEnvelopeInput(
   return {
     activationTargets: [],
     referenceTargets: [],
+    mentionTargets: [],
     ...(replyToSignalId ? { replyToSignalId } : {}),
     text,
   };
@@ -559,6 +562,7 @@ function normalizePlainTextOrThrow(text: string): string {
   return normalizeEnvelopeOrThrow({
     activationTargets: [],
     referenceTargets: [],
+    mentionTargets: [],
     text,
   }).text;
 }
@@ -574,7 +578,9 @@ function createMessageEnvelopeOrNull(
   input: MessageEnvelopeInput
 ): MessageEnvelope | null {
   const hasStructuredTargets =
-    input.activationTargets.length > 0 || input.referenceTargets.length > 0;
+    input.activationTargets.length > 0 ||
+    input.referenceTargets.length > 0 ||
+    input.mentionTargets.length > 0;
 
   if (!(hasStructuredTargets || input.replyToSignalId)) {
     return null;
@@ -636,7 +642,7 @@ function describeRelationSupport(relation: MessageMentionType): string {
   if (relation === "wake") {
     return "agent targets";
   }
-  return "active targets";
+  return relation === "reference" ? "agent targets" : "human targets";
 }
 
 function formatCanonicalMentionEnvelopeError(error: unknown): string {
@@ -665,6 +671,7 @@ function formatCanonicalMentionEnvelopeError(error: unknown): string {
   return message
     .replaceAll("activationTargets", "wake")
     .replaceAll("referenceTargets", "reference")
+    .replaceAll("mentionTargets", "mention")
     .replaceAll("profileId", "target");
 }
 

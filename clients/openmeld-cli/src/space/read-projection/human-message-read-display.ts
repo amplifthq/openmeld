@@ -13,7 +13,10 @@ export type HumanMessageSemanticLines = {
 
 export function buildHumanMessageRelationLines(
   projection:
-    | Pick<SpaceMessageReadProjection, "wakeTargets" | "referenceTargets">
+    | Pick<
+        SpaceMessageReadProjection,
+        "wakeTargets" | "referenceTargets" | "mentionTargets"
+      >
     | null
     | undefined
 ): readonly string[] {
@@ -23,6 +26,7 @@ export function buildHumanMessageRelationLines(
   return buildSpaceMessageReadRelationSummary({
     wakeTargets: projection.wakeTargets,
     referenceTargets: projection.referenceTargets,
+    mentionTargets: projection.mentionTargets,
   }).map(formatHumanRelationSummaryLine);
 }
 

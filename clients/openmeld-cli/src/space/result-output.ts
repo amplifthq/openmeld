@@ -249,6 +249,16 @@ function buildDispatchResultRelationRows(
           } satisfies InfoCardRow,
         ]
       : []),
+    ...(messageReadProjection.mentionTargets.length > 0
+      ? [
+          {
+            label: pc.dim("Mention"),
+            value: pc.bold(
+              formatHumanReadTargetList(messageReadProjection.mentionTargets)
+            ),
+          } satisfies InfoCardRow,
+        ]
+      : []),
   ];
 }
 

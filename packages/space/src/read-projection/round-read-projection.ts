@@ -15,7 +15,7 @@ import {
   type SpaceSignalIndex,
 } from "./message-read-projection";
 
-export type SpaceRoundReadTargetRelation = "wake" | "reference";
+export type SpaceRoundReadTargetRelation = "wake" | "reference" | "mention";
 
 export type SpaceRoundReadDispatchState =
   | "no_dispatch"
@@ -157,6 +157,11 @@ function buildInitialRoundTargets(
       dispatchState: "no_dispatch",
       relation: "reference",
       targets: sourceMessageReadProjection.referenceTargets,
+    }),
+    ...buildRelationTargets({
+      dispatchState: "no_dispatch",
+      relation: "mention",
+      targets: sourceMessageReadProjection.mentionTargets,
     }),
   ];
 }

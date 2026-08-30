@@ -35,7 +35,7 @@ export const inboxResolutionStatusSchema = z.enum([
 ]);
 export const inboxItemKindSchema = z.enum([
   "space_message",
-  "space_reference",
+  "space_mention",
   "agent_reply",
   "agent_interaction",
   "wake_outcome",

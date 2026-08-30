@@ -77,7 +77,7 @@ export const inboxItems = sqliteTable(
     ),
     check(
       "inbox_items_kind_check",
-      sql`"kind" in ('space_message', 'space_reference', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue')`
+      sql`"kind" in ('space_message', 'space_mention', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue')`
     ),
     check(
       "inbox_items_attention_check",

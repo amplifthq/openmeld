@@ -93,6 +93,7 @@ describe("space send target projection", () => {
         allowedRelations: {
           wake: true,
           reference: true,
+          mention: false,
         },
         wakeAvailability: expect.objectContaining({
           status: "blocked",

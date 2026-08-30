@@ -40,7 +40,8 @@ describe("space member directory", () => {
           primaryMentionLabel: "Mira",
           allowedRelations: {
             wake: false,
-            reference: true,
+            reference: false,
+            mention: true,
           },
         }),
         expect.objectContaining({
@@ -51,6 +52,7 @@ describe("space member directory", () => {
           allowedRelations: {
             wake: true,
             reference: true,
+            mention: false,
           },
           agentCard: null,
           spaceRole: null,

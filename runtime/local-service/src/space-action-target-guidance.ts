@@ -4,10 +4,11 @@ export const SPACE_ACTION_CONTEXT_GUIDANCE_LINES = [
 ] as const;
 
 export const SPACE_ACTION_TARGET_GUIDANCE_LINES = [
-  "Use OpenMeld Space Action target fields such as wakeTargets and referenceTargets. With the CLI fallback, use --wake and --reference.",
+  "Use OpenMeld Space Action target fields such as wakeTargets, referenceTargets, and mentionTargets. With the CLI fallback, use --wake, --reference, and --mention.",
   "Any @name text in the body is only prose in the agent path; it does not define OpenMeld targets.",
   "activationTargets is only for waking another Agent Profile in this Space.",
   "activationTargets must reference an active Agent Profile member in this Space.",
   "Never put a Human Profile ID, sender ID, or reply recipient in activationTargets.",
-  "For a normal reply to the current Wake, leave activationTargets and referenceTargets empty.",
+  "referenceTargets must reference active Agent Profile members; mentionTargets must reference active Human Profile members.",
+  "For a normal reply to the current Wake, leave activationTargets, referenceTargets, and mentionTargets empty.",
 ] as const;

@@ -27,7 +27,7 @@ export type DispatchSendTargetReferenceLoadResult =
 
 type TargetValidationRule = {
   fieldName: MessageEnvelopeTargetField;
-  relationName: "wake" | "reference";
+  relationName: "wake" | "reference" | "mention";
 };
 
 const TARGET_VALIDATION_RULES: TargetValidationRule[] = [
@@ -38,6 +38,10 @@ const TARGET_VALIDATION_RULES: TargetValidationRule[] = [
   {
     fieldName: "referenceTargets",
     relationName: "reference",
+  },
+  {
+    fieldName: "mentionTargets",
+    relationName: "mention",
   },
 ];
 
@@ -52,6 +56,7 @@ export function normalizeDispatchPostMessageAction(input: {
     activationTargetsCount: number;
     inputKind: DispatchPostMessageInputKind;
     memberDirectoryLoaded: boolean;
+    mentionTargetsCount: number;
     referenceTargetsCount: number;
     replyToSignalIdResolved: boolean;
   };
@@ -84,6 +89,8 @@ export function normalizeDispatchPostMessageAction(input: {
         canonicalAction.messageEnvelope.activationTargets.length,
       inputKind: input.inputKind,
       memberDirectoryLoaded: input.sendTargetReference.status === "loaded",
+      mentionTargetsCount:
+        canonicalAction.messageEnvelope.mentionTargets?.length ?? 0,
       referenceTargetsCount:
         canonicalAction.messageEnvelope.referenceTargets.length,
       replyToSignalIdResolved: Boolean(
@@ -123,7 +130,12 @@ function validateDispatchPostMessageTargets(input: {
   sendTargetReference: DispatchSendTargetReferenceLoadResult;
 }): void {
   const { activationTargets, referenceTargets } = input.action.messageEnvelope;
-  if (activationTargets.length === 0 && referenceTargets.length === 0) {
+  const mentionTargets = input.action.messageEnvelope.mentionTargets ?? [];
+  if (
+    activationTargets.length === 0 &&
+    referenceTargets.length === 0 &&
+    mentionTargets.length === 0
+  ) {
     return;
   }
 
@@ -140,7 +152,7 @@ function validateDispatchPostMessageTargets(input: {
     ])
   );
   for (const rule of TARGET_VALIDATION_RULES) {
-    const targets = input.action.messageEnvelope[rule.fieldName];
+    const targets = input.action.messageEnvelope[rule.fieldName] ?? [];
     for (const [index, targetProfileId] of targets.entries()) {
       validateDispatchTargetProfileId({
         fieldName: rule.fieldName,
@@ -156,7 +168,7 @@ function validateDispatchPostMessageTargets(input: {
 function validateDispatchTargetProfileId(input: {
   fieldName: MessageEnvelopeTargetField;
   index: number;
-  relationName: "wake" | "reference";
+  relationName: "wake" | "reference" | "mention";
   targetByProfileId: ReadonlyMap<string, DispatchSendTargetProjectionEntry>;
   targetProfileId: string;
 }): void {
@@ -182,6 +194,11 @@ function validateDispatchTargetProfileId(input: {
   ) {
     throw new Error(
       `${fieldPath} must reference an active profile in this space`
+    );
+  }
+  if (input.relationName === "mention" && !target.allowedRelations.mention) {
+    throw new Error(
+      `${fieldPath} must reference a human profile in this space`
     );
   }
 }

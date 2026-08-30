@@ -7,13 +7,13 @@ const MESSAGE_ENVELOPE_WIRE_FIELD_NAMES = new Set([
 
 /**
  * Temporary transport-only compatibility for clients released before Space
- * Message Addressing moved to Wake and Reference.
+ * Message Addressing moved from CC to explicit Wake, Reference, and Mention.
  *
  * Callers must pass values that have already crossed current schemas. The
  * returned value is for JSON serialization only and must never be reused as a
  * domain object. Remove this encoder after the minimum supported Web, CLI,
  * Local Service, Gateway, Core, and Remote Agent versions all understand the
- * two-relation contract and production history has completed one retention
+ * current addressing contract and production history has completed one retention
  * window under the current read projection.
  */
 export function toLegacySpaceAddressingWireValue(value: unknown): unknown {
@@ -70,7 +70,9 @@ function isCurrentMessageEnvelope(value: JsonRecord): boolean {
 
 function isCurrentAllowedRelations(value: JsonRecord): boolean {
   return (
-    typeof value.wake === "boolean" && typeof value.reference === "boolean"
+    typeof value.wake === "boolean" &&
+    typeof value.reference === "boolean" &&
+    typeof value.mention === "boolean"
   );
 }
 

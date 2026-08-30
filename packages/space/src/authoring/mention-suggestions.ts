@@ -23,16 +23,19 @@ const MULTI_SPACE_PATTERN = /\s+/g;
 const MENTION_RELATION_ORDER: readonly MessageMentionType[] = [
   "wake",
   "reference",
+  "mention",
 ];
 
 const RELATION_LABELS: Record<MessageMentionType, string> = {
   wake: "Wake",
   reference: "Reference",
+  mention: "Mention",
 };
 
 const RELATION_DESCRIPTIONS: Record<MessageMentionType, string> = {
   wake: "Ask this agent to reply.",
   reference: "Add context without asking for a reply.",
+  mention: "Notify this person about the message.",
 };
 
 export type SpaceMentionSuggestion = {

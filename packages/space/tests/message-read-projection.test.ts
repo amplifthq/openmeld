@@ -840,11 +840,12 @@ describe("space message read projection", () => {
     });
   });
 
-  it("keeps relation summary order frozen as Wake then Reference", () => {
+  it("keeps relation summary order frozen as Wake, Reference, then Mention", () => {
     expect(
       buildSpaceMessageReadRelationSummary({
         wakeTargets: [createTargetRef("agt-1", "Wake Agent")],
         referenceTargets: [createTargetRef("agt-2", "Reference Agent")],
+        mentionTargets: [createTargetRef("hum-1", "Felix")],
       })
     ).toEqual([
       {
@@ -854,6 +855,10 @@ describe("space message read projection", () => {
       {
         relation: "reference",
         targets: [createTargetRef("agt-2", "Reference Agent")],
+      },
+      {
+        relation: "mention",
+        targets: [createTargetRef("hum-1", "Felix")],
       },
     ]);
   });

@@ -16,7 +16,8 @@ export type SpaceBareMentionDiagnostic = {
   profileKind: "human" | "agent";
   profileName: string;
   start: number;
-  suggestedReferenceText: string;
+  suggestedMentionText: string | null;
+  suggestedReferenceText: string | null;
   suggestedWakeText: string | null;
 };
 
@@ -210,6 +211,16 @@ function toBareMentionDiagnostic(input: {
     input.candidate.entry.allowedRelations.wake
       ? `@${label}(wake)`
       : null;
+  const suggestedReferenceText =
+    input.candidate.entry.profileKind === "agent" &&
+    input.candidate.entry.allowedRelations.reference
+      ? `@${label}(reference)`
+      : null;
+  const suggestedMentionText =
+    input.candidate.entry.profileKind === "human" &&
+    input.candidate.entry.allowedRelations.mention
+      ? `@${label}(mention)`
+      : null;
 
   return {
     end: input.end,
@@ -218,7 +229,8 @@ function toBareMentionDiagnostic(input: {
     profileKind: input.candidate.entry.profileKind,
     profileName: input.candidate.entry.profileName,
     start: input.start,
-    suggestedReferenceText: `@${label}(reference)`,
+    suggestedMentionText,
+    suggestedReferenceText,
     suggestedWakeText,
   };
 }
@@ -239,6 +251,7 @@ function isCanonicalMentionRelationSuffix(value: string): boolean {
   return (
     value.startsWith("(wake)") ||
     value.startsWith("(reference)") ||
+    value.startsWith("(mention)") ||
     value.startsWith("(cc)")
   );
 }

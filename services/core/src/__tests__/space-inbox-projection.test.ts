@@ -49,12 +49,12 @@ describe("Space Inbox projection", () => {
     expect(truncated.length).toBeLessThanOrEqual(4);
   });
 
-  it("projects exact thread targets, reference priority, and active human visibility without notifying the author", () => {
+  it("projects exact thread targets, Human Mention priority, and active human visibility without notifying the author", () => {
     const signal = textSignal({
       authorKind: "human",
       authorName: "Alex Author",
       authorProfileId: "profile-author",
-      referenceTargets: ["profile-referenced"],
+      mentionTargets: ["profile-referenced"],
       text: "Please review the updated launch notes.",
     });
     const record = buildSpaceInboxProjectionOutboxRecord({
@@ -85,7 +85,7 @@ describe("Space Inbox projection", () => {
     expect(record?.candidates).toHaveLength(2);
     expect(record?.candidates).toEqual([
       expect.objectContaining({
-        kind: "space_reference",
+        kind: "space_mention",
         recipientUserId: "user-referenced",
         sourceKey: "signal-1",
         sourceTarget: {
@@ -94,7 +94,7 @@ describe("Space Inbox projection", () => {
           spaceId: "space-1",
           threadRootSignalId: "signal-root",
         },
-        title: "Alex Author referenced you in Launch Room",
+        title: "Alex Author mentioned you in Launch Room",
       }),
       expect.objectContaining({
         kind: "space_message",
@@ -147,7 +147,7 @@ describe("Space Inbox projection", () => {
     ]);
   });
 
-  it("delivers an agent reply to the requester, structured references, and thread target without broadcasting", () => {
+  it("delivers an agent reply to the requester, Human Mentions, and thread target without broadcasting", () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
         member("profile-requester", "user-requester", "human"),
@@ -163,7 +163,7 @@ describe("Space Inbox projection", () => {
         authorName: "Center Agent",
         authorProfileId: "profile-agent",
         purpose: AGENT_REPLY_FINAL_PURPOSE,
-        referenceTargets: ["profile-referenced"],
+        mentionTargets: ["profile-referenced"],
         text: "I updated the plan for Bob.",
       }),
       signalContext: {
@@ -184,7 +184,7 @@ describe("Space Inbox projection", () => {
         recipientUserId: "user-requester",
       }),
       expect.objectContaining({
-        kind: "space_reference",
+        kind: "space_mention",
         recipientUserId: "user-referenced",
       }),
       expect.objectContaining({
@@ -830,6 +830,7 @@ function textSignal(input: {
   authorName: string;
   authorProfileId: string;
   purpose?: string;
+  mentionTargets?: string[];
   referenceTargets?: string[];
   text: string;
 }): SignalEnvelope {
@@ -838,6 +839,7 @@ function textSignal(input: {
       ...(input.purpose ? { meta: { purpose: input.purpose } } : {}),
       messageEnvelope: {
         activationTargets: [],
+        mentionTargets: input.mentionTargets ?? [],
         referenceTargets: input.referenceTargets ?? [],
         text: input.text,
       },

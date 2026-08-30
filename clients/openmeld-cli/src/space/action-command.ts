@@ -26,7 +26,7 @@ import {
   uploadPreparedSpaceFiles,
 } from "./send-files";
 
-type Relation = "wake" | "reference";
+type Relation = "wake" | "reference" | "mention";
 
 const FINAL_SAFE_STATUSES = new Set<SpaceStatus>([
   "blocked",
@@ -36,7 +36,7 @@ const FINAL_SAFE_STATUSES = new Set<SpaceStatus>([
 ]);
 
 const LEADING_AT_PATTERN = /^@/u;
-const TRAILING_RELATION_PATTERN = /\((wake|reference)\)$/iu;
+const TRAILING_RELATION_PATTERN = /\((wake|reference|mention)\)$/iu;
 const WHITESPACE_PATTERN = /\s+/g;
 const DISPATCH_ACTION_CLI_PLACEHOLDER = "<DISPATCH_ACTION_CLI>";
 const SPACE_ACTION_REPLY_TIMING_EVENT = "openmeld.space_action.reply_timing";
@@ -45,6 +45,7 @@ export function runSpaceActionReply(input: {
   filePaths?: readonly string[];
   messageFilePath?: string;
   messageParts: readonly string[];
+  mentionTargets?: readonly string[];
   referenceTargets?: readonly string[];
   wakeTargets?: readonly string[];
 }): void | Promise<void> {
@@ -52,6 +53,7 @@ export function runSpaceActionReply(input: {
   const result = recordDispatchSpaceReply({
     filePaths: input.filePaths,
     messagePartCount: input.messageParts.length,
+    mentionTargets: input.mentionTargets,
     referenceTargets: input.referenceTargets,
     text,
     wakeTargets: input.wakeTargets,
@@ -67,6 +69,7 @@ export function runSpaceActionReply(input: {
 export function recordDispatchSpaceReply(input: {
   filePaths?: readonly string[];
   messagePartCount?: number;
+  mentionTargets?: readonly string[];
   referenceTargets?: readonly string[];
   text: string;
   wakeTargets?: readonly string[];
@@ -77,6 +80,7 @@ export function recordDispatchSpaceReply(input: {
   const timing = createSpaceActionReplyTiming();
   timing.emit("command_start", undefined, {
     messagePartCount: input.messagePartCount ?? 0,
+    mentionTargetCount: input.mentionTargets?.length ?? 0,
     referenceTargetCount: input.referenceTargets?.length ?? 0,
     wakeTargetCount: input.wakeTargets?.length ?? 0,
   });
@@ -87,12 +91,14 @@ export function recordDispatchSpaceReply(input: {
   assertNoRemovedCcSpaceAddressingSyntax(text);
   const targetIds = resolveMessageEnvelopeTargetIds({
     context,
+    mentionTargets: input.mentionTargets ?? [],
     wakeTargets: input.wakeTargets ?? [],
     referenceTargets: input.referenceTargets ?? [],
   });
   timing.emit("targets_resolved", context, {
     activationTargetCount: targetIds.activationTargets.length,
     messageLength: text.length,
+    mentionTargetCount: targetIds.mentionTargets.length,
     referenceTargetCount: targetIds.referenceTargets.length,
   });
   const filePaths = input.filePaths ?? [];
@@ -140,7 +146,11 @@ function resolveReplyMessageText(input: {
 async function uploadAndRecordSpaceActionReply(input: {
   context: DispatchSpaceActionContext;
   filePaths: readonly string[];
-  targetIds: { activationTargets: string[]; referenceTargets: string[] };
+  targetIds: {
+    activationTargets: string[];
+    mentionTargets: string[];
+    referenceTargets: string[];
+  };
   text: string;
   timing: ReturnType<typeof createSpaceActionReplyTiming>;
 }): Promise<DispatchSpaceActionRecord> {
@@ -154,7 +164,11 @@ async function uploadAndRecordSpaceActionReply(input: {
 function writeSpaceActionReplyRecord(input: {
   context: DispatchSpaceActionContext;
   files: Awaited<ReturnType<typeof uploadSpaceActionReplyFiles>>;
-  targetIds: { activationTargets: string[]; referenceTargets: string[] };
+  targetIds: {
+    activationTargets: string[];
+    mentionTargets: string[];
+    referenceTargets: string[];
+  };
   text: string;
   timing: ReturnType<typeof createSpaceActionReplyTiming>;
 }): DispatchSpaceActionRecord {
@@ -163,6 +177,7 @@ function writeSpaceActionReplyRecord(input: {
     ...(input.files.length > 0 ? { files: [...input.files] } : {}),
     messageEnvelope: {
       activationTargets: input.targetIds.activationTargets,
+      mentionTargets: input.targetIds.mentionTargets,
       referenceTargets: input.targetIds.referenceTargets,
       ...(input.context.replyToSignalId
         ? { replyToSignalId: input.context.replyToSignalId }
@@ -226,6 +241,7 @@ export function runSpaceActionWake(input: {
         relation: "wake",
         targets: [input.target],
       }),
+      mentionTargets: [],
       referenceTargets: [],
       ...(context.replyToSignalId
         ? { replyToSignalId: context.replyToSignalId }
@@ -296,6 +312,9 @@ export function runSpaceActionTargets(): void {
   const referenceTargets = targetReference.projection.filter(
     (target) => target.allowedRelations.reference
   );
+  const mentionTargets = targetReference.projection.filter(
+    (target) => target.allowedRelations.mention
+  );
 
   outLine("Wake targets:");
   if (wakeTargets.length === 0) {
@@ -303,6 +322,16 @@ export function runSpaceActionTargets(): void {
   } else {
     for (const target of wakeTargets) {
       outLine(`- ${formatTargetLine(target, "wake")}`);
+    }
+  }
+
+  outLine("");
+  outLine("Mention targets:");
+  if (mentionTargets.length === 0) {
+    outLine("- none");
+  } else {
+    for (const target of mentionTargets) {
+      outLine(`- ${formatTargetLine(target, "mention")}`);
     }
   }
 
@@ -343,8 +372,15 @@ export function runSpaceActionHelp(): void {
   );
   outLine(
     formatSpaceActionHelpExample(
-      "Reply and reference another profile",
+      "Reply and reference another agent",
       'reply --reference "@Agent Name" "message"',
+      context
+    )
+  );
+  outLine(
+    formatSpaceActionHelpExample(
+      "Reply and mention a person",
+      'reply --mention "@Person Name" "message"',
       context
     )
   );
@@ -462,10 +498,12 @@ function createSpaceActionReplyTiming(): {
 
 function resolveMessageEnvelopeTargetIds(input: {
   context: DispatchSpaceActionContext;
+  mentionTargets: readonly string[];
   wakeTargets: readonly string[];
   referenceTargets: readonly string[];
 }): {
   activationTargets: string[];
+  mentionTargets: string[];
   referenceTargets: string[];
 } {
   const targets = {
@@ -473,6 +511,11 @@ function resolveMessageEnvelopeTargetIds(input: {
       context: input.context,
       relation: "wake",
       targets: input.wakeTargets,
+    }),
+    mentionTargets: resolveTargetProfileIds({
+      context: input.context,
+      relation: "mention",
+      targets: input.mentionTargets,
     }),
     referenceTargets: resolveTargetProfileIds({
       context: input.context,
@@ -486,12 +529,14 @@ function resolveMessageEnvelopeTargetIds(input: {
 
 function assertDistinctMessageEnvelopeTargets(input: {
   activationTargets: readonly string[];
+  mentionTargets: readonly string[];
   referenceTargets: readonly string[];
 }): void {
   const seen = new Map<string, Relation>();
   const relationTargets = [
     ["wake", input.activationTargets],
     ["reference", input.referenceTargets],
+    ["mention", input.mentionTargets],
   ] as const;
 
   for (const [relation, profileIds] of relationTargets) {

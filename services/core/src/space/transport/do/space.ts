@@ -1461,7 +1461,8 @@ const assertCurrentSpaceAddressingTargetsAreActiveMembers = (input: {
   }
   if (
     input.messageEnvelope.activationTargets.length === 0 &&
-    input.messageEnvelope.referenceTargets.length === 0
+    input.messageEnvelope.referenceTargets.length === 0 &&
+    (input.messageEnvelope.mentionTargets?.length ?? 0) === 0
   ) {
     return;
   }
@@ -1479,6 +1480,16 @@ const assertCurrentSpaceAddressingTargetsAreActiveMembers = (input: {
     });
   }
   for (const targetProfileId of input.messageEnvelope.referenceTargets) {
+    if (isActiveSpaceMember(targetProfileId)) {
+      continue;
+    }
+    throw new SpaceSignalAuthoringError({
+      code: SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
+      message: `OpenMeld could not send this message because ${targetProfileId} is not an active member of this Space. Choose a current Space member and try again.`,
+      targetProfileId,
+    });
+  }
+  for (const targetProfileId of input.messageEnvelope.mentionTargets ?? []) {
     if (isActiveSpaceMember(targetProfileId)) {
       continue;
     }

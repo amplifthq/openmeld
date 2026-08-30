@@ -26,6 +26,7 @@ describe("legacy Space Addressing wire compatibility", () => {
     const currentValue = {
       member: {
         allowedRelations: {
+          mention: true,
           reference: true,
           wake: false,
         },
@@ -50,6 +51,7 @@ describe("legacy Space Addressing wire compatibility", () => {
       member: {
         allowedRelations: {
           cc: false,
+          mention: true,
           reference: true,
           wake: false,
         },
@@ -89,13 +91,14 @@ describe("legacy Space Addressing wire compatibility", () => {
     expect(toLegacySpaceAddressingWireValue(currentEnvelope)).toEqual({
       activationTargets: [],
       ccTargets: [],
+      mentionTargets: [],
       referenceTargets: [HUMAN_PROFILE_ID, AGENT_PROFILE_ID],
       text: "Historical message",
     });
     expect(currentEnvelope).not.toHaveProperty("ccTargets");
   });
 
-  it("keeps old and new strict consumers interoperable without a third current fact", () => {
+  it("keeps the retired CC fields while making the three-relation rollout boundary explicit", () => {
     const currentEnvelope = normalizeMessageEnvelope({
       activationTargets: [AGENT_PROFILE_ID],
       referenceTargets: [HUMAN_PROFILE_ID],
@@ -104,32 +107,26 @@ describe("legacy Space Addressing wire compatibility", () => {
     const legacyWireEnvelope =
       toLegacySpaceAddressingWireValue(currentEnvelope);
 
-    expect(legacyMessageEnvelopeSchema.parse(legacyWireEnvelope)).toEqual({
-      activationTargets: [AGENT_PROFILE_ID],
-      ccTargets: [],
-      referenceTargets: [HUMAN_PROFILE_ID],
-      text: "Compatibility window",
-    });
+    expect(() =>
+      legacyMessageEnvelopeSchema.parse(legacyWireEnvelope)
+    ).toThrow();
     expect(messageEnvelopeSchema.parse(legacyWireEnvelope)).toEqual(
       currentEnvelope
     );
 
     const legacyWireRelations = toLegacySpaceAddressingWireValue({
-      allowedRelations: { reference: true, wake: false },
+      allowedRelations: { mention: true, reference: false, wake: false },
     }) as { allowedRelations: unknown };
-    expect(
+    expect(() =>
       legacyAllowedRelationsSchema.parse(legacyWireRelations.allowedRelations)
-    ).toEqual({
-      cc: false,
-      reference: true,
-      wake: false,
-    });
+    ).toThrow();
     expect(
       spaceMemberDirectoryAllowedRelationsSchema.parse(
         legacyWireRelations.allowedRelations
       )
     ).toEqual({
-      reference: true,
+      mention: true,
+      reference: false,
       wake: false,
     });
   });
