@@ -158,15 +158,18 @@ Profile work slot.
 A structured `usage_exhausted` terminal outcome is the deliberate exception to
 ordinary promotion: the Coordinator retains the interrupted work identity and
 holds every later Wake. A fresh reliable Usage recovery automatically starts
-one deterministic retry-as-new-execution for that interrupted request. Only its
+one deterministic retry-as-new-execution for that interrupted request. Its
 successful terminal result opens the separate owner approval gate for queued
-work and creates the urgent Inbox/email action. Later Wakes, including new
-intent accepted after Usage recovers, remain in FIFO behind that gate. Repeated
-reports and retries must converge on the same continuation operation.
-The Usage report path batches candidate Profiles into one owner-shard
-transaction. That transaction returns only Profiles whose continuation handoff
-is pending or authorized; Core must not probe every Profile Binding with a
-separate recovery RPC when no recovery gate exists.
+work and creates the urgent Inbox/email action. An explicit user Stop is
+terminal: it never re-arms automatic continuation, and any later queued work
+also remains behind owner approval. If no later work exists, the Stop clears
+the recovery gate. Later Wakes, including new intent accepted after Usage
+recovers, remain in FIFO behind that gate. Repeated reports and retries must
+converge on the same continuation operation.
+The Usage report path sends candidate Profiles in stable, schema-bounded
+owner-shard batches. Those transactions return only Profiles whose continuation
+handoff is pending or authorized; Core must not probe every Profile Binding
+with a separate recovery RPC when no recovery gate exists.
 
 Provider-native instruction delivery is an adapter optimization inside the
 local execution carrier. It must not change outbox admission,
@@ -372,7 +375,11 @@ Important execution rules:
   external HTTP boundaries, not a substitute for structured Space access. Losing
   a `dispatch_continuation` actor turns a narrowly authorized Wake continuation
   into an ordinary authenticated request and breaks authorization, trace, and
-  stopped-outcome diagnostics.
+  stopped-outcome diagnostics. Automatic recovery must rebuild that actor from
+  the Coordinator's exact interrupted dispatch, source Signal, Space, and target
+  Profile identity. After Space verifies the trace, the replayed Wake preserves
+  the source Signal's author; the Agent owner's Human context is never presented
+  as the original message author.
 
 ### Local Agent Human Interaction
 

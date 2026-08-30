@@ -4163,6 +4163,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       authorizedContinuationClientMessageId: null,
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
+      interruptedSourceSignalId: "signal-1",
       spaceId: HEX_SPACE_ID,
       status: "available",
     });
@@ -5694,6 +5695,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       authorizedContinuationClientMessageId: null,
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
+      interruptedSourceSignalId: "signal-1",
       spaceId: HEX_SPACE_ID,
       status: "available",
     });

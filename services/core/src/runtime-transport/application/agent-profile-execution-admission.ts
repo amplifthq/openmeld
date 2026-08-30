@@ -437,6 +437,7 @@ export async function readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmissio
     interruptedClientMessageId:
       head.targetWakeLifecycleIdentity.clientMessageId,
     interruptedDispatchId: head.primaryDispatchId,
+    interruptedSourceSignalId: head.targetWakeLifecycleIdentity.sourceSignalId,
     spaceId: head.targetWakeLifecycleIdentity.spaceId,
     status: "available",
   };

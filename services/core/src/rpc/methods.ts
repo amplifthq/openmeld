@@ -678,6 +678,7 @@ import type {
 import {
   buildDirectMessagePairKey,
   createAuthenticatedSpaceAccessContext,
+  createDispatchContinuationSpaceAccessContext,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
   getSpaceAccessRequestId,
@@ -4862,9 +4863,17 @@ async function executeAgentProfileWorkContinuation(input: {
     input.env,
     input.recovery.spaceId
   );
+  const spaceAccess = createDispatchContinuationSpaceAccessContext({
+    dispatchId: input.recovery.interruptedDispatchId,
+    requestContext: input.context,
+    sourceSignalId: input.recovery.interruptedSourceSignalId,
+    spaceId,
+    targetProfileId: input.targetProfileId,
+  });
   const inspected = await stub.rpcInspectExecutionRecovery({
     context: input.context,
     dispatchId: input.recovery.interruptedDispatchId,
+    spaceAccess,
     spaceId,
   });
   const projection = inspected.recovery;
@@ -4928,6 +4937,7 @@ async function executeAgentProfileWorkContinuation(input: {
   const executed = await stub.rpcExecuteExecutionRecovery({
     body: command,
     context: input.context,
+    spaceAccess,
     spaceId,
   });
   if (

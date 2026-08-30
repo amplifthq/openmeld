@@ -141,6 +141,7 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
+      interruptedSourceSignalId: z.string().trim().min(1).max(512),
       spaceId: z.string().trim().min(1).max(512),
       status: z.literal("available"),
     }),
@@ -207,19 +208,26 @@ const runtimeTransportAgentProfileWorkRecoveryTargetSchema = z.strictObject({
   targetProfileId: agentProfileIdSchema,
 });
 
+export const MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS = 100;
+
 export const runtimeTransportAgentProfileWorkUsageAvailableRequestSchema =
   z.strictObject({
     ownerUserId: z.string().trim().min(1).max(256),
-    targetProfileIds: z.array(agentProfileIdSchema).min(1).max(100),
+    targetProfileIds: z
+      .array(agentProfileIdSchema)
+      .min(1)
+      .max(MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS),
   });
 
 export const runtimeTransportAgentProfileWorkUsageAvailableResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({
-      changedProfileIds: z.array(agentProfileIdSchema).max(100),
+      changedProfileIds: z
+        .array(agentProfileIdSchema)
+        .max(MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS),
       continuationProfileIds: z
         .array(agentProfileIdSchema)
-        .max(100)
+        .max(MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS)
         .default([]),
       status: z.literal("updated"),
     }),

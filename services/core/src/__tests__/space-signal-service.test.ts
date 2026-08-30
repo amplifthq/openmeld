@@ -1941,7 +1941,12 @@ describe("space signal service", () => {
     expect(resumeExactControllerConversation).not.toHaveBeenCalled();
   });
 
-  it("routes a fresh execution through the same recovery claim and Space Wake publication path", async () => {
+  it.each([
+    { label: "shared Space", spaceId: "space-1" },
+    { label: "Direct Message", spaceId: "space-dm-1" },
+  ])("replays a fresh execution in a $label with verified continuation authority and the original author", async ({
+    spaceId,
+  }) => {
     const identity = {
       agentControllerConversationId: null,
       agentControllerRef: "builtin:codex",
@@ -1949,12 +1954,12 @@ describe("space signal service", () => {
       dispatchId: "dispatch-1",
       resultRef: null,
       runtimeCoordinatorExecutionId: "execution-1",
-      spaceId: "space-1",
+      spaceId,
       targetProfileId: "agent-1",
       taskId: "task-1",
     };
     const destination = {
-      spaceId: "space-1",
+      spaceId,
       surface: "space" as const,
       threadId: null,
     };
@@ -1977,6 +1982,7 @@ describe("space signal service", () => {
     const sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> = {
       ...createSignal(),
       id: "source-signal-1",
+      spaceId,
       data: {
         text: "finish the research",
         messageEnvelope: {
@@ -2056,7 +2062,7 @@ describe("space signal service", () => {
       rpcPostSignalOnceByClientMessageId: {
         value: postFreshWake,
       },
-      spaceId: { value: "space-1" },
+      spaceId: { value: spaceId },
     });
     const command = {
       action: "retry_as_new_execution" as const,
@@ -2072,10 +2078,11 @@ describe("space signal service", () => {
           ownerUserId: "owner-1",
           profileKind: "human",
           requestId: "request-fresh-recovery-1",
-          openMeldProfileId: "human-1",
+          openMeldProfileId: "human-owner-1",
+          profileName: "Agent Owner",
         },
       },
-      spaceId: "space-1",
+      spaceId,
     });
 
     expect(result).toMatchObject({
@@ -2099,6 +2106,24 @@ describe("space signal service", () => {
         },
         meta: {
           clientMessageId: result.newExecutionId,
+        },
+        profile: sourceSignal.profile,
+        spaceAccess: {
+          actor: expect.objectContaining({
+            dispatchId: identity.dispatchId,
+            kind: "dispatch_continuation",
+            requestContext: expect.objectContaining({
+              actorContext: expect.objectContaining({
+                openMeldProfileId: sourceSignal.profile.profileId,
+                profileKind: sourceSignal.profile.kind,
+                profileName: sourceSignal.profile.profileName,
+              }),
+            }),
+            sourceSignalId: sourceSignal.id,
+            targetProfileId: identity.targetProfileId,
+          }),
+          proof: { kind: "none" },
+          spaceId,
         },
         text: sourceSignal.data.text,
       })

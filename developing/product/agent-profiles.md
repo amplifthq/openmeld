@@ -688,14 +688,21 @@ If a running Wake reports a structured `usage_exhausted` outcome, that Wake ends
 as a visible failure and the Coordinator holds every later Wake. When fresh
 reliable Usage becomes available, OpenMeld automatically retries the interrupted
 request as one deterministic, idempotent new execution. It does not claim that
-the terminal provider turn reopened. Only after that continuation succeeds does
-the owner receive the separate urgent Inbox and email approval for the held
-queue. Wakes submitted after recovery remain behind the held work and cannot
-bypass it. A repeated Usage report may safely repair a failed continuation
-handoff through the same deterministic operation; it must never create a second
-continuation. A provider may gain true same-turn recovery only after its
-versioned capability has official protocol evidence and a real
+the terminal provider turn reopened. After that continuation succeeds, the
+owner receives the separate urgent Inbox and email approval for the held queue.
+If the user explicitly Stops the continuation, OpenMeld never starts it again;
+later queued work still requires the same owner approval, while an empty queue
+clears recovery immediately. Wakes submitted after recovery remain behind the
+held work and cannot bypass it. A repeated Usage report may safely repair a
+failed continuation handoff through the same deterministic operation; it must
+never create a second continuation. A provider may gain true same-turn recovery
+only after its versioned capability has official protocol evidence and a real
 failure-to-recovery smoke test.
+
+For Space and Direct Message Wakes, that automatic continuation uses the exact
+interrupted dispatch and source message as its internal continuation authority.
+The new Wake keeps the original source message's author; the Agent owner's Human
+Profile authorizes recovery but is not shown as the original sender.
 
 Owners may keep editing settings while work is queued or running under the
 existing capability rules. A running Wake keeps its accepted Binding and

@@ -116,7 +116,62 @@ describe("Agent Profile work Usage recovery", () => {
 
     expect(resumeInterruptedWork).not.toHaveBeenCalled();
   });
+
+  it("notifies more than 100 matching Profiles in stable contract-sized batches", async () => {
+    const profileIds = Array.from({ length: 101 }, (_, index) =>
+      createProfileId(index + 1)
+    );
+    const continuationProfileIds = [profileIds[99], profileIds[100]];
+    const notifyUsageAvailable = vi.fn(
+      async (input: {
+        ownerUserId: string;
+        targetProfileIds: readonly string[];
+      }) => ({
+        changedProfileIds: [],
+        continuationProfileIds: input.targetProfileIds.filter((profileId) =>
+          continuationProfileIds.includes(profileId)
+        ),
+        status: "updated" as const,
+      })
+    );
+    const resumeInterruptedWork = vi.fn().mockResolvedValue(undefined);
+
+    await notifyAgentProfileWorkUsageRecoveryAvailable({
+      bindingStore: {
+        listBindings: vi
+          .fn()
+          .mockResolvedValue(
+            profileIds.map((agentProfileId) => ({ agentProfileId }))
+          ),
+      },
+      currentReport: createReport("available"),
+      notifyUsageAvailable,
+      nowMs: NOW_MS,
+      ownerUserId: "owner-1",
+      resumeInterruptedWork,
+    });
+
+    expect(notifyUsageAvailable).toHaveBeenCalledTimes(2);
+    expect(notifyUsageAvailable).toHaveBeenNthCalledWith(1, {
+      ownerUserId: "owner-1",
+      targetProfileIds: profileIds.slice(0, 100),
+    });
+    expect(notifyUsageAvailable).toHaveBeenNthCalledWith(2, {
+      ownerUserId: "owner-1",
+      targetProfileIds: profileIds.slice(100),
+    });
+    expect(resumeInterruptedWork).toHaveBeenCalledOnce();
+    expect(resumeInterruptedWork).toHaveBeenCalledWith({
+      ownerUserId: "owner-1",
+      targetProfileIds: continuationProfileIds,
+    });
+  });
 });
+
+function createProfileId(index: number): string {
+  const suffix = index.toString(16).padStart(12, "0");
+  return `agt_00000000-0000-4000-8000-${suffix}`;
+}
 
 function createReport(
   usageStatus:

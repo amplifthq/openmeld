@@ -291,19 +291,25 @@ capacity between accounts. A provider that has never returned usable evidence
 is `unavailable`. A controller with no supported native source is explicitly
 `unsupported`. The Service does not decide Agent Profile Wakeability, Binding,
 Wake admission, RuntimeCoordinator, routing, or agent selection from these
-states. Core may use only a reliable, fresh, explicitly exhausted Usage Limit
-as one input to its final Wakeability decision. Available, stale, unavailable,
-unsupported, unknown, low-capacity, or elapsed-reset evidence does not block a
-Wake. A separate structured provider-access evidence field may be emitted only
-after an ordinary Wake is accepted and returns a definitive account
-blocker: organization access disabled, subscription access unavailable, or
-exhausted hard quota/credit capacity. Authentication failure remains ACI
-authentication evidence. A generic quota percentage, low-capacity warning,
-ordinary `429`, or temporary provider failure must not create provider-access
-evidence or make a later Wake unavailable. Classifiers evaluate an explicit
-transient `429` or rate-limit signal before broad textual matches such as
-`usage limit` or `billing`; only structured or otherwise definitive hard
-capacity evidence may override that transient classification.
+states. Core applies the shared versioned capability matrix to the report it
+already holds; it never calls the provider on the Wake hot path. For a
+controller whose matrix entry declares native Usage support, a reliable fresh
+`available` observation permits Usage admission, a reliable fresh explicitly
+`exhausted` observation blocks the Wake as `Unavailable`, and missing, stale,
+expired, unavailable, or otherwise unconfirmed evidence blocks new Wake
+admission as `Checking`. A controller that explicitly reports Usage as
+`unsupported`, or whose matrix entry is passive, unsupported, or not evaluated,
+does not use Usage as a Wakeability condition. A separate structured
+provider-access evidence field may be emitted only after an ordinary Wake is
+accepted and returns a definitive account blocker: organization access
+disabled, subscription access unavailable, or exhausted hard quota/credit
+capacity. Authentication failure remains ACI authentication evidence. A
+generic quota percentage, low-capacity warning, ordinary `429`, or temporary
+provider failure must not create provider-access evidence or independently
+prove exhaustion. Classifiers evaluate an explicit transient `429` or
+rate-limit signal before broad textual matches such as `usage limit` or
+`billing`; only structured or otherwise definitive hard capacity evidence may
+override that transient classification.
 
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards

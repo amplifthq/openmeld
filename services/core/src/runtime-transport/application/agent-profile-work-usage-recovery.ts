@@ -1,5 +1,8 @@
 import { resolveAgentProfileUsageRecoveryAvailability } from "@openmeld/agent-runtime";
-import { runtimeTransportAgentProfileWorkUsageAvailableResponseSchema } from "@openmeld/schemas";
+import {
+  MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
+  runtimeTransportAgentProfileWorkUsageAvailableResponseSchema,
+} from "@openmeld/schemas";
 import type { AcceptedRuntimeAgentControllerReport } from "../../runtime-registry/application/runtime-agent-controller-report-service";
 
 type AgentProfileWorkUsageRecoveryBinding = {
@@ -55,15 +58,26 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
     return;
   }
 
-  const recoveryTargets = {
-    ownerUserId: input.ownerUserId,
-    targetProfileIds: bindings.map((binding) => binding.agentProfileId),
-  };
-  const marked =
-    runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse(
-      await input.notifyUsageAvailable(recoveryTargets)
-    );
-  const continuationProfileIds = marked.continuationProfileIds;
+  const targetProfileIds = bindings.map((binding) => binding.agentProfileId);
+  const continuationProfileIds: string[] = [];
+  for (
+    let offset = 0;
+    offset < targetProfileIds.length;
+    offset += MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS
+  ) {
+    const marked =
+      runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse(
+        await input.notifyUsageAvailable({
+          ownerUserId: input.ownerUserId,
+          targetProfileIds: targetProfileIds.slice(
+            offset,
+            offset +
+              MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS
+          ),
+        })
+      );
+    continuationProfileIds.push(...marked.continuationProfileIds);
+  }
   if (continuationProfileIds.length === 0) {
     return;
   }

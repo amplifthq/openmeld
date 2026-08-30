@@ -254,8 +254,31 @@ describe("Agent Profile work recovery Core RPC", () => {
       expect(spaceStub.rpcInspectExecutionRecovery).toHaveBeenCalledWith({
         context: CONTEXT,
         dispatchId: "dispatch-interrupted",
+        spaceAccess: {
+          actor: {
+            dispatchId: "dispatch-interrupted",
+            kind: "dispatch_continuation",
+            requestContext: CONTEXT,
+            sourceSignalId: "signal-interrupted",
+            targetProfileId: AGENT_PROFILE_ID,
+          },
+          proof: { kind: "none" },
+          spaceId: SPACE_ID,
+        },
         spaceId: SPACE_ID,
       });
+      expect(spaceStub.rpcExecuteExecutionRecovery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spaceAccess: expect.objectContaining({
+            actor: expect.objectContaining({
+              dispatchId: "dispatch-interrupted",
+              kind: "dispatch_continuation",
+              sourceSignalId: "signal-interrupted",
+              targetProfileId: AGENT_PROFILE_ID,
+            }),
+          }),
+        })
+      );
     } finally {
       harness.close();
     }
@@ -383,6 +406,7 @@ function buildAvailableRecovery(input: {
       input.authorizedContinuationClientMessageId ?? null,
     interruptedClientMessageId: "client-interrupted",
     interruptedDispatchId: "dispatch-interrupted",
+    interruptedSourceSignalId: "signal-interrupted",
     spaceId: SPACE_ID,
     status: "available" as const,
   };

@@ -186,6 +186,7 @@ import {
   buildWakeProgressMessage,
   clearWakeProgressItemsForSignal,
   createAuthenticatedSpaceAccessContext,
+  createDispatchContinuationSpaceAccessContext,
   createWakeProgressItem,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
@@ -813,6 +814,51 @@ function requireRpcAuthorProfile(context?: CoreRpcContextInput): Profile {
   }
 
   return toProtocolProfile(context);
+}
+
+function buildVerifiedRecoverySourceAuthorContext(input: {
+  continuationContext?: CoreRpcContextInput;
+  dispatchId: string;
+  sourceProfile: Profile;
+}): CoreRpcContextInput {
+  const sourceProfile = input.sourceProfile;
+  return {
+    ...(input.continuationContext?.activeOrganizationId
+      ? {
+          activeOrganizationId: input.continuationContext.activeOrganizationId,
+        }
+      : {}),
+    ...(sourceProfile.kind === "agent" &&
+    sourceProfile.agentControllerConversationId
+      ? {
+          agentControllerConversationId:
+            sourceProfile.agentControllerConversationId,
+        }
+      : {}),
+    actorContext: {
+      requestId: `execution-recovery-replay:${input.dispatchId}`,
+      openMeldProfileId: sourceProfile.profileId,
+      profileKind: sourceProfile.kind,
+      ...(sourceProfile.profileHandle
+        ? { profileHandle: sourceProfile.profileHandle }
+        : {}),
+      ...(sourceProfile.profileName
+        ? { profileName: sourceProfile.profileName }
+        : {}),
+      ...(sourceProfile.avatarUrl
+        ? { avatarUrl: sourceProfile.avatarUrl }
+        : {}),
+      ...(sourceProfile.kind === "agent" && sourceProfile.owner
+        ? { ownerUserId: sourceProfile.owner }
+        : {}),
+      ...(sourceProfile.kind === "agent" && sourceProfile.ownerName
+        ? { ownerName: sourceProfile.ownerName }
+        : {}),
+      ...(sourceProfile.kind === "agent" && sourceProfile.agentControllerRef
+        ? { agentControllerRef: sourceProfile.agentControllerRef }
+        : {}),
+    },
+  };
 }
 
 function resolveRpcInputSpacePassword(input: {
@@ -5265,20 +5311,38 @@ export class Space extends DurableObject<CoreBindings> {
     const thread = placement
       ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
       : null;
+    const continuationContext = input.spaceAccess
+      ? (getSpaceAccessRequestContext(input.spaceAccess) ?? input.context)
+      : input.context;
+    const verifiedReplayAccess = createDispatchContinuationSpaceAccessContext({
+      attemptId: input.projection.identity.attemptId,
+      dispatchId: trace.dispatch.dispatchId,
+      password: input.spaceAccess
+        ? getSpaceAccessPassword(input.spaceAccess)
+        : input.password,
+      requestContext: buildVerifiedRecoverySourceAuthorContext({
+        continuationContext,
+        dispatchId: trace.dispatch.dispatchId,
+        sourceProfile: sourceSignal.profile,
+      }),
+      sourceSignalId: sourceSignal.id,
+      spaceId: this.spaceId,
+      targetProfileId,
+    });
     await input.markEffectStarted();
     await this.rpcPostSignalOnceByClientMessageId({
       authoringPolicy: "user_authored",
       clientMessageId: newClientMessageId,
-      context: input.context,
+      context: continuationContext,
       messageEnvelope: {
         activationTargets: [targetProfileId],
         referenceTargets: [],
         text: sourceSignal.data.text,
       },
       meta: { clientMessageId: newClientMessageId },
-      password: input.password,
+      password: getSpaceAccessPassword(verifiedReplayAccess),
       profile: sourceSignal.profile,
-      spaceAccess: input.spaceAccess,
+      spaceAccess: verifiedReplayAccess,
       spaceId: this.spaceId,
       text: sourceSignal.data.text,
       ...(thread
