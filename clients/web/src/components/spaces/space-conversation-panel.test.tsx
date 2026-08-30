@@ -3396,8 +3396,11 @@ describe("SpaceConversationPanel", () => {
 		expect(marker?.className).not.toContain("text-destructive");
 	});
 
-	it("projects an anchored terminal_failure notice under its source message instead of dropping it", () => {
+	it("summarizes an anchored failure with the Agent name and keeps Message details available", () => {
+		const detailedFailure =
+			"OpenMeld could not reach Codex 5.6 Sol on this computer for this Wake. Reconnect OpenMeld Service, then try again.";
 		renderSpaceConversationPanel({
+			membersSnapshot: createWakeReceiptMembersSnapshot(),
 			readOnly: false,
 			timelineItems: [
 				createTimelineItem({
@@ -3413,8 +3416,9 @@ describe("SpaceConversationPanel", () => {
 					id: "sig-failure",
 					replyToSignalId: "sig-wake",
 					signalType: "signal.system_notice",
+					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
 					systemNoticeType: "terminal_failure",
-					text: "Runner could not reply.",
+					text: detailedFailure,
 				}),
 			],
 		});
@@ -3424,8 +3428,13 @@ describe("SpaceConversationPanel", () => {
 			.closest("[data-message-row-id='sig-wake']");
 		expect(sourceMessage).not.toBeNull();
 		expect(
-			within(sourceMessage as HTMLElement).getByText("Runner could not reply.")
+			within(sourceMessage as HTMLElement).getByText(
+				"Codex 5.6 Sol couldn’t reply"
+			)
 		).toBeTruthy();
+		expect(
+			within(sourceMessage as HTMLElement).queryByText(detailedFailure)
+		).toBeNull();
 		const outcomeRow = within(sourceMessage as HTMLElement).getByTestId(
 			"space-outcome-row"
 		);
@@ -3653,7 +3662,7 @@ describe("SpaceConversationPanel", () => {
 		expect(onReportMessage.mock.calls[0]?.[0]?.id).toBe("sig-wake");
 	});
 
-	it("keeps terminal failures for multiple targets in exact independent outcome rows", () => {
+	it("keeps compact terminal failures for multiple targets in independent outcome rows", () => {
 		renderSpaceConversationPanel({
 			membersSnapshot: createWakeReceiptMembersSnapshot(),
 			readOnly: false,
@@ -3692,16 +3701,8 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(2);
-		expect(
-			screen.getByText(
-				"OpenMeld could not wake Codex 5.6 Sol. Check the agent connection, then wake the agent again."
-			)
-		).toBeTruthy();
-		expect(
-			screen.getByText(
-				"OpenMeld could not wake Claude Opus 4.8. Check the agent connection, then wake the agent again."
-			)
-		).toBeTruthy();
+		expect(screen.getByText("Codex 5.6 Sol couldn’t reply")).toBeTruthy();
+		expect(screen.getByText("Claude Opus 4.8 couldn’t reply")).toBeTruthy();
 		expect(
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
@@ -3757,7 +3758,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(2);
-		expect(screen.getByText("Codex stopped making progress.")).toBeTruthy();
+		expect(screen.getByText("Agent couldn’t reply")).toBeTruthy();
 		expect(screen.getByText("Claude was stopped by the user.")).toBeTruthy();
 		expect(
 			await screen.findAllByRole("button", { name: "Recover result" })
@@ -3973,16 +3974,8 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(2);
-		expect(
-			screen.getByText(
-				"OpenMeld could not wake Codex 5.6 Sol. Check the agent connection, then wake the agent again."
-			)
-		).toBeTruthy();
-		expect(
-			screen.getByText(
-				"OpenMeld could not wake Unknown. Check the agent connection, then wake the agent again."
-			)
-		).toBeTruthy();
+		expect(screen.getByText("Codex 5.6 Sol couldn’t reply")).toBeTruthy();
+		expect(screen.getByText("Agent couldn’t reply")).toBeTruthy();
 	});
 
 	it("merges wake_stopped notices for multiple targets into a single muted-tone row", () => {

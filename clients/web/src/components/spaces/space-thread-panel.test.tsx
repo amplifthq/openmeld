@@ -621,8 +621,11 @@ describe("SpaceThreadPanel", () => {
 		expect(scrollerItem?.getAttribute("data-scroll-anchor")).toBe("false");
 	});
 
-	it("projects an anchored terminal_failure notice under its source thread message instead of dropping it", () => {
+	it("summarizes an anchored thread failure with the Agent name", () => {
+		const detailedFailure =
+			"The model provider was unreachable. Check provider status or network access, then wake the Agent again.";
 		renderThreadPanel({
+			membersSnapshot: createWakeReceiptMembersSnapshot(),
 			signals: [
 				createTextSignal({
 					id: "sig-thread-wake",
@@ -630,10 +633,11 @@ describe("SpaceThreadPanel", () => {
 					ts: Date.UTC(2026, 4, 27, 10, 0, 0),
 				}),
 				createSystemNoticeSignal({
+					actorProfileId: TARGET_PROFILE_ID,
 					id: "sig-thread-failure",
 					noticeType: "terminal_failure",
 					replyToSignalId: "sig-thread-wake",
-					text: "Runner could not reply.",
+					text: detailedFailure,
 					ts: Date.UTC(2026, 4, 27, 10, 0, 30),
 				}),
 			],
@@ -644,7 +648,17 @@ describe("SpaceThreadPanel", () => {
 			.closest("[data-message-row-id='sig-thread-wake']");
 		expect(sourceMessage).not.toBeNull();
 		expect(
-			within(sourceMessage as HTMLElement).getByText("Runner could not reply.")
+			within(sourceMessage as HTMLElement).getByText(
+				"Codex 5.6 Sol couldn’t reply"
+			)
+		).toBeTruthy();
+		expect(
+			within(sourceMessage as HTMLElement).queryByText(detailedFailure)
+		).toBeNull();
+		expect(
+			within(sourceMessage as HTMLElement).getByRole("button", {
+				name: "Open message details",
+			})
 		).toBeTruthy();
 	});
 

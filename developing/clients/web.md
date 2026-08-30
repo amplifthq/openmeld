@@ -2837,10 +2837,14 @@ unless the Space collaboration owner defines a different product rule.
 `terminal_failure` and `wake_stopped` notices use the same compact outcome-row
 presentation in the main timeline and thread panel. When `replyTo` is present,
 the row is anchored under its source message; otherwise it stays at its own
-timeline position. Web renders Core's `text` directly, uses `reasonCode` only
-through the shared recovery mapping, and uses `failureStage` only to distinguish
-execution failure from OpenMeld publication failure. Read-only viewers must
-still see the outcome.
+timeline position. An anchored `terminal_failure` row shows only
+`{Agent name} couldn’t reply`, falling back to `Agent couldn’t reply` when the
+target name is unavailable. The complete Core failure text remains in Message
+details instead of expanding the source message bubble. Unanchored outcomes and
+`wake_stopped` rows continue to render Core's `text` directly. Web uses
+`reasonCode` only through the shared recovery mapping and uses `failureStage`
+only to distinguish execution failure from OpenMeld publication failure.
+Read-only viewers must still see the outcome.
 
 A persisted terminal system failure is visible in that outcome row without
 hover and remains visible when the timeline is loaded again after refresh. Its
