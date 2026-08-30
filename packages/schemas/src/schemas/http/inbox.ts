@@ -45,6 +45,10 @@ export const inboxItemKindSchema = z.enum([
   "organization_request",
   "system_issue",
 ]);
+const inboxItemWireKindSchema = z.union([
+  inboxItemKindSchema,
+  z.literal("space_reference"),
+]);
 
 export const inboxSourceKindSchema = z.enum([
   "space_signal",
@@ -144,14 +148,14 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export const inboxItemSchema = z
+export const inboxItemWireSchema = z
   .strictObject({
     attention: inboxAttentionSchema,
     contextLabel: contextLabelSchema.nullable(),
     createdAt: isoDateTimeSchema,
     id: identifierSchema,
     importance: inboxImportanceSchema,
-    kind: inboxItemKindSchema,
+    kind: inboxItemWireKindSchema,
     occurredAt: isoDateTimeSchema,
     organizationId: identifierSchema,
     preview: previewSchema,
@@ -177,6 +181,12 @@ export const inboxItemSchema = z
     }
   });
 
+export const inboxItemSchema = inboxItemWireSchema.transform((item) => ({
+  ...item,
+  kind:
+    item.kind === "space_reference" ? ("space_mention" as const) : item.kind,
+}));
+
 export const listInboxItemsQuerySchema = z.strictObject({
   cursor: z.string().trim().min(1).max(1024).optional(),
   limit: z.coerce.number().int().min(1).max(INBOX_LIST_MAX_LIMIT).optional(),
@@ -185,6 +195,12 @@ export const listInboxItemsQuerySchema = z.strictObject({
 
 export const listInboxItemsResponseSchema = z.strictObject({
   items: z.array(inboxItemSchema),
+  nextCursor: z.string().min(1).max(1024).nullable(),
+  organizationId: identifierSchema,
+});
+
+export const listInboxItemsWireResponseSchema = z.strictObject({
+  items: z.array(inboxItemWireSchema),
   nextCursor: z.string().min(1).max(1024).nullable(),
   organizationId: identifierSchema,
 });
@@ -253,6 +269,10 @@ export const getInboxItemResponseSchema = z.strictObject({
   item: inboxItemSchema,
 });
 
+export const getInboxItemWireResponseSchema = z.strictObject({
+  item: inboxItemWireSchema,
+});
+
 export const dismissInboxItemResponseSchema = z.strictObject({
   dismissedItemId: identifierSchema,
 });
@@ -263,6 +283,10 @@ export const markInboxItemReadBodySchema = z.strictObject({
 
 export const markInboxItemReadResponseSchema = z.strictObject({
   item: inboxItemSchema,
+});
+
+export const markInboxItemReadWireResponseSchema = z.strictObject({
+  item: inboxItemWireSchema,
 });
 
 export const markAllInboxItemsReadResponseSchema = z.strictObject({

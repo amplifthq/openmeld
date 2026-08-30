@@ -1,5 +1,7 @@
 import {
+  OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
   OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_INBOX_ITEM_KIND_VERSION,
   OPENMELD_INBOX_SOURCE_TARGET_VERSION,
 } from "@openmeld/gateway-contract";
 import {
@@ -222,6 +224,7 @@ export const createInboxApi: CreateInboxApi = (
 
 function inboxSourceTargetVersionHeaders(): Record<string, string> {
   return {
+    [OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION]: OPENMELD_INBOX_ITEM_KIND_VERSION,
     [OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION]:
       OPENMELD_INBOX_SOURCE_TARGET_VERSION,
   };

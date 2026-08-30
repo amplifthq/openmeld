@@ -42,6 +42,15 @@ describe("Inbox HTTP contracts", () => {
     expect(inboxItemSchema.parse(item)).toEqual(item);
   });
 
+  it("normalizes the rollout-only Human Reference kind to Human Mention", () => {
+    expect(
+      inboxItemSchema.parse({
+        ...item,
+        kind: "space_reference",
+      }).kind
+    ).toBe("space_mention");
+  });
+
   it("distinguishes an exact Agent Interaction thread from legacy unknown context", () => {
     expect(
       inboxItemSchema.parse({

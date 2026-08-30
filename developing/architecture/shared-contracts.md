@@ -300,6 +300,25 @@ creation targets to `{ kind: "center_agent" }`. Gateway applies the projection
 after validating Core's current response for list, direct-item, and read-mutation
 operations. The projection never rewrites the durable row or weakens the
 canonical schema.
+
+The Human Mention Inbox kind follows the same receiver-first rule without
+reusing source-target versioning. The additive Database migration accepts both
+the retired `space_reference` discriminator and current `space_mention`; it
+does not rewrite existing rows during the live migration window. Current Core,
+Gateway, and API-client readers normalize either discriminator to the canonical
+Human Mention domain kind before product behavior. Current Inbox clients send
+`x-openmeld-inbox-item-kind-version: 1`; Gateway returns `space_mention` only to
+that version and projects it to `space_reference` for an older or already-loaded
+strict Web client. The projection changes only the wire discriminator and never
+changes notification behavior, title, source target, or durable data.
+
+The guarded rollout applies the additive Database migration, deploys Web, then
+Gateway, and only then deploys the Core writer that may create
+`space_mention`. This keeps old Core readable before the writer switch, lets new
+Gateway accept either old or new Core output, and keeps an older Web tab from
+losing its entire Inbox. Rollback removes the new writer before removing these
+compatible readers. A later cleanup may remove `space_reference` only after no
+supported reader, writer, or persisted row needs the compatibility window.
 Core keeps the durable Slack terminal-delivery ledger as the repair owner when
 permalink resolution or Inbox projection fails. The same bounded repair detects
 legacy Slack rows whose source identity still points to the former

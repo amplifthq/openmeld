@@ -23,7 +23,7 @@ CREATE TABLE `__new_inbox_items` (
 	FOREIGN KEY (`recipient_user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT "inbox_items_id_non_empty_check" CHECK(length(trim("id")) > 0),
 	CONSTRAINT "inbox_items_identity_non_empty_check" CHECK(length(trim("organization_id")) > 0 and length(trim("recipient_user_id")) > 0 and length(trim("source_key")) > 0),
-	CONSTRAINT "inbox_items_kind_check" CHECK("kind" in ('space_message', 'space_mention', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue')),
+	CONSTRAINT "inbox_items_kind_check" CHECK("kind" in ('space_message', 'space_reference', 'space_mention', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue')),
 	CONSTRAINT "inbox_items_attention_check" CHECK("attention" in ('update', 'action_required')),
 	CONSTRAINT "inbox_items_importance_check" CHECK("importance" in ('normal', 'urgent')),
 	CONSTRAINT "inbox_items_source_kind_check" CHECK("source_kind" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'organization_member_request', 'agent_profile_work_recovery', 'system_attention_event')),
@@ -35,7 +35,7 @@ CREATE TABLE `__new_inbox_items` (
 	CONSTRAINT "inbox_items_timestamps_check" CHECK("occurred_at_ms" >= 0 and "created_at_ms" >= 0 and "updated_at_ms" >= "created_at_ms" and ("read_at_ms" is null or "read_at_ms" >= 0) and ("cleared_at_ms" is null or "cleared_at_ms" >= 0) and ("resolved_at_ms" is null or "resolved_at_ms" >= 0))
 );
 --> statement-breakpoint
-INSERT INTO `__new_inbox_items`("id", "organization_id", "recipient_user_id", "kind", "attention", "importance", "title", "preview", "context_label", "source_kind", "source_key", "source_target_json", "resolution_status", "read_at_ms", "cleared_at_ms", "resolved_at_ms", "occurred_at_ms", "created_at_ms", "updated_at_ms") SELECT "id", "organization_id", "recipient_user_id", CASE WHEN "kind" = 'space_reference' THEN 'space_mention' ELSE "kind" END, "attention", "importance", "title", "preview", "context_label", "source_kind", "source_key", "source_target_json", "resolution_status", "read_at_ms", "cleared_at_ms", "resolved_at_ms", "occurred_at_ms", "created_at_ms", "updated_at_ms" FROM `inbox_items`;--> statement-breakpoint
+INSERT INTO `__new_inbox_items`("id", "organization_id", "recipient_user_id", "kind", "attention", "importance", "title", "preview", "context_label", "source_kind", "source_key", "source_target_json", "resolution_status", "read_at_ms", "cleared_at_ms", "resolved_at_ms", "occurred_at_ms", "created_at_ms", "updated_at_ms") SELECT "id", "organization_id", "recipient_user_id", "kind", "attention", "importance", "title", "preview", "context_label", "source_kind", "source_key", "source_target_json", "resolution_status", "read_at_ms", "cleared_at_ms", "resolved_at_ms", "occurred_at_ms", "created_at_ms", "updated_at_ms" FROM `inbox_items`;--> statement-breakpoint
 DROP TABLE `inbox_items`;--> statement-breakpoint
 ALTER TABLE `__new_inbox_items` RENAME TO `inbox_items`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint

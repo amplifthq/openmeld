@@ -1,4 +1,7 @@
-import { OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION } from "@openmeld/gateway-contract";
+import {
+	OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
+	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+} from "@openmeld/gateway-contract";
 import {
 	CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER,
 	OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS,
@@ -69,6 +72,25 @@ describe("OpenMeld gateway proxy", () => {
 		const response = await proxyOpenMeldGatewayRequest({
 			request: new Request("https://openmeld.test/v1/inbox", {
 				headers: { [OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION]: "4" },
+			}),
+			gatewayUrl: "https://gateway.openmeld.test",
+			webAppUrl: "https://openmeld.test",
+			fetchImpl: fetchMock,
+		});
+
+		expect(response.status).toBe(200);
+	});
+
+	it("forwards the current Inbox item-kind version to Gateway", async () => {
+		const fetchMock = vi.fn<typeof fetch>((_input, init) => {
+			const headers = init?.headers as Headers;
+			expect(headers.get(OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION)).toBe("1");
+			return Promise.resolve(new Response("ok", { status: 200 }));
+		});
+
+		const response = await proxyOpenMeldGatewayRequest({
+			request: new Request("https://openmeld.test/v1/inbox", {
+				headers: { [OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION]: "1" },
 			}),
 			gatewayUrl: "https://gateway.openmeld.test",
 			webAppUrl: "https://openmeld.test",
