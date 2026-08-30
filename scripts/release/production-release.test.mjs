@@ -208,6 +208,37 @@ test("local deploy holds shared CLI and Core leases and releases in reverse orde
   ]);
 });
 
+test("local deploy publishes exact completion evidence before releasing its leases", async () => {
+  const operations = [];
+  await executeWithProductionScopeLeases({
+    adapters: {
+      acquireProductionScopeLease: ({ scope }) => ({
+        leaseSha: scope.padEnd(40, "0").slice(0, 40),
+        metadata: { scope },
+      }),
+      releaseProductionScopeLease: ({ scope }) => {
+        operations.push(`release:${scope}`);
+      },
+    },
+    afterSuccess: ({ scopes, sourceSha }) => {
+      operations.push(`evidence:${scopes.join(",")}:${sourceSha}`);
+    },
+    execute: () => {
+      operations.push("deploy");
+    },
+    owner: "local:test",
+    scopes: ["cli"],
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.deepEqual(operations, [
+    "deploy",
+    `evidence:cli,core:${REMOTE_SOURCE_SHA}`,
+    "release:core",
+    "release:cli",
+  ]);
+});
+
 test("the guarded local lane invokes the internal CLI publisher while both leases are held", async () => {
   const operations = [];
   await executeWithProductionScopeLeases({
