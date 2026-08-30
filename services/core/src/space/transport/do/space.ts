@@ -1480,8 +1480,16 @@ const assertCurrentSpaceAddressingTargetsAreActiveMembers = (input: {
     });
   }
   for (const targetProfileId of input.messageEnvelope.referenceTargets) {
-    if (isActiveSpaceMember(targetProfileId)) {
+    const member = readSpaceMemberRecord(input.sql, targetProfileId);
+    if (member?.status === "active" && member.profileKindSnapshot === "agent") {
       continue;
+    }
+    if (member?.status === "active") {
+      throw new SpaceSignalAuthoringError({
+        code: SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
+        message: `OpenMeld could not reference ${targetProfileId} because Agent Reference only supports agents. The message was not sent. Choose an agent or mention a person.`,
+        targetProfileId,
+      });
     }
     throw new SpaceSignalAuthoringError({
       code: SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,

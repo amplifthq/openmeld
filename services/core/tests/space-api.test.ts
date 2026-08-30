@@ -4336,8 +4336,29 @@ describe("OpenMeld Core", () => {
     expect(list.signals).toEqual([]);
   });
 
-  it("accepts Reference targets that are active Space members", async () => {
+  it("accepts Reference targets that are active Agent Space members", async () => {
     const spaceId = await createSpace();
+    const agentProfileId = "agt_44444444-4444-4444-8444-444444444444";
+    const addResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            {
+              profileId: agentProfileId,
+              profileName: "Reference Boundary Agent",
+              profileKind: "agent",
+              ownerUserId: "owner-reference-boundary-agent",
+              ownerName: "Reference Boundary Owner",
+              agentControllerRef: "builtin:codex",
+            },
+          ],
+        }),
+      }
+    );
+    expect(addResponse.status).toBe(200);
     const clientMessageId = `reference-active-member-${randomUUID()}`;
 
     const postResponse = await fetchWithOpenMeldAuth(
@@ -4355,11 +4376,11 @@ describe("OpenMeld Core", () => {
           },
           type: "signal.text",
           data: {
-            text: "@Test User(reference) for context",
+            text: "@Reference Boundary Agent(reference) for context",
             messageEnvelope: {
-              text: "@Test User(reference) for context",
+              text: "@Reference Boundary Agent(reference) for context",
               activationTargets: [],
-              referenceTargets: [DEFAULT_HUMAN_PROFILE_ID],
+              referenceTargets: [agentProfileId],
             },
             meta: { clientMessageId },
           },
@@ -4372,7 +4393,7 @@ describe("OpenMeld Core", () => {
       data: {
         messageEnvelope: {
           activationTargets: [],
-          referenceTargets: [DEFAULT_HUMAN_PROFILE_ID],
+          referenceTargets: [agentProfileId],
         },
         meta: { clientMessageId },
       },
@@ -4484,6 +4505,53 @@ describe("OpenMeld Core", () => {
       code: "space.addressing.target_invalid",
       message: `OpenMeld could not mention ${agentProfileId} because Human Mention only supports people. The message was not sent. Choose a person or use Wake or Reference for an agent.`,
       targetProfileId: agentProfileId,
+    });
+
+    const listResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`
+    );
+    expect(listResponse.status).toBe(200);
+    const list = (await listResponse.json()) as { signals?: unknown[] };
+    expect(list.signals).toEqual([]);
+  });
+
+  it("rejects active Human profiles used as Agent Reference targets", async () => {
+    const spaceId = await createSpace();
+    const humanProfileId = DEFAULT_HUMAN_PROFILE_ID;
+
+    const clientMessageId = `reference-human-target-${randomUUID()}`;
+    const postResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          profile: {
+            kind: "human",
+            profileId: DEFAULT_HUMAN_PROFILE_ID,
+            profileName: "Test User",
+          },
+          type: "signal.text",
+          data: {
+            text: "@Reference Boundary Human please review",
+            messageEnvelope: {
+              text: "@Reference Boundary Human please review",
+              activationTargets: [],
+              referenceTargets: [humanProfileId],
+              mentionTargets: [],
+            },
+            meta: { clientMessageId },
+          },
+        }),
+      }
+    );
+
+    expect(postResponse.status).toBe(422);
+    await expect(postResponse.json()).resolves.toEqual({
+      ok: false,
+      code: "space.addressing.target_invalid",
+      message: `OpenMeld could not reference ${humanProfileId} because Agent Reference only supports agents. The message was not sent. Choose an agent or mention a person.`,
+      targetProfileId: humanProfileId,
     });
 
     const listResponse = await fetchWithOpenMeldAuth(
