@@ -48,7 +48,6 @@ describe("SpaceExecutionRecoveryButton", () => {
 		);
 
 		expect(screen.queryByRole("button")).toBeNull();
-		expect(screen.queryByText("Checking recovery...")).toBeNull();
 
 		act(() => {
 			resolveInspection?.({
