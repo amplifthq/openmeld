@@ -692,6 +692,13 @@ controller conversation identifiers, local paths, or other owner diagnostics.
 This projection belongs in the existing Profile Details surface, not a separate
 status product.
 
+An owner read may request up to 100 Profiles and each Profile may expose one
+current plus 50 queued work references. Runtime Transport reads those Durable
+Object records in explicit batches of at most 128 keys, then restores the
+requested Profile and FIFO work order before applying the same privacy
+projection. This storage limit must not become a user-visible partial result or
+add serial waiting to Wake admission.
+
 ## Readiness And Recovery Surfaces
 
 Readiness may appear on Agent Profile surfaces because users need to know

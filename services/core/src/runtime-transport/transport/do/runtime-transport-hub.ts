@@ -299,6 +299,8 @@ import {
   readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission,
   readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission,
   releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
+  retireRuntimeCoordinatorAgentProfileHeadCurrentState,
+  retireRuntimeCoordinatorAgentProfileHeadHistoryReference,
   writeRuntimeCoordinatorHeadLifecycleWithAdmission,
 } from "../../application/agent-profile-execution-admission";
 import {
@@ -10072,6 +10074,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         this.ctx.storage,
         intent
       );
+      if (intent.desiredStatus === "resolved") {
+        await retireRuntimeCoordinatorAgentProfileHeadCurrentState({
+          nowMs: intent.updatedAtMs,
+          record: interruptedHead,
+          storage: this.ctx.storage,
+        });
+      }
     } catch (error) {
       console.warn(
         "[core.runtime_transport.agent_profile_work_recovery_inbox_projection_deferred]",
@@ -13890,6 +13899,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         record: input.record,
       });
     if (publication.ok) {
+      await retireRuntimeCoordinatorAgentProfileHeadHistoryReference({
+        record: input.record,
+        storage: this.ctx.storage,
+      });
       return publication;
     }
 
