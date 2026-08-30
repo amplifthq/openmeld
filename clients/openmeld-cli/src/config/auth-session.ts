@@ -10,7 +10,10 @@ import {
   isProcessIdentityAlive,
 } from "../system/process-identity";
 import { resolveAuthSessionExpiryEligibility } from "./auth-session-expiry";
-import { withAuthSessionTransitionMutationLock } from "./auth-session-transition-lock";
+import {
+  withAuthSessionCandidateRefreshLock,
+  withAuthSessionTransitionMutationLock,
+} from "./auth-session-transition-lock";
 import { openMeldRootDir } from "./paths";
 import {
   deleteAccessToken,
@@ -298,6 +301,13 @@ const activeAuthSessionTransitionIds = new Set<string>();
 export async function getAuthSessionState(
   options: GetAuthSessionStateOptions = {}
 ): Promise<AuthSessionStateResult> {
+  return await getAuthSessionStateWithCandidateRefreshFence(options, false);
+}
+
+async function getAuthSessionStateWithCandidateRefreshFence(
+  options: GetAuthSessionStateOptions,
+  candidateRefreshFenceHeld: boolean
+): Promise<AuthSessionStateResult> {
   const localState = await getLocalAuthSessionState();
   const localPayloadKey = cachedAuthSession?.payloadKey ?? null;
   const shouldValidateRemote =
@@ -319,6 +329,15 @@ export async function getAuthSessionState(
   }
   if (!shouldValidateRemote) {
     return localState;
+  }
+  if (
+    !candidateRefreshFenceHeld &&
+    (await shouldFencePendingCandidateRemoteValidation())
+  ) {
+    return await withAuthSessionCandidateRefreshLock(
+      async () =>
+        await getAuthSessionStateWithCandidateRefreshFence(options, true)
+    );
   }
 
   const remoteValidation = await getRemoteAuthSessionState(localState.session);
@@ -347,6 +366,15 @@ export async function getAuthSessionState(
     state: remoteValidation.state,
     session: null,
   };
+}
+
+async function shouldFencePendingCandidateRemoteValidation(): Promise<boolean> {
+  const journal = await readAuthSessionTransitionJournal();
+  return Boolean(
+    journal?.state === "pending" &&
+      journal.candidateCredentialRefreshVersion === 1 &&
+      isAuthSessionTransitionCandidateVisibleToCurrentProcess(journal)
+  );
 }
 
 async function resolveRemotelyValidatedAuthSession(input: {
@@ -586,11 +614,12 @@ export async function beginAuthSessionTransition(
       );
     };
     const isCandidateSessionCurrent = (
-      currentPayload: Partial<AuthSessionV1> | null
+      currentPayload: Partial<AuthSessionV1> | null,
+      candidatePayload: Partial<AuthSessionV1> = nextPayload
     ) =>
       currentPayload?.v === 1 &&
       buildAuthSessionPayloadKey(currentPayload) ===
-        buildAuthSessionPayloadKey(nextPayload);
+        buildAuthSessionPayloadKey(candidatePayload);
     const assertPreviousSessionCurrent = async () => {
       const currentPayload = await readSessionPayloadFile();
       if (!isPreviousSessionCurrent(currentPayload)) {
@@ -599,12 +628,14 @@ export async function beginAuthSessionTransition(
         );
       }
     };
-    const assertTransitionSessionCurrent = async () => {
+    const assertTransitionSessionCurrent = async (
+      candidatePayload: Partial<AuthSessionV1> = nextPayload
+    ) => {
       const currentPayload = await readSessionPayloadFile();
       if (
         !(
           isPreviousSessionCurrent(currentPayload) ||
-          isCandidateSessionCurrent(currentPayload)
+          isCandidateSessionCurrent(currentPayload, candidatePayload)
         )
       ) {
         throw new Error(
@@ -723,7 +754,9 @@ export async function beginAuthSessionTransition(
               reason: currentJournal.status,
             });
           }
-          await assertTransitionSessionCurrent();
+          await assertTransitionSessionCurrent(
+            currentJournal.journal.candidatePayload
+          );
           await restoreTransitionPreviousPayload(
             currentJournal.journal,
             previousSession
