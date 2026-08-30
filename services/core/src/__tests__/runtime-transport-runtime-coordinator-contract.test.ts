@@ -4387,6 +4387,71 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({ resolution_status: "open" });
   });
 
+  it("keeps a stopped Usage continuation terminal and holds queued work for owner approval", async () => {
+    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
+      createHarness();
+    const { admissionKey, authority } =
+      await prepareRunningContinuationWithQueuedWork({
+        hub,
+        queuedWorkName: "stopped-continuation",
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+      });
+
+    await (
+      hub as unknown as {
+        writeRuntimeCoordinatorTokenAuthority: (
+          nextAuthority: RuntimeCoordinatorExecutionTokenAuthorityRecord
+        ) => Promise<void>;
+      }
+    ).writeRuntimeCoordinatorTokenAuthority({
+      ...authority,
+      terminalOutcome: {
+        finalizedAtMs: Date.now(),
+        reasonCode: "runtime_coordinator.wake_stop_local_control_accepted",
+        replySignalId: null,
+        status: "cancelled",
+      },
+    });
+
+    expect(storageRecords.get(admissionKey)).toMatchObject({
+      recoveryGate: { status: "awaiting_owner_approval" },
+      workItems: [
+        expect.objectContaining({
+          dispatchId: "dispatch-stopped-continuation",
+        }),
+      ],
+    });
+    await expect(
+      (
+        hub as unknown as {
+          rpcMarkAgentProfileWorkUsageAvailable: (input: {
+            ownerUserId: string;
+            targetProfileIds: string[];
+          }) => Promise<unknown>;
+        }
+      ).rpcMarkAgentProfileWorkUsageAvailable({
+        ownerUserId: "owner-1",
+        targetProfileIds: [TARGET_AGENT_PROFILE_ID],
+      })
+    ).resolves.toEqual({
+      changedProfileIds: [],
+      continuationProfileIds: [],
+      status: "updated",
+    });
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({
+        attention: "action_required",
+        resolution_status: "open",
+        source_kind: "agent_profile_work_recovery",
+      }),
+    ]);
+  });
+
   it("bounds recovery Inbox projection work per housekeeping alarm", async () => {
     const { hub, recordingD1, storageRecords } = createHarness();
     await acceptDefaultRuntimeCoordinatorHead(hub);

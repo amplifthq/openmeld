@@ -437,4 +437,112 @@ describe("Agent Profile Work Coordinator", () => {
     });
     expect(failedContinuation.coordinator.workItems).toEqual([]);
   });
+
+  it("never restarts a stopped continuation and keeps later work behind owner approval", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (let index = 1; index <= 2; index += 1) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: workItem(index),
+        nowMs: 1_700_000_000_000 + index,
+      }).coordinator;
+    }
+    coordinator = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_100,
+      outcome: "usage_exhausted",
+      targetWakeLifecycleId: "wake-1",
+    }).coordinator;
+    coordinator = markAgentProfileWorkUsageAvailable({
+      coordinator,
+      nowMs: 1_700_000_000_200,
+    }).coordinator;
+    coordinator = authorizeAgentProfileWorkContinuation({
+      continuationClientMessageId: "client-continuation-1",
+      coordinator,
+      nowMs: 1_700_000_000_300,
+    }).coordinator;
+    coordinator = acceptAgentProfileWork({
+      continuationClientMessageId: "client-continuation-1",
+      coordinator,
+      item: workItem(10),
+      nowMs: 1_700_000_000_400,
+    }).coordinator;
+
+    const stopped = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_500,
+      outcome: "stopped",
+      targetWakeLifecycleId: "wake-10",
+    });
+
+    expect(stopped.promotedItem).toBeNull();
+    expect(stopped.coordinator.recoveryGate).toMatchObject({
+      continuationClientMessageId: null,
+      interruptedWork: workItem(1),
+      status: "awaiting_owner_approval",
+    });
+    expect(summarizeAgentProfileWorkCoordinator(stopped.coordinator)).toEqual({
+      currentWork: null,
+      queuedWork: [workItem(2)],
+      status: "paused",
+      waitingCount: 1,
+    });
+    expect(
+      markAgentProfileWorkUsageAvailable({
+        coordinator: stopped.coordinator,
+        nowMs: 1_700_000_000_600,
+      })
+    ).toEqual({ coordinator: stopped.coordinator, changed: false });
+  });
+
+  it("clears recovery after a stopped continuation when no later work exists", () => {
+    let coordinator = acceptAgentProfileWork({
+      coordinator: createAgentProfileWorkCoordinator({
+        nowMs: 1_700_000_000_000,
+        targetProfileId: PROFILE_ID,
+      }),
+      item: workItem(1),
+      nowMs: 1_700_000_000_001,
+    }).coordinator;
+    coordinator = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_100,
+      outcome: "usage_exhausted",
+      targetWakeLifecycleId: "wake-1",
+    }).coordinator;
+    coordinator = markAgentProfileWorkUsageAvailable({
+      coordinator,
+      nowMs: 1_700_000_000_200,
+    }).coordinator;
+    coordinator = authorizeAgentProfileWorkContinuation({
+      continuationClientMessageId: "client-continuation-1",
+      coordinator,
+      nowMs: 1_700_000_000_300,
+    }).coordinator;
+    coordinator = acceptAgentProfileWork({
+      continuationClientMessageId: "client-continuation-1",
+      coordinator,
+      item: workItem(10),
+      nowMs: 1_700_000_000_400,
+    }).coordinator;
+
+    const stopped = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_500,
+      outcome: "stopped",
+      targetWakeLifecycleId: "wake-10",
+    });
+
+    expect(stopped.coordinator.recoveryGate).toBeNull();
+    expect(summarizeAgentProfileWorkCoordinator(stopped.coordinator)).toEqual({
+      currentWork: null,
+      queuedWork: [],
+      status: "idle",
+      waitingCount: 0,
+    });
+  });
 });

@@ -1811,9 +1811,12 @@ function resolveAgentProfileWorkTerminalOutcome(
   terminalOutcome: NonNullable<
     import("@openmeld/schemas/types").RuntimeCoordinatorExecutionTokenAuthorityRecord["terminalOutcome"]
   >
-): "failed" | "succeeded" | "usage_exhausted" {
+): "failed" | "stopped" | "succeeded" | "usage_exhausted" {
   if (terminalOutcome.reasonCode === "usage_exhausted") {
     return "usage_exhausted";
+  }
+  if (terminalOutcome.status === "cancelled") {
+    return "stopped";
   }
   return terminalOutcome.status === "reply_published" ? "succeeded" : "failed";
 }
@@ -2662,7 +2665,7 @@ async function removeTerminalExecutionAgentProfileWorkAndPromoteSuccessor(input:
   admission: AgentProfileExecutionAdmissionRecord;
   dispatchId: string;
   nowMs: number;
-  outcome: "failed" | "succeeded" | "usage_exhausted";
+  outcome: "failed" | "stopped" | "succeeded" | "usage_exhausted";
   runtimeCoordinatorExecutionId: string;
   transaction: DurableObjectTransaction;
 }): Promise<{
@@ -2724,7 +2727,7 @@ async function removeTerminalAgentProfileWorkAndPromoteSuccessor(input: {
   admission: AgentProfileExecutionAdmissionRecord;
   dispatchId: string;
   nowMs: number;
-  outcome?: "failed" | "succeeded" | "usage_exhausted";
+  outcome?: "failed" | "stopped" | "succeeded" | "usage_exhausted";
   targetWakeLifecycleId: string;
   transaction: DurableObjectTransaction;
 }): Promise<{

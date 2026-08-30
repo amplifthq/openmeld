@@ -194,7 +194,7 @@ export function removeAgentProfileWork(input: {
 export function settleAgentProfileWork(input: {
   coordinator: AgentProfileWorkCoordinator;
   nowMs: number;
-  outcome: "failed" | "succeeded" | "usage_exhausted";
+  outcome: "failed" | "stopped" | "succeeded" | "usage_exhausted";
   targetWakeLifecycleId: string;
 }): {
   coordinator: AgentProfileWorkCoordinator;
@@ -223,27 +223,47 @@ export function settleAgentProfileWork(input: {
   const queuedWork = input.coordinator.workItems.slice(1);
   const continuationRunning =
     input.coordinator.recoveryGate?.status === "continuation_running";
-  if (input.outcome === "usage_exhausted" || continuationRunning) {
+  if (input.outcome === "usage_exhausted") {
     const recoveryInterruptedWork = continuationRunning
       ? (input.coordinator.recoveryGate?.interruptedWork ?? interruptedWork)
       : interruptedWork;
-    let status: AgentProfileWorkRecoveryGate["status"];
-    if (input.outcome === "usage_exhausted") {
-      status = "awaiting_usage";
-    } else if (input.outcome === "succeeded") {
-      status = "awaiting_owner_approval";
-    } else {
-      status = "continuation_pending";
-    }
     return {
       coordinator: {
         ...input.coordinator,
         recoveryGate: {
           continuationClientMessageId: null,
           interruptedWork: recoveryInterruptedWork,
-          status,
+          status: "awaiting_usage",
           updatedAtMs: input.nowMs,
         },
+        revision: input.coordinator.revision + 1,
+        updatedAtMs: input.nowMs,
+        workItems: queuedWork,
+      },
+      promotedItem: null,
+      removed: true,
+    };
+  }
+
+  if (continuationRunning) {
+    const interruptedContinuationWork =
+      input.coordinator.recoveryGate?.interruptedWork ?? interruptedWork;
+    const awaitingOwnerApproval =
+      input.outcome === "stopped" || input.outcome === "succeeded";
+    return {
+      coordinator: {
+        ...input.coordinator,
+        recoveryGate:
+          awaitingOwnerApproval && queuedWork.length === 0
+            ? null
+            : {
+                continuationClientMessageId: null,
+                interruptedWork: interruptedContinuationWork,
+                status: awaitingOwnerApproval
+                  ? "awaiting_owner_approval"
+                  : "continuation_pending",
+                updatedAtMs: input.nowMs,
+              },
         revision: input.coordinator.revision + 1,
         updatedAtMs: input.nowMs,
         workItems: queuedWork,
