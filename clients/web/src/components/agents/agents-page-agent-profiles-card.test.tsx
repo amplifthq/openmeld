@@ -497,6 +497,60 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBe("Still in the form");
 	});
 
+	it("leaves inline edit after a rename without waiting for a full refresh", async () => {
+		let finishRefresh: (() => void) | undefined;
+		const refreshAll = vi.fn(
+			async () =>
+				await new Promise<void>((resolve) => {
+					finishRefresh = resolve;
+				})
+		);
+		renderAgentProfilesCard({ refreshAll }, undefined, {
+			presentation: "detail",
+		});
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit Agent" }));
+		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+			target: { value: "Field Research Agent" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		await waitFor(() => {
+			expect(renameOpenMeldProfileMock).toHaveBeenCalled();
+			expect(refreshAll).toHaveBeenCalled();
+			expect(screen.queryByTestId("agent-profile-inline-editor")).toBeNull();
+		});
+		finishRefresh?.();
+	});
+
+	it("keeps a saved rename and reports a background refresh failure", async () => {
+		const refreshError = new Error("Directory refresh timed out.");
+		const refreshAll = vi.fn().mockRejectedValue(refreshError);
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		renderAgentProfilesCard({ refreshAll }, undefined, {
+			presentation: "detail",
+		});
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit Agent" }));
+		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+			target: { value: "Field Research Agent" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		await waitFor(() => {
+			expect(screen.queryByTestId("agent-profile-inline-editor")).toBeNull();
+			expect(toastMock.warning).toHaveBeenCalledWith(
+				"The Agent was renamed, but OpenMeld could not refresh every view. Refresh the page to see the latest details."
+			);
+			expect(consoleError).toHaveBeenCalledWith(
+				"Agent was renamed, but current views could not be refreshed.",
+				refreshError
+			);
+		});
+	});
+
 	it("shows the current native Session title and links back to Agent Activity", async () => {
 		const baseBinding =
 			createPrimaryBindingResponse("codex:approveForMe").binding;

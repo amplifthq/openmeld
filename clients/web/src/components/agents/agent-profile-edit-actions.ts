@@ -252,10 +252,12 @@ export async function renameAgentProfile(input: {
 			queryKey: startQueryKeys.profilesForStorageScope(
 				input.context.storageScope
 			),
+			refetchType: "none",
 		}),
-		input.context.queryClient.invalidateQueries(
-			organizationDirectoryQueryFilters()
-		),
+		input.context.queryClient.invalidateQueries({
+			...organizationDirectoryQueryFilters(),
+			refetchType: "none",
+		}),
 	]);
 	return updatedProfile;
 }

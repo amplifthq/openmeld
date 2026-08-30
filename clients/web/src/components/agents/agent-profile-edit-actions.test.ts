@@ -79,11 +79,13 @@ describe("Agent Profile edit list caches", () => {
 
 		expect(invalidateQueries).toHaveBeenCalledWith({
 			queryKey: startQueryKeys.profilesForStorageScope("account-1"),
+			refetchType: "none",
 		});
 		expect(invalidateQueries).toHaveBeenCalledWith(
 			expect.objectContaining({
 				predicate: expect.any(Function),
 				queryKey: organizationQueryKeys.all,
+				refetchType: "none",
 			})
 		);
 		expect(invalidateQueries).not.toHaveBeenCalledWith({
