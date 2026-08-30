@@ -16,7 +16,7 @@ export type AgentProfileWorkUsageRecoveryBindingStore = {
 export type NotifyAgentProfileWorkUsageAvailable = (input: {
   ownerUserId: string;
   targetProfileIds: readonly string[];
-}) => Promise<void>;
+}) => Promise<{ continuationProfileIds: readonly string[] }>;
 
 export type ResumeUsageExhaustedAgentProfileWork = (input: {
   ownerUserId: string;
@@ -57,6 +57,12 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
     ownerUserId: input.ownerUserId,
     targetProfileIds: bindings.map((binding) => binding.agentProfileId),
   };
-  await input.notifyUsageAvailable(recoveryTargets);
-  await input.resumeInterruptedWork(recoveryTargets);
+  const marked = await input.notifyUsageAvailable(recoveryTargets);
+  if (marked.continuationProfileIds.length === 0) {
+    return;
+  }
+  await input.resumeInterruptedWork({
+    ownerUserId: input.ownerUserId,
+    targetProfileIds: marked.continuationProfileIds,
+  });
 }

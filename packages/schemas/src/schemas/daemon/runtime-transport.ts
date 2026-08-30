@@ -217,10 +217,15 @@ export const runtimeTransportAgentProfileWorkUsageAvailableResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({
       changedProfileIds: z.array(agentProfileIdSchema).max(100),
+      continuationProfileIds: z
+        .array(agentProfileIdSchema)
+        .max(100)
+        .default([]),
       status: z.literal("updated"),
     }),
     z.strictObject({
       changedProfileIds: z.tuple([]),
+      continuationProfileIds: z.tuple([]).default([]),
       status: z.literal("unavailable"),
     }),
   ]);

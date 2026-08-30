@@ -1367,7 +1367,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         input
       );
     if (!parsed.success) {
-      return { changedProfileIds: [], status: "unavailable" };
+      return {
+        changedProfileIds: [],
+        continuationProfileIds: [],
+        status: "unavailable",
+      };
     }
     const nowMs = Date.now();
     const response = await markRuntimeCoordinatorAgentProfileWorkUsageAvailable(
@@ -1389,6 +1393,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse({
       changedProfileIds: response.changedProfileIds,
+      continuationProfileIds: response.continuationProfileIds,
       status: response.status,
     });
   }

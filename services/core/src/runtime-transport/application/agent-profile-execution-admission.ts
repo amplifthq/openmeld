@@ -1002,10 +1002,12 @@ export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input
 }): Promise<
   | {
       changedProfileIds: string[];
+      continuationProfileIds: string[];
       status: "updated";
     }
   | {
       changedProfileIds: [];
+      continuationProfileIds: [];
       status: "unavailable";
     }
 > {
@@ -1018,6 +1020,7 @@ export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input
   if (readyIndex.status !== "ready") {
     return {
       changedProfileIds: [],
+      continuationProfileIds: [],
       status: "unavailable",
     };
   }
@@ -1032,10 +1035,12 @@ export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input
     ) {
       return {
         changedProfileIds: [] as [],
+        continuationProfileIds: [] as [],
         status: "unavailable" as const,
       };
     }
     const changedProfileIds: string[] = [];
+    const continuationProfileIds: string[] = [];
     for (const targetProfileId of targetProfileIds) {
       const storageKey = buildExecutionAdmissionStorageKey(targetProfileId);
       const rawAdmission = await transaction.get<unknown>(storageKey);
@@ -1059,9 +1064,16 @@ export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input
         } satisfies AgentProfileExecutionAdmissionRecord);
         changedProfileIds.push(targetProfileId);
       }
+      if (
+        result.coordinator.recoveryGate?.status === "continuation_pending" ||
+        result.coordinator.recoveryGate?.status === "continuation_authorized"
+      ) {
+        continuationProfileIds.push(targetProfileId);
+      }
     }
     return {
       changedProfileIds,
+      continuationProfileIds,
       status: "updated" as const,
     };
   });

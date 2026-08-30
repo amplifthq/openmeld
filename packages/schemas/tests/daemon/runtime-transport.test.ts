@@ -1064,9 +1064,24 @@ describe("runtime transport schema", () => {
     expect(
       runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse({
         changedProfileIds: [firstProfileId],
+        continuationProfileIds: [firstProfileId, secondProfileId],
         status: "updated",
       })
-    ).toEqual({ changedProfileIds: [firstProfileId], status: "updated" });
+    ).toEqual({
+      changedProfileIds: [firstProfileId],
+      continuationProfileIds: [firstProfileId, secondProfileId],
+      status: "updated",
+    });
+    expect(
+      runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse({
+        changedProfileIds: [],
+        status: "updated",
+      })
+    ).toEqual({
+      changedProfileIds: [],
+      continuationProfileIds: [],
+      status: "updated",
+    });
     expect(
       runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.parse({
         continuationClientMessageId: "client-continuation-1",

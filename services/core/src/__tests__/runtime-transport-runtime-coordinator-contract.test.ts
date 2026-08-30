@@ -4105,6 +4105,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     ).resolves.toEqual({
       changedProfileIds: [TARGET_AGENT_PROFILE_ID],
+      continuationProfileIds: [TARGET_AGENT_PROFILE_ID],
       status: "updated",
     });
     await expect(
@@ -4114,6 +4115,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     ).resolves.toEqual({
       changedProfileIds: [],
+      continuationProfileIds: [TARGET_AGENT_PROFILE_ID],
       status: "updated",
     });
     const admissionKey =
@@ -4172,7 +4174,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         ownerUserId: "owner-1",
         targetProfileIds: [TARGET_AGENT_PROFILE_ID],
       })
-    ).resolves.toEqual({ changedProfileIds: [], status: "updated" });
+    ).resolves.toEqual({
+      changedProfileIds: [],
+      continuationProfileIds: [TARGET_AGENT_PROFILE_ID],
+      status: "updated",
+    });
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([]);
     await expect(
       recoveryHub.rpcAuthorizeAgentProfileWorkContinuation({
@@ -4191,6 +4197,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
       authorizedContinuationClientMessageId:
         "client-message-usage-continuation",
       status: "available",
+    });
+    await expect(
+      recoveryHub.rpcMarkAgentProfileWorkUsageAvailable({
+        ownerUserId: "owner-1",
+        targetProfileIds: [TARGET_AGENT_PROFILE_ID],
+      })
+    ).resolves.toEqual({
+      changedProfileIds: [],
+      continuationProfileIds: [TARGET_AGENT_PROFILE_ID],
+      status: "updated",
     });
 
     const continuationIdentity = projectTargetWakeLifecycleIdentity({
@@ -5369,6 +5385,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     ).resolves.toEqual({
       changedProfileIds: [TARGET_AGENT_PROFILE_ID],
+      continuationProfileIds: [TARGET_AGENT_PROFILE_ID],
       status: "updated",
     });
     await expect(

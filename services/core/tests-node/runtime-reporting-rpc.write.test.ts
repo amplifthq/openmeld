@@ -142,12 +142,13 @@ describe("runtime reporting Core RPC write", () => {
     }
   });
 
-  it("retries the owner recovery gate projection for an identical fresh Usage report", async () => {
+  it("does not read recovery for 50 Profiles without a recovery gate", async () => {
     const harness = createSqliteD1Harness();
     applyRuntimeReportingMigrations(harness);
     try {
       const markUsageAvailable = vi.fn().mockResolvedValue({
         changedProfileIds: [],
+        continuationProfileIds: [],
         status: "updated",
       });
       const readRecovery = vi.fn().mockResolvedValue({
@@ -157,11 +158,16 @@ describe("runtime reporting Core RPC write", () => {
         rpcMarkAgentProfileWorkUsageAvailable: markUsageAvailable,
         rpcReadAgentProfileWorkRecovery: readRecovery,
       };
+      const spaceGet = vi.fn();
       const env = {
         ...coreEnv(harness.db),
         OPENMELD_RUNTIME_TRANSPORT: {
           get: vi.fn(() => ownerShard),
           idFromName: vi.fn((name: string) => name),
+        },
+        OPENMELD_SPACES: {
+          get: spaceGet,
+          idFromString: vi.fn((value: string) => value),
         },
       } as unknown as CoreBindings;
       const registration = await rpcSubmitRuntimeRegistration(env, {
@@ -175,15 +181,20 @@ describe("runtime reporting Core RPC write", () => {
         );
       }
       const observedAtMs = Date.now();
-      insertPrimaryAgentProfileBinding(harness, {
-        agentControllerConversationId: "conversation-usage-recovery",
-        agentControllerRef: "builtin:codex",
-        agentProfileId: "agt_usage_recovery",
-        bindingId: "binding-usage-recovery",
-        nowMs: observedAtMs,
-        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId.value,
-        ownerId: "owner-1",
-      });
+      const profileIds = Array.from({ length: 50 }, (_, index) =>
+        buildTestAgentProfileId(index + 1)
+      );
+      for (const [index, agentProfileId] of profileIds.entries()) {
+        insertPrimaryAgentProfileBinding(harness, {
+          agentControllerConversationId: `conversation-usage-recovery-${index}`,
+          agentControllerRef: "builtin:codex",
+          agentProfileId,
+          bindingId: `binding-usage-recovery-${index}`,
+          nowMs: observedAtMs,
+          openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId.value,
+          ownerId: "owner-1",
+        });
+      }
       const report = {
         agentControllerInterface: createAvailableUsageInterface(),
         agentControllerRef: "builtin:codex",
@@ -213,17 +224,14 @@ describe("runtime reporting Core RPC write", () => {
       expect(markUsageAvailable).toHaveBeenCalledTimes(2);
       expect(markUsageAvailable).toHaveBeenNthCalledWith(1, {
         ownerUserId: "owner-1",
-        targetProfileIds: ["agt_usage_recovery"],
+        targetProfileIds: profileIds,
       });
       expect(markUsageAvailable).toHaveBeenNthCalledWith(2, {
         ownerUserId: "owner-1",
-        targetProfileIds: ["agt_usage_recovery"],
+        targetProfileIds: profileIds,
       });
-      expect(readRecovery).toHaveBeenCalledTimes(2);
-      expect(readRecovery).toHaveBeenNthCalledWith(1, {
-        ownerUserId: "owner-1",
-        targetProfileId: "agt_usage_recovery",
-      });
+      expect(readRecovery).not.toHaveBeenCalled();
+      expect(spaceGet).not.toHaveBeenCalled();
     } finally {
       harness.close();
     }
@@ -628,6 +636,10 @@ function coreEnv(db: D1Database): CoreBindings {
     OPENMELD_DB: db,
     OPENMELD_SPACES: {} as CoreBindings["OPENMELD_SPACES"],
   };
+}
+
+function buildTestAgentProfileId(index: number): string {
+  return `agt_00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
 }
 
 function applyRuntimeReportingMigrations(

@@ -17,7 +17,9 @@ describe("Agent Profile work Usage recovery", () => {
         { agentProfileId: "agt_profile_1" },
         { agentProfileId: "agt_profile_2" },
       ]);
-    const notifyUsageAvailable = vi.fn().mockResolvedValue(undefined);
+    const notifyUsageAvailable = vi.fn().mockResolvedValue({
+      continuationProfileIds: ["agt_profile_2"],
+    });
     const resumeInterruptedWork = vi.fn().mockResolvedValue(undefined);
     const report = createReport("available");
 
@@ -41,7 +43,7 @@ describe("Agent Profile work Usage recovery", () => {
     });
     expect(resumeInterruptedWork).toHaveBeenCalledWith({
       ownerUserId: "owner-1",
-      targetProfileIds: ["agt_profile_1", "agt_profile_2"],
+      targetProfileIds: ["agt_profile_2"],
     });
     expect(notifyUsageAvailable.mock.invocationCallOrder[0]).toBeLessThan(
       resumeInterruptedWork.mock.invocationCallOrder[0] ?? 0

@@ -4454,15 +4454,14 @@ export async function rpcSubmitRuntimeAgentControllerReports(
             ),
         },
         currentReport: result.currentReport,
-        notifyUsageAvailable: async (recoveryInput) => {
+        notifyUsageAvailable: async (recoveryInput) =>
           await resolveRuntimeTransportOwnerShard(
             env,
             recoveryInput.ownerUserId
           ).rpcMarkAgentProfileWorkUsageAvailable({
             ownerUserId: recoveryInput.ownerUserId,
             targetProfileIds: [...recoveryInput.targetProfileIds],
-          });
-        },
+          }),
         nowMs: acceptedAtMs,
         ownerUserId: request.userId,
         resumeInterruptedWork: async (recoveryInput) => {

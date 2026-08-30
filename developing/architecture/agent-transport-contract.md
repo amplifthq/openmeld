@@ -156,6 +156,10 @@ successful terminal result opens the separate owner approval gate for queued
 work and creates the urgent Inbox/email action. Later Wakes, including new
 intent accepted after Usage recovers, remain in FIFO behind that gate. Repeated
 reports and retries must converge on the same continuation operation.
+The Usage report path batches candidate Profiles into one owner-shard
+transaction. That transaction returns only Profiles whose continuation handoff
+is pending or authorized; Core must not probe every Profile Binding with a
+separate recovery RPC when no recovery gate exists.
 
 Provider-native instruction delivery is an adapter optimization inside the
 local execution carrier. It must not change outbox admission,
