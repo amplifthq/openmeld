@@ -845,6 +845,10 @@ that decision.
   candidate. OpenMeld Service uses the committed Computer session when it starts
   at login. The handoff must not be used to add an
   agent-selection step to Web.
+  A candidate Service may run from its prepared stable carrier before the OS
+  service definition is committed. Setup repair and rollback must still drain
+  and stop that process; an absent definition means there is no autostart state
+  to toggle yet, not that the candidate cannot be reconciled.
   Keeping the legacy Web selector retired is a setup-flow
   consolidation owned by this document; it has no ordering dependency on the
   onboarding planner (`developing/product/onboarding.md`), which treats
